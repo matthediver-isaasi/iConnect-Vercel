@@ -11,7 +11,7 @@ import FormRenderer from "../components/forms/FormRenderer";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useLayoutContext } from "@/contexts/LayoutContext";
-import { isFieldValueFilled, parseCustomFieldValue, resolveEffectivePrefillIds, resolveMemberSourceOrgId, shouldFetchViewerBookingPrefill, shouldWaitForPrefillCustomValues, shouldWaitForPrefillOrgEntity } from "@/lib/formFieldPrefill";
+import { isFieldValueFilled, parseCustomFieldValue, resolveEffectivePrefillIds, resolveMemberSourceOrgId, shouldFetchViewerBookingPrefill, shouldBlockForMissingViewerBooking, isViewerBookingResolutionPending, shouldWaitForPrefillCustomValues, shouldWaitForPrefillOrgEntity } from "@/lib/formFieldPrefill";
 import { getFormPagination } from "@/lib/formPagination";
 import { useSubmissionIdempotencyKey } from "@/lib/useSubmissionIdempotencyKey";
 
@@ -399,7 +399,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
   // disabled when the param is present); anonymous viewers and non-event-linked
   // forms get an empty payload and degrade to blank fields as before. Gated on
   // authResolved so it never races the session check.
-  const { data: viewerBookingData, isLoading: viewerBookingLoading } = useQuery({
+  const { data: viewerBookingData, isLoading: viewerBookingLoading, error: viewerBookingError } = useQuery({
     queryKey: ['prefill-booking-viewer', formSlug, memberInfo?.id],
     queryFn: async () => {
       return publicClient.getPrefillBookingForViewer(formSlug);
@@ -2065,6 +2065,54 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
           <CardContent className="p-6 text-center space-y-2">
             <Loader2 className="w-6 h-6 animate-spin text-blue-600 mx-auto" />
             <p className="text-slate-600">Redirecting to login…</p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  // Task #3400: booking-prefill form with no explicit booking_id — hold
+  // rendering while auth / viewer-booking resolution is still settling so
+  // neither the form nor the no-booking message flashes.
+  if (isViewerBookingResolutionPending({
+    prefillSource: form.prefill_source,
+    urlBookingId: prefillBookingId,
+    authResolved,
+    viewerMemberId: memberInfo?.id,
+    formSlug,
+    viewerBookingLoading,
+  })) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
+        <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+      </div>
+    );
+  }
+
+  // Task #3400: authenticated member on an event-linked booking-prefill form,
+  // but no booking of theirs could be resolved for the event — block the form
+  // with a helpful message instead of rendering blank fields. Explicit
+  // booking_id URLs, anonymous viewers, non-event-linked forms and transient
+  // errors never reach this state.
+  if (shouldBlockForMissingViewerBooking({
+    prefillSource: form.prefill_source,
+    urlBookingId: prefillBookingId,
+    authResolved,
+    viewerMemberId: memberInfo?.id,
+    formSlug,
+    viewerBookingData,
+    viewerBookingError,
+  })) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex justify-center pt-8 md:pt-16">
+        <Card className="max-w-md h-fit">
+          <CardHeader className="text-center">
+            <CardTitle className="text-xl text-slate-800">No Booking Found</CardTitle>
+          </CardHeader>
+          <CardContent className="p-6 pt-0 text-center">
+            <p className="text-slate-600">
+              We couldn't find a booking for you for this event. If you think this is a mistake, please contact support.
+            </p>
           </CardContent>
         </Card>
       </div>

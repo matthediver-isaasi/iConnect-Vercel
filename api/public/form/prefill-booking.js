@@ -248,8 +248,20 @@ export default async function handler(req, res) {
         .order('id', { ascending: true })
         .limit(1);
 
-      if (bookingsError || !bookings || bookings.length === 0) {
-        return res.json(EMPTY_PAYLOAD);
+      if (bookingsError) {
+        // Transient DB error — not a definitive "no booking" answer. 500 so
+        // the client treats it as an error rather than blocking the form.
+        console.error('[Public Prefill Booking] Viewer booking lookup error:', bookingsError);
+        return res.status(500).json({ error: 'Failed to fetch booking data' });
+      }
+
+      if (!bookings || bookings.length === 0) {
+        // Task #3400: authenticated member, event-linked form, but no booking
+        // of theirs for the event. Mark this outcome explicitly so the client
+        // can block the form with a helpful message instead of rendering
+        // blank fields. Other empty outcomes (anonymous, non-event form,
+        // wrong tenant) stay as plain EMPTY_PAYLOAD.
+        return res.json({ ...EMPTY_PAYLOAD, noBooking: true });
       }
 
       booking = bookings[0];

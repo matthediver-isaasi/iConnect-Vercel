@@ -4,7 +4,7 @@
 // permanently skip custom-field prefills on EmbedForm.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { shouldWaitForPrefillCustomValues, resolveEffectivePrefillIds, buildPrefillValues, resolveMemberSourceOrgId, shouldWaitForPrefillOrgEntity, shouldFetchViewerBookingPrefill } from './formFieldPrefill.js';
+import { shouldWaitForPrefillCustomValues, resolveEffectivePrefillIds, buildPrefillValues, resolveMemberSourceOrgId, shouldWaitForPrefillOrgEntity, shouldFetchViewerBookingPrefill, shouldBlockForMissingViewerBooking, isViewerBookingResolutionPending } from './formFieldPrefill.js';
 
 // --- buildPrefillValues: pure field mapping; empty result is legitimate ---
 
@@ -268,6 +268,56 @@ test('shouldFetchViewerBookingPrefill fires only for booking forms, no explicit 
   assert.equal(shouldFetchViewerBookingPrefill({ ...base, authResolved: false }), false);
   // No slug (e.g. assignment-token surveys) — nothing to resolve against.
   assert.equal(shouldFetchViewerBookingPrefill({ ...base, formSlug: null }), false);
+});
+
+// Task #3400: block the form when the authenticated viewer has no booking
+// for the linked event.
+test('shouldBlockForMissingViewerBooking blocks only on an explicit settled noBooking result', () => {
+  const base = {
+    prefillSource: 'booking',
+    urlBookingId: null,
+    authResolved: true,
+    viewerMemberId: 'm1',
+    formSlug: 'my-form',
+    viewerBookingData: { noBooking: true },
+    viewerBookingError: null,
+  };
+  assert.equal(shouldBlockForMissingViewerBooking(base), true);
+  // Booking found — never block.
+  assert.equal(shouldBlockForMissingViewerBooking({ ...base, viewerBookingData: { booking: { id: 'b1' } } }), false);
+  // Plain-empty payload (non-event-linked form, anonymous session server-side) — degrade, don't block.
+  assert.equal(shouldBlockForMissingViewerBooking({ ...base, viewerBookingData: { booking: null } }), false);
+  // Still loading / no data yet — don't block.
+  assert.equal(shouldBlockForMissingViewerBooking({ ...base, viewerBookingData: undefined }), false);
+  // Transient error — degrade to the previous behaviour, don't block.
+  assert.equal(shouldBlockForMissingViewerBooking({ ...base, viewerBookingError: new Error('boom') }), false);
+  // Not applicable cases: explicit param, anonymous, non-booking form.
+  assert.equal(shouldBlockForMissingViewerBooking({ ...base, urlBookingId: 'b1' }), false);
+  assert.equal(shouldBlockForMissingViewerBooking({ ...base, viewerMemberId: null }), false);
+  assert.equal(shouldBlockForMissingViewerBooking({ ...base, prefillSource: 'member' }), false);
+  assert.equal(shouldBlockForMissingViewerBooking({ ...base, authResolved: false }), false);
+});
+
+test('isViewerBookingResolutionPending holds rendering while auth or the viewer-booking fetch settles', () => {
+  const base = {
+    prefillSource: 'booking',
+    urlBookingId: null,
+    authResolved: true,
+    viewerMemberId: 'm1',
+    formSlug: 'my-form',
+    viewerBookingLoading: false,
+  };
+  // Settled — not pending.
+  assert.equal(isViewerBookingResolutionPending(base), false);
+  // Fetch in flight — pending.
+  assert.equal(isViewerBookingResolutionPending({ ...base, viewerBookingLoading: true }), true);
+  // Auth not yet resolved on a booking form with no param — pending (no flash).
+  assert.equal(isViewerBookingResolutionPending({ ...base, authResolved: false }), true);
+  // Anonymous viewer after auth resolved — never pending (renders as before).
+  assert.equal(isViewerBookingResolutionPending({ ...base, viewerMemberId: null, viewerBookingLoading: true }), false);
+  // Explicit booking_id or non-booking forms — never pending.
+  assert.equal(isViewerBookingResolutionPending({ ...base, urlBookingId: 'b1', authResolved: false }), false);
+  assert.equal(isViewerBookingResolutionPending({ ...base, prefillSource: 'member', authResolved: false }), false);
 });
 
 test('org dropdown on member-source forms falls back to prefillOrgId when member row lacks organization_id', () => {

@@ -232,6 +232,50 @@ export const shouldFetchViewerBookingPrefill = ({
   return !!formSlug;
 };
 
+// Task #3400: gate for BLOCKING an event-linked booking-prefill form when the
+// authenticated viewer has no booking for the event. Fires only when the
+// viewer-booking fetch was applicable (same gate as
+// shouldFetchViewerBookingPrefill), the resolution has settled without error,
+// and the server explicitly said "no booking" (noBooking flag). Transient
+// errors and plain-empty payloads (non-event-linked forms) never block.
+export const shouldBlockForMissingViewerBooking = ({
+  prefillSource,
+  urlBookingId,
+  authResolved,
+  viewerMemberId,
+  formSlug,
+  viewerBookingData,
+  viewerBookingError,
+}) => {
+  if (!shouldFetchViewerBookingPrefill({ prefillSource, urlBookingId, authResolved, viewerMemberId, formSlug })) {
+    return false;
+  }
+  if (viewerBookingError) return false;
+  return viewerBookingData?.noBooking === true;
+};
+
+// Task #3400: while the viewer-booking resolution is applicable but not yet
+// settled, the form must render neither its fields nor the blocking message
+// (no flash of either state). True while auth is still resolving for a
+// booking-prefill form with no explicit booking_id, or while the fetch is
+// in flight.
+export const isViewerBookingResolutionPending = ({
+  prefillSource,
+  urlBookingId,
+  authResolved,
+  viewerMemberId,
+  formSlug,
+  viewerBookingLoading,
+}) => {
+  if (prefillSource !== 'booking') return false;
+  if (urlBookingId) return false;
+  if (!authResolved) return true;
+  if (!shouldFetchViewerBookingPrefill({ prefillSource, urlBookingId, authResolved, viewerMemberId, formSlug })) {
+    return false;
+  }
+  return !!viewerBookingLoading;
+};
+
 export const parseCustomFieldValue = (cfv, fieldType) => {
   if (!cfv || cfv.value === undefined || cfv.value === null) return null;
   let parsedValue = cfv.value;
