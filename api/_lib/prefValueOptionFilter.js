@@ -221,9 +221,23 @@ export function parseCoreFilters(raw, allowedColumns) {
       out.push({ col, op, idColumn: !!colDef.idColumn });
       continue;
     }
+    if (colDef.idColumn) {
+      // Id columns accept a single id string, a comma-separated list, or an
+      // array of ids (multi-select filters send several values at once).
+      const rawVals = Array.isArray(entry.value)
+        ? entry.value
+        : typeof entry.value === 'string' ? entry.value.split(',') : [];
+      const values = rawVals
+        .map(v => (typeof v === 'string' ? v.trim() : ''))
+        .filter(Boolean)
+        .slice(0, 100);
+      if (values.length === 0) continue;
+      out.push({ col, op, value: values[0], values, idColumn: true });
+      continue;
+    }
     const value = typeof entry.value === 'string' ? entry.value.trim() : '';
     if (!value) continue;
-    out.push({ col, op, value, idColumn: !!colDef.idColumn });
+    out.push({ col, op, value, idColumn: false });
   }
   return out;
 }
@@ -232,11 +246,14 @@ export function parseCoreFilters(raw, allowedColumns) {
 export function applyDirectColumnFilter(query, entry) {
   const { col, op, value, idColumn } = entry;
   if (idColumn) {
+    const values = Array.isArray(entry.values) && entry.values.length > 0 ? entry.values : [value];
     switch (op) {
       case 'any_of':
-        return query.eq(col, value);
+        return values.length > 1 ? query.in(col, values) : query.eq(col, values[0]);
       case 'none_of':
-        return query.or(`${col}.is.null,${col}.neq.${quoteForOr(value)}`);
+        return values.length > 1
+          ? query.or(`${col}.is.null,${col}.not.in.(${values.map(quoteForOr).join(',')})`)
+          : query.or(`${col}.is.null,${col}.neq.${quoteForOr(values[0])}`);
       case 'empty':
         return query.is(col, null);
       case 'not_empty':

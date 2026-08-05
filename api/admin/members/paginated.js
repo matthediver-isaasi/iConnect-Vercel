@@ -1,20 +1,11 @@
 import { supabase } from '../../_lib/database.js';
 import { getTenantContext } from '../../_lib/tenantContext.js';
 import {
-  normalizeCustomFilterEntry,
-  applyPrefFilterEntry,
-  prefEntryNeedsAntiJoin,
-  parseCoreFilters,
-  applyDirectColumnFilter,
-} from '../../_lib/prefValueOptionFilter.js';
-
-// Direct member columns filterable through the coreFilters param.
-const CORE_FILTER_COLUMNS = {
-  job_title: {},
-  mobile: {},
-  organization_id: { idColumn: true },
-  role_id: { idColumn: true },
-};
+  parseMemberListFilters,
+  memberFilterSelectJoins,
+  applyMemberListFilters,
+  stripFilterJoinAliases,
+} from '../../_lib/memberListFilters.js';
 
 export default async function handler(req, res) {
   // POST is accepted only so a widget click-through can send a large ids
@@ -67,31 +58,10 @@ export default async function handler(req, res) {
     const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 50));
     const offset = (pageNum - 1) * limitNum;
 
-    // Parse custom field filters (applied at DB level so paging + count span the whole tenant).
-    // Shape: { "<fieldId>": ["A","B"] } for option filters (OR within the field),
-    // "<fieldId>": "__text__:<substring>" / "__bool__:Yes|No" for the prefixed
-    // encodings, a legacy plain string from an old saved view, or an operator
-    // object like { "op": "none_of", "value": [...] } / { "op": "empty" }.
-    let parsedCustomFilters = {};
-    if (customFilters && customFilters.trim()) {
-      try {
-        const obj = JSON.parse(customFilters);
-        if (obj && typeof obj === 'object') {
-          for (const [fieldId, raw] of Object.entries(obj)) {
-            const entry = normalizeCustomFilterEntry(raw);
-            if (entry !== null) parsedCustomFilters[fieldId] = entry;
-          }
-        }
-      } catch {
-        // Ignore malformed filter param and fall back to no custom filtering
-      }
-    }
-    // Cap the number of custom filters to avoid pathological query expansion from crafted URLs.
-    const MAX_CUSTOM_FILTERS = 20;
-    const customFilterEntries = Object.entries(parsedCustomFilters).slice(0, MAX_CUSTOM_FILTERS);
-
-    // Direct-column filters with operators ({ "job_title": { op, value }, ... }).
-    const coreFilterEntries = parseCoreFilters(coreFilters, CORE_FILTER_COLUMNS);
+    // Shared filter contract (search, org/role id lists, status, custom field
+    // filters, direct-column coreFilters) — kept in lockstep with the CSV
+    // export via api/_lib/memberListFilters.js.
+    const filterCtx = parseMemberListFilters({ search, organizationId, roleId, status, customFilters, coreFilters });
 
     // Build the core select. For each active custom filter we add an aliased
     // join on member_preference_value. Positive operators use an inner join so
@@ -116,10 +86,7 @@ export default async function handler(req, res) {
       guest_expires_at,
       organization (id, name, tenant_id)`;
 
-    customFilterEntries.forEach(([, entry], idx) => {
-      const joinType = prefEntryNeedsAntiJoin(entry) ? '!left' : '!inner';
-      selectClause += `,\n      cf${idx}:member_preference_value${joinType}(field_id, value)`;
-    });
+    selectClause += memberFilterSelectJoins(filterCtx);
 
     let query = supabase
       .from('member')
@@ -133,40 +100,7 @@ export default async function handler(req, res) {
 
     query = query.not('email', 'like', 'deleted_%@deleted.local');
 
-    customFilterEntries.forEach(([fieldId, entry], idx) => {
-      const alias = `cf${idx}`;
-      query = applyPrefFilterEntry(query, alias, fieldId, entry);
-      if (prefEntryNeedsAntiJoin(entry)) {
-        // Anti-join: keep only members with NO matching preference-value row.
-        query = query.is(alias, null);
-      }
-    });
-
-    for (const coreEntry of coreFilterEntries) {
-      query = applyDirectColumnFilter(query, coreEntry);
-    }
-
-    if (search && search.trim()) {
-      const tokens = search.trim().split(/\s+/).filter(Boolean);
-      for (const token of tokens) {
-        const pattern = `%${token.toLowerCase()}%`;
-        query = query.or(`first_name.ilike.${pattern},last_name.ilike.${pattern},email.ilike.${pattern},mobile.ilike.${pattern},job_title.ilike.${pattern}`);
-      }
-    }
-
-    if (organizationId && organizationId !== 'all') {
-      query = query.eq('organization_id', organizationId);
-    }
-
-    if (roleId && roleId !== 'all') {
-      query = query.eq('role_id', roleId);
-    }
-
-    if (status === 'active') {
-      query = query.eq('login_enabled', true);
-    } else if (status === 'disabled') {
-      query = query.eq('login_enabled', false);
-    }
+    query = applyMemberListFilters(query, filterCtx);
 
     const validSortFields = ['first_name', 'last_name', 'email', 'created_on', 'job_title', 'mobile', 'login_enabled', 'organization_name'];
     const actualSortField = validSortFields.includes(sortField) ? sortField : 'created_on';
@@ -222,7 +156,7 @@ export default async function handler(req, res) {
     const filteredMembers = memberRows.map(m => {
       const { ...rest } = m;
       // Strip the join-only aliases from the response
-      customFilterEntries.forEach((_, idx) => { delete rest[`cf${idx}`]; });
+      stripFilterJoinAliases(rest, filterCtx);
       return {
         ...rest,
         disabled: m.login_enabled === false,

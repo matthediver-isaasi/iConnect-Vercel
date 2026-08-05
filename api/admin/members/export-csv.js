@@ -1,6 +1,12 @@
 import { supabase } from '../../_lib/database.js';
 import { getTenantContext } from '../../_lib/tenantContext.js';
 import { escapeCsvCell as escapeCSV, CSV_BOM, CSV_ROW_SEPARATOR } from '../../_lib/csvCell.js';
+import {
+  parseMemberListFilters,
+  memberFilterSelectJoins,
+  applyMemberListFilters,
+  stripFilterJoinAliases,
+} from '../../_lib/memberListFilters.js';
 
 function formatDate(dateStr) {
   if (!dateStr) return '';
@@ -79,7 +85,9 @@ export default async function handler(req, res) {
       search = '',
       organizationId = '',
       roleId = '',
-      status = 'all'
+      status = 'all',
+      customFilters = '',
+      coreFilters = ''
     } = req.query;
 
     let idList = null;
@@ -90,38 +98,34 @@ export default async function handler(req, res) {
       }
     }
 
+    // Same filter contract as /api/admin/members/paginated (shared module), so
+    // "export all filtered" always exports exactly the population the list
+    // shows — including multi-role selections, operator-driven coreFilters
+    // (e.g. role none_of) and custom field filters.
+    const filterCtx = parseMemberListFilters({ search, organizationId, roleId, status, customFilters, coreFilters });
+
     const buildMemberQuery = (from, pageSize) => {
-      let q = supabase
-        .from('member')
-        .select(`
+      let selectClause = `
           id, first_name, last_name, email, handle, job_title, biography,
           mobile, landline, login_enabled, show_in_directory, status,
           last_activity, role_effective_from, created_on,
           organization_id, role_id,
           organization (id, name),
-          role (id, name)
-        `)
+          role (id, name)`;
+      if (!idList) {
+        selectClause += memberFilterSelectJoins(filterCtx);
+      }
+
+      let q = supabase
+        .from('member')
+        .select(selectClause)
         .eq('tenant_id', tenantId)
         .not('email', 'like', 'deleted_%@deleted.local');
 
       if (idList) {
         q = q.in('id', idList);
       } else {
-        if (search && search.trim()) {
-          const searchTerm = `%${search.trim().toLowerCase()}%`;
-          q = q.or(`first_name.ilike.${searchTerm},last_name.ilike.${searchTerm},email.ilike.${searchTerm},mobile.ilike.${searchTerm},job_title.ilike.${searchTerm}`);
-        }
-        if (organizationId && organizationId !== 'all') {
-          q = q.eq('organization_id', organizationId);
-        }
-        if (roleId && roleId !== 'all') {
-          q = q.eq('role_id', roleId);
-        }
-        if (status === 'active') {
-          q = q.eq('login_enabled', true);
-        } else if (status === 'disabled') {
-          q = q.eq('login_enabled', false);
-        }
+        q = applyMemberListFilters(q, filterCtx);
       }
 
       return q.order('last_name', { ascending: true }).range(from, from + pageSize - 1);

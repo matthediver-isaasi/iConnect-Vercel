@@ -156,7 +156,8 @@ export default function MembersListPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [orgFilter, setOrgFilter] = useState('all');
-  const [roleFilter, setRoleFilter] = useState('all');
+  // Multi-select: array of selected role ids; empty array = all roles.
+  const [roleFilter, setRoleFilter] = useState([]);
   const [coreFieldFilters, setCoreFieldFilters] = useState({
     job_title: ''
   });
@@ -345,9 +346,12 @@ export default function MembersListPage() {
     // the default "is" keeps using the legacy organizationId/roleId params.
     const addId = (filterId, column, selected) => {
       const op = filterOps[filterId] || 'any_of';
+      const hasValue = Array.isArray(selected)
+        ? selected.length > 0
+        : (selected && selected !== 'all');
       if (isEmptinessOp(op)) {
         obj[column] = { op };
-      } else if (op === 'none_of' && selected && selected !== 'all') {
+      } else if (op === 'none_of' && hasValue) {
         obj[column] = { op, value: selected };
       }
     };
@@ -359,7 +363,9 @@ export default function MembersListPage() {
   // Legacy params must be suppressed when the operator moved the org/role
   // filter into coreFilters (otherwise both would apply and conflict).
   const effectiveOrgParam = (filterOps['organisation'] || 'any_of') === 'any_of' ? orgFilter : 'all';
-  const effectiveRoleParam = (filterOps['role'] || 'any_of') === 'any_of' ? roleFilter : 'all';
+  const effectiveRoleParam = (filterOps['role'] || 'any_of') === 'any_of' && roleFilter.length > 0
+    ? roleFilter.join(',')
+    : 'all';
 
   // Dashboard widget click-through: restrict the list to the ids stored
   // by the clicked widget bucket (see components/dashboard/widgetDrill.jsx).
@@ -481,7 +487,14 @@ export default function MembersListPage() {
     setSearchQuery(search);
     setStatusFilter(typeof filters.statusFilter === 'string' ? filters.statusFilter : 'all');
     setOrgFilter(typeof filters.orgFilter === 'string' ? filters.orgFilter : 'all');
-    setRoleFilter(typeof filters.roleFilter === 'string' ? filters.roleFilter : 'all');
+    // Coerce a legacy single-value role filter (plain string) to an array.
+    setRoleFilter(
+      Array.isArray(filters.roleFilter)
+        ? filters.roleFilter.filter(v => typeof v === 'string' && v && v !== 'all')
+        : (typeof filters.roleFilter === 'string' && filters.roleFilter && filters.roleFilter !== 'all'
+            ? [filters.roleFilter]
+            : [])
+    );
     setCoreFieldFilters({
       job_title: '',
       ...(filters.coreFieldFilters && typeof filters.coreFieldFilters === 'object' ? filters.coreFieldFilters : {})
@@ -641,10 +654,15 @@ export default function MembersListPage() {
     try {
       const params = new URLSearchParams();
       if (selectAllFiltered) {
+        // Mirror the list query's filter params exactly so the export matches
+        // the filtered population, including operator-driven coreFilters
+        // (e.g. role "none_of") and custom field filters.
         if (debouncedSearch.trim()) params.set('search', debouncedSearch.trim());
-        if (orgFilter && orgFilter !== 'all') params.set('organizationId', orgFilter);
-        if (roleFilter && roleFilter !== 'all') params.set('roleId', roleFilter);
+        if (effectiveOrgParam !== 'all') params.set('organizationId', effectiveOrgParam);
+        if (effectiveRoleParam !== 'all') params.set('roleId', effectiveRoleParam);
         if (statusFilter && statusFilter !== 'all') params.set('status', statusFilter);
+        if (customFiltersParam && customFiltersParam !== '{}') params.set('customFilters', customFiltersParam);
+        if (coreFiltersParam) params.set('coreFilters', coreFiltersParam);
       } else {
         params.set('ids', selectedMembers.join(','));
       }
@@ -701,7 +719,7 @@ export default function MembersListPage() {
     setSearchQuery('');
     setStatusFilter('all');
     setOrgFilter('all');
-    setRoleFilter('all');
+    setRoleFilter([]);
     setCoreFieldFilters({ job_title: '' });
     setCustomFieldFilters({});
     setFilterOps({});
@@ -888,19 +906,42 @@ export default function MembersListPage() {
               />
             </div>
             {!isEmptinessOp(op) && (
-              <Select value={roleFilter} onValueChange={(v) => { setRoleFilter(v); setCurrentPage(1); }}>
-                <SelectTrigger className="h-8 text-xs" data-testid="select-member-role-filter">
-                  <SelectValue placeholder="All Roles" />
-                </SelectTrigger>
-                <SelectContent className="max-w-[260px]">
-                  <SelectItem value="all" className="text-xs">All Roles</SelectItem>
-                  {roles.map(role => (
-                    <SelectItem key={role.id} value={role.id} className="text-xs whitespace-normal break-words">
-                      {role.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <>
+                <MultiSelectFilter
+                  options={roles.map(role => ({ value: role.id, label: role.name }))}
+                  selected={roleFilter}
+                  onChange={(vals) => { setRoleFilter(vals); setCurrentPage(1); }}
+                  placeholder="All Roles"
+                  className="h-8 min-h-8 w-full text-xs"
+                  data-testid="select-member-role-filter"
+                />
+                {roleFilter.length > 1 && (
+                  <div className="flex flex-wrap gap-1">
+                    {roleFilter.map(rid => {
+                      const roleName = roles.find(r => r.id === rid)?.name || rid;
+                      return (
+                        <Badge
+                          key={rid}
+                          variant="secondary"
+                          className="text-[10px] font-normal max-w-full gap-1"
+                          data-testid={`badge-member-filter-role-${rid}`}
+                        >
+                          <span className="truncate">{roleName}</span>
+                          <button
+                            type="button"
+                            className="shrink-0 rounded-full"
+                            onClick={() => { setRoleFilter(roleFilter.filter(v => v !== rid)); setCurrentPage(1); }}
+                            aria-label={`Remove ${roleName}`}
+                            data-testid={`button-remove-member-filter-role-${rid}`}
+                          >
+                            <X className="h-2.5 w-2.5" />
+                          </button>
+                        </Badge>
+                      );
+                    })}
+                  </div>
+                )}
+              </>
             )}
           </div>
         );
@@ -1106,7 +1147,7 @@ export default function MembersListPage() {
   const hasActiveFilters = searchQuery || 
     statusFilter !== 'all' || 
     orgFilter !== 'all' ||
-    roleFilter !== 'all' ||
+    roleFilter.length > 0 ||
     Object.values(coreFieldFilters).some(v => v && v.trim() !== '') ||
     Object.values(customFieldFilters).some(isActiveCustomFilterValue) ||
     Object.values(filterOps).some(isEmptinessOp);

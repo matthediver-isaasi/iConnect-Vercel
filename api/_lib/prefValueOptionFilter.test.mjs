@@ -227,7 +227,19 @@ test('parseCoreFilters: id columns accept any_of/none_of but not text ops', () =
     job_title: { op: 'none_of', value: 'x' }, // id-op on text col -> dropped
   });
   const parsed = parseCoreFilters(raw, MIXED_COLS);
-  assert.deepEqual(parsed, [{ col: 'organization_id', op: 'none_of', value: 'org-1', idColumn: true }]);
+  assert.deepEqual(parsed, [{ col: 'organization_id', op: 'none_of', value: 'org-1', values: ['org-1'], idColumn: true }]);
+});
+
+test('parseCoreFilters: id columns accept multiple ids (array or comma list)', () => {
+  const raw = JSON.stringify({
+    organization_id: { op: 'none_of', value: ['org-1', ' org-2 ', ''] },
+    role_id: { op: 'any_of', value: 'r1, r2' },
+  });
+  const parsed = parseCoreFilters(raw, { ...MIXED_COLS, role_id: { idColumn: true } });
+  assert.deepEqual(parsed, [
+    { col: 'organization_id', op: 'none_of', value: 'org-1', values: ['org-1', 'org-2'], idColumn: true },
+    { col: 'role_id', op: 'any_of', value: 'r1', values: ['r1', 'r2'], idColumn: true },
+  ]);
 });
 
 test('parseCoreFilters: emptiness ops need no value; value ops need one', () => {
