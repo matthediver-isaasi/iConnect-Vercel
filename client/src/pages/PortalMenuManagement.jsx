@@ -174,6 +174,7 @@ const builtInPages = [
   { value: "RoleManagement", label: "Role Management" },
   { value: "SiteMap", label: "Site Map" },
   { value: "Support", label: "Support" },
+  { value: "SurveyReports", label: "Survey Reports" },
   { value: "SupportManagement", label: "Support Management" },
   { value: "TagManagement", label: "Tag Management" },
   { value: "Team", label: "Team" },

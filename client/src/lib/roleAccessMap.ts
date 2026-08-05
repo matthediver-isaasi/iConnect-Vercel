@@ -1095,6 +1095,7 @@ export const LEGACY_TO_NEW_MAPPING: Record<string, string> = {
   "page_EventRegistrationReport": "events.event-report",
   "page_admin_EventRegistrationReport": "events.event-report",
   "page_SurveyReports": "forms.survey-reports",
+  "page_user_SurveyReports": "forms.survey-reports",
   "page_admin_SurveyReports": "forms.survey-reports",
   "page_admin_OrganisationPreferences": "organisation.field-permissions",
   "page_admin_MemberPreferences": "membership.member-field-permissions",
