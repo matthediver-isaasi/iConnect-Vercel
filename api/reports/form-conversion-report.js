@@ -7,9 +7,12 @@
 // endpoint also returns the entity rows themselves with submission dates and
 // a conversion status, filtered by a `comparison` param.
 //
-// Date-range semantics mirror the widget exactly: dateFrom/dateTo scope the
-// TARGET form's submissions only — a conversion counts when the target
-// submission falls inside the range, regardless of when the source happened.
+// Date-range semantics (Task #3430, intentionally DIFFERENT from the widget):
+// dateFrom/dateTo scope BOTH sides — the source funnel population only
+// includes entities whose source submission falls inside the range, and a
+// conversion counts when a target submission also falls inside the range.
+// The dashboard widget (api/dashboard/_lib/aggregation.js) still filters
+// target submissions only; its behaviour is unchanged.
 //
 // RBAC: gated by the `forms.conversion-report` feature key. Admins bypass;
 // members whose effective exclusions include the key get 403.
@@ -160,7 +163,7 @@ export default async function handler(req, res) {
     }
 
     const [sourceRows, ...targetRowsPerForm] = await Promise.all([
-      fetchFormSubmissions(sourceFormId, tenantId),
+      fetchFormSubmissions(sourceFormId, tenantId, { dateFrom, dateTo }),
       ...targetFormIds.map((id) => fetchFormSubmissions(id, tenantId, { dateFrom, dateTo })),
     ]);
     // Union of all target forms' submissions — a source entity converts when

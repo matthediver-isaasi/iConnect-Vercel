@@ -355,7 +355,7 @@ export default function FormConversionReport() {
             </Select>
           </div>
           <div className="space-y-1.5">
-            <Label className="text-xs">Target from</Label>
+            <Label className="text-xs">From</Label>
             <Input
               type="date"
               value={dateFrom}
@@ -364,7 +364,7 @@ export default function FormConversionReport() {
             />
           </div>
           <div className="space-y-1.5">
-            <Label className="text-xs">Target to</Label>
+            <Label className="text-xs">To</Label>
             <Input
               type="date"
               value={dateTo}
@@ -372,6 +372,13 @@ export default function FormConversionReport() {
               data-testid="input-date-to"
             />
           </div>
+          <p
+            className="text-xs text-muted-foreground sm:col-span-2 lg:col-span-3 xl:col-span-5"
+            data-testid="text-date-range-hint"
+          >
+            The date range filters both sides: only source submissions within the range are
+            included, and conversions count only when a target submission also falls inside it.
+          </p>
         </CardContent>
       </Card>
 
