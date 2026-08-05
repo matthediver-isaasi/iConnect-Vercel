@@ -350,17 +350,55 @@ export default function DueDiligenceDashboardPage() {
   const [selectedFormId, setSelectedFormId] = useState(initialUrlFilters.formId || 'all');
   const [outstandingDaysFilter] = useState(initialUrlFilters.outstandingDays || '');
   const [reviewerUrlFilter] = useState(initialUrlFilters.reviewer || '');
-  // Submission-date range (datetime-local strings in the admin's local tz).
+  // Submission-date range. Draft state is edited freely in the date pickers;
+  // applied state (committed via the Apply button / Enter) drives the query.
+  // Values are date-only strings (YYYY-MM-DD) in the admin's local timezone.
   const [startDateFilter, setStartDateFilter] = useState('');
   const [endDateFilter, setEndDateFilter] = useState('');
+  const [appliedStartDate, setAppliedStartDate] = useState('');
+  const [appliedEndDate, setAppliedEndDate] = useState('');
 
   // Valid when either bound is empty, or end is not before start.
+  // Date-only ISO strings compare correctly lexicographically.
   const dateRangeInvalid = Boolean(
-    startDateFilter && endDateFilter && new Date(endDateFilter) < new Date(startDateFilter)
+    startDateFilter && endDateFilter && endDateFilter < startDateFilter
   );
-  // Only apply a valid range to the fetch; while invalid, keep the last valid state.
-  const appliedStartIso = startDateFilter && !dateRangeInvalid ? new Date(startDateFilter).toISOString() : '';
-  const appliedEndIso = endDateFilter && !dateRangeInvalid ? new Date(endDateFilter).toISOString() : '';
+
+  // Convert applied dates to inclusive ISO bounds: start-of-day for the start,
+  // end-of-day for the end, both in the admin's local timezone.
+  const appliedStartIso = appliedStartDate ? new Date(`${appliedStartDate}T00:00:00`).toISOString() : '';
+  const appliedEndIso = appliedEndDate ? new Date(`${appliedEndDate}T23:59:59.999`).toISOString() : '';
+
+  const dateDraftMatchesApplied = startDateFilter === appliedStartDate && endDateFilter === appliedEndDate;
+  const dateRangeApplied = Boolean(appliedStartDate || appliedEndDate);
+
+  const applyDateRange = () => {
+    if (dateRangeInvalid) return;
+    setAppliedStartDate(startDateFilter);
+    setAppliedEndDate(endDateFilter);
+  };
+
+  const clearDateRange = () => {
+    setStartDateFilter('');
+    setEndDateFilter('');
+    setAppliedStartDate('');
+    setAppliedEndDate('');
+  };
+
+  const handleDateKeyDown = (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      applyDateRange();
+    }
+  };
+
+  const formatAppliedDate = (d) => {
+    try {
+      return format(new Date(`${d}T00:00:00`), 'd MMM yyyy');
+    } catch {
+      return d;
+    }
+  };
   
   const [submissionToDelete, setSubmissionToDelete] = useState(null);
   const [deleteConfirmStep, setDeleteConfirmStep] = useState(1);
@@ -456,7 +494,7 @@ export default function DueDiligenceDashboardPage() {
     }
   }, [cardReferenceFieldByFormId]);
 
-  const { data: submissionsData, isLoading: submissionsLoading, refetch } = useQuery({
+  const { data: submissionsData, isLoading: submissionsLoading, isFetching: submissionsFetching, refetch } = useQuery({
     queryKey: ['dd-submissions', statusFilter, riskFilter, selectedFormId, appliedStartIso, appliedEndIso],
     queryFn: async () => {
       // Fetch ALL matching submissions in pages so search, filters and the
@@ -1017,44 +1055,64 @@ export default function DueDiligenceDashboardPage() {
               <div className="flex flex-wrap items-center gap-2">
                 <div className="flex flex-col">
                   <Input
-                    type="datetime-local"
+                    type="date"
                     value={startDateFilter}
                     onChange={(e) => setStartDateFilter(e.target.value)}
-                    className="w-52"
+                    onKeyDown={handleDateKeyDown}
+                    className="w-40"
                     aria-label="Submitted from"
-                    title="Submitted from (local time)"
+                    title="Submitted from"
                     data-testid="input-date-from"
                   />
                 </div>
                 <span className="text-sm text-muted-foreground">to</span>
                 <div className="flex flex-col">
                   <Input
-                    type="datetime-local"
+                    type="date"
                     value={endDateFilter}
                     onChange={(e) => setEndDateFilter(e.target.value)}
-                    className={`w-52 ${dateRangeInvalid ? 'border-red-500 focus-visible:ring-red-500' : ''}`}
+                    onKeyDown={handleDateKeyDown}
+                    className={`w-40 ${dateRangeInvalid ? 'border-red-500 focus-visible:ring-red-500' : ''}`}
                     aria-label="Submitted until"
-                    title="Submitted until (local time)"
+                    title="Submitted until (inclusive)"
                     data-testid="input-date-to"
                   />
                 </div>
-                {(startDateFilter || endDateFilter) && (
+                <Button
+                  size="sm"
+                  onClick={applyDateRange}
+                  disabled={dateRangeInvalid || dateDraftMatchesApplied}
+                  data-testid="button-apply-date-range"
+                >
+                  Apply
+                </Button>
+                {(startDateFilter || endDateFilter || dateRangeApplied) && (
                   <Button
                     variant="ghost"
                     size="sm"
-                    onClick={() => { setStartDateFilter(''); setEndDateFilter(''); }}
+                    onClick={clearDateRange}
                     data-testid="button-clear-date-range"
                   >
                     <X className="w-4 h-4 mr-1" />
                     Clear dates
                   </Button>
                 )}
+                {dateRangeApplied && (
+                  <Badge variant="secondary" className="gap-1" data-testid="badge-applied-date-range">
+                    {submissionsFetching && <Loader2 className="w-3 h-3 animate-spin" />}
+                    {appliedStartDate && appliedEndDate
+                      ? `${formatAppliedDate(appliedStartDate)} – ${formatAppliedDate(appliedEndDate)}`
+                      : appliedStartDate
+                        ? `From ${formatAppliedDate(appliedStartDate)}`
+                        : `Until ${formatAppliedDate(appliedEndDate)}`}
+                  </Badge>
+                )}
               </div>
             </div>
           </div>
           {dateRangeInvalid && (
             <p className="text-sm text-red-600 mt-2" data-testid="text-date-range-error">
-              End date must not be before start date — the date filter is not applied.
+              End date must not be before start date — fix the range to apply the date filter.
             </p>
           )}
         </CardHeader>
