@@ -1,6 +1,7 @@
 import { supabase } from '../_lib/database.js';
 import { getTenantContext } from '../_lib/tenantContext.js';
 import { getSessionTenantUser } from '../_lib/session.js';
+import { attachDomainToProject, reclaimDomainFromOtherProject, friendlyVercelError } from '../_lib/vercelDomains.js';
 
 const VERCEL_TOKEN = process.env.VERCEL_API_TOKEN;
 const VERCEL_PROJECT_ID = process.env.VERCEL_PROJECT_ID;
@@ -79,29 +80,31 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'This domain is already in use by another workspace' });
     }
 
-    let vercelResponse = null;
     if (VERCEL_TOKEN && VERCEL_PROJECT_ID) {
       try {
-        const vercelUrl = VERCEL_TEAM_ID 
-          ? `https://api.vercel.com/v10/projects/${VERCEL_PROJECT_ID}/domains?teamId=${VERCEL_TEAM_ID}`
-          : `https://api.vercel.com/v10/projects/${VERCEL_PROJECT_ID}/domains`;
-        
-        const response = await fetch(vercelUrl, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${VERCEL_TOKEN}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ name: cleanDomain }),
-        });
+        const vercelConfig = { token: VERCEL_TOKEN, projectId: VERCEL_PROJECT_ID, teamId: VERCEL_TEAM_ID };
+        const attach = await attachDomainToProject(vercelConfig, cleanDomain);
+        const errorCode = attach.json?.error?.code;
 
-        vercelResponse = await response.json();
-
-        if (!response.ok && vercelResponse.error?.code !== 'domain_already_exists') {
-          console.error('[Add Domain] Vercel API error:', vercelResponse);
-          return res.status(400).json({ 
-            error: vercelResponse.error?.message || 'Failed to add domain to Vercel' 
-          });
+        if (!attach.ok && errorCode !== 'domain_already_exists') {
+          // Domain attached to another project on the same team: try to reclaim it.
+          if (errorCode === 'domain_already_in_use' || errorCode === 'domain_already_in_use_by_project') {
+            console.log(`[Add Domain] ${cleanDomain} in use by another project (${errorCode}); attempting reclaim`);
+            const reclaim = await reclaimDomainFromOtherProject(vercelConfig, cleanDomain);
+            if (!reclaim.reclaimed) {
+              const failedAttach = reclaim.attachResult?.json?.error || attach.json?.error;
+              console.error('[Add Domain] Reclaim failed:', reclaim.reason, failedAttach);
+              return res.status(400).json({
+                error: friendlyVercelError(failedAttach, reclaim.reason),
+              });
+            }
+            // Reclaimed successfully — fall through to saving on the tenant.
+          } else {
+            console.error('[Add Domain] Vercel API error:', attach.json);
+            return res.status(400).json({
+              error: friendlyVercelError(attach.json?.error),
+            });
+          }
         }
       } catch (vercelErr) {
         console.error('[Add Domain] Vercel API error:', vercelErr);
