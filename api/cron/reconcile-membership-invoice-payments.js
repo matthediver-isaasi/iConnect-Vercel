@@ -14,6 +14,19 @@ const MAX_ROWS_PER_RUN = 500;
 const ORG_TABLE = 'organisation_membership_history';
 const MEMBER_TABLE = 'member_membership_history';
 
+// Xero rate-limits at ~60 calls/min per tenant. Pace provider calls to
+// stay under that (Task #3411): minimum gap between consecutive calls
+// for the SAME tenant. With multiple tenants the round-robin interleave
+// usually provides the gap for free; the sleep only kicks in when one
+// tenant dominates the queue.
+const MIN_TENANT_CALL_GAP_MS = 1200;
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+function isRateLimitError(err) {
+  return /\b429\b|rate.?limit/i.test(String(err?.message || err));
+}
+
 export default async function handler(req, res) {
   const authHeader = req.headers.authorization;
   const cronSecret = process.env.CRON_SECRET;
@@ -40,6 +53,7 @@ export default async function handler(req, res) {
     transitioned: 0,
     skipped: 0,
     errors: 0,
+    rate_limited: 0,
     details: [],
     by_tenant: {},
   };
@@ -64,6 +78,7 @@ export default async function handler(req, res) {
     }
 
     const queues = [...byTenant.entries()];
+    const lastCallAt = new Map();
     let totalProcessed = 0;
 
     outer:
@@ -79,11 +94,19 @@ export default async function handler(req, res) {
       }
 
       const tenantBucket = (results.by_tenant[tenantId] ||= {
-        processed: 0, transitioned: 0, skipped: 0, errors: 0,
+        processed: 0, transitioned: 0, skipped: 0, errors: 0, rate_limited: 0,
       });
 
       try {
         const table = row._sourceTable;
+        // Per-tenant pacing (Task #3411): keep at least
+        // MIN_TENANT_CALL_GAP_MS between consecutive provider calls for
+        // the same tenant so we stay under Xero's ~60/min tenant limit.
+        const lastCall = lastCallAt.get(tenantId) || 0;
+        const wait = lastCall + MIN_TENANT_CALL_GAP_MS - Date.now();
+        if (wait > 0) await sleep(wait);
+        lastCallAt.set(tenantId, Date.now());
+
         const outcome = await reconcileRow({ table, row, baseUrl });
         results.processed++;
         tenantBucket.processed++;
@@ -102,12 +125,23 @@ export default async function handler(req, res) {
           tenantBucket.skipped++;
         }
       } catch (err) {
-        results.errors++;
-        tenantBucket.errors++;
-        results.details.push({ tenantId, table: row._sourceTable, recordId: row.id, error: err.message });
-        console.error(`[cron/reconcile-membership-invoice-payments] tenant=${tenantId} row=${row.id} error: ${err.message}`);
-        // One bad invoice shouldn't poison the rest of the same tenant's
-        // batch — keep going.
+        if (isRateLimitError(err)) {
+          // 429s are not row failures worth alerting (Task #3411) —
+          // the provider is telling us to back off. Skip this tenant's
+          // remaining rows for the rest of the run; they'll be picked
+          // up (oldest first) on the next 3-hourly tick.
+          results.rate_limited++;
+          tenantBucket.rate_limited++;
+          queue.length = 0;
+          console.warn(`[cron/reconcile-membership-invoice-payments] tenant=${tenantId} rate-limited (429) at row=${row.id}; deferring tenant's remaining rows to next run`);
+        } else {
+          results.errors++;
+          tenantBucket.errors++;
+          results.details.push({ tenantId, table: row._sourceTable, recordId: row.id, error: err.message });
+          console.error(`[cron/reconcile-membership-invoice-payments] tenant=${tenantId} row=${row.id} error: ${err.message}`);
+          // One bad invoice shouldn't poison the rest of the same tenant's
+          // batch — keep going.
+        }
       }
       totalProcessed++;
 
