@@ -1,11 +1,41 @@
 // Public agenda lines for a Training event (Task #3419).
 // Mirrors /api/complex-event-sessions/public: tenant-resolved, id-scoped,
 // returns per-line type/dates/description plus the visible detail (location,
-// join link for Online lines — same exposure model as complex session join
-// links — and LMS URL for Self study lines).
+// per-line speakers/sponsors — Task #3436).
+//
+// Paid-only links (Task #3436): the Zoom join URL and LMS URL are only
+// included when the requesting viewer is entitled — i.e. logged in with a
+// confirmed booking for this event, matched either as the booker (member_id)
+// or as a named attendee (attendee_email). Everyone else gets the agenda
+// without those links; hiding is server-side so they can't be scraped.
 
 import { supabase } from '../_lib/database.js';
 import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
+import { getSessionMember } from '../_lib/session.js';
+import { emailExactIlikePattern } from '../_lib/viewerBookingMatch.js';
+
+async function viewerHasConfirmedBooking(eventId, tenantId, member) {
+  if (!member) return false;
+  const memberTenantId = member.tenant_id || member.organization?.tenant_id || null;
+  if (memberTenantId !== tenantId) return false;
+
+  const base = () => supabase
+    .from('booking')
+    .select('id', { count: 'exact', head: true })
+    .eq('tenant_id', tenantId)
+    .eq('event_id', eventId)
+    .eq('status', 'confirmed');
+
+  const { count: asBooker, error: bookerErr } = await base().eq('member_id', member.id);
+  if (bookerErr) throw new Error(`booking check failed: ${bookerErr.message}`);
+  if ((asBooker || 0) > 0) return true;
+
+  const pattern = emailExactIlikePattern(member.email);
+  if (!pattern) return false;
+  const { count: asAttendee, error: attendeeErr } = await base().ilike('attendee_email', pattern);
+  if (attendeeErr) throw new Error(`attendee booking check failed: ${attendeeErr.message}`);
+  return (asAttendee || 0) > 0;
+}
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -37,7 +67,7 @@ export default async function handler(req, res) {
 
     const { data: lines, error: linesError } = await supabase
       .from('event_agenda_item')
-      .select('id, start_date, end_date, description, item_type, location, zoom_webinar_id, zoom_meeting_id, lms_url, sort_order')
+      .select('id, start_date, end_date, description, item_type, location, zoom_webinar_id, zoom_meeting_id, lms_url, speaker_ids, sponsor_ids, sort_order')
       .eq('event_id', event_id)
       .eq('tenant_id', tenant.id)
       .order('sort_order', { ascending: true });
@@ -46,22 +76,51 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: 'Failed to list agenda' });
     }
 
-    const webinarIds = [...new Set((lines || []).map((l) => l.zoom_webinar_id).filter(Boolean))];
-    const meetingIds = [...new Set((lines || []).map((l) => l.zoom_meeting_id).filter(Boolean))];
+    // Entitlement to Zoom/LMS links: confirmed booking as booker or attendee.
+    // Failures resolve to "not entitled" rather than breaking the agenda.
+    let entitled = false;
+    try {
+      const member = await getSessionMember(req);
+      entitled = await viewerHasConfirmedBooking(event_id, tenant.id, member);
+    } catch (entitleErr) {
+      console.error('[PublicEventAgenda] entitlement check failed:', entitleErr?.message || entitleErr);
+      entitled = false;
+    }
+
     const joinByWebinar = {};
     const joinByMeeting = {};
-    if (webinarIds.length > 0) {
-      const { data } = await supabase.from('zoom_webinar').select('id, join_url, topic, start_time').in('id', webinarIds);
-      for (const w of data || []) joinByWebinar[w.id] = w;
+    if (entitled) {
+      const webinarIds = [...new Set((lines || []).map((l) => l.zoom_webinar_id).filter(Boolean))];
+      const meetingIds = [...new Set((lines || []).map((l) => l.zoom_meeting_id).filter(Boolean))];
+      if (webinarIds.length > 0) {
+        const { data } = await supabase.from('zoom_webinar').select('id, join_url, topic, start_time').in('id', webinarIds).eq('tenant_id', tenant.id);
+        for (const w of data || []) joinByWebinar[w.id] = w;
+      }
+      if (meetingIds.length > 0) {
+        const { data } = await supabase.from('zoom_meeting').select('id, join_url, topic, start_time').in('id', meetingIds).eq('tenant_id', tenant.id);
+        for (const m of data || []) joinByMeeting[m.id] = m;
+      }
     }
-    if (meetingIds.length > 0) {
-      const { data } = await supabase.from('zoom_meeting').select('id, join_url, topic, start_time').in('id', meetingIds);
-      for (const m of data || []) joinByMeeting[m.id] = m;
+
+    // Per-line sponsors resolved server-side (they may not have an
+    // event-level assignment, so the public event-sponsors payload can't be
+    // relied on to contain them).
+    const sponsorIds = [...new Set((lines || []).flatMap((l) => Array.isArray(l.sponsor_ids) ? l.sponsor_ids : []).filter(Boolean))];
+    const sponsorById = {};
+    if (sponsorIds.length > 0) {
+      const { data: sponsorRows } = await supabase
+        .from('event_sponsor')
+        .select('id, name, logo_url, website_url')
+        .in('id', sponsorIds)
+        .eq('tenant_id', tenant.id);
+      for (const s of sponsorRows || []) sponsorById[s.id] = s;
     }
 
     const result = (lines || []).map((l) => {
-      const z = (l.zoom_webinar_id && joinByWebinar[l.zoom_webinar_id]) ||
-        (l.zoom_meeting_id && joinByMeeting[l.zoom_meeting_id]) || null;
+      const z = entitled
+        ? ((l.zoom_webinar_id && joinByWebinar[l.zoom_webinar_id]) ||
+           (l.zoom_meeting_id && joinByMeeting[l.zoom_meeting_id]) || null)
+        : null;
       return {
         id: l.id,
         start_date: l.start_date,
@@ -69,10 +128,14 @@ export default async function handler(req, res) {
         description: l.description,
         item_type: l.item_type,
         location: l.location,
-        lms_url: l.lms_url,
+        lms_url: entitled ? l.lms_url : null,
         sort_order: l.sort_order,
         zoom_join_url: z?.join_url || null,
         zoom_topic: z?.topic || null,
+        speaker_ids: Array.isArray(l.speaker_ids) ? l.speaker_ids.filter(Boolean) : [],
+        sponsors: (Array.isArray(l.sponsor_ids) ? l.sponsor_ids : [])
+          .map((id) => sponsorById[id])
+          .filter(Boolean),
       };
     });
 

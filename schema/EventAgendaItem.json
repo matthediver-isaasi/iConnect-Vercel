@@ -41,6 +41,16 @@
       "type": "string",
       "description": "External LMS URL (Self study lines)"
     },
+    "speaker_ids": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Speaker ids for this agenda line, additive to the event-level speaker_ids"
+    },
+    "sponsor_ids": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "event_sponsor ids for this agenda line, additive to event-level sponsor assignments"
+    },
     "sort_order": {
       "type": "number",
       "description": "Ordering of lines within the event"

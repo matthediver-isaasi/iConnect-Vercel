@@ -621,6 +621,15 @@ export default function CreateEvent() {
   // Check if we have an active Zoom selection (webinar or meeting)
   const hasZoomSelection = isOnline && (selectedWebinar || selectedMeeting);
 
+  // Training events (Task #3436): overall start/end derive from the agenda.
+  const trainingDerivedDates = useMemo(() => {
+    if (!isTraining || agendaLines.length === 0) return null;
+    const starts = agendaLines.map(l => l.start_date).filter(Boolean).sort();
+    const ends = agendaLines.map(l => l.end_date || l.start_date).filter(Boolean).sort();
+    if (starts.length === 0) return null;
+    return { start: `${starts[0]}T00:00:00`, end: `${ends[ends.length - 1]}T23:59:00` };
+  }, [isTraining, agendaLines]);
+
   // Effective timezone for datetime-local inputs: Zoom timezone takes precedence
   // when a Zoom selection is locked in, otherwise the user-selected event timezone.
   const effectiveTimezone = activeZoomTimezone || formData.timezone || "Europe/London";
@@ -690,6 +699,8 @@ export default function CreateEvent() {
               zoom_webinar_id: agendaTypeBehaviour(line.item_type) === 'zoom' ? (line.zoom_webinar_id || null) : null,
               zoom_meeting_id: agendaTypeBehaviour(line.item_type) === 'zoom' ? (line.zoom_meeting_id || null) : null,
               lms_url: agendaTypeBehaviour(line.item_type) === 'lms' ? (line.lms_url || null) : null,
+              speaker_ids: Array.isArray(line.speaker_ids) ? line.speaker_ids.filter(Boolean) : [],
+              sponsor_ids: Array.isArray(line.sponsor_ids) ? line.sponsor_ids.filter(Boolean) : [],
               sort_order: i,
             });
           }
@@ -839,15 +850,16 @@ export default function CreateEvent() {
         errors.push('Please enter a meeting link for this online event');
       }
     } else {
-      // Only require Zoom webinar/meeting for non-TBC online events
-      if (eventTiming !== 'tbc' && isOnline) {
+      // Only require Zoom webinar/meeting for non-TBC online events.
+      // Training events manage Zoom per agenda item (Task #3436), never event-level.
+      if (eventTiming !== 'tbc' && isOnline && !isTraining) {
         const hasZoomSelection = (zoomType === 'webinar' && selectedWebinarId) || (zoomType === 'meeting' && selectedMeetingId);
         if (!hasZoomSelection) {
           errors.push(`Please select a Zoom ${zoomType} for online events`);
         }
       }
 
-      if (eventTiming !== 'tbc' && isOnline && loadingJoinLinkSettings) {
+      if (eventTiming !== 'tbc' && isOnline && !isTraining && loadingJoinLinkSettings) {
         errors.push('Please wait for settings to finish loading');
       }
     }
@@ -948,7 +960,8 @@ export default function CreateEvent() {
 
     // Build event data - only include fields that exist in the event table
     // For online events: location should be null (is_online field indicates it's online)
-    let locationValue = isOnline ? null : (formData.location || null);
+    // Training events also carry no event-level location (per agenda item instead).
+    let locationValue = (isOnline || isTraining) ? null : (formData.location || null);
 
     // For TBC events, explicitly null out dates and Zoom webinar
     const isTbcEvent = eventTiming === 'tbc';
@@ -991,8 +1004,8 @@ export default function CreateEvent() {
       qr_on_confirmation: isOnline ? false : qrOnConfirmation,
       // TBC events can optionally have a Zoom webinar or meeting.
       // Group-limited events never use Zoom — they use a manual meeting link.
-      zoom_webinar_id: isGroupLimited ? null : (isOnline && zoomType === 'webinar' && selectedWebinarId ? selectedWebinarId : null),
-      zoom_meeting_id: isGroupLimited ? null : (isOnline && zoomType === 'meeting' && selectedMeetingId ? selectedMeetingId : null),
+      zoom_webinar_id: (isGroupLimited || isTraining) ? null : (isOnline && zoomType === 'webinar' && selectedWebinarId ? selectedWebinarId : null),
+      zoom_meeting_id: (isGroupLimited || isTraining) ? null : (isOnline && zoomType === 'meeting' && selectedMeetingId ? selectedMeetingId : null),
       speaker_ids: selectedSpeakers.length > 0 ? selectedSpeakers : [],
       speaker_award_config: formStateToConfig(speakerAwards),
       // Convert composite keys back to plain labels for database storage
@@ -1379,7 +1392,8 @@ export default function CreateEvent() {
                 </div>
               )}
 
-              {isOnline && !isGroupLimited && (
+              {/* Training events set Zoom per agenda item (Task #3436), so no event-level Zoom selection. */}
+              {isOnline && !isGroupLimited && !isTraining && (
                 <div className="space-y-4">
                   <div className="space-y-2">
                     <Label>Zoom Event Type</Label>
@@ -1584,6 +1598,7 @@ export default function CreateEvent() {
                     lines={agendaLines}
                     onChange={setAgendaLines}
                     agendaItemTypes={agendaItemTypes}
+                    speakers={speakers}
                   />
                 )}
               </CardContent>
@@ -2081,16 +2096,19 @@ export default function CreateEvent() {
                   <TimezoneAwareDateTimeInput
                     id="start_date"
                     tz={effectiveTimezone}
-                    value={formData.start_date}
+                    value={isTraining ? (trainingDerivedDates?.start || '') : formData.start_date}
                     onChange={(iso) => handleInputChange('start_date', iso)}
-                    required={eventTiming !== 'tbc'}
-                    disabled={eventTiming === 'tbc'}
+                    required={eventTiming !== 'tbc' && !isTraining}
+                    disabled={eventTiming === 'tbc' || isTraining}
                     readOnly={hasZoomSelection}
-                    className={(eventTiming === 'tbc' || hasZoomSelection) ? "bg-slate-100 cursor-not-allowed" : ""}
+                    className={(eventTiming === 'tbc' || isTraining || hasZoomSelection) ? "bg-slate-100 cursor-not-allowed" : ""}
                     data-testid="input-start-date"
                   />
                   {eventTiming === 'tbc' && (
                     <p className="text-xs text-blue-600">Date disabled for TBC events</p>
+                  )}
+                  {isTraining && eventTiming !== 'tbc' && (
+                    <p className="text-xs text-slate-500">Taken from the earliest agenda date</p>
                   )}
                   {hasZoomSelection && (
                     <p className="text-xs text-slate-500">Timing is managed by Zoom</p>
@@ -2101,13 +2119,16 @@ export default function CreateEvent() {
                   <TimezoneAwareDateTimeInput
                     id="end_date"
                     tz={effectiveTimezone}
-                    value={formData.end_date}
+                    value={isTraining ? (trainingDerivedDates?.end || '') : formData.end_date}
                     onChange={(iso) => handleInputChange('end_date', iso)}
-                    disabled={eventTiming === 'tbc'}
+                    disabled={eventTiming === 'tbc' || isTraining}
                     readOnly={hasZoomSelection}
-                    className={(eventTiming === 'tbc' || hasZoomSelection) ? "bg-slate-100 cursor-not-allowed" : ""}
+                    className={(eventTiming === 'tbc' || isTraining || hasZoomSelection) ? "bg-slate-100 cursor-not-allowed" : ""}
                     data-testid="input-end-date"
                   />
+                  {isTraining && eventTiming !== 'tbc' && (
+                    <p className="text-xs text-slate-500">Taken from the latest agenda date</p>
+                  )}
                 </div>
               </div>
 
@@ -3056,7 +3077,7 @@ export default function CreateEvent() {
                     </div>
                   )}
                 </div>
-              ) : (
+              ) : !isTraining ? (
                 <div className="space-y-2">
                   <Label htmlFor="location">Venue / Location *</Label>
                   <Input
@@ -3068,7 +3089,7 @@ export default function CreateEvent() {
                     data-testid="input-location"
                   />
                 </div>
-              )}
+              ) : null}
 
               {/* Available Seats - shown for all event types */}
               <div className="space-y-3">

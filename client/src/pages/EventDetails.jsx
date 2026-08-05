@@ -298,13 +298,6 @@ export default function EventDetailsPage() {
     };
   }, [event]);
 
-  // Query for speakers assigned to this event
-  const { data: eventSpeakers = [] } = useQuery({
-    queryKey: ['event-speakers', event?.speaker_ids],
-    queryFn: async () => await publicClient.listSpeakers(event.speaker_ids) || [],
-    enabled: !!event?.speaker_ids && event.speaker_ids.length > 0
-  });
-
   const { data: eventSessions = [] } = useQuery({
     queryKey: ['event-sessions', event?.id],
     queryFn: async () => {
@@ -324,6 +317,20 @@ export default function EventDetailsPage() {
       return response.json();
     },
     enabled: !!event?.id && !!event?.is_training
+  });
+
+  // Speakers assigned to this event — event-level plus any per-agenda-item
+  // speakers (Task #3436, additive resolution).
+  const allSpeakerIds = useMemo(() => {
+    const ids = new Set(Array.isArray(event?.speaker_ids) ? event.speaker_ids.filter(Boolean) : []);
+    (agendaLines || []).forEach((l) => (Array.isArray(l.speaker_ids) ? l.speaker_ids : []).forEach((id) => id && ids.add(id)));
+    return [...ids];
+  }, [event?.speaker_ids, agendaLines]);
+
+  const { data: eventSpeakers = [] } = useQuery({
+    queryKey: ['event-speakers', allSpeakerIds],
+    queryFn: async () => await publicClient.listSpeakers(allSpeakerIds) || [],
+    enabled: allSpeakerIds.length > 0
   });
 
   // Query for all system settings (using public endpoint for unauthenticated access)
@@ -1461,7 +1468,8 @@ export default function EventDetailsPage() {
                     </div>
                   )}
 
-                  {event.location && (
+                  {/* Training events define locations per agenda item (Task #3436). */}
+                  {event.location && !event.is_training && (
                     <div className="flex items-center gap-3 text-slate-700">
                       {isOnlineEvent ? (
                         <>
@@ -1669,6 +1677,41 @@ export default function EventDetailsPage() {
                           <div className="text-sm text-slate-600 flex items-center gap-1">
                             <MapPin className="h-3 w-3" />
                             {line.location}
+                          </div>
+                        )}
+                        {/* Per-item speakers/sponsors (Task #3436) */}
+                        {Array.isArray(line.speaker_ids) && line.speaker_ids.length > 0 && (
+                          <div className="flex flex-wrap items-center gap-2 pt-1" data-testid={`agenda-speakers-${line.id || index}`}>
+                            {line.speaker_ids.map((sid) => {
+                              const sp = eventSpeakers.find((s) => s.id === sid);
+                              if (!sp) return null;
+                              return (
+                                <span key={sid} className="inline-flex items-center gap-1.5 pl-1 pr-2 py-0.5 rounded-full bg-purple-50 border border-purple-100 text-xs text-purple-800">
+                                  {sp.profile_photo_url ? (
+                                    <img src={sp.profile_photo_url} alt={sp.full_name} className="w-5 h-5 rounded-full object-cover" />
+                                  ) : (
+                                    <Mic className="w-3 h-3 text-purple-500" />
+                                  )}
+                                  {sp.full_name}
+                                </span>
+                              );
+                            })}
+                          </div>
+                        )}
+                        {Array.isArray(line.sponsors) && line.sponsors.length > 0 && (
+                          <div className="flex flex-wrap items-center gap-3 pt-1" data-testid={`agenda-sponsors-${line.id || index}`}>
+                            {line.sponsors.map((sp) => (
+                              <span key={sp.id} className="inline-flex items-center gap-1.5 text-xs text-slate-600">
+                                {sp.logo_url && (
+                                  <img src={sp.logo_url} alt={sp.name} className="w-5 h-5 rounded object-contain bg-white border border-slate-200" />
+                                )}
+                                {sp.website_url ? (
+                                  <a href={sp.website_url} target="_blank" rel="noopener noreferrer" className="hover:text-blue-600 underline-offset-2 hover:underline">{sp.name}</a>
+                                ) : (
+                                  sp.name
+                                )}
+                              </span>
+                            ))}
                           </div>
                         )}
                         {line.zoom_join_url && (

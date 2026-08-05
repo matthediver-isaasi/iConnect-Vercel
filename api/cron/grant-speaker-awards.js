@@ -140,7 +140,17 @@ export default async function handler(req, res) {
 
 async function collectSpeakerIds(eventType, event) {
   if (eventType === 'event') {
-    return Array.isArray(event.speaker_ids) ? [...new Set(event.speaker_ids.filter(Boolean))] : [];
+    const ids = new Set(Array.isArray(event.speaker_ids) ? event.speaker_ids.filter(Boolean) : []);
+    // Training events also attach speakers per agenda item (Task #3436);
+    // per-item speakers are event speakers for award purposes. Non-training
+    // events simply have no agenda rows.
+    const { data, error } = await supabase
+      .from('event_agenda_item')
+      .select('speaker_ids')
+      .eq('event_id', event.id);
+    if (error) throw new Error(`agenda fetch failed: ${error.message}`);
+    (data || []).forEach(l => (Array.isArray(l.speaker_ids) ? l.speaker_ids : []).forEach(id => id && ids.add(id)));
+    return [...ids];
   }
   // Complex events attach speakers per session.
   const { data, error } = await supabase

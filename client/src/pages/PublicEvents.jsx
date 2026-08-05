@@ -269,7 +269,7 @@ export default function PublicEventsPage() {
                           </div>
                         )}
 
-                        {event.location && (
+                        {event.location && !event.is_training && (
                           <div className="flex items-center gap-2 text-sm text-slate-600">
                             <MapPin className="w-4 h-4 text-slate-400 shrink-0" />
                             <span className="line-clamp-1">{event.location}</span>
@@ -401,7 +401,7 @@ export default function PublicEventsPage() {
                       </div>
                     )}
 
-                    {event.location && (
+                    {event.location && !event.is_training && (
                       <div className="flex items-center gap-2 text-sm text-slate-600">
                         <MapPin className="w-4 h-4 text-slate-400 shrink-0" />
                         <span className="line-clamp-1">{event.location}</span>

@@ -4,13 +4,16 @@
 //   In person  -> required location text
 //   Online     -> existing Zoom/Teams webinar/meeting picker (future items only)
 //   Self study -> external LMS URL
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Plus, Trash2, ArrowUp, ArrowDown, MapPin, Video, GraduationCap } from "lucide-react";
+import { Plus, Trash2, ArrowUp, ArrowDown, MapPin, Video, GraduationCap, Mic, X } from "lucide-react";
+import { SpeakerSelectionModal } from "@/components/SpeakerSelectionModal";
+import EventSponsorSelector from "@/components/events/EventSponsorSelector";
 
 async function fetchJson(url) {
   const response = await fetch(url, { credentials: 'include' });
@@ -43,6 +46,8 @@ export function emptyAgendaLine(defaultType = 'In person') {
     zoom_webinar_id: null,
     zoom_meeting_id: null,
     lms_url: '',
+    speaker_ids: [],
+    sponsor_ids: [],
   };
 }
 
@@ -78,8 +83,10 @@ export function validateAgendaLines(lines) {
   return errors;
 }
 
-export default function TrainingAgendaEditor({ lines, onChange, agendaItemTypes }) {
+export default function TrainingAgendaEditor({ lines, onChange, agendaItemTypes, speakers = [] }) {
   const anyOnline = (lines || []).some((l) => agendaTypeBehaviour(l.item_type) === 'zoom');
+  // Which line's speaker-selection modal is open (null = none).
+  const [speakerModalIndex, setSpeakerModalIndex] = useState(null);
 
   // Same source as the event-level picker: future scheduled webinars/meetings only.
   const { data: webinars = [], isLoading: loadingWebinars } = useQuery({
@@ -136,7 +143,7 @@ export default function TrainingAgendaEditor({ lines, onChange, agendaItemTypes 
         return (
           <div key={index} className="p-4 border border-slate-200 rounded-lg bg-slate-50 space-y-3" data-testid={`agenda-line-${index}`}>
             <div className="flex items-center justify-between">
-              <span className="text-sm font-medium text-slate-700">Day {index + 1}</span>
+              <span className="text-sm font-medium text-slate-700">Item {index + 1}</span>
               <div className="flex items-center gap-1">
                 <Button type="button" variant="ghost" size="icon" className="h-8 w-8" disabled={index === 0}
                   onClick={() => moveLine(index, -1)} data-testid={`button-agenda-up-${index}`}>
@@ -255,9 +262,60 @@ export default function TrainingAgendaEditor({ lines, onChange, agendaItemTypes 
                   data-testid={`input-agenda-lms-${index}`} />
               </div>
             )}
+
+            {/* Per-item speakers (Task #3436) — additive to the event-level speakers. */}
+            <div className="space-y-1 pt-1 border-t border-slate-200">
+              <Label className="text-xs flex items-center gap-1">
+                <Mic className="w-4 h-4 text-slate-500" /> Speakers for this item (optional)
+              </Label>
+              <div className="flex flex-wrap items-center gap-2">
+                {(line.speaker_ids || []).map((sid) => {
+                  const sp = speakers.find((s) => s.id === sid);
+                  return (
+                    <span key={sid} className="inline-flex items-center gap-1.5 pl-1 pr-2 py-0.5 rounded-full bg-purple-50 border border-purple-200 text-xs text-purple-800"
+                      data-testid={`chip-agenda-speaker-${index}-${sid}`}>
+                      {sp?.profile_photo_url ? (
+                        <img src={sp.profile_photo_url} alt={sp.full_name} className="w-5 h-5 rounded-full object-cover" />
+                      ) : (
+                        <Mic className="w-3 h-3 text-purple-500" />
+                      )}
+                      {sp?.full_name || 'Unknown speaker'}
+                      <button type="button" className="text-purple-400 hover:text-purple-700"
+                        onClick={() => updateLine(index, { speaker_ids: (line.speaker_ids || []).filter((x) => x !== sid) })}
+                        data-testid={`button-remove-agenda-speaker-${index}-${sid}`}>
+                        <X className="w-3 h-3" />
+                      </button>
+                    </span>
+                  );
+                })}
+                <Button type="button" variant="outline" size="sm" onClick={() => setSpeakerModalIndex(index)}
+                  data-testid={`button-agenda-speakers-${index}`}>
+                  <Mic className="w-3.5 h-3.5 mr-1.5" />
+                  {(line.speaker_ids || []).length > 0 ? 'Edit speakers' : 'Add speakers'}
+                </Button>
+              </div>
+            </div>
+
+            {/* Per-item sponsors (Task #3436) — additive to the event-level sponsors. */}
+            <div className="pt-1 border-t border-slate-200">
+              <EventSponsorSelector
+                selectedSponsorIds={line.sponsor_ids || []}
+                onSelectedSponsorIdsChange={(ids) => updateLine(index, { sponsor_ids: ids })}
+              />
+            </div>
           </div>
         );
       })}
+
+      <SpeakerSelectionModal
+        open={speakerModalIndex !== null}
+        onOpenChange={(open) => { if (!open) setSpeakerModalIndex(null); }}
+        speakers={speakers}
+        selectedSpeakerIds={speakerModalIndex !== null ? (lines?.[speakerModalIndex]?.speaker_ids || []) : []}
+        onConfirm={(ids) => {
+          if (speakerModalIndex !== null) updateLine(speakerModalIndex, { speaker_ids: ids });
+        }}
+      />
 
       <Button type="button" variant="outline" onClick={addLine} data-testid="button-add-agenda-line">
         <Plus className="w-4 h-4 mr-2" />

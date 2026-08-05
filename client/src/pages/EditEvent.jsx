@@ -884,6 +884,8 @@ export default function EditEvent() {
               zoom_webinar_id: behaviour === 'zoom' ? (line.zoom_webinar_id || null) : null,
               zoom_meeting_id: behaviour === 'zoom' ? (line.zoom_meeting_id || null) : null,
               lms_url: behaviour === 'lms' ? (line.lms_url || null) : null,
+              speaker_ids: Array.isArray(line.speaker_ids) ? line.speaker_ids.filter(Boolean) : [],
+              sponsor_ids: Array.isArray(line.sponsor_ids) ? line.sponsor_ids.filter(Boolean) : [],
               sort_order: i,
             };
             if (line.id) {
@@ -976,6 +978,8 @@ export default function EditEvent() {
               zoom_webinar_id: r.zoom_webinar_id || null,
               zoom_meeting_id: r.zoom_meeting_id || null,
               lms_url: r.lms_url || '',
+              speaker_ids: Array.isArray(r.speaker_ids) ? r.speaker_ids : [],
+              sponsor_ids: Array.isArray(r.sponsor_ids) ? r.sponsor_ids : [],
             })));
             setInitialAgendaIds(sorted.map((r) => r.id));
           })
@@ -1311,6 +1315,16 @@ export default function EditEvent() {
     setPendingSubmit(null);
   };
 
+  // Training events (Task #3436): the overall start/end are derived from the
+  // agenda (earliest start → latest end), shown read-only in the date fields.
+  const trainingDerivedDates = useMemo(() => {
+    if (!isTraining || agendaLines.length === 0) return null;
+    const starts = agendaLines.map(l => l.start_date).filter(Boolean).sort();
+    const ends = agendaLines.map(l => l.end_date || l.start_date).filter(Boolean).sort();
+    if (starts.length === 0) return null;
+    return { start: `${starts[0]}T00:00:00`, end: `${ends[ends.length - 1]}T23:59:00` };
+  }, [isTraining, agendaLines]);
+
   const handleSubmit = async (e) => {
     e.preventDefault();
 
@@ -1505,7 +1519,7 @@ export default function EditEvent() {
       start_date: isTbcEvent ? null : (isTraining && trainingStart ? trainingStart : (formData.start_date || null)),
       end_date: isTbcEvent ? null : (isTraining && trainingEnd ? trainingEnd : (formData.end_date || formData.start_date || null)),
       registration_closes_at: formData.registration_closes_at || null,
-      location: isOnlineEvent ? null : (formData.location || null),
+      location: (isOnlineEvent || isTraining) ? null : (formData.location || null),
       image_url: formData.image_url || null,
       image_focal_point: formData.image_focal_point || null,
       available_seats: unlimitedSeats ? null : (formData.available_seats ? parseInt(formData.available_seats) : null),
@@ -1807,8 +1821,9 @@ export default function EditEvent() {
 
         {/* task-692: panel is always rendered (regardless of isOnlineEvent /
             sync state) so admins can attach/change/detach Zoom at any time.
-            Hidden in group-limited mode — group events never use Zoom. */}
-        {!isGroupLimited && (
+            Hidden in group-limited mode — group events never use Zoom — and
+            for training events, where Zoom is set per agenda item (Task #3436). */}
+        {!isGroupLimited && !isTraining && (
         <>
         <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg" data-testid="panel-zoom-link-admin">
           <div className="flex items-center gap-2 mb-2">
@@ -2118,6 +2133,7 @@ export default function EditEvent() {
                     lines={agendaLines}
                     onChange={setAgendaLines}
                     agendaItemTypes={agendaItemTypes}
+                    speakers={speakers}
                   />
                 )}
               </CardContent>
@@ -2739,17 +2755,20 @@ export default function EditEvent() {
                     id="start_date"
                     tz={eventTimezone}
                     isReady={!isTimezoneLoading}
-                    value={formData.start_date}
+                    value={isTraining ? (trainingDerivedDates?.start || '') : formData.start_date}
                     onChange={(iso) => handleInputChange('start_date', iso)}
-                    required={eventTiming !== 'tbc'}
-                    disabled={eventTiming === 'tbc' || (isOnlineEvent && !isGroupLimited) || isTimezoneLoading}
-                    className={(eventTiming === 'tbc' || (isOnlineEvent && !isGroupLimited) || isTimezoneLoading) ? "bg-slate-100 cursor-not-allowed" : ""}
+                    required={eventTiming !== 'tbc' && !isTraining}
+                    disabled={eventTiming === 'tbc' || isTraining || (isOnlineEvent && !isGroupLimited) || isTimezoneLoading}
+                    className={(eventTiming === 'tbc' || isTraining || (isOnlineEvent && !isGroupLimited) || isTimezoneLoading) ? "bg-slate-100 cursor-not-allowed" : ""}
                     data-testid="input-start-date"
                   />
                   {eventTiming === 'tbc' && (
                     <p className="text-xs text-blue-600">Date disabled for TBC events</p>
                   )}
-                  {isOnlineEvent && !isGroupLimited && eventTiming !== 'tbc' && (
+                  {isTraining && eventTiming !== 'tbc' && (
+                    <p className="text-xs text-slate-500">Taken from the earliest agenda date</p>
+                  )}
+                  {!isTraining && isOnlineEvent && !isGroupLimited && eventTiming !== 'tbc' && (
                     <p className="text-xs text-slate-500">Managed by Zoom {event?.zoom_meeting_id ? 'meeting' : 'webinar'}</p>
                   )}
                 </div>
@@ -2759,13 +2778,16 @@ export default function EditEvent() {
                     id="end_date"
                     tz={eventTimezone}
                     isReady={!isTimezoneLoading}
-                    value={formData.end_date}
+                    value={isTraining ? (trainingDerivedDates?.end || '') : formData.end_date}
                     onChange={(iso) => handleInputChange('end_date', iso)}
-                    disabled={eventTiming === 'tbc' || (isOnlineEvent && !isGroupLimited) || isTimezoneLoading}
-                    className={(eventTiming === 'tbc' || (isOnlineEvent && !isGroupLimited) || isTimezoneLoading) ? "bg-slate-100 cursor-not-allowed" : ""}
+                    disabled={eventTiming === 'tbc' || isTraining || (isOnlineEvent && !isGroupLimited) || isTimezoneLoading}
+                    className={(eventTiming === 'tbc' || isTraining || (isOnlineEvent && !isGroupLimited) || isTimezoneLoading) ? "bg-slate-100 cursor-not-allowed" : ""}
                     data-testid="input-end-date"
                   />
-                  {isOnlineEvent && !isGroupLimited && eventTiming !== 'tbc' && (
+                  {isTraining && eventTiming !== 'tbc' && (
+                    <p className="text-xs text-slate-500">Taken from the latest agenda date</p>
+                  )}
+                  {!isTraining && isOnlineEvent && !isGroupLimited && eventTiming !== 'tbc' && (
                     <p className="text-xs text-slate-500">Managed by Zoom webinar</p>
                   )}
                 </div>
@@ -3823,6 +3845,8 @@ export default function EditEvent() {
                   </p>
                 </div>
               )}
+              {/* Training events define location per agenda item (Task #3436). */}
+              {!isTraining && (
               <div className="space-y-2">
                 <Label htmlFor="location">Venue / Location</Label>
                 <Input
@@ -3862,6 +3886,7 @@ export default function EditEvent() {
                   </div>
                 )}
               </div>
+              )}
 
               {/* Available Seats - shown for all event types */}
               <div className="space-y-3">
