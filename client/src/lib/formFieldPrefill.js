@@ -213,6 +213,25 @@ export const buildPrefillValues = ({
   return newValues;
 };
 
+// Task #3399: gate for the authenticated viewer-booking prefill fallback on
+// FormView. Fires only when the LOADED form uses booking prefill, no explicit
+// booking_id URL param is present (explicit param always wins), and the
+// viewer's auth state has resolved to a logged-in member. Anonymous viewers
+// and non-booking forms never trigger the fetch, so they behave exactly as
+// before.
+export const shouldFetchViewerBookingPrefill = ({
+  prefillSource,
+  urlBookingId,
+  authResolved,
+  viewerMemberId,
+  formSlug,
+}) => {
+  if (prefillSource !== 'booking') return false;
+  if (urlBookingId) return false;
+  if (!authResolved || !viewerMemberId) return false;
+  return !!formSlug;
+};
+
 export const parseCustomFieldValue = (cfv, fieldType) => {
   if (!cfv || cfv.value === undefined || cfv.value === null) return null;
   let parsedValue = cfv.value;

@@ -11,7 +11,7 @@ import FormRenderer from "../components/forms/FormRenderer";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useLayoutContext } from "@/contexts/LayoutContext";
-import { isFieldValueFilled, parseCustomFieldValue, resolveEffectivePrefillIds, resolveMemberSourceOrgId, shouldWaitForPrefillCustomValues, shouldWaitForPrefillOrgEntity } from "@/lib/formFieldPrefill";
+import { isFieldValueFilled, parseCustomFieldValue, resolveEffectivePrefillIds, resolveMemberSourceOrgId, shouldFetchViewerBookingPrefill, shouldWaitForPrefillCustomValues, shouldWaitForPrefillOrgEntity } from "@/lib/formFieldPrefill";
 import { getFormPagination } from "@/lib/formPagination";
 import { useSubmissionIdempotencyKey } from "@/lib/useSubmissionIdempotencyKey";
 
@@ -384,13 +384,38 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
     return null;
   }, [prefillOrg, prefillMemberOrg]);
 
-  const { data: prefillBookingData, isLoading: bookingPrefillLoading } = useQuery({
+  const { data: explicitBookingData, isLoading: explicitBookingLoading } = useQuery({
     queryKey: ['prefill-booking', prefillBookingId, formSlug],
     queryFn: async () => {
       return publicClient.getPrefillBooking(prefillBookingId, formSlug);
     },
     enabled: !!prefillBookingId && form?.prefill_source === 'booking'
   });
+
+  // Task #3399: authenticated fallback for event-linked booking-prefill forms.
+  // With no booking_id on the URL, resolve the logged-in member's own booking
+  // for the form's linked event server-side (session-derived member — never a
+  // client-supplied id). Explicit booking_id always wins (this query is
+  // disabled when the param is present); anonymous viewers and non-event-linked
+  // forms get an empty payload and degrade to blank fields as before. Gated on
+  // authResolved so it never races the session check.
+  const { data: viewerBookingData, isLoading: viewerBookingLoading } = useQuery({
+    queryKey: ['prefill-booking-viewer', formSlug, memberInfo?.id],
+    queryFn: async () => {
+      return publicClient.getPrefillBookingForViewer(formSlug);
+    },
+    enabled: shouldFetchViewerBookingPrefill({
+      prefillSource: form?.prefill_source,
+      urlBookingId: prefillBookingId,
+      authResolved,
+      viewerMemberId: memberInfo?.id,
+      formSlug,
+    }),
+    retry: false
+  });
+
+  const prefillBookingData = prefillBookingId ? explicitBookingData : viewerBookingData;
+  const bookingPrefillLoading = prefillBookingId ? explicitBookingLoading : viewerBookingLoading;
 
   const prefillBooking = prefillBookingData?.booking || null;
   const prefillBookingMember = prefillBookingData?.member || null;

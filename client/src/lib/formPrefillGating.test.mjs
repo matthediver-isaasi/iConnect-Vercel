@@ -4,7 +4,7 @@
 // permanently skip custom-field prefills on EmbedForm.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { shouldWaitForPrefillCustomValues, resolveEffectivePrefillIds, buildPrefillValues, resolveMemberSourceOrgId, shouldWaitForPrefillOrgEntity } from './formFieldPrefill.js';
+import { shouldWaitForPrefillCustomValues, resolveEffectivePrefillIds, buildPrefillValues, resolveMemberSourceOrgId, shouldWaitForPrefillOrgEntity, shouldFetchViewerBookingPrefill } from './formFieldPrefill.js';
 
 // --- buildPrefillValues: pure field mapping; empty result is legitimate ---
 
@@ -245,6 +245,29 @@ test('shouldWaitForPrefillOrgEntity waits only while an org fetch feeding org: f
   assert.equal(shouldWaitForPrefillOrgEntity({
     prefillSource: 'booking', form: orgForm, effectiveOrgId: 'o1', orgEntityLoading: true,
   }), false);
+});
+
+// Task #3399: authenticated viewer-booking prefill fallback gate.
+test('shouldFetchViewerBookingPrefill fires only for booking forms, no explicit param, resolved logged-in viewer', () => {
+  const base = {
+    prefillSource: 'booking',
+    urlBookingId: null,
+    authResolved: true,
+    viewerMemberId: 'm1',
+    formSlug: 'my-form',
+  };
+  assert.equal(shouldFetchViewerBookingPrefill(base), true);
+  // Explicit booking_id always wins — fallback disabled.
+  assert.equal(shouldFetchViewerBookingPrefill({ ...base, urlBookingId: 'b1' }), false);
+  // Non-booking prefill sources never trigger the fetch.
+  assert.equal(shouldFetchViewerBookingPrefill({ ...base, prefillSource: 'member' }), false);
+  assert.equal(shouldFetchViewerBookingPrefill({ ...base, prefillSource: 'none' }), false);
+  assert.equal(shouldFetchViewerBookingPrefill({ ...base, prefillSource: undefined }), false);
+  // Anonymous viewers and unresolved auth never trigger it.
+  assert.equal(shouldFetchViewerBookingPrefill({ ...base, viewerMemberId: null }), false);
+  assert.equal(shouldFetchViewerBookingPrefill({ ...base, authResolved: false }), false);
+  // No slug (e.g. assignment-token surveys) — nothing to resolve against.
+  assert.equal(shouldFetchViewerBookingPrefill({ ...base, formSlug: null }), false);
 });
 
 test('org dropdown on member-source forms falls back to prefillOrgId when member row lacks organization_id', () => {

@@ -334,6 +334,18 @@ class PublicClient {
     if (!bookingId || !formSlug) return null;
     return this._fetch(`/api/public/form/prefill-booking?booking_id=${encodeURIComponent(bookingId)}&form_slug=${encodeURIComponent(formSlug)}`);
   }
+
+  // Task #3399: resolve the authenticated viewer's own booking for the form's
+  // linked event (no booking_id needed). The server resolves the member from
+  // the session cookie — credentials: 'include' carries it — and returns the
+  // same payload shape as getPrefillBooking, with nulls when there is nothing
+  // to prefill.
+  async getPrefillBookingForViewer(formSlug) {
+    if (!formSlug) return null;
+    return this._fetch(`/api/public/form/prefill-booking?resolve=viewer&form_slug=${encodeURIComponent(formSlug)}`, {
+      credentials: 'include'
+    });
+  }
   
   // Categories
   async listCategories() {

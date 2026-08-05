@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { resolveTenantFromRequest } from '../../_lib/tenantResolver.js';
+import { getSessionMember } from '../../_lib/session.js';
 
 const WHITELISTED_BOOKING_FIELDS = [
   'id', 'event_id', 'member_id', 'organization_id',
@@ -23,14 +24,127 @@ const WHITELISTED_ORG_FIELDS = [
   'website_url', 'logo_url', 'training_fund_balance', 'tags'
 ];
 
+// Empty payload used by the authenticated fallback when there is nothing to
+// prefill (form not event-linked, viewer has no booking for the event, …).
+// A 200 with nulls lets the client degrade gracefully to blank fields.
+const EMPTY_PAYLOAD = {
+  booking: null,
+  member: null,
+  memberCustomValues: [],
+  organization: null,
+  orgCustomValues: []
+};
+
+// Builds the whitelisted booking/member/org prefill payload from a resolved
+// booking row. Shared by the explicit booking_id path and the authenticated
+// viewer-resolution path so both return the exact same shape.
+async function buildPrefillPayload(supabase, tenantId, booking) {
+  const publicBooking = {};
+  for (const field of WHITELISTED_BOOKING_FIELDS) {
+    if (booking[field] !== undefined) {
+      publicBooking[field] = booking[field];
+    }
+  }
+
+  if (booking.event_id) {
+    const { data: event } = await supabase
+      .from('event')
+      .select('title')
+      .eq('id', booking.event_id)
+      .eq('tenant_id', tenantId)
+      .single();
+
+    if (event) {
+      publicBooking.event_name = event.title;
+    }
+  }
+
+  let member = null;
+  let memberCustomValues = [];
+  let organization = null;
+  let orgCustomValues = [];
+
+  if (booking.member_id) {
+    const { data: memberData } = await supabase
+      .from('member')
+      .select('*')
+      .eq('id', booking.member_id)
+      .eq('tenant_id', tenantId)
+      .single();
+
+    if (memberData) {
+      member = {};
+      for (const field of WHITELISTED_MEMBER_FIELDS) {
+        if (memberData[field] !== undefined) {
+          member[field] = memberData[field];
+        }
+      }
+
+      const { data: mcv } = await supabase
+        .from('member_preference_value')
+        .select('id, member_id, field_id, value')
+        .eq('member_id', booking.member_id);
+
+      if (mcv) {
+        memberCustomValues = mcv;
+      }
+
+      if (!booking.organization_id && memberData.organization_id) {
+        booking.organization_id = memberData.organization_id;
+      }
+    }
+  }
+
+  const orgId = booking.organization_id;
+  if (orgId) {
+    const { data: orgData } = await supabase
+      .from('organization')
+      .select('*')
+      .eq('id', orgId)
+      .eq('tenant_id', tenantId)
+      .single();
+
+    if (orgData) {
+      organization = {};
+      for (const field of WHITELISTED_ORG_FIELDS) {
+        if (orgData[field] !== undefined) {
+          organization[field] = orgData[field];
+        }
+      }
+
+      const { data: ocv } = await supabase
+        .from('organization_preference_value')
+        .select('id, organization_id, field_id, value')
+        .eq('organization_id', orgId);
+
+      if (ocv) {
+        orgCustomValues = ocv;
+      }
+    }
+  }
+
+  return {
+    booking: publicBooking,
+    member,
+    memberCustomValues,
+    organization,
+    orgCustomValues
+  };
+}
+
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const { booking_id, form_slug, tenant: tenantParam } = req.query;
+  const { booking_id, form_slug, resolve, tenant: tenantParam } = req.query;
 
-  if (!booking_id) {
+  // Task #3399: without an explicit booking_id, the endpoint can resolve the
+  // authenticated viewer's own booking for the form's linked event
+  // (?resolve=viewer). Explicit booking_id keeps its original contract.
+  const viewerResolution = !booking_id && resolve === 'viewer';
+
+  if (!booking_id && !viewerResolution) {
     return res.status(400).json({ error: 'booking_id is required' });
   }
   if (!form_slug) {
@@ -84,7 +198,7 @@ export default async function handler(req, res) {
 
     const { data: form, error: formError } = await supabase
       .from('form')
-      .select('id, prefill_source')
+      .select('id, prefill_source, is_event_related, related_event_id')
       .eq('slug', form_slug)
       .eq('tenant_id', tenantId)
       .eq('is_active', true)
@@ -98,108 +212,64 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'Form is not configured for booking prefill' });
     }
 
-    const { data: booking, error: bookingError } = await supabase
-      .from('booking')
-      .select('*')
-      .eq('id', booking_id)
-      .eq('tenant_id', tenantId)
-      .single();
+    let booking = null;
 
-    if (bookingError || !booking) {
-      return res.status(404).json({ error: 'Booking not found' });
-    }
-
-    const publicBooking = {};
-    for (const field of WHITELISTED_BOOKING_FIELDS) {
-      if (booking[field] !== undefined) {
-        publicBooking[field] = booking[field];
+    if (viewerResolution) {
+      // Task #3399: resolve the viewer's own booking for the form's linked
+      // event, entirely server-side. The member comes from the session (never
+      // from client-supplied ids), so this path can only ever surface the
+      // viewer's own booking. All "nothing to prefill" outcomes return an
+      // empty 200 payload so the form degrades gracefully to blank fields.
+      if (!form.is_event_related || !form.related_event_id) {
+        return res.json(EMPTY_PAYLOAD);
       }
-    }
 
-    if (booking.event_id) {
-      const { data: event } = await supabase
-        .from('event')
-        .select('title')
-        .eq('id', booking.event_id)
-        .eq('tenant_id', tenantId)
-        .single();
-
-      if (event) {
-        publicBooking.event_name = event.title;
+      const sessionMember = await getSessionMember(req);
+      if (!sessionMember) {
+        return res.json(EMPTY_PAYLOAD);
       }
-    }
 
-    let member = null;
-    let memberCustomValues = [];
-    let organization = null;
-    let orgCustomValues = [];
+      // The session member must belong to the resolved tenant.
+      const memberTenantId = sessionMember.tenant_id || sessionMember.organization?.tenant_id || null;
+      if (memberTenantId && memberTenantId !== tenantId) {
+        return res.json(EMPTY_PAYLOAD);
+      }
 
-    if (booking.member_id) {
-      const { data: memberData } = await supabase
-        .from('member')
+      // Match bookings where the viewer is the attendee (their own
+      // member_id); if several match (e.g. rebooked), pick the most recent.
+      const { data: bookings, error: bookingsError } = await supabase
+        .from('booking')
         .select('*')
-        .eq('id', booking.member_id)
         .eq('tenant_id', tenantId)
-        .single();
+        .eq('event_id', form.related_event_id)
+        .eq('member_id', sessionMember.id)
+        .neq('status', 'cancelled')
+        .order('created_at', { ascending: false, nullsFirst: false })
+        .order('id', { ascending: true })
+        .limit(1);
 
-      if (memberData) {
-        member = {};
-        for (const field of WHITELISTED_MEMBER_FIELDS) {
-          if (memberData[field] !== undefined) {
-            member[field] = memberData[field];
-          }
-        }
-
-        const { data: mcv } = await supabase
-          .from('member_preference_value')
-          .select('id, member_id, field_id, value')
-          .eq('member_id', booking.member_id);
-
-        if (mcv) {
-          memberCustomValues = mcv;
-        }
-
-        if (!booking.organization_id && memberData.organization_id) {
-          booking.organization_id = memberData.organization_id;
-        }
+      if (bookingsError || !bookings || bookings.length === 0) {
+        return res.json(EMPTY_PAYLOAD);
       }
-    }
 
-    const orgId = booking.organization_id;
-    if (orgId) {
-      const { data: orgData } = await supabase
-        .from('organization')
+      booking = bookings[0];
+    } else {
+      const { data: bookingData, error: bookingError } = await supabase
+        .from('booking')
         .select('*')
-        .eq('id', orgId)
+        .eq('id', booking_id)
         .eq('tenant_id', tenantId)
         .single();
 
-      if (orgData) {
-        organization = {};
-        for (const field of WHITELISTED_ORG_FIELDS) {
-          if (orgData[field] !== undefined) {
-            organization[field] = orgData[field];
-          }
-        }
-
-        const { data: ocv } = await supabase
-          .from('organization_preference_value')
-          .select('id, organization_id, field_id, value')
-          .eq('organization_id', orgId);
-
-        if (ocv) {
-          orgCustomValues = ocv;
-        }
+      if (bookingError || !bookingData) {
+        return res.status(404).json({ error: 'Booking not found' });
       }
+
+      booking = bookingData;
     }
 
-    return res.json({
-      booking: publicBooking,
-      member,
-      memberCustomValues,
-      organization,
-      orgCustomValues
-    });
+    const payload = await buildPrefillPayload(supabase, tenantId, booking);
+    return res.json(payload);
   } catch (error) {
     console.error('[Public Prefill Booking] Error:', error);
     return res.status(500).json({ error: 'Failed to fetch booking data' });
