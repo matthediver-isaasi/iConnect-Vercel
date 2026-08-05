@@ -46,6 +46,8 @@ function getMemberSenderLabel(member) {
 // Typeahead to pick a tenant member as the campaign sender. Selecting a member
 // fills the sender fields via onSelectMember; nothing is persisted about the
 // member itself — the picker is a convenience for pre-filling the inputs.
+// Results are scoped to the tenant's primary organisation via the
+// organization_id=__primary__ sentinel (resolved server-side).
 function MemberSenderPicker({ selectedMember, onSelectMember, onClear }) {
   const [open, setOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -77,7 +79,7 @@ function MemberSenderPicker({ selectedMember, onSelectMember, onClear }) {
       abortRef.current = controller;
       try {
         const resp = await fetch(
-          `/api/members/search?q=${encodeURIComponent(query)}&limit=15`,
+          `/api/members/search?q=${encodeURIComponent(query)}&limit=15&organization_id=__primary__`,
           { credentials: "include", signal: controller.signal }
         );
         if (resp.ok) {

@@ -26,6 +26,10 @@ export default function MemberCombobox({
   unassignedLabel = "Unassigned",
   testId = "combobox-member",
   initialMember = null,
+  // Optional pass-through org filter for /api/members/search:
+  // a specific org UUID, 'none'/'__no_org__'/'null', or '__primary__'
+  // (resolved server-side to the tenant's primary organisation).
+  organizationId = null,
 }) {
   const [open, setOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -91,8 +95,11 @@ export default function MemberCombobox({
       const controller = new AbortController();
       abortRef.current = controller;
       try {
+        const orgParam = organizationId
+          ? `&organization_id=${encodeURIComponent(organizationId)}`
+          : "";
         const resp = await fetch(
-          `/api/members/search?q=${encodeURIComponent(query)}&limit=15`,
+          `/api/members/search?q=${encodeURIComponent(query)}&limit=15${orgParam}`,
           { credentials: "include", signal: controller.signal }
         );
         if (resp.ok) {
@@ -107,7 +114,7 @@ export default function MemberCombobox({
         setLoading(false);
       }
     }, 300);
-  }, []);
+  }, [organizationId]);
 
   useEffect(() => {
     if (open) {

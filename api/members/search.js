@@ -1,6 +1,45 @@
 import { getTenantContext, hasAdminAccess } from '../_lib/tenantContext.js';
 import { supabase } from '../_lib/database.js';
 
+// Resolve the tenant's primary organisation (is_primary=true, created at
+// provisioning). Falls back to the tenant's earliest-created organisation when
+// no org is flagged primary (or the is_primary column is missing), mirroring
+// the first-org fallback pattern used elsewhere. Returns null only when the
+// tenant has no organisations at all.
+async function resolvePrimaryOrganizationId(tenantId) {
+  const { data: primaryOrg, error: primaryError } = await supabase
+    .from('organization')
+    .select('id')
+    .eq('tenant_id', tenantId)
+    .eq('is_primary', true)
+    .limit(1)
+    .maybeSingle();
+
+  if (!primaryError && primaryOrg?.id) {
+    return primaryOrg.id;
+  }
+
+  if (primaryError && primaryError.code !== '42703') {
+    console.error('[Member Search] Primary org lookup error:', primaryError);
+  }
+
+  // Fallback: earliest-created organisation for the tenant.
+  const { data: firstOrg, error: firstError } = await supabase
+    .from('organization')
+    .select('id')
+    .eq('tenant_id', tenantId)
+    .order('created_at', { ascending: true })
+    .limit(1)
+    .maybeSingle();
+
+  if (firstError) {
+    console.error('[Member Search] First org fallback error:', firstError);
+    return null;
+  }
+
+  return firstOrg?.id || null;
+}
+
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
     return res.status(405).json({ error: 'Method not allowed' });
@@ -39,11 +78,19 @@ export default async function handler(req, res) {
       .not('email', 'ilike', 'deleted_%@deleted.local');
 
     // Optional organisation filter:
+    // - '__primary__'                 => members of the tenant's primary organisation
     // - 'none' / '__no_org__' / 'null' => members with no organisation
     // - any other value (org UUID)    => members in that organisation
     if (organizationId) {
       const noOrgValues = ['none', '__no_org__', 'null'];
-      if (noOrgValues.includes(organizationId)) {
+      if (organizationId === '__primary__') {
+        const primaryOrgId = await resolvePrimaryOrganizationId(tenantId);
+        if (!primaryOrgId) {
+          // Tenant has no organisations at all — nothing can match the filter.
+          return res.json([]);
+        }
+        memberQuery = memberQuery.eq('organization_id', primaryOrgId);
+      } else if (noOrgValues.includes(organizationId)) {
         memberQuery = memberQuery.is('organization_id', null);
       } else {
         memberQuery = memberQuery.eq('organization_id', organizationId);
