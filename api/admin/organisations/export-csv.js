@@ -271,7 +271,7 @@ export default async function handler(req, res) {
     const hasCustomFilters = normalizedCustomFilters.length > 0;
 
     const coreHeaders = [
-      'name', 'slug', 'description', 'website_url', 'logo_url',
+      'id', 'name', 'slug', 'description', 'website_url', 'logo_url',
       'email', 'phone', 'address', 'city', 'country', 'postcode',
       'invoicing_email', 'invoicing_address',
       'training_fund_balance', 'is_active', 'external_id',
