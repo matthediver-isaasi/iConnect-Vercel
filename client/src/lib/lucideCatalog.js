@@ -16,6 +16,8 @@
 // name verbatim (e.g. "arrow-up-right"). kebabizeLucideName converts either
 // form so both resolve here.
 
+import { handleStaleChunkError } from '@/lib/staleChunkReload';
+
 let _catalogPromise = null;
 let _catalog = null; // Map: 'arrow-up-right' -> React component (incl. lookup aliases)
 let _catalogNames = null; // canonical kebab names only (for the picker list)
@@ -70,6 +72,11 @@ function loadCatalog() {
       .catch((err) => {
         _catalogPromise = null; // allow retry
         console.error('[lucideCatalog] failed to load icon catalog:', err);
+        // Task #3406: a rejected dynamic import here usually means the tab
+        // references a stale (pre-deploy) chunk. Route into the app-wide
+        // recovery path (one guarded reload, then a manual-refresh overlay)
+        // instead of only surfacing the picker's local error state.
+        handleStaleChunkError(err);
         throw err;
       });
   }

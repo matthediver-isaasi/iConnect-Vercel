@@ -8,6 +8,7 @@ import '@fortawesome/fontawesome-free/css/all.min.css'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { installFetchInterceptor } from '@/lib/fetchInterceptor'
 import { installRefocusCheck } from '@/lib/refocusCheck'
+import { installStaleChunkReload } from '@/lib/staleChunkReload'
 
 // Install global fetch interceptor immediately so every /api/ request with
 // credentials automatically carries X-Tenant-Id and handles 409 TENANT_CONTEXT_CHANGED.
@@ -16,6 +17,11 @@ installFetchInterceptor()
 // Install proactive stale-tab detection: checks session tenant on refocus
 // before any API call is made, so the lock overlay appears immediately.
 installRefocusCheck()
+
+// Install app-wide stale-chunk recovery: after a deploy, dynamic imports of
+// old content-hashed chunks reject; reload once (loop-guarded) to pick up the
+// fresh build instead of stranding the user on a broken lazy component.
+installStaleChunkReload()
 
 const queryClient = new QueryClient({
   defaultOptions: {
