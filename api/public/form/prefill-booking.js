@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { resolveTenantFromRequest } from '../../_lib/tenantResolver.js';
 import { getSessionMember } from '../../_lib/session.js';
+import { pickViewerBooking, emailExactIlikePattern } from '../../_lib/viewerBookingMatch.js';
 
 const WHITELISTED_BOOKING_FIELDS = [
   'id', 'event_id', 'member_id', 'organization_id',
@@ -235,18 +236,40 @@ export default async function handler(req, res) {
         return res.json(EMPTY_PAYLOAD);
       }
 
-      // Match bookings where the viewer is the attendee (their own
-      // member_id); if several match (e.g. rebooked), pick the most recent.
-      const { data: bookings, error: bookingsError } = await supabase
+      // Task #3403: match bookings where the viewer is the ATTENDEE
+      // (attendee_email, case-insensitive) OR the booker (member_id). A
+      // booking made on the viewer's behalf carries someone else's
+      // member_id, so member_id alone misses attendees. Attendee matches
+      // win; most recent wins among duplicates (see pickViewerBooking).
+      // Two prioritized queries (not one capped .or) so an old attendee
+      // booking can never be crowded out of a row cap by newer booker rows.
+      const baseQuery = () => supabase
         .from('booking')
         .select('*')
         .eq('tenant_id', tenantId)
         .eq('event_id', form.related_event_id)
-        .eq('member_id', sessionMember.id)
         .neq('status', 'cancelled')
         .order('created_at', { ascending: false, nullsFirst: false })
         .order('id', { ascending: true })
-        .limit(1);
+        .limit(10);
+
+      let bookings = [];
+      let bookingsError = null;
+
+      const emailPattern = emailExactIlikePattern(sessionMember.email);
+      if (emailPattern) {
+        // Escaped pattern = case-insensitive EXACT equality, never a wildcard
+        // match. pickViewerBooking re-verifies exact equality locally anyway.
+        const attendeeRes = await baseQuery().ilike('attendee_email', emailPattern);
+        bookingsError = attendeeRes.error;
+        bookings = attendeeRes.data || [];
+      }
+
+      if (!bookingsError && bookings.length === 0) {
+        const bookerRes = await baseQuery().eq('member_id', sessionMember.id);
+        bookingsError = bookerRes.error;
+        bookings = bookerRes.data || [];
+      }
 
       if (bookingsError) {
         // Transient DB error — not a definitive "no booking" answer. 500 so
@@ -255,7 +278,12 @@ export default async function handler(req, res) {
         return res.status(500).json({ error: 'Failed to fetch booking data' });
       }
 
-      if (!bookings || bookings.length === 0) {
+      const picked = pickViewerBooking(bookings, {
+        memberId: sessionMember.id,
+        email: sessionMember.email
+      });
+
+      if (!picked) {
         // Task #3400: authenticated member, event-linked form, but no booking
         // of theirs for the event. Mark this outcome explicitly so the client
         // can block the form with a helpful message instead of rendering
@@ -264,7 +292,15 @@ export default async function handler(req, res) {
         return res.json({ ...EMPTY_PAYLOAD, noBooking: true });
       }
 
-      booking = bookings[0];
+      booking = picked;
+
+      // When the viewer matched as ATTENDEE on someone else's booking, the
+      // row's member_id is the BOOKER. Prefill the member/org sections from
+      // the viewer instead — the survey is about them, and the booker's
+      // personal details must not leak into the attendee's form.
+      if (booking.member_id !== sessionMember.id) {
+        booking = { ...booking, member_id: sessionMember.id, organization_id: null };
+      }
     } else {
       const { data: bookingData, error: bookingError } = await supabase
         .from('booking')
