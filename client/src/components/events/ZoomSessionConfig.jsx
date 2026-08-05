@@ -1,3 +1,4 @@
+import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -5,6 +6,29 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
 import { Video, Users, Check, LinkIcon } from "lucide-react";
+
+async function fetchZoomList(url) {
+  const response = await fetch(url, { credentials: 'include' });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error(err.error || 'Failed to load Zoom list');
+  }
+  const data = await response.json();
+  return Array.isArray(data) ? data : [];
+}
+
+function formatZoomItemDateTime(item) {
+  if (!item?.start_time) return '';
+  const d = new Date(item.start_time);
+  if (isNaN(d.getTime())) return '';
+  return d.toLocaleString(undefined, {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
 
 export default function ZoomSessionConfig({
   zoomType = 'meeting',
@@ -24,6 +48,24 @@ export default function ZoomSessionConfig({
 }) {
   const linkedId = zoomMeetingId || zoomWebinarId;
   const linkedType = zoomWebinarId ? 'Webinar' : 'Meeting';
+
+  const isWebinar = zoomType === 'webinar';
+  const listUrl = isWebinar ? '/api/zoom/webinars' : '/api/zoom/meetings';
+  const { data: upcomingItems = [], isLoading: loadingItems, isError: listError } = useQuery({
+    queryKey: [listUrl],
+    queryFn: async () => {
+      const data = await fetchZoomList(listUrl);
+      return data.filter(item => item.status === 'scheduled' && new Date(item.start_time) > new Date());
+    },
+    staleTime: 60000,
+    enabled: zoomLinkMode === 'link_existing',
+  });
+
+  const zoomIdOf = (item) => String((isWebinar ? item.zoom_webinar_id : item.zoom_meeting_id) || '');
+  const storedId = String(linkExistingZoomId || '');
+  const selectedItem = storedId ? upcomingItems.find(item => zoomIdOf(item) === storedId) : null;
+  const storedIdMissingFromList = Boolean(storedId) && !selectedItem;
+  const typeLabel = isWebinar ? 'webinar' : 'meeting';
 
   return (
     <div className="space-y-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
@@ -165,17 +207,88 @@ export default function ZoomSessionConfig({
 
         {zoomLinkMode === 'link_existing' ? (
           <div className="space-y-2">
-            <Label>Existing Zoom Meeting/Webinar ID</Label>
-            <Input
-              type="text"
-              placeholder="e.g. 12345678901"
-              value={linkExistingZoomId || ''}
-              onChange={(e) => onUpdate({ link_existing_zoom_id: e.target.value.trim() })}
-              data-testid={`input-session-existing-zoom-id${testIdSuffix}`}
-            />
-            <p className="text-xs text-blue-700">
-              Enter the numeric Zoom {zoomType} ID to link.
-            </p>
+            <Label>Select Zoom {isWebinar ? 'Webinar' : 'Meeting'}</Label>
+            {listError ? (
+              <>
+                <Input
+                  type="text"
+                  placeholder="e.g. 12345678901"
+                  value={linkExistingZoomId || ''}
+                  onChange={(e) => onUpdate({ link_existing_zoom_id: e.target.value.trim() })}
+                  data-testid={`input-session-existing-zoom-id${testIdSuffix}`}
+                />
+                <p className="text-xs text-amber-700">
+                  Couldn't load your Zoom {typeLabel}s (Zoom may not be connected). Enter the numeric Zoom {typeLabel} ID manually.
+                </p>
+              </>
+            ) : (
+              <>
+                <Select
+                  value={storedId}
+                  onValueChange={(value) => onUpdate({ link_existing_zoom_id: value })}
+                  disabled={loadingItems}
+                >
+                  <SelectTrigger data-testid={`select-session-existing-zoom-trigger${testIdSuffix}`}>
+                    <SelectValue placeholder={loadingItems ? `Loading ${typeLabel}s...` : `Choose a scheduled ${typeLabel}`} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {upcomingItems.length === 0 && !loadingItems && !storedIdMissingFromList && (
+                      <div className="p-4 text-center text-sm text-slate-500">
+                        No upcoming {typeLabel}s available.
+                      </div>
+                    )}
+                    {storedIdMissingFromList && (
+                      <SelectItem value={storedId} data-testid={`select-session-existing-zoom-stored${testIdSuffix}`}>
+                        <div className="flex flex-col">
+                          <span className="font-medium">Zoom ID: {storedId}</span>
+                          <span className="text-xs text-slate-500">Previously entered (not in upcoming list)</span>
+                        </div>
+                      </SelectItem>
+                    )}
+                    {upcomingItems.map((item) => (
+                      <SelectItem key={item.id} value={zoomIdOf(item)} data-testid={`select-session-existing-zoom-${item.id}${testIdSuffix}`}>
+                        <div className="flex flex-col">
+                          <span className="font-medium">{item.topic}</span>
+                          <span className="text-xs text-slate-500">{formatZoomItemDateTime(item)}</span>
+                        </div>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-blue-700">
+                  Choose an upcoming Zoom {typeLabel} to link to this session.
+                </p>
+              </>
+            )}
+
+            {selectedItem && (
+              <div className={`p-4 rounded-lg border ${isWebinar ? 'bg-green-50 border-green-200' : 'bg-blue-50 border-blue-200'}`} data-testid={`session-existing-zoom-summary${testIdSuffix}`}>
+                <div className="flex items-center gap-2 mb-2">
+                  {isWebinar ? (
+                    <Users className="h-4 w-4 text-green-600" />
+                  ) : (
+                    <Video className="h-4 w-4 text-blue-600" />
+                  )}
+                  <span className={`font-medium ${isWebinar ? 'text-green-900' : 'text-blue-900'}`}>
+                    {isWebinar ? 'Webinar' : 'Meeting'} Selected
+                  </span>
+                </div>
+                <div className={`space-y-1 text-sm ${isWebinar ? 'text-green-800' : 'text-blue-800'}`}>
+                  <p><strong>Topic:</strong> {selectedItem.topic}</p>
+                  <p><strong>Date:</strong> {formatZoomItemDateTime(selectedItem)}</p>
+                  <p><strong>Duration:</strong> {selectedItem.duration_minutes || selectedItem.duration} minutes</p>
+                  {selectedItem.timezone && (
+                    <p><strong>Timezone:</strong> {selectedItem.timezone}</p>
+                  )}
+                </div>
+              </div>
+            )}
+            {!listError && storedIdMissingFromList && (
+              <div className="p-3 rounded-lg border bg-slate-50 border-slate-200 text-sm text-slate-700" data-testid={`session-existing-zoom-raw-id${testIdSuffix}`}>
+                <p><strong>Linked Zoom ID:</strong> {storedId}</p>
+                <p className="text-xs text-slate-500 mt-1">This ID was entered previously and isn't in the upcoming {typeLabel} list. It will still be saved as-is.</p>
+              </div>
+            )}
           </div>
         ) : (
           <div className="flex items-center justify-between">

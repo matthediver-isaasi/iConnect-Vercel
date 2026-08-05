@@ -40,6 +40,7 @@ import EventOptionListsEditor from "@/components/events/EventOptionListsEditor";
 import { isAttendeeOptionsCollectionEnabled } from "@/lib/attendeeOptionsSetting";
 import ZoomSessionConfig from "@/components/events/ZoomSessionConfig";
 import ChangeZoomDialog from "@/components/events/ChangeZoomDialog";
+import { persistSessionZoomLink } from "@/lib/sessionZoomLink";
 import { FocalPointPicker } from "@/components/FocalPointPicker";
 import SEOSettings from "@/components/blog/SEOSettings";
 import UnfurlPreview from "@/components/UnfurlPreview";
@@ -1900,6 +1901,21 @@ export default function CreateComplexEvent() {
           if (!resp.ok) {
             const errData = await resp.json().catch(() => ({}));
             throw new Error(errData.error || `Failed to update session: ${session.title}`);
+          }
+          // task-3414: the bypass PATCH strips Zoom columns (task-692), so a
+          // "Link Existing" dropdown selection on a saved session must go
+          // through the change-zoom API to persist (and safely re-route any
+          // confirmed registrants).
+          if (!isGroupLimited && session.is_online) {
+            try {
+              const zoomLinkResult = await persistSessionZoomLink(session);
+              if (zoomLinkResult.status === 'not_found') {
+                toast.warning(`Session "${session.title}": the selected Zoom ID wasn't found in your Zoom list, so its Zoom link was left unchanged.`);
+              }
+            } catch (zoomLinkErr) {
+              console.error('[CreateComplexEvent] failed to persist session Zoom link', zoomLinkErr);
+              toast.error(`Session "${session.title}": saved, but linking the selected Zoom failed: ${zoomLinkErr.message}`);
+            }
           }
         } else {
           const resp = await fetch('/api/complex-event-sessions?skipOverlapCheck=true', {
