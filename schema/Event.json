@@ -6,6 +6,11 @@
       "type": "string",
       "description": "Event name from Backstage"
     },
+    "is_training": {
+      "type": "boolean",
+      "default": false,
+      "description": "Training event: a simple event with a multi-day agenda of EventAgendaItem lines (Task #3419)"
+    },
     "description": {
       "type": "string"
     },

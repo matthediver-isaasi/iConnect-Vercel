@@ -54,7 +54,7 @@ import { format } from "date-fns";
 import { formatInTimeZone } from "date-fns-tz";
 import { TimezoneAwareDateTimeInput } from "@/components/events/TimezoneAwareDateTimeInput";
 import EventClashWarningDialog from "@/components/events/EventClashWarningDialog";
-import { checkEventClashes } from "@/lib/eventClash";
+import { checkEventClashes, buildClashWindows } from "@/lib/eventClash";
 import { createPageUrl, getEventUrl } from "@/utils";
 import EventImageUpload from "@/components/events/EventImageUpload";
 import EventDocumentsManager from "@/components/events/EventDocumentsManager";
@@ -68,6 +68,8 @@ import SpeakerAwardsSection, { configToFormState, formStateToConfig } from "@/co
 import EventSponsorSelector from "@/components/events/EventSponsorSelector";
 import { useSpeakerModuleName } from "@/hooks/useSpeakerModuleName";
 import { useEventTypes } from "@/hooks/useEventTypes";
+import { useAgendaItemTypes } from "@/hooks/useAgendaItemTypes";
+import TrainingAgendaEditor, { validateAgendaLines, agendaTypeBehaviour } from "@/components/events/TrainingAgendaEditor";
 import { useMemberGroupSettings } from "@/hooks/useMemberGroupSettings";
 import { useServerAdminAuth } from "@/hooks/useServerAdminAuth";
 import ReactQuill from 'react-quill';
@@ -133,6 +135,11 @@ export default function EditEvent() {
   const queryClient = useQueryClient();
   const { singular: speakerSingular, plural: speakerPlural } = useSpeakerModuleName();
   const { eventTypes } = useEventTypes();
+  const { agendaItemTypes } = useAgendaItemTypes();
+  // Training event (Task #3419): simple event + multi-day agenda lines
+  const [isTraining, setIsTraining] = useState(false);
+  const [agendaLines, setAgendaLines] = useState([]);
+  const [initialAgendaIds, setInitialAgendaIds] = useState([]);
   const { ticketTypeName: groupTicketTypeName, featureName: memberGroupFeatureName } = useMemberGroupSettings();
   const urlParams = new URLSearchParams(window.location.search);
   const eventId = urlParams.get('id');
@@ -849,7 +856,60 @@ export default function EditEvent() {
 
   const updateEventMutation = useMutation({
     mutationFn: async (eventData) => {
-      return base44.entities.Event.update(eventId, eventData);
+      const updated = await base44.entities.Event.update(eventId, eventData);
+
+      // Training events (Task #3419): persist agenda line changes as part of
+      // the awaited save flow — update rows that still exist, create new ones,
+      // delete removed ones (stable line ids keep line-anchored reminders from
+      // churning). Any failure rejects the mutation, so no success toast or
+      // redirect fires on a partial save.
+      const keptIds = new Set(isTraining ? agendaLines.map((l) => l.id).filter(Boolean) : []);
+      const removedIds = initialAgendaIds.filter((agendaId) => !keptIds.has(agendaId));
+      try {
+        for (const removedId of removedIds) {
+          await base44.entities.EventAgendaItem.delete(removedId);
+        }
+        if (isTraining) {
+          const savedIds = [];
+          for (let i = 0; i < agendaLines.length; i++) {
+            const line = agendaLines[i];
+            const behaviour = agendaTypeBehaviour(line.item_type);
+            const payload = {
+              event_id: eventId,
+              start_date: line.start_date,
+              end_date: line.end_date || line.start_date,
+              description: line.description || null,
+              item_type: line.item_type || null,
+              location: behaviour === 'location' ? (line.location || null) : null,
+              zoom_webinar_id: behaviour === 'zoom' ? (line.zoom_webinar_id || null) : null,
+              zoom_meeting_id: behaviour === 'zoom' ? (line.zoom_meeting_id || null) : null,
+              lms_url: behaviour === 'lms' ? (line.lms_url || null) : null,
+              sort_order: i,
+            };
+            if (line.id) {
+              await base44.entities.EventAgendaItem.update(line.id, payload);
+              savedIds.push(line.id);
+            } else {
+              const created = await base44.entities.EventAgendaItem.create(payload);
+              savedIds.push(created?.id);
+            }
+          }
+          setInitialAgendaIds(savedIds.filter(Boolean));
+        } else {
+          setInitialAgendaIds([]);
+        }
+        queryClient.invalidateQueries({ queryKey: ['/api/entities/EventAgendaItem'] });
+      } catch (agendaErr) {
+        console.error('Failed to save agenda lines:', agendaErr);
+        const wrapped = new Error(
+          'the training agenda could not be fully saved — please review the agenda and save again ('
+          + (agendaErr?.message || 'unknown error') + ')'
+        );
+        wrapped.cause = agendaErr;
+        throw wrapped;
+      }
+
+      return updated;
     },
     onError: (error) => {
       console.error('Update event error:', error, {
@@ -899,6 +959,31 @@ export default function EditEvent() {
 
       // Load the group audience choice (group-limited mode).
       setGroupEventPublic(event.group_event_public === true);
+
+      // Training events: load the agenda lines (Task #3419).
+      setIsTraining(event.is_training === true);
+      if (event.is_training) {
+        base44.entities.EventAgendaItem.list({ filter: { event_id: event.id } })
+          .then((rows) => {
+            const sorted = (rows || []).slice().sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+            setAgendaLines(sorted.map((r) => ({
+              id: r.id,
+              start_date: r.start_date || '',
+              end_date: r.end_date && r.end_date !== r.start_date ? r.end_date : '',
+              description: r.description || '',
+              item_type: r.item_type || '',
+              location: r.location || '',
+              zoom_webinar_id: r.zoom_webinar_id || null,
+              zoom_meeting_id: r.zoom_meeting_id || null,
+              lms_url: r.lms_url || '',
+            })));
+            setInitialAgendaIds(sorted.map((r) => r.id));
+          })
+          .catch((err) => {
+            console.error('Failed to load agenda lines:', err);
+            toast.error('Failed to load the training agenda');
+          });
+      }
 
       // Set zoom type based on which field is populated
       if (event.zoom_meeting_id) {
@@ -1238,10 +1323,21 @@ export default function EditEvent() {
       return;
     }
     
-    // Only require start_date for non-TBC events
-    if (eventTiming !== 'tbc' && !formData.start_date) {
+    // Only require start_date for non-TBC events. Training events derive their
+    // start/end dates from the agenda lines instead (Task #3419).
+    if (eventTiming !== 'tbc' && !formData.start_date && !isTraining) {
       toast.error('Please set a start date');
       return;
+    }
+
+    // Training events: validate the agenda lines (at least one line, dates,
+    // and the type-conditional location / webinar-meeting / LMS fields).
+    if (isTraining) {
+      const agendaErrors = validateAgendaLines(agendaLines);
+      if (agendaErrors.length > 0) {
+        toast.error(agendaErrors[0]);
+        return;
+      }
     }
 
     if (!formData.title) {
@@ -1374,6 +1470,19 @@ export default function EditEvent() {
 
     // For TBC events, explicitly null out dates and Zoom webinar
     const isTbcEvent = eventTiming === 'tbc';
+
+    // Training events: the overall start/end span the agenda so listings stay
+    // correct (whole-day window across the earliest/latest agenda dates).
+    let trainingStart = null;
+    let trainingEnd = null;
+    if (isTraining && agendaLines.length > 0) {
+      const starts = agendaLines.map(l => l.start_date).filter(Boolean).sort();
+      const ends = agendaLines.map(l => l.end_date || l.start_date).filter(Boolean).sort();
+      if (starts.length > 0) {
+        trainingStart = `${starts[0]}T00:00:00`;
+        trainingEnd = `${ends[ends.length - 1]}T23:59:00`;
+      }
+    }
     
     if (slugError || checkingSlug) {
       toast.error(slugError || 'Please wait while the URL slug is being verified');
@@ -1391,9 +1500,10 @@ export default function EditEvent() {
       // For one-off events, program_tag should be empty string; for program events, use the selected program
       // Visibility is determined by program_tag: empty = one-off event, non-empty = program event
       program_tag: isOneOffEvent ? "" : formData.program_tag,
-      // For TBC events, dates must be null
-      start_date: isTbcEvent ? null : (formData.start_date || null),
-      end_date: isTbcEvent ? null : (formData.end_date || formData.start_date || null),
+      is_training: isTraining,
+      // For TBC events, dates must be null. Training events span their agenda.
+      start_date: isTbcEvent ? null : (isTraining && trainingStart ? trainingStart : (formData.start_date || null)),
+      end_date: isTbcEvent ? null : (isTraining && trainingEnd ? trainingEnd : (formData.end_date || formData.start_date || null)),
       registration_closes_at: formData.registration_closes_at || null,
       location: isOnlineEvent ? null : (formData.location || null),
       image_url: formData.image_url || null,
@@ -1548,16 +1658,21 @@ export default function EditEvent() {
     });
 
     // Advisory time-clash check (never blocks saving). Skip for TBC / no dates.
-    if (eventData.start_date && eventData.end_date) {
+    // Training events contribute one whole-day window per clash-included
+    // agenda line instead of the event-level span (Task #3419).
+    const clashWindows = buildClashWindows({
+      isTraining,
+      agendaLines,
+      agendaItemTypes,
+      eventData,
+      timezone: formData.timezone || 'Europe/London',
+      title: formData.title || null,
+    });
+    if (clashWindows.length > 0) {
       setCheckingClashes(true);
       try {
         const { hasClashes, clashes, redacted, clashCount } = await checkEventClashes({
-          windows: [{
-            start: eventData.start_date,
-            end: eventData.end_date,
-            timezone: formData.timezone || 'Europe/London',
-            label: formData.title || null,
-          }],
+          windows: clashWindows,
           excludeEventId: eventId,
         });
         if (hasClashes) {
@@ -1975,6 +2090,39 @@ export default function EditEvent() {
               </div>
             </CardContent>
           </Card>
+
+          {/* Training event toggle + multi-day agenda (Task #3419) */}
+          {!isGroupLimited && (
+            <Card className="border-slate-200 shadow-sm mb-6">
+              <CardHeader className="pb-4">
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <Calendar className="h-5 w-5 text-blue-600" />
+                  Training Event
+                </CardTitle>
+                <CardDescription>
+                  Training events run over multiple days. Add one agenda line per day (or date range) — the event's overall dates are taken from the agenda.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="is-training" className="text-base font-medium">This is a Training event</Label>
+                  <Switch
+                    id="is-training"
+                    checked={isTraining}
+                    onCheckedChange={setIsTraining}
+                    data-testid="switch-is-training"
+                  />
+                </div>
+                {isTraining && (
+                  <TrainingAgendaEditor
+                    lines={agendaLines}
+                    onChange={setAgendaLines}
+                    agendaItemTypes={agendaItemTypes}
+                  />
+                )}
+              </CardContent>
+            </Card>
+          )}
 
           <Card className="border-slate-200 shadow-sm mb-6">
             <CardHeader className="pb-4">

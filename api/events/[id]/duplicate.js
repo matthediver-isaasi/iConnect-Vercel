@@ -14,7 +14,7 @@ const FIELDS_TO_COPY = [
   'allow_guests_to_view_all_tickets', 'collect_third_party_consent',
   'donation_config', 'seo_title', 'seo_description', 'og_image_url', 'event_timing', 'timezone',
   'organization_id', 'program_id', 'attached_documents', 'documents_section_title',
-  'member_group_id', 'group_event_public'
+  'member_group_id', 'group_event_public', 'is_training'
 ];
 
 // Best-effort deep-copy. Tables that don't exist in this tenant's schema
@@ -39,6 +39,9 @@ const CHILD_TABLES = [
   // excluded — duplicates must never inherit attendance/booking data.
   { table: 'event_discount_code', fk: 'event_id', tenantScoped: true },
   { table: 'event_training_fund', fk: 'event_id', tenantScoped: true },
+  // Training-event agenda lines (Task #3419). Dates are copied as-is — the
+  // duplicate's event dates are cleared, so admins revisit the agenda anyway.
+  { table: 'event_agenda_item', fk: 'event_id', tenantScoped: true },
 ];
 
 async function findUniqueSlug(tenantId, base) {

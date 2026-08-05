@@ -47,7 +47,7 @@ import { base44 } from "@/api/base44Client";
 import { format } from "date-fns";
 import { TimezoneAwareDateTimeInput } from "@/components/events/TimezoneAwareDateTimeInput";
 import EventClashWarningDialog from "@/components/events/EventClashWarningDialog";
-import { checkEventClashes } from "@/lib/eventClash";
+import { checkEventClashes, buildClashWindows } from "@/lib/eventClash";
 import { createPageUrl, getEventUrl } from "@/utils";
 import EventDocumentsManager from "@/components/events/EventDocumentsManager";
 import EventOptionListsEditor from "@/components/events/EventOptionListsEditor";
@@ -58,6 +58,8 @@ import { SpeakerSelectionModal } from "@/components/SpeakerSelectionModal";
 import SpeakerAwardsSection, { configToFormState, formStateToConfig } from "@/components/events/SpeakerAwardsSection";
 import { useSpeakerModuleName } from "@/hooks/useSpeakerModuleName";
 import { useEventTypes } from "@/hooks/useEventTypes";
+import { useAgendaItemTypes } from "@/hooks/useAgendaItemTypes";
+import TrainingAgendaEditor, { validateAgendaLines, agendaTypeBehaviour } from "@/components/events/TrainingAgendaEditor";
 import { useMemberGroupSettings } from "@/hooks/useMemberGroupSettings";
 import ReactQuill from 'react-quill';
 import 'react-quill/dist/quill.snow.css';
@@ -119,6 +121,7 @@ export default function CreateEvent() {
   const queryClient = useQueryClient();
   const { singular: speakerSingular, plural: speakerPlural } = useSpeakerModuleName();
   const { eventTypes } = useEventTypes();
+  const { agendaItemTypes } = useAgendaItemTypes();
 
   // Task #1519: Group-limited mode for Group Admins. Entered via
   // ?group_event=1&group_id=<uuid> (GroupEvents.jsx links this way). In this
@@ -145,6 +148,9 @@ export default function CreateEvent() {
   const [isFeatured, setIsFeatured] = useState(false);
   const [isOnline, setIsOnline] = useState(false);
   const [isProgramEvent, setIsProgramEvent] = useState(false);
+  // Training event (Task #3419): simple event + multi-day agenda lines
+  const [isTraining, setIsTraining] = useState(false);
+  const [agendaLines, setAgendaLines] = useState([]);
   const [zoomType, setZoomType] = useState("webinar"); // "webinar" or "meeting"
   const [selectedWebinarId, setSelectedWebinarId] = useState("");
   const [selectedMeetingId, setSelectedMeetingId] = useState("");
@@ -666,6 +672,43 @@ export default function CreateEvent() {
     mutationFn: async (eventData) => {
       const createdEvent = await base44.entities.Event.create(eventData);
 
+      // Training events (Task #3419): persist agenda lines now that the event
+      // has an ID. If any line fails, roll the event back (compensating
+      // delete) and fail the whole save — never report success for a training
+      // event with a missing/partial agenda.
+      if (eventData.is_training && agendaLines.length > 0) {
+        try {
+          for (let i = 0; i < agendaLines.length; i++) {
+            const line = agendaLines[i];
+            await base44.entities.EventAgendaItem.create({
+              event_id: createdEvent.id,
+              start_date: line.start_date,
+              end_date: line.end_date || line.start_date,
+              description: line.description || null,
+              item_type: line.item_type || null,
+              location: agendaTypeBehaviour(line.item_type) === 'location' ? (line.location || null) : null,
+              zoom_webinar_id: agendaTypeBehaviour(line.item_type) === 'zoom' ? (line.zoom_webinar_id || null) : null,
+              zoom_meeting_id: agendaTypeBehaviour(line.item_type) === 'zoom' ? (line.zoom_meeting_id || null) : null,
+              lms_url: agendaTypeBehaviour(line.item_type) === 'lms' ? (line.lms_url || null) : null,
+              sort_order: i,
+            });
+          }
+        } catch (err) {
+          console.error('Failed to save agenda lines after creation:', err);
+          try {
+            await base44.entities.Event.delete(createdEvent.id);
+          } catch (rollbackErr) {
+            console.error('Failed to roll back event after agenda failure:', rollbackErr);
+          }
+          const wrapped = new Error(
+            'the training agenda could not be saved, so the event was not created — please try again ('
+            + (err?.message || 'unknown error') + ')'
+          );
+          wrapped.cause = err;
+          throw wrapped;
+        }
+      }
+
       // Task #3263: persist emails configured during creation, now that the
       // event has an ID. A failure here must never lose the created event —
       // report it back so onSuccess can route the admin to edit mode.
@@ -778,9 +821,16 @@ export default function CreateEvent() {
       errors.push('Please select a program for this event');
     }
     
-    // Only require start_date for non-TBC events
-    if (eventTiming !== 'tbc' && !formData.start_date) {
+    // Only require start_date for non-TBC events. Training events derive their
+    // start/end dates from the agenda lines instead (Task #3419).
+    if (eventTiming !== 'tbc' && !formData.start_date && !isTraining) {
       errors.push('Please set a start date and time');
+    }
+
+    // Training events: validate the agenda lines (at least one line, dates,
+    // and the type-conditional location / webinar-meeting / LMS fields).
+    if (isTraining) {
+      errors.push(...validateAgendaLines(agendaLines));
     }
     
     // Group-limited online events use a manual meeting link instead of Zoom.
@@ -902,6 +952,19 @@ export default function CreateEvent() {
 
     // For TBC events, explicitly null out dates and Zoom webinar
     const isTbcEvent = eventTiming === 'tbc';
+
+    // Training events: the overall start/end span the agenda so listings stay
+    // correct (whole-day window across the earliest/latest agenda dates).
+    let trainingStart = null;
+    let trainingEnd = null;
+    if (isTraining && agendaLines.length > 0) {
+      const starts = agendaLines.map(l => l.start_date).filter(Boolean).sort();
+      const ends = agendaLines.map(l => l.end_date || l.start_date).filter(Boolean).sort();
+      if (starts.length > 0) {
+        trainingStart = `${starts[0]}T00:00:00`;
+        trainingEnd = `${ends[ends.length - 1]}T23:59:00`;
+      }
+    }
     
     const eventData = {
       title: formData.title,
@@ -913,8 +976,8 @@ export default function CreateEvent() {
       // Visibility is determined by program_tag: empty = one-off event, non-empty = program event
       program_tag: isProgramEvent ? formData.program_tag : "",
       // For TBC events, dates must be null
-      start_date: isTbcEvent ? null : (formData.start_date || null),
-      end_date: isTbcEvent ? null : (formData.end_date || formData.start_date || null),
+      start_date: isTbcEvent ? null : (isTraining && trainingStart ? trainingStart : (formData.start_date || null)),
+      end_date: isTbcEvent ? null : (isTraining && trainingEnd ? trainingEnd : (formData.end_date || formData.start_date || null)),
       registration_closes_at: formData.registration_closes_at || null,
       location: locationValue,
       image_url: formData.image_url || null,
@@ -941,6 +1004,7 @@ export default function CreateEvent() {
       // TBC events can still be online, but webinar is optional
       is_online: isOnline,
       is_complex: false,
+      is_training: isTraining,
       status: eventTiming,
       event_state: eventState,
       is_featured: isFeatured,
@@ -1019,16 +1083,21 @@ export default function CreateEvent() {
     const submitCreate = () => createEventMutation.mutate(eventData);
 
     // Advisory time-clash check (never blocks saving). Skip for TBC / no dates.
-    if (eventData.start_date && eventData.end_date) {
+    // Training events contribute one whole-day window per clash-included
+    // agenda line instead of the event-level span (Task #3419).
+    const clashWindows = buildClashWindows({
+      isTraining,
+      agendaLines,
+      agendaItemTypes,
+      eventData,
+      timezone: formData.timezone || 'Europe/London',
+      title: formData.title || null,
+    });
+    if (clashWindows.length > 0) {
       setCheckingClashes(true);
       try {
         const { hasClashes, clashes, redacted, clashCount } = await checkEventClashes({
-          windows: [{
-            start: eventData.start_date,
-            end: eventData.end_date,
-            timezone: formData.timezone || 'Europe/London',
-            label: formData.title || null,
-          }],
+          windows: clashWindows,
         });
         if (hasClashes) {
           setPendingSubmit(() => submitCreate);
@@ -1487,6 +1556,39 @@ export default function CreateEvent() {
               )}
             </CardContent>
           </Card>
+
+          {/* Training event toggle + multi-day agenda (Task #3419) */}
+          {!isGroupLimited && (
+            <Card className="border-slate-200 shadow-sm mb-6">
+              <CardHeader className="pb-4">
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <Calendar className="h-5 w-5 text-blue-600" />
+                  Training Event
+                </CardTitle>
+                <CardDescription>
+                  Training events run over multiple days. Add one agenda line per day (or date range) — the event's overall dates are taken from the agenda.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="is-training" className="text-base font-medium">This is a Training event</Label>
+                  <Switch
+                    id="is-training"
+                    checked={isTraining}
+                    onCheckedChange={setIsTraining}
+                    data-testid="switch-is-training"
+                  />
+                </div>
+                {isTraining && (
+                  <TrainingAgendaEditor
+                    lines={agendaLines}
+                    onChange={setAgendaLines}
+                    agendaItemTypes={agendaItemTypes}
+                  />
+                )}
+              </CardContent>
+            </Card>
+          )}
 
           <Card className="border-slate-200 shadow-sm mb-6">
             <CardHeader className="pb-4">

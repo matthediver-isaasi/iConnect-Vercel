@@ -312,6 +312,7 @@ class EntitiesProxy {
   get ComplexEvent() { return this._getEntity('ComplexEvent'); }
   get ComplexEventTrack() { return this._getEntity('ComplexEventTrack'); }
   get ComplexEventSession() { return this._getEntity('ComplexEventSession'); }
+  get EventAgendaItem() { return this._getEntity('EventAgendaItem'); }
   get ComplexEventTicketClass() { return this._getEntity('ComplexEventTicketClass'); }
   get ComplexEventBooking() { return this._getEntity('ComplexEventBooking'); }
   get ComplexEventSessionCheckin() { return this._getEntity('ComplexEventSessionCheckin'); }

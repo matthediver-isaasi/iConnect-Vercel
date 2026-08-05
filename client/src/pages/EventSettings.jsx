@@ -17,6 +17,7 @@ import { createPageUrl } from "@/utils";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
+import { AGENDA_ITEM_TYPES_SETTING_KEY, parseAgendaItemTypes } from "@/hooks/useAgendaItemTypes";
 import ReactQuill from "react-quill";
 import "react-quill/dist/quill.snow.css";
 
@@ -100,6 +101,13 @@ export default function EventSettingsPage() {
   const [editingEventTypeBgColor, setEditingEventTypeBgColor] = useState("");
   const [editingEventTypeTextColor, setEditingEventTypeTextColor] = useState("");
   const [savingEventTypes, setSavingEventTypes] = useState(false);
+
+  // Agenda Item Types state (Task #3419) - objects {name, includeInClashChecks}
+  const [agendaItemTypes, setAgendaItemTypes] = useState([]);
+  const [newAgendaItemType, setNewAgendaItemType] = useState("");
+  const [editingAgendaTypeIndex, setEditingAgendaTypeIndex] = useState(null);
+  const [editingAgendaTypeValue, setEditingAgendaTypeValue] = useState("");
+  const [savingAgendaItemTypes, setSavingAgendaItemTypes] = useState(false);
   
   // CTA Button configuration
   const [ctaButtonStyle, setCtaButtonStyle] = useState("default"); // "default" or "gradient"
@@ -234,6 +242,10 @@ export default function EventSettingsPage() {
         console.error('Failed to parse event types:', e);
       }
     }
+
+    // Load agenda item types (Task #3419); seed defaults when absent.
+    const agendaTypesSetting = settings.find(s => s.setting_key === AGENDA_ITEM_TYPES_SETTING_KEY);
+    setAgendaItemTypes(parseAgendaItemTypes(agendaTypesSetting?.setting_value));
     
     // Load summary max length setting
     const summaryLengthSetting = settings.find(s => s.setting_key === 'event_summary_max_length');
@@ -903,6 +915,81 @@ export default function EventSettingsPage() {
       toast.error('Failed to save event types: ' + (error.message || 'Unknown error'));
     } finally {
       setSavingEventTypes(false);
+    }
+  };
+
+  // Agenda Item Types handlers (Task #3419)
+  const handleAddAgendaItemType = () => {
+    const trimmed = newAgendaItemType.trim();
+    if (!trimmed) {
+      toast.error('Please enter an agenda item type');
+      return;
+    }
+    if (agendaItemTypes.some(t => t.name.toLowerCase() === trimmed.toLowerCase())) {
+      toast.error('This agenda item type already exists');
+      return;
+    }
+    setAgendaItemTypes([...agendaItemTypes, { name: trimmed, includeInClashChecks: true }]);
+    setNewAgendaItemType("");
+  };
+
+  const handleRemoveAgendaItemType = (index) => {
+    setAgendaItemTypes(agendaItemTypes.filter((_, i) => i !== index));
+  };
+
+  const handleStartEditAgendaType = (index) => {
+    setEditingAgendaTypeIndex(index);
+    setEditingAgendaTypeValue(agendaItemTypes[index].name);
+  };
+
+  const handleSaveEditAgendaType = () => {
+    const trimmed = editingAgendaTypeValue.trim();
+    if (!trimmed) {
+      toast.error('Agenda item type cannot be empty');
+      return;
+    }
+    if (agendaItemTypes.some((t, i) => i !== editingAgendaTypeIndex && t.name.toLowerCase() === trimmed.toLowerCase())) {
+      toast.error('This agenda item type already exists');
+      return;
+    }
+    const updated = [...agendaItemTypes];
+    updated[editingAgendaTypeIndex] = { ...updated[editingAgendaTypeIndex], name: trimmed };
+    setAgendaItemTypes(updated);
+    setEditingAgendaTypeIndex(null);
+    setEditingAgendaTypeValue("");
+  };
+
+  const handleToggleAgendaTypeClash = (index, checked) => {
+    const updated = [...agendaItemTypes];
+    updated[index] = { ...updated[index], includeInClashChecks: checked === true };
+    setAgendaItemTypes(updated);
+  };
+
+  const handleSaveAgendaItemTypes = async () => {
+    if (agendaItemTypes.length === 0) {
+      toast.error('Please keep at least one agenda item type');
+      return;
+    }
+    setSavingAgendaItemTypes(true);
+    try {
+      const existing = settings.find(s => s.setting_key === AGENDA_ITEM_TYPES_SETTING_KEY);
+      const value = JSON.stringify(agendaItemTypes);
+      if (existing) {
+        await base44.entities.SystemSettings.update(existing.id, { setting_value: value });
+      } else {
+        await base44.entities.SystemSettings.create({
+          setting_key: AGENDA_ITEM_TYPES_SETTING_KEY,
+          setting_value: value
+        });
+      }
+      queryClient.invalidateQueries({ queryKey: ['system-settings'] });
+      queryClient.invalidateQueries({ queryKey: ['public-agenda-item-types-setting'] });
+      toast.success('Agenda item types saved successfully');
+    } catch (error) {
+      console.error('Failed to save agenda item types:', error);
+      toast.error('Failed to save agenda item types: ' + (error.message || 'Unknown error'));
+    } finally {
+      setSavingAgendaItemTypes(false);
     }
   };
 
@@ -2728,6 +2815,122 @@ export default function EventSettingsPage() {
                     <>
                       <Save className="w-4 h-4 mr-2" />
                       Save Event Types
+                    </>
+                  )}
+                </Button>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Agenda Item Types Section (Task #3419) */}
+        <Card className="border-slate-200 shadow-sm mb-8">
+          <CardHeader className="border-b border-slate-200">
+            <div className="flex items-center gap-2">
+              <Calendar className="w-5 h-5 text-indigo-600" />
+              <CardTitle>Agenda Item Types</CardTitle>
+            </div>
+          </CardHeader>
+          <CardContent className="pt-6">
+            <div className="space-y-4">
+              <p className="text-sm text-slate-600">
+                Types available for Training event agenda lines (e.g., In person, Online, Self study).
+                The toggle controls whether agenda lines of that type count in time-clash checks.
+              </p>
+
+              {/* Add new agenda item type */}
+              <div className="p-4 bg-slate-50 rounded-lg border border-slate-200 space-y-3">
+                <Label className="text-sm font-medium">Add New Agenda Item Type</Label>
+                <div className="flex flex-wrap items-center gap-3">
+                  <Input
+                    placeholder="Enter agenda item type name..."
+                    value={newAgendaItemType}
+                    onChange={(e) => setNewAgendaItemType(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && handleAddAgendaItemType()}
+                    className="flex-1 min-w-[200px]"
+                    data-testid="input-new-agenda-item-type"
+                  />
+                  <Button onClick={handleAddAgendaItemType} variant="outline" data-testid="button-add-agenda-item-type">
+                    <Plus className="w-4 h-4 mr-2" />
+                    Add
+                  </Button>
+                </div>
+              </div>
+
+              {/* Agenda item types list */}
+              {agendaItemTypes.length === 0 ? (
+                <p className="text-sm text-slate-500 py-4">No agenda item types defined yet. Add your first type above.</p>
+              ) : (
+                <div className="space-y-2">
+                  {agendaItemTypes.map((type, index) => (
+                    <div
+                      key={index}
+                      className="flex flex-wrap items-center justify-between gap-3 p-3 bg-slate-50 rounded-lg border border-slate-200"
+                      data-testid={`agenda-item-type-${index}`}
+                    >
+                      {editingAgendaTypeIndex === index ? (
+                        <div className="flex flex-wrap items-center gap-3 flex-1">
+                          <Input
+                            value={editingAgendaTypeValue}
+                            onChange={(e) => setEditingAgendaTypeValue(e.target.value)}
+                            onKeyDown={(e) => e.key === 'Enter' && handleSaveEditAgendaType()}
+                            className="flex-1 min-w-[160px]"
+                            data-testid={`input-edit-agenda-type-${index}`}
+                          />
+                          <Button size="sm" onClick={handleSaveEditAgendaType} data-testid={`button-save-edit-agenda-type-${index}`}>
+                            <Save className="w-4 h-4" />
+                          </Button>
+                          <Button size="sm" variant="outline" onClick={() => { setEditingAgendaTypeIndex(null); setEditingAgendaTypeValue(""); }}>
+                            <X className="w-4 h-4" />
+                          </Button>
+                        </div>
+                      ) : (
+                        <>
+                          <span className="font-medium text-slate-800">{type.name}</span>
+                          <div className="flex items-center gap-4">
+                            <div className="flex items-center gap-2">
+                              <Label className="text-xs text-slate-500">Include in clash checks</Label>
+                              <Switch
+                                checked={type.includeInClashChecks !== false}
+                                onCheckedChange={(checked) => handleToggleAgendaTypeClash(index, checked)}
+                                data-testid={`switch-agenda-type-clash-${index}`}
+                              />
+                            </div>
+                            <Button size="sm" variant="ghost" onClick={() => handleStartEditAgendaType(index)} data-testid={`button-edit-agenda-type-${index}`}>
+                              <Edit2 className="w-4 h-4" />
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                              onClick={() => handleRemoveAgendaItemType(index)}
+                              data-testid={`button-remove-agenda-type-${index}`}
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div className="pt-4 border-t border-slate-200">
+                <Button
+                  onClick={handleSaveAgendaItemTypes}
+                  disabled={savingAgendaItemTypes}
+                  data-testid="button-save-agenda-item-types"
+                >
+                  {savingAgendaItemTypes ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                      Saving...
+                    </>
+                  ) : (
+                    <>
+                      <Save className="w-4 h-4 mr-2" />
+                      Save Agenda Item Types
                     </>
                   )}
                 </Button>

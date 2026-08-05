@@ -1,6 +1,7 @@
 import { supabase } from '../_lib/database.js';
 import { getTenantContext, hasAdminAccess } from '../_lib/tenantContext.js';
 import { getCallerGroupEventsAccess } from '../_lib/memberGroupEventsAccess.js';
+import { loadAgendaItemTypes, clashIncludedTypeNames } from '../_lib/agendaItemTypes.js';
 import { fromZonedTime } from 'date-fns-tz';
 import { parseISO } from 'date-fns';
 
@@ -107,7 +108,7 @@ export default async function handler(req, res) {
     // Only real, scheduled events count: dates present, not draft, not TBC.
     let eventQuery = supabase
       .from('event')
-      .select('id, title, start_date, end_date, timezone, member_group_id, event_state, status, is_complex')
+      .select('id, title, start_date, end_date, timezone, member_group_id, event_state, status, is_complex, is_training')
       .eq('tenant_id', tenantId)
       .not('start_date', 'is', null)
       .not('end_date', 'is', null)
@@ -124,9 +125,61 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: 'Failed to check clashes' });
     }
 
+    // --- Training events: one whole-day window per clash-included agenda line ---
+    // A Training event's event-level start/end merely spans its agenda, so it
+    // must NOT contribute an event-level window (that would make excluded
+    // types, e.g. Self study, trigger clashes anyway).
+    const trainingEvents = (events || []).filter((ev) => ev.is_training && !ev.is_complex);
+    const trainingAgendaByEvent = {};
+    if (trainingEvents.length > 0) {
+      const { data: agendaRows, error: agErr } = await supabase
+        .from('event_agenda_item')
+        .select('id, event_id, start_date, end_date, description, item_type')
+        .eq('tenant_id', tenantId)
+        .in('event_id', trainingEvents.map((ev) => ev.id));
+      if (agErr) {
+        console.error('[check-clashes] agenda query failed:', agErr.message);
+        return res.status(500).json({ error: 'Failed to check clashes' });
+      }
+      for (const row of (agendaRows || [])) {
+        (trainingAgendaByEvent[row.event_id] = trainingAgendaByEvent[row.event_id] || []).push(row);
+      }
+    }
+    const agendaTypes = trainingEvents.length > 0 ? await loadAgendaItemTypes(tenantId) : [];
+    const includedTypeNames = clashIncludedTypeNames(agendaTypes);
+
     for (const ev of (events || [])) {
       // Defensive: complex events live in complex_event; never via the event row.
       if (ev.is_complex) continue;
+      if (ev.is_training) {
+        const lines = trainingAgendaByEvent[ev.id] || [];
+        for (const line of lines) {
+          const typeName = String(line.item_type || '').trim().toLowerCase();
+          if (!includedTypeNames.has(typeName)) continue;
+          if (!line.start_date) continue;
+          const endDate = line.end_date || line.start_date;
+          const s = toDate(`${line.start_date}T00:00:00`, ev.timezone);
+          const e = toDate(`${endDate}T23:59:59`, ev.timezone);
+          if (!s || !e) continue;
+          const hits = overlapsAny(s.getTime(), e.getTime());
+          if (hits.length > 0) {
+            if (ev.member_group_id) groupIds.add(ev.member_group_id);
+            clashes.push({
+              id: line.id,
+              type: 'training_agenda_line',
+              title: `${ev.title || 'Untitled event'} — ${line.item_type || 'Agenda'} (${line.start_date}${endDate !== line.start_date ? ` to ${endDate}` : ''})`,
+              start: s.toISOString(),
+              end: e.toISOString(),
+              timezone: ev.timezone || DEFAULT_TIMEZONE,
+              parentId: ev.id,
+              parentTitle: ev.title || 'Untitled event',
+              member_group_id: ev.member_group_id || null,
+              windowLabels: hits.filter(Boolean),
+            });
+          }
+        }
+        continue;
+      }
       const s = toDate(ev.start_date, ev.timezone);
       const e = toDate(ev.end_date, ev.timezone);
       if (!s || !e) continue;

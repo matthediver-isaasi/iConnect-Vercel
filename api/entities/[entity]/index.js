@@ -223,6 +223,7 @@ const entityToTable = {
   'ComplexEvent': 'complex_event',
   'ComplexEventTrack': 'complex_event_track',
   'ComplexEventSession': 'complex_event_session',
+  'EventAgendaItem': 'event_agenda_item',
   'ComplexEventTicketClass': 'complex_event_ticket_class',
   'ComplexEventBooking': 'complex_event_booking',
   'EventSponsor': 'event_sponsor',
@@ -896,7 +897,8 @@ export default async function handler(req, res) {
               'CrmTagColor',
               'Vacancy', 'VacancyApplication', 'VacancyAward', 'VacancyDecline', 'VacancyDecisionEmail',
               'Gallery', 'GalleryPhoto', 'CardDeck',
-              'MemberGroupActivity', 'ComplexEventSessionCheckin', 'Microsite', 'InstalledFont'
+              'MemberGroupActivity', 'ComplexEventSessionCheckin', 'Microsite', 'InstalledFont',
+              'EventAgendaItem'
             ];
             if (entitiesWithoutOrgId.includes(entity)) {
               // SECURITY: Entities without organization_id column MUST have tenant_id - block access if missing
@@ -1192,6 +1194,29 @@ export default async function handler(req, res) {
         }
       }
 
+      // INTEGRITY (Task #3419): agenda lines may only attach to a Training
+      // event in the caller's own tenant. Also require a start_date.
+      if (entityNorm === 'eventagendaitem') {
+        if (!sanitizedBody.event_id) {
+          return res.status(400).json({ error: 'event_id is required for agenda items' });
+        }
+        if (!sanitizedBody.start_date) {
+          return res.status(400).json({ error: 'start_date is required for agenda items' });
+        }
+        const { data: parentEvent, error: parentErr } = await supabase
+          .from('event')
+          .select('id, tenant_id, is_training')
+          .eq('id', sanitizedBody.event_id)
+          .single();
+        if (parentErr || !parentEvent
+            || !tenantCtx.tenantId || parentEvent.tenant_id !== tenantCtx.tenantId) {
+          return res.status(404).json({ error: 'Event not found' });
+        }
+        if (parentEvent.is_training !== true) {
+          return res.status(400).json({ error: 'Agenda items can only be added to Training events' });
+        }
+      }
+
       // SECURITY (Task #3100): only support staff may create internal notes.
       // Internal notes are always admin responses; non-staff callers are
       // rejected outright rather than silently downgraded.
@@ -1351,7 +1376,8 @@ export default async function handler(req, res) {
             'CrmTagColor',
             'Vacancy', 'VacancyApplication', 'VacancyAward', 'VacancyDecline', 'VacancyDecisionEmail',
             'Gallery', 'GalleryPhoto', 'CardDeck',
-            'SupportTicket', 'SupportTicketResponse', 'Microsite', 'InstalledFont'
+            'SupportTicket', 'SupportTicketResponse', 'Microsite', 'InstalledFont',
+            'EventAgendaItem'
           ];
           if (!entitiesWithoutOrgId.includes(entity)) {
             const entitiesWithExplicitOrgId = ['Member', 'Voucher', 'VoucherTransaction', 'TrainingFundTransaction'];

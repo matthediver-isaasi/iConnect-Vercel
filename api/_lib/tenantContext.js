@@ -198,6 +198,7 @@ export const entityTenantScope = {
   'ComplexEvent': TENANT_SCOPE.TENANT,
   'ComplexEventTrack': TENANT_SCOPE.TENANT,
   'ComplexEventSession': TENANT_SCOPE.TENANT,
+  'EventAgendaItem': TENANT_SCOPE.TENANT,
   'ComplexEventTicketClass': TENANT_SCOPE.TENANT,
   'ComplexEventBooking': TENANT_SCOPE.TENANT,
   'ComplexEventSessionCheckin': TENANT_SCOPE.TENANT,

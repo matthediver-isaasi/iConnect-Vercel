@@ -3,6 +3,7 @@ import { sendEmail } from './emailService.js';
 import { buildInboxDelivery } from './transactionalInbox.js';
 import { buildIcs, buildEventUid, buildSessionUid } from './icsBuilder.js';
 import { buildQrImageUrl, ensureBookingToken, ensureComplexSessionTokens } from './checkinService.js';
+import { fetchTrainingAgendaData, applyAgendaPlaceholders } from './trainingAgenda.js';
 
 export function parseCcField(cc) {
   if (!cc || typeof cc !== 'string') return [];
@@ -31,7 +32,7 @@ export async function sendConfirmationEmailsFromTemplate(eventId, booking, atten
 
     let eventQuery = supabase
       .from('event')
-      .select('id, title, description, start_date, end_date, location, is_online, is_complex, zoom_meeting_id, zoom_webinar_id, tenant_id, timezone, qr_on_confirmation')
+      .select('id, title, description, start_date, end_date, location, is_online, is_complex, is_training, zoom_meeting_id, zoom_webinar_id, tenant_id, timezone, qr_on_confirmation')
       .eq('id', eventId);
     if (tenantId) {
       eventQuery = eventQuery.eq('tenant_id', tenantId);
@@ -84,6 +85,13 @@ export async function sendConfirmationEmailsFromTemplate(eventId, booking, atten
       complexEventData = await fetchComplexEventData(eventId, booking?.ticket_class_id || booking?.ticketClassId, booking?.ticket_class_name || booking?.ticketClassName, event.tenant_id, event.timezone);
     }
 
+    // Training events (Task #3419): resolve agenda context so
+    // {{agenda_schedule}} renders the multi-day schedule in confirmations.
+    let trainingAgendaData = null;
+    if (!event.is_complex && event.is_training) {
+      trainingAgendaData = await fetchTrainingAgendaData(eventId);
+    }
+
     const icsAttachment = buildIcsAttachment(event, booking, complexEventData);
 
     const bookingData = {
@@ -119,8 +127,12 @@ export async function sendConfirmationEmailsFromTemplate(eventId, booking, atten
 
     for (const emailConfig of confirmationEmails) {
       try {
-        const subject = replacePlaceholders(emailConfig.subject, { event, booking: bookingData, complexEventData });
-        const body = replacePlaceholders(emailConfig.body, { event, booking: bookingData, complexEventData });
+        let subject = replacePlaceholders(emailConfig.subject, { event, booking: bookingData, complexEventData });
+        let body = replacePlaceholders(emailConfig.body, { event, booking: bookingData, complexEventData });
+        if (event.is_training) {
+          subject = applyAgendaPlaceholders(subject, { agendaData: trainingAgendaData });
+          body = applyAgendaPlaceholders(body, { agendaData: trainingAgendaData });
+        }
 
         const ccList = parseCcField(emailConfig.cc);
 

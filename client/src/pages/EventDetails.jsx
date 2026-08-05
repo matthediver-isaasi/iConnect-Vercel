@@ -315,6 +315,17 @@ export default function EventDetailsPage() {
     enabled: !!event?.id && !!event?.is_complex
   });
 
+  // Training-event agenda lines (Task #3419)
+  const { data: agendaLines = [] } = useQuery({
+    queryKey: ['event-agenda', event?.id],
+    queryFn: async () => {
+      const response = await fetch(`/api/public/event-agenda?event_id=${event.id}`, { credentials: 'include' });
+      if (!response.ok) return [];
+      return response.json();
+    },
+    enabled: !!event?.id && !!event?.is_training
+  });
+
   // Query for all system settings (using public endpoint for unauthenticated access)
   const { data: systemSettings = [] } = useQuery({
     queryKey: ['public-system-settings'],
@@ -1612,6 +1623,78 @@ export default function EventDetailsPage() {
                             >
                               <Video className="h-4 w-4" />
                               Join Zoom {session.zoom_type === 'webinar' ? 'Webinar' : 'Meeting'}
+                            </a>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              )}
+
+              {/* Training agenda (Task #3419) */}
+              {event.is_training && agendaLines.length > 0 && (
+                <CardContent className="pt-6 border-t border-slate-200">
+                  <h3 className="font-semibold text-slate-900 mb-4 flex items-center gap-2">
+                    <Calendar className="w-5 h-5 text-blue-600" />
+                    Agenda
+                  </h3>
+                  <div className="space-y-3">
+                    {agendaLines.map((line, index) => (
+                      <div
+                        key={line.id || index}
+                        className="p-3 rounded-lg border border-slate-200 space-y-2"
+                        data-testid={`agenda-line-${line.id || index}`}
+                      >
+                        <div className="flex items-start justify-between gap-2 flex-wrap">
+                          <div className="text-sm font-medium text-slate-900 flex items-center gap-1">
+                            <Clock className="h-3 w-3" />
+                            {line.start_date && new Date(`${line.start_date}T00:00:00`).toLocaleDateString(undefined, {
+                              weekday: 'short', day: 'numeric', month: 'short', year: 'numeric'
+                            })}
+                            {line.end_date && line.end_date !== line.start_date && (
+                              <> – {new Date(`${line.end_date}T00:00:00`).toLocaleDateString(undefined, {
+                                weekday: 'short', day: 'numeric', month: 'short', year: 'numeric'
+                              })}</>
+                            )}
+                          </div>
+                          {line.item_type && (
+                            <Badge variant="secondary" className="text-xs">{line.item_type}</Badge>
+                          )}
+                        </div>
+                        {line.description && (
+                          <p className="text-sm text-slate-600">{line.description}</p>
+                        )}
+                        {line.location && (
+                          <div className="text-sm text-slate-600 flex items-center gap-1">
+                            <MapPin className="h-3 w-3" />
+                            {line.location}
+                          </div>
+                        )}
+                        {line.zoom_join_url && (
+                          <div className="pt-1">
+                            <a
+                              href={line.zoom_join_url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 text-sm text-blue-600 hover:text-blue-700 font-medium"
+                              data-testid={`link-agenda-zoom-${line.id || index}`}
+                            >
+                              <Video className="h-4 w-4" />
+                              Join online session
+                            </a>
+                          </div>
+                        )}
+                        {line.lms_url && (
+                          <div className="pt-1">
+                            <a
+                              href={line.lms_url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 text-sm text-blue-600 hover:text-blue-700 font-medium"
+                              data-testid={`link-agenda-lms-${line.id || index}`}
+                            >
+                              Open learning platform
                             </a>
                           </div>
                         )}

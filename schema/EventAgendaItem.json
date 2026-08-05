@@ -1,0 +1,50 @@
+{
+  "name": "EventAgendaItem",
+  "type": "object",
+  "description": "One agenda line (day or date range) of a Training event. Training events are simple events (event.is_training=true) extended with an ordered list of agenda lines.",
+  "properties": {
+    "event_id": {
+      "type": "string",
+      "description": "Parent event id (event.is_training = true)"
+    },
+    "start_date": {
+      "type": "string",
+      "format": "date",
+      "description": "Start date of the line (date only)"
+    },
+    "end_date": {
+      "type": "string",
+      "format": "date",
+      "description": "Optional end date for a date range; defaults to start_date"
+    },
+    "description": {
+      "type": "string",
+      "description": "Free-text description of what happens on this line"
+    },
+    "item_type": {
+      "type": "string",
+      "description": "Agenda item type name from the tenant 'event_agenda_item_types' setting (seeded: In person, Online, Self study)"
+    },
+    "location": {
+      "type": "string",
+      "description": "Venue text (required for In person lines)"
+    },
+    "zoom_webinar_id": {
+      "type": "string",
+      "description": "Local zoom_webinar PK attached to an Online line"
+    },
+    "zoom_meeting_id": {
+      "type": "string",
+      "description": "Local zoom_meeting PK attached to an Online line"
+    },
+    "lms_url": {
+      "type": "string",
+      "description": "External LMS URL (Self study lines)"
+    },
+    "sort_order": {
+      "type": "number",
+      "description": "Ordering of lines within the event"
+    }
+  },
+  "required": ["event_id", "start_date"]
+}

@@ -1,3 +1,28 @@
+// Build the clash-check windows for a save. Training events (Task #3419)
+// contribute one whole-day window per agenda line whose type is included in
+// clash checks; everything else uses the event-level start/end span.
+export function buildClashWindows({ isTraining, agendaLines, agendaItemTypes, eventData, timezone, title }) {
+  if (isTraining && Array.isArray(agendaLines) && agendaLines.length > 0) {
+    const included = new Set(
+      (agendaItemTypes || [])
+        .filter((t) => t.includeInClashChecks !== false)
+        .map((t) => String(t.name).trim().toLowerCase())
+    );
+    return agendaLines
+      .filter((l) => l.start_date && included.has(String(l.item_type || '').trim().toLowerCase()))
+      .map((l) => ({
+        start: `${l.start_date}T00:00:00`,
+        end: `${l.end_date || l.start_date}T23:59:59`,
+        timezone,
+        label: title ? `${title} — ${l.item_type || 'Agenda'} ${l.start_date}` : null,
+      }));
+  }
+  if (eventData?.start_date && eventData?.end_date) {
+    return [{ start: eventData.start_date, end: eventData.end_date, timezone, label: title }];
+  }
+  return [];
+}
+
 // Tenant-scoped event time-clash check.
 // This is an advisory warning aid only — it must NEVER block saving. If the
 // request fails for any reason we report "no clashes" so the save proceeds.

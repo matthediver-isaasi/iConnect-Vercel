@@ -110,6 +110,7 @@ const entityToTable = {
   'Speaker': 'speaker',
   'TypographyStyle': 'typography_style',
   'InstalledFont': 'installed_font',
+  'EventAgendaItem': 'event_agenda_item',
   'CardDeck': 'card_deck',
   'DynamicDirectory': 'dynamic_directory',
   'TrainingFundTransaction': 'training_fund_transaction',
@@ -337,7 +338,8 @@ export default async function handler(req, res) {
             'ExternalWriter', 'ExternalWriterDocument',
             'CrmTagColor',
             'Gallery', 'GalleryPhoto', 'CardDeck',
-            'MemberGroupActivity', 'Microsite', 'InstalledFont'
+            'MemberGroupActivity', 'Microsite', 'InstalledFont',
+            'EventAgendaItem'
           ];
           if (tenantCtx.tenantId) {
             query = query.eq('tenant_id', tenantCtx.tenantId);
@@ -459,6 +461,25 @@ export default async function handler(req, res) {
         }
       }
 
+      // INTEGRITY (Task #3419): an agenda line cannot be re-pointed at another
+      // event via PATCH — if event_id is supplied it must match the row's own
+      // parent (which the tenant filter below already scopes to the caller).
+      if (entityNormalized === 'eventagendaitem'
+          && req.body && Object.prototype.hasOwnProperty.call(req.body, 'event_id')) {
+        const { data: existingLine } = await supabase
+          .from('event_agenda_item')
+          .select('id, event_id, tenant_id')
+          .eq('id', id)
+          .single();
+        if (!existingLine
+            || !tenantCtx.tenantId || existingLine.tenant_id !== tenantCtx.tenantId) {
+          return res.status(404).json({ error: 'Record not found' });
+        }
+        if (req.body.event_id !== existingLine.event_id) {
+          return res.status(400).json({ error: 'Agenda items cannot be moved to a different event' });
+        }
+      }
+
       // SECURITY (survey integrity): survey responses are server-authoritative
       // and immutable — scored answers, identity/anonymity fields and version
       // pointers are written only by the submission RPC. Block generic PATCH
@@ -551,7 +572,8 @@ export default async function handler(req, res) {
                 'ExternalWriter', 'ExternalWriterDocument',
                 'CrmTagColor',
                 'Gallery', 'GalleryPhoto', 'CardDeck',
-                'MemberGroupActivity', 'Microsite', 'InstalledFont'
+                'MemberGroupActivity', 'Microsite', 'InstalledFont',
+            'EventAgendaItem'
               ];
               if (tenantCtx.tenantId) {
                 beforeQuery = beforeQuery.eq('tenant_id', tenantCtx.tenantId);
@@ -1072,7 +1094,8 @@ export default async function handler(req, res) {
             'ExternalWriter', 'ExternalWriterDocument',
             'CrmTagColor',
             'Gallery', 'GalleryPhoto', 'CardDeck',
-            'MemberGroupActivity', 'Microsite', 'InstalledFont'
+            'MemberGroupActivity', 'Microsite', 'InstalledFont',
+            'EventAgendaItem'
           ];
           if (tenantCtx.tenantId) {
             patchQuery = patchQuery.eq('tenant_id', tenantCtx.tenantId);
@@ -1650,7 +1673,8 @@ export default async function handler(req, res) {
             'ExternalWriter', 'ExternalWriterDocument',
             'CrmTagColor',
             'Gallery', 'GalleryPhoto', 'CardDeck',
-            'MemberGroupActivity', 'Microsite', 'InstalledFont'
+            'MemberGroupActivity', 'Microsite', 'InstalledFont',
+            'EventAgendaItem'
           ];
           if (tenantCtx.tenantId) {
             verifyQuery = verifyQuery.eq('tenant_id', tenantCtx.tenantId);

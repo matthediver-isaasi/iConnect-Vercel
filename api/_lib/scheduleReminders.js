@@ -1,5 +1,6 @@
 import { supabase } from './database.js';
 import { pickDayAnchorSessions } from './complexEventReminders.js';
+import { fromZonedTime, formatInTimeZone } from 'date-fns-tz';
 
 export function isAbsoluteReminder(email) {
   return (
@@ -85,7 +86,7 @@ export async function scheduleReminderEmails(eventId) {
   try {
     const { data: event, error: eventError } = await supabase
       .from('event')
-      .select('id, start_date, title')
+      .select('id, start_date, title, is_training, timezone')
       .eq('id', eventId)
       .maybeSingle();
 
@@ -98,6 +99,13 @@ export async function scheduleReminderEmails(eventId) {
       console.log('[scheduleReminderEmails] No event found');
       result.error = 'Event not found';
       return result;
+    }
+
+    // Training events expand each relative reminder into one send per agenda
+    // line (Task #3419) — handled by a dedicated scheduler that mirrors the
+    // complex-event per-day pattern (session_id = agenda line id for dedupe).
+    if (event.is_training) {
+      return scheduleTrainingEventReminderEmails(event);
     }
 
     const { data: reminderEmails, error: emailsError } = await supabase
@@ -218,6 +226,172 @@ export async function scheduleReminderEmails(eventId) {
     return result;
   } catch (err) {
     console.error('[scheduleReminderEmails] Error:', err);
+    result.bookingsScheduled = bookingSet.size;
+    result.schedulingFailures = Array.from(failureBag.values());
+    result.error = err.message;
+    return result;
+  }
+}
+
+// Task #3419: Training-event reminders. The single configured schedule is
+// applied to EACH agenda line: every relative reminder offset produces one
+// scheduled_email row per (booking, agenda line), anchored to the line's
+// start date. The line's wall-clock anchor time is the event's own start
+// time-of-day in the event timezone (fallback 09:00), so "1 day before"
+// behaves consistently with the event-level reminder.
+// Dedupe key stays (event_email_id, booking_id, session_id) with session_id
+// holding the agenda line id; re-saving never double-schedules, and pending
+// rows for deleted/retyped lines are cancelled on reconcile.
+// Absolute (specific date/time) reminders remain once per booking, session_id NULL.
+export async function scheduleTrainingEventReminderEmails(event, client = supabase) {
+  const result = emptyResult();
+  const bookingSet = new Set();
+  const failureBag = new Map();
+  const eventId = event.id;
+  const timezone = event.timezone || 'Europe/London';
+
+  try {
+    const { data: reminderEmails, error: emailsError } = await client
+      .from('event_email')
+      .select('*')
+      .eq('event_id', eventId)
+      .eq('email_type', 'reminder')
+      .eq('is_enabled', true);
+    if (emailsError) {
+      result.error = emailsError.message;
+      return result;
+    }
+    if (!reminderEmails || reminderEmails.length === 0) return result;
+
+    const { data: bookings, error: bookingsError } = await client
+      .from('booking')
+      .select('id, attendee_email')
+      .eq('event_id', eventId)
+      .neq('status', 'cancelled');
+    if (bookingsError) {
+      result.error = bookingsError.message;
+      return result;
+    }
+    result.bookingsConsidered = bookings?.length || 0;
+    if (!bookings || bookings.length === 0) {
+      for (const email of reminderEmails) {
+        result.skipped.push({ event_email_id: email.id, email_type: email.email_type, reason: 'no_active_bookings' });
+      }
+      return result;
+    }
+
+    const { data: agendaLines, error: agendaError } = await client
+      .from('event_agenda_item')
+      .select('id, start_date, end_date, item_type, sort_order')
+      .eq('event_id', eventId)
+      .order('sort_order', { ascending: true });
+    if (agendaError) {
+      result.error = agendaError.message;
+      return result;
+    }
+
+    // Anchor wall-clock time: the event's start time-of-day in event timezone.
+    let anchorTime = '09:00:00';
+    if (event.start_date) {
+      try {
+        anchorTime = formatInTimeZone(new Date(event.start_date), timezone, 'HH:mm:ss');
+      } catch { /* keep default */ }
+    }
+    const lineAnchors = (agendaLines || [])
+      .filter((l) => l.start_date)
+      .map((l) => {
+        let anchor = null;
+        try {
+          anchor = fromZonedTime(`${l.start_date}T${anchorTime}`, timezone);
+        } catch { anchor = null; }
+        return anchor && !isNaN(anchor.getTime()) ? { line: l, anchor } : null;
+      })
+      .filter(Boolean);
+    const lineIds = new Set(lineAnchors.map((a) => a.line.id));
+
+    for (const email of reminderEmails) {
+      const isAbsolute = isAbsoluteReminder(email);
+
+      for (const booking of bookings) {
+        // Reconcile: cancel pending line-bound rows whose line no longer exists.
+        const { data: existingRows, error: existingRowsError } = await client
+          .from('scheduled_email')
+          .select('id, session_id')
+          .eq('event_email_id', email.id)
+          .eq('booking_id', booking.id)
+          .eq('status', 'pending');
+        if (existingRowsError) {
+          recordWriteFailure(failureBag, email, existingRowsError, booking.id);
+        } else {
+          const obsoleteIds = (existingRows || [])
+            .filter((r) => r.session_id != null && !lineIds.has(r.session_id))
+            .map((r) => r.id);
+          if (obsoleteIds.length > 0) {
+            const { error: cancelError } = await client
+              .from('scheduled_email')
+              .update({ status: 'cancelled' })
+              .in('id', obsoleteIds);
+            if (cancelError) recordWriteFailure(failureBag, email, cancelError, booking.id);
+          }
+        }
+
+        const targets = isAbsolute
+          ? [{ sessionId: null, anchor: null }]
+          : lineAnchors.map((a) => ({ sessionId: a.line.id, anchor: a.anchor }));
+
+        if (!isAbsolute && targets.length === 0) {
+          result.skipped.push({ event_email_id: email.id, email_type: email.email_type, reason: 'no_agenda_lines' });
+          break; // same for every booking
+        }
+
+        for (const target of targets) {
+          const scheduledTime = calculateScheduledTime(target.anchor, email);
+          if (!scheduledTime || scheduledTime <= new Date()) continue;
+
+          let lookup = client
+            .from('scheduled_email')
+            .select('id')
+            .eq('event_email_id', email.id)
+            .eq('booking_id', booking.id);
+          lookup = target.sessionId ? lookup.eq('session_id', target.sessionId) : lookup.is('session_id', null);
+          const { data: existing, error: existingError } = await lookup.maybeSingle();
+          if (existingError) {
+            recordWriteFailure(failureBag, email, existingError, booking.id);
+            continue;
+          }
+
+          if (existing) {
+            const { error: updateError } = await client
+              .from('scheduled_email')
+              .update({ scheduled_send_time: scheduledTime.toISOString(), status: 'pending' })
+              .eq('id', existing.id);
+            if (updateError) { recordWriteFailure(failureBag, email, updateError, booking.id); continue; }
+          } else {
+            const { error: insertError } = await client
+              .from('scheduled_email')
+              .insert({
+                event_email_id: email.id,
+                booking_id: booking.id,
+                attendee_email: booking.attendee_email,
+                scheduled_send_time: scheduledTime.toISOString(),
+                status: 'pending',
+                session_id: target.sessionId,
+              });
+            if (insertError) { recordWriteFailure(failureBag, email, insertError, booking.id); continue; }
+          }
+
+          result.requeued += 1;
+          bookingSet.add(booking.id);
+        }
+      }
+    }
+
+    result.bookingsScheduled = bookingSet.size;
+    result.schedulingFailures = Array.from(failureBag.values());
+    console.log(`[scheduleTrainingEventReminderEmails] Scheduled ${result.requeued} reminder(s) for training event ${eventId} across ${result.bookingsScheduled} booking(s)`);
+    return result;
+  } catch (err) {
+    console.error('[scheduleTrainingEventReminderEmails] Error:', err);
     result.bookingsScheduled = bookingSet.size;
     result.schedulingFailures = Array.from(failureBag.values());
     result.error = err.message;

@@ -2,6 +2,7 @@ import { sendEmail } from '../_lib/emailService.js';
 import { supabase } from '../_lib/database.js';
 import { buildInboxDelivery } from '../_lib/transactionalInbox.js';
 import { fetchComplexEventData, parseCcField } from '../_lib/eventConfirmationEmail.js';
+import { fetchTrainingAgendaData, applyAgendaPlaceholders, safeHttpUrl } from '../_lib/trainingAgenda.js';
 
 export default async function handler(req, res) {
   const authHeader = req.headers.authorization;
@@ -145,7 +146,7 @@ export default async function handler(req, res) {
         } else {
           const { data: regularEvent, error: eventError } = await supabase
             .from('event')
-            .select('id, title, start_date, location, is_online, is_complex, zoom_meeting_id, zoom_webinar_id, tenant_id, timezone')
+            .select('id, title, start_date, location, is_online, is_complex, is_training, zoom_meeting_id, zoom_webinar_id, tenant_id, timezone')
             .eq('id', eventEmail.event_id)
             .single();
 
@@ -189,17 +190,40 @@ export default async function handler(req, res) {
           console.log(`[cron/send-event-reminders] Fetched complex event data: ${complexEventData?.sessions?.length || 0} sessions`);
         }
 
-        const subject = replacePlaceholders(eventEmail.subject, {
+        // Training events (Task #3419): the reminder row may be bound to one
+        // agenda line (scheduled_email.session_id = agenda line id). Fetch
+        // agenda context so {{agenda_schedule}} and per-line tokens resolve.
+        let trainingAgendaData = null;
+        let trainingAgendaLine = null;
+        if (!event.is_complex && event.is_training) {
+          trainingAgendaData = await fetchTrainingAgendaData(event.id);
+          if (scheduledEmail.session_id && trainingAgendaData?.lines) {
+            trainingAgendaLine = trainingAgendaData.lines.find(l => l.id === scheduledEmail.session_id) || null;
+            // Prefer the line's own join link for {{zoom_link}} on Online
+            // lines (http(s)-validated to keep emails injection-safe).
+            const lineJoinUrl = safeHttpUrl(trainingAgendaLine?.zoom_join_url);
+            if (lineJoinUrl) {
+              event.zoom_join_url = lineJoinUrl;
+            }
+          }
+        }
+
+        let subject = replacePlaceholders(eventEmail.subject, {
           event,
           booking,
           complexEventData
         });
 
-        const body = replacePlaceholders(eventEmail.body, {
+        let body = replacePlaceholders(eventEmail.body, {
           event,
           booking,
           complexEventData
         });
+
+        if (event.is_training) {
+          subject = applyAgendaPlaceholders(subject, { agendaData: trainingAgendaData, line: trainingAgendaLine });
+          body = applyAgendaPlaceholders(body, { agendaData: trainingAgendaData, line: trainingAgendaLine });
+        }
 
         const ccList = parseCcField(eventEmail.cc);
 
