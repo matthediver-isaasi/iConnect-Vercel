@@ -72,7 +72,7 @@ function normalizeHiddenGroupEventFields(out) {
   if (!out || typeof out !== 'object') return;
   if ('is_featured' in out) out.is_featured = false;
   if ('status' in out && out.status === 'tbc') out.status = 'published';
-  if ('qr_on_confirmation' in out) out.qr_on_confirmation = true;
+  if ('qr_on_confirmation' in out) out.qr_on_confirmation = false;
   if ('show_seat_count' in out) out.show_seat_count = true;
   if ('show_ticket_availability' in out) out.show_ticket_availability = false;
   if ('speaker_ids' in out) out.speaker_ids = [];

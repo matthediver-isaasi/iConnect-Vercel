@@ -670,7 +670,7 @@ export default function CreateComplexEvent() {
   const [unlimitedSeats, setUnlimitedSeats] = useState(true);
   const [showSeatCount, setShowSeatCount] = useState(true);
   const [showTicketAvailability, setShowTicketAvailability] = useState(false);
-  const [qrOnConfirmation, setQrOnConfirmation] = useState(true);
+  const [qrOnConfirmation, setQrOnConfirmation] = useState(false);
   const [collectThirdPartyConsent, setCollectThirdPartyConsent] = useState(false);
 
   const { data: roles = [], isLoading: loadingRoles } = useQuery({

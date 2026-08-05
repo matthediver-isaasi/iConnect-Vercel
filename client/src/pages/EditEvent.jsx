@@ -1405,7 +1405,7 @@ export default function EditEvent() {
       // Per-event ticket availability display toggle
       show_ticket_availability: showTicketAvailability,
       // Per-event entrance QR on confirmation emails (only meaningful for in-person events)
-      qr_on_confirmation: isOnlineEvent ? true : qrOnConfirmation,
+      qr_on_confirmation: isOnlineEvent ? false : qrOnConfirmation,
       // TBC events can optionally have a Zoom webinar or meeting.
       // Group-limited events never use Zoom — they use a manual meeting link.
       zoom_webinar_id: isGroupLimited ? null : (zoomType === 'webinar' ? (formData.zoom_webinar_id || null) : null),

@@ -151,7 +151,7 @@ export default function CreateEvent() {
   const [unlimitedSeats, setUnlimitedSeats] = useState(true); // Default to unlimited
   const [showSeatCount, setShowSeatCount] = useState(true); // Per-event seat visibility (default: show)
   const [showTicketAvailability, setShowTicketAvailability] = useState(false); // Per-event ticket availability display
-  const [qrOnConfirmation, setQrOnConfirmation] = useState(true); // Per-event entrance QR on confirmation emails (in-person only, default: on)
+  const [qrOnConfirmation, setQrOnConfirmation] = useState(false); // Per-event entrance QR on confirmation emails (in-person only, default: off)
   const [attachedDocuments, setAttachedDocuments] = useState([]);
   const [documentsSectionTitle, setDocumentsSectionTitle] = useState("");
   const [dietaryOptions, setDietaryOptions] = useState([]);
@@ -925,7 +925,7 @@ export default function CreateEvent() {
       // Per-event ticket availability display toggle
       show_ticket_availability: showTicketAvailability,
       // Per-event entrance QR on confirmation emails (only meaningful for in-person events)
-      qr_on_confirmation: isOnline ? true : qrOnConfirmation,
+      qr_on_confirmation: isOnline ? false : qrOnConfirmation,
       // TBC events can optionally have a Zoom webinar or meeting.
       // Group-limited events never use Zoom — they use a manual meeting link.
       zoom_webinar_id: isGroupLimited ? null : (isOnline && zoomType === 'webinar' && selectedWebinarId ? selectedWebinarId : null),
