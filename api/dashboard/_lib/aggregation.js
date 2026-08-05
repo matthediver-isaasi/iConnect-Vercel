@@ -468,6 +468,32 @@ export async function runWidgetConfig(config, tenantId, options = {}) {
         : !!(source.systemFields || []).find(
             f => f.name === groupBy.field && f.isCountry,
           )));
+  // Reference-typed system group-bys (e.g. member.role_id → role) store
+  // raw ids; charts must show human-readable names. Resolve the id→name
+  // mapping ONCE up front (tenant-scoped) and bucket rows directly under
+  // the resolved name, so drilldown — which re-runs this same pipeline
+  // and matches on the final key — stays consistent. Missing/deleted
+  // references bucket under "Unknown"; empty values keep the shared
+  // "Unspecified" bucket. Fields without a referenceTable (or country /
+  // LMIC / region shaped group-bys) are untouched.
+  const referenceFieldDef = (groupBy
+    && !regionGroupBy
+    && !lmicFilterOnGroupBy
+    && !isCountryGroupBy
+    && !(groupBy.fieldKind === 'custom' || groupBy.kind === 'custom')
+    && groupBy.field)
+    ? (source.systemFields || []).find(
+        f => f.name === groupBy.field && f.type === 'reference' && f.referenceTable,
+      ) || null
+    : null;
+  let referenceNameById = null;
+  if (referenceFieldDef && workingRows.length > 0) {
+    referenceNameById = await loadReferenceNames(
+      referenceFieldDef.referenceTable,
+      workingRows.map(r => r[groupBy.field]),
+      tenantId,
+    );
+  }
   const groupKeysOf = groupBy
     ? (regionGroupBy
         ? row => {
@@ -494,9 +520,11 @@ export async function runWidgetConfig(config, tenantId, options = {}) {
                 ? ((groupBy.fieldKind === 'custom' || groupBy.kind === 'custom')
                     ? row => countryGroupKeys((prefMap.get(row.id) || {})[groupBy.fieldId])
                     : row => countryGroupKeys(row[groupBy.field]))
-                : (isListGroupBy
-                    ? row => listGroupKeys((prefMap.get(row.id) || {})[groupBy.fieldId])
-                    : row => [normaliseKey(valueFor(row, groupBy, prefMap))]))))
+                : (referenceNameById
+                    ? row => [referenceGroupKey(row[groupBy.field], referenceNameById)]
+                    : (isListGroupBy
+                        ? row => listGroupKeys((prefMap.get(row.id) || {})[groupBy.fieldId])
+                        : row => [normaliseKey(valueFor(row, groupBy, prefMap))])))))
     : null;
   // timeBucket on a custom date field reads through the preference map; for
   // system date columns it reads the value directly off the base row.
@@ -991,6 +1019,52 @@ export function pruneLmicGroupKeys(raw, lmicCodeSet, options = {}) {
     }
   }
   return codes;
+}
+
+/**
+ * Bucket key for a reference-typed system group-by (raw id column, e.g.
+ * member.role_id). Empty values keep the shared "Unspecified" bucket;
+ * ids missing from the resolved map (deleted / cross-tenant rows) bucket
+ * under "Unknown" instead of leaking the raw UUID. Exported for tests.
+ */
+export function referenceGroupKey(rawId, nameById) {
+  if (rawId === null || rawId === undefined || rawId === '') return 'Unspecified';
+  const name = nameById.get(String(rawId));
+  return name !== undefined && name !== null && name !== '' ? name : 'Unknown';
+}
+
+/**
+ * Loads the id→name mapping for a reference table, tenant-scoped and
+ * restricted to the ids actually present in the working rows. Chunked
+ * to stay under PostgREST's IN-list limits. A lookup failure returns an
+ * empty map (keys fall back to "Unknown") rather than failing the widget.
+ */
+async function loadReferenceNames(table, rawIds, tenantId) {
+  const ids = Array.from(
+    new Set(rawIds.filter(v => v !== null && v !== undefined && v !== '').map(String)),
+  );
+  const nameById = new Map();
+  if (ids.length === 0) return nameById;
+  const CHUNK = 200;
+  for (let i = 0; i < ids.length; i += CHUNK) {
+    const chunk = ids.slice(i, i + CHUNK);
+    let q = supabase.from(table).select('id, name').in('id', chunk);
+    q = tenantFilter(q, tenantId);
+    const { data, error } = await q;
+    if (error) {
+      console.error(
+        `[Dashboard Aggregation] Failed to resolve ${table} names:`,
+        error.message,
+      );
+      return nameById;
+    }
+    for (const row of data || []) {
+      if (row?.id !== null && row?.id !== undefined) {
+        nameById.set(String(row.id), row.name ?? null);
+      }
+    }
+  }
+  return nameById;
 }
 
 function normaliseKey(value) {
