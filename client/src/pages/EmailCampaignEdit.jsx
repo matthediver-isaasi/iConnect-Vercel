@@ -1,4 +1,4 @@
-import { useState, useEffect, lazy, Suspense } from "react";
+import { useState, useEffect, useRef, useCallback, lazy, Suspense } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -22,8 +22,171 @@ import { designToHtml } from '@/components/email-builder/mjmlConverter';
 import { ReadOnlyBlockPreview } from '@/components/email-builder/BlockRenderer';
 import { defaultEmailDesign, normalizeDuplicateDynamicTokens } from '@/components/email-builder/types';
 import TestSendDialog from '@/components/TestSendDialog';
+import { cn } from "@/lib/utils";
+import { ChevronsUpDown } from "lucide-react";
+import {
+  Command,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 
 const EmailBuilder = lazy(() => import('@/components/email-builder/EmailBuilder').then(m => ({ default: m.default })));
+
+function getMemberSenderLabel(member) {
+  return [member.first_name, member.last_name].filter(Boolean).join(" ") || member.email || "Unknown";
+}
+
+// Typeahead to pick a tenant member as the campaign sender. Selecting a member
+// fills the sender fields via onSelectMember; nothing is persisted about the
+// member itself — the picker is a convenience for pre-filling the inputs.
+function MemberSenderPicker({ selectedMember, onSelectMember, onClear }) {
+  const [open, setOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [results, setResults] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const timerRef = useRef(null);
+  const abortRef = useRef(null);
+
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+      if (abortRef.current) abortRef.current.abort();
+    };
+  }, []);
+
+  const searchMembers = useCallback((query) => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+    if (abortRef.current) abortRef.current.abort();
+
+    if (!query || query.length < 2) {
+      setResults([]);
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
+    timerRef.current = setTimeout(async () => {
+      const controller = new AbortController();
+      abortRef.current = controller;
+      try {
+        const resp = await fetch(
+          `/api/members/search?q=${encodeURIComponent(query)}&limit=15`,
+          { credentials: "include", signal: controller.signal }
+        );
+        if (resp.ok) {
+          const data = await resp.json();
+          setResults(data);
+        }
+      } catch (e) {
+        if (e.name !== "AbortError") {
+          console.error("Member search error:", e);
+        }
+      } finally {
+        setLoading(false);
+      }
+    }, 300);
+  }, []);
+
+  useEffect(() => {
+    if (open) {
+      searchMembers(searchQuery);
+    }
+  }, [searchQuery, open, searchMembers]);
+
+  useEffect(() => {
+    if (!open) {
+      setSearchQuery("");
+      setResults([]);
+    }
+  }, [open]);
+
+  const handleSelect = (memberId) => {
+    const member = results.find((m) => m.id === memberId);
+    if (member) onSelectMember(member);
+    setOpen(false);
+  };
+
+  return (
+    <div className="flex items-center gap-2">
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
+          <Button
+            variant="outline"
+            role="combobox"
+            aria-expanded={open}
+            className="w-full sm:w-[320px] justify-between font-normal"
+            data-testid="combobox-sender-member"
+          >
+            <span className="truncate">
+              {selectedMember ? getMemberSenderLabel(selectedMember) : "Search members..."}
+            </span>
+            <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent className="w-[320px] p-0" align="start">
+          <Command shouldFilter={false}>
+            <CommandInput
+              placeholder="Search by name or email..."
+              value={searchQuery}
+              onValueChange={setSearchQuery}
+              data-testid="combobox-sender-member-search"
+            />
+            <CommandList>
+              {loading && (
+                <div className="flex items-center justify-center py-4">
+                  <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                </div>
+              )}
+              {!loading && searchQuery.length >= 2 && results.length === 0 && (
+                <p className="py-4 text-center text-sm text-muted-foreground">No members found.</p>
+              )}
+              {!loading && searchQuery.length < 2 && (
+                <p className="py-4 text-center text-sm text-muted-foreground">Type at least 2 characters to search.</p>
+              )}
+              <CommandGroup>
+                {results.map((m) => {
+                  const label = getMemberSenderLabel(m);
+                  return (
+                    <CommandItem
+                      key={m.id}
+                      value={m.id}
+                      onSelect={() => handleSelect(m.id)}
+                      data-testid={`combobox-sender-member-option-${m.id}`}
+                    >
+                      <Check className={cn("mr-2 h-4 w-4", selectedMember?.id === m.id ? "opacity-100" : "opacity-0")} />
+                      <div className="flex flex-col min-w-0">
+                        <span className="text-sm truncate">{label}</span>
+                        {m.email && <span className="text-xs text-muted-foreground truncate">{m.email}</span>}
+                      </div>
+                    </CommandItem>
+                  );
+                })}
+              </CommandGroup>
+            </CommandList>
+          </Command>
+        </PopoverContent>
+      </Popover>
+      {selectedMember && (
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={onClear}
+          title="Clear selected member"
+          data-testid="button-clear-sender-member"
+        >
+          <X className="h-4 w-4" />
+        </Button>
+      )}
+    </div>
+  );
+}
 
 export default function EmailCampaignEdit() {
   const navigate = useNavigate();
@@ -57,6 +220,7 @@ export default function EmailCampaignEdit() {
   const RECIPIENTS_PER_PAGE = 50;
 
   const [selectedListIds, setSelectedListIds] = useState([]);
+  const [senderMember, setSenderMember] = useState(null);
 
   const [formData, setFormData] = useState({
     name: '',
@@ -599,7 +763,27 @@ export default function EmailCampaignEdit() {
               Sender Information
             </CardTitle>
           </CardHeader>
-          <CardContent>
+          <CardContent className="space-y-4">
+            <div className="space-y-2">
+              <Label>Use a member as sender</Label>
+              <MemberSenderPicker
+                selectedMember={senderMember}
+                onSelectMember={(member) => {
+                  setSenderMember(member);
+                  const fullName = [member.first_name, member.last_name].filter(Boolean).join(" ");
+                  setFormData(prev => ({
+                    ...prev,
+                    from_name: fullName || prev.from_name,
+                    from_email: member.email || prev.from_email,
+                    reply_to: member.email || prev.reply_to
+                  }));
+                }}
+                onClear={() => setSenderMember(null)}
+              />
+              <p className="text-xs text-muted-foreground">
+                Picking a member fills the fields below from their record. You can still edit them — what's in the fields is what gets saved.
+              </p>
+            </div>
             <div className="grid grid-cols-3 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="from_name">From Name</Label>
