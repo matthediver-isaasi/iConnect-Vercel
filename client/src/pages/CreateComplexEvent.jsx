@@ -4155,6 +4155,7 @@ export default function CreateComplexEvent() {
                 eventTimezone={formData.timezone || DEFAULT_TIMEZONE}
                 loading={isEditMode && loadingEmails}
                 mode="session"
+                eventId={isEditMode ? editId : null}
               />
               {isEditMode && !loadingEmails && eventEmails.length > 0 && (
                 <div className="flex flex-wrap justify-end gap-2 pt-2">

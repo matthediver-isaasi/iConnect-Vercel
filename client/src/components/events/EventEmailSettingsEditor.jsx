@@ -7,7 +7,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { Check, Bell, Clock, Download, Trash2, Loader2, Mail, Code, FileText, AlertCircle } from "lucide-react";
+import { Check, Bell, Clock, Download, Trash2, Loader2, Mail, Code, FileText, AlertCircle, Eye } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { TimezoneAwareDateTimeInput } from "@/components/events/TimezoneAwareDateTimeInput";
 import ReactQuill from "react-quill";
 import "react-quill/dist/quill.snow.css";
@@ -184,8 +185,31 @@ export default function EventEmailSettingsEditor({
   isTimezoneLoading = false,
   loading = false,
   mode = "event",
+  eventId = null,
 }) {
   const [codeViewMode, setCodeViewMode] = useState({});
+  // Preview modal state: null | { emailId, loading, error, subject, html }
+  const [preview, setPreview] = useState(null);
+
+  const openPreview = async (email) => {
+    setPreview({ emailId: email.id, loading: true, error: null, subject: "", html: "" });
+    try {
+      const response = await fetch(`/api/event-emails/${eventId}/preview`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ subject: email.subject || "", body: email.body || "" }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        setPreview({ emailId: email.id, loading: false, error: result.error || `Preview failed (${response.status})`, subject: "", html: "" });
+        return;
+      }
+      setPreview({ emailId: email.id, loading: false, error: null, subject: result.subject || "", html: result.html || "" });
+    } catch (err) {
+      setPreview({ emailId: email.id, loading: false, error: err.message || "Network error", subject: "", html: "" });
+    }
+  };
   const timingOptions = getTimingOptions(mode);
   const unitSuffix = mode === "session" ? "session" : "event";
 
@@ -265,6 +289,20 @@ export default function EventEmailSettingsEditor({
                 </span>
               </div>
             </div>
+            <div className="flex items-center gap-1">
+              {eventId && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => openPreview(email)}
+                  className="h-8 bg-white"
+                  data-testid={`button-preview-email-${email.id}`}
+                >
+                  <Eye className="h-4 w-4 mr-1" />
+                  Preview
+                </Button>
+              )}
             <Button
               type="button"
               variant="ghost"
@@ -275,6 +313,7 @@ export default function EventEmailSettingsEditor({
             >
               <Trash2 className="h-4 w-4" />
             </Button>
+            </div>
           </div>
 
           {saveErrors[email.id] && (
@@ -494,6 +533,50 @@ export default function EventEmailSettingsEditor({
           </div>
         </div>
       ))}
+
+      <Dialog open={!!preview} onOpenChange={(open) => { if (!open) setPreview(null); }}>
+        <DialogContent className="max-w-3xl max-h-[85vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle>Email preview</DialogTitle>
+            <DialogDescription>
+              Rendered with sample attendee details (e.g. "Jane Example"). This is how the email will look to recipients.
+            </DialogDescription>
+          </DialogHeader>
+          {preview?.loading ? (
+            <div className="flex items-center justify-center py-12" data-testid="email-preview-loading">
+              <Loader2 className="h-6 w-6 animate-spin text-slate-400" />
+              <span className="ml-2 text-slate-500">Rendering preview...</span>
+            </div>
+          ) : preview?.error ? (
+            <div
+              className="flex items-start gap-2 p-3 rounded-md border border-red-200 bg-red-50 text-red-800 text-sm"
+              data-testid="email-preview-error"
+            >
+              <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+              <span className="break-words">{preview.error}</span>
+            </div>
+          ) : preview ? (
+            <div className="flex flex-col min-h-0 flex-1 space-y-3">
+              <div>
+                <Label className="text-xs uppercase tracking-wide text-slate-500">Subject</Label>
+                <div className="mt-1 p-2 border rounded-md bg-slate-50 text-sm font-medium break-words" data-testid="email-preview-subject">
+                  {preview.subject || <span className="text-slate-400">(empty subject)</span>}
+                </div>
+              </div>
+              <div className="flex flex-col min-h-0 flex-1">
+                <Label className="text-xs uppercase tracking-wide text-slate-500 mb-1">Body</Label>
+                <iframe
+                  title="Email preview"
+                  sandbox=""
+                  srcDoc={`<!DOCTYPE html><html><head><meta charset="utf-8"></head><body style="margin:16px;background:#ffffff;">${preview.html || ""}</body></html>`}
+                  className="w-full flex-1 min-h-[400px] border rounded-md bg-white"
+                  data-testid="email-preview-frame"
+                />
+              </div>
+            </div>
+          ) : null}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

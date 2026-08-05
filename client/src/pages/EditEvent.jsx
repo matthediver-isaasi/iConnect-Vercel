@@ -4237,6 +4237,7 @@ export default function EditEvent() {
                 isTimezoneLoading={isTimezoneLoading}
                 loading={loadingEmails}
                 mode="event"
+                eventId={eventId}
               />
               {!loadingEmails && eventEmails.length > 0 && (
                 <div className="flex flex-wrap justify-end gap-2 pt-2">

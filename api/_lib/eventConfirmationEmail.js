@@ -331,6 +331,40 @@ async function fetchComplexEventSessions(eventId, tenantId) {
   if (error && error.code === '42703') {
     ({ data, error } = await runQuery(SESSION_BASE_COLUMNS));
   }
+  if (error && error.code === '42703') {
+    // Legacy schema (prod): parent FK is complex_event_id (not event_id), no
+    // status/sort_order/delivery_mode/track_name/timezone columns, and track
+    // membership lives on complex_event_track_id. Fetch with the columns that
+    // exist and resolve track names via the track table so schedule badges
+    // and ticket-class track filtering keep working.
+    let q = supabase
+      .from('complex_event_session')
+      .select('id, title, description, start_time, end_time, location, is_online, zoom_join_url, zoom_meeting_id, zoom_webinar_id, complex_event_track_id, display_order')
+      .eq('complex_event_id', eventId)
+      .order('start_time', { ascending: true })
+      .order('display_order', { ascending: true });
+    if (tenantId) q = q.eq('tenant_id', tenantId);
+    ({ data, error } = await q);
+    if (!error && data && data.length > 0) {
+      try {
+        const trackIds = [...new Set(data.map(s => s.complex_event_track_id).filter(Boolean))];
+        if (trackIds.length > 0) {
+          const { data: tracks } = await supabase
+            .from('complex_event_track')
+            .select('id, name')
+            .in('id', trackIds);
+          const nameById = new Map((tracks || []).map(t => [t.id, t.name]));
+          for (const s of data) {
+            if (s.complex_event_track_id && !s.track_name) {
+              s.track_name = nameById.get(s.complex_event_track_id) || null;
+            }
+          }
+        }
+      } catch (trackErr) {
+        console.warn('[fetchComplexEventSessions] Legacy track name resolution failed:', trackErr?.message);
+      }
+    }
+  }
   if (error) {
     console.warn('[fetchComplexEventSessions] Session query error:', error.message);
     return [];
@@ -760,6 +794,105 @@ export function formatBodyAsHtml(body) {
     .replace(/(https?:\/\/[^\s<]+)/gi, '<a href="$1">$1</a>');
 
   return `<div style="font-family: Arial, sans-serif; line-height: 1.6;">${html}</div>`;
+}
+
+// Render-only preview of an event email (Task: email preview modal).
+// Reuses the exact same fetch + placeholder-substitution pipeline the real
+// send uses, but with NO side effects: no email send, no check-in token
+// generation, no inbox delivery rows. Attendee/booking tokens are filled with
+// clearly-labelled sample values. For complex events the schedule renders ALL
+// sessions (admin preview — no ticket-class restriction).
+//
+// Returns { found, subject, html, isComplex } — found=false when the event
+// does not exist in either table for the given tenant.
+export async function renderEventEmailPreview({ eventId, tenantId, subject, body }) {
+  if (!supabase) return { found: false };
+
+  let eventQuery = supabase
+    .from('event')
+    .select('id, title, description, start_date, end_date, location, is_online, is_complex, is_training, zoom_meeting_id, zoom_webinar_id, tenant_id, timezone, qr_on_confirmation')
+    .eq('id', eventId);
+  if (tenantId) eventQuery = eventQuery.eq('tenant_id', tenantId);
+  let { data: event, error: eventError } = await eventQuery.maybeSingle();
+
+  if (eventError || !event) {
+    let complexQuery = supabase
+      .from('complex_event')
+      .select('id, title, description, start_date, end_date, location, is_online, tenant_id, timezone, qr_on_confirmation')
+      .eq('id', eventId);
+    if (tenantId) complexQuery = complexQuery.eq('tenant_id', tenantId);
+    const { data: complexEvent } = await complexQuery.maybeSingle();
+    if (!complexEvent) return { found: false };
+    event = { ...complexEvent, is_complex: true, zoom_meeting_id: null, zoom_webinar_id: null };
+  }
+
+  // Resolve the event-level Zoom link the same way the send path does.
+  let zoomJoinUrl = null;
+  if (event.zoom_meeting_id) {
+    const { data: zoomMeeting } = await supabase
+      .from('zoom_meeting')
+      .select('join_url')
+      .eq('id', event.zoom_meeting_id)
+      .maybeSingle();
+    zoomJoinUrl = zoomMeeting?.join_url || null;
+  } else if (event.zoom_webinar_id) {
+    const { data: zoomWebinar } = await supabase
+      .from('zoom_webinar')
+      .select('join_url')
+      .eq('id', event.zoom_webinar_id)
+      .maybeSingle();
+    zoomJoinUrl = zoomWebinar?.join_url || null;
+  }
+  event.zoom_join_url = zoomJoinUrl;
+
+  // Admin preview: no ticket class -> all_tracks path -> every scheduled
+  // session, day-grouped with tracks/times/locations/join links.
+  let complexEventData = null;
+  if (event.is_complex) {
+    complexEventData = await fetchComplexEventData(eventId, null, null, event.tenant_id, event.timezone);
+  }
+
+  let trainingAgendaData = null;
+  if (!event.is_complex && event.is_training) {
+    trainingAgendaData = await fetchTrainingAgendaData(eventId);
+  }
+
+  // Clearly-labelled sample attendee/booking values so nothing renders blank.
+  const sampleBooking = {
+    id: 'sample-booking-id',
+    attendee_first_name: 'Jane',
+    attendee_last_name: 'Example',
+    attendee_email: 'jane.example@example.com',
+    booking_reference: 'SAMPLE-REF-001',
+    ticket_price: 0,
+    total_cost: 0,
+    ticket_class_name: 'Standard (sample)',
+    pricingDetails: null,
+  };
+
+  let renderedSubject = replacePlaceholders(subject || '', { event, booking: sampleBooking, complexEventData });
+  let renderedBody = replacePlaceholders(body || '', { event, booking: sampleBooking, complexEventData });
+  if (event.is_training) {
+    renderedSubject = applyAgendaPlaceholders(renderedSubject, { agendaData: trainingAgendaData });
+    renderedBody = applyAgendaPlaceholders(renderedBody, { agendaData: trainingAgendaData });
+  }
+
+  // The real send appends entrance-QR cards for in-person events. Mirror that
+  // with a sample QR (no token creation side effects) so admins see the shape.
+  let qrHtml = '';
+  if (!event.is_online && event.qr_on_confirmation !== false) {
+    qrHtml = `<div style="font-family: Arial, sans-serif;margin-top:24px;">
+      <h3 style="font-size:16px;color:#333333;margin:0 0 8px 0;text-align:center;">Your entrance QR code${event.is_complex ? 's' : ''}</h3>
+      ${renderQrCard(buildQrImageUrl('SAMPLE-PREVIEW-TOKEN'), 'Sample QR code — each attendee receives their own unique code')}
+    </div>`;
+  }
+
+  return {
+    found: true,
+    subject: renderedSubject,
+    html: formatBodyAsHtml(renderedBody) + qrHtml,
+    isComplex: !!event.is_complex,
+  };
 }
 
 export { fetchComplexEventData, buildSessionScheduleHtml };
