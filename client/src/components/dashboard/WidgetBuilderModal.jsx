@@ -278,6 +278,17 @@ export default function WidgetBuilderModal({
   const currentSource = sources.find(s => s.id === draft.config.source) || null;
   const fieldOptions = useMemo(() => buildFieldOptions(currentSource), [currentSource]);
 
+  // Group-by picker lists system + custom fields together, sorted A–Z by
+  // label (case-insensitive) so the dropdown is scannable regardless of
+  // registry order.
+  const groupByOptions = useMemo(
+    () =>
+      [...fieldOptions].sort((a, b) =>
+        (a.label || "").localeCompare(b.label || "", undefined, { sensitivity: "base" }),
+      ),
+    [fieldOptions],
+  );
+
   // DD stage-transition capability (surfaced via the source's `isDd` flag so
   // we don't hard-code the source id here). The From/To pickers reuse the
   // canonical DD status list already published on the `workflow_status` field.
@@ -1175,11 +1186,27 @@ export default function WidgetBuilderModal({
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="__none__">No grouping</SelectItem>
-                  {fieldOptions.map(opt => (
+                  {groupByOptions.map(opt => (
                     <SelectItem key={opt.value} value={opt.value}>
                       {opt.label}
                     </SelectItem>
                   ))}
+                  {(() => {
+                    // Existing widgets may be grouped by a field a tenant
+                    // admin has since hidden from the catalog. Keep such a
+                    // selection visible (and re-saveable) instead of showing
+                    // an empty trigger — hiding only affects the option
+                    // list for new choices.
+                    const gb = draft.config.groupBy;
+                    if (!gb) return null;
+                    const key = `${gb.kind}:${gb.field || gb.fieldId}`;
+                    if (fieldOptions.some(o => o.value === key)) return null;
+                    return (
+                      <SelectItem value={key}>
+                        {gb.field || "Custom field"} (hidden field)
+                      </SelectItem>
+                    );
+                  })()}
                 </SelectContent>
               </Select>
               {(() => {

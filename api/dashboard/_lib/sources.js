@@ -274,11 +274,57 @@ async function getTenantFormOptions(tenantId) {
   }
 }
 
+// --- per-tenant hidden grouping fields ---------------------------------------
+// Tenant admins can hide individual fields from the widget builder's option
+// lists. The hidden set is stored as a JSON object in system_settings under
+// this key, shaped { [sourceId]: ["system:<name>", "custom:<id>", ...] }.
+// Enforcement happens here in the catalog (fields never reach the builder);
+// the aggregation engine reads field definitions via getSourceDef /
+// getCustomFieldsForSource, so widgets already configured with a hidden
+// field keep rendering and aggregating.
+export const HIDDEN_GROUP_FIELDS_KEY = 'dashboard_hidden_group_fields';
+
+export function fieldOptionKey(field) {
+  return field.isCustom ? `custom:${field.id}` : `system:${field.name}`;
+}
+
+export async function getHiddenGroupFields(tenantId) {
+  if (!supabase) return {};
+  try {
+    let query = supabase
+      .from('system_settings')
+      .select('setting_value')
+      .eq('setting_key', HIDDEN_GROUP_FIELDS_KEY);
+    query = tenantId ? query.eq('tenant_id', tenantId) : query.is('tenant_id', null);
+    const { data, error } = await query;
+    if (error) throw error;
+    const raw = data?.[0]?.setting_value;
+    if (!raw) return {};
+    const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+    const out = {};
+    for (const [sourceId, keys] of Object.entries(parsed)) {
+      if (Array.isArray(keys)) {
+        out[sourceId] = keys.filter(k => typeof k === 'string');
+      }
+    }
+    return out;
+  } catch (err) {
+    // Fail open: a broken/missing setting must never take the builder down.
+    console.error('[Dashboard Sources] Failed to load hidden group fields:', err.message);
+    return {};
+  }
+}
+
 export async function getSourceCatalog(tenantId) {
   const sources = [];
+  const hiddenBySource = await getHiddenGroupFields(tenantId);
   for (const def of Object.values(DASHBOARD_SOURCES)) {
-    const customFields = await getCustomFieldsForSource(def, tenantId);
-    const systemFields = await resolveSystemFields(def, tenantId);
+    const hidden = new Set(hiddenBySource[def.id] || []);
+    const customFields = (await getCustomFieldsForSource(def, tenantId))
+      .filter(f => !hidden.has(`custom:${f.id}`));
+    const systemFields = (await resolveSystemFields(def, tenantId))
+      .filter(f => !hidden.has(`system:${f.name}`));
     sources.push({
       id: def.id,
       label: def.label,

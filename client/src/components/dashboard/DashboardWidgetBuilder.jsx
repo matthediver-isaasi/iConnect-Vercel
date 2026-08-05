@@ -13,7 +13,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { LayoutDashboard, Plus, Sparkles, Users } from "lucide-react";
+import { LayoutDashboard, Plus, Settings2, Sparkles, Users } from "lucide-react";
 import {
   Tooltip,
   TooltipContent,
@@ -24,6 +24,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/components/ui/use-toast";
 import WidgetGrid from "@/components/dashboard/WidgetGrid";
 import WidgetBuilderModal from "@/components/dashboard/WidgetBuilderModal";
+import GroupingFieldSettingsModal from "@/components/dashboard/GroupingFieldSettingsModal";
 
 export default function DashboardWidgetBuilder() {
   const { toast } = useToast();
@@ -33,6 +34,7 @@ export default function DashboardWidgetBuilder() {
   const [prefillWidget, setPrefillWidget] = useState(null);
   const [defaultScope, setDefaultScope] = useState("personal");
   const [pendingDelete, setPendingDelete] = useState(null);
+  const [fieldSettingsOpen, setFieldSettingsOpen] = useState(false);
 
   const widgetsQuery = useQuery({
     queryKey: ["/api/dashboard/widgets"],
@@ -199,6 +201,7 @@ export default function DashboardWidgetBuilder() {
         canManageShared={permissions.manageShared}
         onAddPersonal={() => openBuilder("personal")}
         onAddShared={() => openBuilder("shared")}
+        onOpenFieldSettings={() => setFieldSettingsOpen(true)}
       />
 
       {(permissions.manageShared || sharedWidgets.length > 0) && (
@@ -293,6 +296,11 @@ export default function DashboardWidgetBuilder() {
         isSaving={saveMutation.isPending}
       />
 
+      <GroupingFieldSettingsModal
+        open={fieldSettingsOpen}
+        onClose={() => setFieldSettingsOpen(false)}
+      />
+
       <AlertDialog
         open={!!pendingDelete}
         onOpenChange={open => !open && setPendingDelete(null)}
@@ -327,6 +335,7 @@ function DashboardHeader({
   canManageShared,
   onAddPersonal,
   onAddShared,
+  onOpenFieldSettings,
 }) {
   return (
     <div className="flex flex-wrap items-start justify-between gap-3">
@@ -348,6 +357,23 @@ function DashboardHeader({
       </div>
       <TooltipProvider delayDuration={200}>
         <div className="flex flex-wrap gap-2">
+          {canManageShared && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={onOpenFieldSettings}
+                  data-testid="button-grouping-field-settings"
+                >
+                  <Settings2 className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                Choose which fields appear in the widget builder.
+              </TooltipContent>
+            </Tooltip>
+          )}
           {canManageShared && (
             <Tooltip>
               <TooltipTrigger asChild>
