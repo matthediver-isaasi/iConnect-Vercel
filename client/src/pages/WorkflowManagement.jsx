@@ -95,7 +95,6 @@ const ORGANIZATION_CORE_FIELDS = [
   { id: 'invoicing_email', label: 'Invoicing Email', type: 'email' },
   { id: 'invoicing_address', label: 'Invoicing Address', type: 'text' },
   { id: 'website_url', label: 'Website URL', type: 'url' },
-  { id: 'training_fund_balance', label: 'Training Fund Balance', type: 'number' },
   { id: 'address_line_1', label: 'Address Line 1', type: 'text' },
   { id: 'address_line_2', label: 'Address Line 2', type: 'text' },
   { id: 'city', label: 'City', type: 'text' },

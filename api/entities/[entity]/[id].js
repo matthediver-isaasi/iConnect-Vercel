@@ -3,6 +3,7 @@ import { triggerZohoCrmSync, awaitZohoCrmSyncForResponse } from '../../_lib/zoho
 import { invalidateMemberSessions } from '../../_lib/session.js';
 import { supabase } from '../../_lib/database.js';
 import { getTenantContext, getEntityTenantScope, getTenantColumn, TENANT_SCOPE, checkCrossOrgPermissions, checkCrossMemberPermissions, hasAdminAccess, hasFeatureAccess } from '../../_lib/tenantContext.js';
+import { stripProtectedOrgBalanceFields } from '../../_lib/protectedOrgFields.js';
 import { isAdminOnlyEntity } from '../../_lib/adminOnlyEntities.js';
 import { isEventFamilyEntity, authorizeGroupAdminEventWrite } from '../../_lib/groupAdminEventWrite.js';
 import { checkBadgeWriteAccess } from '../../_lib/badgeAccess.js';
@@ -736,6 +737,17 @@ export default async function handler(req, res) {
         }
         if (!entitiesAllowingMemberReassign.includes(entity)) {
           delete sanitizedBody.member_id;
+        }
+      }
+
+      // Training fund balances are ledger-backed: every change must go
+      // through a path that writes a training_fund_transaction row
+      // atomically (RPCs / the admin adjust endpoint). Strip them from
+      // generic Organization updates so no client code can bypass the ledger.
+      if (entityNormalized === 'organization') {
+        const strippedBalanceFields = stripProtectedOrgBalanceFields(sanitizedBody);
+        if (strippedBalanceFields.length > 0) {
+          console.warn(`[Entity API] Stripped protected training fund balance field(s) from Organization update ${id}: ${strippedBalanceFields.join(', ')}`);
         }
       }
 

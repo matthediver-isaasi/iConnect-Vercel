@@ -344,8 +344,7 @@ export default function OrganisationDetailView({
     website_url: '',
     invoicing_email: '',
     invoicing_address: '',
-    description: '',
-    training_fund_balance: 0
+    description: ''
   });
   const [customFieldValues, setCustomFieldValues] = useState({});
 
@@ -375,8 +374,7 @@ export default function OrganisationDetailView({
         website_url: organization.website_url || '',
         invoicing_email: organization.invoicing_email || '',
         invoicing_address: organization.invoicing_address || '',
-        description: organization.description || '',
-        training_fund_balance: organization.training_fund_balance || 0
+        description: organization.description || ''
       });
     }
   }, [organization, isEditing]);
@@ -1053,8 +1051,7 @@ export default function OrganisationDetailView({
       website_url: organization.website_url || '',
       invoicing_email: organization.invoicing_email || '',
       invoicing_address: organization.invoicing_address || '',
-      description: organization.description || '',
-      training_fund_balance: organization.training_fund_balance || 0
+      description: organization.description || ''
     });
     
     const valuesMap = {};
@@ -1821,7 +1818,7 @@ export default function OrganisationDetailView({
                     <CardContent>
                       <div className="text-center py-4">
                         <p className="text-3xl font-bold text-green-600">
-                          £{(formData.training_fund_balance || 0).toFixed(2)}
+                          £{(organization?.training_fund_balance || 0).toFixed(2)}
                         </p>
                         <p className="text-sm text-slate-500 mt-1">Available Balance</p>
                       </div>

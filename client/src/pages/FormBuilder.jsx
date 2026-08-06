@@ -222,7 +222,6 @@ const ORG_CORE_FIELDS = [
   { value: 'invoicing_address', label: 'Invoicing Address' },
   { value: 'phone', label: 'Phone' },
   { value: 'website_url', label: 'Website URL' },
-  { value: 'training_fund_balance', label: 'Training Fund Balance' },
   { value: 'tags', label: 'Tags' },
 ];
 
@@ -2172,7 +2171,6 @@ const ORG_PREFILL_FIELDS = [
   { value: 'invoicing_address', label: 'Invoicing Address' },
   { value: 'phone', label: 'Phone' },
   { value: 'website_url', label: 'Website URL' },
-  { value: 'training_fund_balance', label: 'Training Fund Balance' },
   { value: 'tags', label: 'Tags' },
 ];
 

@@ -324,46 +324,33 @@ export default function TrainingFundManagementPage() {
     return filteredOrgs.reduce((sum, org) => sum + (org.training_fund_pending_balance || 0), 0);
   }, [filteredOrgs]);
 
-  const createTransactionMutation = useMutation({
-    mutationFn: (transactionData) => base44.entities.TrainingFundTransaction.create(transactionData),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['training-fund-transactions'] });
-      queryClient.invalidateQueries({ queryKey: ['training-fund-transactions', 'by-organization'] });
-      queryClient.invalidateQueries({ queryKey: ['training-fund-transactions', 'drift-summary'] });
-    }
-  });
-
+  // Balance adjustments go through a dedicated admin endpoint that updates
+  // the balance and writes the ledger row atomically server-side, so a
+  // partial failure can never leave balance and ledger diverged.
   const updateBalanceMutation = useMutation({
-    mutationFn: async ({ orgId, newBalance, balanceBefore, type, reason, createdDate }) => {
-      console.log('[TrainingFund] Starting balance update:', { orgId, newBalance, balanceBefore, type, reason, createdDate });
-      
-      try {
-        console.log('[TrainingFund] Updating organization balance...');
-        await base44.entities.Organization.update(orgId, { training_fund_balance: newBalance });
-        console.log('[TrainingFund] Organization balance updated successfully');
-        
-        console.log('[TrainingFund] Creating transaction record...');
-        await createTransactionMutation.mutateAsync({
+    mutationFn: async ({ orgId, type, amount, reason, createdDate }) => {
+      const res = await fetch('/api/admin/training-fund-transactions/adjust', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
           organization_id: orgId,
-          type: type,
-          amount: Math.abs(newBalance - balanceBefore),
-          balance_before: balanceBefore,
-          balance_after: newBalance,
-          reason: reason || (type === 'add' ? 'Funds added' : 'Funds deducted'),
-          created_by: memberInfo?.id || null,
-          created_date: createdDate || new Date().toISOString()
-        });
-        console.log('[TrainingFund] Transaction record created successfully');
-        
-        return { orgId, newBalance };
-      } catch (innerError) {
-        console.error('[TrainingFund] Error in mutationFn:', innerError);
-        throw innerError;
+          type,
+          amount,
+          reason: reason || undefined,
+          created_date: createdDate || undefined,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data?.error || 'Failed to adjust balance');
       }
+      return data;
     },
     onSuccess: () => {
       console.log('[TrainingFund] Mutation success - invalidating queries');
       queryClient.invalidateQueries({ queryKey: ['organizations'] });
+      queryClient.invalidateQueries({ queryKey: ['training-fund-transactions'] });
       setShowAdjustDialog(false);
       setAdjustingOrg(null);
       setAdjustmentAmount("");
@@ -411,24 +398,15 @@ export default function TrainingFundManagementPage() {
     }
     const createdDate = adjustmentDate === todayStr ? now.toISOString() : chosenDate.toISOString();
 
-    const currentBalance = adjustingOrg.training_fund_balance || 0;
-    let newBalance;
-    
-    if (adjustmentType === "add") {
-      newBalance = currentBalance + amount;
-    } else {
-      newBalance = currentBalance - amount;
-      if (newBalance < 0) {
-        toast.error('Cannot reduce balance below zero');
-        return;
-      }
+    if (adjustmentType === 'deduct' && (adjustingOrg.training_fund_balance || 0) - amount < 0) {
+      toast.error('Cannot reduce balance below zero');
+      return;
     }
 
     updateBalanceMutation.mutate({
       orgId: adjustingOrg.id,
-      newBalance: newBalance,
-      balanceBefore: currentBalance,
       type: adjustmentType,
+      amount,
       reason: adjustmentReason,
       createdDate
     });

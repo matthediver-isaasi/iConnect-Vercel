@@ -10,6 +10,7 @@ import { autoApproveMemberFees, autoApproveOrgFees } from './membershipFeeApprov
 import { coerceBooleanPreferenceValue } from './booleanCoercion.js';
 import { getTenantBaseUrl } from './campaignService.js';
 import { hasSetPasswordToken } from './passwordSetupUrl.js';
+import { isProtectedOrgBalanceField } from './protectedOrgFields.js';
 
 // Task #3253 — when a workflow fires from a background/webhook path with no
 // request context (empty baseUrl) but the email template contains special
@@ -836,6 +837,14 @@ async function executeWorkflowActions(workflow, entityType, entityId, entityData
         table = 'job_posting';
       } else {
         table = 'member';
+      }
+      // Training fund balances must only change through ledger-writing
+      // paths (RPCs / the admin adjust endpoint). Skip defensively for any
+      // legacy workflow configs that still reference them.
+      if (table === 'organization' && isProtectedOrgBalanceField(action.config?.field_id)) {
+        console.warn(`[Workflows] update_field (core): "${action.config.field_id}" is a protected ledger-backed field - skipping`);
+        results.push({ action_type: 'update_field', field_type: 'core', status: 'skipped', error: `Field "${action.config.field_id}" cannot be set by workflows (ledger-backed balance)` });
+        continue;
       }
       let resolvedValue = action.config.value;
       if (resolvedValue === '{{current_date}}') {

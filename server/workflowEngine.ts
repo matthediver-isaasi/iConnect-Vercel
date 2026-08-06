@@ -4,6 +4,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { sendEmail as sendMailgunEmail } from "./emailService";
 import crypto from "crypto";
+import { isProtectedOrgBalanceField } from "../api/_lib/protectedOrgFields.js";
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
@@ -63,7 +64,7 @@ interface Workflow {
 
 interface ExecutionResult {
   action_type: string;
-  status: 'success' | 'failed';
+  status: 'success' | 'failed' | 'skipped';
   result?: any;
   error?: string;
   template_id?: string;
@@ -428,6 +429,17 @@ async function executeUpdateFieldAction(
         tableName = 'job_posting';
       } else {
         tableName = 'member';
+      }
+      // Training fund balances are ledger-backed: every change must go
+      // through a path that writes a training_fund_transaction row
+      // atomically. Skip defensively for legacy workflow configs.
+      if (tableName === 'organization' && isProtectedOrgBalanceField(config.field_id)) {
+        console.warn(`[WorkflowEngine] update_field (core): "${config.field_id}" is a protected ledger-backed field - skipping`);
+        return {
+          action_type: 'update_field',
+          status: 'skipped',
+          error: `Field "${config.field_id}" cannot be set by workflows (ledger-backed balance)`
+        };
       }
       const { error } = await supabase
         .from(tableName)

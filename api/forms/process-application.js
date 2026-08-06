@@ -3,6 +3,7 @@ import { triggerWorkflows } from '../_lib/workflows.js';
 import { resolveEffectiveOrgGuestAccess } from '../_lib/orgGuestAccess.js';
 import { notifyGuestSignup } from '../_lib/guestSignupNotification.js';
 import { resolveStaticTodayToken } from '../_lib/staticValueTokens.js';
+import { isProtectedOrgBalanceField } from '../_lib/protectedOrgFields.js';
 import { coercePreferenceValueForStorage } from '../_lib/preferenceValueStorage.js';
 import { resolveEffectiveEntityTenant, isCrossTenantRow } from '../_lib/formTenantScope.js';
 
@@ -1161,6 +1162,12 @@ export default async function handler(req, res) {
                 dropdownSelectedOrgId = value;
               }
               console.log('[AppProcessor] Skipped org core assignment from organisation_dropdown source:', { target_field, source_field_id, captured_org_id: value });
+              continue;
+            }
+            // Training fund balances are ledger-backed and must never be
+            // written by form mappings. Skip defensively for legacy configs.
+            if (isProtectedOrgBalanceField(target_field)) {
+              console.warn('[AppProcessor] Skipped protected ledger-backed org field mapping:', target_field);
               continue;
             }
             orgData[target_field] = coerceCoreFieldValue('organization', target_field, value);

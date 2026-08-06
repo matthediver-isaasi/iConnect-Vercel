@@ -3,6 +3,7 @@ import { generatePasswordSetupUrl, hasSetPasswordToken, replaceSetPasswordToken 
 import { triggerWorkflows, triggerPreferenceWorkflows, recheckRecordCreateWorkflows } from '../../_lib/workflows.js';
 import { triggerZohoCrmSync, awaitZohoCrmSyncForResponse } from '../../_lib/zohoCrmSync.js';
 import { supabase } from '../../_lib/database.js';
+import { stripProtectedOrgBalanceFields } from '../../_lib/protectedOrgFields.js';
 import { getTenantContext, getEntityTenantScope, getTenantColumn, TENANT_SCOPE, checkCrossOrgPermissions, checkCrossMemberPermissions, hasAdminAccess, hasFeatureAccess } from '../../_lib/tenantContext.js';
 import { isAdminOnlyEntity } from '../../_lib/adminOnlyEntities.js';
 import { isEventFamilyEntity, authorizeGroupAdminEventWrite } from '../../_lib/groupAdminEventWrite.js';
@@ -1132,6 +1133,17 @@ export default async function handler(req, res) {
         }
         delete sanitizedBody.static_html;
         delete sanitizedBody.static_css;
+      }
+
+      // Training fund balances are ledger-backed: every change must go
+      // through a path that writes a training_fund_transaction row
+      // atomically (RPCs / the admin adjust endpoint). Strip them from
+      // generic Organization creates so no client code can bypass the ledger.
+      if (entityNorm === 'organization') {
+        const stripped = stripProtectedOrgBalanceFields(sanitizedBody);
+        if (stripped.length > 0) {
+          console.warn(`[Entity API] Stripped protected training fund balance field(s) from Organization create: ${stripped.join(', ')}`);
+        }
       }
 
       // SECURITY (Task #3330): survey submissions must go through the public
