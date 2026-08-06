@@ -69,6 +69,41 @@ export default async function handler(req, res) {
       .or('member_group_id.is.null,group_event_public.is.true')
       .order('start_date', { ascending: true });
 
+    if (error) {
+      console.error('[Public Events] Query error:', error);
+      return res.status(500).json({ error: 'Failed to fetch events' });
+    }
+
+    // Batched agenda summaries for Training events (dates + type label only,
+    // never Zoom/LMS links) so cards can show a mini agenda without
+    // per-event calls.
+    const trainingIds = (rawEvents || []).filter(e => e.is_training).map(e => e.id);
+    const agendaByEvent = {};
+    if (trainingIds.length > 0) {
+      const { data: agendaLines, error: agendaError } = await supabase
+        .from('event_agenda_item')
+        .select('event_id, start_date, end_date, start_time, item_type, sort_order')
+        .in('event_id', trainingIds)
+        .eq('tenant_id', tenant.id)
+        .order('start_date', { ascending: true })
+        .order('start_time', { ascending: true, nullsFirst: true })
+        .order('sort_order', { ascending: true });
+      if (agendaError) {
+        console.error('[Public Events] agenda summary error:', agendaError);
+      } else {
+        for (const l of agendaLines || []) {
+          if (!agendaByEvent[l.event_id]) agendaByEvent[l.event_id] = [];
+          agendaByEvent[l.event_id].push({
+            start_date: l.start_date,
+            end_date: l.end_date || null,
+            start_time: l.start_time || null,
+            item_type: l.item_type || null,
+            sort_order: l.sort_order ?? null,
+          });
+        }
+      }
+    }
+
     const events = (rawEvents || []).map(event => {
       const allTicketClasses = event.pricing_config?.ticket_classes || [];
       const allPrices = allTicketClasses
@@ -131,14 +166,10 @@ export default async function handler(req, res) {
         pricing_config: publicTicketClasses.length > 0 ? { ticket_classes: publicTicketClasses } : null,
         cta_override_url: event.cta_override_url || null,
         cta_override_mode: event.cta_override_mode || 'card',
-        filter_tags: event.filter_tags || []
+        filter_tags: event.filter_tags || [],
+        agenda_summary: event.is_training ? (agendaByEvent[event.id] || []) : undefined
       };
     });
-
-    if (error) {
-      console.error('[Public Events] Query error:', error);
-      return res.status(500).json({ error: 'Failed to fetch events' });
-    }
 
     res.json(events || []);
   } catch (error) {

@@ -19,6 +19,7 @@ import TenantCtaButton from "@/components/common/TenantCtaButton";
 import { toast } from "sonner";
 import { resolveAttendeeJobTitle } from "@/lib/attendeeJobTitle";
 import { getSeatStatusLabels } from "@/lib/seatStatusLabels";
+import TrainingMiniAgenda from "@/components/events/TrainingMiniAgenda";
 import {
   Dialog,
   DialogContent,
@@ -177,7 +178,7 @@ const getCheapestTicketPrice = (event) => {
   return null;
 };
 
-export default function EventCard({ event, organizationInfo, isFeatureExcluded, isAdmin, onEventDeleted, joinLinkSettings, webinars, systemSettings = [], memberInfo, joinLocked = false }) {
+export default function EventCard({ event, organizationInfo, isFeatureExcluded, isAdmin, onEventDeleted, joinLinkSettings, webinars, systemSettings = [], memberInfo, joinLocked = false, agendaSummary = null }) {
   const queryClient = useQueryClient();
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState("");
@@ -820,6 +821,10 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
               <Calendar className="w-4 h-4 text-blue-400" />
               <span className="font-medium">Date to be confirmed</span>
             </div>
+          ) : (event.is_training && Array.isArray(agendaSummary) && agendaSummary.length > 0) ? (
+            /* Training events with an agenda show a compact date+type agenda
+               instead of the single date/time rows (empty agenda falls back). */
+            <TrainingMiniAgenda items={agendaSummary} testId={`agenda-event-${event.id}`} />
           ) : (
             <>
               {event.start_date && (

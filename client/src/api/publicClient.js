@@ -210,6 +210,12 @@ class PublicClient {
     if (!slug) return null;
     return this._fetch(`/api/public/event?slug=${encodeURIComponent(slug)}`);
   }
+
+  // Batched agenda summaries (dates + item type only) for Training event cards
+  async listEventAgendaSummaries(eventIds) {
+    if (!Array.isArray(eventIds) || eventIds.length === 0) return {};
+    return this._fetch(`/api/public/event-agenda-summaries?event_ids=${eventIds.map(encodeURIComponent).join(',')}`);
+  }
   
   // Articles / Blog Posts
   async listArticles() {

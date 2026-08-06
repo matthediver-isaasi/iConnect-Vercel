@@ -55,6 +55,7 @@ import { publicClient } from "@/api/publicClient";
 import { useLayoutContext } from "@/contexts/LayoutContext";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useEventsData, useMyGroupIds, filterGroupEventVisibility } from "@/hooks/useEventsData";
+import { useTrainingAgendaSummaries } from "@/hooks/useTrainingAgendaSummaries";
 import { createPageUrl } from "@/utils";
 import { useEventTypes } from "@/hooks/useEventTypes";
 import {
@@ -296,6 +297,10 @@ export default function EventsPage({
   const events = useMemo(() => {
     return [...simpleEvents, ...visibleComplexEvents];
   }, [simpleEvents, visibleComplexEvents]);
+
+  // Mini agenda data for Training event cards (one batched fetch keyed by
+  // the training event ids on the page; dates + item type only).
+  const trainingAgendaSummaries = useTrainingAgendaSummaries(simpleEvents);
 
   const isLoading = isLoadingSimple || isLoadingComplex;
 
@@ -2149,6 +2154,7 @@ export default function EventsPage({
                           webinars={webinars}
                           systemSettings={systemSettings}
                           memberInfo={memberInfo}
+                          agendaSummary={trainingAgendaSummaries[event.id]}
                         />
                         </React.Fragment>
                       );
@@ -2459,6 +2465,7 @@ export default function EventsPage({
                       webinars={webinars}
                       systemSettings={systemSettings}
                       memberInfo={memberInfo}
+                      agendaSummary={trainingAgendaSummaries[event.id]}
                     />
                     </React.Fragment>
                   );
