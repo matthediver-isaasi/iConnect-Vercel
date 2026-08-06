@@ -4,14 +4,17 @@
 //   In person  -> required location text
 //   Online     -> existing Zoom/Teams webinar/meeting picker (future items only)
 //   Self study -> external LMS URL
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { DndContext, closestCenter, PointerSensor, KeyboardSensor, useSensor, useSensors } from "@dnd-kit/core";
+import { SortableContext, verticalListSortingStrategy, sortableKeyboardCoordinates, arrayMove, useSortable } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Plus, Trash2, ArrowUp, ArrowDown, MapPin, Video, GraduationCap, Mic, X } from "lucide-react";
+import { Plus, Trash2, ArrowUp, ArrowDown, MapPin, Video, GraduationCap, Mic, X, GripVertical } from "lucide-react";
 import { SpeakerSelectionModal } from "@/components/SpeakerSelectionModal";
 import EventSponsorSelector from "@/components/events/EventSponsorSelector";
 
@@ -36,10 +39,61 @@ export function agendaTypeBehaviour(typeName) {
   return null;
 }
 
+// Normalise a stored/typed time to HH:MM ('09:00:00' -> '09:00'); '' when unset.
+export function normalizeAgendaTime(value) {
+  const m = String(value || '').match(/^(\d{2}):(\d{2})/);
+  return m ? `${m[1]}:${m[2]}` : '';
+}
+
+// Combined start datetime for a line. Missing start time counts as 00:00.
+export function agendaLineStartDateTime(line) {
+  if (!line?.start_date) return null;
+  return `${line.start_date}T${normalizeAgendaTime(line.start_time) || '00:00'}:00`;
+}
+
+// Combined end datetime for a line. Missing end date falls back to the start
+// date; missing end time counts as end-of-day 23:59 (matches the previous
+// derived event-end behaviour for date-only rows).
+export function agendaLineEndDateTime(line) {
+  const d = line?.end_date || line?.start_date;
+  if (!d) return null;
+  return `${d}T${normalizeAgendaTime(line.end_time) || '23:59'}:00`;
+}
+
+// Chronological order: by start datetime, then end datetime; stable for ties
+// and lines without dates keep their relative position at the end.
+export function sortAgendaLinesChronologically(lines) {
+  return (lines || [])
+    .map((l, i) => [l, i])
+    .sort(([a, ai], [b, bi]) => {
+      const sa = agendaLineStartDateTime(a);
+      const sb = agendaLineStartDateTime(b);
+      if (sa !== sb) {
+        if (sa === null) return 1;
+        if (sb === null) return -1;
+        return sa < sb ? -1 : 1;
+      }
+      const ea = agendaLineEndDateTime(a) || '';
+      const eb = agendaLineEndDateTime(b) || '';
+      if (ea !== eb) return ea < eb ? -1 : 1;
+      return ai - bi;
+    })
+    .map(([l]) => l);
+}
+
+let agendaKeyCounter = 0;
+export function nextAgendaLineKey() {
+  agendaKeyCounter += 1;
+  return `agenda-line-${Date.now()}-${agendaKeyCounter}`;
+}
+
 export function emptyAgendaLine(defaultType = 'In person') {
   return {
+    _key: nextAgendaLineKey(),
     start_date: '',
+    start_time: '',
     end_date: '',
+    end_time: '',
     description: '',
     item_type: defaultType,
     location: '',
@@ -60,8 +114,14 @@ export function validateAgendaLines(lines) {
   lines.forEach((line, i) => {
     const label = `Agenda line ${i + 1}`;
     if (!line.start_date) errors.push(`${label}: please set a start date`);
-    if (line.start_date && line.end_date && line.end_date < line.start_date) {
-      errors.push(`${label}: end date cannot be before the start date`);
+    if (line.start_date && (line.end_date || line.end_time)) {
+      // Compare full datetimes; an explicit end time on the start day must not
+      // be before the start time.
+      const start = agendaLineStartDateTime(line);
+      const end = `${line.end_date || line.start_date}T${normalizeAgendaTime(line.end_time) || normalizeAgendaTime(line.start_time) || '00:00'}:00`;
+      if (end < start) {
+        errors.push(`${label}: the end date/time cannot be before the start date/time`);
+      }
     }
     if (!line.item_type) errors.push(`${label}: please choose a type`);
     const behaviour = agendaTypeBehaviour(line.item_type);
@@ -83,10 +143,42 @@ export function validateAgendaLines(lines) {
   return errors;
 }
 
+// Sortable wrapper: provides the node ref + drag-handle props for one line.
+function SortableAgendaLine({ id, children }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    ...(isDragging ? { zIndex: 10, position: 'relative', opacity: 0.85 } : {}),
+  };
+  return children({ setNodeRef, style, handleProps: { ...attributes, ...listeners } });
+}
+
 export default function TrainingAgendaEditor({ lines, onChange, agendaItemTypes, speakers = [] }) {
   const anyOnline = (lines || []).some((l) => agendaTypeBehaviour(l.item_type) === 'zoom');
   // Which line's speaker-selection modal is open (null = none).
   const [speakerModalIndex, setSpeakerModalIndex] = useState(null);
+
+  // Stable per-line keys for drag & drop (saved rows have an id; new rows get
+  // a _key from emptyAgendaLine; older callers fall back to the index).
+  const lineIds = useMemo(
+    () => (lines || []).map((l, i) => l._key || l.id || `line-${i}`),
+    [lines]
+  );
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  );
+
+  const handleDragEnd = (event) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const from = lineIds.indexOf(active.id);
+    const to = lineIds.indexOf(over.id);
+    if (from < 0 || to < 0) return;
+    onChange(arrayMove(lines, from, to));
+  };
 
   // Same source as the event-level picker: future scheduled webinars/meetings only.
   const { data: webinars = [], isLoading: loadingWebinars } = useQuery({
@@ -135,15 +227,29 @@ export default function TrainingAgendaEditor({ lines, onChange, agendaItemTypes,
 
   return (
     <div className="space-y-4" data-testid="training-agenda-editor">
-      {(lines || []).length === 0 && (
+      {(lines || []).length === 0 ? (
         <p className="text-sm text-slate-500">No agenda lines yet. Add one line per training day (or date range).</p>
+      ) : (
+        <p className="text-xs text-slate-500">
+          Drag items to rearrange while editing — on save the agenda is stored in date/time order automatically.
+        </p>
       )}
+      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+      <SortableContext items={lineIds} strategy={verticalListSortingStrategy}>
       {(lines || []).map((line, index) => {
         const behaviour = agendaTypeBehaviour(line.item_type);
         return (
-          <div key={index} className="p-4 border border-slate-200 rounded-lg bg-slate-50 space-y-3" data-testid={`agenda-line-${index}`}>
+          <SortableAgendaLine key={lineIds[index]} id={lineIds[index]}>
+          {({ setNodeRef, style, handleProps }) => (
+          <div ref={setNodeRef} style={style} className="p-4 border border-slate-200 rounded-lg bg-slate-50 space-y-3" data-testid={`agenda-line-${index}`}>
             <div className="flex items-center justify-between">
-              <span className="text-sm font-medium text-slate-700">Item {index + 1}</span>
+              <div className="flex items-center gap-2">
+                <button type="button" className="cursor-grab active:cursor-grabbing text-slate-400 hover:text-slate-600 touch-none"
+                  {...handleProps} aria-label={`Drag to reorder item ${index + 1}`} data-testid={`handle-agenda-drag-${index}`}>
+                  <GripVertical className="w-4 h-4" />
+                </button>
+                <span className="text-sm font-medium text-slate-700">Item {index + 1}</span>
+              </div>
               <div className="flex items-center gap-1">
                 <Button type="button" variant="ghost" size="icon" className="h-8 w-8" disabled={index === 0}
                   onClick={() => moveLine(index, -1)} data-testid={`button-agenda-up-${index}`}>
@@ -160,7 +266,7 @@ export default function TrainingAgendaEditor({ lines, onChange, agendaItemTypes,
               </div>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
               <div className="space-y-1">
                 <Label className="text-xs">Start date *</Label>
                 <Input type="date" value={line.start_date || ''}
@@ -168,11 +274,26 @@ export default function TrainingAgendaEditor({ lines, onChange, agendaItemTypes,
                   data-testid={`input-agenda-start-${index}`} />
               </div>
               <div className="space-y-1">
+                <Label className="text-xs">Start time</Label>
+                <Input type="time" value={normalizeAgendaTime(line.start_time)}
+                  onChange={(e) => updateLine(index, { start_time: e.target.value })}
+                  data-testid={`input-agenda-start-time-${index}`} />
+              </div>
+              <div className="space-y-1">
                 <Label className="text-xs">End date (optional)</Label>
                 <Input type="date" value={line.end_date || ''} min={line.start_date || undefined}
                   onChange={(e) => updateLine(index, { end_date: e.target.value })}
                   data-testid={`input-agenda-end-${index}`} />
               </div>
+              <div className="space-y-1">
+                <Label className="text-xs">End time</Label>
+                <Input type="time" value={normalizeAgendaTime(line.end_time)}
+                  onChange={(e) => updateLine(index, { end_time: e.target.value })}
+                  data-testid={`input-agenda-end-time-${index}`} />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-1">
                 <Label className="text-xs">Type *</Label>
                 <Select
@@ -304,8 +425,12 @@ export default function TrainingAgendaEditor({ lines, onChange, agendaItemTypes,
               />
             </div>
           </div>
+          )}
+          </SortableAgendaLine>
         );
       })}
+      </SortableContext>
+      </DndContext>
 
       <SpeakerSelectionModal
         open={speakerModalIndex !== null}

@@ -102,7 +102,44 @@ test('clashIncludedTypeNames: excludes toggled-off types', () => {
   assert.ok(!names.has('self study'));
 });
 
-test('buildClashWindows: training uses per-line whole-day windows, clash-included only', () => {
+test('formatAgendaLineDates: per-line times (Task #3443)', () => {
+  // Same-day timed line: "date, start – end".
+  assert.equal(
+    formatAgendaLineDates(line({ start_time: '09:00:00', end_time: '12:30:00' })),
+    'Tuesday, 1 September 2026, 09:00 – 12:30'
+  );
+  // Multi-day timed range keeps both dates with their times.
+  assert.match(
+    formatAgendaLineDates(line({ end_date: '2026-09-02', start_time: '09:00', end_time: '17:00' })),
+    /1 September 2026, 09:00 – .*2 September 2026, 17:00/
+  );
+  // Legacy date-only rows are unchanged.
+  assert.equal(formatAgendaLineDates(line()), 'Tuesday, 1 September 2026');
+});
+
+test('buildClashWindows: timed agenda lines use their real windows (Task #3443)', () => {
+  const windows = buildClashWindows({
+    isTraining: true,
+    agendaLines: [
+      { start_date: '2026-09-01', end_date: '', start_time: '09:00', end_time: '10:00', item_type: 'In person' },
+      { start_date: '2026-09-01', end_date: '', start_time: '14:30:00', end_time: '', item_type: 'Online' },
+    ],
+    agendaItemTypes: DEFAULT_AGENDA_ITEM_TYPES,
+    eventData: {},
+    timezone: 'Europe/London',
+    title: 'Course',
+  });
+  assert.equal(windows.length, 2);
+  // Timed line: exact window, so a 09:00–10:00 session can't clash with an
+  // afternoon event.
+  assert.equal(windows[0].start, '2026-09-01T09:00:00');
+  assert.equal(windows[0].end, '2026-09-01T10:00:59');
+  // Missing end time falls back to end-of-day; HH:MM:SS input normalised.
+  assert.equal(windows[1].start, '2026-09-01T14:30:00');
+  assert.equal(windows[1].end, '2026-09-01T23:59:59');
+});
+
+test('buildClashWindows: training uses per-line whole-day windows for date-only lines, clash-included only', () => {
   const windows = buildClashWindows({
     isTraining: true,
     agendaLines: [

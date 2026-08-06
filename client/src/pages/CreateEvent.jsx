@@ -59,7 +59,7 @@ import SpeakerAwardsSection, { configToFormState, formStateToConfig } from "@/co
 import { useSpeakerModuleName } from "@/hooks/useSpeakerModuleName";
 import { useEventTypes } from "@/hooks/useEventTypes";
 import { useAgendaItemTypes } from "@/hooks/useAgendaItemTypes";
-import TrainingAgendaEditor, { validateAgendaLines, agendaTypeBehaviour } from "@/components/events/TrainingAgendaEditor";
+import TrainingAgendaEditor, { validateAgendaLines, agendaTypeBehaviour, sortAgendaLinesChronologically, agendaLineStartDateTime, agendaLineEndDateTime, normalizeAgendaTime } from "@/components/events/TrainingAgendaEditor";
 import { useMemberGroupSettings } from "@/hooks/useMemberGroupSettings";
 import ReactQuill from 'react-quill';
 import 'react-quill/dist/quill.snow.css';
@@ -624,10 +624,10 @@ export default function CreateEvent() {
   // Training events (Task #3436): overall start/end derive from the agenda.
   const trainingDerivedDates = useMemo(() => {
     if (!isTraining || agendaLines.length === 0) return null;
-    const starts = agendaLines.map(l => l.start_date).filter(Boolean).sort();
-    const ends = agendaLines.map(l => l.end_date || l.start_date).filter(Boolean).sort();
+    const starts = agendaLines.map(agendaLineStartDateTime).filter(Boolean).sort();
+    const ends = agendaLines.map(agendaLineEndDateTime).filter(Boolean).sort();
     if (starts.length === 0) return null;
-    return { start: `${starts[0]}T00:00:00`, end: `${ends[ends.length - 1]}T23:59:00` };
+    return { start: starts[0], end: ends[ends.length - 1] };
   }, [isTraining, agendaLines]);
 
   // Effective timezone for datetime-local inputs: Zoom timezone takes precedence
@@ -687,12 +687,16 @@ export default function CreateEvent() {
       // event with a missing/partial agenda.
       if (eventData.is_training && agendaLines.length > 0) {
         try {
-          for (let i = 0; i < agendaLines.length; i++) {
-            const line = agendaLines[i];
+          // Persist in chronological order (Task #3443).
+          const orderedLines = sortAgendaLinesChronologically(agendaLines);
+          for (let i = 0; i < orderedLines.length; i++) {
+            const line = orderedLines[i];
             await base44.entities.EventAgendaItem.create({
               event_id: createdEvent.id,
               start_date: line.start_date,
+              start_time: normalizeAgendaTime(line.start_time) || null,
               end_date: line.end_date || line.start_date,
+              end_time: normalizeAgendaTime(line.end_time) || null,
               description: line.description || null,
               item_type: line.item_type || null,
               location: agendaTypeBehaviour(line.item_type) === 'location' ? (line.location || null) : null,
@@ -966,16 +970,16 @@ export default function CreateEvent() {
     // For TBC events, explicitly null out dates and Zoom webinar
     const isTbcEvent = eventTiming === 'tbc';
 
-    // Training events: the overall start/end span the agenda so listings stay
-    // correct (whole-day window across the earliest/latest agenda dates).
+    // Training events: the overall start/end span the agenda using the real
+    // agenda datetimes (earliest start, latest end — Task #3443).
     let trainingStart = null;
     let trainingEnd = null;
     if (isTraining && agendaLines.length > 0) {
-      const starts = agendaLines.map(l => l.start_date).filter(Boolean).sort();
-      const ends = agendaLines.map(l => l.end_date || l.start_date).filter(Boolean).sort();
+      const starts = agendaLines.map(agendaLineStartDateTime).filter(Boolean).sort();
+      const ends = agendaLines.map(agendaLineEndDateTime).filter(Boolean).sort();
       if (starts.length > 0) {
-        trainingStart = `${starts[0]}T00:00:00`;
-        trainingEnd = `${ends[ends.length - 1]}T23:59:00`;
+        trainingStart = starts[0];
+        trainingEnd = ends[ends.length - 1];
       }
     }
     

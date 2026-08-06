@@ -69,7 +69,7 @@ import EventSponsorSelector from "@/components/events/EventSponsorSelector";
 import { useSpeakerModuleName } from "@/hooks/useSpeakerModuleName";
 import { useEventTypes } from "@/hooks/useEventTypes";
 import { useAgendaItemTypes } from "@/hooks/useAgendaItemTypes";
-import TrainingAgendaEditor, { validateAgendaLines, agendaTypeBehaviour } from "@/components/events/TrainingAgendaEditor";
+import TrainingAgendaEditor, { validateAgendaLines, agendaTypeBehaviour, sortAgendaLinesChronologically, agendaLineStartDateTime, agendaLineEndDateTime, normalizeAgendaTime } from "@/components/events/TrainingAgendaEditor";
 import { useMemberGroupSettings } from "@/hooks/useMemberGroupSettings";
 import { useServerAdminAuth } from "@/hooks/useServerAdminAuth";
 import ReactQuill from 'react-quill';
@@ -871,13 +871,18 @@ export default function EditEvent() {
         }
         if (isTraining) {
           const savedIds = [];
-          for (let i = 0; i < agendaLines.length; i++) {
-            const line = agendaLines[i];
+          // Persist in chronological order (Task #3443) so sort_order always
+          // reflects the real sequence regardless of entry/drag order.
+          const orderedLines = sortAgendaLinesChronologically(agendaLines);
+          for (let i = 0; i < orderedLines.length; i++) {
+            const line = orderedLines[i];
             const behaviour = agendaTypeBehaviour(line.item_type);
             const payload = {
               event_id: eventId,
               start_date: line.start_date,
+              start_time: normalizeAgendaTime(line.start_time) || null,
               end_date: line.end_date || line.start_date,
+              end_time: normalizeAgendaTime(line.end_time) || null,
               description: line.description || null,
               item_type: line.item_type || null,
               location: behaviour === 'location' ? (line.location || null) : null,
@@ -967,11 +972,17 @@ export default function EditEvent() {
       if (event.is_training) {
         base44.entities.EventAgendaItem.list({ filter: { event_id: event.id } })
           .then((rows) => {
-            const sorted = (rows || []).slice().sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+            // Chronological display regardless of stored sort_order (legacy
+            // rows may have been saved out of sequence — Task #3443).
+            const sorted = sortAgendaLinesChronologically(
+              (rows || []).slice().sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0))
+            );
             setAgendaLines(sorted.map((r) => ({
               id: r.id,
               start_date: r.start_date || '',
               end_date: r.end_date && r.end_date !== r.start_date ? r.end_date : '',
+              start_time: normalizeAgendaTime(r.start_time),
+              end_time: normalizeAgendaTime(r.end_time),
               description: r.description || '',
               item_type: r.item_type || '',
               location: r.location || '',
@@ -1319,10 +1330,10 @@ export default function EditEvent() {
   // agenda (earliest start → latest end), shown read-only in the date fields.
   const trainingDerivedDates = useMemo(() => {
     if (!isTraining || agendaLines.length === 0) return null;
-    const starts = agendaLines.map(l => l.start_date).filter(Boolean).sort();
-    const ends = agendaLines.map(l => l.end_date || l.start_date).filter(Boolean).sort();
+    const starts = agendaLines.map(agendaLineStartDateTime).filter(Boolean).sort();
+    const ends = agendaLines.map(agendaLineEndDateTime).filter(Boolean).sort();
     if (starts.length === 0) return null;
-    return { start: `${starts[0]}T00:00:00`, end: `${ends[ends.length - 1]}T23:59:00` };
+    return { start: starts[0], end: ends[ends.length - 1] };
   }, [isTraining, agendaLines]);
 
   const handleSubmit = async (e) => {
@@ -1485,16 +1496,16 @@ export default function EditEvent() {
     // For TBC events, explicitly null out dates and Zoom webinar
     const isTbcEvent = eventTiming === 'tbc';
 
-    // Training events: the overall start/end span the agenda so listings stay
-    // correct (whole-day window across the earliest/latest agenda dates).
+    // Training events: the overall start/end span the agenda using the real
+    // agenda datetimes (earliest start, latest end — Task #3443).
     let trainingStart = null;
     let trainingEnd = null;
     if (isTraining && agendaLines.length > 0) {
-      const starts = agendaLines.map(l => l.start_date).filter(Boolean).sort();
-      const ends = agendaLines.map(l => l.end_date || l.start_date).filter(Boolean).sort();
+      const starts = agendaLines.map(agendaLineStartDateTime).filter(Boolean).sort();
+      const ends = agendaLines.map(agendaLineEndDateTime).filter(Boolean).sort();
       if (starts.length > 0) {
-        trainingStart = `${starts[0]}T00:00:00`;
-        trainingEnd = `${ends[ends.length - 1]}T23:59:00`;
+        trainingStart = starts[0];
+        trainingEnd = ends[ends.length - 1];
       }
     }
     

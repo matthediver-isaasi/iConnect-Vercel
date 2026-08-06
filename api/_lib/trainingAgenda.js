@@ -37,12 +37,20 @@ function formatDate(dateStr) {
   }
 }
 
+function formatTime(timeStr) {
+  const m = String(timeStr || '').match(/^(\d{2}):(\d{2})/);
+  return m ? `${m[1]}:${m[2]}` : '';
+}
+
 export function formatAgendaLineDates(line) {
   if (!line?.start_date) return '';
-  const start = formatDate(line.start_date);
+  const startTime = formatTime(line.start_time);
+  const endTime = formatTime(line.end_time);
+  const start = formatDate(line.start_date) + (startTime ? `, ${startTime}` : '');
   if (line.end_date && line.end_date !== line.start_date) {
-    return `${start} – ${formatDate(line.end_date)}`;
+    return `${start} – ${formatDate(line.end_date)}${endTime ? `, ${endTime}` : ''}`;
   }
+  if (endTime) return `${start} – ${endTime}`;
   return start;
 }
 
@@ -61,8 +69,10 @@ export async function fetchTrainingAgendaData(eventId, client = supabase) {
   if (!eventId || !client) return null;
   const { data: lines, error } = await client
     .from('event_agenda_item')
-    .select('id, start_date, end_date, description, item_type, location, zoom_webinar_id, zoom_meeting_id, lms_url, sort_order')
+    .select('id, start_date, start_time, end_date, end_time, description, item_type, location, zoom_webinar_id, zoom_meeting_id, lms_url, sort_order')
     .eq('event_id', eventId)
+    .order('start_date', { ascending: true })
+    .order('start_time', { ascending: true, nullsFirst: true })
     .order('sort_order', { ascending: true });
   if (error) {
     console.error('[trainingAgenda] agenda fetch error:', error.message);

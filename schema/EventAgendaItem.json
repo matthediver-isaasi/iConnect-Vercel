@@ -17,6 +17,14 @@
       "format": "date",
       "description": "Optional end date for a date range; defaults to start_date"
     },
+    "start_time": {
+      "type": "string",
+      "description": "Optional start time of day (HH:MM); treated as 00:00 when unset"
+    },
+    "end_time": {
+      "type": "string",
+      "description": "Optional end time of day (HH:MM); treated as 23:59 when unset"
+    },
     "description": {
       "type": "string",
       "description": "Free-text description of what happens on this line"

@@ -1660,10 +1660,13 @@ export default function EventDetailsPage() {
                             {line.start_date && new Date(`${line.start_date}T00:00:00`).toLocaleDateString(undefined, {
                               weekday: 'short', day: 'numeric', month: 'short', year: 'numeric'
                             })}
-                            {line.end_date && line.end_date !== line.start_date && (
+                            {line.start_time && <> {String(line.start_time).slice(0, 5)}</>}
+                            {line.end_date && line.end_date !== line.start_date ? (
                               <> – {new Date(`${line.end_date}T00:00:00`).toLocaleDateString(undefined, {
                                 weekday: 'short', day: 'numeric', month: 'short', year: 'numeric'
-                              })}</>
+                              })}{line.end_time && <> {String(line.end_time).slice(0, 5)}</>}</>
+                            ) : (
+                              line.end_time && <> – {String(line.end_time).slice(0, 5)}</>
                             )}
                           </div>
                           {line.item_type && (

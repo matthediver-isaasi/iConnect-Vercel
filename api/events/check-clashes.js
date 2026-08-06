@@ -134,7 +134,7 @@ export default async function handler(req, res) {
     if (trainingEvents.length > 0) {
       const { data: agendaRows, error: agErr } = await supabase
         .from('event_agenda_item')
-        .select('id, event_id, start_date, end_date, description, item_type')
+        .select('id, event_id, start_date, start_time, end_date, end_time, description, item_type')
         .eq('tenant_id', tenantId)
         .in('event_id', trainingEvents.map((ev) => ev.id));
       if (agErr) {
@@ -158,8 +158,12 @@ export default async function handler(req, res) {
           if (!includedTypeNames.has(typeName)) continue;
           if (!line.start_date) continue;
           const endDate = line.end_date || line.start_date;
-          const s = toDate(`${line.start_date}T00:00:00`, ev.timezone);
-          const e = toDate(`${endDate}T23:59:59`, ev.timezone);
+          // Real agenda times when set (Task #3443); date-only rows keep the
+          // whole-day window.
+          const startTime = String(line.start_time || '').match(/^\d{2}:\d{2}/)?.[0] || '00:00';
+          const endTime = String(line.end_time || '').match(/^\d{2}:\d{2}/)?.[0] || '23:59';
+          const s = toDate(`${line.start_date}T${startTime}:00`, ev.timezone);
+          const e = toDate(`${endDate}T${endTime}:59`, ev.timezone);
           if (!s || !e) continue;
           const hits = overlapsAny(s.getTime(), e.getTime());
           if (hits.length > 0) {

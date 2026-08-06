@@ -67,9 +67,11 @@ export default async function handler(req, res) {
 
     const { data: lines, error: linesError } = await supabase
       .from('event_agenda_item')
-      .select('id, start_date, end_date, description, item_type, location, zoom_webinar_id, zoom_meeting_id, lms_url, speaker_ids, sponsor_ids, sort_order')
+      .select('id, start_date, start_time, end_date, end_time, description, item_type, location, zoom_webinar_id, zoom_meeting_id, lms_url, speaker_ids, sponsor_ids, sort_order')
       .eq('event_id', event_id)
       .eq('tenant_id', tenant.id)
+      .order('start_date', { ascending: true })
+      .order('start_time', { ascending: true, nullsFirst: true })
       .order('sort_order', { ascending: true });
     if (linesError) {
       console.error('[PublicEventAgenda] query error:', linesError);
@@ -124,7 +126,9 @@ export default async function handler(req, res) {
       return {
         id: l.id,
         start_date: l.start_date,
+        start_time: l.start_time || null,
         end_date: l.end_date,
+        end_time: l.end_time || null,
         description: l.description,
         item_type: l.item_type,
         location: l.location,
