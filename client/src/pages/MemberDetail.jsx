@@ -173,7 +173,8 @@ export default function MemberDetail() {
     biography: '',
     organization_id: '',
     login_enabled: true,
-    show_in_directory: true
+    show_in_directory: true,
+      guest_expires_at: ''
   });
   const [selectedRoleId, setSelectedRoleId] = useState(null);
   const [selectedSubcategories, setSelectedSubcategories] = useState([]);
@@ -736,7 +737,8 @@ export default function MemberDetail() {
         biography: member.biography || '',
         organization_id: member.organization_id || '',
         login_enabled: member.login_enabled !== false,
-        show_in_directory: member.show_in_directory !== false
+        show_in_directory: member.show_in_directory !== false,
+        guest_expires_at: member.guest_expires_at ? String(member.guest_expires_at).slice(0, 10) : ''
       });
       setSelectedRoleId(member.role_id || null);
     }
@@ -836,6 +838,7 @@ export default function MemberDetail() {
       setIsEditing(false);
       queryClient.invalidateQueries({ queryKey: ['members-paginated'] });
       queryClient.invalidateQueries({ queryKey: ['member-detail', id] });
+      queryClient.invalidateQueries({ queryKey: ['team-members'] });
     },
     onError: (error) => {
       toast.error("Failed to update member: " + (error.message || "Unknown error"));
@@ -1036,7 +1039,15 @@ export default function MemberDetail() {
         return;
       }
     }
-    updateMutation.mutate({ ...formData, role_id: selectedRoleId });
+    const payload = { ...formData, role_id: selectedRoleId };
+    if (linkedOrg?.guest_access_enabled) {
+      payload.guest_expires_at = formData.guest_expires_at
+        ? new Date(`${formData.guest_expires_at}T23:59:59`).toISOString()
+        : null;
+    } else {
+      delete payload.guest_expires_at;
+    }
+    updateMutation.mutate(payload);
   };
 
   const handleCancel = () => {
@@ -1050,7 +1061,8 @@ export default function MemberDetail() {
       biography: member.biography || '',
       organization_id: member.organization_id || '',
       login_enabled: member.login_enabled !== false,
-      show_in_directory: member.show_in_directory !== false
+      show_in_directory: member.show_in_directory !== false,
+        guest_expires_at: member.guest_expires_at ? String(member.guest_expires_at).slice(0, 10) : ''
     });
     setSelectedRoleId(member.role_id || null);
     if (linkedOrg) {
@@ -1827,6 +1839,45 @@ export default function MemberDetail() {
                       />
                     )}
                   </div>
+                  {linkedOrg?.guest_access_enabled && (
+                    <>
+                      <Separator />
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-3 flex-1">
+                          <CalendarDays className="w-4 h-4 text-slate-400" />
+                          <div className="flex-1">
+                            <p className="text-xs text-slate-500">Expiry Date</p>
+                            {isEditing ? (
+                              <div className="flex items-center gap-2 mt-1">
+                                <Input
+                                  type="date"
+                                  value={formData.guest_expires_at || ''}
+                                  onChange={(e) => setFormData(prev => ({ ...prev, guest_expires_at: e.target.value }))}
+                                  className="h-8 w-40 text-sm"
+                                  data-testid="input-guest-expiry-date"
+                                />
+                                {formData.guest_expires_at && (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-8 px-2 text-xs"
+                                    onClick={() => setFormData(prev => ({ ...prev, guest_expires_at: '' }))}
+                                    data-testid="button-clear-guest-expiry"
+                                  >
+                                    Clear
+                                  </Button>
+                                )}
+                              </div>
+                            ) : (
+                              <p className="text-sm font-medium" data-testid="text-guest-expiry-date">
+                                {member.guest_expires_at ? formatDate(member.guest_expires_at) : 'No expiry'}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </>
+                  )}
                 </CardContent>
               </Card>
 

@@ -242,7 +242,8 @@ export default function MemberDetailView({
     biography: '',
     organization_id: defaultOrganizationId,
     login_enabled: true,
-    show_in_directory: true
+    show_in_directory: true,
+      guest_expires_at: ''
   });
 
   // Sync formData with member prop when it changes (for realtime updates)
@@ -258,7 +259,8 @@ export default function MemberDetailView({
         biography: member.biography || '',
         organization_id: member.organization_id || '',
         login_enabled: member.login_enabled !== false,
-        show_in_directory: member.show_in_directory !== false
+        show_in_directory: member.show_in_directory !== false,
+        guest_expires_at: member.guest_expires_at ? String(member.guest_expires_at).slice(0, 10) : ''
       });
       setSelectedRoleId(member.role_id || null);
     }
@@ -914,10 +916,9 @@ export default function MemberDetailView({
       // Email uniqueness is enforced by database constraint (per-tenant)
       // The create mutation will return an error if the email already exists in this tenant
       
-      createMutation.mutate({
-        ...formData,
-        role_id: selectedRoleId
-      }, {
+      const createPayload = { ...formData, role_id: selectedRoleId };
+      delete createPayload.guest_expires_at;
+      createMutation.mutate(createPayload, {
         onSuccess: async (createdMember) => {
           const currentCustomFieldValues = { ...customFieldValues };
           for (const [fieldId, value] of Object.entries(currentCustomFieldValues)) {
@@ -949,10 +950,16 @@ export default function MemberDetailView({
       });
 
       try {
-        const updateResult = await updateMutation.mutateAsync({
-          ...formData,
-          role_id: selectedRoleId
-        });
+        const updatePayload = { ...formData, role_id: selectedRoleId };
+        const memberOrgForGuest = organizations.find(o => o.id === member?.organization_id);
+        if (memberOrgForGuest?.guest_access_enabled) {
+          updatePayload.guest_expires_at = formData.guest_expires_at
+            ? new Date(`${formData.guest_expires_at}T23:59:59`).toISOString()
+            : null;
+        } else {
+          delete updatePayload.guest_expires_at;
+        }
+        const updateResult = await updateMutation.mutateAsync(updatePayload);
 
         const results = [];
         for (const [fieldId, value] of changedFields) {
@@ -979,6 +986,8 @@ export default function MemberDetailView({
         if (updateResult?._zohoCrmSync) showZohoCrmSyncToast(updateResult._zohoCrmSync);
         setIsEditing(false);
         queryClient.invalidateQueries({ queryKey: ['members-paginated'] });
+        queryClient.invalidateQueries({ queryKey: ['team-members'] });
+        queryClient.invalidateQueries({ queryKey: ['member-detail', member?.id] });
         queryClient.invalidateQueries({ queryKey: ['member-detail-preference-values', member?.id] });
         queryClient.invalidateQueries({ queryKey: ['all-member-preference-values-crm'] });
       } catch (err) {
@@ -1004,7 +1013,8 @@ export default function MemberDetailView({
       biography: member.biography || '',
       organization_id: member.organization_id || '',
       login_enabled: member.login_enabled !== false,
-      show_in_directory: member.show_in_directory !== false
+      show_in_directory: member.show_in_directory !== false,
+        guest_expires_at: member.guest_expires_at ? String(member.guest_expires_at).slice(0, 10) : ''
     });
     setSelectedRoleId(member.role_id || null);
     setIsEditing(false);
@@ -1503,6 +1513,45 @@ export default function MemberDetailView({
                             />
                           )}
                         </div>
+                        {org?.guest_access_enabled && (
+                          <>
+                            <Separator />
+                            <div className="flex items-center justify-between gap-3">
+                              <div className="flex items-center gap-3 flex-1">
+                                <CalendarDays className="w-4 h-4 text-slate-400" />
+                                <div className="flex-1">
+                                  <p className="text-xs text-slate-500">Expiry Date</p>
+                                  {isEditing ? (
+                                    <div className="flex items-center gap-2 mt-1">
+                                      <Input
+                                        type="date"
+                                        value={formData.guest_expires_at || ''}
+                                        onChange={(e) => setFormData(prev => ({ ...prev, guest_expires_at: e.target.value }))}
+                                        className="h-8 w-40 text-sm"
+                                        data-testid="input-guest-expiry-date"
+                                      />
+                                      {formData.guest_expires_at && (
+                                        <Button
+                                          variant="ghost"
+                                          size="sm"
+                                          className="h-8 px-2 text-xs"
+                                          onClick={() => setFormData(prev => ({ ...prev, guest_expires_at: '' }))}
+                                          data-testid="button-clear-guest-expiry"
+                                        >
+                                          Clear
+                                        </Button>
+                                      )}
+                                    </div>
+                                  ) : (
+                                    <p className="text-sm font-medium" data-testid="text-guest-expiry-date">
+                                      {member.guest_expires_at ? formatDate(member.guest_expires_at) : 'No expiry'}
+                                    </p>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          </>
+                        )}
                       </>
                     )}
                     {isNew && (
