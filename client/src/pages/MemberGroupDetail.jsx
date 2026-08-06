@@ -492,7 +492,7 @@ export default function MemberGroupDetailPage() {
     refetchOnMount: true,
   });
 
-  const { data: myAssignments = [] } = useQuery({
+  const { data: myAssignments = [], isLoading: loadingSelfAssignments } = useQuery({
     queryKey: ["member-group-assignments-self", memberInfo?.id],
     queryFn: async () => {
       if (!memberInfo?.id) return [];
@@ -1761,7 +1761,11 @@ export default function MemberGroupDetailPage() {
   };
 
   const isLoading =
-    !accessChecked || loadingGroup || loadingAssignments || loadingMembers;
+    !accessChecked ||
+    loadingGroup ||
+    loadingAssignments ||
+    loadingMembers ||
+    loadingSelfAssignments;
 
   if (!groupId) {
     return (
@@ -1797,8 +1801,13 @@ export default function MemberGroupDetailPage() {
     );
   }
 
+  // Group admins can always open groups they manage, even when self-join is
+  // disabled or the group is inactive (mirrors the "Only groups I manage"
+  // filter on the list page). Non-admins still get the unavailable message.
   const groupUnavailable =
-    !group || groupError || !group.allow_self_join || group.is_active === false;
+    !group ||
+    groupError ||
+    (!isGroupAdmin && (!group.allow_self_join || group.is_active === false));
 
   const selfJoinClosed = !!group?.self_join_closed;
   const selfJoinClosedLabel = group?.self_join_closed_label?.trim() || 'Registrations closed';
