@@ -71,7 +71,7 @@ outputType = "console"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "node --test api/_lib/*.test.mjs api/dashboard/_lib/*.test.mjs client/src/components/canvas/autoHeightBake.test.mjs client/src/components/canvas/useAutoHeightBake.test.mjs client/src/lib/canvasA11y.test.mjs client/src/lib/canvasTypographyResponsive.test.mjs client/src/lib/aiCompositionRender.test.mjs"
+args = "node --test api/_lib/*.test.mjs api/dashboard/_lib/*.test.mjs api/forms/processApplicationTenantOrder.test.mjs client/src/components/canvas/autoHeightBake.test.mjs client/src/components/canvas/useAutoHeightBake.test.mjs client/src/lib/canvasA11y.test.mjs client/src/lib/canvasTypographyResponsive.test.mjs client/src/lib/aiCompositionRender.test.mjs"
 
 [userenv]
 

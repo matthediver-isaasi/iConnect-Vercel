@@ -4,6 +4,7 @@ import { resolveEffectiveOrgGuestAccess } from '../_lib/orgGuestAccess.js';
 import { notifyGuestSignup } from '../_lib/guestSignupNotification.js';
 import { resolveStaticTodayToken } from '../_lib/staticValueTokens.js';
 import { coercePreferenceValueForStorage } from '../_lib/preferenceValueStorage.js';
+import { resolveEffectiveEntityTenant, isCrossTenantRow } from '../_lib/formTenantScope.js';
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
@@ -804,6 +805,32 @@ export default async function handler(req, res) {
       }
     }
 
+    // ─────────────────────────────────────────────────────────────────────────
+    // Effective tenant for ALL tenant-scoped processing below (uniqueness
+    // validation, entity resolution, and record creation). Resolved
+    // AUTHORITATIVELY from the persisted form (or form_submission) row —
+    // the body's tenant_id is client-controlled and is only validated for
+    // equality, never trusted ahead of the persisted tenant. Must run BEFORE
+    // any tenant-scoped query — previously the case-insensitive org name match
+    // was completely unscoped and could link a submission to an organisation
+    // belonging to a DIFFERENT tenant, which also suppressed creation when the
+    // form's org action was 'create'.
+    const tenantResolution = await resolveEffectiveEntityTenant(supabase, { tenant_id, form_id, submission_id });
+    if (tenantResolution.mismatch) {
+      console.error('[AppProcessor] SECURITY: body tenant_id does not match the form/submission tenant — rejecting.', {
+        supplied_tenant_id: tenantResolution.mismatch.supplied,
+        authoritative_tenant_id: tenantResolution.mismatch.authoritative,
+        form_id: form_id || null,
+        submission_id: submission_id || null,
+      });
+      return res.status(403).json({
+        error: 'Tenant mismatch: the supplied tenant does not match the form\'s tenant.',
+        code: 'TENANT_MISMATCH'
+      });
+    }
+    const effectiveEntityTenantId = tenantResolution.tenantId;
+    console.log('[AppProcessor] Effective tenant for entity resolution:', effectiveEntityTenantId, '(source:', tenantResolution.source, ')');
+
     // SERVER-SIDE UNIQUENESS VALIDATION (defense in depth)
     // This blocks duplicates even if client-side validation is bypassed
     // Skip for update modes with prefill IDs (those are legitimate self-updates)
@@ -817,7 +844,8 @@ export default async function handler(req, res) {
         .single();
       
       if (formData?.uniqueness_checks && Array.isArray(formData.uniqueness_checks) && formData.uniqueness_checks.length > 0) {
-        const effectiveTenantId = tenant_id || formData.tenant_id;
+        // Use the authoritative tenant resolved above — never the raw body value.
+        const effectiveTenantId = effectiveEntityTenantId || formData.tenant_id;
         console.log('[AppProcessor] Running server-side uniqueness validation, tenant_id:', effectiveTenantId);
         
         const conflicts = [];
@@ -1519,6 +1547,26 @@ export default async function handler(req, res) {
     let createdMemberId = null;
     let newlyCreatedMemberData = null; // Track member data for workflow trigger after custom fields saved (task 3196)
 
+    const rejectCrossTenant = (row, stage, extra = {}) => {
+      if (!isCrossTenantRow(effectiveEntityTenantId, row)) return false;
+      console.warn(`[AppProcessor] Cross-tenant ${stage} hit rejected:`, {
+        found_id: row.id,
+        found_tenant_id: row.tenant_id,
+        effective_tenant_id: effectiveEntityTenantId,
+        ...extra,
+      });
+      addProcessingNote({
+        level: 'warn',
+        stage,
+        message: 'Cross-tenant match rejected — treated as not found.',
+        found_id: row.id,
+        found_tenant_id: row.tenant_id,
+        effective_tenant_id: effectiveEntityTenantId,
+        ...extra,
+      });
+      return true;
+    };
+
     // Process organization based on orgAction (none/create/update/upsert)
     if (shouldProcessOrganization) {
       // If an organisation_dropdown selection was captured but no explicit
@@ -1565,7 +1613,7 @@ export default async function handler(req, res) {
           .select('*')
           .eq('id', effectivePrefillOrgId)
           .maybeSingle();
-        if (foundOrg) {
+        if (foundOrg && !rejectCrossTenant(foundOrg, 'organization_resolve', { method: 'prefill_organization_id' })) {
           existingOrg = foundOrg;
           orgResolutionMethod = effectivePrefillOrgId === dropdownSelectedOrgId && !prefill_organization_id
             ? 'organisation_dropdown_selection'
@@ -1586,7 +1634,7 @@ export default async function handler(req, res) {
             .select('*')
             .eq('id', subRow.organization_id)
             .maybeSingle();
-          if (foundOrg) {
+          if (foundOrg && !rejectCrossTenant(foundOrg, 'organization_resolve', { method: 'form_submission.organization_id' })) {
             existingOrg = foundOrg;
             orgResolutionMethod = 'form_submission.organization_id';
             console.log('[AppProcessor] Found org via form_submission.organization_id:', existingOrg.id);
@@ -1602,16 +1650,18 @@ export default async function handler(req, res) {
         if (memberIdForOrgLookup) {
           const { data: m } = await supabase
             .from('member')
-            .select('id, organization_id')
+            .select('id, organization_id, tenant_id')
             .eq('id', memberIdForOrgLookup)
             .maybeSingle();
-          resolvedMember = m;
+          if (m && !rejectCrossTenant(m, 'member_resolve_for_org', { method: 'prefill/dropdown member id' })) {
+            resolvedMember = m;
+          }
         } else if (memberData?.email) {
           let q = supabase
             .from('member')
-            .select('id, organization_id')
+            .select('id, organization_id, tenant_id')
             .ilike('email', memberData.email);
-          if (tenant_id) q = q.eq('tenant_id', tenant_id);
+          if (effectiveEntityTenantId) q = q.eq('tenant_id', effectiveEntityTenantId);
           const { data: m } = await q.limit(1).maybeSingle();
           resolvedMember = m;
         }
@@ -1621,7 +1671,7 @@ export default async function handler(req, res) {
             .select('*')
             .eq('id', resolvedMember.organization_id)
             .maybeSingle();
-          if (foundOrg) {
+          if (foundOrg && !rejectCrossTenant(foundOrg, 'organization_resolve', { method: 'resolved_member.organization_id' })) {
             existingOrg = foundOrg;
             orgResolutionMethod = 'resolved_member.organization_id';
             console.log('[AppProcessor] Found org via resolved member:', existingOrg.id);
@@ -1630,13 +1680,19 @@ export default async function handler(req, res) {
       }
       
       if (!existingOrg && orgData.name) {
-        const { data: foundOrg } = await supabase
+        // Tenant-scope the name match: this lookup used to be completely
+        // unscoped, so a name collision with an organisation in ANOTHER
+        // tenant would silently link (and suppress creation of) the org.
+        // NULL-tenant (legacy) rows remain matchable.
+        let nameQuery = supabase
           .from('organization')
           .select('*')
-          .ilike('name', orgData.name)
-          .limit(1)
-          .maybeSingle();
-        if (foundOrg) {
+          .ilike('name', orgData.name);
+        if (effectiveEntityTenantId) {
+          nameQuery = nameQuery.or(`tenant_id.eq.${effectiveEntityTenantId},tenant_id.is.null`);
+        }
+        const { data: foundOrg } = await nameQuery.limit(1).maybeSingle();
+        if (foundOrg && !rejectCrossTenant(foundOrg, 'organization_resolve', { method: 'org_name_match' })) {
           existingOrg = foundOrg;
           orgResolutionMethod = 'org_name_match';
         }
@@ -1669,9 +1725,9 @@ export default async function handler(req, res) {
             }
           }
           
-          // Set tenant_id if org has none and we have a valid tenant_id (from public form)
-          if (tenant_id && !existingOrg.tenant_id) {
-            orgUpdateData.tenant_id = tenant_id;
+          // Set tenant_id if org has none and we have a resolved tenant
+          if (effectiveEntityTenantId && !existingOrg.tenant_id) {
+            orgUpdateData.tenant_id = effectiveEntityTenantId;
           }
           
           if (Object.keys(orgUpdateData).length > 0) {
@@ -1736,9 +1792,11 @@ export default async function handler(req, res) {
             created_at: new Date().toISOString()
           };
           
-          // Add tenant_id if provided (from public form submission)
-          if (tenant_id) {
-            orgInsertData.tenant_id = tenant_id;
+          // Stamp the resolved tenant so the new organisation is created in
+          // the form's tenant (body tenant_id when provided, else the tenant
+          // resolved from the form/submission).
+          if (effectiveEntityTenantId) {
+            orgInsertData.tenant_id = effectiveEntityTenantId;
           }
 
           console.log('[AppProcessor] Creating organization with data:', orgInsertData);
@@ -1842,19 +1900,21 @@ export default async function handler(req, res) {
           .select('*')
           .eq('id', effectivePrefillMemberId)
           .single();
-        existingMember = foundMember;
+        if (foundMember && !rejectCrossTenant(foundMember, 'member_resolve', { method: 'prefill_member_id' })) {
+          existingMember = foundMember;
+        }
         console.log('[AppProcessor] Found member by prefill ID:', existingMember?.id);
       } else if (memberData.email) {
         let emailQuery = supabase
           .from('member')
           .select('*')
           .ilike('email', memberData.email);
-        if (tenant_id) {
-          emailQuery = emailQuery.eq('tenant_id', tenant_id);
+        if (effectiveEntityTenantId) {
+          emailQuery = emailQuery.eq('tenant_id', effectiveEntityTenantId);
         }
         const { data: foundMember } = await emailQuery.limit(1).single();
         existingMember = foundMember;
-        console.log('[AppProcessor] Found member by email:', existingMember?.id, tenant_id ? `(tenant: ${tenant_id})` : '(no tenant filter)');
+        console.log('[AppProcessor] Found member by email:', existingMember?.id, effectiveEntityTenantId ? `(tenant: ${effectiveEntityTenantId})` : '(no tenant filter)');
       }
       
       if (existingMember) {
@@ -1886,7 +1946,7 @@ export default async function handler(req, res) {
           // existing member, verify it belongs to that member's tenant. Hard
           // fail on mismatch — never silently corrupt member.role_id.
           if (effectiveRoleIdForUpdate) {
-            const memberTenantForCheck = existingMember.tenant_id || tenant_id || null;
+            const memberTenantForCheck = existingMember.tenant_id || effectiveEntityTenantId || null;
             const tenantCheck = await validateRoleTenant(supabase, effectiveRoleIdForUpdate, memberTenantForCheck);
             if (!tenantCheck.ok) {
               return res.status(500).json({
@@ -2009,9 +2069,9 @@ export default async function handler(req, res) {
             show_in_directory: memberData.show_in_directory !== undefined ? memberData.show_in_directory : true
           };
           
-          // Add tenant_id if provided (from public form submission)
-          if (tenant_id) {
-            memberInsertData.tenant_id = tenant_id;
+          // Stamp the resolved (form-authoritative) tenant on the new member
+          if (effectiveEntityTenantId) {
+            memberInsertData.tenant_id = effectiveEntityTenantId;
           }
           
           // Add job_title only if provided (it's a valid column)
@@ -2081,7 +2141,7 @@ export default async function handler(req, res) {
             roleSource = 'form-conditional';
             console.log('[AppProcessor] Applied form-conditional role to new member:', effectiveRoleId);
           } else {
-            const tenantForDefault = memberInsertData.tenant_id || tenant_id || null;
+            const tenantForDefault = memberInsertData.tenant_id || effectiveEntityTenantId || null;
             const { role: tenantDefaultRole, error: defaultLookupError } = await resolveTenantDefaultRole(supabase, tenantForDefault);
             if (defaultLookupError) {
               effectiveRoleId = undefined;
@@ -2110,7 +2170,7 @@ export default async function handler(req, res) {
             // a brand-new member must belong to that member's tenant. Hard
             // fail on mismatch — see validateRoleTenant rationale.
             if (effectiveRoleId) {
-              const tenantCheck = await validateRoleTenant(supabase, effectiveRoleId, memberInsertData.tenant_id || tenant_id || null);
+              const tenantCheck = await validateRoleTenant(supabase, effectiveRoleId, memberInsertData.tenant_id || effectiveEntityTenantId || null);
               if (!tenantCheck.ok) {
                 return res.status(500).json({
                   error: tenantCheck.message,
@@ -2179,7 +2239,7 @@ export default async function handler(req, res) {
             try {
               await notifyGuestSignup({
                 client: supabase,
-                tenantId: newMember.tenant_id || tenant_id || null,
+                tenantId: newMember.tenant_id || effectiveEntityTenantId || null,
                 member: newMember,
                 organizationId: orgIdForNewMember,
                 organizationName: domainCtx?.organizationName || null,
@@ -2358,7 +2418,7 @@ export default async function handler(req, res) {
     // Runs AFTER custom fields and category selections are saved so config resolution can match correctly
     if (createdMemberId) {
       try {
-        let effectiveTenantId = tenant_id;
+        let effectiveTenantId = effectiveEntityTenantId;
         if (!effectiveTenantId) {
           const { data: memberForTenant } = await supabase
             .from('member')
@@ -2452,7 +2512,7 @@ export default async function handler(req, res) {
                   member_id: createdMemberId,
                   category_id: pref.category_id,
                   is_subscribed: pref.is_subscribed,
-                  tenant_id: tenant_id
+                  tenant_id: effectiveEntityTenantId
                 })
                 .select('id');
               if (insertErr) {
@@ -2503,7 +2563,7 @@ export default async function handler(req, res) {
               member_id: createdMemberId,
               category_id: categoryId,
               is_subscribed: isSubscribed,
-              tenant_id: tenant_id
+              tenant_id: effectiveEntityTenantId
             });
           if (commInsertErr) {
             console.error(`[AppProcessor] Failed to insert communication preference ${categoryId}:`, JSON.stringify(commInsertErr));
@@ -2759,8 +2819,8 @@ export default async function handler(req, res) {
             .select('id, role_id, organization_id, tenant_id')
             .ilike('email', normalizedEmail);
           
-          if (tenant_id) {
-            existingMemberQuery = existingMemberQuery.eq('tenant_id', tenant_id);
+          if (effectiveEntityTenantId) {
+            existingMemberQuery = existingMemberQuery.eq('tenant_id', effectiveEntityTenantId);
           }
           
           const { data: existingMember } = await existingMemberQuery
@@ -2783,7 +2843,7 @@ export default async function handler(req, res) {
           // real role_id, verify it belongs to this member's tenant before
           // writing it. Hard fail on mismatch — see validateRoleTenant.
           if (additionalMemberData.role_id) {
-            const memberTenantForCheck = existingMemberRecord?.tenant_id || tenant_id || null;
+            const memberTenantForCheck = existingMemberRecord?.tenant_id || effectiveEntityTenantId || null;
             const tenantCheck = await validateRoleTenant(supabase, additionalMemberData.role_id, memberTenantForCheck);
             if (!tenantCheck.ok) {
               return res.status(500).json({
@@ -2906,9 +2966,9 @@ export default async function handler(req, res) {
             organization_id: additionalOrgId,
           };
           
-          // Add tenant_id if provided (from public form submission)
-          if (tenant_id) {
-            newMemberData.tenant_id = tenant_id;
+          // Stamp the resolved (form-authoritative) tenant on the new member
+          if (effectiveEntityTenantId) {
+            newMemberData.tenant_id = effectiveEntityTenantId;
           }
 
           // Create-branch only: when the additional-member pipeline is
@@ -2923,7 +2983,7 @@ export default async function handler(req, res) {
             additionalRoleSource = 'pipeline-configured';
           }
           if (newMemberData.role_id === undefined) {
-            const tenantForDefault = newMemberData.tenant_id || tenant_id || null;
+            const tenantForDefault = newMemberData.tenant_id || effectiveEntityTenantId || null;
             const { role: tenantDefaultRole, error: defaultLookupError } = await resolveTenantDefaultRole(supabase, tenantForDefault);
             if (defaultLookupError) {
               additionalRoleSource = 'lookup-error';
@@ -2943,7 +3003,7 @@ export default async function handler(req, res) {
           // this brand-new additional member must belong to its tenant. Hard
           // fail on mismatch — see validateRoleTenant.
           if (newMemberData.role_id) {
-            const tenantCheck = await validateRoleTenant(supabase, newMemberData.role_id, newMemberData.tenant_id || tenant_id || null);
+            const tenantCheck = await validateRoleTenant(supabase, newMemberData.role_id, newMemberData.tenant_id || effectiveEntityTenantId || null);
             if (!tenantCheck.ok) {
               return res.status(500).json({
                 error: tenantCheck.message,
