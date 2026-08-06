@@ -1,6 +1,7 @@
 import { getSessionMember } from '../../../../_lib/session.js';
 import { createClient } from '@supabase/supabase-js';
 import { isResourceExcluded } from '../../../../_lib/roleVisibility.js';
+import { isGroupAdminForEventRequest } from '../../../../_lib/groupAdminEventWrite.js';
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
@@ -95,7 +96,12 @@ export default async function handler(req, res) {
   }
 
   if (!hasAccess) {
-    return res.status(403).json({ error: 'Admin access required' });
+    // Task e1476154: group admins may manage attendees of their own group's
+    // events (simple or complex) — the group page surfaces the same modal.
+    const groupOk = await isGroupAdminForEventRequest(req, req.query.eventId);
+    if (!groupOk) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
   }
 
   if (!supabase) {

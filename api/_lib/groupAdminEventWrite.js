@@ -135,31 +135,132 @@ async function simpleEventGroup(eventId) {
  * @returns {{ ok: true } | { ok: false, status: number, error: string }}
  */
 export async function authorizeGroupAdminEventDelete({ eventId, eventTable, tenantCtx, req }) {
+  return authorizeGroupAdminEventAction({
+    eventId,
+    eventTable,
+    tenantCtx,
+    req,
+    denialError: 'You can only delete events for groups you administer',
+  });
+}
+
+/**
+ * Task e1476154: shared authorization for group-admin event ACTIONS on an
+ * existing event (delete-preview, delete, duplicate, attendee management).
+ * Tenant admins always pass. A Group Admin passes only when the target event
+ * belongs to an events-enabled group they administer (active assignment,
+ * active group, same tenant). When `requireTypeEnabled` is true the group's
+ * per-type flag (events_enabled / complex_events_enabled) must also allow the
+ * event's type — used for duplicate, which creates a new event.
+ *
+ * @returns {{ ok: true } | { ok: false, status: number, error: string }}
+ */
+export async function authorizeGroupAdminEventAction({
+  eventId,
+  eventTable,
+  tenantCtx,
+  req,
+  requireTypeEnabled = false,
+  denialError = 'You can only manage events for groups you administer',
+}) {
   if (await hasAdminAccess(tenantCtx)) return { ok: true };
 
   const access = await getCallerGroupEventsAccess(req);
   if (access.error) {
     return { ok: false, status: access.status || 403, error: access.error };
   }
-  const adminGroupIds = new Set((access.groups || []).map((g) => g.groupId));
-  if (adminGroupIds.size === 0) {
-    return { ok: false, status: 403, error: 'You do not have permission to manage events' };
-  }
 
   const table = eventTable === 'complex_event' ? 'complex_event' : 'event';
+  if ((access.groups || []).length === 0) {
+    return { ok: false, status: 403, error: 'You do not have permission to manage events' };
+  }
   const { data: row } = await supabase
     .from(table)
     .select('id, member_group_id, tenant_id')
     .eq('id', eventId)
     .maybeSingle();
+
+  return evaluateGroupAdminEventAction({
+    row,
+    table,
+    tenantId: tenantCtx.tenantId,
+    adminGroups: access.groups || [],
+    requireTypeEnabled,
+    denialError,
+  });
+}
+
+/**
+ * Pure decision core for group-admin event ACTION authorization — exported for
+ * unit tests. `row` is the target event row (id, member_group_id, tenant_id)
+ * or null when not found; `adminGroups` is getCallerGroupEventsAccess().groups.
+ */
+export function evaluateGroupAdminEventAction({
+  row,
+  table,
+  tenantId,
+  adminGroups,
+  requireTypeEnabled = false,
+  denialError = 'You can only manage events for groups you administer',
+}) {
+  const adminGroupIds = new Set((adminGroups || []).map((g) => g.groupId));
+  if (adminGroupIds.size === 0) {
+    return { ok: false, status: 403, error: 'You do not have permission to manage events' };
+  }
   if (!row) return { ok: false, status: 404, error: 'Event not found' };
-  if (tenantCtx.tenantId && row.tenant_id && row.tenant_id !== tenantCtx.tenantId) {
+  if (tenantId && row.tenant_id && row.tenant_id !== tenantId) {
     return { ok: false, status: 403, error: 'Event not found in this tenant' };
   }
   if (!row.member_group_id || !adminGroupIds.has(row.member_group_id)) {
-    return { ok: false, status: 403, error: 'You can only delete events for groups you administer' };
+    return { ok: false, status: 403, error: denialError };
+  }
+  if (requireTypeEnabled) {
+    const flags = (adminGroups || []).find((g) => g.groupId === row.member_group_id);
+    const allowed = table === 'complex_event' ? flags?.complexEnabled === true : flags?.simpleEnabled === true;
+    if (!allowed) {
+      return {
+        ok: false,
+        status: 403,
+        error: table === 'complex_event'
+          ? 'This group does not allow multi-session events'
+          : 'This group does not allow simple events',
+      };
+    }
   }
   return { ok: true };
+}
+
+/**
+ * Task e1476154: boolean group-admin check for the admin attendee endpoints
+ * (/api/admin/events/[eventId]/attendees/*), which receive either a simple
+ * event id or a complex event id in the same parameter. Resolves the id
+ * against both tables and returns true only when the event belongs to a group
+ * the caller administers.
+ */
+export async function isGroupAdminForEventRequest(req, eventId) {
+  if (!supabase || !eventId) return false;
+  try {
+    const access = await getCallerGroupEventsAccess(req);
+    if (access.error) return false;
+    const adminGroupIds = new Set((access.groups || []).map((g) => g.groupId));
+    if (adminGroupIds.size === 0) return false;
+
+    const tenantId = access.tenantContext?.tenantId || null;
+    for (const table of ['event', 'complex_event']) {
+      const { data: row } = await supabase
+        .from(table)
+        .select('id, member_group_id, tenant_id')
+        .eq('id', eventId)
+        .maybeSingle();
+      if (!row) continue;
+      if (tenantId && row.tenant_id && row.tenant_id !== tenantId) return false;
+      return !!row.member_group_id && adminGroupIds.has(row.member_group_id);
+    }
+    return false;
+  } catch (e) {
+    console.error('[isGroupAdminForEventRequest] error:', e);
+    return false;
+  }
 }
 
 export async function authorizeGroupAdminEventWrite({ entity, op, body, existingRow = null, tenantCtx, req }) {

@@ -1350,13 +1350,33 @@ export default function MemberGroupDetailPage() {
     queryFn: () => publicClient.listSystemSettings(),
   });
 
-  const { data: groupEventsRaw = [], isLoading: loadingEvents } = useQuery({
+  const { data: simpleGroupEvents = [], isLoading: loadingSimpleEvents } = useQuery({
     queryKey: ["member-group-events", groupId],
     queryFn: () => base44.entities.Event.filter({ member_group_id: groupId }),
     enabled: accessChecked && !!groupId,
     staleTime: 0,
     refetchOnMount: true,
   });
+
+  // Multi-session (complex) group events — shown alongside simple events so
+  // group admins can manage them from the group page (Task e1476154). Key is
+  // prefixed by "member-group-events" so existing invalidations refresh both.
+  const { data: complexGroupEvents = [], isLoading: loadingComplexEvents } = useQuery({
+    queryKey: ["member-group-events", groupId, "complex"],
+    queryFn: async () => {
+      const rows = await base44.entities.ComplexEvent.filter({ member_group_id: groupId });
+      return (rows || []).map((e) => ({ ...e, is_complex: true }));
+    },
+    enabled: accessChecked && !!groupId,
+    staleTime: 0,
+    refetchOnMount: true,
+  });
+
+  const loadingEvents = loadingSimpleEvents || loadingComplexEvents;
+  const groupEventsRaw = useMemo(
+    () => [...simpleGroupEvents, ...complexGroupEvents],
+    [simpleGroupEvents, complexGroupEvents]
+  );
 
   const [eventSearch, setEventSearch] = useState("");
   const [eventTypeFilter, setEventTypeFilter] = useState("all");
@@ -1381,10 +1401,11 @@ export default function MemberGroupDetailPage() {
       const isDraft =
         event.event_state === "draft" ||
         (!event.event_state && event.status === "draft");
-      // Drafts are hidden from non-admins.
-      return isDraft ? isEventAdmin : true;
+      // Drafts are hidden from non-admins. Group admins of this group also
+      // see drafts so they can manage duplicated/draft group events.
+      return isDraft ? (isEventAdmin || isGroupAdmin) : true;
     });
-  }, [groupEventsRaw, isEventAdmin, isJoined, groupId]);
+  }, [groupEventsRaw, isEventAdmin, isGroupAdmin, isJoined, groupId]);
 
   const eventTypeNames = useMemo(
     () => eventTypes.map((t) => (typeof t === "object" ? t.name : t)).filter(Boolean),
@@ -2569,6 +2590,9 @@ export default function MemberGroupDetailPage() {
                           systemSettings={systemSettings}
                           memberInfo={memberInfo}
                           joinLocked={!canAccessGroupContent}
+                          groupAdminMode={
+                            isGroupAdmin && event.member_group_id === groupId
+                          }
                         />
                       ))}
                     </div>

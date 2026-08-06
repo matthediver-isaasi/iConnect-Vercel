@@ -891,7 +891,8 @@ export default function EventsPage({
   const { data: complexBookingsData, isLoading: complexBookingsLoading } = useQuery({
     queryKey: ['event-bookings', complexAttendeesEvent?.id],
     queryFn: async () => {
-      return await base44.entities.Booking.filter({ event_id: complexAttendeesEvent.id });
+      // Complex events store bookings in complex_event_booking (keyed by event_id).
+      return await base44.entities.ComplexEventBooking.filter({ event_id: complexAttendeesEvent.id });
     },
     enabled: showComplexAttendeesModal && isAdmin,
   });

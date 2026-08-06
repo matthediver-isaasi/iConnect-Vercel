@@ -179,8 +179,13 @@ const getCheapestTicketPrice = (event) => {
   return null;
 };
 
-export default function EventCard({ event, organizationInfo, isFeatureExcluded, isAdmin, onEventDeleted, joinLinkSettings, webinars, systemSettings = [], memberInfo, joinLocked = false, agendaSummary = null }) {
+export default function EventCard({ event, organizationInfo, isFeatureExcluded, isAdmin, onEventDeleted, joinLinkSettings, webinars, systemSettings = [], memberInfo, joinLocked = false, agendaSummary = null, groupAdminMode = false }) {
   const queryClient = useQueryClient();
+  // Task e1476154: group-admin override. When the caller (MemberGroupDetail)
+  // confirms the viewer administers the event's group, show the four admin
+  // action buttons and enable the admin dialogs/queries independently of the
+  // tenant RBAC feature-exclusion checks. Tenant-admin behavior is unchanged.
+  const canManageEvent = isAdmin || groupAdminMode === true;
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState("");
   const [showAttendeesModal, setShowAttendeesModal] = useState(false);
@@ -202,11 +207,15 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
   const { data: bookingsData, isLoading: bookingsLoading } = useQuery({
     queryKey: ['event-bookings', event.id],
     queryFn: async () => {
-      // Use the filter method to get only bookings for this event
-      const bookings = await base44.entities.Booking.filter({ event_id: event.id });
+      // Complex (multi-session) events store bookings in complex_event_booking;
+      // simple events use booking. Both key on event_id.
+      const entity = event.is_complex
+        ? base44.entities.ComplexEventBooking
+        : base44.entities.Booking;
+      const bookings = await entity.filter({ event_id: event.id });
       return bookings;
     },
-    enabled: showAttendeesModal && isAdmin,
+    enabled: showAttendeesModal && canManageEvent,
   });
 
   // Fetch organizations when attendees modal is open
@@ -215,7 +224,7 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
     queryFn: async () => {
       return await listAllOrganizationsForAdmin();
     },
-    enabled: showAttendeesModal && isAdmin,
+    enabled: showAttendeesModal && canManageEvent,
   });
 
   // Fetch members when attendees modal is open
@@ -224,7 +233,7 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
     queryFn: async () => {
       return await base44.entities.Member.listAll();
     },
-    enabled: showAttendeesModal && isAdmin,
+    enabled: showAttendeesModal && canManageEvent,
   });
 
   // Create organization lookup map
@@ -421,9 +430,16 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
   const [deletePreviewLoading, setDeletePreviewLoading] = useState(false);
   const [deletePreviewError, setDeletePreviewError] = useState(null);
 
+  // Complex (multi-session) events use the complex-event endpoints. EventCard
+  // only renders complex events on the member-group page (Events.jsx renders
+  // them inline), so these branches only run there.
+  const eventApiBase = event.is_complex
+    ? `/api/complex-events/${event.id}`
+    : `/api/events/${event.id}`;
+
   const deleteEventMutation = useMutation({
     mutationFn: async () => {
-      const response = await fetch(`/api/events/${event.id}/delete-with-cancellations`, {
+      const response = await fetch(`${eventApiBase}/delete-with-cancellations`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -450,6 +466,7 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
       if (manual > 0) msg += ` (${manual} need manual refund/credit-note follow-up)`;
       toast.success(msg);
       queryClient.invalidateQueries({ queryKey: ['events'] });
+      queryClient.invalidateQueries({ queryKey: ['complex-events-for-listing'] });
       queryClient.invalidateQueries({ queryKey: ['member-group-events'] });
       setShowDeleteDialog(false);
       setDeleteConfirmText("");
@@ -658,7 +675,7 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
     setDeletePreviewError(null);
     setDeletePreviewLoading(true);
     try {
-      const r = await fetch(`/api/events/${event.id}/delete-preview`, { credentials: 'include' });
+      const r = await fetch(`${eventApiBase}/delete-preview`, { credentials: 'include' });
       const data = await r.json().catch(() => ({}));
       if (!r.ok) {
         setDeletePreviewError(data.error || `Preview failed (${r.status})`);
@@ -932,10 +949,10 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
 
           <div className="pt-3 border-t border-slate-100">
             {/* Event Controls - only shown when logged in and features are not excluded */}
-            {memberInfo && (!isFeatureExcluded?.('events.browse-events.create') || !isFeatureExcluded?.('events.browse-events.view-attendees')) && (
+            {memberInfo && (groupAdminMode || !isFeatureExcluded?.('events.browse-events.create') || !isFeatureExcluded?.('events.browse-events.view-attendees')) && (
               <TooltipProvider delayDuration={100}>
                 <div className="flex items-center gap-2 mb-3">
-                  {!isFeatureExcluded?.('events.browse-events.create') && (
+                  {(groupAdminMode || !isFeatureExcluded?.('events.browse-events.create')) && (
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <Button 
@@ -952,7 +969,7 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
                       <TooltipContent>Edit</TooltipContent>
                     </Tooltip>
                   )}
-                  {!isFeatureExcluded?.('events.browse-events.view-attendees') && (
+                  {(groupAdminMode || !isFeatureExcluded?.('events.browse-events.view-attendees')) && (
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <Button 
@@ -969,7 +986,7 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
                       <TooltipContent>Attendees</TooltipContent>
                     </Tooltip>
                   )}
-                  {!isFeatureExcluded?.('events.browse-events.create') && (
+                  {(groupAdminMode || !isFeatureExcluded?.('events.browse-events.create')) && (
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <Button
@@ -978,7 +995,7 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
                           onClick={async (e) => {
                             e.stopPropagation();
                             try {
-                              const resp = await fetch(`/api/events/${event.id}/duplicate`, {
+                              const resp = await fetch(`${eventApiBase}/duplicate`, {
                                 method: 'POST',
                                 credentials: 'include',
                                 headers: { 'Content-Type': 'application/json' },
@@ -990,9 +1007,11 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
                               const data = await resp.json();
                               toast.success('Event duplicated as draft');
                               queryClient.invalidateQueries({ queryKey: ['events'] });
+                              queryClient.invalidateQueries({ queryKey: ['complex-events-for-listing'] });
+                              queryClient.invalidateQueries({ queryKey: ['member-group-events'] });
                               // Carry group context so the duplicate opens directly in
                               // the gated group-event UI and returns to the group page.
-                              let dupUrl = createPageUrl('EditEvent') + '?id=' + data.id;
+                              let dupUrl = createPageUrl(event.is_complex ? 'CreateComplexEvent' : 'EditEvent') + '?id=' + data.id;
                               if (event.member_group_id) {
                                 dupUrl += '&group_event=1&group_id=' + event.member_group_id;
                               }
@@ -1011,7 +1030,7 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
                       <TooltipContent>Duplicate</TooltipContent>
                     </Tooltip>
                   )}
-                  {!isFeatureExcluded?.('events.browse-events.create') && (
+                  {(groupAdminMode || !isFeatureExcluded?.('events.browse-events.create')) && (
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <Button 
@@ -1089,7 +1108,10 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
                     if (event.cta_override_url && event.cta_override_mode !== 'detail_page') {
                       window.location.href = event.cta_override_url;
                     } else {
-                      window.location.href = getEventUrl(event);
+                      // Complex events have their own detail routes.
+                      window.location.href = event.is_complex
+                        ? (event.slug ? `/session-events/${encodeURIComponent(event.slug)}` : createPageUrl('ComplexEventDetail') + '?id=' + event.id)
+                        : getEventUrl(event);
                     }
                   };
 
@@ -1143,7 +1165,7 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
       </Card>
 
       {/* Delete Confirmation Dialog - Only render for admins */}
-      {isAdmin && (
+      {canManageEvent && (
         <Dialog open={showDeleteDialog} onOpenChange={(open) => {
           setShowDeleteDialog(open);
           if (!open) {
@@ -1269,7 +1291,7 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
       )}
 
       {/* Attendees Modal - Only render for admins */}
-      {isAdmin && (
+      {canManageEvent && (
         <Dialog open={showAttendeesModal} onOpenChange={(open) => {
           setShowAttendeesModal(open);
           if (!open) {
@@ -1312,14 +1334,19 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
                   ))}
                 </SelectContent>
               </Select>
-              <Button 
-                variant="outline" 
-                onClick={handleImportClick}
-                data-testid="button-import-attendees"
-              >
-                <Upload className="w-4 h-4 mr-2" />
-                Import
-              </Button>
+              {/* Import loads ticket classes from pricing_config, which only
+                  exists on simple events — hide it for complex events (the
+                  Events page has its own complex import flow). */}
+              {!event.is_complex && (
+                <Button 
+                  variant="outline" 
+                  onClick={handleImportClick}
+                  data-testid="button-import-attendees"
+                >
+                  <Upload className="w-4 h-4 mr-2" />
+                  Import
+                </Button>
+              )}
               <Button 
                 variant="outline" 
                 onClick={exportToCSV}
@@ -1472,7 +1499,7 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
       )}
 
       {/* Import Attendees Dialog */}
-      {isAdmin && (
+      {canManageEvent && (
         <Dialog open={showImportDialog} onOpenChange={(open) => {
           setShowImportDialog(open);
           if (!open) {

@@ -25,4 +25,7 @@ Group Admins (the `n` boolean on `MemberGroupAssignment` — NOT a dedicated `is
 ## Visibility (/Events)
 Public APIs filter `member_group_id.is.null OR group_event_public.is.true` so anon never sees group-only events. Authenticated non-members are filtered client-side in `useEventsData.js`; group-only events show a "Members only" badge. Dormant old RSVP-style group events (member_group_id set, no ticket classes) are hidden.
 
+## Management actions from the group page
+Group admins get the four EventCard actions (Edit/Attendees/Duplicate/Delete) only via an explicit `groupAdminMode` prop passed from `MemberGroupDetail` (viewer administers the group AND event.member_group_id matches) — never derived inside EventCard, so /Events stays RBAC-only. EventCard is complex-aware there (branches endpoints on `event.is_complex`; the group page fetches ComplexEvent rows itself since the Events page renders complex cards inline). Server side: `authorizeGroupAdminEventAction` (duplicate needs `requireTypeEnabled`) covers duplicate + delete-preview; `isGroupAdminForEventRequest` is the fallback in the `/api/admin/events/[eventId]/attendees/*` role-checked endpoints, which take a simple OR complex event id in the same param.
+
 **How to apply:** when changing what a group event may contain, edit `groupAdminEventWrite.js` AND all three editor files together; check the booking flow self-only guards too (group events are self-registration only, enforced in `api/public/complex-event-booking.js` and the simple booking path).

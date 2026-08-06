@@ -4,6 +4,7 @@
 import { supabase } from '../../_lib/database.js';
 import { getTenantContext, hasAdminAccess } from '../../_lib/tenantContext.js';
 import { previewEventDeletion } from '../../_lib/eventDeletion.js';
+import { authorizeGroupAdminEventDelete } from '../../_lib/groupAdminEventWrite.js';
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Credentials', 'true');
@@ -16,11 +17,15 @@ export default async function handler(req, res) {
 
   const ctx = await getTenantContext(req);
   if (!ctx.isAuthenticated) return res.status(401).json({ error: 'Authentication required' });
-  if (!(await hasAdminAccess(ctx))) return res.status(403).json({ error: 'Admin access required' });
   if (!ctx.tenantId) return res.status(400).json({ error: 'Tenant context required' });
 
   const { id } = req.query;
   if (!id) return res.status(400).json({ error: 'Event id required' });
+
+  // Tenant admins pass; group admins may preview deletion of their own
+  // group's events (mirrors delete-with-cancellations authorization).
+  const authz = await authorizeGroupAdminEventDelete({ eventId: id, eventTable: 'complex_event', tenantCtx: ctx, req });
+  if (!authz.ok) return res.status(authz.status || 403).json({ error: authz.error });
 
   const result = await previewEventDeletion({ eventId: id, tenantId: ctx.tenantId, eventTable: 'complex_event' });
   if (!result.found) return res.status(404).json(result);

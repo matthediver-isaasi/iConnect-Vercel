@@ -1,6 +1,7 @@
 import { randomUUID } from 'crypto';
 import { supabase } from '../../_lib/database.js';
 import { getTenantContext, hasAdminAccess } from '../../_lib/tenantContext.js';
+import { authorizeGroupAdminEventAction } from '../../_lib/groupAdminEventWrite.js';
 import { recomputeComplexEventDates } from '../../_lib/complexEventDateSync.js';
 
 const EVENT_FIELDS = [
@@ -56,7 +57,14 @@ export default async function handler(req, res) {
 
   const ctx = await getTenantContext(req);
   if (!ctx?.isAuthenticated) return res.status(401).json({ error: 'Not authenticated' });
-  if (!await hasAdminAccess(ctx)) return res.status(403).json({ error: 'Admin access required' });
+  // Tenant admins pass; group admins may duplicate their own group's events
+  // (the copy keeps member_group_id and, being a copy of a guarded group
+  // event, stays free-ticket / zoom-free; it lands as a draft).
+  const dupAuthz = await authorizeGroupAdminEventAction({
+    eventId: id, eventTable: 'complex_event', tenantCtx: ctx, req, requireTypeEnabled: true,
+    denialError: 'You can only duplicate events for groups you administer',
+  });
+  if (!dupAuthz.ok) return res.status(dupAuthz.status || 403).json({ error: dupAuthz.error });
   if (!ctx.tenantId) return res.status(403).json({ error: 'No tenant context' });
 
   const tenantId = ctx.tenantId;
