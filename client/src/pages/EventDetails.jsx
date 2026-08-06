@@ -2326,7 +2326,7 @@ export default function EventDetailsPage() {
             )}
 
             {/* No tickets available for role message */}
-            {isOneOffEvent && noTicketsForRole && !isRegistrationClosed && (
+            {isOneOffEvent && noTicketsForRole && !isRegistrationClosed && !tbcTicketSelectorsHidden && (
               <Card className={`shadow-sm mb-4 ${isGuestCheckout ? 'border-blue-200 bg-blue-50' : 'border-warning/30 bg-warning/10'}`}>
                 <CardContent className="pt-6">
                   <div className="flex items-start gap-3">
