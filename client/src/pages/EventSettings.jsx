@@ -135,6 +135,11 @@ export default function EventSettingsPage() {
   
   // Collect dietary & accessibility needs at booking (default on)
   const [collectAttendeeOptions, setCollectAttendeeOptions] = useState(true);
+
+  // Seat availability labels (blank = default wording)
+  const [seatLabelUnlimited, setSeatLabelUnlimited] = useState("");
+  const [seatLabelAvailable, setSeatLabelAvailable] = useState("");
+  const [seatLabelSoldOut, setSeatLabelSoldOut] = useState("");
   
   const queryClient = useQueryClient();
 
@@ -341,6 +346,11 @@ export default function EventSettingsPage() {
     if (collectAttendeeOptionsSetting) {
       setCollectAttendeeOptions(collectAttendeeOptionsSetting.setting_value !== 'false');
     }
+
+    // Load seat availability labels
+    setSeatLabelUnlimited(settings.find(s => s.setting_key === 'seat_label_unlimited')?.setting_value || '');
+    setSeatLabelAvailable(settings.find(s => s.setting_key === 'seat_label_available')?.setting_value || '');
+    setSeatLabelSoldOut(settings.find(s => s.setting_key === 'seat_label_sold_out')?.setting_value || '');
 
     const featuredBgSetting = settings.find(s => s.setting_key === 'featured_events_background');
     if (featuredBgSetting?.setting_value) {
@@ -587,6 +597,22 @@ export default function EventSettingsPage() {
         });
       }
       
+      // Save seat availability labels (blank = fall back to default wording)
+      const seatLabelEntries = [
+        ['seat_label_unlimited', seatLabelUnlimited, 'Label shown when an event has unlimited capacity (blank = "Open Registration")'],
+        ['seat_label_available', seatLabelAvailable, 'Label shown when seats remain; use {count} for the number (blank = "{count} seats available")'],
+        ['seat_label_sold_out', seatLabelSoldOut, 'Label shown when an event is sold out (blank = "Sold out")'],
+      ];
+      for (const [key, value, description] of seatLabelEntries) {
+        const existing = settings.find(s => s.setting_key === key);
+        const trimmed = (value || '').trim();
+        if (existing) {
+          await base44.entities.SystemSettings.update(existing.id, { setting_value: trimmed, description });
+        } else if (trimmed) {
+          await base44.entities.SystemSettings.create({ setting_key: key, setting_value: trimmed, description });
+        }
+      }
+
       // Save description preview lines setting
       const descPreviewLinesSetting = settings.find(s => s.setting_key === 'event_description_preview_lines');
       
@@ -767,7 +793,12 @@ export default function EventSettingsPage() {
       const featuredBgValue = featuredBgMode === 'gradient'
         ? JSON.stringify({ mode: 'gradient', from: featuredBgFrom, to: featuredBgTo, ...featuredHeaderColors })
         : JSON.stringify({ mode: 'solid', color: featuredBgColor, ...featuredHeaderColors });
-      const featuredBgSetting = settings.find(s => s.setting_key === 'featured_events_background');
+      // Load seat availability labels
+    setSeatLabelUnlimited(settings.find(s => s.setting_key === 'seat_label_unlimited')?.setting_value || '');
+    setSeatLabelAvailable(settings.find(s => s.setting_key === 'seat_label_available')?.setting_value || '');
+    setSeatLabelSoldOut(settings.find(s => s.setting_key === 'seat_label_sold_out')?.setting_value || '');
+
+    const featuredBgSetting = settings.find(s => s.setting_key === 'featured_events_background');
 
       if (featuredBgSetting) {
         await base44.entities.SystemSettings.update(featuredBgSetting.id, {
@@ -2187,6 +2218,59 @@ export default function EventSettingsPage() {
                 </div>
               </div>
               
+              <div className="p-4 bg-slate-50 rounded-lg border border-slate-200 space-y-3">
+                <div className="space-y-1">
+                  <Label className="font-medium">Seat Availability Labels</Label>
+                  <p className="text-sm text-slate-500">
+                    Customise the seat-status wording shown on event cards and detail pages. Leave a field blank to use the default wording.
+                  </p>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <div className="space-y-1">
+                    <Label htmlFor="seat-label-unlimited" className="text-xs text-slate-600">Unlimited capacity</Label>
+                    <Input
+                      id="seat-label-unlimited"
+                      value={seatLabelUnlimited}
+                      onChange={(e) => setSeatLabelUnlimited(e.target.value)}
+                      placeholder="Open Registration"
+                      data-testid="input-seat-label-unlimited"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="seat-label-available" className="text-xs text-slate-600">Seats available</Label>
+                    <Input
+                      id="seat-label-available"
+                      value={seatLabelAvailable}
+                      onChange={(e) => setSeatLabelAvailable(e.target.value)}
+                      placeholder="{count} seats available"
+                      data-testid="input-seat-label-available"
+                    />
+                    <p className="text-[11px] text-slate-400">Use {'{count}'} where the number should appear.</p>
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="seat-label-sold-out" className="text-xs text-slate-600">Sold out</Label>
+                    <Input
+                      id="seat-label-sold-out"
+                      value={seatLabelSoldOut}
+                      onChange={(e) => setSeatLabelSoldOut(e.target.value)}
+                      placeholder="Sold out"
+                      data-testid="input-seat-label-sold-out"
+                    />
+                  </div>
+                </div>
+                <div className="flex justify-end">
+                  <Button
+                    onClick={handleSaveSettings}
+                    disabled={isSaving}
+                    size="sm"
+                    data-testid="button-save-seat-labels"
+                  >
+                    <Save className="w-4 h-4 mr-2" />
+                    Save
+                  </Button>
+                </div>
+              </div>
+
               <div className="flex items-center justify-between p-4 bg-slate-50 rounded-lg border border-slate-200">
                 <div className="space-y-1">
                   <Label htmlFor="event-card-title-clamp" className="font-medium">

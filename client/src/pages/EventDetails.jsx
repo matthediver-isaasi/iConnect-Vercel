@@ -40,6 +40,7 @@ import { useSpeakerModuleName } from "@/hooks/useSpeakerModuleName";
 import { useEventSeatRealtime } from "@/hooks/useEventSeatRealtime";
 import { useTicketAvailabilityRealtime } from "@/hooks/useTicketAvailabilityRealtime";
 import BookmarkButton from "@/components/bookmarks/BookmarkButton";
+import { getSeatStatusLabels } from "@/lib/seatStatusLabels";
 
 export default function EventDetailsPage() {
   const { memberInfo, organizationInfo, memberRole, isFeatureExcluded, reloadMemberInfo, refreshOrganizationInfo } = useMemberAccess();
@@ -456,6 +457,9 @@ export default function EventDetailsPage() {
     }
   });
   
+  // Tenant-customizable seat-status labels (Event Settings)
+  const seatStatusLabels = useMemo(() => getSeatStatusLabels(systemSettings), [systemSettings]);
+
   // Tenant-wide toggle: when disabled, expose empty option lists so the
   // attendee options selector never renders and no selections can be made.
   const collectAttendeeOptionsEnabled = isAttendeeOptionsCollectionEnabled(systemSettings);
@@ -1493,11 +1497,13 @@ export default function EventDetailsPage() {
                     <div className="flex items-center gap-3">
                       <Users className="w-5 h-5 text-slate-400" />
                       {hasUnlimitedCapacity ? (
-                        <span className="text-green-600 font-medium">Open Registration - No Capacity Limit</span>
+                        <span className="text-green-600 font-medium">
+                          {seatStatusLabels.isUnlimitedCustom ? seatStatusLabels.unlimited : 'Open Registration - No Capacity Limit'}
+                        </span>
                       ) : event.available_seats !== undefined && event.available_seats > 0 ? (
-                        <span className="text-green-600 font-medium">{event.available_seats} seats available</span>
+                        <span className="text-green-600 font-medium">{seatStatusLabels.available(event.available_seats)}</span>
                       ) : event.available_seats !== undefined ? (
-                        <span className="text-red-600 font-medium">Sold out</span>
+                        <span className="text-red-600 font-medium">{seatStatusLabels.soldOut}</span>
                       ) : null}
                     </div>
                   )}

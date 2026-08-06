@@ -41,6 +41,7 @@ import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useComplexEventTicketAvailabilityRealtime } from "@/hooks/useComplexEventTicketAvailabilityRealtime";
 import PaymentOptions from "@/components/booking/PaymentOptions";
 import EventSponsorsCard from "@/components/events/EventSponsorsCard";
+import { getSeatStatusLabels } from "@/lib/seatStatusLabels";
 
 
 function TrackAccessIndicator({ ticket, tracks }) {
@@ -1175,6 +1176,12 @@ export default function ComplexEventDetail() {
     queryFn: () => publicClient.listSystemSettings()
   });
 
+  // Tenant-customizable seat-status labels (Event Settings)
+  const seatStatusLabels = useMemo(
+    () => getSeatStatusLabels(detailSystemSettings, { availableDefault: '{count} places available' }),
+    [detailSystemSettings]
+  );
+
   const sponsorsAfterDate = (Array.isArray(detailSystemSettings)
     ? detailSystemSettings.find(s => s.setting_key === 'event_sponsors_placement')
     : null)?.setting_value === 'after_date';
@@ -1487,11 +1494,11 @@ export default function ComplexEventDetail() {
                     <div className="flex items-center gap-3 text-slate-700">
                       <Users className="w-5 h-5 text-slate-400" />
                       {(event.available_seats === 0 || event.available_seats === null) ? (
-                        <span className="text-green-600 font-medium">Open Registration</span>
+                        <span className="text-green-600 font-medium">{seatStatusLabels.unlimited}</span>
                       ) : event.available_seats > 0 ? (
-                        <span className="text-green-600 font-medium">{event.available_seats} places available</span>
+                        <span className="text-green-600 font-medium">{seatStatusLabels.available(event.available_seats)}</span>
                       ) : (
-                        <span className="text-red-600 font-medium">Sold out</span>
+                        <span className="text-red-600 font-medium">{seatStatusLabels.soldOut}</span>
                       )}
                     </div>
                   )}

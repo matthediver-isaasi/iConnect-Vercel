@@ -17,6 +17,7 @@ import { computeComplexEventDayInfo } from "@/lib/complexEventDays";
 import TenantCtaButton from "@/components/common/TenantCtaButton";
 import { toast } from "sonner";
 import { resolveAttendeeJobTitle } from "@/lib/attendeeJobTitle";
+import { getSeatStatusLabels } from "@/lib/seatStatusLabels";
 import {
   Dialog,
   DialogContent,
@@ -303,6 +304,9 @@ export default function EventsPage({
     queryKey: ['public-system-settings'],
     queryFn: () => publicClient.listSystemSettings()
   });
+
+  // Tenant-customizable seat-status labels (Event Settings)
+  const seatStatusLabels = useMemo(() => getSeatStatusLabels(systemSettings), [systemSettings]);
 
   const [complexDeleteOrganiserMessage, setComplexDeleteOrganiserMessage] = useState("");
   const [complexDeleteSendEmails, setComplexDeleteSendEmails] = useState(true);
@@ -1961,11 +1965,11 @@ export default function EventsPage({
                                 <div className="flex items-center gap-2 text-sm">
                                   <Users className="w-4 h-4 text-slate-400 shrink-0" />
                                   {hasUnlimitedCapacity ? (
-                                    <span className="text-green-600 font-medium">Open Registration</span>
+                                    <span className="text-green-600 font-medium">{seatStatusLabels.unlimited}</span>
                                   ) : event.available_seats > 0 ? (
-                                    <span className="text-green-600 font-medium">{event.available_seats} seats available</span>
+                                    <span className="text-green-600 font-medium">{seatStatusLabels.available(event.available_seats)}</span>
                                   ) : (
-                                    <span className="text-red-600 font-medium">Sold out</span>
+                                    <span className="text-red-600 font-medium">{seatStatusLabels.soldOut}</span>
                                   )}
                                 </div>
                               )}
@@ -2315,13 +2319,13 @@ export default function EventsPage({
                             <div className="flex items-center gap-2 text-sm">
                               <Users className="w-4 h-4 text-slate-400 shrink-0" />
                               {hasUnlimitedCapacity ? (
-                                <span className="text-green-600 font-medium">Open Registration</span>
+                                <span className="text-green-600 font-medium">{seatStatusLabels.unlimited}</span>
                               ) : event.available_seats > 0 ? (
                                 <span className="text-green-600 font-medium">
-                                  {event.available_seats} seats available
+                                  {seatStatusLabels.available(event.available_seats)}
                                 </span>
                               ) : (
-                                <span className="text-red-600 font-medium">Sold out</span>
+                                <span className="text-red-600 font-medium">{seatStatusLabels.soldOut}</span>
                               )}
                             </div>
                           )}

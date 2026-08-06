@@ -11,6 +11,7 @@ import { getFocalPointStyle } from "@/components/FocalPointPicker";
 import { parseEventTypes } from "@/lib/utils";
 import { Link } from "react-router-dom";
 import TenantCtaButton from "@/components/common/TenantCtaButton";
+import { getSeatStatusLabels } from "@/lib/seatStatusLabels";
 
 const DEFAULT_TIMEZONE = "Europe/London";
 
@@ -191,6 +192,7 @@ export default function PublicEventsPage() {
                   const timezoneAbbr = getTimezoneAbbr(event.start_date, eventTimezone);
                   const hasUnlimitedCapacity = event.available_seats === 0 || event.available_seats === null;
                   const isComplex = !!event.is_complex;
+                  const seatStatusLabels = getSeatStatusLabels(systemSettings, { availableDefault: isComplex ? '{count} places available' : '{count} seats available' });
                   const cheapest = getCheapestPrice(event.pricing_config);
                   const baseDetailUrl = getEventDetailUrl(event);
                   const detailUrl = (event.cta_override_url && event.cta_override_mode !== 'detail_page')
@@ -280,13 +282,13 @@ export default function PublicEventsPage() {
                           <div className="flex items-center gap-2 text-sm">
                             <Users className="w-4 h-4 text-slate-400 shrink-0" />
                             {hasUnlimitedCapacity ? (
-                              <span className="text-green-600 font-medium">Open Registration</span>
+                              <span className="text-green-600 font-medium">{seatStatusLabels.unlimited}</span>
                             ) : event.available_seats > 0 ? (
                               <span className="text-green-600 font-medium">
-                                {event.available_seats} {isComplex ? 'places' : 'seats'} available
+                                {seatStatusLabels.available(event.available_seats)}
                               </span>
                             ) : (
-                              <span className="text-red-600 font-medium">Sold out</span>
+                              <span className="text-red-600 font-medium">{seatStatusLabels.soldOut}</span>
                             )}
                           </div>
                         )}
@@ -326,6 +328,7 @@ export default function PublicEventsPage() {
               const timezoneAbbr = getTimezoneAbbr(event.start_date, eventTimezone);
               const hasUnlimitedCapacity = event.available_seats === 0 || event.available_seats === null;
               const isComplex = !!event.is_complex;
+              const seatStatusLabels = getSeatStatusLabels(systemSettings, { availableDefault: isComplex ? '{count} places available' : '{count} seats available' });
               const cheapest = getCheapestPrice(event.pricing_config);
               const baseDetailUrl = getEventDetailUrl(event);
               const detailUrl = (event.cta_override_url && event.cta_override_mode !== 'detail_page')
@@ -412,13 +415,13 @@ export default function PublicEventsPage() {
                       <div className="flex items-center gap-2 text-sm">
                         <Users className="w-4 h-4 text-slate-400 shrink-0" />
                         {hasUnlimitedCapacity ? (
-                          <span className="text-green-600 font-medium">Open Registration</span>
+                          <span className="text-green-600 font-medium">{seatStatusLabels.unlimited}</span>
                         ) : event.available_seats > 0 ? (
                           <span className="text-green-600 font-medium">
-                            {event.available_seats} {isComplex ? 'places' : 'seats'} available
+                            {seatStatusLabels.available(event.available_seats)}
                           </span>
                         ) : (
-                          <span className="text-red-600 font-medium">Sold out</span>
+                          <span className="text-red-600 font-medium">{seatStatusLabels.soldOut}</span>
                         )}
                       </div>
                     )}

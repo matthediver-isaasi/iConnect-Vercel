@@ -18,6 +18,7 @@ import { getFocalPointStyle } from "@/components/FocalPointPicker";
 import TenantCtaButton from "@/components/common/TenantCtaButton";
 import { toast } from "sonner";
 import { resolveAttendeeJobTitle } from "@/lib/attendeeJobTitle";
+import { getSeatStatusLabels } from "@/lib/seatStatusLabels";
 import {
   Dialog,
   DialogContent,
@@ -407,6 +408,9 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
   
   // Combine both role-based permission and system setting
   const showAvailableSeats = showSeatsEnabled && (!isFeatureExcluded || !isFeatureExcluded('element_AvailableSeatsDisplay'));
+
+  // Tenant-customizable seat-status labels (Event Settings)
+  const seatStatusLabels = getSeatStatusLabels(systemSettings);
 
   const [deleteOrganiserMessage, setDeleteOrganiserMessage] = useState("");
   const [deleteSendEmails, setDeleteSendEmails] = useState(true);
@@ -871,13 +875,13 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
             <div className="flex items-center gap-2 text-sm">
               <Users className="w-4 h-4 text-slate-400" />
               {hasUnlimitedCapacity ? (
-                <span className="text-green-600 font-medium">Open Registration</span>
+                <span className="text-green-600 font-medium">{seatStatusLabels.unlimited}</span>
               ) : event.available_seats > 0 ? (
                 <span className="text-green-600 font-medium">
-                  {event.available_seats} seats available
+                  {seatStatusLabels.available(event.available_seats)}
                 </span>
               ) : (
-                <span className="text-red-600 font-medium">Sold out</span>
+                <span className="text-red-600 font-medium">{seatStatusLabels.soldOut}</span>
               )}
             </div>
           )}
