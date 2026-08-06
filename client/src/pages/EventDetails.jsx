@@ -42,6 +42,190 @@ import { useTicketAvailabilityRealtime } from "@/hooks/useTicketAvailabilityReal
 import BookmarkButton from "@/components/bookmarks/BookmarkButton";
 import { getSeatStatusLabels } from "@/lib/seatStatusLabels";
 
+// Training agenda grouped by day with the same collapse behaviour/styling as
+// the complex-event schedule (ComplexEventSchedule.jsx ScheduleGrid): chevron +
+// calendar header, collapsed time range, item count, collapsed by default when
+// multi-day, per-day toggle. Each header additionally shows the distinct
+// agenda line type(s) for that day.
+function TrainingAgendaSchedule({ agendaLines, eventSpeakers = [] }) {
+  // User toggles stored as overrides so the multi-day default applies until
+  // a day is clicked (mirrors ScheduleGrid's dayOverrides pattern).
+  const [dayOverrides, setDayOverrides] = useState({});
+
+  const days = useMemo(() => {
+    const map = {};
+    (agendaLines || []).forEach((line) => {
+      const key = line.start_date || 'unscheduled';
+      if (!map[key]) map[key] = { dateKey: key, lines: [] };
+      map[key].lines.push(line);
+    });
+    return Object.values(map).sort((a, b) => (a.dateKey < b.dateKey ? -1 : a.dateKey > b.dateKey ? 1 : 0));
+  }, [agendaLines]);
+
+  const defaultCollapsed = days.length > 1;
+  const isDayCollapsed = (key) => (dayOverrides[key] !== undefined ? dayOverrides[key] : defaultCollapsed);
+  const toggleDay = (key) => setDayOverrides((prev) => ({ ...prev, [key]: !isDayCollapsed(key) }));
+
+  const fmtAgendaTime = (t) => {
+    const m = String(t || '').match(/^(\d{2}):(\d{2})/);
+    if (!m) return '';
+    return format(new Date(2000, 0, 1, Number(m[1]), Number(m[2])), 'h:mm a');
+  };
+
+  return (
+    <div className="space-y-8">
+      {days.map((day, dayIndex) => {
+        const collapsed = isDayCollapsed(day.dateKey);
+        const dayLabel = day.dateKey !== 'unscheduled'
+          ? format(new Date(`${day.dateKey}T00:00:00`), 'EEEE, MMMM d, yyyy')
+          : 'Date to be confirmed';
+        // Day time range: earliest start time to latest end time (HH:MM strings
+        // compare correctly lexicographically).
+        let dayStart = null;
+        let dayEnd = null;
+        day.lines.forEach((l) => {
+          const st = String(l.start_time || '').slice(0, 5);
+          const et = String(l.end_time || '').slice(0, 5);
+          if (st && (!dayStart || st < dayStart)) dayStart = st;
+          if (et && (!dayEnd || et > dayEnd)) dayEnd = et;
+        });
+        const dayTypes = [...new Set(day.lines.map((l) => l.item_type).filter(Boolean))];
+
+        return (
+          <div key={day.dateKey} data-testid={`agenda-day-${dayIndex}`}>
+            <button
+              type="button"
+              onClick={() => toggleDay(day.dateKey)}
+              className="text-lg font-semibold text-slate-900 mb-4 flex items-center gap-2 flex-wrap hover-elevate active-elevate-2 rounded-md px-2 py-1 -ml-2 w-auto text-left"
+              data-testid={`agenda-day-toggle-${dayIndex}`}
+            >
+              {collapsed ? <ChevronRight className="w-5 h-5 text-indigo-600" /> : <ChevronDown className="w-5 h-5 text-indigo-600" />}
+              <Calendar className="w-5 h-5 text-indigo-600" />
+              {dayLabel}
+              {collapsed && dayStart && (
+                <span className="text-sm font-normal text-slate-600" data-testid={`agenda-day-times-${dayIndex}`}>
+                  {fmtAgendaTime(dayStart)}{dayEnd && dayEnd > dayStart ? ` - ${fmtAgendaTime(dayEnd)}` : ''}
+                </span>
+              )}
+              {dayTypes.length > 0 && (
+                <span className="text-sm font-normal text-slate-600" data-testid={`agenda-day-types-${dayIndex}`}>
+                  {dayTypes.join(', ')}
+                </span>
+              )}
+              <span className="text-sm font-normal text-slate-500">
+                ({day.lines.length} {day.lines.length === 1 ? 'item' : 'items'})
+              </span>
+            </button>
+
+            {collapsed ? null : (
+              <div className="space-y-3">
+                {day.lines.map((line, index) => (
+                  <div
+                    key={line.id || index}
+                    className="p-3 rounded-lg border border-slate-200 space-y-2"
+                    data-testid={`agenda-line-${line.id || index}`}
+                  >
+                    <div className="flex items-start justify-between gap-2 flex-wrap">
+                      <div className="text-sm font-medium text-slate-900 flex items-center gap-1">
+                        <Clock className="h-3 w-3" />
+                        {line.start_date && new Date(`${line.start_date}T00:00:00`).toLocaleDateString(undefined, {
+                          weekday: 'short', day: 'numeric', month: 'short', year: 'numeric'
+                        })}
+                        {line.start_time && <> {String(line.start_time).slice(0, 5)}</>}
+                        {line.end_date && line.end_date !== line.start_date ? (
+                          <> – {new Date(`${line.end_date}T00:00:00`).toLocaleDateString(undefined, {
+                            weekday: 'short', day: 'numeric', month: 'short', year: 'numeric'
+                          })}{line.end_time && <> {String(line.end_time).slice(0, 5)}</>}</>
+                        ) : (
+                          line.end_time && <> – {String(line.end_time).slice(0, 5)}</>
+                        )}
+                      </div>
+                      {line.item_type && (
+                        <Badge variant="secondary" className="text-xs">{line.item_type}</Badge>
+                      )}
+                    </div>
+                    {line.description && (
+                      <p className="text-sm text-slate-600">{line.description}</p>
+                    )}
+                    {line.location && (
+                      <div className="text-sm text-slate-600 flex items-center gap-1">
+                        <MapPin className="h-3 w-3" />
+                        {line.location}
+                      </div>
+                    )}
+                    {/* Per-item speakers/sponsors (Task #3436) */}
+                    {Array.isArray(line.speaker_ids) && line.speaker_ids.length > 0 && (
+                      <div className="flex flex-wrap items-center gap-2 pt-1" data-testid={`agenda-speakers-${line.id || index}`}>
+                        {line.speaker_ids.map((sid) => {
+                          const sp = eventSpeakers.find((s) => s.id === sid);
+                          if (!sp) return null;
+                          return (
+                            <span key={sid} className="inline-flex items-center gap-1.5 pl-1 pr-2 py-0.5 rounded-full bg-purple-50 border border-purple-100 text-xs text-purple-800">
+                              {sp.profile_photo_url ? (
+                                <img src={sp.profile_photo_url} alt={sp.full_name} className="w-5 h-5 rounded-full object-cover" />
+                              ) : (
+                                <Mic className="w-3 h-3 text-purple-500" />
+                              )}
+                              {sp.full_name}
+                            </span>
+                          );
+                        })}
+                      </div>
+                    )}
+                    {Array.isArray(line.sponsors) && line.sponsors.length > 0 && (
+                      <div className="flex flex-wrap items-center gap-3 pt-1" data-testid={`agenda-sponsors-${line.id || index}`}>
+                        {line.sponsors.map((sp) => (
+                          <span key={sp.id} className="inline-flex items-center gap-1.5 text-xs text-slate-600">
+                            {sp.logo_url && (
+                              <img src={sp.logo_url} alt={sp.name} className="w-5 h-5 rounded object-contain bg-white border border-slate-200" />
+                            )}
+                            {sp.website_url ? (
+                              <a href={sp.website_url} target="_blank" rel="noopener noreferrer" className="hover:text-blue-600 underline-offset-2 hover:underline">{sp.name}</a>
+                            ) : (
+                              sp.name
+                            )}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    {line.zoom_join_url && (
+                      <div className="pt-1">
+                        <a
+                          href={line.zoom_join_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 text-sm text-blue-600 hover:text-blue-700 font-medium"
+                          data-testid={`link-agenda-zoom-${line.id || index}`}
+                        >
+                          <Video className="h-4 w-4" />
+                          Join online session
+                        </a>
+                      </div>
+                    )}
+                    {line.lms_url && (
+                      <div className="pt-1">
+                        <a
+                          href={line.lms_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 text-sm text-blue-600 hover:text-blue-700 font-medium"
+                          data-testid={`link-agenda-lms-${line.id || index}`}
+                        >
+                          Open learning platform
+                        </a>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export default function EventDetailsPage() {
   const { memberInfo, organizationInfo, memberRole, isFeatureExcluded, reloadMemberInfo, refreshOrganizationInfo } = useMemberAccess();
   const { singular: speakerSingular, plural: speakerPlural } = useSpeakerModuleName();
@@ -1653,106 +1837,7 @@ export default function EventDetailsPage() {
                     <Calendar className="w-5 h-5 text-blue-600" />
                     Agenda
                   </h3>
-                  <div className="space-y-3">
-                    {agendaLines.map((line, index) => (
-                      <div
-                        key={line.id || index}
-                        className="p-3 rounded-lg border border-slate-200 space-y-2"
-                        data-testid={`agenda-line-${line.id || index}`}
-                      >
-                        <div className="flex items-start justify-between gap-2 flex-wrap">
-                          <div className="text-sm font-medium text-slate-900 flex items-center gap-1">
-                            <Clock className="h-3 w-3" />
-                            {line.start_date && new Date(`${line.start_date}T00:00:00`).toLocaleDateString(undefined, {
-                              weekday: 'short', day: 'numeric', month: 'short', year: 'numeric'
-                            })}
-                            {line.start_time && <> {String(line.start_time).slice(0, 5)}</>}
-                            {line.end_date && line.end_date !== line.start_date ? (
-                              <> – {new Date(`${line.end_date}T00:00:00`).toLocaleDateString(undefined, {
-                                weekday: 'short', day: 'numeric', month: 'short', year: 'numeric'
-                              })}{line.end_time && <> {String(line.end_time).slice(0, 5)}</>}</>
-                            ) : (
-                              line.end_time && <> – {String(line.end_time).slice(0, 5)}</>
-                            )}
-                          </div>
-                          {line.item_type && (
-                            <Badge variant="secondary" className="text-xs">{line.item_type}</Badge>
-                          )}
-                        </div>
-                        {line.description && (
-                          <p className="text-sm text-slate-600">{line.description}</p>
-                        )}
-                        {line.location && (
-                          <div className="text-sm text-slate-600 flex items-center gap-1">
-                            <MapPin className="h-3 w-3" />
-                            {line.location}
-                          </div>
-                        )}
-                        {/* Per-item speakers/sponsors (Task #3436) */}
-                        {Array.isArray(line.speaker_ids) && line.speaker_ids.length > 0 && (
-                          <div className="flex flex-wrap items-center gap-2 pt-1" data-testid={`agenda-speakers-${line.id || index}`}>
-                            {line.speaker_ids.map((sid) => {
-                              const sp = eventSpeakers.find((s) => s.id === sid);
-                              if (!sp) return null;
-                              return (
-                                <span key={sid} className="inline-flex items-center gap-1.5 pl-1 pr-2 py-0.5 rounded-full bg-purple-50 border border-purple-100 text-xs text-purple-800">
-                                  {sp.profile_photo_url ? (
-                                    <img src={sp.profile_photo_url} alt={sp.full_name} className="w-5 h-5 rounded-full object-cover" />
-                                  ) : (
-                                    <Mic className="w-3 h-3 text-purple-500" />
-                                  )}
-                                  {sp.full_name}
-                                </span>
-                              );
-                            })}
-                          </div>
-                        )}
-                        {Array.isArray(line.sponsors) && line.sponsors.length > 0 && (
-                          <div className="flex flex-wrap items-center gap-3 pt-1" data-testid={`agenda-sponsors-${line.id || index}`}>
-                            {line.sponsors.map((sp) => (
-                              <span key={sp.id} className="inline-flex items-center gap-1.5 text-xs text-slate-600">
-                                {sp.logo_url && (
-                                  <img src={sp.logo_url} alt={sp.name} className="w-5 h-5 rounded object-contain bg-white border border-slate-200" />
-                                )}
-                                {sp.website_url ? (
-                                  <a href={sp.website_url} target="_blank" rel="noopener noreferrer" className="hover:text-blue-600 underline-offset-2 hover:underline">{sp.name}</a>
-                                ) : (
-                                  sp.name
-                                )}
-                              </span>
-                            ))}
-                          </div>
-                        )}
-                        {line.zoom_join_url && (
-                          <div className="pt-1">
-                            <a
-                              href={line.zoom_join_url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="inline-flex items-center gap-1 text-sm text-blue-600 hover:text-blue-700 font-medium"
-                              data-testid={`link-agenda-zoom-${line.id || index}`}
-                            >
-                              <Video className="h-4 w-4" />
-                              Join online session
-                            </a>
-                          </div>
-                        )}
-                        {line.lms_url && (
-                          <div className="pt-1">
-                            <a
-                              href={line.lms_url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="inline-flex items-center gap-1 text-sm text-blue-600 hover:text-blue-700 font-medium"
-                              data-testid={`link-agenda-lms-${line.id || index}`}
-                            >
-                              Open learning platform
-                            </a>
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
+                  <TrainingAgendaSchedule agendaLines={agendaLines} eventSpeakers={eventSpeakers} />
                 </CardContent>
               )}
 

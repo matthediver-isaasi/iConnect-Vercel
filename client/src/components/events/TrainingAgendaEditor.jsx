@@ -114,6 +114,8 @@ export function validateAgendaLines(lines) {
   lines.forEach((line, i) => {
     const label = `Agenda line ${i + 1}`;
     if (!line.start_date) errors.push(`${label}: please set a start date`);
+    if (!normalizeAgendaTime(line.start_time)) errors.push(`${label}: please set a start time`);
+    if (!normalizeAgendaTime(line.end_time)) errors.push(`${label}: please set an end time`);
     if (line.start_date && (line.end_date || line.end_time)) {
       // Compare full datetimes; an explicit end time on the start day must not
       // be before the start time.
@@ -274,8 +276,8 @@ export default function TrainingAgendaEditor({ lines, onChange, agendaItemTypes,
                   data-testid={`input-agenda-start-${index}`} />
               </div>
               <div className="space-y-1">
-                <Label className="text-xs">Start time</Label>
-                <Input type="time" value={normalizeAgendaTime(line.start_time)}
+                <Label className="text-xs">Start time *</Label>
+                <Input type="time" required value={normalizeAgendaTime(line.start_time)}
                   onChange={(e) => updateLine(index, { start_time: e.target.value })}
                   data-testid={`input-agenda-start-time-${index}`} />
               </div>
@@ -286,8 +288,8 @@ export default function TrainingAgendaEditor({ lines, onChange, agendaItemTypes,
                   data-testid={`input-agenda-end-${index}`} />
               </div>
               <div className="space-y-1">
-                <Label className="text-xs">End time</Label>
-                <Input type="time" value={normalizeAgendaTime(line.end_time)}
+                <Label className="text-xs">End time *</Label>
+                <Input type="time" required value={normalizeAgendaTime(line.end_time)}
                   onChange={(e) => updateLine(index, { end_time: e.target.value })}
                   data-testid={`input-agenda-end-time-${index}`} />
               </div>
