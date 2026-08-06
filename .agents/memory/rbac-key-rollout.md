@@ -27,3 +27,8 @@ default (see `seed-pending-po-role-access.mjs` for that heavier pattern).
 
 Brand-new keys need NO entry in the legacy mapping (`LEGACY_TO_NEW_MAPPING` in
 both roleVisibility files) — that's only for renamed/legacy IDs.
+
+**Also:** after editing `ROLE_ACCESS_MAP` or `LEGACY_TO_NEW_MAPPING`, re-run
+`npx tsx scripts/generate-role-access-hierarchy.mjs` to regenerate
+`api/_lib/roleAccessHierarchy.generated.js`, or the no-drift tests in
+`client/src/lib/roleAccessMap.test.ts` fail.

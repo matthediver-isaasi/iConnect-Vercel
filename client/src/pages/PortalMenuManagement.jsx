@@ -52,6 +52,11 @@ const availableIcons = {
   UserCheck, UserPlus, UserMinus, Users2, MessageCircle, Send, Inbox, Archive
 };
 
+// Pages whose Role Access ID should default to a specific RBAC key when selected.
+const PAGE_DEFAULT_FEATURES = {
+  EventBudgetReport: "events.event-budget-report",
+};
+
 const builtInPages = [
   { value: "AdminSetup", label: "Admin Setup" },
   { value: "Articles", label: "Articles" },
@@ -86,6 +91,7 @@ const builtInPages = [
   { value: "EventCheckIn", label: "Event Check-In Scanner" },
   { value: "EventCheckInDashboard", label: "Event Check-In Dashboard" },
   { value: "EventDetails", label: "Event Details" },
+  { value: "EventBudgetReport", label: "Event Budget Report" },
   { value: "EventRegistrationReport", label: "Event Registration Report" },
   { value: "Events", label: "Events" },
   { value: "EventSettings", label: "Event Settings" },
@@ -670,7 +676,15 @@ export default function PortalMenuManagementPage() {
                   <Label>Page</Label>
                   <Select
                     value={editingItem.url || "_none"}
-                    onValueChange={(value) => setEditingItem({ ...editingItem, url: value === "_none" ? "" : value })}
+                    onValueChange={(value) => {
+                      const url = value === "_none" ? "" : value;
+                      const next = { ...editingItem, url };
+                      // Pre-associate the matching RBAC permission when the page has one.
+                      if (!editingItem.feature_id && PAGE_DEFAULT_FEATURES[url]) {
+                        next.feature_id = PAGE_DEFAULT_FEATURES[url];
+                      }
+                      setEditingItem(next);
+                    }}
                   >
                     <SelectTrigger>
                       <SelectValue placeholder="No Page (Parent Menu)" />
