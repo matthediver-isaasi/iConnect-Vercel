@@ -113,6 +113,7 @@ export default function MemberGroupManagementPage() {
     projects_enabled_roles: [],
     events_enabled: false,
     complex_events_enabled: false,
+    group_admins_can_edit_content: false,
     forum_enabled: false,
     forum_enabled_roles: [],
     classification_id: '',
@@ -555,6 +556,7 @@ export default function MemberGroupManagementPage() {
       projects_enabled_roles: [],
       events_enabled: false,
       complex_events_enabled: false,
+      group_admins_can_edit_content: false,
       forum_enabled: false,
       forum_enabled_roles: [],
       classification_id: '',
@@ -593,6 +595,7 @@ export default function MemberGroupManagementPage() {
       projects_enabled_roles: Array.isArray(group.projects_enabled_roles) ? group.projects_enabled_roles : [],
       events_enabled: !!group.events_enabled,
       complex_events_enabled: (group.complex_events_enabled === undefined || group.complex_events_enabled === null) ? !!group.events_enabled : !!group.complex_events_enabled,
+      group_admins_can_edit_content: !!group.group_admins_can_edit_content,
       forum_enabled: !!group.forum_enabled,
       forum_enabled_roles: Array.isArray(group.forum_enabled_roles) ? group.forum_enabled_roles : [],
       classification_id: group.classification_id || '',
@@ -629,6 +632,7 @@ export default function MemberGroupManagementPage() {
       projects_enabled_roles: Array.isArray(group.projects_enabled_roles) ? [...group.projects_enabled_roles] : [],
       events_enabled: !!group.events_enabled,
       complex_events_enabled: (group.complex_events_enabled === undefined || group.complex_events_enabled === null) ? !!group.events_enabled : !!group.complex_events_enabled,
+      group_admins_can_edit_content: !!group.group_admins_can_edit_content,
       forum_enabled: !!group.forum_enabled,
       forum_enabled_roles: Array.isArray(group.forum_enabled_roles) ? [...group.forum_enabled_roles] : [],
       classification_id: group.classification_id || '',
@@ -901,6 +905,7 @@ export default function MemberGroupManagementPage() {
       projects_enabled_roles: groupForm.projects_enabled ? prunedProjects : [],
       events_enabled: !!groupForm.events_enabled,
       complex_events_enabled: !!groupForm.complex_events_enabled,
+      group_admins_can_edit_content: !!groupForm.group_admins_can_edit_content,
       forum_enabled: !!groupForm.forum_enabled,
       forum_enabled_roles: groupForm.forum_enabled ? prunedForum : [],
       classification_id: groupForm.classification_id || null,
@@ -2536,6 +2541,22 @@ export default function MemberGroupManagementPage() {
                     Event management is available to members flagged as Group Admin in the Members list above.
                   </p>
                 )}
+
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex flex-col gap-1">
+                    <Label>Allow group admins to edit header image and description texts</Label>
+                    <span className="text-xs text-slate-500">
+                      Group Admins of this group can change the header image and the Purpose, "Who the group is for" and "About the group" texts from the group page. The group name always stays admin-only.
+                    </span>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={!!groupForm.group_admins_can_edit_content}
+                    onChange={(e) => setGroupForm({ ...groupForm, group_admins_can_edit_content: e.target.checked })}
+                    className="w-4 h-4"
+                    data-testid="checkbox-group-admins-edit-content"
+                  />
+                </div>
               </div>
 
               <div className="pt-2 border-t border-slate-200 space-y-3">

@@ -7,6 +7,7 @@ import { isEventFamilyEntity, authorizeGroupAdminEventWrite } from '../../_lib/g
 import { checkBadgeWriteAccess } from '../../_lib/badgeAccess.js';
 import { isResourceEntity, authorizeGroupAdminResourceWrite } from '../../_lib/groupAdminResourceWrite.js';
 import { isMemberGroupAssignmentEntity, authorizeMemberGroupAdminAssignmentChange } from '../../_lib/groupAdminAssignmentLeave.js';
+import { getCallerGroupManageAccess, canManageGroup } from '../../_lib/memberGroupAdminAccess.js';
 import { getSession } from '../../_lib/session.js';
 import { getSessionPlatformOwner } from '../../_lib/platformSession.js';
 import { handleMemberGroupEntityChange } from '../../_lib/memberGroupProjectsAccess.js';
@@ -941,6 +942,44 @@ export default async function handler(req, res) {
         });
         if (!authz.ok) {
           return res.status(authz.status || 403).json({ error: authz.error });
+        }
+      }
+
+      // Group-admin cosmetic content editing: non-tenant-admin callers may
+      // PATCH a member_group ONLY when they are an active group admin of that
+      // group, the group's `group_admins_can_edit_content` flag is on, and the
+      // payload touches nothing beyond the whitelisted cosmetic fields
+      // (header image + description texts — never the name). Tenant admins
+      // pass through unchanged.
+      if (entityNormalized === 'membergroup') {
+        const isTenantAdminCaller = !!tenantCtx.tenantUserId || await hasAdminAccess(tenantCtx);
+        if (!isTenantAdminCaller) {
+          const GROUP_ADMIN_EDITABLE_FIELDS = ['header_image_url', 'description', 'who_is_it_for', 'about_the_group'];
+          const access = await getCallerGroupManageAccess(req);
+          if (access.error || !canManageGroup(access, id)) {
+            return res.status(403).json({ error: 'You do not have permission to edit this group.' });
+          }
+          const { data: groupRow } = await supabase
+            .from('member_group')
+            .select('*')
+            .eq('id', id)
+            .eq('tenant_id', tenantCtx.tenantId)
+            .maybeSingle();
+          if (!groupRow) {
+            return res.status(404).json({ error: 'Not found' });
+          }
+          if (groupRow.group_admins_can_edit_content !== true) {
+            return res.status(403).json({ error: 'Group admins are not allowed to edit this group\'s content.' });
+          }
+          const disallowed = Object.keys(sanitizedBody).filter((k) => !GROUP_ADMIN_EDITABLE_FIELDS.includes(k));
+          if (disallowed.length > 0) {
+            return res.status(403).json({
+              error: `Group admins may only edit the header image and description texts. Not allowed: ${disallowed.join(', ')}`,
+            });
+          }
+          if (Object.keys(sanitizedBody).length === 0) {
+            return res.status(400).json({ error: 'No editable fields supplied' });
+          }
         }
       }
 

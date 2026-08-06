@@ -102,6 +102,11 @@
       "self_join_closed_label": {
         "type": "string",
         "description": "Custom label shown on the disabled CTA button when self_join_closed is true. Defaults to 'Registrations closed' if left blank."
+      },
+      "group_admins_can_edit_content": {
+        "type": "boolean",
+        "default": false,
+        "description": "When true, Group Admins of this group may edit the header image and the description text fields (description, who_is_it_for, about_the_group) from the group detail page. Never grants name editing; enforced server-side on the generic entity PATCH."
       }
     },
     "required": [

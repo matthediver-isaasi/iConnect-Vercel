@@ -95,6 +95,8 @@ import { uploadFileWithProgress, UPLOAD_TYPES } from "@/lib/tenantUpload";
 import { createPageUrl } from "@/utils";
 import MemberProfileModal from "@/components/MemberProfileModal";
 import SimpleRichTextEditor from "@/components/SimpleRichTextEditor";
+import EventImageUpload from "@/components/events/EventImageUpload";
+import { sanitizeRichText } from "@/components/canvas/blocks/sanitize";
 import DOMPurify from "dompurify";
 import VacancyCard, {
   formatCommitment,
@@ -632,6 +634,49 @@ export default function MemberGroupDetailPage() {
     if (!sole.expires_at) return null;
     return sole.expires_at;
   }, [groupAssignments, groupId]);
+
+  // Group-admin cosmetic content editing: when the tenant admin has enabled
+  // the per-group toggle, active group admins may edit the header image and
+  // the three description texts (never the name). Mirrors the server-side
+  // whitelist on the generic entity PATCH.
+  const [showContentEdit, setShowContentEdit] = useState(false);
+  const [contentForm, setContentForm] = useState({
+    header_image_url: "",
+    description: "",
+    who_is_it_for: "",
+    about_the_group: "",
+  });
+
+  const saveContentMutation = useMutation({
+    mutationFn: (payload) => base44.entities.MemberGroup.update(groupId, payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["member-group", groupId] });
+      setShowContentEdit(false);
+      toast.success("Group page updated");
+    },
+    onError: (error) => {
+      toast.error("Failed to update group page: " + (error?.message || "unknown error"));
+    },
+  });
+
+  const openContentEdit = () => {
+    setContentForm({
+      header_image_url: group?.header_image_url || "",
+      description: group?.description || "",
+      who_is_it_for: group?.who_is_it_for || "",
+      about_the_group: group?.about_the_group || "",
+    });
+    setShowContentEdit(true);
+  };
+
+  const handleSaveContent = () => {
+    saveContentMutation.mutate({
+      header_image_url: contentForm.header_image_url || null,
+      description: sanitizeRichText(contentForm.description || ""),
+      who_is_it_for: sanitizeRichText(contentForm.who_is_it_for || ""),
+      about_the_group: sanitizeRichText(contentForm.about_the_group || ""),
+    });
+  };
 
   const soleAdminExpiryLabel = useMemo(() => {
     if (!soleAdminExpiry) return null;
@@ -1849,6 +1894,18 @@ export default function MemberGroupDetailPage() {
 
         <Card className="overflow-hidden mb-6" data-testid={`card-group-detail-${group.id}`}>
           <div className="relative w-full aspect-[5/2] bg-slate-100">
+            {isGroupAdmin && group.group_admins_can_edit_content === true && (
+              <Button
+                variant="secondary"
+                size="sm"
+                className="absolute top-3 right-3 z-10 shadow"
+                onClick={openContentEdit}
+                data-testid="button-edit-group-content"
+              >
+                <Pencil className="w-4 h-4 mr-2" />
+                Edit header & descriptions
+              </Button>
+            )}
             {group.header_image_url ? (
               <img
                 src={group.header_image_url}
@@ -4154,6 +4211,77 @@ export default function MemberGroupDetailPage() {
           editTermMutation.mutate({ assignmentId, values });
         }}
       />
+
+      {/* Group-admin cosmetic content editing (header image + description texts). */}
+      <Dialog
+        open={showContentEdit}
+        onOpenChange={(open) => {
+          if (!saveContentMutation.isPending) setShowContentEdit(open);
+        }}
+      >
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto" data-testid="dialog-edit-group-content">
+          <DialogHeader>
+            <DialogTitle>Edit header & descriptions</DialogTitle>
+            <DialogDescription>
+              Update this group's header image and description texts. The group
+              name can only be changed by an administrator.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <EventImageUpload
+              value={contentForm.header_image_url}
+              onChange={(url) => setContentForm((prev) => ({ ...prev, header_image_url: url }))}
+              label="Header Image"
+              helpText="Shown at the top of the group page"
+            />
+            <div>
+              <Label>Purpose</Label>
+              <SimpleRichTextEditor
+                content={contentForm.description}
+                onChange={(html) => setContentForm((prev) => ({ ...prev, description: html }))}
+                placeholder="What is the purpose of this group?"
+                data-testid="input-edit-group-description"
+              />
+            </div>
+            <div>
+              <Label>Who the group is for</Label>
+              <SimpleRichTextEditor
+                content={contentForm.who_is_it_for}
+                onChange={(html) => setContentForm((prev) => ({ ...prev, who_is_it_for: html }))}
+                placeholder="Who is this group aimed at? (optional)"
+                data-testid="input-edit-group-who-is-it-for"
+              />
+            </div>
+            <div>
+              <Label>About the group</Label>
+              <SimpleRichTextEditor
+                content={contentForm.about_the_group}
+                onChange={(html) => setContentForm((prev) => ({ ...prev, about_the_group: html }))}
+                placeholder="Tell members more about this group... (optional)"
+                data-testid="input-edit-group-about"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setShowContentEdit(false)}
+              disabled={saveContentMutation.isPending}
+              data-testid="button-cancel-edit-group-content"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleSaveContent}
+              disabled={saveContentMutation.isPending}
+              data-testid="button-save-edit-group-content"
+            >
+              {saveContentMutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
+              Save
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
