@@ -12,6 +12,7 @@ import { getFocalPointStyle } from "@/components/FocalPointPicker";
 import { parseEventTypes } from "@/lib/utils";
 import { Link } from "react-router-dom";
 import { getSeatStatusLabels } from "@/lib/seatStatusLabels";
+import { getTenantCtaLabel, isEventRegistrationClosed, resolveEventCtaLabel } from "@/lib/eventCtaLabel";
 
 const DEFAULT_TIMEZONE = "Europe/London";
 
@@ -55,6 +56,8 @@ export default function PublicComplexEvents() {
     () => getSeatStatusLabels(systemSettings, { availableDefault: '{count} places available' }),
     [systemSettings]
   );
+
+  const tenantCtaLabel = useMemo(() => getTenantCtaLabel(systemSettings), [systemSettings]);
 
   const categories = useMemo(() => {
     const types = new Set();
@@ -177,6 +180,13 @@ export default function PublicComplexEvents() {
               const cheapest = getCheapestPrice(event.pricing_config);
               const hasUnlimitedCapacity = event.available_seats === 0 || event.available_seats === null;
               const eventUrl = `/ComplexEventDetail?id=${event.id}`;
+              // Resolution order: status label > per-event label > Event Settings default > fallback
+              const ctaLabel = resolveEventCtaLabel({
+                isRegistrationClosed: isEventRegistrationClosed(event),
+                isSoldOut: !hasUnlimitedCapacity && event.available_seats === 0,
+                perEventLabel: event.cta_button_label,
+                defaultLabel: tenantCtaLabel,
+              });
 
               return (
                 <Card
@@ -255,13 +265,13 @@ export default function PublicComplexEvents() {
                       {(event.cta_override_url && event.cta_override_mode !== 'detail_page') ? (
                         <a href={event.cta_override_url} rel="noopener noreferrer">
                           <Button className="w-full" data-testid={`button-view-event-${event.id}`}>
-                            View Details
+                            {ctaLabel}
                           </Button>
                         </a>
                       ) : (
                         <Link to={eventUrl}>
                           <Button className="w-full" data-testid={`button-view-event-${event.id}`}>
-                            View Details
+                            {ctaLabel}
                           </Button>
                         </Link>
                       )}

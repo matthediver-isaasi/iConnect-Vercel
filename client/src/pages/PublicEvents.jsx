@@ -13,6 +13,7 @@ import { Link } from "react-router-dom";
 import TenantCtaButton from "@/components/common/TenantCtaButton";
 import { getSeatStatusLabels } from "@/lib/seatStatusLabels";
 import TrainingMiniAgenda from "@/components/events/TrainingMiniAgenda";
+import { getTenantCtaLabel, isEventRegistrationClosed, resolveEventCtaLabel } from "@/lib/eventCtaLabel";
 
 const hasMiniAgenda = (event) =>
   !!event.is_training && Array.isArray(event.agenda_summary) && event.agenda_summary.length > 0;
@@ -77,6 +78,15 @@ const getCheapestPrice = (pricingConfig) => {
   return Math.min(...prices);
 };
 
+// Resolution order: status label > per-event label > Event Settings default > "View Details".
+const getCardCtaLabel = (event, tenantCtaLabel, { hasUnlimitedCapacity } = {}) =>
+  resolveEventCtaLabel({
+    isRegistrationClosed: isEventRegistrationClosed(event),
+    isSoldOut: !hasUnlimitedCapacity && event.available_seats === 0,
+    perEventLabel: event.cta_button_label,
+    defaultLabel: tenantCtaLabel,
+  });
+
 const getEventDetailUrl = (event) => {
   if (event.is_complex) {
     if (event.slug) {
@@ -138,6 +148,8 @@ export default function PublicEventsPage() {
       ? { background: `linear-gradient(to right, ${featuredBgConfig.from}, ${featuredBgConfig.to})` }
       : { background: featuredBgConfig.color }
     : { background: '#f0f9ff' };
+
+  const tenantCtaLabel = useMemo(() => getTenantCtaLabel(systemSettings), [systemSettings]);
 
   const featuredHeaderTextColor = featuredBgConfig?.headerTextColor || null;
   const featuredHeaderIconColor = featuredBgConfig?.headerIconColor || null;
@@ -322,7 +334,7 @@ export default function PublicEventsPage() {
                             fallbackVariant="default"
                             data-testid={`button-featured-view-event-${event.id}`}
                           >
-                            View Details
+                            {getCardCtaLabel(event, tenantCtaLabel, { hasUnlimitedCapacity })}
                           </TenantCtaButton>
                         </div>
                       </CardContent>
@@ -461,7 +473,7 @@ export default function PublicEventsPage() {
                         fallbackVariant="default"
                         data-testid={`button-view-event-${event.id}`}
                       >
-                        View Details
+                        {getCardCtaLabel(event, tenantCtaLabel, { hasUnlimitedCapacity })}
                       </TenantCtaButton>
                     </div>
                   </CardContent>

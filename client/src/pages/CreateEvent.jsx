@@ -228,6 +228,7 @@ export default function CreateEvent() {
     online_meeting_url: "",
     cta_override_url: "",
     cta_override_mode: "card",
+    cta_button_label: "",
     timezone: "Europe/London"
   });
 
@@ -352,6 +353,18 @@ export default function CreateEvent() {
     () => isAttendeeOptionsCollectionEnabled(systemSettings),
     [systemSettings]
   );
+
+  // Tenant-wide default CTA button label (Event Settings > event_cta_button)
+  const tenantDefaultCtaLabel = useMemo(() => {
+    const setting = systemSettings.find(s => s.setting_key === 'event_cta_button');
+    if (setting?.setting_value) {
+      try {
+        const config = JSON.parse(setting.setting_value);
+        if (config.label) return config.label;
+      } catch { /* fall through */ }
+    }
+    return 'Register';
+  }, [systemSettings]);
 
   // Whether an internal reference is required to save an event (defaults to false)
   const requireInternalReference = useMemo(() => {
@@ -1018,6 +1031,7 @@ export default function CreateEvent() {
         : [],
       cta_override_url: formData.cta_override_url || null,
       cta_override_mode: formData.cta_override_mode || 'card',
+      cta_button_label: (formData.cta_button_label || '').trim() || null,
       // TBC events can still be online, but webinar is optional
       is_online: isOnline,
       is_complex: false,
@@ -2089,6 +2103,20 @@ export default function CreateEvent() {
                       : 'Set a CTA Override URL above to enable this option.'}
                   </p>
                 </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="cta_button_label">CTA Button Label</Label>
+                <Input
+                  id="cta_button_label"
+                  value={formData.cta_button_label}
+                  onChange={(e) => handleInputChange('cta_button_label', e.target.value)}
+                  placeholder={`e.g. Book Now (default: "${tenantDefaultCtaLabel}")`}
+                  data-testid="input-cta-button-label"
+                />
+                <p className="text-xs text-slate-500">
+                  Optional. Overrides the event card button label for this event. Leave blank to use the tenant default from Event Settings ("{tenantDefaultCtaLabel}").
+                </p>
               </div>
               </>)}
 

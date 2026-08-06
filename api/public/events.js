@@ -57,6 +57,7 @@ export default async function handler(req, res) {
         is_training,
         cta_override_url,
         cta_override_mode,
+        cta_button_label,
         filter_tags,
         member_group_id,
         group_event_public
@@ -166,6 +167,7 @@ export default async function handler(req, res) {
         pricing_config: publicTicketClasses.length > 0 ? { ticket_classes: publicTicketClasses } : null,
         cta_override_url: event.cta_override_url || null,
         cta_override_mode: event.cta_override_mode || 'card',
+        cta_button_label: event.cta_button_label || null,
         filter_tags: event.filter_tags || [],
         agenda_summary: event.is_training ? (agendaByEvent[event.id] || []) : undefined
       };

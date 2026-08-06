@@ -470,6 +470,18 @@ export default function EditEvent() {
     return !setting || setting.setting_value !== 'false';
   }, [systemSettings]);
 
+  // Tenant-wide default CTA button label (Event Settings > event_cta_button)
+  const tenantDefaultCtaLabel = useMemo(() => {
+    const setting = systemSettings.find(s => s.setting_key === 'event_cta_button');
+    if (setting?.setting_value) {
+      try {
+        const config = JSON.parse(setting.setting_value);
+        if (config.label) return config.label;
+      } catch { /* fall through */ }
+    }
+    return 'Register';
+  }, [systemSettings]);
+
   // Whether dietary/allergy/accessibility collection is enabled tenant-wide (defaults to true)
   const collectAttendeeOptionsEnabled = useMemo(
     () => isAttendeeOptionsCollectionEnabled(systemSettings),
@@ -961,7 +973,8 @@ export default function EditEvent() {
         zoom_meeting_id: event.zoom_meeting_id || null,
         online_meeting_url: event.online_meeting_url || "",
         cta_override_url: event.cta_override_url || "",
-        cta_override_mode: event.cta_override_mode || "card"
+        cta_override_mode: event.cta_override_mode || "card",
+        cta_button_label: event.cta_button_label || ""
       });
 
       // Load the group audience choice (group-limited mode).
@@ -1553,6 +1566,7 @@ export default function EditEvent() {
         : [],
       cta_override_url: formData.cta_override_url || null,
       cta_override_mode: formData.cta_override_mode || 'card',
+      cta_button_label: (formData.cta_button_label || '').trim() || null,
       // TBC events can still be online, but webinar is optional
       is_online: isOnlineEvent,
       status: eventTiming,
@@ -2754,6 +2768,22 @@ export default function EditEvent() {
                       : 'Set a CTA Override URL above to enable this option.'}
                   </p>
                 </div>
+              </div>
+              )}
+
+              {!isGroupLimited && (
+              <div className="space-y-2">
+                <Label htmlFor="cta_button_label">CTA Button Label</Label>
+                <Input
+                  id="cta_button_label"
+                  value={formData.cta_button_label || ""}
+                  onChange={(e) => handleInputChange('cta_button_label', e.target.value)}
+                  placeholder={`e.g. Book Now (default: "${tenantDefaultCtaLabel}")`}
+                  data-testid="input-cta-button-label"
+                />
+                <p className="text-xs text-slate-500">
+                  Optional. Overrides the event card button label for this event. Leave blank to use the tenant default from Event Settings ("{tenantDefaultCtaLabel}").
+                </p>
               </div>
               )}
 

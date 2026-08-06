@@ -624,6 +624,7 @@ export default function CreateComplexEvent() {
     registration_closes_at: "",
     cta_override_url: "",
     cta_override_mode: "card",
+    cta_button_label: "",
     program_tag: "",
     group_event_public: false,
   });
@@ -766,6 +767,18 @@ export default function CreateComplexEvent() {
     queryKey: ['/api/entities/Program'],
     queryFn: () => base44.entities.Program.list({ sort: { name: 'asc' } })
   });
+
+  // Tenant-wide default CTA button label (Event Settings > event_cta_button)
+  const tenantDefaultCtaLabel = useMemo(() => {
+    const setting = systemSettings.find(s => s.setting_key === 'event_cta_button');
+    if (setting?.setting_value) {
+      try {
+        const config = JSON.parse(setting.setting_value);
+        if (config.label) return config.label;
+      } catch { /* fall through */ }
+    }
+    return 'Register';
+  }, [systemSettings]);
 
   const summaryMaxLength = useMemo(() => {
     const setting = systemSettings.find(s => s.setting_key === 'event_summary_max_length');
@@ -1116,6 +1129,7 @@ export default function CreateComplexEvent() {
         program_tag: existingEvent.program_tag || "",
         cta_override_url: existingEvent.cta_override_url || "",
         cta_override_mode: existingEvent.cta_override_mode || "card",
+        cta_button_label: existingEvent.cta_button_label || "",
         group_event_public: existingEvent.group_event_public === true,
       });
       setSlugManuallyEdited(true);
@@ -1759,6 +1773,7 @@ export default function CreateComplexEvent() {
         program_tag: formData.program_tag || null,
         cta_override_url: formData.cta_override_url || null,
         cta_override_mode: formData.cta_override_mode || 'card',
+        cta_button_label: (formData.cta_button_label || '').trim() || null,
         ...(isGroupLimited ? {
           member_group_id: lockedGroupId,
           group_event_public: formData.group_event_public === true,
@@ -2778,6 +2793,22 @@ export default function CreateComplexEvent() {
                         : 'Set a CTA Override URL above to enable this option.'}
                     </p>
                   </div>
+                </div>
+                )}
+
+                {!isGroupLimited && (
+                <div className="space-y-2">
+                  <Label htmlFor="cta_button_label">CTA Button Label</Label>
+                  <Input
+                    id="cta_button_label"
+                    value={formData.cta_button_label || ""}
+                    onChange={(e) => updateField('cta_button_label', e.target.value)}
+                    placeholder={`e.g. Book Now (default: "${tenantDefaultCtaLabel}")`}
+                    data-testid="input-cta-button-label"
+                  />
+                  <p className="text-xs text-slate-500">
+                    Optional. Overrides the event card button label for this event. Leave blank to use the tenant default from Event Settings ("{tenantDefaultCtaLabel}").
+                  </p>
                 </div>
                 )}
 

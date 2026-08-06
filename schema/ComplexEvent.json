@@ -108,6 +108,10 @@
         "type": "string"
       }
     },
+    "cta_button_label": {
+      "type": "string",
+      "description": "Optional per-event CTA button label for event cards; blank/null falls back to the tenant-wide event_cta_button system setting"
+    },
     "speaker_award_config": {
       "type": "object",
       "description": "Speaker awards granted at event start: { enabled, default: { voucher_value, voucher_expiry, badge_id }, overrides: { <speakerId>: { excluded } | { voucher_value, voucher_expiry, badge_id } } }"

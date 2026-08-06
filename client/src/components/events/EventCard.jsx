@@ -1,5 +1,6 @@
 // v2.1.0 - Added non-member guest booking support
 import { useState, useMemo, Fragment } from "react";
+import { resolveEventCtaLabel } from "@/lib/eventCtaLabel";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -1071,7 +1072,13 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
                   const isRegistrationClosed = event.event_state === 'closed' || 
                     (!event.event_state && event.status === 'closed') ||
                     (event.registration_closes_at && new Date() > new Date(event.registration_closes_at));
-                  const buttonLabel = isRegistrationClosed ? "Registration Closed" : (isSoldOut ? "Sold Out" : ctaConfig.label);
+                  // Resolution order: status label > per-event label > Event Settings default
+                  const buttonLabel = resolveEventCtaLabel({
+                    isRegistrationClosed,
+                    isSoldOut,
+                    perEventLabel: event.cta_button_label,
+                    defaultLabel: ctaConfig.label,
+                  });
                   const isGradient = ctaConfig.style === 'gradient';
                   // Registration closed/sold-out are inactive states — keep
                   // their existing look. Only the active register CTA picks up

@@ -84,6 +84,7 @@ function normalizeHiddenGroupEventFields(out) {
   if ('internal_reference' in out) out.internal_reference = null;
   if ('cta_override_url' in out) out.cta_override_url = null;
   if ('cta_override_mode' in out) out.cta_override_mode = 'card';
+  if ('cta_button_label' in out) out.cta_button_label = null;
   if ('dietary_options' in out) out.dietary_options = [];
   if ('allergy_options' in out) out.allergy_options = [];
   if ('accessibility_options' in out) out.accessibility_options = [];

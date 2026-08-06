@@ -62,6 +62,7 @@ export default async function handler(req, res) {
         is_training,
         cta_override_url,
         cta_override_mode,
+        cta_button_label,
         attached_documents,
         documents_section_title
       `)
@@ -211,6 +212,7 @@ export default async function handler(req, res) {
       cheapest_price: cheapestPrice,
       cta_override_url: event.cta_override_url || null,
       cta_override_mode: event.cta_override_mode || 'card',
+      cta_button_label: event.cta_button_label || null,
       attached_documents: Array.isArray(event.attached_documents) ? event.attached_documents : [],
       documents_section_title: event.documents_section_title || null
     };

@@ -65,6 +65,7 @@ import {
   getTbcBannerTitle,
 } from "@/lib/tbcEventsBanner";
 import { listAllOrganizationsForAdmin } from '@/lib/adminOrgList';
+import { resolveEventCtaLabel } from '@/lib/eventCtaLabel';
 import { 
   createFilterTagKey, 
   parseFilterTagKey, 
@@ -2099,7 +2100,13 @@ export default function EventsPage({
                                     ) : (() => {
                                       const ctaConfig = getCtaButtonConfig(systemSettings);
                                       const isSoldOut = !hasUnlimitedCapacity && event.available_seats === 0;
-                                      const buttonLabel = isRegistrationClosed ? "Registration Closed" : (isSoldOut ? "Sold Out" : ctaConfig.label);
+                                      // Status label > per-event label > Event Settings default
+                                      const buttonLabel = resolveEventCtaLabel({
+                                        isRegistrationClosed,
+                                        isSoldOut,
+                                        perEventLabel: event.cta_button_label,
+                                        defaultLabel: ctaConfig.label,
+                                      });
                                       const isGradient = ctaConfig.style === 'gradient';
                                       const isActiveCta = !isRegistrationClosed && !isSoldOut;
 
@@ -2409,7 +2416,13 @@ export default function EventsPage({
                                 ) : (() => {
                                   const ctaConfig = getCtaButtonConfig(systemSettings);
                                   const isSoldOut = !hasUnlimitedCapacity && event.available_seats === 0;
-                                  const buttonLabel = isRegistrationClosed ? "Registration Closed" : (isSoldOut ? "Sold Out" : ctaConfig.label);
+                                  // Status label > per-event label > Event Settings default
+                                  const buttonLabel = resolveEventCtaLabel({
+                                    isRegistrationClosed,
+                                    isSoldOut,
+                                    perEventLabel: event.cta_button_label,
+                                    defaultLabel: ctaConfig.label,
+                                  });
                                   const isGradient = ctaConfig.style === 'gradient';
                                   const isActiveCta = !isRegistrationClosed && !isSoldOut;
 
