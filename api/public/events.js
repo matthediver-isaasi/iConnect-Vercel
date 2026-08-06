@@ -58,6 +58,9 @@ export default async function handler(req, res) {
         cta_override_url,
         cta_override_mode,
         cta_button_label,
+        replace_booking_elements,
+        booking_replacement_message,
+        booking_replacement_cta_label,
         filter_tags,
         member_group_id,
         group_event_public
@@ -168,6 +171,9 @@ export default async function handler(req, res) {
         cta_override_url: event.cta_override_url || null,
         cta_override_mode: event.cta_override_mode || 'card',
         cta_button_label: event.cta_button_label || null,
+        replace_booking_elements: event.replace_booking_elements === true,
+        booking_replacement_message: event.booking_replacement_message || null,
+        booking_replacement_cta_label: event.booking_replacement_cta_label || null,
         filter_tags: event.filter_tags || [],
         agenda_summary: event.is_training ? (agendaByEvent[event.id] || []) : undefined
       };

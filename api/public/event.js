@@ -63,6 +63,9 @@ export default async function handler(req, res) {
         cta_override_url,
         cta_override_mode,
         cta_button_label,
+        replace_booking_elements,
+        booking_replacement_message,
+        booking_replacement_cta_label,
         attached_documents,
         documents_section_title
       `)
@@ -213,6 +216,10 @@ export default async function handler(req, res) {
       cta_override_url: event.cta_override_url || null,
       cta_override_mode: event.cta_override_mode || 'card',
       cta_button_label: event.cta_button_label || null,
+      // TBC booking-element replacement (only meaningful when status === 'tbc')
+      replace_booking_elements: event.replace_booking_elements === true,
+      booking_replacement_message: event.booking_replacement_message || null,
+      booking_replacement_cta_label: event.booking_replacement_cta_label || null,
       attached_documents: Array.isArray(event.attached_documents) ? event.attached_documents : [],
       documents_section_title: event.documents_section_title || null
     };

@@ -144,6 +144,10 @@ export default function CreateEvent() {
   const [groupEventPublic, setGroupEventPublic] = useState(false);
 
   const [eventTiming, setEventTiming] = useState("published"); // published or tbc - affects date requirements
+  // TBC-only: replace standard booking elements on the public detail page
+  const [replaceBookingElements, setReplaceBookingElements] = useState(false);
+  const [bookingReplacementMessage, setBookingReplacementMessage] = useState("");
+  const [bookingReplacementCtaLabel, setBookingReplacementCtaLabel] = useState("");
   const [eventState, setEventState] = useState("active"); // active, draft, or closed - affects visibility/registration
   const [isFeatured, setIsFeatured] = useState(false);
   const [isOnline, setIsOnline] = useState(false);
@@ -1038,6 +1042,11 @@ export default function CreateEvent() {
       is_complex: false,
       is_training: isTraining,
       status: eventTiming,
+      // TBC-only booking-element replacement (persisted regardless of timing;
+      // it only applies on the public page when status === 'tbc')
+      replace_booking_elements: replaceBookingElements === true,
+      booking_replacement_message: bookingReplacementMessage.trim() || null,
+      booking_replacement_cta_label: bookingReplacementCtaLabel.trim() || null,
       event_state: eventState,
       is_featured: isFeatured,
       attached_documents: attachedDocuments,
@@ -1300,6 +1309,47 @@ export default function CreateEvent() {
                   <p className="mt-3 text-sm text-blue-600 bg-blue-50 p-2 rounded">
                     Dates will be shown as "To be confirmed" and Zoom webinar/meeting selection is optional.
                   </p>
+                )}
+                {eventTiming === 'tbc' && (
+                  <div className="mt-3 p-4 border border-slate-200 rounded-lg space-y-3">
+                    <div className="flex items-center justify-between gap-4">
+                      <div>
+                        <Label htmlFor="replace-booking-elements" className="font-medium">Replace standard booking elements</Label>
+                        <p className="text-xs text-slate-500 mt-0.5">Show a custom message and button instead of ticket price and booking summary on the event page</p>
+                      </div>
+                      <Switch
+                        id="replace-booking-elements"
+                        checked={replaceBookingElements}
+                        onCheckedChange={setReplaceBookingElements}
+                        data-testid="switch-replace-booking-elements"
+                      />
+                    </div>
+                    {replaceBookingElements && (
+                      <>
+                        <div>
+                          <Label htmlFor="booking-replacement-message">Helper message</Label>
+                          <Textarea
+                            id="booking-replacement-message"
+                            value={bookingReplacementMessage}
+                            onChange={(e) => setBookingReplacementMessage(e.target.value)}
+                            rows={3}
+                            placeholder="e.g. Register your interest and we'll confirm the details soon."
+                            data-testid="input-booking-replacement-message"
+                          />
+                        </div>
+                        <div>
+                          <Label htmlFor="booking-replacement-cta-label">CTA button label</Label>
+                          <Input
+                            id="booking-replacement-cta-label"
+                            value={bookingReplacementCtaLabel}
+                            onChange={(e) => setBookingReplacementCtaLabel(e.target.value)}
+                            placeholder="Confirm Booking"
+                            data-testid="input-booking-replacement-cta-label"
+                          />
+                        </div>
+                      </>
+                    )}
+                  </div>
                 )}
               </div>
               )}

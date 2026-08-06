@@ -112,6 +112,18 @@
       "type": "string",
       "description": "Optional per-event CTA button label for event cards; blank/null falls back to the tenant-wide event_cta_button system setting"
     },
+    "replace_booking_elements": {
+      "type": "boolean",
+      "description": "TBC events only: when true, the public detail page replaces ticket price / cart summary cards with booking_replacement_message and the confirm button (booking action unchanged)"
+    },
+    "booking_replacement_message": {
+      "type": "string",
+      "description": "Helper message shown in place of the standard booking elements when replace_booking_elements is on (TBC events)"
+    },
+    "booking_replacement_cta_label": {
+      "type": "string",
+      "description": "Overrides the 'Confirm Booking' button text when replace_booking_elements is on (TBC events)"
+    },
     "speaker_award_config": {
       "type": "object",
       "description": "Speaker awards granted at event start: { enabled, default: { voucher_value, voucher_expiry, badge_id }, overrides: { <speakerId>: { excluded } | { voucher_value, voucher_expiry, badge_id } } }"

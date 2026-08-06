@@ -20,6 +20,7 @@ import VoucherSelector from "./VoucherSelector";
 import { useBalancesRealtime } from "@/hooks/useBalancesRealtime";
 import { publicClient } from "@/api/publicClient";
 import { getEffectiveTicketPrice } from "@/lib/ticketPricing";
+import { isTbcReplacementDisplayActive, resolveTbcCtaLabel } from "@/lib/tbcBookingReplacement.mjs";
 
 // Stripe promise will be initialized dynamically
 let stripePromise = null;
@@ -443,7 +444,12 @@ export default function PaymentOptions({
   isComplexEvent = false,
   complexEventApi = null,
   onComplexBookingComplete = null,
-  renderAsCard = true
+  renderAsCard = true,
+  // TBC events with "Replace standard booking elements" on:
+  // { message, ctaLabel } — hides the pricing/summary display (unless payment
+  // is still required) and overrides the "Confirm Booking" button label.
+  // Booking action, terms display and enforcement are unchanged.
+  tbcBookingReplacement = null
 }) {
   const [internalSubmitting, setInternalSubmitting] = useState(false);
   const isSubmitting = submitting !== undefined ? submitting : internalSubmitting;
@@ -2016,9 +2022,23 @@ export default function PaymentOptions({
     );
   })();
 
+  // TBC "replace booking elements": hide the price/summary display and show
+  // the helper message instead. If money is actually owed, keep the pricing
+  // section so payment can still be completed (the replacement is intended
+  // for free pre-registration interest gathering).
+  const tbcReplacementActive = isTbcReplacementDisplayActive(tbcBookingReplacement, totalCost);
+
   const mainContent = (
     <>
-      {(isOneOffEvent || isComplexEvent) ? renderOneOffPricing() : renderProgramEventDisplay()}
+      {tbcReplacementActive ? (
+        tbcBookingReplacement.message ? (
+          <div className="p-4 rounded-lg border-2 border-blue-200 bg-blue-50" data-testid="card-tbc-booking-replacement">
+            <p className="text-sm text-blue-900 whitespace-pre-line" data-testid="text-tbc-booking-replacement-message">
+              {tbcBookingReplacement.message}
+            </p>
+          </div>
+        ) : null
+      ) : (isOneOffEvent || isComplexEvent) ? renderOneOffPricing() : renderProgramEventDisplay()}
 
           {/* Action Buttons */}
           {!isOneOffEvent && !hasEnoughTickets && event.program_tag && (
@@ -2131,9 +2151,9 @@ export default function PaymentOptions({
               ) : isSoldOut ? (
                 'Sold Out'
               ) : (isOneOffEvent || isComplexEvent) ? (
-                totalCost > 0 ? `Book & Pay £${remainingBalance.toFixed(2)}` : 'Confirm Booking'
+                totalCost > 0 ? `Book & Pay £${remainingBalance.toFixed(2)}` : resolveTbcCtaLabel(tbcBookingReplacement)
               ) : (
-                'Confirm Booking'
+                resolveTbcCtaLabel(tbcBookingReplacement)
               )}
             </Button>
           )}

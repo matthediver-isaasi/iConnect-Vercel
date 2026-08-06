@@ -35,6 +35,7 @@ import { computeComplexEventDayInfo } from "@/lib/complexEventDays";
 import { supabase } from "@/api/supabaseClient";
 import { getFocalPointStyle } from "@/components/FocalPointPicker";
 import { getEffectiveTicketPrice } from "@/lib/ticketPricing";
+import { getTbcBookingReplacement } from "@/lib/tbcBookingReplacement.mjs";
 import { Link, useParams } from "react-router-dom";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
@@ -799,6 +800,12 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
   // payment options; show ticket prices + a "Continue to book" button.
   const useCtaOverrideDetailMode = !!event?.cta_override_url
     && event?.cta_override_mode === 'detail_page';
+
+  // TBC events with "Replace standard booking elements" on: ticket prices and
+  // the cart summary are replaced by a helper-message card and the confirm
+  // button (label overridden). Booking action + terms enforcement unchanged.
+  const tbcBookingReplacement = getTbcBookingReplacement(event);
+  const tbcReplacementActive = !!tbcBookingReplacement;
   const isSoldOut = event?.available_seats !== null
     && event?.available_seats !== undefined
     && Number(event.available_seats) <= 0
@@ -877,16 +884,18 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
                 )}
                 <TrackAccessIndicator ticket={tc} tracks={eventTracks} />
               </div>
-              <div className="flex flex-col items-end gap-1.5 shrink-0">
-                <div className="text-base font-semibold text-slate-900">
-                  {tcPrice.price === 0 ? 'Free' : `\u00a3${tcPrice.price.toFixed(2)}`}
-                </div>
-                {tcPrice.isEarlyBird && (
-                  <div className="text-xs text-slate-400 line-through">
-                    {'\u00a3'}{tcPrice.standardPrice.toFixed(2)}
+              {!tbcReplacementActive && (
+                <div className="flex flex-col items-end gap-1.5 shrink-0">
+                  <div className="text-base font-semibold text-slate-900">
+                    {tcPrice.price === 0 ? 'Free' : `\u00a3${tcPrice.price.toFixed(2)}`}
                   </div>
-                )}
-              </div>
+                  {tcPrice.isEarlyBird && (
+                    <div className="text-xs text-slate-400 line-through">
+                      {'\u00a3'}{tcPrice.standardPrice.toFixed(2)}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
             <div className="mt-2 flex items-center justify-between gap-2">
               <Button
@@ -934,6 +943,7 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
 
   const paymentOptionsSection = shouldShowPaymentOptions ? (
     <PaymentOptions
+      tbcBookingReplacement={tbcBookingReplacement}
       event={paymentOptionsEvent}
       memberInfo={memberInfo}
       organizationInfo={organizationInfo}
@@ -1078,8 +1088,18 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
           </>
         ) : (
           <>
+            {/* TBC replacement: helper message shown in place of ticket prices / cart summary */}
+            {tbcReplacementActive && tbcBookingReplacement.message && (
+              <div className="p-4 rounded-lg border-2 border-blue-200 bg-blue-50" data-testid="card-tbc-booking-replacement">
+                <p className="text-sm text-blue-900 whitespace-pre-line" data-testid="text-tbc-booking-replacement-message">
+                  {tbcBookingReplacement.message}
+                </p>
+              </div>
+            )}
             {ticketCards}
-            <CartSummary cart={cart} ticketClasses={ticketClasses} onRemoveAttendee={handleRemoveAttendee} onUpdateAttendee={handleUpdateAttendee} getEffectiveTicketPrice={getEffectiveTicketPrice} eventOptions={eventOptions} />
+            {!tbcReplacementActive && (
+              <CartSummary cart={cart} ticketClasses={ticketClasses} onRemoveAttendee={handleRemoveAttendee} onUpdateAttendee={handleUpdateAttendee} getEffectiveTicketPrice={getEffectiveTicketPrice} eventOptions={eventOptions} />
+            )}
             {paymentOptionsSection}
           </>
         )}

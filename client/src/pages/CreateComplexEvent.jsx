@@ -625,6 +625,9 @@ export default function CreateComplexEvent() {
     cta_override_url: "",
     cta_override_mode: "card",
     cta_button_label: "",
+    replace_booking_elements: false,
+    booking_replacement_message: "",
+    booking_replacement_cta_label: "",
     program_tag: "",
     group_event_public: false,
   });
@@ -1130,6 +1133,9 @@ export default function CreateComplexEvent() {
         cta_override_url: existingEvent.cta_override_url || "",
         cta_override_mode: existingEvent.cta_override_mode || "card",
         cta_button_label: existingEvent.cta_button_label || "",
+        replace_booking_elements: existingEvent.replace_booking_elements === true,
+        booking_replacement_message: existingEvent.booking_replacement_message || "",
+        booking_replacement_cta_label: existingEvent.booking_replacement_cta_label || "",
         group_event_public: existingEvent.group_event_public === true,
       });
       setSlugManuallyEdited(true);
@@ -1774,6 +1780,11 @@ export default function CreateComplexEvent() {
         cta_override_url: formData.cta_override_url || null,
         cta_override_mode: formData.cta_override_mode || 'card',
         cta_button_label: (formData.cta_button_label || '').trim() || null,
+        // TBC-only booking-element replacement (persisted regardless of timing;
+        // it only applies on the public page when status === 'tbc')
+        replace_booking_elements: formData.replace_booking_elements === true,
+        booking_replacement_message: (formData.booking_replacement_message || '').trim() || null,
+        booking_replacement_cta_label: (formData.booking_replacement_cta_label || '').trim() || null,
         ...(isGroupLimited ? {
           member_group_id: lockedGroupId,
           group_event_public: formData.group_event_public === true,
@@ -2272,6 +2283,47 @@ export default function CreateComplexEvent() {
                     <p className="mt-3 text-sm text-blue-600 bg-blue-50 p-2 rounded">
                       Dates will be shown as "To be confirmed" and Zoom webinar/meeting selection is optional.
                     </p>
+                  )}
+                  {formData.status === 'tbc' && (
+                    <div className="mt-3 p-4 border border-slate-200 rounded-lg space-y-3">
+                      <div className="flex items-center justify-between gap-4">
+                        <div>
+                          <Label htmlFor="replace-booking-elements" className="font-medium">Replace standard booking elements</Label>
+                          <p className="text-xs text-slate-500 mt-0.5">Show a custom message and button instead of ticket prices and the cart summary on the event page</p>
+                        </div>
+                        <Switch
+                          id="replace-booking-elements"
+                          checked={formData.replace_booking_elements === true}
+                          onCheckedChange={(v) => updateField('replace_booking_elements', v === true)}
+                          data-testid="switch-replace-booking-elements"
+                        />
+                      </div>
+                      {formData.replace_booking_elements === true && (
+                        <>
+                          <div>
+                            <Label htmlFor="booking-replacement-message">Helper message</Label>
+                            <Textarea
+                              id="booking-replacement-message"
+                              value={formData.booking_replacement_message || ""}
+                              onChange={(e) => updateField('booking_replacement_message', e.target.value)}
+                              rows={3}
+                              placeholder="e.g. Register your interest and we'll confirm the details soon."
+                              data-testid="input-booking-replacement-message"
+                            />
+                          </div>
+                          <div>
+                            <Label htmlFor="booking-replacement-cta-label">CTA button label</Label>
+                            <Input
+                              id="booking-replacement-cta-label"
+                              value={formData.booking_replacement_cta_label || ""}
+                              onChange={(e) => updateField('booking_replacement_cta_label', e.target.value)}
+                              placeholder="Confirm Booking"
+                              data-testid="input-booking-replacement-cta-label"
+                            />
+                          </div>
+                        </>
+                      )}
+                    </div>
                   )}
                 </div>
                 )}

@@ -18,6 +18,7 @@ import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from "@/components/ui/tooltip";
 import { Calendar, MapPin, Clock, Users, ArrowLeft, Ticket, Plus, Loader2, Video, AlertTriangle, PoundSterling, User, Mic, ChevronRight, ChevronDown, ChevronUp, X, Lock, FileText, LogIn, Bird, ExternalLink } from "lucide-react";
 import { getEffectiveTicketPrice } from "@/lib/ticketPricing";
+import { getTbcBookingReplacement, resolveTbcCtaLabel } from "@/lib/tbcBookingReplacement.mjs";
 import EarlyBirdCountdown from "@/components/EarlyBirdCountdown";
 import { Checkbox } from "@/components/ui/checkbox";
 import { format } from "date-fns";
@@ -622,6 +623,13 @@ export default function EventDetailsPage() {
   
   // Determine if this is a one-off event (guard for null event)
   const isOneOffEvent = event && (!event.program_tag || event.program_tag === "");
+
+  // TBC events with "Replace standard booking elements" on: the right column's
+  // ticket price / booking summary displays are replaced by a helper-message
+  // card and the confirm button (label overridden). Ticket selection, attendee
+  // inputs, booking action and terms enforcement are unchanged.
+  const tbcBookingReplacement = getTbcBookingReplacement(event);
+  const tbcBookingReplacementActive = !!tbcBookingReplacement;
   
   // Get the user's role ID
   const userRoleId = memberRole?.id || currentMemberInfo?.role_id;
@@ -2187,6 +2195,14 @@ export default function EventDetailsPage() {
                         {/* Only show confirm button for program events - one-off events use PaymentOptions button */}
                         {!isOneOffEvent && (
                           <div className="pt-4 border-t border-slate-200 space-y-4">
+                            {/* TBC replacement: helper message shown in place of the standard booking elements */}
+                            {tbcBookingReplacementActive && tbcBookingReplacement.message && (
+                              <div className="p-4 rounded-lg border-2 border-blue-200 bg-blue-50" data-testid="card-tbc-booking-replacement">
+                                <p className="text-sm text-blue-900 whitespace-pre-line" data-testid="text-tbc-booking-replacement-message">
+                                  {tbcBookingReplacement.message}
+                                </p>
+                              </div>
+                            )}
                             {/* Terms and Conditions Checkbox */}
                             {hasBookingTerms && (
                               <div className="flex items-start gap-2">
@@ -2254,7 +2270,7 @@ export default function EventDetailsPage() {
                               ) : isSoldOut ? (
                                 'Sold Out'
                               ) : (
-                                'Confirm Booking'
+                                resolveTbcCtaLabel(tbcBookingReplacement)
                               )}
                             </Button>
                             
@@ -2453,18 +2469,20 @@ export default function EventDetailsPage() {
                               })()}
                             </div>
                           </div>
-                          <div className="flex flex-col items-end flex-shrink-0">
-                            <div className={`flex items-center gap-1 text-lg font-semibold ${purchasable ? 'text-slate-900' : 'text-slate-500'}`}>
-                              <PoundSterling className="h-4 w-4" />
-                              {tcPricing.price.toFixed(2)}
-                            </div>
-                            {tcPricing.isEarlyBird && (
-                              <div className="flex items-center gap-1 text-sm text-slate-400 line-through">
-                                <PoundSterling className="h-3 w-3" />
-                                {(Number(tc.price) || 0).toFixed(2)}
+                          {!tbcBookingReplacementActive && (
+                            <div className="flex flex-col items-end flex-shrink-0">
+                              <div className={`flex items-center gap-1 text-lg font-semibold ${purchasable ? 'text-slate-900' : 'text-slate-500'}`}>
+                                <PoundSterling className="h-4 w-4" />
+                                {tcPricing.price.toFixed(2)}
                               </div>
-                            )}
-                          </div>
+                              {tcPricing.isEarlyBird && (
+                                <div className="flex items-center gap-1 text-sm text-slate-400 line-through">
+                                  <PoundSterling className="h-3 w-3" />
+                                  {(Number(tc.price) || 0).toFixed(2)}
+                                </div>
+                              )}
+                            </div>
+                          )}
                         </div>
                       );
                     })}
@@ -2538,18 +2556,20 @@ export default function EventDetailsPage() {
                             })()}
                           </div>
                         </div>
-                        <div className="flex flex-col items-end flex-shrink-0">
-                          <div className={`flex items-center gap-1 text-lg font-semibold ${purchasable ? 'text-slate-900' : 'text-slate-500'}`}>
-                            <PoundSterling className="h-4 w-4" />
-                            {singlePricing.price.toFixed(2)}
-                          </div>
-                          {singlePricing.isEarlyBird && (
-                            <div className="flex items-center gap-1 text-sm text-slate-400 line-through">
-                              <PoundSterling className="h-3 w-3" />
-                              {(Number(selectedTicketClass.price) || 0).toFixed(2)}
+                        {!tbcBookingReplacementActive && (
+                          <div className="flex flex-col items-end flex-shrink-0">
+                            <div className={`flex items-center gap-1 text-lg font-semibold ${purchasable ? 'text-slate-900' : 'text-slate-500'}`}>
+                              <PoundSterling className="h-4 w-4" />
+                              {singlePricing.price.toFixed(2)}
                             </div>
-                          )}
-                        </div>
+                            {singlePricing.isEarlyBird && (
+                              <div className="flex items-center gap-1 text-sm text-slate-400 line-through">
+                                <PoundSterling className="h-3 w-3" />
+                                {(Number(selectedTicketClass.price) || 0).toFixed(2)}
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </div>
                     );
                   })()}
@@ -2607,6 +2627,7 @@ export default function EventDetailsPage() {
               </Card>
             ) : (
             <PaymentOptions
+              tbcBookingReplacement={tbcBookingReplacement}
               totalCost={totalCost}
               memberInfo={currentMemberInfo}
               organizationInfo={organizationInfo}
