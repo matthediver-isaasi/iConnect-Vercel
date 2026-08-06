@@ -3,6 +3,7 @@ import { triggerWorkflows } from '../_lib/workflows.js';
 import { resolveEffectiveOrgGuestAccess } from '../_lib/orgGuestAccess.js';
 import { notifyGuestSignup } from '../_lib/guestSignupNotification.js';
 import { resolveStaticTodayToken } from '../_lib/staticValueTokens.js';
+import { coercePreferenceValueForStorage } from '../_lib/preferenceValueStorage.js';
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
@@ -1224,17 +1225,16 @@ export default async function handler(req, res) {
     // feeds the primary-member/org upsert paths) and by the additional-member
     // upsert paths so all four sites store identical shapes — review-noted
     // risk that the additional paths previously bypassed coercion.
-    const coercePreferenceValueForStorage = (value) => {
-      if (Array.isArray(value) || (value !== null && typeof value === 'object')) {
-        return JSON.stringify(value);
-      }
-      return String(value);
-    };
-
+    // Boolean-typed fields are canonicalised to 'true'/'false' by the shared
+    // coercePreferenceValueForStorage helper (api/_lib/preferenceValueStorage.js);
+    // ambiguous boolean inputs return undefined and the write is skipped rather
+    // than silently storing a value all boolean readers (=== 'true') see as false.
     const convertMapToArray = (map) => {
       const result = [];
       for (const [fieldId, value] of map.entries()) {
-        result.push({ field_id: fieldId, value: coercePreferenceValueForStorage(value) });
+        const stored = coercePreferenceValueForStorage(value, prefFieldMap.get(fieldId));
+        if (stored === undefined) continue; // ambiguous boolean — skip write
+        result.push({ field_id: fieldId, value: stored });
       }
       return result;
     };
@@ -3016,12 +3016,14 @@ export default async function handler(req, res) {
                 prefField,
               });
             } else if (value !== undefined && value !== null && value !== '') {
+              const stored = coercePreferenceValueForStorage(value, prefField);
+              if (stored === undefined) continue; // ambiguous boolean — skip write
               await upsertPreferenceValue({
                 table: 'member_preference_value',
                 parentColumn: 'member_id',
                 parentId: existingMemberId,
                 fieldId: customFieldId,
-                value: coercePreferenceValueForStorage(value),
+                value: stored,
                 entityScope: 'member',
                 prefField,
               });
@@ -3063,12 +3065,14 @@ export default async function handler(req, res) {
                     prefField,
                   });
                 } else {
+                  const stored = coercePreferenceValueForStorage(value, prefField);
+                  if (stored === undefined) continue; // ambiguous boolean — skip write
                   await upsertPreferenceValue({
                     table: 'member_preference_value',
                     parentColumn: 'member_id',
                     parentId: existingMemberId,
                     fieldId: customFieldId,
-                    value: coercePreferenceValueForStorage(value),
+                    value: stored,
                     entityScope: 'member',
                     prefField,
                   });
