@@ -3,6 +3,7 @@ import { triggerZohoCrmSync, awaitZohoCrmSyncForResponse } from '../../_lib/zoho
 import { invalidateMemberSessions } from '../../_lib/session.js';
 import { supabase } from '../../_lib/database.js';
 import { getTenantContext, getEntityTenantScope, getTenantColumn, TENANT_SCOPE, checkCrossOrgPermissions, checkCrossMemberPermissions, hasAdminAccess, hasFeatureAccess } from '../../_lib/tenantContext.js';
+import { isAdminOnlyEntity } from '../../_lib/adminOnlyEntities.js';
 import { isEventFamilyEntity, authorizeGroupAdminEventWrite } from '../../_lib/groupAdminEventWrite.js';
 import { checkBadgeWriteAccess } from '../../_lib/badgeAccess.js';
 import { isResourceEntity, authorizeGroupAdminResourceWrite } from '../../_lib/groupAdminResourceWrite.js';
@@ -112,6 +113,7 @@ const entityToTable = {
   'TypographyStyle': 'typography_style',
   'InstalledFont': 'installed_font',
   'EventAgendaItem': 'event_agenda_item',
+  'EventCostLine': 'event_cost_line',
   'CardDeck': 'card_deck',
   'DynamicDirectory': 'dynamic_directory',
   'TrainingFundTransaction': 'training_fund_transaction',
@@ -183,8 +185,7 @@ export default async function handler(req, res) {
   let allowsTenantWideAccess = false;
 
   const entityNorm = entity.replace(/[-_]/g, '').toLowerCase();
-  const adminOnlyEntities = ['externalwriter', 'externalwriterdocument'];
-  if (adminOnlyEntities.includes(entityNorm)) {
+  if (isAdminOnlyEntity(entityNorm)) {
     if (!tenantCtx.isAuthenticated) {
       return res.status(401).json({ error: 'Authentication required' });
     }
@@ -340,7 +341,7 @@ export default async function handler(req, res) {
             'CrmTagColor',
             'Gallery', 'GalleryPhoto', 'CardDeck',
             'MemberGroupActivity', 'Microsite', 'InstalledFont',
-            'EventAgendaItem'
+            'EventAgendaItem', 'EventCostLine'
           ];
           if (tenantCtx.tenantId) {
             query = query.eq('tenant_id', tenantCtx.tenantId);
@@ -574,7 +575,7 @@ export default async function handler(req, res) {
                 'CrmTagColor',
                 'Gallery', 'GalleryPhoto', 'CardDeck',
                 'MemberGroupActivity', 'Microsite', 'InstalledFont',
-            'EventAgendaItem'
+            'EventAgendaItem', 'EventCostLine'
               ];
               if (tenantCtx.tenantId) {
                 beforeQuery = beforeQuery.eq('tenant_id', tenantCtx.tenantId);
@@ -1134,7 +1135,7 @@ export default async function handler(req, res) {
             'CrmTagColor',
             'Gallery', 'GalleryPhoto', 'CardDeck',
             'MemberGroupActivity', 'Microsite', 'InstalledFont',
-            'EventAgendaItem'
+            'EventAgendaItem', 'EventCostLine'
           ];
           if (tenantCtx.tenantId) {
             patchQuery = patchQuery.eq('tenant_id', tenantCtx.tenantId);
@@ -1713,7 +1714,7 @@ export default async function handler(req, res) {
             'CrmTagColor',
             'Gallery', 'GalleryPhoto', 'CardDeck',
             'MemberGroupActivity', 'Microsite', 'InstalledFont',
-            'EventAgendaItem'
+            'EventAgendaItem', 'EventCostLine'
           ];
           if (tenantCtx.tenantId) {
             verifyQuery = verifyQuery.eq('tenant_id', tenantCtx.tenantId);

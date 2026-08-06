@@ -501,6 +501,13 @@ async function cleanupEventOrphans({ eventId, tenantId, isComplex }) {
     console.error('[EventDeletion] resource.linked_events cleanup error:', err.message);
   }
 
+  // Budget cost lines (both event kinds share event_cost_line via event_id).
+  try {
+    await supabase
+      .from('event_cost_line').delete()
+      .eq('event_id', eventId).eq('tenant_id', tenantId);
+  } catch (err) { console.error('[EventDeletion] event_cost_line cleanup error:', err.message); }
+
   // Complex event children (tracks, sessions, ticket classes).
   if (isComplex) {
     summary.complexChildren = { ticketClasses: 0, sessions: 0, tracks: 0 };

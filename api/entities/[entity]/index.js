@@ -4,6 +4,7 @@ import { triggerWorkflows, triggerPreferenceWorkflows, recheckRecordCreateWorkfl
 import { triggerZohoCrmSync, awaitZohoCrmSyncForResponse } from '../../_lib/zohoCrmSync.js';
 import { supabase } from '../../_lib/database.js';
 import { getTenantContext, getEntityTenantScope, getTenantColumn, TENANT_SCOPE, checkCrossOrgPermissions, checkCrossMemberPermissions, hasAdminAccess, hasFeatureAccess } from '../../_lib/tenantContext.js';
+import { isAdminOnlyEntity } from '../../_lib/adminOnlyEntities.js';
 import { isEventFamilyEntity, authorizeGroupAdminEventWrite } from '../../_lib/groupAdminEventWrite.js';
 import { checkBadgeWriteAccess } from '../../_lib/badgeAccess.js';
 import { isResourceEntity, applyGroupResourceSubcategoryDefaults } from '../../_lib/groupAdminResourceWrite.js';
@@ -224,6 +225,7 @@ const entityToTable = {
   'ComplexEventTrack': 'complex_event_track',
   'ComplexEventSession': 'complex_event_session',
   'EventAgendaItem': 'event_agenda_item',
+  'EventCostLine': 'event_cost_line',
   'ComplexEventTicketClass': 'complex_event_ticket_class',
   'ComplexEventBooking': 'complex_event_booking',
   'EventSponsor': 'event_sponsor',
@@ -285,8 +287,7 @@ export default async function handler(req, res) {
   // Tenant users (admins) can access tenant-scoped AND organization-scoped entities via tenantId
   const isTenantAdmin = !!tenantCtx.tenantUserId;
   
-  const adminOnlyEntities = ['externalwriter', 'externalwriterdocument'];
-  if (adminOnlyEntities.includes(entityNorm)) {
+  if (isAdminOnlyEntity(entityNorm)) {
     if (!tenantCtx.isAuthenticated) {
       return res.status(401).json({ error: 'Authentication required' });
     }
@@ -898,7 +899,7 @@ export default async function handler(req, res) {
               'Vacancy', 'VacancyApplication', 'VacancyAward', 'VacancyDecline', 'VacancyDecisionEmail',
               'Gallery', 'GalleryPhoto', 'CardDeck',
               'MemberGroupActivity', 'ComplexEventSessionCheckin', 'Microsite', 'InstalledFont',
-              'EventAgendaItem'
+              'EventAgendaItem', 'EventCostLine'
             ];
             if (entitiesWithoutOrgId.includes(entity)) {
               // SECURITY: Entities without organization_id column MUST have tenant_id - block access if missing
@@ -1377,7 +1378,7 @@ export default async function handler(req, res) {
             'Vacancy', 'VacancyApplication', 'VacancyAward', 'VacancyDecline', 'VacancyDecisionEmail',
             'Gallery', 'GalleryPhoto', 'CardDeck',
             'SupportTicket', 'SupportTicketResponse', 'Microsite', 'InstalledFont',
-            'EventAgendaItem'
+            'EventAgendaItem', 'EventCostLine'
           ];
           if (!entitiesWithoutOrgId.includes(entity)) {
             const entitiesWithExplicitOrgId = ['Member', 'Voucher', 'VoucherTransaction', 'TrainingFundTransaction'];

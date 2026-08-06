@@ -54,6 +54,7 @@ import { format } from "date-fns";
 import { formatInTimeZone } from "date-fns-tz";
 import { TimezoneAwareDateTimeInput } from "@/components/events/TimezoneAwareDateTimeInput";
 import EventClashWarningDialog from "@/components/events/EventClashWarningDialog";
+import EventBudgetPanel from "@/components/events/EventBudgetPanel";
 import { checkEventClashes, buildClashWindows } from "@/lib/eventClash";
 import { createPageUrl, getEventUrl } from "@/utils";
 import EventImageUpload from "@/components/events/EventImageUpload";
@@ -300,7 +301,9 @@ export default function EditEvent() {
     available_seats: "",
     zoom_webinar_id: null,
     zoom_meeting_id: null,
-    online_meeting_url: ""
+    online_meeting_url: "",
+    budgeted_costs: "",
+    budgeted_income: ""
   });
 
   // State to track if timezone fetch failed
@@ -979,7 +982,9 @@ export default function EditEvent() {
         online_meeting_url: event.online_meeting_url || "",
         cta_override_url: event.cta_override_url || "",
         cta_override_mode: event.cta_override_mode || "card",
-        cta_button_label: event.cta_button_label || ""
+        cta_button_label: event.cta_button_label || "",
+        budgeted_costs: event.budgeted_costs != null ? String(event.budgeted_costs) : "",
+        budgeted_income: event.budgeted_income != null ? String(event.budgeted_income) : ""
       });
 
       // TBC booking-element replacement fields
@@ -1598,7 +1603,9 @@ export default function EditEvent() {
       documents_section_title: documentsSectionTitle.trim() || null,
       dietary_options: dietaryOptions.map((o) => (o || "").trim()).filter(Boolean),
       allergy_options: allergyOptions.map((o) => (o || "").trim()).filter(Boolean),
-      accessibility_options: accessibilityOptions.map((o) => (o || "").trim()).filter(Boolean)
+      accessibility_options: accessibilityOptions.map((o) => (o || "").trim()).filter(Boolean),
+      budgeted_costs: formData.budgeted_costs !== "" && formData.budgeted_costs != null ? Number(formData.budgeted_costs) : null,
+      budgeted_income: formData.budgeted_income !== "" && formData.budgeted_income != null ? Number(formData.budgeted_income) : null
     };
 
     // Group-limited mode: lock the event to its group, carry the audience choice,
@@ -4120,6 +4127,27 @@ export default function EditEvent() {
               />
             </CardContent>
           </Card>
+
+          {!isGroupLimited && (
+          <Card className="border-slate-200 shadow-sm mb-6">
+            <CardHeader className="pb-4">
+              <CardTitle className="text-lg">Budget</CardTitle>
+              <CardDescription>
+                Plan and track this event's finances. Actual revenue is calculated from ticket sales.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <EventBudgetPanel
+                eventId={eventId}
+                eventKind="simple"
+                budgetedCosts={formData.budgeted_costs}
+                budgetedIncome={formData.budgeted_income}
+                onBudgetedCostsChange={(v) => handleInputChange("budgeted_costs", v)}
+                onBudgetedIncomeChange={(v) => handleInputChange("budgeted_income", v)}
+              />
+            </CardContent>
+          </Card>
+          )}
 
           <Card className="border-slate-200 shadow-sm mb-6">
             <CardHeader className="pb-4">

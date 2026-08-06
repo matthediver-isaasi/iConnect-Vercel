@@ -23,6 +23,7 @@ import { format, parseISO } from "date-fns";
 import { formatInTimeZone, fromZonedTime } from "date-fns-tz";
 import { TimezoneAwareDateTimeInput } from "@/components/events/TimezoneAwareDateTimeInput";
 import EventClashWarningDialog from "@/components/events/EventClashWarningDialog";
+import EventBudgetPanel from "@/components/events/EventBudgetPanel";
 import { checkEventClashes } from "@/lib/eventClash";
 import DOMPurify from "dompurify";
 import { computeTimelineLayout } from "@/lib/timelineUtils";
@@ -631,6 +632,8 @@ export default function CreateComplexEvent() {
     booking_replacement_title: "",
     program_tag: "",
     group_event_public: false,
+    budgeted_costs: "",
+    budgeted_income: "",
   });
 
   const [tracks, setTracks] = useState([]);
@@ -1139,6 +1142,8 @@ export default function CreateComplexEvent() {
         booking_replacement_cta_label: existingEvent.booking_replacement_cta_label || "",
         booking_replacement_title: existingEvent.booking_replacement_title || "",
         group_event_public: existingEvent.group_event_public === true,
+        budgeted_costs: existingEvent.budgeted_costs != null ? String(existingEvent.budgeted_costs) : "",
+        budgeted_income: existingEvent.budgeted_income != null ? String(existingEvent.budgeted_income) : "",
       });
       setSlugManuallyEdited(true);
       setSeoTitle(existingEvent.seo_title || "");
@@ -1788,6 +1793,8 @@ export default function CreateComplexEvent() {
         booking_replacement_message: (formData.booking_replacement_message || '').trim() || null,
         booking_replacement_cta_label: (formData.booking_replacement_cta_label || '').trim() || null,
         booking_replacement_title: (formData.booking_replacement_title || '').trim() || null,
+        budgeted_costs: formData.budgeted_costs !== "" && formData.budgeted_costs != null ? Number(formData.budgeted_costs) : null,
+        budgeted_income: formData.budgeted_income !== "" && formData.budgeted_income != null ? Number(formData.budgeted_income) : null,
         ...(isGroupLimited ? {
           member_group_id: lockedGroupId,
           group_event_public: formData.group_event_public === true,
@@ -2165,7 +2172,33 @@ export default function CreateComplexEvent() {
             {isEditMode && (
               <TabsTrigger value="surveys" data-testid="button-section-surveys">Surveys</TabsTrigger>
             )}
+            {!isGroupLimited && (
+              <TabsTrigger value="budget" data-testid="button-section-budget">Budget</TabsTrigger>
+            )}
           </TabsList>
+
+          {!isGroupLimited && (
+          <TabsContent value="budget">
+            <Card className="border-slate-200 shadow-sm">
+              <CardHeader>
+                <CardTitle>Budget</CardTitle>
+                <CardDescription>
+                  Plan and track this event's finances. Actual revenue is calculated from ticket sales.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <EventBudgetPanel
+                  eventId={isEditMode ? editId : null}
+                  eventKind="complex"
+                  budgetedCosts={formData.budgeted_costs}
+                  budgetedIncome={formData.budgeted_income}
+                  onBudgetedCostsChange={(v) => updateField("budgeted_costs", v)}
+                  onBudgetedIncomeChange={(v) => updateField("budgeted_income", v)}
+                />
+              </CardContent>
+            </Card>
+          </TabsContent>
+          )}
 
         <TabsContent value="details">
           <>

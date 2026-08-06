@@ -104,6 +104,13 @@ export default function EventSettingsPage() {
   const [editingEventTypeTextColor, setEditingEventTypeTextColor] = useState("");
   const [savingEventTypes, setSavingEventTypes] = useState(false);
 
+  // Cost Types state (Event Budget) - array of name strings
+  const [costTypes, setCostTypes] = useState([]);
+  const [newCostType, setNewCostType] = useState("");
+  const [editingCostTypeIndex, setEditingCostTypeIndex] = useState(null);
+  const [editingCostTypeValue, setEditingCostTypeValue] = useState("");
+  const [savingCostTypes, setSavingCostTypes] = useState(false);
+
   // Agenda Item Types state (Task #3419) - objects {name, includeInClashChecks}
   const [agendaItemTypes, setAgendaItemTypes] = useState([]);
   const [newAgendaItemType, setNewAgendaItemType] = useState("");
@@ -248,6 +255,19 @@ export default function EventSettingsPage() {
         setEventTypes(migrated);
       } catch (e) {
         console.error('Failed to parse event types:', e);
+      }
+    }
+
+    // Load budget cost types (Event Budget)
+    const costTypesSetting = settings.find(s => s.setting_key === 'event_cost_types');
+    if (costTypesSetting?.setting_value) {
+      try {
+        const parsedCostTypes = JSON.parse(costTypesSetting.setting_value);
+        if (Array.isArray(parsedCostTypes)) {
+          setCostTypes(parsedCostTypes.filter(t => typeof t === 'string'));
+        }
+      } catch (e) {
+        console.error('Failed to parse event cost types:', e);
       }
     }
 
@@ -949,6 +969,72 @@ export default function EventSettingsPage() {
       toast.error('Failed to save event types: ' + (error.message || 'Unknown error'));
     } finally {
       setSavingEventTypes(false);
+    }
+  };
+
+  // Cost Types handlers (Event Budget)
+  const handleAddCostType = () => {
+    const trimmed = newCostType.trim();
+    if (!trimmed) {
+      toast.error('Please enter a cost type');
+      return;
+    }
+    if (costTypes.some(t => t.toLowerCase() === trimmed.toLowerCase())) {
+      toast.error('This cost type already exists');
+      return;
+    }
+    setCostTypes([...costTypes, trimmed]);
+    setNewCostType("");
+  };
+
+  const handleRemoveCostType = (index) => {
+    setCostTypes(costTypes.filter((_, i) => i !== index));
+  };
+
+  const handleStartEditCostType = (index) => {
+    setEditingCostTypeIndex(index);
+    setEditingCostTypeValue(costTypes[index]);
+  };
+
+  const handleSaveEditCostType = () => {
+    const trimmed = editingCostTypeValue.trim();
+    if (!trimmed) {
+      toast.error('Cost type cannot be empty');
+      return;
+    }
+    if (costTypes.some((t, i) => i !== editingCostTypeIndex && t.toLowerCase() === trimmed.toLowerCase())) {
+      toast.error('This cost type already exists');
+      return;
+    }
+    const updated = [...costTypes];
+    updated[editingCostTypeIndex] = trimmed;
+    setCostTypes(updated);
+    setEditingCostTypeIndex(null);
+    setEditingCostTypeValue("");
+  };
+
+  const handleSaveCostTypes = async () => {
+    setSavingCostTypes(true);
+    try {
+      const existing = settings.find(s => s.setting_key === 'event_cost_types');
+      const value = JSON.stringify(costTypes);
+      if (existing) {
+        await base44.entities.SystemSettings.update(existing.id, { setting_value: value });
+      } else {
+        await base44.entities.SystemSettings.create({
+          setting_key: 'event_cost_types',
+          setting_value: value,
+          description: 'Cost types available for event budget cost line items'
+        });
+      }
+      queryClient.invalidateQueries({ queryKey: ['system-settings'] });
+      queryClient.invalidateQueries({ queryKey: ['event-cost-types-setting'] });
+      toast.success('Cost types saved successfully');
+    } catch (error) {
+      console.error('Failed to save cost types:', error);
+      toast.error('Failed to save cost types: ' + (error.message || 'Unknown error'));
+    } finally {
+      setSavingCostTypes(false);
     }
   };
 
@@ -3062,6 +3148,113 @@ export default function EventSettingsPage() {
                     <>
                       <Save className="w-4 h-4 mr-2" />
                       Save Agenda Item Types
+                    </>
+                  )}
+                </Button>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Cost Types Section (Event Budget) */}
+        <Card className="border-slate-200 shadow-sm mb-8">
+          <CardHeader className="border-b border-slate-200">
+            <div className="flex items-center gap-2">
+              <Ticket className="w-5 h-5 text-indigo-600" />
+              <CardTitle>Cost Types</CardTitle>
+            </div>
+          </CardHeader>
+          <CardContent className="pt-6">
+            <div className="space-y-4">
+              <p className="text-sm text-slate-600">
+                Cost types available when itemising actual costs on an event's Budget tab (e.g., Venue hire, Catering).
+              </p>
+
+              {/* Add new cost type */}
+              <div className="p-4 bg-slate-50 rounded-lg border border-slate-200 space-y-3">
+                <Label className="text-sm font-medium">Add New Cost Type</Label>
+                <div className="flex flex-wrap items-center gap-3">
+                  <Input
+                    placeholder="Enter cost type name..."
+                    value={newCostType}
+                    onChange={(e) => setNewCostType(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && handleAddCostType()}
+                    className="flex-1 min-w-[200px]"
+                    data-testid="input-new-cost-type"
+                  />
+                  <Button onClick={handleAddCostType} variant="outline" data-testid="button-add-cost-type">
+                    <Plus className="w-4 h-4 mr-2" />
+                    Add
+                  </Button>
+                </div>
+              </div>
+
+              {/* Cost types list */}
+              {costTypes.length === 0 ? (
+                <p className="text-sm text-slate-500 py-4">No cost types defined yet. Add your first type above.</p>
+              ) : (
+                <div className="space-y-2">
+                  {costTypes.map((type, index) => (
+                    <div
+                      key={index}
+                      className="flex flex-wrap items-center justify-between gap-3 p-3 bg-slate-50 rounded-lg border border-slate-200"
+                      data-testid={`cost-type-${index}`}
+                    >
+                      {editingCostTypeIndex === index ? (
+                        <div className="flex flex-wrap items-center gap-3 flex-1">
+                          <Input
+                            value={editingCostTypeValue}
+                            onChange={(e) => setEditingCostTypeValue(e.target.value)}
+                            onKeyDown={(e) => e.key === 'Enter' && handleSaveEditCostType()}
+                            className="flex-1 min-w-[160px]"
+                            data-testid={`input-edit-cost-type-${index}`}
+                          />
+                          <Button size="sm" onClick={handleSaveEditCostType} data-testid={`button-save-edit-cost-type-${index}`}>
+                            <Save className="w-4 h-4" />
+                          </Button>
+                          <Button size="sm" variant="outline" onClick={() => { setEditingCostTypeIndex(null); setEditingCostTypeValue(""); }}>
+                            <X className="w-4 h-4" />
+                          </Button>
+                        </div>
+                      ) : (
+                        <>
+                          <span className="font-medium text-slate-800">{type}</span>
+                          <div className="flex items-center gap-2">
+                            <Button size="sm" variant="ghost" onClick={() => handleStartEditCostType(index)} data-testid={`button-edit-cost-type-${index}`}>
+                              <Edit2 className="w-4 h-4" />
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                              onClick={() => handleRemoveCostType(index)}
+                              data-testid={`button-remove-cost-type-${index}`}
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div className="pt-4 border-t border-slate-200">
+                <Button
+                  onClick={handleSaveCostTypes}
+                  disabled={savingCostTypes}
+                  data-testid="button-save-cost-types"
+                >
+                  {savingCostTypes ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                      Saving...
+                    </>
+                  ) : (
+                    <>
+                      <Save className="w-4 h-4 mr-2" />
+                      Save Cost Types
                     </>
                   )}
                 </Button>
