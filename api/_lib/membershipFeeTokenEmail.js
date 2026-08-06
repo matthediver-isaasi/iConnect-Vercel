@@ -395,6 +395,14 @@ export async function sendMembershipFeeTokenEmail({
     .replace(/\{year\}/gi, membershipYear || '')
     .trim();
   const feeLineLabel = invoiceDescription ? escapeHtmlLabel(invoiceDescription) : null;
+  // Diagnostic: makes "why did the email show the hardwired label?" answerable
+  // from production logs (config resolved without a description vs. missing config).
+  console.log(
+    `[FeeTokenEmail] fee line label for tenant ${tenantId}, year ${membershipYear}: ` +
+    (feeLineLabel
+      ? `invoice_description from tier config ${tierConfig?.id || 'unknown'} ("${invoiceDescription}")`
+      : `fallback "Annual Membership Fee" (tierConfig ${tierConfig ? tierConfig.id : 'MISSING'}, invoice_description ${tierConfig?.invoice_description ? 'set' : 'empty'})`)
+  );
   const rows = buildBreakdownRows(currencySymbol, cb, finalCost, feeLineLabel);
   const hasVat = cb.vatAmount > 0;
   const displayTotal = hasVat ? cb.totalWithVat : finalCost;
