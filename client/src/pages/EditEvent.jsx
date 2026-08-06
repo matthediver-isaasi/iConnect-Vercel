@@ -10,6 +10,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import { 
   Calendar, 
@@ -132,6 +133,10 @@ const createEmptyTicketClass = (isDefault = false, defaultVatRate = null) => ({
   early_bird_deadline: ""
 });
 
+// Tab panels are always mounted; inactive ones are hidden via CSS so that
+// in-progress state (uploads, drafts, measurements) survives tab switches.
+const TAB_PANEL_CLASS = "mt-0 data-[state=inactive]:hidden";
+
 export default function EditEvent() {
   const queryClient = useQueryClient();
   const { singular: speakerSingular, plural: speakerPlural } = useSpeakerModuleName();
@@ -154,6 +159,9 @@ export default function EditEvent() {
   const fromParam = urlParams.get('from') || null;
   const { isAdmin } = useServerAdminAuth({ redirectOnDeny: false });
   const [groupEventPublic, setGroupEventPublic] = useState(false);
+
+  // Active editor tab (layout only — saving always persists the whole event).
+  const [activeTab, setActiveTab] = useState('details');
 
   // Program vs One-off toggle
   const [isProgramEvent, setIsProgramEvent] = useState(true);
@@ -1394,9 +1402,26 @@ export default function EditEvent() {
       }
     }
 
-    if (!formData.title) {
+    if (!formData.title || !formData.title.trim()) {
       toast.error('Please enter an event title');
       return;
+    }
+
+    // Group-limited online events collect a raw meeting link; the input is
+    // type="url" but native validation is disabled (noValidate) because
+    // inactive tab panels are hidden, so replicate the URL format check here.
+    if (isGroupLimited && isOnlineEvent && formData.online_meeting_url) {
+      let validMeetingUrl = false;
+      try {
+        const u = new URL(formData.online_meeting_url);
+        validMeetingUrl = u.protocol === 'http:' || u.protocol === 'https:';
+      } catch {
+        validMeetingUrl = false;
+      }
+      if (!validMeetingUrl) {
+        toast.error('Please enter a valid meeting link (e.g. https://meet.example.com/your-meeting)');
+        return;
+      }
     }
 
     // Summary length validation
@@ -1795,8 +1820,18 @@ export default function EditEvent() {
       );
     }
 
+    // Hide tabs that would be empty in the current context, and fall back to
+    // Details if the active tab becomes hidden (e.g. switching a one-off event
+    // to a program event while on the Tickets tab).
+    const visibleTabs = new Set(['details', 'location', 'emails', 'surveys']);
+    if (isOneOffEvent) visibleTabs.add('tickets');
+    if (isDonationGloballyEnabled) visibleTabs.add('donations');
+    if (!isGroupLimited) visibleTabs.add('budget');
+    if (eventId && currentTenant?.slug) visibleTabs.add('sharing');
+    const effectiveTab = visibleTabs.has(activeTab) ? activeTab : 'details';
+
     return (
-      <div className="max-w-3xl mx-auto">
+      <div className="max-w-6xl mx-auto">
         <div className="flex items-center gap-4 mb-6">
           <Button 
             variant="ghost" 
@@ -1868,199 +1903,37 @@ export default function EditEvent() {
           )}
         </div>
 
-        {/* task-692: panel is always rendered (regardless of isOnlineEvent /
-            sync state) so admins can attach/change/detach Zoom at any time.
-            Hidden in group-limited mode — group events never use Zoom — and
-            for training events, where Zoom is set per agenda item (Task #3436). */}
-        {!isGroupLimited && !isTraining && (
-        <>
-        <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg" data-testid="panel-zoom-link-admin">
-          <div className="flex items-center gap-2 mb-2">
-            <Globe className="h-4 w-4 text-blue-600" />
-            <span className="font-medium text-blue-900">Zoom Link</span>
-          </div>
-          {(formData.zoom_meeting_id || formData.zoom_webinar_id) ? (
-            <p className="text-sm text-blue-800 mb-3">
-              Linked to a Zoom {formData.zoom_meeting_id ? 'meeting' : 'webinar'}. Date, time, and location are managed by Zoom and cannot be edited here.
-            </p>
-          ) : isOnlineEvent ? (
-            <p className="text-sm text-blue-800 mb-3">
-              This event is marked online but has no Zoom link attached. Confirmed attendees will not receive a join URL until you attach one.
-            </p>
-          ) : (
-            <p className="text-sm text-blue-800 mb-3">
-              No Zoom link attached. Attach one to convert this event to online and give confirmed attendees a join URL.
-            </p>
-          )}
 
-          <div className="flex flex-wrap gap-2 mb-3">
-              {!(formData.zoom_meeting_id || formData.zoom_webinar_id) ? (
-                <Button
-                  type="button"
-                  variant="default"
-                  size="sm"
-                  onClick={() => setZoomLinkDialog({ open: true, mode: 'attach' })}
-                  data-testid="button-attach-zoom-link"
-                >
-                  <Video className="h-4 w-4 mr-2" />
-                  Attach Zoom Link
-                </Button>
-              ) : (
-                <>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setZoomLinkDialog({ open: true, mode: 'change' })}
-                    data-testid="button-change-zoom-link"
-                  >
-                    <Video className="h-4 w-4 mr-2" />
-                    Change Zoom Link
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setZoomLinkDialog({ open: true, mode: 'detach' })}
-                    data-testid="button-detach-zoom-link"
-                  >
-                    <X className="h-4 w-4 mr-2" />
-                    Detach Zoom Link
-                  </Button>
-                </>
+        {/* noValidate: inactive tab panels are display:none, and the browser
+            silently blocks submission when a hidden required control is
+            invalid ("not focusable") — so native constraints are reproduced
+            in handleSubmit (title, start date, meeting-link URL format),
+            which reports problems via toasts from any tab. */}
+        <form onSubmit={handleSubmit} noValidate>
+          {/* All tab panels stay mounted (forceMount + hidden) so state and
+              behaviour match the previous single-column layout exactly, and
+              saving persists changes made across every tab. */}
+          <Tabs value={effectiveTab} onValueChange={setActiveTab}>
+            <TabsList className="mb-6 h-auto flex-wrap justify-start">
+              <TabsTrigger value="details" data-testid="button-tab-details">Details</TabsTrigger>
+              {isOneOffEvent && (
+                <TabsTrigger value="tickets" data-testid="button-tab-tickets">Tickets</TabsTrigger>
               )}
-            </div>
+              {isDonationGloballyEnabled && (
+                <TabsTrigger value="donations" data-testid="button-tab-donations">Donations</TabsTrigger>
+              )}
+              <TabsTrigger value="location" data-testid="button-tab-location">Location & Media</TabsTrigger>
+              <TabsTrigger value="emails" data-testid="button-tab-emails">Emails</TabsTrigger>
+              <TabsTrigger value="surveys" data-testid="button-tab-surveys">Surveys</TabsTrigger>
+              {!isGroupLimited && (
+                <TabsTrigger value="budget" data-testid="button-tab-budget">Budget</TabsTrigger>
+              )}
+              {eventId && currentTenant?.slug && (
+                <TabsTrigger value="sharing" data-testid="button-tab-sharing">Sharing</TabsTrigger>
+              )}
+            </TabsList>
 
-            {/* Zoom Sync Status (only meaningful when Zoom is attached) */}
-            {(formData.zoom_meeting_id || formData.zoom_webinar_id) && (
-              <div className="mt-3 pt-3 border-t border-blue-200">
-                {checkingSyncStatus ? (
-                  <div className="flex items-center gap-2 text-sm text-blue-700">
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    <span>Checking sync status with Zoom...</span>
-                  </div>
-                ) : zoomSyncStatus?.error ? (
-                  <div className="flex items-center gap-2 text-sm text-red-700">
-                    <X className="h-4 w-4" />
-                    <span>{zoomSyncStatus.error}</span>
-                  </div>
-                ) : zoomSyncStatus?.inSync === true ? (
-                  <div className="flex items-center gap-2 text-sm text-green-700">
-                    <Check className="h-4 w-4" />
-                    <span>In sync with Zoom</span>
-                    {zoomSyncStatus.zoomTopic && (
-                      <span className="text-green-600">({zoomSyncStatus.zoomTopic})</span>
-                    )}
-                  </div>
-                ) : zoomSyncStatus?.inSync === false ? (
-                  <div className="space-y-2">
-                    <div className="flex items-center gap-2 text-sm text-warning">
-                      <Bell className="h-4 w-4" />
-                      <span className="font-medium">Out of sync with Zoom</span>
-                    </div>
-                    {zoomSyncStatus.differences?.start?.zoom && (
-                      <div className="text-xs text-warning ml-6">
-                        Start time differs: Event has {zoomSyncStatus.differences.start.event ? formatInTimeZone(new Date(zoomSyncStatus.differences.start.event), eventTimezone, 'dd/MM/yyyy HH:mm') : 'none'},
-                        Zoom has {formatInTimeZone(new Date(zoomSyncStatus.differences.start.zoom), eventTimezone, 'dd/MM/yyyy HH:mm')}
-                      </div>
-                    )}
-                    {zoomSyncStatus.differences?.end?.zoom && (
-                      <div className="text-xs text-warning ml-6">
-                        End time differs: Event has {zoomSyncStatus.differences.end.event ? formatInTimeZone(new Date(zoomSyncStatus.differences.end.event), eventTimezone, 'dd/MM/yyyy HH:mm') : 'none'},
-                        Zoom has {formatInTimeZone(new Date(zoomSyncStatus.differences.end.zoom), eventTimezone, 'dd/MM/yyyy HH:mm')}
-                      </div>
-                    )}
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={syncFromZoom}
-                      disabled={syncingFromZoom}
-                      className="mt-2"
-                      data-testid="button-sync-from-zoom"
-                    >
-                      {syncingFromZoom ? (
-                        <>
-                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                          Syncing...
-                        </>
-                      ) : (
-                        <>
-                          <Video className="h-4 w-4 mr-2" />
-                          Sync from Zoom
-                        </>
-                      )}
-                    </Button>
-                  </div>
-                ) : null}
-              </div>
-            )}
-        </div>
-
-        <ChangeZoomDialog
-          open={zoomLinkDialog.open}
-          onOpenChange={(open) => setZoomLinkDialog((s) => ({ ...s, open }))}
-          endpointBase={`/api/events/${eventId}`}
-          mode={zoomLinkDialog.mode}
-          targetLabel="event"
-          initialType={formData.zoom_meeting_id ? 'meeting' : 'webinar'}
-          onSuccess={() => {
-            queryClient.invalidateQueries({ queryKey: ['event', eventId] });
-            window.location.reload();
-          }}
-        />
-        </>
-        )}
-
-        <form onSubmit={handleSubmit}>
-          {/* Group Event banner + audience choice (group-limited mode only) */}
-          {isGroupLimited && (
-            <Card className="border-slate-200 shadow-sm mb-6">
-              <CardHeader className="pb-4">
-                <CardTitle className="text-lg flex items-center gap-2">
-                  <Users className="h-5 w-5 text-blue-600" />
-                  Group Event
-                </CardTitle>
-                <CardDescription>This event belongs to your group</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
-                  <p className="text-sm text-blue-900" data-testid="text-group-locked">
-                    This event is for <span className="font-semibold">{groupName || 'your group'}</span>.
-                  </p>
-                </div>
-                <div className="space-y-2">
-                  <Label className="text-base font-medium">Who can see this event?</Label>
-                  <div className="flex gap-2 flex-wrap">
-                    <Button
-                      type="button"
-                      variant={!groupEventPublic ? 'default' : 'outline'}
-                      onClick={() => setGroupEventPublic(false)}
-                      data-testid="button-audience-group"
-                    >
-                      <Users className="h-4 w-4 mr-2" />
-                      Group members only
-                    </Button>
-                    <Button
-                      type="button"
-                      variant={groupEventPublic ? 'default' : 'outline'}
-                      onClick={() => setGroupEventPublic(true)}
-                      data-testid="button-audience-public"
-                    >
-                      <Globe className="h-4 w-4 mr-2" />
-                      Public
-                    </Button>
-                  </div>
-                  <p className="text-xs text-slate-500">
-                    {groupEventPublic
-                      ? 'Anyone can view and register for this event.'
-                      : 'Only members of your group can view and register for this event.'}
-                  </p>
-                </div>
-              </CardContent>
-            </Card>
-          )}
-
+          <TabsContent value="details" forceMount className={TAB_PANEL_CLASS}>
           {/* Event Status Selector */}
           <Card className="border-slate-200 shadow-sm mb-6">
             <CardHeader className="pb-4">
@@ -2206,6 +2079,54 @@ export default function EditEvent() {
               </div>
             </CardContent>
           </Card>
+
+          {/* Group Event banner + audience choice (group-limited mode only) */}
+          {isGroupLimited && (
+            <Card className="border-slate-200 shadow-sm mb-6">
+              <CardHeader className="pb-4">
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <Users className="h-5 w-5 text-blue-600" />
+                  Group Event
+                </CardTitle>
+                <CardDescription>This event belongs to your group</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                  <p className="text-sm text-blue-900" data-testid="text-group-locked">
+                    This event is for <span className="font-semibold">{groupName || 'your group'}</span>.
+                  </p>
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-base font-medium">Who can see this event?</Label>
+                  <div className="flex gap-2 flex-wrap">
+                    <Button
+                      type="button"
+                      variant={!groupEventPublic ? 'default' : 'outline'}
+                      onClick={() => setGroupEventPublic(false)}
+                      data-testid="button-audience-group"
+                    >
+                      <Users className="h-4 w-4 mr-2" />
+                      Group members only
+                    </Button>
+                    <Button
+                      type="button"
+                      variant={groupEventPublic ? 'default' : 'outline'}
+                      onClick={() => setGroupEventPublic(true)}
+                      data-testid="button-audience-public"
+                    >
+                      <Globe className="h-4 w-4 mr-2" />
+                      Public
+                    </Button>
+                  </div>
+                  <p className="text-xs text-slate-500">
+                    {groupEventPublic
+                      ? 'Anyone can view and register for this event.'
+                      : 'Only members of your group can view and register for this event.'}
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
           {/* Training event toggle + multi-day agenda (Task #3419) */}
           {!isGroupLimited && (
@@ -3003,6 +2924,47 @@ export default function EditEvent() {
             </CardContent>
           </Card>
 
+          <Card className="border-slate-200 shadow-sm mb-6">
+            <CardHeader className="pb-4">
+              <CardTitle className="text-lg">Documents</CardTitle>
+              <CardDescription>
+                Upload public files (programmes, agendas, info packs) shown on the event page. PDFs open in an in-page viewer; other files open in a new tab.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <EventDocumentsManager
+                sectionTitle={documentsSectionTitle}
+                onSectionTitleChange={setDocumentsSectionTitle}
+                documents={attachedDocuments}
+                onDocumentsChange={setAttachedDocuments}
+                entityId={eventId}
+              />
+            </CardContent>
+          </Card>
+
+          {!isGroupLimited && collectAttendeeOptionsEnabled && (
+          <Card className="border-slate-200 shadow-sm mb-6">
+            <CardHeader className="pb-4">
+              <CardTitle className="text-lg">Dietary, Allergy &amp; Accessibility Options</CardTitle>
+              <CardDescription>
+                Define the options registrants can choose from for each attendee during booking. Sections with no options are hidden from registrants.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <EventOptionListsEditor
+                dietaryOptions={dietaryOptions}
+                allergyOptions={allergyOptions}
+                accessibilityOptions={accessibilityOptions}
+                onDietaryChange={setDietaryOptions}
+                onAllergyChange={setAllergyOptions}
+                onAccessibilityChange={setAccessibilityOptions}
+              />
+            </CardContent>
+          </Card>
+          )}
+          </TabsContent>
+
+          <TabsContent value="tickets" forceMount className={TAB_PANEL_CLASS}>
           {/* Ticket Classes - Only shown for one-off events */}
           {isOneOffEvent && (
             <Card className="border-slate-200 shadow-sm mb-6">
@@ -3915,6 +3877,284 @@ export default function EditEvent() {
               </CardContent>
             </Card>
           )}
+          </TabsContent>
+
+          <TabsContent value="donations" forceMount className={TAB_PANEL_CLASS}>
+          {isDonationGloballyEnabled && (
+            <Card className="border-slate-200 shadow-sm mb-6">
+              <CardHeader className="pb-4">
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <Gift className="h-5 w-5 text-pink-600" />
+                  Donation Configuration
+                </CardTitle>
+                <CardDescription>
+                  Configure the donation option shown to users during checkout
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <div className="flex items-center justify-between">
+                  <div className="space-y-1">
+                    <Label htmlFor="donation-event-toggle">Enable Donation for this Event</Label>
+                    <p className="text-xs text-slate-500">
+                      When enabled, users paying by card will be offered the chance to donate during checkout.
+                    </p>
+                  </div>
+                  <Switch
+                    id="donation-event-toggle"
+                    checked={donationConfig.enabled}
+                    onCheckedChange={(checked) => setDonationConfig(prev => ({ ...prev, enabled: checked }))}
+                    data-testid="switch-event-donation"
+                  />
+                </div>
+
+                {donationConfig.enabled && (
+                  <div className="space-y-5 pt-4 border-t border-slate-200">
+                    <div className="space-y-3">
+                      <Label>Preset Donation Amounts</Label>
+                      <p className="text-xs text-slate-500">
+                        These amounts will be shown as quick-select options on the donation modal.
+                      </p>
+                      <div className="flex flex-wrap items-center gap-2">
+                        {donationConfig.preset_amounts.map((amount, index) => (
+                          <Badge key={index} variant="secondary" className="text-sm gap-1.5">
+                            £{amount}
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setDonationConfig(prev => ({
+                                  ...prev,
+                                  preset_amounts: prev.preset_amounts.filter((_, i) => i !== index)
+                                }));
+                              }}
+                              className="ml-1 hover:text-red-600"
+                              data-testid={`button-remove-preset-amount-${index}`}
+                            >
+                              <X className="h-3 w-3" />
+                            </button>
+                          </Badge>
+                        ))}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Input
+                          type="number"
+                          min="1"
+                          step="1"
+                          placeholder="e.g., 100"
+                          value={newPresetAmount}
+                          onChange={(e) => setNewPresetAmount(e.target.value)}
+                          className="w-32"
+                          data-testid="input-new-preset-amount"
+                        />
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            const val = parseFloat(newPresetAmount);
+                            if (val > 0 && !donationConfig.preset_amounts.includes(val)) {
+                              setDonationConfig(prev => ({
+                                ...prev,
+                                preset_amounts: [...prev.preset_amounts, val].sort((a, b) => a - b)
+                              }));
+                              setNewPresetAmount('');
+                            }
+                          }}
+                          data-testid="button-add-preset-amount"
+                        >
+                          <Plus className="h-4 w-4 mr-1" />
+                          Add
+                        </Button>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between">
+                      <div className="space-y-1">
+                        <Label htmlFor="donation-custom-amount-toggle">Allow Custom Amount</Label>
+                        <p className="text-xs text-slate-500">
+                          Let donors enter any amount instead of choosing from presets.
+                        </p>
+                      </div>
+                      <Switch
+                        id="donation-custom-amount-toggle"
+                        checked={donationConfig.allow_custom_amount}
+                        onCheckedChange={(checked) => setDonationConfig(prev => ({ ...prev, allow_custom_amount: checked }))}
+                        data-testid="switch-donation-custom-amount"
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="donation-custom-message">Custom Message</Label>
+                      <p className="text-xs text-slate-500">
+                        This message will be shown on the donation modal to encourage donations.
+                      </p>
+                      <Textarea
+                        id="donation-custom-message"
+                        value={donationConfig.custom_message}
+                        onChange={(e) => setDonationConfig(prev => ({ ...prev, custom_message: e.target.value }))}
+                        placeholder="e.g., Your donation helps us continue our important work..."
+                        rows={3}
+                        data-testid="textarea-donation-message"
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="donation-email-list">Email Communication List</Label>
+                      <p className="text-xs text-slate-500">
+                        Donors will be added to this subscription list.
+                      </p>
+                      <Select
+                        value={donationConfig.email_list_key || '_none'}
+                        onValueChange={(value) => setDonationConfig(prev => ({ ...prev, email_list_key: value === '_none' ? '' : value }))}
+                      >
+                        <SelectTrigger data-testid="select-donation-email-list">
+                          <SelectValue placeholder="Select a subscription list" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="_none">No list</SelectItem>
+                          {communicationCategories.filter(cat => cat.is_public && cat.is_active).map((cat) => (
+                            <SelectItem key={cat.id} value={cat.id}>
+                              {cat.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
+          </TabsContent>
+
+          <TabsContent value="location" forceMount className={TAB_PANEL_CLASS}>
+        {/* task-692: panel is always rendered (regardless of isOnlineEvent /
+            sync state) so admins can attach/change/detach Zoom at any time.
+            Hidden in group-limited mode — group events never use Zoom — and
+            for training events, where Zoom is set per agenda item (Task #3436). */}
+          {!isGroupLimited && !isTraining && (
+        <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg" data-testid="panel-zoom-link-admin">
+          <div className="flex items-center gap-2 mb-2">
+            <Globe className="h-4 w-4 text-blue-600" />
+            <span className="font-medium text-blue-900">Zoom Link</span>
+          </div>
+          {(formData.zoom_meeting_id || formData.zoom_webinar_id) ? (
+            <p className="text-sm text-blue-800 mb-3">
+              Linked to a Zoom {formData.zoom_meeting_id ? 'meeting' : 'webinar'}. Date, time, and location are managed by Zoom and cannot be edited here.
+            </p>
+          ) : isOnlineEvent ? (
+            <p className="text-sm text-blue-800 mb-3">
+              This event is marked online but has no Zoom link attached. Confirmed attendees will not receive a join URL until you attach one.
+            </p>
+          ) : (
+            <p className="text-sm text-blue-800 mb-3">
+              No Zoom link attached. Attach one to convert this event to online and give confirmed attendees a join URL.
+            </p>
+          )}
+
+          <div className="flex flex-wrap gap-2 mb-3">
+              {!(formData.zoom_meeting_id || formData.zoom_webinar_id) ? (
+                <Button
+                  type="button"
+                  variant="default"
+                  size="sm"
+                  onClick={() => setZoomLinkDialog({ open: true, mode: 'attach' })}
+                  data-testid="button-attach-zoom-link"
+                >
+                  <Video className="h-4 w-4 mr-2" />
+                  Attach Zoom Link
+                </Button>
+              ) : (
+                <>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setZoomLinkDialog({ open: true, mode: 'change' })}
+                    data-testid="button-change-zoom-link"
+                  >
+                    <Video className="h-4 w-4 mr-2" />
+                    Change Zoom Link
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setZoomLinkDialog({ open: true, mode: 'detach' })}
+                    data-testid="button-detach-zoom-link"
+                  >
+                    <X className="h-4 w-4 mr-2" />
+                    Detach Zoom Link
+                  </Button>
+                </>
+              )}
+            </div>
+
+            {/* Zoom Sync Status (only meaningful when Zoom is attached) */}
+            {(formData.zoom_meeting_id || formData.zoom_webinar_id) && (
+              <div className="mt-3 pt-3 border-t border-blue-200">
+                {checkingSyncStatus ? (
+                  <div className="flex items-center gap-2 text-sm text-blue-700">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <span>Checking sync status with Zoom...</span>
+                  </div>
+                ) : zoomSyncStatus?.error ? (
+                  <div className="flex items-center gap-2 text-sm text-red-700">
+                    <X className="h-4 w-4" />
+                    <span>{zoomSyncStatus.error}</span>
+                  </div>
+                ) : zoomSyncStatus?.inSync === true ? (
+                  <div className="flex items-center gap-2 text-sm text-green-700">
+                    <Check className="h-4 w-4" />
+                    <span>In sync with Zoom</span>
+                    {zoomSyncStatus.zoomTopic && (
+                      <span className="text-green-600">({zoomSyncStatus.zoomTopic})</span>
+                    )}
+                  </div>
+                ) : zoomSyncStatus?.inSync === false ? (
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2 text-sm text-warning">
+                      <Bell className="h-4 w-4" />
+                      <span className="font-medium">Out of sync with Zoom</span>
+                    </div>
+                    {zoomSyncStatus.differences?.start?.zoom && (
+                      <div className="text-xs text-warning ml-6">
+                        Start time differs: Event has {zoomSyncStatus.differences.start.event ? formatInTimeZone(new Date(zoomSyncStatus.differences.start.event), eventTimezone, 'dd/MM/yyyy HH:mm') : 'none'},
+                        Zoom has {formatInTimeZone(new Date(zoomSyncStatus.differences.start.zoom), eventTimezone, 'dd/MM/yyyy HH:mm')}
+                      </div>
+                    )}
+                    {zoomSyncStatus.differences?.end?.zoom && (
+                      <div className="text-xs text-warning ml-6">
+                        End time differs: Event has {zoomSyncStatus.differences.end.event ? formatInTimeZone(new Date(zoomSyncStatus.differences.end.event), eventTimezone, 'dd/MM/yyyy HH:mm') : 'none'},
+                        Zoom has {formatInTimeZone(new Date(zoomSyncStatus.differences.end.zoom), eventTimezone, 'dd/MM/yyyy HH:mm')}
+                      </div>
+                    )}
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={syncFromZoom}
+                      disabled={syncingFromZoom}
+                      className="mt-2"
+                      data-testid="button-sync-from-zoom"
+                    >
+                      {syncingFromZoom ? (
+                        <>
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                          Syncing...
+                        </>
+                      ) : (
+                        <>
+                          <Video className="h-4 w-4 mr-2" />
+                          Sync from Zoom
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                ) : null}
+              </div>
+            )}
+        </div>
+          )}
 
           <Card className="border-slate-200 shadow-sm mb-6">
             <CardHeader className="pb-4">
@@ -4110,223 +4350,25 @@ export default function EditEvent() {
             </CardContent>
           </Card>
 
-          <Card className="border-slate-200 shadow-sm mb-6">
-            <CardHeader className="pb-4">
-              <CardTitle className="text-lg">Documents</CardTitle>
-              <CardDescription>
-                Upload public files (programmes, agendas, info packs) shown on the event page. PDFs open in an in-page viewer; other files open in a new tab.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <EventDocumentsManager
-                sectionTitle={documentsSectionTitle}
-                onSectionTitleChange={setDocumentsSectionTitle}
-                documents={attachedDocuments}
-                onDocumentsChange={setAttachedDocuments}
-                entityId={eventId}
-              />
-            </CardContent>
-          </Card>
+          {(() => {
+            const simpleZoomId = formData.zoom_meeting_id || formData.zoom_webinar_id;
+            if (!simpleZoomId) return null;
+            const simpleZoomType = formData.zoom_webinar_id ? 'webinar' : 'meeting';
+            const eventIsPast = formData.start_date && new Date(formData.start_date) < new Date();
 
-          {!isGroupLimited && (
-          <Card className="border-slate-200 shadow-sm mb-6">
-            <CardHeader className="pb-4">
-              <CardTitle className="text-lg">Budget</CardTitle>
-              <CardDescription>
-                Plan and track this event's finances. Actual revenue is calculated from ticket sales.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <EventBudgetPanel
-                eventId={eventId}
-                eventKind="simple"
-                budgetedCosts={formData.budgeted_costs}
-                budgetedIncome={formData.budgeted_income}
-                onBudgetedCostsChange={(v) => handleInputChange("budgeted_costs", v)}
-                onBudgetedIncomeChange={(v) => handleInputChange("budgeted_income", v)}
-              />
-            </CardContent>
-          </Card>
-          )}
+            return (
+              <div className="mt-6 mb-6">
+                <ZoomPolls
+                  zoomId={simpleZoomId}
+                  type={simpleZoomType}
+                  isPast={eventIsPast}
+                />
+              </div>
+            );
+          })()}
+          </TabsContent>
 
-          <Card className="border-slate-200 shadow-sm mb-6">
-            <CardHeader className="pb-4">
-              <CardTitle className="text-lg">Surveys</CardTitle>
-              <CardDescription>
-                Attach surveys to this event so attendees can give feedback. Set optional open/close windows and control who can respond.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <EventSurveysSection eventId={eventId} eventType="event" />
-            </CardContent>
-          </Card>
-
-          {!isGroupLimited && collectAttendeeOptionsEnabled && (
-          <Card className="border-slate-200 shadow-sm mb-6">
-            <CardHeader className="pb-4">
-              <CardTitle className="text-lg">Dietary, Allergy &amp; Accessibility Options</CardTitle>
-              <CardDescription>
-                Define the options registrants can choose from for each attendee during booking. Sections with no options are hidden from registrants.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <EventOptionListsEditor
-                dietaryOptions={dietaryOptions}
-                allergyOptions={allergyOptions}
-                accessibilityOptions={accessibilityOptions}
-                onDietaryChange={setDietaryOptions}
-                onAllergyChange={setAllergyOptions}
-                onAccessibilityChange={setAccessibilityOptions}
-              />
-            </CardContent>
-          </Card>
-          )}
-
-          {isDonationGloballyEnabled && (
-            <Card className="border-slate-200 shadow-sm mb-6">
-              <CardHeader className="pb-4">
-                <CardTitle className="text-lg flex items-center gap-2">
-                  <Gift className="h-5 w-5 text-pink-600" />
-                  Donation Configuration
-                </CardTitle>
-                <CardDescription>
-                  Configure the donation option shown to users during checkout
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-6">
-                <div className="flex items-center justify-between">
-                  <div className="space-y-1">
-                    <Label htmlFor="donation-event-toggle">Enable Donation for this Event</Label>
-                    <p className="text-xs text-slate-500">
-                      When enabled, users paying by card will be offered the chance to donate during checkout.
-                    </p>
-                  </div>
-                  <Switch
-                    id="donation-event-toggle"
-                    checked={donationConfig.enabled}
-                    onCheckedChange={(checked) => setDonationConfig(prev => ({ ...prev, enabled: checked }))}
-                    data-testid="switch-event-donation"
-                  />
-                </div>
-
-                {donationConfig.enabled && (
-                  <div className="space-y-5 pt-4 border-t border-slate-200">
-                    <div className="space-y-3">
-                      <Label>Preset Donation Amounts</Label>
-                      <p className="text-xs text-slate-500">
-                        These amounts will be shown as quick-select options on the donation modal.
-                      </p>
-                      <div className="flex flex-wrap items-center gap-2">
-                        {donationConfig.preset_amounts.map((amount, index) => (
-                          <Badge key={index} variant="secondary" className="text-sm gap-1.5">
-                            £{amount}
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setDonationConfig(prev => ({
-                                  ...prev,
-                                  preset_amounts: prev.preset_amounts.filter((_, i) => i !== index)
-                                }));
-                              }}
-                              className="ml-1 hover:text-red-600"
-                              data-testid={`button-remove-preset-amount-${index}`}
-                            >
-                              <X className="h-3 w-3" />
-                            </button>
-                          </Badge>
-                        ))}
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <Input
-                          type="number"
-                          min="1"
-                          step="1"
-                          placeholder="e.g., 100"
-                          value={newPresetAmount}
-                          onChange={(e) => setNewPresetAmount(e.target.value)}
-                          className="w-32"
-                          data-testid="input-new-preset-amount"
-                        />
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={() => {
-                            const val = parseFloat(newPresetAmount);
-                            if (val > 0 && !donationConfig.preset_amounts.includes(val)) {
-                              setDonationConfig(prev => ({
-                                ...prev,
-                                preset_amounts: [...prev.preset_amounts, val].sort((a, b) => a - b)
-                              }));
-                              setNewPresetAmount('');
-                            }
-                          }}
-                          data-testid="button-add-preset-amount"
-                        >
-                          <Plus className="h-4 w-4 mr-1" />
-                          Add
-                        </Button>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center justify-between">
-                      <div className="space-y-1">
-                        <Label htmlFor="donation-custom-amount-toggle">Allow Custom Amount</Label>
-                        <p className="text-xs text-slate-500">
-                          Let donors enter any amount instead of choosing from presets.
-                        </p>
-                      </div>
-                      <Switch
-                        id="donation-custom-amount-toggle"
-                        checked={donationConfig.allow_custom_amount}
-                        onCheckedChange={(checked) => setDonationConfig(prev => ({ ...prev, allow_custom_amount: checked }))}
-                        data-testid="switch-donation-custom-amount"
-                      />
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label htmlFor="donation-custom-message">Custom Message</Label>
-                      <p className="text-xs text-slate-500">
-                        This message will be shown on the donation modal to encourage donations.
-                      </p>
-                      <Textarea
-                        id="donation-custom-message"
-                        value={donationConfig.custom_message}
-                        onChange={(e) => setDonationConfig(prev => ({ ...prev, custom_message: e.target.value }))}
-                        placeholder="e.g., Your donation helps us continue our important work..."
-                        rows={3}
-                        data-testid="textarea-donation-message"
-                      />
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label htmlFor="donation-email-list">Email Communication List</Label>
-                      <p className="text-xs text-slate-500">
-                        Donors will be added to this subscription list.
-                      </p>
-                      <Select
-                        value={donationConfig.email_list_key || '_none'}
-                        onValueChange={(value) => setDonationConfig(prev => ({ ...prev, email_list_key: value === '_none' ? '' : value }))}
-                      >
-                        <SelectTrigger data-testid="select-donation-email-list">
-                          <SelectValue placeholder="Select a subscription list" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="_none">No list</SelectItem>
-                          {communicationCategories.filter(cat => cat.is_public && cat.is_active).map((cat) => (
-                            <SelectItem key={cat.id} value={cat.id}>
-                              {cat.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          )}
-
+          <TabsContent value="emails" forceMount className={TAB_PANEL_CLASS}>
           {/* Email Configuration Section */}
           <Card className="border-slate-200 shadow-sm mb-6">
             <CardHeader className="pb-4">
@@ -4418,7 +4460,46 @@ export default function EditEvent() {
               )}
             </CardContent>
           </Card>
+          </TabsContent>
 
+          <TabsContent value="surveys" forceMount className={TAB_PANEL_CLASS}>
+          <Card className="border-slate-200 shadow-sm mb-6">
+            <CardHeader className="pb-4">
+              <CardTitle className="text-lg">Surveys</CardTitle>
+              <CardDescription>
+                Attach surveys to this event so attendees can give feedback. Set optional open/close windows and control who can respond.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <EventSurveysSection eventId={eventId} eventType="event" />
+            </CardContent>
+          </Card>
+          </TabsContent>
+
+          <TabsContent value="budget" forceMount className={TAB_PANEL_CLASS}>
+          {!isGroupLimited && (
+          <Card className="border-slate-200 shadow-sm mb-6">
+            <CardHeader className="pb-4">
+              <CardTitle className="text-lg">Budget</CardTitle>
+              <CardDescription>
+                Plan and track this event's finances. Actual revenue is calculated from ticket sales.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <EventBudgetPanel
+                eventId={eventId}
+                eventKind="simple"
+                budgetedCosts={formData.budgeted_costs}
+                budgetedIncome={formData.budgeted_income}
+                onBudgetedCostsChange={(v) => handleInputChange("budgeted_costs", v)}
+                onBudgetedIncomeChange={(v) => handleInputChange("budgeted_income", v)}
+              />
+            </CardContent>
+          </Card>
+          )}
+          </TabsContent>
+
+          <TabsContent value="sharing" forceMount className={TAB_PANEL_CLASS}>
           {/* Embed on External Websites */}
           {eventId && currentTenant?.slug && (
             <Card className="border-slate-200 shadow-sm bg-white">
@@ -4486,23 +4567,23 @@ export default function EditEvent() {
               </CardContent>
             </Card>
           )}
+          </TabsContent>
+          </Tabs>
 
-          {(() => {
-            const simpleZoomId = formData.zoom_meeting_id || formData.zoom_webinar_id;
-            if (!simpleZoomId) return null;
-            const simpleZoomType = formData.zoom_webinar_id ? 'webinar' : 'meeting';
-            const eventIsPast = formData.start_date && new Date(formData.start_date) < new Date();
-
-            return (
-              <div className="mt-6 mb-6">
-                <ZoomPolls
-                  zoomId={simpleZoomId}
-                  type={simpleZoomType}
-                  isPast={eventIsPast}
-                />
-              </div>
-            );
-          })()}
+          {!isGroupLimited && !isTraining && (
+        <ChangeZoomDialog
+          open={zoomLinkDialog.open}
+          onOpenChange={(open) => setZoomLinkDialog((s) => ({ ...s, open }))}
+          endpointBase={`/api/events/${eventId}`}
+          mode={zoomLinkDialog.mode}
+          targetLabel="event"
+          initialType={formData.zoom_meeting_id ? 'meeting' : 'webinar'}
+          onSuccess={() => {
+            queryClient.invalidateQueries({ queryKey: ['event', eventId] });
+            window.location.reload();
+          }}
+        />
+          )}
 
           <div className="flex items-center justify-end gap-4">
             <Button
