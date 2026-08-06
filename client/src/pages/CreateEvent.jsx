@@ -149,7 +149,8 @@ export default function CreateEvent() {
   const [isOnline, setIsOnline] = useState(false);
   const [isProgramEvent, setIsProgramEvent] = useState(false);
   // Training event (Task #3419): simple event + multi-day agenda lines
-  const [isTraining, setIsTraining] = useState(false);
+  // ?training=1 preselects the toggle (Multi-Day Event card in Create New Event modal)
+  const [isTraining, setIsTraining] = useState(() => groupSearchParams.get('training') === '1');
   const [agendaLines, setAgendaLines] = useState([]);
   const [zoomType, setZoomType] = useState("webinar"); // "webinar" or "meeting"
   const [selectedWebinarId, setSelectedWebinarId] = useState("");

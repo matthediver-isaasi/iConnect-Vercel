@@ -2647,6 +2647,25 @@ export default function EventsPage({
                 </p>
               </div>
             </button>
+            <button
+              type="button"
+              className="flex items-start gap-4 p-4 rounded-lg border border-slate-200 text-left hover-elevate transition-colors"
+              data-testid="button-create-multiday-event"
+              onClick={() => {
+                setShowCreateEventModal(false);
+                window.location.href = `${createPageUrl('CreateEvent')}?training=1`;
+              }}
+            >
+              <div className="mt-0.5 p-2 rounded-lg bg-emerald-50 text-emerald-600 shrink-0">
+                <CalendarDays className="h-5 w-5" />
+              </div>
+              <div>
+                <p className="font-semibold text-sm">Multi-Day Event</p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  A single event spanning multiple days with a per-day agenda, such as a training course or residential programme booked as one event.
+                </p>
+              </div>
+            </button>
           </div>
         </DialogContent>
       </Dialog>
