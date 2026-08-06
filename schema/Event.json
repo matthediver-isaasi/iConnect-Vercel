@@ -157,6 +157,10 @@
       "type": "string",
       "description": "Overrides the 'Confirm Booking' button text when replace_booking_elements is on (TBC events)"
     },
+    "booking_replacement_title": {
+      "type": "string",
+      "description": "Overrides the 'Booking Summary' card heading while the replacement display is active (TBC events with replace_booking_elements on)"
+    },
     "speaker_award_config": {
       "type": "object",
       "description": "Speaker awards granted at event start: { enabled, default: { voucher_value, voucher_expiry, badge_id }, overrides: { <speakerId>: { excluded } | { voucher_value, voucher_expiry, badge_id } } }"

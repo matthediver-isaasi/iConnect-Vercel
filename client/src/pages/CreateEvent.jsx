@@ -148,6 +148,7 @@ export default function CreateEvent() {
   const [replaceBookingElements, setReplaceBookingElements] = useState(false);
   const [bookingReplacementMessage, setBookingReplacementMessage] = useState("");
   const [bookingReplacementCtaLabel, setBookingReplacementCtaLabel] = useState("");
+  const [bookingReplacementTitle, setBookingReplacementTitle] = useState("");
   const [eventState, setEventState] = useState("active"); // active, draft, or closed - affects visibility/registration
   const [isFeatured, setIsFeatured] = useState(false);
   const [isOnline, setIsOnline] = useState(false);
@@ -1047,6 +1048,7 @@ export default function CreateEvent() {
       replace_booking_elements: replaceBookingElements === true,
       booking_replacement_message: bookingReplacementMessage.trim() || null,
       booking_replacement_cta_label: bookingReplacementCtaLabel.trim() || null,
+      booking_replacement_title: bookingReplacementTitle.trim() || null,
       event_state: eventState,
       is_featured: isFeatured,
       attached_documents: attachedDocuments,
@@ -1346,6 +1348,17 @@ export default function CreateEvent() {
                             placeholder="Confirm Booking"
                             data-testid="input-booking-replacement-cta-label"
                           />
+                        </div>
+                        <div>
+                          <Label htmlFor="booking-replacement-title">Booking summary title</Label>
+                          <Input
+                            id="booking-replacement-title"
+                            value={bookingReplacementTitle}
+                            onChange={(e) => setBookingReplacementTitle(e.target.value)}
+                            placeholder="Booking Summary"
+                            data-testid="input-booking-replacement-title"
+                          />
+                          <p className="text-xs text-slate-500 mt-1">Optional — replaces the "Booking Summary" heading on the booking card</p>
                         </div>
                       </>
                     )}

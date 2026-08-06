@@ -66,6 +66,7 @@ export default async function handler(req, res) {
         replace_booking_elements,
         booking_replacement_message,
         booking_replacement_cta_label,
+        booking_replacement_title,
         attached_documents,
         documents_section_title
       `)
@@ -220,6 +221,7 @@ export default async function handler(req, res) {
       replace_booking_elements: event.replace_booking_elements === true,
       booking_replacement_message: event.booking_replacement_message || null,
       booking_replacement_cta_label: event.booking_replacement_cta_label || null,
+      booking_replacement_title: event.booking_replacement_title || null,
       attached_documents: Array.isArray(event.attached_documents) ? event.attached_documents : [],
       documents_section_title: event.documents_section_title || null
     };

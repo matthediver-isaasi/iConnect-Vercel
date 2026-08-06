@@ -20,7 +20,7 @@ import VoucherSelector from "./VoucherSelector";
 import { useBalancesRealtime } from "@/hooks/useBalancesRealtime";
 import { publicClient } from "@/api/publicClient";
 import { getEffectiveTicketPrice } from "@/lib/ticketPricing";
-import { isTbcReplacementDisplayActive, resolveTbcCtaLabel } from "@/lib/tbcBookingReplacement.mjs";
+import { isTbcReplacementDisplayActive, resolveTbcCtaLabel, resolveTbcSummaryTitle } from "@/lib/tbcBookingReplacement.mjs";
 
 // Stripe promise will be initialized dynamically
 let stripePromise = null;
@@ -2160,7 +2160,7 @@ export default function PaymentOptions({
 
           {ticketsRequired === 0 && registrationMode === 'colleagues' && (
             <p className="text-xs text-center text-slate-500">
-              Add attendees to proceed with booking
+              Add attendees to continue
             </p>
           )}
           
@@ -2178,7 +2178,7 @@ export default function PaymentOptions({
       {renderAsCard ? (
         <Card className="border-slate-200 shadow-lg sticky top-8">
           <CardHeader className="border-b border-slate-200">
-            <CardTitle className="text-xl">Booking Summary</CardTitle>
+            <CardTitle className="text-xl">{resolveTbcSummaryTitle(tbcBookingReplacement, totalCost)}</CardTitle>
           </CardHeader>
           <CardContent className="pt-6 space-y-6">
             {mainContent}

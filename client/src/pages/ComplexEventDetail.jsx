@@ -35,7 +35,8 @@ import { computeComplexEventDayInfo } from "@/lib/complexEventDays";
 import { supabase } from "@/api/supabaseClient";
 import { getFocalPointStyle } from "@/components/FocalPointPicker";
 import { getEffectiveTicketPrice } from "@/lib/ticketPricing";
-import { getTbcBookingReplacement } from "@/lib/tbcBookingReplacement.mjs";
+import { getTbcBookingReplacement, isTbcReplacementDisplayActive } from "@/lib/tbcBookingReplacement.mjs";
+import TbcAttendeeControls from "@/components/booking/TbcAttendeeControls.jsx";
 import { Link, useParams } from "react-router-dom";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
@@ -806,6 +807,10 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
   // button (label overridden). Booking action + terms enforcement unchanged.
   const tbcBookingReplacement = getTbcBookingReplacement(event);
   const tbcReplacementActive = !!tbcBookingReplacement;
+  // While the replacement display is active (toggle on and nothing is owed)
+  // the ticket selection controls are hidden — the Add Attendee inputs,
+  // terms enforcement and the booking payload are unaffected.
+  const tbcTicketSelectorsHidden = isTbcReplacementDisplayActive(tbcBookingReplacement, grandTotal);
   const isSoldOut = event?.available_seats !== null
     && event?.available_seats !== undefined
     && Number(event.available_seats) <= 0
@@ -825,7 +830,21 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
 
   const eventTracks = event?.tracks || [];
 
-  const ticketCards = (
+  // While the replacement display is active the ticket selector cards are
+  // hidden entirely; only a minimal Add Attendee control remains so the
+  // attendee inputs, terms enforcement and booking payload are unchanged.
+  const tbcBookableTicketClass = availableTicketClasses
+    .find(tc => !isTicketRestricted(tc) && !isTicketSoldOut(tc)) || null;
+
+  const ticketCards = tbcTicketSelectorsHidden ? (
+    <TbcAttendeeControls
+      ticketClass={tbcBookableTicketClass}
+      attendeeCount={totalAttendeeCount}
+      onAdd={handleOpenAttendeeModal}
+      isGroupEvent={isGroupEvent}
+      disabled={isGroupEvent && totalAttendeeCount >= 1}
+    />
+  ) : (
     <div className="space-y-3">
       {availableTicketClasses.length > 0 && (
         <Label className="text-sm font-medium">Tickets</Label>
@@ -973,7 +992,7 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
       <CardHeader>
         <CardTitle className="text-lg flex items-center gap-2">
           <Ticket className="w-5 h-5 text-indigo-600" />
-          Register
+          {(tbcTicketSelectorsHidden && tbcBookingReplacement?.title) || 'Register'}
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-6">

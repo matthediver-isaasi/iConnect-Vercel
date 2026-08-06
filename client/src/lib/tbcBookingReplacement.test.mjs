@@ -4,6 +4,7 @@ import {
   getTbcBookingReplacement,
   isTbcReplacementDisplayActive,
   resolveTbcCtaLabel,
+  resolveTbcSummaryTitle,
 } from './tbcBookingReplacement.mjs';
 
 test('non-TBC events are unaffected even with the flag on', () => {
@@ -28,8 +29,34 @@ test('TBC event with the toggle on yields message and trimmed CTA label', () => 
     replace_booking_elements: true,
     booking_replacement_message: 'Register your interest.',
     booking_replacement_cta_label: '  Register Interest  ',
+    booking_replacement_title: '  Register Your Interest  ',
   });
-  assert.deepEqual(r, { message: 'Register your interest.', ctaLabel: 'Register Interest' });
+  assert.deepEqual(r, {
+    message: 'Register your interest.',
+    ctaLabel: 'Register Interest',
+    title: 'Register Your Interest',
+  });
+});
+
+test('missing/blank title falls back to null', () => {
+  const r = getTbcBookingReplacement({ status: 'tbc', replace_booking_elements: true });
+  assert.equal(r.title, null);
+  const r2 = getTbcBookingReplacement({
+    status: 'tbc',
+    replace_booking_elements: true,
+    booking_replacement_title: '   ',
+  });
+  assert.equal(r2.title, null);
+});
+
+test('resolveTbcSummaryTitle overrides only while the display is active', () => {
+  const r = { message: '', ctaLabel: null, title: 'Pre-registration' };
+  assert.equal(resolveTbcSummaryTitle(r, 0), 'Pre-registration');
+  // Money owed: replacement display suppressed, keep the standard heading.
+  assert.equal(resolveTbcSummaryTitle(r, 25), 'Booking Summary');
+  // No title set: standard heading.
+  assert.equal(resolveTbcSummaryTitle({ message: '', ctaLabel: null, title: null }, 0), 'Booking Summary');
+  assert.equal(resolveTbcSummaryTitle(null, 0), 'Booking Summary');
 });
 
 test('blank CTA label falls back to null (default button text used)', () => {

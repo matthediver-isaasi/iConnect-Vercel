@@ -628,6 +628,7 @@ export default function CreateComplexEvent() {
     replace_booking_elements: false,
     booking_replacement_message: "",
     booking_replacement_cta_label: "",
+    booking_replacement_title: "",
     program_tag: "",
     group_event_public: false,
   });
@@ -1136,6 +1137,7 @@ export default function CreateComplexEvent() {
         replace_booking_elements: existingEvent.replace_booking_elements === true,
         booking_replacement_message: existingEvent.booking_replacement_message || "",
         booking_replacement_cta_label: existingEvent.booking_replacement_cta_label || "",
+        booking_replacement_title: existingEvent.booking_replacement_title || "",
         group_event_public: existingEvent.group_event_public === true,
       });
       setSlugManuallyEdited(true);
@@ -1785,6 +1787,7 @@ export default function CreateComplexEvent() {
         replace_booking_elements: formData.replace_booking_elements === true,
         booking_replacement_message: (formData.booking_replacement_message || '').trim() || null,
         booking_replacement_cta_label: (formData.booking_replacement_cta_label || '').trim() || null,
+        booking_replacement_title: (formData.booking_replacement_title || '').trim() || null,
         ...(isGroupLimited ? {
           member_group_id: lockedGroupId,
           group_event_public: formData.group_event_public === true,
@@ -2320,6 +2323,17 @@ export default function CreateComplexEvent() {
                               placeholder="Confirm Booking"
                               data-testid="input-booking-replacement-cta-label"
                             />
+                          </div>
+                          <div>
+                            <Label htmlFor="booking-replacement-title">Booking summary title</Label>
+                            <Input
+                              id="booking-replacement-title"
+                              value={formData.booking_replacement_title || ""}
+                              onChange={(e) => updateField('booking_replacement_title', e.target.value)}
+                              placeholder="Booking Summary"
+                              data-testid="input-booking-replacement-title"
+                            />
+                            <p className="text-xs text-slate-500 mt-1">Optional — replaces the "Booking Summary" heading on the booking card</p>
                           </div>
                         </>
                       )}

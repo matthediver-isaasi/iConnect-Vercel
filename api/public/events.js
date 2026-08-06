@@ -61,6 +61,7 @@ export default async function handler(req, res) {
         replace_booking_elements,
         booking_replacement_message,
         booking_replacement_cta_label,
+        booking_replacement_title,
         filter_tags,
         member_group_id,
         group_event_public
@@ -174,6 +175,7 @@ export default async function handler(req, res) {
         replace_booking_elements: event.replace_booking_elements === true,
         booking_replacement_message: event.booking_replacement_message || null,
         booking_replacement_cta_label: event.booking_replacement_cta_label || null,
+        booking_replacement_title: event.booking_replacement_title || null,
         filter_tags: event.filter_tags || [],
         agenda_summary: event.is_training ? (agendaByEvent[event.id] || []) : undefined
       };

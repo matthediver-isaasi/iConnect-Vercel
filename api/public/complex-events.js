@@ -32,7 +32,7 @@ export default async function handler(req, res) {
 
     const { data: rawEvents, error } = await supabase
       .from('complex_event')
-      .select('id, title, slug, description, summary, start_date, end_date, location, image_url, status, timezone, available_seats, event_state, registration_closes_at, event_type, is_featured, cta_override_url, cta_override_mode, cta_button_label, replace_booking_elements, booking_replacement_message, booking_replacement_cta_label, member_group_id, group_event_public, custom_duration_explainer')
+      .select('id, title, slug, description, summary, start_date, end_date, location, image_url, status, timezone, available_seats, event_state, registration_closes_at, event_type, is_featured, cta_override_url, cta_override_mode, cta_button_label, replace_booking_elements, booking_replacement_message, booking_replacement_cta_label, booking_replacement_title, member_group_id, group_event_public, custom_duration_explainer')
       .eq('tenant_id', tenant.id)
       .in('status', ['published', 'tbc'])
       .or('event_state.is.null,event_state.eq.active,event_state.eq.closed')
@@ -193,7 +193,8 @@ export default async function handler(req, res) {
         cta_button_label: event.cta_button_label || null,
         replace_booking_elements: event.replace_booking_elements === true,
         booking_replacement_message: event.booking_replacement_message || null,
-        booking_replacement_cta_label: event.booking_replacement_cta_label || null
+        booking_replacement_cta_label: event.booking_replacement_cta_label || null,
+        booking_replacement_title: event.booking_replacement_title || null
       };
     });
 

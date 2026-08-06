@@ -183,6 +183,7 @@ export default function EditEvent() {
   const [replaceBookingElements, setReplaceBookingElements] = useState(false);
   const [bookingReplacementMessage, setBookingReplacementMessage] = useState("");
   const [bookingReplacementCtaLabel, setBookingReplacementCtaLabel] = useState("");
+  const [bookingReplacementTitle, setBookingReplacementTitle] = useState("");
   // Event state: active, draft, or closed - affects visibility/registration
   const [eventState, setEventState] = useState("active");
   const [isFeatured, setIsFeatured] = useState(false);
@@ -985,6 +986,7 @@ export default function EditEvent() {
       setReplaceBookingElements(event.replace_booking_elements === true);
       setBookingReplacementMessage(event.booking_replacement_message || "");
       setBookingReplacementCtaLabel(event.booking_replacement_cta_label || "");
+      setBookingReplacementTitle(event.booking_replacement_title || "");
 
       // Load the group audience choice (group-limited mode).
       setGroupEventPublic(event.group_event_public === true);
@@ -1584,6 +1586,7 @@ export default function EditEvent() {
       replace_booking_elements: replaceBookingElements === true,
       booking_replacement_message: bookingReplacementMessage.trim() || null,
       booking_replacement_cta_label: bookingReplacementCtaLabel.trim() || null,
+      booking_replacement_title: bookingReplacementTitle.trim() || null,
       event_state: eventState,
       is_featured: isFeatured,
       timezone: eventTimezone,
@@ -2142,6 +2145,17 @@ export default function EditEvent() {
                             placeholder="Confirm Booking"
                             data-testid="input-booking-replacement-cta-label"
                           />
+                        </div>
+                        <div>
+                          <Label htmlFor="booking-replacement-title">Booking summary title</Label>
+                          <Input
+                            id="booking-replacement-title"
+                            value={bookingReplacementTitle}
+                            onChange={(e) => setBookingReplacementTitle(e.target.value)}
+                            placeholder="Booking Summary"
+                            data-testid="input-booking-replacement-title"
+                          />
+                          <p className="text-xs text-slate-500 mt-1">Optional — replaces the "Booking Summary" heading on the booking card</p>
                         </div>
                       </>
                     )}

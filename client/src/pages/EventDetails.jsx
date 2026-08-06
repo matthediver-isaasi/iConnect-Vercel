@@ -18,7 +18,7 @@ import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from "@/components/ui/tooltip";
 import { Calendar, MapPin, Clock, Users, ArrowLeft, Ticket, Plus, Loader2, Video, AlertTriangle, PoundSterling, User, Mic, ChevronRight, ChevronDown, ChevronUp, X, Lock, FileText, LogIn, Bird, ExternalLink } from "lucide-react";
 import { getEffectiveTicketPrice } from "@/lib/ticketPricing";
-import { getTbcBookingReplacement, resolveTbcCtaLabel } from "@/lib/tbcBookingReplacement.mjs";
+import { getTbcBookingReplacement, isTbcReplacementDisplayActive, resolveTbcCtaLabel } from "@/lib/tbcBookingReplacement.mjs";
 import EarlyBirdCountdown from "@/components/EarlyBirdCountdown";
 import { Checkbox } from "@/components/ui/checkbox";
 import { format } from "date-fns";
@@ -1321,6 +1321,11 @@ export default function EventDetailsPage() {
   const totalCost = isOneOffEvent 
     ? oneOffCostDetails.totalCost 
     : attendees.filter((a) => a.isValid).length * (event.ticket_price || 0);
+
+  // While the TBC replacement display is active (toggle on and nothing is
+  // owed) the ticket selector cards are hidden entirely — attendee inputs,
+  // terms enforcement and the booking payload are unaffected.
+  const tbcTicketSelectorsHidden = isTbcReplacementDisplayActive(tbcBookingReplacement, totalCost);
   
   const availableProgramTickets = event.program_tag && organizationInfo?.program_ticket_balances ?
     organizationInfo.program_ticket_balances[event.program_tag] || 0 : 0;
@@ -2282,7 +2287,7 @@ export default function EventDetailsPage() {
                             
                             {ticketsRequired === 0 && (
                               <p className="text-xs text-center text-slate-500 mt-2">
-                                Add attendees to proceed with booking
+                                Add attendees to continue
                               </p>
                             )}
                             
@@ -2352,7 +2357,7 @@ export default function EventDetailsPage() {
             )}
 
             {/* Ticket Class Selector - Only shown for one-off events with multiple ticket classes */}
-            {isOneOffEvent && availableTicketClasses.length > 1 && (
+            {isOneOffEvent && availableTicketClasses.length > 1 && !tbcTicketSelectorsHidden && (
               <Card className="border-slate-200 shadow-sm mb-4">
                 <CardHeader className="pb-3">
                   <CardTitle className="text-lg flex items-center gap-2">
@@ -2493,7 +2498,7 @@ export default function EventDetailsPage() {
             )}
 
             {/* Single ticket class display - shown when only one option */}
-            {isOneOffEvent && availableTicketClasses.length === 1 && selectedTicketClass && (
+            {isOneOffEvent && availableTicketClasses.length === 1 && selectedTicketClass && !tbcTicketSelectorsHidden && (
               <Card className="border-slate-200 shadow-sm mb-4">
                 <CardHeader className="pb-3">
                   <CardTitle className="text-lg flex items-center gap-2">
