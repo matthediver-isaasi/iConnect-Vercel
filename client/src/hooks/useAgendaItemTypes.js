@@ -4,15 +4,18 @@ import { publicClient } from "@/api/publicClient";
 
 // Task #3419: Training-event agenda item types.
 // Stored as a tenant SystemSettings JSON array under 'event_agenda_item_types':
-//   [{ name, includeInClashChecks }]
+//   [{ name, includeInClashChecks, icon }]
+// `icon` is an optional Lucide icon name (kebab-case) shown on event cards'
+// mini agenda lines; null/absent falls back to the default calendar icon
+// (legacy saved arrays without the key parse to icon: null).
 // Seed defaults apply whenever the setting is absent, so existing tenants get
 // them without a backfill. Keep in sync with api/_lib/agendaItemTypes.js.
 export const AGENDA_ITEM_TYPES_SETTING_KEY = 'event_agenda_item_types';
 
 export const DEFAULT_AGENDA_ITEM_TYPES = [
-  { name: 'In person', includeInClashChecks: true },
-  { name: 'Online', includeInClashChecks: true },
-  { name: 'Self study', includeInClashChecks: false },
+  { name: 'In person', includeInClashChecks: true, icon: 'map-pin' },
+  { name: 'Online', includeInClashChecks: true, icon: 'video' },
+  { name: 'Self study', includeInClashChecks: false, icon: 'book' },
 ];
 
 export function parseAgendaItemTypes(settingValue) {
@@ -22,7 +25,11 @@ export function parseAgendaItemTypes(settingValue) {
     if (!Array.isArray(parsed) || parsed.length === 0) return DEFAULT_AGENDA_ITEM_TYPES;
     return parsed
       .filter((t) => t && typeof t.name === 'string' && t.name.trim())
-      .map((t) => ({ name: t.name.trim(), includeInClashChecks: t.includeInClashChecks !== false }));
+      .map((t) => ({
+        name: t.name.trim(),
+        includeInClashChecks: t.includeInClashChecks !== false,
+        icon: typeof t.icon === 'string' && t.icon.trim() ? t.icon.trim() : null,
+      }));
   } catch (e) {
     console.error('Failed to parse agenda item types:', e);
     return DEFAULT_AGENDA_ITEM_TYPES;

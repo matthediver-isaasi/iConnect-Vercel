@@ -2,7 +2,10 @@
 //
 // Agenda item types are a tenant setting stored in system_settings under the
 // 'event_agenda_item_types' key: a JSON array of
-//   { name: string, includeInClashChecks: boolean }
+//   { name: string, includeInClashChecks: boolean, icon: string|null }
+// `icon` is an optional Lucide icon name (kebab-case) rendered on event
+// cards' mini agenda lines; null/absent means "use the default calendar
+// icon". Legacy saved arrays without the key parse to icon: null.
 // The three seed defaults below apply whenever the setting is absent, so
 // existing tenants get them without a backfill. "Self study" is excluded from
 // clash checks by default (self-paced work can overlap other events).
@@ -12,9 +15,9 @@ import { supabase } from './database.js';
 export const AGENDA_ITEM_TYPES_SETTING_KEY = 'event_agenda_item_types';
 
 export const DEFAULT_AGENDA_ITEM_TYPES = [
-  { name: 'In person', includeInClashChecks: true },
-  { name: 'Online', includeInClashChecks: true },
-  { name: 'Self study', includeInClashChecks: false },
+  { name: 'In person', includeInClashChecks: true, icon: 'map-pin' },
+  { name: 'Online', includeInClashChecks: true, icon: 'video' },
+  { name: 'Self study', includeInClashChecks: false, icon: 'book' },
 ];
 
 export function parseAgendaItemTypes(settingValue) {
@@ -24,7 +27,11 @@ export function parseAgendaItemTypes(settingValue) {
     if (!Array.isArray(parsed) || parsed.length === 0) return DEFAULT_AGENDA_ITEM_TYPES;
     return parsed
       .filter((t) => t && typeof t.name === 'string' && t.name.trim())
-      .map((t) => ({ name: t.name.trim(), includeInClashChecks: t.includeInClashChecks !== false }));
+      .map((t) => ({
+        name: t.name.trim(),
+        includeInClashChecks: t.includeInClashChecks !== false,
+        icon: typeof t.icon === 'string' && t.icon.trim() ? t.icon.trim() : null,
+      }));
   } catch {
     return DEFAULT_AGENDA_ITEM_TYPES;
   }

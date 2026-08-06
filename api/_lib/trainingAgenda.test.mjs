@@ -86,13 +86,23 @@ test('parseAgendaItemTypes: defaults on absent/invalid, normalizes toggle', () =
   assert.deepEqual(parseAgendaItemTypes('not json'), DEFAULT_AGENDA_ITEM_TYPES);
   assert.deepEqual(
     parseAgendaItemTypes(JSON.stringify([{ name: ' Lab ', includeInClashChecks: false }, { name: '' }])),
-    [{ name: 'Lab', includeInClashChecks: false }]
+    [{ name: 'Lab', includeInClashChecks: false, icon: null }]
   );
-  // omitted toggle defaults to included
+  // omitted toggle defaults to included; legacy rows without icon parse to null
   assert.deepEqual(
     parseAgendaItemTypes(JSON.stringify([{ name: 'Lab' }])),
-    [{ name: 'Lab', includeInClashChecks: true }]
+    [{ name: 'Lab', includeInClashChecks: true, icon: null }]
   );
+  // stored icon survives (trimmed); blank icon normalizes to null
+  assert.deepEqual(
+    parseAgendaItemTypes(JSON.stringify([{ name: 'Lab', icon: ' flask-conical ' }, { name: 'Talk', icon: '  ' }])),
+    [
+      { name: 'Lab', includeInClashChecks: true, icon: 'flask-conical' },
+      { name: 'Talk', includeInClashChecks: true, icon: null },
+    ]
+  );
+  // built-in defaults carry sensible icons
+  assert.deepEqual(DEFAULT_AGENDA_ITEM_TYPES.map((t) => t.icon), ['map-pin', 'video', 'book']);
 });
 
 test('clashIncludedTypeNames: excludes toggled-off types', () => {

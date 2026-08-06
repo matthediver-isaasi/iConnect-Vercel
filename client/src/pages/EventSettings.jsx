@@ -8,7 +8,9 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Settings, Calendar, Clock, MapPin, Ticket, RefreshCw, Save, Image as ImageIcon, Upload, X, FileText, Plus, Trash2, Edit2, Tag, Gift, Star } from "lucide-react";
+import { Settings, Calendar, CalendarDays, Clock, MapPin, Ticket, RefreshCw, Save, Image as ImageIcon, Upload, X, FileText, Plus, Trash2, Edit2, Tag, Gift, Star } from "lucide-react";
+import { LucideIconPicker } from "@/components/canvas/LucideIconPicker";
+import DynamicLucideIcon from "@/components/common/DynamicLucideIcon";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { format } from "date-fns";
@@ -108,6 +110,7 @@ export default function EventSettingsPage() {
   const [editingAgendaTypeIndex, setEditingAgendaTypeIndex] = useState(null);
   const [editingAgendaTypeValue, setEditingAgendaTypeValue] = useState("");
   const [savingAgendaItemTypes, setSavingAgendaItemTypes] = useState(false);
+  const [agendaIconPickerIndex, setAgendaIconPickerIndex] = useState(null);
   
   // CTA Button configuration
   const [ctaButtonStyle, setCtaButtonStyle] = useState("default"); // "default" or "gradient"
@@ -993,6 +996,14 @@ export default function EventSettingsPage() {
   const handleToggleAgendaTypeClash = (index, checked) => {
     const updated = [...agendaItemTypes];
     updated[index] = { ...updated[index], includeInClashChecks: checked === true };
+    setAgendaItemTypes(updated);
+  };
+
+  // Set (or clear, with null) a type's Lucide icon; shown on event-card mini
+  // agenda lines. Persisted by the same Save Agenda Item Types flow.
+  const handleSetAgendaTypeIcon = (index, iconName) => {
+    const updated = [...agendaItemTypes];
+    updated[index] = { ...updated[index], icon: iconName || null };
     setAgendaItemTypes(updated);
   };
 
@@ -2970,8 +2981,34 @@ export default function EventSettingsPage() {
                         </div>
                       ) : (
                         <>
-                          <span className="font-medium text-slate-800">{type.name}</span>
+                          <span className="flex items-center gap-2 font-medium text-slate-800">
+                            <DynamicLucideIcon
+                              name={type.icon}
+                              fallback={CalendarDays}
+                              className={`w-4 h-4 shrink-0 ${type.icon ? 'text-slate-600' : 'text-slate-400'}`}
+                              data-testid={`icon-preview-agenda-type-${index}`}
+                            />
+                            {type.name}
+                          </span>
                           <div className="flex items-center gap-4">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => setAgendaIconPickerIndex(index)}
+                              data-testid={`button-agenda-type-icon-${index}`}
+                            >
+                              {type.icon ? 'Change Icon' : 'Choose Icon'}
+                            </Button>
+                            {type.icon && (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => handleSetAgendaTypeIcon(index, null)}
+                                data-testid={`button-agenda-type-icon-clear-${index}`}
+                              >
+                                Clear Icon
+                              </Button>
+                            )}
                             <div className="flex items-center gap-2">
                               <Label className="text-xs text-slate-500">Include in clash checks</Label>
                               <Switch
@@ -2999,6 +3036,16 @@ export default function EventSettingsPage() {
                   ))}
                 </div>
               )}
+
+              <LucideIconPicker
+                open={agendaIconPickerIndex !== null}
+                onClose={() => setAgendaIconPickerIndex(null)}
+                currentValue={agendaIconPickerIndex !== null ? (agendaItemTypes[agendaIconPickerIndex]?.icon || '') : ''}
+                onSelect={(name) => {
+                  if (agendaIconPickerIndex !== null) handleSetAgendaTypeIcon(agendaIconPickerIndex, name);
+                  setAgendaIconPickerIndex(null);
+                }}
+              />
 
               <div className="pt-4 border-t border-slate-200">
                 <Button

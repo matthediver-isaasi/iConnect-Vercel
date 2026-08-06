@@ -1,8 +1,14 @@
 // Compact agenda list for Training event cards (dates only, no times).
 // Renders one line per agenda item — "MMM d, yyyy [– MMM d, yyyy] · Type" —
 // in the event's configured agenda order, capped so cards stay compact.
+// Each line's leading icon comes from its item type's configured Lucide icon
+// (Event Settings → Agenda Item Types); unknown types or types without an
+// icon keep the default calendar icon.
+import { useMemo } from "react";
 import { CalendarDays } from "lucide-react";
 import { parseISO, format, isValid } from "date-fns";
+import DynamicLucideIcon from "@/components/common/DynamicLucideIcon";
+import { useAgendaItemTypes } from "@/hooks/useAgendaItemTypes";
 
 const DEFAULT_MAX_LINES = 4;
 
@@ -39,6 +45,15 @@ export function sortAgendaItems(items) {
 }
 
 export default function TrainingMiniAgenda({ items, maxLines = DEFAULT_MAX_LINES, testId }) {
+  const { agendaItemTypes } = useAgendaItemTypes();
+  const iconByType = useMemo(() => {
+    const map = {};
+    for (const t of agendaItemTypes) {
+      if (t.icon) map[t.name.trim().toLowerCase()] = t.icon;
+    }
+    return map;
+  }, [agendaItemTypes]);
+
   const sorted = sortAgendaItems(items).filter((i) => formatAgendaDateRange(i));
   if (sorted.length === 0) return null;
 
@@ -49,7 +64,11 @@ export default function TrainingMiniAgenda({ items, maxLines = DEFAULT_MAX_LINES
     <div className="space-y-1.5" data-testid={testId}>
       {visible.map((item, idx) => (
         <div key={idx} className="flex items-center gap-2 text-sm text-slate-600">
-          <CalendarDays className="w-4 h-4 text-slate-400 shrink-0" />
+          <DynamicLucideIcon
+            name={item.item_type ? iconByType[String(item.item_type).trim().toLowerCase()] : null}
+            fallback={CalendarDays}
+            className="w-4 h-4 text-slate-400 shrink-0"
+          />
           <span>{formatAgendaDateRange(item)}</span>
           {item.item_type && (
             <span className="text-slate-400 text-xs shrink-0">{item.item_type}</span>
