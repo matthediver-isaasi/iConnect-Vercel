@@ -264,6 +264,35 @@ export function updateReflowBaseline(baselines, blockId, roundedHeight, fontsSet
   }
 }
 
+// Reference height for a CARD row member in the public read-time reflow
+// (Task #3468). The editor renders a card at `height:auto` with the stored
+// manual height only as a min-height floor — so the builder's VISIBLE card
+// bottom is max(storedH, natural content height), and authors size the
+// containing section and place blocks below relative to that visible bottom.
+// Measuring public push-down growth from the stored box alone therefore
+// double-counts whenever the stored height is stale-short (e.g. a provisioned
+// h=360 card whose body renders ~1500px): the section was already authored
+// tall enough, yet the reflow added (measured − stored) of phantom growth,
+// stretching the section and pushing everything below down.
+//
+// The card's collapsed BASELINE (smallest post-font-settle measured natural
+// height — same capture the accordion path uses) is the public equivalent of
+// the builder's visible render, so the growth reference is
+//   max(storedH, baseline)
+// which yields:
+//   - content fits the authored render → zero growth, zero push-down
+//     (builder parity), whether stored is shorter or taller than content;
+//   - the stored/manual height stays the floor when the author grew the card
+//     beyond its content;
+//   - content that genuinely grows AFTER first settled paint (dynamic
+//     changes) still pushes down, exactly like accordions.
+// Row equalization (min-height = tallest member) is untouched — it reads
+// effectiveH, not this reference.
+export function computeCardReferenceHeight(storedH, baseline) {
+  const h = Number.isFinite(storedH) ? storedH : 0;
+  return Number.isFinite(baseline) ? Math.max(h, baseline) : h;
+}
+
 // Re-anchor box-height formula — the SINGLE SOURCE OF TRUTH shared by the public
 // renderer (AccordionReflowContext.getContainerGrowth) and the editor bake
 // (planAutoHeightBake) so a V1 Box renders at the same height on both surfaces

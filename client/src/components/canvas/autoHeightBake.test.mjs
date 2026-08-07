@@ -600,3 +600,51 @@ test('font guard: breakpoint-change reset still works (fresh map re-seeds from p
   updateReflowBaseline(baselines, 't1', 320, true);
   assert.equal(baselines.get('t1'), 320);
 });
+
+// ---------------------------------------------------------------------------
+// computeCardReferenceHeight (Task #3468 — public card row growth reference)
+// ---------------------------------------------------------------------------
+import { computeCardReferenceHeight } from './autoHeightBake.js';
+
+// growth exactly as rowGroups computes it for a single-card row:
+//   effectiveH = max(measured, manual floor); growth = max(0, effectiveH - referenceH)
+const cardGrowth = (storedH, baseline, measured, manual = true) => {
+  const floor = manual && Number.isFinite(storedH) ? storedH : 0;
+  const effectiveH = Math.max(measured, floor);
+  const referenceH = computeCardReferenceHeight(storedH, baseline);
+  return Math.max(0, effectiveH - referenceH);
+};
+
+test('card: stale-short stored height with tall content contributes ZERO growth (builder parity)', () => {
+  // The reported page: stored h=360 (manualHeight), body renders ~1500px.
+  // The builder shows the ~1500px card and the author sized the section and
+  // placed blocks below around it — so the public render must not push.
+  assert.equal(computeCardReferenceHeight(360, 1500), 1500);
+  assert.equal(cardGrowth(360, 1500, 1500), 0);
+});
+
+test('card: author-grown box taller than content keeps the stored floor as reference (zero growth)', () => {
+  assert.equal(computeCardReferenceHeight(400, 250), 400);
+  assert.equal(cardGrowth(400, 250, 250), 0); // effectiveH floored to 400 == reference
+});
+
+test('card: content growing AFTER the settled baseline still pushes down (grow-only preserved)', () => {
+  // baseline captured at 500, content later grows to 620 -> 120px push.
+  assert.equal(cardGrowth(360, 500, 620), 120);
+});
+
+test('card: measured equal to stored with matching baseline is inert', () => {
+  assert.equal(cardGrowth(300, 300, 300), 0);
+});
+
+test('card: no baseline yet falls back to the stored height reference', () => {
+  assert.equal(computeCardReferenceHeight(360, undefined), 360);
+  assert.equal(computeCardReferenceHeight(360, NaN), 360);
+  // Pre-baseline transient: behaves exactly like the pre-#3468 rule.
+  assert.equal(cardGrowth(360, undefined, 500), 140);
+});
+
+test('card: non-finite stored height treats reference as the baseline alone', () => {
+  assert.equal(computeCardReferenceHeight(undefined, 500), 500);
+  assert.equal(computeCardReferenceHeight(NaN, undefined), 0);
+});

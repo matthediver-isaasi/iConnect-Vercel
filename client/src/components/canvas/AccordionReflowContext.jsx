@@ -10,7 +10,7 @@ import {
 } from 'react';
 import { getBlockDefinition } from './blocks/registry';
 import { BLOCK_TYPES, isAspectHeightCarousel, resolveAspectReflowReferenceHeight } from '../../lib/canvasDesign';
-import { computeBoxGrowthDelta, normalizeMeasuredLength, updateReflowBaseline } from './autoHeightBake';
+import { computeBoxGrowthDelta, computeCardReferenceHeight, normalizeMeasuredLength, updateReflowBaseline } from './autoHeightBake';
 
 const AccordionReflowCtx = createContext(null);
 
@@ -433,8 +433,20 @@ export function AccordionReflowProvider({ children, blocks, resolveGeom, editorM
       // row equalisation and manual resizes are untouched.
       const def = getBlockDefinition(block.type);
       const baseline = baselineHeightsRef.current.get(id);
+      const isCard = !!def?.autoHeight && !!def?.cardGrow;
       const useBaseline = !!def?.autoHeight && !def?.cardGrow && Number.isFinite(baseline);
-      const referenceH = useBaseline ? Math.min(baseline, g.h) : g.h;
+      // Cards (Task #3468): the editor renders a card at height:auto with the
+      // stored/manual height only as a min-height floor, so the builder's
+      // VISIBLE bottom — which the author sized the section and blocks below
+      // around — is max(stored, natural content). Measure public growth from
+      // that same reference (max(stored h, collapsed baseline)) so a card row
+      // whose content already fit the authored layout contributes zero growth
+      // and zero push-down, while content that genuinely grows after the first
+      // settled paint still pushes down. Row equalization (effectiveH) is
+      // untouched.
+      const referenceH = isCard
+        ? computeCardReferenceHeight(g.h, baseline)
+        : (useBaseline ? Math.min(baseline, g.h) : g.h);
       // Aspect-height Hero Carousels (Task #2824) reflow SIGNED: their
       // rendered height tracks the slide image's aspect ratio at the live
       // viewport width, so blocks below must be pulled UP when the carousel
@@ -465,10 +477,10 @@ export function AccordionReflowProvider({ children, blocks, resolveGeom, editorM
       if (cur && e.top < cur.refBottom) {
         // Row membership is decided by overlap with the running REFERENCE band
         // (`cur.refBottom`), not the stored box bottom. For cards the reference
-        // is the stored bottom (refBottom === bottom), so a row of cards that
-        // share the same stored `y` still collapses into ONE row whose rendered
-        // height is the TALLEST member's — auto-equalising card heights is
-        // unchanged.
+        // is the VISIBLE builder bottom (max of stored height and collapsed
+        // baseline — Task #3468), so a row of cards that share the same stored
+        // `y` still collapses into ONE row whose rendered height is the
+        // TALLEST member's — auto-equalising card heights is unchanged.
         //
         // For an auto-height accordion whose stored box is far taller than its
         // collapsed state, the reference is the COLLAPSED-baseline bottom. A
