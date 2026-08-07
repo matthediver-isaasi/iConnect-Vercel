@@ -89,6 +89,7 @@ import {
   resolveBlockAtBreakpoint,
   clampGeomToStage,
   normalizeCanvasDesign,
+  normalizeSymbolDesignFrames,
   getRootChildren,
   setBlockContentFullBleed,
   setBlockContentBleed,
@@ -8177,7 +8178,10 @@ function SymbolRender({ block, breakpoint, asEditor }) {
   if (asEditor && c.symbolId) {
     const sym = symbolsCtx?.symbolsById?.get?.(c.symbolId);
     if (sym && sym.design) {
-      const symDesign = normalizeCanvasDesign(sym.design);
+      // Task #3465 — re-origin tablet/mobile frames for legacy symbols saved
+      // with page-absolute non-desktop coordinates (no-op otherwise), so the
+      // editor preview matches the public renderer at every breakpoint.
+      const symDesign = normalizeSymbolDesignFrames(sym.design);
       const kids = getRootChildren(symDesign);
       // Task #2463: compute the host instance box width as the stage renders
       // it (per-breakpoint resolve + display clamp against the editor stage

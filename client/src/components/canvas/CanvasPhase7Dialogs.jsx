@@ -18,7 +18,7 @@ import {
 import CanvasPageRenderer from './CanvasPageRenderer';
 import {
   createBlock, BLOCK_TYPES, getRootChildren, setRootChildren,
-  normalizeCanvasDesign, createEmptyCanvasDesign,
+  normalizeCanvasDesign, createEmptyCanvasDesign, normalizeSymbolDesignFrames,
 } from '@/lib/canvasDesign';
 
 // ===========================================================================
@@ -161,21 +161,17 @@ export function SymbolsDialog({ open, onOpenChange, canvasRef }) {
     mutationFn: async () => {
       const selected = canvasRef?.current?.getSelectedBlocks?.() || [];
       if (selected.length === 0) throw new Error('Select one or more blocks first');
-      // Build a symbol design from the selection. We translate the
-      // selection's top-left to (0,0) so the symbol is reusable anywhere.
-      const minX = Math.min(...selected.map((b) => b.bp?.desktop?.x || 0));
-      const minY = Math.min(...selected.map((b) => b.bp?.desktop?.y || 0));
-      const symChildren = selected.map((b) => ({
-        ...JSON.parse(JSON.stringify(b)),
-        bp: {
-          ...b.bp,
-          desktop: { ...b.bp.desktop, x: (b.bp.desktop.x || 0) - minX, y: (b.bp.desktop.y || 0) - minY },
-        },
-      }));
-      const symbolDesign = {
+      // Build a symbol design from the selection. Task #3465 —
+      // normalizeSymbolDesignFrames translates EVERY breakpoint's frames to
+      // the symbol-local origin (desktop always; tablet/mobile only where a
+      // frame carries explicit x/y, each by its own bounding origin), so the
+      // symbol is reusable anywhere and keeps its authored mobile/tablet
+      // layout. Frames without overrides keep cascading from desktop.
+      const symChildren = selected.map((b) => JSON.parse(JSON.stringify(b)));
+      const symbolDesign = normalizeSymbolDesignFrames({
         version: 1,
         root: { background: null, sections: [{ id: 'root-section', children: symChildren }] },
-      };
+      });
       const r = await fetch('/api/canvas-symbols', {
         method: 'POST', credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
@@ -229,13 +225,14 @@ export function SymbolsDialog({ open, onOpenChange, canvasRef }) {
   const replaceDesignFromSelection = (id) => {
     const selected = canvasRef?.current?.getSelectedBlocks?.() || [];
     if (selected.length === 0) { toast.error('Select blocks on the page first'); return; }
-    const minX = Math.min(...selected.map((b) => b.bp?.desktop?.x || 0));
-    const minY = Math.min(...selected.map((b) => b.bp?.desktop?.y || 0));
-    const symChildren = selected.map((b) => ({
-      ...JSON.parse(JSON.stringify(b)),
-      bp: { ...b.bp, desktop: { ...b.bp.desktop, x: (b.bp.desktop.x || 0) - minX, y: (b.bp.desktop.y || 0) - minY } },
-    }));
-    updateMut.mutate({ id, patch: { design: { version: 1, root: { background: null, sections: [{ id: 'root-section', children: symChildren }] } } } });
+    // Task #3465 — translate all breakpoint frames (not just desktop) to the
+    // symbol-local origin; see saveSelectionMut above.
+    const symChildren = selected.map((b) => JSON.parse(JSON.stringify(b)));
+    const design = normalizeSymbolDesignFrames({
+      version: 1,
+      root: { background: null, sections: [{ id: 'root-section', children: symChildren }] },
+    });
+    updateMut.mutate({ id, patch: { design } });
   };
 
   const insertSymbol = (sym) => {

@@ -1803,9 +1803,86 @@ export function getBlockDefaults(type) {
 // content. Used to fit a symbol instance's bounding box to what is actually
 // drawn instead of leaving it at the placeholder/default size. Returns null
 // when the symbol has no visible children at this breakpoint.
+// Task #3465 — normalize a symbol design so every breakpoint's frames sit at
+// the symbol-local origin. Symbols saved from a selection historically only
+// translated the DESKTOP frame to (0,0); tablet/mobile overrides were copied
+// verbatim with page-absolute coordinates, so instances rendered the desktop
+// layout (or off-stage/clamped content) at those breakpoints. This helper
+// translates each breakpoint's explicit x/y overrides by that breakpoint's
+// own bounding origin (min over explicit values). It is:
+//   - idempotent: a correctly saved symbol has origin (0,0) per breakpoint,
+//     so re-running it is a no-op;
+//   - cascade-preserving: frames without explicit x/y are left untouched so
+//     resolveBlockAtBreakpoint keeps cascading from desktop;
+//   - a pure read/save-time transform — callers decide whether to persist.
+// Applied at save time (Symbols dialog) AND defensively at resolution time
+// (symbolContentExtent / resolveSymbolsInDesign / editor preview) so
+// previously saved symbols with untranslated frames render correctly too.
+export function normalizeSymbolDesignFrames(design) {
+  const d = normalizeCanvasDesign(design);
+  const kids = d?.root?.sections?.[0]?.children || [];
+  if (kids.length === 0) return d;
+  const origins = {};
+  for (const key of ['desktop', 'tablet', 'mobile']) {
+    let minX = Infinity;
+    let minY = Infinity;
+    for (const c of kids) {
+      const f = c?.bp?.[key];
+      if (!f) continue;
+      if (key === 'desktop') {
+        // Desktop frames always define the base layout; missing x/y counts
+        // as 0 (matches the historical save-time translation).
+        minX = Math.min(minX, Number.isFinite(f.x) ? f.x : 0);
+        minY = Math.min(minY, Number.isFinite(f.y) ? f.y : 0);
+      } else {
+        // Tablet/mobile: only frames carrying explicit coordinates
+        // participate — frames without overrides cascade from desktop.
+        if (Number.isFinite(f.x)) minX = Math.min(minX, f.x);
+        if (Number.isFinite(f.y)) minY = Math.min(minY, f.y);
+      }
+    }
+    origins[key] = {
+      x: Number.isFinite(minX) ? minX : 0,
+      y: Number.isFinite(minY) ? minY : 0,
+    };
+  }
+  if (['desktop', 'tablet', 'mobile'].every((k) => origins[k].x === 0 && origins[k].y === 0)) {
+    return d;
+  }
+  const children = kids.map((c) => {
+    const bp = c.bp || {};
+    const nextBp = { ...bp };
+    for (const key of ['desktop', 'tablet', 'mobile']) {
+      const f = bp[key];
+      if (!f) continue;
+      const o = origins[key];
+      const nf = { ...f };
+      if (key === 'desktop') {
+        nf.x = (Number.isFinite(f.x) ? f.x : 0) - o.x;
+        nf.y = (Number.isFinite(f.y) ? f.y : 0) - o.y;
+      } else {
+        if (Number.isFinite(f.x)) nf.x = f.x - o.x;
+        if (Number.isFinite(f.y)) nf.y = f.y - o.y;
+      }
+      nextBp[key] = nf;
+    }
+    return { ...c, bp: nextBp };
+  });
+  return {
+    ...d,
+    root: {
+      ...d.root,
+      sections: [{ ...d.root.sections[0], children }, ...d.root.sections.slice(1)],
+    },
+  };
+}
+
 export function symbolContentExtent(symbolDesign, breakpoint = 'desktop') {
   if (!symbolDesign) return null;
-  const kids = getRootChildren(symbolDesign);
+  // Task #3465 — defensively re-origin legacy symbols whose tablet/mobile
+  // frames were saved page-absolute, so the extent wraps content at every
+  // breakpoint (no-op for correctly saved symbols).
+  const kids = getRootChildren(normalizeSymbolDesignFrames(symbolDesign));
   let maxRight = 0;
   let maxBottom = 0;
   let any = false;
@@ -1840,7 +1917,12 @@ export function resolveSymbolsInDesign(design, symbolsById) {
       // Pull the symbol's first-section children and re-key their ids so
       // multiple instances of the same symbol don't collide. Geometry is
       // preserved verbatim from the symbol design.
-      const symDesign = normalizeCanvasDesign(sym.design);
+      // Task #3465 — re-origin every breakpoint's frames to the symbol-local
+      // origin. Legacy symbols only translated desktop at save time, leaving
+      // tablet/mobile overrides page-absolute; without this the per-breakpoint
+      // host offset below lands them off-stage and the authored mobile/tablet
+      // arrangement is lost. No-op for correctly saved symbols.
+      const symDesign = normalizeSymbolDesignFrames(sym.design);
       // Translate each child by the host symbol block's per-breakpoint
       // origin so the symbol renders at its placed position on the host
       // page. Without this, every symbol instance would render at
