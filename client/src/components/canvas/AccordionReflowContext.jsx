@@ -467,7 +467,7 @@ export function AccordionReflowProvider({ children, blocks, resolveGeom, editorM
         ? resolveAspectReflowReferenceHeight(block, g, breakpoint)
         : null;
       const finalReferenceH = Number.isFinite(aspectRefH) ? aspectRefH : referenceH;
-      entries.push({ id, top: g.y, bottom: g.y + g.h, refBottom: g.y + finalReferenceH, effectiveH, signed });
+      entries.push({ id, top: g.y, bottom: g.y + g.h, refBottom: g.y + finalReferenceH, effectiveH, signed, isCard });
     }
     if (entries.length === 0) return [];
     entries.sort((a, b) => a.top - b.top);
@@ -496,8 +496,32 @@ export function AccordionReflowProvider({ children, blocks, resolveGeom, editorM
         cur.renderedHeight = Math.max(cur.renderedHeight, e.effectiveH);
         cur.signed = cur.signed && e.signed;
         cur.ids.push(e.id);
+        if (!e.isCard) {
+          const mb = e.top + e.effectiveH;
+          cur.nonCardMeasuredBottom = cur.nonCardMeasuredBottom === null
+            ? mb
+            : Math.max(cur.nonCardMeasuredBottom, mb);
+          cur.nonCardStoredBottom = cur.nonCardStoredBottom === null
+            ? e.bottom
+            : Math.max(cur.nonCardStoredBottom, e.bottom);
+        }
       } else {
-        cur = { top: e.top, bottom: e.bottom, refBottom: e.refBottom, renderedHeight: e.effectiveH, signed: e.signed, ids: [e.id] };
+        // Task #3469: track the deepest NON-CARD member bottoms separately so
+        // the Box re-anchor path (getContainerGrowth) can exclude card rows,
+        // mirroring the editor bake's boxReanchorHeight exclusion. Cards'
+        // stored/manual height is the author's intended size; feeding their
+        // rendered height into the box re-anchor grew boxes on the public page
+        // that stayed at their authored height in the builder.
+        cur = {
+          top: e.top,
+          bottom: e.bottom,
+          refBottom: e.refBottom,
+          renderedHeight: e.effectiveH,
+          signed: e.signed,
+          ids: [e.id],
+          nonCardMeasuredBottom: e.isCard ? null : e.top + e.effectiveH,
+          nonCardStoredBottom: e.isCard ? null : e.bottom,
+        };
         groups.push(cur);
       }
     }
@@ -679,10 +703,20 @@ export function AccordionReflowProvider({ children, blocks, resolveGeom, editorM
         // the deepest contained row (live + stored) rather than a per-row delta,
         // so an unchanged row can neither block a shrink driven by a shrinking
         // row nor force spurious growth.
+        // Task #3469: card rows are EXCLUDED from box re-anchoring, mirroring
+        // the editor bake (autoHeightBake boxReanchorHeight skips
+        // autoHeight+cardGrow blocks). Only the deepest NON-CARD member bottoms
+        // feed the formula; a group with no non-card members contributes
+        // nothing, so a Box drawn behind a card row keeps its authored height
+        // on the public page exactly like the builder.
         const rows = [];
         for (const grp of rowGroups) {
-          if (grp.top >= containerGeom.y && grp.bottom <= containerBottom) {
-            rows.push({ measuredBottom: grp.top + grp.renderedHeight, storedBottom: grp.bottom });
+          if (
+            grp.nonCardMeasuredBottom !== null &&
+            grp.top >= containerGeom.y &&
+            grp.bottom <= containerBottom
+          ) {
+            rows.push({ measuredBottom: grp.nonCardMeasuredBottom, storedBottom: grp.nonCardStoredBottom });
           }
         }
         if (rows.length === 0) return 0; // no contained content
