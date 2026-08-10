@@ -75,6 +75,7 @@ const STANDARD_FIELD_TYPES = [
   { value: 'country', label: 'Country' },
   { value: 'countries', label: 'Countries (Multi-Select)' },
   { value: 'percentage', label: 'Percentage' },
+  { value: 'currency', label: 'Currency' },
   { value: 'contact', label: 'Contact (Composite)' },
   { value: 'grouped_question', label: 'Grouped Question' },
   { value: 'instructions', label: 'Instructions (Display Only)' },
@@ -1395,7 +1396,7 @@ function LogicRulesSection({
                       <SelectValue placeholder="Select..." />
                     </SelectTrigger>
                     <SelectContent>
-                      {availableSourceFields.filter(f => ['number', 'percentage'].includes(f.type)).map(field => (
+                      {availableSourceFields.filter(f => ['number', 'percentage', 'currency'].includes(f.type)).map(field => (
                         <SelectItem key={field.id} value={field.id}>
                           {field.label || field.type}
                         </SelectItem>
@@ -1461,7 +1462,7 @@ function LogicRulesSection({
                       <SelectValue placeholder="Select..." />
                     </SelectTrigger>
                     <SelectContent>
-                      {availableSourceFields.filter(f => ['number', 'percentage'].includes(f.type)).map(field => (
+                      {availableSourceFields.filter(f => ['number', 'percentage', 'currency'].includes(f.type)).map(field => (
                         <SelectItem key={field.id} value={field.id}>
                           {field.label || field.type}
                         </SelectItem>
@@ -3300,6 +3301,59 @@ function FieldCard({
                   rows={2}
                 />
               </div>
+
+              {/* Currency configuration (Task #3480) */}
+              {field.type === 'currency' && (() => {
+                const PRESET_SYMBOLS = ['£', '$', '€'];
+                const currentSymbol = field.currency_symbol || '£';
+                const isPreset = PRESET_SYMBOLS.includes(currentSymbol);
+                return (
+                  <div className="border rounded-lg p-4 space-y-3 bg-slate-50/50" data-testid={`currency-config-${field.id}`}>
+                    <h4 className="text-sm font-semibold text-slate-700">Currency settings</h4>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1">
+                        <Label className="text-xs">Currency Symbol</Label>
+                        <Select
+                          value={isPreset ? currentSymbol : '__custom__'}
+                          onValueChange={(value) => {
+                            if (value === '__custom__') {
+                              updateField(originalIndex, { currency_symbol: isPreset ? '' : currentSymbol });
+                            } else {
+                              updateField(originalIndex, { currency_symbol: value });
+                            }
+                          }}
+                        >
+                          <SelectTrigger className="h-9" data-testid={`select-currency-symbol-${field.id}`}>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="£">£ (Pound)</SelectItem>
+                            <SelectItem value="$">$ (Dollar)</SelectItem>
+                            <SelectItem value="€">€ (Euro)</SelectItem>
+                            <SelectItem value="__custom__">Custom...</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      {!isPreset && (
+                        <div className="space-y-1">
+                          <Label className="text-xs">Custom Symbol</Label>
+                          <Input
+                            value={field.currency_symbol || ''}
+                            onChange={(e) => updateField(originalIndex, { currency_symbol: e.target.value })}
+                            placeholder="e.g. CHF"
+                            maxLength={5}
+                            className="h-9"
+                            data-testid={`input-currency-custom-symbol-${field.id}`}
+                          />
+                        </div>
+                      )}
+                    </div>
+                    <p className="text-xs text-slate-500">
+                      Shown beside the input. Values accept up to 2 decimal places (e.g. 1234.56).
+                    </p>
+                  </div>
+                );
+              })()}
 
               {/* Score / Rating configuration (survey forms, Task #3330) */}
               {field.type === 'score' && (() => {
@@ -5311,6 +5365,26 @@ function FieldCard({
                       value={field.default_value ?? ''}
                       onChange={(e) => updateField(originalIndex, { default_value: e.target.value ? Number(e.target.value) : '' })}
                       placeholder="Enter default number..."
+                      className="h-8 text-xs"
+                      data-testid={`input-default-value-${field.id}`}
+                    />
+                  )}
+                  
+                  {/* Currency field - decimal default, sanitized to 2 dp */}
+                  {field.type === 'currency' && (
+                    <Input
+                      type="text"
+                      inputMode="decimal"
+                      value={field.default_value ?? ''}
+                      onChange={(e) => {
+                        let val = e.target.value.replace(/[^0-9.]/g, '');
+                        const parts = val.split('.');
+                        if (parts.length > 2) val = parts[0] + '.' + parts.slice(1).join('');
+                        const [intPart, decPart] = val.split('.');
+                        if (decPart !== undefined) val = intPart + '.' + decPart.slice(0, 2);
+                        updateField(originalIndex, { default_value: val });
+                      }}
+                      placeholder="Enter default amount..."
                       className="h-8 text-xs"
                       data-testid={`input-default-value-${field.id}`}
                     />

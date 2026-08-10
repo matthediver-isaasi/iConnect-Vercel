@@ -715,6 +715,39 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
           </div>
         );
 
+      case 'currency': {
+        // Currency field (Task #3480): decimal input with configurable symbol
+        // adornment; values sanitize to at most 2 decimal places.
+        const currencySymbol = field.currency_symbol || '£';
+        return (
+          <div className="relative">
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" data-testid={`symbol-currency-${field.id}`}>
+              {currencySymbol}
+            </span>
+            <Input
+              type="text"
+              inputMode="decimal"
+              value={value || ''}
+              onChange={(e) => {
+                let val = e.target.value.replace(/[^0-9.]/g, '');
+                const parts = val.split('.');
+                if (parts.length > 2) val = parts[0] + '.' + parts.slice(1).join('');
+                const [intPart, decPart] = val.split('.');
+                if (decPart !== undefined) val = intPart + '.' + decPart.slice(0, 2);
+                onChange(val);
+              }}
+              placeholder={field.placeholder || '0.00'}
+              required={field.required}
+              disabled={isFieldDisabled}
+              autoFocus={autoFocus}
+              style={{ paddingLeft: `${Math.max(2, 1.25 + currencySymbol.length * 0.6)}rem` }}
+              className={isFieldDisabled ? 'bg-slate-100 cursor-not-allowed opacity-60' : ''}
+              data-testid={`input-currency-${field.id}`}
+            />
+          </div>
+        );
+      }
+
       case 'textarea': {
         const isWordLimit = field.limit_type === 'words';
         const maxLimit = field.max_characters;

@@ -218,6 +218,31 @@ export default function ManualSubmissionDialog({ open, onOpenChange, form }) {
           />
         );
 
+      case 'currency': {
+        const currencySymbol = field.currency_symbol || '£';
+        return (
+          <div className="relative">
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">{currencySymbol}</span>
+            <Input
+              type="text"
+              inputMode="decimal"
+              value={value || ''}
+              onChange={(e) => {
+                let val = e.target.value.replace(/[^0-9.]/g, '');
+                const parts = val.split('.');
+                if (parts.length > 2) val = parts[0] + '.' + parts.slice(1).join('');
+                const [intPart, decPart] = val.split('.');
+                if (decPart !== undefined) val = intPart + '.' + decPart.slice(0, 2);
+                updateValue(field.id, val);
+              }}
+              placeholder={field.placeholder || '0.00'}
+              style={{ paddingLeft: `${Math.max(2, 1.25 + currencySymbol.length * 0.6)}rem` }}
+              data-testid={`input-${field.id}`}
+            />
+          </div>
+        );
+      }
+
       case 'textarea':
         return (
           <Textarea
