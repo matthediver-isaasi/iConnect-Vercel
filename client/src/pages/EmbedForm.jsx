@@ -16,6 +16,7 @@ import { useMembershipFeeQuote } from "@/lib/useMembershipFeeQuote";
 import { evaluateLmicCondition } from "../../../api/_lib/formLmicConditions.js";
 import { resolveSubmitControl } from "../../../api/_lib/formSubmitControl.js";
 import FormPaymentSubmit from "../components/forms/FormPaymentSubmit";
+import { useFormPaymentReturn, FormPaymentReturnScreen } from "../components/forms/FormPaymentReturn";
 
 // Stable empty array so disabled custom-value queries don't create a fresh
 // default identity every render (which would re-trigger dependent effects).
@@ -29,6 +30,10 @@ export default function EmbedFormPage() {
   const [currentPageIndex, setCurrentPageIndex] = useState(0);
   const [formValues, setFormValues] = useState({});
   const [submitted, setSubmitted] = useState(false);
+
+  // Task #3501: page-level payment return-leg handling (see FormView) —
+  // the embed page must handle redirect returns identically.
+  const paymentReturn = useFormPaymentReturn();
   const [fieldValidity, setFieldValidity] = useState({});
   const [submissionError, setSubmissionError] = useState(null);
 
@@ -1026,6 +1031,20 @@ export default function EmbedFormPage() {
           </CardContent>
         </Card>
       </div>
+    );
+  }
+
+  // Task #3501: payment redirect return replaces the form with a status
+  // screen, before the submitted branch (already-paid returns show success).
+  if (paymentReturn.active) {
+    return (
+      <FormPaymentReturnScreen
+        embedded
+        status={paymentReturn.status}
+        error={paymentReturn.error}
+        successMessage={form ? surveySuccessMessage(form) : null}
+        onReturnToForm={paymentReturn.dismiss}
+      />
     );
   }
 

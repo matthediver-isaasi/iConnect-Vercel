@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Loader2, CreditCard, AlertCircle, Landmark, Info } from "lucide-react";
 import { resolveEffectivePayment } from "@/lib/formPaymentQuote";
+import { SS_KEY, confirmFormPayment } from "@/lib/formPaymentReturn";
 
 const CURRENCY_SYMBOLS = { GBP: '\u00a3', USD: '$', EUR: '\u20ac', AUD: 'A$', NZD: 'NZ$' };
 
@@ -24,8 +25,6 @@ export function derivePaymentAmountClient(paymentField, formValues) {
   if (!Number.isFinite(n) || n <= 0) return 0;
   return Math.round(n * 100) / 100;
 }
-
-const SS_KEY = 'form_payment_pending_submission';
 
 /**
  * Task #3483: the payment step that replaces the plain Submit button when a
@@ -74,7 +73,6 @@ export default function FormPaymentSubmit({
   const stripeRef = useRef(null);
   const elementsRef = useRef(null);
   const submissionIdRef = useRef(null);
-  const returnHandled = useRef(false);
 
   const fieldCurrency = (field?.payment_currency || 'GBP').toUpperCase();
   const derivedAmount = useMemo(() => derivePaymentAmountClient(field, formValues), [field, formValues]);
@@ -107,76 +105,30 @@ export default function FormPaymentSubmit({
 
   const stripeProvider = usableProviders?.find((p) => p.id === 'stripe') || null;
 
+  // Task #3501: the redirect return legs (GoCardless redirect back, Stripe
+  // 3DS redirect back) are handled at PAGE level via useFormPaymentReturn —
+  // this component only mounts on the form's last step, so it can never see
+  // a redirect return. This path only confirms the inline (non-redirect)
+  // Stripe flow, through the same shared confirm helper.
   const confirmPayment = useCallback(async ({ submissionId, paymentIntentId = null }) => {
     setConfirming(true);
     setPaymentError(null);
     try {
-      const res = await fetch('/api/public/form-payment', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({
-          action: 'confirm',
-          submission_id: submissionId,
-          ...(paymentIntentId ? { payment_intent_id: paymentIntentId } : {}),
-        }),
-      });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        throw new Error(json.error || 'Your payment was taken, but we could not confirm the submission. It will be reconciled automatically — please do NOT pay again.');
-      }
-      if (json.pending) {
+      const out = await confirmFormPayment({ submissionId, paymentIntentId });
+      if (out.status === 'pending') {
         setPaymentError('Your Direct Debit set-up is still being confirmed. You can safely close this page — your submission completes automatically once it is confirmed.');
         return false;
       }
-      try { sessionStorage.removeItem(SS_KEY); } catch { /* ignore */ }
+      if (out.status === 'error') {
+        setPaymentError(out.error);
+        return false;
+      }
       onPaid?.(submissionId);
       return true;
-    } catch (err) {
-      setPaymentError(err.message);
-      return false;
     } finally {
       setConfirming(false);
     }
   }, [onPaid]);
-
-  // Return legs: GoCardless redirect back, and Stripe 3DS redirect back.
-  useEffect(() => {
-    if (returnHandled.current) return;
-    const params = new URLSearchParams(window.location.search);
-    const returnedSubmission = params.get('form_payment_submission');
-    const returnedProvider = params.get('form_payment_provider');
-    const cancelled = params.get('form_payment_cancelled');
-    const piFromUrl = params.get('payment_intent');
-    const redirectStatus = params.get('redirect_status');
-    if (!returnedSubmission && !cancelled && !piFromUrl) return;
-    returnHandled.current = true;
-
-    // Clean payment params off the URL.
-    ['form_payment_submission', 'form_payment_provider', 'form_payment_cancelled',
-      'payment_intent', 'payment_intent_client_secret', 'redirect_status'].forEach((k) => params.delete(k));
-    const cleanUrl = params.toString()
-      ? `${window.location.pathname}?${params.toString()}`
-      : window.location.pathname;
-    window.history.replaceState({}, '', cleanUrl);
-
-    if (cancelled) {
-      setPaymentError('The payment was cancelled. You can try again below.');
-      return;
-    }
-
-    let submissionId = returnedSubmission;
-    if (!submissionId) {
-      try { submissionId = sessionStorage.getItem(SS_KEY); } catch { /* ignore */ }
-    }
-    if (!submissionId) return;
-
-    if (piFromUrl && redirectStatus && redirectStatus !== 'succeeded') {
-      setPaymentError('Payment was not completed. Please try again.');
-      return;
-    }
-    confirmPayment({ submissionId, paymentIntentId: piFromUrl || null });
-  }, [confirmPayment]);
 
   const startPayment = async (providerId) => {
     setPaymentError(null);

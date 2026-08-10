@@ -9,6 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Loader2, ChevronLeft, ChevronRight, CheckCircle2, Save, Copy, Check, AlertTriangle, Printer } from "lucide-react";
 import FormRenderer from "../components/forms/FormRenderer";
 import FormPaymentSubmit from "../components/forms/FormPaymentSubmit";
+import { useFormPaymentReturn, FormPaymentReturnScreen } from "../components/forms/FormPaymentReturn";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useLayoutContext } from "@/contexts/LayoutContext";
@@ -74,6 +75,12 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
   const [submitted, setSubmitted] = useState(false);
   const [fieldValidity, setFieldValidity] = useState({}); // Track format validity for each field
   const [submissionError, setSubmissionError] = useState(null); // Inline error display for validation failures
+
+  // Task #3501: page-level payment return-leg handling. Runs BEFORE any
+  // wizard/step state matters — a GoCardless or Stripe 3DS redirect lands
+  // back at step 0 with empty values, so the old in-component (last-step
+  // only) handling never fired and the user saw a blank cleared form.
+  const paymentReturn = useFormPaymentReturn();
 
   // Clear submission error when form values change (user is correcting their input)
   useEffect(() => {
@@ -2499,6 +2506,20 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
   };
 
   handleSubmitRef.current = handleSubmit;
+
+  // Task #3501: a payment redirect return replaces the form with a status
+  // screen (paid / DD-pending / cancelled). Rendered before the submitted
+  // branch so an already-finalized submission still shows the paid outcome.
+  if (paymentReturn.active) {
+    return (
+      <FormPaymentReturnScreen
+        status={paymentReturn.status}
+        error={paymentReturn.error}
+        successMessage={form ? surveySuccessMessage(form) : null}
+        onReturnToForm={paymentReturn.dismiss}
+      />
+    );
+  }
 
   if (submitted) {
     return (
