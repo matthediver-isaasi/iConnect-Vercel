@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -72,6 +72,7 @@ import { useSpeakerModuleName } from "@/hooks/useSpeakerModuleName";
 import { useEventTypes } from "@/hooks/useEventTypes";
 import { useAgendaItemTypes } from "@/hooks/useAgendaItemTypes";
 import TrainingAgendaEditor, { validateAgendaLines, agendaTypeBehaviour, sortAgendaLinesChronologically, agendaLineStartDateTime, agendaLineEndDateTime, normalizeAgendaTime } from "@/components/events/TrainingAgendaEditor";
+import { persistAgendaLinesWithRollback } from "@/lib/eventAgendaPersistence";
 import { useMemberGroupSettings } from "@/hooks/useMemberGroupSettings";
 import { useServerAdminAuth } from "@/hooks/useServerAdminAuth";
 import ReactQuill from 'react-quill';
@@ -146,6 +147,9 @@ export default function EditEvent() {
   const [isTraining, setIsTraining] = useState(false);
   const [agendaLines, setAgendaLines] = useState([]);
   const [initialAgendaIds, setInitialAgendaIds] = useState([]);
+  // Snapshot of the agenda rows as loaded (or last saved) — used for
+  // compensating rollback if a save fails part-way (Task #3512).
+  const initialAgendaRowsRef = useRef([]);
   const { ticketTypeName: groupTicketTypeName, featureName: memberGroupFeatureName } = useMemberGroupSettings();
   const urlParams = new URLSearchParams(window.location.search);
   const eventId = urlParams.get('id');
@@ -884,65 +888,105 @@ export default function EditEvent() {
 
   const updateEventMutation = useMutation({
     mutationFn: async (eventData) => {
-      const updated = await base44.entities.Event.update(eventId, eventData);
+      // Agenda applies to any regular event (Tasks #3419, #3512). Agenda
+      // mutations run FIRST with compensating rollback on failure, and the
+      // parent event update only runs once the agenda saved cleanly — so a
+      // failure on either side never leaves a half-committed save. Persist in
+      // chronological order (Task #3443) so sort_order always reflects the
+      // real sequence regardless of entry/drag order.
+      const orderedLines = sortAgendaLinesChronologically(agendaLines);
+      const buildAgendaPayload = (line, sortOrder) => {
+        const behaviour = agendaTypeBehaviour(line.item_type);
+        return {
+          event_id: eventId,
+          start_date: line.start_date,
+          start_time: normalizeAgendaTime(line.start_time) || null,
+          end_date: line.end_date || line.start_date,
+          end_time: normalizeAgendaTime(line.end_time) || null,
+          description: line.description || null,
+          item_type: line.item_type || null,
+          location: behaviour === 'location' ? (line.location || null) : null,
+          zoom_webinar_id: behaviour === 'zoom' ? (line.zoom_webinar_id || null) : null,
+          zoom_meeting_id: behaviour === 'zoom' ? (line.zoom_meeting_id || null) : null,
+          lms_url: behaviour === 'lms' ? (line.lms_url || null) : null,
+          speaker_ids: Array.isArray(line.speaker_ids) ? line.speaker_ids.filter(Boolean) : [],
+          sponsor_ids: Array.isArray(line.sponsor_ids) ? line.sponsor_ids.filter(Boolean) : [],
+          sort_order: sortOrder,
+        };
+      };
 
-      // Training events (Task #3419): persist agenda line changes as part of
-      // the awaited save flow — update rows that still exist, create new ones,
-      // delete removed ones (stable line ids keep line-anchored reminders from
-      // churning). Any failure rejects the mutation, so no success toast or
-      // redirect fires on a partial save.
-      const keptIds = new Set(isTraining ? agendaLines.map((l) => l.id).filter(Boolean) : []);
-      const removedIds = initialAgendaIds.filter((agendaId) => !keptIds.has(agendaId));
+      let agendaResult;
       try {
-        for (const removedId of removedIds) {
-          await base44.entities.EventAgendaItem.delete(removedId);
-        }
-        if (isTraining) {
-          const savedIds = [];
-          // Persist in chronological order (Task #3443) so sort_order always
-          // reflects the real sequence regardless of entry/drag order.
-          const orderedLines = sortAgendaLinesChronologically(agendaLines);
-          for (let i = 0; i < orderedLines.length; i++) {
-            const line = orderedLines[i];
-            const behaviour = agendaTypeBehaviour(line.item_type);
-            const payload = {
-              event_id: eventId,
-              start_date: line.start_date,
-              start_time: normalizeAgendaTime(line.start_time) || null,
-              end_date: line.end_date || line.start_date,
-              end_time: normalizeAgendaTime(line.end_time) || null,
-              description: line.description || null,
-              item_type: line.item_type || null,
-              location: behaviour === 'location' ? (line.location || null) : null,
-              zoom_webinar_id: behaviour === 'zoom' ? (line.zoom_webinar_id || null) : null,
-              zoom_meeting_id: behaviour === 'zoom' ? (line.zoom_meeting_id || null) : null,
-              lms_url: behaviour === 'lms' ? (line.lms_url || null) : null,
-              speaker_ids: Array.isArray(line.speaker_ids) ? line.speaker_ids.filter(Boolean) : [],
-              sponsor_ids: Array.isArray(line.sponsor_ids) ? line.sponsor_ids.filter(Boolean) : [],
-              sort_order: i,
-            };
-            if (line.id) {
-              await base44.entities.EventAgendaItem.update(line.id, payload);
-              savedIds.push(line.id);
-            } else {
-              const created = await base44.entities.EventAgendaItem.create(payload);
-              savedIds.push(created?.id);
-            }
-          }
-          setInitialAgendaIds(savedIds.filter(Boolean));
-        } else {
-          setInitialAgendaIds([]);
-        }
-        queryClient.invalidateQueries({ queryKey: ['/api/entities/EventAgendaItem'] });
+        agendaResult = await persistAgendaLinesWithRollback({
+          api: {
+            create: (payload) => base44.entities.EventAgendaItem.create(payload),
+            update: (id, payload) => base44.entities.EventAgendaItem.update(id, payload),
+            delete: (id) => base44.entities.EventAgendaItem.delete(id),
+          },
+          orderedLines,
+          initialRows: initialAgendaRowsRef.current || [],
+          buildPayload: buildAgendaPayload,
+        });
       } catch (agendaErr) {
         console.error('Failed to save agenda lines:', agendaErr);
+        // The event itself was not updated. Rollback of agenda mutations is
+        // best-effort (no server transaction) — be honest about the outcome.
+        const rollbackIncomplete = (agendaErr?.rollbackFailures || []).length > 0;
         const wrapped = new Error(
-          'the training agenda could not be fully saved — please review the agenda and save again ('
-          + (agendaErr?.message || 'unknown error') + ')'
+          'the event agenda could not be saved and the event was not updated'
+          + (rollbackIncomplete
+            ? ' — some agenda changes could not be automatically rolled back, so please reload the page and review the agenda before saving again'
+            : ' — the agenda changes were rolled back; please reload the page to verify, then try again')
+          + ' (' + (agendaErr?.message || 'unknown error') + ')'
         );
         wrapped.cause = agendaErr;
         throw wrapped;
       }
+
+      let updated;
+      try {
+        updated = await base44.entities.Event.update(eventId, eventData);
+      } catch (updateErr) {
+        // Parent update failed after the agenda saved — best-effort revert of
+        // the agenda so the event and its agenda stay consistent. Surface
+        // incomplete rollback to the user rather than hiding it.
+        let undoFailures = [];
+        try { undoFailures = await agendaResult.undo(); } catch (undoErr) {
+          console.error('Failed to revert agenda after event update failure:', undoErr);
+          undoFailures = [{ op: 'undo', reason: undoErr?.message || 'unknown error' }];
+        }
+        if (undoFailures.length > 0) {
+          const wrapped = new Error(
+            (updateErr?.message || 'the event could not be updated')
+            + ' — additionally, some agenda changes could not be automatically rolled back; please reload the page and review the agenda'
+          );
+          wrapped.cause = updateErr;
+          throw wrapped;
+        }
+        throw updateErr;
+      }
+
+      setInitialAgendaIds(agendaResult.savedIds);
+      // Reconcile local state with what was persisted: newly created lines
+      // get their server id (per-line via persistedLines, never by index into
+      // the filtered savedIds) so a subsequent save updates instead of
+      // re-creating duplicates.
+      setAgendaLines((current) => current.map((line) => {
+        if (line.id) return line;
+        // persistedLines[i] corresponds to orderedLines[i] (same references
+        // for pre-existing objects), so map each new line via its position.
+        const idx = orderedLines.indexOf(line);
+        const persisted = idx >= 0 ? agendaResult.persistedLines[idx] : null;
+        return persisted?.id ? { ...line, id: persisted.id } : line;
+      }));
+      // Refresh the rollback snapshot from the persisted lines — keep only the
+      // persisted fields (via the payload builder) plus the server id, so no
+      // local-only keys leak into the snapshot.
+      initialAgendaRowsRef.current = agendaResult.persistedLines.map((line, i) => {
+        const { event_id: _evt, sort_order: _sort, ...fields } = buildAgendaPayload(line, i);
+        return { id: line.id, ...fields };
+      }).filter((r) => r.id);
+      queryClient.invalidateQueries({ queryKey: ['/api/entities/EventAgendaItem'] });
 
       return updated;
     },
@@ -1004,9 +1048,10 @@ export default function EditEvent() {
       // Load the group audience choice (group-limited mode).
       setGroupEventPublic(event.group_event_public === true);
 
-      // Training events: load the agenda lines (Task #3419).
+      // Load the agenda lines for any regular event (Tasks #3419, #3512) —
+      // agenda is no longer training-only.
       setIsTraining(event.is_training === true);
-      if (event.is_training) {
+      {
         base44.entities.EventAgendaItem.list({ filter: { event_id: event.id } })
           .then((rows) => {
             // Chronological display regardless of stored sort_order (legacy
@@ -1030,6 +1075,21 @@ export default function EditEvent() {
               sponsor_ids: Array.isArray(r.sponsor_ids) ? r.sponsor_ids : [],
             })));
             setInitialAgendaIds(sorted.map((r) => r.id));
+            initialAgendaRowsRef.current = sorted.map((r) => ({
+              id: r.id,
+              start_date: r.start_date || '',
+              end_date: r.end_date && r.end_date !== r.start_date ? r.end_date : '',
+              start_time: normalizeAgendaTime(r.start_time),
+              end_time: normalizeAgendaTime(r.end_time),
+              description: r.description || '',
+              item_type: r.item_type || '',
+              location: r.location || '',
+              zoom_webinar_id: r.zoom_webinar_id || null,
+              zoom_meeting_id: r.zoom_meeting_id || null,
+              lms_url: r.lms_url || '',
+              speaker_ids: Array.isArray(r.speaker_ids) ? r.speaker_ids : [],
+              sponsor_ids: Array.isArray(r.sponsor_ids) ? r.sponsor_ids : [],
+            }));
           })
           .catch((err) => {
             console.error('Failed to load agenda lines:', err);
@@ -1394,7 +1454,9 @@ export default function EditEvent() {
 
     // Training events: validate the agenda lines (at least one line, dates,
     // and the type-conditional location / webinar-meeting / LMS fields).
-    if (isTraining) {
+    // Non-training events may carry an optional agenda (Task #3512) —
+    // validate only when lines exist.
+    if (isTraining || agendaLines.length > 0) {
       const agendaErrors = validateAgendaLines(agendaLines);
       if (agendaErrors.length > 0) {
         toast.error(agendaErrors[0]);
@@ -2128,13 +2190,13 @@ export default function EditEvent() {
             </Card>
           )}
 
-          {/* Training event toggle + multi-day agenda (Task #3419) */}
+          {/* Training event toggle + agenda for all regular events (Tasks #3419, #3512) */}
           {!isGroupLimited && (
             <Card className="border-slate-200 shadow-sm mb-6">
               <CardHeader className="pb-4">
                 <CardTitle className="text-lg flex items-center gap-2">
                   <Calendar className="h-5 w-5 text-blue-600" />
-                  Training Event
+                  Training Event & Agenda
                 </CardTitle>
                 <CardDescription>
                   Training events run over multiple days. Add one agenda line per day (or date range) — the event's overall dates are taken from the agenda.
@@ -2150,14 +2212,17 @@ export default function EditEvent() {
                     data-testid="switch-is-training"
                   />
                 </div>
-                {isTraining && (
-                  <TrainingAgendaEditor
-                    lines={agendaLines}
-                    onChange={setAgendaLines}
-                    agendaItemTypes={agendaItemTypes}
-                    speakers={speakers}
-                  />
+                {!isTraining && (
+                  <p className="text-sm text-slate-500">
+                    You can also add an optional agenda to any event — it renders in confirmation and reminder emails via the {'{{agenda_schedule}}'} placeholder.
+                  </p>
                 )}
+                <TrainingAgendaEditor
+                  lines={agendaLines}
+                  onChange={setAgendaLines}
+                  agendaItemTypes={agendaItemTypes}
+                  speakers={speakers}
+                />
               </CardContent>
             </Card>
           )}

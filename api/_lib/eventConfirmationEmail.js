@@ -85,10 +85,11 @@ export async function sendConfirmationEmailsFromTemplate(eventId, booking, atten
       complexEventData = await fetchComplexEventData(eventId, booking?.ticket_class_id || booking?.ticketClassId, booking?.ticket_class_name || booking?.ticketClassName, event.tenant_id, event.timezone);
     }
 
-    // Training events (Task #3419): resolve agenda context so
-    // {{agenda_schedule}} renders the multi-day schedule in confirmations.
+    // Regular events (Task #3419, all regular events since Task #3512):
+    // resolve agenda context so {{agenda_schedule}} renders the schedule in
+    // confirmations. Tokens blank cleanly when the event has no agenda items.
     let trainingAgendaData = null;
-    if (!event.is_complex && event.is_training) {
+    if (!event.is_complex) {
       trainingAgendaData = await fetchTrainingAgendaData(eventId);
     }
 
@@ -129,7 +130,7 @@ export async function sendConfirmationEmailsFromTemplate(eventId, booking, atten
       try {
         let subject = replacePlaceholders(emailConfig.subject, { event, booking: bookingData, complexEventData });
         let body = replacePlaceholders(emailConfig.body, { event, booking: bookingData, complexEventData });
-        if (event.is_training) {
+        if (!event.is_complex) {
           subject = applyAgendaPlaceholders(subject, { agendaData: trainingAgendaData });
           body = applyAgendaPlaceholders(body, { agendaData: trainingAgendaData });
         }
@@ -853,7 +854,7 @@ export async function renderEventEmailPreview({ eventId, tenantId, subject, body
   }
 
   let trainingAgendaData = null;
-  if (!event.is_complex && event.is_training) {
+  if (!event.is_complex) {
     trainingAgendaData = await fetchTrainingAgendaData(eventId);
   }
 
@@ -872,7 +873,7 @@ export async function renderEventEmailPreview({ eventId, tenantId, subject, body
 
   let renderedSubject = replacePlaceholders(subject || '', { event, booking: sampleBooking, complexEventData });
   let renderedBody = replacePlaceholders(body || '', { event, booking: sampleBooking, complexEventData });
-  if (event.is_training) {
+  if (!event.is_complex) {
     renderedSubject = applyAgendaPlaceholders(renderedSubject, { agendaData: trainingAgendaData });
     renderedBody = applyAgendaPlaceholders(renderedBody, { agendaData: trainingAgendaData });
   }

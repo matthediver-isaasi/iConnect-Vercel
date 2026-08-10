@@ -1209,8 +1209,10 @@ export default async function handler(req, res) {
         }
       }
 
-      // INTEGRITY (Task #3419): agenda lines may only attach to a Training
-      // event in the caller's own tenant. Also require a start_date.
+      // INTEGRITY (Task #3419, opened up in Task #3512): agenda lines may
+      // attach to any regular (non-complex) event in the caller's own tenant.
+      // Complex events are blocked implicitly: they live in complex_event, so
+      // the event-table lookup 404s. Also require a start_date.
       if (entityNorm === 'eventagendaitem') {
         if (!sanitizedBody.event_id) {
           return res.status(400).json({ error: 'event_id is required for agenda items' });
@@ -1220,15 +1222,12 @@ export default async function handler(req, res) {
         }
         const { data: parentEvent, error: parentErr } = await supabase
           .from('event')
-          .select('id, tenant_id, is_training')
+          .select('id, tenant_id')
           .eq('id', sanitizedBody.event_id)
           .single();
         if (parentErr || !parentEvent
             || !tenantCtx.tenantId || parentEvent.tenant_id !== tenantCtx.tenantId) {
           return res.status(404).json({ error: 'Event not found' });
-        }
-        if (parentEvent.is_training !== true) {
-          return res.status(400).json({ error: 'Agenda items can only be added to Training events' });
         }
       }
 

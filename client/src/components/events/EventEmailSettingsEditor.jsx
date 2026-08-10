@@ -528,7 +528,7 @@ export default function EventEmailSettingsEditor({
               />
             )}
             <p className="text-xs text-slate-500 mt-1">
-              Available placeholders: {'{{event_name}}'}, {'{{event_date}}'}, {'{{event_location}}'}, {'{{attendee_first_name}}'}, {'{{zoom_link}}'}{mode === "session" ? <>, {'{{session_schedule}}'}</> : null}
+              Available placeholders: {'{{event_name}}'}, {'{{event_date}}'}, {'{{event_location}}'}, {'{{attendee_first_name}}'}, {'{{zoom_link}}'}{mode === "session" ? <>, {'{{session_schedule}}'}</> : <>, {'{{agenda_schedule}}'}</>}
             </p>
           </div>
         </div>

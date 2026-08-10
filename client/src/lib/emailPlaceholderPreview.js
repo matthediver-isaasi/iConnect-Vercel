@@ -99,6 +99,12 @@ export const FIXTURE_SAMPLE_DATA = {
       '<ul><li>10:00 — Welcome (Plenary)</li><li>11:00 — Innovation Panel</li></ul>',
     session_zoom_links:
       '<ul><li>Welcome — <a href="https://zoom.us/j/111">Join</a></li><li>Innovation Panel — <a href="https://zoom.us/j/222">Join</a></li></ul>',
+    agenda_schedule:
+      '<table><tbody><tr><td><strong>Monday, 4 May 2026, 10:00 – 12:30</strong></td><td>In person</td><td>Morning workshop<br/><span>Royal Geographical Society, London</span></td></tr><tr><td><strong>Monday, 4 May 2026, 14:00 – 16:00</strong></td><td>Online</td><td>Afternoon webinar<br/><span>Join link: https://zoom.us/j/1112223333</span></td></tr></tbody></table>',
+    agenda_line_date: 'Monday, 4 May 2026, 10:00 – 12:30',
+    agenda_line_type: 'In person',
+    agenda_line_description: 'Morning workshop',
+    agenda_line_detail: 'Royal Geographical Society, London',
   },
   booking: {
     id: 'bkg_7720',
@@ -397,6 +403,11 @@ function buildResolverMap(s) {
     zoom_link: text(ev.zoom_link),
     session_schedule: html(ev.session_schedule),
     session_zoom_links: html(ev.session_zoom_links),
+    agenda_schedule: html(ev.agenda_schedule),
+    agenda_line_date: text(ev.agenda_line_date),
+    agenda_line_type: text(ev.agenda_line_type),
+    agenda_line_description: text(ev.agenda_line_description),
+    agenda_line_detail: text(ev.agenda_line_detail),
 
     // Form Submissions (pattern tokens)
     '<field_id>':

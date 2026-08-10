@@ -704,7 +704,7 @@ export default function CreateEvent() {
       // has an ID. If any line fails, roll the event back (compensating
       // delete) and fail the whole save — never report success for a training
       // event with a missing/partial agenda.
-      if (eventData.is_training && agendaLines.length > 0) {
+      if (agendaLines.length > 0) {
         try {
           // Persist in chronological order (Task #3443).
           const orderedLines = sortAgendaLinesChronologically(agendaLines);
@@ -863,7 +863,9 @@ export default function CreateEvent() {
 
     // Training events: validate the agenda lines (at least one line, dates,
     // and the type-conditional location / webinar-meeting / LMS fields).
-    if (isTraining) {
+    // Non-training events may have an optional agenda (Task #3512) — validate
+    // only when lines were added.
+    if (isTraining || agendaLines.length > 0) {
       errors.push(...validateAgendaLines(agendaLines));
     }
     
@@ -1653,13 +1655,13 @@ export default function CreateEvent() {
             </CardContent>
           </Card>
 
-          {/* Training event toggle + multi-day agenda (Task #3419) */}
+          {/* Training event toggle + agenda for all regular events (Tasks #3419, #3512) */}
           {!isGroupLimited && (
             <Card className="border-slate-200 shadow-sm mb-6">
               <CardHeader className="pb-4">
                 <CardTitle className="text-lg flex items-center gap-2">
                   <Calendar className="h-5 w-5 text-blue-600" />
-                  Training Event
+                  Training Event & Agenda
                 </CardTitle>
                 <CardDescription>
                   Training events run over multiple days. Add one agenda line per day (or date range) — the event's overall dates are taken from the agenda.
@@ -1675,14 +1677,17 @@ export default function CreateEvent() {
                     data-testid="switch-is-training"
                   />
                 </div>
-                {isTraining && (
-                  <TrainingAgendaEditor
-                    lines={agendaLines}
-                    onChange={setAgendaLines}
-                    agendaItemTypes={agendaItemTypes}
-                    speakers={speakers}
-                  />
+                {!isTraining && (
+                  <p className="text-sm text-slate-500">
+                    You can also add an optional agenda to any event — it renders in confirmation and reminder emails via the {'{{agenda_schedule}}'} placeholder.
+                  </p>
                 )}
+                <TrainingAgendaEditor
+                  lines={agendaLines}
+                  onChange={setAgendaLines}
+                  agendaItemTypes={agendaItemTypes}
+                  speakers={speakers}
+                />
               </CardContent>
             </Card>
           )}

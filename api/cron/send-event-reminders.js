@@ -195,7 +195,7 @@ export default async function handler(req, res) {
         // agenda context so {{agenda_schedule}} and per-line tokens resolve.
         let trainingAgendaData = null;
         let trainingAgendaLine = null;
-        if (!event.is_complex && event.is_training) {
+        if (!event.is_complex) {
           trainingAgendaData = await fetchTrainingAgendaData(event.id);
           if (scheduledEmail.session_id && trainingAgendaData?.lines) {
             trainingAgendaLine = trainingAgendaData.lines.find(l => l.id === scheduledEmail.session_id) || null;
@@ -220,7 +220,7 @@ export default async function handler(req, res) {
           complexEventData
         });
 
-        if (event.is_training) {
+        if (!event.is_complex) {
           subject = applyAgendaPlaceholders(subject, { agendaData: trainingAgendaData, line: trainingAgendaLine });
           body = applyAgendaPlaceholders(body, { agendaData: trainingAgendaData, line: trainingAgendaLine });
         }
