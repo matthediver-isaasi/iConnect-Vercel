@@ -17,6 +17,7 @@ import { getFormPagination } from "@/lib/formPagination";
 import { resolveSubmitControl } from "../../../api/_lib/formSubmitControl.js";
 import { evaluateLmicCondition } from "../../../api/_lib/formLmicConditions.js";
 import { useSubmissionIdempotencyKey } from "@/lib/useSubmissionIdempotencyKey";
+import { useMembershipFeeQuote } from "@/lib/useMembershipFeeQuote";
 
 // A `redirect_url` beginning with this prefix means the redirect target is driven
 // by the value the respondent submitted for the field whose id follows the prefix.
@@ -524,6 +525,25 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
   const orgDropdownField = useMemo(() => {
     return (form?.fields || []).find(f => f.type === 'organisation_dropdown');
   }, [form?.fields]);
+
+  // The organisation the SUBMISSION will carry (Task #3498): must mirror
+  // buildSubmissionPayload's resolution exactly, because the membership fee
+  // quote and the payment-create both key off prefill_organization_id —
+  // priority: prefill org, then org-pipeline dropdown, then standalone
+  // org dropdown.
+  const resolvedOrgIdForSubmission = useMemo(() => {
+    if (effectiveOrgIdForCapacity) return effectiveOrgIdForCapacity;
+    if (orgCapacityConfig?.sourceFieldId) {
+      const sourceField = form?.fields?.find(f => f.id === orgCapacityConfig.sourceFieldId);
+      if (sourceField?.type === 'organisation_dropdown' && formValues[orgCapacityConfig.sourceFieldId]) {
+        return formValues[orgCapacityConfig.sourceFieldId];
+      }
+    }
+    if (orgDropdownField && formValues[orgDropdownField.id]) {
+      return formValues[orgDropdownField.id];
+    }
+    return null;
+  }, [effectiveOrgIdForCapacity, orgCapacityConfig?.sourceFieldId, orgDropdownField, formValues, form?.fields]);
 
   // Get the selected org ID from form dropdown, URL prefill, or the
   // logged-in user's own organisation. The third path matters so that a
@@ -1592,6 +1612,16 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
     return pf;
   }, [form?.fields, hiddenFieldIds]);
 
+  // Task #3498: server-derived membership fee when a conditional membership
+  // rule matches — the payment card/button must show and charge THAT amount,
+  // not the (usually absent) price-source answer.
+  const membershipFeeQuote = useMembershipFeeQuote({
+    form,
+    formValues,
+    prefillOrganizationId: resolvedOrgIdForSubmission,
+    enabled: !!visiblePaymentField,
+  });
+
   const disabledFieldIds = useMemo(() => {
     // Start with fields that have starts_disabled = true
     const disabled = new Set(initialDisabledFieldIds);
@@ -2416,25 +2446,10 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
       Object.entries(formValues).filter(([key]) => !displayOnlyFieldIds.has(key))
     );
 
-    // Determine organization ID to include with submission
-    // Priority: 1) prefill org (effectiveOrgIdForCapacity), 2) org pipeline source field dropdown, 3) standalone org dropdown
-    let resolvedOrganizationId = effectiveOrgIdForCapacity;
-    if (!resolvedOrganizationId) {
-      // Check org pipeline config source field (if it's an organisation_dropdown)
-      if (orgCapacityConfig?.sourceFieldId) {
-        const sourceField = form?.fields?.find(f => f.id === orgCapacityConfig.sourceFieldId);
-        if (sourceField?.type === 'organisation_dropdown') {
-          // Org dropdown value IS the org UUID
-          resolvedOrganizationId = formValues[orgCapacityConfig.sourceFieldId] || null;
-          console.log('[FormView] Using org pipeline dropdown value for submission:', resolvedOrganizationId);
-        }
-      }
-      // Also check for standalone org dropdown (without org pipeline)
-      if (!resolvedOrganizationId && orgDropdownField) {
-        resolvedOrganizationId = formValues[orgDropdownField.id] || null;
-        console.log('[FormView] Using standalone org dropdown value for submission:', resolvedOrganizationId);
-      }
-    }
+    // Determine organization ID to include with submission.
+    // Task #3498: shared memo — MUST stay identical to what the membership
+    // fee quote hook uses, or the displayed fee and the charged fee diverge.
+    const resolvedOrganizationId = resolvedOrgIdForSubmission;
 
     const effectiveRoleId = roleActionTriggeredRef.current 
       ? triggeredRoleIdRef.current 
@@ -2558,6 +2573,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
                 allFormValues={formValues}
                 prefillData={prefillData}
                 allFields={form?.fields || []}
+                membershipFeeQuote={membershipFeeQuote}
               />
             )}
           </CardContent>
@@ -2684,6 +2700,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
                       onPaid={() => { rotateIdempotencyKey(); setSubmitted(true); }}
                       onNormalSubmit={handleSubmit}
                       submitLabel={form.submit_button_text}
+                      membershipQuote={membershipFeeQuote}
                     />
                   ) : (
                   <Button
@@ -2837,6 +2854,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
                   allFormValues={formValues}
                   prefillData={prefillData}
                   allFields={form?.fields || []}
+                  membershipFeeQuote={membershipFeeQuote}
                 />
               );
 
@@ -3101,6 +3119,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
                     onPaid={() => { rotateIdempotencyKey(); setSubmitted(true); }}
                     onNormalSubmit={handleSubmit}
                     submitLabel={form.submit_button_text}
+                    membershipQuote={membershipFeeQuote}
                   />
                 ) : (
                   <Button

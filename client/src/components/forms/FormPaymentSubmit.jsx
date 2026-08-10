@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Loader2, CreditCard, AlertCircle, Landmark, Info } from "lucide-react";
+import { resolveEffectivePayment } from "@/lib/formPaymentQuote";
 
 const CURRENCY_SYMBOLS = { GBP: '\u00a3', USD: '$', EUR: '\u20ac', AUD: 'A$', NZD: 'NZ$' };
 
@@ -43,6 +44,11 @@ const SS_KEY = 'form_payment_pending_submission';
  *  - onNormalSubmit(): fall back to the plain submit path (zero amount /
  *    no configured provider)
  *  - submitLabel: label used for the fallback submit button
+ *  - membershipQuote: result of useMembershipFeeQuote (Task #3498). When a
+ *    conditional membership rule matches, the payable amount is the
+ *    server-derived membership fee — the price-source derivation is display
+ *    fallback only, and the plain submit fallback is blocked while the
+ *    quote is loading or failed (never silently unpaid).
  */
 export default function FormPaymentSubmit({
   field,
@@ -55,6 +61,7 @@ export default function FormPaymentSubmit({
   onPaid,
   onNormalSubmit,
   submitLabel = 'Submit',
+  membershipQuote = null,
 }) {
   const [providers, setProviders] = useState(null); // null = loading
   const [selectedProvider, setSelectedProvider] = useState(null);
@@ -69,8 +76,18 @@ export default function FormPaymentSubmit({
   const submissionIdRef = useRef(null);
   const returnHandled = useRef(false);
 
-  const currency = (field?.payment_currency || 'GBP').toUpperCase();
-  const amount = useMemo(() => derivePaymentAmountClient(field, formValues), [field, formValues]);
+  const fieldCurrency = (field?.payment_currency || 'GBP').toUpperCase();
+  const derivedAmount = useMemo(() => derivePaymentAmountClient(field, formValues), [field, formValues]);
+  const effective = useMemo(() => resolveEffectivePayment({
+    membershipMatched: !!membershipQuote?.matched,
+    quote: membershipQuote?.quote,
+    quoteLoading: membershipQuote?.loading,
+    quoteError: membershipQuote?.error,
+    derivedAmount,
+    derivedCurrency: fieldCurrency,
+  }), [membershipQuote?.matched, membershipQuote?.quote, membershipQuote?.loading, membershipQuote?.error, derivedAmount, fieldCurrency]);
+  const amount = effective.amount ?? 0;
+  const currency = effective.currency || fieldCurrency;
 
   // Provider detection (public, secrets-free).
   useEffect(() => {
@@ -261,8 +278,11 @@ export default function FormPaymentSubmit({
   const anyBusy = busy || creating || processing || confirming;
 
   // No amount due, or no usable provider once detection resolved: fall back
-  // to the plain Submit button so the form stays usable.
-  const fallbackToNormalSubmit = amount <= 0 || (usableProviders !== null && usableProviders.length === 0);
+  // to the plain Submit button so the form stays usable. NEVER while a
+  // matched membership quote is loading or failed — that would submit a
+  // fee-carrying application unpaid.
+  const fallbackToNormalSubmit = !effective.blocked
+    && (amount <= 0 || (usableProviders !== null && usableProviders.length === 0));
 
   return (
     <div className="space-y-3" data-testid={`form-payment-submit-${field?.id || 'unknown'}`}>
@@ -279,7 +299,23 @@ export default function FormPaymentSubmit({
         </div>
       )}
 
-      {fallbackToNormalSubmit ? (
+      {effective.pending ? (
+        <div className="flex items-center gap-2 text-sm text-muted-foreground" data-testid={`form-payment-quote-loading-${field?.id}`}>
+          <Loader2 className="h-4 w-4 animate-spin" /> Calculating the amount due…
+        </div>
+      ) : effective.error ? (
+        <div className="flex items-start gap-2 p-3 bg-destructive/10 rounded-md border border-destructive/20" data-testid={`form-payment-quote-error-${field?.id}`}>
+          <AlertCircle className="h-4 w-4 text-destructive shrink-0 mt-0.5" />
+          <div className="space-y-2">
+            <p className="text-sm text-destructive">{effective.error}</p>
+            {membershipQuote?.refetch && (
+              <Button variant="outline" size="sm" onClick={() => membershipQuote.refetch()} disabled={anyBusy}>
+                Try again
+              </Button>
+            )}
+          </div>
+        </div>
+      ) : fallbackToNormalSubmit ? (
         <>
           {amount > 0 && usableProviders !== null && usableProviders.length === 0 && (
             <div className="flex items-start gap-2 p-3 bg-muted rounded-md">
@@ -321,6 +357,12 @@ export default function FormPaymentSubmit({
           <p className="text-sm font-medium">
             Amount due: <span data-testid={`form-payment-amount-${field?.id}`}>{formatPaymentAmount(amount, currency)}</span>
           </p>
+          {effective.membership && (
+            <p className="text-xs text-muted-foreground" data-testid={`form-payment-membership-context-${field?.id}`}>
+              {[effective.membership.config_name, effective.membership.tier_label, effective.membership.membership_year]
+                .filter(Boolean).join(' — ')}
+            </p>
+          )}
           {providers === null && (
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <Loader2 className="h-4 w-4 animate-spin" /> Checking payment options…

@@ -12,6 +12,7 @@ import { publicClient } from "@/api/publicClient";
 import { base44 } from "@/api/base44Client";
 import { buildPrefillValues, resolveEffectivePrefillIds, resolveMemberSourceOrgId, shouldWaitForPrefillCustomValues, shouldWaitForPrefillOrgEntity, isFieldValueFilled } from "@/lib/formFieldPrefill";
 import { useSubmissionIdempotencyKey } from "@/lib/useSubmissionIdempotencyKey";
+import { useMembershipFeeQuote } from "@/lib/useMembershipFeeQuote";
 import { evaluateLmicCondition } from "../../../api/_lib/formLmicConditions.js";
 import { resolveSubmitControl } from "../../../api/_lib/formSubmitControl.js";
 import FormPaymentSubmit from "../components/forms/FormPaymentSubmit";
@@ -711,6 +712,16 @@ export default function EmbedFormPage() {
     return pf;
   }, [form?.fields, hiddenFieldIds]);
 
+  // Task #3498: server-derived membership fee when a conditional membership
+  // rule matches — the payment card/button must show and charge THAT amount,
+  // not the (usually absent) price-source answer.
+  const membershipFeeQuote = useMembershipFeeQuote({
+    form,
+    formValues,
+    prefillOrganizationId: urlPrefillOrgId || null,
+    enabled: !!visiblePaymentField,
+  });
+
   // For standard layout with pages
   const pages = useMemo(() => {
     if (!form?.fields) return [];
@@ -1080,6 +1091,8 @@ export default function EmbedFormPage() {
                 disabled={false}
                 autoFocus={['text', 'email', 'url', 'number', 'tel', 'textarea'].includes(currentField.type)}
                 formId={form?.id}
+                allFormValues={formValues}
+                membershipFeeQuote={membershipFeeQuote}
               />
             )}
           </CardContent>
@@ -1119,6 +1132,7 @@ export default function EmbedFormPage() {
                     onPaid={() => { rotateIdempotencyKey(); setSubmitted(true); notifyParentResize(); }}
                     onNormalSubmit={handleSubmit}
                     submitLabel={form.submit_button_text || 'Submit'}
+                    membershipQuote={membershipFeeQuote}
                   />
                 ) : (
                 <Button
@@ -1213,6 +1227,8 @@ export default function EmbedFormPage() {
                 onValidityChange={handleValidityChange}
                 disabled={false}
                 formId={form?.id}
+                allFormValues={formValues}
+                membershipFeeQuote={membershipFeeQuote}
               />
             ))}
           </div>
@@ -1260,6 +1276,7 @@ export default function EmbedFormPage() {
                 onPaid={() => { rotateIdempotencyKey(); setSubmitted(true); notifyParentResize(); }}
                 onNormalSubmit={handleSubmit}
                 submitLabel={form.submit_button_text || 'Submit'}
+                membershipQuote={membershipFeeQuote}
               />
             ) : (
               <Button

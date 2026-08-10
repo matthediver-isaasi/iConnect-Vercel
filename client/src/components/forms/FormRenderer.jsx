@@ -307,7 +307,7 @@ function CommunicationPreferencesField({ field, value, onChange, disabled, membe
   );
 }
 
-export default function FormRenderer({ field, value, onChange, memberInfo, organizationInfo, selectedOrgGuestAccess = null, disabled = false, onValidityChange, autoFocus = false, hideLabel = false, formId = null, formMemberRoleId = null, allFormValues = {}, prefillData = null, allFields = [] }) {
+export default function FormRenderer({ field, value, onChange, memberInfo, organizationInfo, selectedOrgGuestAccess = null, disabled = false, onValidityChange, autoFocus = false, hideLabel = false, formId = null, formMemberRoleId = null, allFormValues = {}, prefillData = null, allFields = [], membershipFeeQuote = null }) {
   const [showOtherInput, setShowOtherInput] = useState(false);
   const [otherValue, setOtherValue] = useState('');
   const [domainError, setDomainError] = useState('');
@@ -1831,19 +1831,43 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
         if (raw && typeof raw === 'object' && !Array.isArray(raw)) raw = raw.amount ?? raw.value ?? null;
         if (typeof raw === 'string') raw = raw.replace(/[^0-9.\-]/g, '');
         const amt = Number(raw);
-        const amount = Number.isFinite(amt) && amt > 0 ? Math.round(amt * 100) / 100 : 0;
+        const derived = Number.isFinite(amt) && amt > 0 ? Math.round(amt * 100) / 100 : 0;
+        // Task #3498: when a conditional membership rule matches, the real
+        // amount is the server-derived membership fee — never the (usually
+        // absent) price-source answer.
+        const mq = membershipFeeQuote;
+        const useQuote = !!mq?.matched;
+        const quoteAmount = useQuote && mq.quote?.required !== false ? Number(mq.quote?.amount) : null;
+        const displayCur = (useQuote && mq.quote?.currency) ? mq.quote.currency.toUpperCase() : cur;
+        const amount = useQuote ? (Number.isFinite(quoteAmount) ? quoteAmount : null) : derived;
+        const membership = useQuote ? (mq.quote?.membership || null) : null;
         return (
           <div className="border rounded-md p-4 bg-slate-50 space-y-1" data-testid={`payment-summary-${field.id}`}>
             <p className="text-sm font-medium">{field.payment_label || 'Payment'}</p>
             {field.payment_description && (
               <p className="text-xs text-slate-500">{field.payment_description}</p>
             )}
-            <p className="text-sm">
-              Amount due:{' '}
-              <span className="font-semibold" data-testid={`payment-summary-amount-${field.id}`}>
-                {`${symbols[cur] || cur + ' '}${amount.toFixed(2)}`}
-              </span>
-            </p>
+            {useQuote && mq.loading ? (
+              <p className="text-sm text-slate-500" data-testid={`payment-summary-amount-${field.id}`}>
+                Calculating the amount due…
+              </p>
+            ) : useQuote && mq.error ? (
+              <p className="text-sm text-red-600" data-testid={`payment-summary-amount-${field.id}`}>
+                {mq.error}
+              </p>
+            ) : (
+              <p className="text-sm">
+                Amount due:{' '}
+                <span className="font-semibold" data-testid={`payment-summary-amount-${field.id}`}>
+                  {`${symbols[displayCur] || displayCur + ' '}${(amount ?? 0).toFixed(2)}`}
+                </span>
+              </p>
+            )}
+            {membership && (
+              <p className="text-xs text-slate-500" data-testid={`payment-summary-membership-${field.id}`}>
+                {[membership.config_name, membership.tier_label, membership.membership_year].filter(Boolean).join(' — ')}
+              </p>
+            )}
             <p className="text-xs text-slate-500">You'll be asked to pay when you submit this form.</p>
           </div>
         );

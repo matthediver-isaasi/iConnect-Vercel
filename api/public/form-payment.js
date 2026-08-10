@@ -83,6 +83,7 @@ export default async function handler(req, res) {
     const { action } = req.body || {};
     if (action === 'create') return await handleCreate(req, res, supabase, tenantData);
     if (action === 'confirm') return await handleConfirm(req, res, supabase, tenantData);
+    if (action === 'quote') return await handleQuote(req, res, supabase, tenantData);
     return res.status(400).json({ error: 'Unknown action' });
   } catch (err) {
     console.error('[form-payment] Error:', err);
@@ -104,6 +105,160 @@ async function loadForm(supabase, formId, tenantId) {
     if (!Number.isNaN(t) && t <= Date.now()) return null;
   }
   return form;
+}
+
+/**
+ * Shared by 'create' and 'quote' (Task #3498): resolve the payable charge
+ * for the current answers. The amount is ALWAYS derived server-side — from
+ * the membership quote when a conditional membership action matched,
+ * otherwise from the price-source answer.
+ *
+ * Returns { error: { status, body } } or
+ * { membershipMeta, amount, currency, evalOptions }.
+ */
+async function resolvePayableCharge({ supabase, tenantData, form, paymentField, values, prefill_organization_id, evalOptions: presetEvalOptions = null }) {
+  // LMIC options shared by submit-control AND visibility evaluation.
+  const evalOptions = presetEvalOptions || {};
+  if (!presetEvalOptions && rulesUseLmicOperators(form.visibility_rules)) {
+    evalOptions.lmicCodes = await loadTenantLmicCodes(supabase, tenantData.id);
+  }
+
+  // Hidden payment field ⇒ payment is not part of this submission; the
+  // client must use the normal submit path.
+  const hiddenIds = computeHiddenFieldIds(form, values, evalOptions);
+  if (hiddenIds.has(paymentField.id)) {
+    return { error: { status: 400, body: { error: 'Payment is not required for these answers', code: 'PAYMENT_NOT_REQUIRED' } } };
+  }
+
+  // Conditional-logic membership action (Task #3489): when a matched rule
+  // selects a membership structure, the charge amount is the server-derived
+  // membership fee for that structure and the paid submission will create
+  // the membership record at finalisation.
+  let membershipMeta = null;
+  const membershipAction = resolveMembershipAction(form.visibility_rules, values, evalOptions);
+  if (membershipAction) {
+    // Resolve the config's scope FIRST — it decides which entity the
+    // membership targets and how the fee is derived.
+    // Lifecycle-aware resolution: a persisted form rule can outlive its
+    // structure, so only configs effective TODAY may be quoted/charged
+    // (expired, future-scheduled, or otherwise out-of-window configs are
+    // rejected before any charge exists).
+    const { getAllActiveConfigs } = await import('../_lib/membershipConfigResolver.js');
+    const activeConfigs = await getAllActiveConfigs(tenantData.id);
+    const membershipConfig = (activeConfigs || []).find(c => c.id === membershipAction.configId);
+    if (!membershipConfig) {
+      return { error: { status: 400, body: { error: 'The selected membership structure is not currently in effect. Ask the administrator to update the form.', code: 'MEMBERSHIP_QUOTE_FAILED' } } };
+    }
+    const membershipTarget = membershipConfig.structure_scope_type === 'member' ? 'member' : 'organization';
+
+    // Scope-to-pipeline validation BEFORE any charge is created: the form's
+    // processing must be able to resolve the target entity after payment,
+    // otherwise we'd take money and have nowhere to attach the membership.
+    const hasMemberPipeline = (form.entity_pipelines?.members?.length || 0) > 0;
+    const hasOrgPipeline = (form.entity_pipelines?.organisations?.length || 0) > 0;
+    if (membershipTarget === 'member' && !hasMemberPipeline) {
+      return { error: { status: 400, body: {
+        error: 'This form cannot create a member membership: it has no member-creating processing pipeline. Ask the administrator to fix the form configuration.',
+        code: 'MEMBERSHIP_TARGET_UNRESOLVABLE',
+      } } };
+    }
+    if (membershipTarget === 'organization' && !hasOrgPipeline && !prefill_organization_id) {
+      return { error: { status: 400, body: {
+        error: 'This form cannot create an organisation membership: it has no organisation-creating processing pipeline. Ask the administrator to fix the form configuration.',
+        code: 'MEMBERSHIP_TARGET_UNRESOLVABLE',
+      } } };
+    }
+
+    const fieldOverrides = buildMembershipFieldOverrides(membershipAction.fieldMappings, values);
+    let quote = null;
+    if (membershipTarget === 'organization' && prefill_organization_id) {
+      // An existing organisation is already known: use the full simulation
+      // (honours go-live date, existing records, overrides, stored values).
+      const { simulateMembershipForOrg } = await import('../_lib/membershipSimulation.js');
+      const simResult = await simulateMembershipForOrg(tenantData.id, prefill_organization_id, {
+        source: 'form-payment', mode: 'manual', configId: membershipAction.configId, fieldOverrides,
+      });
+      if (!simResult.success) {
+        return { error: { status: 400, body: { error: simResult.error || 'The membership fee could not be calculated', code: 'MEMBERSHIP_QUOTE_FAILED' } } };
+      }
+      if (simResult.existingRecord) {
+        return { error: { status: 400, body: { error: `A membership record for ${simResult.membershipYear?.label} already exists for this organisation`, code: 'MEMBERSHIP_EXISTS' } } };
+      }
+      quote = quoteFromSimulationResult(simResult, 'organization');
+    } else {
+      // New applicant (member- or organisation-scoped): detached quote from
+      // the form answers alone. A member-scoped structure keeps this path
+      // even when prefill_organization_id is present — the membership
+      // belongs to the member the pipeline creates, not the organisation.
+      const quoted = await quoteMembershipForNewApplicant({
+        tenantId: tenantData.id, configId: membershipAction.configId, fieldOverrides,
+      });
+      if (!quoted.success) {
+        return { error: { status: 400, body: { error: quoted.error || 'The membership fee could not be calculated', code: 'MEMBERSHIP_QUOTE_FAILED' } } };
+      }
+      quote = quoted.quote;
+    }
+    membershipMeta = { rule_id: membershipAction.ruleId, action_id: membershipAction.actionId, quote };
+  }
+
+  const amount = membershipMeta
+    ? (membershipMeta.quote.total_with_vat || membershipMeta.quote.final_cost)
+    : derivePaymentAmount(paymentField, values);
+  const currency = membershipMeta
+    ? (membershipMeta.quote.currency || 'GBP').toUpperCase()
+    : (paymentField.payment_currency || 'GBP').toUpperCase();
+
+  return { membershipMeta, amount, currency, evalOptions };
+}
+
+/**
+ * Task #3498: display-only fee quote for the public form client. Resolves
+ * the SAME server-derived charge the 'create' action would use (membership
+ * fee when a conditional membership rule matches, price-source answer
+ * otherwise) without creating anything. The client uses it to show the real
+ * amount due and to decide whether a payment step is required — the quoted
+ * amount is never sent back or trusted at charge time.
+ */
+async function handleQuote(req, res, supabase, tenantData) {
+  const { form_id, submission_data, prefill_organization_id } = req.body || {};
+  if (!form_id) return res.status(400).json({ error: 'Form ID is required' });
+
+  const form = await loadForm(supabase, form_id, tenantData.id);
+  if (!form) return res.status(404).json({ error: 'Form not found' });
+  if (form.form_type === 'survey') {
+    return res.status(400).json({ error: 'Payment fields are not supported on surveys' });
+  }
+  const paymentField = findPaymentField(form);
+  if (!paymentField) return res.status(400).json({ error: 'This form has no payment field' });
+
+  const resolved = await resolvePayableCharge({
+    supabase, tenantData, form, paymentField,
+    values: submission_data || {},
+    prefill_organization_id,
+  });
+  if (resolved.error) {
+    // A hidden payment field just means the normal submit path applies —
+    // not an error for a display-only quote.
+    if (resolved.error.body?.code === 'PAYMENT_NOT_REQUIRED') {
+      return res.status(200).json({ required: false, code: 'PAYMENT_NOT_REQUIRED' });
+    }
+    return res.status(resolved.error.status).json(resolved.error.body);
+  }
+
+  const { membershipMeta, amount, currency } = resolved;
+  if (!(amount > 0)) {
+    return res.status(200).json({ required: false, code: 'NO_PAYMENT_REQUIRED' });
+  }
+  return res.status(200).json({
+    required: true,
+    amount,
+    currency,
+    membership: membershipMeta ? {
+      config_name: membershipMeta.quote.config_name || null,
+      membership_year: membershipMeta.quote.membership_year || null,
+      tier_label: membershipMeta.quote.tier_label || null,
+    } : null,
+  });
 }
 
 async function handleCreate(req, res, supabase, tenantData) {
@@ -133,21 +288,13 @@ async function handleCreate(req, res, supabase, tenantData) {
 
   const values = submission_data || {};
 
-  // LMIC options shared by submit-control AND visibility evaluation.
+  // Conditional-logic submit control FIRST (pre-existing ordering): a
+  // matched disable rule blocks STARTING a payment exactly as it blocks a
+  // normal submit — before any membership resolution runs.
   const evalOptions = {};
   if (rulesUseLmicOperators(form.visibility_rules)) {
     evalOptions.lmicCodes = await loadTenantLmicCodes(supabase, tenantData.id);
   }
-
-  // Hidden payment field ⇒ payment is not part of this submission; the
-  // client must use the normal submit path.
-  const hiddenIds = computeHiddenFieldIds(form, values, evalOptions);
-  if (hiddenIds.has(paymentField.id)) {
-    return res.status(400).json({ error: 'Payment is not required for these answers', code: 'PAYMENT_NOT_REQUIRED' });
-  }
-
-  // Conditional-logic submit control: a matched disable rule blocks
-  // STARTING a payment exactly as it blocks a normal submit.
   const submitControl = resolveSubmitControl(form.visibility_rules, values, evalOptions);
   if (submitControl.disabled) {
     return res.status(400).json({
@@ -156,88 +303,16 @@ async function handleCreate(req, res, supabase, tenantData) {
     });
   }
 
-  // Conditional-logic membership action (Task #3489): when a matched rule
-  // selects a membership structure, the charge amount is the server-derived
-  // membership fee for that structure and the paid submission will create
-  // the membership record at finalisation.
-  let membershipMeta = null;
-  const membershipAction = resolveMembershipAction(form.visibility_rules, values, evalOptions);
-  if (membershipAction) {
-    // Resolve the config's scope FIRST — it decides which entity the
-    // membership targets and how the fee is derived.
-    // Lifecycle-aware resolution: a persisted form rule can outlive its
-    // structure, so only configs effective TODAY may be quoted/charged
-    // (expired, future-scheduled, or otherwise out-of-window configs are
-    // rejected before any charge exists).
-    const { getAllActiveConfigs } = await import('../_lib/membershipConfigResolver.js');
-    const activeConfigs = await getAllActiveConfigs(tenantData.id);
-    const membershipConfig = (activeConfigs || []).find(c => c.id === membershipAction.configId);
-    if (!membershipConfig) {
-      return res.status(400).json({ error: 'The selected membership structure is not currently in effect. Ask the administrator to update the form.', code: 'MEMBERSHIP_QUOTE_FAILED' });
-    }
-    const membershipTarget = membershipConfig.structure_scope_type === 'member' ? 'member' : 'organization';
+  const resolved = await resolvePayableCharge({
+    supabase, tenantData, form, paymentField, values,
+    prefill_organization_id, evalOptions,
+  });
+  if (resolved.error) return res.status(resolved.error.status).json(resolved.error.body);
+  const { membershipMeta, amount, currency } = resolved;
 
-    // Scope-to-pipeline validation BEFORE any charge is created: the form's
-    // processing must be able to resolve the target entity after payment,
-    // otherwise we'd take money and have nowhere to attach the membership.
-    const hasMemberPipeline = (form.entity_pipelines?.members?.length || 0) > 0;
-    const hasOrgPipeline = (form.entity_pipelines?.organisations?.length || 0) > 0;
-    if (membershipTarget === 'member' && !hasMemberPipeline) {
-      return res.status(400).json({
-        error: 'This form cannot create a member membership: it has no member-creating processing pipeline. Ask the administrator to fix the form configuration.',
-        code: 'MEMBERSHIP_TARGET_UNRESOLVABLE',
-      });
-    }
-    if (membershipTarget === 'organization' && !hasOrgPipeline && !prefill_organization_id) {
-      return res.status(400).json({
-        error: 'This form cannot create an organisation membership: it has no organisation-creating processing pipeline. Ask the administrator to fix the form configuration.',
-        code: 'MEMBERSHIP_TARGET_UNRESOLVABLE',
-      });
-    }
-
-    const fieldOverrides = buildMembershipFieldOverrides(membershipAction.fieldMappings, values);
-    let quote = null;
-    if (membershipTarget === 'organization' && prefill_organization_id) {
-      // An existing organisation is already known: use the full simulation
-      // (honours go-live date, existing records, overrides, stored values).
-      const { simulateMembershipForOrg } = await import('../_lib/membershipSimulation.js');
-      const simResult = await simulateMembershipForOrg(tenantData.id, prefill_organization_id, {
-        source: 'form-payment', mode: 'manual', configId: membershipAction.configId, fieldOverrides,
-      });
-      if (!simResult.success) {
-        return res.status(400).json({ error: simResult.error || 'The membership fee could not be calculated', code: 'MEMBERSHIP_QUOTE_FAILED' });
-      }
-      if (simResult.existingRecord) {
-        return res.status(400).json({ error: `A membership record for ${simResult.membershipYear?.label} already exists for this organisation`, code: 'MEMBERSHIP_EXISTS' });
-      }
-      quote = quoteFromSimulationResult(simResult, 'organization');
-    } else {
-      // New applicant (member- or organisation-scoped): detached quote from
-      // the form answers alone. A member-scoped structure keeps this path
-      // even when prefill_organization_id is present — the membership
-      // belongs to the member the pipeline creates, not the organisation.
-      const quoted = await quoteMembershipForNewApplicant({
-        tenantId: tenantData.id, configId: membershipAction.configId, fieldOverrides,
-      });
-      if (!quoted.success) {
-        return res.status(400).json({ error: quoted.error || 'The membership fee could not be calculated', code: 'MEMBERSHIP_QUOTE_FAILED' });
-      }
-      quote = quoted.quote;
-    }
-    membershipMeta = { rule_id: membershipAction.ruleId, action_id: membershipAction.actionId, quote };
-  }
-
-  // Amount is ALWAYS derived server-side: from the membership quote when a
-  // membership action matched, otherwise from the price-source answer.
-  const amount = membershipMeta
-    ? (membershipMeta.quote.total_with_vat || membershipMeta.quote.final_cost)
-    : derivePaymentAmount(paymentField, values);
   if (!(amount > 0)) {
     return res.status(400).json({ error: 'No payment is due for these answers', code: 'NO_PAYMENT_REQUIRED' });
   }
-  const currency = membershipMeta
-    ? (membershipMeta.quote.currency || 'GBP').toUpperCase()
-    : (paymentField.payment_currency || 'GBP').toUpperCase();
   if (provider === 'stripe' && amount < (STRIPE_MINIMUMS[currency] || 0.5)) {
     return res.status(400).json({ error: `The amount is below the minimum for card payment (${currency}).`, code: 'AMOUNT_TOO_SMALL' });
   }
