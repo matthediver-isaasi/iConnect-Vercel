@@ -9,6 +9,7 @@ import { isAdminOnlyEntity } from '../../_lib/adminOnlyEntities.js';
 import { isEventFamilyEntity, authorizeGroupAdminEventWrite } from '../../_lib/groupAdminEventWrite.js';
 import { checkBadgeWriteAccess } from '../../_lib/badgeAccess.js';
 import { isResourceEntity, applyGroupResourceSubcategoryDefaults } from '../../_lib/groupAdminResourceWrite.js';
+import { resolveSubmitControl } from '../../_lib/formSubmitControl.js';
 import { getSession } from '../../_lib/session.js';
 import { getSessionPlatformOwner } from '../../_lib/platformSession.js';
 import { handleMemberGroupEntityChange } from '../../_lib/memberGroupProjectsAccess.js';
@@ -1550,6 +1551,34 @@ export default async function handler(req, res) {
         } else if ('idempotency_key' in sanitizedBody) {
           // Malformed key: drop it rather than persisting junk.
           delete sanitizedBody.idempotency_key;
+        }
+
+        // Conditional-logic submit control (Task #3474): the authenticated
+        // embedded/canvas form flow creates form_submission rows through this
+        // entity API (not api/public/form-submission.js), so the STORED
+        // form rules must also be enforced here BEFORE the insert. The client
+        // disables the Submit button with the same shared evaluator, so this
+        // only fires when the UI was bypassed.
+        if (sanitizedBody.form_id) {
+          const { data: submitControlForm, error: submitControlFormError } = await supabase
+            .from('form')
+            .select('visibility_rules')
+            .eq('id', sanitizedBody.form_id)
+            .maybeSingle();
+          if (submitControlFormError) {
+            console.error('[Entity POST] FormSubmission submit-control rules lookup failed:', submitControlFormError);
+            return res.status(500).json({ error: 'Failed to validate submission rules' });
+          }
+          const submitControl = resolveSubmitControl(
+            submitControlForm?.visibility_rules,
+            sanitizedBody.submission_data || {}
+          );
+          if (submitControl.disabled) {
+            return res.status(400).json({
+              error: submitControl.message || 'This form cannot be submitted with the current answers.',
+              code: 'SUBMIT_DISABLED_BY_RULE',
+            });
+          }
         }
       }
 

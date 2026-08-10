@@ -1074,6 +1074,21 @@ function LogicRulesSection({
         // null means inherit (no change)
         field_states: {}
       };
+    } else if (actionType === 'submit_control') {
+      // One submit-control action per rule keeps semantics obvious
+      const existingSubmitAction = (normalizedRule.actions || []).find(a => a.action_type === 'submit_control');
+      if (existingSubmitAction) {
+        toast.info('A submit button action already exists for this rule');
+        return;
+      }
+      newAction = {
+        id: `action_submit_${Date.now()}`,
+        action_type: 'submit_control',
+        // 'disable' blocks submission while the rule's conditions match;
+        // 'enable' re-enables submit even if another matched rule disables it.
+        submit_state: 'disable',
+        message: ''
+      };
     } else {
       // Unknown action type
       toast.error('Unknown action type');
@@ -1834,6 +1849,15 @@ function LogicRulesSection({
                       >
                         <Edit2 className="w-3 h-3 mr-1" /> Set Value
                       </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 text-xs"
+                        onClick={() => addAction(rule.id, 'submit_control')}
+                        data-testid={`button-add-submit-action-${index}`}
+                      >
+                        <Lock className="w-3 h-3 mr-1" /> Submit Button
+                      </Button>
                     </div>
                   </div>
 
@@ -1848,10 +1872,13 @@ function LogicRulesSection({
                         const isLegacyDisabilityAction = action.action_type === 'disable' || action.action_type === 'enable';
                         const isLegacyFieldTargetAction = isLegacyVisibilityAction || isLegacyDisabilityAction;
                         const isConsolidatedVisibility = action.action_type === 'visibility';
+                        const isSubmitControlAction = action.action_type === 'submit_control';
                         // Determine card styling
                         let cardClass = 'p-3 rounded-lg border ';
                         if (isConsolidatedVisibility) {
                           cardClass += 'bg-slate-50 border-slate-300';
+                        } else if (isSubmitControlAction) {
+                          cardClass += 'bg-purple-50 border-purple-200';
                         } else if (isLegacyVisibilityAction) {
                           cardClass += 'bg-white border-slate-200';
                         } else if (isLegacyDisabilityAction) {
@@ -1874,7 +1901,13 @@ function LogicRulesSection({
                                 {action.action_type === 'set_value' && <Edit2 className="w-3 h-3 text-blue-600" />}
                                 {action.action_type === 'disable' && <Lock className="w-3 h-3 text-warning" />}
                                 {action.action_type === 'enable' && <Unlock className="w-3 h-3 text-teal-600" />}
+                                {action.action_type === 'submit_control' && (
+                                  action.submit_state === 'enable'
+                                    ? <Unlock className="w-3 h-3 text-purple-600" />
+                                    : <Lock className="w-3 h-3 text-purple-600" />
+                                )}
                                 <span className="text-xs font-medium">
+                                  {action.action_type === 'submit_control' && 'Submit Button'}
                                   {action.action_type === 'visibility' && 'Field Visibility & State'}
                                   {action.action_type === 'show' && 'Show Fields (Legacy)'}
                                   {action.action_type === 'hide' && 'Hide Fields (Legacy)'}
@@ -1894,7 +1927,39 @@ function LogicRulesSection({
                               </Button>
                             </div>
 
-                            {isConsolidatedVisibility ? (
+                            {isSubmitControlAction ? (
+                              <div className="space-y-2">
+                                <p className="text-xs text-slate-500">
+                                  Control the Submit button while this rule's conditions match. "Disable submit" blocks submission; "Enable submit" overrides a disable from another rule.
+                                </p>
+                                <div className="flex items-center gap-2">
+                                  <Select
+                                    value={action.submit_state || 'disable'}
+                                    onValueChange={(value) => updateAction(rule.id, action.id, { submit_state: value })}
+                                  >
+                                    <SelectTrigger className="h-8 text-xs w-40" data-testid={`select-submit-state-${index}-${actionIndex}`}>
+                                      <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="disable">Disable submit</SelectItem>
+                                      <SelectItem value="enable">Enable submit</SelectItem>
+                                    </SelectContent>
+                                  </Select>
+                                </div>
+                                {(action.submit_state || 'disable') === 'disable' && (
+                                  <div>
+                                    <Label className="text-xs text-slate-600">Message shown near the Submit button (optional)</Label>
+                                    <Input
+                                      value={action.message || ''}
+                                      onChange={(e) => updateAction(rule.id, action.id, { message: e.target.value })}
+                                      placeholder="e.g. Please review your answers before submitting"
+                                      className="h-8 text-xs mt-1"
+                                      data-testid={`input-submit-message-${index}-${actionIndex}`}
+                                    />
+                                  </div>
+                                )}
+                              </div>
+                            ) : isConsolidatedVisibility ? (
                               <div>
                                 <p className="text-xs text-slate-500 mb-3">
                                   Configure visibility and enabled state for each field or page. Leave as "Inherit" for no change.

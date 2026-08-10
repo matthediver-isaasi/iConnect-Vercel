@@ -6,6 +6,7 @@ import { resolveStaticTodayToken } from '../_lib/staticValueTokens.js';
 import { isProtectedOrgBalanceField } from '../_lib/protectedOrgFields.js';
 import { coercePreferenceValueForStorage } from '../_lib/preferenceValueStorage.js';
 import { resolveEffectiveEntityTenant, isCrossTenantRow } from '../_lib/formTenantScope.js';
+import { resolveSubmitControl } from '../_lib/formSubmitControl.js';
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
@@ -836,6 +837,31 @@ export default async function handler(req, res) {
     // This blocks duplicates even if client-side validation is bypassed
     // Skip for update modes with prefill IDs (those are legitimate self-updates)
     const isCreatingNewEntities = !prefill_member_id && !prefill_organization_id;
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Conditional-logic submit control (Task #3474): re-evaluate the form's
+    // STORED visibility rules (never client-supplied) against the submitted
+    // answers. When a matched rule disables submission, reject — the client
+    // disables the Submit button with the same shared evaluator, so this only
+    // fires when the UI was bypassed.
+    if (form_id) {
+      const { data: submitControlForm, error: submitControlFormError } = await supabase
+        .from('form')
+        .select('visibility_rules')
+        .eq('id', form_id)
+        .maybeSingle();
+      if (submitControlFormError) {
+        console.error('[AppProcessor] Failed to load form for submit-control check:', submitControlFormError);
+        return res.status(500).json({ error: 'Failed to validate submission rules' });
+      }
+      const submitControl = resolveSubmitControl(submitControlForm?.visibility_rules, form_values);
+      if (submitControl.disabled) {
+        return res.status(400).json({
+          error: submitControl.message || 'This form cannot be submitted with the current answers.',
+          code: 'SUBMIT_DISABLED_BY_RULE',
+        });
+      }
+    }
     
     if (form_id && isCreatingNewEntities) {
       const { data: formData } = await supabase

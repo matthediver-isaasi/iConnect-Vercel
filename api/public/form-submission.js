@@ -7,6 +7,7 @@ import { sendSubmissionEmailsGuarded } from '../_lib/formSubmissionEmails.js';
 import { scoreSubmission, redactIdentityAnswers, anonymizeSubmissionRecord, activeVersionNumber } from '../_lib/surveyScoring.js';
 import { createHmac } from 'node:crypto';
 import { assignmentSubmissionRejection, respondentKeyInput, requiresAssignmentLink } from '../_lib/surveyAssignment.js';
+import { resolveSubmitControl } from '../_lib/formSubmitControl.js';
 
 export default async function handler(req, res) {
   console.log('[Public Form Submission] === ENDPOINT CALLED ===');
@@ -210,6 +211,36 @@ export default async function handler(req, res) {
         return res.status(400).json({
           error: 'Survey answers failed validation',
           details: surveyScoring.errors
+        });
+      }
+    }
+
+    // Conditional-logic submit control (Task #3474): enforce the STORED
+    // rules (published snapshot for surveys, live form otherwise) against
+    // the submitted answers BEFORE any submission row or side effect. The
+    // client disables the Submit button with the same shared evaluator, so
+    // this only fires when the UI was bypassed.
+    {
+      let submitControlRules = null;
+      if (isSurvey) {
+        submitControlRules = surveyVersion?.visibility_rules;
+      } else {
+        const { data: rulesRow, error: rulesError } = await supabase
+          .from('form')
+          .select('visibility_rules')
+          .eq('id', form_id)
+          .maybeSingle();
+        if (rulesError) {
+          console.error('[Public Form Submission] Failed to load visibility rules for submit-control check:', rulesError);
+          return res.status(500).json({ error: 'Failed to validate submission rules' });
+        }
+        submitControlRules = rulesRow?.visibility_rules;
+      }
+      const submitControl = resolveSubmitControl(submitControlRules, submission_data || {});
+      if (submitControl.disabled) {
+        return res.status(400).json({
+          error: submitControl.message || 'This form cannot be submitted with the current answers.',
+          code: 'SUBMIT_DISABLED_BY_RULE',
         });
       }
     }

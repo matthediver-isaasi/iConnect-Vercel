@@ -13,6 +13,7 @@ import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useLayoutContext } from "@/contexts/LayoutContext";
 import { isFieldValueFilled, parseCustomFieldValue, resolveEffectivePrefillIds, resolveMemberSourceOrgId, shouldFetchViewerBookingPrefill, shouldBlockForMissingViewerBooking, isViewerBookingResolutionPending, shouldWaitForPrefillCustomValues, shouldWaitForPrefillOrgEntity } from "@/lib/formFieldPrefill";
 import { getFormPagination } from "@/lib/formPagination";
+import { resolveSubmitControl } from "../../../api/_lib/formSubmitControl.js";
 import { useSubmissionIdempotencyKey } from "@/lib/useSubmissionIdempotencyKey";
 
 // A `redirect_url` beginning with this prefix means the redirect target is driven
@@ -1568,6 +1569,14 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
 
   // Evaluate disable/enable rules to determine which fields should be disabled
   // Key principle: Fields start enabled by default. Disable rules add to disabled set, enable rules remove from it.
+  // Conditional-logic submit control (Task #3474): rules can disable/enable
+  // the Submit button. Shared evaluator with the server-side enforcement in
+  // process-application.js — keep using the shared module, never fork it.
+  const submitControl = useMemo(
+    () => resolveSubmitControl(form?.visibility_rules, formValues),
+    [form?.visibility_rules, formValues]
+  );
+
   const disabledFieldIds = useMemo(() => {
     // Start with fields that have starts_disabled = true
     const disabled = new Set(initialDisabledFieldIds);
@@ -2177,6 +2186,12 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
   }
 
   const handleSubmit = async () => {
+    // Conditional-logic submit control: guard here too so the payment
+    // auto-submit path (handleSubmitRef) cannot bypass a matched disable rule.
+    if (submitControl.disabled) {
+      if (submitControl.message) toast.error(submitControl.message);
+      return;
+    }
     // For paginated forms, validate all pages before submission
     const pages = form.pages || [];
     const hasPages = pages.length > 0 && form.layout_type === 'standard';
@@ -2636,8 +2651,9 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
                 {isLastStep ? (
                   <Button
                     onClick={handleSubmit}
-                    disabled={!canProceed || submitFormMutation.isPending}
+                    disabled={!canProceed || submitControl.disabled || submitFormMutation.isPending}
                     className="bg-blue-600 hover:bg-blue-700"
+                    data-testid="button-submit-form"
                   >
                     {submitFormMutation.isPending ? (
                       <>
@@ -2661,6 +2677,11 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
                 )}
               </div>
             </div>
+            {isLastStep && submitControl.disabled && submitControl.message && (
+              <p className="text-xs text-warning text-center mt-2" data-testid="text-submit-disabled-message">
+                {submitControl.message}
+              </p>
+            )}
             {isLastStep && defaultConsentMessage && (
               <p className="text-xs text-slate-500 text-center mt-2" data-testid="text-consent-message">
                 {defaultConsentMessage}
@@ -3033,8 +3054,9 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
                 ) : (
                   <Button
                     onClick={handleSubmit}
-                    disabled={submitFormMutation.isPending}
+                    disabled={submitControl.disabled || submitFormMutation.isPending}
                     className="bg-blue-600 hover:bg-blue-700"
+                    data-testid="button-submit-form"
                   >
                     {submitFormMutation.isPending ? (
                       <>
@@ -3048,6 +3070,11 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
                 )}
               </div>
             </div>
+            {(isLastPage || !hasPages) && submitControl.disabled && submitControl.message && (
+              <p className="text-xs text-warning text-center mt-2" data-testid="text-submit-disabled-message">
+                {submitControl.message}
+              </p>
+            )}
             {(isLastPage || !hasPages) && defaultConsentMessage && (
               <p className="text-xs text-slate-500 text-center mt-2" data-testid="text-consent-message">
                 {defaultConsentMessage}

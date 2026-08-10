@@ -21,6 +21,7 @@ import TypographyStyleSelector, { applyTypographyStyle } from "../TypographyStyl
 import { AlignLeft, AlignCenter, AlignRight } from "lucide-react";
 import { buildPrefillValues, isFieldValueFilled, resolveEffectivePrefillIds, resolveMemberSourceOrgId, shouldWaitForPrefillCustomValues, shouldWaitForPrefillOrgEntity } from "@/lib/formFieldPrefill";
 import { getFormPagination } from "@/lib/formPagination";
+import { resolveSubmitControl } from "../../../../../api/_lib/formSubmitControl.js";
 import { applySurveyPresentation, surveyIntroText, surveySuccessMessage } from "@/lib/surveyPresentation";
 
 const formQuillModules = {
@@ -922,6 +923,14 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
     return disabled;
   }, [form?.fields]);
 
+  // Conditional-logic submit control (Task #3474): rules can disable/enable
+  // the Submit button. Shared evaluator with FormView and the server-side
+  // enforcement — never fork it.
+  const submitControl = useMemo(
+    () => resolveSubmitControl(form?.visibility_rules, formValues),
+    [form?.visibility_rules, formValues]
+  );
+
   // Evaluate disable/enable rules to determine which fields should be disabled
   const disabledFieldIds = useMemo(() => {
     const disabled = new Set(initialDisabledFieldIds);
@@ -1487,6 +1496,14 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
 
   const handleSubmit = async () => {
     if (!form) return;
+
+    // Conditional-logic submit control: guard here too so the payment
+    // auto-submit path (which calls handleSubmitRef directly) cannot bypass
+    // a matched disable rule.
+    if (submitControl.disabled) {
+      if (submitControl.message) toast.error(submitControl.message);
+      return;
+    }
     
     // Clear any previous validation errors
     setValidationErrors([]);
@@ -1946,8 +1963,9 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
                 {isLastStep ? (
                   <Button 
                     onClick={handleSubmit}
-                    disabled={!canProceed || isSubmitting}
+                    disabled={!canProceed || submitControl.disabled || isSubmitting}
                     className="bg-blue-600 hover:bg-blue-700"
+                    data-testid="button-submit-form"
                   >
                     {isSubmitting ? (
                       <>
@@ -1968,6 +1986,11 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
                   </Button>
                 )}
               </div>
+              {isLastStep && submitControl.disabled && submitControl.message && (
+                <p className="text-xs text-warning text-center mt-2" data-testid="text-submit-disabled-message">
+                  {submitControl.message}
+                </p>
+              )}
               {isLastStep && defaultConsentMessage && (
                 <p className="text-xs text-slate-500 text-center mt-2" data-testid="text-consent-message">
                   {defaultConsentMessage}
@@ -2211,7 +2234,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
                 {isLastPage ? (
                   <Button 
                     onClick={handleSubmit}
-                    disabled={isSubmitting}
+                    disabled={submitControl.disabled || isSubmitting}
                     className="bg-blue-600 hover:bg-blue-700"
                     data-testid="button-submit-form"
                   >
@@ -2235,6 +2258,11 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
                 )}
               </div>
             </div>
+            {(isLastPage || !hasPages) && submitControl.disabled && submitControl.message && (
+              <p className="text-xs text-warning text-center mt-2" data-testid="text-submit-disabled-message">
+                {submitControl.message}
+              </p>
+            )}
             {(isLastPage || !hasPages) && defaultConsentMessage && (
               <p className="text-xs text-slate-500 text-center mt-2" data-testid="text-consent-message">
                 {defaultConsentMessage}
