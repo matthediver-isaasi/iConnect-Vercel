@@ -152,4 +152,5 @@
 - [Static "AI generated" page class](static-page-class.md) — builder_type='ai_static' pages render stored sanitized HTML/CSS read-only; writes only via the store-time sanitize+scope helper, never the entity API.
 - [Wildcard subdomain canonical links](wildcard-subdomain-canonical-links.md) — *.iconn.app is wildcard DNS; tenant-known link builders must use getTenantTrustedBaseUrl, and rebuilt custom domains must pass sanitizeHostname.
 - [Unified directory card-back ordering](directory-back-order.md) — one mixed core+custom order list; resolver duplicated client+server, keep in sync; visibility toggles still gate content.
+- [Paid-form pipeline baseUrl](paid-form-pipeline-baseurl.md) — server-driven finalize paths (webhook/cron) must resolve a tenant-trusted baseUrl or entity pipelines are skipped.
 - [Form processor tenant scoping](form-processor-tenant-scope.md) — body tenant_id is client-controlled; resolve tenant from persisted form/submission BEFORE any tenant-scoped query, reject mismatches 403.

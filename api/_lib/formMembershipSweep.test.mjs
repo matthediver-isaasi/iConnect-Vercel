@@ -69,7 +69,7 @@ test('sweep retries unresolved-entity submissions indefinitely, re-running the p
   // The sweep re-runs the form's entity pipelines (shared runner, same as
   // the payment finalizer) before each membership retry when the target
   // entity is missing.
-  assert.match(sweep, /runFormEntityPipelines\(\{ supabase, submission: row, form, baseUrl \}\)/);
+  assert.match(sweep, /runFormEntityPipelines\(\{ supabase, submission: row, form, baseUrl: rowBaseUrl \}\)/);
   assert.match(reconSrc, /import \{ runFormEntityPipelines \} from '\.\/formEntityPipelines\.js'/);
   const finPaySrc = fs.readFileSync(new URL('./formPaymentFinalize.js', import.meta.url), 'utf8');
   assert.match(finPaySrc, /runFormEntityPipelines\(\{ supabase, submission, form, baseUrl \}\)/);

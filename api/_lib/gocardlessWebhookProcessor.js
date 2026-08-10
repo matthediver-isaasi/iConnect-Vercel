@@ -258,6 +258,12 @@ async function maybeProcessFormPaymentBillingRequest({ action, brId, db, gc }) {
     }
     try {
       const { markFormSubmissionPaid, finalizeFormSubmission } = await import('./formPaymentFinalize.js');
+      const { getTrustedBaseUrlForTenant } = await import('./publicBaseUrl.js');
+      // Task #3502: finalisation runs the form's entity pipelines via an
+      // internal HTTP call — without a baseUrl it silently skips them and
+      // the member/org record is never created. Webhooks have no usable
+      // request origin, so derive the tenant's trusted base URL.
+      const baseUrl = await getTrustedBaseUrlForTenant(null, db, row.tenant_id);
       const { row: paidRow } = row.payment_status === 'pending'
         ? await markFormSubmissionPaid(db, row.id, { reference: brId })
         : { row };
@@ -272,7 +278,7 @@ async function maybeProcessFormPaymentBillingRequest({ action, brId, db, gc }) {
           supabase: db,
           submission: paidRow || { ...row, payment_status: 'paid' },
           form,
-          baseUrl: null,
+          baseUrl,
         });
       }
       return { handled: true, detail: `form payment ${row.id} marked paid (billing request fulfilled)` };

@@ -15,6 +15,7 @@ import { gocardlessForTenant } from './gocardless.js';
 import { markFormSubmissionPaid, finalizeFormSubmission } from './formPaymentFinalize.js';
 import { finalizeFormMembership, WORKFLOW_CLAIM_TTL_MS } from './formMembershipFinalize.js';
 import { runFormEntityPipelines } from './formEntityPipelines.js';
+import { getTrustedBaseUrlForTenant } from './publicBaseUrl.js';
 
 const FORM_COLUMNS = 'id, name, tenant_id, fields, pages, visibility_rules, entity_pipelines, field_mappings, application_level, submission_emails, submission_email_template_id, submission_email_recipient, submission_email_cc, submission_email_bcc, submission_email_field_mapping, form_type';
 
@@ -47,6 +48,21 @@ export async function reconcileFormPayments(supabase, { baseUrl = null, limit = 
     console.warn('[formPaymentReconciliation] Pending sweep query failed:', err?.message);
     return results;
   }
+
+  // Task #3502: finalisation runs the form's entity pipelines via an
+  // internal HTTP call and silently skips them without a baseUrl. The cron
+  // caller has no request to derive an origin from, and one sweep spans
+  // tenants — so resolve the trusted base URL per tenant (cached). An
+  // explicit caller-supplied baseUrl (request-derived) still wins.
+  const baseUrlCache = new Map();
+  const resolveBaseUrl = async (tenantId) => {
+    if (baseUrl) return baseUrl;
+    if (!tenantId) return null;
+    if (!baseUrlCache.has(tenantId)) {
+      baseUrlCache.set(tenantId, await getTrustedBaseUrlForTenant(null, supabase, tenantId));
+    }
+    return baseUrlCache.get(tenantId);
+  };
 
   const formCache = new Map();
   const loadForm = async (formId, tenantId) => {
@@ -87,7 +103,7 @@ export async function reconcileFormPayments(supabase, { baseUrl = null, limit = 
               supabase,
               submission: paidRow || { ...row, payment_status: 'paid' },
               form,
-              baseUrl,
+              baseUrl: await resolveBaseUrl(row.tenant_id),
             });
             if (fin.finalized && !fin.alreadyFinalized) results.finalized += 1;
           }
@@ -112,7 +128,7 @@ export async function reconcileFormPayments(supabase, { baseUrl = null, limit = 
               supabase,
               submission: paidRow || { ...row, payment_status: 'paid' },
               form,
-              baseUrl,
+              baseUrl: await resolveBaseUrl(row.tenant_id),
             });
             if (fin.finalized && !fin.alreadyFinalized) results.finalized += 1;
           }
@@ -141,7 +157,7 @@ export async function reconcileFormPayments(supabase, { baseUrl = null, limit = 
     for (const row of unfinalized || []) {
       const form = await loadForm(row.form_id, row.tenant_id);
       if (!form) continue;
-      const fin = await finalizeFormSubmission({ supabase, submission: row, form, baseUrl });
+      const fin = await finalizeFormSubmission({ supabase, submission: row, form, baseUrl: await resolveBaseUrl(row.tenant_id) });
       if (fin.finalized && !fin.alreadyFinalized) results.finalized += 1;
     }
   } catch (err) {
@@ -190,7 +206,8 @@ export async function reconcileFormPayments(supabase, { baseUrl = null, limit = 
       const entityMissing = target === 'member'
         ? !row.created_member_id
         : !(row.organization_id || row.payment_meta?.prefill_organization_id);
-      if (entityMissing && baseUrl) {
+      const rowBaseUrl = await resolveBaseUrl(row.tenant_id);
+      if (entityMissing && rowBaseUrl) {
         try {
           const { data: form } = await supabase
             .from('form')
@@ -198,7 +215,7 @@ export async function reconcileFormPayments(supabase, { baseUrl = null, limit = 
             .eq('id', row.form_id)
             .maybeSingle();
           if (form) {
-            const pipelineOut = await runFormEntityPipelines({ supabase, submission: row, form, baseUrl });
+            const pipelineOut = await runFormEntityPipelines({ supabase, submission: row, form, baseUrl: rowBaseUrl });
             if (pipelineOut.memberId) row.created_member_id = row.created_member_id || pipelineOut.memberId;
             if (pipelineOut.organizationId) row.organization_id = row.organization_id || pipelineOut.organizationId;
           }
@@ -206,7 +223,7 @@ export async function reconcileFormPayments(supabase, { baseUrl = null, limit = 
           console.warn('[formPaymentReconciliation] Pipeline re-run failed for', row.id, err?.message);
         }
       }
-      const out = await finalizeFormMembership({ supabase, submission: row, baseUrl });
+      const out = await finalizeFormMembership({ supabase, submission: row, baseUrl: rowBaseUrl });
       if (out?.created) results.membershipCreated = (results.membershipCreated || 0) + 1;
     }
   } catch (err) {

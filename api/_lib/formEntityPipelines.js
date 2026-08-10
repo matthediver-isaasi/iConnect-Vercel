@@ -17,7 +17,19 @@ export async function runFormEntityPipelines({ supabase, submission, form, baseU
   const result = { ran: false, memberId: null, organizationId: null };
   const hasEntityPipelines = (form?.entity_pipelines?.members?.length > 0)
     || (form?.entity_pipelines?.organisations?.length > 0);
-  if (!hasEntityPipelines || !baseUrl) return result;
+  if (!hasEntityPipelines) return result;
+  if (!baseUrl) {
+    // Task #3502: never skip silently — a paid submission whose pipelines
+    // don't run means the member/org record is never created and membership
+    // finalization loops on awaiting_entity forever. Leave a visible trail.
+    console.error('[formEntityPipelines] Application processing skipped for paid submission', submission?.id, '- no base URL available');
+    try {
+      await supabase.from('form_submission').update({
+        processing_notes: 'Payment succeeded but application processing was skipped (no base URL). Re-run processing from the submissions list.',
+      }).eq('id', submission.id);
+    } catch { /* best effort */ }
+    return result;
+  }
 
   const meta = (submission.payment_meta && typeof submission.payment_meta === 'object')
     ? submission.payment_meta : {};
