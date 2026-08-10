@@ -189,6 +189,8 @@ export default async function handler(req, res) {
             .eq('tenant_id', tenantId)
             .in('organization_id', batch)
             .not('email', 'like', DELETED_EMAIL_PATTERN)
+            // Unique ordering keeps ranged paging stable (no skipped/repeated rows).
+            .order('id', { ascending: true })
             .range(from, from + PAGE - 1);
           if (error) {
             console.error('[OrgsPaginated] member count error:', error);
@@ -218,7 +220,8 @@ export default async function handler(req, res) {
       const PAGE = 1000;
       while (true) {
         let idQuery = supabase.from('organization').select(buildSelect('id'));
-        idQuery = applyFilters(idQuery).range(from, from + PAGE - 1);
+        // Unique ordering keeps ranged paging stable (no skipped/repeated rows).
+        idQuery = applyFilters(idQuery).order('id', { ascending: true }).range(from, from + PAGE - 1);
         const { data, error } = await idQuery;
         if (error) {
           console.error('[OrgsPaginated] id query error:', error);

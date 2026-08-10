@@ -242,7 +242,12 @@ export default async function handler(req, res) {
         q = q.neq('is_primary', true);
       }
 
-      return q.order('name', { ascending: true }).range(from, from + pageSize - 1);
+      // Unique id tiebreaker: name alone is non-unique, and unordered/ambiguous
+      // range paging in PostgREST silently skips/repeats rows across pages.
+      return q
+        .order('name', { ascending: true })
+        .order('id', { ascending: true })
+        .range(from, from + pageSize - 1);
     };
 
     // Custom preference fields drive the extra CSV columns; fetch their
@@ -303,6 +308,10 @@ export default async function handler(req, res) {
             .from('organization_preference_value')
             .select('organization_id, field_id, value')
             .in('organization_id', batch)
+            // Deterministic unique ordering so ranged paging returns each row
+            // exactly once (unordered .range() silently skips/repeats rows).
+            .order('organization_id', { ascending: true })
+            .order('field_id', { ascending: true })
             .range(from, from + pageSize - 1);
           if (pvError) {
             throw new Error(`Preference values query failed: ${pvError.message}`);
