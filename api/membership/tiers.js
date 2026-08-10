@@ -91,7 +91,10 @@ async function handleGet(req, res, tenantId) {
     .order('effective_from', { ascending: false, nullsFirst: true });
 
   const all = allTenantConfigs || [];
-  const configs = all.filter(isConfigInEffect);
+  // Explicit lambda: Array.filter passes the element index as the second
+  // argument, which isConfigInEffect would treat as its onDate string —
+  // silently dropping every dated config from the "in effect" list.
+  const configs = all.filter(c => isConfigInEffect(c));
   const firstConfig = configs[0] || all[0] || null;
 
   let bands = [];
