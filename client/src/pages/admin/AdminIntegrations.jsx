@@ -182,6 +182,20 @@ export default function AdminIntegrations() {
   const [stripeTestError, setStripeTestError] = useState(null);
   const [stripePromise, setStripePromise] = useState(null);
 
+  const [gcForm, setGcForm] = useState({
+    access_token: '',
+    webhook_secret: '',
+    environment: 'sandbox',
+    creditor_id: ''
+  });
+  const [gcEnabled, setGcEnabled] = useState(false);
+  const [gcSaving, setGcSaving] = useState(false);
+  const [gcDeleting, setGcDeleting] = useState(false);
+  const [hasGcCredentials, setHasGcCredentials] = useState(false);
+  const [showGcSecrets, setShowGcSecrets] = useState(false);
+  const [gcWebhookUrl, setGcWebhookUrl] = useState('');
+  const [gcWebhookUrlCopied, setGcWebhookUrlCopied] = useState(false);
+
   const [outlookSyncFrequency, setOutlookSyncFrequency] = useState(15);
   const [outlookConnectedAccounts, setOutlookConnectedAccounts] = useState(0);
   const [outlookSyncSaving, setOutlookSyncSaving] = useState(false);
@@ -389,7 +403,28 @@ export default function AdminIntegrations() {
             });
           }
         }
-        
+
+        if (data.gocardless_webhook_url) {
+          setGcWebhookUrl(data.gocardless_webhook_url);
+        }
+
+        const gcIntegration = data.integrations?.find(i => i.integration_type === 'gocardless');
+        if (gcIntegration) {
+          setGcEnabled(gcIntegration.is_enabled);
+          setHasGcCredentials(gcIntegration.has_credentials);
+          if (gcIntegration.credentials) {
+            setGcForm({
+              access_token: gcIntegration.credentials.access_token || '',
+              webhook_secret: gcIntegration.credentials.webhook_secret || '',
+              environment: gcIntegration.credentials.environment === 'live' ? 'live' : 'sandbox',
+              creditor_id: gcIntegration.credentials.creditor_id || ''
+            });
+          }
+        } else {
+          setGcEnabled(false);
+          setHasGcCredentials(false);
+        }
+
         fetchZohoStatus();
         fetchXeroStatus();
         fetchOutlookSyncSettings();
@@ -1221,6 +1256,106 @@ export default function AdminIntegrations() {
       setStripePromise(null);
     } finally {
       setStripeTestLoading(false);
+    }
+  };
+
+  const handleSaveGocardless = async () => {
+    setGcSaving(true);
+    try {
+      const response = await adminFetch('/api/admin/integrations', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          integration_type: 'gocardless',
+          credentials: {
+            access_token: gcForm.access_token,
+            webhook_secret: gcForm.webhook_secret,
+            environment: gcForm.environment === 'live' ? 'live' : 'sandbox',
+            creditor_id: gcForm.creditor_id
+          },
+          is_enabled: gcEnabled
+        })
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        toast({
+          title: "Saved",
+          description: "GoCardless credentials saved successfully"
+        });
+        setHasGcCredentials(true);
+        fetchIntegrations();
+      } else {
+        toast({
+          title: "Error",
+          description: data.error || "Failed to save GoCardless settings",
+          variant: "destructive"
+        });
+      }
+    } catch (error) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Failed to save GoCardless settings"
+      });
+    } finally {
+      setGcSaving(false);
+    }
+  };
+
+  const handleToggleGocardless = async (enabled) => {
+    setGcEnabled(enabled);
+    try {
+      await adminFetch('/api/admin/integrations', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          integration_type: 'gocardless',
+          is_enabled: enabled
+        })
+      });
+    } catch (err) {
+      console.error('Failed to toggle gocardless:', err);
+    }
+  };
+
+  const handleDeleteGocardless = async () => {
+    if (!window.confirm('Remove the GoCardless connection? Direct Debit will fall back to the platform-level credentials (if configured).')) {
+      return;
+    }
+    setGcDeleting(true);
+    try {
+      const response = await adminFetch('/api/admin/integrations?integration_type=gocardless', {
+        method: 'DELETE',
+        credentials: 'include'
+      });
+      const data = await response.json();
+      if (data.success) {
+        setGcForm({ access_token: '', webhook_secret: '', environment: 'sandbox', creditor_id: '' });
+        setGcEnabled(false);
+        setHasGcCredentials(false);
+        toast({ title: "Removed", description: "GoCardless connection removed" });
+        fetchIntegrations();
+      } else {
+        toast({ title: "Error", description: data.error || "Failed to remove GoCardless connection", variant: "destructive" });
+      }
+    } catch (err) {
+      toast({ variant: "destructive", title: "Error", description: "Failed to remove GoCardless connection" });
+    } finally {
+      setGcDeleting(false);
+    }
+  };
+
+  const handleCopyGcWebhookUrl = async () => {
+    try {
+      await navigator.clipboard.writeText(gcWebhookUrl);
+      setGcWebhookUrlCopied(true);
+      setTimeout(() => setGcWebhookUrlCopied(false), 2000);
+    } catch {
+      toast({ variant: "destructive", title: "Copy failed", description: "Could not copy to clipboard" });
     }
   };
 
@@ -2559,6 +2694,236 @@ export default function AdminIntegrations() {
                       <p className="text-sm font-medium text-warning">Stripe Disabled</p>
                       <p className="text-xs text-slate-400">
                         Your credentials are saved but the integration is disabled. Toggle the switch to enable payments.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card className="bg-slate-800/50 border-slate-700">
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-lg bg-cyan-500/10 flex items-center justify-center">
+                    <Building2 className="h-5 w-5 text-cyan-400" />
+                  </div>
+                  <div>
+                    <CardTitle className="text-white">GoCardless</CardTitle>
+                    <CardDescription className="text-slate-400">
+                      Collect Direct Debit payments for memberships
+                    </CardDescription>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3">
+                  {hasGcCredentials && (
+                    <Badge
+                      variant={gcEnabled ? "default" : "secondary"}
+                      className={gcEnabled ? "bg-green-500/20 text-green-400 border-green-500/30" : ""}
+                    >
+                      {gcEnabled ? 'Enabled' : 'Disabled'}
+                    </Badge>
+                  )}
+                  <Switch
+                    checked={gcEnabled}
+                    onCheckedChange={handleToggleGocardless}
+                    disabled={!hasGcCredentials}
+                    data-testid="switch-gocardless-enabled"
+                  />
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="rounded-lg bg-slate-900/50 p-4 border border-slate-700">
+                <h4 className="text-sm font-medium text-white mb-2 flex items-center gap-2">
+                  <Plug className="h-4 w-4 text-slate-400" />
+                  API Credentials
+                </h4>
+                <p className="text-xs text-slate-400 mb-4">
+                  Create an access token in the{" "}
+                  <a
+                    href="https://manage.gocardless.com/developers"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-cyan-400 hover:underline inline-flex items-center gap-1"
+                  >
+                    GoCardless Dashboard
+                    <ExternalLink className="h-3 w-3" />
+                  </a>
+                  {" "}(or the sandbox dashboard for testing)
+                </p>
+
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <Label className="text-slate-300">Environment</Label>
+                    <Select
+                      value={gcForm.environment}
+                      onValueChange={(value) => setGcForm(prev => ({ ...prev, environment: value }))}
+                    >
+                      <SelectTrigger className="bg-slate-800 border-slate-600 text-white" data-testid="select-gocardless-environment">
+                        <SelectValue placeholder="Select environment" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="sandbox">Sandbox (testing)</SelectItem>
+                        <SelectItem value="live">Live</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-slate-500">
+                      Must match your access token — sandbox tokens start with sandbox_, live tokens with live_
+                    </p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="gocardless_access_token" className="text-slate-300">Access Token</Label>
+                    <Input
+                      id="gocardless_access_token"
+                      type={showGcSecrets ? "text" : "password"}
+                      value={gcForm.access_token}
+                      onChange={(e) => setGcForm(prev => ({ ...prev, access_token: e.target.value }))}
+                      placeholder={gcForm.environment === 'live' ? 'live_...' : 'sandbox_...'}
+                      className="bg-slate-800 border-slate-600 text-white placeholder:text-slate-500"
+                      data-testid="input-gocardless-access-token"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="gocardless_webhook_secret" className="text-slate-300">Webhook Secret</Label>
+                    <Input
+                      id="gocardless_webhook_secret"
+                      type={showGcSecrets ? "text" : "password"}
+                      value={gcForm.webhook_secret}
+                      onChange={(e) => setGcForm(prev => ({ ...prev, webhook_secret: e.target.value }))}
+                      placeholder="Webhook endpoint secret"
+                      className="bg-slate-800 border-slate-600 text-white placeholder:text-slate-500"
+                      data-testid="input-gocardless-webhook-secret"
+                    />
+                    <p className="text-xs text-slate-500">
+                      The secret you set when creating the webhook endpoint in GoCardless
+                    </p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="gocardless_creditor_id" className="text-slate-300">Creditor ID (optional)</Label>
+                    <Input
+                      id="gocardless_creditor_id"
+                      type="text"
+                      value={gcForm.creditor_id}
+                      onChange={(e) => setGcForm(prev => ({ ...prev, creditor_id: e.target.value }))}
+                      placeholder="CR..."
+                      className="bg-slate-800 border-slate-600 text-white placeholder:text-slate-500"
+                      data-testid="input-gocardless-creditor-id"
+                    />
+                    <p className="text-xs text-slate-500">
+                      Only needed if your GoCardless account has multiple creditors
+                    </p>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setShowGcSecrets(!showGcSecrets)}
+                      className="text-slate-400 hover:text-white"
+                      data-testid="button-toggle-gocardless-secrets"
+                    >
+                      {showGcSecrets ? (
+                        <><EyeOff className="h-4 w-4 mr-2" /> Hide values</>
+                      ) : (
+                        <><Eye className="h-4 w-4 mr-2" /> Show values</>
+                      )}
+                    </Button>
+                  </div>
+                </div>
+              </div>
+
+              {gcWebhookUrl && (
+                <div className="rounded-lg bg-slate-900/50 p-4 border border-slate-700">
+                  <h4 className="text-sm font-medium text-white mb-2 flex items-center gap-2">
+                    <Plug className="h-4 w-4 text-slate-400" />
+                    Webhook URL
+                  </h4>
+                  <p className="text-xs text-slate-400 mb-3">
+                    Register this URL as a webhook endpoint in your GoCardless dashboard, using the same webhook secret you save above.
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      readOnly
+                      value={gcWebhookUrl}
+                      className="bg-slate-800 border-slate-600 text-slate-300 text-xs font-mono"
+                      data-testid="input-gocardless-webhook-url"
+                    />
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleCopyGcWebhookUrl}
+                      className="border-slate-600 text-slate-300 shrink-0"
+                      data-testid="button-copy-gocardless-webhook-url"
+                    >
+                      {gcWebhookUrlCopied ? (
+                        <><Check className="h-4 w-4 mr-2 text-green-400" /> Copied</>
+                      ) : (
+                        <><Copy className="h-4 w-4 mr-2" /> Copy</>
+                      )}
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              <div className="flex items-center gap-3 pt-2">
+                <Button
+                  onClick={handleSaveGocardless}
+                  disabled={gcSaving}
+                  className="bg-primary hover:bg-primary/90"
+                  data-testid="button-save-gocardless"
+                >
+                  {gcSaving ? (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  ) : (
+                    <Save className="h-4 w-4 mr-2" />
+                  )}
+                  Save Credentials
+                </Button>
+                {hasGcCredentials && (
+                  <Button
+                    variant="outline"
+                    onClick={handleDeleteGocardless}
+                    disabled={gcDeleting}
+                    className="border-red-500/50 text-red-400 hover:bg-red-500/10"
+                    data-testid="button-delete-gocardless"
+                  >
+                    {gcDeleting ? (
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    ) : (
+                      <Unplug className="h-4 w-4 mr-2" />
+                    )}
+                    Remove Connection
+                  </Button>
+                )}
+              </div>
+
+              {hasGcCredentials && gcEnabled && (
+                <div className="rounded-lg bg-green-500/10 p-4 border border-green-500/30">
+                  <div className="flex items-center gap-2">
+                    <CheckCircle2 className="h-5 w-5 text-green-400" />
+                    <div>
+                      <p className="text-sm font-medium text-green-400">GoCardless Configured</p>
+                      <p className="text-xs text-slate-400">
+                        Your GoCardless credentials are saved and enabled. Direct Debit collections use this account.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {hasGcCredentials && !gcEnabled && (
+                <div className="rounded-lg bg-warning/10 p-4 border border-warning/30">
+                  <div className="flex items-center gap-2">
+                    <AlertTriangle className="h-5 w-5 text-warning" />
+                    <div>
+                      <p className="text-sm font-medium text-warning">GoCardless Disabled</p>
+                      <p className="text-xs text-slate-400">
+                        Your credentials are saved but the integration is disabled. Direct Debit falls back to the platform-level credentials (if configured).
                       </p>
                     </div>
                   </div>

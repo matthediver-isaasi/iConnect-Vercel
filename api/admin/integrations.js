@@ -1,5 +1,6 @@
 import { getSessionTenantUser } from '../_lib/session.js';
 import { supabase } from '../_lib/database.js';
+import { getTrustedBaseUrlForTenant } from '../_lib/publicBaseUrl.js';
 import crypto from 'crypto';
 
 const ENCRYPTION_KEY = process.env.INTEGRATION_ENCRYPTION_KEY || process.env.SESSION_SECRET;
@@ -131,7 +132,14 @@ export default async function handler(req, res) {
         has_credentials: Object.keys(integration.credentials || {}).length > 0
       }));
 
-      res.json({ success: true, integrations: maskedIntegrations });
+      // Tenant-scoped GoCardless webhook URL: admins register this in the
+      // GoCardless dashboard so events are verified against THIS tenant's
+      // webhook secret. Built on the tenant-trusted base URL (never the raw
+      // request host — see publicBaseUrl.js).
+      const baseUrl = await getTrustedBaseUrlForTenant(req, supabase, tenantId);
+      const gocardlessWebhookUrl = `${baseUrl}/api/webhooks/gocardless?tenant=${encodeURIComponent(tenantId)}`;
+
+      res.json({ success: true, integrations: maskedIntegrations, gocardless_webhook_url: gocardlessWebhookUrl });
     } catch (error) {
       console.error('[Integrations] Get error:', error);
       res.status(500).json({ error: 'Failed to fetch integrations' });
@@ -144,7 +152,7 @@ export default async function handler(req, res) {
         return res.status(400).json({ error: 'integration_type is required' });
       }
 
-      const validTypes = ['zoom', 'zoho_campaigns', 'xero', 'stripe', 'quickbooks'];
+      const validTypes = ['zoom', 'zoho_campaigns', 'xero', 'stripe', 'quickbooks', 'gocardless'];
       if (!validTypes.includes(integration_type)) {
         return res.status(400).json({ error: 'Invalid integration type' });
       }
