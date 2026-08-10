@@ -10,6 +10,7 @@ import { assignmentSubmissionRejection, respondentKeyInput, requiresAssignmentLi
 import { resolveSubmitControl } from '../_lib/formSubmitControl.js';
 import { rulesUseLmicOperators } from '../_lib/formLmicConditions.js';
 import { loadTenantLmicCodes } from '../_lib/tenantLmicCodes.js';
+import { computeHiddenFieldIds, findPaymentField, derivePaymentAmount } from '../_lib/formFieldVisibility.js';
 
 export default async function handler(req, res) {
   console.log('[Public Form Submission] === ENDPOINT CALLED ===');
@@ -250,6 +251,44 @@ export default async function handler(req, res) {
           error: submitControl.message || 'This form cannot be submitted with the current answers.',
           code: 'SUBMIT_DISABLED_BY_RULE',
         });
+      }
+
+      // Task #3483: generic Payment field — a normal (unpaid) submit is
+      // rejected when the form carries a VISIBLE payment field with a
+      // positive server-derived amount and at least one enabled provider.
+      // Such submissions must go through /api/public/form-payment so the
+      // payment is taken; hidden-field / zero-amount cases legitimately
+      // fall back to this plain path.
+      if (!isSurvey) {
+        const paymentField = findPaymentField(form);
+        const enabledProviders = Array.isArray(paymentField?.payment_providers)
+          ? paymentField.payment_providers : [];
+        if (paymentField && enabledProviders.length > 0) {
+          const amountDue = derivePaymentAmount(paymentField, submission_data || {});
+          if (amountDue > 0) {
+            // Need pages for hidden-page propagation (not in the main select).
+            let pages = [];
+            try {
+              const { data: pagesRow } = await supabase
+                .from('form')
+                .select('pages')
+                .eq('id', form_id)
+                .maybeSingle();
+              pages = pagesRow?.pages || [];
+            } catch { /* best effort */ }
+            const hiddenIds = computeHiddenFieldIds(
+              { ...form, pages, visibility_rules: submitControlRules },
+              submission_data || {},
+              submitControlOptions
+            );
+            if (!hiddenIds.has(paymentField.id)) {
+              return res.status(400).json({
+                error: 'This form requires payment. Please complete payment to submit.',
+                code: 'PAYMENT_REQUIRED',
+              });
+            }
+          }
+        }
       }
     }
 

@@ -100,6 +100,7 @@ const AUTO_FIELD_TYPES = [
 
 const PAYMENT_FIELD_TYPES = [
   { value: 'membership_payment', label: 'Membership Payment' },
+  { value: 'payment', label: 'Payment' },
 ];
 
 // Searchable combobox for picking the form's linked event. Type-ahead filters
@@ -2707,6 +2708,132 @@ function EmailCard({
   );
 }
 
+// Task #3483: inspector for the generic Payment field. Shows only the
+// providers actually configured for the tenant (via the secrets-free
+// detection endpoint); unconfigured providers appear disabled with a hint
+// to set them up in Integrations. The amount always derives from another
+// form field (number/currency-type) chosen here.
+const PAYMENT_PRICE_SOURCE_TYPES = new Set(['number', 'currency', 'percentage', 'select', 'radio', 'custom_field']);
+
+function PaymentFieldSettings({ field, originalIndex, allFields, updateField }) {
+  const [providers, setProviders] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/public/form-payment-providers', { credentials: 'include' })
+      .then(res => res.ok ? res.json() : { providers: [] })
+      .then(json => { if (!cancelled) setProviders(json.providers || []); })
+      .catch(() => { if (!cancelled) setProviders([]); });
+    return () => { cancelled = true; };
+  }, []);
+
+  const enabled = Array.isArray(field.payment_providers) ? field.payment_providers : [];
+  const toggleProvider = (id, checked) => {
+    const next = checked ? [...new Set([...enabled, id])] : enabled.filter(p => p !== id);
+    updateField(originalIndex, { payment_providers: next });
+  };
+
+  const priceSourceFields = allFields.filter(f =>
+    f.id !== field.id && PAYMENT_PRICE_SOURCE_TYPES.has(f.type)
+  );
+
+  return (
+    <div className="space-y-3 p-3 bg-slate-50 border border-slate-200 rounded-lg">
+      <Label className="text-xs font-medium">Payment Settings</Label>
+
+      <div className="space-y-2">
+        <Label className="text-xs">Payment methods</Label>
+        {providers === null ? (
+          <p className="text-xs text-slate-400">Checking configured providers…</p>
+        ) : (
+          providers.map(p => (
+            <div key={p.id} className="flex items-start gap-2">
+              <Checkbox
+                id={`payment-provider-${p.id}-${field.id}`}
+                checked={enabled.includes(p.id)}
+                disabled={!p.configured}
+                onCheckedChange={(checked) => toggleProvider(p.id, checked === true)}
+                data-testid={`checkbox-payment-provider-${p.id}-${field.id}`}
+              />
+              <div>
+                <Label htmlFor={`payment-provider-${p.id}-${field.id}`} className={`text-xs ${!p.configured ? 'text-slate-400' : ''}`}>
+                  {p.name}
+                </Label>
+                {!p.configured && (
+                  <p className="text-xs text-slate-400">Not configured — set this up in Integrations to enable it.</p>
+                )}
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+
+      <div className="space-y-2">
+        <Label htmlFor={`payment-price-field-${field.id}`} className="text-xs">Price source field</Label>
+        <p className="text-xs text-slate-500">
+          The amount charged is taken from this field's answer (validated on the server).
+        </p>
+        <Select
+          value={field.price_field_id || '_none'}
+          onValueChange={(val) => updateField(originalIndex, { price_field_id: val === '_none' ? null : val })}
+        >
+          <SelectTrigger id={`payment-price-field-${field.id}`} data-testid={`select-payment-price-field-${field.id}`}>
+            <SelectValue placeholder="Select a field" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="_none">— Select a field —</SelectItem>
+            {priceSourceFields.map(f => (
+              <SelectItem key={f.id} value={f.id}>{f.label || f.id} ({f.type})</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {priceSourceFields.length === 0 && (
+          <p className="text-xs text-warning">Add a number or currency field to this form to use as the price source.</p>
+        )}
+      </div>
+
+      <div className="space-y-2">
+        <Label htmlFor={`payment-currency-${field.id}`} className="text-xs">Currency</Label>
+        <Select
+          value={field.payment_currency || 'GBP'}
+          onValueChange={(val) => updateField(originalIndex, { payment_currency: val })}
+        >
+          <SelectTrigger id={`payment-currency-${field.id}`} data-testid={`select-payment-currency-${field.id}`}>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {['GBP', 'USD', 'EUR', 'AUD', 'NZD'].map(c => (
+              <SelectItem key={c} value={c}>{c}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div className="space-y-2">
+        <Label htmlFor={`payment-label-${field.id}`} className="text-xs">Payment label (optional)</Label>
+        <Input
+          id={`payment-label-${field.id}`}
+          value={field.payment_label || ''}
+          onChange={(e) => updateField(originalIndex, { payment_label: e.target.value })}
+          placeholder="e.g. Registration fee"
+          data-testid={`input-payment-label-${field.id}`}
+        />
+      </div>
+
+      <div className="space-y-2">
+        <Label htmlFor={`payment-description-${field.id}`} className="text-xs">Payment description (optional)</Label>
+        <Input
+          id={`payment-description-${field.id}`}
+          value={field.payment_description || ''}
+          onChange={(e) => updateField(originalIndex, { payment_description: e.target.value })}
+          placeholder="Shown to the person paying"
+          data-testid={`input-payment-description-${field.id}`}
+        />
+      </div>
+    </div>
+  );
+}
+
 function MembershipPaymentSettings({ field, originalIndex, allFields, updateField }) {
   const [tierConfigs, setTierConfigs] = useState([]);
   const [requiredFields, setRequiredFields] = useState([]);
@@ -4653,6 +4780,15 @@ function FieldCard({
                 />
               )}
 
+              {field.type === 'payment' && (
+                <PaymentFieldSettings
+                  field={field}
+                  originalIndex={originalIndex}
+                  allFields={allFields}
+                  updateField={updateField}
+                />
+              )}
+
               {/* Instructions Content - Rich text editor for display-only content */}
               {field.type === 'instructions' && (
                 <div className="space-y-2">
@@ -6530,6 +6666,25 @@ export default function FormBuilderPage() {
       console.log('[FormBuilder] Validation failed: no fields');
       toast.error('Please add at least one field');
       return;
+    }
+
+    // Task #3483: generic Payment fields need at least one enabled provider
+    // and a price-source field before the form can be saved.
+    const paymentFields = formData.fields.filter(f => f.type === 'payment');
+    if (paymentFields.length > 1) {
+      toast.error('A form can only contain one Payment field.');
+      return;
+    }
+    for (const pf of paymentFields) {
+      const enabledProviders = Array.isArray(pf.payment_providers) ? pf.payment_providers : [];
+      if (enabledProviders.length === 0) {
+        toast.error(`Payment field "${pf.label || 'Payment'}" needs at least one payment method enabled.`);
+        return;
+      }
+      if (!pf.price_field_id || !formData.fields.some(f => f.id === pf.price_field_id)) {
+        toast.error(`Payment field "${pf.label || 'Payment'}" needs a price source field.`);
+        return;
+      }
     }
 
     // Validate field mappings - check for incomplete mappings

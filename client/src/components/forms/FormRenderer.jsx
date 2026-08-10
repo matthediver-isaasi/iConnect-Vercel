@@ -1821,6 +1821,34 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
           />
         );
 
+      // Task #3483: generic Payment field. The actual payment UI replaces
+      // the Submit button (FormPaymentSubmit); here we render an
+      // informational summary card showing the derived amount.
+      case 'payment': {
+        const symbols = { GBP: '\u00a3', USD: '$', EUR: '\u20ac', AUD: 'A$', NZD: 'NZ$' };
+        const cur = (field.payment_currency || 'GBP').toUpperCase();
+        let raw = field.price_field_id ? allFormValues?.[field.price_field_id] : null;
+        if (raw && typeof raw === 'object' && !Array.isArray(raw)) raw = raw.amount ?? raw.value ?? null;
+        if (typeof raw === 'string') raw = raw.replace(/[^0-9.\-]/g, '');
+        const amt = Number(raw);
+        const amount = Number.isFinite(amt) && amt > 0 ? Math.round(amt * 100) / 100 : 0;
+        return (
+          <div className="border rounded-md p-4 bg-slate-50 space-y-1" data-testid={`payment-summary-${field.id}`}>
+            <p className="text-sm font-medium">{field.payment_label || 'Payment'}</p>
+            {field.payment_description && (
+              <p className="text-xs text-slate-500">{field.payment_description}</p>
+            )}
+            <p className="text-sm">
+              Amount due:{' '}
+              <span className="font-semibold" data-testid={`payment-summary-amount-${field.id}`}>
+                {`${symbols[cur] || cur + ' '}${amount.toFixed(2)}`}
+              </span>
+            </p>
+            <p className="text-xs text-slate-500">You'll be asked to pay when you submit this form.</p>
+          </div>
+        );
+      }
+
       default:
         return <p className="text-sm text-slate-500">Unsupported field type: {field.type}</p>;
     }

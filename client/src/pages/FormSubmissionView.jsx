@@ -360,6 +360,28 @@ export default function FormSubmissionView() {
                   </div>
                 </div>
               )}
+
+              {/* Task #3483: form payment details */}
+              {submission.payment_status && (
+                <div className="flex items-center gap-2" data-testid="submission-payment-details">
+                  <FileText className="w-4 h-4 text-slate-400" />
+                  <div>
+                    <p className="text-slate-500 dark:text-slate-400">Payment</p>
+                    <p className="font-medium text-slate-900 dark:text-slate-100">
+                      {submission.payment_status === 'paid' ? 'Paid' : submission.payment_status === 'pending_payment' ? 'Awaiting payment' : submission.payment_status === 'failed' ? 'Failed' : submission.payment_status}
+                      {submission.payment_amount != null
+                        ? ` — ${(submission.payment_currency || 'GBP').toUpperCase()} ${Number(submission.payment_amount).toFixed(2)}`
+                        : ''}
+                      {submission.payment_provider
+                        ? ` (${submission.payment_provider === 'gocardless' ? 'Direct Debit' : 'Card'})`
+                        : ''}
+                    </p>
+                    {submission.payment_reference && (
+                      <p className="text-xs text-slate-500 font-mono">{submission.payment_reference}</p>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           </CardContent>
         </Card>

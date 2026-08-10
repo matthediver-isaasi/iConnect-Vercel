@@ -58,6 +58,38 @@
       "type": "string",
       "description": "Email of the user who last updated the status"
     },
+    "payment_status": {
+      "type": "string",
+      "enum": ["pending", "paid", "failed"],
+      "description": "Task #3483 generic form Payment field lifecycle. 'pending' rows were created before the provider payment started and are excluded from normal admin listings and all post-submission side effects; 'paid' rows completed payment (finalisation runs exactly once); 'failed' rows had their payment cancelled/failed. Null for submissions without payment."
+    },
+    "payment_provider": {
+      "type": "string",
+      "enum": ["stripe", "gocardless"],
+      "description": "Which provider took (or was asked to take) the payment."
+    },
+    "payment_amount": {
+      "type": "number",
+      "description": "Amount in major units, ALWAYS derived server-side from the payment field's price-source answer — never client-supplied."
+    },
+    "payment_currency": {
+      "type": "string",
+      "description": "ISO currency code for payment_amount (e.g. GBP)."
+    },
+    "payment_reference": {
+      "type": "string",
+      "description": "Provider-side reference: Stripe PaymentIntent id or GoCardless billing request id."
+    },
+    "payment_meta": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Payment bookkeeping: price_field_id, gc_flow_id, prefill/role context captured at create, and the finalized/finalized_at exactly-once stamp for post-payment side effects."
+    },
+    "payment_paid_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When the payment was verified as complete."
+    },
     "status_updated_at": {
       "type": "string",
       "format": "date-time",

@@ -881,10 +881,14 @@ export default function FormSubmissionsPage() {
   // the member owns; the All tab keeps every submission. All stats, filters,
   // pagination and exports below operate on this scoped set.
   const scopedSubmissions = useMemo(() => {
+    // Task #3483: submissions awaiting payment aren't real submissions yet —
+    // they're finalised (or reconciled) once the payment confirms. Failed
+    // payments stay hidden too.
+    const paid = submissions.filter(s => !s.payment_status || s.payment_status === 'paid');
     if (activeTab === 'owned') {
-      return submissions.filter(s => ownedFormIds.has(s.form_id));
+      return paid.filter(s => ownedFormIds.has(s.form_id));
     }
-    return submissions;
+    return paid;
   }, [submissions, activeTab, ownedFormIds]);
 
   const filteredSubmissions = useMemo(() => {
@@ -2284,6 +2288,12 @@ export default function FormSubmissionsPage() {
                                 : ''}
                             </Badge>
                           )}
+                          {submission.payment_status === 'paid' && (
+                            <Badge className="bg-emerald-100 text-emerald-800 border-emerald-200" data-testid={`badge-payment-${submission.id}`}>
+                              Paid {submission.payment_amount != null ? `${(submission.payment_currency || 'GBP').toUpperCase()} ${Number(submission.payment_amount).toFixed(2)}` : ''}
+                              {submission.payment_provider ? ` · ${submission.payment_provider === 'gocardless' ? 'Direct Debit' : 'Card'}` : ''}
+                            </Badge>
+                          )}
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
@@ -2531,6 +2541,38 @@ export default function FormSubmissionsPage() {
                   </p>
                 )}
               </div>
+
+              {/* Task #3483: payment details for form-payment submissions */}
+              {viewingSubmission.payment_status && (
+                <div>
+                  <h3 className="font-semibold text-slate-900 mb-3">Payment</h3>
+                  <div className="bg-white rounded-lg p-3 border border-slate-200 space-y-1" data-testid="panel-payment-details">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {{
+                        paid: <Badge className="bg-emerald-100 text-emerald-800 border-emerald-200">Paid</Badge>,
+                        pending_payment: <Badge className="bg-amber-100 text-amber-800 border-amber-200">Awaiting payment</Badge>,
+                        failed: <Badge className="bg-red-100 text-red-800 border-red-200">Payment failed</Badge>,
+                      }[viewingSubmission.payment_status] || <Badge variant="outline">{viewingSubmission.payment_status}</Badge>}
+                      {viewingSubmission.payment_amount != null && (
+                        <span className="text-sm text-slate-700">
+                          {(viewingSubmission.payment_currency || 'GBP').toUpperCase()} {Number(viewingSubmission.payment_amount).toFixed(2)}
+                        </span>
+                      )}
+                      {viewingSubmission.payment_provider && (
+                        <span className="text-sm text-slate-600">
+                          via {viewingSubmission.payment_provider === 'gocardless' ? 'Direct Debit (GoCardless)' : 'Card (Stripe)'}
+                        </span>
+                      )}
+                    </div>
+                    {viewingSubmission.payment_reference && (
+                      <p className="text-xs text-slate-500 font-mono">Ref: {viewingSubmission.payment_reference}</p>
+                    )}
+                    {viewingSubmission.paid_at && (
+                      <p className="text-xs text-slate-500">Paid {moment(viewingSubmission.paid_at).format('MMM D, YYYY h:mm A')}</p>
+                    )}
+                  </div>
+                </div>
+              )}
 
               {/* Task #3190: durable submission-email outcome recorded server-side */}
               <div>

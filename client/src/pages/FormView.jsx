@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Loader2, ChevronLeft, ChevronRight, CheckCircle2, Save, Copy, Check, AlertTriangle, Printer } from "lucide-react";
 import FormRenderer from "../components/forms/FormRenderer";
+import FormPaymentSubmit from "../components/forms/FormPaymentSubmit";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useLayoutContext } from "@/contexts/LayoutContext";
@@ -1582,6 +1583,15 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
     [form?.visibility_rules, formValues, form?.lmic_country_codes]
   );
 
+  // Task #3483: generic Payment field. When a payment field is VISIBLE (not
+  // hidden by visibility rules), the payment step replaces the plain Submit
+  // button. Hidden payment field ⇒ normal submit path.
+  const visiblePaymentField = useMemo(() => {
+    const pf = (form?.fields || []).find((f) => f?.type === 'payment');
+    if (!pf || hiddenFieldIds.has(pf.id)) return null;
+    return pf;
+  }, [form?.fields, hiddenFieldIds]);
+
   const disabledFieldIds = useMemo(() => {
     // Start with fields that have starts_disabled = true
     const disabled = new Set(initialDisabledFieldIds);
@@ -2190,12 +2200,15 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
     );
   }
 
-  const handleSubmit = async () => {
+  // Task #3483: all pre-submit validation + payload assembly, shared by the
+  // normal submit path and the payment step. Returns the submission payload
+  // or null (after toasting) when validation fails.
+  const buildSubmissionPayload = async () => {
     // Conditional-logic submit control: guard here too so the payment
     // auto-submit path (handleSubmitRef) cannot bypass a matched disable rule.
     if (submitControl.disabled) {
       if (submitControl.message) toast.error(submitControl.message);
-      return;
+      return null;
     }
     // For paginated forms, validate all pages before submission
     const pages = form.pages || [];
@@ -2220,7 +2233,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
         
         if (missingFields.length > 0) {
           toast.error(`Please fill in required fields on "${page.title}": ${missingFields.map(f => f.label).join(', ')}`);
-          return;
+          return null;
         }
       }
       
@@ -2232,7 +2245,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
       
       if (missingUnassigned.length > 0) {
         toast.error(`Please fill in required fields: ${missingUnassigned.map(f => f.label).join(', ')}`);
-        return;
+        return null;
       }
     } else {
       // Standard validation for non-paginated forms (only visible fields)
@@ -2243,14 +2256,14 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
       if (missingFields.length > 0) {
         console.log('[FormView Validation] Missing required fields (after filtering hidden):', missingFields.map(f => ({id: f.id, label: f.label, starts_hidden: f.starts_hidden})));
         toast.error(`Please fill in all required fields: ${missingFields.map(f => f.label).join(', ')}`);
-        return;
+        return null;
       }
     }
 
     const invalidFields = visibleFields.filter(field => fieldValidity[field.id] === false);
     if (invalidFields.length > 0) {
       toast.error(`Please fix validation errors: ${invalidFields.map(f => f.label).join(', ')}`);
-      return;
+      return null;
     }
 
     const overLimitFields = visibleFields.filter(field => {
@@ -2264,7 +2277,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
     });
     if (overLimitFields.length > 0) {
       toast.error(`${overLimitFields[0]?.limit_type === 'words' ? 'Word' : 'Character'} limit exceeded: ${overLimitFields.map(f => f.label).join(', ')}`);
-      return;
+      return null;
     }
 
     const paymentFields = visibleFields.filter(field => field.type === 'membership_payment');
@@ -2274,7 +2287,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
     });
     if (unpaidPayments.length > 0) {
       toast.error('Please complete the membership payment before submitting');
-      return;
+      return null;
     }
 
     // Validate terms_conditions fields - must be toggled to true before submission
@@ -2286,7 +2299,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
     });
     if (unacceptedTerms.length > 0) {
       toast.error(`Please accept the terms and conditions: ${unacceptedTerms.map(f => f.label).join(', ')}`);
-      return;
+      return null;
     }
 
     // Per-organization capacity check (runs if form assigns a role and no prefill check was done)
@@ -2341,7 +2354,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
             
             if (!capacityData.hasCapacity) {
               toast.error(`This organization already has ${capacityData.currentCount} ${capacityData.roleName}(s). Maximum allowed is ${capacityData.maxMembers}.`);
-              return;
+              return null;
             }
           }
         } catch (error) {
@@ -2371,12 +2384,12 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
         if (!result.valid && result.conflicts && result.conflicts.length > 0) {
           const conflictMessages = result.conflicts.map(c => `${c.field_label}: ${c.message}`);
           toast.error(`Validation failed:\n${conflictMessages.join('\n')}`);
-          return;
+          return null;
         }
       } catch (error) {
         console.error('[FormView] Uniqueness validation error:', error);
         toast.error('Unable to validate form. Please try again.');
-        return;
+        return null;
       }
     }
 
@@ -2432,7 +2445,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
     if (form?.allow_submitter_email_copy && submitterCopyRequested) {
       if (!submitterCopyEmail.trim() || !isValidEmail(submitterCopyEmail)) {
         toast.error('Please enter a valid email address to receive a copy of your submission');
-        return;
+        return null;
       }
     }
 
@@ -2462,7 +2475,12 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
       })
     };
 
-    submitFormMutation.mutate(submissionData);
+    return submissionData;
+  };
+
+  const handleSubmit = async () => {
+    const payload = await buildSubmissionPayload();
+    if (payload) submitFormMutation.mutate(payload);
   };
 
   handleSubmitRef.current = handleSubmit;
@@ -2654,6 +2672,20 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
                 )}
                 
                 {isLastStep ? (
+                  visiblePaymentField ? (
+                    <FormPaymentSubmit
+                      field={visiblePaymentField}
+                      formValues={formValues}
+                      buildPayload={buildSubmissionPayload}
+                      idempotencyKey={getIdempotencyKey()}
+                      disabled={!canProceed || submitControl.disabled}
+                      disabledMessage={submitControl.message}
+                      busy={submitFormMutation.isPending}
+                      onPaid={() => { rotateIdempotencyKey(); setSubmitted(true); }}
+                      onNormalSubmit={handleSubmit}
+                      submitLabel={form.submit_button_text}
+                    />
+                  ) : (
                   <Button
                     onClick={handleSubmit}
                     disabled={!canProceed || submitControl.disabled || submitFormMutation.isPending}
@@ -2669,6 +2701,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
                       form.submit_button_text
                     )}
                   </Button>
+                  )
                 ) : (
                   !(currentField?.type === 'image_buttons' && currentField?.auto_advance !== false && currentField?.hide_next_button === true && !disabledFieldIds.has(currentField?.id)) && (
                     <Button
@@ -3056,6 +3089,19 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
                       <ChevronRight className="w-4 h-4 ml-2" />
                     </Button>
                   ) : null
+                ) : visiblePaymentField ? (
+                  <FormPaymentSubmit
+                    field={visiblePaymentField}
+                    formValues={formValues}
+                    buildPayload={buildSubmissionPayload}
+                    idempotencyKey={getIdempotencyKey()}
+                    disabled={submitControl.disabled}
+                    disabledMessage={submitControl.message}
+                    busy={submitFormMutation.isPending}
+                    onPaid={() => { rotateIdempotencyKey(); setSubmitted(true); }}
+                    onNormalSubmit={handleSubmit}
+                    submitLabel={form.submit_button_text}
+                  />
                 ) : (
                   <Button
                     onClick={handleSubmit}

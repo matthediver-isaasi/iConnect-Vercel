@@ -13,6 +13,8 @@ import { base44 } from "@/api/base44Client";
 import { buildPrefillValues, resolveEffectivePrefillIds, resolveMemberSourceOrgId, shouldWaitForPrefillCustomValues, shouldWaitForPrefillOrgEntity, isFieldValueFilled } from "@/lib/formFieldPrefill";
 import { useSubmissionIdempotencyKey } from "@/lib/useSubmissionIdempotencyKey";
 import { evaluateLmicCondition } from "../../../api/_lib/formLmicConditions.js";
+import { resolveSubmitControl } from "../../../api/_lib/formSubmitControl.js";
+import FormPaymentSubmit from "../components/forms/FormPaymentSubmit";
 
 // Stable empty array so disabled custom-value queries don't create a fresh
 // default identity every render (which would re-trigger dependent effects).
@@ -694,6 +696,21 @@ export default function EmbedFormPage() {
     return filterVisibleFields(form?.fields || []);
   }, [form?.fields, hiddenFieldIds]);
 
+  // Conditional-logic submit control (Task #3474/#3483): shared evaluator
+  // with FormView and the server-side enforcement.
+  const submitControl = useMemo(
+    () => resolveSubmitControl(form?.visibility_rules, formValues, { lmicCodes: form?.lmic_country_codes }),
+    [form?.visibility_rules, formValues, form?.lmic_country_codes]
+  );
+
+  // Task #3483: generic Payment field — when visible, the payment step
+  // replaces the plain Submit button.
+  const visiblePaymentField = useMemo(() => {
+    const pf = (form?.fields || []).find((f) => f?.type === 'payment');
+    if (!pf || hiddenFieldIds.has(pf.id)) return null;
+    return pf;
+  }, [form?.fields, hiddenFieldIds]);
+
   // For standard layout with pages
   const pages = useMemo(() => {
     if (!form?.fields) return [];
@@ -789,10 +806,16 @@ export default function EmbedFormPage() {
     }
   };
 
-  const handleSubmit = async () => {
+  // Task #3483: all pre-submit validation + payload assembly, shared by the
+  // normal submit path and the payment step. Returns the payload or null.
+  const buildSubmissionPayload = async () => {
+    if (submitControl.disabled) {
+      if (submitControl.message) toast.error(submitControl.message);
+      return null;
+    }
     if (!validateCurrentPage()) {
       toast.error('Please fill in all required fields correctly');
-      return;
+      return null;
     }
 
     const paymentFields = visibleFields.filter(field => field.type === 'membership_payment');
@@ -802,7 +825,7 @@ export default function EmbedFormPage() {
     });
     if (unpaidPayments.length > 0) {
       toast.error('Please complete the membership payment before submitting');
-      return;
+      return null;
     }
 
     // Uniqueness validation (runs if uniqueness checks are configured)
@@ -825,12 +848,12 @@ export default function EmbedFormPage() {
         if (!result.valid && result.conflicts && result.conflicts.length > 0) {
           const conflictMessages = result.conflicts.map(c => `${c.field_label}: ${c.message}`);
           toast.error(`Validation failed:\n${conflictMessages.join('\n')}`);
-          return;
+          return null;
         }
       } catch (error) {
         console.error('[EmbedForm] Uniqueness validation error:', error);
         toast.error('Unable to validate form. Please try again.');
-        return;
+        return null;
       }
     }
 
@@ -846,11 +869,16 @@ export default function EmbedFormPage() {
     );
 
     // Match FormView submission structure exactly
-    submitFormMutation.mutate({
+    return {
       form_id: form.id,
       form_name: form.name,
       submission_data: filteredFormValues
-    });
+    };
+  };
+
+  const handleSubmit = async () => {
+    const payload = await buildSubmissionPayload();
+    if (payload) submitFormMutation.mutate(payload);
   };
 
   const notifyParentResize = () => {
@@ -1079,9 +1107,23 @@ export default function EmbedFormPage() {
                 Previous
               </Button>
               {isLastStep ? (
+                visiblePaymentField ? (
+                  <FormPaymentSubmit
+                    field={visiblePaymentField}
+                    formValues={formValues}
+                    buildPayload={buildSubmissionPayload}
+                    idempotencyKey={getIdempotencyKey()}
+                    disabled={!canProceed || submitControl.disabled}
+                    disabledMessage={submitControl.message}
+                    busy={submitFormMutation.isPending}
+                    onPaid={() => { rotateIdempotencyKey(); setSubmitted(true); notifyParentResize(); }}
+                    onNormalSubmit={handleSubmit}
+                    submitLabel={form.submit_button_text || 'Submit'}
+                  />
+                ) : (
                 <Button
                   onClick={handleSubmit}
-                  disabled={!canProceed || submitFormMutation.isPending}
+                  disabled={!canProceed || submitControl.disabled || submitFormMutation.isPending}
                   data-testid="button-submit-form"
                 >
                   {submitFormMutation.isPending ? (
@@ -1093,6 +1135,7 @@ export default function EmbedFormPage() {
                     form.submit_button_text || 'Submit'
                   )}
                 </Button>
+                )
               ) : (
                 <Button
                   onClick={handleNext}
@@ -1205,11 +1248,24 @@ export default function EmbedFormPage() {
                 Next
                 <ChevronRight className="h-4 w-4 ml-1" />
               </Button>
+            ) : visiblePaymentField ? (
+              <FormPaymentSubmit
+                field={visiblePaymentField}
+                formValues={formValues}
+                buildPayload={buildSubmissionPayload}
+                idempotencyKey={getIdempotencyKey()}
+                disabled={submitControl.disabled}
+                disabledMessage={submitControl.message}
+                busy={submitFormMutation.isPending}
+                onPaid={() => { rotateIdempotencyKey(); setSubmitted(true); notifyParentResize(); }}
+                onNormalSubmit={handleSubmit}
+                submitLabel={form.submit_button_text || 'Submit'}
+              />
             ) : (
               <Button
                 type="button"
                 onClick={handleSubmit}
-                disabled={submitFormMutation.isPending}
+                disabled={submitControl.disabled || submitFormMutation.isPending}
                 data-testid="button-submit-form"
               >
                 {submitFormMutation.isPending ? (

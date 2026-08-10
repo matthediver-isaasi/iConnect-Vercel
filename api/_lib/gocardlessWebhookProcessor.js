@@ -141,6 +141,14 @@ export async function processGocardlessEvent(event, deps = {}) {
 async function processBillingRequestEvent({ event, action, links, db, gc }) {
   const brId = links.billing_request;
   if (!brId) return { handled: false, detail: 'no billing_request link' };
+
+  // Task #3483: generic form Payment field billing requests are tracked on
+  // form_submission (payment_reference = billing request id), not on a
+  // billing agreement. Handle them first so the agreement lookup below
+  // doesn't dismiss the event.
+  const formPaymentResult = await maybeProcessFormPaymentBillingRequest({ action, brId, db, gc });
+  if (formPaymentResult) return formPaymentResult;
+
   const agreement = await findAgreementByBillingRequest(db, brId);
   if (!agreement) return { handled: false, detail: `no local agreement for billing request ${brId}` };
 
@@ -220,6 +228,71 @@ async function processBillingRequestEvent({ event, action, links, db, gc }) {
 }
 
 // ---------------------------------------------------------------------------
+
+// Task #3483: billing requests created by the generic form Payment field.
+// Returns null when the billing request is not a form payment (fall through
+// to the agreement path). Marks the pending form_submission paid via the
+// shared CAS and runs finalisation exactly once.
+async function maybeProcessFormPaymentBillingRequest({ action, brId, db, gc }) {
+  let row = null;
+  try {
+    const { data, error } = await db
+      .from('form_submission')
+      .select('*')
+      .eq('payment_provider', 'gocardless')
+      .eq('payment_reference', brId)
+      .maybeSingle();
+    if (error) throw error;
+    row = data;
+  } catch (err) {
+    // Pre-migration DB (42703) — not a form payment environment.
+    return null;
+  }
+  if (!row) return null;
+
+  if (action === 'fulfilled') {
+    if (row.payment_status === 'paid') {
+      // Ensure finalisation ran even if a previous winner crashed mid-way.
+    } else if (row.payment_status !== 'pending') {
+      return { handled: true, detail: `form payment ${row.id} in state ${row.payment_status}; ignored` };
+    }
+    try {
+      const { markFormSubmissionPaid, finalizeFormSubmission } = await import('./formPaymentFinalize.js');
+      const { row: paidRow } = row.payment_status === 'pending'
+        ? await markFormSubmissionPaid(db, row.id, { reference: brId })
+        : { row };
+      const { data: form } = await db
+        .from('form')
+        .select('id, name, tenant_id, fields, pages, visibility_rules, entity_pipelines, field_mappings, application_level, submission_emails, submission_email_template_id, submission_email_recipient, submission_email_cc, submission_email_bcc, submission_email_field_mapping, form_type')
+        .eq('id', row.form_id)
+        .eq('tenant_id', row.tenant_id)
+        .maybeSingle();
+      if (form) {
+        await finalizeFormSubmission({
+          supabase: db,
+          submission: paidRow || { ...row, payment_status: 'paid' },
+          form,
+          baseUrl: null,
+        });
+      }
+      return { handled: true, detail: `form payment ${row.id} marked paid (billing request fulfilled)` };
+    } catch (err) {
+      console.error('[GC Webhook] form payment fulfil failed:', err.message);
+      return { handled: false, detail: `form payment ${row.id} fulfil failed: ${err.message}` };
+    }
+  }
+
+  if (action === 'cancelled' || action === 'failed') {
+    await db
+      .from('form_submission')
+      .update({ payment_status: 'failed' })
+      .eq('id', row.id)
+      .eq('payment_status', 'pending');
+    return { handled: true, detail: `form payment ${row.id} billing request ${action}` };
+  }
+
+  return { handled: true, detail: `form payment ${row.id}: ignored billing_requests action=${action}` };
+}
 
 const MANDATE_TERMINAL_ACTIONS = new Set(['cancelled', 'failed', 'expired']);
 
