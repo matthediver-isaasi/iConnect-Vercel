@@ -16,7 +16,8 @@ import {
 import {
   ticketHasAccessRestrictions,
   isTicketAccessibleToMember,
-  getMemberGroupIdsForMember
+  getMemberGroupIdsForMember,
+  isActiveMemberOfGroup
 } from '../_lib/ticketAccess.js';
 import { getAccountingProvider } from '../_lib/accountingProvider.js';
 import { getAllowVoucherUseAfterExpiry, isVoucherUsableForEventDate } from '../_lib/voucherExpiryPolicy.js';
@@ -124,6 +125,17 @@ export default async function handler(req, res) {
     // only register themselves — no colleagues, external attendees, or buy-N.
     // Reject any booking that attempts to add extra/other attendees.
     if (event.member_group_id) {
+      // Task #3508: only ACTIVE members of the linked member group may book a
+      // group event. Everyone can view the event, but booking requires
+      // membership of the group.
+      if (!authenticatedMember) {
+        return res.status(401).json({ error: 'You must be logged in as a member of this event\'s group to book' });
+      }
+      const isGroupMember = await isActiveMemberOfGroup(supabase, authenticatedMember.id, event.member_group_id);
+      if (!isGroupMember) {
+        return res.status(403).json({ error: 'Only members of this event\'s group can book this event. Join the group to attend.' });
+      }
+
       const groupEventAttendees = [];
       for (const item of normalizedItems) {
         for (const attendee of (item.attendees || [])) {

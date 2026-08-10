@@ -68,12 +68,16 @@ export default async function handler(req, res) {
         booking_replacement_cta_label,
         booking_replacement_title,
         attached_documents,
-        documents_section_title
+        documents_section_title,
+        member_group_id,
+        group_event_public
       `)
       .eq('tenant_id', tenant.id)
-      .in('status', ['published', 'tbc', 'draft'])
-      // Exclude private group events from public single-event lookup.
-      .is('member_group_id', null);
+      .in('status', ['published', 'tbc', 'draft']);
+      // Task #3508: group events ARE returned by the single-event lookup so
+      // anyone with a direct link can view them; booking is gated separately
+      // (server-side membership check in the booking paths). List endpoints
+      // still hide private group events.
 
     if (eventSlug) {
       query = query.eq('slug', eventSlug.toLowerCase().trim());
@@ -85,6 +89,18 @@ export default async function handler(req, res) {
 
     if (error || !event) {
       return res.status(404).json({ error: 'Event not found' });
+    }
+
+    // Task #3508: include the linked member group's name so the UI can render
+    // a "join <group> to book" dialogue for non-members.
+    let memberGroupName = null;
+    if (event.member_group_id) {
+      const { data: groupRow } = await supabase
+        .from('member_group')
+        .select('id, name')
+        .eq('id', event.member_group_id)
+        .maybeSingle();
+      memberGroupName = groupRow?.name || null;
     }
 
     const allowGuestsToViewAllTickets = event.pricing_config?.allowGuestsToViewAllTickets || false;
@@ -223,7 +239,10 @@ export default async function handler(req, res) {
       booking_replacement_cta_label: event.booking_replacement_cta_label || null,
       booking_replacement_title: event.booking_replacement_title || null,
       attached_documents: Array.isArray(event.attached_documents) ? event.attached_documents : [],
-      documents_section_title: event.documents_section_title || null
+      documents_section_title: event.documents_section_title || null,
+      member_group_id: event.member_group_id || null,
+      group_event_public: event.group_event_public === true,
+      member_group_name: memberGroupName
     };
 
     return res.status(200).json(publicEvent);

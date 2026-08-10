@@ -1,6 +1,8 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import PublicDocumentsSection from "@/components/events/PublicDocumentsSection";
+import JoinGroupToBookCard from "@/components/events/JoinGroupToBookCard";
+import { useMyGroupIds } from "@/hooks/useEventsData";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -1162,7 +1164,10 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
 }
 
 export default function ComplexEventDetail() {
-  const { memberInfo, organizationInfo, isAdmin } = useMemberAccess();
+  const { memberInfo, organizationInfo, isAdmin, authResolved } = useMemberAccess();
+  // Task #3508: canonical ACTIVE-group-membership signal (unexpired assignment
+  // + active group, resolved server-side) used for the join-to-book gate.
+  const { data: myActiveGroupIds = [], isFetched: myActiveGroupIdsFetched } = useMyGroupIds();
   const [showSpeakerModal, setShowSpeakerModal] = useState(false);
   const [selectedSpeaker, setSelectedSpeaker] = useState(null);
   const [cart, setCart] = useState({});
@@ -1677,16 +1682,37 @@ export default function ComplexEventDetail() {
           </div>
 
           <div className="space-y-6 lg:sticky lg:top-4 lg:max-h-[calc(100dvh-2rem)] lg:overflow-y-auto">
-            <BookingSection
-              event={event}
-              sessions={sessions}
-              memberInfo={memberInfo}
-              organizationInfo={organizationInfo}
-              memberGroupIds={userMemberGroupIds}
-              cart={cart}
-              setCart={setCart}
-              onBookingComplete={() => { setCart({}); }}
-            />
+            {/* Task #3508: group events are viewable by everyone but bookable
+                only by members of the linked group — non-members get a
+                join-the-group dialogue instead of the booking section. */}
+            {(() => {
+              const joinGroupGateActive = !!event?.member_group_id && (
+                memberInfo
+                  ? (myActiveGroupIdsFetched && !(myActiveGroupIds || []).includes(event.member_group_id))
+                  : !!authResolved
+              );
+              if (joinGroupGateActive) {
+                return (
+                  <JoinGroupToBookCard
+                    groupId={event.member_group_id}
+                    groupName={event.member_group_name}
+                    isAuthenticated={!!memberInfo}
+                  />
+                );
+              }
+              return (
+                <BookingSection
+                  event={event}
+                  sessions={sessions}
+                  memberInfo={memberInfo}
+                  organizationInfo={organizationInfo}
+                  memberGroupIds={userMemberGroupIds}
+                  cart={cart}
+                  setCart={setCart}
+                  onBookingComplete={() => { setCart({}); }}
+                />
+              );
+            })()}
           </div>
         </div>
       </div>

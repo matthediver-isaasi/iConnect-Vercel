@@ -26,6 +26,31 @@ export async function getMemberGroupIdsForMember(supabase, memberId) {
   return data.map(r => r.group_id).filter(Boolean);
 }
 
+/**
+ * Task #3508: group events are viewable by everyone but bookable only by
+ * ACTIVE members of the linked member group. Active means the assignment has
+ * not expired and the group itself is active.
+ */
+export async function isActiveMemberOfGroup(supabase, memberId, groupId) {
+  if (!supabase || !memberId || !groupId) return false;
+  const { data: assignments, error } = await supabase
+    .from('member_group_assignment')
+    .select('group_id, expires_at')
+    .eq('member_id', memberId)
+    .eq('group_id', groupId);
+  if (error || !Array.isArray(assignments)) return false;
+  const nowIso = new Date().toISOString();
+  const live = assignments.some(a => !a.expires_at || new Date(a.expires_at).toISOString() > nowIso);
+  if (!live) return false;
+  const { data: group, error: groupErr } = await supabase
+    .from('member_group')
+    .select('id, is_active')
+    .eq('id', groupId)
+    .maybeSingle();
+  if (groupErr || !group) return false;
+  return group.is_active !== false;
+}
+
 export function isTicketAccessibleToMember({ ticketClass, memberRoleId, memberGroupIds }) {
   if (!ticketHasAccessRestrictions(ticketClass)) return true;
   const roleIds = getTicketRoleIds(ticketClass);

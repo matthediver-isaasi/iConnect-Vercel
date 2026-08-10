@@ -4,8 +4,9 @@ import { base44 } from "@/api/base44Client";
 import { publicClient } from "@/api/publicClient";
 import { supabase } from "@/api/supabaseClient";
 import { useQuery } from "@tanstack/react-query";
-import { useEventData, useEventDataBySlug } from "@/hooks/useEventsData";
+import { useEventData, useEventDataBySlug, useMyGroupIds } from "@/hooks/useEventsData";
 import PublicDocumentsSection from "@/components/events/PublicDocumentsSection";
+import JoinGroupToBookCard from "@/components/events/JoinGroupToBookCard";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -228,7 +229,7 @@ function TrainingAgendaSchedule({ agendaLines, eventSpeakers = [] }) {
 }
 
 export default function EventDetailsPage() {
-  const { memberInfo, organizationInfo, memberRole, isFeatureExcluded, reloadMemberInfo, refreshOrganizationInfo } = useMemberAccess();
+  const { memberInfo, organizationInfo, memberRole, authResolved, isFeatureExcluded, reloadMemberInfo, refreshOrganizationInfo } = useMemberAccess();
   const { singular: speakerSingular, plural: speakerPlural } = useSpeakerModuleName();
   const [memberInfoState, setMemberInfoState] = useState(null);
   const [showTour, setShowTour] = useState(false);
@@ -978,6 +979,20 @@ export default function EventDetailsPage() {
   // Task #1519: Group events (member_group_id set) force self-only registration.
   // No colleagues / external / multi-attendee booking is permitted.
   const isGroupEvent = !!event?.member_group_id;
+
+  // Task #3508: group events are viewable by everyone but bookable only by
+  // members of the linked group. When the viewer isn't a group member the
+  // right-hand booking pane is replaced by a "join the group" dialogue.
+  // Waits for auth resolution / group-id load to avoid flashing the gate at
+  // group members while their memberships are still loading. Uses the
+  // my-groups endpoint, which applies the canonical ACTIVE-member definition
+  // (unexpired assignment + active group) — matching the server booking guard.
+  const { data: myActiveGroupIds = [], isFetched: myActiveGroupIdsFetched } = useMyGroupIds();
+  const joinGroupGateActive = isGroupEvent && (
+    currentMemberInfo
+      ? (myActiveGroupIdsFetched && !(myActiveGroupIds || []).includes(event.member_group_id))
+      : !!authResolved
+  );
 
   // Role-based permission checks for registration buttons
   const canRoleSelfRegister = !isFeatureExcluded || !isFeatureExcluded('element_SelfRegistration');
@@ -2325,6 +2340,16 @@ export default function EventDetailsPage() {
               </Card>
             )}
 
+            {/* Task #3508: non-group-member viewers get a join-the-group
+                dialogue instead of the booking controls */}
+            {joinGroupGateActive ? (
+              <JoinGroupToBookCard
+                groupId={event.member_group_id}
+                groupName={event.member_group_name}
+                isAuthenticated={!!currentMemberInfo}
+              />
+            ) : (
+            <>
             {/* No tickets available for role message */}
             {isOneOffEvent && noTicketsForRole && !isRegistrationClosed && !tbcTicketSelectorsHidden && (
               <Card className={`shadow-sm mb-4 ${isGuestCheckout ? 'border-blue-200 bg-blue-50' : 'border-warning/30 bg-warning/10'}`}>
@@ -2681,6 +2706,8 @@ export default function EventDetailsPage() {
               checkingMemberEmail={checkingMemberEmail}
               guestEmailIsMember={guestEmailIsMember}
             />
+            )}
+            </>
             )}
 
           </div>

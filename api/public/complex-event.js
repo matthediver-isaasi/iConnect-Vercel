@@ -56,6 +56,18 @@ export default async function handler(req, res) {
       return res.status(404).json({ error: 'Event not found' });
     }
 
+    // Task #3508: include the linked member group's name so the UI can render
+    // a "join <group> to book" dialogue for non-members.
+    let memberGroupName = null;
+    if (event.member_group_id) {
+      const { data: groupRow } = await supabase
+        .from('member_group')
+        .select('id, name')
+        .eq('id', event.member_group_id)
+        .maybeSingle();
+      memberGroupName = groupRow?.name || null;
+    }
+
     const { data: ticketClasses, error: tcError } = await supabase
       .from('complex_event_ticket_class')
       .select('id, name, price, is_free, early_bird_enabled, early_bird_price, early_bird_deadline, visibility_mode, linked_track_ids, all_tracks, display_order, is_group_ticket, group_size, role_ids, role_match_only, member_group_ids, available_count, is_unlimited_tickets')
@@ -149,6 +161,7 @@ export default async function handler(req, res) {
       filter_tags: event.filter_tags || [],
       program_tag: event.program_tag || null,
       member_group_id: event.member_group_id || null,
+      member_group_name: memberGroupName,
       registration_closes_at: event.registration_closes_at || null,
       is_unlimited_registration: event.is_unlimited_registration !== false,
       show_seat_count: event.show_seat_count !== false,

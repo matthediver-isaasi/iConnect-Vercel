@@ -21,7 +21,8 @@ import { orderVoucherIdsForRedemption } from '../_lib/voucherOrdering.js';
 import {
   ticketHasAccessRestrictions,
   isTicketAccessibleToMember,
-  getMemberGroupIdsForMember
+  getMemberGroupIdsForMember,
+  isActiveMemberOfGroup
 } from '../_lib/ticketAccess.js';
 
 // Helper: Get Stripe client for a tenant
@@ -1889,6 +1890,41 @@ const functionHandlers = {
     // only register themselves — no colleagues, external attendees, or buy-N.
     // Reject any booking that attempts to add extra/other attendees.
     if (event.member_group_id) {
+      // Task #3508: only ACTIVE members of the linked member group may book a
+      // group event. Everyone can view the event, but booking requires
+      // membership of the group — guests can never qualify.
+      if (isGuestBooking || !member) {
+        console.log('[createOneOffEventBooking] Blocking non-member booking on group event:', eventId);
+        return { success: false, error: 'You must be logged in as a member of this event\'s group to book' };
+      }
+      // SECURITY: `member` above is resolved from the client-supplied
+      // memberEmail. For group events the AUTHENTICATED SESSION must be the
+      // booker — otherwise anyone could book by submitting a group member's
+      // email. Verify the session identity matches the booking member.
+      let sessionMemberForGroup = null;
+      try {
+        sessionMemberForGroup = req ? await getSessionMember(req) : null;
+      } catch (e) {
+        sessionMemberForGroup = null;
+      }
+      if (!sessionMemberForGroup || sessionMemberForGroup.id !== member.id) {
+        console.log('[createOneOffEventBooking] Blocking group-event booking - session does not match booking member:', {
+          eventId,
+          sessionMemberId: sessionMemberForGroup?.id || null,
+          bookingMemberId: member.id
+        });
+        return { success: false, error: 'You must be logged in as a member of this event\'s group to book' };
+      }
+      const isGroupMember = await isActiveMemberOfGroup(supabase, member.id, event.member_group_id);
+      if (!isGroupMember) {
+        console.log('[createOneOffEventBooking] Blocking non-group-member booking on group event:', {
+          eventId,
+          memberId: member.id,
+          groupId: event.member_group_id
+        });
+        return { success: false, error: 'Only members of this event\'s group can book this event. Join the group to attend.' };
+      }
+
       const callerEmail = String(
         (isGuestBooking ? guestInfo?.email : (member?.email || memberEmail)) || ''
       ).trim().toLowerCase();
