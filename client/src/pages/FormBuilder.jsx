@@ -26,7 +26,7 @@ import { createPageUrl } from "@/utils";
 import { Link } from "react-router-dom";
 import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
-import { Columns2, Columns3, ArrowRight, Settings2, Wand2, Building2 } from "lucide-react";
+import { Columns2, Columns3, ArrowRight, Settings2, Wand2, Building2, CreditCard } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
@@ -743,7 +743,8 @@ function LogicRulesSection({
   prefillSource = 'none',
   customFields = [],
   roles = [],
-  pages = []
+  pages = [],
+  entityPipelines = null
 }) {
   // Track the last rules JSON we migrated to detect new data
   const lastMigratedJsonRef = React.useRef(null);
@@ -1107,6 +1108,22 @@ function LogicRulesSection({
         // 'enable' re-enables submit even if another matched rule disables it.
         submit_state: 'disable',
         message: ''
+      };
+    } else if (actionType === 'membership_structure') {
+      // One membership action per rule; the FIRST matched rule wins at
+      // payment time, so a single action per rule keeps precedence obvious.
+      const existingMembershipAction = (normalizedRule.actions || []).find(a => a.action_type === 'membership_structure');
+      if (existingMembershipAction) {
+        toast.info('A membership action already exists for this rule');
+        return;
+      }
+      newAction = {
+        id: `action_membership_${Date.now()}`,
+        action_type: 'membership_structure',
+        config_id: '',
+        // Maps membership calculation inputs (preference field ids or
+        // core:<name> keys) to form field ids.
+        field_mappings: {}
       };
     } else {
       // Unknown action type
@@ -1890,6 +1907,15 @@ function LogicRulesSection({
                       >
                         <Lock className="w-3 h-3 mr-1" /> Submit Button
                       </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 text-xs"
+                        onClick={() => addAction(rule.id, 'membership_structure')}
+                        data-testid={`button-add-membership-action-${index}`}
+                      >
+                        <CreditCard className="w-3 h-3 mr-1" /> Membership
+                      </Button>
                     </div>
                   </div>
 
@@ -1905,10 +1931,13 @@ function LogicRulesSection({
                         const isLegacyFieldTargetAction = isLegacyVisibilityAction || isLegacyDisabilityAction;
                         const isConsolidatedVisibility = action.action_type === 'visibility';
                         const isSubmitControlAction = action.action_type === 'submit_control';
+                        const isMembershipAction = action.action_type === 'membership_structure';
                         // Determine card styling
                         let cardClass = 'p-3 rounded-lg border ';
                         if (isConsolidatedVisibility) {
                           cardClass += 'bg-slate-50 border-slate-300';
+                        } else if (isMembershipAction) {
+                          cardClass += 'bg-emerald-50 border-emerald-200';
                         } else if (isSubmitControlAction) {
                           cardClass += 'bg-purple-50 border-purple-200';
                         } else if (isLegacyVisibilityAction) {
@@ -1938,7 +1967,9 @@ function LogicRulesSection({
                                     ? <Unlock className="w-3 h-3 text-purple-600" />
                                     : <Lock className="w-3 h-3 text-purple-600" />
                                 )}
+                                {action.action_type === 'membership_structure' && <CreditCard className="w-3 h-3 text-emerald-600" />}
                                 <span className="text-xs font-medium">
+                                  {action.action_type === 'membership_structure' && 'Membership'}
                                   {action.action_type === 'submit_control' && 'Submit Button'}
                                   {action.action_type === 'visibility' && 'Field Visibility & State'}
                                   {action.action_type === 'show' && 'Show Fields (Legacy)'}
@@ -1959,7 +1990,17 @@ function LogicRulesSection({
                               </Button>
                             </div>
 
-                            {isSubmitControlAction ? (
+                            {isMembershipAction ? (
+                              <MembershipStructureActionSettings
+                                action={action}
+                                ruleId={rule.id}
+                                fields={fields}
+                                updateAction={updateAction}
+                                index={index}
+                                actionIndex={actionIndex}
+                                entityPipelines={entityPipelines}
+                              />
+                            ) : isSubmitControlAction ? (
                               <div className="space-y-2">
                                 <p className="text-xs text-slate-500">
                                   Control the Submit button while this rule's conditions match. "Disable submit" blocks submission; "Enable submit" overrides a disable from another rule.
@@ -2830,6 +2871,150 @@ function PaymentFieldSettings({ field, originalIndex, allFields, updateField }) 
           data-testid={`input-payment-description-${field.id}`}
         />
       </div>
+    </div>
+  );
+}
+
+// Conditional-logic "Membership" action (Task #3489): selects a membership
+// structure; when the rule matches at payment time, the server derives the
+// membership fee for that structure, charges it, and creates the paid
+// membership record after successful payment.
+function MembershipStructureActionSettings({ action, ruleId, fields, updateAction, index, actionIndex, entityPipelines }) {
+  const [tierConfigs, setTierConfigs] = useState([]);
+  const [requiredFields, setRequiredFields] = useState([]);
+  const [loadingFields, setLoadingFields] = useState(false);
+
+  useEffect(() => {
+    fetch('/api/membership/tiers', { credentials: 'include' })
+      .then(res => res.ok ? res.json() : null)
+      .then(data => {
+        if (data?.activeConfigs) setTierConfigs(data.activeConfigs);
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    const configId = action.config_id;
+    if (!configId) {
+      setRequiredFields([]);
+      return;
+    }
+    setLoadingFields(true);
+    fetch(`/api/membership/tier-required-fields?configId=${encodeURIComponent(configId)}`, { credentials: 'include' })
+      .then(res => res.ok ? res.json() : null)
+      .then(data => setRequiredFields(data?.requiredFields || []))
+      .catch(() => setRequiredFields([]))
+      .finally(() => setLoadingFields(false));
+  }, [action.config_id]);
+
+  const fieldMappings = action.field_mappings || {};
+  const selectedConfig = tierConfigs.find(c => c.id === action.config_id);
+  const hasPaymentField = fields.some(f => f.type === 'payment');
+  // Scope-to-pipeline check: the membership attaches to the entity the
+  // form's processing pipelines resolve, so the scopes must match. The
+  // server enforces the same rule before creating any charge.
+  const hasMemberPipeline = (entityPipelines?.members?.length || 0) > 0;
+  const hasOrgPipeline = (entityPipelines?.organisations?.length || 0) > 0;
+  const selectedScope = selectedConfig ? (selectedConfig.structure_scope_type === 'member' ? 'member' : 'organization') : null;
+  const scopeMismatch = selectedScope === 'member'
+    ? !hasMemberPipeline
+    : selectedScope === 'organization'
+      ? !hasOrgPipeline
+      : false;
+
+  const updateMapping = (dbFieldId, formFieldId) => {
+    const newMappings = { ...fieldMappings };
+    if (formFieldId === '_none') {
+      delete newMappings[dbFieldId];
+    } else {
+      newMappings[dbFieldId] = formFieldId;
+    }
+    updateAction(ruleId, action.id, { field_mappings: newMappings });
+  };
+
+  const mappableFormFields = fields.filter(f => f.type !== 'payment' && f.type !== 'membership_payment' && f.type !== 'instructions' && f.type !== 'image' && f.type !== 'image_buttons');
+
+  return (
+    <div className="space-y-3">
+      <p className="text-xs text-slate-500">
+        When this rule matches, the payment amount is the membership fee for the selected structure, and a paid membership record (with its invoice) is created automatically once the payment succeeds.
+      </p>
+      {!hasPaymentField && (
+        <p className="text-xs text-amber-600">
+          This form has no Payment field. Add one — the membership fee is charged through it.
+        </p>
+      )}
+      <div className="space-y-2">
+        <Label className="text-xs">Membership structure</Label>
+        <Select
+          value={action.config_id || ''}
+          onValueChange={(val) => updateAction(ruleId, action.id, { config_id: val, field_mappings: {} })}
+        >
+          <SelectTrigger className="h-8 text-xs" data-testid={`select-membership-config-${index}-${actionIndex}`}>
+            <SelectValue placeholder="Select a membership structure…" />
+          </SelectTrigger>
+          <SelectContent>
+            {tierConfigs.map(cfg => (
+              <SelectItem key={cfg.id} value={cfg.id}>
+                {cfg.name || 'Unnamed'} ({cfg.structure_scope_type === 'member' ? 'member' : 'organisation'})
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {selectedConfig && (
+          <p className="text-xs text-slate-400">
+            Membership will be created for the {selectedScope === 'member' ? 'member' : 'organisation'} resolved by this form's processing pipelines.
+          </p>
+        )}
+        {scopeMismatch && (
+          <p className="text-xs text-red-600" data-testid={`warning-membership-scope-${index}-${actionIndex}`}>
+            {selectedScope === 'member'
+              ? 'This structure creates a member membership, but the form has no member-creating processing pipeline (Form Processing tab). Payments will be blocked until one is added.'
+              : 'This structure creates an organisation membership, but the form has no organisation-creating processing pipeline (Form Processing tab). Payments will be blocked unless the form is opened with an organisation prefill link.'}
+          </p>
+        )}
+      </div>
+
+      {action.config_id && (
+        <div className="space-y-2">
+          <Label className="text-xs font-medium">Fee calculation mappings</Label>
+          <p className="text-xs text-slate-500">
+            Map the values used in the fee calculation to form fields, so the fee can be worked out from the applicant's answers before their record exists.
+          </p>
+          {loadingFields ? (
+            <p className="text-xs text-slate-400">Loading required fields…</p>
+          ) : requiredFields.length === 0 ? (
+            <p className="text-xs text-slate-400">This structure needs no mapped answers (flat rate).</p>
+          ) : (
+            <div className="space-y-2">
+              {requiredFields.map(rf => (
+                <div key={`${rf.field_id}-${rf.usage}`} className="space-y-1">
+                  <div className="flex items-center gap-1 flex-wrap">
+                    <Label className="text-xs">{rf.field_label}</Label>
+                    <span className="text-xs text-slate-400">
+                      ({rf.usage === 'structure' ? 'tier selection' : rf.usage === 'band' ? 'pricing band' : 'discount'})
+                    </span>
+                  </div>
+                  <Select
+                    value={fieldMappings[rf.field_id] || '_none'}
+                    onValueChange={(val) => updateMapping(rf.field_id, val)}
+                  >
+                    <SelectTrigger className="h-8 text-xs" data-testid={`select-membership-mapping-${index}-${actionIndex}-${rf.field_id}`}>
+                      <SelectValue placeholder="Not mapped" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="_none">Not mapped</SelectItem>
+                      {mappableFormFields.map(f => (
+                        <SelectItem key={f.id} value={f.id}>{f.label || f.type}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -8166,6 +8351,7 @@ export default function FormBuilderPage() {
                   customFields={customFields}
                   roles={roles}
                   pages={formData.pages || []}
+                  entityPipelines={formData.entity_pipelines}
                   onRulesChange={(rules) => {
                     const fieldsWithShowRules = new Set();
                     const pagesWithShowRules = new Set();

@@ -13,6 +13,8 @@
 import { retrieveTenantPaymentIntent } from './stripeCredentials.js';
 import { gocardlessForTenant } from './gocardless.js';
 import { markFormSubmissionPaid, finalizeFormSubmission } from './formPaymentFinalize.js';
+import { finalizeFormMembership, WORKFLOW_CLAIM_TTL_MS } from './formMembershipFinalize.js';
+import { runFormEntityPipelines } from './formEntityPipelines.js';
 
 const FORM_COLUMNS = 'id, name, tenant_id, fields, pages, visibility_rules, entity_pipelines, field_mappings, application_level, submission_emails, submission_email_template_id, submission_email_recipient, submission_email_cc, submission_email_bcc, submission_email_field_mapping, form_type';
 
@@ -144,6 +146,71 @@ export async function reconcileFormPayments(supabase, { baseUrl = null, limit = 
     }
   } catch (err) {
     console.warn('[formPaymentReconciliation] Unfinalized sweep failed:', err?.message);
+  }
+
+  // Third sweep (Task #3489): paid + finalized rows carrying a conditional
+  // membership quote whose membership work is incomplete AFTER the finalize
+  // claim — either no membership_result stamp at all (transient failure /
+  // crash before insert or stamp), or a 'created' stamp with a pending
+  // invoice/workflow side effect (crash mid-way). finalizeFormMembership is
+  // internally idempotent and resumable (payment-ref + (entity, year) +
+  // ownership-marker adoption + per-side-effect states).
+  // Deliberately NOT bounded by the 14-day payment lookback: a paid
+  // submission with an unfinished membership must be retried until a
+  // terminal stamp lands, however old it is. Oldest-first ordering makes
+  // eventual service deterministic even when a backlog exceeds the limit.
+  try {
+    const { data: pendingMembership } = await supabase
+      .from('form_submission')
+      .select('*')
+      .eq('payment_status', 'paid')
+      .not('payment_meta->membership->quote', 'is', null)
+      .filter('payment_meta->finalized', 'not.is', null)
+      // Also recover orphaned workflow claims (crash between claim and
+      // dispatch): 'claimed' with a claim timestamp past the TTL. ISO
+      // strings compare lexicographically, so lt on the ->> text works.
+      .or([
+        'payment_meta->membership_result.is.null',
+        'payment_meta->membership_result->>invoice_state.eq.pending',
+        'payment_meta->membership_result->>workflow_state.eq.pending',
+        'payment_meta->membership_result->>status.eq.awaiting_entity',
+        `and(payment_meta->membership_result->>workflow_state.eq.claimed,payment_meta->membership_result->>workflow_claimed_at.lt.${new Date(now - WORKFLOW_CLAIM_TTL_MS).toISOString()})`,
+      ].join(','))
+      .order('created_date', { ascending: true })
+      .order('id', { ascending: true })
+      .limit(20);
+    for (const row of pendingMembership || []) {
+      // If the membership target entity is still unresolved (pipeline
+      // failed or never ran to completion), re-run the form's entity
+      // pipelines first — the same operation an admin performs via
+      // "Re-run processing"; process-application matches/updates existing
+      // records for the same submission, so retries resolve the ids
+      // rather than duplicating entities.
+      const target = row.payment_meta?.membership?.quote?.target;
+      const entityMissing = target === 'member'
+        ? !row.created_member_id
+        : !(row.organization_id || row.payment_meta?.prefill_organization_id);
+      if (entityMissing && baseUrl) {
+        try {
+          const { data: form } = await supabase
+            .from('form')
+            .select(FORM_COLUMNS)
+            .eq('id', row.form_id)
+            .maybeSingle();
+          if (form) {
+            const pipelineOut = await runFormEntityPipelines({ supabase, submission: row, form, baseUrl });
+            if (pipelineOut.memberId) row.created_member_id = row.created_member_id || pipelineOut.memberId;
+            if (pipelineOut.organizationId) row.organization_id = row.organization_id || pipelineOut.organizationId;
+          }
+        } catch (err) {
+          console.warn('[formPaymentReconciliation] Pipeline re-run failed for', row.id, err?.message);
+        }
+      }
+      const out = await finalizeFormMembership({ supabase, submission: row, baseUrl });
+      if (out?.created) results.membershipCreated = (results.membershipCreated || 0) + 1;
+    }
+  } catch (err) {
+    console.warn('[formPaymentReconciliation] Membership retry sweep failed:', err?.message);
   }
 
   return results;

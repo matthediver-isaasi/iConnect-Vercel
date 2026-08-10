@@ -1,6 +1,19 @@
 import { supabase } from './database.js';
 
+// Scope-aware discount evaluation: member-scoped structures store their
+// custom-field values in member_preference_value (keyed by member_id),
+// organisation-scoped ones in organization_preference_value. Field values
+// supplied via fieldOverrides (e.g. form answers for a detached quote)
+// always win and skip the DB lookup entirely.
+export async function evaluateDiscountsForEntity(configId, tenantId, entityId, fieldOverrides = {}, entityType = 'organization') {
+  return evaluateDiscountsInternal(configId, tenantId, entityId, fieldOverrides, entityType);
+}
+
 export async function evaluateDiscountsForOrg(configId, tenantId, organizationId, fieldOverrides = {}) {
+  return evaluateDiscountsInternal(configId, tenantId, organizationId, fieldOverrides, 'organization');
+}
+
+async function evaluateDiscountsInternal(configId, tenantId, entityId, fieldOverrides = {}, entityType = 'organization') {
   const result = {
     totalDiscount: 0,
     discountDetails: [],
@@ -34,18 +47,19 @@ export async function evaluateDiscountsForOrg(configId, tenantId, organizationId
 
     const dbFieldIds = fieldIds.filter(id => !(id in valueMap));
     if (dbFieldIds.length > 0) {
-      const { data: orgValues, error: valuesError } = await supabase
-        .from('organization_preference_value')
+      const isMemberScope = entityType === 'member';
+      const { data: entityValues, error: valuesError } = await supabase
+        .from(isMemberScope ? 'member_preference_value' : 'organization_preference_value')
         .select('field_id, value')
-        .eq('organization_id', organizationId)
+        .eq(isMemberScope ? 'member_id' : 'organization_id', entityId)
         .in('field_id', dbFieldIds);
 
       if (valuesError) {
-        console.error('[DiscountHelper] Error fetching org field values:', valuesError);
+        console.error('[DiscountHelper] Error fetching entity field values:', valuesError);
         return result;
       }
 
-      (orgValues || []).forEach(v => {
+      (entityValues || []).forEach(v => {
         valueMap[v.field_id] = v.value;
       });
     }

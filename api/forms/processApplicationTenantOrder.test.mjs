@@ -41,7 +41,10 @@ test('tenant is resolved exactly once and mismatch rejects with 403', () => {
 
 test('uniqueness validation uses the authoritative tenant, not the raw body tenant', () => {
   const uniquenessAt = idx('SERVER-SIDE UNIQUENESS VALIDATION');
-  const block = src.slice(uniquenessAt, uniquenessAt + 2000);
+  // Window sized to reach the uniqueness loop even with intervening blocks
+  // (e.g. the submit-control re-evaluation inserted between the marker and
+  // the tenant assignment).
+  const block = src.slice(uniquenessAt, uniquenessAt + 4000);
   assert.match(block, /effectiveTenantId = effectiveEntityTenantId \|\| formData\.tenant_id/);
   assert.ok(!/effectiveTenantId = tenant_id/.test(block), 'uniqueness block must not trust body tenant_id');
 });

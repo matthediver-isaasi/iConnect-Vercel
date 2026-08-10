@@ -30,6 +30,8 @@ import { getStripeCredentials, retrieveTenantPaymentIntent } from '../_lib/strip
 import { gocardlessForTenant, buildIdempotencyKey } from '../_lib/gocardless.js';
 import { computeHiddenFieldIds, findPaymentField, derivePaymentAmount } from '../_lib/formFieldVisibility.js';
 import { markFormSubmissionPaid, finalizeFormSubmission } from '../_lib/formPaymentFinalize.js';
+import { resolveMembershipAction, buildMembershipFieldOverrides } from '../_lib/formMembershipAction.js';
+import { quoteMembershipForNewApplicant, quoteFromSimulationResult } from '../_lib/membershipQuote.js';
 
 const STRIPE_MINIMUMS = { GBP: 0.30, USD: 0.50, EUR: 0.50, AUD: 0.50, NZD: 0.50 };
 
@@ -154,12 +156,88 @@ async function handleCreate(req, res, supabase, tenantData) {
     });
   }
 
-  // Amount is ALWAYS derived server-side from the price-source answer.
-  const amount = derivePaymentAmount(paymentField, values);
+  // Conditional-logic membership action (Task #3489): when a matched rule
+  // selects a membership structure, the charge amount is the server-derived
+  // membership fee for that structure and the paid submission will create
+  // the membership record at finalisation.
+  let membershipMeta = null;
+  const membershipAction = resolveMembershipAction(form.visibility_rules, values, evalOptions);
+  if (membershipAction) {
+    // Resolve the config's scope FIRST — it decides which entity the
+    // membership targets and how the fee is derived.
+    // Lifecycle-aware resolution: a persisted form rule can outlive its
+    // structure, so only configs effective TODAY may be quoted/charged
+    // (expired, future-scheduled, or otherwise out-of-window configs are
+    // rejected before any charge exists).
+    const { getAllActiveConfigs } = await import('../_lib/membershipConfigResolver.js');
+    const activeConfigs = await getAllActiveConfigs(tenantData.id);
+    const membershipConfig = (activeConfigs || []).find(c => c.id === membershipAction.configId);
+    if (!membershipConfig) {
+      return res.status(400).json({ error: 'The selected membership structure is not currently in effect. Ask the administrator to update the form.', code: 'MEMBERSHIP_QUOTE_FAILED' });
+    }
+    const membershipTarget = membershipConfig.structure_scope_type === 'member' ? 'member' : 'organization';
+
+    // Scope-to-pipeline validation BEFORE any charge is created: the form's
+    // processing must be able to resolve the target entity after payment,
+    // otherwise we'd take money and have nowhere to attach the membership.
+    const hasMemberPipeline = (form.entity_pipelines?.members?.length || 0) > 0;
+    const hasOrgPipeline = (form.entity_pipelines?.organisations?.length || 0) > 0;
+    if (membershipTarget === 'member' && !hasMemberPipeline) {
+      return res.status(400).json({
+        error: 'This form cannot create a member membership: it has no member-creating processing pipeline. Ask the administrator to fix the form configuration.',
+        code: 'MEMBERSHIP_TARGET_UNRESOLVABLE',
+      });
+    }
+    if (membershipTarget === 'organization' && !hasOrgPipeline && !prefill_organization_id) {
+      return res.status(400).json({
+        error: 'This form cannot create an organisation membership: it has no organisation-creating processing pipeline. Ask the administrator to fix the form configuration.',
+        code: 'MEMBERSHIP_TARGET_UNRESOLVABLE',
+      });
+    }
+
+    const fieldOverrides = buildMembershipFieldOverrides(membershipAction.fieldMappings, values);
+    let quote = null;
+    if (membershipTarget === 'organization' && prefill_organization_id) {
+      // An existing organisation is already known: use the full simulation
+      // (honours go-live date, existing records, overrides, stored values).
+      const { simulateMembershipForOrg } = await import('../_lib/membershipSimulation.js');
+      const simResult = await simulateMembershipForOrg(tenantData.id, prefill_organization_id, {
+        source: 'form-payment', mode: 'manual', configId: membershipAction.configId, fieldOverrides,
+      });
+      if (!simResult.success) {
+        return res.status(400).json({ error: simResult.error || 'The membership fee could not be calculated', code: 'MEMBERSHIP_QUOTE_FAILED' });
+      }
+      if (simResult.existingRecord) {
+        return res.status(400).json({ error: `A membership record for ${simResult.membershipYear?.label} already exists for this organisation`, code: 'MEMBERSHIP_EXISTS' });
+      }
+      quote = quoteFromSimulationResult(simResult, 'organization');
+    } else {
+      // New applicant (member- or organisation-scoped): detached quote from
+      // the form answers alone. A member-scoped structure keeps this path
+      // even when prefill_organization_id is present — the membership
+      // belongs to the member the pipeline creates, not the organisation.
+      const quoted = await quoteMembershipForNewApplicant({
+        tenantId: tenantData.id, configId: membershipAction.configId, fieldOverrides,
+      });
+      if (!quoted.success) {
+        return res.status(400).json({ error: quoted.error || 'The membership fee could not be calculated', code: 'MEMBERSHIP_QUOTE_FAILED' });
+      }
+      quote = quoted.quote;
+    }
+    membershipMeta = { rule_id: membershipAction.ruleId, action_id: membershipAction.actionId, quote };
+  }
+
+  // Amount is ALWAYS derived server-side: from the membership quote when a
+  // membership action matched, otherwise from the price-source answer.
+  const amount = membershipMeta
+    ? (membershipMeta.quote.total_with_vat || membershipMeta.quote.final_cost)
+    : derivePaymentAmount(paymentField, values);
   if (!(amount > 0)) {
     return res.status(400).json({ error: 'No payment is due for these answers', code: 'NO_PAYMENT_REQUIRED' });
   }
-  const currency = (paymentField.payment_currency || 'GBP').toUpperCase();
+  const currency = membershipMeta
+    ? (membershipMeta.quote.currency || 'GBP').toUpperCase()
+    : (paymentField.payment_currency || 'GBP').toUpperCase();
   if (provider === 'stripe' && amount < (STRIPE_MINIMUMS[currency] || 0.5)) {
     return res.status(400).json({ error: `The amount is below the minimum for card payment (${currency}).`, code: 'AMOUNT_TOO_SMALL' });
   }
@@ -187,6 +265,33 @@ async function handleCreate(req, res, supabase, tenantData) {
       if (existing.payment_status === 'paid') {
         return res.status(200).json({ alreadyPaid: true, submissionId: existing.id });
       }
+      // Payment-integrity guard: once a provider payment reference exists,
+      // the pending row is IMMUTABLE — refreshing the amount/answers/quote
+      // under the same key could let the client pay the original provider
+      // amount while fulfilment reads an overwritten quote. A same-key
+      // retry must match the stored charge exactly; anything that changes
+      // the charge or the membership target requires a new payment attempt
+      // (fresh idempotency key).
+      if (existing.payment_reference) {
+        const storedMembership = existing.payment_meta?.membership || null;
+        const sameCharge = Number(existing.payment_amount) === Number(amount)
+          && String(existing.payment_currency || '').toLowerCase() === String(currency || '').toLowerCase()
+          && existing.payment_provider === provider
+          && (storedMembership?.quote?.config_id || null) === (membershipMeta?.quote?.config_id || null)
+          && Number(storedMembership?.quote?.total_with_vat ?? -1) === Number(membershipMeta?.quote?.total_with_vat ?? -1);
+        if (!sameCharge) {
+          return res.status(409).json({
+            error: 'A payment for this submission is already in progress with a different amount or membership. Please start a new payment attempt.',
+            code: 'PAYMENT_ALREADY_INITIATED',
+          });
+        }
+        // Same charge: reuse the row untouched and issue fresh
+        // continuation details below (provider idempotency keys are
+        // derived from the submission id, so GoCardless returns the same
+        // billing request; a replacement Stripe intent carries the same
+        // amount and supersedes the reference).
+        submissionRow = existing;
+      } else {
       // Refresh the stored answers/amount so the payment reflects the
       // CURRENT form state (user may have edited values before retrying).
       const { data: refreshed, error: refreshErr } = await supabase
@@ -202,6 +307,7 @@ async function handleCreate(req, res, supabase, tenantData) {
             price_field_id: paymentField.price_field_id || null,
             prefill_organization_id: prefill_organization_id || null,
             role_id: role_id || null,
+            membership: membershipMeta,
           },
         })
         .eq('id', existing.id)
@@ -213,6 +319,7 @@ async function handleCreate(req, res, supabase, tenantData) {
         return res.status(500).json({ error: 'Failed to prepare payment' });
       }
       submissionRow = refreshed || existing;
+      }
     }
   }
 
@@ -232,6 +339,7 @@ async function handleCreate(req, res, supabase, tenantData) {
         price_field_id: paymentField.price_field_id || null,
         prefill_organization_id: prefill_organization_id || null,
         role_id: role_id || null,
+        membership: membershipMeta,
       },
       ...(idemKey && { idempotency_key: idemKey }),
     };
@@ -272,6 +380,52 @@ async function handleCreate(req, res, supabase, tenantData) {
     }
     const Stripe = (await import('stripe')).default;
     const stripe = new Stripe(creds.secret_key);
+
+    // Same-key retry with an existing intent: REUSE it — never create a
+    // second payable intent for the same submission (duplicate-charge
+    // risk). Only a cancelled/failed prior intent is replaced, and it is
+    // cancelled first so at most one payable intent exists at any time.
+    const priorStripeReference = (submissionRow.payment_reference && submissionRow.payment_provider === 'stripe')
+      ? submissionRow.payment_reference : null;
+    if (priorStripeReference) {
+      try {
+        const existingIntent = await stripe.paymentIntents.retrieve(priorStripeReference);
+        if (existingIntent) {
+          if (existingIntent.status === 'succeeded') {
+            return res.status(200).json({ alreadyPaid: true, submissionId: submissionRow.id });
+          }
+          const reusable = ['requires_payment_method', 'requires_confirmation', 'requires_action', 'processing'].includes(existingIntent.status);
+          if (reusable && existingIntent.amount === amountMinor
+              && existingIntent.currency === currency.toLowerCase()) {
+            return res.status(200).json({
+              provider: 'stripe',
+              submissionId: submissionRow.id,
+              clientSecret: existingIntent.client_secret,
+              publishableKey: creds.publishable_key,
+              amount,
+              currency,
+            });
+          }
+          // Not reusable (cancelled, or amount drifted on an unreferenced
+          // refresh): invalidate before replacing so it can never be paid.
+          if (existingIntent.status !== 'canceled') {
+            try { await stripe.paymentIntents.cancel(existingIntent.id); }
+            catch (cancelErr) {
+              console.error('[form-payment] Could not cancel superseded intent', existingIntent.id, cancelErr?.message);
+              return res.status(409).json({ error: 'An earlier payment attempt is still open. Please try again shortly.', code: 'PAYMENT_ALREADY_INITIATED' });
+            }
+          }
+        }
+      } catch (err) {
+        // Intent id not found on this account (e.g. mode flip) — fall
+        // through and create a fresh one.
+        if (err?.code !== 'resource_missing') {
+          console.error('[form-payment] Failed to retrieve existing intent:', err?.message);
+          return res.status(500).json({ error: 'Failed to prepare payment' });
+        }
+      }
+    }
+
     const paymentIntent = await stripe.paymentIntents.create({
       amount: amountMinor,
       currency: currency.toLowerCase(),
@@ -284,11 +438,57 @@ async function handleCreate(req, res, supabase, tenantData) {
         tenant_id: String(tenantData.id),
       },
     });
-    await supabase
+    // Atomic publication: the reference update is conditional on the row
+    // still carrying the reference we started from (null for a fresh row,
+    // the superseded id after a cancel). Under a concurrent same-key race
+    // exactly one request wins this CAS; the loser cancels its own intent
+    // before responding and returns the winner's, so at most one payable
+    // intent ever exists per submission.
+    let claimQuery = supabase
       .from('form_submission')
       .update({ payment_reference: paymentIntent.id })
       .eq('id', submissionRow.id)
       .eq('payment_status', 'pending');
+    claimQuery = priorStripeReference
+      ? claimQuery.eq('payment_reference', priorStripeReference)
+      : claimQuery.is('payment_reference', null);
+    const { data: claimedRow, error: claimError } = await claimQuery.select('id').maybeSingle();
+    if (claimError || !claimedRow) {
+      // Lost the race (or row left pending): our intent must never be paid.
+      try { await stripe.paymentIntents.cancel(paymentIntent.id); }
+      catch (cancelErr) { console.error('[form-payment] Failed to cancel losing intent', paymentIntent.id, cancelErr?.message); }
+      if (claimError) {
+        console.error('[form-payment] Intent claim failed:', claimError);
+        return res.status(500).json({ error: 'Failed to prepare payment' });
+      }
+      // Return the winner's intent if it is compatible.
+      const { data: winnerRow } = await supabase
+        .from('form_submission')
+        .select('payment_reference, payment_status')
+        .eq('id', submissionRow.id)
+        .maybeSingle();
+      if (winnerRow?.payment_status === 'paid') {
+        return res.status(200).json({ alreadyPaid: true, submissionId: submissionRow.id });
+      }
+      if (winnerRow?.payment_reference) {
+        try {
+          const winnerIntent = await stripe.paymentIntents.retrieve(winnerRow.payment_reference);
+          if (winnerIntent && winnerIntent.amount === amountMinor
+              && winnerIntent.currency === currency.toLowerCase()
+              && ['requires_payment_method', 'requires_confirmation', 'requires_action', 'processing'].includes(winnerIntent.status)) {
+            return res.status(200).json({
+              provider: 'stripe',
+              submissionId: submissionRow.id,
+              clientSecret: winnerIntent.client_secret,
+              publishableKey: creds.publishable_key,
+              amount,
+              currency,
+            });
+          }
+        } catch { /* fall through */ }
+      }
+      return res.status(409).json({ error: 'A payment for this submission is already in progress. Please try again.', code: 'PAYMENT_ALREADY_INITIATED' });
+    }
     return res.status(200).json({
       provider: 'stripe',
       submissionId: submissionRow.id,
@@ -336,6 +536,7 @@ async function handleCreate(req, res, supabase, tenantData) {
         price_field_id: paymentField.price_field_id || null,
         prefill_organization_id: prefill_organization_id || null,
         role_id: role_id || null,
+        membership: membershipMeta,
         gc_flow_id: flow.id || null,
       },
     })

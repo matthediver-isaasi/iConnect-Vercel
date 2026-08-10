@@ -16,6 +16,8 @@
  * rows whose payment_meta lacks `finalized`.
  */
 import { sendSubmissionEmailsGuarded } from './formSubmissionEmails.js';
+import { finalizeFormMembership } from './formMembershipFinalize.js';
+import { runFormEntityPipelines } from './formEntityPipelines.js';
 
 /**
  * CAS pending -> paid. Returns { updated, row }.
@@ -77,64 +79,32 @@ export async function finalizeFormSubmission({ supabase, submission, form, baseU
   }
   if (!claimed) return { finalized: true, alreadyFinalized: true };
 
-  const submissionData = submission.submission_data || {};
-  const prefillOrgId = meta.prefill_organization_id || null;
-  const roleId = meta.role_id || null;
-  let pipelineCreatedMemberId = null;
-  let pipelineCreatedOrgId = null;
-
   // Entity pipelines / field mappings — same internal call as the normal
-  // submit path. Unlike the normal path we never roll the row back: the
+  // submit path, via the shared runner (also used by the reconciliation
+  // cron to re-run processing when the membership target entity is still
+  // unresolved). Unlike the normal path we never roll the row back: the
   // payment has been taken, so a pipeline failure is logged for admin
   // follow-up instead of deleting a paid submission.
-  const hasEntityPipelines = (form.entity_pipelines?.members?.length > 0)
-    || (form.entity_pipelines?.organisations?.length > 0);
-  if (hasEntityPipelines && baseUrl) {
+  const submissionData = submission.submission_data || {};
+  const pipelineResult = await runFormEntityPipelines({ supabase, submission, form, baseUrl });
+  const pipelineCreatedMemberId = pipelineResult.memberId;
+  const pipelineCreatedOrgId = pipelineResult.organizationId;
+
+  // Conditional-logic membership action (Task #3489): create the membership
+  // history row, accounting invoice, and fire the paid workflow. Runs inside
+  // the finalize claim; internally idempotent (payment-ref + (entity, year)
+  // guards). Failures are recorded on the submission, never thrown.
+  if (meta.membership?.quote) {
     try {
-      const pipelineResponse = await fetch(`${baseUrl}/api/forms/process-application`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          form_id: form.id,
-          form_values: submissionData,
-          fields: form.fields || [],
-          field_mappings: form.field_mappings || [],
-          application_level: form.application_level || 'member',
-          submission_id: submission.id,
-          prefill_organization_id: prefillOrgId,
-          role_id: roleId,
-          entity_pipelines: form.entity_pipelines,
-          tenant_id: submission.tenant_id,
-        }),
+      await finalizeFormMembership({
+        supabase,
+        submission,
+        baseUrl,
+        memberId: pipelineCreatedMemberId || submission.created_member_id || null,
+        organizationId: pipelineCreatedOrgId || submission.organization_id || null,
       });
-      if (pipelineResponse.ok) {
-        try {
-          const result = await pipelineResponse.json();
-          const resolvedOrgId = result.organization_id || result.created_organization_id;
-          const resolvedMemberId = result.created_member_id || result.member_id;
-          pipelineCreatedOrgId = resolvedOrgId || null;
-          pipelineCreatedMemberId = resolvedMemberId || null;
-          const updates = {};
-          if (resolvedOrgId && !submission.organization_id) updates.organization_id = resolvedOrgId;
-          if (resolvedMemberId) updates.created_member_id = resolvedMemberId;
-          if (Object.keys(updates).length > 0) {
-            await supabase.from('form_submission').update(updates).eq('id', submission.id);
-          }
-        } catch { /* no JSON body — fine */ }
-      } else {
-        const errText = await pipelineResponse.text().catch(() => '');
-        console.error('[formPaymentFinalize] Pipeline processing failed for paid submission', submission.id, pipelineResponse.status, errText.slice(0, 500));
-        await supabase.from('form_submission').update({
-          processing_notes: `Payment succeeded but application processing failed (HTTP ${pipelineResponse.status}). Re-run processing from the submissions list.`,
-        }).eq('id', submission.id);
-      }
     } catch (err) {
-      console.error('[formPaymentFinalize] Pipeline processing error for paid submission', submission.id, err);
-      try {
-        await supabase.from('form_submission').update({
-          processing_notes: 'Payment succeeded but application processing errored. Re-run processing from the submissions list.',
-        }).eq('id', submission.id);
-      } catch { /* best effort */ }
+      console.error('[formPaymentFinalize] Membership finalisation failed for', submission.id, err?.message);
     }
   }
 
