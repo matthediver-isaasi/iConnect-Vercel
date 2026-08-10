@@ -43,6 +43,7 @@ import { TimezoneAwareDateTimeInput } from "@/components/events/TimezoneAwareDat
 import TimezoneSelect from "@/components/TimezoneSelect";
 import FormOwnersSelector from "@/components/forms/FormOwnersSelector";
 import { SCORE_CONDITION_OPERATORS } from "@/lib/surveyConditions";
+import { hasMembershipStructureAction, findUnrevealedHidden } from "@/lib/formHiddenReachability";
 import ScoreField from "@/components/forms/ScoreField";
 import { validateScoreFieldConfig, validateSurveyForPublish, getScoreRange, getScoreWeight } from "../../../api/_lib/surveyScoring.js";
 import { listOrganizationsForAdmin } from '@/lib/adminOrgList';
@@ -2875,6 +2876,39 @@ function PaymentFieldSettings({ field, originalIndex, allFields, updateField }) 
   );
 }
 
+// Task #3497: non-blocking, dismissible builder warning for starts-hidden
+// pages/fields that no visibility rule ever reveals — they can never appear
+// on the public form.
+function UnreachableHiddenWarning({ fields, pages, visibilityRules }) {
+  // Dismissal is keyed to the current finding set: if new unreachable
+  // pages/fields appear after dismissing, the warning comes back.
+  const [dismissedKey, setDismissedKey] = useState(null);
+  const unreachable = findUnrevealedHidden(fields, pages, visibilityRules);
+  const findingKey = [...unreachable.pages.map(p => p.id), ...unreachable.fields.map(f => f.id)].sort().join('|');
+  if (dismissedKey === findingKey || (unreachable.pages.length === 0 && unreachable.fields.length === 0)) return null;
+  return (
+    <div className="border border-amber-300 bg-amber-50 rounded-lg p-3 flex items-start gap-2" data-testid="unreachable-hidden-warning">
+      <AlertCircle className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" />
+      <div className="text-xs text-amber-800 space-y-1 flex-1">
+        <p className="font-medium">Some hidden pages or fields can never be shown</p>
+        <p>They start hidden, but no conditional-logic rule ever makes them visible, so they will never appear on the public form:</p>
+        <ul className="list-disc pl-4">
+          {unreachable.pages.map(p => (
+            <li key={p.id}>Page "{p.title}"</li>
+          ))}
+          {unreachable.fields.map(f => (
+            <li key={f.id}>Field "{f.label}"</li>
+          ))}
+        </ul>
+        <p>Add a visibility rule that shows them, or untick "starts hidden".</p>
+      </div>
+      <Button variant="ghost" size="icon" className="h-5 w-5 shrink-0" onClick={() => setDismissedKey(findingKey)} data-testid="dismiss-unreachable-hidden-warning">
+        <X className="w-3 h-3" />
+      </Button>
+    </div>
+  );
+}
+
 // Conditional-logic "Membership" action (Task #3489): selects a membership
 // structure; when the rule matches at payment time, the server derives the
 // membership fee for that structure, charges it, and creates the paid
@@ -2940,8 +2974,14 @@ function MembershipStructureActionSettings({ action, ruleId, fields, updateActio
         When this rule matches, the payment amount is the membership fee for the selected structure, and a paid membership record (with its invoice) is created automatically once the payment succeeds.
       </p>
       {!hasPaymentField && (
-        <p className="text-xs text-amber-600">
-          This form has no Payment field. Add one — the membership fee is charged through it.
+        <p className="text-xs text-amber-600" data-testid="membership-action-no-payment-warning">
+          {fields.some(f => f.type === 'membership_payment') ? (
+            <>
+              This form has a <strong>Membership Payment</strong> field, but that is a separate mechanism for charging <em>existing members</em>. This action charges new applicants through the generic <strong>Payment</strong> field — add one (its price source can stay empty; the fee comes from the selected structure).
+            </>
+          ) : (
+            <>This form has no Payment field. Add one — the membership fee is charged through it.</>
+          )}
         </p>
       )}
       <div className="space-y-2">
@@ -6866,8 +6906,17 @@ export default function FormBuilderPage() {
         toast.error(`Payment field "${pf.label || 'Payment'}" needs at least one payment method enabled.`);
         return;
       }
-      if (!pf.price_field_id || !formData.fields.some(f => f.id === pf.price_field_id)) {
-        toast.error(`Payment field "${pf.label || 'Payment'}" needs a price source field.`);
+      // Task #3497: when a membership-structure conditional action exists,
+      // the fee is server-derived and the price source is legitimately
+      // empty. A set-but-dangling price_field_id is still an error.
+      const membershipDerived = hasMembershipStructureAction(formData.visibility_rules);
+      if (!pf.price_field_id) {
+        if (!membershipDerived) {
+          toast.error(`Payment field "${pf.label || 'Payment'}" needs a price source field.`);
+          return;
+        }
+      } else if (!formData.fields.some(f => f.id === pf.price_field_id)) {
+        toast.error(`Payment field "${pf.label || 'Payment'}" points at a price source field that no longer exists.`);
         return;
       }
     }
@@ -8404,6 +8453,11 @@ export default function FormBuilderPage() {
           {/* Builder Tab - Form Pages and Fields */}
           <TabsContent value="builder">
             <div className="space-y-6">
+            <UnreachableHiddenWarning
+              fields={formData.fields}
+              pages={formData.pages || []}
+              visibilityRules={formData.visibility_rules || []}
+            />
             {/* Pages Management - Only for Standard layout */}
             {formData.layout_type === 'standard' && (
               <Card className="border-slate-200">
