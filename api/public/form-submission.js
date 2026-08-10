@@ -8,6 +8,8 @@ import { scoreSubmission, redactIdentityAnswers, anonymizeSubmissionRecord, acti
 import { createHmac } from 'node:crypto';
 import { assignmentSubmissionRejection, respondentKeyInput, requiresAssignmentLink } from '../_lib/surveyAssignment.js';
 import { resolveSubmitControl } from '../_lib/formSubmitControl.js';
+import { rulesUseLmicOperators } from '../_lib/formLmicConditions.js';
+import { loadTenantLmicCodes } from '../_lib/tenantLmicCodes.js';
 
 export default async function handler(req, res) {
   console.log('[Public Form Submission] === ENDPOINT CALLED ===');
@@ -236,7 +238,13 @@ export default async function handler(req, res) {
         }
         submitControlRules = rulesRow?.visibility_rules;
       }
-      const submitControl = resolveSubmitControl(submitControlRules, submission_data || {});
+      // Task #3477: LMIC operators compare against the tenant's STORED LMIC
+      // list so submit rules can't be bypassed.
+      const submitControlOptions = {};
+      if (rulesUseLmicOperators(submitControlRules)) {
+        submitControlOptions.lmicCodes = await loadTenantLmicCodes(supabase, form?.tenant_id || tenantData?.id);
+      }
+      const submitControl = resolveSubmitControl(submitControlRules, submission_data || {}, submitControlOptions);
       if (submitControl.disabled) {
         return res.status(400).json({
           error: submitControl.message || 'This form cannot be submitted with the current answers.',

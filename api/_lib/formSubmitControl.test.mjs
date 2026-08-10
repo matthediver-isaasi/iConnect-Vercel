@@ -101,6 +101,30 @@ test('survey score answers and numeric operators are supported', () => {
   assert.equal(resolveSubmitControl([betweenRule], { s1: { score: 5 } }).disabled, false);
 });
 
+test('LMIC operators enforce against the tenant list (Task #3477)', () => {
+  const lmicCodes = ['KE', 'IN'];
+  const lmicRule = rule([{ field_id: 'country', operator: 'is_lmic' }], [disableAction('LMIC not eligible')]);
+  // names and ISO codes both resolve
+  assert.equal(resolveSubmitControl([lmicRule], { country: 'Kenya' }, { lmicCodes }).disabled, true);
+  assert.equal(resolveSubmitControl([lmicRule], { country: 'KE' }, { lmicCodes }).disabled, true);
+  assert.equal(resolveSubmitControl([lmicRule], { country: 'United Kingdom' }, { lmicCodes }).disabled, false);
+  // multi-country fields match when ANY selected country is LMIC
+  assert.equal(resolveSubmitControl([lmicRule], { country: ['GB', 'India'] }, { lmicCodes }).disabled, true);
+  assert.equal(resolveSubmitControl([lmicRule], { country: ['GB', 'FR'] }, { lmicCodes }).disabled, false);
+  // empty/unknown values match neither operator
+  assert.equal(resolveSubmitControl([lmicRule], { country: '' }, { lmicCodes }).disabled, false);
+  assert.equal(resolveSubmitControl([lmicRule], {}, { lmicCodes }).disabled, false);
+  const notLmicRule = rule([{ field_id: 'country', operator: 'is_not_lmic' }], [disableAction()]);
+  assert.equal(resolveSubmitControl([notLmicRule], { country: 'France' }, { lmicCodes }).disabled, true);
+  assert.equal(resolveSubmitControl([notLmicRule], { country: 'Kenya' }, { lmicCodes }).disabled, false);
+  assert.equal(resolveSubmitControl([notLmicRule], { country: '' }, { lmicCodes }).disabled, false);
+  // missing options (no tenant list) → LMIC conditions match nothing
+  assert.equal(resolveSubmitControl([lmicRule], { country: 'Kenya' }).disabled, false);
+  // legacy single-trigger shape works too
+  const legacy = [{ id: 'r', trigger_field_id: 'country', operator: 'is_lmic', actions: [disableAction()] }];
+  assert.equal(resolveSubmitControl(legacy, { country: 'IN' }, { lmicCodes }).disabled, true);
+});
+
 test('malformed actions are not submit-control actions', () => {
   assert.equal(isSubmitControlAction({ action_type: 'submit_control' }), false);
   assert.equal(isSubmitControlAction({ action_type: 'submit_control', submit_state: 'weird' }), false);

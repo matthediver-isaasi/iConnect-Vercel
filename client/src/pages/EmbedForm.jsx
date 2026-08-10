@@ -12,6 +12,7 @@ import { publicClient } from "@/api/publicClient";
 import { base44 } from "@/api/base44Client";
 import { buildPrefillValues, resolveEffectivePrefillIds, resolveMemberSourceOrgId, shouldWaitForPrefillCustomValues, shouldWaitForPrefillOrgEntity, isFieldValueFilled } from "@/lib/formFieldPrefill";
 import { useSubmissionIdempotencyKey } from "@/lib/useSubmissionIdempotencyKey";
+import { evaluateLmicCondition } from "../../../api/_lib/formLmicConditions.js";
 
 // Stable empty array so disabled custom-value queries don't create a fresh
 // default identity every render (which would re-trigger dependent effects).
@@ -321,6 +322,10 @@ export default function EmbedFormPage() {
   }, [form?.id]);
 
   const evaluateSingleCondition = (triggerValue, operator, value) => {
+    // LMIC operators on country fields (Task #3477) — compared against the
+    // tenant LMIC list delivered with the form payload.
+    const lmicResult = evaluateLmicCondition(triggerValue, operator, form?.lmic_country_codes);
+    if (lmicResult !== undefined) return lmicResult;
     // Survey Score answers ({score}/{na}) + numeric operators (Task #3330)
     const scoreResult = evaluateScoreCondition(triggerValue, operator, value);
     if (scoreResult !== undefined) return scoreResult;

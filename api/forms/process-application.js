@@ -7,6 +7,8 @@ import { isProtectedOrgBalanceField } from '../_lib/protectedOrgFields.js';
 import { coercePreferenceValueForStorage } from '../_lib/preferenceValueStorage.js';
 import { resolveEffectiveEntityTenant, isCrossTenantRow } from '../_lib/formTenantScope.js';
 import { resolveSubmitControl } from '../_lib/formSubmitControl.js';
+import { rulesUseLmicOperators } from '../_lib/formLmicConditions.js';
+import { loadTenantLmicCodes } from '../_lib/tenantLmicCodes.js';
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
@@ -847,14 +849,20 @@ export default async function handler(req, res) {
     if (form_id) {
       const { data: submitControlForm, error: submitControlFormError } = await supabase
         .from('form')
-        .select('visibility_rules')
+        .select('visibility_rules, tenant_id')
         .eq('id', form_id)
         .maybeSingle();
       if (submitControlFormError) {
         console.error('[AppProcessor] Failed to load form for submit-control check:', submitControlFormError);
         return res.status(500).json({ error: 'Failed to validate submission rules' });
       }
-      const submitControl = resolveSubmitControl(submitControlForm?.visibility_rules, form_values);
+      // Task #3477: LMIC operators compare against the tenant's STORED LMIC
+      // list (never client-supplied), so submit rules can't be bypassed.
+      const submitControlOptions = {};
+      if (rulesUseLmicOperators(submitControlForm?.visibility_rules)) {
+        submitControlOptions.lmicCodes = await loadTenantLmicCodes(supabase, submitControlForm?.tenant_id || effectiveEntityTenantId);
+      }
+      const submitControl = resolveSubmitControl(submitControlForm?.visibility_rules, form_values, submitControlOptions);
       if (submitControl.disabled) {
         return res.status(400).json({
           error: submitControl.message || 'This form cannot be submitted with the current answers.',
@@ -2656,7 +2664,7 @@ export default async function handler(req, res) {
       
       for (let configIndex = 0; configIndex < memberCreationConfigs.length; configIndex++) {
         const memberConfig = memberCreationConfigs[configIndex];
-        console.log(`[AppProcessor] ======= Processing member config ${configIndex + 1}/${memberCreationConfigs.length}: "${memberConfig.label}" =======`);
+        console.log(`[AppProcessor] ------- Processing member config ${configIndex + 1}/${memberCreationConfigs.length}: "${memberConfig.label}" -------`);
         console.log('[AppProcessor] Config mappings:', JSON.stringify(memberConfig.mappings, null, 2));
         
         // Log actual form_values for each source_field_id to debug value issues

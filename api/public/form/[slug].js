@@ -1,6 +1,8 @@
 import { createClient } from '@supabase/supabase-js';
 import { resolveTenantFromRequest } from '../../_lib/tenantResolver.js';
 import { getSession } from '../../_lib/session.js';
+import { rulesUseLmicOperators } from '../../_lib/formLmicConditions.js';
+import { loadTenantLmicCodes } from '../../_lib/tenantLmicCodes.js';
 
 const PUBLIC_FORM_FIELDS = [
   'id', 'name', 'slug', 'description', 'fields', 'is_active', 
@@ -197,6 +199,14 @@ export default async function handler(req, res) {
           publicForm[field] = form[field];
         }
       }
+    }
+
+    // Task #3477: LMIC conditional operators. When any rule uses
+    // is_lmic / is_not_lmic, deliver the tenant's saved LMIC code list so
+    // the public renderer can evaluate the rules live. Loaded fresh on every
+    // form load, so admin edits to the LMIC list apply on next load.
+    if (rulesUseLmicOperators(publicForm.visibility_rules)) {
+      publicForm.lmic_country_codes = await loadTenantLmicCodes(supabase, tenant.id);
     }
 
     return res.json(publicForm);

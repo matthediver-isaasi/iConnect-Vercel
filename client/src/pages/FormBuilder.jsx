@@ -702,6 +702,17 @@ const VISIBILITY_OPERATORS = [
   { value: 'is_empty', label: 'Is empty' },
 ];
 
+// LMIC operators (Task #3477): offered only for country-shaped fields
+// (`country` / `countries`). Compared against the tenant's saved LMIC list
+// at view time; no value input needed.
+const LMIC_CONDITION_OPERATOR_OPTIONS = [
+  { value: 'is_lmic', label: 'Is an LMIC country' },
+  { value: 'is_not_lmic', label: 'Is not an LMIC country' },
+];
+
+const isLmicConditionOperator = (operator) =>
+  operator === 'is_lmic' || operator === 'is_not_lmic';
+
 const BOOLEAN_OPERATORS = [
   { value: 'equals', label: 'Equals' },
   { value: 'not_equals', label: 'Does not equal' },
@@ -1034,6 +1045,12 @@ function LogicRulesSection({
   const isBooleanReferenceField = (fieldId) => {
     const field = fields.find(f => f.id === fieldId);
     return field?.type === 'boolean';
+  };
+
+  // Country-shaped fields get the extra LMIC operators (Task #3477).
+  const isCountryReferenceField = (fieldId) => {
+    const field = fields.find(f => f.id === fieldId);
+    return field?.type === 'country' || field?.type === 'countries';
   };
 
   const addAction = (ruleId, actionType = 'visibility') => {
@@ -1699,14 +1716,20 @@ function LogicRulesSection({
                   {conditions.map((condition, condIndex) => {
                     const isBooleanRef = isBooleanReferenceField(condition.field_id);
                     const isScoreRef = fields.find(f => f.id === condition.field_id)?.type === 'score';
+                    const isCountryRef = isCountryReferenceField(condition.field_id);
                     const conditionOptions = getConditionFieldOptions(condition.field_id);
                     const operatorOptions = isBooleanRef
                       ? BOOLEAN_OPERATORS
-                      : (isScoreRef ? SCORE_CONDITION_OPERATORS : VISIBILITY_OPERATORS);
+                      : (isScoreRef
+                        ? SCORE_CONDITION_OPERATORS
+                        : (isCountryRef
+                          ? [...VISIBILITY_OPERATORS, ...LMIC_CONDITION_OPERATOR_OPTIONS]
+                          : VISIBILITY_OPERATORS));
                     // For booleans, only equals/not_equals are allowed and both need a value.
                     const needsValueInput = isBooleanRef
                       ? true
-                      : (condition.operator !== 'is_empty' && condition.operator !== 'not_empty');
+                      : (condition.operator !== 'is_empty' && condition.operator !== 'not_empty' &&
+                        !isLmicConditionOperator(condition.operator));
                     
                     return (
                       <div key={condition.id} className="flex flex-wrap items-end gap-2 p-2 bg-white rounded border border-slate-200">
@@ -1732,6 +1755,13 @@ function LogicRulesSection({
                                   operator: isBooleanOperatorAllowed(condition.operator) ? condition.operator : 'equals',
                                   value: 'true',
                                 });
+                              } else if (
+                                isLmicConditionOperator(condition.operator) &&
+                                newField?.type !== 'country' && newField?.type !== 'countries'
+                              ) {
+                                // LMIC operators only apply to country fields —
+                                // auto-correct when switching to another type.
+                                updateCondition(rule.id, condition.id, { field_id: value, operator: 'equals', value: '' });
                               } else {
                                 updateCondition(rule.id, condition.id, { field_id: value, value: '' });
                               }

@@ -10,6 +10,7 @@ import { isEventFamilyEntity, authorizeGroupAdminEventWrite } from '../../_lib/g
 import { checkBadgeWriteAccess } from '../../_lib/badgeAccess.js';
 import { isResourceEntity, applyGroupResourceSubcategoryDefaults } from '../../_lib/groupAdminResourceWrite.js';
 import { resolveSubmitControl } from '../../_lib/formSubmitControl.js';
+import { rulesUseLmicOperators } from '../../_lib/formLmicConditions.js';
 import { getSession } from '../../_lib/session.js';
 import { getSessionPlatformOwner } from '../../_lib/platformSession.js';
 import { handleMemberGroupEntityChange } from '../../_lib/memberGroupProjectsAccess.js';
@@ -1562,16 +1563,24 @@ export default async function handler(req, res) {
         if (sanitizedBody.form_id) {
           const { data: submitControlForm, error: submitControlFormError } = await supabase
             .from('form')
-            .select('visibility_rules')
+            .select('visibility_rules, tenant_id')
             .eq('id', sanitizedBody.form_id)
             .maybeSingle();
           if (submitControlFormError) {
             console.error('[Entity POST] FormSubmission submit-control rules lookup failed:', submitControlFormError);
             return res.status(500).json({ error: 'Failed to validate submission rules' });
           }
+          // Task #3477: LMIC operators compare against the tenant's STORED
+          // LMIC list so submit rules can't be bypassed.
+          const submitControlOptions = {};
+          if (rulesUseLmicOperators(submitControlForm?.visibility_rules)) {
+            const { loadTenantLmicCodes } = await import('../../_lib/tenantLmicCodes.js');
+            submitControlOptions.lmicCodes = await loadTenantLmicCodes(supabase, submitControlForm?.tenant_id);
+          }
           const submitControl = resolveSubmitControl(
             submitControlForm?.visibility_rules,
-            sanitizedBody.submission_data || {}
+            sanitizedBody.submission_data || {},
+            submitControlOptions
           );
           if (submitControl.disabled) {
             return res.status(400).json({

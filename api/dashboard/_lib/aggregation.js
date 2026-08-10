@@ -666,57 +666,12 @@ function needsLmicResolution(config) {
   return (config.filters || []).some(f => f.operator === 'lmic' || f.operator === 'not_lmic');
 }
 
+// Loading (with lazy World Bank seed) now lives in the shared helper so the
+// form submit-control enforcement (Task #3477) can never drift from the
+// dashboard's LMIC semantics.
 async function loadTenantLmicCodes(tenantId) {
-  let q = supabase.from('tenant_lmic_country').select('country_code');
-  q = tenantId ? q.eq('tenant_id', tenantId) : q.is('tenant_id', null);
-  const { data, error } = await q;
-  if (error) {
-    console.error('[Dashboard Aggregation] Failed to load LMIC codes:', error.message);
-    return [];
-  }
-  const codes = (data || []).map(r => String(r.country_code || '').toUpperCase()).filter(Boolean);
-  if (codes.length > 0 || !tenantId) return codes;
-  // No rows: distinguish "never initialised" from "admin saved empty list"
-  // via the tenant_lmic_seed marker. Only the never-initialised case
-  // triggers a lazy seed of the World Bank defaults; an intentionally
-  // empty list is left empty (the lmic operator will then resolve to
-  // "match nothing", which is the correct semantic).
-  const { data: seedRow, error: seedErr } = await supabase
-    .from('tenant_lmic_seed')
-    .select('tenant_id')
-    .eq('tenant_id', tenantId)
-    .maybeSingle();
-  if (seedErr) {
-    console.warn('[Dashboard Aggregation] LMIC seed marker lookup warning:', seedErr.message);
-  }
-  if (seedRow) return [];
-  try {
-    const { WORLD_BANK_LMIC_ISO2 } = await import('../../../shared/lmicCountries.js');
-    const rows = WORLD_BANK_LMIC_ISO2.map(code => ({ tenant_id: tenantId, country_code: code }));
-    const { error: insertErr } = await supabase
-      .from('tenant_lmic_country')
-      .insert(rows);
-    if (insertErr) {
-      // Most likely a race with another request that just seeded the
-      // same tenant — re-read and use whatever is now there.
-      console.warn('[Dashboard Aggregation] LMIC seed insert warning:', insertErr.message);
-      const { data: after } = await supabase
-        .from('tenant_lmic_country')
-        .select('country_code')
-        .eq('tenant_id', tenantId);
-      return (after || []).map(r => String(r.country_code || '').toUpperCase()).filter(Boolean);
-    }
-    const { error: markErr } = await supabase
-      .from('tenant_lmic_seed')
-      .upsert({ tenant_id: tenantId }, { onConflict: 'tenant_id' });
-    if (markErr) {
-      console.warn('[Dashboard Aggregation] LMIC seed marker upsert warning:', markErr.message);
-    }
-    return [...WORLD_BANK_LMIC_ISO2];
-  } catch (err) {
-    console.error('[Dashboard Aggregation] LMIC seed failed:', err.message || err);
-    return [];
-  }
+  const { loadTenantLmicCodes: sharedLoad } = await import('../../_lib/tenantLmicCodes.js');
+  return sharedLoad(supabase, tenantId);
 }
 
 async function resolveFieldType(source, ref, tenantId) {

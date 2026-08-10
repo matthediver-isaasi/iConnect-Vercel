@@ -20,6 +20,8 @@
  * in sync if operators are ever added.
  */
 
+import { evaluateLmicCondition } from './formLmicConditions.js';
+
 const normalizeBooleanCompareValue = (v) => {
   if (typeof v === 'boolean') return v;
   if (typeof v === 'string') {
@@ -96,7 +98,12 @@ const evaluateScoreCondition = (triggerValue, operator, value) => {
   return undefined;
 };
 
-export function evaluateSubmitControlCondition(triggerValue, operator, value) {
+// `options.lmicCodes` (array or Set of ISO-2 codes — the tenant's saved LMIC
+// list) powers the `is_lmic` / `is_not_lmic` operators on country fields
+// (Task #3477). When omitted, LMIC conditions match nothing.
+export function evaluateSubmitControlCondition(triggerValue, operator, value, options = {}) {
+  const lmicResult = evaluateLmicCondition(triggerValue, operator, options.lmicCodes);
+  if (lmicResult !== undefined) return lmicResult;
   const scoreResult = evaluateScoreCondition(triggerValue, operator, value);
   if (scoreResult !== undefined) return scoreResult;
   const isBooleanTrigger = typeof triggerValue === 'boolean';
@@ -126,16 +133,16 @@ export function evaluateSubmitControlCondition(triggerValue, operator, value) {
 
 // Rule-level condition evaluation with legacy single-trigger + AND/OR
 // conditions array support (mirrors FormView.evaluateRuleConditions).
-export function evaluateSubmitControlRule(rule, formValues) {
+export function evaluateSubmitControlRule(rule, formValues, options = {}) {
   if (!rule) return false;
   const values = formValues || {};
   if (rule.trigger_field_id && (!Array.isArray(rule.conditions) || rule.conditions.length === 0)) {
-    return evaluateSubmitControlCondition(values[rule.trigger_field_id], rule.operator, rule.value);
+    return evaluateSubmitControlCondition(values[rule.trigger_field_id], rule.operator, rule.value, options);
   }
   if (Array.isArray(rule.conditions) && rule.conditions.length > 0) {
     const results = rule.conditions.map((c) => {
       if (!c || !c.field_id) return false;
-      return evaluateSubmitControlCondition(values[c.field_id], c.operator, c.value);
+      return evaluateSubmitControlCondition(values[c.field_id], c.operator, c.value, options);
     });
     return String(rule.logic || 'and').toLowerCase() === 'or'
       ? results.some((r) => r === true)
@@ -154,7 +161,7 @@ export function isSubmitControlAction(action) {
  * Returns { disabled: boolean, message: string|null }.
  * Forms with no submit_control actions always resolve to { disabled: false }.
  */
-export function resolveSubmitControl(visibilityRules, formValues) {
+export function resolveSubmitControl(visibilityRules, formValues, options = {}) {
   const rules = Array.isArray(visibilityRules) ? visibilityRules : [];
   let anyDisable = false;
   let anyEnable = false;
@@ -165,7 +172,7 @@ export function resolveSubmitControl(visibilityRules, formValues) {
     const actions = Array.isArray(rule.actions) ? rule.actions.filter(isSubmitControlAction) : [];
     if (actions.length === 0) continue;
     if (!rule.trigger_field_id && !(Array.isArray(rule.conditions) && rule.conditions.length > 0)) continue;
-    const met = evaluateSubmitControlRule(rule, formValues);
+    const met = evaluateSubmitControlRule(rule, formValues, options);
     if (!met) continue;
     for (const action of actions) {
       if (action.submit_state === 'disable') {

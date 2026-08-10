@@ -22,6 +22,7 @@ import { AlignLeft, AlignCenter, AlignRight } from "lucide-react";
 import { buildPrefillValues, isFieldValueFilled, resolveEffectivePrefillIds, resolveMemberSourceOrgId, shouldWaitForPrefillCustomValues, shouldWaitForPrefillOrgEntity } from "@/lib/formFieldPrefill";
 import { getFormPagination } from "@/lib/formPagination";
 import { resolveSubmitControl } from "../../../../../api/_lib/formSubmitControl.js";
+import { evaluateLmicCondition } from "../../../../../api/_lib/formLmicConditions.js";
 import { applySurveyPresentation, surveyIntroText, surveySuccessMessage } from "@/lib/surveyPresentation";
 
 const formQuillModules = {
@@ -650,6 +651,10 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
 
   // Helper to evaluate a rule condition
   const evaluateSingleCondition = (triggerValue, operator, value) => {
+    // LMIC operators on country fields (Task #3477) — compared against the
+    // tenant LMIC list delivered with the form payload.
+    const lmicResult = evaluateLmicCondition(triggerValue, operator, form?.lmic_country_codes);
+    if (lmicResult !== undefined) return lmicResult;
     // Survey Score answers ({score}/{na}) + numeric operators (Task #3330)
     const scoreResult = evaluateScoreCondition(triggerValue, operator, value);
     if (scoreResult !== undefined) return scoreResult;
@@ -927,8 +932,8 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
   // the Submit button. Shared evaluator with FormView and the server-side
   // enforcement — never fork it.
   const submitControl = useMemo(
-    () => resolveSubmitControl(form?.visibility_rules, formValues),
-    [form?.visibility_rules, formValues]
+    () => resolveSubmitControl(form?.visibility_rules, formValues, { lmicCodes: form?.lmic_country_codes }),
+    [form?.visibility_rules, formValues, form?.lmic_country_codes]
   );
 
   // Evaluate disable/enable rules to determine which fields should be disabled

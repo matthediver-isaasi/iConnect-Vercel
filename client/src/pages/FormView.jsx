@@ -14,6 +14,7 @@ import { useLayoutContext } from "@/contexts/LayoutContext";
 import { isFieldValueFilled, parseCustomFieldValue, resolveEffectivePrefillIds, resolveMemberSourceOrgId, shouldFetchViewerBookingPrefill, shouldBlockForMissingViewerBooking, isViewerBookingResolutionPending, shouldWaitForPrefillCustomValues, shouldWaitForPrefillOrgEntity } from "@/lib/formFieldPrefill";
 import { getFormPagination } from "@/lib/formPagination";
 import { resolveSubmitControl } from "../../../api/_lib/formSubmitControl.js";
+import { evaluateLmicCondition } from "../../../api/_lib/formLmicConditions.js";
 import { useSubmissionIdempotencyKey } from "@/lib/useSubmissionIdempotencyKey";
 
 // A `redirect_url` beginning with this prefix means the redirect target is driven
@@ -1047,6 +1048,10 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
 
   // Helper to evaluate a single condition
   const evaluateSingleCondition = (triggerValue, operator, value, debugInfo = {}) => {
+    // LMIC operators on country fields (Task #3477) — compared against the
+    // tenant LMIC list delivered with the form payload.
+    const lmicResult = evaluateLmicCondition(triggerValue, operator, form?.lmic_country_codes);
+    if (lmicResult !== undefined) return lmicResult;
     // Survey Score answers ({score}/{na}) + numeric operators (Task #3330)
     const scoreResult = evaluateScoreCondition(triggerValue, operator, value);
     if (scoreResult !== undefined) return scoreResult;
@@ -1573,8 +1578,8 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
   // the Submit button. Shared evaluator with the server-side enforcement in
   // process-application.js — keep using the shared module, never fork it.
   const submitControl = useMemo(
-    () => resolveSubmitControl(form?.visibility_rules, formValues),
-    [form?.visibility_rules, formValues]
+    () => resolveSubmitControl(form?.visibility_rules, formValues, { lmicCodes: form?.lmic_country_codes }),
+    [form?.visibility_rules, formValues, form?.lmic_country_codes]
   );
 
   const disabledFieldIds = useMemo(() => {
