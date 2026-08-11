@@ -73,6 +73,7 @@
 - [DD file-upload payload shape](dd-file-upload-payload-shape.md) — file values store a RELATIVE secure-url + storage_path with NO bucket key; consumers must parse bucket/path from the secure-url query.
 - [Canvas mobile stage clamp](canvas-mobile-stage-clamp.md) — editor tablet/mobile geoms are clamped for display only; interactions/inspector read raw frames, and the public CSS path has no clamp.
 - [Serverless chunk time budget](serverless-chunk-time-budget.md) — record-count chunking still 504s when matches drive cost; budget wall-clock per invocation with an exact per-record resume cursor.
+- [Dashboard widget series split](dashboard-widget-series-split.md) — stacked 2-dim widgets use config.seriesBy (Active/Inactive only) with `value` total kept per row; ref-level from/to params must be whitelisted in zod or silently stripped.
 - [Dashboard derived group-only dimensions](dashboard-derived-dimensions.md) — derived dims (Region) need groupOnly wiring in source+engine+builder; engine guards are the only server-side protection; local 500-id in-list needs bigger header cap.
 - [Microsite branding overrides](microsite-branding-overrides.md) — a new overridable key needs whitelist + tenant-branding merge + SSR renderHtml + editor card; SSR and the branding endpoint are separate resolution paths.
 - [Per-tenant installable fonts](installed-fonts.md) — installed_font table replaces hardcoded CURATED_FONTS; all font dropdowns/previews/SSR use useInstalledFonts() (curated fallback); removal 409-guarded server-side.

@@ -139,6 +139,9 @@ const DEFAULT_DRAFT = {
     color: "default",
     measure: { aggregator: "count", field: null, fieldKind: null, fieldId: null },
     groupBy: null,
+    // Optional "Active in period" split for grouped bar widgets (member
+    // source): stacks each group bucket into Active / Inactive.
+    seriesBy: null,
     timeBucket: null,
     // DD-only stage-transition mode; null for every other source.
     transition: null,
@@ -187,6 +190,11 @@ function buildFieldOptions(source) {
     // stage picked alongside it; carry the marker + canonical stage list.
     stageField: !!f.stageField,
     stageOptions: Array.isArray(f.stageOptions) ? f.stageOptions : null,
+    // Derived "Active in period" dimension: needs a From/To date range
+    // carried on whichever config references it (group-by / series /
+    // filter). Drives the date-range inputs in the builder.
+    periodField: !!f.periodField,
+    derived: f.derived || null,
     // Derived dimensions (e.g. organisation Region) have no stored column
     // and can't be measured or time-bucketed — the measure picker excludes
     // them. `filterable` re-admits a derived dimension into the filter
@@ -245,6 +253,7 @@ export default function WidgetBuilderModal({
           color: seed.config?.color || "default",
           measure: seed.config?.measure || cloneDraft(DEFAULT_DRAFT).config.measure,
           groupBy: seed.config?.groupBy || null,
+          seriesBy: seed.config?.seriesBy || null,
           timeBucket: seed.config?.timeBucket || null,
           cumulative: !!seed.config?.cumulative,
           transition: seed.config?.transition || null,
@@ -365,6 +374,7 @@ export default function WidgetBuilderModal({
             transition: { mode: "breakdown", fromStage: null, toStage: null },
             measure: { aggregator: "count", field: null, fieldKind: null, fieldId: null },
             groupBy: null,
+            seriesBy: null,
             timeBucket: null,
             cumulative: false,
           },
@@ -511,6 +521,24 @@ export default function WidgetBuilderModal({
       if (tbOpt?.stageField && !draft.config.timeBucket?.stage) {
         errs.push("Pick a stage for the time bucket.");
       }
+      // "Active in period" needs its date range wherever it's referenced.
+      const gb = draft.config.groupBy;
+      const gbOpt = gb
+        ? fieldOptions.find(o => o.value === `${gb.kind}:${gb.field || gb.fieldId}`)
+        : null;
+      if (gbOpt?.periodField && !gb.from && !gb.to) {
+        errs.push('Pick a date range for the "Active in period" group-by.');
+      }
+      const sb = draft.config.seriesBy;
+      if (sb) {
+        if (draft.widget_type !== "bar") {
+          errs.push("The activity split only works on bar charts.");
+        }
+        if (!gb) errs.push("The activity split needs a group-by field.");
+        if (!sb.from && !sb.to) {
+          errs.push("Pick a date range for the activity split.");
+        }
+      }
     }
     (draft.config.filters || []).forEach((f, i) => {
       if (!f.field && !f.fieldId) errs.push(`Filter ${i + 1}: choose a field.`);
@@ -518,6 +546,9 @@ export default function WidgetBuilderModal({
         ? fieldOptions.find(o => o.fieldKind === "system" && o.field === f.field)
         : null;
       if (fOpt?.stageField && !f.stage) errs.push(`Filter ${i + 1}: choose a stage.`);
+      if (fOpt?.periodField && !f.from && !f.to) {
+        errs.push(`Filter ${i + 1}: pick a date range for "Active in period".`);
+      }
       if (f.operator === "in") {
         const list = Array.isArray(f.value)
           ? f.value
@@ -863,6 +894,7 @@ export default function WidgetBuilderModal({
                       source: value,
                       measure: { aggregator: "count", field: null, fieldKind: null, fieldId: null },
                       groupBy: null,
+                      seriesBy: null,
                       timeBucket: null,
                       cumulative: false,
                       conversion: toConversion
@@ -1170,7 +1202,7 @@ export default function WidgetBuilderModal({
                 }
                 onValueChange={value => {
                   if (value === "__none__") {
-                    updateConfig({ groupBy: null });
+                    updateConfig({ groupBy: null, seriesBy: null });
                     return;
                   }
                   const opt = fieldOptions.find(o => o.value === value);
@@ -1178,6 +1210,9 @@ export default function WidgetBuilderModal({
                   updateConfig({
                     groupBy: { kind: opt.fieldKind, field: opt.field, fieldId: opt.fieldId },
                     timeBucket: null,
+                    // Grouping by "Active in period" itself makes the
+                    // secondary Active/Inactive split redundant.
+                    ...(opt.periodField ? { seriesBy: null } : {}),
                   });
                 }}
               >
@@ -1266,7 +1301,114 @@ export default function WidgetBuilderModal({
                   </div>
                 );
               })()}
+              {(() => {
+                // Grouping by the derived "Active in period" dimension needs
+                // the date range the Active/Inactive buckets are computed
+                // against.
+                const gb = draft.config.groupBy;
+                if (!gb) return null;
+                const selected = fieldOptions.find(
+                  o => o.value === `${gb.kind}:${gb.field || gb.fieldId}`,
+                );
+                if (!selected?.periodField) return null;
+                return (
+                  <div className="grid gap-2 pt-1 sm:grid-cols-2">
+                    <div className="space-y-1">
+                      <Label className="text-xs">Active from</Label>
+                      <Input
+                        type="date"
+                        value={gb.from || ""}
+                        onChange={e =>
+                          updateConfig({ groupBy: { ...gb, from: e.target.value || null } })
+                        }
+                        data-testid="input-groupby-period-from"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">Active to</Label>
+                      <Input
+                        type="date"
+                        value={gb.to || ""}
+                        onChange={e =>
+                          updateConfig({ groupBy: { ...gb, to: e.target.value || null } })
+                        }
+                        data-testid="input-groupby-period-to"
+                      />
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
+
+            {(() => {
+              // Secondary "Active in period" split: member-source bar widgets
+              // grouped by another field can stack each bucket into Active /
+              // Inactive members for a chosen date range (e.g. logins by
+              // organisation type).
+              const activeOpt = fieldOptions.find(o => o.periodField);
+              const gb = draft.config.groupBy;
+              const gbIsActive = !!(gb
+                && fieldOptions.find(
+                  o => o.value === `${gb.kind}:${gb.field || gb.fieldId}`,
+                )?.periodField);
+              if (!activeOpt || !gb || gbIsActive || draft.widget_type !== "bar" || transitionActive) {
+                return null;
+              }
+              const sb = draft.config.seriesBy || null;
+              return (
+                <div className="space-y-2 rounded-md border p-3">
+                  <div className="flex items-center justify-between gap-4">
+                    <div className="space-y-1">
+                      <Label htmlFor="switch-widget-series-active">
+                        Split by activity in period
+                      </Label>
+                      <p className="text-xs text-muted-foreground">
+                        Stacks each bar into members active vs not active
+                        (by last login) in a chosen date range.
+                      </p>
+                    </div>
+                    <Switch
+                      id="switch-widget-series-active"
+                      data-testid="switch-widget-series-active"
+                      checked={!!sb}
+                      onCheckedChange={checked =>
+                        updateConfig({
+                          seriesBy: checked
+                            ? { kind: "system", field: activeOpt.field, from: null, to: null }
+                            : null,
+                        })
+                      }
+                    />
+                  </div>
+                  {sb && (
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      <div className="space-y-1">
+                        <Label className="text-xs">Active from</Label>
+                        <Input
+                          type="date"
+                          value={sb.from || ""}
+                          onChange={e =>
+                            updateConfig({ seriesBy: { ...sb, from: e.target.value || null } })
+                          }
+                          data-testid="input-series-period-from"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs">Active to</Label>
+                        <Input
+                          type="date"
+                          value={sb.to || ""}
+                          onChange={e =>
+                            updateConfig({ seriesBy: { ...sb, to: e.target.value || null } })
+                          }
+                          data-testid="input-series-period-to"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
 
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-2">
@@ -1634,6 +1776,32 @@ export default function WidgetBuilderModal({
                         </SelectContent>
                       </Select>
                     )}
+                    {opt?.periodField && (
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        <div className="space-y-1">
+                          <Label className="text-xs">Active from</Label>
+                          <Input
+                            type="date"
+                            value={filter.from || ""}
+                            onChange={e =>
+                              updateFilter(idx, { from: e.target.value || null })
+                            }
+                            data-testid={`input-filter-period-from-${idx}`}
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs">Active to</Label>
+                          <Input
+                            type="date"
+                            value={filter.to || ""}
+                            onChange={e =>
+                              updateFilter(idx, { to: e.target.value || null })
+                            }
+                            data-testid={`input-filter-period-to-${idx}`}
+                          />
+                        </div>
+                      </div>
+                    )}
                     {opt?.stageField && (
                       <Select
                         value={filter.stage || ""}
@@ -1779,11 +1947,25 @@ function PreviewBody({ widget, payload }) {
         </div>
       );
     }
-    case "bar":
+    case "bar": {
       if (rows.length === 0) return <EmptyPreview />;
+      // Multi-series payloads (activity split) carry a categories list
+      // other than the single default 'value' column — render stacked bars.
+      const cats = Array.isArray(payload?.categories) ? payload.categories : [];
+      const seriesCats =
+        cats.length > 0 && !(cats.length === 1 && cats[0] === "value") ? cats : null;
       return (
         <ChartContainer
-          config={{ value: { label: "Value", color: CHART_COLOURS[0] } }}
+          config={
+            seriesCats
+              ? Object.fromEntries(
+                  seriesCats.map((c, i) => [
+                    c,
+                    { label: c, color: CHART_COLOURS[i % CHART_COLOURS.length] },
+                  ]),
+                )
+              : { value: { label: "Value", color: CHART_COLOURS[0] } }
+          }
           className="h-56 w-full"
         >
           <BarChart data={rows} margin={{ top: 10, right: 10, left: 0, bottom: 30 }}>
@@ -1791,10 +1973,23 @@ function PreviewBody({ widget, payload }) {
             <XAxis dataKey="key" tickLine={false} axisLine={false} angle={-25} textAnchor="end" height={50} interval={0} />
             <YAxis tickLine={false} axisLine={false} width={40} />
             <ChartTooltip content={<ChartTooltipContent />} />
-            <Bar dataKey="value" fill={CHART_COLOURS[0]} radius={[4, 4, 0, 0]} />
+            {seriesCats ? (
+              seriesCats.map((c, i) => (
+                <Bar
+                  key={c}
+                  dataKey={c}
+                  stackId="series"
+                  fill={CHART_COLOURS[i % CHART_COLOURS.length]}
+                  radius={i === seriesCats.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]}
+                />
+              ))
+            ) : (
+              <Bar dataKey="value" fill={CHART_COLOURS[0]} radius={[4, 4, 0, 0]} />
+            )}
           </BarChart>
         </ChartContainer>
       );
+    }
     case "line":
       if (rows.length === 0) return <EmptyPreview />;
       return (

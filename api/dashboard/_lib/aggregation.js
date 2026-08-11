@@ -107,6 +107,51 @@ export async function runWidgetConfig(config, tenantId, options = {}) {
     throw new Error('Region is a derived dimension and can only be used for grouping or filtering');
   }
 
+  // Other derived dimensions: the member source's "Organisation type"
+  // (hydrated from the member's organisation's org_type preference value)
+  // and "Active in period" (Yes/No computed from last_activity vs a date
+  // range carried on the referencing config as `from`/`to`). Like Region
+  // they have no stored column — group-by / series / filters resolve in
+  // JS after per-row derivation and must never reach the SQL column
+  // selection or the pushed-down PostgREST filters.
+  const derivedFieldByName = new Map(
+    (source.systemFields || [])
+      .filter(f => f.derived && f.derived !== 'region')
+      .map(f => [f.name, f]),
+  );
+  const isDerivedRef = ref => !!ref
+    && (ref.fieldKind === 'system' || ref.kind === 'system' || (!ref.fieldKind && !ref.kind))
+    && !!ref.field
+    && derivedFieldByName.has(ref.field);
+  const derivedKindOf = ref => (isDerivedRef(ref) ? derivedFieldByName.get(ref.field).derived : null);
+  const derivedGroupKind = groupBy && !regionGroupBy ? derivedKindOf(groupBy) : null;
+  const derivedFilters = (config.filters || []).filter(isDerivedRef);
+  if (isDerivedRef(measure)
+    || (measure.additionalFields || []).some(isDerivedRef)
+    || (timeBucket && isDerivedRef(timeBucket))) {
+    throw new Error('This field is a derived dimension and can only be used for grouping or filtering');
+  }
+  // Optional secondary split: `seriesBy` stacks each group-by bucket by the
+  // derived "Active in period" dimension so a single widget shows both
+  // logged-in and not-logged-in counts per group (e.g. per organisation
+  // type). Only that dimension is supported as a series.
+  const seriesBy = config.seriesBy || null;
+  if (seriesBy) {
+    if (derivedKindOf(seriesBy) !== 'active_in_period') {
+      throw new Error('Series split is only supported on the "Active in period" dimension');
+    }
+    if (!groupBy) throw new Error('Series split requires a group-by field');
+    if (timeBucket) throw new Error('Series split cannot be combined with a time bucket');
+    if (derivedGroupKind === 'active_in_period') {
+      throw new Error('Group-by and series split cannot both be "Active in period"');
+    }
+  }
+  const usesOrgType = derivedGroupKind === 'org_type'
+    || derivedFilters.some(f => derivedKindOf(f) === 'org_type');
+  const usesActive = derivedGroupKind === 'active_in_period'
+    || !!seriesBy
+    || derivedFilters.some(f => derivedKindOf(f) === 'active_in_period');
+
   // count and count_distinct accept any field type; numeric aggregators
   // require a numeric field. Reject mismatches up front. This
   // prevents silent string coercion that would otherwise return zero or NaN.
@@ -133,7 +178,7 @@ export async function runWidgetConfig(config, tenantId, options = {}) {
   // The derived region dimension has no stored column — its per-row value
   // is computed below from preference values, so it must never reach the
   // SQL column selection.
-  if (groupBy?.kind === 'system' && !regionGroupBy) systemColumns.add(groupBy.field);
+  if (groupBy?.kind === 'system' && !regionGroupBy && !derivedGroupKind) systemColumns.add(groupBy.field);
   // Custom-field timeBucket (e.g. organisation.go_live) does NOT add to the
   // system column set — its value is hydrated via the preference store
   // below, not the base row.
@@ -141,10 +186,15 @@ export async function runWidgetConfig(config, tenantId, options = {}) {
     systemColumns.add(timeBucket.field);
   }
   (config.filters || []).forEach(f => {
-    // Region filters are resolved in JS after bucket derivation — the
-    // derived field must never reach the SQL column selection.
-    if (f.fieldKind === 'system' && f.field && !isRegionRef(f)) systemColumns.add(f.field);
+    // Region / derived-dimension filters are resolved in JS after bucket
+    // derivation — derived fields must never reach the SQL column selection.
+    if (f.fieldKind === 'system' && f.field && !isRegionRef(f) && !isDerivedRef(f)) systemColumns.add(f.field);
   });
+  // Derived dimensions read real columns off the base row:
+  // "Organisation type" resolves via the member's organisation id, and
+  // "Active in period" reads last_activity.
+  if (usesOrgType) systemColumns.add('organization_id');
+  if (usesActive) systemColumns.add('last_activity');
 
   // Resolve any `lmic` operator filters into concrete IN-lists by loading
   // the tenant's saved LMIC country codes once per query. Doing this at
@@ -161,7 +211,7 @@ export async function runWidgetConfig(config, tenantId, options = {}) {
   // Region filters have no stored column, so they can't be pushed down to
   // PostgREST — they're applied in JS after per-row bucket derivation.
   const systemFilters = (config.filters || []).filter(
-    f => f.fieldKind === 'system' && !isRegionRef(f),
+    f => f.fieldKind === 'system' && !isRegionRef(f) && !isDerivedRef(f),
   );
   let workingRows = [];
   for (let from = 0; from < MAX_TOTAL_ROWS; from += PAGE_SIZE) {
@@ -337,6 +387,37 @@ export async function runWidgetConfig(config, tenantId, options = {}) {
     );
   }
 
+  // Hydrate the derived "Organisation type" bucket per row: the member's
+  // organisation's org_type preference value. Members with no organisation
+  // or no stored value bucket under the explicit "Unknown" key.
+  let orgTypeByRow = null;
+  if (usesOrgType && workingRows.length > 0) {
+    orgTypeByRow = await loadOrgTypeBuckets(workingRows, tenantId);
+  }
+  // Per-ref "Active in period" bucketer: Active when last_activity falls
+  // inside the ref's own from/to range, else Inactive (including members
+  // who never logged in). The range rides on the referencing config
+  // (groupBy / seriesBy / each filter), so different refs may carry
+  // different ranges.
+  const activeBucketFor = ref => {
+    const bounds = activePeriodBounds(ref);
+    return row => activeInPeriodBucket(row.last_activity, bounds);
+  };
+  // Apply derived-dimension filters in JS against each row's bucket.
+  if (derivedFilters.length > 0) {
+    const matchers = derivedFilters.map(f => {
+      if (derivedKindOf(f) === 'org_type') {
+        return row => matchFilter(
+          orgTypeByRow ? (orgTypeByRow.get(row.id) ?? 'Unknown') : 'Unknown',
+          f, null, false,
+        );
+      }
+      const bucketOf = activeBucketFor(f);
+      return row => matchFilter(bucketOf(row), f, null, false);
+    });
+    workingRows = workingRows.filter(row => matchers.every(m => m(row)));
+  }
+
   // Resolve a value for each row. When measure.additionalFields is set
   // (e.g. children_impacted_direct + children_impacted_indirect) the
   // per-row value is the numeric sum of the primary field's value plus
@@ -478,6 +559,7 @@ export async function runWidgetConfig(config, tenantId, options = {}) {
   // LMIC / region shaped group-bys) are untouched.
   const referenceFieldDef = (groupBy
     && !regionGroupBy
+    && !derivedGroupKind
     && !lmicFilterOnGroupBy
     && !isCountryGroupBy
     && !(groupBy.fieldKind === 'custom' || groupBy.kind === 'custom')
@@ -512,6 +594,13 @@ export async function runWidgetConfig(config, tenantId, options = {}) {
               : REGION_UNKNOWN;
             return bucket === null ? [] : [bucket];
           }
+        : (derivedGroupKind === 'org_type'
+        ? row => [orgTypeByRow ? (orgTypeByRow.get(row.id) ?? 'Unknown') : 'Unknown']
+        : derivedGroupKind === 'active_in_period'
+        ? (() => {
+            const bucketOf = activeBucketFor(groupBy);
+            return row => [bucketOf(row)];
+          })()
         : (lmicFilterOnGroupBy
             ? ((groupBy.fieldKind === 'custom' || groupBy.kind === 'custom')
                 ? row => lmicGroupKeys((prefMap.get(row.id) || {})[groupBy.fieldId])
@@ -524,7 +613,7 @@ export async function runWidgetConfig(config, tenantId, options = {}) {
                     ? row => [referenceGroupKey(row[groupBy.field], referenceNameById)]
                     : (isListGroupBy
                         ? row => listGroupKeys((prefMap.get(row.id) || {})[groupBy.fieldId])
-                        : row => [normaliseKey(valueFor(row, groupBy, prefMap))])))))
+                        : row => [normaliseKey(valueFor(row, groupBy, prefMap))]))))))
     : null;
   // timeBucket on a custom date field reads through the preference map; for
   // system date columns it reads the value directly off the base row.
@@ -547,6 +636,53 @@ export async function runWidgetConfig(config, tenantId, options = {}) {
       total: workingRows.length,
       value,
       rows: [{ key: 'total', value }],
+    };
+  }
+
+  // Group-by aggregation with a series split: each group bucket is further
+  // split by the derived "Active in period" dimension, producing one row
+  // per group key with a column per series (Active / Inactive) plus a
+  // `value` total so single-series consumers (list, pie, CSV export)
+  // degrade gracefully. `categories` carries the series order for the
+  // stacked bar renderer.
+  if (groupBy && seriesBy) {
+    const seriesKeyOf = activeBucketFor(seriesBy);
+    const categories = ['Active', 'Inactive'];
+    const buckets = new Map(); // key -> { Active: [], Inactive: [] }
+    const bucketRowIds = options.collectRowIds ? new Map() : null;
+    workingRows.forEach(row => {
+      const sKey = seriesKeyOf(row);
+      for (const key of groupKeysOf(row)) {
+        if (!buckets.has(key)) buckets.set(key, { Active: [], Inactive: [] });
+        pushMeasureValues(buckets.get(key)[sKey], row);
+        if (bucketRowIds) {
+          if (!bucketRowIds.has(key)) bucketRowIds.set(key, new Set());
+          bucketRowIds.get(key).add(row.id);
+        }
+      }
+    });
+    const grouped = Array.from(buckets.entries()).map(([key, series]) => {
+      const perSeries = {};
+      categories.forEach(c => { perSeries[c] = aggregate(series[c], measure.aggregator); });
+      return {
+        key,
+        value: categories.reduce((acc, c) => acc + (Number(perSeries[c]) || 0), 0),
+        ...perSeries,
+        ...(bucketRowIds ? { rowIds: Array.from(bucketRowIds.get(key) || []) } : {}),
+      };
+    });
+    sortGroupedRows(grouped);
+    if (grouped.length > maxGroups) {
+      throw new Error(
+        `Group-by produced ${grouped.length} groups (max ${maxGroups}). ` +
+        `Add a filter or pick a less granular field.`,
+      );
+    }
+    return {
+      type: 'group',
+      total: workingRows.length,
+      categories,
+      rows: grouped,
     };
   }
 
@@ -637,6 +773,98 @@ export async function runWidgetConfig(config, tenantId, options = {}) {
  * display order, then Multi-region, then Unknown — with unexpected keys
  * last (value-descending among themselves). Exported for tests.
  */
+/**
+ * Parses the from/to date range carried on a config ref (groupBy /
+ * seriesBy / filter) for the derived "Active in period" dimension.
+ * Date-only strings expand to the full day (from = start of day,
+ * to = end of day, UTC). At least one valid bound is required.
+ */
+export function activePeriodBounds(ref) {
+  const parse = (raw, endOfDay) => {
+    if (!raw || typeof raw !== 'string') return null;
+    const iso = /^\d{4}-\d{2}-\d{2}$/.test(raw)
+      ? `${raw}T${endOfDay ? '23:59:59.999' : '00:00:00.000'}Z`
+      : raw;
+    const t = Date.parse(iso);
+    return Number.isNaN(t) ? null : t;
+  };
+  const from = parse(ref?.from, false);
+  const to = parse(ref?.to, true);
+  if (from === null && to === null) {
+    throw new Error('Pick a date range for the "Active in period" field.');
+  }
+  return { from, to };
+}
+
+/**
+ * Buckets a member's last_activity timestamp against a period: 'Active'
+ * when it falls inside the bounds, 'Inactive' otherwise — including
+ * members who never logged in (null last_activity).
+ */
+export function activeInPeriodBucket(lastActivity, bounds) {
+  if (!lastActivity) return 'Inactive';
+  const t = Date.parse(lastActivity);
+  if (Number.isNaN(t)) return 'Inactive';
+  if (bounds.from !== null && t < bounds.from) return 'Inactive';
+  if (bounds.to !== null && t > bounds.to) return 'Inactive';
+  return 'Active';
+}
+
+/**
+ * Normalises a parsed org_type preference value into a bucket key.
+ * Empty / missing values collapse to the explicit "Unknown" bucket.
+ */
+export function orgTypeBucketKey(value) {
+  const v = extractPrimitive(value);
+  if (v === null || v === undefined) return 'Unknown';
+  const s = String(v).trim();
+  return s === '' ? 'Unknown' : s;
+}
+
+/**
+ * Resolves the derived "Organisation type" bucket for each base row: the
+ * row's organisation's org_type preference value (org-scoped dropdown),
+ * mirroring how the DD submissions source hydrates it. Every row starts
+ * in "Unknown"; rows whose organisation has a stored value overwrite it.
+ * Query failures throw — silently-missing values would mis-bucket
+ * members under "Unknown".
+ */
+async function loadOrgTypeBuckets(rows, tenantId) {
+  const map = new Map();
+  rows.forEach(r => map.set(r.id, 'Unknown'));
+  const orgIds = Array.from(new Set(rows.map(r => r.organization_id).filter(Boolean)));
+  if (orgIds.length === 0) return map;
+  const { data: field, error: fieldErr } = await supabase
+    .from('preference_field')
+    .select('id')
+    .eq('tenant_id', tenantId)
+    .eq('entity_scope', 'organization')
+    .eq('name', 'org_type')
+    .maybeSingle();
+  if (fieldErr) throw new Error(`org_type field lookup failed: ${fieldErr.message}`);
+  if (!field?.id) return map;
+  const valueByOrg = new Map();
+  const CHUNK = 200;
+  for (let i = 0; i < orgIds.length; i += CHUNK) {
+    const slice = orgIds.slice(i, i + CHUNK);
+    const { data, error } = await supabase
+      .from('organization_preference_value')
+      .select('organization_id, value')
+      .eq('field_id', field.id)
+      .in('organization_id', slice);
+    if (error) throw new Error(`org_type value lookup failed: ${error.message}`);
+    (data || []).forEach(p => {
+      valueByOrg.set(p.organization_id, orgTypeBucketKey(parsePreferenceValue(p.value)));
+    });
+  }
+  rows.forEach(r => {
+    if (r.organization_id && valueByOrg.has(r.organization_id)) {
+      map.set(r.id, valueByOrg.get(r.organization_id));
+    }
+  });
+  return map;
+}
+
 export function sortGroupedRows(rows, regionBucketOrder = null) {
   if (!regionBucketOrder) {
     return rows.sort((a, b) => b.value - a.value);

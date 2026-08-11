@@ -522,13 +522,88 @@ function chartConfig() {
 function BarBody({ payload, widget, onDrill = null }) {
   const rows = payload.rows || [];
   const colour = pickColour(widget);
-  const config = useMemo(() => ({ value: { label: "Value", color: colour } }), [colour]);
+  // Multi-series payloads (e.g. an "Active in period" split) carry a
+  // categories list other than the single default 'value' column; render
+  // one stacked <Bar> per category instead of the single-series bar.
+  const categories = useMemo(() => {
+    const cats = Array.isArray(payload.categories) ? payload.categories : [];
+    return cats.length > 0 && !(cats.length === 1 && cats[0] === "value")
+      ? cats
+      : null;
+  }, [payload.categories]);
+  const config = useMemo(
+    () =>
+      categories
+        ? Object.fromEntries(
+            categories.map((c, i) => [
+              c,
+              { label: c, color: CHART_COLOURS[i % CHART_COLOURS.length] },
+            ]),
+          )
+        : { value: { label: "Value", color: colour } },
+    [categories, colour],
+  );
   const total = useMemo(
     () => rows.reduce((acc, r) => acc + (Number(r.value) || 0), 0),
     [rows],
   );
   if (rows.length === 0) {
     return <EmptyChart />;
+  }
+  if (categories) {
+    return (
+      <div className="flex flex-1 flex-col gap-2">
+        <ChartContainer config={config} className="h-44 w-full">
+          <BarChart data={rows} margin={{ top: 18, right: 10, left: 0, bottom: 30 }}>
+            <CartesianGrid vertical={false} strokeDasharray="3 3" />
+            <XAxis
+              dataKey="key"
+              tickLine={false}
+              axisLine={false}
+              interval={0}
+              angle={-25}
+              textAnchor="end"
+              height={50}
+            />
+            <YAxis tickLine={false} axisLine={false} width={40} />
+            <ChartTooltip content={<ChartTooltipContent />} />
+            {categories.map((c, i) => (
+              <Bar
+                key={c}
+                dataKey={c}
+                stackId="series"
+                fill={CHART_COLOURS[i % CHART_COLOURS.length]}
+                radius={i === categories.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]}
+                cursor={onDrill ? "pointer" : undefined}
+                onClick={onDrill ? (entry) => {
+                  const key = drillKeyFromChartEntry(entry);
+                  if (key != null) onDrill(key);
+                } : undefined}
+              />
+            ))}
+          </BarChart>
+        </ChartContainer>
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center gap-3">
+            {categories.map((c, i) => (
+              <span key={c} className="flex items-center gap-1 text-xs text-muted-foreground">
+                <span
+                  className="inline-block h-2.5 w-2.5 rounded-sm"
+                  style={{ background: CHART_COLOURS[i % CHART_COLOURS.length] }}
+                />
+                {c}
+              </span>
+            ))}
+          </div>
+          <p
+            className="text-right text-xs text-muted-foreground"
+            data-testid={`widget-total-${widget.id}`}
+          >
+            Total: {formatNumber(total)}
+          </p>
+        </div>
+      </div>
+    );
   }
   return (
     <div className="flex flex-1 flex-col gap-2">

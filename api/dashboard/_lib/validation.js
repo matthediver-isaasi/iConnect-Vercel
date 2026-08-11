@@ -18,6 +18,10 @@ const filterSchema = z.object({
   // Region filter only: which classification scheme the filter's bucket
   // value belongs to. Absent/null = app scheme (matches group-by default).
   regionScheme: z.enum(['app', 'world_bank']).nullable().optional(),
+  // "Active in period" only: the date range (ISO date strings) the derived
+  // Active/Inactive bucket is computed against for this filter.
+  from: z.string().nullable().optional(),
+  to: z.string().nullable().optional(),
 });
 
 // Optional secondary field references for additive measures. When the
@@ -66,6 +70,21 @@ const groupBySchema = z.object({
   // explicitly false, such a record is counted once under EACH of its
   // regions instead.
   multiRegion: z.boolean().nullable().optional(),
+  // "Active in period" group-by only: the date range (ISO date strings)
+  // the derived Active/Inactive bucket is computed against.
+  from: z.string().nullable().optional(),
+  to: z.string().nullable().optional(),
+});
+
+// Optional secondary split for grouped bar widgets: stacks each group-by
+// bucket by the member source's derived "Active in period" dimension so a
+// single widget shows logged-in vs not-logged-in counts per group. The
+// engine only accepts the active_in_period field here.
+const seriesBySchema = z.object({
+  kind: z.enum(['system']),
+  field: z.string(),
+  from: z.string().nullable().optional(),
+  to: z.string().nullable().optional(),
 });
 
 // DD stage-transition mode. When present (with a `mode`), the Due Diligence
@@ -112,6 +131,8 @@ export const widgetConfigSchema = z.object({
   source: z.string(),
   measure: measureSchema,
   groupBy: groupBySchema.nullable().optional(),
+  // Secondary "Active in period" split (member source, grouped bar widgets).
+  seriesBy: seriesBySchema.nullable().optional(),
   timeBucket: timeBucketSchema.nullable().optional(),
   // When true, time-bucketed line charts plot a running total across
   // buckets (each point = its own aggregate + all earlier buckets)

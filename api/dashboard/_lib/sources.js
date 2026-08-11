@@ -171,10 +171,47 @@ export const DASHBOARD_SOURCES = {
       // classified from the member's `countries`-typed preference
       // field(s) at query time.
       buildRegionField(),
+      // Derived "Organisation type": the member's organisation's org_type
+      // dropdown preference value, resolved at query time via
+      // member.organization_id (mirrors the DD submissions source's
+      // org_type join). No stored member column, so it is group-by /
+      // filter only; members with no organisation or no value bucket
+      // under "Unknown". `options` are hydrated per tenant in
+      // resolveSystemFields from the org_type preference field.
+      {
+        name: 'org_type',
+        label: 'Organisation type',
+        type: 'enum',
+        derived: 'org_type',
+        groupOnly: true,
+        filterable: true,
+        options: null,
+      },
+      // Derived "Active in period": Yes/No computed per member from
+      // last_activity relative to a date range carried on the referencing
+      // config (groupBy/seriesBy/filter `from`/`to`). Lets one widget show
+      // both logged-in and not-logged-in counts for a chosen period.
+      // `periodField` tells the builder to render From/To date pickers.
+      {
+        name: 'active_in_period',
+        label: 'Active in period',
+        type: 'enum',
+        derived: 'active_in_period',
+        groupOnly: true,
+        filterable: true,
+        periodField: true,
+        options: [
+          { value: 'Active', label: 'Active' },
+          { value: 'Inactive', label: 'Inactive' },
+        ],
+      },
       { name: 'login_enabled', label: 'Login enabled', type: 'boolean' },
       { name: 'show_in_directory', label: 'Show in directory', type: 'boolean' },
       { name: 'created_on', label: 'Created on', type: 'date' },
-      { name: 'last_login', label: 'Last login', type: 'date' },
+      // Backed by member.last_activity — updated at login/API activity.
+      // (The old `last_login` column was dropped; this replaces its
+      // stale descriptor.)
+      { name: 'last_activity', label: 'Last active (login)', type: 'date' },
     ],
   },
   form_conversion: {
@@ -238,17 +275,57 @@ async function getDdFormOptions(tenantId) {
 }
 
 /**
+ * Loads the tenant's organisation `org_type` dropdown option list, used to
+ * hydrate the member source's derived "Organisation type" dimension. An
+ * explicit "Unknown" option is appended so admins can filter on the bucket
+ * that collects members with no organisation or no org_type value.
+ */
+export async function getOrgTypeOptions(tenantId) {
+  const unknown = [{ value: 'Unknown', label: 'Unknown' }];
+  if (!supabase || !tenantId) return unknown;
+  try {
+    const { data, error } = await supabase
+      .from('preference_field')
+      .select('options')
+      .eq('tenant_id', tenantId)
+      .eq('entity_scope', 'organization')
+      .eq('name', 'org_type')
+      .maybeSingle();
+    if (error) throw error;
+    const opts = Array.isArray(data?.options)
+      ? data.options
+          .map(o => (typeof o === 'object' && o !== null
+            ? { value: String(o.value ?? o.label ?? ''), label: String(o.label ?? o.value ?? '') }
+            : { value: String(o), label: String(o) }))
+          .filter(o => o.value)
+      : [];
+    return [...opts, ...unknown];
+  } catch (err) {
+    console.error('[Dashboard Sources] Failed to load org_type options:', err.message);
+    return unknown;
+  }
+}
+
+/**
  * Returns a copy of `systemFields` with dynamic, tenant-specific option
- * sets injected. Currently only the DD source's `form_id` field needs
- * this (its options are the tenant's DD forms). Other sources/fields are
- * returned unchanged.
+ * sets injected: the DD source's `form_id` field (options are the
+ * tenant's DD forms) and the member source's derived `org_type`
+ * dimension (options are the tenant's org_type dropdown values).
  */
 async function resolveSystemFields(def, tenantId) {
-  if (!def.isDd) return def.systemFields;
-  const formOptions = await getDdFormOptions(tenantId);
-  return def.systemFields.map(f =>
-    f.name === 'form_id' ? { ...f, options: formOptions } : f,
-  );
+  if (def.isDd) {
+    const formOptions = await getDdFormOptions(tenantId);
+    return def.systemFields.map(f =>
+      f.name === 'form_id' ? { ...f, options: formOptions } : f,
+    );
+  }
+  if (def.systemFields.some(f => f.derived === 'org_type')) {
+    const orgTypeOptions = await getOrgTypeOptions(tenantId);
+    return def.systemFields.map(f =>
+      f.derived === 'org_type' ? { ...f, options: orgTypeOptions } : f,
+    );
+  }
+  return def.systemFields;
 }
 
 /**
