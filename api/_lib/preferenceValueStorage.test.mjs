@@ -81,3 +81,34 @@ test('pipeline map conversion skips ambiguous boolean entries only', () => {
   const ambiguous = coercePreferenceValueForStorage('perhaps', prefFieldMap.get('pf-bool'));
   assert.equal(ambiguous, undefined);
 });
+
+// Task #3520 regression: a Yes/No radio pipeline-mapped (entity_pipelines
+// mappings array, target_type 'custom') to a boolean custom field must store
+// canonical 'true'/'false' on BOTH write paths in process-application.js:
+//   - new-member create: memberCustomFieldsMap -> convertMapToArray -> upsert
+//   - existing/additional-member update: per-entry inline coercion before
+//     upsertPreferenceValue (skips empty and ambiguous values).
+test('pipeline mappings: Yes/No radio stores canonically on new-member and existing-member paths', () => {
+  const prefFieldMap = new Map([['pf-bool', boolField]]);
+
+  // New-member path contract (convertMapToArray).
+  const newMemberWrites = [];
+  for (const [fieldId, value] of new Map([['pf-bool', 'Yes']]).entries()) {
+    const stored = coercePreferenceValueForStorage(value, prefFieldMap.get(fieldId));
+    if (stored === undefined) continue;
+    newMemberWrites.push({ field_id: fieldId, value: stored });
+  }
+  assert.deepEqual(newMemberWrites, [{ field_id: 'pf-bool', value: 'true' }]);
+
+  // Existing-member path contract: guard on empty, then coerce, skip undefined.
+  const existingMemberWrite = (value) => {
+    if (value === undefined || value === null || value === '') return null; // skipped
+    const stored = coercePreferenceValueForStorage(value, prefFieldMap.get('pf-bool'));
+    if (stored === undefined) return null; // ambiguous — skipped
+    return { field_id: 'pf-bool', value: stored };
+  };
+  assert.deepEqual(existingMemberWrite('Yes'), { field_id: 'pf-bool', value: 'true' });
+  assert.deepEqual(existingMemberWrite('No'), { field_id: 'pf-bool', value: 'false' });
+  assert.equal(existingMemberWrite(''), null);
+  assert.equal(existingMemberWrite('maybe'), null);
+});
