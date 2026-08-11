@@ -147,6 +147,8 @@ const DEFAULT_DRAFT = {
     transition: null,
     // Form-conversion only; null for every other source.
     conversion: null,
+    // Event Bookings only: organisation participation split; null otherwise.
+    participation: null,
     // Stat/KPI-only number format; null = legacy compact style (1.5M).
     numberFormat: null,
     filters: [],
@@ -258,6 +260,7 @@ export default function WidgetBuilderModal({
           cumulative: !!seed.config?.cumulative,
           transition: seed.config?.transition || null,
           conversion: normalizeConversion(seed.config?.conversion),
+          participation: seed.config?.participation === true ? true : null,
           numberFormat: seed.config?.numberFormat || null,
           filters: seed.config?.filters || [],
           helperText: seed.config?.helperText || "",
@@ -309,6 +312,8 @@ export default function WidgetBuilderModal({
   // flag). The source/target pickers use the tenant's forms published on
   // the source descriptor. Conversion widgets always render as a stat.
   const isConversionSource = !!currentSource?.isConversion;
+  const isBookingSource = !!currentSource?.isBooking;
+  const participationActive = isBookingSource && draft.config.participation === true;
   const conversion = draft.config.conversion || null;
   const conversionForms = currentSource?.forms || [];
   const ddStageOptions = useMemo(() => {
@@ -488,7 +493,14 @@ export default function WidgetBuilderModal({
       return errs;
     }
     const tActive = !!draft.config.transition?.mode;
-    if (tActive) {
+    if (participationActive) {
+      // Participation split has a fixed Booked / Not booked shape;
+      // group-by / time-bucket rules don't apply, but line charts do
+      // need a time series so they're not available in this mode.
+      if (draft.widget_type === "line") {
+        errs.push("Line charts aren't available for the participation split.");
+      }
+    } else if (tActive) {
       // Stage transitions count history events; group-by / time-bucket
       // don't apply, so only validate the single-transition picker.
       if (
@@ -562,7 +574,7 @@ export default function WidgetBuilderModal({
       }
     });
     return errs;
-  }, [draft, requireMeasureField, fieldOptions, isConversionSource]);
+  }, [draft, requireMeasureField, fieldOptions, isConversionSource, participationActive]);
 
   const canSave = validationErrors.length === 0;
 
@@ -1116,7 +1128,72 @@ export default function WidgetBuilderModal({
               </div>
             )}
 
-            {!transitionActive && !isConversionSource && (
+            {isBookingSource && (
+              <div className="space-y-3 rounded-md border p-3">
+                <div className="flex items-center justify-between gap-4">
+                  <div className="space-y-1">
+                    <Label htmlFor="switch-booking-participation">
+                      Organisation participation split
+                    </Label>
+                    <p className="text-xs text-muted-foreground">
+                      Show organisations WITH vs WITHOUT at least one booking
+                      matching the filters, compared against all your
+                      organisations. Bookings without a linked organisation
+                      (e.g. guest bookings) are excluded from the split.
+                    </p>
+                  </div>
+                  <Switch
+                    id="switch-booking-participation"
+                    data-testid="switch-booking-participation"
+                    checked={participationActive}
+                    onCheckedChange={checked =>
+                      setDraft(prev => ({
+                        ...prev,
+                        // Line charts need a time series; swap to pie when
+                        // enabling the fixed two-bucket split.
+                        widget_type:
+                          checked && prev.widget_type === "line"
+                            ? "pie"
+                            : prev.widget_type,
+                        config: {
+                          ...prev.config,
+                          participation: checked ? true : null,
+                          measure: checked
+                            ? { aggregator: "count", field: null, fieldKind: null, fieldId: null }
+                            : prev.config.measure,
+                          groupBy: checked ? null : prev.config.groupBy,
+                          timeBucket: checked ? null : prev.config.timeBucket,
+                          cumulative: checked ? false : prev.config.cumulative,
+                        },
+                      }))
+                    }
+                  />
+                </div>
+                {participationActive && (
+                  <div className="flex items-center justify-between gap-4 rounded-md border p-3">
+                    <div className="space-y-1">
+                      <Label htmlFor="switch-widget-click-through-participation">
+                        Click through to CRM
+                      </Label>
+                      <p className="text-xs text-muted-foreground">
+                        Clicking Booked or Not booked opens the organisations
+                        list filtered to that group.
+                      </p>
+                    </div>
+                    <Switch
+                      id="switch-widget-click-through-participation"
+                      data-testid="switch-widget-click-through-participation"
+                      checked={!!draft.config.clickThrough}
+                      onCheckedChange={checked =>
+                        updateConfig({ clickThrough: checked })
+                      }
+                    />
+                  </div>
+                )}
+              </div>
+            )}
+
+            {!transitionActive && !isConversionSource && !participationActive && (
             <>
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-2">
@@ -1552,7 +1629,8 @@ export default function WidgetBuilderModal({
               </div>
             )}
 
-            {["organization", "member"].includes(draft.config.source) &&
+            {(["organization", "member"].includes(draft.config.source) ||
+              isBookingSource) &&
               !!draft.config.groupBy && (
               <div className="flex items-center justify-between gap-4 rounded-md border p-3">
                 <div className="space-y-1">
@@ -1562,7 +1640,10 @@ export default function WidgetBuilderModal({
                   <p className="text-xs text-muted-foreground">
                     Clicking a bar, slice or row opens the{" "}
                     {draft.config.source === "member" ? "members" : "organisations"}{" "}
-                    list filtered to that group's records.
+                    list filtered to that group's records
+                    {isBookingSource
+                      ? " (the organisations behind that group's bookings)"
+                      : ""}.
                   </p>
                 </div>
                 <Switch

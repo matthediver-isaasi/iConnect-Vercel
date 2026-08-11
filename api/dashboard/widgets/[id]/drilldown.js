@@ -59,8 +59,16 @@ export default async function handler(req, res) {
 
   const config = widget.config || {};
   const sourceDef = getSourceDef(config.source);
-  const entity = sourceDef ? DRILLABLE[sourceDef.table] : null;
-  if (!entity || !config.groupBy || config.clickThrough !== true) {
+  // Event Bookings widgets drill to the ORGANISATIONS behind a bucket
+  // (bookings have no CRM list page): both the participation split
+  // (Booked / Not booked org lists) and booking group-bys (distinct
+  // organisations with a booking in the bucket) return organisation ids.
+  const isBooking = !!sourceDef?.isBooking;
+  const entity = isBooking ? 'organization' : (sourceDef ? DRILLABLE[sourceDef.table] : null);
+  const hasDrillableShape = isBooking
+    ? (!!config.groupBy || config.participation === true)
+    : !!config.groupBy;
+  if (!entity || !hasDrillableShape || config.clickThrough !== true) {
     return res.status(400).json({ error: 'This widget does not support click-through' });
   }
 

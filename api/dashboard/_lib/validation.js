@@ -148,6 +148,10 @@ export const widgetConfigSchema = z.object({
   // Form-conversion only: required when source === 'form_conversion',
   // ignored (should be null/absent) for every other source.
   conversion: conversionSchema.nullable().optional(),
+  // Event-bookings only: when true, the widget shows the organisation
+  // participation split (organisations with vs without at least one
+  // booking matching the filters). Group-by / time-bucket don't apply.
+  participation: z.boolean().nullable().optional(),
   // When true (organisation / member sources with a group-by only),
   // clicking a bar / slice / legend / list row on the widget card opens
   // the CRM list filtered to the records that make up that bucket.

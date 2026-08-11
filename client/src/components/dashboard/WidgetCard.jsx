@@ -109,6 +109,9 @@ export function formatNumber(value, numberFormat = null) {
 const DRILL_ROUTES = {
   organization: "/organisations",
   member: "/members",
+  // Event Bookings drill to the organisations behind a bucket (both the
+  // participation split and booking group-bys return organisation ids).
+  event_booking: "/organisations",
 };
 
 // Recharts click payload shapes vary: Bar/Pie handlers may receive the row
@@ -215,7 +218,7 @@ export default function WidgetCard({
   const drillEnabled =
     !!widget.config?.clickThrough &&
     !!drillRoute &&
-    !!widget.config?.groupBy &&
+    (!!widget.config?.groupBy || widget.config?.participation === true) &&
     data?.data?.type === "group";
   const handleDrill = async (key) => {
     if (!drillEnabled || drillingKey) return;

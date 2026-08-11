@@ -214,6 +214,60 @@ export const DASHBOARD_SOURCES = {
       { name: 'last_activity', label: 'Last active (login)', type: 'date' },
     ],
   },
+  event_booking: {
+    id: 'event_booking',
+    label: 'Event Bookings',
+    // Unified source over BOTH booking tables: `booking` (simple events)
+    // and `complex_event_booking` (complex events). The aggregation
+    // engine unions the two tenant-scoped, normalises shared columns and
+    // tags each row with its `event_kind` so it can be filtered/grouped
+    // on. No preference store — bookings have no custom fields.
+    table: 'booking',
+    complexTable: 'complex_event_booking',
+    timestampField: 'created_at',
+    isBooking: true,
+    systemFields: [
+      { name: 'id', label: 'ID', type: 'id' },
+      {
+        name: 'status',
+        label: 'Status',
+        type: 'enum',
+        options: [
+          { value: 'pending', label: 'Pending' },
+          { value: 'confirmed', label: 'Confirmed' },
+          { value: 'cancelled', label: 'Cancelled' },
+          { value: 'pending_backstage_sync', label: 'Pending sync' },
+        ],
+      },
+      {
+        // Synthetic column: which booking table the row came from.
+        name: 'event_kind',
+        label: 'Event kind',
+        type: 'enum',
+        options: [
+          { value: 'simple', label: 'Simple event' },
+          { value: 'complex', label: 'Complex event' },
+        ],
+      },
+      // Reference fields are resolved bespoke by the booking aggregator
+      // (event names live in TWO parent tables depending on event_kind;
+      // member display names are built from first/last/email).
+      { name: 'event_id', label: 'Event', type: 'reference' },
+      { name: 'organization_id', label: 'Organisation', type: 'reference', referenceTable: 'organization' },
+      { name: 'member_id', label: 'Member (booker)', type: 'reference' },
+      { name: 'attendee_email', label: 'Attendee email', type: 'text' },
+      { name: 'ticket_class_name', label: 'Ticket type', type: 'text' },
+      {
+        // Normalised guest flag, mirroring the registration report:
+        // simple bookings carry an explicit is_guest_booking column;
+        // complex bookings are guest when they have no linked member.
+        name: 'is_guest_booking',
+        label: 'Guest booking',
+        type: 'boolean',
+      },
+      { name: 'created_at', label: 'Booked at', type: 'date' },
+    ],
+  },
   form_conversion: {
     id: 'form_conversion',
     label: 'Form conversion',
@@ -412,6 +466,9 @@ export async function getSourceCatalog(tenantId) {
       // Form-conversion capability flag + the tenant's forms for the
       // source/target pickers.
       isConversion: !!def.isConversion,
+      // Event-bookings capability flag so the builder can offer the
+      // organisation-participation split without hard-coding source ids.
+      isBooking: !!def.isBooking,
       ...(def.isConversion
         ? { forms: await getTenantFormOptions(tenantId) }
         : {}),

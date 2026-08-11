@@ -76,6 +76,13 @@ export async function runWidgetConfig(config, tenantId, options = {}) {
     return runConversionWidgetConfig(config, tenantId, source);
   }
 
+  // Event Bookings spans two tables (simple + complex bookings) and has
+  // an optional organisation-participation mode, so it routes through a
+  // bespoke aggregator that unions both tables tenant-scoped.
+  if (source.isBooking) {
+    return runBookingWidgetConfig(config, tenantId, source, maxGroups, options);
+  }
+
   const measure = normaliseMeasure(config.measure);
   const groupBy = config.groupBy || null;
   const timeBucket = config.timeBucket || null;
@@ -1839,10 +1846,7 @@ async function runDdWidgetConfig(config, tenantId, source, maxGroups = MAX_GROUP
   };
 }
 
-// ---------------------------------------------------------------------------
-// Form conversion aggregator
-// ---------------------------------------------------------------------------
-
+const BOOKING_PUSHDOWN_FIELDS = new Set(['created_at', 'status']);
 /**
  * Paginate every submission of a single form for a tenant past PostgREST's
  * 1000-row page cap. `dateFilters` (system filters on created_date) are
@@ -1984,5 +1988,375 @@ async function runConversionWidgetConfig(config, tenantId, source) {
     total: convertedCount,
     categories: ['value'],
     rows: [{ key: 'Converted', value: convertedCount }],
+  };
+}
+
+async function loadBookingEventNames(rows, tenantId) {
+  const byKind = { simple: new Set(), complex: new Set() };
+  for (const row of rows) {
+    if (row.event_id) byKind[row.event_kind]?.add(String(row.event_id));
+  }
+  const nameByKey = new Map();
+  const CHUNK = 200;
+  for (const [kind, table] of [['simple', 'event'], ['complex', 'complex_event']]) {
+    const ids = Array.from(byKind[kind]);
+    for (let i = 0; i < ids.length; i += CHUNK) {
+      let q = supabase
+        .from(table)
+        .select('id, title')
+        .in('id', ids.slice(i, i + CHUNK));
+      q = tenantFilter(q, tenantId);
+      const { data, error } = await q;
+      if (error) {
+        console.error(`[Dashboard Aggregation] Failed to resolve ${table} titles:`, error.message);
+        continue;
+      }
+      for (const row of data || []) {
+        nameByKey.set(`${kind}:${row.id}`, row.title ?? null);
+      }
+    }
+  }
+  return nameByKey;
+}
+
+const SIMPLE_BOOKING_COLUMNS =
+  'id, event_id, member_id, organization_id, attendee_email, ticket_class_name, status, created_at, is_guest_booking';
+
+/**
+ * Paginate one booking table for a tenant, applying pushdown-able system
+ * filters (created_at / status) at the query level. `budget` caps the rows
+ * fetched across BOTH tables so a huge tenant fails loudly instead of
+ * silently truncating.
+ */
+async function fetchBookingRows(table, columns, tenantId, pushdownFilters, budget) {
+  const rows = [];
+  for (let from = 0; from < budget; from += PAGE_SIZE) {
+    const to = Math.min(from + PAGE_SIZE - 1, budget - 1);
+    let q = supabase
+      .from(table)
+      .select(columns)
+      .eq('tenant_id', tenantId)
+      // Stable ordering is required for .range() pagination.
+      .order('id', { ascending: true });
+    q = applySystemFilters(q, pushdownFilters, null);
+    const { data: page, error } = await q.range(from, to);
+    if (error) throw new Error(`Booking source query failed: ${error.message}`);
+    if (!page || page.length === 0) break;
+    rows.push(...page);
+    if (page.length < PAGE_SIZE) break;
+    if (rows.length >= budget) {
+      throw new Error(
+        `Widget would scan more than ${MAX_TOTAL_ROWS} rows. ` +
+        `Add filters to narrow the dataset.`,
+      );
+    }
+  }
+  return rows;
+}
+
+async function loadAllTenantOrgIds(tenantId) {
+  const ids = [];
+  for (let from = 0; from < MAX_TOTAL_ROWS; from += PAGE_SIZE) {
+    let q = supabase
+      .from('organization')
+      .select('id')
+      .order('id', { ascending: true });
+    q = tenantFilter(q, tenantId);
+    const { data: page, error } = await q.range(from, Math.min(from + PAGE_SIZE - 1, MAX_TOTAL_ROWS - 1));
+    if (error) throw new Error(`Organisation list query failed: ${error.message}`);
+    if (!page || page.length === 0) break;
+    ids.push(...page.map(r => r.id));
+    if (page.length < PAGE_SIZE) break;
+    if (ids.length >= MAX_TOTAL_ROWS) {
+      throw new Error(
+        `Widget would scan more than ${MAX_TOTAL_ROWS} rows. Add filters to narrow the dataset.`,
+      );
+    }
+  }
+  return ids;
+}
+
+async function loadMemberDisplayNames(rawIds, tenantId) {
+  const ids = Array.from(
+    new Set(rawIds.filter(v => v !== null && v !== undefined && v !== '').map(String)),
+  );
+  const nameById = new Map();
+  const CHUNK = 200;
+  for (let i = 0; i < ids.length; i += CHUNK) {
+    let q = supabase
+      .from('member')
+      .select('id, first_name, last_name, email')
+      .in('id', ids.slice(i, i + CHUNK));
+    q = tenantFilter(q, tenantId);
+    const { data, error } = await q;
+    if (error) {
+      console.error('[Dashboard Aggregation] Failed to resolve member names:', error.message);
+      return nameById;
+    }
+    for (const row of data || []) {
+      const full = [row.first_name, row.last_name].filter(Boolean).join(' ').trim();
+      nameById.set(String(row.id), full || row.email || null);
+    }
+  }
+  return nameById;
+}
+
+/**
+ * Normalise a raw booking row from either table into the unified shape the
+ * booking aggregator works on. `kind` is 'simple' or 'complex'. Ids are
+ * prefixed with the kind so rows from the two tables can never collide.
+ * Guest flag follows the registration-report semantics: simple bookings
+ * carry an explicit is_guest_booking column; complex bookings have no such
+ * column and a booking without a linked member is a guest. Note this is
+ * independent of organisation linkage — a member booking can lack an
+ * organisation without being a guest booking.
+ * Exported for tests.
+ */
+export function normaliseBookingRow(row, kind) {
+  return {
+    id: `${kind}:${row.id}`,
+    event_kind: kind,
+    event_id: row.event_id || null,
+    organization_id: row.organization_id || null,
+    member_id: row.member_id || null,
+    attendee_email: row.attendee_email || null,
+    ticket_class_name: row.ticket_class_name || null,
+    status: row.status || null,
+    created_at: row.created_at || null,
+    is_guest_booking: kind === 'simple'
+      ? row.is_guest_booking === true
+      : !row.member_id,
+  };
+}
+
+/**
+ * Measure value for one normalised booking row. When no field is selected
+ * (the builder allows this for count / count_distinct) the normalised
+ * booking id is used — it is unique across both tables, so plain count is
+ * unchanged and count_distinct degrades to "distinct bookings" instead of
+ * excluding every (null) value and returning 0. Exported for tests.
+ */
+export function bookingMeasureValue(row, measure) {
+  return measure?.field ? row[measure.field] : row.id;
+}
+
+async function runBookingWidgetConfig(config, tenantId, source, maxGroups = MAX_GROUPS, options = {}) {
+  const measure = normaliseMeasure(config.measure);
+  const participation = config.participation === true;
+  // Participation mode has its own fixed output shape (Booked / Not
+  // booked); group-by and time-bucket don't apply.
+  const groupBy = participation ? null : (config.groupBy || null);
+  const timeBucket = participation ? null : (config.timeBucket || null);
+
+  if (!measure) throw new Error('Measure is required');
+  if (groupBy && timeBucket) throw new Error('Choose either group-by or time-bucket, not both');
+  // No numeric fields are exposed on this source, and there is no
+  // preference store — reject up front with clear messages.
+  if (NUMERIC_AGGREGATORS.has(measure.aggregator)) {
+    throw new Error(
+      `${measure.aggregator} is not supported on Event Bookings — only count / count_distinct.`,
+    );
+  }
+  if (measure.fieldKind === 'custom' || groupBy?.kind === 'custom' || timeBucket?.fieldKind === 'custom'
+    || (config.filters || []).some(f => f.fieldKind === 'custom')) {
+    throw new Error('Event Bookings does not expose custom fields');
+  }
+
+  const systemFilters = (config.filters || []).filter(f => f.fieldKind === 'system' && f.field);
+  const pushdownFilters = systemFilters.filter(f => BOOKING_PUSHDOWN_FIELDS.has(f.field));
+  // event_kind filters let us skip fetching a whole table when the widget
+  // only looks at one kind.
+  const kindWanted = kind => systemFilters
+    .filter(f => f.field === 'event_kind')
+    .every(f => matchFilter(kind, f, null, false));
+
+  const [simpleRaw, complexRaw] = await Promise.all([
+    kindWanted('simple')
+      ? fetchBookingRows(source.table, SIMPLE_BOOKING_COLUMNS, tenantId, pushdownFilters, MAX_TOTAL_ROWS)
+      : Promise.resolve([]),
+    kindWanted('complex')
+      ? fetchBookingRows(source.complexTable, COMPLEX_BOOKING_COLUMNS, tenantId, pushdownFilters, MAX_TOTAL_ROWS)
+      : Promise.resolve([]),
+  ]);
+  if (simpleRaw.length + complexRaw.length > MAX_TOTAL_ROWS) {
+    throw new Error(
+      `Widget would scan more than ${MAX_TOTAL_ROWS} rows. Add filters to narrow the dataset.`,
+    );
+  }
+
+  const normalised = [
+    ...simpleRaw.map(r => normaliseBookingRow(r, 'simple')),
+    ...complexRaw.map(r => normaliseBookingRow(r, 'complex')),
+  ];
+
+  // Apply ALL system filters in JS on the normalised shape (pushdown
+  // filters re-apply harmlessly — identical semantics via matchFilter).
+  const workingRows = normalised.filter(row =>
+    systemFilters.every(f => matchFilter(row[f.field], f, null, false)),
+  );
+
+  // --- Organisation participation split -----------------------------------
+  if (participation) {
+    const allOrgIds = await loadAllTenantOrgIds(tenantId);
+    const split = computeParticipationSplit(workingRows, allOrgIds);
+    const withIds = (row, ids) => (options.collectRowIds ? { ...row, rowIds: ids } : row);
+    return {
+      type: 'group',
+      total: split.totalOrganisations,
+      categories: ['value'],
+      participation: {
+        totalOrganisations: split.totalOrganisations,
+        bookedCount: split.bookedOrgIds.length,
+        notBookedCount: split.notBookedOrgIds.length,
+        // Bookings excluded from the split because they have no linked
+        // organisation (guest bookings and org-less member bookings).
+        noOrganisationCount: split.noOrganisationCount,
+      },
+      rows: [
+        withIds({ key: 'Booked', value: split.bookedOrgIds.length }, split.bookedOrgIds),
+        withIds({ key: 'Not booked', value: split.notBookedOrgIds.length }, split.notBookedOrgIds),
+      ],
+    };
+  }
+
+  // --- Reference-name resolution for group-by labels ----------------------
+  let groupKeyOf = null;
+  if (groupBy && groupBy.field) {
+    if (groupBy.field === 'event_id') {
+      const titleByKey = await loadBookingEventNames(workingRows, tenantId);
+      groupKeyOf = row => {
+        if (!row.event_id) return 'Unspecified';
+        const title = titleByKey.get(`${row.event_kind}:${row.event_id}`);
+        return title || 'Unknown';
+      };
+    } else if (groupBy.field === 'organization_id') {
+      const nameById = await loadReferenceNames(
+        'organization', workingRows.map(r => r.organization_id), tenantId,
+      );
+      groupKeyOf = row => referenceGroupKey(row.organization_id, nameById);
+    } else if (groupBy.field === 'member_id') {
+      const nameById = await loadMemberDisplayNames(workingRows.map(r => r.member_id), tenantId);
+      groupKeyOf = row => referenceGroupKey(row.member_id, nameById);
+    } else {
+      groupKeyOf = row => normaliseKey(row[groupBy.field]);
+    }
+  }
+
+  // No field selected: fall back to the (kind-prefixed, hence unique)
+  // booking id so count_distinct without a field means "distinct bookings"
+  // rather than silently counting nothing.
+  const measureValueOf = row => bookingMeasureValue(row, measure);
+  const pushMeasureValues = (target, row) => target.push(measureValueOf(row));
+
+  if (!groupBy && !timeBucket) {
+    const values = [];
+    for (const row of workingRows) pushMeasureValues(values, row);
+    const value = aggregate(values, measure.aggregator);
+    return {
+      type: 'scalar',
+      total: workingRows.length,
+      value,
+      rows: [{ key: 'total', value }],
+    };
+  }
+
+  if (groupBy) {
+    const buckets = new Map();
+    // Drill-down: bookings have no CRM list page, so click-through opens
+    // the ORGANISATIONS behind a bucket — collect distinct non-guest org
+    // ids per bucket (guest bookings contribute to counts but have no
+    // organisation to open).
+    const bucketOrgIds = options.collectRowIds ? new Map() : null;
+    workingRows.forEach(row => {
+      const key = groupKeyOf(row);
+      if (!buckets.has(key)) buckets.set(key, []);
+      pushMeasureValues(buckets.get(key), row);
+      if (bucketOrgIds && row.organization_id) {
+        if (!bucketOrgIds.has(key)) bucketOrgIds.set(key, new Set());
+        bucketOrgIds.get(key).add(row.organization_id);
+      }
+    });
+    const grouped = Array.from(buckets.entries())
+      .map(([key, values]) => ({
+        key,
+        value: aggregate(values, measure.aggregator),
+        ...(bucketOrgIds
+          ? { rowIds: Array.from(bucketOrgIds.get(key) || []) }
+          : {}),
+      }))
+      .sort((a, b) => b.value - a.value);
+    if (grouped.length > maxGroups) {
+      throw new Error(
+        `Group-by produced ${grouped.length} groups (max ${maxGroups}). ` +
+        `Add a filter or pick a less granular field.`,
+      );
+    }
+    return {
+      type: 'group',
+      total: workingRows.length,
+      categories: ['value'],
+      rows: grouped,
+    };
+  }
+
+  // Time-bucket aggregation (created_at is the only date field).
+  const buckets = new Map();
+  workingRows.forEach(row => {
+    const key = bucketTimestamp(row[timeBucket.field], timeBucket.granularity);
+    if (!key) return;
+    if (!buckets.has(key)) buckets.set(key, []);
+    pushMeasureValues(buckets.get(key), row);
+  });
+  const sortedKeys = Array.from(buckets.keys()).sort();
+  if (sortedKeys.length > MAX_BUCKETS) {
+    throw new Error(
+      `Time bucketing produced ${sortedKeys.length} buckets (max ${MAX_BUCKETS}). ` +
+      `Use a coarser granularity or add a date filter.`,
+    );
+  }
+  const timeRows = sortedKeys.map(key => ({ key, value: aggregate(buckets.get(key), measure.aggregator) }));
+  return {
+    type: 'time',
+    total: workingRows.length,
+    categories: ['value'],
+    rows: config.cumulative ? applyCumulative(timeRows) : timeRows,
+    granularity: timeBucket.granularity,
+  };
+}
+
+const COMPLEX_BOOKING_COLUMNS =
+  'id, event_id, member_id, organization_id, attendee_email, ticket_class_name, status, created_at';
+
+/**
+ * Organisation-participation arithmetic: dedupe the (already filtered)
+ * booking rows to distinct organisations and split the tenant's full
+ * organisation list into booked vs not booked. Any booking WITHOUT a
+ * linked organisation — guest bookings, but also member bookings whose
+ * member has no organisation — can't join either bucket; they're counted
+ * separately as noOrganisationCount so the card can label the exclusion.
+ * Bookings whose organisation is not in the tenant list (deleted org) are
+ * ignored. Exported for tests.
+ */
+export function computeParticipationSplit(bookingRows, allOrgIds) {
+  const orgSet = new Set((allOrgIds || []).map(String));
+  const booked = new Set();
+  let noOrganisationCount = 0;
+  for (const row of bookingRows) {
+    if (!row.organization_id) {
+      noOrganisationCount += 1;
+      continue;
+    }
+    const key = String(row.organization_id);
+    if (orgSet.has(key)) booked.add(key);
+  }
+  const notBookedOrgIds = [];
+  for (const id of orgSet) {
+    if (!booked.has(id)) notBookedOrgIds.push(id);
+  }
+  return {
+    bookedOrgIds: Array.from(booked),
+    notBookedOrgIds,
+    noOrganisationCount,
+    totalOrganisations: orgSet.size,
   };
 }
