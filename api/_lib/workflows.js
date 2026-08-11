@@ -1492,7 +1492,7 @@ async function executeCreateMembershipAction(action, workflow, entityType, entit
     const targetYearLabel = simResult.membershipYear.label;
     const { data: invoicingSetting } = await supabase
       .from('organisation_membership_invoicing')
-      .select('invoicing_mode, invoice_date')
+      .select('invoicing_mode, invoice_date, purchase_order_number')
       .eq('tenant_id', tenantId)
       .eq('organization_id', organizationId)
       .eq('membership_year', targetYearLabel)
@@ -1502,7 +1502,7 @@ async function executeCreateMembershipAction(action, workflow, entityType, entit
     if (!invoicingSetting) {
       const { data: legacySetting } = await supabase
         .from('organisation_membership_invoicing')
-        .select('invoicing_mode, invoice_date')
+        .select('invoicing_mode, invoice_date, purchase_order_number')
         .eq('tenant_id', tenantId)
         .eq('organization_id', organizationId)
         .is('membership_year', null)
@@ -1615,6 +1615,28 @@ async function executeCreateMembershipAction(action, workflow, entityType, entit
       record.vat_rate = vatRate;
     }
 
+    // PO number stored at fee-approval time — echoed on the invoice
+    // reference and the history row, matching the manual/cron paths.
+    const poNumber = invoicingSetting?.purchase_order_number
+      || fallbackSetting?.purchase_order_number || null;
+    record.purchase_order_number = poNumber;
+
+    // Add-on lines stored at fee-approval time — appended to the invoice as
+    // extra line items only (same as the manual "Renew & Invoice Now" path:
+    // the invoice is created immediately, so nothing is deferred to
+    // invoiceExistingRecord and the stored membership cost fields keep the
+    // pure membership fee).
+    let addonLines = [];
+    try {
+      const { loadAddonLines } = await import('./membershipAddons.js');
+      addonLines = await loadAddonLines(tenantId, organizationId, targetYearLabel);
+    } catch (addonErr) {
+      console.error(`[Workflows] Failed to load add-on lines for org ${organizationId} (non-fatal):`, addonErr.message);
+    }
+    if (addonLines.length > 0) {
+      record.notes += `. ${addonLines.length} add-on line(s) invoiced.`;
+    }
+
     const { data: inserted, error: insertError } = await supabase
       .from('organisation_membership_history')
       .insert(record)
@@ -1628,9 +1650,117 @@ async function executeCreateMembershipAction(action, workflow, entityType, entit
 
     console.log(`[Workflows] Created membership record ${inserted.id} for org ${simResult.org.name} - tier: ${simResult.tierLabel}, final cost: ${simResult.finalCost}, year: ${simResult.membershipYear.label} (year number ${simResult.yearNumber})`);
 
+    // Accounting invoice — same shared pieces as the manual "Renew &
+    // Invoice Now" and cron org paths: provider facade, invoice address,
+    // per-tier nominal code, add-on extra lines, training-fund processing,
+    // and dual provider id columns via buildInvoiceColumnUpdate. Failure is
+    // non-fatal for the membership record but is surfaced on the workflow
+    // log so admins see "record created, invoice failed".
+    let invoice = null;
+    let invoiceError = null;
+    let providerLabel = 'Xero';
+    try {
+      const { getAccountingProvider, buildInvoiceColumnUpdate } = await import('./accountingProvider.js');
+      const { resolveInvoiceAddress } = await import('./invoiceAddressResolver.js');
+      const { resolveMembershipNominalCode } = await import('./membershipNominalCode.js');
+      const { buildExtraLineItems, processTrainingFundAddons } = await import('./membershipAddons.js');
+      const provider = await getAccountingProvider(tenantId);
+      providerLabel = provider?.name === 'quickbooks' ? 'QuickBooks' : 'Xero';
+      const invoiceReference = poNumber
+        ? `Membership ${targetYearLabel} - PO: ${poNumber}`
+        : `Membership ${targetYearLabel}`;
+      invoice = await provider.createMembershipInvoice({
+        appTenantId: tenantId,
+        organizationName: simResult.org.name,
+        invoicingEmail: simResult.org.invoicing_email || null,
+        invoicingAddress: await resolveInvoiceAddress(supabase, simResult.config, organizationId, 'organization'),
+        membershipYear: targetYearLabel,
+        tierLabel: simResult.tierLabel,
+        finalCost: simResult.finalCost,
+        currency: simResult.currency,
+        reference: invoiceReference,
+        vatRate: simResult.taxType || simResult.matchedBand?.vat_rate || null,
+        nominalCode: await resolveMembershipNominalCode(supabase, tenantId, simResult),
+        invoiceDescription: simResult.config?.invoice_description || null,
+        extraLineItems: buildExtraLineItems(addonLines),
+      });
+
+      if (invoice) {
+        const { error: linkError } = await supabase
+          .from('organisation_membership_history')
+          .update(buildInvoiceColumnUpdate(invoice))
+          .eq('id', inserted.id);
+        if (linkError) {
+          console.error(`[Workflows] Failed to link ${providerLabel} invoice for org ${organizationId}:`, linkError.message);
+        }
+
+        try {
+          await processTrainingFundAddons({
+            tenantId,
+            organizationId,
+            invoice,
+            addonLines,
+          });
+        } catch (tfErr) {
+          console.error(`[Workflows] Training fund add-on processing failed for org ${organizationId} (non-fatal):`, tfErr.message);
+        }
+      }
+    } catch (invErr) {
+      console.error(`[Workflows] ${providerLabel} invoice failed for org ${organizationId} (record kept, non-fatal):`, invErr.message);
+      invoiceError = invErr.message;
+    }
+
+    if (!invoice) {
+      // Flag the row for the admin "Retry" affordance (Task #1112): the
+      // OrgMembershipTab invoice column shows a Retry button only for rows
+      // with accounting_sync_status='failed', which re-mints via
+      // /api/admin/membership-invoice-retry. Without this the record would
+      // sit permanently invoice-less (the duplicate-year guard blocks a
+      // workflow re-run).
+      const { error: flagError } = await supabase
+        .from('organisation_membership_history')
+        .update({
+          accounting_sync_status: 'failed',
+          accounting_sync_error: String(invoiceError || `${providerLabel} invoice was not created`).slice(0, 500),
+        })
+        .eq('id', inserted.id);
+      if (flagError) {
+        console.error(`[Workflows] Failed to flag invoice failure for retry on record ${inserted.id}:`, flagError.message);
+      }
+    }
+
+    if (invoice) {
+      try {
+        const { sendMembershipInvoiceEmail } = await import('./membershipInvoiceEmail.js');
+        await sendMembershipInvoiceEmail({
+          tenantId,
+          organizationId,
+          organizationName: simResult.org.name,
+          membershipYear: targetYearLabel,
+          finalCost: simResult.finalCost,
+          currency: simResult.currency,
+          tierLabel: simResult.tierLabel,
+          xeroInvoiceNumber: invoice.invoice_number,
+          xeroInvoiceId: invoice.invoice_id,
+          historyRecordId: inserted.id,
+          vatAmount: simResult.vatAmount || 0,
+          totalWithVat: simResult.totalWithVat || simResult.finalCost,
+          onlineInvoiceUrl: invoice.online_invoice_url || null,
+          tierConfig: simResult.config,
+        });
+      } catch (emailErr) {
+        console.error(`[Workflows] Membership invoice email failed for org ${organizationId} (non-fatal):`, emailErr.message);
+      }
+    }
+
     return {
       action_type: 'create_membership',
-      status: 'success',
+      // A membership record without its invoice is incomplete — surface it
+      // as partial so the workflow log doesn't read as a clean success.
+      status: invoice ? 'success' : 'partial',
+      ...(invoice
+        ? { invoice_number: invoice.invoice_number || null, invoice_provider: providerLabel }
+        : { invoice_error: invoiceError || `${providerLabel} invoice was not created - check the ${providerLabel} connection`, message: 'Membership record created but the invoice could not be created' }),
       membership_id: inserted.id,
       organization_id: organizationId,
       organization_name: simResult.org.name,
@@ -2325,7 +2455,7 @@ async function logWorkflowExecution(workflow, entityType, entityId, triggerData,
     status = 'partial';
   }
   const problems = (results || [])
-    .filter(r => r?.status === 'skipped' || r?.status === 'failed')
+    .filter(r => r?.status === 'skipped' || r?.status === 'failed' || r?.status === 'partial')
     .map(r => `${r.action_type || 'action'} ${r.status}${r.message ? `: ${r.message}` : r.error ? `: ${r.error}` : ''}`);
   await supabase.from('workflow_log').insert({
     tenant_id: workflow.tenant_id,
