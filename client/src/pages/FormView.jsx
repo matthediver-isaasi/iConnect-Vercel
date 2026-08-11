@@ -18,6 +18,7 @@ import { getFormPagination } from "@/lib/formPagination";
 import { resolveSubmitControl } from "../../../api/_lib/formSubmitControl.js";
 import { evaluateLmicCondition } from "../../../api/_lib/formLmicConditions.js";
 import { useSubmissionIdempotencyKey } from "@/lib/useSubmissionIdempotencyKey";
+import { useCardSwipeAutoFocus } from "@/lib/cardSwipeAutoFocus";
 import { useMembershipFeeQuote } from "@/lib/useMembershipFeeQuote";
 
 // A `redirect_url` beginning with this prefix means the redirect target is driven
@@ -70,6 +71,10 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
   const { setForceBlankLayout } = useLayoutContext();
 
   const [currentStep, setCurrentStep] = useState(0);
+  // Task #3515: never autofocus the first card on initial mount (browsers
+  // scroll a focused input into view, yanking embedding pages down to the
+  // form); step transitions still focus as before.
+  const cardSwipeAutoFocusFor = useCardSwipeAutoFocus(currentStep);
   const [currentPageIndex, setCurrentPageIndex] = useState(0);
   const [formValues, setFormValues] = useState({});
   const [submitted, setSubmitted] = useState(false);
@@ -2588,7 +2593,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
                 selectedOrgGuestAccess={selectedOrgGuestAccess}
                 disabled={disabledFieldIds.has(currentField.id)}
                 onValidityChange={handleValidityChange}
-                autoFocus={['text', 'email', 'url', 'number', 'tel', 'textarea'].includes(currentField.type)}
+                autoFocus={cardSwipeAutoFocusFor(currentField.type)}
                 formId={form?.id}
                 formMemberRoleId={prefillMember?.role_id || memberData?.role_id || null}
                 allFormValues={formValues}

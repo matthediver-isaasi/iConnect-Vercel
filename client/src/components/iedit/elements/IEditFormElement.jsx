@@ -7,6 +7,7 @@ import FormRenderer from "../../forms/FormRenderer";
 import { base44 } from "@/api/base44Client";
 import { publicClient, getTenantSlugFromLocation } from "@/api/publicClient";
 import { useSubmissionIdempotencyKey } from "@/lib/useSubmissionIdempotencyKey";
+import { useCardSwipeAutoFocus } from "@/lib/cardSwipeAutoFocus";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Loader2, AlertCircle, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Upload, X, Image as ImageIcon, FolderOpen, Folder, Home, Search, FileText, CheckCircle2, Save, Copy, Check, AlertTriangle, LogIn, Lock } from "lucide-react";
@@ -71,6 +72,10 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
   const formSlug = content.form_slug;
   const [formValues, setFormValues] = useState({});
   const [currentStep, setCurrentStep] = useState(0);
+  // Task #3515: never autofocus the first card on initial mount (browsers
+  // scroll a focused input into view, yanking embedding pages down to the
+  // form); step transitions still focus as before.
+  const cardSwipeAutoFocusFor = useCardSwipeAutoFocus(currentStep);
   const [currentPageIndex, setCurrentPageIndex] = useState(0);
   const [submitted, setSubmitted] = useState(false);
   const [isValidating, setIsValidating] = useState(false);
@@ -1930,7 +1935,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
                   selectedOrgGuestAccess={selectedOrgGuestAccess}
                   disabled={disabledFieldIds.has(currentField.id)}
                   onValidityChange={handleValidityChange}
-                  autoFocus={['text', 'email', 'url', 'number', 'tel', 'textarea'].includes(currentField.type)}
+                  autoFocus={cardSwipeAutoFocusFor(currentField.type)}
                   allFormValues={formValues}
                 />
               )}

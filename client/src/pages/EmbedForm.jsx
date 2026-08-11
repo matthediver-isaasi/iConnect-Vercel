@@ -12,6 +12,7 @@ import { publicClient } from "@/api/publicClient";
 import { base44 } from "@/api/base44Client";
 import { buildPrefillValues, resolveEffectivePrefillIds, resolveMemberSourceOrgId, shouldWaitForPrefillCustomValues, shouldWaitForPrefillOrgEntity, isFieldValueFilled } from "@/lib/formFieldPrefill";
 import { useSubmissionIdempotencyKey } from "@/lib/useSubmissionIdempotencyKey";
+import { useCardSwipeAutoFocus } from "@/lib/cardSwipeAutoFocus";
 import { useMembershipFeeQuote } from "@/lib/useMembershipFeeQuote";
 import { evaluateLmicCondition } from "../../../api/_lib/formLmicConditions.js";
 import { resolveSubmitControl } from "../../../api/_lib/formSubmitControl.js";
@@ -27,6 +28,10 @@ export default function EmbedFormPage() {
   const [searchParams] = useSearchParams();
   
   const [currentStep, setCurrentStep] = useState(0);
+  // Task #3515: never autofocus the first card on initial mount (browsers
+  // scroll a focused input into view, yanking embedding pages down to the
+  // form); step transitions still focus as before.
+  const cardSwipeAutoFocusFor = useCardSwipeAutoFocus(currentStep);
   const [currentPageIndex, setCurrentPageIndex] = useState(0);
   const [formValues, setFormValues] = useState({});
   const [submitted, setSubmitted] = useState(false);
@@ -1108,7 +1113,7 @@ export default function EmbedFormPage() {
                 }}
                 onValidityChange={handleValidityChange}
                 disabled={false}
-                autoFocus={['text', 'email', 'url', 'number', 'tel', 'textarea'].includes(currentField.type)}
+                autoFocus={cardSwipeAutoFocusFor(currentField.type)}
                 formId={form?.id}
                 allFormValues={formValues}
                 membershipFeeQuote={membershipFeeQuote}
