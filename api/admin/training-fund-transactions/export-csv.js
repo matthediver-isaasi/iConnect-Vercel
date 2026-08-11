@@ -34,13 +34,15 @@ function formatTransactionTypeLabel(type) {
     case 'add': return 'Added';
     case 'deduct': return 'Deducted';
     case 'booking_usage': return 'Booking';
+    case 'resync': return 'Balance resync';
     default: return type || '';
   }
 }
 
 function formatSignedAmount(txn) {
   const amt = Math.abs(parseFloat(txn.amount || 0));
-  const sign = txn.type === 'add' ? '' : '-';
+  // Zero-amount rows (e.g. 'resync' reconciliation records) carry no sign.
+  const sign = txn.type === 'add' || !(amt > 0) ? '' : '-';
   return `${sign}${amt.toFixed(2)}`;
 }
 

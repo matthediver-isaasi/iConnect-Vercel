@@ -13,7 +13,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
-import { Building2, Search, ChevronLeft, ChevronRight, Plus, Minus, Wallet, TrendingUp, TrendingDown, History, ArrowLeft, X, Wifi, Download, Loader2, AlertTriangle, CalendarIcon, ArrowUp, ArrowDown, Trash2, Clock } from "lucide-react";
+import { Building2, Search, ChevronLeft, ChevronRight, Plus, Minus, Wallet, TrendingUp, TrendingDown, History, ArrowLeft, X, Wifi, Download, Loader2, AlertTriangle, CalendarIcon, ArrowUp, ArrowDown, Trash2, Clock, RefreshCw } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { toast } from "sonner";
 import { format } from "date-fns";
@@ -114,7 +114,15 @@ export default function TrainingFundManagementPage() {
   const [showAdjustDialog, setShowAdjustDialog] = useState(false);
   
   const [selectedOrg, setSelectedOrg] = useState(null);
-  
+
+  // Balance resync (drift repair) dialog state. The preview is loaded via a
+  // dry-run call to the resync endpoint so the numbers shown come from the
+  // exact same server-side computation that the confirm will apply.
+  const [resyncOrg, setResyncOrg] = useState(null);
+  const [showResyncDialog, setShowResyncDialog] = useState(false);
+  const [resyncPreview, setResyncPreview] = useState(null);
+  const [resyncPreviewError, setResyncPreviewError] = useState(null);
+
   const queryClient = useQueryClient();
 
   // Realtime callbacks for admin updates
@@ -360,6 +368,65 @@ export default function TrainingFundManagementPage() {
     onError: (error) => {
       console.error('[TrainingFund] Mutation error:', error);
       toast.error('Failed to update balance: ' + error.message);
+    }
+  });
+
+  const fetchResyncPreview = async (orgId) => {
+    const res = await fetch('/api/admin/training-fund-transactions/resync', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ organization_id: orgId, dry_run: true }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(data?.error || 'Failed to load resync preview');
+    }
+    return data;
+  };
+
+  const handleResync = (org, e) => {
+    if (e) e.stopPropagation();
+    setResyncOrg(org);
+    setResyncPreview(null);
+    setResyncPreviewError(null);
+    setShowResyncDialog(true);
+    fetchResyncPreview(org.id)
+      .then(setResyncPreview)
+      .catch(err => setResyncPreviewError(err.message || 'Failed to load resync preview'));
+  };
+
+  const resyncMutation = useMutation({
+    mutationFn: async (orgId) => {
+      const res = await fetch('/api/admin/training-fund-transactions/resync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ organization_id: orgId, dry_run: false }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data?.error || 'Failed to resync balance');
+      }
+      return data;
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['organizations'] });
+      queryClient.invalidateQueries({ queryKey: ['training-fund-transactions'] });
+      setShowResyncDialog(false);
+      setResyncOrg(null);
+      setResyncPreview(null);
+      if (data.resynced) {
+        toast.success(
+          `Balance resynced: £${Number(data.stored_balance).toFixed(2)} → £${Number(data.ledger_balance).toFixed(2)}`
+        );
+      } else {
+        toast.info('Balance is already in sync with the transaction ledger');
+      }
+    },
+    onError: (error) => {
+      console.error('[TrainingFund] Resync error:', error);
+      toast.error('Failed to resync balance: ' + error.message);
     }
   });
 
@@ -768,6 +835,7 @@ export default function TrainingFundManagementPage() {
       case 'add': return { label: 'Added', color: 'bg-green-100 text-green-800' };
       case 'deduct': return { label: 'Deducted', color: 'bg-red-100 text-red-800' };
       case 'booking_usage': return { label: 'Booking', color: 'bg-blue-100 text-blue-800' };
+      case 'resync': return { label: 'Balance resync', color: 'bg-purple-100 text-purple-800' };
       default: return { label: type, color: 'bg-slate-100 text-slate-800' };
     }
   };
@@ -1422,14 +1490,28 @@ export default function TrainingFundManagementPage() {
                           )}
                         </div>
                         
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={(e) => handleAdjust(org, e)}
-                          data-testid={`button-adjust-${org.id}`}
-                        >
-                          Adjust
-                        </Button>
+                        <div className="flex flex-col gap-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={(e) => handleAdjust(org, e)}
+                            data-testid={`button-adjust-${org.id}`}
+                          >
+                            Adjust
+                          </Button>
+                          {driftSummaryData && orgDriftMap[org.id]?.hasDrift && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="border-warning text-warning hover:text-warning"
+                              onClick={(e) => handleResync(org, e)}
+                              data-testid={`button-resync-${org.id}`}
+                            >
+                              <RefreshCw className="w-3.5 h-3.5 mr-1" />
+                              Resync
+                            </Button>
+                          )}
+                        </div>
                       </div>
                     </div>
                   </CardContent>
@@ -1604,6 +1686,116 @@ export default function TrainingFundManagementPage() {
               >
                 {updateBalanceMutation.isPending ? 'Saving...' : 
                   adjustmentType === "add" ? 'Add Funds' : 'Deduct Funds'}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog
+          open={showResyncDialog}
+          onOpenChange={(open) => {
+            setShowResyncDialog(open);
+            if (!open) {
+              setResyncOrg(null);
+              setResyncPreview(null);
+              setResyncPreviewError(null);
+            }
+          }}
+        >
+          <DialogContent className="max-w-md" data-testid="dialog-resync">
+            <DialogHeader>
+              <DialogTitle>Resync Training Fund Balance</DialogTitle>
+              <DialogDescription>
+                Set the stored balance back to the value derived from the transaction ledger.
+              </DialogDescription>
+            </DialogHeader>
+
+            {resyncOrg && (
+              <div className="space-y-4">
+                <div className="p-3 bg-slate-50 rounded-lg">
+                  <div className="flex items-center gap-2">
+                    <Building2 className="w-4 h-4 text-slate-500" />
+                    <span className="font-medium text-slate-900">{resyncOrg.name}</span>
+                  </div>
+                </div>
+
+                {resyncPreviewError ? (
+                  <p className="text-sm text-red-600" data-testid="text-resync-error">
+                    {resyncPreviewError}
+                  </p>
+                ) : !resyncPreview ? (
+                  <div className="flex items-center gap-2 text-sm text-slate-500 py-2">
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Calculating ledger balance...
+                  </div>
+                ) : resyncPreview.in_sync ? (
+                  <p className="text-sm text-slate-600" data-testid="text-resync-in-sync">
+                    This organisation's stored balance (£{Number(resyncPreview.stored_balance).toFixed(2)})
+                    already matches the transaction ledger. No correction is needed.
+                  </p>
+                ) : (
+                  <>
+                    <div className="grid grid-cols-3 gap-3 text-sm">
+                      <div>
+                        <p className="text-slate-500">Stored balance</p>
+                        <p className="text-lg font-semibold text-slate-900" data-testid="text-resync-stored">
+                          £{Number(resyncPreview.stored_balance).toFixed(2)}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-slate-500">Ledger balance</p>
+                        <p className="text-lg font-semibold text-slate-900" data-testid="text-resync-ledger">
+                          £{Number(resyncPreview.ledger_balance).toFixed(2)}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-slate-500">Difference</p>
+                        <p className="text-lg font-semibold text-warning" data-testid="text-resync-difference">
+                          {Number(resyncPreview.difference) >= 0 ? '+' : '−'}£{Math.abs(Number(resyncPreview.difference)).toFixed(2)}
+                        </p>
+                      </div>
+                    </div>
+                    <p className="text-sm text-slate-600">
+                      Confirming will set the stored balance to the ledger-derived value of{' '}
+                      <span className="font-semibold">£{Number(resyncPreview.ledger_balance).toFixed(2)}</span>{' '}
+                      and record an auditable reconciliation entry. This does not add or remove funds
+                      from the transaction ledger.
+                    </p>
+                  </>
+                )}
+              </div>
+            )}
+
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => setShowResyncDialog(false)}
+                data-testid="button-resync-cancel"
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={() => resyncMutation.mutate(resyncOrg.id)}
+                disabled={
+                  !resyncOrg ||
+                  !resyncPreview ||
+                  resyncPreview.in_sync ||
+                  !!resyncPreviewError ||
+                  resyncMutation.isPending
+                }
+                data-testid="button-resync-confirm"
+              >
+                {resyncMutation.isPending ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Resyncing...
+                  </>
+                ) : (
+                  <>
+                    <RefreshCw className="w-4 h-4 mr-2" />
+                    Confirm Resync
+                  </>
+                )}
               </Button>
             </DialogFooter>
           </DialogContent>

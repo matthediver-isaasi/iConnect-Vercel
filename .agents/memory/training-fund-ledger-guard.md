@@ -8,3 +8,5 @@ Rule: the organization training fund balance columns may only change through a p
 **Why:** client-side read-modify-write (e.g. an org-detail save carrying a stale balance snapshot) silently corrupted balances vs the ledger; the drift indicator on /TrainingFundManagement flags any divergence.
 
 **How to apply:** never re-expose these columns as writable in admin field lists; any new balance-changing feature needs a new atomic RPC, never a balance update plus a separate ledger insert. Beware: booking payment/cancellation paths still do non-atomic two-step server-side writes (known follow-up).
+
+**Resync repair path:** drift is repaired by an atomic resync RPC whose ledger-derivation must mirror the drift-summary math exactly; its audit record must be a ZERO-DELTA ledger row (before = after = corrected value) — a signed correction row would shift the ledger sum and reintroduce the drift it fixed.
