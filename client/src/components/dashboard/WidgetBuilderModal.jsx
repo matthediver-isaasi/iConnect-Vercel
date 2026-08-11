@@ -218,7 +218,23 @@ function buildFieldOptions(source) {
     aggregatable: !!f.aggregatable,
     options: Array.isArray(f.options) ? f.options : null,
   }));
-  return [...system, ...custom];
+  // Booking source only: ORGANISATION-level custom fields (application
+  // status, org type, ...). Filter-only — the engine resolves matching
+  // organisations and keeps their bookings; there is no per-booking value
+  // to measure, group or time-bucket over.
+  const org = (source.organisationFields || []).map(f => ({
+    value: `org:custom:${f.id}`,
+    label: `${f.label} (organisation)`,
+    fieldKind: "custom",
+    field: null,
+    fieldId: f.id,
+    type: f.type,
+    aggregatable: false,
+    options: Array.isArray(f.options) ? f.options : null,
+    orgField: true,
+    filterOnly: true,
+  }));
+  return [...system, ...custom, ...org];
 }
 
 export default function WidgetBuilderModal({
@@ -295,9 +311,13 @@ export default function WidgetBuilderModal({
   // registry order.
   const groupByOptions = useMemo(
     () =>
-      [...fieldOptions].sort((a, b) =>
-        (a.label || "").localeCompare(b.label || "", undefined, { sensitivity: "base" }),
-      ),
+      [...fieldOptions]
+        // Filter-only descriptors (organisation-level booking filters)
+        // never appear in the group-by picker.
+        .filter(o => !o.filterOnly)
+        .sort((a, b) =>
+          (a.label || "").localeCompare(b.label || "", undefined, { sensitivity: "base" }),
+        ),
     [fieldOptions],
   );
 
@@ -1250,6 +1270,8 @@ export default function WidgetBuilderModal({
                         // Derived group-only dimensions (e.g. Region) have
                         // no stored column to measure over.
                         if (opt.groupOnly) return false;
+                        // Organisation-level booking filters are filter-only.
+                        if (opt.filterOnly) return false;
                         // count / count_distinct accept any field type
                         // (e.g. count_distinct on country); numeric
                         // aggregators are restricted to aggregatable fields.
@@ -1534,7 +1556,7 @@ export default function WidgetBuilderModal({
                   <SelectContent>
                     <SelectItem value="__none__">No bucket</SelectItem>
                     {fieldOptions
-                      .filter(opt => opt.type === "date")
+                      .filter(opt => opt.type === "date" && !opt.filterOnly)
                       .map(opt => (
                         <SelectItem key={opt.value} value={opt.value}>
                           {opt.label}
@@ -1682,7 +1704,12 @@ export default function WidgetBuilderModal({
                   const opt = fieldOptions.find(o =>
                     filter.fieldKind === "system"
                       ? o.fieldKind === "system" && o.field === filter.field
-                      : o.fieldKind === "custom" && o.fieldId === filter.fieldId,
+                      // Organisation-level and row-level custom fields can
+                      // never share a fieldId in practice, but match the
+                      // orgField marker too so the row re-selects the right
+                      // descriptor.
+                      : o.fieldKind === "custom" && o.fieldId === filter.fieldId
+                        && !!o.orgField === !!filter.orgField,
                   );
                   // Region filters offer the bucket list of the filter's
                   // chosen scheme (not the field's static app-scheme
@@ -1708,6 +1735,10 @@ export default function WidgetBuilderModal({
                             fieldKind: sel.fieldKind,
                             field: sel.field,
                             fieldId: sel.fieldId,
+                            // Organisation-level booking filter marker: the
+                            // engine resolves these against the linked
+                            // organisation, not the booking row.
+                            orgField: sel.orgField ? true : null,
                             // Stage only applies to the synthetic DD stage
                             // field; drop it when switching to anything else.
                             stage: sel.stageField ? (filter.stage || null) : null,

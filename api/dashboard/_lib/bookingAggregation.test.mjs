@@ -5,6 +5,7 @@ import {
   computeParticipationSplit,
   bookingMeasureValue,
   matchFilter,
+  orgMatchesOrgFilters,
 } from './aggregation.js';
 
 // ---------------------------------------------------------------------------
@@ -176,4 +177,83 @@ test('participation: empty org list yields empty split', () => {
   assert.deepEqual(split.bookedOrgIds, []);
   assert.deepEqual(split.notBookedOrgIds, []);
   assert.equal(split.totalOrganisations, 0);
+});
+
+// ---------------------------------------------------------------------------
+// Organisation-level (orgField) filters — Task #3531
+// ---------------------------------------------------------------------------
+
+const appStatus = 'field-app-status';
+const sectors = 'field-sectors';
+
+test('orgMatchesOrgFilters: eq on application status matches the stored value', () => {
+  const f = [{ fieldKind: 'custom', fieldId: appStatus, operator: 'eq', value: 'Approved', orgField: true }];
+  assert.equal(orgMatchesOrgFilters({ [appStatus]: 'Approved' }, f, null, new Set()), true);
+  assert.equal(orgMatchesOrgFilters({ [appStatus]: 'Pending' }, f, null, new Set()), false);
+  // Missing value never matches eq — an org with no status is not approved.
+  assert.equal(orgMatchesOrgFilters({}, f, null, new Set()), false);
+});
+
+test('orgMatchesOrgFilters: in / is_null / multiple filters combine with AND', () => {
+  const inFilter = [{ fieldKind: 'custom', fieldId: appStatus, operator: 'in', value: ['Approved', 'Member'], orgField: true }];
+  assert.equal(orgMatchesOrgFilters({ [appStatus]: 'Member' }, inFilter, null, new Set()), true);
+  assert.equal(orgMatchesOrgFilters({ [appStatus]: 'Rejected' }, inFilter, null, new Set()), false);
+
+  const nullFilter = [{ fieldKind: 'custom', fieldId: appStatus, operator: 'is_null', orgField: true }];
+  assert.equal(orgMatchesOrgFilters({}, nullFilter, null, new Set()), true);
+  assert.equal(orgMatchesOrgFilters({ [appStatus]: 'Approved' }, nullFilter, null, new Set()), false);
+
+  const both = [
+    { fieldKind: 'custom', fieldId: appStatus, operator: 'eq', value: 'Approved', orgField: true },
+    { fieldKind: 'custom', fieldId: sectors, operator: 'is_not_null', orgField: true },
+  ];
+  assert.equal(orgMatchesOrgFilters({ [appStatus]: 'Approved', [sectors]: ['Health'] }, both, null, new Set()), true);
+  assert.equal(orgMatchesOrgFilters({ [appStatus]: 'Approved' }, both, null, new Set()), false);
+});
+
+test('orgMatchesOrgFilters: list-typed fields match when ANY element satisfies', () => {
+  const f = [{ fieldKind: 'custom', fieldId: sectors, operator: 'eq', value: 'Health', orgField: true }];
+  const listIds = new Set([sectors]);
+  assert.equal(orgMatchesOrgFilters({ [sectors]: ['Energy', 'Health'] }, f, null, listIds), true);
+  assert.equal(orgMatchesOrgFilters({ [sectors]: ['Energy'] }, f, null, listIds), false);
+  // A missing listFieldIds set degrades to scalar semantics without throwing.
+  assert.equal(orgMatchesOrgFilters({ [sectors]: 'Health' }, f, null, undefined), true);
+});
+
+test('org filter applied to booking rows: only bookings of allowed orgs remain (org-less excluded)', () => {
+  // Mirrors the aggregator's allowed-set application: an organisation
+  // filter implies the booking HAS a matching organisation, so guest /
+  // org-less bookings drop out alongside non-matching organisations.
+  const allowed = new Set(['o1']);
+  const kept = rows.filter(r => r.organization_id && allowed.has(String(r.organization_id)));
+  assert.ok(kept.length > 0);
+  assert.ok(kept.every(r => r.organization_id === 'o1'));
+  assert.ok(!kept.some(r => r.organization_id === null || r.organization_id === 'o2'));
+});
+
+test('participation with org filter: the universe shrinks to matching orgs', () => {
+  // With an org filter, the split runs over the ALLOWED org list, so
+  // "Not booked" no longer counts organisations the filter excluded.
+  const allowedUniverse = ['o1', 'o3'];
+  const split = computeParticipationSplit(rows, allowedUniverse);
+  assert.equal(split.totalOrganisations, 2);
+  assert.deepEqual(split.bookedOrgIds, ['o1']);
+  assert.deepEqual(split.notBookedOrgIds, ['o3']);
+  // o2's booking is ignored — its org is outside the filtered universe.
+  assert.ok(!split.bookedOrgIds.includes('o2'));
+});
+
+test('widget config validation keeps the orgField marker (zod must not strip it)', async () => {
+  const { widgetConfigSchema } = await import('./validation.js');
+  const parsed = widgetConfigSchema.parse({
+    source: 'event_booking',
+    measure: { aggregator: 'count', field: null, fieldKind: null, fieldId: null },
+    filters: [
+      { fieldKind: 'custom', fieldId: appStatus, operator: 'eq', value: 'Approved', orgField: true },
+      { fieldKind: 'system', field: 'status', operator: 'eq', value: 'confirmed' },
+    ],
+    participation: true,
+  });
+  assert.equal(parsed.filters[0].orgField, true);
+  assert.equal(parsed.filters[1].orgField ?? null, null);
 });

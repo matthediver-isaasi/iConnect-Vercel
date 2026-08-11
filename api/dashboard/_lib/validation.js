@@ -22,6 +22,11 @@ const filterSchema = z.object({
   // Active/Inactive bucket is computed against for this filter.
   from: z.string().nullable().optional(),
   to: z.string().nullable().optional(),
+  // Event-bookings only: marks a filter on an ORGANISATION-level custom
+  // field (fieldId = organisation preference_field id). The booking engine
+  // resolves matching organisations and keeps only their bookings. Must be
+  // whitelisted here or zod silently strips it and the filter degrades.
+  orgField: z.boolean().nullable().optional(),
 });
 
 // Optional secondary field references for additive measures. When the

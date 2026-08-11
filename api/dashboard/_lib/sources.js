@@ -472,6 +472,20 @@ export async function getSourceCatalog(tenantId) {
       ...(def.isConversion
         ? { forms: await getTenantFormOptions(tenantId) }
         : {}),
+      // Booking widgets can be filtered by ORGANISATION-level custom fields
+      // (e.g. application status, org type): the engine resolves the set of
+      // matching organisations and keeps only bookings linked to them. These
+      // are filter-only descriptors — no measure/group/time-bucket support —
+      // published separately so the builder can label and gate them.
+      ...(def.isBooking
+        ? {
+            organisationFields: (
+              await getCustomFieldsForSource(DASHBOARD_SOURCES.organization, tenantId)
+            )
+              .filter(f => !new Set(hiddenBySource.organization || []).has(`custom:${f.id}`))
+              .map(f => ({ ...f, orgField: true })),
+          }
+        : {}),
       systemFields,
       customFields,
     });

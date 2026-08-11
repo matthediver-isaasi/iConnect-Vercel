@@ -2054,6 +2054,52 @@ async function fetchBookingRows(table, columns, tenantId, pushdownFilters, budge
   return rows;
 }
 
+/**
+ * Resolve organisation-level (orgField) filters into the Set of matching
+ * organisation ids (as strings). Loads the tenant's full organisation list
+ * (paginated — PostgREST caps responses at 1000 rows), hydrates the
+ * referenced organisation preference values, and applies the same
+ * matchFilter semantics as the generic engine — including any-element
+ * matching for list-typed fields and LMIC expansion for country fields.
+ * Organisations with NO stored value only match is_null / neq-style
+ * predicates, exactly like the organisation-source widgets.
+ */
+async function resolveBookingOrgFilterIds(orgFilters, tenantId) {
+  const orgIds = await loadAllTenantOrgIds(tenantId);
+  const fieldIds = new Set(orgFilters.map(f => f.fieldId));
+  const prefMap = await loadPreferenceValues({
+    table: 'organization_preference_value',
+    fkColumn: 'organization_id',
+    ids: orgIds,
+    fieldIds: Array.from(fieldIds),
+  });
+  const { listFieldIds } = await resolveListFieldIds(
+    getSourceDef('organization'), tenantId, fieldIds,
+  );
+  const lmicCodes = orgFilters.some(f => f.operator === 'lmic' || f.operator === 'not_lmic')
+    ? await loadTenantLmicCodes(tenantId)
+    : null;
+  const allowed = new Set();
+  for (const id of orgIds) {
+    if (orgMatchesOrgFilters(prefMap.get(id) || {}, orgFilters, lmicCodes, listFieldIds)) {
+      allowed.add(String(id));
+    }
+  }
+  return allowed;
+}
+
+/**
+ * Pure predicate: does one organisation's hydrated preference map satisfy
+ * every organisation-level filter? Same matchFilter semantics as the
+ * organisation-source widgets (any-element for list fields, LMIC
+ * expansion, is_null on missing values). Exported for tests.
+ */
+export function orgMatchesOrgFilters(prefs, orgFilters, lmicCodes, listFieldIds) {
+  return orgFilters.every(f =>
+    matchFilter(prefs[f.fieldId], f, lmicCodes, listFieldIds?.has?.(f.fieldId) ?? false),
+  );
+}
+
 async function loadAllTenantOrgIds(tenantId) {
   const ids = [];
   for (let from = 0; from < MAX_TOTAL_ROWS; from += PAGE_SIZE) {
@@ -2157,12 +2203,22 @@ async function runBookingWidgetConfig(config, tenantId, source, maxGroups = MAX_
       `${measure.aggregator} is not supported on Event Bookings — only count / count_distinct.`,
     );
   }
+  // Organisation-level filters: custom fields on the booking's linked
+  // ORGANISATION (application status, org type, ...), marked orgField=true
+  // by the builder. They're resolved against the organisation universe
+  // below, not the booking rows.
+  const orgFilters = (config.filters || []).filter(f => f.orgField === true);
+  if (orgFilters.some(f => f.fieldKind !== 'custom' || !f.fieldId)) {
+    throw new Error('Organisation filters on Event Bookings must reference an organisation custom field');
+  }
   if (measure.fieldKind === 'custom' || groupBy?.kind === 'custom' || timeBucket?.fieldKind === 'custom'
-    || (config.filters || []).some(f => f.fieldKind === 'custom')) {
+    || (config.filters || []).some(f => f.fieldKind === 'custom' && f.orgField !== true)) {
     throw new Error('Event Bookings does not expose custom fields');
   }
 
-  const systemFilters = (config.filters || []).filter(f => f.fieldKind === 'system' && f.field);
+  const systemFilters = (config.filters || []).filter(
+    f => f.fieldKind === 'system' && f.field && f.orgField !== true,
+  );
   const pushdownFilters = systemFilters.filter(f => BOOKING_PUSHDOWN_FIELDS.has(f.field));
   // event_kind filters let us skip fetching a whole table when the widget
   // only looks at one kind.
@@ -2191,13 +2247,33 @@ async function runBookingWidgetConfig(config, tenantId, source, maxGroups = MAX_
 
   // Apply ALL system filters in JS on the normalised shape (pushdown
   // filters re-apply harmlessly — identical semantics via matchFilter).
-  const workingRows = normalised.filter(row =>
+  let workingRows = normalised.filter(row =>
     systemFilters.every(f => matchFilter(row[f.field], f, null, false)),
   );
 
+  // Resolve organisation-level filters into the set of matching org ids.
+  // null = no org filters (everything allowed, universe unrestricted).
+  const allowedOrgIds = orgFilters.length > 0
+    ? await resolveBookingOrgFilterIds(orgFilters, tenantId)
+    : null;
+  if (allowedOrgIds && !participation) {
+    // A filter on the organisation implies "the booking's organisation
+    // matches", so bookings with NO linked organisation (guest bookings,
+    // org-less member bookings) are excluded along with non-matching orgs.
+    workingRows = workingRows.filter(
+      row => row.organization_id && allowedOrgIds.has(String(row.organization_id)),
+    );
+  }
+
   // --- Organisation participation split -----------------------------------
   if (participation) {
-    const allOrgIds = await loadAllTenantOrgIds(tenantId);
+    // Org filters restrict the participation UNIVERSE itself: the split is
+    // computed over matching organisations only, so "Not booked" never
+    // counts organisations the filter excludes. Bookings by excluded orgs
+    // are ignored by the split arithmetic (their org isn't in the set).
+    const allOrgIds = allowedOrgIds
+      ? Array.from(allowedOrgIds)
+      : await loadAllTenantOrgIds(tenantId);
     const split = computeParticipationSplit(workingRows, allOrgIds);
     const withIds = (row, ids) => (options.collectRowIds ? { ...row, rowIds: ids } : row);
     return {
