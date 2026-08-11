@@ -755,19 +755,11 @@ export async function runWidgetConfig(config, tenantId, options = {}) {
     if (!buckets.has(key)) buckets.set(key, []);
     pushMeasureValues(buckets.get(key), row);
   });
-  const sortedKeys = Array.from(buckets.keys()).sort();
-  if (sortedKeys.length > MAX_BUCKETS) {
-    throw new Error(
-      `Time bucketing produced ${sortedKeys.length} buckets (max ${MAX_BUCKETS}). ` +
-      `Use a coarser granularity or add a date filter.`,
-    );
-  }
-  const timeRows = sortedKeys.map(key => ({ key, value: aggregate(buckets.get(key), measure.aggregator) }));
   return {
     type: 'time',
     total: workingRows.length,
     categories: ['value'],
-    rows: config.cumulative ? applyCumulative(timeRows) : timeRows,
+    rows: finalizeTimeRows(buckets, timeBucket, measure.aggregator, config.cumulative),
     granularity: timeBucket.granularity,
   };
 }
@@ -1423,6 +1415,112 @@ export function matchFilter(rawValue, filter, lmicCodes, isList = false) {
   }
 }
 
+/**
+ * Resolves a time-bucket rolling window ({ amount, unit }) to its UTC start
+ * date, aligned to the start of the unit period so full buckets are shown
+ * (e.g. "last 12 months" starts at the 1st of the month 11 months ago —
+ * the current, partial period counts as one of the X). Returns null for
+ * absent/invalid windows so legacy configs behave as "all time".
+ * Exported for tests.
+ */
+export function resolveTimeWindowStart(win, now = new Date()) {
+  if (!win || typeof win !== 'object') return null;
+  const amount = Math.floor(Number(win.amount));
+  if (!Number.isFinite(amount) || amount < 1) return null;
+  const back = amount - 1;
+  switch (win.unit) {
+    case 'day':
+      return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - back));
+    case 'week': {
+      const day = now.getUTCDay();
+      const diff = now.getUTCDate() - day + (day === 0 ? -6 : 1);
+      return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), diff - back * 7));
+    }
+    case 'month':
+      return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - back, 1));
+    case 'quarter': {
+      const qStartMonth = Math.floor(now.getUTCMonth() / 3) * 3;
+      return new Date(Date.UTC(now.getUTCFullYear(), qStartMonth - back * 3, 1));
+    }
+    case 'year':
+      return new Date(Date.UTC(now.getUTCFullYear() - back, 0, 1));
+    default:
+      return null;
+  }
+}
+
+// Parse a bucket key back to the UTC start date of its period so the
+// zero-fill enumerator can step from bucket to bucket.
+function bucketKeyStartDate(key, granularity) {
+  switch ((granularity || 'month').toLowerCase()) {
+    case 'month': {
+      const [y, m] = key.split('-').map(Number);
+      return new Date(Date.UTC(y, m - 1, 1));
+    }
+    case 'quarter': {
+      const [y, q] = key.split('-Q').map(Number);
+      return new Date(Date.UTC(y, (q - 1) * 3, 1));
+    }
+    case 'year':
+      return new Date(Date.UTC(Number(key), 0, 1));
+    default:
+      // day / week keys are full YYYY-MM-DD dates.
+      return new Date(`${key}T00:00:00.000Z`);
+  }
+}
+
+function addGranularityPeriod(date, granularity) {
+  const d = new Date(date.getTime());
+  switch ((granularity || 'month').toLowerCase()) {
+    case 'day': d.setUTCDate(d.getUTCDate() + 1); break;
+    case 'week': d.setUTCDate(d.getUTCDate() + 7); break;
+    case 'month': d.setUTCMonth(d.getUTCMonth() + 1); break;
+    case 'quarter': d.setUTCMonth(d.getUTCMonth() + 3); break;
+    case 'year': d.setUTCFullYear(d.getUTCFullYear() + 1); break;
+    default: d.setUTCDate(d.getUTCDate() + 1); break;
+  }
+  return d;
+}
+
+/**
+ * Turns a Map(bucketKey -> measure values) into sorted, chart-ready time
+ * rows, honouring the time bucket's optional rolling window. Without a
+ * window this reproduces the legacy behaviour exactly (every populated
+ * bucket, sorted). With one, only buckets inside the window are kept and
+ * every bucket between the window start and "now" appears — empty ones
+ * zero-filled — so the axis shows a continuous run of the last X periods.
+ * Shared by the generic, DD and booking aggregators. Exported for tests.
+ */
+export function finalizeTimeRows(buckets, timeBucket, aggregator, cumulative, now = new Date()) {
+  const windowStart = resolveTimeWindowStart(timeBucket?.window, now);
+  let sortedKeys;
+  if (windowStart) {
+    const endKey = bucketTimestamp(now, timeBucket.granularity);
+    const startKey = bucketTimestamp(windowStart, timeBucket.granularity);
+    sortedKeys = [];
+    let cursor = bucketKeyStartDate(startKey, timeBucket.granularity);
+    while (sortedKeys.length <= MAX_BUCKETS) {
+      const key = bucketTimestamp(cursor, timeBucket.granularity);
+      if (key > endKey) break;
+      sortedKeys.push(key);
+      cursor = addGranularityPeriod(cursor, timeBucket.granularity);
+    }
+  } else {
+    sortedKeys = Array.from(buckets.keys()).sort();
+  }
+  if (sortedKeys.length > MAX_BUCKETS) {
+    throw new Error(
+      `Time bucketing produced ${sortedKeys.length} buckets (max ${MAX_BUCKETS}). ` +
+      `Use a coarser granularity${windowStart ? ' or a smaller window' : ' or add a date filter'}.`,
+    );
+  }
+  const timeRows = sortedKeys.map(key => ({
+    key,
+    value: aggregate(buckets.get(key) || [], aggregator),
+  }));
+  return cumulative ? applyCumulative(timeRows) : timeRows;
+}
+
 function bucketTimestamp(raw, granularity) {
   if (!raw) return null;
   const d = new Date(raw);
@@ -1829,19 +1927,11 @@ async function runDdWidgetConfig(config, tenantId, source, maxGroups = MAX_GROUP
     if (!buckets.has(key)) buckets.set(key, []);
     pushMeasureValues(buckets.get(key), row);
   });
-  const sortedKeys = Array.from(buckets.keys()).sort();
-  if (sortedKeys.length > MAX_BUCKETS) {
-    throw new Error(
-      `Time bucketing produced ${sortedKeys.length} buckets (max ${MAX_BUCKETS}). ` +
-      `Use a coarser granularity or add a date filter.`,
-    );
-  }
-  const timeRows = sortedKeys.map(key => ({ key, value: aggregate(buckets.get(key), measure.aggregator) }));
   return {
     type: 'time',
     total: workingRows.length,
     categories: ['value'],
-    rows: config.cumulative ? applyCumulative(timeRows) : timeRows,
+    rows: finalizeTimeRows(buckets, timeBucket, measure.aggregator, config.cumulative),
     granularity: timeBucket.granularity,
   };
 }
@@ -2383,19 +2473,11 @@ async function runBookingWidgetConfig(config, tenantId, source, maxGroups = MAX_
     if (!buckets.has(key)) buckets.set(key, []);
     pushMeasureValues(buckets.get(key), row);
   });
-  const sortedKeys = Array.from(buckets.keys()).sort();
-  if (sortedKeys.length > MAX_BUCKETS) {
-    throw new Error(
-      `Time bucketing produced ${sortedKeys.length} buckets (max ${MAX_BUCKETS}). ` +
-      `Use a coarser granularity or add a date filter.`,
-    );
-  }
-  const timeRows = sortedKeys.map(key => ({ key, value: aggregate(buckets.get(key), measure.aggregator) }));
   return {
     type: 'time',
     total: workingRows.length,
     categories: ['value'],
-    rows: config.cumulative ? applyCumulative(timeRows) : timeRows,
+    rows: finalizeTimeRows(buckets, timeBucket, measure.aggregator, config.cumulative),
     granularity: timeBucket.granularity,
   };
 }

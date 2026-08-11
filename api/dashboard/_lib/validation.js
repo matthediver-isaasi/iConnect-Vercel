@@ -61,6 +61,14 @@ const timeBucketSchema = z.object({
   // DD-only: when the bucket field is the synthetic "Date moved to stage …"
   // field, carries the canonical DD status whose entry timestamp is bucketed.
   stage: z.string().nullable().optional(),
+  // Optional rolling window: only buckets falling within the last
+  // `amount` `unit`s (relative to "now" at query time, UTC, aligned to
+  // the start of the unit period) are shown, with empty buckets inside
+  // the window zero-filled. Null/absent = all time (legacy behaviour).
+  window: z.object({
+    amount: z.number().int().min(1).max(120),
+    unit: z.enum(['day', 'week', 'month', 'quarter', 'year']),
+  }).nullable().optional(),
 });
 
 const groupBySchema = z.object({

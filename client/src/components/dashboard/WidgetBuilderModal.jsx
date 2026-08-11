@@ -1592,6 +1592,103 @@ export default function WidgetBuilderModal({
               </div>
             </div>
 
+            {draft.config.timeBucket?.field && (
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label>Show</Label>
+                  <Select
+                    value={draft.config.timeBucket?.window ? "window" : "all"}
+                    onValueChange={value =>
+                      updateConfig({
+                        timeBucket: {
+                          ...draft.config.timeBucket,
+                          window:
+                            value === "window"
+                              ? draft.config.timeBucket?.window || {
+                                  amount: 12,
+                                  unit:
+                                    draft.config.timeBucket?.granularity ||
+                                    "month",
+                                }
+                              : null,
+                        },
+                      })
+                    }
+                  >
+                    <SelectTrigger data-testid="select-widget-timebucket-window-mode">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All time</SelectItem>
+                      <SelectItem value="window">Last X periods</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                {draft.config.timeBucket?.window && (
+                  <div className="space-y-2">
+                    <Label>Last</Label>
+                    <div className="flex gap-2">
+                      <Input
+                        type="number"
+                        min={1}
+                        max={120}
+                        className="w-24"
+                        data-testid="input-widget-timebucket-window-amount"
+                        value={draft.config.timeBucket.window.amount ?? ""}
+                        onChange={e => {
+                          const raw = parseInt(e.target.value, 10);
+                          const amount = Number.isFinite(raw)
+                            ? Math.min(120, Math.max(1, raw))
+                            : 1;
+                          updateConfig({
+                            timeBucket: {
+                              ...draft.config.timeBucket,
+                              window: {
+                                ...draft.config.timeBucket.window,
+                                amount,
+                              },
+                            },
+                          });
+                        }}
+                      />
+                      <Select
+                        value={draft.config.timeBucket.window.unit || "month"}
+                        onValueChange={value =>
+                          updateConfig({
+                            timeBucket: {
+                              ...draft.config.timeBucket,
+                              window: {
+                                ...draft.config.timeBucket.window,
+                                unit: value,
+                              },
+                            },
+                          })
+                        }
+                      >
+                        <SelectTrigger
+                          className="flex-1"
+                          data-testid="select-widget-timebucket-window-unit"
+                        >
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {TIME_GRANULARITIES.map(g => (
+                            <SelectItem key={g.value} value={g.value}>
+                              {g.label}s
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Only the most recent periods are shown; the window
+                      rolls forward automatically.
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+
             {(() => {
               // When the chosen time-bucket field is the synthetic "Date moved
               // to stage …" DD field, surface a stage picker — the count is

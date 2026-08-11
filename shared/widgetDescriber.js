@@ -192,6 +192,14 @@ export function describeWidgetConfig(config, options = {}) {
         fieldLabel,
       ) || humaniseFieldName(config.timeBucket.field);
     let sentence = `Values are shown over time by ${granularity}, based on ${lowerFirst(tbLabel)}.`;
+    const win = config.timeBucket.window;
+    if (win && Number(win.amount) >= 1 && win.unit) {
+      const amount = Number(win.amount);
+      const unitLabel = GRANULARITY_LABEL[win.unit] || win.unit;
+      sentence += amount === 1
+        ? ` Only the current ${unitLabel} is shown.`
+        : ` Only the last ${amount} ${unitLabel}s are shown, rolling forward automatically.`;
+    }
     if (config.cumulative) {
       sentence += ' Each point is a running total that includes all earlier periods.';
     }
