@@ -1,0 +1,1436 @@
+# Replit Scope — iConnect Demo Tenant Seeder: AESP
+
+## 1. Objective
+
+Build a reusable demo-tenant seeding capability for iConnect, beginning with a fully populated fictional professional membership organisation:
+
+**AESP — Association of Environmental & Sustainability Professionals**
+
+This must not simply create a tenant with a few dummy users. The objective is to create a convincing, populated membership organisation that can be used for:
+
+* sales demonstrations;
+* development/testing;
+* screenshots and marketing;
+* staff training;
+* testing reporting and dashboards;
+* demonstrating realistic workflows;
+* demonstrating different membership states and edge cases.
+
+AESP is the first of three planned demo tenants.
+
+The seeding architecture must therefore be generic enough that subsequent demo organisations can be defined using configuration/data rather than requiring another one-off implementation.
+
+---
+
+# 2. Important First Step — Audit Existing iConnect Architecture
+
+Before implementing anything, inspect the existing iConnect database schema, models, APIs and tenant architecture.
+
+Identify the existing entities used for:
+
+* tenants;
+* tenant branding/settings;
+* users;
+* contacts/members;
+* organisations/employers;
+* membership types;
+* memberships/subscriptions;
+* membership applications;
+* FormBuilder forms;
+* groups;
+* committees;
+* roles;
+* events;
+* event registrations;
+* payments/invoices;
+* communications/preferences;
+* documents/resources;
+* surveys;
+* CPD;
+* mentoring;
+* website/CMS content;
+* audit history.
+
+**Do not create parallel tables where an appropriate iConnect entity already exists.**
+
+Map the seed data into the existing iConnect structures.
+
+Where a feature described below does not yet exist in iConnect, do not invent an unrelated subsystem purely for the demo. Either:
+
+1. omit that part of the seed data cleanly; or
+2. seed it into the relevant existing generic structure where appropriate.
+
+Document any such omissions in the implementation summary.
+
+---
+
+# 3. Seeder Architecture
+
+Create a reusable demo tenant seeding framework.
+
+Suggested conceptual structure:
+
+```text
+/demo-seeds
+    /aesp
+        tenant
+        branding
+        membership-types
+        organisations
+        members
+        memberships
+        groups
+        committees
+        events
+        registrations
+        forms
+        payments
+        content
+        activity
+```
+
+The exact implementation should follow the existing project architecture.
+
+The key principle is:
+
+> Demo tenant definitions should be data/configuration driven wherever practical.
+
+Future demo tenants must be able to reuse the same seeding mechanism.
+
+---
+
+# 4. Seeder Safety
+
+This functionality must be safe.
+
+## Requirements
+
+The seeder must:
+
+* only operate against the explicitly selected tenant;
+* never affect another tenant;
+* never modify production customer data;
+* be idempotent where practical;
+* use stable demo identifiers/keys;
+* avoid duplicating records every time it runs;
+* support complete deletion/reset of the AESP demo data;
+* clearly distinguish demo-generated data from real data.
+
+Where appropriate add metadata such as:
+
+```text
+is_demo = true
+demo_seed = "aesp-v1"
+```
+
+If the existing schema does not support metadata of this nature, use an appropriate existing mechanism rather than making invasive schema changes solely for this purpose.
+
+---
+
+# 5. Admin Controls
+
+Add an appropriate admin/developer interface for managing demo tenant data.
+
+This should only be available to suitably privileged system/platform administrators.
+
+Suggested controls:
+
+### AESP Demo Tenant
+
+**Status**
+
+* Not installed
+* Installed
+* Seed version
+* Last seeded
+
+**Actions**
+
+* Create Demo Tenant
+* Reseed / Refresh Demo Data
+* Reset Demo Tenant
+* Delete Demo Tenant
+
+Potential route:
+
+```text
+/platform-admin/demo-tenants
+```
+
+Use the application's existing platform administration conventions rather than creating an inconsistent standalone area.
+
+All destructive operations must use the application's existing confirmation patterns.
+
+---
+
+# 6. Tenant Identity
+
+Create:
+
+## Association of Environmental & Sustainability Professionals
+
+**Short name:** AESP
+
+**Organisation type:** Professional membership body
+
+**Established:** 1988
+
+**Head office:** Birmingham, United Kingdom
+
+**Primary market:** Environmental science, sustainability, ESG, carbon management and environmental consultancy
+
+**Geographic scope:** Primarily UK with some international members.
+
+**Approximate represented membership:** 6,500
+
+The actual seeded database does not need 6,500 individual member records unless performance testing requires this.
+
+For the initial usable demo environment seed approximately:
+
+**100–150 member/contact records**
+
+This is sufficient to create populated dashboards, searches and reports without unnecessarily bloating development environments.
+
+---
+
+# 7. Organisation Description
+
+Use the following as the tenant's core description:
+
+AESP is a UK professional membership organisation supporting people working across environmental science, sustainability, carbon management, ESG, environmental consultancy and related disciplines.
+
+The organisation promotes professional standards, career development, continuing professional development, knowledge sharing, mentoring and collaboration across the environmental profession.
+
+Its membership ranges from students and graduates entering the profession through to senior consultants, academics, sustainability directors and recognised industry leaders.
+
+---
+
+# 8. Branding
+
+Create a coherent fictional brand for AESP.
+
+Suggested visual direction:
+
+### Primary colour
+
+Deep forest green
+
+Example:
+
+```text
+#174A3A
+```
+
+### Secondary colour
+
+Muted sage
+
+Example:
+
+```text
+#8FAE98
+```
+
+### Accent
+
+Warm ochre/gold
+
+Example:
+
+```text
+#D5A642
+```
+
+### Dark neutral
+
+```text
+#29332F
+```
+
+### Light neutral
+
+```text
+#F5F6F2
+```
+
+Use existing tenant branding/settings controls wherever possible.
+
+Create a simple temporary AESP logo/wordmark using existing app-supported mechanisms if possible.
+
+Do not hard-code branding into components.
+
+The tenant should inherit normal iConnect theme functionality.
+
+---
+
+# 9. Membership Types
+
+Create the following membership grades.
+
+## Student Member
+
+Annual subscription:
+
+**£35**
+
+Typical criteria:
+
+* studying a relevant undergraduate or postgraduate qualification;
+* environmental science;
+* sustainability;
+* geography;
+* ecology;
+* environmental management;
+* related disciplines.
+
+No post-nominal.
+
+---
+
+## Graduate Member
+
+Annual subscription:
+
+**£85**
+
+Typical criteria:
+
+* recently completed relevant education;
+* normally within approximately the first three years of professional employment.
+
+No post-nominal required.
+
+---
+
+## Professional Member
+
+Annual subscription:
+
+**£175**
+
+Typical criteria:
+
+* established environmental or sustainability professional;
+* appropriate professional experience and/or qualifications.
+
+Post-nominal:
+
+**MAESP**
+
+---
+
+## Fellow
+
+Annual subscription:
+
+**£245**
+
+Typical criteria:
+
+* senior practitioner;
+* significant contribution to the profession;
+* leadership or recognised expertise.
+
+Post-nominal:
+
+**FAESP**
+
+---
+
+## Retired Member
+
+Annual subscription:
+
+**£70**
+
+Typical criteria:
+
+* previously active AESP member;
+* no longer practising full time.
+
+---
+
+# 10. Membership Distribution
+
+Seed approximately 120 memberships with a believable distribution.
+
+Suggested starting point:
+
+| Type                  | Approximate Records |
+| --------------------- | ------------------: |
+| Student               |                  15 |
+| Graduate              |                  20 |
+| Professional          |                  55 |
+| Fellow                |                  15 |
+| Retired               |                  10 |
+| Other/test edge cases |                   5 |
+
+These numbers can vary slightly.
+
+Avoid making data unnaturally uniform.
+
+---
+
+# 11. Membership Statuses
+
+The seed dataset must include members in different lifecycle states.
+
+Include examples of:
+
+* Active
+* Pending application
+* Awaiting approval
+* Awaiting payment
+* Recently renewed
+* Renewal due shortly
+* Renewal overdue
+* Lapsed
+* Cancelled
+* Retired
+* Recently upgraded
+* Application rejected/declined, if the existing system supports this
+
+Suggested proportions:
+
+* approximately 75% active/current;
+* 5–10% renewal approaching;
+* 5% overdue;
+* several pending applications;
+* several lapsed;
+* several historical/cancelled records.
+
+This is important because a demo database containing 100 perfectly active members does not realistically demonstrate the platform.
+
+---
+
+# 12. Dates
+
+Generate plausible historical data covering roughly the previous **five years**.
+
+Examples:
+
+* longstanding Fellow joined in 2003;
+* Professional Member joined in 2016;
+* Graduate joined last year;
+* Student joined this year;
+* recently lapsed member;
+* member renewed yesterday;
+* member whose renewal is due next week;
+* overdue member;
+* pending applicant submitted several days ago.
+
+Dates should be calculated relative to the seed/run date where practical so the demo does not become obviously stale.
+
+For example:
+
+```text
+renewal_due = today + 14 days
+```
+
+rather than permanently storing a date that becomes meaningless in future years.
+
+---
+
+# 13. People
+
+Generate believable fictional UK member records.
+
+Use a diverse mixture of:
+
+* ages;
+* genders;
+* ethnic backgrounds;
+* career stages;
+* UK regions;
+* job functions;
+* employers.
+
+Do not use celebrities or identifiable real people.
+
+Names should look natural rather than obvious placeholders such as:
+
+```text
+Test User 1
+Demo User
+John Smith 23
+```
+
+---
+
+# 14. Member Profiles
+
+Where supported by the existing profile schema, populate realistic fields such as:
+
+* title;
+* first name;
+* surname;
+* email;
+* telephone;
+* job title;
+* organisation;
+* address;
+* region;
+* membership number;
+* membership grade;
+* joining date;
+* renewal date;
+* communication preferences;
+* professional interests;
+* qualifications;
+* years of experience.
+
+Use fictional domains/email addresses that cannot accidentally send mail to real people.
+
+Prefer reserved/example domains where appropriate.
+
+Example:
+
+```text
+amelia.hughes@example.com
+```
+
+Do not seed live personal email addresses.
+
+---
+
+# 15. Membership Numbers
+
+Generate realistic AESP membership numbers.
+
+For example:
+
+```text
+AESP-10482
+AESP-11729
+AESP-12841
+```
+
+Use the existing membership number mechanism if iConnect already provides one.
+
+Avoid duplicate identifiers.
+
+---
+
+# 16. Employers / Organisations
+
+Create approximately **25–35 fictional employer organisations**.
+
+Include a mixture of:
+
+* environmental consultancies;
+* local authorities;
+* universities;
+* construction companies;
+* energy companies;
+* charities;
+* engineering consultancies;
+* major corporations;
+* central government/public bodies.
+
+Example fictional organisations:
+
+* Greenstone Environmental Consulting
+* Northbridge Sustainability Partners
+* Calder Environmental Services
+* Meridian Infrastructure Group
+* Westborough City Council
+* North Midlands University
+* Arcfield Renewable Energy
+* TerraNova Environmental Planning
+* Henshaw Engineering
+* FutureEarth Advisory
+* Evergreen Housing Group
+* CarbonWise Consulting
+
+Create multiple members belonging to some organisations.
+
+This is important because organisation/contact relationships should be visible within demonstrations.
+
+---
+
+# 17. Key Demo Personas
+
+Create several known, stable demo personas that can be reused during demonstrations.
+
+These records should have predictable names and states.
+
+## Sarah Mitchell
+
+**Role:** Senior Environmental Consultant
+**Employer:** Greenstone Environmental Consulting
+**Membership:** Professional Member — MAESP
+**Status:** Active
+**Experience:** 6 years
+**Interests:** Carbon & Net Zero, ESG
+**Activities:** Event attendee, CPD participant, mentee
+
+This should be one of the principal demo member accounts.
+
+---
+
+## Dr James Walker
+
+**Role:** Sustainability Director
+**Employer:** Meridian Infrastructure Group
+**Membership:** Fellow — FAESP
+**Status:** Active
+**Experience:** 22 years
+**Activities:** Mentor, committee member, speaker
+
+---
+
+## Aisha Rahman
+
+**Role:** Graduate Environmental Scientist
+**Employer:** Calder Environmental Services
+**Membership:** Graduate Member
+**Status:** Active
+**Experience:** 18 months
+**Activities:** Early Careers group, webinar attendee
+
+---
+
+## Chloe Evans
+
+**Role:** MSc Environmental Management Student
+**Employer/Institution:** North Midlands University
+**Membership:** Student Member
+**Status:** Active
+
+---
+
+## Peter Langford
+
+**Role:** Former Environmental Consultant
+**Membership:** Retired Member
+**Status:** Active
+
+---
+
+## Daniel Brooks
+
+**Role:** Sustainability Consultant
+**Membership:** Professional
+**Status:** Renewal overdue
+
+---
+
+## Emily Foster
+
+**Role:** Environmental Advisor
+**Application:** Professional Membership
+**Status:** Awaiting approval
+
+These stable personas allow sales staff to know which record to open when demonstrating particular workflows.
+
+---
+
+# 18. Membership Application Form
+
+If FormBuilder supports the required conditional logic, create an AESP membership application form.
+
+Suggested title:
+
+**Apply for AESP Membership**
+
+Capture:
+
+### Personal information
+
+* Name
+* Email
+* Telephone
+* Address
+
+### Employment
+
+* Current employment status
+* Employer
+* Job title
+
+### Education
+
+* Currently studying?
+* Qualification
+* Subject
+* Institution
+* Graduation/completion date
+
+### Professional experience
+
+* Years working in environmental/sustainability roles
+* Current professional responsibilities
+
+### Membership recommendation logic
+
+The form should conceptually recommend:
+
+**Currently studying relevant subject**
+→ Student Member
+
+**Completed studies and fewer than ~3 years professional experience**
+→ Graduate Member
+
+**Established professional**
+→ Professional Member
+
+**Senior recognised practitioner**
+→ Fellow application/review route
+
+Do not force this exact logic if the current FormBuilder has different capabilities; implement it using the strongest appropriate existing functionality.
+
+---
+
+# 19. Committees
+
+Create:
+
+## AESP Council
+
+Roles can include:
+
+* President
+* Vice President
+* Immediate Past President
+* Treasurer
+* Council Member
+
+Create approximately 8–10 members.
+
+---
+
+## Professional Standards Committee
+
+Approximately 6–8 members.
+
+---
+
+## Education & CPD Committee
+
+Approximately 6–8 members.
+
+---
+
+## Events Committee
+
+Approximately 5–7 members.
+
+---
+
+## Membership Committee
+
+Approximately 5–7 members.
+
+---
+
+## Sustainability Policy Committee
+
+Approximately 5–7 members.
+
+Members can belong to more than one committee where believable.
+
+---
+
+# 20. Special Interest Groups
+
+Create the following member groups:
+
+* Carbon & Net Zero
+* Biodiversity
+* Environmental Impact Assessment
+* ESG & Corporate Sustainability
+* Renewable Energy
+* Sustainable Construction
+
+Seed members into groups.
+
+Typical membership distribution:
+
+```text
+Carbon & Net Zero: 35
+Biodiversity: 25
+Environmental Impact Assessment: 20
+ESG & Corporate Sustainability: 30
+Renewable Energy: 22
+Sustainable Construction: 18
+```
+
+Members may belong to multiple SIGs.
+
+---
+
+# 21. Events
+
+Create both historic and forthcoming events.
+
+Do not make every event the same type.
+
+## AESP Annual Conference 2026
+
+**Type:** Conference
+**Format:** In person
+**Location:** Birmingham
+**Duration:** Two days
+**Capacity:** 350
+**Audience:** Members and non-members
+
+Include registrations.
+
+---
+
+## Net Zero: From Strategy to Delivery
+
+**Type:** Webinar
+**Duration:** 90 minutes
+**Format:** Online
+**Audience:** Members
+
+Seed approximately 40 registrations.
+
+---
+
+## Biodiversity Net Gain Masterclass
+
+**Type:** CPD Training
+**Format:** In person / hybrid depending on current event capability
+**Duration:** Half day
+
+Seed paid attendees.
+
+---
+
+## Early Careers Networking Evening — Manchester
+
+**Type:** Networking
+**Audience:** Student and Graduate Members
+**Price:** Free
+
+---
+
+## Environmental Impact Assessment Practitioner Workshop
+
+**Type:** Professional Training
+**Duration:** Full day
+
+---
+
+## AESP Annual General Meeting 2026
+
+**Type:** Governance
+**Audience:** Members only
+
+---
+
+# 22. Event History
+
+Seed past events as well as upcoming events.
+
+Create approximately:
+
+* 5 upcoming events;
+* 8–12 historical events.
+
+Historical events should contain:
+
+* registrations;
+* attendance where supported;
+* cancellations/no-shows where supported;
+* payments where appropriate.
+
+This allows event reporting screens to contain meaningful data immediately.
+
+---
+
+# 23. Event Registration States
+
+Include:
+
+* Registered
+* Attended
+* Cancelled
+* Waiting list, if supported
+* No show, if supported
+* Refunded, if supported
+
+Do not make every attendee successful and identical.
+
+---
+
+# 24. CPD Data
+
+If iConnect already has CPD functionality, populate it.
+
+AESP's fictional CPD requirement is:
+
+**30 hours per calendar year**
+
+of which:
+
+**10 hours should be structured CPD**
+
+Possible CPD categories:
+
+* Conference
+* Training Course
+* Webinar
+* Professional Reading
+* Mentoring
+* Presenting
+* Committee Participation
+* Academic Study
+
+Populate a mixture of members with:
+
+* requirement already achieved;
+* close to requirement;
+* significantly below requirement;
+* no activity;
+* excess CPD.
+
+This creates useful reporting states.
+
+If CPD functionality does not currently exist, do not create it solely as part of this seed task.
+
+---
+
+# 25. Mentoring
+
+If iConnect has mentoring/member matching functionality, create:
+
+**Mentors**
+**Mentees**
+**Members registered as both**
+
+Suggested areas:
+
+* Carbon Management
+* ESG
+* Biodiversity
+* Environmental Consultancy
+* Leadership
+* Career Development
+* Environmental Impact Assessment
+
+Example:
+
+**Dr James Walker**
+Mentor
+
+**Sarah Mitchell**
+Mentee
+
+If mentoring does not currently exist as an iConnect feature, omit this dataset and record this in the implementation notes.
+
+---
+
+# 26. Payments and Subscription History
+
+Where supported, create believable payment/subscription history.
+
+Include:
+
+* successful card payment;
+* invoice payment;
+* unpaid invoice;
+* renewal payment;
+* refunded payment;
+* waived/complimentary payment where supported.
+
+Do not process real payments.
+
+All demo financial data must be synthetic records.
+
+For an active member who has existed several years, create enough history that the account does not look newly created.
+
+---
+
+# 27. Financial Values
+
+Membership payments should correspond to the seeded membership type.
+
+Examples:
+
+```text
+Student       £35
+Graduate      £85
+Professional £175
+Fellow       £245
+Retired       £70
+```
+
+Create some event revenue where existing event payment functionality supports this.
+
+---
+
+# 28. Communications Preferences
+
+Where supported, create realistic variation.
+
+Examples:
+
+* General newsletter subscribed
+* Events updates subscribed
+* Professional updates subscribed
+* Marketing communications declined
+* All optional communications declined
+
+Do not set every member to identical preferences.
+
+---
+
+# 29. Website / CMS Content
+
+If the tenant system includes CanvasBuilder or another CMS, create enough content that the AESP tenant does not appear empty.
+
+Suggested navigation:
+
+* Home
+* About AESP
+* Membership
+* Professional Development
+* CPD
+* Events
+* Knowledge Hub
+* Careers
+* Mentoring
+* News & Insights
+* Policy & Advocacy
+* Member Directory
+
+The initial implementation does not need enormous pages of polished marketing content.
+
+However, create meaningful headings and short sections rather than lorem ipsum.
+
+No lorem ipsum should appear in the demo tenant.
+
+---
+
+# 30. News / Content
+
+Seed approximately 6–10 fictional news/content items.
+
+Examples:
+
+* AESP launches 2026 State of Sustainability Profession survey
+* Annual Conference programme announced
+* New Biodiversity SIG Chair appointed
+* Applications open for AESP mentoring programme
+* Environmental Careers Week launches
+* AESP publishes guidance on corporate net-zero reporting
+
+Generate appropriate publication dates over the previous six months.
+
+---
+
+# 31. Documents / Knowledge Resources
+
+Where supported, populate example resources such as:
+
+* AESP CPD Guidance
+* Member Code of Conduct
+* Net Zero Practitioner Guide
+* Biodiversity Net Gain Briefing
+* Environmental Careers Guide
+* Mentoring Handbook
+
+These can initially be metadata/content records rather than requiring complicated document generation unless the existing system expects physical files.
+
+---
+
+# 32. Surveys
+
+Since iConnect now/soon supports Survey Forms, create useful survey data if the implemented Survey capability is available.
+
+Possible survey:
+
+## AESP Annual Conference Feedback
+
+Questions:
+
+**Overall conference rating**
+1–5 stars
+
+**Quality of speakers**
+1–5 stars
+
+**Relevance of sessions**
+1–5 stars
+
+**Venue**
+1–5 stars
+
+**Likelihood of attending next year**
+1–10
+
+Populate enough completed survey responses to make reporting meaningful.
+
+Do not create this if Survey Forms have not yet landed in the branch/environment being worked on.
+
+---
+
+# 33. Audit / Activity Data
+
+Where iConnect displays member history/activity streams, populate useful synthetic activity.
+
+For Sarah Mitchell, for example:
+
+```text
+Membership application submitted
+Application approved
+Membership payment received
+Joined Carbon & Net Zero SIG
+Registered for Net Zero webinar
+Attended webinar
+CPD activity recorded
+Updated profile
+Registered as mentoring mentee
+```
+
+Use existing application services/models so these records are valid rather than inserting fake text directly into an activity feed.
+
+---
+
+# 34. Dashboard Population
+
+The seeded tenant should ensure dashboard widgets are populated.
+
+Examples might show:
+
+### Membership
+
+**Total Members**
+120
+
+**Active**
+~90
+
+**Pending**
+~8
+
+**Renewals due**
+~12
+
+**Lapsed**
+~10
+
+Numbers may differ depending on final dataset.
+
+### Events
+
+* Upcoming events
+* Registrations
+* Attendance
+* Event income
+
+### Membership by Grade
+
+A realistic distribution.
+
+### Membership trends
+
+Historical joins and lapses covering multiple years.
+
+Where dashboard statistics are derived dynamically, ensure seed data is sufficient to make charts visibly useful.
+
+---
+
+# 35. Geographic Distribution
+
+Create member addresses across the UK.
+
+Ensure meaningful representation from:
+
+* London
+* South East
+* South West
+* Midlands
+* North West
+* North East
+* Yorkshire
+* Wales
+* Scotland
+* Northern Ireland
+
+Also create several international members where the schema supports them.
+
+Avoid generating 100 members at the same postcode/address.
+
+---
+
+# 36. Authentication / Demo Logins
+
+Do not create 120 genuinely usable authenticated accounts unless the application architecture requires it.
+
+Create authenticated demo users only for the personas necessary to demonstrate logged-in member functionality.
+
+At minimum consider:
+
+### Member account
+
+Sarah Mitchell
+
+### Fellow / committee member
+
+Dr James Walker
+
+### Graduate member
+
+Aisha Rahman
+
+### Member with renewal issue
+
+Daniel Brooks
+
+Use the project's existing safe demo credential strategy.
+
+Do not put plaintext production credentials into source control.
+
+If the platform supports impersonation by system admins, this may be preferable to maintaining many demo passwords.
+
+---
+
+# 37. Administrator Accounts
+
+Create appropriate AESP administrative personas if required.
+
+Examples:
+
+## Rebecca Collins
+
+**Role:** Membership Manager
+
+## Thomas Reed
+
+**Role:** Events & CPD Manager
+
+## Hannah Clarke
+
+**Role:** Chief Executive
+
+Use existing role/permissions structures.
+
+They should have different levels of access if iConnect already supports granular permissions.
+
+---
+
+# 38. Data Quality / Realism Rules
+
+Demo data must feel human.
+
+Avoid patterns such as:
+
+```text
+Member 001
+Member 002
+Member 003
+```
+
+Avoid:
+
+* sequential identical joining dates;
+* identical addresses;
+* identical employers;
+* every member attending every event;
+* every invoice being paid;
+* every application being approved;
+* every member opting into everything.
+
+Introduce realistic variation.
+
+However, generation should remain deterministic enough that recognised demo personas do not change every time the database is reseeded.
+
+---
+
+# 39. Deterministic Seeding
+
+Use a fixed random seed or equivalent deterministic approach.
+
+This means:
+
+* Sarah Mitchell remains Sarah Mitchell;
+* her membership remains MAESP;
+* dashboard numbers remain broadly predictable;
+* screenshots remain reproducible;
+* demonstrations can use documented personas.
+
+Randomisation can be used for filler records but should be deterministic.
+
+---
+
+# 40. Reset Behaviour
+
+The reset/reseed process must:
+
+1. identify records owned by the AESP demo seed;
+2. remove those records safely;
+3. preserve anything outside the demo tenant;
+4. rebuild the AESP dataset;
+5. report success/failure clearly.
+
+Do not assume IDs remain the same after reset unless the existing system architecture makes that safe.
+
+Stable lookup keys should be used where demo scripts depend on particular personas.
+
+---
+
+# 41. Seed Versioning
+
+Include a seed version.
+
+Example:
+
+```text
+aesp-v1
+```
+
+Future versions might include:
+
+```text
+aesp-v2
+aesp-v3
+```
+
+Store enough information to determine which version a demo tenant currently contains.
+
+This will allow the demo data structure to evolve alongside iConnect.
+
+---
+
+# 42. Performance
+
+Initial seed target:
+
+**approximately 120 members**
+
+However, design the generator so we can later request:
+
+```text
+Small: 120
+Medium: 1,000
+Large: 6,500
+```
+
+without rewriting the seed engine.
+
+The 6,500 figure is useful for future realistic scale/performance testing but should not be the default seed.
+
+---
+
+# 43. No External Side Effects
+
+Demo creation must NOT:
+
+* send welcome emails;
+* send renewal reminders;
+* trigger SMS;
+* send WhatsApp;
+* send RCS;
+* charge Stripe;
+* create live GoCardless mandates;
+* trigger external webhooks;
+* send third-party integrations real data.
+
+Use existing suppression/test flags where available.
+
+This requirement is critical.
+
+---
+
+# 44. Demo Mode Identification
+
+Where sensible, display a subtle indication to platform administrators that this is a demo tenant.
+
+For example:
+
+**Demo Tenant**
+
+Do not necessarily display this prominently to a normal member logged into the demo, because the intention is that the organisation should look authentic during demonstrations.
+
+---
+
+# 45. Acceptance Criteria
+
+The task is complete when:
+
+* AESP can be created as a complete tenant from the demo seeder;
+* approximately 100–150 realistic members exist;
+* five membership grades exist;
+* multiple membership lifecycle states exist;
+* fictional organisations/employers are populated;
+* known demo personas exist;
+* groups and committees are populated;
+* historical and future events are populated;
+* event registrations contain varied states;
+* payments/subscriptions contain realistic history where supported;
+* the tenant's dashboards contain meaningful values;
+* CMS/content areas are not obviously empty where supported;
+* no lorem ipsum exists;
+* no real personal information is used;
+* no external emails/messages/payments are triggered;
+* the seed operation cannot modify another tenant;
+* the tenant can be safely reset and reseeded;
+* the implementation is reusable for future demo tenants.
+
+---
+
+# 46. Architecture Requirement for Future Tenants
+
+Do not hard-code the demo framework specifically around AESP terminology.
+
+The next planned tenants will be fundamentally different:
+
+### British Classic & Heritage Motoring Club
+
+An enthusiast/community membership organisation with individual, joint and family membership, regional groups and events.
+
+### Independent Hospitality Network
+
+A B2B trade association where the organisation/business is the principal member and multiple individuals belong beneath each organisation.
+
+The seed architecture must therefore support:
+
+```text
+Person-centric professional membership
+Community/family membership
+Organisation-centric corporate membership
+```
+
+without requiring three separate seeding systems.
+
+AESP is simply the first implementation of that framework.
+
+---
+
+# 47. Implementation Deliverables
+
+At completion provide:
+
+1. Summary of the architecture used.
+2. Database entities reused.
+3. Any schema changes made.
+4. Location of demo seed definitions/configuration.
+5. How to create AESP.
+6. How to reset AESP.
+7. How seed versions work.
+8. Any AESP features omitted because the corresponding iConnect functionality does not yet exist.
+9. Confirmation that external communications/payments/integrations are suppressed during seeding.
+10. Confirmation that the architecture can support the two subsequent demo tenant types.
+
+---
+
+# 48. Future Phase — Not Part of This Task
+
+Do **not** yet build the other two tenants.
+
+Once the AESP implementation and seed framework have been checked, separate specifications will be supplied for:
+
+1. British Classic & Heritage Motoring Club
+2. Independent Hospitality Network
+
+The important outcome of this first task is therefore both:
+
+**a convincing AESP demonstration environment**
+
+and
+
+**a reusable iConnect demo-tenant framework.**
