@@ -394,7 +394,10 @@ export async function provisionTenant({
   generateSetupToken = false,
   existingIdentity = null,
   planCode = 'free',
-  onboardingStatus = 'complete'
+  onboardingStatus = 'complete',
+  // Demo/seed provisioning: skip the external Mailgun domain + DNS provisioning
+  // step entirely (demo tenant seeding). No other behaviour changes.
+  skipEmailDomainProvisioning = false
 }) {
   const state = {
     tenantId: null,
@@ -667,7 +670,10 @@ export async function provisionTenant({
     await seedNavigationTemplates(tenant.id);
 
     let emailDomainResult = null;
-    try {
+    if (skipEmailDomainProvisioning) {
+      console.log('[Provision Tenant] Email domain provisioning skipped (skipEmailDomainProvisioning=true)');
+      emailDomainResult = { success: false, skipped: true, error: 'skipped by caller' };
+    } else try {
       console.log('[Provision Tenant] Starting automatic email domain provisioning...');
       emailDomainResult = await provisionEmailDomain(tenant.id, slug, tenantName, tenant.settings);
       if (emailDomainResult.success) {
