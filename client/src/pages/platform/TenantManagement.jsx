@@ -289,7 +289,20 @@ export default function TenantManagement() {
               <TableBody>
                 {tenants.map((tenant) => (
                   <TableRow key={tenant.id} data-testid={`row-tenant-${tenant.id}`}>
-                    <TableCell className="font-medium">{tenant.name}</TableCell>
+                    <TableCell className="font-medium">
+                      <span className="inline-flex items-center gap-2">
+                        {tenant.name}
+                        {tenant.is_demo && (
+                          <span
+                            className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium uppercase tracking-wide bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400"
+                            title={`Demo tenant (${tenant.demo_seed_key || 'demo'})`}
+                            data-testid={`badge-demo-tenant-${tenant.id}`}
+                          >
+                            Demo
+                          </span>
+                        )}
+                      </span>
+                    </TableCell>
                     <TableCell>
                       <code className="text-sm bg-muted px-2 py-1 rounded">{tenant.slug}</code>
                     </TableCell>

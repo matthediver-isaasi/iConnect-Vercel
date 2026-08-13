@@ -156,4 +156,5 @@
 - [Unified directory card-back ordering](directory-back-order.md) — one mixed core+custom order list; resolver duplicated client+server, keep in sync; visibility toggles still gate content.
 - [Paid-form pipeline baseUrl](paid-form-pipeline-baseurl.md) — server-driven finalize paths (webhook/cron) must resolve a tenant-trusted baseUrl or entity pipelines are skipped.
 - [Form processor tenant scoping](form-processor-tenant-scope.md) — body tenant_id is client-controlled; resolve tenant from persisted form/submission BEFORE any tenant-scoped query, reject mismatches 403.
+- [SECURITY DEFINER RPC grants](security-definer-rpc-grants.md) — new Postgres functions are PUBLIC-executable by default; server-only RPCs must revoke PUBLIC + validate inputs in SQL.
 - [Demo tenant seed framework](demo-seed-framework.md) — demo-seeds/ engine+definitions; RNG plan-then-persist, manifest in system_settings (string!), member deletes need tiny batches.

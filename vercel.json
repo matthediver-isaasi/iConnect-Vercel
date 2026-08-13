@@ -12,6 +12,9 @@
     "api/platform/backups/run.js": {
       "maxDuration": 300
     },
+    "api/platform/demo-tenants/operate.js": {
+      "maxDuration": 300
+    },
     "api/ai-compositions/generate.js": {
       "maxDuration": 300
     },

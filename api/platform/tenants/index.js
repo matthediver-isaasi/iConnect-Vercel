@@ -23,7 +23,8 @@ export default async function handler(req, res) {
         name,
         slug,
         created_at,
-        subscription_status
+        subscription_status,
+        settings
       `)
       .order('created_at', { ascending: false });
 
@@ -39,9 +40,14 @@ export default async function handler(req, res) {
           .select('id', { count: 'exact', head: true })
           .eq('tenant_id', tenant.id);
 
+        const demoSeed = tenant.settings?.demo_seed || null;
+        const { settings, ...rest } = tenant;
         return {
-          ...tenant,
-          organization_count: orgCount || 0
+          ...rest,
+          organization_count: orgCount || 0,
+          // Platform-console-only demo marker (never exposed to tenant members)
+          is_demo: !!demoSeed,
+          demo_seed_key: demoSeed?.key || null
         };
       })
     );

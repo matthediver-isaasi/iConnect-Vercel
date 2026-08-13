@@ -13,4 +13,7 @@ Demo tenants are seeded by `demo-seeds/engine.mjs` + per-tenant definitions (`de
 - `member_membership_history.payment_status` is DB-constrained to unpaid|paid|partial|voided — model refunds as voided+note, waived as paid with final_cost 0.
 - Seeding writes direct via supabase-js only (never the entity API) so no workflows/emails/Zoho fire.
 
+- Reset/delete must tolerate rows the manifest doesn't track (older iterations replace record lists wholesale): plain deletes hit FK violations; blocking children must be cleared recursively, scoped to seeded parent ids. `role` has a protection trigger (disable/enable RPC pair, like the platform tenant-delete flow), and domain triggers (e.g. survey assignments with responses) can legitimately block a reset — surface those, don't bypass.
+- Long demo operations recover by re-running the same idempotent action; mutual exclusion needs an ATOMIC token-owned DB lease (system_settings can't serialize NULL-tenant rows — NULLs are distinct in unique constraints).
+
 **How to apply:** new demo tenants = new definition module only; reuse the engine. AESP tenant slug `aesp` on DEST, seed version aesp-v1.

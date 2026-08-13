@@ -208,6 +208,60 @@ export async function loadManifest(sb, tenantId) {
   return v;
 }
 
+/**
+ * FK-violation- and timeout-resilient delete factory.
+ *
+ * Older seed iterations can leave child rows that the current manifest does
+ * not track (its record lists are replaced wholesale each run). When a delete
+ * is blocked by such a child, remove the blocking rows (they reference only
+ * the given seeded, demo-ownership-verified parent ids) and retry —
+ * recursively, since untracked children (e.g. members referencing an
+ * organization) can have children of their own. Statement timeouts on heavy
+ * FK graphs are handled by splitting the batch and retrying single rows.
+ */
+function makeFkClearingDelete(sb, tenantId, log) {
+  const deleteWhere = async (tbl, col, values, { tenantScoped = false, depth = 0 } = {}) => {
+    if (depth > 5) return { message: `FK clearing exceeded max depth at ${tbl}` };
+    for (let attempt = 0; attempt < 10; attempt++) {
+      let q = sb.from(tbl).delete().in(col, values);
+      if (tenantScoped) q = q.eq('tenant_id', tenantId);
+      const { error } = await q;
+      if (!error) return null;
+      if (/timeout/i.test(error.message)) {
+        if (values.length > 1) {
+          const mid = Math.ceil(values.length / 2);
+          const e1 = await deleteWhere(tbl, col, values.slice(0, mid), { tenantScoped, depth });
+          if (e1) return e1;
+          const e2 = await deleteWhere(tbl, col, values.slice(mid), { tenantScoped, depth });
+          if (e2) return e2;
+          return null;
+        }
+        await new Promise(r => setTimeout(r, 500));
+        continue;
+      }
+      const fk = /violates foreign key constraint "(.+?)" on table "(.+?)"/.exec(error.message);
+      if (!fk) return error;
+      const [, constraint, childTable] = fk;
+      // Constraint names follow <child_table>_<column>_fkey.
+      const childCol = constraint.startsWith(`${childTable}_`) && constraint.endsWith('_fkey')
+        ? constraint.slice(childTable.length + 1, -'_fkey'.length)
+        : null;
+      if (!childCol) return error;
+      log(`[cleanup] ${tbl}: clearing untracked child rows in ${childTable}.${childCol} and retrying`);
+      // Fetch the blocking child-row ids so grandchildren can be cleared by
+      // the child rows' own ids.
+      const { data: childRows, error: selErr } = await sb.from(childTable).select('id').in(childCol, values).limit(2000);
+      if (selErr) return selErr;
+      const childIds = (childRows || []).map(r => r.id);
+      if (!childIds.length) return error; // nothing to clear yet it still violates — give up
+      const childErr = await deleteWhere(childTable, 'id', childIds, { depth: depth + 1 });
+      if (childErr) return childErr;
+    }
+    return { message: 'too many FK retries' };
+  };
+  return deleteWhere;
+}
+
 async function findTenant(sb, slug) {
   const { data } = await sb.from('tenant').select('*').eq('slug', slug).maybeSingle();
   return data || null;
@@ -323,11 +377,8 @@ export async function resetDemoData(definition, { sb, log = console.log } = {}) 
   for (const table of tables) {
     const ids = manifest.records[table];
     if (!ids?.length) continue;
-    const deleteBatch = async (batch) => {
-      let q = sb.from(table).delete().in('id', batch);
-      if (!noTenantColumn.has(table)) q = q.eq('tenant_id', tenant.id);
-      return (await q).error;
-    };
+    const deleteWhere = makeFkClearingDelete(sb, tenant.id, log);
+    const deleteBatch = (batch) => deleteWhere(table, 'id', batch, { tenantScoped: !noTenantColumn.has(table) });
     for (let i = 0; i < ids.length; i += 25) {
       const batch = ids.slice(i, i + 25);
       let error = await deleteBatch(batch);
@@ -388,15 +439,30 @@ export async function deleteDemoTenant(definition, { sb, log = console.log } = {
   const { data: tusers } = await sb.from('tenant_user').select('id').eq('tenant_id', tenantId);
   const tuserIds = (tusers || []).map(u => u.id);
 
+  const deleteWhere = makeFkClearingDelete(sb, tenantId, log);
+
+  // The role table has a protection trigger that blocks deleting system
+  // roles (e.g. Super Admin). The platform tenant-delete flow disables it
+  // around role deletion via a dedicated RPC pair; do the same here.
+  let roleTriggerDisabled = false;
+  try {
+    const { error: disableErr } = await sb.rpc('disable_role_protection_trigger');
+    if (!disableErr) roleTriggerDisabled = true;
+    else log(`[delete] warning: could not disable role protection trigger: ${disableErr.message}`);
+  } catch (e) {
+    log(`[delete] warning: role trigger disable exception: ${e.message}`);
+  }
+
+  try {
   for (const table of tenantScopedTables) {
     let error = null;
     if (table === 'role_member_field_permission') {
-      if (roleIds.length) ({ error } = await sb.from(table).delete().in('role_id', roleIds));
-      await sb.from('role_organization_field_permission').delete().in('role_id', roleIds.length ? roleIds : ['-']);
+      if (roleIds.length) error = await deleteWhere(table, 'role_id', roleIds);
+      if (roleIds.length) await deleteWhere('role_organization_field_permission', 'role_id', roleIds);
     } else if (table === 'tenant_user_credentials') {
-      if (tuserIds.length) ({ error } = await sb.from(table).delete().in('tenant_user_id', tuserIds));
+      if (tuserIds.length) error = await deleteWhere(table, 'tenant_user_id', tuserIds);
     } else {
-      ({ error } = await sb.from(table).delete().eq('tenant_id', tenantId));
+      error = await deleteWhere(table, 'tenant_id', [tenantId]);
     }
     if (error && !/does not exist|column/.test(error.message)) {
       log(`[delete] warning: ${table}: ${error.message}`);
@@ -408,8 +474,18 @@ export async function deleteDemoTenant(definition, { sb, log = console.log } = {
   // (members are already deleted above, so nothing left to key from — the
   // manifest path is authoritative for this table.)
 
-  const { error: tenErr } = await sb.from('tenant').delete().eq('id', tenantId);
+  const tenErr = await deleteWhere('tenant', 'id', [tenantId]);
   if (tenErr) throw new Error(`[delete] tenant delete failed: ${tenErr.message}`);
+  } finally {
+    if (roleTriggerDisabled) {
+      try {
+        const { error: enableErr } = await sb.rpc('enable_role_protection_trigger');
+        if (enableErr) log(`[delete] warning: could not re-enable role protection trigger: ${enableErr.message}`);
+      } catch (e) {
+        log(`[delete] warning: role trigger re-enable exception: ${e.message}`);
+      }
+    }
+  }
 
   // Remove identities that no longer belong to any tenant.
   for (const idn of identityIds) {
