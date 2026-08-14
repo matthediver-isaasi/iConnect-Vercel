@@ -49,6 +49,19 @@ test('uniqueness validation uses the authoritative tenant, not the raw body tena
   assert.ok(!/effectiveTenantId = tenant_id/.test(block), 'uniqueness block must not trust body tenant_id');
 });
 
+test('org resolution and org UPDATE go through the shared tenant-guarded helpers (Task #3550)', () => {
+  // Resolution must use the unit-tested shared chain, and the organisation
+  // UPDATE must be wrapped in the write-time tenant guard so a cross-tenant
+  // row can never be mutated regardless of how it was resolved.
+  idx('await resolveExistingOrganization(supabase,');
+  idx('applyOrgWriteTenantGuard(');
+  idx("code: 'CROSS_TENANT_ORG_WRITE'");
+  // The guarded update must check affected rows (0 rows = guard fired).
+  const guardAt = idx('applyOrgWriteTenantGuard(');
+  const window = src.slice(guardAt, guardAt + 1500);
+  assert.match(window, /updatedRows\.length === 0/);
+});
+
 test('no tenant-scoped query trusts the raw body tenant after resolution', () => {
   // Every .eq('tenant_id', ...) filter and tenant stamp in the handler must use
   // the resolved tenant; the raw body value may only appear in equality

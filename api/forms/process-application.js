@@ -6,6 +6,7 @@ import { resolveStaticTodayToken } from '../_lib/staticValueTokens.js';
 import { isProtectedOrgBalanceField } from '../_lib/protectedOrgFields.js';
 import { coercePreferenceValueForStorage } from '../_lib/preferenceValueStorage.js';
 import { resolveEffectiveEntityTenant, isCrossTenantRow } from '../_lib/formTenantScope.js';
+import { resolveExistingOrganization, applyOrgWriteTenantGuard } from '../_lib/formOrgResolution.js';
 import { resolveSubmitControl } from '../_lib/formSubmitControl.js';
 import { rulesUseLmicOperators } from '../_lib/formLmicConditions.js';
 import { loadTenantLmicCodes } from '../_lib/tenantLmicCodes.js';
@@ -615,6 +616,25 @@ export default async function handler(req, res) {
         });
       } catch (_) {
         // Defence in depth: never let note-keeping itself fail the request.
+      }
+    };
+
+    // Persist accumulated notes onto the submission row. The happy path
+    // flushes once at the end of the handler; ERROR paths that return early
+    // MUST call this first, otherwise the diagnostic trail (e.g. a
+    // cross-tenant rejection) is silently lost (Task #3550). Safe to call
+    // multiple times — it simply overwrites processing_notes with the
+    // current accumulated array.
+    const flushProcessingNotes = async () => {
+      if (!submission_id || processingNotes.length === 0) return;
+      try {
+        const { error } = await supabase
+          .from('form_submission')
+          .update({ processing_notes: processingNotes })
+          .eq('id', submission_id);
+        if (error) console.error('[AppProcessor] Failed to flush processing notes:', error);
+      } catch (err) {
+        console.error('[AppProcessor] Failed to flush processing notes:', err);
       }
     };
 
@@ -1633,112 +1653,21 @@ export default async function handler(req, res) {
       }
       console.log('[AppProcessor] Org processing enabled. Action:', orgAction, 'OrgData:', orgData, 'PrefillOrgId:', effectivePrefillOrgId);
       
-      // Find existing organisation. Resolution order — first match wins:
-      //   1. prefill_organization_id (URL-prefilled / passed by caller)
-      //   2. The organisation_id already stamped on the form_submission row
-      //      (set by FormView when the submitter was authenticated/contextualised)
-      //   3. The organisation_id of the resolved member (prefill_member_id, or
-      //      tenant-scoped lookup by memberData.email) — useful when an
-      //      authenticated member submits a form with org core-field mappings
-      //      but no explicit organisation context was forwarded.
-      //   4. Case-insensitive name match against orgData.name.
-      // Each step uses .maybeSingle() so a missing row is treated as "not found"
-      // rather than an error (the previous .single() variants surfaced misleading
-      // errors and short-circuited the search).
-      let existingOrg = null;
-      let orgResolutionMethod = null;
-      
-      if (effectivePrefillOrgId) {
-        const { data: foundOrg } = await supabase
-          .from('organization')
-          .select('*')
-          .eq('id', effectivePrefillOrgId)
-          .maybeSingle();
-        if (foundOrg && !rejectCrossTenant(foundOrg, 'organization_resolve', { method: 'prefill_organization_id' })) {
-          existingOrg = foundOrg;
-          orgResolutionMethod = effectivePrefillOrgId === dropdownSelectedOrgId && !prefill_organization_id
-            ? 'organisation_dropdown_selection'
-            : 'prefill_organization_id';
-        }
-        console.log('[AppProcessor] Found org by prefill ID:', existingOrg?.id);
-      }
-      
-      if (!existingOrg && submission_id) {
-        const { data: subRow } = await supabase
-          .from('form_submission')
-          .select('organization_id')
-          .eq('id', submission_id)
-          .maybeSingle();
-        if (subRow?.organization_id) {
-          const { data: foundOrg } = await supabase
-            .from('organization')
-            .select('*')
-            .eq('id', subRow.organization_id)
-            .maybeSingle();
-          if (foundOrg && !rejectCrossTenant(foundOrg, 'organization_resolve', { method: 'form_submission.organization_id' })) {
-            existingOrg = foundOrg;
-            orgResolutionMethod = 'form_submission.organization_id';
-            console.log('[AppProcessor] Found org via form_submission.organization_id:', existingOrg.id);
-          }
-        }
-      }
-      
-      if (!existingOrg) {
-        // Try via the resolved member (prefill_member_id, the member_dropdown
-        // selection, or by email within tenant).
-        let resolvedMember = null;
-        const memberIdForOrgLookup = prefill_member_id || dropdownSelectedMemberId || null;
-        if (memberIdForOrgLookup) {
-          const { data: m } = await supabase
-            .from('member')
-            .select('id, organization_id, tenant_id')
-            .eq('id', memberIdForOrgLookup)
-            .maybeSingle();
-          if (m && !rejectCrossTenant(m, 'member_resolve_for_org', { method: 'prefill/dropdown member id' })) {
-            resolvedMember = m;
-          }
-        } else if (memberData?.email) {
-          let q = supabase
-            .from('member')
-            .select('id, organization_id, tenant_id')
-            .ilike('email', memberData.email);
-          if (effectiveEntityTenantId) q = q.eq('tenant_id', effectiveEntityTenantId);
-          const { data: m } = await q.limit(1).maybeSingle();
-          resolvedMember = m;
-        }
-        if (resolvedMember?.organization_id) {
-          const { data: foundOrg } = await supabase
-            .from('organization')
-            .select('*')
-            .eq('id', resolvedMember.organization_id)
-            .maybeSingle();
-          if (foundOrg && !rejectCrossTenant(foundOrg, 'organization_resolve', { method: 'resolved_member.organization_id' })) {
-            existingOrg = foundOrg;
-            orgResolutionMethod = 'resolved_member.organization_id';
-            console.log('[AppProcessor] Found org via resolved member:', existingOrg.id);
-          }
-        }
-      }
-      
-      if (!existingOrg && orgData.name) {
-        // Tenant-scope the name match: this lookup used to be completely
-        // unscoped, so a name collision with an organisation in ANOTHER
-        // tenant would silently link (and suppress creation of) the org.
-        // NULL-tenant (legacy) rows remain matchable.
-        let nameQuery = supabase
-          .from('organization')
-          .select('*')
-          .ilike('name', orgData.name);
-        if (effectiveEntityTenantId) {
-          nameQuery = nameQuery.or(`tenant_id.eq.${effectiveEntityTenantId},tenant_id.is.null`);
-        }
-        const { data: foundOrg } = await nameQuery.limit(1).maybeSingle();
-        if (foundOrg && !rejectCrossTenant(foundOrg, 'organization_resolve', { method: 'org_name_match' })) {
-          existingOrg = foundOrg;
-          orgResolutionMethod = 'org_name_match';
-        }
-        console.log('[AppProcessor] Found org by name:', existingOrg?.id);
-      }
+      // Find existing organisation via the shared, unit-tested resolution
+      // chain (api/_lib/formOrgResolution.js). Every step passes found rows
+      // through rejectCrossTenant so a cross-tenant hit is treated as "not
+      // found" (and leaves a processing note) — see Task #3550.
+      const { existingOrg, orgResolutionMethod } = await resolveExistingOrganization(supabase, {
+        effectiveTenantId: effectiveEntityTenantId,
+        effectivePrefillOrgId,
+        prefillWasExplicit: !!prefill_organization_id,
+        usedDropdownSelection: !!dropdownSelectedOrgId && effectivePrefillOrgId === dropdownSelectedOrgId,
+        submissionId: submission_id,
+        memberIdForOrgLookup: prefill_member_id || dropdownSelectedMemberId || null,
+        memberEmail: memberData?.email || null,
+        orgName: orgData.name || null,
+        rejectCrossTenant,
+      });
       
       if (existingOrg) {
         console.log('[AppProcessor] Resolved existing org via:', orgResolutionMethod, '->', existingOrg.id);
@@ -1770,17 +1699,62 @@ export default async function handler(req, res) {
           if (effectiveEntityTenantId && !existingOrg.tenant_id) {
             orgUpdateData.tenant_id = effectiveEntityTenantId;
           }
-          
+
+          // Belt-and-braces (Task #3550): the resolution chain already rejects
+          // cross-tenant rows, but never rely on that alone — a resolved row
+          // from another tenant must NEVER be written to.
+          if (isCrossTenantRow(effectiveEntityTenantId, existingOrg)) {
+            addProcessingNote({
+              level: 'error',
+              stage: 'organization_update',
+              message: 'Cross-tenant organisation write blocked at write time.',
+              found_id: existingOrg.id,
+              found_tenant_id: existingOrg.tenant_id,
+              effective_tenant_id: effectiveEntityTenantId,
+            });
+            console.error('[AppProcessor] BLOCKED cross-tenant org write:', existingOrg.id);
+            await flushProcessingNotes();
+            return res.status(409).json({ error: 'Cross-tenant organisation write blocked', code: 'CROSS_TENANT_ORG_WRITE' });
+          }
+
           if (Object.keys(orgUpdateData).length > 0) {
             console.log('[AppProcessor] Org update data:', orgUpdateData);
-            const { error: orgUpdateError } = await supabase
-              .from('organization')
-              .update(orgUpdateData)
-              .eq('id', existingOrg.id);
-            
+            // Write-time tenant guard (defence in depth): the UPDATE itself is
+            // hard-filtered to the effective tenant (or tenant_id IS NULL for
+            // legacy adoption), so even a bad resolution cannot mutate another
+            // tenant's row. Zero rows updated = the guard fired.
+            const guardedUpdate = applyOrgWriteTenantGuard(
+              supabase.from('organization').update(orgUpdateData).eq('id', existingOrg.id),
+              effectiveEntityTenantId,
+              existingOrg
+            );
+            const { data: updatedRows, error: orgUpdateError } = await guardedUpdate.select('id');
+
             if (orgUpdateError) {
               console.error('[AppProcessor] Failed to update organization:', orgUpdateError);
+              addProcessingNote({
+                level: 'error',
+                stage: 'organization_update',
+                message: `Organisation update failed: ${orgUpdateError.message}`,
+                organization_id: existingOrg.id,
+              });
+              await flushProcessingNotes();
               return res.status(500).json({ error: `Failed to update organisation: ${orgUpdateError.message}` });
+            }
+            if (!updatedRows || updatedRows.length === 0) {
+              // Tenant guard filtered the row out — treat as a blocked
+              // cross-tenant write, never as success.
+              addProcessingNote({
+                level: 'error',
+                stage: 'organization_update',
+                message: 'Organisation update blocked by write-time tenant guard (row not in effective tenant).',
+                organization_id: existingOrg.id,
+                row_tenant_id: existingOrg.tenant_id || null,
+                effective_tenant_id: effectiveEntityTenantId,
+              });
+              console.error('[AppProcessor] Org update matched 0 rows under tenant guard:', existingOrg.id);
+              await flushProcessingNotes();
+              return res.status(409).json({ error: 'Cross-tenant organisation write blocked', code: 'CROSS_TENANT_ORG_WRITE' });
             }
             console.log('[AppProcessor] Updated organization:', existingOrg.id);
           } else {
@@ -1817,6 +1791,12 @@ export default async function handler(req, res) {
           // Create new organization - require name
           if (!orgData.name) {
             console.error('[AppProcessor] Organization creation requested but no organization.name field mapped');
+            addProcessingNote({
+              level: 'error',
+              stage: 'organization_create',
+              message: 'Organisation creation requested but no organisation name was mapped.',
+            });
+            await flushProcessingNotes();
             return res.status(400).json({ 
               error: 'Organisation name is required. Please map a form field to "Organisation Name" in the Submission Settings.',
               code: 'MISSING_ORG_NAME'
@@ -1850,6 +1830,12 @@ export default async function handler(req, res) {
 
           if (orgError) {
             console.error('[AppProcessor] Failed to create organization:', orgError);
+            addProcessingNote({
+              level: 'error',
+              stage: 'organization_create',
+              message: `Organisation creation failed: ${orgError.message}`,
+            });
+            await flushProcessingNotes();
             return res.status(500).json({ error: `Failed to create organisation: ${orgError.message}` });
           }
 
