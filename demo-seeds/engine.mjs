@@ -596,6 +596,17 @@ export async function setDemoPortalPassword(definition, { sb, password, log = co
     memberIdentityId ? Promise.resolve(memberIdentityId) : resolveDemoIdentityId(sb, email);
   const repairIdentityPersona = (persona, identityId) =>
     repairDemoIdentityPersona({ sb, tenantId, persona, identityId, passwordHash });
+  // Owner Super Admin grant is best-effort here (this is a password reset,
+  // not a role tool): a missing system role logs a warning instead of
+  // failing the reset. The seed phase fails loudly on the same condition.
+  const maybeGrantOwnerAdminRole = async (memberId) => {
+    try {
+      const roleId = await resolveDemoSuperAdminRoleId(sb, tenantId);
+      await applyDemoOwnerAdminRole({ sb, tenantId, memberId, roleId, log });
+    } catch (err) {
+      log(`[demo-password] warning: owner Super Admin role not applied: ${err.message}`);
+    }
+  };
 
   const outcomes = [];
   let updated = 0;
@@ -608,6 +619,7 @@ export async function setDemoPortalPassword(definition, { sb, password, log = co
       if (m) {
         const identityId = await resolveIdentityId(email, m.identity_id);
         await writeCredentials(m.email, m.id, identityId);
+        if (persona.kind === 'owner') await maybeGrantOwnerAdminRole(m.id);
         updated++;
         outcomes.push({ ...base, outcome: 'updated' });
         continue;
@@ -621,7 +633,8 @@ export async function setDemoPortalPassword(definition, { sb, password, log = co
         });
         continue;
       }
-      await repairIdentityPersona(persona, identityId);
+      const repairedMemberId = await repairIdentityPersona(persona, identityId);
+      if (persona.kind === 'owner') await maybeGrantOwnerAdminRole(repairedMemberId);
       repaired++;
       outcomes.push({ ...base, outcome: 'repaired' });
     } catch (err) {
@@ -716,6 +729,69 @@ export async function writeDemoPersonaCredentials({ sb, tenantId, email, memberI
  * member_credentials rows are still created, the identity-keyed rows are
  * skipped. Returns the member id.
  */
+/**
+ * Resolve the tenant's platform-provisioned system "Super Admin" role.
+ * Real tenants grant full admin access by assigning this role to a member;
+ * the demo owner mirrors that. Never creates a role — fails loudly when the
+ * tenant is missing it (provisioning should have created it).
+ */
+export async function resolveDemoSuperAdminRoleId(sb, tenantId) {
+  const { data, error } = await sb
+    .from('role')
+    .select('id, name, is_system')
+    .eq('tenant_id', tenantId)
+    .eq('is_system', true)
+    .ilike('name', 'super admin')
+    .limit(2);
+  if (error) throw new Error(`Super Admin role lookup failed: ${error.message}`);
+  const roles = data || [];
+  if (roles.length === 0) {
+    throw new Error(
+      'System "Super Admin" role not found for this tenant — provisioning normally creates it. ' +
+      'Refusing to create one; investigate the tenant\'s roles instead.'
+    );
+  }
+  if (roles.length > 1) {
+    throw new Error(
+      'Multiple system "Super Admin" roles found for this tenant — picking one arbitrarily would be an ' +
+      'authorization guess. Deduplicate the tenant\'s roles first.'
+    );
+  }
+  return roles[0].id;
+}
+
+/**
+ * Assign the demo owner the tenant's Super Admin role, but ONLY when her
+ * role_id is empty — an existing role (even the tenant default) has no
+ * provenance and could be a deliberate assignment, so it is never replaced.
+ * Tenant-scoped on every read and write.
+ * Returns true when the member ends up on the given role.
+ */
+export async function applyDemoOwnerAdminRole({ sb, tenantId, memberId, roleId, log = console.log }) {
+  const { data: m, error } = await sb
+    .from('member').select('id, role_id, email')
+    .eq('id', memberId).eq('tenant_id', tenantId).maybeSingle();
+  if (error) throw new Error(`owner member lookup failed: ${error.message}`);
+  if (!m) throw new Error('owner member row not found in the demo tenant');
+  if (m.role_id === roleId) return true;
+  if (m.role_id) {
+    // member.role_id carries no provenance — even the tenant's default role
+    // could have been deliberately assigned by an admin, and replacing it
+    // would be a silent privilege escalation. So ANY existing role is kept;
+    // only an empty role_id (a member who has never been given a role) is
+    // upgraded. Fresh seeds create the owner without a role, so they always
+    // get the grant before login's default-role fallback can run.
+    log(`[demo-owner] ${m.email || memberId} keeps existing role ${m.role_id}; not switching to Super Admin`);
+    return false;
+  }
+  const { error: upErr } = await sb
+    .from('member').update({ role_id: roleId })
+    .eq('id', memberId).eq('tenant_id', tenantId);
+  if (upErr) throw new Error(`owner Super Admin role assignment failed: ${upErr.message}`);
+  log(`[demo-owner] Assigned system Super Admin role to ${m.email || memberId}`);
+  return true;
+}
+
 export async function repairDemoIdentityPersona({ sb, tenantId, persona, identityId, passwordHash, memberPatch = {} }) {
   const email = persona.email.toLowerCase();
   // Member row: repair an existing row in THIS tenant (whatever its

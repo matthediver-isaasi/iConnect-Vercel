@@ -137,7 +137,9 @@ function makeMockSb(state) {
       },
       upsert(row, opts) { op = 'upsert'; payload = row; upsertOpts = opts; return resolve(); },
       eq(k, v) { filters[k] = v; return builder; },
+      ilike(k, v) { filters[`ilike:${k}`] = v; return builder; },
       in(k, v) { filters[k] = v; return builder; },
+      limit() { return builder; },
       maybeSingle() { return resolve(true); },
       then(res, rej) { return resolve().then(res, rej); }, // awaited select/update chains
     };
@@ -148,13 +150,32 @@ function makeMockSb(state) {
         return fail ? { error: { message: fail } } : { error: null, data: null };
       }
       if (table === 'tenant') return { data: state.tenant, error: null };
-      if (table === 'system_settings') return { data: null, error: null };
+      if (table === 'system_settings') {
+        if (filters.setting_key === 'role_segmentation_field_id' && filters.tenant_id === TENANT_ID && state.segmentationFieldId) {
+          return { data: { setting_value: state.segmentationFieldId }, error: null };
+        }
+        return { data: null, error: null };
+      }
       if (table === 'member') {
         if (typeof filters.email === 'string') {
           const row = (state.members || []).find((m) => m.email === filters.email) || null;
           return { data: single ? row : (row ? [row] : []), error: null };
         }
+        if (typeof filters.id === 'string') {
+          const row = (state.members || []).find((m) => m.id === filters.id) || null;
+          return { data: single ? row : (row ? [row] : []), error: null };
+        }
         return { data: state.members, error: null };
+      }
+      if (table === 'role') {
+        let rows = state.roles || [];
+        // Honor tenant scoping — a role from another tenant must never match.
+        if (filters.tenant_id != null) rows = rows.filter((r) => r.tenant_id === filters.tenant_id);
+        if (typeof filters.id === 'string') rows = rows.filter((r) => r.id === filters.id);
+        if (filters.is_system != null) rows = rows.filter((r) => !!r.is_system === filters.is_system);
+        if (filters.is_default != null) rows = rows.filter((r) => !!r.is_default === filters.is_default);
+        if (filters['ilike:name']) rows = rows.filter((r) => r.name.toLowerCase() === filters['ilike:name'].toLowerCase());
+        return { data: single ? (rows[0] || null) : rows, error: null };
       }
       if (table === 'member_credentials') {
         const row = state.memberCreds?.find((c) => c.email === filters.email) || null;
@@ -426,6 +447,109 @@ test('repairDemoIdentityPersona with null identity still creates member + member
   assert.ok(!writes.some((w) => w.table === 'tenant_membership'));
   assert.ok(!writes.some((w) => w.table === 'tenant_membership_credentials'));
   assert.ok(writes.some((w) => w.table === 'member_credentials'));
+});
+
+// ---------------------------------------------------------------------------
+// Owner Super Admin role (Task #3557): the demo owner is assigned the
+// tenant's platform-provisioned system "Super Admin" role — never a newly
+// created one — only when her current role is empty or the tenant default.
+// ---------------------------------------------------------------------------
+const SUPER_ROLE = { id: 'role-super', name: 'Super Admin', is_system: true, is_default: false, tenant_id: TENANT_ID };
+const DEFAULT_ROLE = { id: 'role-member', name: 'Member', is_system: false, is_default: true, tenant_id: TENANT_ID };
+const SCOPED_ROLE = { id: 'role-scoped', name: 'Membership Manager', is_system: false, is_default: false, tenant_id: TENANT_ID };
+const OTHER_TENANT_SUPER = { id: 'role-super-other', name: 'Super Admin', is_system: true, is_default: false, tenant_id: 'tenant-other' };
+
+test('resolveDemoSuperAdminRoleId finds exactly one tenant-scoped system role, never creates one', async () => {
+  const { resolveDemoSuperAdminRoleId } = await importEngine();
+  // Another tenant's Super Admin must not satisfy (or duplicate) the lookup.
+  const { sb, writes } = makeMockSb({ roles: [DEFAULT_ROLE, SUPER_ROLE, OTHER_TENANT_SUPER] });
+  assert.equal(await resolveDemoSuperAdminRoleId(sb, TENANT_ID), 'role-super');
+  assert.equal(writes.length, 0, 'lookup only — no writes');
+  // Missing role → loud failure, still no role creation.
+  const empty = makeMockSb({ roles: [DEFAULT_ROLE, OTHER_TENANT_SUPER] });
+  await assert.rejects(() => resolveDemoSuperAdminRoleId(empty.sb, TENANT_ID), /Super Admin.*not found/s);
+  assert.equal(empty.writes.length, 0);
+  // Duplicates → loud failure instead of an arbitrary authorization pick.
+  const dup = makeMockSb({ roles: [SUPER_ROLE, { ...SUPER_ROLE, id: 'role-super-2' }] });
+  await assert.rejects(() => resolveDemoSuperAdminRoleId(dup.sb, TENANT_ID), /Multiple system "Super Admin" roles/);
+  assert.equal(dup.writes.length, 0);
+});
+
+test('owner grant matrix: only an EMPTY role is upgraded — any existing role (even the default) is kept', async () => {
+  const { applyDemoOwnerAdminRole } = await importEngine();
+  const cases = [
+    // [current role_id, expect grant]
+    [null, true],
+    // role_id has no provenance: even the tenant default could be a
+    // deliberate admin assignment, so replacing it would be a silent
+    // privilege escalation. It must be kept.
+    [DEFAULT_ROLE.id, false],
+    [SCOPED_ROLE.id, false],
+    [SUPER_ROLE.id, true], // already on Super Admin — reported granted, no write
+  ];
+  for (const [roleId, expectGrant] of cases) {
+    const { sb, writes } = makeMockSb({
+      members: [{ id: 'm-owner', email: 'owner@mock.example.com', role_id: roleId }],
+      roles: [DEFAULT_ROLE, SUPER_ROLE, SCOPED_ROLE],
+    });
+    const granted = await applyDemoOwnerAdminRole({ sb, tenantId: TENANT_ID, memberId: 'm-owner', roleId: SUPER_ROLE.id, log: () => {} });
+    assert.equal(granted, expectGrant, `role_id=${roleId}`);
+    const upd = writes.find((w) => w.table === 'member' && w.op === 'update');
+    if (roleId === null) {
+      assert.equal(upd.payload.role_id, SUPER_ROLE.id);
+      assert.equal(upd.filters.tenant_id, TENANT_ID, 'update pinned to the demo tenant');
+    } else {
+      assert.ok(!upd, 'existing role must never be replaced');
+    }
+  }
+});
+
+test('deliberately assigned sole-default role survives both seed repair and password reset', async () => {
+  const { setDemoPortalPassword, applyDemoOwnerAdminRole, resolveDemoSuperAdminRoleId } = await importEngine();
+  const state = {
+    tenant: mockTenant,
+    members: [{ id: 'm-owner', email: 'owner@mock.example.com', identity_id: 'ident-owner', role_id: DEFAULT_ROLE.id }],
+    roles: [DEFAULT_ROLE, SUPER_ROLE],
+  };
+  // Password reset path: owner stays on the default role.
+  const reset = makeMockSb(state);
+  await setDemoPortalPassword(mockDefinition, { sb: reset.sb, password: 'demo-pass-123', log: () => {} });
+  assert.ok(!reset.writes.some((w) => w.table === 'member' && w.op === 'update' && w.payload.role_id),
+    'reset must not change the owner role');
+  // Seed path uses the same helper pair — same outcome.
+  const seed = makeMockSb(state);
+  const roleId = await resolveDemoSuperAdminRoleId(seed.sb, TENANT_ID);
+  const granted = await applyDemoOwnerAdminRole({ sb: seed.sb, tenantId: TENANT_ID, memberId: 'm-owner', roleId, log: () => {} });
+  assert.equal(granted, false);
+  assert.ok(!seed.writes.some((w) => w.table === 'member' && w.op === 'update'), 'seed must not change the owner role');
+});
+
+test('password reset grants the owner Super Admin but stays best-effort when the role is missing', async () => {
+  const { setDemoPortalPassword } = await importEngine();
+  // With the system role present, the owner's null role is upgraded.
+  const withRole = makeMockSb({
+    tenant: mockTenant,
+    members: [{ id: 'm-owner', email: 'owner@mock.example.com', identity_id: 'ident-owner', role_id: null }],
+    roles: [DEFAULT_ROLE, SUPER_ROLE],
+  });
+  await setDemoPortalPassword(mockDefinition, { sb: withRole.sb, password: 'demo-pass-123', log: () => {} });
+  const upd = withRole.writes.find((w) => w.table === 'member' && w.op === 'update' && w.payload.role_id);
+  assert.ok(upd && upd.payload.role_id === SUPER_ROLE.id, 'owner upgraded to Super Admin during reset');
+  // Without the system role the reset still succeeds (warning only).
+  const noRole = makeMockSb({
+    tenant: mockTenant,
+    members: [{ id: 'm-owner', email: 'owner@mock.example.com', identity_id: 'ident-owner', role_id: null }],
+    roles: [DEFAULT_ROLE],
+  });
+  const result = await setDemoPortalPassword(mockDefinition, { sb: noRole.sb, password: 'demo-pass-123', log: () => {} });
+  assert.equal(result.updated, 1, 'reset must not fail because the role is missing');
+});
+
+test('seed owner block assigns the system Super Admin role', () => {
+  const defSrc = fs.readFileSync(new URL('../../demo-seeds/aesp/definition.mjs', import.meta.url), 'utf8');
+  assert.match(defSrc, /resolveDemoSuperAdminRoleId\(sb, tenantId\)/, 'seed must resolve the system role (fail-loudly)');
+  assert.match(defSrc, /applyDemoOwnerAdminRole\(\{ sb, tenantId, memberId: ownerMemberId, roleId: superAdminRoleId/,
+    'seed must assign it to the owner member row');
 });
 
 test('short passwords rejected; blank generates a strong one', async () => {

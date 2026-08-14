@@ -499,14 +499,23 @@ const definition = {
     // the manifest, so a data reset leaves the owner login intact (like the
     // rest of the provisioning scaffolding).
     {
-      const { resolveDemoIdentityId, repairDemoIdentityPersona } = await import('../engine.mjs');
+      const {
+        resolveDemoIdentityId, repairDemoIdentityPersona,
+        resolveDemoSuperAdminRoleId, applyDemoOwnerAdminRole,
+      } = await import('../engine.mjs');
       const adminEmail = definition.tenant.adminEmail.toLowerCase();
       const ownerPersona = definition.loginPersonas().find((p) => p.kind === 'owner');
       const identityId = await resolveDemoIdentityId(sb, adminEmail);
-      await repairDemoIdentityPersona({
+      const ownerMemberId = await repairDemoIdentityPersona({
         sb, tenantId, persona: ownerPersona, identityId, passwordHash,
         memberPatch: { job_title: 'Chief Executive' },
       });
+      // Full admin access, exactly like real tenants grant it: assign the
+      // platform-provisioned system "Super Admin" role. Fails loudly at
+      // seed time when the tenant lacks that role (never creates one), and
+      // never clobbers a deliberately changed role.
+      const superAdminRoleId = await resolveDemoSuperAdminRoleId(sb, tenantId);
+      await applyDemoOwnerAdminRole({ sb, tenantId, memberId: ownerMemberId, roleId: superAdminRoleId, log });
       // Align the provisioning-time identity hash too (this identity exists
       // only for the demo tenant's owner; the per-tenant credential row
       // above still wins the login precedence regardless).
