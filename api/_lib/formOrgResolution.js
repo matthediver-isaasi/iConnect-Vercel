@@ -124,9 +124,10 @@ export async function resolveExistingOrganization(supabase, {
 }
 
 /**
- * Write-time tenant guard (defence in depth, Task #3550): constrain an
- * organisation UPDATE so a cross-tenant row can never be mutated even if a
- * bad resolution slipped through (stale bundle, future regression, race).
+ * Write-time tenant guard (defence in depth, Task #3550/#3555): constrain a
+ * tenant-scoped entity UPDATE (organization, member, ...) so a cross-tenant
+ * row can never be mutated even if a bad resolution slipped through (stale
+ * bundle, future regression, race).
  *
  * - Row already in a tenant  -> update must match the effective tenant.
  * - NULL-tenant (legacy) row -> update must match tenant_id IS NULL (the
@@ -136,10 +137,51 @@ export async function resolveExistingOrganization(supabase, {
  * NOTE: uses plain .eq()/.is() filters — PostgREST .or() is NOT reliable on
  * UPDATE, do not "simplify" this to a single .or() filter.
  *
+ * Callers MUST pass `existingRow` with an authoritative `tenant_id` (from a
+ * DB read that selected it): a row object that simply omits tenant_id would
+ * be treated as legacy and filtered to IS NULL, blocking a legitimate
+ * in-tenant update.
+ *
  * @returns the same query builder with the tenant filter applied.
  */
-export function applyOrgWriteTenantGuard(updateQuery, effectiveTenantId, existingRow) {
+export function applyWriteTenantGuard(updateQuery, effectiveTenantId, existingRow) {
   if (!effectiveTenantId) return updateQuery;
   if (existingRow?.tenant_id) return updateQuery.eq('tenant_id', effectiveTenantId);
   return updateQuery.is('tenant_id', null);
+}
+
+// Backwards-compatible alias (Task #3550 name) — same guard, org call sites.
+export const applyOrgWriteTenantGuard = applyWriteTenantGuard;
+
+/**
+ * Run a tenant-guarded UPDATE against a tenant-scoped table and report
+ * whether the guard blocked it.
+ *
+ * - Applies legacy adoption: when an effective tenant is known and the
+ *   existing row has no tenant_id, the payload is stamped with
+ *   `tenant_id = effectiveTenantId` so the allowed update adopts the row
+ *   into the tenant (matching the organisation path's behaviour).
+ * - Applies applyWriteTenantGuard, then `.select(select)` so callers can
+ *   distinguish "0 rows matched" (guard fired / row vanished) from success.
+ *
+ * @returns {Promise<{ error: any|null, blocked: boolean, rows: any[]|null }>}
+ *   error   — the PostgREST error, if the update itself failed
+ *   blocked — true when the update matched 0 rows (treat as a blocked
+ *             cross-tenant write, never as success)
+ *   rows    — the updated rows on success
+ */
+export async function runGuardedTenantUpdate(supabase, { table, id, payload, effectiveTenantId, existingRow, select = 'id' }) {
+  const updatePayload = { ...payload };
+  if (effectiveTenantId && !existingRow?.tenant_id && updatePayload.tenant_id === undefined) {
+    updatePayload.tenant_id = effectiveTenantId; // legacy adoption
+  }
+  const guarded = applyWriteTenantGuard(
+    supabase.from(table).update(updatePayload).eq('id', id),
+    effectiveTenantId,
+    existingRow
+  );
+  const { data, error } = await guarded.select(select);
+  if (error) return { error, blocked: false, rows: null };
+  if (!data || data.length === 0) return { error: null, blocked: true, rows: [] };
+  return { error: null, blocked: false, rows: data };
 }

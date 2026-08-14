@@ -6,7 +6,7 @@ import { resolveStaticTodayToken } from '../_lib/staticValueTokens.js';
 import { isProtectedOrgBalanceField } from '../_lib/protectedOrgFields.js';
 import { coercePreferenceValueForStorage } from '../_lib/preferenceValueStorage.js';
 import { resolveEffectiveEntityTenant, isCrossTenantRow } from '../_lib/formTenantScope.js';
-import { resolveExistingOrganization, applyOrgWriteTenantGuard } from '../_lib/formOrgResolution.js';
+import { resolveExistingOrganization, applyOrgWriteTenantGuard, runGuardedTenantUpdate } from '../_lib/formOrgResolution.js';
 import { resolveSubmitControl } from '../_lib/formSubmitControl.js';
 import { rulesUseLmicOperators } from '../_lib/formLmicConditions.js';
 import { loadTenantLmicCodes } from '../_lib/tenantLmicCodes.js';
@@ -2046,15 +2046,56 @@ export default async function handler(req, res) {
           const orgIdToLink = createdOrganizationId || prefill_organization_id;
           if (orgIdToLink) memberUpdateData.organization_id = orgIdToLink;
           
+          // Belt-and-braces (Task #3555): the resolution chain already rejects
+          // cross-tenant rows, but never rely on that alone — a resolved row
+          // from another tenant must NEVER be written to.
+          if (isCrossTenantRow(effectiveEntityTenantId, existingMember)) {
+            addProcessingNote({
+              level: 'error',
+              stage: 'member_update',
+              message: 'Cross-tenant member write blocked at write time.',
+              found_id: existingMember.id,
+              found_tenant_id: existingMember.tenant_id,
+              effective_tenant_id: effectiveEntityTenantId,
+            });
+            console.error('[AppProcessor] BLOCKED cross-tenant member write:', existingMember.id);
+            await flushProcessingNotes();
+            return res.status(409).json({ error: 'Cross-tenant member write blocked', code: 'CROSS_TENANT_MEMBER_WRITE' });
+          }
+
           if (Object.keys(memberUpdateData).length > 0) {
-            const { error: memberUpdateError } = await supabase
-              .from('member')
-              .update(memberUpdateData)
-              .eq('id', existingMember.id);
+            // Write-time tenant guard (defence in depth, Task #3555): the
+            // UPDATE itself is hard-filtered to the effective tenant (or
+            // tenant_id IS NULL for legacy adoption — the helper stamps
+            // tenant_id onto the payload so the row is adopted into the
+            // tenant), so even a bad resolution cannot mutate another
+            // tenant's member row. Zero rows updated = the guard fired.
+            const { error: memberUpdateError, blocked: memberUpdateBlocked } = await runGuardedTenantUpdate(supabase, {
+              table: 'member',
+              id: existingMember.id,
+              payload: memberUpdateData,
+              effectiveTenantId: effectiveEntityTenantId,
+              existingRow: existingMember,
+            });
             
             if (memberUpdateError) {
               console.error('[AppProcessor] Failed to update member:', memberUpdateError);
               return res.status(500).json({ error: `Failed to update member: ${memberUpdateError.message}` });
+            }
+            if (memberUpdateBlocked) {
+              // Tenant guard filtered the row out — treat as a blocked
+              // cross-tenant write, never as success.
+              addProcessingNote({
+                level: 'error',
+                stage: 'member_update',
+                message: 'Member update blocked by write-time tenant guard (row not in effective tenant).',
+                member_id: existingMember.id,
+                row_tenant_id: existingMember.tenant_id || null,
+                effective_tenant_id: effectiveEntityTenantId,
+              });
+              console.error('[AppProcessor] Member update matched 0 rows under tenant guard:', existingMember.id);
+              await flushProcessingNotes();
+              return res.status(409).json({ error: 'Cross-tenant member write blocked', code: 'CROSS_TENANT_MEMBER_WRITE' });
             }
             console.log('[AppProcessor] Updated member:', existingMember.id);
           }
@@ -2612,7 +2653,7 @@ export default async function handler(req, res) {
     if (createdMemberId) {
       const { data: primaryMemberState } = await supabase
         .from('member')
-        .select('id, email, role_id, organization_id')
+        .select('id, email, role_id, organization_id, tenant_id')
         .eq('id', createdMemberId)
         .single();
       
@@ -2621,7 +2662,8 @@ export default async function handler(req, res) {
         processedEmails.set(primaryEmail, { 
           id: primaryMemberState.id, 
           role_id: primaryMemberState.role_id, 
-          organization_id: primaryMemberState.organization_id 
+          organization_id: primaryMemberState.organization_id,
+          tenant_id: primaryMemberState.tenant_id ?? null
         });
         console.log('[AppProcessor] Tracking primary member email (from DB):', primaryEmail, '->', { 
           id: primaryMemberState.id, 
@@ -2834,7 +2876,8 @@ export default async function handler(req, res) {
         let existingMemberRecord = processedEntry ? { 
           id: processedEntry.id, 
           role_id: processedEntry.role_id, 
-          organization_id: processedEntry.organization_id 
+          organization_id: processedEntry.organization_id,
+          tenant_id: processedEntry.tenant_id ?? null
         } : null;
         
         if (!existingMemberId) {
@@ -2928,17 +2971,57 @@ export default async function handler(req, res) {
             }
           }
           
+          // Belt-and-braces (Task #3555): never write to a resolved row from
+          // another tenant, even if resolution/tracking mis-stepped.
+          if (isCrossTenantRow(effectiveEntityTenantId, existingMemberRecord)) {
+            addProcessingNote({
+              level: 'error',
+              stage: 'additional_member_update',
+              message: 'Cross-tenant additional-member write blocked at write time.',
+              found_id: existingMemberId,
+              found_tenant_id: existingMemberRecord?.tenant_id || null,
+              effective_tenant_id: effectiveEntityTenantId,
+              member_label: memberConfig.label,
+            });
+            console.error('[AppProcessor] BLOCKED cross-tenant additional member write:', existingMemberId);
+            await flushProcessingNotes();
+            return res.status(409).json({ error: 'Cross-tenant member write blocked', code: 'CROSS_TENANT_MEMBER_WRITE' });
+          }
+
           let trackingUpdated = false;
           if (Object.keys(additionalMemberData).length > 0) {
-            const { data: updatedMember, error: updateError } = await supabase
-              .from('member')
-              .update(additionalMemberData)
-              .eq('id', existingMemberId)
-              .select('id, role_id, organization_id')
-              .single();
+            // Write-time tenant guard (defence in depth, Task #3555): the
+            // UPDATE is hard-filtered to the effective tenant (or tenant_id
+            // IS NULL for legacy adoption — the helper stamps tenant_id so
+            // the row is adopted into the tenant). Zero rows updated =
+            // guard fired.
+            const { error: updateError, blocked: additionalUpdateBlocked, rows: updatedAdditionalRows } = await runGuardedTenantUpdate(supabase, {
+              table: 'member',
+              id: existingMemberId,
+              payload: additionalMemberData,
+              effectiveTenantId: effectiveEntityTenantId,
+              existingRow: existingMemberRecord,
+              select: 'id, role_id, organization_id, tenant_id',
+            });
+            const updatedMember = updatedAdditionalRows?.[0] || null;
             
             if (updateError) {
               console.error('[AppProcessor] Failed to update additional member:', updateError);
+            } else if (additionalUpdateBlocked) {
+              // Tenant guard filtered the row out — fail loudly, never
+              // treat as success.
+              addProcessingNote({
+                level: 'error',
+                stage: 'additional_member_update',
+                message: 'Additional-member update blocked by write-time tenant guard (row not in effective tenant).',
+                member_id: existingMemberId,
+                row_tenant_id: existingMemberRecord?.tenant_id || null,
+                effective_tenant_id: effectiveEntityTenantId,
+                member_label: memberConfig.label,
+              });
+              console.error('[AppProcessor] Additional member update matched 0 rows under tenant guard:', existingMemberId);
+              await flushProcessingNotes();
+              return res.status(409).json({ error: 'Cross-tenant member write blocked', code: 'CROSS_TENANT_MEMBER_WRITE' });
             } else {
               console.log('[AppProcessor] Updated member:', existingMemberId);
               // Update in-memory context with authoritative values from DB after mutation
@@ -2946,7 +3029,8 @@ export default async function handler(req, res) {
                 processedEmails.set(normalizedEmail, { 
                   id: updatedMember.id, 
                   role_id: updatedMember.role_id, 
-                  organization_id: updatedMember.organization_id 
+                  organization_id: updatedMember.organization_id,
+                  tenant_id: updatedMember.tenant_id ?? null
                 });
                 trackingUpdated = true;
                 console.log('[AppProcessor] Updated tracking (from DB):', { 
@@ -2962,7 +3046,7 @@ export default async function handler(req, res) {
           if (!trackingUpdated) {
             const { data: currentMemberState } = await supabase
               .from('member')
-              .select('id, role_id, organization_id')
+              .select('id, role_id, organization_id, tenant_id')
               .eq('id', existingMemberId)
               .single();
             
@@ -2970,7 +3054,8 @@ export default async function handler(req, res) {
               processedEmails.set(normalizedEmail, { 
                 id: currentMemberState.id, 
                 role_id: currentMemberState.role_id, 
-                organization_id: currentMemberState.organization_id 
+                organization_id: currentMemberState.organization_id,
+                tenant_id: currentMemberState.tenant_id ?? null
               });
               console.log('[AppProcessor] Refreshed tracking (no mutation):', { 
                 role_id: currentMemberState.role_id, 
@@ -3073,7 +3158,8 @@ export default async function handler(req, res) {
           processedEmails.set(normalizedEmail, { 
             id: newMember.id, 
             role_id: newMember.role_id || null, 
-            organization_id: newMember.organization_id 
+            organization_id: newMember.organization_id,
+            tenant_id: newMember.tenant_id ?? null
           });
           console.log('[AppProcessor] Created additional member:', newMember.id, 'tracking:', { role_id: newMember.role_id, organization_id: newMember.organization_id });
 
