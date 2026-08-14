@@ -896,7 +896,7 @@ export default function EditEvent() {
       // real sequence regardless of entry/drag order.
       const orderedLines = sortAgendaLinesChronologically(agendaLines);
       const buildAgendaPayload = (line, sortOrder) => {
-        const behaviour = agendaTypeBehaviour(line.item_type);
+        const behaviour = agendaTypeBehaviour(line.item_type, agendaItemTypes);
         return {
           event_id: eventId,
           start_date: line.start_date,
@@ -1457,7 +1457,7 @@ export default function EditEvent() {
     // Non-training events may carry an optional agenda (Task #3512) —
     // validate only when lines exist.
     if (isTraining || agendaLines.length > 0) {
-      const agendaErrors = validateAgendaLines(agendaLines);
+      const agendaErrors = validateAgendaLines(agendaLines, agendaItemTypes);
       if (agendaErrors.length > 0) {
         toast.error(agendaErrors[0]);
         return;

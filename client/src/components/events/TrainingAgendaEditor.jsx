@@ -16,6 +16,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Plus, Trash2, ArrowUp, ArrowDown, MapPin, Video, GraduationCap, Mic, X, GripVertical } from "lucide-react";
 import { SpeakerSelectionModal } from "@/components/SpeakerSelectionModal";
+import { inferAgendaTypeBehaviour } from "@/hooks/useAgendaItemTypes";
 import EventSponsorSelector from "@/components/events/EventSponsorSelector";
 
 async function fetchJson(url) {
@@ -24,19 +25,22 @@ async function fetchJson(url) {
   return response.json();
 }
 
-// Behaviour is inferred from the type name so renamed types keep working
-// sensibly (exact seed names first, then keyword heuristics; unknown names get
-// no conditional field).
-export function agendaTypeBehaviour(typeName) {
+// Behaviour for a line's type (Task #3561): the configured type's explicit
+// `behaviour` wins (the settings parser already infers one for legacy saved
+// entries), so renamed types keep their behaviour. Name inference is only the
+// fallback for types not found in settings (e.g. old agenda rows whose type
+// was since deleted). Returns 'location' | 'zoom' | 'lms' | null (no field).
+export function agendaTypeBehaviour(typeName, agendaItemTypes) {
   const n = String(typeName || '').trim().toLowerCase();
   if (!n) return null;
-  if (n === 'in person' || n === 'in-person') return 'location';
-  if (n === 'online') return 'zoom';
-  if (n === 'self study' || n === 'self-study') return 'lms';
-  if (n.includes('person') || n.includes('venue')) return 'location';
-  if (n.includes('online') || n.includes('virtual') || n.includes('webinar') || n.includes('zoom') || n.includes('teams')) return 'zoom';
-  if (n.includes('self') || n.includes('study') || n.includes('lms')) return 'lms';
-  return null;
+  const configured = (agendaItemTypes || []).find(
+    (t) => String(t?.name || '').trim().toLowerCase() === n
+  );
+  if (configured && ['location', 'zoom', 'lms', 'none'].includes(configured.behaviour)) {
+    return configured.behaviour === 'none' ? null : configured.behaviour;
+  }
+  const inferred = inferAgendaTypeBehaviour(typeName);
+  return inferred === 'none' ? null : inferred;
 }
 
 // Normalise a stored/typed time to HH:MM ('09:00:00' -> '09:00'); '' when unset.
@@ -105,7 +109,7 @@ export function emptyAgendaLine(defaultType = 'In person') {
   };
 }
 
-export function validateAgendaLines(lines) {
+export function validateAgendaLines(lines, agendaItemTypes) {
   const errors = [];
   if (!lines || lines.length === 0) {
     errors.push('Please add at least one agenda line for this training event');
@@ -126,7 +130,7 @@ export function validateAgendaLines(lines) {
       }
     }
     if (!line.item_type) errors.push(`${label}: please choose a type`);
-    const behaviour = agendaTypeBehaviour(line.item_type);
+    const behaviour = agendaTypeBehaviour(line.item_type, agendaItemTypes);
     if (behaviour === 'location' && !String(line.location || '').trim()) {
       errors.push(`${label}: please enter a location for this in-person day`);
     }
@@ -157,7 +161,7 @@ function SortableAgendaLine({ id, children }) {
 }
 
 export default function TrainingAgendaEditor({ lines, onChange, agendaItemTypes, speakers = [] }) {
-  const anyOnline = (lines || []).some((l) => agendaTypeBehaviour(l.item_type) === 'zoom');
+  const anyOnline = (lines || []).some((l) => agendaTypeBehaviour(l.item_type, agendaItemTypes) === 'zoom');
   // Which line's speaker-selection modal is open (null = none).
   const [speakerModalIndex, setSpeakerModalIndex] = useState(null);
 
@@ -239,7 +243,7 @@ export default function TrainingAgendaEditor({ lines, onChange, agendaItemTypes,
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
       <SortableContext items={lineIds} strategy={verticalListSortingStrategy}>
       {(lines || []).map((line, index) => {
-        const behaviour = agendaTypeBehaviour(line.item_type);
+        const behaviour = agendaTypeBehaviour(line.item_type, agendaItemTypes);
         return (
           <SortableAgendaLine key={lineIds[index]} id={lineIds[index]}>
           {({ setNodeRef, style, handleProps }) => (
@@ -304,9 +308,9 @@ export default function TrainingAgendaEditor({ lines, onChange, agendaItemTypes,
                     // Reset conditional fields when the type behaviour changes.
                     updateLine(index, {
                       item_type: value,
-                      ...(agendaTypeBehaviour(value) !== 'location' ? { location: '' } : {}),
-                      ...(agendaTypeBehaviour(value) !== 'zoom' ? { zoom_webinar_id: null, zoom_meeting_id: null } : {}),
-                      ...(agendaTypeBehaviour(value) !== 'lms' ? { lms_url: '' } : {}),
+                      ...(agendaTypeBehaviour(value, agendaItemTypes) !== 'location' ? { location: '' } : {}),
+                      ...(agendaTypeBehaviour(value, agendaItemTypes) !== 'zoom' ? { zoom_webinar_id: null, zoom_meeting_id: null } : {}),
+                      ...(agendaTypeBehaviour(value, agendaItemTypes) !== 'lms' ? { lms_url: '' } : {}),
                     });
                   }}
                 >

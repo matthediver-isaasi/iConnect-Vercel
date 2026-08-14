@@ -718,10 +718,10 @@ export default function CreateEvent() {
               end_time: normalizeAgendaTime(line.end_time) || null,
               description: line.description || null,
               item_type: line.item_type || null,
-              location: agendaTypeBehaviour(line.item_type) === 'location' ? (line.location || null) : null,
-              zoom_webinar_id: agendaTypeBehaviour(line.item_type) === 'zoom' ? (line.zoom_webinar_id || null) : null,
-              zoom_meeting_id: agendaTypeBehaviour(line.item_type) === 'zoom' ? (line.zoom_meeting_id || null) : null,
-              lms_url: agendaTypeBehaviour(line.item_type) === 'lms' ? (line.lms_url || null) : null,
+              location: agendaTypeBehaviour(line.item_type, agendaItemTypes) === 'location' ? (line.location || null) : null,
+              zoom_webinar_id: agendaTypeBehaviour(line.item_type, agendaItemTypes) === 'zoom' ? (line.zoom_webinar_id || null) : null,
+              zoom_meeting_id: agendaTypeBehaviour(line.item_type, agendaItemTypes) === 'zoom' ? (line.zoom_meeting_id || null) : null,
+              lms_url: agendaTypeBehaviour(line.item_type, agendaItemTypes) === 'lms' ? (line.lms_url || null) : null,
               speaker_ids: Array.isArray(line.speaker_ids) ? line.speaker_ids.filter(Boolean) : [],
               sponsor_ids: Array.isArray(line.sponsor_ids) ? line.sponsor_ids.filter(Boolean) : [],
               sort_order: i,
@@ -866,7 +866,7 @@ export default function CreateEvent() {
     // Non-training events may have an optional agenda (Task #3512) — validate
     // only when lines were added.
     if (isTraining || agendaLines.length > 0) {
-      errors.push(...validateAgendaLines(agendaLines));
+      errors.push(...validateAgendaLines(agendaLines, agendaItemTypes));
     }
     
     // Group-limited online events use a manual meeting link instead of Zoom.

@@ -86,23 +86,50 @@ test('parseAgendaItemTypes: defaults on absent/invalid, normalizes toggle', () =
   assert.deepEqual(parseAgendaItemTypes('not json'), DEFAULT_AGENDA_ITEM_TYPES);
   assert.deepEqual(
     parseAgendaItemTypes(JSON.stringify([{ name: ' Lab ', includeInClashChecks: false }, { name: '' }])),
-    [{ name: 'Lab', includeInClashChecks: false, icon: null }]
+    [{ name: 'Lab', includeInClashChecks: false, icon: null, behaviour: 'none' }]
   );
   // omitted toggle defaults to included; legacy rows without icon parse to null
   assert.deepEqual(
     parseAgendaItemTypes(JSON.stringify([{ name: 'Lab' }])),
-    [{ name: 'Lab', includeInClashChecks: true, icon: null }]
+    [{ name: 'Lab', includeInClashChecks: true, icon: null, behaviour: 'none' }]
   );
   // stored icon survives (trimmed); blank icon normalizes to null
   assert.deepEqual(
     parseAgendaItemTypes(JSON.stringify([{ name: 'Lab', icon: ' flask-conical ' }, { name: 'Talk', icon: '  ' }])),
     [
-      { name: 'Lab', includeInClashChecks: true, icon: 'flask-conical' },
-      { name: 'Talk', includeInClashChecks: true, icon: null },
+      { name: 'Lab', includeInClashChecks: true, icon: 'flask-conical', behaviour: 'none' },
+      { name: 'Talk', includeInClashChecks: true, icon: null, behaviour: 'none' },
     ]
   );
   // built-in defaults carry sensible icons
   assert.deepEqual(DEFAULT_AGENDA_ITEM_TYPES.map((t) => t.icon), ['map-pin', 'video', 'book']);
+});
+
+test('parseAgendaItemTypes: behaviour (Task #3561) — explicit wins, legacy inferred from name', () => {
+  // Explicit behaviour survives a rename (the whole point of the field).
+  assert.deepEqual(
+    parseAgendaItemTypes(JSON.stringify([{ name: 'Virtual Classroom', behaviour: 'zoom' }])),
+    [{ name: 'Virtual Classroom', includeInClashChecks: true, icon: null, behaviour: 'zoom' }]
+  );
+  assert.equal(
+    parseAgendaItemTypes(JSON.stringify([{ name: 'Online', behaviour: 'none' }]))[0].behaviour,
+    'none'
+  );
+  // Legacy entries without a behaviour fall back to the historical name rules.
+  assert.deepEqual(
+    parseAgendaItemTypes(JSON.stringify([
+      { name: 'In person' }, { name: 'Online' }, { name: 'Self study' },
+      { name: 'Venue day' }, { name: 'Teams call' }, { name: 'LMS module' }, { name: 'Lab' },
+    ])).map((t) => t.behaviour),
+    ['location', 'zoom', 'lms', 'location', 'zoom', 'lms', 'none']
+  );
+  // Junk behaviour values are ignored (inferred instead).
+  assert.equal(
+    parseAgendaItemTypes(JSON.stringify([{ name: 'Online', behaviour: 'bogus' }]))[0].behaviour,
+    'zoom'
+  );
+  // Seed defaults carry explicit behaviours.
+  assert.deepEqual(DEFAULT_AGENDA_ITEM_TYPES.map((t) => t.behaviour), ['location', 'zoom', 'lms']);
 });
 
 test('clashIncludedTypeNames: excludes toggled-off types', () => {

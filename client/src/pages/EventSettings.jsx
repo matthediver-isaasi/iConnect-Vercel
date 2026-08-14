@@ -19,7 +19,7 @@ import { createPageUrl } from "@/utils";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
-import { AGENDA_ITEM_TYPES_SETTING_KEY, parseAgendaItemTypes } from "@/hooks/useAgendaItemTypes";
+import { AGENDA_ITEM_TYPES_SETTING_KEY, parseAgendaItemTypes, AGENDA_TYPE_BEHAVIOUR_OPTIONS, inferAgendaTypeBehaviour } from "@/hooks/useAgendaItemTypes";
 import ReactQuill from "react-quill";
 import "react-quill/dist/quill.snow.css";
 
@@ -1049,7 +1049,9 @@ export default function EventSettingsPage() {
       toast.error('This agenda item type already exists');
       return;
     }
-    setAgendaItemTypes([...agendaItemTypes, { name: trimmed, includeInClashChecks: true }]);
+    // New types default to a behaviour inferred from the name (Task #3561);
+    // the admin can change it with the selector before saving.
+    setAgendaItemTypes([...agendaItemTypes, { name: trimmed, includeInClashChecks: true, behaviour: inferAgendaTypeBehaviour(trimmed) }]);
     setNewAgendaItemType("");
   };
 
@@ -1082,6 +1084,14 @@ export default function EventSettingsPage() {
   const handleToggleAgendaTypeClash = (index, checked) => {
     const updated = [...agendaItemTypes];
     updated[index] = { ...updated[index], includeInClashChecks: checked === true };
+    setAgendaItemTypes(updated);
+  };
+
+  // Behaviour selector (Task #3561): which conditional field the training
+  // agenda editor shows for lines of this type.
+  const handleSetAgendaTypeBehaviour = (index, behaviour) => {
+    const updated = [...agendaItemTypes];
+    updated[index] = { ...updated[index], behaviour };
     setAgendaItemTypes(updated);
   };
 
@@ -3017,6 +3027,9 @@ export default function EventSettingsPage() {
               <p className="text-sm text-slate-600">
                 Types available for Training event agenda lines (e.g., In person, Online, Self study).
                 The toggle controls whether agenda lines of that type count in time-clash checks.
+                The behaviour selector controls which extra field the agenda editor asks for:
+                an in-person location, a Zoom/Teams webinar or meeting (with a join link on the event page),
+                a self-study learning platform (LMS) link, or none. Behaviour is kept when a type is renamed.
               </p>
 
               {/* Add new agenda item type */}
@@ -3076,7 +3089,28 @@ export default function EventSettingsPage() {
                             />
                             {type.name}
                           </span>
-                          <div className="flex items-center gap-4">
+                          <div className="flex flex-wrap items-center gap-4">
+                            <div className="flex items-center gap-2">
+                              <Label className="text-xs text-slate-500">Behaviour</Label>
+                              <Select
+                                value={type.behaviour || 'none'}
+                                onValueChange={(value) => handleSetAgendaTypeBehaviour(index, value)}
+                              >
+                                <SelectTrigger className="w-[220px]" data-testid={`select-agenda-type-behaviour-${index}`}>
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {AGENDA_TYPE_BEHAVIOUR_OPTIONS.map((opt) => (
+                                    <SelectItem key={opt.value} value={opt.value}>
+                                      <div>
+                                        <div>{opt.label}</div>
+                                        <div className="text-xs text-slate-500">{opt.description}</div>
+                                      </div>
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
                             <Button
                               size="sm"
                               variant="outline"
