@@ -490,21 +490,26 @@ const definition = {
     }
 
     // -- Tenant owner persona (Hannah Clarke, Chief Executive) --------------
-    // Provisioning created her identity + admin member; keep her profile in
-    // the demo shape and align her login password with the demo password so
-    // demos always have a known owner login.
+    // Provisioning creates her tenant_identity but (in prod) NOT a member
+    // row — so the seed itself creates/repairs her sample member row, the
+    // tenant_membership linkage and the tenant-scoped credential rows, via
+    // the same shared helpers setDemoPortalPassword's repair path uses.
+    // After a fresh seed the owner can log in with the demo password with
+    // no password reset needed. These rows are deliberately NOT recorded in
+    // the manifest, so a data reset leaves the owner login intact (like the
+    // rest of the provisioning scaffolding).
     {
+      const { resolveDemoIdentityId, repairDemoIdentityPersona } = await import('../engine.mjs');
       const adminEmail = definition.tenant.adminEmail.toLowerCase();
-      const { data: adminMember } = await sb.from('member').select('id').eq('tenant_id', tenantId).eq('email', adminEmail).maybeSingle();
-      if (adminMember) {
-        const { error: amErr } = await sb.from('member').update({
-          job_title: 'Chief Executive', is_sample: true, login_enabled: true, status: 'active',
-        }).eq('id', adminMember.id).eq('tenant_id', tenantId);
-        if (amErr) throw new Error(`[seed] owner member update failed: ${amErr.message}`);
-        await upsert('member_credentials', { email: adminEmail }, {
-          member_id: adminMember.id, password_hash: passwordHash, is_temporary: false, is_temp_password: false,
-        });
-      }
+      const ownerPersona = definition.loginPersonas().find((p) => p.kind === 'owner');
+      const identityId = await resolveDemoIdentityId(sb, adminEmail);
+      await repairDemoIdentityPersona({
+        sb, tenantId, persona: ownerPersona, identityId, passwordHash,
+        memberPatch: { job_title: 'Chief Executive' },
+      });
+      // Align the provisioning-time identity hash too (this identity exists
+      // only for the demo tenant's owner; the per-tenant credential row
+      // above still wins the login precedence regardless).
       const { error: idErr } = await sb.from('tenant_identity').update({ password_hash: passwordHash, is_temporary: false }).eq('email', adminEmail);
       if (idErr) log(`[seed] warning: owner identity password update: ${idErr.message}`);
     }

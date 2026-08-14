@@ -361,6 +361,73 @@ test('console UI surfaces skipped/failed personas', () => {
   assert.match(uiSrc, /NOT updated/);
 });
 
+// ---------------------------------------------------------------------------
+// Seed-time owner creation (Task #3552): a fresh seed must create/repair the
+// owner's member row, tenant_membership linkage and credential rows itself —
+// via the SAME shared helpers as the password-reset repair path — so the
+// owner never needs a password reset to become resolvable.
+// ---------------------------------------------------------------------------
+test('seed owner block reuses the shared identity-persona repair helpers', () => {
+  const defSrc = fs.readFileSync(new URL('../../demo-seeds/aesp/definition.mjs', import.meta.url), 'utf8');
+  assert.match(defSrc, /resolveDemoIdentityId\(sb, adminEmail\)/,
+    'seed must resolve the owner identity by email');
+  assert.match(defSrc, /repairDemoIdentityPersona\(\{\s*\n?\s*sb, tenantId, persona: ownerPersona, identityId, passwordHash/,
+    'seed must create/repair the owner via the shared engine helper');
+  // The engine exports the shared helpers the reset path also uses.
+  assert.match(engineSrc, /export async function repairDemoIdentityPersona/);
+  assert.match(engineSrc, /export async function writeDemoPersonaCredentials/);
+  assert.match(engineSrc, /export async function resolveDemoIdentityId/);
+  // The old update-only owner block (member row only touched if it exists,
+  // never created) must be gone.
+  assert.ok(!/if \(adminMember\)/.test(defSrc), 'owner block must not be update-only anymore');
+});
+
+test('repairDemoIdentityPersona creates member + membership + credentials for a fresh-seed owner', async () => {
+  const { repairDemoIdentityPersona } = await importEngine();
+  const { sb, writes } = makeMockSb({
+    tenant: mockTenant,
+    members: [],
+    identities: [{ id: 'ident-owner', email: 'owner@mock.example.com' }],
+    tenantMemberships: [],
+  });
+  const memberId = await repairDemoIdentityPersona({
+    sb, tenantId: TENANT_ID,
+    persona: { name: 'Hannah Clarke', email: 'owner@mock.example.com', role: 'Owner', kind: 'owner' },
+    identityId: 'ident-owner',
+    passwordHash: '$2a$10$fakehashfakehashfakehash',
+    memberPatch: { job_title: 'Chief Executive' },
+  });
+  assert.ok(memberId, 'returns the created member id');
+  const memberInsert = writes.find((w) => w.table === 'member' && w.op === 'insert');
+  assert.equal(memberInsert.payload.is_sample, true);
+  assert.equal(memberInsert.payload.identity_id, 'ident-owner');
+  assert.equal(memberInsert.payload.job_title, 'Chief Executive');
+  assert.equal(memberInsert.payload.first_name, 'Hannah');
+  assert.equal(memberInsert.payload.last_name, 'Clarke');
+  const tmInsert = writes.find((w) => w.table === 'tenant_membership' && w.op === 'insert');
+  assert.equal(tmInsert.payload.role, 'owner');
+  assert.equal(tmInsert.payload.member_id, memberId);
+  assert.ok(writes.some((w) => w.table === 'member_credentials'));
+  assert.ok(writes.some((w) => w.table === 'tenant_membership_credentials' && w.op === 'upsert'));
+});
+
+test('repairDemoIdentityPersona with null identity still creates member + member_credentials, skips identity-keyed rows', async () => {
+  const { repairDemoIdentityPersona } = await importEngine();
+  const { sb, writes } = makeMockSb({ tenant: mockTenant, members: [], identities: [] });
+  const memberId = await repairDemoIdentityPersona({
+    sb, tenantId: TENANT_ID,
+    persona: { name: 'Hannah Clarke', email: 'owner@mock.example.com', role: 'Owner', kind: 'owner' },
+    identityId: null,
+    passwordHash: '$2a$10$fakehashfakehashfakehash',
+  });
+  assert.ok(memberId);
+  const memberInsert = writes.find((w) => w.table === 'member' && w.op === 'insert');
+  assert.ok(memberInsert && !('identity_id' in memberInsert.payload), 'no identity linkage written');
+  assert.ok(!writes.some((w) => w.table === 'tenant_membership'));
+  assert.ok(!writes.some((w) => w.table === 'tenant_membership_credentials'));
+  assert.ok(writes.some((w) => w.table === 'member_credentials'));
+});
+
 test('short passwords rejected; blank generates a strong one', async () => {
   const { setDemoPortalPassword } = await importEngine();
   const state = { tenant: mockTenant, members: [{ id: 'm-member', email: 'member@mock.example.com', identity_id: null }] };
