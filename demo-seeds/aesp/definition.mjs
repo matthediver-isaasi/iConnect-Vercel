@@ -140,12 +140,44 @@ const ADMIN_PERSONAS = [
 
 const SIZES = { small: 120, medium: 1000, large: 6500 };
 
+// Stable persona email construction — must mirror emailFor() in the seed
+// phase (personas are planned first, so they never hit the dedupe suffix).
+const personaEmail = (first, last) =>
+  `${`${first}.${last}`.toLowerCase().replace(/[^a-z.]/g, '')}@aesp.example.com`;
+
+const GRADE_LABELS = {
+  student: 'Student member', graduate: 'Graduate member',
+  professional: 'Professional member', fellow: 'Fellow',
+  retired: 'Retired member',
+};
+
 const definition = {
   key: 'aesp',
   version: 'aesp-v2',
   rngSeed: 'aesp-v1',
   defaultSize: 'small',
   tablesWithoutTenantColumn: ['member_preference_value'],
+  // Portal login personas — every seeded account that carries credentials
+  // (used by the platform demo console to list logins and to scope the
+  // shared demo-password reset). Derived from the same persona tables the
+  // seed phase uses, so new login personas surface automatically.
+  loginPersonas() {
+    return [
+      {
+        name: 'Hannah Clarke', email: 'hannah.clarke@aesp.example.com',
+        role: 'Tenant owner — Chief Executive', kind: 'owner',
+      },
+      ...ADMIN_PERSONAS.map((a) => ({
+        name: `${a.first} ${a.last}`, email: personaEmail(a.first, a.last),
+        role: a.role, kind: 'admin',
+      })),
+      ...PERSONAS.filter((p) => p.login).map((p) => ({
+        name: `${p.title ? p.title + ' ' : ''}${p.first} ${p.last}`,
+        email: personaEmail(p.first, p.last),
+        role: GRADE_LABELS[p.grade] || 'Member', kind: 'member',
+      })),
+    ];
+  },
   // survey_version is append-only at the DB boundary (immutability trigger
   // blocks UPDATE/DELETE even for service role); reset leaves those rows.
   resetSkipTables: ['survey_version'],

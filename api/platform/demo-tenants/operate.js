@@ -6,13 +6,14 @@ import {
   resetDemoData,
   deleteDemoTenant,
   demoTenantStatus,
+  setDemoPortalPassword,
 } from '../../../demo-seeds/engine.mjs';
 import { provisionTenant } from '../../_lib/provisionTenantService.js';
 import { acquirePlatformOpLock } from '../../_lib/platformOpLock.js';
 
 /**
  * POST /api/platform/demo-tenants/operate
- * body: { seedKey, action: 'seed' | 'reset' | 'delete', confirmSlug? }
+ * body: { seedKey, action: 'seed' | 'reset' | 'delete' | 'set-password', confirmSlug?, password? }
  *
  * Runs one demo-tenant lifecycle operation via the demo-seeds engine.
  * Platform-owner only. Destructive actions (reset/delete) require
@@ -44,13 +45,16 @@ export default async function handler(req, res) {
     return res.status(401).json({ error: 'Platform owner authentication required' });
   }
 
-  const { seedKey, action, confirmSlug } = req.body || {};
+  const { seedKey, action, confirmSlug, password } = req.body || {};
   const definition = getDemoDefinition(seedKey);
   if (!definition) {
     return res.status(400).json({ error: `Unknown demo tenant definition '${seedKey}'` });
   }
-  if (!['seed', 'reset', 'delete'].includes(action)) {
+  if (!['seed', 'reset', 'delete', 'set-password'].includes(action)) {
     return res.status(400).json({ error: `Unknown action '${action}'` });
+  }
+  if (action === 'set-password' && password != null && String(password).trim().length > 0 && String(password).trim().length < 8) {
+    return res.status(400).json({ error: 'Password must be at least 8 characters (leave blank to generate one)' });
   }
   if ((action === 'reset' || action === 'delete') && confirmSlug !== definition.tenant.slug) {
     return res.status(400).json({ error: 'Confirmation slug does not match' });
@@ -87,6 +91,15 @@ export default async function handler(req, res) {
       result = { counts: manifest.counts, adminSetup };
     } else if (action === 'reset') {
       result = await resetDemoData(definition, { sb: supabase, log });
+    } else if (action === 'set-password') {
+      // Plaintext password is returned once to the platform owner and never
+      // stored (only bcrypt hashes are written).
+      const trimmed = password != null ? String(password).trim() : '';
+      result = await setDemoPortalPassword(definition, {
+        sb: supabase,
+        password: trimmed.length > 0 ? trimmed : null,
+        log,
+      });
     } else {
       result = await deleteDemoTenant(definition, { sb: supabase, log });
     }

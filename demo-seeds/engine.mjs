@@ -531,6 +531,113 @@ export async function deleteDemoTenant(definition, { sb, log = console.log } = {
   return { deleted: true };
 }
 
+/**
+ * Set (or reset) the shared portal password for a demo tenant's login
+ * personas. Scoped strictly to the definition's own tenant (demo-ownership
+ * asserted) and to seeded persona members (is_sample rows matched by the
+ * definition's loginPersonas emails). Updates the credential stores the
+ * login flow consults (precedence: tenant_membership_credentials >
+ * tenant_identity > member_credentials):
+ *   - member_credentials is upserted for every persona (the store the
+ *     seeder writes);
+ *   - when a persona has a tenant_identity, the (identity, tenant)
+ *     tenant_membership_credentials row is UPSERTED — not just updated —
+ *     so a stale shared identity hash can never shadow the new password.
+ * tenant_identity.password_hash is deliberately never written: identities
+ * are cross-tenant, and the per-tenant credential row wins the precedence
+ * anyway.
+ * Returns the plaintext password exactly once to the caller.
+ */
+export async function setDemoPortalPassword(definition, { sb, password, log = console.log } = {}) {
+  if (!sb) throw new Error('supabase client required');
+  const personas = typeof definition.loginPersonas === 'function' ? definition.loginPersonas() : [];
+  if (!personas.length) throw new Error(`Definition '${definition.key}' declares no login personas`);
+
+  const plain = password != null && String(password).length > 0
+    ? String(password)
+    : crypto.randomBytes(9).toString('base64url');
+  if (plain.length < 8) throw new Error('Password must be at least 8 characters');
+
+  const tenant = await findTenant(sb, definition.tenant.slug);
+  if (!tenant) throw new Error(`Demo tenant '${definition.tenant.slug}' is not installed`);
+  await assertDemoOwnership(sb, tenant, definition);
+  const tenantId = tenant.id;
+
+  const emails = personas.map((p) => p.email.toLowerCase());
+  const passwordHash = await bcrypt.hash(plain, 10);
+
+  // Persona member rows — tenant-scoped AND demo-marked, so a colliding
+  // email in another tenant (or a non-seeded member) can never be touched.
+  const { data: members, error: memErr } = await sb
+    .from('member')
+    .select('id, email, identity_id')
+    .eq('tenant_id', tenantId)
+    .eq('is_sample', true)
+    .in('email', emails);
+  if (memErr) throw new Error(`persona member lookup failed: ${memErr.message}`);
+  if (!members?.length) throw new Error('No seeded persona members found — run a seed first');
+
+  let updated = 0;
+  for (const m of members) {
+    // 3. member_credentials (the store the seeder writes) — upsert by
+    // (tenant, email) like the seeder, clearing lockout state.
+    const credRow = {
+      tenant_id: tenantId, member_id: m.id, email: m.email,
+      password_hash: passwordHash, is_temporary: false, is_temp_password: false,
+      failed_login_attempts: 0, locked_until: null,
+      reset_token: null, reset_token_expires: null,
+    };
+    const { data: existingCred, error: credSelErr } = await sb
+      .from('member_credentials').select('id')
+      .eq('tenant_id', tenantId).eq('email', m.email).maybeSingle();
+    if (credSelErr) throw new Error(`member_credentials lookup failed for ${m.email}: ${credSelErr.message}`);
+    if (existingCred) {
+      const { error } = await sb.from('member_credentials').update(credRow).eq('id', existingCred.id);
+      if (error) throw new Error(`member_credentials update failed for ${m.email}: ${error.message}`);
+    } else {
+      const { error } = await sb.from('member_credentials').insert(credRow);
+      if (error) throw new Error(`member_credentials insert failed for ${m.email}: ${error.message}`);
+    }
+
+    // tenant_membership_credentials — the login flow checks this (identity,
+    // tenant) row FIRST, and falls back to the cross-tenant
+    // tenant_identity hash before ever reaching member_credentials. So when
+    // the persona has an identity, the per-tenant row must EXIST with the
+    // new hash — upsert, never update-only — or a stale shared identity
+    // hash would shadow the new password. The shared tenant_identity hash
+    // itself is never written (the identity may belong to other tenants).
+    let identityId = m.identity_id;
+    if (!identityId) {
+      const { data: ident, error: identErr } = await sb.from('tenant_identity').select('id').eq('email', m.email).maybeSingle();
+      if (identErr) throw new Error(`identity lookup failed for ${m.email}: ${identErr.message}`);
+      identityId = ident?.id || null;
+    }
+    if (identityId) {
+      // Atomic conflict-targeted upsert on the (identity_id, tenant_id)
+      // unique key. A failure here MUST fail the whole operation: this
+      // store governs the persona's login, so silently skipping it would
+      // report a password that does not actually work.
+      const { error: tmcErr } = await sb
+        .from('tenant_membership_credentials')
+        .upsert({
+          identity_id: identityId, tenant_id: tenantId,
+          password_hash: passwordHash, failed_attempts: 0, locked_until: null,
+          reset_token: null, reset_token_expires: null,
+        }, { onConflict: 'identity_id,tenant_id' });
+      if (tmcErr) throw new Error(`tenant credentials upsert failed for ${m.email}: ${tmcErr.message}`);
+    }
+    updated++;
+  }
+
+  log(`[demo-password] Updated portal password for ${updated} persona account(s) on '${definition.tenant.slug}'`);
+  const found = new Set(members.map((m) => m.email.toLowerCase()));
+  return {
+    password: plain,
+    updated,
+    personas: personas.map((p) => ({ ...p, found: found.has(p.email.toLowerCase()) })),
+  };
+}
+
 export async function demoTenantStatus(definition, { sb } = {}) {
   const tenant = await findTenant(sb, definition.tenant.slug);
   if (!tenant) return { installed: false };

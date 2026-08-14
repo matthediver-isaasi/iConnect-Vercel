@@ -13,13 +13,14 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { useToast } from '@/components/ui/use-toast';
-import { Loader2, FlaskConical, RefreshCw, Trash2, RotateCcw, Plus, CheckCircle, AlertTriangle } from 'lucide-react';
+import { Loader2, FlaskConical, RefreshCw, Trash2, RotateCcw, Plus, CheckCircle, AlertTriangle, KeyRound } from 'lucide-react';
 import { format } from 'date-fns';
 
 const ACTION_META = {
   seed: { verb: 'Seeding', done: 'Seeded' },
   reset: { verb: 'Resetting', done: 'Reset' },
   delete: { verb: 'Deleting', done: 'Deleted' },
+  'set-password': { verb: 'Setting portal password', done: 'Portal password set' },
 };
 
 export default function DemoTenants() {
@@ -30,6 +31,7 @@ export default function DemoTenants() {
   const [confirm, setConfirm] = useState(null); // { def, action }
   const [confirmSlug, setConfirmSlug] = useState('');
   const [lastResult, setLastResult] = useState(null);
+  const [portalPassword, setPortalPassword] = useState({}); // key -> desired password input
 
   const fetchDefinitions = useCallback(async () => {
     try {
@@ -49,7 +51,7 @@ export default function DemoTenants() {
 
   useEffect(() => { fetchDefinitions(); }, [fetchDefinitions]);
 
-  const runOperation = async (def, action) => {
+  const runOperation = async (def, action, extraBody = {}) => {
     setRunning({ key: def.key, action });
     setLastResult(null);
     try {
@@ -60,7 +62,8 @@ export default function DemoTenants() {
         body: JSON.stringify({
           seedKey: def.key,
           action,
-          ...(action !== 'seed' ? { confirmSlug: def.slug } : {}),
+          ...(action === 'reset' || action === 'delete' ? { confirmSlug: def.slug } : {}),
+          ...extraBody,
         }),
       });
       const data = await response.json();
@@ -238,6 +241,63 @@ export default function DemoTenants() {
                 )}
               </div>
 
+              {installed && (def.loginPersonas || []).length > 0 && (
+                <div className="pt-2 border-t space-y-2" data-testid={`section-portal-logins-${def.key}`}>
+                  <div className="flex items-center gap-2 font-medium text-sm">
+                    <KeyRound className="w-4 h-4" />
+                    Member portal logins
+                  </div>
+                  <div className="text-sm space-y-1">
+                    {def.loginPersonas.map((p) => (
+                      <div key={p.email} className="flex flex-wrap items-center gap-2" data-testid={`row-persona-${p.email}`}>
+                        <span className="font-medium">{p.name}</span>
+                        <code className="text-xs bg-muted px-1.5 py-0.5 rounded">{p.email}</code>
+                        <span className="text-xs text-muted-foreground">{p.role}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    All portal personas share one demo password. Set or reset it here — the password is
+                    shown once and only a secure hash is stored.
+                  </p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Input
+                      type="password"
+                      autoComplete="new-password"
+                      className="w-56"
+                      placeholder="New password (blank = generate)"
+                      value={portalPassword[def.key] || ''}
+                      onChange={(e) => setPortalPassword((s) => ({ ...s, [def.key]: e.target.value }))}
+                      data-testid={`input-portal-password-${def.key}`}
+                    />
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        const pw = (portalPassword[def.key] || '').trim();
+                        runOperation(def, 'set-password', pw ? { password: pw } : {});
+                        setPortalPassword((s) => ({ ...s, [def.key]: '' }));
+                      }}
+                      disabled={
+                        !!running ||
+                        ((portalPassword[def.key] || '').trim().length > 0 &&
+                          (portalPassword[def.key] || '').trim().length < 8)
+                      }
+                      data-testid={`button-set-portal-password-${def.key}`}
+                    >
+                      {busy && running.action === 'set-password' ? (
+                        <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Setting…</>
+                      ) : (
+                        <><KeyRound className="w-4 h-4 mr-2" />Set portal password</>
+                      )}
+                    </Button>
+                  </div>
+                  {(portalPassword[def.key] || '').trim().length > 0 &&
+                    (portalPassword[def.key] || '').trim().length < 8 && (
+                    <p className="text-xs text-destructive">Password must be at least 8 characters.</p>
+                  )}
+                </div>
+              )}
+
               {busy && (
                 <p className="text-sm text-muted-foreground">
                   {ACTION_META[running.action].verb} the demo tenant — this can take a few minutes. Leave this
@@ -272,6 +332,20 @@ export default function DemoTenants() {
                       Demo owner login: <strong>{result.data.result.adminSetup.email}</strong>{' '}
                       (password: {result.data.result.adminSetup.password})
                     </p>
+                  )}
+                  {result.ok && result.action === 'set-password' && result.data?.result && (
+                    <div className="text-muted-foreground mt-1 space-y-1" data-testid={`result-portal-password-${def.key}`}>
+                      <p>
+                        Shared portal password: <strong><code>{result.data.result.password}</code></strong>{' '}
+                        — copy it now; it is shown only once.
+                      </p>
+                      <p>
+                        {result.data.result.updated} persona account(s) updated.
+                        {(result.data.result.personas || []).some((p) => !p.found) && (
+                          <> Not found (reseed to restore): {result.data.result.personas.filter((p) => !p.found).map((p) => p.email).join(', ')}</>
+                        )}
+                      </p>
+                    </div>
                   )}
                   {result.ok && result.action === 'reset' && (
                     <p className="text-muted-foreground mt-1">

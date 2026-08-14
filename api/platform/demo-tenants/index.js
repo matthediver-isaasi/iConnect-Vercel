@@ -32,6 +32,7 @@ export default async function handler(req, res) {
           slug: def.tenant.slug,
           version: def.version,
           defaultSize: def.defaultSize || 'small',
+          loginPersonas: typeof def.loginPersonas === 'function' ? def.loginPersonas() : [],
           status,
         };
       })
