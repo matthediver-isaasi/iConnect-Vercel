@@ -113,6 +113,7 @@ const TENANT_ID = 'tenant-1';
  */
 function makeMockSb(state) {
   const writes = [];
+  let insertSeq = 0;
   const from = (table) => {
     const filters = {};
     let op = 'select';
@@ -121,7 +122,19 @@ function makeMockSb(state) {
     const builder = {
       select() { return builder; },
       update(row) { op = 'update'; payload = row; return builder; },
-      insert(row) { op = 'insert'; payload = row; return resolve(); },
+      insert(row) {
+        op = 'insert'; payload = row;
+        const p = resolve();
+        // Support insert(...).select(...).single() (member-create repair path)
+        p.select = () => ({
+          single: async () => {
+            const r = await p;
+            if (r.error) return r;
+            return { data: { id: `gen-${table}-${++insertSeq}` }, error: null };
+          },
+        });
+        return p;
+      },
       upsert(row, opts) { op = 'upsert'; payload = row; upsertOpts = opts; return resolve(); },
       eq(k, v) { filters[k] = v; return builder; },
       in(k, v) { filters[k] = v; return builder; },
@@ -136,7 +149,13 @@ function makeMockSb(state) {
       }
       if (table === 'tenant') return { data: state.tenant, error: null };
       if (table === 'system_settings') return { data: null, error: null };
-      if (table === 'member') return { data: state.members, error: null };
+      if (table === 'member') {
+        if (typeof filters.email === 'string') {
+          const row = (state.members || []).find((m) => m.email === filters.email) || null;
+          return { data: single ? row : (row ? [row] : []), error: null };
+        }
+        return { data: state.members, error: null };
+      }
       if (table === 'member_credentials') {
         const row = state.memberCreds?.find((c) => c.email === filters.email) || null;
         return single ? { data: row, error: null } : { data: row ? [row] : [], error: null };
@@ -144,6 +163,13 @@ function makeMockSb(state) {
       if (table === 'tenant_identity') {
         const row = state.identities?.find((i) => i.email === filters.email) || null;
         return { data: row, error: null };
+      }
+      if (table === 'tenant_membership') {
+        const rows = (state.tenantMemberships || []).filter(
+          (r) => (!filters.identity_id || r.identity_id === filters.identity_id)
+            && (!filters.tenant_id || r.tenant_id === filters.tenant_id)
+        );
+        return { data: single ? (rows[0] || null) : rows, error: null };
       }
       return { data: single ? null : [], error: null };
     }
@@ -228,6 +254,111 @@ test('no seeded persona members → operation refuses', async () => {
     () => setDemoPortalPassword(mockDefinition, { sb, password: 'demo-pass-123', log: () => {} }),
     /No seeded persona members/,
   );
+});
+
+// ---------------------------------------------------------------------------
+// Identity-backed owner repair (Task #3551): a persona with no seeded member
+// row (e.g. a provision-time owner existing only as tenant_identity) must be
+// repaired, not silently skipped.
+// ---------------------------------------------------------------------------
+test('owner persona with only a tenant_identity is repaired: member + membership + TMC created, tenant_identity untouched', async () => {
+  const { setDemoPortalPassword } = await importEngine();
+  const { sb, writes } = makeMockSb({
+    tenant: mockTenant,
+    // Only the member persona has a seeded member row — the owner does not.
+    members: [{ id: 'm-member', email: 'member@mock.example.com', identity_id: null }],
+    identities: [{ id: 'ident-owner', email: 'owner@mock.example.com', password_hash: 'stale-seed-hash' }],
+    tenantMemberships: [],
+  });
+  const result = await setDemoPortalPassword(mockDefinition, { sb, password: 'demo-pass-123', log: () => {} });
+  assert.equal(result.updated, 2);
+  assert.equal(result.repaired, 1);
+  const owner = result.personas.find((p) => p.email === 'owner@mock.example.com');
+  assert.equal(owner.outcome, 'repaired');
+  assert.equal(owner.found, true);
+  assert.equal(result.personas.find((p) => p.email === 'member@mock.example.com').outcome, 'updated');
+  // Sample member row created, strictly tenant-scoped and identity-linked.
+  const memberInsert = writes.find((w) => w.table === 'member' && w.op === 'insert');
+  assert.ok(memberInsert, 'owner member row must be created');
+  assert.equal(memberInsert.payload.tenant_id, TENANT_ID);
+  assert.equal(memberInsert.payload.is_sample, true);
+  assert.equal(memberInsert.payload.identity_id, 'ident-owner');
+  assert.equal(memberInsert.payload.email, 'owner@mock.example.com');
+  // tenant_membership linkage created for the login resolver.
+  const tmInsert = writes.find((w) => w.table === 'tenant_membership' && w.op === 'insert');
+  assert.ok(tmInsert, 'tenant_membership row must be created');
+  assert.equal(tmInsert.payload.tenant_id, TENANT_ID);
+  assert.equal(tmInsert.payload.identity_id, 'ident-owner');
+  assert.equal(tmInsert.payload.role, 'owner');
+  assert.ok(tmInsert.payload.member_id, 'membership must point at the created member');
+  // Per-tenant credential row upserted with the new hash.
+  const tmc = writes.find((w) => w.table === 'tenant_membership_credentials' && w.payload.identity_id === 'ident-owner');
+  assert.ok(tmc && tmc.op === 'upsert');
+  assert.equal(tmc.payload.tenant_id, TENANT_ID);
+  assert.ok(tmc.payload.password_hash?.startsWith('$2'));
+  // The cross-tenant identity hash is never written.
+  assert.ok(!writes.some((w) => w.table === 'tenant_identity'), 'tenant_identity must never be written');
+});
+
+test('existing membership without member_id is relinked instead of duplicated', async () => {
+  const { setDemoPortalPassword } = await importEngine();
+  const { sb, writes } = makeMockSb({
+    tenant: mockTenant,
+    members: [{ id: 'm-member', email: 'member@mock.example.com', identity_id: null }],
+    identities: [{ id: 'ident-owner', email: 'owner@mock.example.com' }],
+    tenantMemberships: [{ id: 'tm-1', identity_id: 'ident-owner', tenant_id: TENANT_ID, member_id: null }],
+  });
+  await setDemoPortalPassword(mockDefinition, { sb, password: 'demo-pass-123', log: () => {} });
+  const tmWrites = writes.filter((w) => w.table === 'tenant_membership');
+  assert.equal(tmWrites.length, 1);
+  assert.equal(tmWrites[0].op, 'update');
+  assert.ok(tmWrites[0].payload.member_id, 'existing membership relinked to the member row');
+  assert.equal(tmWrites[0].filters.tenant_id, TENANT_ID, 'membership update pinned to the demo tenant');
+});
+
+test('persona with no member row and no identity is skipped with a reason; others still succeed', async () => {
+  const { setDemoPortalPassword } = await importEngine();
+  const { sb, writes } = makeMockSb({
+    tenant: mockTenant,
+    members: [{ id: 'm-member', email: 'member@mock.example.com', identity_id: null }],
+    identities: [],
+  });
+  const result = await setDemoPortalPassword(mockDefinition, { sb, password: 'demo-pass-123', log: () => {} });
+  assert.equal(result.updated, 1);
+  const owner = result.personas.find((p) => p.email === 'owner@mock.example.com');
+  assert.equal(owner.outcome, 'skipped');
+  assert.equal(owner.found, false);
+  assert.match(owner.reason, /no seeded member row and no tenant_identity/);
+  // No repair writes were attempted for the unresolvable persona.
+  assert.ok(!writes.some((w) => w.table === 'member' && w.op === 'insert'));
+  assert.ok(!writes.some((w) => w.table === 'tenant_membership'));
+});
+
+test('per-persona failure is reported without hiding other personas\u2019 success', async () => {
+  const { setDemoPortalPassword } = await importEngine();
+  const { sb } = makeMockSb({
+    tenant: mockTenant,
+    members: [
+      { id: 'm-owner', email: 'owner@mock.example.com', identity_id: 'ident-owner' },
+      { id: 'm-member', email: 'member@mock.example.com', identity_id: null },
+    ],
+    identities: [],
+    // Only the owner touches tenant_membership_credentials (has an identity),
+    // so this failure is persona-specific.
+    failWrites: { tenant_membership_credentials: 'unique violation' },
+  });
+  const result = await setDemoPortalPassword(mockDefinition, { sb, password: 'demo-pass-123', log: () => {} });
+  assert.equal(result.updated, 1);
+  const owner = result.personas.find((p) => p.email === 'owner@mock.example.com');
+  assert.equal(owner.outcome, 'failed');
+  assert.match(owner.reason, /tenant credentials upsert failed/);
+  assert.equal(result.personas.find((p) => p.email === 'member@mock.example.com').outcome, 'updated');
+});
+
+test('console UI surfaces skipped/failed personas', () => {
+  const uiSrc = fs.readFileSync(new URL('../../client/src/pages/platform/DemoTenants.jsx', import.meta.url), 'utf8');
+  assert.match(uiSrc, /outcome === 'skipped' \|\| p\.outcome === 'failed'/);
+  assert.match(uiSrc, /NOT updated/);
 });
 
 test('short passwords rejected; blank generates a strong one', async () => {

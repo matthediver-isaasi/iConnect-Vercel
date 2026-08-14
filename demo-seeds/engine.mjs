@@ -546,7 +546,18 @@ export async function deleteDemoTenant(definition, { sb, log = console.log } = {
  * tenant_identity.password_hash is deliberately never written: identities
  * are cross-tenant, and the per-tenant credential row wins the precedence
  * anyway.
- * Returns the plaintext password exactly once to the caller.
+ *
+ * Personas WITHOUT a seeded member row (e.g. an owner created only as a
+ * tenant_identity at provision time) are repaired, not skipped: their
+ * identity is resolved by email, the (identity, tenant) credential row is
+ * upserted, and the sample member row + tenant_membership linkage the login
+ * resolver needs are created/repaired — all scoped to the demo tenant.
+ *
+ * Returns per-persona outcomes ('updated' | 'repaired' | 'skipped' |
+ * 'failed') plus the plaintext password exactly once to the caller. A
+ * persona-level write failure is recorded (not thrown) so one broken
+ * persona cannot hide the others' success; if NO persona succeeds the
+ * operation throws.
  */
 export async function setDemoPortalPassword(definition, { sb, password, log = console.log } = {}) {
   if (!sb) throw new Error('supabase client required');
@@ -575,28 +586,29 @@ export async function setDemoPortalPassword(definition, { sb, password, log = co
     .eq('is_sample', true)
     .in('email', emails);
   if (memErr) throw new Error(`persona member lookup failed: ${memErr.message}`);
-  if (!members?.length) throw new Error('No seeded persona members found — run a seed first');
+  const memberByEmail = new Map((members || []).map((m) => [m.email.toLowerCase(), m]));
 
-  let updated = 0;
-  for (const m of members) {
+  // Writes the two credential stores a resolvable persona needs. Errors
+  // throw with a descriptive message; the caller records them per persona.
+  const writeCredentials = async (email, memberId, identityId) => {
     // 3. member_credentials (the store the seeder writes) — upsert by
     // (tenant, email) like the seeder, clearing lockout state.
     const credRow = {
-      tenant_id: tenantId, member_id: m.id, email: m.email,
+      tenant_id: tenantId, member_id: memberId, email,
       password_hash: passwordHash, is_temporary: false, is_temp_password: false,
       failed_login_attempts: 0, locked_until: null,
       reset_token: null, reset_token_expires: null,
     };
     const { data: existingCred, error: credSelErr } = await sb
       .from('member_credentials').select('id')
-      .eq('tenant_id', tenantId).eq('email', m.email).maybeSingle();
-    if (credSelErr) throw new Error(`member_credentials lookup failed for ${m.email}: ${credSelErr.message}`);
+      .eq('tenant_id', tenantId).eq('email', email).maybeSingle();
+    if (credSelErr) throw new Error(`member_credentials lookup failed for ${email}: ${credSelErr.message}`);
     if (existingCred) {
       const { error } = await sb.from('member_credentials').update(credRow).eq('id', existingCred.id);
-      if (error) throw new Error(`member_credentials update failed for ${m.email}: ${error.message}`);
+      if (error) throw new Error(`member_credentials update failed for ${email}: ${error.message}`);
     } else {
       const { error } = await sb.from('member_credentials').insert(credRow);
-      if (error) throw new Error(`member_credentials insert failed for ${m.email}: ${error.message}`);
+      if (error) throw new Error(`member_credentials insert failed for ${email}: ${error.message}`);
     }
 
     // tenant_membership_credentials — the login flow checks this (identity,
@@ -606,17 +618,11 @@ export async function setDemoPortalPassword(definition, { sb, password, log = co
     // new hash — upsert, never update-only — or a stale shared identity
     // hash would shadow the new password. The shared tenant_identity hash
     // itself is never written (the identity may belong to other tenants).
-    let identityId = m.identity_id;
-    if (!identityId) {
-      const { data: ident, error: identErr } = await sb.from('tenant_identity').select('id').eq('email', m.email).maybeSingle();
-      if (identErr) throw new Error(`identity lookup failed for ${m.email}: ${identErr.message}`);
-      identityId = ident?.id || null;
-    }
     if (identityId) {
       // Atomic conflict-targeted upsert on the (identity_id, tenant_id)
-      // unique key. A failure here MUST fail the whole operation: this
-      // store governs the persona's login, so silently skipping it would
-      // report a password that does not actually work.
+      // unique key. A failure here MUST fail this persona: this store
+      // governs the persona's login, so silently skipping it would report
+      // a password that does not actually work.
       const { error: tmcErr } = await sb
         .from('tenant_membership_credentials')
         .upsert({
@@ -624,17 +630,122 @@ export async function setDemoPortalPassword(definition, { sb, password, log = co
           password_hash: passwordHash, failed_attempts: 0, locked_until: null,
           reset_token: null, reset_token_expires: null,
         }, { onConflict: 'identity_id,tenant_id' });
-      if (tmcErr) throw new Error(`tenant credentials upsert failed for ${m.email}: ${tmcErr.message}`);
+      if (tmcErr) throw new Error(`tenant credentials upsert failed for ${email}: ${tmcErr.message}`);
     }
-    updated++;
+  };
+
+  const resolveIdentityId = async (email, memberIdentityId = null) => {
+    if (memberIdentityId) return memberIdentityId;
+    const { data: ident, error: identErr } = await sb.from('tenant_identity').select('id').eq('email', email).maybeSingle();
+    if (identErr) throw new Error(`identity lookup failed for ${email}: ${identErr.message}`);
+    return ident?.id || null;
+  };
+
+  // Identity-backed repair for a persona with NO seeded member row (e.g.
+  // the tenant owner, who may exist only as a tenant_identity from
+  // provisioning). Creates/repairs the demo-tenant member row and the
+  // tenant_membership linkage the login resolver walks, then writes the
+  // credential stores. Everything is scoped to this (demo-asserted) tenant;
+  // tenant_identity is only read, never written.
+  const repairIdentityPersona = async (persona, identityId) => {
+    const email = persona.email.toLowerCase();
+    // Member row: repair an existing row in THIS tenant (whatever its
+    // sample flag — the tenant itself is demo-asserted) or create one.
+    const { data: existing, error: exErr } = await sb
+      .from('member').select('id, identity_id')
+      .eq('tenant_id', tenantId).eq('email', email).maybeSingle();
+    if (exErr) throw new Error(`member lookup failed for ${email}: ${exErr.message}`);
+    let memberId = existing?.id || null;
+    const nameParts = String(persona.name || '').trim().split(/\s+/);
+    const lastName = nameParts.length > 1 ? nameParts.pop() : '';
+    const firstName = nameParts.join(' ') || persona.name || email;
+    if (memberId) {
+      const { error } = await sb.from('member').update({
+        identity_id: identityId, is_sample: true, login_enabled: true, status: 'active',
+      }).eq('id', memberId).eq('tenant_id', tenantId);
+      if (error) throw new Error(`member repair failed for ${email}: ${error.message}`);
+    } else {
+      const { data: created, error } = await sb.from('member').insert({
+        tenant_id: tenantId, email, first_name: firstName, last_name: lastName,
+        job_title: persona.role || null, identity_id: identityId,
+        is_sample: true, login_enabled: true, status: 'active',
+      }).select('id').single();
+      if (error) throw new Error(`member create failed for ${email}: ${error.message}`);
+      memberId = created.id;
+    }
+
+    // tenant_membership linkage — the login resolver's first lookup is
+    // (identity_id, tenant_id) → member_id, so make sure a row exists and
+    // points at the member.
+    const { data: tmRows, error: tmSelErr } = await sb
+      .from('tenant_membership').select('id, member_id')
+      .eq('identity_id', identityId).eq('tenant_id', tenantId);
+    if (tmSelErr) throw new Error(`tenant_membership lookup failed for ${email}: ${tmSelErr.message}`);
+    const tm = (tmRows || [])[0];
+    if (tm) {
+      if (tm.member_id !== memberId) {
+        const { error } = await sb.from('tenant_membership')
+          .update({ member_id: memberId, status: 'active' })
+          .eq('id', tm.id).eq('tenant_id', tenantId);
+        if (error) throw new Error(`tenant_membership repair failed for ${email}: ${error.message}`);
+      }
+    } else {
+      const role = persona.kind === 'owner' ? 'owner' : 'member';
+      const { error } = await sb.from('tenant_membership').insert({
+        identity_id: identityId, tenant_id: tenantId, member_id: memberId,
+        role, membership_type: role, status: 'active',
+      });
+      if (error) throw new Error(`tenant_membership create failed for ${email}: ${error.message}`);
+    }
+
+    await writeCredentials(email, memberId, identityId);
+  };
+
+  const outcomes = [];
+  let updated = 0;
+  let repaired = 0;
+  for (const persona of personas) {
+    const email = persona.email.toLowerCase();
+    const base = { name: persona.name, email: persona.email, role: persona.role, kind: persona.kind };
+    try {
+      const m = memberByEmail.get(email);
+      if (m) {
+        const identityId = await resolveIdentityId(email, m.identity_id);
+        await writeCredentials(m.email, m.id, identityId);
+        updated++;
+        outcomes.push({ ...base, outcome: 'updated' });
+        continue;
+      }
+      // No seeded member row — identity-backed repair path.
+      const identityId = await resolveIdentityId(email);
+      if (!identityId) {
+        outcomes.push({
+          ...base, outcome: 'skipped',
+          reason: 'no seeded member row and no tenant_identity — reseed to restore this persona',
+        });
+        continue;
+      }
+      await repairIdentityPersona(persona, identityId);
+      repaired++;
+      outcomes.push({ ...base, outcome: 'repaired' });
+    } catch (err) {
+      outcomes.push({ ...base, outcome: 'failed', reason: err.message });
+    }
   }
 
-  log(`[demo-password] Updated portal password for ${updated} persona account(s) on '${definition.tenant.slug}'`);
-  const found = new Set(members.map((m) => m.email.toLowerCase()));
+  // If nothing succeeded the reported password would be a lie — fail loudly.
+  if (updated + repaired === 0) {
+    const firstFailure = outcomes.find((o) => o.outcome === 'failed');
+    if (firstFailure) throw new Error(firstFailure.reason);
+    throw new Error('No seeded persona members found — run a seed first');
+  }
+
+  log(`[demo-password] Portal password set on '${definition.tenant.slug}': ${updated} updated, ${repaired} repaired, ${outcomes.length - updated - repaired} not updated`);
   return {
     password: plain,
-    updated,
-    personas: personas.map((p) => ({ ...p, found: found.has(p.email.toLowerCase()) })),
+    updated: updated + repaired,
+    repaired,
+    personas: outcomes.map((o) => ({ ...o, found: o.outcome === 'updated' || o.outcome === 'repaired' })),
   };
 }
 

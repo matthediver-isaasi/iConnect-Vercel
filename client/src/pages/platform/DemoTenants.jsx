@@ -340,11 +340,23 @@ export default function DemoTenants() {
                         — copy it now; it is shown only once.
                       </p>
                       <p>
-                        {result.data.result.updated} persona account(s) updated.
-                        {(result.data.result.personas || []).some((p) => !p.found) && (
-                          <> Not found (reseed to restore): {result.data.result.personas.filter((p) => !p.found).map((p) => p.email).join(', ')}</>
-                        )}
+                        {result.data.result.updated} persona account(s) updated
+                        {result.data.result.repaired ? ` (${result.data.result.repaired} repaired)` : ''}.
                       </p>
+                      {(result.data.result.personas || []).some((p) => p.outcome === 'skipped' || p.outcome === 'failed') && (
+                        <div className="text-destructive" data-testid={`portal-password-issues-${def.key}`}>
+                          <p className="font-medium">Some personas were NOT updated — their logins may not work:</p>
+                          <ul className="list-disc pl-5">
+                            {result.data.result.personas
+                              .filter((p) => p.outcome === 'skipped' || p.outcome === 'failed')
+                              .map((p) => (
+                                <li key={p.email}>
+                                  {p.email} — {p.outcome}{p.reason ? `: ${p.reason}` : ''}
+                                </li>
+                              ))}
+                          </ul>
+                        </div>
+                      )}
                     </div>
                   )}
                   {result.ok && result.action === 'reset' && (
