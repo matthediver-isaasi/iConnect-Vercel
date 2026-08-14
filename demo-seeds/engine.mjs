@@ -330,6 +330,14 @@ export async function seedDemoTenant(definition, { sb, provisionTenant, log = co
     log(`[seed] Tenant '${slug}' already exists (${tenant.id}) and is demo-marked — refreshing seed data.`);
   }
 
+  // Definition preflight: validate provisioning invariants (e.g. the primary
+  // organisation the staff personas link to) BEFORE the engine writes
+  // anything to an existing tenant, so a broken invariant aborts the whole
+  // seed without a partial mutation.
+  if (typeof definition.preflight === 'function') {
+    await definition.preflight({ sb, tenantId: tenant.id, log });
+  }
+
   // Mark the tenant as a demo tenant + apply identity/branding.
   const branding = definition.tenant.branding || {};
   const settings = {
@@ -607,6 +615,21 @@ export async function setDemoPortalPassword(definition, { sb, password, log = co
       log(`[demo-password] warning: owner Super Admin role not applied: ${err.message}`);
     }
   };
+  // Staff personas (owner + admins) belong to the tenant's own primary
+  // organisation. Best-effort for the same reason as the role grant, and
+  // fill-null only — an existing organisation link is never replaced.
+  const maybeLinkStaffOrganization = async (memberId) => {
+    try {
+      const organizationId = await resolveDemoPrimaryOrganizationId(sb, tenantId);
+      await applyDemoMemberOrganization({ sb, tenantId, memberId, organizationId, log });
+    } catch (err) {
+      log(`[demo-password] warning: staff organisation not linked: ${err.message}`);
+    }
+  };
+  const repairStaffPersona = async (persona, memberId) => {
+    if (persona.kind === 'owner') await maybeGrantOwnerAdminRole(memberId);
+    if (persona.kind === 'owner' || persona.kind === 'admin') await maybeLinkStaffOrganization(memberId);
+  };
 
   const outcomes = [];
   let updated = 0;
@@ -619,7 +642,7 @@ export async function setDemoPortalPassword(definition, { sb, password, log = co
       if (m) {
         const identityId = await resolveIdentityId(email, m.identity_id);
         await writeCredentials(m.email, m.id, identityId);
-        if (persona.kind === 'owner') await maybeGrantOwnerAdminRole(m.id);
+        await repairStaffPersona(persona, m.id);
         updated++;
         outcomes.push({ ...base, outcome: 'updated' });
         continue;
@@ -634,7 +657,7 @@ export async function setDemoPortalPassword(definition, { sb, password, log = co
         continue;
       }
       const repairedMemberId = await repairIdentityPersona(persona, identityId);
-      if (persona.kind === 'owner') await maybeGrantOwnerAdminRole(repairedMemberId);
+      await repairStaffPersona(persona, repairedMemberId);
       repaired++;
       outcomes.push({ ...base, outcome: 'repaired' });
     } catch (err) {
@@ -789,6 +812,68 @@ export async function applyDemoOwnerAdminRole({ sb, tenantId, memberId, roleId, 
     .eq('id', memberId).eq('tenant_id', tenantId);
   if (upErr) throw new Error(`owner Super Admin role assignment failed: ${upErr.message}`);
   log(`[demo-owner] Assigned system Super Admin role to ${m.email || memberId}`);
+  return true;
+}
+
+/**
+ * Resolve the tenant's primary organisation (the tenant's own body, created
+ * at provisioning with is_primary=true). Never creates one — fails loudly
+ * when it is missing or ambiguous, mirroring resolveDemoSuperAdminRoleId.
+ */
+export async function resolveDemoPrimaryOrganizationId(sb, tenantId) {
+  const { data, error } = await sb
+    .from('organization')
+    .select('id, name')
+    .eq('tenant_id', tenantId)
+    .eq('is_primary', true)
+    .limit(2);
+  if (error) throw new Error(`primary organisation lookup failed: ${error.message}`);
+  const orgs = data || [];
+  if (orgs.length === 0) {
+    throw new Error(
+      'Primary organisation not found for this tenant — provisioning normally creates it. ' +
+      'Refusing to create one; investigate the tenant\'s organisations instead.'
+    );
+  }
+  if (orgs.length > 1) {
+    throw new Error(
+      'Multiple primary organisations found for this tenant — picking one arbitrarily would ' +
+      'link demo staff to the wrong body. Deduplicate the tenant\'s organisations first.'
+    );
+  }
+  return orgs[0].id;
+}
+
+/**
+ * Link a demo staff member to an organisation, but ONLY when their
+ * organization_id is empty — an existing link has no provenance and could
+ * be a deliberate assignment, so it is never replaced (same no-clobber rule
+ * as the Super Admin role grant). Tenant-scoped on every read and write.
+ * Returns true when the member ends up linked to the given organisation.
+ */
+export async function applyDemoMemberOrganization({ sb, tenantId, memberId, organizationId, log = console.log }) {
+  const { data: m, error } = await sb
+    .from('member').select('id, organization_id, email')
+    .eq('id', memberId).eq('tenant_id', tenantId).maybeSingle();
+  if (error) throw new Error(`member lookup failed: ${error.message}`);
+  if (!m) throw new Error('member row not found in the demo tenant');
+  if (m.organization_id === organizationId) return true;
+  if (m.organization_id) {
+    log(`[demo-org] ${m.email || memberId} keeps existing organisation ${m.organization_id}; not relinking`);
+    return false;
+  }
+  // Compare-and-set: the update itself re-checks organization_id IS NULL so
+  // an assignment made between our read and this write always wins.
+  const { data: updRows, error: upErr } = await sb
+    .from('member').update({ organization_id: organizationId })
+    .eq('id', memberId).eq('tenant_id', tenantId).is('organization_id', null)
+    .select('id');
+  if (upErr) throw new Error(`organisation link failed: ${upErr.message}`);
+  if (!updRows || updRows.length === 0) {
+    log(`[demo-org] ${m.email || memberId} was assigned an organisation concurrently; not overwriting`);
+    return false;
+  }
+  log(`[demo-org] Linked ${m.email || memberId} to organisation ${organizationId}`);
   return true;
 }
 

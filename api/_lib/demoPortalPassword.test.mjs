@@ -139,6 +139,7 @@ function makeMockSb(state) {
       eq(k, v) { filters[k] = v; return builder; },
       ilike(k, v) { filters[`ilike:${k}`] = v; return builder; },
       in(k, v) { filters[k] = v; return builder; },
+      is(k, v) { filters[`is:${k}`] = v; return builder; },
       limit() { return builder; },
       maybeSingle() { return resolve(true); },
       then(res, rej) { return resolve().then(res, rej); }, // awaited select/update chains
@@ -147,7 +148,17 @@ function makeMockSb(state) {
       if (op !== 'select') {
         writes.push({ table, op, payload, filters: { ...filters }, upsertOpts });
         const fail = state.failWrites?.[table];
-        return fail ? { error: { message: fail } } : { error: null, data: null };
+        if (fail) return { error: { message: fail } };
+        // Compare-and-set updates (…​.is('organization_id', null).select('id')):
+        // honor the write-time condition against the CURRENT stored row, so
+        // races between read and write can be simulated.
+        if (table === 'member' && op === 'update' && 'is:organization_id' in filters) {
+          const row = (state.members || []).find((m) => m.id === filters.id);
+          const matches = row && (row.organization_id ?? null) === filters['is:organization_id'];
+          if (matches) row.organization_id = payload.organization_id;
+          return { data: matches ? [{ id: row.id }] : [], error: null };
+        }
+        return { error: null, data: null };
       }
       if (table === 'tenant') return { data: state.tenant, error: null };
       if (table === 'system_settings') {
@@ -162,7 +173,10 @@ function makeMockSb(state) {
           return { data: single ? row : (row ? [row] : []), error: null };
         }
         if (typeof filters.id === 'string') {
-          const row = (state.members || []).find((m) => m.id === filters.id) || null;
+          let row = (state.members || []).find((m) => m.id === filters.id) || null;
+          // Race simulation: reads report no organisation while the stored
+          // row (checked by the CAS write) already has one.
+          if (row && state.readOrgAsNull) row = { ...row, organization_id: null };
           return { data: single ? row : (row ? [row] : []), error: null };
         }
         return { data: state.members, error: null };
@@ -175,6 +189,13 @@ function makeMockSb(state) {
         if (filters.is_system != null) rows = rows.filter((r) => !!r.is_system === filters.is_system);
         if (filters.is_default != null) rows = rows.filter((r) => !!r.is_default === filters.is_default);
         if (filters['ilike:name']) rows = rows.filter((r) => r.name.toLowerCase() === filters['ilike:name'].toLowerCase());
+        return { data: single ? (rows[0] || null) : rows, error: null };
+      }
+      if (table === 'organization') {
+        let rows = state.orgs || [];
+        if (filters.tenant_id != null) rows = rows.filter((o) => o.tenant_id === filters.tenant_id);
+        if (filters.is_primary != null) rows = rows.filter((o) => !!o.is_primary === filters.is_primary);
+        if (typeof filters.id === 'string') rows = rows.filter((o) => o.id === filters.id);
         return { data: single ? (rows[0] || null) : rows, error: null };
       }
       if (table === 'member_credentials') {
@@ -550,6 +571,159 @@ test('seed owner block assigns the system Super Admin role', () => {
   assert.match(defSrc, /resolveDemoSuperAdminRoleId\(sb, tenantId\)/, 'seed must resolve the system role (fail-loudly)');
   assert.match(defSrc, /applyDemoOwnerAdminRole\(\{ sb, tenantId, memberId: ownerMemberId, roleId: superAdminRoleId/,
     'seed must assign it to the owner member row');
+});
+
+// ---------------------------------------------------------------------------
+// Staff organisation linking (Task #3559): owner + admin personas belong to
+// the tenant's primary organisation. Fill-null only, resolved never created.
+// ---------------------------------------------------------------------------
+const PRIMARY_ORG = { id: 'org-aesp', name: 'AESP', is_primary: true, tenant_id: TENANT_ID };
+const EMPLOYER_ORG = { id: 'org-employer', name: 'Greenstone', is_primary: false, tenant_id: TENANT_ID };
+const OTHER_TENANT_PRIMARY = { id: 'org-other', name: 'Other', is_primary: true, tenant_id: 'tenant-other' };
+
+test('resolveDemoPrimaryOrganizationId: exactly one tenant-scoped primary org, never created', async () => {
+  const { resolveDemoPrimaryOrganizationId } = await importEngine();
+  const { sb, writes } = makeMockSb({ orgs: [EMPLOYER_ORG, PRIMARY_ORG, OTHER_TENANT_PRIMARY] });
+  assert.equal(await resolveDemoPrimaryOrganizationId(sb, TENANT_ID), 'org-aesp');
+  assert.equal(writes.length, 0, 'lookup only — no writes');
+  const missing = makeMockSb({ orgs: [EMPLOYER_ORG, OTHER_TENANT_PRIMARY] });
+  await assert.rejects(() => resolveDemoPrimaryOrganizationId(missing.sb, TENANT_ID), /Primary organisation not found/);
+  assert.equal(missing.writes.length, 0);
+  const dup = makeMockSb({ orgs: [PRIMARY_ORG, { ...PRIMARY_ORG, id: 'org-aesp-2' }] });
+  await assert.rejects(() => resolveDemoPrimaryOrganizationId(dup.sb, TENANT_ID), /Multiple primary organisations/);
+  assert.equal(dup.writes.length, 0);
+});
+
+test('applyDemoMemberOrganization: only an EMPTY link is filled — an existing organisation is kept', async () => {
+  const { applyDemoMemberOrganization } = await importEngine();
+  const cases = [
+    [null, true],
+    [EMPLOYER_ORG.id, false], // existing link has no provenance — never replaced
+    [PRIMARY_ORG.id, true],   // already linked — reported linked, no write
+  ];
+  for (const [orgId, expectLinked] of cases) {
+    const { sb, writes } = makeMockSb({
+      members: [{ id: 'm-staff', email: 'staff@mock.example.com', organization_id: orgId }],
+      orgs: [PRIMARY_ORG, EMPLOYER_ORG],
+    });
+    const linked = await applyDemoMemberOrganization({ sb, tenantId: TENANT_ID, memberId: 'm-staff', organizationId: PRIMARY_ORG.id, log: () => {} });
+    assert.equal(linked, expectLinked, `organization_id=${orgId}`);
+    const upd = writes.find((w) => w.table === 'member' && w.op === 'update');
+    if (orgId === null) {
+      assert.equal(upd.payload.organization_id, PRIMARY_ORG.id);
+      assert.equal(upd.filters.tenant_id, TENANT_ID, 'update pinned to the demo tenant');
+    } else {
+      assert.ok(!upd, 'existing organisation link must never be replaced');
+    }
+  }
+});
+
+test('password reset links owner AND admin personas to the primary org; member personas untouched; missing org stays best-effort', async () => {
+  const { setDemoPortalPassword } = await importEngine();
+  const staffDefinition = {
+    ...mockDefinition,
+    loginPersonas: () => [
+      { name: 'Owner', email: 'owner@mock.example.com', role: 'Owner', kind: 'owner' },
+      { name: 'Admin', email: 'admin@mock.example.com', role: 'Manager', kind: 'admin' },
+      { name: 'Member', email: 'member@mock.example.com', role: 'Member', kind: 'member' },
+    ],
+  };
+  const members = () => ([
+    { id: 'm-owner', email: 'owner@mock.example.com', identity_id: 'ident-owner', organization_id: null },
+    { id: 'm-admin', email: 'admin@mock.example.com', identity_id: null, organization_id: null },
+    { id: 'm-member', email: 'member@mock.example.com', identity_id: null, organization_id: null },
+  ]);
+  const withOrg = makeMockSb({ tenant: mockTenant, members: members(), orgs: [PRIMARY_ORG] });
+  await setDemoPortalPassword(staffDefinition, { sb: withOrg.sb, password: 'demo-pass-123', log: () => {} });
+  const orgLinks = withOrg.writes.filter((w) => w.table === 'member' && w.op === 'update' && w.payload.organization_id);
+  assert.deepEqual(orgLinks.map((w) => w.filters.id).sort(), ['m-admin', 'm-owner'],
+    'owner and admin linked; member persona left without an employer');
+  for (const w of orgLinks) assert.equal(w.payload.organization_id, PRIMARY_ORG.id);
+  // Missing primary org → warning only, reset still succeeds.
+  const noOrg = makeMockSb({ tenant: mockTenant, members: members(), orgs: [] });
+  const result = await setDemoPortalPassword(staffDefinition, { sb: noOrg.sb, password: 'demo-pass-123', log: () => {} });
+  assert.equal(result.updated, 3, 'reset must not fail because the primary org is missing');
+  assert.ok(!noOrg.writes.some((w) => w.table === 'member' && w.op === 'update' && w.payload.organization_id));
+});
+
+test('seed wires staff personas and the owner to the primary organisation', () => {
+  const defSrc = fs.readFileSync(new URL('../../demo-seeds/aesp/definition.mjs', import.meta.url), 'utf8');
+  assert.match(defSrc, /resolveDemoPrimaryOrganizationId\(sb, tenantId\)/, 'seed must resolve the primary org (fail-loudly)');
+  // Fail-fast: the resolver must run before the seed's FIRST write, so a
+  // broken provisioning invariant never leaves a partial sample dataset.
+  const seedAt = defSrc.indexOf('async seed(ctx)');
+  const resolveAt = defSrc.indexOf('resolveDemoPrimaryOrganizationId(sb, tenantId)', seedAt);
+  const firstWriteAt = defSrc.indexOf('await upsert(', seedAt);
+  assert.ok(resolveAt > seedAt && resolveAt < firstWriteAt,
+    'primary-org resolution must precede the first seed write');
+  // Staff upserts must OMIT organization_id (undefined) and link fill-null
+  // afterwards, so a reseed never clobbers a deliberately reassigned link.
+  assert.match(defSrc, /plan\.lifecycle === 'staff' \? undefined : null/, 'staff upsert must omit organization_id');
+  assert.match(defSrc, /if \(plan\.lifecycle === 'staff'\) \{\s*\n\s*await applyDemoMemberOrganization\(\{ sb, tenantId, memberId: member\.id, organizationId: primaryOrgId/,
+    'staff must be linked via the fill-null helper after the upsert');
+  assert.match(defSrc, /applyDemoMemberOrganization\(\{ sb, tenantId, memberId: ownerMemberId, organizationId: primaryOrgId/,
+    'owner block must link her to the primary org (fill-null only)');
+});
+
+test('reseed semantics: admin deliberately moved to another organisation keeps it; unlinked admin gets the primary org', async () => {
+  const { applyDemoMemberOrganization } = await importEngine();
+  // Simulates the seed's post-upsert staff link on a reseed: the upsert
+  // omitted organization_id, so whatever the row holds now is the input.
+  const moved = makeMockSb({
+    members: [{ id: 'm-admin', email: 'admin@mock.example.com', organization_id: EMPLOYER_ORG.id }],
+    orgs: [PRIMARY_ORG, EMPLOYER_ORG],
+  });
+  assert.equal(await applyDemoMemberOrganization({ sb: moved.sb, tenantId: TENANT_ID, memberId: 'm-admin', organizationId: PRIMARY_ORG.id, log: () => {} }), false);
+  assert.ok(!moved.writes.some((w) => w.table === 'member' && w.op === 'update'),
+    'reseed must not move a deliberately reassigned admin back to the primary org');
+  const fresh = makeMockSb({
+    members: [{ id: 'm-admin', email: 'admin@mock.example.com', organization_id: null }],
+    orgs: [PRIMARY_ORG],
+  });
+  assert.equal(await applyDemoMemberOrganization({ sb: fresh.sb, tenantId: TENANT_ID, memberId: 'm-admin', organizationId: PRIMARY_ORG.id, log: () => {} }), true);
+  const upd = fresh.writes.find((w) => w.table === 'member' && w.op === 'update');
+  assert.equal(upd.payload.organization_id, PRIMARY_ORG.id);
+});
+
+test('seed preflight: broken primary-org invariant aborts BEFORE any write to an existing tenant', async () => {
+  const { seedDemoTenant } = await importEngine();
+  const { resolveDemoPrimaryOrganizationId } = await importEngine();
+  const preflightDefinition = {
+    ...mockDefinition,
+    version: 1,
+    async preflight({ sb, tenantId }) { await resolveDemoPrimaryOrganizationId(sb, tenantId); },
+    async seed() { throw new Error('seed must not run when preflight fails'); },
+  };
+  // Existing demo-marked tenant, but NO primary organisation.
+  const { sb, writes } = makeMockSb({ tenant: mockTenant, orgs: [EMPLOYER_ORG] });
+  await assert.rejects(
+    () => seedDemoTenant(preflightDefinition, { sb, log: () => {} }),
+    /Primary organisation not found/,
+  );
+  assert.equal(writes.length, 0, 'no engine write (demo marker/branding) may precede the preflight failure');
+  // The aesp definition wires this exact preflight.
+  const defSrc = fs.readFileSync(new URL('../../demo-seeds/aesp/definition.mjs', import.meta.url), 'utf8');
+  assert.match(defSrc, /async preflight\(\{ sb, tenantId \}\) \{[\s\S]{0,200}resolveDemoPrimaryOrganizationId\(sb, tenantId\)/,
+    'aesp definition must validate the primary org in preflight');
+  // And the engine runs preflight before the tenant branding/marker update.
+  const preflightAt = engineSrc.indexOf('definition.preflight === ');
+  const brandingUpdateAt = engineSrc.indexOf("from('tenant').update(tenantPatch)");
+  assert.ok(preflightAt > -1 && brandingUpdateAt > preflightAt, 'engine preflight must precede the tenant update');
+});
+
+test('race: organisation assigned between read and write is never overwritten (CAS loses gracefully)', async () => {
+  const { applyDemoMemberOrganization } = await importEngine();
+  const { sb, writes } = makeMockSb({
+    // Read path reports organization_id null, but the stored row (which the
+    // conditional UPDATE checks) was concurrently assigned an employer.
+    members: [{ id: 'm-admin', email: 'admin@mock.example.com', organization_id: EMPLOYER_ORG.id }],
+    orgs: [PRIMARY_ORG, EMPLOYER_ORG],
+    readOrgAsNull: true,
+  });
+  const linked = await applyDemoMemberOrganization({ sb, tenantId: TENANT_ID, memberId: 'm-admin', organizationId: PRIMARY_ORG.id, log: () => {} });
+  assert.equal(linked, false, 'concurrent assignment must win');
+  assert.ok(writes.some((w) => w.table === 'member' && w.op === 'update' && w.filters['is:organization_id'] === null),
+    'update must carry the organization_id IS NULL guard');
 });
 
 test('short passwords rejected; blank generates a strong one', async () => {

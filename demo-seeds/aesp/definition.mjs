@@ -204,10 +204,25 @@ const definition = {
     },
   },
 
+  // Runs before ANY engine or seed write: staff personas link to the
+  // provisioning-created primary organisation, so its absence/ambiguity
+  // must abort the seed before a single row is touched.
+  async preflight({ sb, tenantId }) {
+    const { resolveDemoPrimaryOrganizationId } = await import('../engine.mjs');
+    await resolveDemoPrimaryOrganizationId(sb, tenantId);
+  },
+
   async seed(ctx) {
     const { sb, tenantId, rng, dates, upsert, log } = ctx;
     const targetMembers = SIZES[ctx.size] || SIZES.small;
     const thisYear = dates.year;
+
+    // Fail-fast provisioning invariant: staff personas (owner + admins) work
+    // for the tenant's own body — the primary organisation created at
+    // provisioning. Resolved BEFORE any seed writes so a missing/ambiguous
+    // primary org aborts without leaving a partial sample dataset.
+    const { resolveDemoPrimaryOrganizationId, applyDemoMemberOrganization } = await import('../engine.mjs');
+    const primaryOrgId = await resolveDemoPrimaryOrganizationId(sb, tenantId);
 
     // -- Roles for admin personas -----------------------------------------
     const roleMembershipMgr = await upsert('role', { name: 'Membership Manager' }, {
@@ -516,6 +531,9 @@ const definition = {
       // never clobbers a deliberately changed role.
       const superAdminRoleId = await resolveDemoSuperAdminRoleId(sb, tenantId);
       await applyDemoOwnerAdminRole({ sb, tenantId, memberId: ownerMemberId, roleId: superAdminRoleId, log });
+      // The owner works for the tenant's own primary organisation. Fill-null
+      // only — an already-set organisation link is never replaced.
+      await applyDemoMemberOrganization({ sb, tenantId, memberId: ownerMemberId, organizationId: primaryOrgId, log });
       // Align the provisioning-time identity hash too (this identity exists
       // only for the demo tenant's owner; the per-tenant credential row
       // above still wins the login precedence regardless).
@@ -532,7 +550,15 @@ const definition = {
         first_name: plan.first,
         last_name: plan.last,
         job_title: plan.job,
-        organization_id: plan.orgName ? orgByName[plan.orgName].id : null,
+        // Staff (admin personas) belong to the primary AESP organisation but
+        // are linked fill-null-only AFTER the upsert (below) so a reseed
+        // never overwrites a deliberately reassigned link. `undefined` keeps
+        // the column out of the update entirely. Other members get their
+        // fictional employer or none (12% realism) — seed-owned data,
+        // rewritten wholesale on reseed like the rest of their row.
+        organization_id: plan.orgName
+          ? orgByName[plan.orgName].id
+          : (plan.lifecycle === 'staff' ? undefined : null),
         role_id: plan.roleId,
         status: plan.memberStatus,
         login_enabled: !!plan.login || !!plan.adminRole,
@@ -544,6 +570,11 @@ const definition = {
           : null,
       });
       plan.memberId = member.id;
+
+      // Staff personas: primary-org link, only when currently unlinked.
+      if (plan.lifecycle === 'staff') {
+        await applyDemoMemberOrganization({ sb, tenantId, memberId: member.id, organizationId: primaryOrgId, log });
+      }
 
       for (const [fieldId, value] of plan.prefPairs) {
         await upsert('member_preference_value', { member_id: member.id, field_id: fieldId }, { value }, { noTenantColumn: true });
