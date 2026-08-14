@@ -20,3 +20,8 @@ Demo tenants are seeded by `demo-seeds/engine.mjs` + per-tenant definitions (`de
 - Reseed after tenant provisioning leaves provision-default nav rows alongside seeded ones — the seed must deactivate the non-demo ones.
 
 **How to apply:** new demo tenants = new definition module only; reuse the engine. AESP tenant slug `aesp` on DEST.
+
+## Provenance-safe member field writes (login-governing fields)
+- Fields that govern login/identity (role_id, organization_id) on persona rows must be **fill-null only** — an existing value has no provenance and is never replaced. Enforce at write time with a compare-and-set (`.is('col', null)` on the UPDATE + `.select('id')`, zero rows = another assignment won), not just a read-then-write.
+- Seed upserts rewrite every supplied field; for such fields pass `undefined` (supabase-js drops it) and link via the fill-null helper after the upsert.
+- Provisioning invariants (e.g. exactly one `is_primary` organisation) belong in a `definition.preflight({sb, tenantId})` hook the engine runs BEFORE its own tenant marker/branding writes — fail-fast with zero partial mutation. Resolve, never create; throw on 0 or >1 matches.
