@@ -142,10 +142,13 @@ const SIZES = { small: 120, medium: 1000, large: 6500 };
 
 const definition = {
   key: 'aesp',
-  version: 'aesp-v1',
+  version: 'aesp-v2',
   rngSeed: 'aesp-v1',
   defaultSize: 'small',
   tablesWithoutTenantColumn: ['member_preference_value'],
+  // survey_version is append-only at the DB boundary (immutability trigger
+  // blocks UPDATE/DELETE even for service role); reset leaves those rows.
+  resetSkipTables: ['survey_version'],
   tenant: {
     name: 'Association of Environmental & Sustainability Professionals',
     slug: 'aesp',
@@ -479,6 +482,7 @@ const definition = {
     await pmap(plans, async (plan) => {
       const grade = plan.gradeDef;
       const member = await upsert('member', { email: plan.email }, {
+        // (memberId captured below for the engagement seed phase)
         first_name: plan.first,
         last_name: plan.last,
         job_title: plan.job,
@@ -493,6 +497,7 @@ const definition = {
           ? `${plan.title ? plan.title + ' ' : ''}${plan.first} ${plan.last} is a fictional AESP demo persona (${grade.name}${grade.postNominal ? ', ' + grade.postNominal : ''}).`
           : null,
       });
+      plan.memberId = member.id;
 
       for (const [fieldId, value] of plan.prefPairs) {
         await upsert('member_preference_value', { member_id: member.id, field_id: fieldId }, { value }, { noTenantColumn: true });
@@ -522,6 +527,13 @@ const definition = {
     ctx.setCount('lifecycles', lifecycleCounts);
     ctx.setCount('tiers', GRADES.length);
     log(`[seed] AESP: ${plans.length} members, ${historyCount} history rows, lifecycles: ${JSON.stringify(lifecycleCounts)}`);
+
+    // -- Phase 3: engagement & content (aesp-v2) -----------------------------
+    // SIGs, committees, events + registrations, application form, conference
+    // feedback survey, CMS pages, news and knowledge resources. Uses its own
+    // RNG stream so the member dataset above stays byte-stable.
+    const { seedEngagement } = await import('./engagement.mjs');
+    await seedEngagement(ctx, { plans, adminEmail: definition.tenant.adminEmail });
   },
 };
 

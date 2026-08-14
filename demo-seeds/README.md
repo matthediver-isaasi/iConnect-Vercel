@@ -124,9 +124,57 @@ importing any api/_lib module so the shared client hits the right database.
 - **"Renewal due in N days" per member** — renewal dates are tier-config
   driven (annual, 1 Jan cycle), not per-member columns; "renewal due soon" is
   represented as a current-year unpaid renewal invoice with a due-date note.
-- Groups, committees, events, forms, CMS/news/resources are a follow-up task
-  ("AESP engagement & content seed data").
 - Platform-admin demo tenant console is a separate follow-up task.
+
+## Engagement & content phase (`aesp/engagement.mjs`, aesp-v2)
+
+Phase 3 of the AESP seed — runs after member persistence with its own RNG
+stream (`aesp-v1:engagement`) so member data stays byte-stable:
+
+- **6 Special Interest Groups** (Carbon & Net Zero 35, Biodiversity 25, EIA
+  20, ESG 30, Renewable Energy 22, Sustainable Construction 18) as
+  self-joinable `member_group`s with Chair/Vice Chair/Member roles; members
+  can belong to several. Sarah Mitchell is guaranteed into Carbon & Net Zero.
+- **6 committees** (AESP Council with President — Dr James Walker — VP,
+  Immediate Past President, Treasurer; plus Professional Standards,
+  Education & CPD, Events, Membership, Sustainability Policy) with 6–9
+  senior members each via `member_group_assignment.group_role`.
+- **14 simple events** (9 historical incl. Annual Conference 2025, 5
+  upcoming incl. members-only Net Zero webinar with ~40 registrations, paid
+  BNG masterclass, early-careers networking, EIA workshop, AGM 2026) with
+  373 bookings in mixed states — attended = `checked_in_at` set, no-show =
+  past confirmed without check-in, plus cancellations — and synthetic
+  card/account payment methods on paid events. **Annual Conference 2026** is
+  a `complex_event` (Birmingham, capacity 350, Member £295 / Non-member £395
+  ticket classes) with 46 bookings. No emails or payment providers fire —
+  all rows written directly with the service key.
+- **"Apply for AESP Membership" form** (`is_application_form`, member-level)
+  with personal/employment/education/experience fields and visibility rules
+  that reveal a recommended-grade panel (Student/Graduate/Professional/
+  Fellow) from the studying flag + years-of-experience answer. Emily
+  Foster's pending submission (`status='new'`) and Sarah Mitchell's approved
+  (`actioned`) historical application are linked to it.
+- **Conference feedback survey** (form_type=survey, 4 star ratings + 1–10
+  likelihood + comments) with an immutable `survey_version`, an
+  `event_survey_assignment` on Annual Conference 2025 and 26 responses
+  scored through the app's own `scoreSubmission` engine
+  (`form_submission` + `survey_answer` rows).
+- **CMS**: 6 published canvas pages (home, about-aesp, membership,
+  professional-development, knowledge-hub, policy-advocacy) generated via
+  `buildNeutralDesign`; top-nav rebuilt (provision defaults deactivated);
+  8 news posts over ~6 months; 6 knowledge resources (CPD Guidance, Code of
+  Conduct, Net Zero Practitioner Guide, BNG Briefing, Careers Guide,
+  Mentoring Handbook) as external-link records.
+- **Activity trail**: Sarah Mitchell has application → approval → payment
+  history (phase 2) → SIG join (`member_group_activity` 'joined') → webinar
+  registrations with check-ins.
+
+Engagement omissions: **waitlist** bookings (no waitlist feature — no-shows
+modelled as un-checked-in confirmed bookings instead); CPD/mentoring as
+above. Canvas design node ids are freshly generated per seed run (content
+is deterministic; `i_edit_page` rows are matched by slug so no duplicates).
+`survey_version` rows are immutable in the DB, so the engine upserts them
+insert-only and reuses the existing row on reseed.
 
 ## Verification performed
 

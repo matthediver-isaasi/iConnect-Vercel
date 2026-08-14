@@ -136,7 +136,7 @@ function createSeedContext({ sb, tenantId, tenant, definition, log }) {
    * (for tables without a tenant_id column, e.g. member_preference_value).
    * Returns the row (with id) and records its id in the manifest.
    */
-  async function upsert(table, match, row, { noTenantColumn = false, select = 'id' } = {}) {
+  async function upsert(table, match, row, { noTenantColumn = false, select = 'id', insertOnly = false } = {}) {
     const fullMatch = noTenantColumn ? match : { tenant_id: tenantId, ...match };
     let q = sb.from(table).select(select).limit(2);
     for (const [k, v] of Object.entries(fullMatch)) q = q.eq(k, v);
@@ -145,6 +145,11 @@ function createSeedContext({ sb, tenantId, tenant, definition, log }) {
     const fullRow = noTenantColumn ? row : { tenant_id: tenantId, ...row };
     if (existing && existing.length > 0) {
       const id = existing[0].id;
+      if (insertOnly) {
+        // Immutable rows (e.g. survey_version) — reuse the existing row as-is.
+        recordId(table, id);
+        return existing[0];
+      }
       const { data: updated, error: updErr } = await sb.from(table).update(fullRow).eq('id', id).select(select).single();
       if (updErr) throw new Error(`[seed] update ${table} ${id} failed: ${updErr.message}`);
       recordId(table, id);
@@ -374,9 +379,32 @@ export async function resetDemoData(definition, { sb, log = console.log } = {}) 
   const noTenantColumn = new Set(definition.tablesWithoutTenantColumn || []);
   let removed = 0;
   const tables = Object.keys(manifest.records).reverse();
+  // event_survey_assignment has a DB delete-guard: it refuses to die while
+  // response_count > 0 or any form_submission still references it. Delete it
+  // AFTER form_submission, and zero its response_count first.
+  const esaIdx = tables.indexOf('event_survey_assignment');
+  const fsIdx = tables.indexOf('form_submission');
+  if (esaIdx !== -1 && fsIdx !== -1 && esaIdx < fsIdx) {
+    tables.splice(esaIdx, 1);
+    tables.splice(tables.indexOf('form_submission') + 1, 0, 'event_survey_assignment');
+  }
+  const skipTables = new Set(definition.resetSkipTables || []);
   for (const table of tables) {
     const ids = manifest.records[table];
     if (!ids?.length) continue;
+    if (skipTables.has(table)) {
+      // e.g. survey_version: append-only at the DB boundary (immutability
+      // trigger blocks DELETE even for the service role). Rows have no FK
+      // back to form, so they linger harmlessly as orphans.
+      log(`[reset] ${table}: skipped ${ids.length} rows (append-only table)`);
+      continue;
+    }
+    if (table === 'event_survey_assignment') {
+      // Delete-guard trigger refuses while response_count > 0.
+      const { error: zeroErr } = await sb.from('event_survey_assignment')
+        .update({ response_count: 0 }).in('id', ids).eq('tenant_id', tenant.id);
+      if (zeroErr) throw new Error(`[reset] zero response_count failed: ${zeroErr.message}`);
+    }
     const deleteWhere = makeFkClearingDelete(sb, tenant.id, log);
     const deleteBatch = (batch) => deleteWhere(table, 'id', batch, { tenantScoped: !noTenantColumn.has(table) });
     for (let i = 0; i < ids.length; i += 25) {
@@ -384,9 +412,14 @@ export async function resetDemoData(definition, { sb, log = console.log } = {}) 
       let error = await deleteBatch(batch);
       if (error && /timeout/i.test(error.message)) {
         // Heavy FK graphs (e.g. member) can exceed the statement timeout in
-        // bulk; fall back to row-at-a-time deletes.
+        // bulk; fall back to row-at-a-time deletes, retrying transient
+        // timeouts (each retry has less cascade work left to do).
         for (const id of batch) {
-          error = await deleteBatch([id]);
+          for (let attempt = 0; attempt < 4; attempt++) {
+            error = await deleteBatch([id]);
+            if (!error || !/timeout/i.test(error.message)) break;
+            await new Promise((r) => setTimeout(r, 1500));
+          }
           if (error) break;
         }
       }
