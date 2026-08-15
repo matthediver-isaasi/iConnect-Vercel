@@ -66,13 +66,225 @@ const NEWS = [
   { slug: 'cpd-framework-refresh', title: 'Refreshed CPD framework takes effect', daysAgo: 170, tags: ['CPD'], body: ['AESP\u2019s refreshed CPD framework is now in effect, keeping the 30-hour annual expectation while giving members more flexibility over structured learning.', 'Updated CPD guidance is available in the Knowledge Hub.'] },
 ];
 
-const RESOURCES = [
-  { slug: 'cpd-guidance', title: 'AESP CPD Guidance', isPublic: false, desc: 'How the AESP CPD framework works: the 30-hour annual expectation, structured vs self-directed learning, and how to record activity.' },
-  { slug: 'code-of-conduct', title: 'Member Code of Conduct', isPublic: true, desc: 'The professional and ethical standards expected of every AESP member, and how concerns are handled.' },
-  { slug: 'net-zero-practitioner-guide', title: 'Net Zero Practitioner Guide', isPublic: false, desc: 'A practical guide to scoping, measuring and delivering organisational net-zero strategies.' },
-  { slug: 'bng-briefing', title: 'Biodiversity Net Gain Briefing', isPublic: false, desc: 'Briefing note on statutory biodiversity net gain: metric, exemptions and emerging practice.' },
-  { slug: 'environmental-careers-guide', title: 'Environmental Careers Guide', isPublic: true, desc: 'Routes into the environmental profession, typical roles and the skills employers look for.' },
-  { slug: 'mentoring-handbook', title: 'Mentoring Handbook', isPublic: false, desc: 'Handbook for mentors and mentees taking part in the AESP mentoring programme.' },
+// Knowledge Hub resources. `download` resources carry authored PDF content
+// (generated + stored by demo-seeds/resource-pdfs.mjs at seed time); `video`
+// resources embed real, stable YouTube videos (ids hardcoded — no search at
+// seed time). Exported for the resource-pdfs test file.
+export const RESOURCES = [
+  {
+    slug: 'cpd-guidance', title: 'AESP CPD Guidance', isPublic: false,
+    desc: 'How the AESP CPD framework works: the 30-hour annual expectation, structured vs self-directed learning, and how to record activity.',
+    pdf: {
+      subtitle: 'Continuing professional development framework for AESP members — updated for the refreshed framework.',
+      sections: [
+        { heading: 'The CPD expectation', paragraphs: [
+          'Every practising AESP member is expected to complete at least 30 hours of continuing professional development in each membership year. The expectation applies to Graduate Members, Professional Members (MAESP) and Fellows (FAESP); Student and Retired members are encouraged, but not required, to record CPD.',
+          'The 30-hour figure is a minimum, not a target. Members working towards chartership, changing specialism or taking on new responsibilities will typically complete considerably more. What matters most is that your CPD is planned, relevant to your practice, and reflected upon.',
+        ] },
+        { heading: 'Structured and self-directed learning', paragraphs: [
+          'At least 15 of your 30 hours must be structured learning: activity with defined learning objectives and some form of external input or assessment.',
+          'The remaining hours may be self-directed: reading, research and informal learning that you plan and evaluate yourself.',
+        ], bullets: [
+          'Structured: accredited training courses, AESP webinars and conference sessions, formal mentoring (as mentor or mentee), university modules, assessed e-learning.',
+          'Self-directed: technical reading, policy and consultation review, preparing talks or articles, structured on-the-job learning with recorded reflection.',
+          'Not CPD: routine duties without new learning, unrecorded networking, repeating training you have already mastered.',
+        ] },
+        { heading: 'Planning your CPD year', paragraphs: [
+          'Good CPD starts with a short plan. At the beginning of each membership year, identify two to four development objectives linked to your current role or your intended career direction, and note the activities you expect to use to meet them.',
+          'Review the plan mid-year. Objectives change — a new project, a new regulation or a role change can all redirect your development needs. The plan is a working document, not a commitment you are audited against.',
+        ] },
+        { heading: 'Recording and reflection', paragraphs: [
+          'Record each activity as soon as practical: the date, duration, type (structured or self-directed), and a short reflection — what you learned and how it changes your practice. Reflections of two or three sentences are sufficient; the discipline of writing them is the point.',
+          'AESP audits a random sample of CPD records each year. Members selected for audit are asked to share their record and plan; the review is supportive, and the most common outcome is simply feedback on balance across activity types.',
+        ] },
+        { heading: 'Support from AESP', paragraphs: [
+          'The Education & CPD Committee maintains a programme of free member webinars, an annual conference with recorded sessions, and the mentoring programme — all of which count as structured CPD. If you are unsure whether an activity qualifies, contact the membership team; a short description is normally enough for a same-week answer.',
+        ] },
+      ],
+    },
+  },
+  {
+    slug: 'code-of-conduct', title: 'Member Code of Conduct', isPublic: true,
+    desc: 'The professional and ethical standards expected of every AESP member, and how concerns are handled.',
+    pdf: {
+      subtitle: 'The professional and ethical standards expected of every member of the Association of Environmental & Sustainability Professionals.',
+      sections: [
+        { heading: 'Purpose and scope', paragraphs: [
+          'This Code sets out the standards of professional conduct expected of all AESP members, in every grade, wherever they practise. It exists to protect the public, the environment, the standing of the profession and members themselves.',
+          'Membership of AESP is an undertaking to observe the Code. The Code applies to professional activity in employment, self-employment, voluntary roles and public statements made in a professional capacity.',
+        ] },
+        { heading: 'Professional integrity', bullets: [
+          'Act honestly and impartially, and never knowingly mislead a client, employer, regulator or the public.',
+          'Present environmental data, assessments and conclusions accurately, including uncertainty and limitations.',
+          'Declare conflicts of interest promptly and withdraw from work where independence is compromised.',
+          'Do not claim qualifications, experience or competence you do not hold.',
+        ] },
+        { heading: 'Competence and duty of care', bullets: [
+          'Undertake only work you are competent to perform, or work under appropriate supervision.',
+          'Keep knowledge and skills current through continuing professional development.',
+          'Have proper regard for the health, safety and welfare of anyone affected by your work.',
+          'Exercise a duty of care to the environment that goes beyond minimum legal compliance where practicable.',
+        ] },
+        { heading: 'Respect for others', paragraphs: [
+          'Members must treat colleagues, clients, communities and the public with respect, and must not discriminate on any protected ground. Members holding positions of influence — employers, supervisors, mentors, committee members — carry a particular responsibility to support fair treatment and inclusion within the profession.',
+        ] },
+        { heading: 'Raising concerns and complaints', paragraphs: [
+          'A member who believes another member has breached this Code may raise a concern with the Professional Standards Committee. Concerns are reviewed confidentially; where a case to answer exists, a panel that excludes anyone with a conflict of interest hears it.',
+          'Sanctions range from advice and required training through to suspension or expulsion from membership. The member concerned has a right to be heard and a right of appeal to Council. Malicious or vexatious complaints are themselves a breach of this Code.',
+        ] },
+      ],
+    },
+  },
+  {
+    slug: 'net-zero-practitioner-guide', title: 'Net Zero Practitioner Guide', isPublic: false,
+    desc: 'A practical guide to scoping, measuring and delivering organisational net-zero strategies.',
+    pdf: {
+      subtitle: 'A practical guide for members scoping, measuring and delivering credible organisational net-zero strategies.',
+      sections: [
+        { heading: 'What "net zero" means in practice', paragraphs: [
+          'A credible organisational net-zero commitment means reducing greenhouse gas emissions across the full value chain to a residual level consistent with limiting warming to 1.5°C, and neutralising the residual with durable removals. It is not achieved by offsetting business-as-usual emissions.',
+          'Practitioners should anchor client commitments to a recognised standard, and be explicit about target years, interim milestones and the boundary of the commitment.',
+        ] },
+        { heading: 'Setting the boundary', paragraphs: [
+          'The most common failure in net-zero work is a boundary drawn around what is easy to measure rather than what is material. Begin with a screening exercise across all scope 3 categories; for most organisations a small number of categories — purchased goods and services, use of sold products, or investments — dominate the footprint.',
+        ], bullets: [
+          'Scope 1: direct emissions from owned or controlled sources.',
+          'Scope 2: purchased electricity, heat and steam (report location- and market-based).',
+          'Scope 3: all other value-chain emissions — typically 70–95% of the total footprint.',
+        ] },
+        { heading: 'Building the baseline', paragraphs: [
+          'Choose a representative baseline year and document every estimation method and emission factor source. Spend-based estimates are acceptable for screening but should be progressively replaced with activity data in material categories. Record data quality alongside the numbers: a footprint is a management tool, and decision-makers need to know which figures they can lean on.',
+        ] },
+        { heading: 'From target to delivery', paragraphs: [
+          'Turn the target into a costed abatement programme: an initiative pipeline with owners, capital requirements and expected reductions by year. Governance matters more than analysis at this stage — reductions happen when a named executive owns the trajectory and progress is reported with the same rigour as financial results.',
+        ], bullets: [
+          'Prioritise energy efficiency and electrification before procurement of residual offsets.',
+          'Engage the supply chain early: supplier data programmes take two to three reporting cycles to mature.',
+          'Publish progress annually against the interim milestones, including where you are behind.',
+        ] },
+        { heading: 'Common pitfalls', bullets: [
+          'Announcing a target before the scope 3 screening is complete.',
+          'Relying on market-based instruments to show reductions while location-based emissions rise.',
+          'Treating carbon credits as a substitute for, rather than a complement to, abatement.',
+          'Losing the baseline: undocumented methodology changes that make progress unverifiable.',
+        ] },
+      ],
+    },
+  },
+  {
+    slug: 'bng-briefing', title: 'Biodiversity Net Gain Briefing', isPublic: false,
+    desc: 'Briefing note on statutory biodiversity net gain: metric, exemptions and emerging practice.',
+    pdf: {
+      subtitle: 'Briefing note for members on statutory biodiversity net gain in England: the metric, exemptions and emerging practice.',
+      sections: [
+        { heading: 'The statutory requirement', paragraphs: [
+          'Statutory biodiversity net gain (BNG) requires most new development in England to deliver at least a 10% measurable improvement in biodiversity value, calculated using the statutory biodiversity metric and secured for at least 30 years.',
+          'The requirement is discharged through a biodiversity gain plan approved by the local planning authority before development may lawfully commence.',
+        ] },
+        { heading: 'How the metric works', paragraphs: [
+          'The statutory metric converts habitats into biodiversity units based on their size, distinctiveness, condition and strategic significance. Units are calculated separately for area habitats, hedgerows and watercourses — gains in one module cannot offset losses in another.',
+        ], bullets: [
+          'Baseline surveys must reflect the habitats present at the required date; degradation after that date is disregarded.',
+          'Trading rules require like-for-like or better: losses of high-distinctiveness habitat need bespoke compensation.',
+          'Creation and enhancement carry risk multipliers for difficulty, time to target condition and off-site distance.',
+        ] },
+        { heading: 'The mitigation hierarchy still applies', paragraphs: [
+          'BNG supplements, and does not replace, the mitigation hierarchy: avoid, minimise, restore, then compensate. On-site provision is preferred; off-site units and, as a last resort, statutory biodiversity credits follow in that order. Practitioners should document the hierarchy reasoning in the gain plan — authorities increasingly test it.',
+        ] },
+        { heading: 'Emerging practice', bullets: [
+          'Early baseline surveys de-risk programmes: retrospective baselining is the most common source of dispute.',
+          'Habitat management and monitoring plans are maturing into standard 30-year documents with five-yearly review points.',
+          'A functioning off-site unit market is developing; price discovery remains uneven between regions.',
+          'Condition assessment is the metric\u2019s most subjective input — record the evidence behind every condition score.',
+        ] },
+      ],
+    },
+  },
+  {
+    slug: 'environmental-careers-guide', title: 'Environmental Careers Guide', isPublic: true,
+    desc: 'Routes into the environmental profession, typical roles and the skills employers look for.',
+    pdf: {
+      subtitle: 'Routes into the environmental profession, typical roles, and the skills employers look for.',
+      sections: [
+        { heading: 'A profession, many routes in', paragraphs: [
+          'People join the environmental profession from environmental science and ecology degrees, from engineering, geography, law and economics, and increasingly through mid-career moves from other sectors. There is no single "correct" entry route: employers consistently value demonstrable skills and genuine engagement over any particular qualification title.',
+        ] },
+        { heading: 'Where environmental professionals work', bullets: [
+          'Consultancy: multidisciplinary assessment, ESG advisory, carbon and ecology services for developer and corporate clients.',
+          'Industry and infrastructure: in-house environment, sustainability and compliance teams in energy, construction, water, transport and manufacturing.',
+          'Public sector: local authority planning and environment teams, regulators and government departments.',
+          'NGOs, charities and research: conservation delivery, campaigning, environmental monitoring and academia.',
+        ] },
+        { heading: 'Typical early-career roles', paragraphs: [
+          'Graduate schemes in consultancy and industry usually rotate through two or three technical teams over two years. Common first roles include graduate environmental consultant, assistant ecologist, junior carbon analyst, environmental compliance officer and sustainability coordinator.',
+          'Fieldwork-heavy roles (ecology, land condition, air quality monitoring) tend to be seasonal in workload; office-based analytical roles (carbon, ESG reporting) follow corporate reporting cycles. Try both early if you can.',
+        ] },
+        { heading: 'Skills employers ask for', bullets: [
+          'Technical grounding in at least one specialism, with awareness of neighbouring disciplines.',
+          'Data confidence: spreadsheets as a minimum; GIS, Python or R are strong differentiators.',
+          'Clear writing — most environmental work is ultimately delivered as a written report.',
+          'Commercial awareness: budgets, deadlines and client relationships matter from day one.',
+          'Site experience and a full driving licence widen options considerably for field roles.',
+        ] },
+        { heading: 'How AESP can help', paragraphs: [
+          'Student membership is inexpensive and includes the Knowledge Hub, the mentoring programme and member rates for events. The annual Environmental Careers Week connects students with practitioners across the UK, and the AESP job board lists vacancies from graduate to director level. Professional membership and, later, Fellowship provide a recognised marker of competence as your career develops.',
+        ] },
+      ],
+    },
+  },
+  {
+    slug: 'mentoring-handbook', title: 'Mentoring Handbook', isPublic: false,
+    desc: 'Handbook for mentors and mentees taking part in the AESP mentoring programme.',
+    pdf: {
+      subtitle: 'Handbook for mentors and mentees taking part in the AESP mentoring programme.',
+      sections: [
+        { heading: 'About the programme', paragraphs: [
+          'The AESP mentoring programme matches early-career members with experienced practitioners for a structured 12-month mentoring relationship. Matching considers specialism, sector and the mentee\u2019s stated goals; mentors and mentees are introduced by the membership team and agree their own meeting pattern.',
+          'Mentoring is a development relationship, not line management, sponsorship or technical review. The mentee owns the agenda; the mentor contributes experience, perspective and challenge.',
+        ] },
+        { heading: 'Expectations of mentees', bullets: [
+          'Set two or three specific goals for the year and share them at the first meeting.',
+          'Prepare for each session: a short note of what has happened and what you want to discuss.',
+          'Own your actions between meetings — the value of mentoring is in what you do afterwards.',
+          'Give your mentor honest feedback about what is and is not helping.',
+        ] },
+        { heading: 'Expectations of mentors', bullets: [
+          'Offer around one hour a month, protected in the diary, for twelve months.',
+          'Listen first; ask questions before offering answers. Your experience is context, not instruction.',
+          'Keep confidences. What is discussed in mentoring stays in mentoring, within the safeguarding limits below.',
+          'Know your limits: signpost to specialist, HR or professional standards routes when a topic needs them.',
+        ] },
+        { heading: 'The first meeting and the agreement', paragraphs: [
+          'Use the first meeting to agree how you will work together: frequency, format, confidentiality and what each of you expects. Record this in the one-page mentoring agreement — it prevents most of the problems the programme team ever sees, which are almost always mismatched expectations rather than mismatched people.',
+        ] },
+        { heading: 'When things need to change', paragraphs: [
+          'Either party may pause or end the relationship at any time, without blame, by telling the programme team — re-matching is routine and carries no stigma. Structured CPD hours may be claimed by both mentors and mentees for prepared mentoring sessions and associated reflection.',
+        ] },
+      ],
+    },
+  },
+];
+
+// Video resources — real, stable YouTube videos on relevant topics, embedded
+// with the standard iframe code (the format the Resource Management admin UI
+// stores for `video` resources). Ids hardcoded; visibility mixed like the
+// document set. Exported for tests.
+export const VIDEO_RESOURCES = [
+  {
+    slug: 'why-biodiversity-matters', title: 'Why Biodiversity Matters', isPublic: true,
+    youtubeId: 'GK_vRtHJZu4', tags: ['Biodiversity', 'Video'],
+    desc: 'TED-Ed explainer on why biodiversity is so important for healthy ecosystems — useful background for members starting BNG work.',
+  },
+  {
+    slug: 'climate-change-101', title: 'Climate Change 101', isPublic: false,
+    youtubeId: 'EtW2rrLHs08', tags: ['Carbon & Net Zero', 'Video'],
+    desc: 'National Geographic\u2019s concise primer on the science of climate change — a member briefing for client conversations about net zero.',
+  },
+  {
+    slug: 'causes-and-effects-of-climate-change', title: 'Causes and Effects of Climate Change', isPublic: false,
+    youtubeId: 'G4H1N_yXBiA', tags: ['Carbon & Net Zero', 'Video'],
+    desc: 'Short National Geographic overview of the drivers and impacts of climate change, for members building presentations and training.',
+  },
 ];
 
 // Job board postings — environmental/sustainability vacancies at the seeded
@@ -848,11 +1060,28 @@ export async function seedEngagement(ctx, { plans, adminEmail }) {
       tags: n.tags,
     });
   }
+  // Knowledge Hub resources: real downloadable PDFs (generated + stored via
+  // the shared engine helper) and embedded YouTube videos. Upserting by title
+  // converts any old dummy external_link rows from earlier seed versions in
+  // place — no duplicates left behind.
+  const { seedDemoResourcePdfs, youtubeEmbedCode } = await import('../resource-pdfs.mjs');
+  const pdfFiles = await seedDemoResourcePdfs({
+    ctx,
+    items: RESOURCES,
+    brand: {
+      orgName: 'AESP',
+      primaryColor: '#174A3A',
+      accentColor: '#D5A642',
+      footer: 'Association of Environmental & Sustainability Professionals — fictional demonstration document',
+    },
+    uploadedBy: 'hannah.clarke@aesp.example.com',
+  });
   for (const [i, r] of RESOURCES.entries()) {
+    const file = pdfFiles.get(r.slug);
     await upsert('resource', { title: r.title }, {
       description: r.desc,
-      resource_type: 'external_link',
-      target_url: `https://aesp.example.com/resources/${r.slug}`,
+      resource_type: 'download',
+      target_url: file.url,
       open_in_new_tab: true,
       status: 'active',
       is_public: r.isPublic,
@@ -862,8 +1091,23 @@ export async function seedEngagement(ctx, { plans, adminEmail }) {
       tags: ['Guidance'],
     });
   }
+  for (const [i, v] of VIDEO_RESOURCES.entries()) {
+    await upsert('resource', { title: v.title }, {
+      description: v.desc,
+      resource_type: 'video',
+      target_url: youtubeEmbedCode(v.youtubeId, v.title),
+      open_in_new_tab: true,
+      status: 'active',
+      is_public: v.isPublic,
+      is_sample: true,
+      release_date: dates.isoDate(dates.daysAgo(30 + i * 20)),
+      author_name: 'AESP',
+      tags: v.tags,
+    });
+  }
   ctx.setCount('news_posts', NEWS.length);
-  ctx.setCount('resources', RESOURCES.length);
+  ctx.setCount('resources', RESOURCES.length + VIDEO_RESOURCES.length);
+  ctx.setCount('resource_pdfs', pdfFiles.size);
 
   // ==== 9. Job board ========================================================
   // Dedicated RNG stream so postings never disturb earlier sections' draws.
@@ -886,5 +1130,5 @@ export async function seedEngagement(ctx, { plans, adminEmail }) {
   await pmap(jobPlans, (jp) => upsert('job_posting', jp.match, jp.row), 8);
   ctx.setCount('job_postings', jobPlans.length);
 
-  log(`[seed] AESP engagement: ${SIGS.length} SIGs (${sigAssignments} members), ${COMMITTEES.length} committees (${committeeAssignments} members), ${eventPlans.length} events + conference, ${bookingCount + confBookings.length} bookings, ${responsePlans.length} survey responses, ${pages.length} pages, ${NEWS.length} news, ${RESOURCES.length} resources, ${jobPlans.length} job postings.`);
+  log(`[seed] AESP engagement: ${SIGS.length} SIGs (${sigAssignments} members), ${COMMITTEES.length} committees (${committeeAssignments} members), ${eventPlans.length} events + conference, ${bookingCount + confBookings.length} bookings, ${responsePlans.length} survey responses, ${pages.length} pages, ${NEWS.length} news, ${RESOURCES.length + VIDEO_RESOURCES.length} resources (${pdfFiles.size} PDFs, ${VIDEO_RESOURCES.length} videos), ${jobPlans.length} job postings.`);
 }

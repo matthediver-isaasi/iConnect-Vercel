@@ -13,11 +13,14 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { extractVideoEmbedSrc } from "@/lib/resourceVideoEmbed.mjs";
 
 export default function EmbedResourcePage() {
   const { identifier } = useParams();
   const [searchParams] = useSearchParams();
   const [copied, setCopied] = useState(false);
+  const [videoOpen, setVideoOpen] = useState(false);
   
   const tenantParam = searchParams.get('tenant');
 
@@ -36,6 +39,10 @@ export default function EmbedResourcePage() {
     },
     enabled: !!identifier
   });
+
+  // Video resources hold raw iframe embed code in target_url; play via a
+  // validated embed src in our own iframe, never by opening the raw markup.
+  const videoEmbedSrc = resource?.resource_type === 'video' ? extractVideoEmbedSrc(resource.target_url) : null;
 
   const notifyParentResize = () => {
     setTimeout(() => {
@@ -83,6 +90,10 @@ export default function EmbedResourcePage() {
   };
 
   const handleResourceClick = () => {
+    if (videoEmbedSrc) {
+      setVideoOpen(true);
+      return;
+    }
     if (resource?.target_url) {
       window.open(resource.target_url, '_blank', 'noopener,noreferrer');
     }
@@ -261,6 +272,26 @@ export default function EmbedResourcePage() {
           )}
         </CardContent>
       </Card>
+
+      {videoEmbedSrc && (
+        <Dialog open={videoOpen} onOpenChange={setVideoOpen}>
+          <DialogContent className="max-w-3xl p-0 overflow-hidden" data-testid="dialog-resource-video">
+            <DialogTitle className="sr-only">{resource.title}</DialogTitle>
+            <div className="relative w-full" style={{ paddingBottom: '56.25%' }}>
+              <iframe
+                src={videoOpen ? videoEmbedSrc : undefined}
+                title={resource.title}
+                className="absolute inset-0 w-full h-full"
+                frameBorder="0"
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                referrerPolicy="strict-origin-when-cross-origin"
+                allowFullScreen
+                data-testid="iframe-resource-video"
+              />
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
     </div>
   );
 }

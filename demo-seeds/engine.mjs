@@ -121,6 +121,7 @@ function createSeedContext({ sb, tenantId, tenant, definition, log }) {
     tenantId,
     lastSeededAt: new Date().toISOString(),
     records: {}, // table -> [ids]
+    storageObjects: [], // [{ bucket, path }] — removed by reset
     counts: {},
   };
 
@@ -169,6 +170,14 @@ function createSeedContext({ sb, tenantId, tenant, definition, log }) {
     manifest,
     upsert,
     recordId,
+    // Record a seeded storage object so reset removes it (deduped; paths are
+    // deterministic so re-runs record the same object once).
+    recordStorageObject: (bucket, path) => {
+      if (!bucket || !path) return;
+      if (!manifest.storageObjects.some((o) => o.bucket === bucket && o.path === path)) {
+        manifest.storageObjects.push({ bucket, path });
+      }
+    },
     setCount: (k, v) => { manifest.counts[k] = v; },
     hashPassword: (plain) => bcrypt.hash(plain, 10),
     randomPassword: () => crypto.randomBytes(9).toString('base64url'),
@@ -433,6 +442,44 @@ export async function seedDemoTenant(definition, { sb, provisionTenant, log = co
  * has a tenant_id column. The tenant itself and provisioning scaffolding
  * (roles, nav, admin owner) survive; use deleteDemoTenant for full removal.
  */
+/**
+ * Remove seeded storage objects (e.g. generated resource PDFs). Grouped by
+ * bucket, batched. A missing object is not an error to supabase remove();
+ * genuine failures are returned so callers can keep those paths tracked for
+ * a retry instead of orphaning them. Exported for tests.
+ */
+export async function removeSeededStorageObjects(sb, storageObjects, log = console.log) {
+  const failed = [];
+  let removedCount = 0;
+  const byBucket = new Map();
+  for (const o of storageObjects || []) {
+    if (!o?.bucket || !o?.path) continue;
+    if (!byBucket.has(o.bucket)) byBucket.set(o.bucket, []);
+    byBucket.get(o.bucket).push(o.path);
+  }
+  for (const [bucket, paths] of byBucket) {
+    let bucketRemoved = 0;
+    for (let i = 0; i < paths.length; i += 100) {
+      const batch = paths.slice(i, i + 100);
+      let error = null;
+      try {
+        ({ error } = await sb.storage.from(bucket).remove(batch));
+      } catch (e) {
+        error = e;
+      }
+      if (error) {
+        log(`[reset] warning: storage cleanup in '${bucket}' failed: ${error.message}`);
+        for (const path of batch) failed.push({ bucket, path });
+      } else {
+        bucketRemoved += batch.length;
+      }
+    }
+    if (bucketRemoved) log(`[reset] storage '${bucket}': removed ${bucketRemoved} seeded object(s)`);
+    removedCount += bucketRemoved;
+  }
+  return { removedCount, failed };
+}
+
 export async function resetDemoData(definition, { sb, log = console.log } = {}) {
   const tenant = await findTenant(sb, definition.tenant.slug);
   if (!tenant) { log('[reset] Tenant not found — nothing to reset.'); return { removed: 0 }; }
@@ -494,8 +541,20 @@ export async function resetDemoData(definition, { sb, log = console.log } = {}) 
     removed += ids.length;
     log(`[reset] ${table}: removed up to ${ids.length} rows`);
   }
-  // Clear the manifest record list but keep the marker row for status.
-  await saveManifest(sb, tenant.id, { ...manifest, records: {}, counts: {}, lastResetAt: new Date().toISOString() });
+  // Remove seeded storage objects (e.g. generated resource PDFs). Grouped by
+  // bucket, best-effort per batch: a missing object is not an error to
+  // supabase remove(), and a transient failure must not block the row reset
+  // that already happened — but it IS surfaced.
+  const storageObjects = Array.isArray(manifest.storageObjects) ? manifest.storageObjects : [];
+  const { removedCount, failed: failedStorageObjects } = await removeSeededStorageObjects(sb, storageObjects, log);
+  removed += removedCount;
+  // Clear the manifest record list but keep the marker row for status. Any
+  // storage objects whose removal FAILED are kept in the manifest so the
+  // next reset retries them instead of orphaning them forever.
+  await saveManifest(sb, tenant.id, { ...manifest, records: {}, storageObjects: failedStorageObjects, counts: {}, lastResetAt: new Date().toISOString() });
+  if (failedStorageObjects.length) {
+    log(`[reset] warning: ${failedStorageObjects.length} storage object(s) could not be removed; kept in manifest for the next reset to retry`);
+  }
   log(`[reset] Done. ${removed} seeded rows removed.`);
   return { removed };
 }

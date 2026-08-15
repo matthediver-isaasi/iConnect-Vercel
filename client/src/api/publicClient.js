@@ -118,7 +118,9 @@ export function getTenantSlugFromLocation() {
   }
   
   // Check Vite environment variable (build-time config)
-  const envTenant = import.meta.env.VITE_DEFAULT_TENANT;
+  // Optional-chained so non-Vite runtimes (node:test component tests) don't
+  // crash at module load — import.meta.env only exists under Vite.
+  const envTenant = import.meta.env?.VITE_DEFAULT_TENANT;
   if (envTenant) {
     console.log('[publicClient] Using VITE_DEFAULT_TENANT:', envTenant);
     return envTenant;

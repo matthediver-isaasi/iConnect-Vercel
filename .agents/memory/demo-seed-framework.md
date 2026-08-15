@@ -19,6 +19,10 @@ Demo tenants are seeded by `demo-seeds/engine.mjs` + per-tenant definitions (`de
 - Demo tenants on DEST are shared state: concurrent sessions can reset or even delete/recreate the tenant mid-run; confirm rows are stable before diagnosing seed bugs.
 - Reseed after tenant provisioning leaves provision-default nav rows alongside seeded ones — the seed must deactivate the non-demo ones.
 
+- Files the seed generates (not just DB rows) must be manifest-tracked so reset can remove the storage objects too; keep any paths whose removal fails in the manifest so the next reset retries instead of orphaning them. Deterministic storage paths + upsert uploads keep re-runs duplicate-free.
+- A full demo reset can exceed any single 5-minute execution budget (member deletes cascade row-at-a-time); the reset is deliberately resumable — re-run the same idempotent command until it completes rather than parallelising or backgrounding it.
+- Video resources store raw iframe embed code in `target_url` (that's the admin-UI convention); resource views must extract + allowlist-validate the embed src and render their own iframe — never inject the stored markup.
+
 **How to apply:** new demo tenants = new definition module only; reuse the engine. AESP tenant slug `aesp` on DEST.
 
 ## Provenance-safe member field writes (login-governing fields)

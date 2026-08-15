@@ -19,6 +19,8 @@ import TenantCtaButton from "@/components/common/TenantCtaButton";
 import { useTenantBranding } from "@/contexts/TenantBrandingContext";
 import { resolveTenantButtonStyle } from "@/lib/tenantButtonStyle";
 import { resolveCardAccentBar } from "@/lib/cardAccentBar";
+import { extractVideoEmbedSrc } from "@/lib/resourceVideoEmbed.mjs";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 
 const iconMap = {
   ArrowUpRight,
@@ -38,6 +40,11 @@ const iconMap = {
 // the image/top edge to the rounded corners.
 export default function ResourceCard({ resource, isLocked = false, isEventLocked = false, joinLocked = false, buttonStyles = [], enabledSocialIcons = ['x', 'linkedin', 'email'], isAuthenticated = true, viewCount = null, onResourceView, onEdit, onDelete, openInNewTab = true, cornerRadius = null }) {
   const [copied, setCopied] = useState(false);
+  const [videoOpen, setVideoOpen] = useState(false);
+  // Video resources store raw iframe embed code in target_url (see Resource
+  // Management admin UI). Never inject that markup: extract + validate the
+  // embed src and play it in our own iframe inside a dialog.
+  const videoEmbedSrc = resource.resource_type === 'video' ? extractVideoEmbedSrc(resource.target_url) : null;
   
   // Get button style from props instead of fetching
   const buttonStyle = buttonStyles.find(s => s.resource_type === resource.resource_type) || null;
@@ -91,6 +98,10 @@ export default function ResourceCard({ resource, isLocked = false, isEventLocked
     }
     if (onResourceView) {
       onResourceView(resource.id);
+    }
+    if (videoEmbedSrc) {
+      setVideoOpen(true);
+      return;
     }
     if (openInNewTab) {
       window.open(resource.target_url, '_blank', 'noopener,noreferrer');
@@ -573,6 +584,26 @@ export default function ResourceCard({ resource, isLocked = false, isEventLocked
           renderButton()
         )}
       </CardContent>
+
+      {videoEmbedSrc && (
+        <Dialog open={videoOpen} onOpenChange={setVideoOpen}>
+          <DialogContent className="max-w-3xl p-0 overflow-hidden" data-testid={`dialog-resource-video-${resource.id}`}>
+            <DialogTitle className="sr-only">{resource.title}</DialogTitle>
+            <div className="relative w-full" style={{ paddingBottom: '56.25%' }}>
+              <iframe
+                src={videoOpen ? videoEmbedSrc : undefined}
+                title={resource.title}
+                className="absolute inset-0 w-full h-full"
+                frameBorder="0"
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                referrerPolicy="strict-origin-when-cross-origin"
+                allowFullScreen
+                data-testid={`iframe-resource-video-${resource.id}`}
+              />
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
     </Card>
   );
 }
