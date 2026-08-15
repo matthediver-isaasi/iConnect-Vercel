@@ -75,6 +75,130 @@ const RESOURCES = [
   { slug: 'mentoring-handbook', title: 'Mentoring Handbook', isPublic: false, desc: 'Handbook for mentors and mentees taking part in the AESP mentoring programme.' },
 ];
 
+// Job board postings — environmental/sustainability vacancies at the seeded
+// demo employers. Postings reuse the employer's generated logo (fetched at
+// persist time); statuses are mixed so the admin management page demos well:
+// 'active' (public board), 'pending_approval', 'rejected', and two active
+// postings whose closing_date is already past (admin shows them as expired /
+// archived; the public board filters them out).
+//
+// Provenance: job_posting has NO is_sample column. Seeded postings are
+// identified by (a) the manifest record list (reset removes exactly these
+// rows) and (b) their reserved-domain contact_email (@aesp.example.com),
+// which can never belong to a real posting. Idempotency key = title
+// (tenant-scoped; titles below are unique).
+export const JOB_POSTINGS = [
+  { title: 'Senior Environmental Consultant', org: 'Greenstone Environmental Consulting', location: 'Bristol', salary: '£45,000 – £55,000', type: 'Full-time', hours: 'Full-time', postedDaysAgo: 6, closesIn: 24, status: 'active', featured: true, method: 'url',
+    summary: 'Lead multidisciplinary environmental assessments for infrastructure and development clients across the South West.',
+    points: ['Manage EIA coordination across a varied project portfolio', 'Mentor graduate consultants and review technical deliverables', 'Chartered or near-chartered with 5+ years\u2019 consultancy experience'] },
+  { title: 'Carbon & Net Zero Analyst', org: 'CarbonWise Consulting', location: 'London (hybrid)', salary: '£38,000 – £46,000', type: 'Full-time', hours: 'Full-time', postedDaysAgo: 4, closesIn: 30, status: 'active', featured: false, method: 'url',
+    summary: 'Deliver corporate carbon footprints, science-based targets and transition plans for FTSE and mid-market clients.',
+    points: ['GHG Protocol scope 1\u20133 accounting and data analysis', 'Support SBTi target validation submissions', 'Strong Excel/Python data skills preferred'] },
+  { title: 'Principal Ecologist', org: 'TerraNova Environmental Planning', location: 'Cambridge', salary: '£52,000 – £60,000', type: 'Full-time', hours: 'Full-time', postedDaysAgo: 12, closesIn: 18, status: 'active', featured: true, method: 'email',
+    summary: 'Direct our growing ecology team, leading biodiversity net gain strategy and protected-species work nationwide.',
+    points: ['Lead BNG assessments using the statutory metric', 'Full CIEEM membership and protected-species licences desirable', 'Line management of a team of six ecologists'] },
+  { title: 'Sustainability Manager', org: 'Evergreen Housing Group', location: 'Nottingham', salary: '£48,000 – £54,000', type: 'Full-time', hours: 'Full-time', postedDaysAgo: 9, closesIn: 27, status: 'active', featured: false, method: 'url',
+    summary: 'Own the decarbonisation programme for a 20,000-home social housing portfolio, from retrofit strategy to resident engagement.',
+    points: ['Deliver the SHDF-funded retrofit pipeline', 'Report against Sustainability Reporting Standard for Social Housing', 'Experience of PAS 2035 retrofit projects an advantage'] },
+  { title: 'Environmental Compliance Officer', org: 'Bluewater Utilities', location: 'Exeter', salary: '£34,000 – £40,000', type: 'Full-time', hours: 'Full-time', postedDaysAgo: 15, closesIn: 21, status: 'active', featured: false, method: 'email',
+    summary: 'Keep our water treatment and network operations compliant with environmental permits and discharge consents.',
+    points: ['Manage environmental permit compliance and reporting', 'Investigate pollution incidents and drive corrective actions', 'Knowledge of EPR and WRA regimes essential'] },
+  { title: 'Graduate Environmental Scientist', org: 'Northbridge Sustainability Partners', location: 'Leeds', salary: '£26,000 – £29,000', type: 'Full-time', hours: 'Full-time', postedDaysAgo: 3, closesIn: 35, status: 'active', featured: false, method: 'url',
+    summary: 'Join our two-year graduate scheme rotating through air quality, land condition and sustainability advisory teams.',
+    points: ['Structured training with chartership support', 'Site work across the north of England', '2:1 or above in an environmental discipline'] },
+  { title: 'EIA Project Manager', org: 'Meridian Infrastructure Group', location: 'Birmingham', salary: '£50,000 – £58,000', type: 'Full-time', hours: 'Full-time', postedDaysAgo: 8, closesIn: 26, status: 'active', featured: false, method: 'url',
+    summary: 'Coordinate environmental statements for major rail and highways schemes within our in-house consenting team.',
+    points: ['Manage multidisciplinary EIA inputs on NSIP projects', 'Extensive stakeholder and regulator engagement', 'DCO experience strongly preferred'] },
+  { title: 'Renewable Energy Consents Officer', org: 'Arcfield Renewable Energy', location: 'Aberdeen (hybrid)', salary: '£42,000 – £50,000', type: 'Full-time', hours: 'Full-time', postedDaysAgo: 11, closesIn: 33, status: 'active', featured: false, method: 'email',
+    summary: 'Progress onshore wind and battery storage consents through the Scottish planning system.',
+    points: ['Prepare and manage Section 36 and TCPA applications', 'Coordinate environmental survey programmes', 'Knowledge of Scottish consenting regimes essential'] },
+  { title: 'Air Quality Specialist', org: 'ClearSky Air Quality Trust', location: 'Cardiff', salary: '£36,000 – £42,000', type: 'Full-time', hours: 'Flexible', postedDaysAgo: 14, closesIn: 20, status: 'active', featured: false, method: 'email',
+    summary: 'Lead monitoring campaigns and community air quality projects across South Wales for an independent charity.',
+    points: ['Design and run ambient monitoring networks', 'Produce accessible public reports and briefings', 'Dispersion modelling (ADMS) experience welcome'] },
+  { title: 'Environmental Planner', org: 'Westborough City Council', location: 'Westborough', salary: '£37,000 – £43,000 (Grade 9)', type: 'Full-time', hours: 'Full-time', postedDaysAgo: 7, closesIn: 22, status: 'active', featured: false, method: 'url',
+    summary: 'Advise planning officers and members on environmental matters across a busy urban authority.',
+    points: ['Review EIA screening/scoping and consultation responses', 'Shape local plan environmental policy', 'Local government experience desirable, not essential'] },
+  { title: 'Part-time Sustainability Coordinator', org: 'Wildmoor Conservation Trust', location: 'York', salary: '£28,000 – £32,000 pro rata', type: 'Part-time', hours: 'Part-time', postedDaysAgo: 10, closesIn: 28, status: 'active', featured: false, method: 'email',
+    summary: 'Coordinate the Trust\u2019s own environmental footprint programme across our reserves and visitor centres (3 days/week).',
+    points: ['Track and report carbon, waste and water performance', 'Support volunteers delivering site improvements', 'Flexible working pattern by agreement'] },
+  { title: 'ESG Reporting Contract Analyst', org: 'FutureEarth Advisory', location: 'Edinburgh (remote-friendly)', salary: '£350 – £425/day', type: 'Contract', hours: 'Full-time', postedDaysAgo: 5, closesIn: 16, status: 'active', featured: false, method: 'url',
+    summary: 'Six-month contract supporting CSRD readiness engagements for European clients through the reporting season.',
+    points: ['Double materiality assessments and gap analyses', 'ESRS datapoint mapping and disclosure drafting', 'Immediate start preferred'] },
+  // Pending approval — visible only on the admin management page.
+  { title: 'Assistant Ecologist (Seasonal)', org: 'Calder Environmental Services', location: 'Halifax', salary: '£24,000 – £27,000', type: 'Temporary', hours: 'Full-time', postedDaysAgo: 1, closesIn: 40, status: 'pending_approval', featured: false, method: 'email',
+    summary: 'Seasonal fieldwork role supporting protected-species surveys through the 2027 survey season.',
+    points: ['Great crested newt and bat survey assistance', 'Full UK driving licence required', 'Fixed term April to September'] },
+  { title: 'Head of Environment', org: 'Harbourview Ports Ltd', location: 'Liverpool', salary: '£70,000 – £80,000 + car allowance', type: 'Full-time', hours: 'Full-time', postedDaysAgo: 2, closesIn: 38, status: 'pending_approval', featured: false, method: 'url',
+    summary: 'Senior leadership role owning environmental strategy, compliance and net-zero delivery across our port estates.',
+    points: ['Board-level reporting on environmental performance', 'Lead a team of twelve across three sites', 'Marine licensing experience highly desirable'] },
+  // Rejected example for the admin view.
+  { title: 'Door-to-door Energy Sales Executive', org: null, companyName: 'BrightSwitch Energy Sales', location: 'Nationwide', salary: 'Commission only', type: 'Full-time', hours: 'Flexible', postedDaysAgo: 5, closesIn: 30, status: 'rejected', featured: false, method: 'url',
+    summary: 'Commission-based residential energy switching sales role.',
+    points: ['Uncapped commission', 'No experience necessary'] },
+  // Active but already past closing_date — admin shows these as expired/archived.
+  { title: 'Waste & Resources Manager', org: 'Kelbrook District Council', location: 'Kelbrook', salary: '£44,000 – £49,000', type: 'Full-time', hours: 'Full-time', postedDaysAgo: 55, closesIn: -6, status: 'active', featured: false, method: 'url',
+    summary: 'Manage the council\u2019s waste collection contracts and circular-economy programme.',
+    points: ['Contract management of collection and disposal services', 'Drive recycling performance improvement', 'WAMITAB or CIWM qualification desirable'] },
+  { title: 'Research Fellow — Climate Adaptation', org: 'North Midlands University', location: 'Stoke-on-Trent', salary: '£39,000 – £45,000 (Grade 7)', type: 'Full-time', hours: 'Full-time', postedDaysAgo: 60, closesIn: -12, status: 'active', featured: false, method: 'email',
+    summary: 'Three-year post-doctoral fellowship researching urban climate adaptation and nature-based solutions.',
+    points: ['Publish in leading environmental journals', 'Co-supervise PhD students', 'PhD in a relevant discipline required'] },
+];
+
+function jobDescriptionHtml(j, companyName) {
+  const bullets = j.points.map((p) => `<li>${p}</li>`).join('');
+  return `<p>${j.summary}</p><h3>About the role</h3><ul>${bullets}</ul>` +
+    `<p>${companyName} is an equal-opportunities employer. This is a fictional demonstration vacancy seeded for the AESP demo tenant \u2014 applications are not monitored.</p>`;
+}
+
+/**
+ * Pure planning helper (exported for tests): expands JOB_POSTINGS into
+ * upsert-ready rows. All RNG runs here, sequentially, from the dedicated
+ * 'aesp-v1:jobs' stream — so member/event data stays byte-stable and re-runs
+ * produce identical postings.
+ *
+ * orgsByName: { [name]: { id, logo_url } } — seeded demo orgs from the DB.
+ * activeMembers: plans with memberId/orgName/email (posting attribution).
+ */
+export function planJobPostings({ rng, dates, orgsByName, activeMembers }) {
+  const slug = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+  return JOB_POSTINGS.map((j) => {
+    const org = j.org ? orgsByName[j.org] : null;
+    const companyName = j.org || j.companyName;
+    // Attribute member posts to a deterministic active member at the employer.
+    const candidates = j.org ? activeMembers.filter((p) => p.orgName === j.org) : [];
+    const poster = candidates.length ? candidates[rng.int(0, candidates.length - 1)] : null;
+    const contactEmail = poster ? poster.email : `recruitment.${slug(companyName)}@aesp.example.com`;
+    const closing = dates.daysAhead(j.closesIn);
+    return {
+      match: { title: j.title },
+      row: {
+        description: jobDescriptionHtml(j, companyName),
+        company_name: companyName,
+        company_logo_url: org?.logo_url || null,
+        location: j.location,
+        salary_range: j.salary,
+        job_type: j.type,
+        hours: j.hours,
+        application_method: j.method,
+        application_value: j.method === 'email'
+          ? contactEmail
+          : `https://careers.aesp.example.com/${slug(companyName)}/${slug(j.title)}`,
+        contact_name: poster ? `${poster.first} ${poster.last}` : `${companyName} Recruitment`,
+        contact_email: contactEmail,
+        posted_by_member_id: poster?.memberId || null,
+        posted_by_organization_id: org?.id || null,
+        posted_by_organization_name: org ? j.org : null,
+        is_member_post: !!poster,
+        status: j.status,
+        featured: j.featured,
+        closing_date: dates.isoDate(closing),
+        expiry_date: dates.isoDate(closing),
+        created_date: dates.daysAgo(j.postedDaysAgo).toISOString(),
+      },
+    };
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Membership application form fields + steering rules
 // ---------------------------------------------------------------------------
@@ -741,5 +865,26 @@ export async function seedEngagement(ctx, { plans, adminEmail }) {
   ctx.setCount('news_posts', NEWS.length);
   ctx.setCount('resources', RESOURCES.length);
 
-  log(`[seed] AESP engagement: ${SIGS.length} SIGs (${sigAssignments} members), ${COMMITTEES.length} committees (${committeeAssignments} members), ${eventPlans.length} events + conference, ${bookingCount + confBookings.length} bookings, ${responsePlans.length} survey responses, ${pages.length} pages, ${NEWS.length} news, ${RESOURCES.length} resources.`);
+  // ==== 9. Job board ========================================================
+  // Dedicated RNG stream so postings never disturb earlier sections' draws.
+  // Logos are reused from the org-logo pass (organization.logo_url); postings
+  // whose employer has no logo yet simply render with the fallback icon.
+  const { data: orgRows, error: orgErr } = await sb
+    .from('organization')
+    .select('id, name, logo_url')
+    .eq('tenant_id', tenantId)
+    .eq('is_sample', true)
+    .limit(2000);
+  if (orgErr) throw new Error(`[seed] job board org lookup failed: ${orgErr.message}`);
+  const orgsByName = Object.fromEntries((orgRows || []).map((o) => [o.name, o]));
+  const jobPlans = planJobPostings({
+    rng: createRng('aesp-v1:jobs'),
+    dates,
+    orgsByName,
+    activeMembers,
+  });
+  await pmap(jobPlans, (jp) => upsert('job_posting', jp.match, jp.row), 8);
+  ctx.setCount('job_postings', jobPlans.length);
+
+  log(`[seed] AESP engagement: ${SIGS.length} SIGs (${sigAssignments} members), ${COMMITTEES.length} committees (${committeeAssignments} members), ${eventPlans.length} events + conference, ${bookingCount + confBookings.length} bookings, ${responsePlans.length} survey responses, ${pages.length} pages, ${NEWS.length} news, ${RESOURCES.length} resources, ${jobPlans.length} job postings.`);
 }
