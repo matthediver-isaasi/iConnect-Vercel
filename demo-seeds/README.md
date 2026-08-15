@@ -176,6 +176,93 @@ is deterministic; `i_edit_page` rows are matched by slug so no duplicates).
 `survey_version` rows are immutable in the DB, so the engine upserts them
 insert-only and reuses the existing row on reseed.
 
+## Avatar generation pass
+
+AI headshots for demo members are stored in the `demo-avatars` Supabase storage
+bucket at deterministic per-member paths (`<tenantId>/<sha1(email)>.jpg`).
+The seed links members to their pre-generated photos automatically and warns
+(`avatars_missing` manifest count) when some are absent.
+
+### When to run
+
+Run the generation pass whenever:
+- `avatars_missing > 0` appears in the seed manifest after a reseed
+- The seed log prints `[demo-avatar] warning: N demo member(s) have no generated headshot`
+- New names are added to `FIRST_NAMES`/`LAST_NAMES` in `definition.mjs`
+
+### How to run (agent CodeExecution)
+
+The pass **must** run inside the Replit agent's CodeExecution sandbox because
+`generateImage` is only available there. Copy this snippet into a CodeExecution
+call, then await it:
+
+```javascript
+// ── Avatar generation pass for AESP demo tenant ──────────────────────────
+// Run this in a CodeExecution call; generateImage is agent-only.
+
+const { createClient } = await import('@supabase/supabase-js');
+const { runAvatarGenerationPass } = await import('./demo-seeds/aesp/generate-avatars.mjs');
+const { MANIFEST_KEY } = await import('./demo-seeds/engine.mjs');
+
+const sb = createClient(
+  process.env.DEST_SUPABASE_URL,
+  process.env.DEST_SUPABASE_KEY,
+  { auth: { persistSession: false } },
+);
+
+// Resolve AESP tenant id from the seed manifest.
+const { data: rows } = await sb
+  .from('system_settings')
+  .select('tenant_id, setting_value')
+  .eq('setting_key', MANIFEST_KEY);
+const manifest = rows?.find(r => {
+  try { return JSON.parse(r.setting_value)?.seedKey === 'aesp'; } catch { return false; }
+});
+if (!manifest) throw new Error('AESP demo manifest not found — run the seed first');
+const tenantId = manifest.tenant_id;
+console.log('AESP tenant:', tenantId);
+
+// generateFn: wraps the sandbox's generateImage → returns a JPEG Buffer.
+// Uses crypto.randomUUID() for the temp path so parallel calls never collide.
+const generateFn = async (prompt) => {
+  const fs = await import('node:fs/promises');
+  const { randomUUID } = await import('node:crypto');
+  const tmpPath = `attached_assets/generated_images/_avatar_tmp_${randomUUID()}.jpg`;
+  let result;
+  try {
+    result = await generateImage({ prompt, outputPath: tmpPath, resolution: 'low' });
+    return await fs.readFile(result.filePath);
+  } finally {
+    await fs.unlink(result?.filePath ?? tmpPath).catch(() => {});
+  }
+};
+
+const result = await runAvatarGenerationPass({ sb, tenantId, generateFn, concurrency: 3 });
+console.log('Generation pass result:', result);
+```
+
+After the pass completes, re-run `node scripts/demo-tenant.mjs aesp seed` to link
+the newly uploaded photos. The seed's avatar pass is idempotent: members who
+already have a photo are never touched.
+
+### Prompt style
+
+`buildAvatarPrompt(member)` in `demo-seeds/aesp/generate-avatars.mjs` derives
+the prompt from first name (gender inference), surname + first name (heritage
+clue), and job title (age/seniority clue). All prompts produce:
+
+> Professional headshot photograph of a [age] [heritage?] [gender], dressed in
+> professional business-casual attire … Neutral light grey or off-white studio
+> background. Soft, even professional lighting … Square crop, head and shoulders
+> framing. Photorealistic, suitable for a professional membership directory …
+
+To inspect or test prompts without connecting to the database:
+
+```javascript
+import { buildAvatarPrompt } from './demo-seeds/aesp/generate-avatars.mjs';
+console.log(buildAvatarPrompt({ first_name: 'Priya', last_name: 'Patel', job_title: 'Senior Environmental Consultant' }));
+```
+
 ## Verification performed
 
 Seeded twice + full reset/reseed against the production database. Confirmed:
