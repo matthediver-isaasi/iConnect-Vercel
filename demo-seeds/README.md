@@ -245,14 +245,30 @@ exception is the primary organisation (created by provisioning with
 `is_sample = false`), which gets the tenant's own branding logo via the
 dedicated fill-null pass.
 
-The avatar/logo passes run at the end of the member phase; the event-image
-pass runs after the engagement phase (the events must exist first). All
-warn-don't-fail and record manifest counts: `avatars_linked` /
-`logos_linked` / `event_images_linked` always; the matching `*_missing`
-count only when positive (absent means nothing is missing). A present
-`*_missing` count (or a `[demo-avatar] warning: …` / `[demo-logo] warning: …`
-/ `[demo-event-image] warning: …` log line) means images need to be
-generated — see below.
+All three passes run automatically in the engine **after `definition.seed()`
+completes** — no definition needs to call them directly. Every demo tenant
+definition should declare an `imageLinking` config so the engine can forward
+the correct domain and slug prefix:
+
+```js
+// In your definition module:
+imageLinking: {
+  demoDomain: 'yourtenant.example.com',  // reserved email domain for sample members
+  eventSlugPrefix: 'demo-',              // prefix on seeded event slugs (default 'demo-')
+},
+```
+
+Both fields are optional: when omitted the helpers use their own defaults
+(`aesp.example.com` for domain, `demo-` for slug prefix), which only work
+for AESP. A future definition that omits `imageLinking` will get the passes
+run but may link zero images if the defaults don't match its domain or prefix.
+
+All three passes are warn-don't-fail and record manifest counts:
+`avatars_linked` / `logos_linked` / `event_images_linked` always; the
+matching `*_missing` count only when positive (absent means nothing is
+missing). A present `*_missing` count (or a `[demo-avatar] warning: …` /
+`[demo-logo] warning: …` / `[demo-event-image] warning: …` log line) means
+images need to be generated — see below.
 
 ### Generating missing event header images (agent CodeExecution)
 

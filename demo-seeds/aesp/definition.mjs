@@ -158,6 +158,13 @@ const definition = {
   rngSeed: 'aesp-v1',
   defaultSize: 'small',
   tablesWithoutTenantColumn: ['member_preference_value'],
+  // Image linking config consumed by the engine after seed() completes.
+  // demoDomain scopes avatar eligibility to this tenant's reserved domain.
+  // eventSlugPrefix identifies seeded events for the event-image pass.
+  imageLinking: {
+    demoDomain: 'aesp.example.com',
+    eventSlugPrefix: 'demo-',
+  },
   // Portal login personas — every seeded account that carries credentials
   // (used by the platform demo console to list logins and to scope the
   // shared demo-password reset). Derived from the same persona tables the
@@ -606,33 +613,6 @@ const definition = {
     ctx.setCount('tiers', GRADES.length);
     log(`[seed] AESP: ${plans.length} members, ${historyCount} history rows, lifecycles: ${JSON.stringify(lifecycleCounts)}`);
 
-    // -- Avatars: link already-generated AI headshots (fill-null only) ------
-    // The seed runtime cannot generate images, so this pass only attaches
-    // headshots already uploaded to storage (deterministic per-member path);
-    // members without one are counted and warned about, never a seed failure.
-    try {
-      const { linkExistingDemoAvatars } = await import('../avatars.mjs');
-      const { linked, missing } = await linkExistingDemoAvatars({ sb, tenantId, log });
-      ctx.setCount('avatars_linked', linked);
-      if (missing > 0) ctx.setCount('avatars_missing', missing);
-    } catch (err) {
-      log(`[seed] warning: avatar linking skipped: ${err.message}`);
-    }
-
-    // -- Logos: link already-generated org logos (fill-null only) -----------
-    // Same provenance rules as avatars: the seed runtime cannot generate
-    // images, so this pass only attaches logos already uploaded to storage
-    // (deterministic per-org path keyed on org name). Orgs without a stored
-    // logo are counted and warned about, never a seed failure.
-    try {
-      const { linkExistingDemoLogos } = await import('../logos.mjs');
-      const { linked: logosLinked, missing: logosMissing } = await linkExistingDemoLogos({ sb, tenantId, log });
-      ctx.setCount('logos_linked', logosLinked);
-      if (logosMissing > 0) ctx.setCount('logos_missing', logosMissing);
-    } catch (err) {
-      log(`[seed] warning: logo linking skipped: ${err.message}`);
-    }
-
     // -- Phase 3: engagement & content (aesp-v2) -----------------------------
     // SIGs, committees, events + registrations, application form, conference
     // feedback survey, CMS pages, news and knowledge resources. Uses its own
@@ -640,20 +620,6 @@ const definition = {
     const { seedEngagement } = await import('./engagement.mjs');
     await seedEngagement(ctx, { plans, adminEmail: definition.tenant.adminEmail });
 
-    // -- Event header images: link already-generated images (fill-null only) -
-    // Same provenance rules as avatars/logos: the seed runtime cannot
-    // generate images, so this pass only attaches header images already
-    // uploaded to storage (deterministic per-event path keyed on the seed
-    // slug). Events without a stored image are counted and warned about,
-    // never a seed failure. Runs AFTER engagement so the events exist.
-    try {
-      const { linkExistingDemoEventImages } = await import('../event-images.mjs');
-      const { linked, missing } = await linkExistingDemoEventImages({ sb, tenantId, log });
-      ctx.setCount('event_images_linked', linked);
-      if (missing > 0) ctx.setCount('event_images_missing', missing);
-    } catch (err) {
-      log(`[seed] warning: event image linking skipped: ${err.message}`);
-    }
 
     // -- News feature images: link already-generated images (fill-null only) -
     // Same provenance rules as event images: the seed runtime cannot generate

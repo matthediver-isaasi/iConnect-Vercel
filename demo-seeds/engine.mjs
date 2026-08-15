@@ -364,6 +364,53 @@ export async function seedDemoTenant(definition, { sb, provisionTenant, log = co
 
   await definition.seed(ctx);
 
+  // -- Image linking passes (automatic for every demo tenant) ---------------
+  // Runs after the definition's seed() completes so all members, orgs and
+  // events exist. Each pass is warn-don't-fail: missing images are counted in
+  // the manifest but never abort the seed. Definitions must NOT call these
+  // passes themselves — the engine runs them unconditionally.
+  //
+  // Per-tenant configuration lives in definition.imageLinking (optional):
+  //   demoDomain     — the reserved email domain for this tenant's sample
+  //                    members (used by the avatar pass to scope the member
+  //                    eligibility query). Required for a non-AESP tenant
+  //                    whose members use a different domain.
+  //   eventSlugPrefix — the slug prefix used to identify seeded events
+  //                    (used by the event-image pass). Defaults to 'demo-'
+  //                    when omitted.
+  const imgCfg = definition.imageLinking || {};
+
+  try {
+    const { linkExistingDemoAvatars } = await import('./avatars.mjs');
+    const avatarOpts = { sb, tenantId: tenant.id, log };
+    if (imgCfg.demoDomain) avatarOpts.demoDomain = imgCfg.demoDomain;
+    const { linked, missing } = await linkExistingDemoAvatars(avatarOpts);
+    ctx.setCount('avatars_linked', linked);
+    if (missing > 0) ctx.setCount('avatars_missing', missing);
+  } catch (err) {
+    log(`[seed] warning: avatar linking skipped: ${err.message}`);
+  }
+
+  try {
+    const { linkExistingDemoLogos } = await import('./logos.mjs');
+    const { linked, missing } = await linkExistingDemoLogos({ sb, tenantId: tenant.id, log });
+    ctx.setCount('logos_linked', linked);
+    if (missing > 0) ctx.setCount('logos_missing', missing);
+  } catch (err) {
+    log(`[seed] warning: logo linking skipped: ${err.message}`);
+  }
+
+  try {
+    const { linkExistingDemoEventImages } = await import('./event-images.mjs');
+    const eventOpts = { sb, tenantId: tenant.id, log };
+    if (imgCfg.eventSlugPrefix) eventOpts.slugPrefix = imgCfg.eventSlugPrefix;
+    const { linked, missing } = await linkExistingDemoEventImages(eventOpts);
+    ctx.setCount('event_images_linked', linked);
+    if (missing > 0) ctx.setCount('event_images_missing', missing);
+  } catch (err) {
+    log(`[seed] warning: event image linking skipped: ${err.message}`);
+  }
+
   await saveManifest(sb, tenant.id, ctx.manifest);
   log(`[seed] Done. Manifest saved (${definition.version}).`);
   return { tenant, manifest: ctx.manifest, adminSetup };
