@@ -605,6 +605,19 @@ const definition = {
     ctx.setCount('tiers', GRADES.length);
     log(`[seed] AESP: ${plans.length} members, ${historyCount} history rows, lifecycles: ${JSON.stringify(lifecycleCounts)}`);
 
+    // -- Avatars: link already-generated AI headshots (fill-null only) ------
+    // The seed runtime cannot generate images, so this pass only attaches
+    // headshots already uploaded to storage (deterministic per-member path);
+    // members without one are counted and warned about, never a seed failure.
+    try {
+      const { linkExistingDemoAvatars } = await import('../avatars.mjs');
+      const { linked, missing } = await linkExistingDemoAvatars({ sb, tenantId, log });
+      ctx.setCount('avatars_linked', linked);
+      if (missing > 0) ctx.setCount('avatars_missing', missing);
+    } catch (err) {
+      log(`[seed] warning: avatar linking skipped: ${err.message}`);
+    }
+
     // -- Phase 3: engagement & content (aesp-v2) -----------------------------
     // SIGs, committees, events + registrations, application form, conference
     // feedback survey, CMS pages, news and knowledge resources. Uses its own
