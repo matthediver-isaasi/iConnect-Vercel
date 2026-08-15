@@ -639,6 +639,21 @@ const definition = {
     // RNG stream so the member dataset above stays byte-stable.
     const { seedEngagement } = await import('./engagement.mjs');
     await seedEngagement(ctx, { plans, adminEmail: definition.tenant.adminEmail });
+
+    // -- Event header images: link already-generated images (fill-null only) -
+    // Same provenance rules as avatars/logos: the seed runtime cannot
+    // generate images, so this pass only attaches header images already
+    // uploaded to storage (deterministic per-event path keyed on the seed
+    // slug). Events without a stored image are counted and warned about,
+    // never a seed failure. Runs AFTER engagement so the events exist.
+    try {
+      const { linkExistingDemoEventImages } = await import('../event-images.mjs');
+      const { linked, missing } = await linkExistingDemoEventImages({ sb, tenantId, log });
+      ctx.setCount('event_images_linked', linked);
+      if (missing > 0) ctx.setCount('event_images_missing', missing);
+    } catch (err) {
+      log(`[seed] warning: event image linking skipped: ${err.message}`);
+    }
   },
 };
 

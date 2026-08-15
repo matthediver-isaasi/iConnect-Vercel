@@ -112,7 +112,7 @@ export async function linkExistingDemoAvatars({ sb, tenantId, bucket = DEMO_AVAT
     if (await applyDemoMemberAvatar({ sb, tenantId, memberId: m.id, url: data.publicUrl, log })) linked++;
   }
   if (missing > 0) {
-    log(`[demo-avatar] warning: ${missing} demo member(s) have no generated headshot in storage yet — run the avatar generation pass (see demo-seeds/README.md, "Images (avatars & logos)")`);
+    log(`[demo-avatar] warning: ${missing} demo member(s) have no generated headshot in storage yet — run the avatar generation pass (see demo-seeds/README.md, "Images (avatars, logos & event headers)")`);
   }
   return { linked, missing };
 }

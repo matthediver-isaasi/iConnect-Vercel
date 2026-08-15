@@ -11,6 +11,7 @@ demo-seeds/
   engine.mjs            Generic seed engine (RNG, upserts, manifest, reset/delete)
   avatars.mjs           Member headshot storage paths + fill-null linking
   logos.mjs             Org logo storage paths + fill-null linking (incl. primary org)
+  event-images.mjs      Event header image storage paths, prompts + fill-null linking
   aesp/definition.mjs   AESP tenant definition (seed version aesp-v2; RNG seed string
                         stays 'aesp-v1' so the member dataset remains byte-stable)
   aesp/generate-avatars.mjs  Prompt builder + generation pass (agent-run only)
@@ -180,7 +181,7 @@ is deterministic; `i_edit_page` rows are matched by slug so no duplicates).
 `survey_version` rows are immutable in the DB, so the engine upserts them
 insert-only and reuses the existing row on reseed.
 
-## Images (avatars & logos)
+## Images (avatars, logos & event headers)
 
 The seed **never generates images** — image generation is only available in the
 Replit agent's CodeExecution sandbox, not in the seed/server runtime. Instead,
@@ -192,6 +193,12 @@ storage bucket at deterministic paths, and the seed merely *links* them:
 | Member headshots | `<tenantId>/<sha1(lowercased email)>.jpg` | `member.profile_photo_url` | `avatars.mjs` → `linkExistingDemoAvatars` |
 | Sample-org logos | `<tenantId>/org-logo-<sha1(trimmed org name)>.png` | `organization.logo_url` | `logos.mjs` → `linkExistingDemoLogos` |
 | Primary-org logo | none (copied from `tenant.logo_url` / `header_logo_url`) | `organization.logo_url` | `logos.mjs` → `linkPrimaryOrgLogo` (invoked by `linkExistingDemoLogos`) |
+| Event header images | `<tenantId>/event-<sha1(trimmed seed slug)>.jpg` | `event.image_url` + `complex_event.image_url` | `event-images.mjs` → `linkExistingDemoEventImages` |
+
+Seeded events are identified by `is_sample = true` plus the deterministic seed
+slug prefix (`demo-…`) on `event`; `complex_event` has **no `is_sample`
+column**, so the slug prefix (+ the manifest) is its only provenance marker
+and is enforced on every read and write.
 
 Deterministic paths mean regeneration overwrites rather than duplicates, and
 the seed can match a stored image to its member/org without any extra state.
@@ -205,12 +212,30 @@ exception is the primary organisation (created by provisioning with
 `is_sample = false`), which gets the tenant's own branding logo via the
 dedicated fill-null pass.
 
-The passes run at the end of the member phase, warn-don't-fail, and record
-manifest counts: `avatars_linked` / `logos_linked` always; `avatars_missing` /
-`logos_missing` only when positive (absent means nothing is missing). A
-present `*_missing` count (or a
-`[demo-avatar] warning: …` / `[demo-logo] warning: …` log line) means images
-need to be generated — see below.
+The avatar/logo passes run at the end of the member phase; the event-image
+pass runs after the engagement phase (the events must exist first). All
+warn-don't-fail and record manifest counts: `avatars_linked` /
+`logos_linked` / `event_images_linked` always; the matching `*_missing`
+count only when positive (absent means nothing is missing). A present
+`*_missing` count (or a `[demo-avatar] warning: …` / `[demo-logo] warning: …`
+/ `[demo-event-image] warning: …` log line) means images need to be
+generated — see below.
+
+### Generating missing event header images (agent CodeExecution)
+
+When `event_images_missing > 0`: run
+`runEventImageGenerationPass({ sb, tenantId, generateFn, sector })` from
+`demo-seeds/event-images.mjs` — it lists seeded events missing an image
+(`listDemoEventsNeedingImages`), builds a 16:9 scene prompt per event from
+its type/title (`buildEventImagePrompt`; pass `sector` e.g.
+`'environmental and sustainability'` for AESP flavour), then uploads
+(`uploadDemoEventImage`) and links fill-null (`applyDemoEventImage`).
+`generateFn(prompt) => Buffer` wraps the sandbox's `generateImage` with
+`aspectRatio: '16:9'` (same pattern as the avatar snippet below). If the
+sandbox cannot import project modules directly, split the pass: dump the
+event list + prompts to a JSON file via a node one-liner, generate the
+images in CodeExecution, then upload+link with another node one-liner.
+Afterwards a reseed links anything it finds in storage.
 
 ### Generating missing org logos (agent CodeExecution)
 
