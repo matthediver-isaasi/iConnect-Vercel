@@ -1,4 +1,5 @@
-// AESP demo tenant definition (seed version aesp-v1).
+// AESP demo tenant definition (seed version aesp-v2; RNG seed string stays
+// 'aesp-v1' so the member dataset remains byte-stable across versions).
 //
 // Association of Environmental & Sustainability Professionals — a fictional
 // UK professional membership body. This module is pure data/config +

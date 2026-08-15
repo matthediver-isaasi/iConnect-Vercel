@@ -9,7 +9,11 @@ Environmental & Sustainability Professionals).
 ```
 demo-seeds/
   engine.mjs            Generic seed engine (RNG, upserts, manifest, reset/delete)
-  aesp/definition.mjs   AESP tenant definition (seed version aesp-v1)
+  avatars.mjs           Member headshot storage paths + fill-null linking
+  logos.mjs             Org logo storage paths + fill-null linking (incl. primary org)
+  aesp/definition.mjs   AESP tenant definition (seed version aesp-v2; RNG seed string
+                        stays 'aesp-v1' so the member dataset remains byte-stable)
+  aesp/generate-avatars.mjs  Prompt builder + generation pass (agent-run only)
 scripts/demo-tenant.mjs CLI: status | seed | reset | delete
 ```
 
@@ -75,7 +79,7 @@ importing any api/_lib module so the shared client hits the right database.
   `DEMO_SEED_PASSWORD` or a per-run random value printed once; only bcrypt
   hashes are stored.
 
-## AESP dataset (aesp-v1)
+## AESP dataset (aesp-v2 base membership data)
 
 - **Tenant** — slug `aesp`, branding deep forest green `#174A3A` / sage
   `#8FAE98` / ochre `#D5A642` (dark `#29332F`, light `#F5F6F2` in
@@ -176,10 +180,52 @@ is deterministic; `i_edit_page` rows are matched by slug so no duplicates).
 `survey_version` rows are immutable in the DB, so the engine upserts them
 insert-only and reuses the existing row on reseed.
 
-## Avatar generation pass
+## Images (avatars & logos)
 
-AI headshots for demo members are stored in the `demo-avatars` Supabase storage
-bucket at deterministic per-member paths (`<tenantId>/<sha1(email)>.jpg`).
+The seed **never generates images** — image generation is only available in the
+Replit agent's CodeExecution sandbox, not in the seed/server runtime. Instead,
+images are generated + uploaded ahead of time to the public `demo-avatars`
+storage bucket at deterministic paths, and the seed merely *links* them:
+
+| Pass | Storage path (in `demo-avatars`) | DB write | Helper |
+|------|----------------------------------|----------|--------|
+| Member headshots | `<tenantId>/<sha1(lowercased email)>.jpg` | `member.profile_photo_url` | `avatars.mjs` → `linkExistingDemoAvatars` |
+| Sample-org logos | `<tenantId>/org-logo-<sha1(trimmed org name)>.png` | `organization.logo_url` | `logos.mjs` → `linkExistingDemoLogos` |
+| Primary-org logo | none (copied from `tenant.logo_url` / `header_logo_url`) | `organization.logo_url` | `logos.mjs` → `linkPrimaryOrgLogo` (invoked by `linkExistingDemoLogos`) |
+
+Deterministic paths mean regeneration overwrites rather than duplicates, and
+the seed can match a stored image to its member/org without any extra state.
+
+**Provenance rule (all three passes):** an existing photo/logo is NEVER
+replaced. Every write is fill-null only, enforced at the database with a
+compare-and-set (`… IS NULL` on the UPDATE itself), so an admin-uploaded or
+concurrently-set image always wins. Eligibility additionally requires
+`is_sample = true` (plus the reserved email domain for members); the one
+exception is the primary organisation (created by provisioning with
+`is_sample = false`), which gets the tenant's own branding logo via the
+dedicated fill-null pass.
+
+The passes run at the end of the member phase, warn-don't-fail, and record
+manifest counts: `avatars_linked` / `logos_linked` always; `avatars_missing` /
+`logos_missing` only when positive (absent means nothing is missing). A
+present `*_missing` count (or a
+`[demo-avatar] warning: …` / `[demo-logo] warning: …` log line) means images
+need to be generated — see below.
+
+### Generating missing org logos (agent CodeExecution)
+
+When `logos_missing > 0`: in a CodeExecution call, list the orgs via
+`listDemoOrgsNeedingLogos(sb, tenantId)` (import `demo-seeds/logos.mjs`), then
+for each org run `generateImage` with a minimal flat-vector logo prompt (org
+name + sector flavour, 2–3 brand colours, plain white background, square,
+no watermark), read the PNG, and call `uploadDemoLogo(sb, { tenantId, orgName,
+buffer })` followed by `applyDemoOrgLogo({ sb, tenantId, orgId, url })`.
+Re-running `… aesp seed` afterwards also works: it links any stored logo it
+finds. The primary org needs no generation — its logo is copied from tenant
+branding automatically (warns if branding has no logo yet).
+
+## Avatar generation pass (member headshots)
+
 The seed links members to their pre-generated photos automatically and warns
 (`avatars_missing` manifest count) when some are absent.
 

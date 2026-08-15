@@ -110,7 +110,7 @@ export async function linkPrimaryOrgLogo({ sb, tenantId, log = console.log }) {
   if (tErr) throw new Error(`tenant branding lookup failed: ${tErr.message}`);
   const brandingLogo = tenant?.logo_url || tenant?.header_logo_url || null;
   if (!brandingLogo) {
-    log('[demo-logo] warning: tenant has no branding logo yet — skipping primary org logo link');
+    log('[demo-logo] warning: tenant has no branding logo yet — skipping primary org logo link (see demo-seeds/README.md, "Images (avatars & logos)")');
     return false;
   }
 
@@ -177,7 +177,7 @@ export async function linkExistingDemoLogos({ sb, tenantId, bucket = DEMO_LOGO_B
     if (await applyDemoOrgLogo({ sb, tenantId, orgId: org.id, url: data.publicUrl, log })) linked++;
   }
   if (missing > 0) {
-    log(`[demo-logo] warning: ${missing} demo org(s) have no generated logo in storage yet — run the logo generation pass to fill them`);
+    log(`[demo-logo] warning: ${missing} demo org(s) have no generated logo in storage yet — run the logo generation pass (see demo-seeds/README.md, "Images (avatars & logos)")`);
   }
 
   // Also link the primary org from tenant branding (warn-don't-fail).
