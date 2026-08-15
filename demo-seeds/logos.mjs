@@ -11,6 +11,7 @@
 // logo always wins.
 
 import crypto from 'crypto';
+import { resolveDemoPrimaryOrganizationId } from './engine.mjs';
 
 export const DEMO_LOGO_BUCKET = 'demo-avatars';
 
@@ -84,15 +85,80 @@ export async function applyDemoOrgLogo({ sb, tenantId, orgId, url, log = console
 }
 
 /**
+ * Fill-null-only link of the PRIMARY organisation's logo_url from the
+ * tenant's branding (tenant.logo_url, falling back to header_logo_url).
+ *
+ * The primary organisation is created by provisioning with is_sample=false,
+ * so the is_sample-scoped pass in linkExistingDemoLogos never touches it.
+ * This function bridges that gap.
+ *
+ * Behaviour:
+ *   - warn-don't-fail when the tenant has no branding logo yet
+ *   - fill-null compare-and-set: an existing org logo is never replaced
+ *   - returns true when the org ends up with a logo (linked or already set)
+ */
+export async function linkPrimaryOrgLogo({ sb, tenantId, log = console.log }) {
+  // Resolve the primary org (throws if missing or ambiguous).
+  const primaryOrgId = await resolveDemoPrimaryOrganizationId(sb, tenantId);
+
+  // Read the tenant's branding logo.
+  const { data: tenant, error: tErr } = await sb
+    .from('tenant')
+    .select('logo_url, header_logo_url')
+    .eq('id', tenantId)
+    .maybeSingle();
+  if (tErr) throw new Error(`tenant branding lookup failed: ${tErr.message}`);
+  const brandingLogo = tenant?.logo_url || tenant?.header_logo_url || null;
+  if (!brandingLogo) {
+    log('[demo-logo] warning: tenant has no branding logo yet — skipping primary org logo link');
+    return false;
+  }
+
+  // Read the primary org's current logo_url.
+  const { data: org, error: oErr } = await sb
+    .from('organization')
+    .select('id, name, logo_url')
+    .eq('id', primaryOrgId)
+    .eq('tenant_id', tenantId)
+    .maybeSingle();
+  if (oErr) throw new Error(`primary org lookup failed: ${oErr.message}`);
+  if (!org) throw new Error('primary organisation row not found');
+
+  if (org.logo_url) {
+    log(`[demo-logo] primary org ${org.name || primaryOrgId} already has a logo; not replacing`);
+    return false;
+  }
+
+  // Compare-and-set fill-null write (re-checks IS NULL so a concurrent set wins).
+  const { data: updRows, error: upErr } = await sb
+    .from('organization')
+    .update({ logo_url: brandingLogo })
+    .eq('id', primaryOrgId)
+    .eq('tenant_id', tenantId)
+    .is('logo_url', null)
+    .select('id');
+  if (upErr) throw new Error(`primary org logo link failed: ${upErr.message}`);
+  if (!updRows || updRows.length === 0) {
+    log(`[demo-logo] primary org ${org.name || primaryOrgId} got a logo concurrently; not overwriting`);
+    return false;
+  }
+  log(`[demo-logo] primary org ${org.name || primaryOrgId} linked to tenant branding logo`);
+  return true;
+}
+
+/**
  * Seed-time pass: link organisations missing a logo to ALREADY-GENERATED logos
  * in storage (matched by deterministic path). The seed runtime cannot
  * generate images, so orgs without a stored logo are counted and
  * reported — callers should warn, never fail the seed over this.
+ *
+ * Also links the PRIMARY organisation's logo from the tenant's branding
+ * (fill-null, warn-don't-fail).
+ *
  * Returns { linked, missing } (missing = demo orgs with no stored logo).
  */
 export async function linkExistingDemoLogos({ sb, tenantId, bucket = DEMO_LOGO_BUCKET, log = console.log }) {
   const orgs = await listDemoOrgsNeedingLogos(sb, tenantId);
-  if (orgs.length === 0) return { linked: 0, missing: 0 };
 
   // One listing of the tenant's folder beats a per-org existence probe.
   const stored = new Set();
@@ -113,5 +179,13 @@ export async function linkExistingDemoLogos({ sb, tenantId, bucket = DEMO_LOGO_B
   if (missing > 0) {
     log(`[demo-logo] warning: ${missing} demo org(s) have no generated logo in storage yet — run the logo generation pass to fill them`);
   }
+
+  // Also link the primary org from tenant branding (warn-don't-fail).
+  try {
+    if (await linkPrimaryOrgLogo({ sb, tenantId, log })) linked++;
+  } catch (e) {
+    log(`[demo-logo] warning: primary org logo link failed — ${e.message}`);
+  }
+
   return { linked, missing };
 }
