@@ -196,6 +196,7 @@ storage bucket at deterministic paths, and the seed merely *links* them:
 | Primary-org logo | none (copied from `tenant.logo_url` / `header_logo_url`) | `organization.logo_url` | `logos.mjs` → `linkPrimaryOrgLogo` (invoked by `linkExistingDemoLogos`) |
 | Event header images | `<tenantId>/event-<sha1(trimmed slug)>.jpg` | `event.image_url` / `complex_event.image_url` | `event-images.mjs` → `linkExistingDemoEventImages` |
 | News feature images | `<tenantId>/news-<sha1(trimmed slug)>.jpg` | `news_post.feature_image_url` | `news-images.mjs` → `linkExistingDemoNewsImages` |
+| Article feature images | `<tenantId>/article-<sha1(trimmed slug)>.jpg` | `blog_post.feature_image_url` | `article-images.mjs` → `linkExistingDemoArticleImages` (automatic engine pass) |
 
 Deterministic paths mean regeneration overwrites rather than duplicates, and
 the seed can match a stored image to its entity without any extra state.
@@ -354,6 +355,18 @@ console.log('News image generation result:', result);
 After the pass completes, re-run `node scripts/demo-tenant.mjs aesp seed` to
 link any newly uploaded images. The news image pass is idempotent: posts that
 already have a feature image are never touched.
+
+### Generating missing article feature images (agent CodeExecution)
+
+Articles (`blog_post`, seeded by `aesp/articles.mjs`) work exactly the same
+way via `article-images.mjs`: when `article_images_missing > 0` (or a
+`[demo-article-image] warning: …` appears), run
+`runArticleImageGenerationPass` — same snippet as above with
+`runNewsImageGenerationPass` swapped for `runArticleImageGenerationPass`
+(import from `./demo-seeds/article-images.mjs`). Unlike news, `blog_post`
+HAS an `is_sample` column, so provenance is double-gated (`is_sample = true`
+AND the `demo-` slug prefix), and linking runs as an automatic engine pass —
+no definition wiring needed for future demo tenants.
 
 ## Avatar generation pass (member headshots)
 

@@ -401,6 +401,17 @@ export async function seedDemoTenant(definition, { sb, provisionTenant, log = co
   }
 
   try {
+    const { linkExistingDemoArticleImages } = await import('./article-images.mjs');
+    const articleOpts = { sb, tenantId: tenant.id, log };
+    if (imgCfg.articleSlugPrefix) articleOpts.slugPrefix = imgCfg.articleSlugPrefix;
+    const { linked, missing } = await linkExistingDemoArticleImages(articleOpts);
+    ctx.setCount('article_images_linked', linked);
+    if (missing > 0) ctx.setCount('article_images_missing', missing);
+  } catch (err) {
+    log(`[seed] warning: article image linking skipped: ${err.message}`);
+  }
+
+  try {
     const { linkExistingDemoEventImages } = await import('./event-images.mjs');
     const eventOpts = { sb, tenantId: tenant.id, log };
     if (imgCfg.eventSlugPrefix) eventOpts.slugPrefix = imgCfg.eventSlugPrefix;

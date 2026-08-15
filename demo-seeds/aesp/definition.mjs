@@ -620,6 +620,13 @@ const definition = {
     const { seedEngagement } = await import('./engagement.mjs');
     await seedEngagement(ctx, { plans, adminEmail: definition.tenant.adminEmail });
 
+    // -- Phase 4: /Articles content (blog posts, categories, authors) --------
+    // Runs after members exist (author linkage) via its own RNG stream so the
+    // datasets above stay byte-stable. Feature images are linked by the
+    // engine's automatic image-linking flow (article-images.mjs).
+    const { seedArticles } = await import('./articles.mjs');
+    await seedArticles(ctx, { plans });
+
 
     // -- News feature images: link already-generated images (fill-null only) -
     // Same provenance rules as event images: the seed runtime cannot generate

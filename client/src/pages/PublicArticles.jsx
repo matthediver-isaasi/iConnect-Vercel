@@ -11,12 +11,14 @@ import ArticleCard from "../components/blog/ArticleCard";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useBlogPostRealtime } from "@/hooks/useBlogPostRealtime";
 import { useTenantBranding } from "@/contexts/TenantBrandingContext";
+import { useArticleUrl } from "@/contexts/ArticleUrlContext";
 
 const DEFAULT_ARTICLE_CATEGORY_TITLE_COLOR = '#7e22ce';
 
 export default function PublicArticlesPage() {
   useBlogPostRealtime(['public-articles']);
   const tenantBranding = useTenantBranding()?.branding;
+  const { articleDisplayName } = useArticleUrl();
   const categoryTitleColor = tenantBranding?.brandingConfig?.resourceCategoryTitleColor || DEFAULT_ARTICLE_CATEGORY_TITLE_COLOR;
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedSubcategories, setSelectedSubcategories] = useState([]);
