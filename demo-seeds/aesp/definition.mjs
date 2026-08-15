@@ -618,6 +618,20 @@ const definition = {
       log(`[seed] warning: avatar linking skipped: ${err.message}`);
     }
 
+    // -- Logos: link already-generated org logos (fill-null only) -----------
+    // Same provenance rules as avatars: the seed runtime cannot generate
+    // images, so this pass only attaches logos already uploaded to storage
+    // (deterministic per-org path keyed on org name). Orgs without a stored
+    // logo are counted and warned about, never a seed failure.
+    try {
+      const { linkExistingDemoLogos } = await import('../logos.mjs');
+      const { linked: logosLinked, missing: logosMissing } = await linkExistingDemoLogos({ sb, tenantId, log });
+      ctx.setCount('logos_linked', logosLinked);
+      if (logosMissing > 0) ctx.setCount('logos_missing', logosMissing);
+    } catch (err) {
+      log(`[seed] warning: logo linking skipped: ${err.message}`);
+    }
+
     // -- Phase 3: engagement & content (aesp-v2) -----------------------------
     // SIGs, committees, events + registrations, application form, conference
     // feedback survey, CMS pages, news and knowledge resources. Uses its own
