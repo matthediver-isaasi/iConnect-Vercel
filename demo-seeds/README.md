@@ -12,12 +12,12 @@ demo-seeds/
   avatars.mjs           Member headshot storage paths + fill-null linking
   logos.mjs             Org logo storage paths + fill-null linking (incl. primary org)
   event-images.mjs      Event header image storage paths, prompts + fill-null linking
+  news-images.mjs       News feature image storage paths + fill-null linking + prompt builder
   aesp/definition.mjs   AESP tenant definition (seed version aesp-v2; RNG seed string
                         stays 'aesp-v1' so the member dataset remains byte-stable)
   aesp/generate-avatars.mjs  Prompt builder + generation pass (agent-run only)
 scripts/demo-tenant.mjs CLI: status | seed | reset | delete
 ```
-
 ## Usage
 
 ```bash
@@ -181,6 +181,39 @@ is deterministic; `i_edit_page` rows are matched by slug so no duplicates).
 `survey_version` rows are immutable in the DB, so the engine upserts them
 insert-only and reuses the existing row on reseed.
 
+
+## Images (avatars, logos & event headers & news articles)
+
+The seed **never generates images** — image generation is only available in the
+Replit agent's CodeExecution sandbox, not in the seed/server runtime. Instead,
+images are generated + uploaded ahead of time to the public `demo-avatars`
+storage bucket at deterministic paths, and the seed merely *links* them:
+
+| Pass | Storage path (in `demo-avatars`) | DB write | Helper |
+|------|----------------------------------|----------|--------|
+| Member headshots | `<tenantId>/<sha1(lowercased email)>.jpg` | `member.profile_photo_url` | `avatars.mjs` → `linkExistingDemoAvatars` |
+| Sample-org logos | `<tenantId>/org-logo-<sha1(trimmed org name)>.png` | `organization.logo_url` | `logos.mjs` → `linkExistingDemoLogos` |
+| Primary-org logo | none (copied from `tenant.logo_url` / `header_logo_url`) | `organization.logo_url` | `logos.mjs` → `linkPrimaryOrgLogo` (invoked by `linkExistingDemoLogos`) |
+| Event header images | `<tenantId>/event-<sha1(trimmed slug)>.jpg` | `event.image_url` / `complex_event.image_url` | `event-images.mjs` → `linkExistingDemoEventImages` |
+| News feature images | `<tenantId>/news-<sha1(trimmed slug)>.jpg` | `news_post.feature_image_url` | `news-images.mjs` → `linkExistingDemoNewsImages` |
+
+Deterministic paths mean regeneration overwrites rather than duplicates, and
+the seed can match a stored image to its entity without any extra state.
+
+**Provenance rule (all passes):** an existing photo/logo/image is NEVER
+replaced. Every write is fill-null only, enforced at the database with a
+compare-and-set (`… IS NULL` on the UPDATE itself), so an admin-uploaded or
+concurrently-set image always wins. Eligibility additionally requires
+`is_sample = true` (plus the reserved email domain for members); the one
+exception is the primary organisation (created by provisioning with
+`is_sample = false`), which gets the tenant's own branding logo via the
+dedicated fill-null pass. `news_post` and `complex_event` have no `is_sample`
+column — their seed slug prefix (`demo-`) serves as the provenance marker.
+
+All image passes run at the end of the seed, warn-don't-fail, and record
+manifest counts (e.g. `news_images_linked` / `news_images_missing`). A
+present `*_missing` count means images need to be generated — see below.
+
 ## Images (avatars, logos & event headers)
 
 The seed **never generates images** — image generation is only available in the
@@ -248,6 +281,63 @@ buffer })` followed by `applyDemoOrgLogo({ sb, tenantId, orgId, url })`.
 Re-running `… aesp seed` afterwards also works: it links any stored logo it
 finds. The primary org needs no generation — its logo is copied from tenant
 branding automatically (warns if branding has no logo yet).
+
+
+### Generating missing news feature images (agent CodeExecution)
+
+When `news_images_missing > 0` (or `[demo-news-image] warning: …` appears):
+use `runNewsImageGenerationPass` from `news-images.mjs`. Example snippet:
+
+```javascript
+// ── News feature image generation pass for AESP demo tenant ──────────────
+// Run this in a CodeExecution call; generateImage is agent-only.
+
+const { createClient } = await import('@supabase/supabase-js');
+const { runNewsImageGenerationPass } = await import('./demo-seeds/news-images.mjs');
+const { MANIFEST_KEY } = await import('./demo-seeds/engine.mjs');
+
+const sb = createClient(
+  process.env.DEST_SUPABASE_URL,
+  process.env.DEST_SUPABASE_KEY,
+  { auth: { persistSession: false } },
+);
+
+// Resolve AESP tenant id from the seed manifest.
+const { data: rows } = await sb
+  .from('system_settings')
+  .select('tenant_id, setting_value')
+  .eq('setting_key', MANIFEST_KEY);
+const manifest = rows?.find(r => {
+  try { return JSON.parse(r.setting_value)?.seedKey === 'aesp'; } catch { return false; }
+});
+if (!manifest) throw new Error('AESP demo manifest not found — run the seed first');
+const tenantId = manifest.tenant_id;
+console.log('AESP tenant:', tenantId);
+
+const generateFn = async (prompt) => {
+  const fs = await import('node:fs/promises');
+  const { randomUUID } = await import('node:crypto');
+  const tmpPath = `attached_assets/generated_images/_news_tmp_${randomUUID()}.jpg`;
+  let result;
+  try {
+    result = await generateImage({ prompt, outputPath: tmpPath, resolution: 'low' });
+    return await fs.readFile(result.filePath);
+  } finally {
+    await fs.unlink(result?.filePath ?? tmpPath).catch(() => {});
+  }
+};
+
+const result = await runNewsImageGenerationPass({
+  sb, tenantId, generateFn,
+  sector: 'environmental and sustainability',
+  concurrency: 3,
+});
+console.log('News image generation result:', result);
+```
+
+After the pass completes, re-run `node scripts/demo-tenant.mjs aesp seed` to
+link any newly uploaded images. The news image pass is idempotent: posts that
+already have a feature image are never touched.
 
 ## Avatar generation pass (member headshots)
 

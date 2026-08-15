@@ -654,6 +654,22 @@ const definition = {
     } catch (err) {
       log(`[seed] warning: event image linking skipped: ${err.message}`);
     }
+
+    // -- News feature images: link already-generated images (fill-null only) -
+    // Same provenance rules as event images: the seed runtime cannot generate
+    // images, so this pass only attaches feature images already uploaded to
+    // storage (deterministic per-post path keyed on the seed slug). Posts
+    // without a stored image are counted and warned about, never a seed
+    // failure. news_post has no is_sample column; the 'demo-' slug prefix is
+    // the provenance marker. Runs AFTER engagement so the news posts exist.
+    try {
+      const { linkExistingDemoNewsImages } = await import('../news-images.mjs');
+      const { linked: newsLinked, missing: newsMissing } = await linkExistingDemoNewsImages({ sb, tenantId, log });
+      ctx.setCount('news_images_linked', newsLinked);
+      if (newsMissing > 0) ctx.setCount('news_images_missing', newsMissing);
+    } catch (err) {
+      log(`[seed] warning: news image linking skipped: ${err.message}`);
+    }
   },
 };
 
