@@ -37,7 +37,8 @@ export default function OrgFieldVisibilityRulesEditor({
   layoutCards = [],
   onSave, 
   onCancel,
-  isSaving 
+  isSaving,
+  coreFields = CORE_FIELDS
 }) {
   const [editedRules, setEditedRules] = useState(null);
   const [collapsedRules, setCollapsedRules] = useState({});
@@ -56,7 +57,7 @@ export default function OrgFieldVisibilityRulesEditor({
   };
 
   const getAllFields = () => {
-    const coreFieldsList = CORE_FIELDS.map(cf => ({
+    const coreFieldsList = coreFields.map(cf => ({
       id: cf.id,
       label: cf.label,
       type: cf.type,

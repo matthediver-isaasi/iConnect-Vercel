@@ -108,7 +108,8 @@ const getMemberName = (m) => {
 };
 
 // --- List Field Editor Component for Organisations ---
-function ListFieldEditorOrg({ fieldId, values = [], onChange, placeholder, disabled = false }) {
+// Exported so the organisation-group detail view (Task #3601) can reuse it.
+export function ListFieldEditorOrg({ fieldId, values = [], onChange, placeholder, disabled = false }) {
   const [inputValue, setInputValue] = useState('');
   
   // Ensure values is always a clean array with trimmed entries
@@ -185,7 +186,7 @@ function ListFieldEditorOrg({ fieldId, values = [], onChange, placeholder, disab
   );
 }
 
-function OrgCountryMultiSelect({ fieldId, selectedValues, availableCountries, onChange, label, disabled = false }) {
+export function OrgCountryMultiSelect({ fieldId, selectedValues, availableCountries, onChange, label, disabled = false }) {
   const [open, setOpen] = useState(false);
 
   const toggleCountry = (countryName) => {

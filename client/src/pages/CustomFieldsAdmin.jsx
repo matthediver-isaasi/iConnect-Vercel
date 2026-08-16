@@ -91,7 +91,7 @@ export default function CustomFieldsAdminPage() {
         </div>
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-          <TabsList className="grid w-full grid-cols-2 max-w-md">
+          <TabsList className="grid w-full grid-cols-3 max-w-2xl">
             <TabsTrigger value="member" className="gap-2" data-testid="tab-member-fields">
               <User className="w-4 h-4" />
               Member Fields
@@ -99,6 +99,10 @@ export default function CustomFieldsAdminPage() {
             <TabsTrigger value="organization" className="gap-2" data-testid="tab-organization-fields">
               <Building2 className="w-4 h-4" />
               Organisation Fields
+            </TabsTrigger>
+            <TabsTrigger value="organization_group" className="gap-2" data-testid="tab-organization-group-fields">
+              <Building2 className="w-4 h-4" />
+              Organisation Group Fields
             </TabsTrigger>
           </TabsList>
 
@@ -117,6 +121,15 @@ export default function CustomFieldsAdminPage() {
               entityScope="organization"
               title="Organisation Custom Fields"
               description="These fields appear when viewing an organisation's profile in the Organisation Directory"
+            />
+          </TabsContent>
+
+          <TabsContent value="organization_group">
+            <CustomFieldsManager 
+              queryClient={queryClient} 
+              entityScope="organization_group"
+              title="Organisation Group Custom Fields"
+              description="These fields appear on each organisation group's record in Organisation Groups"
             />
           </TabsContent>
         </Tabs>

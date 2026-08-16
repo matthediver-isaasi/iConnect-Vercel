@@ -1,11 +1,10 @@
 import { useState, useEffect } from "react";
-import { Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { base44 } from "@/api/base44Client";
 import { createPageUrl } from "@/utils";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -14,7 +13,8 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { Building2, Plus, Pencil, Trash2, ChevronLeft, ExternalLink, Loader2 } from "lucide-react";
+import { Building2, Plus, Pencil, Trash2, Loader2 } from "lucide-react";
+import OrganisationGroupDetailView from "@/components/OrganisationGroupDetailView";
 
 const EMPTY_ARR = [];
 
@@ -117,59 +117,19 @@ export default function OrganisationGroups() {
     );
   }
 
-  // ---- Detail view: one group's organisations ----
+  // ---- Detail view: full CRM-style group record (Task #3601) ----
   if (selectedGroup) {
     const group = groups.find((g) => g.id === selectedGroup.id) || selectedGroup;
-    const memberOrgs = orgsByGroup[group.id] || [];
     return (
-      <div className="p-6 max-w-4xl mx-auto space-y-4">
-        <Button variant="ghost" size="sm" onClick={() => setSelectedGroup(null)} data-testid="button-back-to-groups">
-          <ChevronLeft className="w-4 h-4 mr-1" /> All groups
-        </Button>
-        <Card>
-          <CardHeader className="flex flex-row items-start justify-between space-y-0">
-            <div>
-              <CardTitle className="flex items-center gap-2">
-                <Building2 className="w-5 h-5 text-blue-600" /> {group.name}
-              </CardTitle>
-              {group.description && (
-                <p className="text-sm text-slate-500 mt-1">{group.description}</p>
-              )}
-            </div>
-            <div className="flex gap-2">
-              <Button variant="outline" size="sm" onClick={() => openEdit(group)} data-testid="button-edit-group">
-                <Pencil className="w-4 h-4 mr-1" /> Edit
-              </Button>
-              <Button variant="outline" size="sm" className="text-red-600" onClick={() => setDeleteTarget(group)} data-testid="button-delete-group">
-                <Trash2 className="w-4 h-4 mr-1" /> Delete
-              </Button>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <h3 className="text-sm font-medium text-slate-600 mb-2">
-              Organisations in this group ({memberOrgs.length})
-            </h3>
-            {memberOrgs.length === 0 ? (
-              <p className="text-sm text-slate-400">No organisations assigned yet. Assign one from an organisation's detail page.</p>
-            ) : (
-              <div className="divide-y border rounded-md">
-                {memberOrgs.map((o) => (
-                  <Link
-                    key={o.id}
-                    to={`/organisations/${o.id}`}
-                    className="flex items-center justify-between px-4 py-3 text-sm hover:bg-slate-50"
-                    data-testid={`link-group-org-${o.id}`}
-                  >
-                    <span className="font-medium text-slate-700">{o.name}</span>
-                    <ExternalLink className="w-4 h-4 text-slate-400" />
-                  </Link>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
+      <>
+        <OrganisationGroupDetailView
+          group={group}
+          orgs={orgs}
+          onBack={() => setSelectedGroup(null)}
+          onDelete={(g) => setDeleteTarget(g)}
+        />
         {renderDialogs()}
-      </div>
+      </>
     );
   }
 

@@ -30,7 +30,9 @@ export default function OrgDetailLayoutEditor({
   customFields = [], 
   onSave, 
   onCancel,
-  isSaving 
+  isSaving,
+  coreFields = CORE_FIELDS,
+  title = 'Customize Organisation Layout'
 }) {
   const [editedLayout, setEditedLayout] = useState(null);
   const [editingCardId, setEditingCardId] = useState(null);
@@ -52,7 +54,7 @@ export default function OrgDetailLayoutEditor({
   if (!editedLayout) return null;
 
   const allAvailableFields = [
-    ...CORE_FIELDS.map(f => ({ ...f, type: 'core' })),
+    ...coreFields.map(f => ({ ...f, type: 'core' })),
     ...customFields.map(cf => ({
       id: `custom:${cf.id}`,
       fieldId: cf.id,
@@ -208,7 +210,7 @@ export default function OrgDetailLayoutEditor({
 
   const getFieldLabel = (field) => {
     if (field.type === 'core') {
-      const coreField = CORE_FIELDS.find(f => f.fieldKey === field.fieldKey);
+      const coreField = coreFields.find(f => f.fieldKey === field.fieldKey);
       return coreField?.label || field.fieldKey;
     }
     const customField = customFields.find(cf => cf.id === field.fieldId);
@@ -231,7 +233,7 @@ export default function OrgDetailLayoutEditor({
         <div className="flex items-center justify-between p-4 border-b">
           <div className="flex items-center gap-2">
             <LayoutGrid className="w-5 h-5 text-blue-600" />
-            <h2 className="text-lg font-semibold">Customize Organisation Layout</h2>
+            <h2 className="text-lg font-semibold">{title}</h2>
           </div>
           <div className="flex items-center gap-2">
             <Button variant="outline" onClick={onCancel} data-testid="button-cancel-layout">

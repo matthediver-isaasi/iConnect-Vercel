@@ -113,6 +113,7 @@ const entityToTable = {
   'PreferenceField': 'preference_field',
   'MemberPreferenceValue': 'member_preference_value',
   'OrganizationPreferenceValue': 'organization_preference_value',
+  'OrganizationGroupPreferenceValue': 'organization_group_preference_value',
   'Speaker': 'speaker',
   'TypographyStyle': 'typography_style',
   'InstalledFont': 'installed_font',
@@ -211,6 +212,37 @@ export default async function handler(req, res) {
     if (req.method !== 'GET') {
       return res.status(403).json({ error: 'Survey records are managed server-side and cannot be written directly' });
     }
+    if (!tenantCtx.isAuthenticated) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+    const isAdmin = await hasAdminAccess(tenantCtx);
+    if (!isAdmin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+  }
+
+  // SECURITY: organisation-group custom field values are written ONLY via the
+  // guarded /api/entities/organization-group-preference-value/upsert endpoint
+  // (admin check + group/field tenant-and-scope validation). Generic API is
+  // read-only, admin-gated.
+  if (entityNorm === 'organizationgrouppreferencevalue') {
+    if (req.method !== 'GET') {
+      return res.status(403).json({ error: 'Group custom field values must be written via the upsert endpoint' });
+    }
+    if (!tenantCtx.isAuthenticated) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+    const isAdmin = await hasAdminAccess(tenantCtx);
+    if (!isAdmin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+  }
+
+  // SECURITY: custom field DEFINITIONS are admin-managed. Reads stay open to
+  // authenticated members (directory/profile surfaces render field metadata),
+  // but update/delete require admin — the Custom Fields page gate is
+  // client-side only and is not an authorization boundary.
+  if (entityNorm === 'preferencefield' && req.method !== 'GET') {
     if (!tenantCtx.isAuthenticated) {
       return res.status(401).json({ error: 'Authentication required' });
     }
@@ -345,7 +377,7 @@ export default async function handler(req, res) {
             'CrmTagColor',
             'Gallery', 'GalleryPhoto', 'CardDeck',
             'MemberGroupActivity', 'Microsite', 'InstalledFont',
-            'EventAgendaItem', 'EventCostLine', 'OrganizationGroup'
+            'EventAgendaItem', 'EventCostLine', 'OrganizationGroup', 'OrganizationGroupPreferenceValue'
           ];
           if (tenantCtx.tenantId) {
             query = query.eq('tenant_id', tenantCtx.tenantId);
@@ -579,7 +611,7 @@ export default async function handler(req, res) {
                 'CrmTagColor',
                 'Gallery', 'GalleryPhoto', 'CardDeck',
                 'MemberGroupActivity', 'Microsite', 'InstalledFont',
-            'EventAgendaItem', 'EventCostLine', 'OrganizationGroup'
+            'EventAgendaItem', 'EventCostLine', 'OrganizationGroup', 'OrganizationGroupPreferenceValue'
               ];
               if (tenantCtx.tenantId) {
                 beforeQuery = beforeQuery.eq('tenant_id', tenantCtx.tenantId);
@@ -1176,7 +1208,7 @@ export default async function handler(req, res) {
             'CrmTagColor',
             'Gallery', 'GalleryPhoto', 'CardDeck',
             'MemberGroupActivity', 'Microsite', 'InstalledFont',
-            'EventAgendaItem', 'EventCostLine', 'OrganizationGroup'
+            'EventAgendaItem', 'EventCostLine', 'OrganizationGroup', 'OrganizationGroupPreferenceValue'
           ];
           if (tenantCtx.tenantId) {
             patchQuery = patchQuery.eq('tenant_id', tenantCtx.tenantId);
@@ -1755,7 +1787,7 @@ export default async function handler(req, res) {
             'CrmTagColor',
             'Gallery', 'GalleryPhoto', 'CardDeck',
             'MemberGroupActivity', 'Microsite', 'InstalledFont',
-            'EventAgendaItem', 'EventCostLine', 'OrganizationGroup'
+            'EventAgendaItem', 'EventCostLine', 'OrganizationGroup', 'OrganizationGroupPreferenceValue'
           ];
           if (tenantCtx.tenantId) {
             verifyQuery = verifyQuery.eq('tenant_id', tenantCtx.tenantId);

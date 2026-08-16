@@ -99,6 +99,9 @@ export const entityTenantScope = {
   // TENANT - Per-tenant data (filtered by tenant_id)
   'Organization': TENANT_SCOPE.TENANT,
   'OrganizationGroup': TENANT_SCOPE.TENANT, // Parent grouping above organisations (one level)
+  // Custom field values on organisation groups (Task #3601). Tenant-scoped:
+  // the table carries tenant_id directly (no organization_id column).
+  'OrganizationGroupPreferenceValue': TENANT_SCOPE.TENANT,
   'Role': TENANT_SCOPE.TENANT,
   'TeamMember': TENANT_SCOPE.TENANT,
   'Event': TENANT_SCOPE.TENANT,

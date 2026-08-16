@@ -1,0 +1,19 @@
+{
+    "name": "OrganizationGroupPreferenceValue",
+    "type": "object",
+    "properties": {
+      "organization_group_id": {
+        "type": "string",
+        "description": "The organisation group this value belongs to"
+      },
+      "field_id": {
+        "type": "string",
+        "description": "The preference_field definition (entity_scope='organization_group')"
+      },
+      "value": {
+        "type": "string",
+        "description": "Stored value (arrays serialised as JSON strings)"
+      }
+    },
+    "required": ["organization_group_id", "field_id"]
+}
