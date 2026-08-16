@@ -798,6 +798,10 @@ export const ROLE_ACCESS_MAP: Module[] = [
         ]
       },
       {
+        id: "crm.organisation-groups",
+        label: "Organisation Groups"
+      },
+      {
         id: "crm.members",
         label: "Members",
         features: [

@@ -28,10 +28,10 @@ export default function OrganisationGroups() {
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [form, setForm] = useState({ name: "", description: "" });
 
-  // Same RBAC gate as the Organisations CRM page.
+  // Dedicated RBAC gate for Organisation Groups.
   useEffect(() => {
     if (isAccessReady) {
-      if (isFeatureExcluded("crm.organisations")) {
+      if (isFeatureExcluded("crm.organisation-groups")) {
         window.location.href = createPageUrl("Events");
       } else {
         setAccessChecked(true);
