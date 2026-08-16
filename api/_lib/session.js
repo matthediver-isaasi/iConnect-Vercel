@@ -648,6 +648,15 @@ export async function getSessionMember(req) {
       await supabase.from('session').delete().eq('sid', session.id);
       return null;
     }
+
+    // Membership pause (Task #3586): paused members lose access immediately,
+    // mirroring the login-disabled enforcement. login_enabled itself is not
+    // rewritten, so resume never overrides a separate manual disable.
+    if (member.membership_paused === true) {
+      console.log('[Session] Member membership paused, rejecting session:', member.id);
+      await supabase.from('session').delete().eq('sid', session.id);
+      return null;
+    }
     
     // Check if member is deleted (anonymized email pattern)
     if (member.email?.startsWith('deleted_') && member.email?.endsWith('@deleted.local')) {

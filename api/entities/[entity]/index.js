@@ -4,6 +4,7 @@ import { triggerWorkflows, triggerPreferenceWorkflows, recheckRecordCreateWorkfl
 import { triggerZohoCrmSync, awaitZohoCrmSyncForResponse } from '../../_lib/zohoCrmSync.js';
 import { supabase } from '../../_lib/database.js';
 import { stripProtectedOrgBalanceFields } from '../../_lib/protectedOrgFields.js';
+import { stripMemberPauseFields } from '../../_lib/memberPause.js';
 import { getTenantContext, getEntityTenantScope, getTenantColumn, TENANT_SCOPE, checkCrossOrgPermissions, checkCrossMemberPermissions, hasAdminAccess, hasFeatureAccess } from '../../_lib/tenantContext.js';
 import { isAdminOnlyEntity } from '../../_lib/adminOnlyEntities.js';
 import { isEventFamilyEntity, authorizeGroupAdminEventWrite } from '../../_lib/groupAdminEventWrite.js';
@@ -1162,6 +1163,15 @@ export default async function handler(req, res) {
           if (!targetGroup || targetGroup.tenant_id !== effectiveTenantId) {
             return res.status(403).json({ error: 'Organisation group not found in this tenant' });
           }
+        }
+      }
+
+      // SECURITY (Task #3586): membership pause state changes only via the
+      // admin pause/resume endpoint. Strip pause fields from Member creates.
+      if (entityNorm === 'member') {
+        const strippedPause = stripMemberPauseFields(sanitizedBody);
+        if (strippedPause.length > 0) {
+          console.warn(`[Entity API] Stripped protected membership pause field(s) from Member create: ${strippedPause.join(', ')}`);
         }
       }
 

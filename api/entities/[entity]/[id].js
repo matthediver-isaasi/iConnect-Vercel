@@ -4,6 +4,7 @@ import { invalidateMemberSessions } from '../../_lib/session.js';
 import { supabase } from '../../_lib/database.js';
 import { getTenantContext, getEntityTenantScope, getTenantColumn, TENANT_SCOPE, checkCrossOrgPermissions, checkCrossMemberPermissions, hasAdminAccess, hasFeatureAccess } from '../../_lib/tenantContext.js';
 import { stripProtectedOrgBalanceFields } from '../../_lib/protectedOrgFields.js';
+import { stripMemberPauseFields } from '../../_lib/memberPause.js';
 import { isAdminOnlyEntity } from '../../_lib/adminOnlyEntities.js';
 import { isEventFamilyEntity, authorizeGroupAdminEventWrite } from '../../_lib/groupAdminEventWrite.js';
 import { checkBadgeWriteAccess } from '../../_lib/badgeAccess.js';
@@ -765,6 +766,16 @@ export default async function handler(req, res) {
           if (targetGroupError || !targetGroup || targetGroup.tenant_id !== orgTenantId) {
             return res.status(403).json({ error: 'Organisation group not found in this tenant' });
           }
+        }
+      }
+
+      // SECURITY (Task #3586): membership pause state changes only via the
+      // admin pause/resume endpoint (which also handles sessions, GoCardless
+      // and notes). Strip pause fields from generic Member updates.
+      if (entityNormalized === 'member') {
+        const strippedPauseFields = stripMemberPauseFields(sanitizedBody);
+        if (strippedPauseFields.length > 0) {
+          console.warn(`[Entity API] Stripped protected membership pause field(s) from Member update ${id}: ${strippedPauseFields.join(', ')}`);
         }
       }
 

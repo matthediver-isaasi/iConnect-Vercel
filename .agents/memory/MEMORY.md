@@ -152,4 +152,5 @@
 - [Form cross-tenant org guard & rollback pitfalls](form-crosstenant-write-guard.md) — org writes need write-time tenant filters (stale bundles bypass resolution fixes); public path rollback DELETES the submission + notes.
 - [Form processor tenant scoping](form-processor-tenant-scope.md) — body tenant_id is client-controlled; resolve tenant from persisted form/submission BEFORE any tenant-scoped query, reject mismatches 403.
 - [SECURITY DEFINER RPC grants](security-definer-rpc-grants.md) — new Postgres functions are PUBLIC-executable by default; server-only RPCs must revoke PUBLIC + validate inputs in SQL.
+- [Member membership pause](member-membership-pause.md) — pause blocks access via its own flag (login_enabled never rewritten); GC resume only touches subs pause recorded; all reads 42703-tolerant.
 - [Demo tenant seed framework](demo-seed-framework.md) — demo-seeds/ engine+definitions; RNG plan-then-persist, manifest in system_settings (string!), member deletes need tiny batches.

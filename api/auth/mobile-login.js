@@ -237,6 +237,11 @@ export default async function handler(req, res) {
         return res.status(403).json({ success: false, error: 'Login is disabled for this account.' });
       }
 
+      // Membership pause (Task #3586): paused members cannot log in via mobile.
+      if (member.membership_paused === true) {
+        return res.status(403).json({ success: false, error: 'Your membership is currently paused. Please contact an administrator.' });
+      }
+
       sessionData = {
         memberId: member.id,
         memberEmail: member.email,

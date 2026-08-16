@@ -29,7 +29,7 @@ import {
   FileText, Send, PlayCircle, ShieldAlert, CheckCircle2,
   XCircle, Info, AlertTriangle, CreditCard,
   Lock, LockOpen, ShieldCheck, Mail, RefreshCw,
-  Eye, Download
+  Eye, Download, PauseCircle
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -470,6 +470,9 @@ export default function MemberMembershipTab({ memberId, memberEmail }) {
   const [invoiceModalOpen, setInvoiceModalOpen] = useState(false);
   const [currentInvoiceUrl, setCurrentInvoiceUrl] = useState(null);
   const [currentInvoiceNumber, setCurrentInvoiceNumber] = useState(null);
+  const [pauseModalOpen, setPauseModalOpen] = useState(false);
+  const [pauseReason, setPauseReason] = useState('');
+  const [pauseRestartDate, setPauseRestartDate] = useState('');
 
   const handleRetryInvoice = async (recordId) => {
     setRetryingInvoiceRecordId(recordId);
@@ -801,6 +804,46 @@ export default function MemberMembershipTab({ memberId, memberEmail }) {
     },
   });
 
+  const pauseMutation = useMutation({
+    mutationFn: async (payload) => {
+      const response = await fetch(`/api/admin/members/${memberId}/pause`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(payload),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || 'Failed to update pause state');
+      return result;
+    },
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ['member-membership', memberId] });
+      queryClient.invalidateQueries({ queryKey: ['member-notes', memberId] });
+      setPauseModalOpen(false);
+      setPauseReason('');
+      setPauseRestartDate('');
+      if (result.warnings?.length) {
+        toast.warning(result.warnings.join('; '));
+      }
+      toast.success(result.paused ? 'Membership paused — access and payments suspended' : 'Membership resumed — access and payments restored');
+    },
+    onError: (error) => {
+      toast.error(error.message);
+    },
+  });
+
+  const handleConfirmPause = () => {
+    if (!pauseReason.trim()) {
+      toast.error('Please provide a reason for pausing this membership');
+      return;
+    }
+    pauseMutation.mutate({
+      action: 'pause',
+      reason: pauseReason.trim(),
+      restartDate: pauseRestartDate || null,
+    });
+  };
+
   const resetOverrideForm = () => {
     setOverrideType('structure');
     setSelectedConfigId('');
@@ -895,6 +938,108 @@ export default function MemberMembershipTab({ memberId, memberEmail }) {
     );
   }
 
+  const pause = data?.pause || null;
+  const isPaused = !!pause?.paused;
+
+  const pauseControls = (
+    <>
+      {isPaused ? (
+        <Card className="border-amber-300 bg-amber-50 dark:bg-amber-950/30" data-testid="card-membership-paused">
+          <CardContent className="py-4 flex items-start justify-between gap-3 flex-wrap">
+            <div className="flex items-start gap-3">
+              <PauseCircle className="w-5 h-5 text-amber-600 mt-0.5" />
+              <div>
+                <p className="text-sm font-medium" data-testid="text-membership-paused">Membership paused</p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Access and recurring payments are suspended.
+                  {pause.pausedAt ? ` Paused ${new Date(pause.pausedAt).toLocaleDateString()}` : ''}
+                  {pause.pausedBy ? ` by ${pause.pausedBy}` : ''}.
+                  {pause.restartDate
+                    ? ` Scheduled to restart automatically on ${new Date(`${pause.restartDate}T00:00:00`).toLocaleDateString()}.`
+                    : ' No restart date set — resume manually when ready.'}
+                </p>
+                {pause.reason && (
+                  <p className="text-xs text-muted-foreground mt-1" data-testid="text-pause-reason">Reason: {pause.reason}</p>
+                )}
+              </div>
+            </div>
+            <Button
+              size="sm"
+              onClick={() => pauseMutation.mutate({ action: 'resume' })}
+              disabled={pauseMutation.isPending}
+              data-testid="button-resume-membership"
+            >
+              {pauseMutation.isPending ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <PlayCircle className="w-4 h-4 mr-1" />}
+              Resume
+            </Button>
+          </CardContent>
+        </Card>
+      ) : (
+        pause && (
+          <div className="flex justify-end">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setPauseModalOpen(true)}
+              data-testid="button-pause-membership"
+            >
+              <PauseCircle className="w-4 h-4 mr-1" />
+              Pause membership
+            </Button>
+          </div>
+        )
+      )}
+
+      <Dialog open={pauseModalOpen} onOpenChange={setPauseModalOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Pause membership</DialogTitle>
+            <DialogDescription>
+              Pausing suspends this member's system access and recurring membership payments
+              (including any active Direct Debit subscription) until resumed. The reason is
+              saved as a note on the member's record.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <Label htmlFor="pause-reason">Reason (required)</Label>
+              <Textarea
+                id="pause-reason"
+                value={pauseReason}
+                onChange={(e) => setPauseReason(e.target.value)}
+                placeholder="e.g. Maternity leave until next spring"
+                rows={3}
+                data-testid="input-pause-reason"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="pause-restart-date">Restart date (optional)</Label>
+              <Input
+                id="pause-restart-date"
+                type="date"
+                value={pauseRestartDate}
+                onChange={(e) => setPauseRestartDate(e.target.value)}
+                data-testid="input-pause-restart-date"
+              />
+              <p className="text-xs text-muted-foreground">
+                If set, access and payments are automatically restored on this date.
+              </p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPauseModalOpen(false)} data-testid="button-cancel-pause">
+              Cancel
+            </Button>
+            <Button onClick={handleConfirmPause} disabled={pauseMutation.isPending} data-testid="button-confirm-pause">
+              {pauseMutation.isPending && <Loader2 className="w-4 h-4 mr-1 animate-spin" />}
+              Pause membership
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+
   const history = Array.isArray(data?.history) ? data.history : [];
   const currentYearData = data?.currentYearCost || null;
   const nextYearData = data?.nextYearPreview || null;
@@ -922,13 +1067,16 @@ export default function MemberMembershipTab({ memberId, memberEmail }) {
 
   if (!config && !isLoading) {
     return (
-      <Card>
-        <CardContent className="py-8 text-center text-muted-foreground">
-          <Layers className="w-10 h-10 mx-auto mb-2 opacity-50" />
-          <p data-testid="text-member-no-config">No member-scoped membership tier structure has been configured</p>
-          <p className="text-sm mt-1">Set up member-scoped tier bands in Membership Tier Management to see pricing here</p>
-        </CardContent>
-      </Card>
+      <div className="space-y-4">
+        {pauseControls}
+        <Card>
+          <CardContent className="py-8 text-center text-muted-foreground">
+            <Layers className="w-10 h-10 mx-auto mb-2 opacity-50" />
+            <p data-testid="text-member-no-config">No member-scoped membership tier structure has been configured</p>
+            <p className="text-sm mt-1">Set up member-scoped tier bands in Membership Tier Management to see pricing here</p>
+          </CardContent>
+        </Card>
+      </div>
     );
   }
 
@@ -979,6 +1127,7 @@ export default function MemberMembershipTab({ memberId, memberEmail }) {
 
   return (
     <div className="space-y-4">
+      {pauseControls}
       {config && (
         <Card>
           <CardHeader>

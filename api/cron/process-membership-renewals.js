@@ -8,6 +8,7 @@ import { resolveInvoiceAddress } from '../_lib/invoiceAddressResolver.js';
 import { resolveMembershipNominalCode } from '../_lib/membershipNominalCode.js';
 import { processTenantReminders } from '../_lib/membershipReminders.js';
 import { processTenantDdRenewals } from '../_lib/gocardlessDdRenewals.js';
+import { getPausedMemberIdSet, processPauseAutoRestarts } from '../_lib/memberPause.js';
 
 export default async function handler(req, res) {
   const authHeader = req.headers.authorization;
@@ -26,6 +27,17 @@ export default async function handler(req, res) {
   const results = { processed: 0, skipped: 0, errors: 0, details: [] };
 
   try {
+    // Task #3586: scheduled pause restarts run every hour for ALL tenants
+    // (deliberately outside the per-tenant cron-hour gate so access is
+    // restored on the restart date, not at the tenant's billing hour).
+    try {
+      await processPauseAutoRestarts(results);
+    } catch (pauseErr) {
+      console.error('[cron/process-membership-renewals] Pause auto-restart sweep failed:', pauseErr);
+      results.errors++;
+      results.details.push({ step: 'pause-auto-restart', error: pauseErr.message });
+    }
+
     const { data: configs, error: configError } = await supabase
       .from('membership_tier_config')
       .select('*')
@@ -911,8 +923,16 @@ async function processTenantMemberRenewals(tenantId, results) {
 
   if (!invoicingRows || invoicingRows.length === 0) return;
 
+  // Task #3586: paused members are excluded from renewal invoicing entirely.
+  const pausedMemberIds = await getPausedMemberIdSet(tenantId);
+
   for (const invoicingSetting of invoicingRows) {
     const memberId = invoicingSetting.member_id;
+    if (pausedMemberIds.has(memberId)) {
+      results.skipped++;
+      results.details.push({ tenantId, memberId, type: 'member', status: 'skipped', reason: 'Membership paused' });
+      continue;
+    }
     const mode = invoicingSetting.invoicing_mode;
     const targetYear = invoicingSetting.membership_year || null;
 

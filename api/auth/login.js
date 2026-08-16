@@ -288,6 +288,12 @@ export default async function handler(req, res) {
         case 'soft_deleted':
           console.log('[Auth Login] Resolved member is soft-deleted:', email);
           return res.status(401).json({ success: false, error: 'Member not found' });
+        case 'membership_paused':
+          console.log('[Auth Login] Membership paused for member:', email);
+          return res.status(403).json({
+            success: false,
+            error: 'Your membership is currently paused. Please contact an administrator.',
+          });
         case 'login_disabled':
         default:
           console.log('[Auth Login] Login disabled for member:', email);

@@ -43,8 +43,7 @@ export default async function handler(req, res) {
     const { data: member, error: memberError } = await supabase
       .from('member')
       .select(`
-        id, email, first_name, last_name, login_enabled, status, handle, tenant_id,
-        role_id, organization_id,
+        *,
         role:role_id(id, name, excluded_features, default_landing_page),
         organization:organization_id(id, name, tenant_id)
       `)
@@ -58,6 +57,12 @@ export default async function handler(req, res) {
 
     if (!member.login_enabled || member.status !== 'active') {
       console.log('[Portal SSO] Member account disabled');
+      return res.redirect('/login?error=account_disabled');
+    }
+
+    // Membership pause (Task #3586): paused members cannot enter via SSO.
+    if (member.membership_paused === true) {
+      console.log('[Portal SSO] Member membership paused');
       return res.redirect('/login?error=account_disabled');
     }
 

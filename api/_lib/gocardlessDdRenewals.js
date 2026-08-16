@@ -36,6 +36,7 @@ import {
 } from './gocardlessDirectDebit.js';
 import { sendDdLifecycleEmail } from './gocardlessDdEmails.js';
 import { STATUS } from './gocardlessState.js';
+import { getPausedMemberIdSet } from './memberPause.js';
 
 export const RENEWAL_NOTICE_DAYS = 30;
 
@@ -292,8 +293,15 @@ export async function processTenantDdRenewals(tenantId, results, deps = {}) {
     if (!prev || new Date(a.created_at) > new Date(prev.created_at)) latestByMember.set(a.member_id, a);
   }
 
+  // Task #3586: paused members are excluded from DD renewal processing.
+  const pausedMemberIds = await getPausedMemberIdSet(tenantId, db);
+
   for (const agreement of latestByMember.values()) {
     try {
+      if (pausedMemberIds.has(agreement.member_id)) {
+        results.details.push({ tenantId, agreementId: agreement.id, step: 'dd-renewals', status: 'skipped', reason: 'Membership paused' });
+        continue;
+      }
       const snapshot = agreement.metadata?.dd;
       const window = computeRenewalWindow(snapshot);
       if (!window || today < window.noticeDate) continue;

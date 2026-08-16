@@ -88,6 +88,28 @@ async function handleGet(req, res, tenantId) {
     return res.status(404).json({ error: 'Member not found' });
   }
 
+  // Task #3586: expose membership pause state (read-only) so the membership
+  // card can render the paused banner. Fetched separately + 42703-tolerant
+  // because the pause columns exist on the production database only.
+  let pause = null;
+  {
+    const { data: pauseRow, error: pauseError } = await supabase
+      .from('member')
+      .select('membership_paused, membership_paused_at, membership_pause_restart_date, membership_paused_by, membership_pause_reason')
+      .eq('id', memberId)
+      .eq('tenant_id', tenantId)
+      .maybeSingle();
+    if (!pauseError && pauseRow) {
+      pause = {
+        paused: pauseRow.membership_paused === true,
+        pausedAt: pauseRow.membership_paused_at || null,
+        restartDate: pauseRow.membership_pause_restart_date || null,
+        pausedBy: pauseRow.membership_paused_by || null,
+        reason: pauseRow.membership_pause_reason || null,
+      };
+    }
+  }
+
   const config = await getConfigForMember(tenantId, memberId);
 
   if (!config) {
@@ -97,6 +119,7 @@ async function handleGet(req, res, tenantId) {
       currentYearCost: null,
       nextYearPreview: null,
       history: [],
+      pause,
     });
   }
 
@@ -203,6 +226,7 @@ async function handleGet(req, res, tenantId) {
       membership_start_day: config.membership_start_day,
       online_card_payment: !!config.online_card_payment,
     },
+    pause,
     currentYearCost,
     nextYearPreview,
     history,

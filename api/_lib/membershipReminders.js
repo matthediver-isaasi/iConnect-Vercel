@@ -3,6 +3,7 @@ import { simulateMembershipForOrg, simulateMembershipForMember } from './members
 import { sendTenantEmail } from './tenantEmailService.js';
 import { replacePlaceholders } from './emailService.js';
 import { buildInboxDelivery, recordTransactionalInboxMessage, resolveCommunicationCategoryIdForLabel } from './transactionalInbox.js';
+import { getPausedMemberIdSet } from './memberPause.js';
 
 const MS_PER_DAY = 1000 * 60 * 60 * 24;
 
@@ -334,8 +335,12 @@ async function processMemberConfigReminders(tenantId, config, reminders, today, 
 
   if (!members || members.length === 0) return;
 
+  // Task #3586: paused members receive no payment reminders.
+  const pausedMemberIds = await getPausedMemberIdSet(tenantId);
+
   for (const member of members) {
     if (!member.email) continue;
+    if (pausedMemberIds.has(member.id)) continue;
 
     let simResult;
     try {

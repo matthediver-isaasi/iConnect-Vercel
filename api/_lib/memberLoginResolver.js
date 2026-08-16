@@ -238,6 +238,18 @@ export function computeEffectiveLoginStatus(member, extra = {}) {
     };
   }
 
+  // Membership pause (Task #3586): blocks access like login_disabled but via
+  // its own flag, so resume can restore access without touching the manual
+  // login-enabled toggle.
+  if (member.membership_paused === true) {
+    return {
+      canLogin: false,
+      reason: 'membership_paused',
+      message: 'This membership is currently paused.',
+      duplicateActiveMembers,
+    };
+  }
+
   if (member.login_enabled === false) {
     return {
       canLogin: false,
