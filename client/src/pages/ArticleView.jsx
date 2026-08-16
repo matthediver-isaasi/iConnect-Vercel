@@ -14,6 +14,7 @@ import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useTenantBranding } from "@/contexts/TenantBrandingContext";
 import { useArticleUrl } from "@/contexts/ArticleUrlContext";
+import { articleSlugMatches } from "@/lib/articleUrlParts";
 import { useLayoutContext } from "@/contexts/LayoutContext";
 import BookmarkButton from "@/components/bookmarks/BookmarkButton";
 import AuthorFollowButton from "@/components/blog/AuthorFollowButton";
@@ -177,19 +178,8 @@ export default function ArticleViewPage() {
       
       let found = null;
       
-      // Helper to check if article slug matches (handles both clean and legacy formats)
-      const slugMatches = (articleSlug, targetSlug) => {
-        if (!articleSlug || !targetSlug) return false;
-        // Exact match
-        if (articleSlug === targetSlug) return true;
-        // Legacy format: article slug contains "-by-{handle}" suffix
-        // Check if the legacy slug starts with the clean slug
-        if (articleSlug.includes('-by-')) {
-          const cleanSlug = articleSlug.replace(/-by-[^-]+$/, '');
-          return cleanSlug === targetSlug;
-        }
-        return false;
-      };
+      // Shared matcher (supports hyphenated legacy "-by-{handle}" suffixes)
+      const slugMatches = articleSlugMatches;
       
       if (authorHandle && slug) {
         // New folder-based URL: /articles/{authorHandle}/{slug}
@@ -215,6 +205,13 @@ export default function ArticleViewPage() {
         }
       } else if (slug) {
         // Legacy query param support - find by slug only (exact match or legacy format)
+        found = articles.find(a => a.slug === slug || slugMatches(a.slug, slug));
+      }
+
+      // Graceful fallback: if the author segment didn't match (author has no
+      // handle, or a member-authored article was linked as /guest/), resolve
+      // by slug alone. Visibility is already enforced by the entity API.
+      if (!found && slug) {
         found = articles.find(a => a.slug === slug || slugMatches(a.slug, slug));
       }
       

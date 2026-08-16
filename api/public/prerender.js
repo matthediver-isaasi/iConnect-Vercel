@@ -3,6 +3,7 @@ import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
 import { getArticleUrlConfig } from '../_lib/articleUrlPaths.js';
 import { resolveMicrositeByPrefix } from '../_lib/microsites.js';
 import { buildStaticPageSsrHtml } from '../_lib/staticPageSsr.js';
+import { findPublishedArticleBySlug } from '../_lib/articleSlugLookup.js';
 
 function escapeHtml(str) {
   if (!str) return '';
@@ -204,6 +205,19 @@ async function renderArticlePage(supabaseClient, tenant, authorHandle, articleSl
       .or(`slug.eq.${articleSlug},slug.like.${articleSlug}-by-%`)
       .single();
     article = found;
+  }
+
+  if (!article) {
+    // Tolerant fallback: unknown/placeholder author segments (e.g. 'member'
+    // for a handle-less author, or a member article linked as /guest/) still
+    // prerender the published article resolved by slug alone (mirrors
+    // api/public/article.js).
+    article = await findPublishedArticleBySlug(
+      supabaseClient,
+      tenant.id,
+      articleSlug,
+      'id, title, slug, summary, content, feature_image_url, published_date, author_id, guest_writer_id'
+    );
   }
 
   if (!article) return null;

@@ -3,27 +3,10 @@ import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
 import { getArticleUrlConfig } from '../_lib/articleUrlPaths.js';
 import { listActiveMicrosites } from '../_lib/microsites.js';
 
-function getArticleUrlParts(article, authorHandles = {}) {
-  let authorHandle = 'guest';
-  if (article.author_id) {
-    if (authorHandles[article.author_id]) {
-      authorHandle = authorHandles[article.author_id];
-    } else {
-      const byHandleMatch = (article.slug || '').match(/-by-([a-z0-9-]+)$/i);
-      if (byHandleMatch) {
-        authorHandle = byHandleMatch[1];
-      }
-    }
-  }
-
-  let cleanSlug = article.slug || '';
-  const byHandleMatch = cleanSlug.match(/-by-([a-z0-9-]+)$/i);
-  if (byHandleMatch) {
-    cleanSlug = cleanSlug.slice(0, -byHandleMatch[0].length);
-  }
-
-  return { authorHandle, cleanSlug };
-}
+// Shared resolver (React-free): never emits 'guest' for member-authored
+// articles without a handle — those fall back to the 'member' placeholder,
+// which the public article API resolves by slug.
+import { getArticleUrlParts } from '../../client/src/lib/articleUrlParts.js';
 
 function escapeXml(str) {
   if (!str) return '';

@@ -12,31 +12,7 @@ function slugify(text) {
 }
 
 // Helper to extract author handle and clean slug from an article object
-function getArticleUrlParts(article, authorHandles = {}) {
-  // Determine author handle
-  let authorHandle = "guest"; // Default for guest writers
-  if (article.author_id) {
-    // Try to get handle from lookup map
-    if (authorHandles[article.author_id]) {
-      authorHandle = authorHandles[article.author_id];
-    } else {
-      // Fallback: extract from legacy slug format "-by-{handle}"
-      const byHandleMatch = (article.slug || "").match(/-by-([a-z0-9-]+)$/i);
-      if (byHandleMatch) {
-        authorHandle = byHandleMatch[1];
-      }
-    }
-  }
-  
-  // Get clean slug without handle suffix
-  let cleanSlug = article.slug || "";
-  const byHandleMatch = cleanSlug.match(/-by-([a-z0-9-]+)$/i);
-  if (byHandleMatch) {
-    cleanSlug = cleanSlug.slice(0, -byHandleMatch[0].length);
-  }
-  
-  return { authorHandle, cleanSlug };
-}
+import { getArticleUrlParts } from '@/lib/articleUrlParts';
 
 const ArticleUrlContext = createContext({
   displayName: 'Articles',

@@ -2,6 +2,7 @@ import { supabase } from './database.js';
 import { getArticleUrlConfig } from './articleUrlPaths.js';
 import { resolveBlogPostAuthors } from './blogPostAuthors.js';
 import { resolveMicrositeByPrefix } from './microsites.js';
+import { findPublishedArticleBySlug } from './articleSlugLookup.js';
 
 function stripHtml(html) {
   if (!html) return '';
@@ -140,12 +141,33 @@ async function resolveBlogPostBySlug(tenantId, slug, authorHandle, articleBasePa
       .eq('tenant_id', tenantId)
       .eq('handle', authorHandle)
       .maybeSingle();
-    if (!member) return null;
-    q = q.eq('author_id', member.id);
+    if (member) {
+      q = q.eq('author_id', member.id);
+    } else {
+      // Unknown/placeholder segment (e.g. 'member' for a handle-less author,
+      // or a stale handle): fall through to the tolerant slug-only fallback.
+      q = null;
+    }
   } else if (authorHandle === 'guest') {
     q = q.not('guest_writer_id', 'is', null);
   }
-  const { data } = await q.maybeSingle();
+  let data = null;
+  if (q) {
+    ({ data } = await q.maybeSingle());
+  }
+  if (!data && authorHandle) {
+    // Tolerant fallback: resolve the published article by slug alone so
+    // placeholder/stale author segments still get article metadata (mirrors
+    // api/public/article.js).
+    data = await findPublishedArticleBySlug(
+      supabase,
+      tenantId,
+      slug,
+      'id, title, slug, summary, content, feature_image_url, status, tenant_id, author_id, guest_writer_id, seo_title, seo_description, og_image_url'
+    );
+    // Re-derive the canonical handle from the actual article below.
+    if (data) resolvedAuthorHandle = null;
+  }
   if (!data) return null;
 
   // For legacy /ArticleView?slug=… we don't know the author handle up

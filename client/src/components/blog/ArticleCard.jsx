@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Calendar, User, ArrowUpRight, Pencil, Trash2, Eye } from "lucide-react";
 import { format } from "date-fns";
 import { useArticleUrl } from "@/contexts/ArticleUrlContext";
+import { getArticleUrlParts } from "@/lib/articleUrlParts";
 import { Link } from "react-router-dom";
 import TenantCtaButton from "@/components/common/TenantCtaButton";
 import { useTenantBranding } from "@/contexts/TenantBrandingContext";
@@ -37,37 +38,9 @@ export default function ArticleCard({
   // Derive singular name for "My X" badge
   const singular = singularDisplayName || (displayName.endsWith('s') ? displayName.slice(0, -1) : displayName);
   
-  // Determine author handle for URL construction
-  let authorHandle = "guest"; // Default for guest writers
-  if (article.author_id) {
-    // Use String() for consistent type matching with authorHandles map keys
-    const authorIdStr = String(article.author_id);
-    // Try to get handle from props, or extract from legacy slug
-    const foundHandle = authorHandles[authorIdStr];
-    console.log('[ArticleCard] Looking up handle for author_id:', authorIdStr, 
-      'authorHandles keys:', Object.keys(authorHandles).slice(0, 5), 
-      'found:', foundHandle,
-      'total keys:', Object.keys(authorHandles).length);
-    if (foundHandle) {
-      authorHandle = foundHandle;
-    } else {
-      // Fallback: extract from legacy slug format "-by-{handle}"
-      const byHandleMatch = (article.slug || "").match(/-by-([a-z0-9-]+)$/i);
-      if (byHandleMatch) {
-        authorHandle = byHandleMatch[1];
-        console.log('[ArticleCard] Using legacy slug fallback:', authorHandle);
-      } else {
-        console.log('[ArticleCard] No handle found, using guest default');
-      }
-    }
-  }
-  
-  // Get clean slug without handle suffix
-  let cleanSlug = article.slug || "";
-  const byHandleMatch = cleanSlug.match(/-by-([a-z0-9-]+)$/i);
-  if (byHandleMatch) {
-    cleanSlug = cleanSlug.slice(0, -byHandleMatch[0].length);
-  }
+  // Determine author handle + clean slug via the shared resolver (never
+  // 'guest' for member-authored articles without a handle).
+  const { authorHandle, cleanSlug } = getArticleUrlParts(article, authorHandles);
   
   // For drafts, add preview=true to the URL so the author can view them
   const baseArticleUrl = getArticleViewUrl(authorHandle, cleanSlug);

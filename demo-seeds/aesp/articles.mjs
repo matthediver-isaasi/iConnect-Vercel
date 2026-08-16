@@ -296,10 +296,50 @@ const ARTICLES = [
 ];
 
 // ---------------------------------------------------------------------------
+// Author handles
+// ---------------------------------------------------------------------------
+// Public article URLs are /articles/{handle}/{slug}; a member author without
+// a handle gets a placeholder segment in generated links. Give authoring demo
+// members their deterministic persona key (e.g. 'aisha-rahman') as handle.
+// Fill-null only: never overwrite a handle a member already set, and skip
+// (with a warning) when another member in the tenant already owns the handle.
+// Exported for tests.
+export async function ensureAuthorHandles(sb, tenantId, entries, log = () => {}) {
+  let set = 0;
+  for (const { memberId, handle } of entries) {
+    if (!memberId || !handle) continue;
+    const { data: taken, error: takenErr } = await sb
+      .from('member')
+      .select('id')
+      .eq('tenant_id', tenantId)
+      .eq('handle', handle)
+      .limit(1);
+    if (takenErr) throw new Error(`[seed] handle lookup failed: ${takenErr.message}`);
+    if (taken && taken.length > 0) {
+      if (taken[0].id !== memberId) {
+        log(`[seed] warning: handle '${handle}' already used by another member — skipping`);
+      }
+      continue; // owned by this member already, or by someone else
+    }
+    // Fill-null CAS: only set when the member still has no handle.
+    const { data: updated, error: updErr } = await sb
+      .from('member')
+      .update({ handle })
+      .eq('tenant_id', tenantId)
+      .eq('id', memberId)
+      .is('handle', null)
+      .select('id');
+    if (updErr) throw new Error(`[seed] handle update failed: ${updErr.message}`);
+    if (updated && updated.length > 0) set += 1;
+  }
+  return set;
+}
+
+// ---------------------------------------------------------------------------
 // Seed entry point
 // ---------------------------------------------------------------------------
 export async function seedArticles(ctx, { plans }) {
-  const { tenantId, dates, upsert, log } = ctx;
+  const { sb, tenantId, dates, upsert, log } = ctx;
   const rng = createRng('aesp-v1:articles');
 
   // -- Categories (active resource categories applying to Articles) --------
@@ -324,6 +364,12 @@ export async function seedArticles(ctx, { plans }) {
 
   // -- Author resolution (fill-null-safe against missing personas) ----------
   const planByKey = Object.fromEntries((plans || []).filter((pl) => pl.demoKey).map((pl) => [pl.demoKey, pl]));
+
+  // -- Author handles (fill-null, deterministic persona keys) ---------------
+  const handleEntries = [...new Set(ARTICLES.map((a) => a.authorKey).filter((k) => k !== 'guest'))]
+    .map((key) => ({ memberId: planByKey[key]?.memberId, handle: key }));
+  const handlesSet = await ensureAuthorHandles(sb, tenantId, handleEntries, log);
+  ctx.setCount('article_author_handles', handlesSet);
 
   // -- Plan phase: consume all RNG sequentially ------------------------------
   const articlePlans = ARTICLES.map((a) => {

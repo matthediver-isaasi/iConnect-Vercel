@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
 import { resolveBlogPostAuthors } from '../_lib/blogPostAuthors.js';
+import { findPublishedArticleBySlug } from '../_lib/articleSlugLookup.js';
 
 // Public API endpoint for fetching a single article by slug and author handle
 export default async function handler(req, res) {
@@ -132,6 +133,32 @@ export default async function handler(req, res) {
         .single();
 
       article = foundArticle;
+    }
+
+    // Graceful fallback: links built with a stale/unknown author segment
+    // (e.g. an author without a handle, or a member-authored article shared
+    // under /articles/guest/...) still resolve the published article by slug
+    // instead of 404ing. Tenant + published predicates unchanged.
+    if (!article && authorHandle) {
+      // Shared tolerant lookup: exact slug wins, then legacy "-by-" suffix.
+      article = await findPublishedArticleBySlug(supabase, tenant.id, slug, `
+          id,
+          title,
+          slug,
+          summary,
+          content,
+          feature_image_url,
+          feature_image_focal_point,
+          published_date,
+          author_id,
+          guest_writer_id,
+          status,
+          subcategories,
+          tags,
+          seo_title,
+          seo_description,
+          og_image_url
+        `);
     }
 
     if (!article) {

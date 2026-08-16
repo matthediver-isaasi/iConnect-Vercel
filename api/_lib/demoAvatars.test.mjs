@@ -176,7 +176,10 @@ test('linkExistingDemoAvatars links stored headshots, counts + warns about missi
 
 test('seed integration: avatar pass is best-effort and fill-null (source contract)', async () => {
   const fs = await import('node:fs');
-  const defSrc = fs.readFileSync(new URL('../../demo-seeds/aesp/definition.mjs', import.meta.url), 'utf8');
-  assert.match(defSrc, /try \{[\s\S]{0,300}linkExistingDemoAvatars\(\{ sb, tenantId, log \}\)[\s\S]{0,400}catch/,
-    'seed must wrap avatar linking in try/catch (warn, never fail the seed)');
+  // The linking pass moved from the tenant definition into the shared engine
+  // (runs for every demo tenant); the contract is unchanged: best-effort
+  // try/catch around a fill-null linking call.
+  const engineSrc = fs.readFileSync(new URL('../../demo-seeds/engine.mjs', import.meta.url), 'utf8');
+  assert.match(engineSrc, /try \{[\s\S]{0,400}linkExistingDemoAvatars\([\s\S]{0,400}?catch/,
+    'engine must wrap avatar linking in try/catch (warn, never fail the seed)');
 });
