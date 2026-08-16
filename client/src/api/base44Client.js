@@ -200,6 +200,7 @@ class EntitiesProxy {
   // Define all entity accessors
   get Member() { return this._getEntity('Member'); }
   get Organization() { return this._getEntity('Organization'); }
+  get OrganizationGroup() { return this._getEntity('OrganizationGroup'); }
   get Event() { return this._getEntity('Event'); }
   get Booking() { return this._getEntity('Booking'); }
   get ProgramTicketTransaction() { return this._getEntity('ProgramTicketTransaction'); }

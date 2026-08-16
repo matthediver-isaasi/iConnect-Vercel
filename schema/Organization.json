@@ -32,6 +32,10 @@
         "type": ["integer", "null"],
         "description": "Per-org override for default guest access period in days; NULL means inherit tenant default (or no expiry when guest_access_unlimited is true)"
       },
+      "organization_group_id": {
+        "type": ["string", "null"],
+        "description": "Optional parent Organisation Group (organization_group.id); NULL means ungrouped"
+      },
       "guest_access_unlimited": {
         "type": "boolean",
         "default": false,

@@ -169,6 +169,8 @@ import OrganisationDirectory from "./OrganisationDirectory";
 
 import OrganisationsList from "./OrganisationsList";
 
+import OrganisationGroups from "./OrganisationGroups";
+
 import MembersList from "./MembersList";
 import MemberDetail from "./MemberDetail";
 
@@ -643,6 +645,7 @@ const PAGES = {
     OrganisationDirectory: OrganisationDirectory,
     
     OrganisationsList: OrganisationsList,
+    OrganisationGroups: OrganisationGroups,
     MembersList: MembersList,
     MemberDetail: MemberDetail,
     
@@ -1067,6 +1070,7 @@ function PagesContent() {
                 
                 <Route path="/organisations/:id" element={<OrganisationsList />} />
                 <Route path="/organisations" element={<OrganisationsList />} />
+                <Route path="/OrganisationGroups" element={<OrganisationGroups />} />
                 
                 {/* Members list + detail, reachable at every built-in alias
                     (see @shared/memberAliases.js). /members always works. */}

@@ -102,8 +102,11 @@ const ORG_SORT_KEYS = {
   created_at: 'created_at',
 };
 
+const EMPTY_ORG_GROUPS = [];
+
 const DEFAULT_COLUMNS = [
   { id: 'name', label: 'Organisation', visible: true, locked: true },
+  { id: 'group', label: 'Group', visible: true, locked: false },
   { id: 'members', label: 'Members', visible: true, locked: false },
   { id: 'contact', label: 'Contact', visible: true, locked: false },
   { id: 'email', label: 'Email', visible: false, locked: false },
@@ -245,6 +248,8 @@ export default function OrganisationsListPage() {
   const [filterSearchQuery, setFilterSearchQuery] = useState('');
   const [filterSearchOpen, setFilterSearchOpen] = useState(false);
   const filterSearchRef = useRef(null);
+  // Organisation Group filter: 'all' | 'none' (ungrouped) | group uuid.
+  const [groupFilter, setGroupFilter] = useState('all');
 
   const handleSort = useCallback((field) => {
     if (!field) return;
@@ -406,8 +411,21 @@ export default function OrganisationsListPage() {
   // by the clicked widget bucket (see components/dashboard/widgetDrill.jsx).
   const { drill: widgetDrill, drillIdsParam, clearDrill } = useWidgetDrill(searchParams, setSearchParams);
 
+  // Organisation Groups for the group filter + column (tenant-scoped server-side).
+  const { data: orgGroups = EMPTY_ORG_GROUPS } = useQuery({
+    queryKey: ['/api/entities/OrganizationGroup'],
+    enabled: accessChecked,
+    queryFn: async () => {
+      try {
+        return await base44.entities.OrganizationGroup.list({ sort: { name: 'asc' } });
+      } catch {
+        return [];
+      }
+    }
+  });
+
   const { data: orgsData, isLoading: orgsLoading } = useQuery({
-    queryKey: ['organizations-crm-paginated', currentPage, itemsPerPage, debouncedSearch, coreFiltersParam, customFiltersParam, customFieldIdsParam, sortField, sortDir, drillIdsParam],
+    queryKey: ['organizations-crm-paginated', currentPage, itemsPerPage, debouncedSearch, coreFiltersParam, customFiltersParam, customFieldIdsParam, sortField, sortDir, drillIdsParam, groupFilter],
     enabled: accessChecked && filtersReady,
     keepPreviousData: true,
     queryFn: async () => {
@@ -418,6 +436,9 @@ export default function OrganisationsListPage() {
         sortField,
         sortDir
       });
+      if (groupFilter && groupFilter !== 'all') {
+        params.set('group', groupFilter);
+      }
       if (coreFiltersParam) {
         params.set('coreFilters', coreFiltersParam);
       }
@@ -829,6 +850,7 @@ export default function OrganisationsListPage() {
 
   const resetFilters = () => {
     setSearchQuery('');
+    setGroupFilter('all');
     setCoreFieldFilters({ phone: '', website_url: '', invoicing_email: '', invoicing_address: '' });
     setCustomFieldFilters({});
     setFilterOps({});
@@ -1164,6 +1186,7 @@ export default function OrganisationsListPage() {
   };
 
   const hasActiveFilters = searchQuery || 
+    (groupFilter && groupFilter !== 'all') ||
     Object.values(coreFieldFilters).some(v => v && v.trim() !== '') ||
     Object.values(customFieldFilters).some(isActiveCustomFilterValue) ||
     Object.values(filterOps).some(isEmptinessOp);
@@ -1403,6 +1426,24 @@ export default function OrganisationsListPage() {
 
           <ScrollArea className="flex-1 p-4 min-w-[288px]">
             <div className="space-y-3">
+              <div className="space-y-1.5" data-testid="org-filter-row-group">
+                <Label className="text-[11px] text-slate-600 leading-tight">Organisation Group</Label>
+                <Select
+                  value={groupFilter}
+                  onValueChange={(v) => { setGroupFilter(v); setCurrentPage(1); }}
+                >
+                  <SelectTrigger className="h-8 text-xs" data-testid="select-filter-group">
+                    <SelectValue placeholder="All groups" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All groups</SelectItem>
+                    <SelectItem value="none">No group</SelectItem>
+                    {orgGroups.map(g => (
+                      <SelectItem key={g.id} value={g.id}>{g.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
               {visibleOrderedFilterIds.map(id => {
                 const control = renderOrgFilterControl(id);
                 if (!control) return null;
@@ -1550,6 +1591,15 @@ export default function OrganisationsListPage() {
                     </Button>
                   </>
                 )}
+                <Button
+                  variant="outline"
+                  onClick={() => navigate('/OrganisationGroups')}
+                  className="gap-1"
+                  data-testid="button-organisation-groups"
+                >
+                  <Building2 className="w-4 h-4" />
+                  Groups
+                </Button>
                 <Button 
                   onClick={() => setIsCreatingNew(true)}
                   className="gap-1"
@@ -1846,6 +1896,13 @@ export default function OrganisationsListPage() {
                                 <span className="truncate block" title={addressDisplay !== '-' ? addressDisplay : undefined}>
                                   {addressDisplay}
                                 </span>
+                              </td>
+                            );
+                          }
+                          if (col.id === 'group') {
+                            return (
+                              <td key={col.id} className="px-4 py-3 text-sm text-slate-600" data-testid={`text-org-group-${org.id}`}>
+                                {org.organization_group_name || '-'}
                               </td>
                             );
                           }

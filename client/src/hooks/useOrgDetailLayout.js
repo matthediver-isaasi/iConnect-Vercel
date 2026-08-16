@@ -11,6 +11,7 @@ const DEFAULT_LAYOUT = {
       columns: 1,
       fields: [
         { id: 'core:name', type: 'core', fieldKey: 'name', columnIndex: 0 },
+        { id: 'core:organization_group_id', type: 'core', fieldKey: 'organization_group_id', columnIndex: 0 },
         { id: 'core:description', type: 'core', fieldKey: 'description', columnIndex: 0 }
       ]
     },
@@ -52,6 +53,7 @@ function migrateLayoutWithColumnIndex(layout) {
 
 export const CORE_FIELDS = [
   { id: 'core:name', fieldKey: 'name', label: 'Organisation Name', type: 'text' },
+  { id: 'core:organization_group_id', fieldKey: 'organization_group_id', label: 'Organisation Group', type: 'select' },
   { id: 'core:description', fieldKey: 'description', label: 'Description', type: 'textarea' },
   { id: 'core:email', fieldKey: 'email', label: 'Email', type: 'email' },
   { id: 'core:invoicing_email', fieldKey: 'invoicing_email', label: 'Invoicing Email', type: 'email' },

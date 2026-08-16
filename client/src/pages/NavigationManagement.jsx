@@ -272,6 +272,7 @@ const hardcodedPublicPages = [
   { name: "OrganisationDirectory", label: "Organisation Directory" },
   { name: "OrganisationDirectorySettings", label: "Organisation Directory Settings" },
   { name: "organisations", label: "Organisations (CRM)" },
+  { name: "OrganisationGroups", label: "Organisation Groups" },
   { name: "PageBannerManagement", label: "Page Banners" },
   { name: "PageVisibilitySettings", label: "Page Visibility Settings" },
   { name: "PortalMenuManagement", label: "Portal Menu Management" },

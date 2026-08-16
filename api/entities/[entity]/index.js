@@ -112,6 +112,7 @@ const entityToTable = {
   'Tenant': 'tenant',
   'Member': 'member',
   'Organization': 'organization',
+  'OrganizationGroup': 'organization_group',
   'Event': 'event',
   'Booking': 'booking',
   'ProgramTicketTransaction': 'program_ticket_transaction',
@@ -902,7 +903,7 @@ export default async function handler(req, res) {
               'Vacancy', 'VacancyApplication', 'VacancyAward', 'VacancyDecline', 'VacancyDecisionEmail',
               'Gallery', 'GalleryPhoto', 'CardDeck',
               'MemberGroupActivity', 'ComplexEventSessionCheckin', 'Microsite', 'InstalledFont',
-              'EventAgendaItem', 'EventCostLine'
+              'EventAgendaItem', 'EventCostLine', 'OrganizationGroup'
             ];
             if (entitiesWithoutOrgId.includes(entity)) {
               // SECURITY: Entities without organization_id column MUST have tenant_id - block access if missing
@@ -1113,7 +1114,7 @@ export default async function handler(req, res) {
       // Sanitize empty strings to null for UUID fields to avoid "invalid input syntax for type uuid" errors
       // Only modify fields that are already present in the request body
       const sanitizedBody = { ...req.body };
-      const uuidFields = ['role_id', 'organization_id', 'member_id', 'parent_id', 'form_id', 'event_id', 'related_event_id',
+      const uuidFields = ['role_id', 'organization_id', 'organization_group_id', 'member_id', 'parent_id', 'form_id', 'event_id', 'related_event_id',
                           'category_id', 'template_id', 'workflow_id', 'speaker_id', 'created_by', 'updated_by',
                           'organisation_award_id', 'offline_award_id', 'engagement_award_id', 'award_id'];
       for (const field of uuidFields) {
@@ -1145,6 +1146,22 @@ export default async function handler(req, res) {
         const stripped = stripProtectedOrgBalanceFields(sanitizedBody);
         if (stripped.length > 0) {
           console.warn(`[Entity API] Stripped protected training fund balance field(s) from Organization create: ${stripped.join(', ')}`);
+        }
+        // SECURITY: an organisation may only be assigned to an Organisation
+        // Group belonging to the same tenant (null = ungrouped is fine).
+        if (sanitizedBody.organization_group_id) {
+          const effectiveTenantId = tenantCtx.tenantId || tenantCtx.effectiveTenantId;
+          if (!effectiveTenantId) {
+            return res.status(403).json({ error: 'Tenant context required to assign an organisation group' });
+          }
+          const { data: targetGroup } = await supabase
+            .from('organization_group')
+            .select('id, tenant_id')
+            .eq('id', sanitizedBody.organization_group_id)
+            .single();
+          if (!targetGroup || targetGroup.tenant_id !== effectiveTenantId) {
+            return res.status(403).json({ error: 'Organisation group not found in this tenant' });
+          }
         }
       }
 
@@ -1391,7 +1408,7 @@ export default async function handler(req, res) {
             'Vacancy', 'VacancyApplication', 'VacancyAward', 'VacancyDecline', 'VacancyDecisionEmail',
             'Gallery', 'GalleryPhoto', 'CardDeck',
             'SupportTicket', 'SupportTicketResponse', 'Microsite', 'InstalledFont',
-            'EventAgendaItem', 'EventCostLine'
+            'EventAgendaItem', 'EventCostLine', 'OrganizationGroup'
           ];
           if (!entitiesWithoutOrgId.includes(entity)) {
             const entitiesWithExplicitOrgId = ['Member', 'Voucher', 'VoucherTransaction', 'TrainingFundTransaction'];

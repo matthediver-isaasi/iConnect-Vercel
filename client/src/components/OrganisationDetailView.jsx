@@ -344,7 +344,8 @@ export default function OrganisationDetailView({
     website_url: '',
     invoicing_email: '',
     invoicing_address: '',
-    description: ''
+    description: '',
+    organization_group_id: ''
   });
   const [customFieldValues, setCustomFieldValues] = useState({});
 
@@ -374,7 +375,8 @@ export default function OrganisationDetailView({
         website_url: organization.website_url || '',
         invoicing_email: organization.invoicing_email || '',
         invoicing_address: organization.invoicing_address || '',
-        description: organization.description || ''
+        description: organization.description || '',
+        organization_group_id: organization.organization_group_id || ''
       });
     }
   }, [organization, isEditing]);
@@ -395,6 +397,20 @@ export default function OrganisationDetailView({
   });
   
   const orgMembers = useMemo(() => orgMembersRaw.filter(m => !isDeletedMember(m)), [orgMembersRaw]);
+
+  // Organisation Groups for the group selector / display (tenant-scoped server-side).
+  const EMPTY_GROUPS = useMemo(() => [], []);
+  const { data: orgGroups = EMPTY_GROUPS } = useQuery({
+    queryKey: ['/api/entities/OrganizationGroup'],
+    enabled: isAccessReady,
+    queryFn: async () => {
+      try {
+        return await base44.entities.OrganizationGroup.list({ sort: { name: 'asc' } });
+      } catch {
+        return [];
+      }
+    }
+  });
 
   const { data: orgValues = [], isLoading: valuesLoading } = useQuery({
     queryKey: ['org-detail-preference-values', organization?.id],
@@ -1458,6 +1474,38 @@ export default function OrganisationDetailView({
       );
     }
     
+    if (fieldKey === 'organization_group_id') {
+      const currentGroup = orgGroups.find(g => g.id === (isEditing ? value : organization?.organization_group_id));
+      return (
+        <div className="space-y-2">
+          <Label className="text-slate-500 flex items-center gap-1">
+            <Building2 className="w-3 h-3" /> {label}{lockBadge}
+          </Label>
+          {isEditing ? (
+            <Select
+              value={value || 'none'}
+              onValueChange={(v) => setFormData(prev => ({ ...prev, organization_group_id: v === 'none' ? '' : v }))}
+              disabled={isLocked}
+            >
+              <SelectTrigger data-testid="select-organisation-group">
+                <SelectValue placeholder="No group" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">No group</SelectItem>
+                {orgGroups.map(g => (
+                  <SelectItem key={g.id} value={g.id}>{g.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          ) : (
+            <div className="min-h-9 px-3 py-2 text-sm border border-slate-200 rounded-md bg-slate-50/50 flex items-center" data-testid="text-organisation-group">
+              {currentGroup?.name || '-'}
+            </div>
+          )}
+        </div>
+      );
+    }
+
     if (fieldKey === 'created_at') {
       const dateValue = organization?.created_at;
       return (

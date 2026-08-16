@@ -275,8 +275,18 @@ export default async function handler(req, res) {
       .filter(([, entry]) => entry !== null);
     const hasCustomFilters = normalizedCustomFilters.length > 0;
 
+    // Organisation group names, resolved once per export (tenant-scoped).
+    const groupNameById = {};
+    {
+      const { data: groupRows } = await supabase
+        .from('organization_group')
+        .select('id, name')
+        .eq('tenant_id', tenantId);
+      for (const g of groupRows || []) groupNameById[g.id] = g.name;
+    }
+
     const coreHeaders = [
-      'id', 'name', 'slug', 'description', 'website_url', 'logo_url',
+      'id', 'name', 'slug', 'organisation_group', 'description', 'website_url', 'logo_url',
       'email', 'phone', 'address', 'city', 'country', 'postcode',
       'invoicing_email', 'invoicing_address',
       'training_fund_balance', 'is_active', 'external_id',
@@ -364,6 +374,9 @@ export default async function handler(req, res) {
             } catch {}
           }
           return String(val);
+        }
+        if (field === 'organisation_group') {
+          return (org.organization_group_id && groupNameById[org.organization_group_id]) || '';
         }
         if (field === 'is_active') {
           return org[field] === false ? 'No' : 'Yes';

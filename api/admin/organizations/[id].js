@@ -87,7 +87,8 @@ export default async function handler(req, res) {
 
     const allowedFields = [
       'logo_url', 'name', 'description', 'website_url',
-      'phone', 'invoicing_email', 'invoicing_address'
+      'phone', 'invoicing_email', 'invoicing_address',
+      'organization_group_id'
     ];
 
     const updates = {};
@@ -99,6 +100,30 @@ export default async function handler(req, res) {
 
     if (Object.keys(updates).length === 0) {
       return res.status(400).json({ error: 'No valid fields to update' });
+    }
+
+    // SECURITY: an organisation may only be assigned to an Organisation Group
+    // belonging to the same tenant. Clearing (null/'') is always allowed.
+    if ('organization_group_id' in updates) {
+      if (updates.organization_group_id === '') updates.organization_group_id = null;
+      if (updates.organization_group_id) {
+        const { data: orgRow } = await supabase
+          .from('organization')
+          .select('tenant_id')
+          .eq('id', orgId)
+          .single();
+        if (!orgRow?.tenant_id) {
+          return res.status(404).json({ error: 'Organisation not found' });
+        }
+        const { data: targetGroup } = await supabase
+          .from('organization_group')
+          .select('id, tenant_id')
+          .eq('id', updates.organization_group_id)
+          .single();
+        if (!targetGroup || targetGroup.tenant_id !== orgRow.tenant_id) {
+          return res.status(403).json({ error: 'Organisation group not found in this tenant' });
+        }
+      }
     }
 
     const { data: updatedOrg, error: updateError } = await supabase

@@ -1,0 +1,21 @@
+{
+    "name": "OrganizationGroup",
+    "type": "object",
+    "properties": {
+      "name": {
+        "type": "string",
+        "description": "Organisation group name (e.g. an NHS Trust grouping its hospital organisations)"
+      },
+      "description": {
+        "type": "string",
+        "description": "Optional description of the group"
+      },
+      "logo_url": {
+        "type": "string",
+        "description": "URL to group logo image"
+      }
+    },
+    "required": [
+      "name"
+    ]
+  }

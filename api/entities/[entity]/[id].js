@@ -34,6 +34,7 @@ const entityToTable = {
   'Tenant': 'tenant',
   'Member': 'member',
   'Organization': 'organization',
+  'OrganizationGroup': 'organization_group',
   'Event': 'event',
   'Booking': 'booking',
   'ProgramTicketTransaction': 'program_ticket_transaction',
@@ -342,7 +343,7 @@ export default async function handler(req, res) {
             'CrmTagColor',
             'Gallery', 'GalleryPhoto', 'CardDeck',
             'MemberGroupActivity', 'Microsite', 'InstalledFont',
-            'EventAgendaItem', 'EventCostLine'
+            'EventAgendaItem', 'EventCostLine', 'OrganizationGroup'
           ];
           if (tenantCtx.tenantId) {
             query = query.eq('tenant_id', tenantCtx.tenantId);
@@ -576,7 +577,7 @@ export default async function handler(req, res) {
                 'CrmTagColor',
                 'Gallery', 'GalleryPhoto', 'CardDeck',
                 'MemberGroupActivity', 'Microsite', 'InstalledFont',
-            'EventAgendaItem', 'EventCostLine'
+            'EventAgendaItem', 'EventCostLine', 'OrganizationGroup'
               ];
               if (tenantCtx.tenantId) {
                 beforeQuery = beforeQuery.eq('tenant_id', tenantCtx.tenantId);
@@ -596,7 +597,7 @@ export default async function handler(req, res) {
       // Sanitize empty strings to null for UUID fields to avoid "invalid input syntax for type uuid" errors
       // Only modify fields that are already present in the request body
       const sanitizedBody = { ...req.body };
-      const uuidFields = ['role_id', 'organization_id', 'member_id', 'parent_id', 'form_id', 'event_id', 'related_event_id',
+      const uuidFields = ['role_id', 'organization_id', 'organization_group_id', 'member_id', 'parent_id', 'form_id', 'event_id', 'related_event_id',
                           'category_id', 'template_id', 'workflow_id', 'speaker_id', 'created_by', 'updated_by'];
       for (const field of uuidFields) {
         if (field in sanitizedBody && sanitizedBody[field] === '') {
@@ -748,6 +749,22 @@ export default async function handler(req, res) {
         const strippedBalanceFields = stripProtectedOrgBalanceFields(sanitizedBody);
         if (strippedBalanceFields.length > 0) {
           console.warn(`[Entity API] Stripped protected training fund balance field(s) from Organization update ${id}: ${strippedBalanceFields.join(', ')}`);
+        }
+        // SECURITY: an organisation may only be assigned to an Organisation
+        // Group belonging to the same tenant. Clearing (null) is always allowed.
+        if ('organization_group_id' in sanitizedBody && sanitizedBody.organization_group_id) {
+          const orgTenantId = beforeData?.tenant_id || tenantCtx?.tenantId || null;
+          if (!orgTenantId) {
+            return res.status(400).json({ error: 'Tenant context required to assign an organisation group' });
+          }
+          const { data: targetGroup, error: targetGroupError } = await supabase
+            .from('organization_group')
+            .select('id, tenant_id')
+            .eq('id', sanitizedBody.organization_group_id)
+            .single();
+          if (targetGroupError || !targetGroup || targetGroup.tenant_id !== orgTenantId) {
+            return res.status(403).json({ error: 'Organisation group not found in this tenant' });
+          }
         }
       }
 
@@ -1147,7 +1164,7 @@ export default async function handler(req, res) {
             'CrmTagColor',
             'Gallery', 'GalleryPhoto', 'CardDeck',
             'MemberGroupActivity', 'Microsite', 'InstalledFont',
-            'EventAgendaItem', 'EventCostLine'
+            'EventAgendaItem', 'EventCostLine', 'OrganizationGroup'
           ];
           if (tenantCtx.tenantId) {
             patchQuery = patchQuery.eq('tenant_id', tenantCtx.tenantId);
@@ -1726,7 +1743,7 @@ export default async function handler(req, res) {
             'CrmTagColor',
             'Gallery', 'GalleryPhoto', 'CardDeck',
             'MemberGroupActivity', 'Microsite', 'InstalledFont',
-            'EventAgendaItem', 'EventCostLine'
+            'EventAgendaItem', 'EventCostLine', 'OrganizationGroup'
           ];
           if (tenantCtx.tenantId) {
             verifyQuery = verifyQuery.eq('tenant_id', tenantCtx.tenantId);

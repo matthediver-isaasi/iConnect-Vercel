@@ -5,6 +5,8 @@ export const Member = base44.entities.Member;
 
 export const Organization = base44.entities.Organization;
 
+export const OrganizationGroup = base44.entities.OrganizationGroup;
+
 export const Event = base44.entities.Event;
 
 export const Booking = base44.entities.Booking;

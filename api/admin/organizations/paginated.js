@@ -77,6 +77,8 @@ export default async function handler(req, res) {
       invoicing_address = '',
       sortField = 'name',
       sortDir = 'asc',
+      // Organisation Group filter: a group uuid, or 'none' for ungrouped orgs.
+      group = '',
       customFilters = '',
       coreFilters = '',
       fields = '',
@@ -145,6 +147,11 @@ export default async function handler(req, res) {
       query = query.eq('tenant_id', tenantId);
       if (drillIds.length > 0) {
         query = query.in('id', drillIds);
+      }
+      if (group === 'none') {
+        query = query.is('organization_group_id', null);
+      } else if (group && UUID_RE.test(group)) {
+        query = query.eq('organization_group_id', group);
       }
       customFilterEntries.forEach(([fieldId, entry], idx) => {
         const alias = `cf${idx}`;
@@ -304,9 +311,26 @@ export default async function handler(req, res) {
       }
     }
 
+    // Resolve organisation group names for this page (tenant-scoped lookup).
+    const groupNameById = {};
+    const pageGroupIds = [...new Set(pageOrgs.map((o) => o.organization_group_id).filter(Boolean))];
+    if (pageGroupIds.length > 0) {
+      const { data: groupRows, error: groupErr } = await supabase
+        .from('organization_group')
+        .select('id, name')
+        .eq('tenant_id', tenantId)
+        .in('id', pageGroupIds);
+      if (groupErr) {
+        console.error('[OrgsPaginated] group name query error:', groupErr);
+      } else {
+        for (const g of groupRows || []) groupNameById[g.id] = g.name;
+      }
+    }
+
     const organizations = pageOrgs.map((o) => ({
       ...o,
       member_count: o.member_count || 0,
+      organization_group_name: (o.organization_group_id && groupNameById[o.organization_group_id]) || null,
       custom_fields: customFieldValuesByOrg[o.id] || {}
     }));
 
