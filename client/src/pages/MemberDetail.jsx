@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { base44 } from "@/api/base44Client";
 import { useState, useEffect, useMemo } from "react";
 import { supabase } from "@/api/supabaseClient";
-import { Loader2, ArrowLeft, User, Pencil, Save, X, Building2, Mail, Smartphone, PhoneCall, Briefcase, Shield, CalendarDays, LogIn, Users, Globe, ClipboardList, FolderTree, Trophy, StickyNote, Plus, Search, MessageSquare, Trash2, ChevronLeft, ChevronRight, Key, Copy, Check, UserCheck, LayoutGrid, ChevronDown, ChevronUp, ExternalLink, AlertTriangle, Wallet, Settings2, Tag, Lock, ClipboardCheck, Eye } from "lucide-react";
+import { Loader2, ArrowLeft, User, Pencil, Save, X, Building2, Mail, Smartphone, PhoneCall, Briefcase, Shield, CalendarDays, LogIn, Users, Globe, ClipboardList, FolderTree, Trophy, StickyNote, Plus, Search, MessageSquare, Trash2, ChevronLeft, ChevronRight, Key, Copy, Check, UserCheck, LayoutGrid, ChevronDown, ChevronUp, ExternalLink, AlertTriangle, Wallet, Settings2, Tag, Lock, ClipboardCheck, Eye, GitMerge } from "lucide-react";
 import MemberEmails from "@/components/MemberEmails";
 import MemberActivityTimeline from "@/components/MemberActivityTimeline";
 import MemberMembershipTab from "@/components/MemberMembershipTab";
@@ -16,6 +16,7 @@ import MemberDetailLayoutEditor from "@/components/MemberDetailLayoutEditor";
 import { useMemberTerminology } from "@/contexts/MemberTerminologyContext";
 import { useMemberFieldVisibilityRules, evaluateVisibilityRules } from "@/hooks/useMemberFieldVisibilityRules";
 import MemberFieldVisibilityRulesEditor from "@/components/MemberFieldVisibilityRulesEditor";
+import MemberMergeDialog from "@/components/MemberMergeDialog";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -208,6 +209,7 @@ export default function MemberDetail() {
 
   // Delete member state
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [showMergeDialog, setShowMergeDialog] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
 
   // Communications state
@@ -1561,6 +1563,12 @@ export default function MemberDetail() {
                 <Pencil className="w-4 h-4 mr-1" />
                 Edit
               </Button>
+              {!member?.is_guest && (
+                <Button variant="outline" size="sm" onClick={() => setShowMergeDialog(true)} data-testid="button-merge-member">
+                  <GitMerge className="w-4 h-4 mr-1" />
+                  Merge
+                </Button>
+              )}
               <Button 
                 variant="outline" 
                 size="icon" 
@@ -2710,6 +2718,22 @@ export default function MemberDetail() {
       </AlertDialog>
 
       {/* Delete Member Confirmation Dialog */}
+      <MemberMergeDialog
+        open={showMergeDialog}
+        onOpenChange={setShowMergeDialog}
+        currentMember={member}
+        customFields={memberCustomFields}
+        organizations={organizations}
+        onMerged={(result, { sourceId, targetId }) => {
+          queryClient.invalidateQueries();
+          // If the record we're viewing was the source and it got removed,
+          // send the admin to the kept (target) record instead.
+          if (sourceId === id && result?.summary?.sourceOutcome !== 'keep') {
+            window.location.href = `${listPath}/${targetId}`;
+          }
+        }}
+      />
+
       <Dialog open={showDeleteDialog} onOpenChange={(open) => { if (!open) { setShowDeleteDialog(false); setDeleteConfirmText(''); } }}>
         <DialogContent>
           <DialogHeader>

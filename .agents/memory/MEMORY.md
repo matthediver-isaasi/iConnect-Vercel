@@ -153,4 +153,5 @@
 - [Form processor tenant scoping](form-processor-tenant-scope.md) — body tenant_id is client-controlled; resolve tenant from persisted form/submission BEFORE any tenant-scoped query, reject mismatches 403.
 - [SECURITY DEFINER RPC grants](security-definer-rpc-grants.md) — new Postgres functions are PUBLIC-executable by default; server-only RPCs must revoke PUBLIC + validate inputs in SQL.
 - [Member membership pause](member-membership-pause.md) — pause blocks access via its own flag (login_enabled never rewritten); GC resume only touches subs pause recorded; all reads 42703-tolerant.
+- [member_note column contract](member-note-columns.md) — notes key via target_member_id/author_member_id (+attachments); member_id/created_by inserts fail silently — always check {error}.
 - [Demo tenant seed framework](demo-seed-framework.md) — demo-seeds/ engine+definitions; RNG plan-then-persist, manifest in system_settings (string!), member deletes need tiny batches.
