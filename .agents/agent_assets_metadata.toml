@@ -91,3 +91,10 @@ uri = "file://.local/reports/bnms-memberships-unpaid-invoices.csv"
 type = "table"
 title = "BNMS Memberships — unpaid invoices"
 description = "21 unpaid (AUTHORISED) Xero invoices with Projects=MEMBERSHIPS since 1 Jan 2025; £6,578.80 outstanding."
+
+[[outputs]]
+id = "8knhZEEwY0VeFSncM0VnW"
+uri = "file://exports/bnms-memberships-invoices.csv"
+type = "table"
+title = "BNMS MEMBERSHIPS Invoices (2025-01-01 onward)"
+description = "7,379 Xero invoices with Projects = MEMBERSHIPS tracking. Columns: InvoiceNumber, Contact, Date, Status, SubTotal, Tax, Total, AmountDue, Currency, Reference."
