@@ -150,6 +150,9 @@ export default function OrganisationGroupDetailView({ group, orgs = EMPTY_ARR, o
       setIsEditing(false);
       queryClient.invalidateQueries({ queryKey: ['/api/entities/OrganizationGroup'] });
       queryClient.invalidateQueries({ queryKey: ['org-group-detail-preference-values', groupId] });
+      // Invalidate the list-level values cache so the Groups list reflects the
+      // newly saved values in its columns and filter results immediately.
+      queryClient.invalidateQueries({ queryKey: ['org-groups-all-preference-values'] });
     },
     onError: (e) => toast.error(e.message || 'Failed to save group')
   });

@@ -564,10 +564,10 @@ function CustomFieldsManager({ queryClient, entityScope, title, description }) {
       default_countries: validDefaultCountries,
       show_in_my_organisation: entityScope === 'organization' ? showInMyOrganisation : true,
       show_in_directory_card: entityScope === 'organization' ? directoryVisibility.includes('main') : true,
-      show_in_admin_column: entityScope === 'organization' ? showInAdminColumn : true,
-      show_in_admin_filter: entityScope === 'organization' ? showInAdminFilter : true,
+      show_in_admin_column: (entityScope === 'organization' || entityScope === 'organization_group') ? showInAdminColumn : true,
+      show_in_admin_filter: (entityScope === 'organization' || entityScope === 'organization_group') ? showInAdminFilter : true,
       // Mirror the legacy admin-list flag so any other readers keep working.
-      show_in_admin_list: entityScope === 'organization' ? (showInAdminColumn || showInAdminFilter) : true,
+      show_in_admin_list: (entityScope === 'organization' || entityScope === 'organization_group') ? (showInAdminColumn || showInAdminFilter) : true,
       show_in_my_preferences: entityScope === 'member' ? showInMyPreferences : true,
       show_in_member_directory: entityScope === 'member' ? directoryVisibility.includes('main') : true,
       show_in_member_admin_column: entityScope === 'member' ? showInMemberAdminColumn : true,
@@ -784,6 +784,25 @@ function CustomFieldsManager({ queryClient, entityScope, title, description }) {
                               )}
                             </div>
                             <p className="text-sm text-slate-500 mt-1">Field name: {field.name}</p>
+                            {entityScope === 'organization_group' && (() => {
+                              const adminCol = isOrgAdminColumnVisible(field);
+                              const adminFilter = isOrgAdminFilterVisible(field);
+                              const hasAny = adminCol || adminFilter;
+                              return (
+                                <div className="flex items-center gap-2 mt-1 flex-wrap">
+                                  <span className="text-xs text-slate-400">Visible in:</span>
+                                  {adminCol && (
+                                    <span className="text-xs bg-warning/10 text-warning px-1.5 py-0.5 rounded">Groups list column</span>
+                                  )}
+                                  {adminFilter && (
+                                    <span className="text-xs bg-warning/10 text-warning px-1.5 py-0.5 rounded">Groups list filter</span>
+                                  )}
+                                  {!hasAny && (
+                                    <span className="text-xs text-slate-400 italic">None</span>
+                                  )}
+                                </div>
+                              );
+                            })()}
                             {entityScope === 'organization' && (() => {
                               const dirVis = parseDirectoryVisibility(field, 'organization');
                               const dirLabels = parseDirectoryLabelOverrides(field);
@@ -1464,6 +1483,41 @@ function CustomFieldsManager({ queryClient, entityScope, title, description }) {
                     {dynamicDirectories.length === 0 && (
                       <p className="text-xs text-slate-400 italic">No dynamic directories configured for organisations</p>
                     )}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {entityScope === 'organization_group' && (
+              <div className="space-y-3 p-3 bg-slate-50 rounded-lg border border-slate-200">
+                <Label className="text-sm font-medium">Groups List Visibility</Label>
+                <p className="text-xs text-slate-500 -mt-1">
+                  Control whether this field appears in the Organisation Groups list
+                </p>
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <Label htmlFor="showGroupAdminColumn" className="cursor-pointer text-sm">Show as column in Groups list</Label>
+                      <p className="text-xs text-slate-400">Displays this field's value alongside each group in the list</p>
+                    </div>
+                    <Switch
+                      id="showGroupAdminColumn"
+                      checked={showInAdminColumn}
+                      onCheckedChange={setShowInAdminColumn}
+                      data-testid="switch-show-group-admin-column"
+                    />
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <Label htmlFor="showGroupAdminFilter" className="cursor-pointer text-sm">Show as filter in Groups list</Label>
+                      <p className="text-xs text-slate-400">Appears as a filter control above the Organisation Groups list</p>
+                    </div>
+                    <Switch
+                      id="showGroupAdminFilter"
+                      checked={showInAdminFilter}
+                      onCheckedChange={setShowInAdminFilter}
+                      data-testid="switch-show-group-admin-filter"
+                    />
                   </div>
                 </div>
               </div>
