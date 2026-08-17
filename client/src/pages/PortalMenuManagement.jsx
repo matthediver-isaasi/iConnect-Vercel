@@ -55,6 +55,7 @@ const availableIcons = {
 // Pages whose Role Access ID should default to a specific RBAC key when selected.
 const PAGE_DEFAULT_FEATURES = {
   EventBudgetReport: "events.event-budget-report",
+  OrganisationGroups: "crm.organisation-groups",
 };
 
 const builtInPages = [
@@ -154,6 +155,7 @@ const builtInPages = [
   { value: "NewsView", label: "News View" },
   { value: "OrganisationDirectory", label: "Organisation Directory" },
   { value: "OrganisationDirectorySettings", label: "Organisation Directory Settings" },
+  { value: "OrganisationGroups", label: "Organisation Groups" },
   { value: "OrganisationPreferences", label: "Organisation Field Permissions" },
   { value: "MemberPreferences", label: "Member Field Permissions" },
   { value: "organisations", label: "Organisations (CRM)" },
