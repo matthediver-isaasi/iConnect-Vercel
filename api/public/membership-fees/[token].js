@@ -964,6 +964,21 @@ export default async function handler(req, res) {
                     .eq('id', historyRecord.id);
                 } catch {}
               }
+            } else if (await (async () => {
+              // Task #3633: a history row linked to a per-instalment monthly
+              // plan gets one small invoice per collection — never an annual
+              // invoice. FAIL CLOSED: if the mode can't be verified, withhold
+              // the invoice (the reconcile cron re-checks later) rather than
+              // risk double-invoicing.
+              const { annualInvoiceSuppressionDecision } = await import('../../_lib/membershipInstalmentInvoicing.js');
+              const decision = await annualInvoiceSuppressionDecision(historyRecord);
+              if (decision.indeterminate) {
+                console.error('[Public Fee] Invoicing-mode check failed — annual invoice withheld:', decision.error);
+                accountingSyncError = `annual invoice withheld — could not verify invoicing mode: ${decision.error}`;
+              }
+              return decision.suppress;
+            })()) {
+              console.log('[Public Fee] Annual invoice suppressed (per-instalment monthly plan or unverifiable mode)');
             } else {
               const { getAccountingProvider, buildInvoiceColumnUpdate } = await import('../../_lib/accountingProvider.js');
               let invoicingName;

@@ -26,6 +26,7 @@ import {
   cardPlanNeedsSettlement,
   settleCardPlanCompletion,
 } from '../_lib/stripeMonthlyCard.js';
+import { postStripeInstalmentInvoice } from '../_lib/membershipInstalmentInvoicing.js';
 
 const CHECKOUT_PENDING_STALE_HOURS = 6;
 const PLAN_STALE_DAYS = 2;
@@ -81,6 +82,7 @@ export default async function handler(req, res) {
   try {
     await reconcileStaleCheckouts(results);
     await reconcileStalePlans(results);
+    await retryFailedInstalmentInvoices(results);
   } catch (err) {
     console.error('[cron/reconcile-stripe-card-plans] fatal:', err);
     results.errors++;
@@ -120,6 +122,63 @@ async function replayEvent(tenantId, event) {
   const clients = stripeClients(creds);
   const getStripe = async () => clients[0] || null;
   return processStripeCardPlanEvent(event, { db: supabase, getStripe, baseUrl: '' });
+}
+
+// Task #3633 — retry per-instalment accounting invoices that previously
+// failed (or were inserted but never attempted). The posting helper is
+// idempotent on the row's invoice linkage, so retries can never duplicate.
+async function retryFailedInstalmentInvoices(results) {
+  let rows = null;
+  try {
+    const staleCutoff = new Date(Date.now() - 15 * 60_000).toISOString();
+    const { data, error } = await supabase
+      .from('membership_instalment_invoices')
+      .select('*')
+      .eq('provider', 'stripe')
+      .or(`accounting_sync_status.in.(failed,pending,invoice_unpaid),and(accounting_sync_status.eq.posting,updated_at.lt.${staleCutoff})`)
+      .order('updated_at', { ascending: true })
+      .limit(MAX_ROWS_PER_GROUP);
+    if (error) {
+      // Pre-migration — nothing to retry.
+      if (error.code === '42P01') return;
+      throw new Error(`load failed instalment invoices failed: ${error.message}`);
+    }
+    rows = data;
+  } catch (err) {
+    results.errors++;
+    results.details.push({ error: err.message });
+    return;
+  }
+
+  for (const row of rows || []) {
+    try {
+      const { data: agreement } = await supabase
+        .from('membership_billing_agreements')
+        .select('*')
+        .eq('id', row.billing_agreement_id)
+        .maybeSingle();
+      if (!agreement) { results.skipped++; continue; }
+      const outcome = await postStripeInstalmentInvoice({
+        agreement,
+        plan: row.plan_id ? { id: row.plan_id } : null,
+        stripeInvoiceId: row.external_payment_id,
+        amountMinor: row.amount_minor,
+        currency: row.currency,
+      }, { reclaimStale: true });
+      if (outcome.status === 'posted') {
+        results.repaired++;
+        results.details.push({ instalmentInvoice: row.id, repaired: 'per-instalment invoice posted on retry' });
+      } else {
+        results.skipped++;
+        if (outcome.status === 'failed') {
+          results.details.push({ instalmentInvoice: row.id, error: `retry failed: ${outcome.reason}` });
+        }
+      }
+    } catch (err) {
+      results.errors++;
+      results.details.push({ instalmentInvoice: row.id, error: err.message });
+    }
+  }
 }
 
 // Group 1 — agreements stuck pending checkout.

@@ -59,6 +59,49 @@ function shapePlan(plan) {
   };
 }
 
+// Task #3633 — per-instalment invoices for a monthly plan. GC instalments
+// live on gocardless_payments (accounting_* columns); Stripe instalments on
+// membership_instalment_invoices. Best-effort: table/column drift returns [].
+async function loadInstalmentInvoices(shapedPlan) {
+  try {
+    if (shapedPlan.provider === 'stripe') {
+      const { data, error } = await supabase
+        .from('membership_instalment_invoices')
+        .select('external_payment_id, amount_minor, currency, accounting_invoice_number, accounting_sync_status, accounting_sync_error, accounting_synced_at, created_at')
+        .eq('plan_id', shapedPlan.id)
+        .order('created_at', { ascending: true });
+      if (error) return [];
+      return (data || []).map((r) => ({
+        paymentRef: r.external_payment_id,
+        amount: r.amount_minor != null ? r.amount_minor / 100 : null,
+        currency: r.currency,
+        invoiceNumber: r.accounting_invoice_number,
+        syncStatus: r.accounting_sync_status,
+        syncError: r.accounting_sync_status === 'failed' ? r.accounting_sync_error : null,
+        date: r.accounting_synced_at || r.created_at,
+      }));
+    }
+    const { data, error } = await supabase
+      .from('gocardless_payments')
+      .select('gocardless_payment_id, amount_minor, charge_date, confirmed_at, status, accounting_invoice_number, accounting_sync_status, accounting_sync_error, accounting_synced_at')
+      .eq('plan_id', shapedPlan.id)
+      .in('status', ['confirmed', 'paid_out'])
+      .order('charge_date', { ascending: true });
+    if (error) return [];
+    return (data || []).map((r) => ({
+      paymentRef: r.gocardless_payment_id,
+      amount: r.amount_minor != null ? r.amount_minor / 100 : null,
+      currency: shapedPlan.currency,
+      invoiceNumber: r.accounting_invoice_number,
+      syncStatus: r.accounting_sync_status,
+      syncError: r.accounting_sync_status === 'failed' ? r.accounting_sync_error : null,
+      date: r.confirmed_at || r.charge_date,
+    }));
+  } catch {
+    return [];
+  }
+}
+
 async function handleMemberView(req, res) {
   const { memberId } = req.query;
   if (!memberId) return res.status(400).json({ error: 'memberId is required' });
@@ -98,6 +141,14 @@ async function handleMemberView(req, res) {
       || plan.membership_billing_agreements?.metadata?.card
       || null,
   }));
+
+  // Task #3633: per-instalment invoicing mode — surface each collection's
+  // own accounting invoice (number + sync status) on the plan.
+  for (const plan of shaped) {
+    if (plan.terms?.invoicing_mode === 'per_instalment') {
+      plan.instalmentInvoices = await loadInstalmentInvoices(plan);
+    }
+  }
 
   // Count confirmed collections against the newest plan.
   let paymentsMade = 0;

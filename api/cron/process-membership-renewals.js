@@ -10,6 +10,7 @@ import { processTenantReminders } from '../_lib/membershipReminders.js';
 import { processTenantDdRenewals } from '../_lib/gocardlessDdRenewals.js';
 import { processTenantCardRenewals } from '../_lib/stripeCardRenewals.js';
 import { getPausedMemberIdSet, processPauseAutoRestarts } from '../_lib/memberPause.js';
+import { shouldSuppressAnnualInvoice } from '../_lib/membershipInstalmentInvoicing.js';
 
 export default async function handler(req, res) {
   const authHeader = req.headers.authorization;
@@ -401,6 +402,22 @@ async function invoiceExistingRecord(tenantId, orgId, simResult, results) {
     .single();
 
   if (!record) return;
+
+  // Task #3633: a row linked to a per-instalment monthly plan is invoiced
+  // one small invoice per collection — never raise an annual invoice for it.
+  try {
+    if (await shouldSuppressAnnualInvoice(record)) {
+      results.skipped++;
+      results.details.push({ tenantId, orgId, status: 'skipped', reason: `Membership ${record.membership_year} is on a per-instalment monthly plan — annual invoice suppressed` });
+      return;
+    }
+  } catch (suppressErr) {
+    // FAIL CLOSED: if we can't determine the invoicing mode, withhold the
+    // annual invoice — the next cron run retries; a wrong invoice wouldn't.
+    results.skipped++;
+    results.details.push({ tenantId, orgId, status: 'skipped', reason: `Annual invoice withheld — could not verify invoicing mode: ${suppressErr.message}` });
+    return;
+  }
 
   let bandVatRate = simResult.taxType || record.vat_rate || null;
   if (!bandVatRate && record.band_id) {
@@ -1278,6 +1295,20 @@ async function invoiceExistingMemberRecord(tenantId, memberId, simResult, result
     .single();
 
   if (!record) return;
+
+  // Task #3633: per-instalment monthly plan rows never get an annual invoice.
+  try {
+    if (await shouldSuppressAnnualInvoice(record)) {
+      results.skipped++;
+      results.details.push({ tenantId, memberId, type: 'member', status: 'skipped', reason: `Membership ${record.membership_year} is on a per-instalment monthly plan — annual invoice suppressed` });
+      return;
+    }
+  } catch (suppressErr) {
+    // FAIL CLOSED: withhold the annual invoice when the mode is unknowable.
+    results.skipped++;
+    results.details.push({ tenantId, memberId, type: 'member', status: 'skipped', reason: `Annual invoice withheld — could not verify invoicing mode: ${suppressErr.message}` });
+    return;
+  }
 
   let bandVatRate = simResult.taxType || record.vat_rate || null;
   if (!bandVatRate && record.band_id) {

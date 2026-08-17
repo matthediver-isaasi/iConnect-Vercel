@@ -25,6 +25,12 @@ import {
   PROVIDER_XERO,
 } from './accountingProvider.js';
 import { membershipHistoryTableForAgreement } from './gocardlessDirectDebit.js';
+import {
+  isPerInstalmentAgreement,
+  mintOrPayInstalmentInvoice,
+  buildInstalmentOutcomePatch,
+  claimableStatuses,
+} from './membershipInstalmentInvoicing.js';
 
 const BANK_SETTING_KEYS = {
   xero: 'xero_gocardless_bank_account_code',
@@ -64,6 +70,61 @@ export async function postDdInstalmentToAccounting({ agreement, paymentRow }, de
     if (!provider || provider.name === PROVIDER_NONE) {
       await setSyncStatus(db, paymentRow.id, { accounting_sync_status: 'skipped', accounting_sync_error: 'no accounting provider connected' });
       return { status: 'skipped', reason: 'no accounting provider connected' };
+    }
+
+    const instAmountMinor = paymentRow.amount_minor;
+
+    // Task #3633: per-instalment invoicing mode — this instalment gets its
+    // OWN small paid invoice instead of being applied to an annual invoice.
+    if (isPerInstalmentAgreement(agreement)) {
+      if (!Number.isInteger(instAmountMinor) || instAmountMinor <= 0) {
+        await setSyncStatus(db, paymentRow.id, { accounting_sync_status: 'failed', accounting_sync_error: 'payment row has no positive amount_minor' });
+        return { status: 'failed', reason: 'missing amount' };
+      }
+
+      // Atomic claim: CAS the payment row's sync status to 'posting'. Only
+      // one concurrent webhook/reconcile caller wins; a crashed 'posting'
+      // claim is only reclaimable via the reconcile cron (reclaimStale).
+      const { data: claimed, error: claimErr } = await db
+        .from('gocardless_payments')
+        .update({ accounting_sync_status: 'posting', updated_at: new Date().toISOString() })
+        .eq('id', paymentRow.id)
+        .or(`accounting_sync_status.is.null,accounting_sync_status.in.(${claimableStatuses({ reclaimStale: deps.reclaimStale === true }).join(',')})`)
+        .select('id, accounting_invoice_id, accounting_invoice_number');
+      if (claimErr) throw new Error(`claim payment row failed: ${claimErr.message}`);
+      const claimedRow = claimed?.[0];
+      if (!claimedRow) return { status: 'skipped', reason: 'already posted or another worker is posting' };
+
+      try {
+        const snapshot = agreement.metadata?.dd || agreement.metadata?.card || null;
+        const outcome = await mintOrPayInstalmentInvoice({
+          provider,
+          agreement,
+          snapshot,
+          amountMinor: instAmountMinor,
+          reference: `Membership ${snapshot?.membership_year || ''} - DD instalment ${paymentRow.gocardless_payment_id}`.trim(),
+          paymentReference: `GoCardless DD: ${paymentRow.gocardless_payment_id}`,
+          existingInvoiceId: claimedRow.accounting_invoice_id || paymentRow.accounting_invoice_id || null,
+          existingInvoiceNumber: claimedRow.accounting_invoice_number || paymentRow.accounting_invoice_number || null,
+          idempotencyKey: `mii-gc-${paymentRow.gocardless_payment_id || paymentRow.id}`,
+          bankAccountSettingKey: BANK_SETTING_KEYS[provider.name] || null,
+          // The GC rail must use ITS OWN bank account — never fall back to
+          // the Stripe one; a missing setting surfaces as invoice_unpaid.
+          strictBankAccount: true,
+          db,
+        });
+        await setSyncStatus(db, paymentRow.id, buildInstalmentOutcomePatch({ providerName: provider.name, ...outcome }));
+        return outcome.paymentRecorded
+          ? { status: 'posted' }
+          : { status: 'invoice_unpaid', reason: 'invoice created but payment not recorded' };
+      } catch (instErr) {
+        console.error('[gocardlessAccounting] per-instalment posting failed:', instErr.message);
+        await setSyncStatus(db, paymentRow.id, {
+          accounting_sync_status: 'failed',
+          accounting_sync_error: String(instErr.message || instErr).slice(0, 500),
+        });
+        return { status: 'failed', reason: instErr.message };
+      }
     }
 
     // Find the membership invoice linked on the history row (dual columns:

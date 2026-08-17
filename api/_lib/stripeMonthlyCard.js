@@ -30,6 +30,7 @@ import {
 } from './gocardlessDirectDebit.js';
 import { computeGraceExpiry, recoveryPlanUpdate } from './gocardlessArrears.js';
 import { fireWorkflowForPaidRow } from './membershipPaymentReconciliation.js';
+import { isPerInstalmentAgreement, postStripeInstalmentInvoice } from './membershipInstalmentInvoicing.js';
 
 export const CARD_PLAN_KIND = 'monthly_card';
 
@@ -69,6 +70,8 @@ export function resolveCardMonthlyOffer(simResult) {
       ? config.dd_activation_rule : 'first_payment',
     graceDays: Number.isInteger(config.dd_grace_days) ? config.dd_grace_days : 7,
     termsVersion: config.dd_terms_version || 'v1',
+    // Task #3633: shared with DD — 'annual' (default) or 'per_instalment'.
+    invoicingMode: config.dd_invoicing_mode === 'per_instalment' ? 'per_instalment' : 'annual',
   };
 }
 
@@ -96,6 +99,7 @@ export function buildCardAgreementSnapshot({ offer, simResult, acceptedAt = new 
     activation_rule: offer.activationRule,
     grace_days: offer.graceDays,
     terms_version: offer.termsVersion,
+    invoicing_mode: offer.invoicingMode === 'per_instalment' ? 'per_instalment' : 'annual',
     accepted_at: acceptedAt,
     membership_year: simResult?.membershipYear?.label || null,
     membership_year_start: simResult?.membershipYear?.start
@@ -596,6 +600,28 @@ export async function processStripeCardPlanEvent(event, deps = {}) {
     // Zero-amount invoices (proration artefacts) don't advance instalments.
     if (Number(object.amount_paid) === 0 && Number(object.amount_due) === 0) {
       return { handled: true, detail: 'zero-amount invoice ignored' };
+    }
+
+    // Task #3633: per-instalment invoicing mode — mint one small paid
+    // accounting invoice for THIS Stripe invoice. Runs BEFORE the duplicate
+    // check so webhook redelivery / reconcile replays retry a failed posting;
+    // the helper is idempotent (unique key + invoice-linkage guard) so an
+    // already-posted instalment is never minted twice. Best-effort: the
+    // posting records its own posted/failed status and never blocks the
+    // instalment bookkeeping below.
+    if (isPerInstalmentAgreement(agreement)) {
+      try {
+        const postFn = deps.postInstalmentInvoice || postStripeInstalmentInvoice;
+        await postFn({
+          agreement,
+          plan,
+          stripeInvoiceId: object.id,
+          amountMinor: Number.isInteger(object.amount_paid) ? object.amount_paid : null,
+          currency: (object.currency || '').toUpperCase() || null,
+        }, { db, getProvider: deps.getProvider });
+      } catch (err) {
+        console.error('[StripeCard] per-instalment invoice posting threw:', err.message);
+      }
     }
 
     // Idempotent instalment advance: CAS on instalments_paid + invoice-id dedupe.

@@ -227,10 +227,14 @@ async function resolveMembershipItemId(appTenantId) {
   return String(itemId);
 }
 
-async function resolveStripeBankAccountId(appTenantId, settingKey = null) {
+async function resolveStripeBankAccountId(appTenantId, settingKey = null, { strict = false } = {}) {
   if (settingKey) {
     const dedicated = await getTenantSetting(appTenantId, settingKey);
     if (dedicated) return dedicated;
+    // strict: the caller's rail requires ITS OWN bank account setting —
+    // falling back to the Stripe account would book the money to the wrong
+    // account. Return null so payment_recorded=false surfaces recoverably.
+    if (strict) return null;
   }
   return (
     (await getTenantSetting(appTenantId, 'quickbooks_stripe_bank_account_id')) ||
@@ -369,6 +373,10 @@ export async function createQuickBooksMembershipInvoice({
   invoiceDescription,
   extraLineItems,
   nominalCode,
+  bankAccountSettingKey,
+  strictBankAccount,
+  idempotencyKey,
+  paymentIdempotencyKey,
 }) {
   if (!appTenantId) throw new Error('appTenantId is required');
   if (!organizationName) throw new Error('organizationName is required');
@@ -534,7 +542,13 @@ export async function createQuickBooksMembershipInvoice({
     `[QBO] Creating membership invoice for ${organizationName}, ${membershipYear}, ${currency} ${finalCost}`
   );
 
-  const url = `${base}/invoice?minorversion=${MINOR_VERSION}`;
+  // Task #3633: provider-side idempotency — QBO replays the original
+  // response for a repeated requestid instead of creating a second invoice,
+  // so a crash between create and our local linkage write cannot duplicate.
+  const requestIdParam = idempotencyKey
+    ? `&requestid=${encodeURIComponent(String(idempotencyKey).slice(0, 50))}`
+    : '';
+  const url = `${base}/invoice?minorversion=${MINOR_VERSION}${requestIdParam}`;
   const invoiceResp = await qboFetch('invoice-create', accessToken, 'POST', url, invoicePayload);
   const invoice = invoiceResp?.Invoice;
   if (!invoice?.Id) {
@@ -546,7 +560,7 @@ export async function createQuickBooksMembershipInvoice({
   let paymentId = null;
   if (markAsPaid) {
     try {
-      const bankAccountId = await resolveStripeBankAccountId(appTenantId);
+      const bankAccountId = await resolveStripeBankAccountId(appTenantId, bankAccountSettingKey || null, { strict: strictBankAccount === true });
       if (bankAccountId) {
         const paymentPayload = {
           CustomerRef: { value: customerId },
@@ -563,7 +577,13 @@ export async function createQuickBooksMembershipInvoice({
         };
         if (currency) paymentPayload.CurrencyRef = { value: currency };
 
-        const payUrl = `${base}/payment?minorversion=${MINOR_VERSION}`;
+        // Payment creation is a separate request — give it its own
+        // idempotency requestid so a crash after the payment succeeded but
+        // before our linkage write can't record a second payment on retry.
+        const payRequestId = paymentIdempotencyKey
+          ? `&requestid=${encodeURIComponent(String(paymentIdempotencyKey).slice(0, 50))}`
+          : '';
+        const payUrl = `${base}/payment?minorversion=${MINOR_VERSION}${payRequestId}`;
         const payResp = await qboFetch('payment-create', accessToken, 'POST', payUrl, paymentPayload);
         if (payResp?.Payment?.Id) {
           paymentRecorded = true;
@@ -624,6 +644,8 @@ export async function applyStripePaymentToQuickBooksInvoice({
   paidAt,
   reference = null,
   bankAccountSettingKey = null,
+  strictBankAccount = false,
+  idempotencyKey = null,
 }) {
   if (!appTenantId) throw new Error('appTenantId is required');
   const qboInvoiceId = invoiceId || xeroInvoiceId;
@@ -650,7 +672,7 @@ export async function applyStripePaymentToQuickBooksInvoice({
   let paymentId = null;
 
   try {
-    const bankAccountId = await resolveStripeBankAccountId(appTenantId, bankAccountSettingKey);
+    const bankAccountId = await resolveStripeBankAccountId(appTenantId, bankAccountSettingKey, { strict: strictBankAccount === true });
     if (bankAccountId) {
       const paymentPayload = {
         CustomerRef: { value: customerId },
@@ -672,7 +694,12 @@ export async function applyStripePaymentToQuickBooksInvoice({
         paymentPayload.CurrencyRef = { value: invoice.CurrencyRef.value };
       }
 
-      const payUrl = `${base}/payment?minorversion=${MINOR_VERSION}`;
+      // Idempotent payment create — QBO replays the original response for a
+      // repeated requestid, so retries can't double-pay the invoice.
+      const payRequestId = idempotencyKey
+        ? `&requestid=${encodeURIComponent(String(idempotencyKey).slice(0, 50))}`
+        : '';
+      const payUrl = `${base}/payment?minorversion=${MINOR_VERSION}${payRequestId}`;
       const payResp = await qboFetch('payment-create', accessToken, 'POST', payUrl, paymentPayload);
       if (payResp?.Payment?.Id) {
         paymentRecorded = true;

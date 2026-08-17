@@ -193,7 +193,7 @@ export async function findOrCreateXeroContact(accessToken, xeroTenantId, contact
   throw new Error('Failed to create Xero contact');
 }
 
-export async function createXeroMembershipInvoice({ appTenantId, organizationName, invoicingEmail, invoicingAddress, membershipYear, tierLabel, finalCost, currency, reference, vatRate, markAsPaid, stripePaymentIntentId, invoiceDescription, extraLineItems, nominalCode }) {
+export async function createXeroMembershipInvoice({ appTenantId, organizationName, invoicingEmail, invoicingAddress, membershipYear, tierLabel, finalCost, currency, reference, vatRate, markAsPaid, stripePaymentIntentId, invoiceDescription, extraLineItems, nominalCode, bankAccountSettingKey, strictBankAccount, idempotencyKey, paymentIdempotencyKey }) {
   if (!supabase) throw new Error('Supabase not configured');
   if (!appTenantId) throw new Error('appTenantId is required');
   if (!organizationName) throw new Error('organizationName is required');
@@ -293,14 +293,20 @@ export async function createXeroMembershipInvoice({ appTenantId, organizationNam
 
   console.log(`[Xero] Creating membership invoice for ${organizationName}, ${membershipYear}, ${currency} ${finalCost}`);
 
+  const createHeaders = {
+    'Authorization': `Bearer ${accessToken}`,
+    'xero-tenant-id': xeroTenantId,
+    'Content-Type': 'application/json',
+    'Accept': 'application/json'
+  };
+  // Task #3633: provider-side idempotency — Xero replays the original
+  // response for a repeated Idempotency-Key instead of creating a second
+  // invoice, so a crash between create and our local linkage write cannot
+  // duplicate on retry.
+  if (idempotencyKey) createHeaders['Idempotency-Key'] = String(idempotencyKey).slice(0, 128);
   const invoiceResponse = await fetch('https://api.xero.com/api.xro/2.0/Invoices', {
     method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${accessToken}`,
-      'xero-tenant-id': xeroTenantId,
-      'Content-Type': 'application/json',
-      'Accept': 'application/json'
-    },
+    headers: createHeaders,
     body: JSON.stringify(invoicePayload)
   });
 
@@ -319,14 +325,33 @@ export async function createXeroMembershipInvoice({ appTenantId, organizationNam
 
   if (markAsPaid && invoice.InvoiceID && invoice.Status === 'AUTHORISED') {
     try {
-      const { data: stripeBankCodeSetting } = await supabase
-        .from('system_settings')
-        .select('setting_value')
-        .eq('setting_key', 'xero_stripe_bank_account_code')
-        .eq('tenant_id', appTenantId)
-        .maybeSingle();
-
-      const stripeBankAccountCode = stripeBankCodeSetting?.setting_value;
+      // Task #3633: callers may name a dedicated bank-account setting (e.g.
+      // the GoCardless one for DD instalment invoices); fall back to the
+      // Stripe bank account setting when unset — unless strictBankAccount,
+      // where the caller's rail requires its OWN account (falling back would
+      // book the money to the wrong account) and payment_recorded=false must
+      // surface recoverably instead.
+      let stripeBankAccountCode = null;
+      if (bankAccountSettingKey && bankAccountSettingKey !== 'xero_stripe_bank_account_code') {
+        const { data: dedicated } = await supabase
+          .from('system_settings')
+          .select('setting_value')
+          .eq('setting_key', bankAccountSettingKey)
+          .eq('tenant_id', appTenantId)
+          .maybeSingle();
+        stripeBankAccountCode = dedicated?.setting_value || null;
+      }
+      const strictDedicated = strictBankAccount === true
+        && bankAccountSettingKey && bankAccountSettingKey !== 'xero_stripe_bank_account_code';
+      if (!stripeBankAccountCode && !strictDedicated) {
+        const { data: stripeBankCodeSetting } = await supabase
+          .from('system_settings')
+          .select('setting_value')
+          .eq('setting_key', 'xero_stripe_bank_account_code')
+          .eq('tenant_id', appTenantId)
+          .maybeSingle();
+        stripeBankAccountCode = stripeBankCodeSetting?.setting_value;
+      }
 
       if (stripeBankAccountCode) {
         const accountsResponse = await fetch(`https://api.xero.com/api.xro/2.0/Accounts?where=Code=="${stripeBankAccountCode}"`, {
@@ -352,14 +377,19 @@ export async function createXeroMembershipInvoice({ appTenantId, organizationNam
 
           console.log(`[Xero] Recording Stripe payment for membership invoice ${invoice.InvoiceNumber} - Amount: ${parseFloat(invoice.Total).toFixed(2)}, Bank Account: ${stripeBankAccountCode}`);
 
+          // Payment creation is a separate request — give it its own
+          // Idempotency-Key so a crash after the payment succeeded but
+          // before our linkage write can't record a second payment on retry.
+          const payHeaders = {
+            'Authorization': `Bearer ${accessToken}`,
+            'xero-tenant-id': xeroTenantId,
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+          };
+          if (paymentIdempotencyKey) payHeaders['Idempotency-Key'] = String(paymentIdempotencyKey).slice(0, 128);
           const paymentResponse = await fetch('https://api.xero.com/api.xro/2.0/Payments', {
             method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${accessToken}`,
-              'xero-tenant-id': xeroTenantId,
-              'Content-Type': 'application/json',
-              'Accept': 'application/json'
-            },
+            headers: payHeaders,
             body: JSON.stringify({ Payments: [paymentPayload] })
           });
 
@@ -640,6 +670,8 @@ export async function applyStripePaymentToXeroInvoice({
   amount = null,
   reference = null,
   bankAccountSettingKey = 'xero_stripe_bank_account_code',
+  strictBankAccount = false,
+  idempotencyKey = null,
 }) {
   if (!appTenantId) throw new Error('appTenantId is required');
   if (!xeroInvoiceId) throw new Error('xeroInvoiceId is required');
@@ -682,8 +714,9 @@ export async function applyStripePaymentToXeroInvoice({
       .eq('tenant_id', appTenantId)
       .maybeSingle();
     let bankCode = stripeBankCodeSetting?.setting_value;
-    if (!bankCode && bankAccountSettingKey !== 'xero_stripe_bank_account_code') {
-      // Fall back to the Stripe bank code when a dedicated one isn't set.
+    if (!bankCode && bankAccountSettingKey !== 'xero_stripe_bank_account_code' && strictBankAccount !== true) {
+      // Fall back to the Stripe bank code when a dedicated one isn't set
+      // (never in strict mode — the caller's rail requires its own account).
       const { data: fallbackSetting } = await supabase
         .from('system_settings')
         .select('setting_value')
@@ -707,14 +740,18 @@ export async function applyStripePaymentToXeroInvoice({
           Amount: amount != null ? Number(parseFloat(amount).toFixed(2)) : parseFloat(invoice.Total),
           Reference: reference || (stripePaymentIntentId ? `Stripe: ${stripePaymentIntentId}` : 'Stripe payment'),
         };
+        // Idempotent payment create — Xero replays the original response for
+        // a repeated Idempotency-Key, so retries can't double-pay the invoice.
+        const payHeaders = {
+          'Authorization': `Bearer ${accessToken}`,
+          'xero-tenant-id': xeroTenantId,
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        };
+        if (idempotencyKey) payHeaders['Idempotency-Key'] = String(idempotencyKey).slice(0, 128);
         const payResp = await fetch('https://api.xero.com/api.xro/2.0/Payments', {
           method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${accessToken}`,
-            'xero-tenant-id': xeroTenantId,
-            'Content-Type': 'application/json',
-            'Accept': 'application/json',
-          },
+          headers: payHeaders,
           body: JSON.stringify({ Payments: [paymentPayload] }),
         });
         const payData = await safeXeroJson(payResp, 'payment-create');

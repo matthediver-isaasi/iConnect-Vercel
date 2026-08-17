@@ -68,6 +68,9 @@ export function resolveDdOffer(simResult) {
     autoRenew: config.dd_auto_renew !== false,
     graceDays: Number.isInteger(config.dd_grace_days) ? config.dd_grace_days : 7,
     termsVersion: config.dd_terms_version || 'v1',
+    // Task #3633: 'annual' (default) or 'per_instalment'. Snapshotted at
+    // consent — later config edits never change an in-flight agreement.
+    invoicingMode: config.dd_invoicing_mode === 'per_instalment' ? 'per_instalment' : 'annual',
   };
 }
 
@@ -134,6 +137,7 @@ export function buildAgreementSnapshot({ offer, simResult, acceptedAt = new Date
     auto_renew: offer.autoRenew,
     grace_days: offer.graceDays,
     terms_version: offer.termsVersion,
+    invoicing_mode: offer.invoicingMode === 'per_instalment' ? 'per_instalment' : 'annual',
     accepted_at: acceptedAt,
     membership_year: simResult?.membershipYear?.label || null,
     membership_year_start: simResult?.membershipYear?.start

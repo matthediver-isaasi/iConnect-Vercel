@@ -14,6 +14,7 @@ import { getAccountingProvider, buildInvoiceColumnUpdate } from '../_lib/account
 import { reconcileMembershipInvoicePayment } from '../_lib/membershipPaymentReconciliation.js';
 import { resolveMembershipNominalCode } from '../_lib/membershipNominalCode.js';
 import { simulateMembershipForOrg, simulateMembershipForMember } from '../_lib/membershipSimulation.js';
+import { shouldSuppressAnnualInvoice } from '../_lib/membershipInstalmentInvoicing.js';
 
 const ORG_TABLE = 'organisation_membership_history';
 const MEMBER_TABLE = 'member_membership_history';
@@ -54,6 +55,22 @@ export default async function handler(req, res) {
     return res.status(409).json({
       error: 'Record already has an accounting invoice; use the reconcile endpoint to refresh payment status.',
       invoiceId: row.accounting_invoice_id || row.xero_invoice_id,
+    });
+  }
+
+  // Task #3633: rows on a per-instalment monthly plan are invoiced one small
+  // invoice per collection — an annual invoice must never be raised for them.
+  try {
+    if (await shouldSuppressAnnualInvoice(row)) {
+      return res.status(409).json({
+        error: 'This membership is on a per-instalment monthly plan — each collection gets its own invoice, so no annual invoice should be created.',
+      });
+    }
+  } catch (suppressErr) {
+    // FAIL CLOSED: never raise an annual invoice when the mode is unknowable.
+    console.error('[membership-invoice-retry] suppression check failed:', suppressErr.message);
+    return res.status(503).json({
+      error: `Could not verify this membership's invoicing mode — annual invoice not created. Please retry. (${suppressErr.message})`,
     });
   }
 

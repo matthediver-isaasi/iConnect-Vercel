@@ -214,6 +214,27 @@ export default function DirectDebitPlanCard({ memberId }) {
             </>
           )}
         </div>
+        {Array.isArray(plan.instalmentInvoices) && plan.instalmentInvoices.length > 0 && (
+          <>
+            <Separator />
+            <div className="space-y-1" data-testid="list-dd-instalment-invoices">
+              <p className="text-xs font-medium text-muted-foreground">Instalment invoices</p>
+              {plan.instalmentInvoices.map((inv) => (
+                <div key={inv.paymentRef} className="flex items-center justify-between gap-2 text-xs" data-testid={`row-instalment-invoice-${inv.paymentRef}`}>
+                  <span className="text-muted-foreground">{fmtDate(inv.date)}</span>
+                  <span>{fmt(inv.amount, inv.currency || plan.currency)}</span>
+                  <span className="text-right">
+                    {inv.invoiceNumber
+                      ? <span className="font-medium">{inv.invoiceNumber}</span>
+                      : inv.syncStatus === "failed"
+                        ? <span className="text-destructive" title={inv.syncError || undefined}>invoice failed</span>
+                        : <span className="text-muted-foreground">pending</span>}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
         {plan.terms?.plan_total != null && (
           <>
             <Separator />

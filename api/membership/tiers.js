@@ -979,6 +979,7 @@ function ddConfigFields(config) {
       dd_grace_days: 7,
       dd_terms_version: null,
       dd_migration_enabled: false,
+      dd_invoicing_mode: 'annual',
     };
   }
   const instalments = Math.min(12, Math.max(1, parseInt(config.dd_instalment_count, 10) || 12));
@@ -1005,6 +1006,11 @@ function ddConfigFields(config) {
       ? Math.max(0, parseInt(config.dd_grace_days, 10)) : 7,
     dd_terms_version: config.dd_terms_version || 'v1',
     dd_migration_enabled: config.dd_migration_enabled === true,
+    // Task #3633: 'annual' (single annual invoice, default) or
+    // 'per_instalment' (one paid invoice per monthly collection). Applies to
+    // both GC DD and Stripe monthly card plans; snapshotted at consent so it
+    // only affects newly started plans.
+    dd_invoicing_mode: config.dd_invoicing_mode === 'per_instalment' ? 'per_instalment' : 'annual',
   };
 }
 

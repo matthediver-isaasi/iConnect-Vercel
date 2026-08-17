@@ -16,6 +16,8 @@
 import { supabase } from '../_lib/database.js';
 import { gocardlessForTenant } from '../_lib/gocardless.js';
 import { applyStatusTransition, STATUS } from '../_lib/gocardlessState.js';
+import { postDdInstalmentToAccounting } from '../_lib/gocardlessAccounting.js';
+import { isPerInstalmentAgreement } from '../_lib/membershipInstalmentInvoicing.js';
 
 // Credentials are per tenant (tenant_integrations, env fallback) — cache one
 // bound client per tenant_id for the duration of a run.
@@ -54,6 +56,7 @@ export default async function handler(req, res) {
     await reconcilePlansWithoutSubscription(results);
     await reconcileSubscriptionDrift(results);
     await reconcileStalePayments(results);
+    await retryFailedInstalmentInvoices(results);
   } catch (err) {
     console.error('[cron/reconcile-gocardless] fatal:', err);
     results.errors++;
@@ -290,6 +293,59 @@ async function reconcileStalePayments(results) {
             source: 'reconciliation',
             extraUpdate: { last_payment_id: payment.gocardless_payment_id, last_payment_status: remote.status },
           });
+        }
+      }
+    } catch (err) {
+      results.errors++;
+      results.details.push({ payment: payment.id, error: err.message });
+    }
+  }
+}
+
+// Task #3633 — retry per-instalment invoice creation for confirmed DD
+// payments whose accounting posting previously failed. Only per-instalment
+// agreements are retried: their posting is guarded by the payment row's
+// invoice linkage so a retry can never mint a duplicate. Annual-mode
+// failures (payment application) are NOT auto-retried here, since a failure
+// after the provider applied the payment could double-apply.
+async function retryFailedInstalmentInvoices(results) {
+  // failed → provider call failed; invoice_unpaid → invoice exists but the
+  // payment wasn't recorded; stale 'posting' → a crashed in-flight claim
+  // (safe to reclaim: provider-side idempotency keys prevent duplicates).
+  const staleCutoff = new Date(Date.now() - 15 * 60_000).toISOString();
+  const { data: rows, error } = await supabase
+    .from('gocardless_payments')
+    .select('*')
+    .or(`accounting_sync_status.in.(failed,invoice_unpaid),and(accounting_sync_status.eq.posting,updated_at.lt.${staleCutoff})`)
+    .in('status', ['confirmed', 'paid_out'])
+    .order('updated_at', { ascending: true })
+    .limit(MAX_ROWS_PER_GROUP);
+  if (error) throw new Error(`load failed-sync payments failed: ${error.message}`);
+
+  for (const payment of rows || []) {
+    try {
+      if (!payment.plan_id) { results.skipped++; continue; }
+      const { data: plan } = await supabase
+        .from('membership_payment_plans')
+        .select('id, billing_agreement_id')
+        .eq('id', payment.plan_id)
+        .maybeSingle();
+      if (!plan?.billing_agreement_id) { results.skipped++; continue; }
+      const { data: agreement } = await supabase
+        .from('membership_billing_agreements')
+        .select('*')
+        .eq('id', plan.billing_agreement_id)
+        .maybeSingle();
+      if (!agreement || !isPerInstalmentAgreement(agreement)) { results.skipped++; continue; }
+
+      const outcome = await postDdInstalmentToAccounting({ agreement, paymentRow: payment }, { reclaimStale: true });
+      if (outcome.status === 'posted') {
+        results.repaired++;
+        results.details.push({ payment: payment.id, repaired: 'per-instalment invoice posted on retry' });
+      } else {
+        results.skipped++;
+        if (outcome.status === 'failed') {
+          results.details.push({ payment: payment.id, error: `instalment invoice retry failed: ${outcome.reason}` });
         }
       }
     } catch (err) {

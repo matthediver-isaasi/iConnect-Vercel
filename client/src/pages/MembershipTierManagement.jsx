@@ -296,6 +296,7 @@ export default function MembershipTierManagement() {
     dd_terms_version: 'v1',
     dd_migration_enabled: false,
     card_monthly_enabled: false,
+    dd_invoicing_mode: 'annual',
   });
 
   const [selectedActiveConfigId, setSelectedActiveConfigId] = useState(null);
@@ -951,6 +952,7 @@ export default function MembershipTierManagement() {
     dd_terms_version: c?.dd_terms_version || 'v1',
     dd_migration_enabled: c?.dd_migration_enabled === true,
     card_monthly_enabled: c?.card_monthly_enabled === true,
+    dd_invoicing_mode: c?.dd_invoicing_mode === 'per_instalment' ? 'per_instalment' : 'annual',
   });
 
   const handleCreateNew = () => {
@@ -1700,6 +1702,27 @@ export default function MembershipTierManagement() {
                     data-testid="switch-card-monthly-enabled"
                   />
                 </div>
+                {(config.dd_enabled || config.card_monthly_enabled) && (
+                  <div className="space-y-2">
+                    <Label>Monthly invoicing</Label>
+                    <Select
+                      value={config.dd_invoicing_mode === 'per_instalment' ? 'per_instalment' : 'annual'}
+                      onValueChange={(v) => handleConfigChange('dd_invoicing_mode', v)}
+                      disabled={!isEditable}
+                    >
+                      <SelectTrigger data-testid="select-dd-invoicing-mode">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="annual">Single annual invoice (payments applied monthly)</SelectItem>
+                        <SelectItem value="per_instalment">Invoice per instalment (one paid invoice per collection)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <p className="text-sm text-muted-foreground">
+                      Applies to both Direct Debit and monthly card plans. Changing this only affects newly started plans — existing plans keep the mode they signed up with.
+                    </p>
+                  </div>
+                )}
                 {config.card_monthly_enabled && !config.dd_enabled && (
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <div className="space-y-2">
