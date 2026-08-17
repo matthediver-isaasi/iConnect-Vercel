@@ -1846,8 +1846,9 @@ export default function FormSubmissionsPage() {
                 Save view
               </Button>
             </div>
-            <div className="flex flex-col md:flex-row gap-4">
-              <div className="flex-1 relative">
+            <div className="flex flex-col gap-3">
+              {/* Row 1: Search — full width */}
+              <div className="relative">
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-slate-400" />
                 <Input
                   placeholder="Search submissions..."
@@ -1860,12 +1861,13 @@ export default function FormSubmissionsPage() {
                   data-testid="input-search-submissions"
                 />
               </div>
-              <div className="flex flex-col gap-2">
+              {/* Row 2: Filters + exports — all vertically centred, wraps on narrow screens */}
+              <div className="flex flex-wrap items-center gap-3">
                 <Select value={selectedForm} onValueChange={(val) => {
                   setSelectedForm(val);
                   setCurrentPage(1);
                 }}>
-                  <SelectTrigger className="w-full md:w-[200px]" data-testid="select-form-filter">
+                  <SelectTrigger className="w-[200px]" data-testid="select-form-filter">
                     <SelectValue placeholder="All Forms" />
                   </SelectTrigger>
                   <SelectContent>
@@ -1894,69 +1896,71 @@ export default function FormSubmissionsPage() {
                     Include inactive forms
                   </Label>
                 </div>
+                <Select value={selectedStatus} onValueChange={(val) => {
+                  setSelectedStatus(val);
+                  setCurrentPage(1);
+                }}>
+                  <SelectTrigger className="w-[150px]" data-testid="select-status-filter">
+                    <SelectValue placeholder="All Status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Status</SelectItem>
+                    <SelectItem value="new">New</SelectItem>
+                    <SelectItem value="junk">Junk</SelectItem>
+                    <SelectItem value="actioned">Actioned</SelectItem>
+                  </SelectContent>
+                </Select>
+                <div className="flex items-center gap-2">
+                  <Label className="text-sm text-slate-500 whitespace-nowrap">From</Label>
+                  <Input
+                    type="date"
+                    value={dateFrom}
+                    onChange={(e) => { setDateFrom(e.target.value); setCurrentPage(1); }}
+                    className="w-[150px]"
+                    data-testid="input-date-from"
+                  />
+                </div>
+                <div className="flex items-center gap-2">
+                  <Label className="text-sm text-slate-500 whitespace-nowrap">To</Label>
+                  <Input
+                    type="date"
+                    value={dateTo}
+                    onChange={(e) => { setDateTo(e.target.value); setCurrentPage(1); }}
+                    className="w-[150px]"
+                    data-testid="input-date-to"
+                  />
+                </div>
+                {(dateFrom || dateTo) && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => { setDateFrom(""); setDateTo(""); setCurrentPage(1); }}
+                    data-testid="button-clear-dates"
+                  >
+                    Clear dates
+                  </Button>
+                )}
+                <div className="flex items-center gap-2 ml-auto">
+                  <Button
+                    variant="outline"
+                    onClick={() => handleOpenExportModal('csv')}
+                    disabled={selectedForm === "all" || filteredSubmissions.length === 0}
+                    data-testid="button-export-csv"
+                  >
+                    <Download className="w-4 h-4 mr-2" />
+                    Export CSV
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => handleOpenExportModal('word')}
+                    disabled={filteredSubmissions.length === 0}
+                    data-testid="button-export-word"
+                  >
+                    <FileDown className="w-4 h-4 mr-2" />
+                    Export Word
+                  </Button>
+                </div>
               </div>
-              <Select value={selectedStatus} onValueChange={(val) => {
-                setSelectedStatus(val);
-                setCurrentPage(1);
-              }}>
-                <SelectTrigger className="w-full md:w-[150px]" data-testid="select-status-filter">
-                  <SelectValue placeholder="All Status" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Status</SelectItem>
-                  <SelectItem value="new">New</SelectItem>
-                  <SelectItem value="junk">Junk</SelectItem>
-                  <SelectItem value="actioned">Actioned</SelectItem>
-                </SelectContent>
-              </Select>
-              <div className="flex items-center gap-2">
-                <Label className="text-sm text-slate-500 whitespace-nowrap">From</Label>
-                <Input
-                  type="date"
-                  value={dateFrom}
-                  onChange={(e) => { setDateFrom(e.target.value); setCurrentPage(1); }}
-                  className="w-[150px]"
-                  data-testid="input-date-from"
-                />
-              </div>
-              <div className="flex items-center gap-2">
-                <Label className="text-sm text-slate-500 whitespace-nowrap">To</Label>
-                <Input
-                  type="date"
-                  value={dateTo}
-                  onChange={(e) => { setDateTo(e.target.value); setCurrentPage(1); }}
-                  className="w-[150px]"
-                  data-testid="input-date-to"
-                />
-              </div>
-              {(dateFrom || dateTo) && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => { setDateFrom(""); setDateTo(""); setCurrentPage(1); }}
-                  data-testid="button-clear-dates"
-                >
-                  Clear dates
-                </Button>
-              )}
-              <Button
-                variant="outline"
-                onClick={() => handleOpenExportModal('csv')}
-                disabled={selectedForm === "all" || filteredSubmissions.length === 0}
-                data-testid="button-export-csv"
-              >
-                <Download className="w-4 h-4 mr-2" />
-                Export CSV
-              </Button>
-              <Button
-                variant="outline"
-                onClick={() => handleOpenExportModal('word')}
-                disabled={filteredSubmissions.length === 0}
-                data-testid="button-export-word"
-              >
-                <FileDown className="w-4 h-4 mr-2" />
-                Export Word
-              </Button>
             </div>
           </CardContent>
         </Card>
