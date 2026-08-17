@@ -170,6 +170,15 @@ async function handlePost(req, res, resolvedTenantId) {
     return res.status(400).json({ error: 'Membership for this year is already recorded with another payment method' });
   }
 
+  // Double-payment guard (Task #3620): an open monthly-card agreement for
+  // the same year blocks starting a DD plan (the reverse guard lives in the
+  // monthly-card start).
+  const { findOpenAgreementForYear } = await import('./monthly-card.js');
+  const openOther = await findOpenAgreementForYear({ tenantId, memberId: member.id, yearLabel });
+  if (openOther && openOther.provider === 'stripe') {
+    return res.status(400).json({ error: 'A monthly card payment plan is already set up for this membership year' });
+  }
+
   const idempotencyKey = buildIdempotencyKey('dd-agree', tenantId, member.id, yearLabel);
 
   // Idempotent re-entry: reuse the in-flight agreement + its hosted flow URL.

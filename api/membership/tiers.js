@@ -958,13 +958,18 @@ async function handlePost(req, res, tenantId) {
 // Phase 2 (GoCardless monthly Direct Debit) tier-level settings. Shared by
 // the update and insert paths so the whitelists can't drift apart.
 function ddConfigFields(config) {
-  const enabled = config.dd_enabled === true;
+  // Task #3620: monthly card (Stripe) plans share the dd_* amount/instalment/
+  // activation/grace settings, so those columns must survive whenever EITHER
+  // monthly option is enabled. dd_enabled itself stays strictly DD.
+  const cardMonthlyEnabled = config.card_monthly_enabled === true;
+  const enabled = config.dd_enabled === true || cardMonthlyEnabled;
   if (!enabled) {
     // Columns from the Phase 2 migration are NOT NULL with defaults, so the
     // disabled path must write those schema defaults (writing null raises
     // 23502). Truly nullable columns stay null so re-enabling starts clean.
     return {
       dd_enabled: false,
+      card_monthly_enabled: false,
       dd_instalment_count: 12,
       dd_monthly_amount: null,
       dd_first_collection_rule: 'earliest',
@@ -988,7 +993,8 @@ function ddConfigFields(config) {
     ? (parseFloat(config.dd_monthly_amount) > 0 ? parseFloat(config.dd_monthly_amount) : null)
     : null;
   return {
-    dd_enabled: true,
+    dd_enabled: config.dd_enabled === true,
+    card_monthly_enabled: cardMonthlyEnabled,
     dd_instalment_count: instalments,
     dd_monthly_amount: monthly,
     dd_first_collection_rule: rule,

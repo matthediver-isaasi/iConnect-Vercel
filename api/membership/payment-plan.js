@@ -44,6 +44,8 @@ function shapePlan(plan) {
   return {
     id: plan.id,
     status: plan.status,
+    provider: plan.provider || 'gocardless',
+    instalmentsPaid: plan.instalments_paid ?? null,
     membershipYear: plan.membership_year,
     monthlyAmount: plan.amount_minor != null ? plan.amount_minor / 100 : null,
     currency: plan.currency,
@@ -92,18 +94,24 @@ async function handleMemberView(req, res) {
   const shaped = (plans || []).map((plan) => ({
     ...shapePlan(plan),
     agreementStatus: plan.membership_billing_agreements?.status || null,
-    terms: plan.membership_billing_agreements?.metadata?.dd || null,
+    terms: plan.membership_billing_agreements?.metadata?.dd
+      || plan.membership_billing_agreements?.metadata?.card
+      || null,
   }));
 
   // Count confirmed collections against the newest plan.
   let paymentsMade = 0;
   if (shaped[0]) {
-    const { count } = await supabase
-      .from('gocardless_payments')
-      .select('id', { count: 'exact', head: true })
-      .eq('plan_id', shaped[0].id)
-      .in('status', ['confirmed', 'paid_out']);
-    paymentsMade = count || 0;
+    if (shaped[0].provider === 'stripe') {
+      paymentsMade = shaped[0].instalmentsPaid || 0;
+    } else {
+      const { count } = await supabase
+        .from('gocardless_payments')
+        .select('id', { count: 'exact', head: true })
+        .eq('plan_id', shaped[0].id)
+        .in('status', ['confirmed', 'paid_out']);
+      paymentsMade = count || 0;
+    }
   }
 
   return res.json({ plans: shaped, currentPlan: shaped[0] || null, paymentsMade });

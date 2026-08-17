@@ -134,13 +134,14 @@ export default function DirectDebitPlanCard({ memberId }) {
   const total = plan.instalmentsTotal || plan.terms?.instalment_count || 12;
   const remaining = Math.max(total - paymentsMade, 0);
   const failed = plan.status === "payment_failed" || plan.lastPaymentStatus === "failed";
+  const isCardPlan = plan.provider === "stripe";
 
   return (
     <Card data-testid="card-dd-plan">
       <CardHeader className="pb-3">
         <CardTitle className="text-base flex items-center gap-2 flex-wrap">
           <Landmark className="h-4 w-4" />
-          Monthly Direct Debit
+          {isCardPlan ? "Monthly Card Plan" : "Monthly Direct Debit"}
           {planStatusBadge(plan.status)}
         </CardTitle>
       </CardHeader>
@@ -150,7 +151,7 @@ export default function DirectDebitPlanCard({ memberId }) {
             <AlertCircle className="h-4 w-4 text-destructive shrink-0 mt-0.5" />
             <div className="space-y-2 flex-1">
               <p className="text-sm text-destructive">
-                Your most recent Direct Debit payment failed.
+                {isCardPlan ? "Your most recent card payment failed." : "Your most recent Direct Debit payment failed."}
                 {selfState?.plan?.grace_expires_at
                   ? ` Please fix this by ${fmtDate(selfState.plan.grace_expires_at)} to keep your membership in good standing.`
                   : " Please make sure funds are available, or contact your administrator."}
@@ -217,7 +218,7 @@ export default function DirectDebitPlanCard({ memberId }) {
           <>
             <Separator />
             <p className="text-xs text-muted-foreground" data-testid="text-dd-plan-total">
-              Plan total: {fmt(plan.terms.plan_total, plan.currency)} over {total} months. Payments are collected by Direct Debit via GoCardless.
+              Plan total: {fmt(plan.terms.plan_total, plan.currency)} over {total} months. {isCardPlan ? "Payments are collected automatically from your card via Stripe." : "Payments are collected by Direct Debit via GoCardless."}
             </p>
           </>
         )}

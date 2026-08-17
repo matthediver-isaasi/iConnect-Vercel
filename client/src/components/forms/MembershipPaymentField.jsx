@@ -41,6 +41,8 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
   const [startingDd, setStartingDd] = useState(false);
   const [ddStarted, setDdStarted] = useState(false);
   const [hasDdPlan, setHasDdPlan] = useState(false);
+  const [hasCardPlan, setHasCardPlan] = useState(false);
+  const [startingCard, setStartingCard] = useState(false);
   const [ddPayerChoice, setDdPayerChoice] = useState('self');
   const [billingContactEmail, setBillingContactEmail] = useState('');
   const [billingContactName, setBillingContactName] = useState('');
@@ -108,7 +110,10 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
       .then((json) => {
         if (cancelled) return;
         const plan = json?.currentPlan;
-        if (plan && !['cancelled', 'completed'].includes(plan.status)) setHasDdPlan(true);
+        if (plan && !['cancelled', 'completed'].includes(plan.status)) {
+          if (plan.provider === 'stripe') setHasCardPlan(true);
+          else setHasDdPlan(true);
+        }
       })
       .catch(() => {});
     return () => { cancelled = true; };
@@ -447,6 +452,35 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
     }
   };
 
+  // Task #3620 — start a monthly card (Stripe subscription) plan; redirects
+  // to Stripe-hosted Checkout for card capture.
+  const startMonthlyCard = async () => {
+    setStartingCard(true);
+    setPaymentError(null);
+    try {
+      const res = await fetch('/api/membership/monthly-card', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ action: 'start', memberId }),
+      });
+      const result = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(result.error || 'Failed to start monthly card set-up');
+      if (result.checkoutUrl) {
+        window.location.href = result.checkoutUrl;
+        return;
+      }
+      setHasCardPlan(true);
+      if (onChange) {
+        onChange({ status: 'monthly_card_started', membershipYear: data?.membershipYear, agreementId: result.agreementId });
+      }
+    } catch (err) {
+      setPaymentError(err.message);
+    } finally {
+      setStartingCard(false);
+    }
+  };
+
   if (!memberId) {
     return (
       <Card data-testid={`membership-payment-no-member-${field.id}`}>
@@ -615,9 +649,13 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
         )}
 
         {(() => {
-          const showStripeOption = !data.approvalPending && !belowMinimum && data.stripeEnabled && !paymentMode;
-          const showDdOption = !data.approvalPending && !ddStarted && !hasDdPlan && data.directDebit && !paymentMode;
-          if (!showStripeOption && !showDdOption) return null;
+          const hasAnyPlan = hasDdPlan || hasCardPlan;
+          const showStripeOption = !data.approvalPending && !belowMinimum && data.stripeEnabled && !paymentMode && !hasAnyPlan;
+          const showDdOption = !data.approvalPending && !ddStarted && !hasAnyPlan && data.directDebit && !paymentMode;
+          const showCardMonthlyOption = !data.approvalPending && !ddStarted && !hasAnyPlan && data.cardMonthly && !paymentMode;
+          if (!showStripeOption && !showDdOption && !showCardMonthlyOption) return null;
+          const cardMonthly = data.cardMonthly;
+          const cardCurrency = cardMonthly?.currency || data.currency;
           const dd = data.directDebit;
           const ddCurrency = dd?.currency || data.currency;
           const firstCollectionText = (() => {
@@ -634,7 +672,7 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
           })();
           return (
             <div className="space-y-3">
-              {showStripeOption && showDdOption && (
+              {[showStripeOption, showDdOption, showCardMonthlyOption].filter(Boolean).length > 1 && (
                 <p className="text-sm font-medium">Choose how to pay</p>
               )}
               {showStripeOption && (
@@ -659,6 +697,39 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
                       <>
                         <CreditCard className="mr-2 h-4 w-4" />
                         Pay {formatCurrency(payableAmount, data.currency)}
+                      </>
+                    )}
+                  </Button>
+                </div>
+              )}
+              {showCardMonthlyOption && (
+                <div className="border rounded-md p-3 space-y-2" data-testid={`option-pay-monthly-card-${field.id}`}>
+                  <div className="flex items-center justify-between flex-wrap gap-1">
+                    <span className="text-sm font-medium">Pay monthly by card</span>
+                    <span className="text-sm font-semibold">{formatCurrency(cardMonthly.monthlyAmount, cardCurrency)}/month</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Your annual membership paid in {cardMonthly.instalmentCount} monthly card instalments of {formatCurrency(cardMonthly.monthlyAmount, cardCurrency)} — {formatCurrency(cardMonthly.planTotal, cardCurrency)} in total over {cardMonthly.instalmentCount} months.
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    You'll be taken to a secure Stripe page to enter your card details. Your card is charged automatically each month — card details never touch our servers.
+                  </p>
+                  <Button
+                    variant="outline"
+                    onClick={startMonthlyCard}
+                    disabled={disabled || startingCard}
+                    className="w-full"
+                    data-testid={`button-monthly-card-${field.id}`}
+                  >
+                    {startingCard ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Preparing secure checkout...
+                      </>
+                    ) : (
+                      <>
+                        <CreditCard className="mr-2 h-4 w-4" />
+                        Set up monthly card payments
                       </>
                     )}
                   </Button>
@@ -785,9 +856,9 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
           </div>
         )}
 
-        {hasDdPlan && <DirectDebitPlanCard memberId={memberId} />}
+        {(hasDdPlan || hasCardPlan) && <DirectDebitPlanCard memberId={memberId} />}
 
-        {!data.stripeEnabled && !data.directDebit && !data.approvalPending && (
+        {!data.stripeEnabled && !data.directDebit && !data.cardMonthly && !data.approvalPending && (
           <div className="flex items-start gap-2 p-3 bg-muted rounded-md">
             <Info className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
             <p className="text-sm text-muted-foreground">

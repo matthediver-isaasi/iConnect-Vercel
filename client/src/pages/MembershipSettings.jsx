@@ -61,7 +61,7 @@ function DirectDebitPlansAdminCard() {
       <CardHeader className="pb-3">
         <CardTitle className="text-base flex items-center gap-2">
           <Landmark className="w-4 h-4" />
-          Monthly Direct Debit Plans
+          Monthly Payment Plans
         </CardTitle>
       </CardHeader>
       <CardContent>
@@ -74,7 +74,7 @@ function DirectDebitPlansAdminCard() {
           </div>
         ) : plans.length === 0 ? (
           <p className="text-sm text-muted-foreground" data-testid="text-dd-plans-empty">
-            No members are paying by monthly Direct Debit yet.
+            No members are paying by monthly plan yet.
           </p>
         ) : (
           <div className="space-y-2">
@@ -96,6 +96,9 @@ function DirectDebitPlansAdminCard() {
                   <span className="text-sm" data-testid={`text-dd-plan-amount-${plan.id}`}>
                     {fmtMoney(plan.monthlyAmount, plan.currency)}/mo
                   </span>
+                  <Badge variant="outline" data-testid={`badge-dd-plan-provider-${plan.id}`}>
+                    {plan.provider === 'stripe' ? 'Card (Stripe)' : 'Direct Debit'}
+                  </Badge>
                   <span className="text-xs text-muted-foreground">
                     Next: {fmtDate(plan.nextChargeDate)}
                   </span>

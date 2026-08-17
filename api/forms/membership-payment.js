@@ -239,6 +239,7 @@ async function handleGet(req, res, resolvedTenantId) {
     stripeEnabled: !!stripePublishableKey,
     stripePublishableKey,
     directDebit: await resolveDirectDebitOption(isMemberScoped, tenantId, simResult),
+    cardMonthly: await resolveCardMonthlyOption(isMemberScoped, tenantId, simResult),
     existingRecord: existingRecord ? {
       id: existingRecord.id,
       status: existingRecord.status,
@@ -264,6 +265,24 @@ async function resolveDirectDebitOption(isMemberScoped, tenantId, simResult) {
     return null;
   }
   return { ...offer, scope: isMemberScoped ? 'member' : 'organization' };
+}
+
+// Task #3620 — monthly card (Stripe subscription) option. Member-scoped
+// only, offered when the tier config enables it AND the tenant has usable
+// Stripe membership credentials.
+async function resolveCardMonthlyOption(isMemberScoped, tenantId, simResult) {
+  if (!isMemberScoped) return null;
+  const { resolveCardMonthlyOffer } = await import('../_lib/stripeMonthlyCard.js');
+  const offer = resolveCardMonthlyOffer(simResult);
+  if (!offer) return null;
+  try {
+    const { getStripeCredentials } = await import('../_lib/stripeCredentials.js');
+    const creds = await getStripeCredentials(tenantId, 'membership');
+    if (!creds?.secret_key) return null;
+  } catch {
+    return null;
+  }
+  return { ...offer, scope: 'member' };
 }
 
 const STRIPE_MIN_CENTS = { gbp: 30, usd: 50, eur: 50, aud: 50, nzd: 50 };
@@ -316,6 +335,25 @@ async function handlePost(req, res, resolvedTenantId) {
     const approvalStatus = await checkApproval(tenantId, member.id, organizationId, simResult.membershipYear?.label);
     if (approvalStatus.blocked) {
       return res.status(400).json({ error: approvalStatus.message });
+    }
+
+    // Double-payment guard (provider-independent): an open monthly plan
+    // agreement (card OR Direct Debit) for this membership year blocks the
+    // one-off annual PaymentIntent.
+    if (isMemberScoped) {
+      const { annualPaymentBlockedByOpenPlan } = await import('../membership/monthly-card.js');
+      const blocked = await annualPaymentBlockedByOpenPlan({
+        tenantId,
+        memberId: member.id,
+        yearLabel: simResult.membershipYear?.label,
+      });
+      if (blocked) {
+        return res.status(409).json({
+          error: 'A monthly payment plan already exists for this membership year. Please continue with the plan, or contact your administrator to cancel it before paying annually.',
+          code: 'open_plan_exists',
+          provider: blocked.provider,
+        });
+      }
     }
 
     const { getStripeCredentials, findOrCreateStripeCustomer } = await import('../_lib/stripeCredentials.js');

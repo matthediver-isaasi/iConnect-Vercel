@@ -46,6 +46,8 @@ export default function MembershipFeePage() {
   const [startingDd, setStartingDd] = useState(false);
   const [ddStarted, setDdStarted] = useState(false);
   const [ddBanner, setDdBanner] = useState(null); // 'complete' | 'cancelled'
+  const [startingCardMonthly, setStartingCardMonthly] = useState(false);
+  const [cardBanner, setCardBanner] = useState(null); // 'success' | 'cancelled'
 
   const stripeRef = useRef(null);
   const elementsRef = useRef(null);
@@ -95,6 +97,16 @@ export default function MembershipFeePage() {
       setDdBanner(ddParam);
       const cleaned = new URLSearchParams(window.location.search);
       cleaned.delete('dd');
+      const s = cleaned.toString();
+      window.history.replaceState({}, '', window.location.pathname + (s ? '?' + s : ''));
+    }
+
+    // Monthly card Checkout return (?card=success / ?card=cancelled)
+    const cardParam = urlParams.get('card');
+    if (cardParam === 'success' || cardParam === 'cancelled') {
+      setCardBanner(cardParam);
+      const cleaned = new URLSearchParams(window.location.search);
+      cleaned.delete('card');
       const s = cleaned.toString();
       window.history.replaceState({}, '', window.location.pathname + (s ? '?' + s : ''));
     }
@@ -193,6 +205,31 @@ export default function MembershipFeePage() {
       setPaymentError(err.message);
     } finally {
       setStartingDd(false);
+    }
+  };
+
+  const handleStartMonthlyCard = async () => {
+    setStartingCardMonthly(true);
+    setPaymentError(null);
+    try {
+      const res = await fetch(`/api/public/membership-fees/${token}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'start_monthly_card' }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(body.error || 'Failed to start monthly card set-up');
+      }
+      if (body.checkoutUrl) {
+        window.location.href = body.checkoutUrl;
+        return;
+      }
+      setCardBanner('success');
+    } catch (err) {
+      setPaymentError(err.message);
+    } finally {
+      setStartingCardMonthly(false);
     }
   };
 
@@ -588,7 +625,59 @@ export default function MembershipFeePage() {
           </Card>
         )}
 
-        {data?.ddEnabled && !paymentComplete && !ddStarted && ddBanner !== 'complete' && (
+        {cardBanner === 'success' && (
+          <Card>
+            <CardContent className="pt-6">
+              <div className="flex items-center gap-2 text-green-600">
+                <CheckCircle2 className="w-5 h-5" />
+                <span className="font-medium">Monthly Card Payments Set Up</span>
+              </div>
+              <p className="text-sm text-gray-500 mt-1">
+                Thank you — your card has been saved securely with Stripe and your membership will be collected in monthly instalments. No further action is needed.
+              </p>
+            </CardContent>
+          </Card>
+        )}
+
+        {cardBanner === 'cancelled' && (
+          <div className="flex items-start gap-2 p-3 rounded-md bg-amber-50 border border-amber-200">
+            <AlertCircle className="w-4 h-4 text-amber-500 mt-0.5 shrink-0" />
+            <p className="text-sm text-amber-700">Monthly card set-up was cancelled. You can try again below, or use another payment option.</p>
+          </div>
+        )}
+
+        {data?.cardMonthlyEnabled && !paymentComplete && cardBanner !== 'success' && !ddStarted && ddBanner !== 'complete' && !data?.cardStatus?.hasSubscription && (
+          <Card>
+            <CardContent className="pt-6">
+              <div className="flex items-center gap-2 mb-3">
+                <CreditCard className="w-4 h-4" style={{ color: primaryColor }} />
+                <h2 className="font-medium">Pay Monthly by Card</h2>
+              </div>
+              <p className="text-sm text-gray-500 mb-3">
+                Spread your membership fee over {data?.cardMonthly?.instalmentCount || 12} monthly card payments of{' '}
+                <span className="font-medium text-gray-700">{formatCurrency(data?.cardMonthly?.monthlyAmount, data?.cardMonthly?.currency || data?.currency)}</span>
+                {data?.cardMonthly?.planTotal ? <> (total {formatCurrency(data.cardMonthly.planTotal, data?.cardMonthly?.currency || data?.currency)})</> : null}.
+                You'll be taken to a secure Stripe page to enter your card details — they never touch our servers.
+              </p>
+              <Button
+                onClick={handleStartMonthlyCard}
+                disabled={startingCardMonthly}
+                variant="outline"
+                className="w-full"
+                data-testid="button-setup-monthly-card"
+              >
+                {startingCardMonthly ? (
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                ) : (
+                  <CreditCard className="w-4 h-4 mr-2" />
+                )}
+                Set Up Monthly Card Payments
+              </Button>
+            </CardContent>
+          </Card>
+        )}
+
+        {data?.ddEnabled && !paymentComplete && !ddStarted && ddBanner !== 'complete' && cardBanner !== 'success' && !data?.cardStatus?.hasSubscription && (
           <Card>
             <CardContent className="pt-6">
               <div className="flex items-center gap-2 mb-3">
@@ -619,7 +708,20 @@ export default function MembershipFeePage() {
           </Card>
         )}
 
-        {data?.stripeEnabled && !paymentComplete && (
+        {data?.stripeEnabled && !paymentComplete && data?.openPlan && (
+          <Card>
+            <CardContent className="pt-6">
+              <div className="flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" style={{ color: primaryColor }} />
+                <p className="text-sm text-gray-600" data-testid="text-open-plan-blocks-annual">
+                  A monthly payment plan {data.openPlan.provider === 'stripe' ? 'by card' : 'by Direct Debit'} is already in place for this membership year, so the one-off annual payment is unavailable. Please contact your administrator if you need to change how you pay.
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {data?.stripeEnabled && !paymentComplete && !data?.openPlan && (
           <Card>
             <CardContent className="pt-6">
               <div className="flex items-center gap-2 mb-3">

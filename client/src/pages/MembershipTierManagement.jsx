@@ -14,7 +14,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
   Layers, Plus, Trash2, Save, Building2, AlertCircle,
   Search, Download, History, CalendarDays, ChevronRight, ChevronDown, Eye, PlusCircle, Percent, Tag,
-  CheckCircle2, Check, ChevronsUpDown, Copy, Bell, Mail, Landmark
+  CheckCircle2, Check, ChevronsUpDown, Copy, Bell, Mail, Landmark, CreditCard
 } from "lucide-react";
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "@/components/ui/collapsible";
 import { toast } from "sonner";
@@ -295,6 +295,7 @@ export default function MembershipTierManagement() {
     dd_grace_days: 7,
     dd_terms_version: 'v1',
     dd_migration_enabled: false,
+    card_monthly_enabled: false,
   });
 
   const [selectedActiveConfigId, setSelectedActiveConfigId] = useState(null);
@@ -842,8 +843,9 @@ export default function MembershipTierManagement() {
       config: {
         ...configWithoutUiFlags,
         dd_enabled: ddEnabled,
-        dd_instalment_count: ddEnabled ? (parseInt(config.dd_instalment_count, 10) || 12) : (config.dd_instalment_count ?? 12),
-        dd_monthly_amount: ddEnabled && isFlat && config.dd_monthly_amount !== '' && config.dd_monthly_amount != null ? parseFloat(config.dd_monthly_amount) : null,
+        card_monthly_enabled: isMemberScoped && !!config.card_monthly_enabled,
+        dd_instalment_count: (ddEnabled || (isMemberScoped && config.card_monthly_enabled)) ? (parseInt(config.dd_instalment_count, 10) || 12) : (config.dd_instalment_count ?? 12),
+        dd_monthly_amount: (ddEnabled || (isMemberScoped && config.card_monthly_enabled)) && isFlat && config.dd_monthly_amount !== '' && config.dd_monthly_amount != null ? parseFloat(config.dd_monthly_amount) : null,
         dd_collection_day: parseInt(config.dd_collection_day, 10) || 1,
         dd_grace_days: parseInt(config.dd_grace_days, 10) || 0,
         id: isCreatingNew ? undefined : config.id,
@@ -948,6 +950,7 @@ export default function MembershipTierManagement() {
     dd_grace_days: c?.dd_grace_days ?? 7,
     dd_terms_version: c?.dd_terms_version || 'v1',
     dd_migration_enabled: c?.dd_migration_enabled === true,
+    card_monthly_enabled: c?.card_monthly_enabled === true,
   });
 
   const handleCreateNew = () => {
@@ -1681,6 +1684,61 @@ export default function MembershipTierManagement() {
                         </AlertDescription>
                       </Alert>
                     )}
+                  </div>
+                )}
+                <div className="flex items-center justify-between gap-3 border-t pt-4">
+                  <div>
+                    <Label className="flex items-center gap-2"><CreditCard className="w-4 h-4" /> Monthly card payments</Label>
+                    <p className="text-sm text-muted-foreground mt-0.5">
+                      Let members pay their annual membership in monthly card instalments (Stripe). Uses the same monthly amount, instalment count, activation and grace settings as the Direct Debit plan above.
+                    </p>
+                  </div>
+                  <Switch
+                    checked={config.card_monthly_enabled === true}
+                    onCheckedChange={(v) => handleConfigChange('card_monthly_enabled', v)}
+                    disabled={!isEditable}
+                    data-testid="switch-card-monthly-enabled"
+                  />
+                </div>
+                {config.card_monthly_enabled && !config.dd_enabled && (
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="space-y-2">
+                      <Label>Instalments</Label>
+                      <Input
+                        type="number"
+                        min="1"
+                        max="12"
+                        value={config.dd_instalment_count ?? 12}
+                        onChange={(e) => handleConfigChange('dd_instalment_count', e.target.value)}
+                        disabled={!isEditable}
+                        data-testid="input-card-instalment-count"
+                      />
+                    </div>
+                    {config.pricing_model === 'flat' && (
+                      <div className="space-y-2">
+                        <Label>Monthly amount ({currencySymbol})</Label>
+                        <Input
+                          type="number"
+                          step="0.01"
+                          value={config.dd_monthly_amount ?? ''}
+                          onChange={(e) => handleConfigChange('dd_monthly_amount', e.target.value)}
+                          placeholder="0.00"
+                          disabled={!isEditable}
+                          data-testid="input-card-monthly-amount"
+                        />
+                      </div>
+                    )}
+                    <div className="space-y-2">
+                      <Label>Grace period (days)</Label>
+                      <Input
+                        type="number"
+                        min="0"
+                        value={config.dd_grace_days ?? 7}
+                        onChange={(e) => handleConfigChange('dd_grace_days', e.target.value)}
+                        disabled={!isEditable}
+                        data-testid="input-card-grace-days"
+                      />
+                    </div>
                   </div>
                 )}
               </div>

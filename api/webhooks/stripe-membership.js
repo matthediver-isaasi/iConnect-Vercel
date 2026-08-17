@@ -31,6 +31,17 @@ import Stripe from 'stripe';
 import { supabase } from '../_lib/database.js';
 import { getStripeIntegrationCredentials } from '../_lib/stripeCredentials.js';
 import { recordSucceededMembershipPaymentIntent } from '../_lib/membershipPaymentReconciliation.js';
+import { processStripeCardPlanEvent, CARD_PLAN_KIND } from '../_lib/stripeMonthlyCard.js';
+
+// Task #3620 — subscription/invoice events for monthly-card membership plans
+// are routed to the card-plan processor (same durable dedupe as PIs).
+const CARD_PLAN_EVENT_TYPES = new Set([
+  'checkout.session.completed',
+  'invoice.paid',
+  'invoice.payment_succeeded',
+  'invoice.payment_failed',
+  'customer.subscription.deleted',
+]);
 
 export const config = { api: { bodyParser: false } };
 
@@ -145,6 +156,48 @@ export default async function handler(req, res) {
       .eq('id', rowId);
     if (error) console.error(`[stripe-membership webhook] failed to mark event ${event.id}: ${error.message}`);
   };
+
+  const baseUrlForEvent = req.headers.host
+    ? `${req.headers['x-forwarded-proto'] || 'https'}://${req.headers.host}`
+    : '';
+
+  // Monthly-card plan events (Task #3620): subscription-mode checkout,
+  // recurring invoice outcomes, subscription conclusion.
+  if (CARD_PLAN_EVENT_TYPES.has(event.type)) {
+    try {
+      const getStripe = async () => {
+        // Mode-flip tolerance: prefer the key matching the event's livemode,
+        // regardless of the tenant's currently selected membership mode.
+        const chosen = event.livemode
+          ? (creds.secret_key || creds.test_secret_key)
+          : (creds.test_secret_key || creds.secret_key);
+        return chosen ? new Stripe(chosen) : null;
+      };
+      const outcome = await processStripeCardPlanEvent(event, { db: supabase, getStripe, baseUrl: baseUrlForEvent });
+      if (outcome.handled) {
+        await markEvent('processed');
+        return res.status(200).json({ received: true, status: 'processed', detail: outcome.detail });
+      }
+      // Not ours (e.g. an unrelated subscription product) → skip. But a
+      // checkout.session.completed carrying OUR kind that found no local
+      // agreement yet is recoverable — keep pending and let Stripe retry.
+      const isOurCheckout = event.type === 'checkout.session.completed'
+        && event.data?.object?.metadata?.kind === CARD_PLAN_KIND;
+      // Same for OUR invoices arriving before the checkout event created the
+      // local plan (Stripe does not guarantee cross-event ordering).
+      if (isOurCheckout || outcome.retryable) {
+        console.error(`[stripe-membership webhook] card-plan event ${event.id} not matched yet: ${outcome.detail} — leaving pending for retry`);
+        await markEvent('pending', outcome.detail);
+        return res.status(500).json({ received: true, status: 'unmatched', detail: outcome.detail, retry: true });
+      }
+      await markEvent('skipped', outcome.detail);
+      return res.status(200).json({ received: true, status: 'skipped', detail: outcome.detail });
+    } catch (err) {
+      console.error(`[stripe-membership webhook] card-plan processing failed for ${event.id}: ${err.message}`);
+      await markEvent('pending', err.message);
+      return res.status(500).json({ received: true, status: 'failed', error: err.message });
+    }
+  }
 
   const pi = event.data?.object;
   if (event.type !== 'payment_intent.succeeded' || !isMembershipPaymentIntent(pi)) {

@@ -134,6 +134,10 @@
       "schedule": "45 */6 * * *"
     },
     {
+      "path": "/api/cron/reconcile-stripe-card-plans",
+      "schedule": "25 */6 * * *"
+    },
+    {
       "path": "/api/cron/grant-speaker-awards",
       "schedule": "*/10 * * * *"
     }

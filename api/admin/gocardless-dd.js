@@ -385,6 +385,10 @@ async function handlePost(req, res, tenantId, actorEmail) {
     if (existingHistory?.payment_method === 'direct_debit') {
       return res.status(400).json({ error: `This member is already on Direct Debit for ${switchFromYear}` });
     }
+    // Task #3620: a monthly card plan for the year also blocks DD migration.
+    if (existingHistory?.payment_method === 'card_monthly') {
+      return res.status(400).json({ error: `This member is already on a monthly card plan for ${switchFromYear}` });
+    }
 
     const invite = await createMigrationInvite({
       tenantId,
