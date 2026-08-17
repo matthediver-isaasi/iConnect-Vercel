@@ -103,7 +103,7 @@ async function handlePost(req, res, invitation, agreement) {
 
   // Idempotent re-entry: the flow may already exist from an earlier click.
   if (agreement.redirect_url && agreement.gocardless_billing_request_id) {
-    return res.json({ authorisationUrl: agreement.redirect_url, resumed: true });
+    return res.json({ authorisationUrl: agreement.redirect_url, flowId: agreement.gocardless_billing_request_flow_id || null, environment: agreement.environment || 'sandbox', resumed: true });
   }
 
   const snap = agreement.metadata?.dd || {};
@@ -161,5 +161,5 @@ async function handlePost(req, res, invitation, agreement) {
       .is('accepted_at', null);
   }
 
-  return res.json({ authorisationUrl: flow.authorisation_url });
+  return res.json({ authorisationUrl: flow.authorisation_url, flowId: flow.id || null, environment: creds.environment || 'sandbox' });
 }

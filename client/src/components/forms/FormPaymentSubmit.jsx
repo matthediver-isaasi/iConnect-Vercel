@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Loader2, CreditCard, AlertCircle, Landmark, Info } from "lucide-react";
 import { resolveEffectivePayment } from "@/lib/formPaymentQuote";
+import GoCardlessDropinFlow from "@/components/gocardless/GoCardlessDropinFlow";
 import { SS_KEY, confirmFormPayment } from "@/lib/formPaymentReturn";
 
 const CURRENCY_SYMBOLS = { GBP: '\u00a3', USD: '$', EUR: '\u20ac', AUD: 'A$', NZD: 'NZ$' };
@@ -69,6 +70,8 @@ export default function FormPaymentSubmit({
   const [confirming, setConfirming] = useState(false);
   const [paymentError, setPaymentError] = useState(null);
   const [stripeMounted, setStripeMounted] = useState(false);
+  // GoCardless Drop-in modal state: { flowId, environment, authorisationUrl }
+  const [gcDropin, setGcDropin] = useState(null);
 
   const stripeRef = useRef(null);
   const elementsRef = useRef(null);
@@ -167,6 +170,16 @@ export default function FormPaymentSubmit({
       try { sessionStorage.setItem(SS_KEY, json.submissionId); } catch { /* ignore */ }
 
       if (providerId === 'gocardless') {
+        if (json.flowId) {
+          // Open the GoCardless Drop-in modal on-page; hosted redirect stays
+          // as the automatic fallback if the widget fails to load.
+          setGcDropin({
+            flowId: json.flowId,
+            environment: json.environment || 'sandbox',
+            authorisationUrl: json.authorisationUrl,
+          });
+          return;
+        }
         window.location.href = json.authorisationUrl;
         return;
       }
@@ -238,6 +251,26 @@ export default function FormPaymentSubmit({
 
   return (
     <div className="space-y-3" data-testid={`form-payment-submit-${field?.id || 'unknown'}`}>
+      {gcDropin && (
+        <GoCardlessDropinFlow
+          flowId={gcDropin.flowId}
+          environment={gcDropin.environment}
+          onSuccess={() => {
+            setGcDropin(null);
+            // Confirm server-side; a still-pending mandate shows the existing
+            // "being confirmed, completes automatically" message.
+            confirmPayment({ submissionId: submissionIdRef.current });
+          }}
+          onExit={() => {
+            setGcDropin(null);
+            setPaymentError('No Direct Debit was set up — you exited before completing the bank authorisation. Nothing has been charged. You can try again.');
+          }}
+          onLoadFailure={() => {
+            // Fall back to the hosted redirect flow.
+            window.location.href = gcDropin.authorisationUrl;
+          }}
+        />
+      )}
       {paymentError && (
         <div className="flex items-start gap-2 p-3 bg-destructive/10 rounded-md border border-destructive/20">
           <AlertCircle className="h-4 w-4 text-destructive shrink-0 mt-0.5" />

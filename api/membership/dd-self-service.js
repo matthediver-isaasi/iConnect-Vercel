@@ -275,7 +275,7 @@ async function handlePost(req, res, member, ctx) {
       reason: `member started replacement mandate (run ${runKey})`,
       source: 'system',
     });
-    return res.json({ ok: true, mode: 'new_mandate', authorisationUrl: flow.authorisation_url });
+    return res.json({ ok: true, mode: 'new_mandate', authorisationUrl: flow.authorisation_url, flowId: flow.id || null, environment: gc.getGocardlessEnvironment() });
   }
 
   return res.status(400).json({ error: 'Unknown action' });

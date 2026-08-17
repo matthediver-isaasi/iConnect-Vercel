@@ -622,6 +622,8 @@ async function handleCreate(req, res, supabase, tenantData) {
     provider: 'gocardless',
     submissionId: submissionRow.id,
     authorisationUrl: flow.authorisation_url,
+    flowId: flow.id || null,
+    environment: gc.getGocardlessEnvironment(),
     amount,
     currency,
   });

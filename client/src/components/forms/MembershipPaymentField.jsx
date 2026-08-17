@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { Loader2, CheckCircle2, CreditCard, AlertCircle, Info, Landmark } from "lucide-react";
 import DirectDebitPlanCard from "@/components/membership/DirectDebitPlanCard";
+import GoCardlessDropinFlow from "@/components/gocardless/GoCardlessDropinFlow";
 
 const CURRENCY_SYMBOLS = { GBP: '\u00a3', USD: '$', EUR: '\u20ac', AUD: 'A$', NZD: 'NZ$' };
 const STRIPE_MINIMUMS = { GBP: 0.30, USD: 0.50, EUR: 0.50, AUD: 0.50, NZD: 0.50 };
@@ -47,6 +48,9 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
   const [billingContactEmail, setBillingContactEmail] = useState('');
   const [billingContactName, setBillingContactName] = useState('');
   const [ddInviteSent, setDdInviteSent] = useState(false);
+  // GoCardless Drop-in modal state: { flowId, environment, authorisationUrl }
+  const [ddDropin, setDdDropin] = useState(null);
+  const [ddModalDone, setDdModalDone] = useState(false);
 
   const cardRef = useRef(null);
   const stripeRef = useRef(null);
@@ -429,6 +433,17 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
       const result = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(result.error || 'Failed to start Direct Debit set-up');
       if (result.authorisationUrl) {
+        if (result.flowId) {
+          // Open the GoCardless Drop-in modal on-page; the hosted redirect
+          // stays as the automatic fallback if the widget fails to load.
+          setDdDropin({
+            flowId: result.flowId,
+            environment: result.environment || 'sandbox',
+            authorisationUrl: result.authorisationUrl,
+            agreementId: result.agreementId || null,
+          });
+          return;
+        }
         window.location.href = result.authorisationUrl;
         return;
       }
@@ -845,12 +860,37 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
           );
         })()}
 
+        {ddDropin && (
+          <GoCardlessDropinFlow
+            flowId={ddDropin.flowId}
+            environment={ddDropin.environment}
+            onSuccess={() => {
+              setDdDropin(null);
+              setDdModalDone(true);
+              setDdStarted(true);
+              if (onChange) {
+                onChange({ status: 'direct_debit_started', membershipYear: data?.membershipYear, agreementId: ddDropin.agreementId });
+              }
+            }}
+            onExit={() => {
+              setDdDropin(null);
+              setPaymentError('No Direct Debit was set up — you exited before completing the bank authorisation. Nothing has been charged. You can try again below.');
+            }}
+            onLoadFailure={() => {
+              // Fall back to the hosted redirect flow.
+              window.location.href = ddDropin.authorisationUrl;
+            }}
+          />
+        )}
+
         {ddStarted && (
           <div className="flex items-start gap-2 p-3 bg-muted rounded-md" data-testid={`dd-started-${field.id}`}>
             <CheckCircle2 className="h-4 w-4 text-green-600 shrink-0 mt-0.5" />
             <p className="text-sm text-muted-foreground">
               {ddInviteSent
                 ? `A secure Direct Debit set-up link has been emailed to ${billingContactEmail.trim() || 'your billing contact'}. Your membership will be confirmed once they complete the set-up.`
+                : ddModalDone
+                ? 'Thank you — your bank details have been submitted. Your mandate is being confirmed with your bank, and your membership will be activated automatically. You will receive an email confirmation shortly.'
                 : 'Your monthly Direct Debit has been set up using your existing bank mandate. You will receive a confirmation email shortly.'}
             </p>
           </div>

@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Loader2, CheckCircle2, XCircle, Landmark, Building2 } from "lucide-react";
+import GoCardlessDropinFlow from "@/components/gocardless/GoCardlessDropinFlow";
 
 const CURRENCY_SYMBOLS = { GBP: '\u00a3', USD: '$', EUR: '\u20ac', AUD: 'A$', NZD: 'NZ$' };
 
@@ -31,10 +32,16 @@ export default function DirectDebitInvitationPage() {
   const [confirmed, setConfirmed] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState(null);
+  // GoCardless Drop-in modal state: { flowId, environment, authorisationUrl }
+  const [ddDropin, setDdDropin] = useState(null);
+  // Local outcome from the Drop-in modal ('complete' | 'cancelled'); takes
+  // precedence over the redirect-return ?flow= param.
+  const [ddOutcome, setDdOutcome] = useState(null);
 
-  const flowParam = typeof window !== 'undefined'
+  const urlFlowParam = typeof window !== 'undefined'
     ? new URLSearchParams(window.location.search).get('flow')
     : null;
+  const flowParam = ddOutcome || urlFlowParam;
 
   const loadDetails = useCallback(async () => {
     setLoading(true);
@@ -71,6 +78,17 @@ export default function DirectDebitInvitationPage() {
       if (!res.ok) {
         setSubmitError(json?.error || 'Could not start the Direct Debit set-up.');
       } else if (json.authorisationUrl) {
+        if (json.flowId) {
+          // Open the GoCardless Drop-in modal on-page; hosted redirect stays
+          // as the automatic fallback if the widget fails to load.
+          setDdOutcome(null);
+          setDdDropin({
+            flowId: json.flowId,
+            environment: json.environment || 'sandbox',
+            authorisationUrl: json.authorisationUrl,
+          });
+          return;
+        }
         window.location.href = json.authorisationUrl;
         return;
       } else {
@@ -85,6 +103,24 @@ export default function DirectDebitInvitationPage() {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-muted/30 p-4">
+      {ddDropin && (
+        <GoCardlessDropinFlow
+          flowId={ddDropin.flowId}
+          environment={ddDropin.environment}
+          onSuccess={() => {
+            setDdDropin(null);
+            setDdOutcome('complete');
+          }}
+          onExit={() => {
+            setDdDropin(null);
+            setDdOutcome('cancelled');
+          }}
+          onLoadFailure={() => {
+            // Fall back to the hosted redirect flow.
+            window.location.href = ddDropin.authorisationUrl;
+          }}
+        />
+      )}
       <Card className="w-full max-w-lg" data-testid="card-dd-invitation">
         <CardHeader>
           <CardTitle className="flex items-center gap-2 flex-wrap">

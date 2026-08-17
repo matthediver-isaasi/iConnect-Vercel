@@ -270,7 +270,7 @@ async function handleStart(req, res, resolvedTenantId) {
         return res.json({ agreementId: existingAgreement.id, invitationSent: !!invitation, resumed: true });
       }
       if (existingAgreement.redirect_url) {
-        return res.json({ authorisationUrl: existingAgreement.redirect_url, agreementId: existingAgreement.id, resumed: true });
+        return res.json({ authorisationUrl: existingAgreement.redirect_url, flowId: existingAgreement.gocardless_billing_request_flow_id || null, environment: existingAgreement.environment || 'sandbox', agreementId: existingAgreement.id, resumed: true });
       }
     }
     return res.json({ agreementId: existingAgreement.id, status: existingAgreement.status, resumed: true });
@@ -348,7 +348,7 @@ async function handleStart(req, res, resolvedTenantId) {
         .select('*')
         .eq('idempotency_key', idempotencyKey)
         .maybeSingle();
-      if (raced?.redirect_url) return res.json({ authorisationUrl: raced.redirect_url, agreementId: raced.id, resumed: true });
+      if (raced?.redirect_url) return res.json({ authorisationUrl: raced.redirect_url, flowId: raced.gocardless_billing_request_flow_id || null, environment: raced.environment || 'sandbox', agreementId: raced.id, resumed: true });
       if (raced) return res.json({ agreementId: raced.id, status: raced.status, resumed: true });
     }
     console.error('[OrgDirectDebit] Failed to create agreement:', agreeErr);
@@ -431,7 +431,7 @@ async function handleStart(req, res, resolvedTenantId) {
     });
   }
 
-  return res.json({ authorisationUrl, agreementId: agreement.id });
+  return res.json({ authorisationUrl, flowId: agreement.gocardless_billing_request_flow_id || null, environment: agreement.environment || 'sandbox', agreementId: agreement.id });
 }
 
 // Admin-only management of the billing-contact link.

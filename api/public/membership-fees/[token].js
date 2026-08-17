@@ -1209,7 +1209,7 @@ export default async function handler(req, res) {
           .maybeSingle();
         if (existingAgreement) {
           if (existingAgreement.status === STATUS.PAYMENT_SETUP_REQUIRED && existingAgreement.redirect_url) {
-            return res.json({ authorisationUrl: existingAgreement.redirect_url, agreementId: existingAgreement.id, resumed: true });
+            return res.json({ authorisationUrl: existingAgreement.redirect_url, flowId: existingAgreement.gocardless_billing_request_flow_id || null, environment: existingAgreement.environment || 'sandbox', agreementId: existingAgreement.id, resumed: true });
           }
           return res.json({ agreementId: existingAgreement.id, status: existingAgreement.status, resumed: true });
         }
@@ -1271,7 +1271,7 @@ export default async function handler(req, res) {
               .select('*')
               .eq('idempotency_key', idempotencyKey)
               .maybeSingle();
-            if (raced?.redirect_url) return res.json({ authorisationUrl: raced.redirect_url, agreementId: raced.id, resumed: true });
+            if (raced?.redirect_url) return res.json({ authorisationUrl: raced.redirect_url, flowId: raced.gocardless_billing_request_flow_id || null, environment: raced.environment || 'sandbox', agreementId: raced.id, resumed: true });
             if (raced) return res.json({ agreementId: raced.id, status: raced.status, resumed: true });
           }
           console.error('[Public Fee] Failed to create DD agreement:', agreeErr);
@@ -1348,7 +1348,7 @@ export default async function handler(req, res) {
           });
         }
 
-        return res.json({ authorisationUrl, agreementId: agreement.id });
+        return res.json({ authorisationUrl, flowId: agreement.gocardless_billing_request_flow_id || null, environment: agreement.environment || 'sandbox', agreementId: agreement.id });
       }
 
       // Task #3620 — start a monthly-card (Stripe subscription) plan from the

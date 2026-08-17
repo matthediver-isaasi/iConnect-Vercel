@@ -157,3 +157,4 @@
 - [member_note column contract](member-note-columns.md) — notes key via target_member_id/author_member_id (+attachments); member_id/created_by inserts fail silently — always check {error}.
 - [Organisation Group CRM parity](org-group-crm-parity.md) — preference_field.entity_scope is CHECK-constrained; org layout/rules editors take a coreFields prop, rule eval is entity-agnostic.
 - [Demo tenant seed framework](demo-seed-framework.md) — demo-seeds/ engine+definitions; RNG plan-then-persist, manifest in system_settings (string!), member deletes need tiny batches.
+- [GoCardless Drop-in modal](gocardless-dropin.md) — DD start endpoints return flowId+environment; shared GoCardlessDropinFlow wrapper opens modal, onLoadFailure falls back to hosted redirect.

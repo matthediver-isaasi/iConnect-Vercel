@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useParams } from "react-router-dom";
+import GoCardlessDropinFlow from "@/components/gocardless/GoCardlessDropinFlow";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -48,6 +49,8 @@ export default function MembershipFeePage() {
   const [ddBanner, setDdBanner] = useState(null); // 'complete' | 'cancelled'
   const [startingCardMonthly, setStartingCardMonthly] = useState(false);
   const [cardBanner, setCardBanner] = useState(null); // 'success' | 'cancelled'
+  // GoCardless Drop-in modal state: { flowId, environment, authorisationUrl }
+  const [ddDropin, setDdDropin] = useState(null);
 
   const stripeRef = useRef(null);
   const elementsRef = useRef(null);
@@ -196,6 +199,16 @@ export default function MembershipFeePage() {
         throw new Error(body.error || 'Failed to start Direct Debit set-up');
       }
       if (body.authorisationUrl) {
+        if (body.flowId) {
+          // Open the GoCardless Drop-in modal on-page; hosted redirect stays
+          // as the automatic fallback if the widget fails to load.
+          setDdDropin({
+            flowId: body.flowId,
+            environment: body.environment || 'sandbox',
+            authorisationUrl: body.authorisationUrl,
+          });
+          return;
+        }
         window.location.href = body.authorisationUrl;
         return;
       }
@@ -588,6 +601,25 @@ export default function MembershipFeePage() {
               )}
             </CardContent>
           </Card>
+        )}
+
+        {ddDropin && (
+          <GoCardlessDropinFlow
+            flowId={ddDropin.flowId}
+            environment={ddDropin.environment}
+            onSuccess={() => {
+              setDdDropin(null);
+              setDdBanner('complete');
+            }}
+            onExit={() => {
+              setDdDropin(null);
+              setDdBanner('cancelled');
+            }}
+            onLoadFailure={() => {
+              // Fall back to the hosted redirect flow.
+              window.location.href = ddDropin.authorisationUrl;
+            }}
+          />
         )}
 
         {ddBanner === 'complete' && (
