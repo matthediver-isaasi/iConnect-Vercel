@@ -77,6 +77,8 @@ const HEIGHTS = [
   { value: "short", label: "Short" },
   { value: "medium", label: "Medium" },
   { value: "tall", label: "Tall" },
+  { value: "xtall", label: "Extra Tall" },
+  { value: "xxtall", label: "Huge" },
 ];
 
 const AGGREGATORS = [

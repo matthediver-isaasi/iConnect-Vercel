@@ -128,16 +128,18 @@ function drillKeyFromChartEntry(entry) {
 const NEXT_WIDTH = { fifth: "third", third: "half", half: "full", full: "fifth" };
 const WIDTH_LABEL = { fifth: "1/5", third: "1/3", half: "1/2", full: "Full" };
 
-const NEXT_HEIGHT = { short: "medium", medium: "tall", tall: "short" };
-const HEIGHT_LABEL = { short: "Short", medium: "Medium", tall: "Tall" };
+const NEXT_HEIGHT = { short: "medium", medium: "tall", tall: "xtall", xtall: "xxtall", xxtall: "short" };
+const HEIGHT_LABEL = { short: "Short", medium: "Medium", tall: "Tall", xtall: "Extra Tall", xxtall: "Huge" };
 
 // Per-height chart body class + bar XAxis props for each widget type.
 const BAR_HEIGHT_PROPS = {
   short:  { className: "h-32 w-full", xAxisHeight: 40, angle: -20 },
   medium: { className: "h-44 w-full", xAxisHeight: 50, angle: -25 },
   tall:   { className: "h-72 w-full", xAxisHeight: 80, angle: -45 },
+  xtall:  { className: "h-96 w-full", xAxisHeight: 100, angle: -55 },
+  xxtall: { className: "h-[30rem] w-full", xAxisHeight: 120, angle: -60 },
 };
-const LINE_HEIGHT_CLASS = { short: "h-40 w-full", medium: "h-56 w-full", tall: "h-80 w-full" };
+const LINE_HEIGHT_CLASS = { short: "h-40 w-full", medium: "h-56 w-full", tall: "h-80 w-full", xtall: "h-[26rem] w-full", xxtall: "h-[32rem] w-full" };
 // Pie/donut: outerRadius and innerRadius scale with height so the chart
 // fills its container without clipping. Each outerRadius fits comfortably
 // inside the corresponding CSS height (outerRadius * 2 < container px).
@@ -145,6 +147,8 @@ const PIE_HEIGHT_CONFIG = {
   short:  { className: "h-36 w-full", outerRadius: 55, innerRadius: 32 },
   medium: { className: "h-44 w-full", outerRadius: 72, innerRadius: 44 },
   tall:   { className: "h-60 w-full", outerRadius: 95, innerRadius: 58 },
+  xtall:  { className: "h-72 w-full", outerRadius: 110, innerRadius: 68 },
+  xxtall: { className: "h-80 w-full", outerRadius: 130, innerRadius: 80 },
 };
 // List: both min-h (so the card has a deterministic height even with few/no
 // rows) and max-h (so a very long list still scrolls rather than overflowing).
@@ -152,14 +156,18 @@ const LIST_HEIGHT_CLASS = {
   short:  { min: "min-h-[8rem]",  max: "max-h-48" },
   medium: { min: "min-h-[10rem]", max: "max-h-64" },
   tall:   { min: "min-h-[14rem]", max: "max-h-96" },
+  xtall:  { min: "min-h-[18rem]", max: "max-h-[28rem]" },
+  xxtall: { min: "min-h-[22rem]", max: "max-h-[36rem]" },
 };
 // Stat/conversion widgets have minimal content; use min-h so height setting
-// produces a visible size difference across all three named values.
+// produces a visible size difference across all five named values.
 // Also reused by EmptyChart so empty states honour the widget's height.
 const STAT_HEIGHT_CLASS = {
   short:  "min-h-[8rem]",
   medium: "min-h-[10rem]",
   tall:   "min-h-[14rem]",
+  xtall:  "min-h-[18rem]",
+  xxtall: "min-h-[22rem]",
 };
 
 // Build the rows that drive the CSV export from the already-loaded widget

@@ -215,7 +215,7 @@ const widthEnum = z.enum(['fifth', 'third', 'half', 'full']);
 
 // Heights: short / medium (default, matches current hard-coded sizes) / tall.
 // The cycle in WidgetCard is short → medium → tall → short.
-const heightEnum = z.enum(['short', 'medium', 'tall']);
+const heightEnum = z.enum(['short', 'medium', 'tall', 'xtall', 'xxtall']);
 
 export const widgetCreateSchema = z.object({
   title: z.string().min(1).max(200),
