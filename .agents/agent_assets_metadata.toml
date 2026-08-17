@@ -98,3 +98,10 @@ uri = "file://exports/bnms-memberships-invoices.csv"
 type = "table"
 title = "BNMS MEMBERSHIPS Invoices (2025-01-01 onward)"
 description = "7,379 Xero invoices with Projects = MEMBERSHIPS tracking. Columns: InvoiceNumber, Contact, Date, Status, SubTotal, Tax, Total, AmountDue, Currency, Reference."
+
+[[outputs]]
+id = "EgUk8ClNwZyKrlLlkks6-"
+uri = "file://bnms-memberships-invoices.csv"
+type = "table"
+title = "BNMS MEMBERSHIPS Invoices (2025-01-01 onward)"
+description = "7,379 Xero invoices with Projects = MEMBERSHIPS tracking (7,319 PAID, 21 AUTHORISED, 38 VOIDED, 1 DELETED; £314,621.06 live value). Columns: InvoiceNumber, Contact, Date, Status, SubTotal, Tax, Total, AmountDue, Currency, Reference."
