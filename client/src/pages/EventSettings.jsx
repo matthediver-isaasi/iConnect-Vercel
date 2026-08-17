@@ -58,6 +58,8 @@ export default function EventSettingsPage() {
   const [tbcBannerTextColor, setTbcBannerTextColor] = useState("#1e3a8a");
   const [tbcBannerIconColor, setTbcBannerIconColor] = useState("#2563eb");
   const [tbcBannerTitle, setTbcBannerTitle] = useState("Events open for pre-registration");
+  const [tbcBannerJumpLabel, setTbcBannerJumpLabel] = useState("Jump to pre-registration events");
+  const [tbcBannerJumpDescription, setTbcBannerJumpDescription] = useState("Some events are open for pre-registration while their dates are confirmed.");
   const [isSaving, setIsSaving] = useState(false);
   const [editingEventImage, setEditingEventImage] = useState(null);
   const [selectedImage, setSelectedImage] = useState(null);
@@ -408,6 +410,8 @@ export default function EventSettingsPage() {
         setTbcBannerTextColor(cfg.textColor || '#1e3a8a');
         setTbcBannerIconColor(cfg.iconColor || '#2563eb');
         setTbcBannerTitle(cfg.title || 'Events open for pre-registration');
+        setTbcBannerJumpLabel(cfg.jumpLabel || 'Jump to pre-registration events');
+        setTbcBannerJumpDescription(cfg.jumpDescription || 'Some events are open for pre-registration while their dates are confirmed.');
       } catch (e) {
         console.error('Failed to parse TBC events banner config:', e);
       }
@@ -842,6 +846,8 @@ export default function EventSettingsPage() {
         textColor: tbcBannerTextColor,
         iconColor: tbcBannerIconColor,
         title: (tbcBannerTitle || '').trim() || 'Events open for pre-registration',
+        jumpLabel: (tbcBannerJumpLabel || '').trim() || 'Jump to pre-registration events',
+        jumpDescription: (tbcBannerJumpDescription || '').trim() || 'Some events are open for pre-registration while their dates are confirmed.',
       };
       const tbcBannerValue = tbcBannerMode === 'gradient'
         ? JSON.stringify({ mode: 'gradient', from: tbcBannerFrom, to: tbcBannerTo, ...tbcBannerCommon })
@@ -2623,6 +2629,26 @@ export default function EventSettingsPage() {
                     placeholder="Events open for pre-registration"
                     className="max-w-md"
                     data-testid="input-tbc-banner-title"
+                  />
+                </div>
+                <div className="flex items-center gap-3">
+                  <Label className="text-sm text-slate-600 whitespace-nowrap">Jump Button Label:</Label>
+                  <Input
+                    value={tbcBannerJumpLabel}
+                    onChange={(e) => setTbcBannerJumpLabel(e.target.value)}
+                    placeholder="Jump to pre-registration events"
+                    className="max-w-md"
+                    data-testid="input-tbc-banner-jump-label"
+                  />
+                </div>
+                <div className="flex items-center gap-3">
+                  <Label className="text-sm text-slate-600 whitespace-nowrap">Jump Helper Text:</Label>
+                  <Input
+                    value={tbcBannerJumpDescription}
+                    onChange={(e) => setTbcBannerJumpDescription(e.target.value)}
+                    placeholder="Some events are open for pre-registration while their dates are confirmed."
+                    className="max-w-md"
+                    data-testid="input-tbc-banner-jump-description"
                   />
                 </div>
                 <RadioGroup

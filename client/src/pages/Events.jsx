@@ -63,6 +63,8 @@ import {
   getTbcBannerPlacement,
   getTbcBannerStyle,
   getTbcBannerTitle,
+  getTbcJumpLabel,
+  getTbcJumpDescription,
 } from "@/lib/tbcEventsBanner";
 import { listAllOrganizationsForAdmin } from '@/lib/adminOrgList';
 import { resolveEventCtaLabel } from '@/lib/eventCtaLabel';
@@ -1371,10 +1373,10 @@ export default function EventsPage({
                   data-testid="button-jump-tbc-events"
                 >
                   <Clock className="w-4 h-4" />
-                  Jump to pre-registration events
+                  {getTbcJumpLabel(tbcBannerConfig)}
                 </Button>
                 <span className="text-xs text-slate-500">
-                  Some events are open for pre-registration while their dates are confirmed.
+                  {getTbcJumpDescription(tbcBannerConfig)}
                 </span>
               </div>
             )}

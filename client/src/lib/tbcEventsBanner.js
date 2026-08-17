@@ -2,6 +2,8 @@
 // Pure functions so placement/config parsing can be unit tested.
 
 export const DEFAULT_TBC_BANNER_TITLE = 'Events open for pre-registration';
+export const DEFAULT_TBC_JUMP_LABEL = 'Jump to pre-registration events';
+export const DEFAULT_TBC_JUMP_DESCRIPTION = 'Some events are open for pre-registration while their dates are confirmed.';
 
 /**
  * Parse the tbc_events_banner system setting. Returns the parsed config when
@@ -29,6 +31,14 @@ export function getTbcBannerStyle(config) {
 
 export function getTbcBannerTitle(config) {
   return (config?.title || '').trim() || DEFAULT_TBC_BANNER_TITLE;
+}
+
+export function getTbcJumpLabel(config) {
+  return (config?.jumpLabel || '').trim() || DEFAULT_TBC_JUMP_LABEL;
+}
+
+export function getTbcJumpDescription(config) {
+  return (config?.jumpDescription || '').trim() || DEFAULT_TBC_JUMP_DESCRIPTION;
 }
 
 export function isTbcEvent(event) {
