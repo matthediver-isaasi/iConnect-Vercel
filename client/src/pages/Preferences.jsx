@@ -60,6 +60,7 @@ import { Command, CommandInput, CommandList, CommandEmpty, CommandGroup, Command
 import { ChevronsUpDown } from "lucide-react";
 import { Link } from "react-router-dom";
 import { createPageUrl } from "@/utils";
+import { sanitizeRichText } from "@/components/canvas/blocks/sanitize";
 
 // --- List Field Editor Component ---
 function ListFieldEditor({ fieldId, values = [], onChange, placeholder, disabled = false }) {
@@ -2308,9 +2309,10 @@ export default function PreferencesPage() {
                           {assignment.group_role}
                         </p>
                         {group.description && (
-                          <p className="text-xs text-slate-600 mt-1 line-clamp-2">
-                            {group.description}
-                          </p>
+                          <div
+                            className="text-xs text-slate-600 mt-1 line-clamp-2 prose prose-xs max-w-none"
+                            dangerouslySetInnerHTML={{ __html: sanitizeRichText(group.description) }}
+                          />
                         )}
                       </div>
                     </div>
