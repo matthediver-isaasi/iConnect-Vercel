@@ -2332,7 +2332,13 @@ export default function PreferencesPage() {
                 <Badge variant="secondary">{rolesWithBadges.length + groupRoleBadges.length}</Badge>
               </CardTitle>
               <CardDescription>
-                Your membership badges that you can download and share
+                Your membership badges that you can download and share.{' '}
+                <Link
+                  to="/help/sharing-your-membership-badge"
+                  className="text-indigo-600 hover:text-indigo-700 underline-offset-2 hover:underline font-medium"
+                >
+                  How to share your badge
+                </Link>
               </CardDescription>
             </CardHeader>
             <CardContent>

@@ -633,10 +633,80 @@ As you take part, you can earn awards shown as badges on your profile.
 
 {{feature: user.about-me.membership-badges}}
 ## Membership badges
-Download your official membership badge (for example "Full Member") as an image to use in your email signature or online.
+Download your official membership badge (for example "Full Member") as an image to use in your email signature or online. For step-by-step guidance on adding it to an email signature, sharing on LinkedIn, or adding it to your LinkedIn credentials, see [Using and sharing your membership badge](/help/sharing-your-membership-badge).
 {{/feature}}
 
 If a section you expect is missing, your role may not include it — your organisation's administrator can help.`,
+  },
+  {
+    slug: 'sharing-your-membership-badge',
+    title: 'Using and sharing your membership badge',
+    category: 'Your account',
+    summary: 'Download your badge and add it to your email signature, share it on LinkedIn, or add it to your LinkedIn credentials.',
+    status: 'published',
+    sort_order: 22,
+    required_feature: 'user.about-me.membership-badges',
+    body: `Your membership badge is an official image that shows your membership status. You can download it from your About Me page and use it in several places to make your membership visible to others.
+
+## Downloading your badge
+1. Open **About Me** from the navigation and scroll to the **Membership Badges** section.
+2. Find the badge you want — for example "Full Member" — and choose **Download Badge**.
+3. Your browser saves the badge as an image file, ready to use.
+
+{{screenshot: The Membership Badges section on the About Me page}}
+
+## Adding your badge to an email signature
+
+### Outlook (desktop)
+1. Open Outlook and go to **File → Options → Mail → Signatures**.
+2. Select the signature you want to edit (or create a new one).
+3. Click in the signature editor where you'd like the badge to appear.
+4. Choose **Insert → Picture**, browse to your downloaded badge file, and insert it.
+5. Right-click the image and choose **Format Picture → Size** to resize it — around 80–100px height works well in most signatures.
+6. Save the signature.
+
+### Outlook (web — outlook.com or Microsoft 365)
+1. Open the Outlook web app and go to **Settings → View all Outlook settings → Compose and reply → Email signature**.
+2. Click in the signature editor where you want the badge.
+3. Choose the **Insert pictures inline** icon in the editor toolbar, then upload your badge file.
+4. Click the inserted image and use the resize handles to make it an appropriate size.
+5. Save.
+
+### Other email clients
+Most email clients let you insert an image into your signature. Look for an "Insert image" or "Attach picture" option in your signature editor and follow the same steps — upload your downloaded badge file and resize as needed.
+
+{{screenshot: A badge displayed in an email signature}}
+
+## Sharing your badge on LinkedIn
+
+Sharing your badge as a post is a great way to let your network know about your membership.
+
+1. Go to LinkedIn and choose **Start a post**.
+2. Select the **Photo** icon and upload your downloaded badge image.
+3. Write a short description — for example: "Proud to be a [member type] of [your organisation]. Looking forward to the year ahead."
+4. Tag your organisation by typing **@** followed by their name and selecting them from the suggestions.
+5. Optionally add a link to your organisation's website or your profile page.
+6. Post when you're happy with it.
+
+{{screenshot: A LinkedIn post with a membership badge image}}
+
+## Adding your badge to your LinkedIn credentials
+
+LinkedIn's Licences & Certifications section lets you permanently display your membership on your professional profile.
+
+1. Go to your LinkedIn profile and choose **Add profile section → Recommended → Add licenses & certifications**.
+2. Fill in the fields:
+   - **Name** — your membership type, for example "Full Member" or "Associate Member".
+   - **Issuing organisation** — type your organisation's name and select them from the suggestions. If they don't appear, enter the name manually.
+   - **Issue date** — the month and year your membership began.
+   - **Expiration date** — if your membership has an expiry, enter it; otherwise leave this blank or tick "This credential does not expire".
+   - **Credential ID** — leave blank unless your organisation gives you one.
+   - **Credential URL** — link to the portal or your organisation's membership page (optional but helpful).
+3. Save. Your membership now appears in the Licences & Certifications section of your profile.
+
+{{screenshot: The Add License & Certification form on LinkedIn}}
+
+LinkedIn does not currently support uploading a custom badge image directly to a certification entry, but adding the issuing organisation and any credential URL makes the entry clear and verifiable.`,
   },
   {
     slug: 'communication-preferences',
