@@ -34,12 +34,18 @@ export default async function handler(req, res) {
 
     const XERO_REDIRECT_URI = `${req.headers['x-forwarded-proto'] || 'https'}://${req.headers.host}/api/xero/callback`;
 
+    // Xero granular scopes (required for apps created on/after 2 March 2026;
+    // also assigned to all existing apps, so safe for both generations).
+    // accounting.invoices covers Invoices + CreditNotes; accounting.payments
+    // covers Payments. Broad accounting.transactions is rejected by new apps
+    // with invalid_scope. Contacts/settings.read scopes are unchanged.
     const scopes = [
       'offline_access',
       'openid',
-      'profile', 
+      'profile',
       'email',
-      'accounting.transactions',
+      'accounting.invoices',
+      'accounting.payments',
       'accounting.contacts',
       'accounting.settings.read'
     ].join(' ');

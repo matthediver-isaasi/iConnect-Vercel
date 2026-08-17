@@ -5782,7 +5782,9 @@ const functionHandlers = {
       response_type: 'code',
       client_id: xeroCredentials.client_id,
       redirect_uri: redirectUri,
-      scope: 'offline_access accounting.transactions accounting.contacts accounting.settings openid profile email',
+      // Granular scopes (see /api/xero/auth-url.js) — broad accounting.transactions
+      // fails with invalid_scope on Xero apps created on/after 2 March 2026.
+      scope: 'offline_access accounting.invoices accounting.payments accounting.contacts accounting.settings.read openid profile email',
       state: Buffer.from(JSON.stringify({ tenantId: tenantContext.tenant.id })).toString('base64')
     }).toString();
 

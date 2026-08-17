@@ -4,7 +4,7 @@ import { getXeroCredentials } from "../_lib/xeroCredentials.js";
 export default async function handler(req, res) {
   console.log('[Xero Callback] Received request with query:', JSON.stringify(req.query));
   
-  const { code, error, state } = req.query;
+  const { code, error, error_description: errorDescription, state } = req.query;
   
   let appTenantId = null;
   if (state) {
@@ -22,11 +22,15 @@ export default async function handler(req, res) {
   }
 
   if (error) {
+    // Escape the reflected OAuth params and surface Xero's error_description
+    // (e.g. invalid_scope details) instead of a bare error code.
+    const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
     return res.send(`
       <html>
         <body style="font-family: system-ui; padding: 40px; text-align: center;">
           <h1 style="color: #dc2626;">Authentication Error</h1>
-          <p>Failed to authenticate with Xero: ${error}</p>
+          <p>Failed to authenticate with Xero: ${esc(error)}</p>
+          ${errorDescription ? `<p style="color: #6b7280;">${esc(errorDescription)}</p>` : ''}
           <button onclick="window.close()" style="margin-top: 20px; padding: 10px 20px; background: #2563eb; color: white; border: none; border-radius: 6px; cursor: pointer;">
             Close Window
           </button>
