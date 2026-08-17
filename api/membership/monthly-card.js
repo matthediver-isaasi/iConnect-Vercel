@@ -367,5 +367,13 @@ async function handlePost(req, res, resolvedTenantId) {
     if (linkErr) console.error('[MonthlyCard] Failed to link history row:', linkErr);
   }
 
+  // Confirm-mode renewal (Task #3621): a member starting a card plan for the
+  // renewal year themselves marks any pending 'notice_sent' renewal row
+  // confirmed (provider-agnostic; best-effort, mirrors the DD start path).
+  try {
+    const { markRenewalConfirmed } = await import('../_lib/gocardlessDdRenewals.js');
+    await markRenewalConfirmed({ tenantId, memberId: member.id, yearLabel, newAgreementId: agreement.id });
+  } catch {}
+
   return res.json({ checkoutUrl: session.url, agreementId: agreement.id });
 }

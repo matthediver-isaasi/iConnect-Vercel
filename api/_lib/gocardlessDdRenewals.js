@@ -89,10 +89,13 @@ export function computeRenewalWindow(snapshot, noticeDays = RENEWAL_NOTICE_DAYS)
  *   hasNextYearRecord — a membership-history row for the renewal year already
  *                       exists via another payment method
  *   today        — Date
+ *   expectedKind — agreement snapshot kind this decision applies to
+ *                  (default 'monthly_direct_debit'; the Stripe card renewal
+ *                  engine reuses this logic with 'monthly_card').
  */
-export function decideRenewalAction({ snapshot, planStatus, autoRenew, renewalRow, hasNextYearRecord = false, today = new Date() }) {
-  if (!snapshot || snapshot.kind !== 'monthly_direct_debit') {
-    return { action: 'none', reason: 'not a DD agreement' };
+export function decideRenewalAction({ snapshot, planStatus, autoRenew, renewalRow, hasNextYearRecord = false, today = new Date(), expectedKind = 'monthly_direct_debit' }) {
+  if (!snapshot || snapshot.kind !== expectedKind) {
+    return { action: 'none', reason: `not a ${expectedKind} agreement` };
   }
   if (![STATUS.ACTIVE, STATUS.EXPIRED].includes(planStatus)) {
     return { action: 'none', reason: `plan status ${planStatus} not renewable` };

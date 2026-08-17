@@ -695,7 +695,7 @@ function RenewalsTab() {
   const renewals = data?.renewals || [];
   if (isLoading) return <Skeleton className="h-40 w-full" />;
   if (renewals.length === 0) {
-    return <p className="text-sm text-muted-foreground py-6" data-testid="text-no-renewals">No Direct Debit renewals recorded yet.</p>;
+    return <p className="text-sm text-muted-foreground py-6" data-testid="text-no-renewals">No plan renewals recorded yet.</p>;
   }
   return (
     <div className="space-y-2">
@@ -707,6 +707,9 @@ function RenewalsTab() {
                 <span className="font-medium" data-testid={`text-renewal-member-${r.id}`}>{r.memberName || "Unknown member"}</span>
                 <Badge variant={RENEWAL_STATUS_VARIANTS[r.status] || "outline"} data-testid={`badge-renewal-status-${r.id}`}>
                   {String(r.status || "").replace(/_/g, " ")}
+                </Badge>
+                <Badge variant="outline" data-testid={`badge-renewal-provider-${r.id}`}>
+                  {r.provider === "stripe" ? "Card" : "Direct Debit"}
                 </Badge>
               </div>
               <p className="text-xs text-muted-foreground">

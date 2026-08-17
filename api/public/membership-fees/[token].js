@@ -213,6 +213,7 @@ export default async function handler(req, res) {
       let cardMonthly = null;
       let cardStatus = null;
       let openPlan = null;
+      let renewal = null;
       if (isMemberToken && tokenMember) {
         // Monthly card option (Task #3620): offered when the tier enables it
         // AND the tenant has usable Stripe membership credentials.
@@ -292,6 +293,39 @@ export default async function handler(req, res) {
         } catch (ddErr) {
           console.warn('[Public Fee] DD availability check failed (non-fatal):', ddErr.message);
         }
+        // Task #3621 — renewal state for THIS membership year (DD or card):
+        // lets the page show "awaiting your confirmation" / "renewal failed —
+        // pay with an up-to-date card" states.
+        try {
+          const { data: renewalRow } = await supabase
+            .from('membership_dd_renewals')
+            .select('status, mode, failure_reason, previous_agreement_id')
+            .eq('tenant_id', feeToken.tenant_id)
+            .eq('member_id', feeToken.member_id)
+            .eq('renewal_year', feeToken.membership_year)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          if (renewalRow) {
+            let provider = 'gocardless';
+            try {
+              const { data: prevAgree } = await supabase
+                .from('membership_billing_agreements')
+                .select('provider')
+                .eq('id', renewalRow.previous_agreement_id)
+                .maybeSingle();
+              if (prevAgree?.provider === 'stripe') provider = 'stripe';
+            } catch {}
+            renewal = {
+              status: renewalRow.status,
+              mode: renewalRow.mode,
+              provider,
+              failureReason: renewalRow.failure_reason || null,
+            };
+          }
+        } catch (renewErr) {
+          console.warn('[Public Fee] Renewal state lookup failed (non-fatal):', renewErr.message);
+        }
       }
 
       return res.json({
@@ -305,6 +339,7 @@ export default async function handler(req, res) {
         cardMonthly,
         cardStatus,
         openPlan,
+        renewal,
         organizationName: org?.name || 'Organisation',
         membershipYear: feeToken.membership_year,
         finalCost: parseFloat(feeToken.final_cost),
@@ -1554,6 +1589,13 @@ export default async function handler(req, res) {
             });
           } catch {}
         }
+
+        // Confirm-mode renewal (Task #3621): starting a card plan for the
+        // renewal year marks a pending 'notice_sent' renewal row confirmed.
+        try {
+          const { markRenewalConfirmed } = await import('../../_lib/gocardlessDdRenewals.js');
+          await markRenewalConfirmed({ tenantId: feeToken.tenant_id, memberId: feeToken.member_id, yearLabel, newAgreementId: agreement.id });
+        } catch {}
 
         return res.json({ checkoutUrl: session.url, agreementId: agreement.id });
       }

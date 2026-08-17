@@ -678,6 +678,27 @@ export default function MembershipFeePage() {
           </div>
         )}
 
+        {data?.renewal?.status === 'notice_sent' && data?.renewal?.mode === 'confirm' && !paymentComplete && cardBanner !== 'success' && ddBanner !== 'complete' && (
+          <div className="flex items-start gap-2 p-3 rounded-md bg-blue-50 border border-blue-200" data-testid="banner-renewal-awaiting-confirmation">
+            <AlertCircle className="w-4 h-4 text-blue-500 mt-0.5 shrink-0" />
+            <p className="text-sm text-blue-700">
+              Your monthly {data.renewal.provider === 'stripe' ? 'card payment' : 'Direct Debit'} plan is ready to renew for this membership year.
+              Confirm your renewal by setting up your monthly plan below — {data.renewal.provider === 'stripe' ? 'your saved card details can be reused' : 'your existing Direct Debit mandate will be reused'}.
+            </p>
+          </div>
+        )}
+
+        {data?.renewal?.status === 'failed' && !paymentComplete && cardBanner !== 'success' && ddBanner !== 'complete' && (
+          <div className="flex items-start gap-2 p-3 rounded-md bg-red-50 border border-red-200" data-testid="banner-renewal-failed">
+            <AlertCircle className="w-4 h-4 text-red-500 mt-0.5 shrink-0" />
+            <p className="text-sm text-red-700">
+              We couldn't renew your monthly {data.renewal.provider === 'stripe' ? 'card payment' : 'Direct Debit'} plan automatically
+              {data.renewal.provider === 'stripe' ? ' — your saved card could not be charged' : ''}.
+              Your membership has not been renewed yet. Please choose a payment option below{data.renewal.provider === 'stripe' ? ' to pay with an up-to-date card' : ''}, or contact us for help.
+            </p>
+          </div>
+        )}
+
         {data?.cardMonthlyEnabled && !paymentComplete && cardBanner !== 'success' && !ddStarted && ddBanner !== 'complete' && !data?.cardStatus?.hasSubscription && (
           <Card>
             <CardContent className="pt-6">

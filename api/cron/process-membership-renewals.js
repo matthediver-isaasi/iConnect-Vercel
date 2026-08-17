@@ -8,6 +8,7 @@ import { resolveInvoiceAddress } from '../_lib/invoiceAddressResolver.js';
 import { resolveMembershipNominalCode } from '../_lib/membershipNominalCode.js';
 import { processTenantReminders } from '../_lib/membershipReminders.js';
 import { processTenantDdRenewals } from '../_lib/gocardlessDdRenewals.js';
+import { processTenantCardRenewals } from '../_lib/stripeCardRenewals.js';
 import { getPausedMemberIdSet, processPauseAutoRestarts } from '../_lib/memberPause.js';
 
 export default async function handler(req, res) {
@@ -105,6 +106,14 @@ export default async function handler(req, res) {
           console.error(`[cron/process-membership-renewals] Error processing DD renewals for tenant ${tenantId}:`, ddErr);
           results.errors++;
           results.details.push({ tenantId, error: `DD renewals: ${ddErr.message}` });
+        }
+
+        try {
+          await processTenantCardRenewals(tenantId, results);
+        } catch (cardErr) {
+          console.error(`[cron/process-membership-renewals] Error processing card renewals for tenant ${tenantId}:`, cardErr);
+          results.errors++;
+          results.details.push({ tenantId, error: `Card renewals: ${cardErr.message}` });
         }
 
         try {

@@ -106,11 +106,21 @@ async function listRenewals(tenantId, query = {}) {
       .from('member').select('id, first_name, last_name, email').in('id', memberIds);
     membersById = new Map((members || []).map((m) => [m.id, m]));
   }
+  // Task #3621 — the ledger holds both DD and monthly-card renewals; the
+  // previous agreement's provider tells them apart.
+  const prevAgreementIds = [...new Set(rows.map((r) => r.previous_agreement_id).filter(Boolean))];
+  let providerByAgreement = new Map();
+  if (prevAgreementIds.length) {
+    const { data: prevAgreements } = await supabase
+      .from('membership_billing_agreements').select('id, provider').in('id', prevAgreementIds);
+    providerByAgreement = new Map((prevAgreements || []).map((a) => [a.id, a.provider || 'gocardless']));
+  }
   return {
     renewals: rows.map((r) => {
       const m = membersById.get(r.member_id);
       return {
         ...r,
+        provider: providerByAgreement.get(r.previous_agreement_id) || 'gocardless',
         memberName: m ? `${m.first_name || ''} ${m.last_name || ''}`.trim() : null,
         memberEmail: m?.email || null,
       };
