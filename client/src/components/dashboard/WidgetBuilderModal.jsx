@@ -47,6 +47,7 @@ import {
 import { formatNumber } from "@/components/dashboard/WidgetCard";
 import { Textarea } from "@/components/ui/textarea";
 import { describeWidgetConfig } from "@shared/widgetDescriber.js";
+import { useMemberTerminology } from "@/contexts/MemberTerminologyContext";
 
 const CHART_COLOURS = [
   "hsl(var(--chart-1))",
@@ -255,6 +256,13 @@ export default function WidgetBuilderModal({
   canSavePersonal = true,
   isSaving = false,
 }) {
+  const { memberLabelPlural } = useMemberTerminology();
+
+  // Resolve the display label for a source descriptor, applying tenant
+  // member terminology to the "member" source so the dropdown reflects
+  // any custom name (e.g. "Contacts") instead of the hardcoded "Members".
+  const getSourceLabel = s => (s?.id === "member" ? memberLabelPlural : s?.label ?? "");
+
   const [draft, setDraft] = useState(() => cloneDraft(DEFAULT_DRAFT));
   const [previewData, setPreviewData] = useState(null);
   const [previewError, setPreviewError] = useState(null);
@@ -659,7 +667,7 @@ export default function WidgetBuilderModal({
     };
     const text = describeWidgetConfig(draft.config, {
       widgetType: draft.widget_type,
-      sourceLabel: currentSource?.label || "records",
+      sourceLabel: getSourceLabel(currentSource) || "records",
       fieldLabel,
       valueLabel,
     });
@@ -974,7 +982,7 @@ export default function WidgetBuilderModal({
                 <SelectContent>
                   {sources.map(s => (
                     <SelectItem key={s.id} value={s.id}>
-                      {s.label}
+                      {getSourceLabel(s)}
                     </SelectItem>
                   ))}
                 </SelectContent>
