@@ -29,6 +29,7 @@ import { filterInternalNotesForViewer } from '../../_lib/supportTicketQueues.js'
 import { isCategoryRestricted, hasSubcategoryRestrictions, filterCategoriesForViewer, filterCategorySubcategoriesForViewer, stripCategoryAccessFields } from '../../_lib/resourceCategoryAccess.js';
 import { sendSubmissionEmailsGuarded } from '../../_lib/formSubmissionEmails.js';
 import { getTrustedBaseUrlForTenant } from '../../_lib/publicBaseUrl.js';
+import { isReservedPageSlug, reservedPageSlugMessage } from '../../../shared/memberAliases.js';
 
 /**
  * Task #3100: support staff = tenant users (admin dashboard), tenant admins,
@@ -1169,6 +1170,40 @@ export default async function handler(req, res) {
         }
         delete sanitizedBody.static_html;
         delete sanitizedBody.static_css;
+
+        // Task #3638: reserved-route + duplicate slug enforcement on create.
+        // Explicit client routes (e.g. /people → CRM members list) win over
+        // the /:slug catch-all, so a default-site page with a reserved slug is
+        // silently unreachable. Microsite pages (/{prefix}/{slug}) are exempt.
+        // Normalise server-side so raw API callers can't mint case-variant
+        // duplicates or bypass the reserved check.
+        if (sanitizedBody.slug !== undefined && sanitizedBody.slug !== null) {
+          sanitizedBody.slug = String(sanitizedBody.slug).trim().toLowerCase();
+        }
+        const newSlug = String(sanitizedBody.slug || '');
+        if (newSlug && !sanitizedBody.microsite_id && isReservedPageSlug(newSlug)) {
+          return res.status(400).json({ error: reservedPageSlugMessage(newSlug) });
+        }
+        const pageTenantId = tenantCtx.tenantId || tenantCtx.effectiveTenantId;
+        if (newSlug && pageTenantId) {
+          let dupQuery = supabase
+            .from('i_edit_page')
+            .select('id')
+            .eq('tenant_id', pageTenantId)
+            .eq('slug', newSlug)
+            .limit(1);
+          dupQuery = sanitizedBody.microsite_id
+            ? dupQuery.eq('microsite_id', sanitizedBody.microsite_id)
+            : dupQuery.is('microsite_id', null);
+          const { data: dupRows, error: dupError } = await dupQuery;
+          if (dupError) {
+            console.error('[IEditPage] Duplicate-slug check failed:', dupError.message);
+            return res.status(500).json({ error: 'Failed to validate slug uniqueness' });
+          }
+          if (dupRows && dupRows.length > 0) {
+            return res.status(409).json({ error: 'Another page already uses this slug' });
+          }
+        }
       }
 
       // Training fund balances are ledger-backed: every change must go

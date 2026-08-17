@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { format } from "date-fns";
+import { isReservedPageSlug } from "@shared/memberAliases.js";
 import {
   Pencil,
   Trash2,
@@ -142,6 +143,16 @@ export default function PageManagerItem({
               Microsite
             </Badge>
           )}
+          {!page.microsite_id && isReservedPageSlug(page.slug) && (
+            <Badge
+              variant="outline"
+              className="flex-shrink-0 text-amber-700 border-amber-300 bg-amber-50"
+              title={`/${page.slug} is a built-in app route, so this page is not reachable at its URL. Rename the slug to make it visible.`}
+              data-testid={`badge-reserved-slug-${page.id}`}
+            >
+              URL conflict
+            </Badge>
+          )}
           <span className="text-xs text-slate-500 flex-shrink-0 hidden lg:inline w-28 text-right">
             {page.updated_date
               ? format(new Date(page.updated_date), "MMM d, yyyy")
@@ -191,6 +202,16 @@ export default function PageManagerItem({
           <div className="text-sm">
             <span className="text-slate-500">Slug:</span>
             <span className="ml-2 font-mono text-slate-700">/{page.slug}</span>
+            {!page.microsite_id && isReservedPageSlug(page.slug) && (
+              <Badge
+                variant="outline"
+                className="ml-2 text-amber-700 border-amber-300 bg-amber-50"
+                title={`/${page.slug} is a built-in app route, so this page is not reachable at its URL. Rename the slug to make it visible.`}
+                data-testid={`badge-reserved-slug-${page.id}`}
+              >
+                URL conflict
+              </Badge>
+            )}
           </div>
           <div className="text-sm">
             <span className="text-slate-500">View:</span>
@@ -392,6 +413,16 @@ export default function PageManagerItem({
             Microsite
           </Badge>
         )}
+        {!page.microsite_id && isReservedPageSlug(page.slug) && (
+          <Badge
+            variant="outline"
+            className="flex-shrink-0 text-amber-700 border-amber-300 bg-amber-50"
+            title={`/${page.slug} is a built-in app route, so this page is not reachable at its URL. Rename the slug to make it visible.`}
+            data-testid={`badge-reserved-slug-${page.id}`}
+          >
+            URL conflict
+          </Badge>
+        )}
         {auditBadge && (
           <div className="flex-shrink-0 hidden lg:flex">{auditBadge}</div>
         )}
@@ -510,6 +541,16 @@ export default function PageManagerItem({
         <div className="text-sm">
           <span className="text-slate-500">Slug:</span>
           <span className="ml-2 font-mono text-slate-700">/{page.slug}</span>
+          {!page.microsite_id && isReservedPageSlug(page.slug) && (
+            <Badge
+              variant="outline"
+              className="ml-2 text-amber-700 border-amber-300 bg-amber-50"
+              title={`/${page.slug} is a built-in app route, so this page is not reachable at its URL. Rename the slug to make it visible.`}
+              data-testid={`badge-reserved-slug-${page.id}`}
+            >
+              URL conflict
+            </Badge>
+          )}
         </div>
 
         <div className="text-sm">

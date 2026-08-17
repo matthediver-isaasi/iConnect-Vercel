@@ -30,6 +30,7 @@ import { isCategoryRestricted, hasSubcategoryRestrictions, isCategoryVisibleToVi
 
 // Entity name to Supabase table mapping (singular names for Base44 compatibility)
 import { anonymizeMember } from '../../_lib/memberAnonymize.js';
+import { isReservedPageSlug, reservedPageSlugMessage } from '../../../shared/memberAliases.js';
 const entityToTable = {
   'Gallery': 'gallery',
   'GalleryPhoto': 'gallery_photo',
@@ -875,14 +876,61 @@ export default async function handler(req, res) {
         delete sanitizedBody.static_html;
         delete sanitizedBody.static_css;
         delete sanitizedBody.builder_type;
-        const needsSlugCheck = sanitizedBody.slug !== undefined || sanitizedBody.title !== undefined;
+        // Task #3638: normalise slugs server-side so raw API callers can't
+        // mint case-variant duplicates or bypass the reserved check.
+        if (sanitizedBody.slug !== undefined && sanitizedBody.slug !== null) {
+          sanitizedBody.slug = String(sanitizedBody.slug).trim().toLowerCase();
+        }
+        const needsSlugCheck = sanitizedBody.slug !== undefined || sanitizedBody.title !== undefined
+          || sanitizedBody.microsite_id !== undefined;
         const isPublishing = sanitizedBody.status === 'published';
         if (needsSlugCheck || isPublishing) {
           const { data: existingPage } = await supabase
             .from('i_edit_page')
-            .select('slug, title, canvas_design, builder_type')
+            .select('slug, title, canvas_design, builder_type, tenant_id, microsite_id')
             .eq('id', id)
             .maybeSingle();
+          // Task #3638: reserved-route and duplicate slug enforcement on the
+          // FINAL {slug, microsite_id} pair — a microsite-only PATCH can move
+          // a page onto the default site (or into a scope with a duplicate)
+          // without touching the slug, so validate whenever either changes.
+          // Microsite pages serve at /{prefix}/{slug} and never collide with
+          // top-level routes, so the reserved check only applies when the
+          // page ends up on the default site.
+          const slugChanging = sanitizedBody.slug !== undefined && sanitizedBody.slug !== existingPage?.slug;
+          const micrositeChanging = sanitizedBody.microsite_id !== undefined
+            && (sanitizedBody.microsite_id ?? null) !== (existingPage?.microsite_id ?? null);
+          if (slugChanging || micrositeChanging) {
+            const finalSlug = String(
+              (sanitizedBody.slug !== undefined ? sanitizedBody.slug : existingPage?.slug) || ''
+            ).toLowerCase();
+            const targetMicrositeId = sanitizedBody.microsite_id !== undefined
+              ? (sanitizedBody.microsite_id ?? null)
+              : (existingPage?.microsite_id ?? null);
+            if (!targetMicrositeId && isReservedPageSlug(finalSlug)) {
+              return res.status(400).json({ error: reservedPageSlugMessage(finalSlug) });
+            }
+            if (existingPage?.tenant_id && finalSlug) {
+              let dupQuery = supabase
+                .from('i_edit_page')
+                .select('id')
+                .eq('tenant_id', existingPage.tenant_id)
+                .eq('slug', finalSlug)
+                .neq('id', id)
+                .limit(1);
+              dupQuery = targetMicrositeId
+                ? dupQuery.eq('microsite_id', targetMicrositeId)
+                : dupQuery.is('microsite_id', null);
+              const { data: dupRows, error: dupError } = await dupQuery;
+              if (dupError) {
+                console.error('[IEditPage] Duplicate-slug check failed:', dupError.message);
+                return res.status(500).json({ error: 'Failed to validate slug uniqueness' });
+              }
+              if (dupRows && dupRows.length > 0) {
+                return res.status(409).json({ error: 'Another page already uses this slug' });
+              }
+            }
+          }
           if (existingPage?.slug === 'login') {
             // Block slug/title edits
             if (sanitizedBody.slug !== undefined && sanitizedBody.slug !== 'login') {

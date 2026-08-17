@@ -38,6 +38,7 @@ import CanvasPageRenderer from "@/components/canvas/CanvasPageRenderer";
 import { extractSeedSwatches } from "@/lib/canvasSeedSwatches";
 import { createEmptyCanvasDesign, CANVAS_FLOW_VERSION } from "@/lib/canvasDesign";
 import CreatePageWithAiDialog from "@/components/canvas/CreatePageWithAiDialog";
+import { isReservedPageSlug, reservedPageSlugMessage } from "@shared/memberAliases.js";
 
 const VIEW_MODE_KEY = "iedit-page-view-mode";
 const SORT_MAP_KEY = "iedit-page-sort-map";
@@ -812,6 +813,12 @@ export default function IEditPageManagementPage() {
       failRename('Slug must be lowercase letters, numbers, and hyphens only');
       return;
     }
+    // Task #3638: reserved routes only collide for default-site pages;
+    // microsite pages serve at /{prefix}/{slug}.
+    if (!pageToRename.microsite_id && isReservedPageSlug(slug)) {
+      failRename(reservedPageSlugMessage(slug));
+      return;
+    }
     const others = pages.filter((p) => p.id !== pageToRename.id);
     if (others.some((p) => (p.slug || '').toLowerCase() === slug)) {
       failRename('Another page already uses this slug');
@@ -925,6 +932,10 @@ export default function IEditPageManagementPage() {
     const slugRegex = /^[a-z0-9-]+$/;
     if (!slugRegex.test(newPage.slug)) {
       toast.error('Slug must be lowercase with hyphens only (no spaces or special characters)');
+      return;
+    }
+    if (isReservedPageSlug(newPage.slug)) {
+      toast.error(reservedPageSlugMessage(newPage.slug));
       return;
     }
 

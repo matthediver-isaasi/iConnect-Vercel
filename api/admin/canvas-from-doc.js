@@ -28,6 +28,7 @@ import { supabase } from '../_lib/database.js';
 import { getTenantContext, hasFeatureAccess } from '../_lib/tenantContext.js';
 import { normalizeDesignDna } from '../_lib/styleReference.js';
 import { buildNeutralDesign, buildDesign, extractThemeFromDesign, CONTENT_W } from '../_lib/canvasLayoutEngine.js';
+import { isReservedPageSlug } from '../../shared/memberAliases.js';
 
 const MAX_DOC_CHARS = 12000;
 
@@ -556,6 +557,9 @@ function buildDesignForSpec(spec, seedStyle) {
 
 async function uniqueSlug(tenantId, base) {
   let slug = slugify(base);
+  // Task #3638: never mint a reserved-route slug (e.g. a doc titled "People"
+  // would produce /people, which is shadowed by the built-in members route).
+  if (isReservedPageSlug(slug)) slug = `${slug}-page`;
   const { data } = await supabase
     .from('i_edit_page')
     .select('slug')

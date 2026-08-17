@@ -9,13 +9,29 @@ import { Switch } from "@/components/ui/switch";
 import { Save } from "lucide-react";
 import { useToast } from "@/components/ui/use-toast";
 import PageSeoSocialFields from "@/components/iedit/PageSeoSocialFields";
+import { isReservedPageSlug, reservedPageSlugMessage } from "@shared/memberAliases.js";
 
 export default function IEditPageSettings({ page, onClose, onSave }) {
   const [editedPage, setEditedPage] = useState({ ...page });
   const { toast } = useToast();
 
   const handleSave = () => {
-    onSave(editedPage);
+    const slug = String(editedPage.slug || '').trim().toLowerCase();
+    if (!slug) {
+      toast({ title: 'Slug is required', variant: 'destructive' });
+      return;
+    }
+    if (!/^[a-z0-9-]+$/.test(slug)) {
+      toast({ title: 'Slug must be lowercase letters, numbers, and hyphens only', variant: 'destructive' });
+      return;
+    }
+    // Task #3638: reserved routes only collide for default-site pages;
+    // microsite pages serve at /{prefix}/{slug}.
+    if (!editedPage.microsite_id && isReservedPageSlug(slug)) {
+      toast({ title: reservedPageSlugMessage(slug), variant: 'destructive' });
+      return;
+    }
+    onSave({ ...editedPage, slug });
   };
 
   return (

@@ -33,6 +33,7 @@ import { createEmptyCanvasDesign, BLOCK_TYPES, BLOCK_DEFAULTS } from '@/lib/canv
 import { AdvancedBriefFields, PlanReviewPanel, EMPTY_ADVANCED_BRIEF, advancedBriefToBody } from './AiPageBrief';
 import StyleReferencePicker from './StyleReferencePicker';
 import { useGenerationLoop } from './blocks/AiCompositionBlock';
+import { isReservedPageSlug, reservedPageSlugMessage } from '@shared/memberAliases.js';
 
 function slugify(s) {
   return String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
@@ -128,6 +129,13 @@ export default function CreatePageWithAiDialog({ open, onOpenChange }) {
 
   const generate = () => {
     if (!canGenerate) return;
+    // Task #3638: reject reserved-route slugs BEFORE spending an AI
+    // generation — the page would be unreachable at that URL.
+    const effectiveSlug = slug.trim() || slugify(title);
+    if (isReservedPageSlug(effectiveSlug)) {
+      toast.error(reservedPageSlugMessage(effectiveSlug));
+      return;
+    }
     gen.start({
       brief,
       mode: 'whole_page',

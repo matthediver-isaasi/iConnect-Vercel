@@ -189,6 +189,41 @@ export const RESERVED_MEMBER_SLUGS = new Set([
   'walloffamemanagement',
   'workflowmanagement',
   'zoomwebinarprovisioning',
+  // Task #3638: remaining static route roots registered in
+  // client/src/pages/index.jsx (React Router matches case-insensitively, so
+  // any explicit <Route path="/X"> shadows a page saved at /x). A regression
+  // test (client/src/lib/reservedPageSlug.test.mjs) parses the route table
+  // and fails if a new static route root is missing from this set.
+  'article-preview',
+  'badgemanagement',
+  'bnmsmemberdemo',
+  'book',
+  'campaignedit',
+  'dd-migrate',
+  'dd-setup',
+  'directdebitadmin',
+  'directory',
+  'donate',
+  'emailcampaignedit',
+  'eventbudgetreport',
+  'formsubmission',
+  'fundraise',
+  'gallery',
+  'group-booking',
+  'group-role-invite',
+  'guest-approval',
+  'membergroupclassificationreport',
+  'membership',
+  'membership-fees',
+  'monthlyfinancereport',
+  'news-preview',
+  'organisationgroups',
+  'projectboard',
+  'session-events',
+  'submit-po',
+  'survey',
+  'surveyreports',
+  'team-invite',
 ]);
 
 export function isReservedMemberSlug(slug) {
@@ -196,4 +231,28 @@ export function isReservedMemberSlug(slug) {
   const lower = String(slug).toLowerCase();
   if (BUILTIN_MEMBER_ALIASES.includes(lower)) return false;
   return RESERVED_MEMBER_SLUGS.has(lower);
+}
+
+// Task #3638: page-slug reservation for Canvas Builder / iEdit pages.
+// Unlike isReservedMemberSlug, the built-in member aliases ARE reserved here:
+// /people, /members, /contacts, /individuals have explicit routes to the CRM
+// members list that win over the /:slug DynamicPage catch-all, so a page
+// saved with one of those slugs is silently unreachable (gfi.dev.iconn.app
+// /people incident). Microsite-assigned pages serve at /{prefix}/{slug} and
+// never collide with top-level routes — callers must skip this check for them.
+export function isReservedPageSlug(slug) {
+  if (!slug) return false;
+  const lower = String(slug).toLowerCase();
+  // 'login' is the ONE reserved root a page may legitimately own: the
+  // system login canvas page is created at slug 'login' (Create Login Page
+  // flow) and the /login route renders it. Its own protections (immutable
+  // slug, login-form publish gate) live in the entity update path, and the
+  // duplicate-slug check prevents a second one.
+  if (lower === 'login') return false;
+  return RESERVED_MEMBER_SLUGS.has(lower) || BUILTIN_MEMBER_ALIASES.includes(lower);
+}
+
+// Consistent author-facing message for every surface that rejects a slug.
+export function reservedPageSlugMessage(slug) {
+  return `"/${String(slug || '').toLowerCase()}" is a built-in app route — choose a different slug`;
 }

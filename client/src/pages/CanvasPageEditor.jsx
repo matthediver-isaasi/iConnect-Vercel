@@ -44,6 +44,7 @@ import {
 import { FileRepositoryPicker } from "@/components/ImageSelector";
 import PagePickerDialog from "@/components/canvas/PagePickerDialog";
 import PageSeoSocialFields from "@/components/iedit/PageSeoSocialFields";
+import { isReservedPageSlug, reservedPageSlugMessage } from "@shared/memberAliases.js";
 
 // Canvas Builder Phase 2 — Editor shell wraps the CanvasBuilder.
 // Handles loading, saving (manual + autosave), and previewing the page.
@@ -544,6 +545,12 @@ export default function CanvasPageEditorPage() {
     if (!slug) { failRename('Slug is required'); return; }
     if (!/^[a-z0-9-]+$/.test(slug)) {
       failRename('Slug must be lowercase letters, numbers, and hyphens only');
+      return;
+    }
+    // Task #3638: reserved routes only collide for default-site pages;
+    // microsite pages serve at /{prefix}/{slug}.
+    if (!page.microsite_id && isReservedPageSlug(slug)) {
+      failRename(reservedPageSlugMessage(slug));
       return;
     }
     const others = Array.isArray(allPages) ? allPages.filter((p) => p.id !== page.id) : [];
