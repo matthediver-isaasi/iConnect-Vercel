@@ -84,3 +84,10 @@ id = "Q0YW-61b8IPWdIZvJvwHQ"
 uri = "file://exports/job-posting-wrong-email-recipients.csv"
 type = "table"
 title = "Job Posting email recipients (317)"
+
+[[outputs]]
+id = "wXUdkECOJMO0ScuvTxJcm"
+uri = "file://.local/reports/bnms-memberships-unpaid-invoices.csv"
+type = "table"
+title = "BNMS Memberships — unpaid invoices"
+description = "21 unpaid (AUTHORISED) Xero invoices with Projects=MEMBERSHIPS since 1 Jan 2025; £6,578.80 outstanding."
