@@ -110,6 +110,7 @@ async function createWidget(req, res, actor) {
       title: payload.title,
       widget_type: payload.widget_type,
       width: payload.width,
+      height: payload.height,
       config: payload.config,
       display_order: nextOrder,
       created_by: actor.memberId,

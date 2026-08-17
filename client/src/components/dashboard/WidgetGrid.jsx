@@ -27,7 +27,7 @@ const WIDTH_CLASS = {
   full: "md:col-span-12",
 };
 
-function SortableWidget({ widget, canEdit, onEdit, onDelete, onDuplicate, onResize }) {
+function SortableWidget({ widget, canEdit, onEdit, onDelete, onDuplicate, onResize, onResizeHeight }) {
   const {
     attributes,
     listeners,
@@ -56,6 +56,7 @@ function SortableWidget({ widget, canEdit, onEdit, onDelete, onDuplicate, onResi
         onDelete={onDelete}
         onDuplicate={onDuplicate}
         onResize={onResize}
+        onResizeHeight={onResizeHeight}
       />
     </div>
   );
@@ -75,6 +76,7 @@ export default function WidgetGrid({
   onDelete,
   onDuplicate,
   onResize,
+  onResizeHeight,
 }) {
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
@@ -123,6 +125,7 @@ export default function WidgetGrid({
               onDelete={onDelete}
               onDuplicate={onDuplicate}
               onResize={onResize}
+              onResizeHeight={onResizeHeight}
             />
           ))}
         </div>

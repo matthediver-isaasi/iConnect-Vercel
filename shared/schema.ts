@@ -692,6 +692,7 @@ export const dashboardWidget = pgTable("dashboard_widget", {
   title: text("title").notNull(),
   widget_type: varchar("widget_type", { length: 20 }).notNull(),
   width: varchar("width", { length: 10 }).notNull().default('third'),
+  height: varchar("height", { length: 10 }).notNull().default('medium'),
   config: jsonb("config").notNull().default({}),
   display_order: integer("display_order").notNull().default(0),
   created_by: varchar("created_by"),

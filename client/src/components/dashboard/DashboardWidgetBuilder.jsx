@@ -131,6 +131,18 @@ export default function DashboardWidgetBuilder() {
     saveMutation.mutate({ width: nextWidth, __resizeId: widget.id });
   };
 
+  const handleResizeHeight = widget => nextHeight => {
+    qc.setQueryData(["/api/dashboard/widgets"], prev => {
+      if (!prev) return prev;
+      const key = widget.scope === "shared" ? "shared" : "personal";
+      return {
+        ...prev,
+        [key]: prev[key].map(w => (w.id === widget.id ? { ...w, height: nextHeight } : w)),
+      };
+    });
+    saveMutation.mutate({ height: nextHeight, __resizeId: widget.id });
+  };
+
   const handleReorder = (scope, nextOrder) => {
     qc.setQueryData(["/api/dashboard/widgets"], prev =>
       prev
@@ -166,6 +178,7 @@ export default function DashboardWidgetBuilder() {
       title: `${widget.title || "Untitled widget"} (copy)`,
       widget_type: widget.widget_type,
       width: widget.width || "third",
+      height: widget.height || "medium",
       scope: widget.scope,
       config: cloneConfig,
     });
@@ -230,13 +243,14 @@ export default function DashboardWidgetBuilder() {
             emptyDescription={
               permissions.manageShared
                 ? "Add a widget to share key metrics with everyone."
-                : "Your administrator hasn’t added any shared widgets yet."
+                : "Your administrator hasn't added any shared widgets yet."
             }
             onReorder={next => handleReorder("shared", next)}
             onEdit={w => openBuilder("shared", w)}
             onDelete={w => setPendingDelete(w)}
             onDuplicate={handleDuplicate}
             onResize={(w, nextWidth) => handleResize(w)(nextWidth)}
+            onResizeHeight={(w, nextHeight) => handleResizeHeight(w)(nextHeight)}
             testId="zone-shared"
           />
         </Section>
@@ -268,13 +282,14 @@ export default function DashboardWidgetBuilder() {
             emptyDescription={
               permissions.managePersonal
                 ? "Build a widget that lives only on your dashboard."
-                : "You don’t have permission to create personal widgets."
+                : "You don't have permission to create personal widgets."
             }
             onReorder={next => handleReorder("personal", next)}
             onEdit={w => openBuilder("personal", w)}
             onDelete={w => setPendingDelete(w)}
             onDuplicate={handleDuplicate}
             onResize={(w, nextWidth) => handleResize(w)(nextWidth)}
+            onResizeHeight={(w, nextHeight) => handleResizeHeight(w)(nextHeight)}
             testId="zone-personal"
           />
         </Section>
@@ -437,6 +452,7 @@ function WidgetZone({
   onDelete,
   onDuplicate,
   onResize,
+  onResizeHeight,
   testId,
 }) {
   if (isLoading) {
@@ -472,6 +488,7 @@ function WidgetZone({
       onDelete={onDelete}
       onDuplicate={onDuplicate}
       onResize={onResize}
+      onResizeHeight={onResizeHeight}
     />
   );
 }

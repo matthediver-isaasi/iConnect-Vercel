@@ -39,6 +39,7 @@ import {
   PencilLine,
   Trash2,
   Maximize2,
+  ArrowUpDown,
 } from "lucide-react";
 import {
   Popover,
@@ -127,6 +128,40 @@ function drillKeyFromChartEntry(entry) {
 const NEXT_WIDTH = { fifth: "third", third: "half", half: "full", full: "fifth" };
 const WIDTH_LABEL = { fifth: "1/5", third: "1/3", half: "1/2", full: "Full" };
 
+const NEXT_HEIGHT = { short: "medium", medium: "tall", tall: "short" };
+const HEIGHT_LABEL = { short: "Short", medium: "Medium", tall: "Tall" };
+
+// Per-height chart body class + bar XAxis props for each widget type.
+const BAR_HEIGHT_PROPS = {
+  short:  { className: "h-32 w-full", xAxisHeight: 40, angle: -20 },
+  medium: { className: "h-44 w-full", xAxisHeight: 50, angle: -25 },
+  tall:   { className: "h-72 w-full", xAxisHeight: 80, angle: -45 },
+};
+const LINE_HEIGHT_CLASS = { short: "h-40 w-full", medium: "h-56 w-full", tall: "h-80 w-full" };
+// Pie/donut: outerRadius and innerRadius scale with height so the chart
+// fills its container without clipping. Each outerRadius fits comfortably
+// inside the corresponding CSS height (outerRadius * 2 < container px).
+const PIE_HEIGHT_CONFIG = {
+  short:  { className: "h-36 w-full", outerRadius: 55, innerRadius: 32 },
+  medium: { className: "h-44 w-full", outerRadius: 72, innerRadius: 44 },
+  tall:   { className: "h-60 w-full", outerRadius: 95, innerRadius: 58 },
+};
+// List: both min-h (so the card has a deterministic height even with few/no
+// rows) and max-h (so a very long list still scrolls rather than overflowing).
+const LIST_HEIGHT_CLASS = {
+  short:  { min: "min-h-[8rem]",  max: "max-h-48" },
+  medium: { min: "min-h-[10rem]", max: "max-h-64" },
+  tall:   { min: "min-h-[14rem]", max: "max-h-96" },
+};
+// Stat/conversion widgets have minimal content; use min-h so height setting
+// produces a visible size difference across all three named values.
+// Also reused by EmptyChart so empty states honour the widget's height.
+const STAT_HEIGHT_CLASS = {
+  short:  "min-h-[8rem]",
+  medium: "min-h-[10rem]",
+  tall:   "min-h-[14rem]",
+};
+
 // Build the rows that drive the CSV export from the already-loaded widget
 // payload. Returns an array of row arrays (first row is the header). Chart
 // widgets export one row per data point (Label,Value) plus a Total row when
@@ -189,6 +224,7 @@ export default function WidgetCard({
   onDelete,
   onDuplicate,
   onResize,
+  onResizeHeight,
 }) {
   const { toast } = useToast();
   const navigate = useNavigate();
@@ -320,24 +356,46 @@ export default function WidgetCard({
             </Popover>
           )}
         </div>
-        {canEdit && onResize && (
+        {canEdit && (onResize || onResizeHeight) && (
           <TooltipProvider delayDuration={200}>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  aria-label={`Resize widget (currently ${WIDTH_LABEL[widget.width] || "1/3"})`}
-                  data-testid={`button-widget-resize-${widget.id}`}
-                  onClick={() => onResize(widget, NEXT_WIDTH[widget.width] || "third")}
-                >
-                  <Maximize2 className="h-4 w-4" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>
-                Resize · now {WIDTH_LABEL[widget.width] || "1/3"}
-              </TooltipContent>
-            </Tooltip>
+            <div className="flex items-center">
+              {onResize && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      aria-label={`Resize widget width (currently ${WIDTH_LABEL[widget.width] || "1/3"})`}
+                      data-testid={`button-widget-resize-${widget.id}`}
+                      onClick={() => onResize(widget, NEXT_WIDTH[widget.width] || "third")}
+                    >
+                      <Maximize2 className="h-4 w-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    Width · now {WIDTH_LABEL[widget.width] || "1/3"}
+                  </TooltipContent>
+                </Tooltip>
+              )}
+              {onResizeHeight && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      aria-label={`Resize widget height (currently ${HEIGHT_LABEL[widget.height] || "Medium"})`}
+                      data-testid={`button-widget-resize-height-${widget.id}`}
+                      onClick={() => onResizeHeight(widget, NEXT_HEIGHT[widget.height] || "medium")}
+                    >
+                      <ArrowUpDown className="h-4 w-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    Height · now {HEIGHT_LABEL[widget.height] || "Medium"}
+                  </TooltipContent>
+                </Tooltip>
+              )}
+            </div>
           </TooltipProvider>
         )}
         <DropdownMenu>
@@ -462,8 +520,9 @@ function WidgetBody({ widget, payload, onDrill = null }) {
 function StatBody({ widget, payload }) {
   const value = payload.type === "scalar" ? payload.value : payload.rows?.[0]?.value;
   const aggregator = widget.config?.measure?.aggregator || "count";
+  const minH = STAT_HEIGHT_CLASS[widget.height] || STAT_HEIGHT_CLASS.medium;
   return (
-    <div className="flex flex-1 flex-col justify-center gap-1">
+    <div className={cn("flex flex-1 flex-col justify-center gap-1", minH)}>
       <p
         className="text-3xl font-semibold tracking-tight"
         data-testid={`stat-value-${widget.id}`}
@@ -487,8 +546,9 @@ function ConversionBody({ widget, payload }) {
   const rate = payload.conversionRate;
   const entityLabel =
     payload.matchBy === "member" ? "members" : "organisations";
+  const minH = STAT_HEIGHT_CLASS[widget.height] || STAT_HEIGHT_CLASS.medium;
   return (
-    <div className="flex flex-1 flex-col justify-center gap-1">
+    <div className={cn("flex flex-1 flex-col justify-center gap-1", minH)}>
       <p
         className="text-3xl font-semibold tracking-tight"
         data-testid={`stat-value-${widget.id}`}
@@ -550,13 +610,16 @@ function BarBody({ payload, widget, onDrill = null }) {
     () => rows.reduce((acc, r) => acc + (Number(r.value) || 0), 0),
     [rows],
   );
+  const heightKey = widget.height || "medium";
+  const barProps = BAR_HEIGHT_PROPS[heightKey] || BAR_HEIGHT_PROPS.medium;
   if (rows.length === 0) {
-    return <EmptyChart />;
+    return <EmptyChart heightClass={barProps.className} />;
   }
+
   if (categories) {
     return (
       <div className="flex flex-1 flex-col gap-2">
-        <ChartContainer config={config} className="h-44 w-full">
+        <ChartContainer config={config} className={barProps.className}>
           <BarChart data={rows} margin={{ top: 18, right: 10, left: 0, bottom: 30 }}>
             <CartesianGrid vertical={false} strokeDasharray="3 3" />
             <XAxis
@@ -564,9 +627,9 @@ function BarBody({ payload, widget, onDrill = null }) {
               tickLine={false}
               axisLine={false}
               interval={0}
-              angle={-25}
+              angle={barProps.angle}
               textAnchor="end"
-              height={50}
+              height={barProps.xAxisHeight}
             />
             <YAxis tickLine={false} axisLine={false} width={40} />
             <ChartTooltip content={<ChartTooltipContent />} />
@@ -610,7 +673,7 @@ function BarBody({ payload, widget, onDrill = null }) {
   }
   return (
     <div className="flex flex-1 flex-col gap-2">
-      <ChartContainer config={config} className="h-44 w-full">
+      <ChartContainer config={config} className={barProps.className}>
         <BarChart data={rows} margin={{ top: 18, right: 10, left: 0, bottom: 30 }}>
           <CartesianGrid vertical={false} strokeDasharray="3 3" />
           <XAxis
@@ -618,9 +681,9 @@ function BarBody({ payload, widget, onDrill = null }) {
             tickLine={false}
             axisLine={false}
             interval={0}
-            angle={-25}
+            angle={barProps.angle}
             textAnchor="end"
-            height={50}
+            height={barProps.xAxisHeight}
           />
           <YAxis tickLine={false} axisLine={false} width={40} />
           <ChartTooltip content={<ChartTooltipContent />} />
@@ -658,9 +721,10 @@ function LineBody({ payload, widget }) {
   const rows = payload.rows || [];
   const colour = pickColour(widget);
   const config = useMemo(() => ({ value: { label: "Value", color: colour } }), [colour]);
-  if (rows.length === 0) return <EmptyChart />;
+  const lineClass = LINE_HEIGHT_CLASS[widget.height] || LINE_HEIGHT_CLASS.medium;
+  if (rows.length === 0) return <EmptyChart heightClass={lineClass} />;
   return (
-    <ChartContainer config={config} className="h-56 w-full">
+    <ChartContainer config={config} className={lineClass}>
       <LineChart data={rows} margin={{ top: 10, right: 10, left: 0, bottom: 20 }}>
         <CartesianGrid vertical={false} strokeDasharray="3 3" />
         <XAxis dataKey="key" tickLine={false} axisLine={false} />
@@ -694,18 +758,19 @@ function PieBody({ payload, donut, widget, onDrill = null }) {
     () => rows.reduce((acc, r) => acc + (Number(r.value) || 0), 0),
     [rows],
   );
-  if (rows.length === 0) return <EmptyChart />;
+  const pieCfg = PIE_HEIGHT_CONFIG[widget.height] || PIE_HEIGHT_CONFIG.medium;
+  if (rows.length === 0) return <EmptyChart heightClass={pieCfg.className} />;
   return (
     <div className="flex flex-1 flex-col gap-2">
-      <ChartContainer config={config} className="h-40 w-full">
+      <ChartContainer config={config} className={pieCfg.className}>
         <PieChart>
           <ChartTooltip content={<ChartTooltipContent nameKey="key" />} />
           <Pie
             data={rows}
             dataKey="value"
             nameKey="key"
-            innerRadius={donut ? 50 : 0}
-            outerRadius={80}
+            innerRadius={donut ? pieCfg.innerRadius : 0}
+            outerRadius={pieCfg.outerRadius}
             paddingAngle={donut ? 2 : 0}
             cursor={onDrill ? "pointer" : undefined}
             onClick={onDrill ? (entry) => {
@@ -788,11 +853,12 @@ function ListBody({ payload, widget, onDrill = null }) {
     () => rows.reduce((acc, r) => acc + (Number(r.value) || 0), 0),
     [rows],
   );
-  if (rows.length === 0) return <EmptyChart />;
+  const listH = LIST_HEIGHT_CLASS[widget.height] || LIST_HEIGHT_CLASS.medium;
+  if (rows.length === 0) return <EmptyChart heightClass={listH.min} />;
   return (
     <div className="flex flex-1 flex-col gap-2">
       <div
-        className="max-h-64 flex-1 overflow-y-auto rounded-md border"
+        className={cn("flex-1 overflow-y-auto rounded-md border", listH.min, listH.max)}
         data-testid={`widget-list-${widget.id}`}
       >
         {rows.map((row, idx) => (
@@ -837,9 +903,15 @@ function ListBody({ payload, widget, onDrill = null }) {
   );
 }
 
-function EmptyChart() {
+function EmptyChart({ heightClass }) {
+  const cls = heightClass || STAT_HEIGHT_CLASS.medium;
   return (
-    <div className="flex h-32 items-center justify-center text-sm text-muted-foreground">
+    <div
+      className={cn(
+        "flex items-center justify-center text-sm text-muted-foreground",
+        cls,
+      )}
+    >
       No data yet.
     </div>
   );

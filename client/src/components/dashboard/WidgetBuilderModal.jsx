@@ -72,6 +72,12 @@ const WIDTHS = [
   { value: "full", label: "Full" },
 ];
 
+const HEIGHTS = [
+  { value: "short", label: "Short" },
+  { value: "medium", label: "Medium" },
+  { value: "tall", label: "Tall" },
+];
+
 const AGGREGATORS = [
   { value: "count", label: "Count" },
   { value: "count_distinct", label: "Count distinct" },
@@ -133,6 +139,7 @@ const DEFAULT_DRAFT = {
   title: "",
   widget_type: "stat",
   width: "third",
+  height: "medium",
   scope: "personal",
   config: {
     source: "organization",
@@ -265,6 +272,7 @@ export default function WidgetBuilderModal({
         title: seed.title,
         widget_type: seed.widget_type,
         width: seed.width || "third",
+        height: seed.height || "medium",
         scope: seed.scope,
         config: {
           source: seed.config?.source || "organization",
@@ -614,6 +622,7 @@ export default function WidgetBuilderModal({
       title: draft.title.trim(),
       widget_type: draft.widget_type,
       width: draft.width,
+      height: draft.height,
       scope: draft.scope,
       config: {
         ...draft.config,
@@ -665,6 +674,7 @@ export default function WidgetBuilderModal({
       title: draft.title || "Preview",
       widget_type: draft.widget_type,
       width: draft.width,
+      height: draft.height,
       config: draft.config,
     }),
     [draft],
@@ -773,6 +783,24 @@ export default function WidgetBuilderModal({
                     {WIDTHS.map(w => (
                       <SelectItem key={w.value} value={w.value}>
                         {w.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Height</Label>
+                <Select
+                  value={draft.height || "medium"}
+                  onValueChange={value => setDraft(prev => ({ ...prev, height: value }))}
+                >
+                  <SelectTrigger data-testid="select-widget-height">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {HEIGHTS.map(h => (
+                      <SelectItem key={h.value} value={h.value}>
+                        {h.label}
                       </SelectItem>
                     ))}
                   </SelectContent>
