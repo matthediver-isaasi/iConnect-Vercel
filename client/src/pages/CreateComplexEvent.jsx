@@ -764,6 +764,11 @@ export default function CreateComplexEvent() {
   const baselineSnapshotRef = useRef(null);
   const pendingBaselineResetRef = useRef(false);
   const [sponsorsInitialized, setSponsorsInitialized] = useState(false);
+  const [sponsorsLoadFailed, setSponsorsLoadFailed] = useState(false);
+  // Tracks which event ID we last loaded sponsor assignments for, so a
+  // post-save refetch of the same event does not re-trigger the load and
+  // temporarily clear sponsorsInitialized.
+  const sponsorsInitializedForRef = useRef(null);
 
   const [eventEmails, setEventEmails] = useState([]);
   const [isSavingEmails, setIsSavingEmails] = useState(false);
@@ -1170,15 +1175,30 @@ export default function CreateComplexEvent() {
       setQrOnConfirmation(existingEvent.qr_on_confirmation !== false);
       setCollectThirdPartyConsent(existingEvent.pricing_config?.collectThirdPartyConsent === true);
 
-      base44.entities.EventSponsorAssignment.list({ filter: { event_id: existingEvent.id, event_type: 'complex' } })
-        .then(assignments => {
-          setSelectedSponsors(assignments.map(a => a.sponsor_id).filter(Boolean));
-          const details = {};
-          assignments.forEach(a => { if (a.sponsor_id && a.sponsorship_detail) details[a.sponsor_id] = a.sponsorship_detail; });
-          setSponsorDetails(details);
-          setSponsorsInitialized(true);
-        })
-        .catch(e => { console.error('Failed to load sponsor assignments:', e); setSelectedSponsors([]); setSponsorDetails({}); setSponsorsInitialized(true); });
+      // Only (re)load sponsors when the event ID changes. A post-save refetch
+      // returns a new existingEvent object with the SAME id, so we skip the
+      // reload and keep the already-correct selectedSponsors state.
+      if (sponsorsInitializedForRef.current !== existingEvent.id) {
+        setSponsorsInitialized(false);
+        setSponsorsLoadFailed(false);
+        base44.entities.EventSponsorAssignment.list({ filter: { event_id: existingEvent.id, event_type: 'complex' } })
+          .then(assignments => {
+            setSelectedSponsors(assignments.map(a => a.sponsor_id).filter(Boolean));
+            const details = {};
+            assignments.forEach(a => { if (a.sponsor_id && a.sponsorship_detail) details[a.sponsor_id] = a.sponsorship_detail; });
+            setSponsorDetails(details);
+            sponsorsInitializedForRef.current = existingEvent.id;
+            setSponsorsInitialized(true);
+            setSponsorsLoadFailed(false);
+          })
+          .catch(e => {
+            console.error('Failed to load sponsor assignments:', e);
+            sponsorsInitializedForRef.current = existingEvent.id;
+            setSponsorsLoadFailed(true);
+            setSponsorsInitialized(true);
+            toast.warning('Could not load existing sponsor assignments — sponsors will not be changed when you save.');
+          });
+      }
     }
   }, [existingEvent, isEditMode]);
 
@@ -2016,28 +2036,73 @@ export default function CreateComplexEvent() {
         }
       }
 
-      // Save sponsor assignments
+      // Save sponsor assignments (diff-based — never wipes assignments when load failed/pending)
       try {
-        if (isEditMode) {
+        if (isEditMode && sponsorsLoadFailed) {
+          toast.warning('Sponsor assignments were not changed because the existing assignments could not be loaded.');
+        } else if (isEditMode && !sponsorsInitialized) {
+          toast.warning('Sponsor assignments were not changed because they were still loading when you saved. Please save again to apply any sponsor changes.');
+        } else if (isEditMode && sponsorsInitialized) {
           const existingAssignments = await base44.entities.EventSponsorAssignment.list({ filter: { event_id: eventId, event_type: 'complex' } });
-          for (const a of existingAssignments) {
+
+          // Build category map only if needed
+          let sponsorCategoryMap = {};
+          const needsCategories = selectedSponsors.some(id => !existingAssignments.find(a => a.sponsor_id === id));
+          if (needsCategories) {
+            const allSponsors = await base44.entities.EventSponsor.list();
+            (allSponsors || []).forEach(s => { sponsorCategoryMap[s.id] = s.category_id || null; });
+          } else {
+            existingAssignments.forEach(a => { sponsorCategoryMap[a.sponsor_id] = a.category_id || null; });
+          }
+
+          // Delete only removed sponsors
+          const toDelete = existingAssignments.filter(a => !selectedSponsors.includes(a.sponsor_id));
+          for (const a of toDelete) {
             await base44.entities.EventSponsorAssignment.delete(a.id);
           }
-        }
-        let sponsorCategoryMap = {};
-        if (selectedSponsors.length > 0) {
-          const allSponsors = await base44.entities.EventSponsor.list();
-          (allSponsors || []).forEach(s => { sponsorCategoryMap[s.id] = s.category_id || null; });
-        }
-        for (const sponsorId of selectedSponsors) {
-          const detail = (sponsorDetails[sponsorId] || '').trim();
-          await base44.entities.EventSponsorAssignment.create({
-            event_id: eventId,
-            event_type: 'complex',
-            sponsor_id: sponsorId,
-            category_id: sponsorCategoryMap[sponsorId] || null,
-            sponsorship_detail: detail || null
-          });
+
+          // Create only new sponsors
+          const toCreate = selectedSponsors.filter(id => !existingAssignments.find(a => a.sponsor_id === id));
+          for (const sponsorId of toCreate) {
+            const detail = (sponsorDetails[sponsorId] || '').trim();
+            await base44.entities.EventSponsorAssignment.create({
+              event_id: eventId,
+              event_type: 'complex',
+              sponsor_id: sponsorId,
+              category_id: sponsorCategoryMap[sponsorId] || null,
+              sponsorship_detail: detail || null
+            });
+          }
+
+          // Update detail/category on unchanged sponsors that have changed values
+          const toUpdate = existingAssignments.filter(a => selectedSponsors.includes(a.sponsor_id));
+          for (const a of toUpdate) {
+            const newDetail = (sponsorDetails[a.sponsor_id] || '').trim() || null;
+            const newCategory = sponsorCategoryMap[a.sponsor_id] || null;
+            if (a.sponsorship_detail !== newDetail || a.category_id !== newCategory) {
+              await base44.entities.EventSponsorAssignment.update(a.id, {
+                sponsorship_detail: newDetail,
+                category_id: newCategory
+              });
+            }
+          }
+        } else if (!isEditMode) {
+          // Create mode — just create all selected sponsors fresh
+          let sponsorCategoryMap = {};
+          if (selectedSponsors.length > 0) {
+            const allSponsors = await base44.entities.EventSponsor.list();
+            (allSponsors || []).forEach(s => { sponsorCategoryMap[s.id] = s.category_id || null; });
+          }
+          for (const sponsorId of selectedSponsors) {
+            const detail = (sponsorDetails[sponsorId] || '').trim();
+            await base44.entities.EventSponsorAssignment.create({
+              event_id: eventId,
+              event_type: 'complex',
+              sponsor_id: sponsorId,
+              category_id: sponsorCategoryMap[sponsorId] || null,
+              sponsorship_detail: detail || null
+            });
+          }
         }
       } catch (sponsorErr) {
         console.error('Failed to save sponsor assignments:', sponsorErr);
@@ -2068,7 +2133,9 @@ export default function CreateComplexEvent() {
           baselineSnapshotRef.current = buildSnapshot();
           pendingBaselineResetRef.current = true;
           setIsDirtyState(false);
-          setSponsorsInitialized(false);
+          // Do NOT reset sponsorsInitialized here: the diff-sync already kept
+          // selectedSponsors correct, and resetting would create a race window
+          // where a quick second save skips the sync entirely.
         }
       } else {
         // Task #3263: persist emails configured during creation, now that the

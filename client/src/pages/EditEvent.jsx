@@ -615,6 +615,8 @@ export default function EditEvent() {
   // Selected sponsors state
   const [selectedSponsors, setSelectedSponsors] = useState([]);
   const [sponsorDetails, setSponsorDetails] = useState({});
+  const [sponsorsInitialized, setSponsorsInitialized] = useState(false);
+  const [sponsorsLoadFailed, setSponsorsLoadFailed] = useState(false);
   const [sponsorsExpanded, setSponsorsExpanded] = useState(false);
 
   // Selected filter tags state
@@ -1260,14 +1262,23 @@ export default function EditEvent() {
       }
 
       // Load sponsor assignments
+      setSponsorsInitialized(false);
+      setSponsorsLoadFailed(false);
       base44.entities.EventSponsorAssignment.list({ filter: { event_id: event.id, event_type: 'simple' } })
         .then(assignments => {
           setSelectedSponsors(assignments.map(a => a.sponsor_id).filter(Boolean));
           const details = {};
           assignments.forEach(a => { if (a.sponsor_id && a.sponsorship_detail) details[a.sponsor_id] = a.sponsorship_detail; });
           setSponsorDetails(details);
+          setSponsorsInitialized(true);
+          setSponsorsLoadFailed(false);
         })
-        .catch(e => { console.error('Failed to load sponsor assignments:', e); setSelectedSponsors([]); setSponsorDetails({}); });
+        .catch(e => {
+          console.error('Failed to load sponsor assignments:', e);
+          setSponsorsLoadFailed(true);
+          setSponsorsInitialized(true);
+          toast.warning('Could not load existing sponsor assignments — sponsors will not be changed when you save.');
+        });
       
       setIsFeatured(event.is_featured === true);
 
@@ -1761,26 +1772,56 @@ export default function EditEvent() {
 
     const submitUpdate = () => updateEventMutation.mutate(eventData, {
       onSuccess: async () => {
-        // Save sponsor assignments
+        // Save sponsor assignments (diff-based — never wipes assignments when load failed/pending)
         try {
-          const existingAssignments = await base44.entities.EventSponsorAssignment.list({ filter: { event_id: eventId, event_type: 'simple' } });
-          for (const a of existingAssignments) {
-            await base44.entities.EventSponsorAssignment.delete(a.id);
-          }
-          let sponsorCategoryMap = {};
-          if (selectedSponsors.length > 0) {
-            const allSponsors = await base44.entities.EventSponsor.list();
-            (allSponsors || []).forEach(s => { sponsorCategoryMap[s.id] = s.category_id || null; });
-          }
-          for (const sponsorId of selectedSponsors) {
-            const detail = (sponsorDetails[sponsorId] || '').trim();
-            await base44.entities.EventSponsorAssignment.create({
-              event_id: eventId,
-              event_type: 'simple',
-              sponsor_id: sponsorId,
-              category_id: sponsorCategoryMap[sponsorId] || null,
-              sponsorship_detail: detail || null
-            });
+          if (sponsorsLoadFailed) {
+            toast.warning('Sponsor assignments were not changed because the existing assignments could not be loaded.');
+          } else if (!sponsorsInitialized) {
+            toast.warning('Sponsor assignments were not changed because they were still loading when you saved. Please save again to apply any sponsor changes.');
+          } else if (sponsorsInitialized) {
+            const existingAssignments = await base44.entities.EventSponsorAssignment.list({ filter: { event_id: eventId, event_type: 'simple' } });
+
+            // Build category map only if needed
+            let sponsorCategoryMap = {};
+            const needsCategories = selectedSponsors.some(id => !existingAssignments.find(a => a.sponsor_id === id));
+            if (needsCategories) {
+              const allSponsors = await base44.entities.EventSponsor.list();
+              (allSponsors || []).forEach(s => { sponsorCategoryMap[s.id] = s.category_id || null; });
+            } else {
+              existingAssignments.forEach(a => { sponsorCategoryMap[a.sponsor_id] = a.category_id || null; });
+            }
+
+            // Delete only removed sponsors
+            const toDelete = existingAssignments.filter(a => !selectedSponsors.includes(a.sponsor_id));
+            for (const a of toDelete) {
+              await base44.entities.EventSponsorAssignment.delete(a.id);
+            }
+
+            // Create only new sponsors
+            const toCreate = selectedSponsors.filter(id => !existingAssignments.find(a => a.sponsor_id === id));
+            for (const sponsorId of toCreate) {
+              const detail = (sponsorDetails[sponsorId] || '').trim();
+              await base44.entities.EventSponsorAssignment.create({
+                event_id: eventId,
+                event_type: 'simple',
+                sponsor_id: sponsorId,
+                category_id: sponsorCategoryMap[sponsorId] || null,
+                sponsorship_detail: detail || null
+              });
+            }
+
+            // Update detail/category on unchanged sponsors that have changed values
+            const toUpdate = existingAssignments.filter(a => selectedSponsors.includes(a.sponsor_id));
+            for (const a of toUpdate) {
+              const newDetail = (sponsorDetails[a.sponsor_id] || '').trim() || null;
+              const newCategory = sponsorCategoryMap[a.sponsor_id] || null;
+              if (a.sponsorship_detail !== newDetail || a.category_id !== newCategory) {
+                await base44.entities.EventSponsorAssignment.update(a.id, {
+                  sponsorship_detail: newDetail,
+                  category_id: newCategory
+                });
+              }
+            }
           }
         } catch (sponsorErr) {
           console.error('Failed to save sponsor assignments:', sponsorErr);
