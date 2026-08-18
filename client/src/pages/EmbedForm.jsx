@@ -14,6 +14,7 @@ import { buildPrefillValues, resolveEffectivePrefillIds, resolveMemberSourceOrgI
 import { useSubmissionIdempotencyKey } from "@/lib/useSubmissionIdempotencyKey";
 import { useCardSwipeAutoFocus } from "@/lib/cardSwipeAutoFocus";
 import { useMembershipFeeQuote } from "@/lib/useMembershipFeeQuote";
+import { COUNTRIES } from "@/data/countries";
 import { evaluateLmicCondition } from "../../../api/_lib/formLmicConditions.js";
 import { resolveSubmitControl } from "../../../api/_lib/formSubmitControl.js";
 import FormPaymentSubmit from "../components/forms/FormPaymentSubmit";
@@ -241,6 +242,17 @@ export default function EmbedFormPage() {
       if (field.type === 'terms_conditions') {
         fieldDefaults[field.id] = false;
       }
+      // Country field — resolve ISO code to display name so rule comparisons
+      // (which use the name the combobox stores on selection) work correctly.
+      if (field.type === 'country' && field.default_country) {
+        fieldDefaults[field.id] = COUNTRIES.find(c => c.code === field.default_country)?.name || field.default_country;
+      }
+      // Countries (multi-select) — resolve each ISO code to display name.
+      if (field.type === 'countries' && field.default_countries?.length > 0) {
+        fieldDefaults[field.id] = field.default_countries.map(
+          code => COUNTRIES.find(c => c.code === code)?.name || code
+        );
+      }
       if ((field.starts_hidden === true || field.starts_hidden === 'true') && field.type !== 'boolean') {
         if (fieldDefaults[field.id] === undefined) {
           if (field.default_value !== undefined && field.default_value !== null && field.default_value !== '') {
@@ -339,6 +351,13 @@ export default function EmbedFormPage() {
     // tenant LMIC list delivered with the form payload.
     const lmicResult = evaluateLmicCondition(triggerValue, operator, form?.lmic_country_codes);
     if (lmicResult !== undefined) return lmicResult;
+    // Defensive: if a country field value was seeded as an ISO-2 code (e.g.
+    // from a legacy in-flight session), resolve it to the display name so
+    // comparisons against names like "United Kingdom" work correctly.
+    if (typeof triggerValue === 'string' && /^[A-Z]{2}$/.test(triggerValue)) {
+      const resolved = COUNTRIES.find(c => c.code === triggerValue)?.name;
+      if (resolved) triggerValue = resolved;
+    }
     // Survey Score answers ({score}/{na}) + numeric operators (Task #3330)
     const scoreResult = evaluateScoreCondition(triggerValue, operator, value);
     if (scoreResult !== undefined) return scoreResult;

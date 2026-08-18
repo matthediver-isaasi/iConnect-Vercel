@@ -20,6 +20,7 @@ import { evaluateLmicCondition } from "../../../api/_lib/formLmicConditions.js";
 import { useSubmissionIdempotencyKey } from "@/lib/useSubmissionIdempotencyKey";
 import { useCardSwipeAutoFocus } from "@/lib/cardSwipeAutoFocus";
 import { useMembershipFeeQuote } from "@/lib/useMembershipFeeQuote";
+import { COUNTRIES } from "@/data/countries";
 
 // A `redirect_url` beginning with this prefix means the redirect target is driven
 // by the value the respondent submitted for the field whose id follows the prefix.
@@ -690,17 +691,24 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
         continue;
       }
       
-      // Country fields - use default_country if set
+      // Country fields - use default_country if set; resolve ISO code → display
+      // name so that rule comparisons (which use the display name that the
+      // combobox stores on user-selection) work correctly on untouched forms.
       if (field.type === 'country' && field.default_country) {
-        fieldDefaults[field.id] = field.default_country;
-        console.log(`[FormView Init] Country field "${field.label}" (${field.id}) initialized with default_country:`, field.default_country);
+        const resolvedName = COUNTRIES.find(c => c.code === field.default_country)?.name || field.default_country;
+        fieldDefaults[field.id] = resolvedName;
+        console.log(`[FormView Init] Country field "${field.label}" (${field.id}) initialized with default_country:`, resolvedName);
         continue;
       }
       
-      // Countries (multi-select) fields - use default_countries if set
+      // Countries (multi-select) fields - use default_countries if set; resolve
+      // each ISO code to its display name for rule-evaluation parity.
       if (field.type === 'countries' && field.default_countries?.length > 0) {
-        fieldDefaults[field.id] = field.default_countries;
-        console.log(`[FormView Init] Countries field "${field.label}" (${field.id}) initialized with default_countries:`, field.default_countries);
+        const resolvedNames = field.default_countries.map(
+          code => COUNTRIES.find(c => c.code === code)?.name || code
+        );
+        fieldDefaults[field.id] = resolvedNames;
+        console.log(`[FormView Init] Countries field "${field.label}" (${field.id}) initialized with default_countries:`, resolvedNames);
         continue;
       }
       
@@ -1085,6 +1093,13 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
     // tenant LMIC list delivered with the form payload.
     const lmicResult = evaluateLmicCondition(triggerValue, operator, form?.lmic_country_codes);
     if (lmicResult !== undefined) return lmicResult;
+    // Defensive: if a country field value was seeded as an ISO-2 code (e.g.
+    // from a legacy in-flight session or server-side code path), resolve it to
+    // the display name so comparisons against names like "United Kingdom" work.
+    if (typeof triggerValue === 'string' && /^[A-Z]{2}$/.test(triggerValue)) {
+      const resolved = COUNTRIES.find(c => c.code === triggerValue)?.name;
+      if (resolved) triggerValue = resolved;
+    }
     // Survey Score answers ({score}/{na}) + numeric operators (Task #3330)
     const scoreResult = evaluateScoreCondition(triggerValue, operator, value);
     if (scoreResult !== undefined) return scoreResult;
