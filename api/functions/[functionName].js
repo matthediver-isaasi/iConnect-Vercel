@@ -1,7 +1,7 @@
 import Stripe from 'stripe';
 import crypto from 'crypto';
 import { getSession, getSessionMember } from '../_lib/session.js';
-import { getTenantContext } from '../_lib/tenantContext.js';
+import { getTenantContext, hasAdminAccess } from '../_lib/tenantContext.js';
 import { getTrustedBaseUrlForTenant } from '../_lib/publicBaseUrl.js';
 import { isResourceExcluded } from '../_lib/roleVisibility.js';
 import { sendEmail, replacePlaceholders } from '../_lib/emailService.js';
@@ -4951,26 +4951,35 @@ const functionHandlers = {
 
   async sendTeamMemberInvite(params, req) {
     if (!supabase) throw new Error('Supabase not configured');
-    
-    const { email, inviterName, inviterEmail, emailSubject, emailBody, organizationId: paramOrgId } = params;
-    
+
+    const { email, inviterName, emailSubject, emailBody, targetOrganizationId } = params;
+
     if (!email) {
       return { success: false, error: 'Email is required' };
     }
-    
-    if (!inviterEmail) {
-      return { success: false, error: 'Inviter email is required' };
-    }
 
-    // Resolve tenant_id from request for scoped lookups
+    // -----------------------------------------------------------------------
+    // Step 1: Resolve tenant context and REQUIRE authentication.
+    // The generic /api/functions endpoint has no auth middleware, so we
+    // enforce it here. Unauthenticated callers cannot create invitations.
+    // -----------------------------------------------------------------------
     let resolvedTenantId = null;
+    let tenantContext = null;
     try {
-      const tenantContext = await getTenantContext(req);
+      tenantContext = await getTenantContext(req);
       resolvedTenantId = tenantContext?.tenantId || null;
     } catch (e) {
       console.warn('[sendTeamMemberInvite] Could not resolve tenant context:', e.message);
     }
-    
+
+    if (!tenantContext?.isAuthenticated) {
+      console.warn('[sendTeamMemberInvite] Unauthenticated invite attempt rejected');
+      return { success: false, error: 'Authentication required to send invitations' };
+    }
+    if (!resolvedTenantId) {
+      return { success: false, error: 'Could not determine tenant context for this invitation' };
+    }
+
     // Get base URL for signup link — request origin/host first so the link
     // uses the domain the inviter is actually on; NEVER the raw VERCEL_URL
     // deployment domain (Task #3384). Cross-checked against the tenant's
@@ -4981,101 +4990,212 @@ const functionHandlers = {
       console.error('[sendTeamMemberInvite] Base URL could not be determined');
       return { success: false, error: 'Server configuration error: site URL not set' };
     }
-    
-    // Check if the invitee already has a member record (tenant-scoped if possible)
-    let existingMemberQuery = supabase
+
+    // -----------------------------------------------------------------------
+    // Step 2: Derive the inviter exclusively from the authenticated session.
+    // tenantContext.memberId is set by the auth layer from the session cookie
+    // and cannot be spoofed by request parameters. Caller-supplied inviterEmail
+    // and inviterName are NEVER used for authorization; inviterName is used only
+    // as a display-name fallback for tenant admin users without a member record.
+    // -----------------------------------------------------------------------
+    let inviter = null;
+    const sessionMemberId = tenantContext?.memberId || null;
+    if (sessionMemberId) {
+      const { data: sessionInviter } = await supabase
+        .from('member')
+        .select('id, first_name, last_name, organization_id, tenant_id, email')
+        .eq('id', sessionMemberId)
+        .eq('tenant_id', resolvedTenantId)
+        .maybeSingle();
+      inviter = sessionInviter || null;
+    }
+    // Tenant admin users (tenantContext.tenantUserId, no associated member row)
+    // are authenticated and may send invites. Their display name comes from the
+    // caller-supplied inviterName parameter (used only in the email body, not
+    // for authorization). Organization must be supplied via targetOrganizationId.
+
+    const inviterFullName = inviter
+      ? `${inviter.first_name || ''} ${inviter.last_name || ''}`.trim()
+      : inviterName || 'An administrator';
+    const inviterEmailForContext = inviter?.email || '';
+
+    // -----------------------------------------------------------------------
+    // Step 3: Resolve and authorize the target organisation.
+    // All org lookups are tenant-scoped. Cross-org invites additionally require
+    // admin access. When no inviter member exists (pure tenant admin), any
+    // targetOrganizationId is treated as cross-org and requires admin access.
+    // -----------------------------------------------------------------------
+    let organizationId = null;
+    const isCrossOrg = targetOrganizationId && targetOrganizationId !== inviter?.organization_id;
+    const needsAdminCheck = isCrossOrg || (!inviter && targetOrganizationId);
+
+    if (needsAdminCheck) {
+      const isAdmin = await hasAdminAccess(tenantContext);
+      if (!isAdmin) {
+        console.warn(`[sendTeamMemberInvite] Non-admin attempted cross-org invite to org ${targetOrganizationId}`);
+        return { success: false, error: 'Admin access is required to invite members into another organisation' };
+      }
+      // Verify the target org belongs to the authenticated tenant.
+      const { data: targetOrg } = await supabase
+        .from('organization')
+        .select('id, name')
+        .eq('id', targetOrganizationId)
+        .eq('tenant_id', resolvedTenantId)
+        .maybeSingle();
+      if (!targetOrg) {
+        console.warn(`[sendTeamMemberInvite] Target org ${targetOrganizationId} not found in tenant ${resolvedTenantId}`);
+        return { success: false, error: 'The specified organisation does not exist in this tenant' };
+      }
+      organizationId = targetOrganizationId;
+      console.log(`[sendTeamMemberInvite] Admin cross-org invite: target org ${organizationId} verified in tenant ${resolvedTenantId}`);
+    } else if (targetOrganizationId && targetOrganizationId === inviter?.organization_id) {
+      // Same-org invite via explicit targetOrganizationId — still tenant-verify.
+      const { data: sameOrg } = await supabase
+        .from('organization')
+        .select('id')
+        .eq('id', targetOrganizationId)
+        .eq('tenant_id', resolvedTenantId)
+        .maybeSingle();
+      organizationId = sameOrg ? targetOrganizationId : inviter.organization_id;
+    } else if (inviter?.organization_id) {
+      // Default: inviter's own org from the session (already tenant-scoped).
+      organizationId = inviter.organization_id;
+    }
+    // organizationId may remain null for member invites without an org context.
+
+    // -----------------------------------------------------------------------
+    // Step 4: Check if the invitee already has a member record (tenant-scoped).
+    // -----------------------------------------------------------------------
+    const { data: existingMember } = await supabase
       .from('member')
       .select('id, organization_id, email')
-      .eq('email', email.toLowerCase());
-    if (resolvedTenantId) existingMemberQuery = existingMemberQuery.eq('tenant_id', resolvedTenantId);
-    const { data: existingMember } = await existingMemberQuery.maybeSingle();
-    
-    // Get the inviter's details including organization and tenant_id for email domain (tenant-scoped if possible)
-    let inviterQuery = supabase
-      .from('member')
-      .select('id, first_name, last_name, organization_id, tenant_id')
-      .eq('email', inviterEmail.toLowerCase());
-    if (resolvedTenantId) inviterQuery = inviterQuery.eq('tenant_id', resolvedTenantId);
-    const { data: inviter } = await inviterQuery.maybeSingle();
-    
-    const organizationId = inviter?.organization_id || paramOrgId || null;
-    const inviterFullName = inviter ? `${inviter.first_name || ''} ${inviter.last_name || ''}`.trim() : inviterName || '';
-    
-    // If the invitee already exists, check if they belong to a different organization
+      .eq('email', email.toLowerCase())
+      .eq('tenant_id', resolvedTenantId)
+      .maybeSingle();
+
     if (existingMember) {
-      if (existingMember.organization_id && existingMember.organization_id !== organizationId) {
+      if (existingMember.organization_id && organizationId && existingMember.organization_id === organizationId) {
+        console.log(`[sendTeamMemberInvite] Invitee ${email} is already a member of org ${organizationId}`);
+        return { success: false, error: 'This person is already a member of this organisation' };
+      }
+      if (existingMember.organization_id && organizationId && existingMember.organization_id !== organizationId) {
         console.log(`[sendTeamMemberInvite] Invitee ${email} already belongs to a different organization`);
         return { success: false, error: 'This person is already a member of another organization' };
       }
-      // If they're already in this organization, they can still receive the invite (maybe they need to set up password)
-      console.log(`[sendTeamMemberInvite] Invitee ${email} already exists, sending invite anyway`);
+      console.log(`[sendTeamMemberInvite] Invitee ${email} already exists (no org conflict), sending invite anyway`);
     }
-    
-    // Fetch organization details (extra fields supplied so the generic
-    // placeholder helper below can resolve [[organization.invoicing_email]]
-    // and [[organization.phone]] in invite templates).
+
+    // -----------------------------------------------------------------------
+    // Step 5: Fetch org details and enforce server-side verified-domain check.
+    // The client dialog also enforces this, but we enforce it here so direct
+    // API callers cannot bypass the domain restriction.
+    // -----------------------------------------------------------------------
     let organizationName = '';
     let organizationInvoicingEmail = '';
     let organizationPhone = '';
     if (organizationId) {
       const { data: org } = await supabase
         .from('organization')
-        .select('id, name, invoicing_email, phone')
+        .select('id, name, invoicing_email, phone, guest_access_enabled')
         .eq('id', organizationId)
+        .eq('tenant_id', resolvedTenantId)
         .maybeSingle();
-      organizationName = org?.name || '';
-      organizationInvoicingEmail = org?.invoicing_email || '';
-      organizationPhone = org?.phone || '';
+      if (org) {
+        organizationName = org.name || '';
+        organizationInvoicingEmail = org.invoicing_email || '';
+        organizationPhone = org.phone || '';
+
+        // Server-side domain validation: fetch the org's verified_domains
+        // preference field value and check the invitee's email domain.
+        if (!org.guest_access_enabled) {
+          const inviteeDomain = email.split('@')[1]?.toLowerCase();
+          if (inviteeDomain) {
+            const { data: domainFieldDef } = await supabase
+              .from('preference_field')
+              .select('id')
+              .eq('name', 'verified_domains')
+              .eq('entity_scope', 'organization')
+              .eq('is_active', true)
+              .eq('tenant_id', resolvedTenantId)
+              .maybeSingle();
+
+            if (domainFieldDef) {
+              const { data: domainFieldValue } = await supabase
+                .from('organization_preference_value')
+                .select('value')
+                .eq('organization_id', organizationId)
+                .eq('field_id', domainFieldDef.id)
+                .maybeSingle();
+
+              if (domainFieldValue?.value) {
+                let verifiedDomains = [];
+                const val = domainFieldValue.value;
+                if (Array.isArray(val)) {
+                  verifiedDomains = val.filter(Boolean).map(d => d.toLowerCase());
+                } else if (typeof val === 'string') {
+                  try {
+                    const parsed = JSON.parse(val);
+                    verifiedDomains = (Array.isArray(parsed) ? parsed : [parsed]).filter(Boolean).map(d => d.toLowerCase());
+                  } catch {
+                    verifiedDomains = val.split(',').map(d => d.trim().toLowerCase()).filter(Boolean);
+                  }
+                }
+                if (verifiedDomains.length > 0 && !verifiedDomains.includes(inviteeDomain)) {
+                  console.warn(`[sendTeamMemberInvite] Domain @${inviteeDomain} not in verified domains for org ${organizationId}`);
+                  return {
+                    success: false,
+                    error: `The email domain @${inviteeDomain} is not in this organisation's verified domains. Allowed: ${verifiedDomains.map(d => `@${d}`).join(', ')}`,
+                  };
+                }
+              }
+            }
+          }
+        }
+      }
     }
     
-    // Build a tokenised public signup link (Task #3392). A single-use,
+    // -----------------------------------------------------------------------
+    // Step 6: Build a tokenised public signup link (Task #3392). A single-use,
     // expiring invite row backs the /team-invite/<token> page so the invitee
     // can create their account without logging in first. Resending supersedes
     // any prior pending token for the same invitee. The member record is NOT
     // created here — it is created when the invitee completes the signup form,
     // which prevents zombie members from unanswered invites.
-    const inviteTenantId = inviter?.tenant_id || resolvedTenantId || null;
-    let signupLink;
-    if (inviteTenantId) {
-      const inviteToken = crypto.randomBytes(32).toString('hex');
-      const inviteExpiry = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString();
+    // resolvedTenantId is guaranteed non-null at this point (checked above).
+    // -----------------------------------------------------------------------
+    const inviteToken = crypto.randomBytes(32).toString('hex');
+    const inviteExpiry = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString();
 
-      // Supersede prior pending invites for this invitee in this tenant.
-      const { error: supersedeErr } = await supabase
-        .from('team_member_invitation')
-        .update({ status: 'superseded' })
-        .eq('tenant_id', inviteTenantId)
-        .eq('email', email.toLowerCase())
-        .eq('status', 'pending');
-      if (supersedeErr) {
-        console.error('[sendTeamMemberInvite] Failed to supersede prior invites:', supersedeErr.message);
-      }
-
-      const { error: inviteInsertErr } = await supabase
-        .from('team_member_invitation')
-        .insert({
-          token: inviteToken,
-          tenant_id: inviteTenantId,
-          email: email.toLowerCase(),
-          organization_id: organizationId || null,
-          invited_by_member_id: inviter?.id || null,
-          inviter_name: inviterFullName || null,
-          status: 'pending',
-          expires_at: inviteExpiry,
-        });
-      if (inviteInsertErr) {
-        console.error('[sendTeamMemberInvite] Failed to store invite token:', inviteInsertErr.message);
-        return { success: false, error: 'Could not create the invitation. Please try again.' };
-      }
-
-      signupLink = `${baseUrl}/team-invite/${inviteToken}`;
-    } else {
-      // No tenant context at all — fall back to the legacy login link rather
-      // than creating an unscoped token.
-      console.warn('[sendTeamMemberInvite] No tenant context; falling back to legacy login link');
-      signupLink = `${baseUrl}/login?email=${encodeURIComponent(email)}${organizationId ? `&organization_id=${organizationId}` : ''}`;
+    // Supersede prior pending invites for this invitee in this tenant.
+    const { error: supersedeErr } = await supabase
+      .from('team_member_invitation')
+      .update({ status: 'superseded' })
+      .eq('tenant_id', resolvedTenantId)
+      .eq('email', email.toLowerCase())
+      .eq('status', 'pending');
+    if (supersedeErr) {
+      console.error('[sendTeamMemberInvite] Failed to supersede prior invites:', supersedeErr.message);
     }
-    
+
+    const { error: inviteInsertErr } = await supabase
+      .from('team_member_invitation')
+      .insert({
+        token: inviteToken,
+        tenant_id: resolvedTenantId,
+        email: email.toLowerCase(),
+        organization_id: organizationId || null,
+        invited_by_member_id: inviter?.id || null,
+        inviter_name: inviterFullName || null,
+        status: 'pending',
+        expires_at: inviteExpiry,
+      });
+    if (inviteInsertErr) {
+      console.error('[sendTeamMemberInvite] Failed to store invite token:', inviteInsertErr.message);
+      return { success: false, error: 'Could not create the invitation. Please try again.' };
+    }
+
+    const signupLink = `${baseUrl}/team-invite/${inviteToken}`;
+
     // Build the email content
     let finalSubject = emailSubject || `You're invited to join our team`;
     let finalBody = emailBody || `
@@ -5084,14 +5204,14 @@ const functionHandlers = {
       <p>Click the link below to sign up and set up your account:</p>
       <p><a href="{{invite_link}}" style="background-color: #2563eb; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">Accept Invitation</a></p>
     `;
-    
+
     // Replace {{placeholder}} syntax
     finalBody = finalBody.replace(/\{\{invite_link\}\}/gi, signupLink);
     finalBody = finalBody.replace(/\{\{inviter_name\}\}/gi, inviterFullName);
     finalBody = finalBody.replace(/\{\{invitee_email\}\}/gi, email);
     finalBody = finalBody.replace(/\{\{organization_name\}\}/gi, organizationName);
     finalBody = finalBody.replace(/\{\{organization_id\}\}/gi, organizationId || '');
-    
+
     // Run subject + body through the generic placeholder helper so every
     // [[member.*]] / [[organization.*]] token in the catalog stays in sync
     // without each new field requiring a hand-rolled .replace pair here.
@@ -5101,38 +5221,36 @@ const functionHandlers = {
 
     // Underscore aliases (member_first_name, organization_name, ...) are
     // included so prefix-less tokens like [[member_first_name]] continue to
-    // resolve via the helper's direct-lookup fallback path. The previous
-    // hand-rolled .replace ladder supported those aliases — preserving them
-    // here prevents a regression in existing user-edited invite templates.
+    // resolve via the helper's direct-lookup fallback path.
     const inviterMemberContext = {
       id: inviter?.id || '',
       first_name: inviter?.first_name || '',
       last_name: inviter?.last_name || '',
       full_name: inviterFullName,
-      email: inviterEmail,
+      email: inviterEmailForContext,
       member_id: inviter?.id || '',
       member_first_name: inviter?.first_name || '',
       member_last_name: inviter?.last_name || '',
       member_full_name: inviterFullName,
-      member_email: inviterEmail,
+      member_email: inviterEmailForContext,
       organization_id: organizationId || '',
       organization_name: organizationName,
       organization_invoicing_email: organizationInvoicingEmail,
       organization_phone: organizationPhone,
     };
     const placeholderContext = {
-      tenantId: inviter?.tenant_id || resolvedTenantId || null,
+      tenantId: resolvedTenantId,
       memberId: inviter?.id || null,
     };
     finalBody = replacePlaceholders(finalBody, 'member', inviterMemberContext, placeholderContext);
     finalSubject = replacePlaceholders(finalSubject, 'member', inviterMemberContext, placeholderContext);
-    
+
     // Send email via Mailgun with tenant context for proper email domain
     const emailResult = await sendEmail({
       to: email,
       subject: finalSubject,
       html: finalBody,
-      tenantId: inviter?.tenant_id
+      tenantId: resolvedTenantId,
     });
     
     if (!emailResult.success) {

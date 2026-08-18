@@ -19,6 +19,7 @@ import { Calendar as CalendarPicker } from "@/components/ui/calendar";
 import { formatDistanceToNow, differenceInCalendarDays, format } from "date-fns";
 import { toast } from "sonner";
 import { sendTeamMemberInvite } from "@/api/functions";
+import InviteMemberDialog from "@/components/InviteMemberDialog";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import GuestAccessControl, { getGuestStatus } from "@/components/GuestAccessControl";
 import ReactQuill from 'react-quill';
@@ -1321,97 +1322,17 @@ export default function TeamPage({ hasBanner }) {
         </DialogContent>
       </Dialog>
 
-      {/* Invite Member Dialog */}
-      <Dialog open={showInviteDialog} onOpenChange={setShowInviteDialog}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Invite Team Member</DialogTitle>
-            <DialogDescription>
-              Send an invitation to a new team member. You can customize the email before sending.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <Label htmlFor="invite_email">Recipient Email Address *</Label>
-              <Input
-                id="invite_email"
-                type="email"
-                value={inviteEmail}
-                onChange={(e) => setInviteEmail(e.target.value)}
-                placeholder={`user@${primaryDomain}`}
-                data-testid="input-invite-email"
-              />
-              <p className="text-xs text-slate-500">
-                {orgVerifiedDomains.length > 1 
-                  ? `Allowed domains: ${orgVerifiedDomains.map(d => `@${d}`).join(', ')}`
-                  : `Email domain must match: @${primaryDomain}`
-                }
-              </p>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="invite_subject">Email Subject</Label>
-              <Input
-                id="invite_subject"
-                type="text"
-                value={inviteSubject}
-                onChange={(e) => setInviteSubject(e.target.value)}
-                placeholder="Enter email subject"
-                data-testid="input-invite-subject"
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label>Email Body</Label>
-              <p className="text-xs text-slate-500 mb-2">
-                Available placeholders: {"{{invitee_email}}"}, {"{{inviter_name}}"}, {"{{organization_name}}"}, {"{{invite_link}}"}
-              </p>
-              <div className="border rounded-md">
-                <ReactQuill
-                  theme="snow"
-                  value={inviteBody}
-                  onChange={setInviteBody}
-                  className="min-h-[200px]"
-                  modules={{
-                    toolbar: [
-                      [{ 'header': [1, 2, 3, false] }],
-                      ['bold', 'italic', 'underline'],
-                      [{ 'list': 'ordered'}, { 'list': 'bullet' }],
-                      ['link'],
-                      ['clean']
-                    ]
-                  }}
-                />
-              </div>
-            </div>
-          </div>
-
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowInviteDialog(false)}>
-              Cancel
-            </Button>
-            <Button 
-              onClick={handleSendInvite}
-              disabled={sendInviteMutation.isPending || !inviteEmail}
-              className="bg-blue-600 hover:bg-blue-700"
-              data-testid="button-send-invite"
-            >
-              {sendInviteMutation.isPending ? (
-                <>
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  Sending...
-                </>
-              ) : (
-                <>
-                  <Mail className="w-4 h-4 mr-2" />
-                  Send Invitation
-                </>
-              )}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {/* Invite Member Dialog — shared component parameterised by target organisation */}
+      <InviteMemberDialog
+        open={showInviteDialog}
+        onOpenChange={setShowInviteDialog}
+        targetOrganization={memberInfo?.organization_id
+          ? { id: memberInfo.organization_id, name: organizationInfo?.name || '' }
+          : null}
+        memberInfo={memberInfo}
+        organizationInfo={organizationInfo}
+        existingMembers={teamMembers}
+      />
     </TooltipProvider>
   );
 }

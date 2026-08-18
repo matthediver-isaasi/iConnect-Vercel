@@ -75,6 +75,7 @@ import {
   Tag,
   Lock,
   UserCheck,
+  UserPlus,
   Star,
   Infinity as InfinityIcon
 } from "lucide-react";
@@ -102,6 +103,7 @@ import { useWorkflowConfirmation } from "@/hooks/useWorkflowConfirmation";
 import { useMemberTerminology } from "@/contexts/MemberTerminologyContext";
 import WorkflowConfirmationModal, { DryRunSimulationModal } from "@/components/WorkflowConfirmationModal";
 import { listAllOrganizationsForAdmin } from '@/lib/adminOrgList';
+import InviteMemberDialog from "@/components/InviteMemberDialog";
 
 const getMemberName = (m) => {
   return [m?.first_name, m?.last_name].filter(Boolean).join(' ') || m?.full_name || '';
@@ -325,6 +327,7 @@ export default function OrganisationDetailView({
   const [showLayoutEditor, setShowLayoutEditor] = useState(false);
   const [showRulesEditor, setShowRulesEditor] = useState(false);
   const [isCreatingMember, setIsCreatingMember] = useState(false);
+  const [showInviteDialog, setShowInviteDialog] = useState(false);
   const [newNoteContent, setNewNoteContent] = useState('');
   const [editingNoteId, setEditingNoteId] = useState(null);
   const [editingNoteContent, setEditingNoteContent] = useState('');
@@ -2088,6 +2091,16 @@ export default function OrganisationDetailView({
                     </Select>
                   )}
                   {isAdmin && (
+                    <Button
+                      variant="outline"
+                      onClick={() => setShowInviteDialog(true)}
+                      data-testid="button-invite-org-member"
+                    >
+                      <UserPlus className="w-4 h-4 mr-2" />
+                      Invite {memberLabel}
+                    </Button>
+                  )}
+                  {isAdmin && (
                     <Button 
                       onClick={() => setIsCreatingMember(true)}
                       data-testid="button-add-org-member"
@@ -2885,6 +2898,17 @@ export default function OrganisationDetailView({
             if (!open) clearDryRunResults();
           }}
           results={dryRunResults}
+        />
+
+        {/* Admin invite-member dialog — sends a tokenised /team-invite link to
+            an email address, targeting this specific organisation */}
+        <InviteMemberDialog
+          open={showInviteDialog}
+          onOpenChange={setShowInviteDialog}
+          targetOrganization={organization ? { id: organization.id, name: organization.name } : null}
+          memberInfo={memberInfo}
+          organizationInfo={null}
+          existingMembers={orgMembers}
         />
       </main>
     </div>
