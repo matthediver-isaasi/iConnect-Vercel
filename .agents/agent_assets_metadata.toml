@@ -89,8 +89,8 @@ title = "Job Posting email recipients (317)"
 id = "wXUdkECOJMO0ScuvTxJcm"
 uri = "file://.local/reports/bnms-memberships-unpaid-invoices.csv"
 type = "table"
-title = "BNMS Memberships — unpaid invoices"
-description = "21 unpaid (AUTHORISED) Xero invoices with Projects=MEMBERSHIPS since 1 Jan 2025; £6,578.80 outstanding."
+title = "BNMS Outstanding Membership Invoices"
+description = "21 AUTHORISED (unpaid) membership invoices — total AmountDue £6,578.80"
 
 [[outputs]]
 id = "8knhZEEwY0VeFSncM0VnW"
