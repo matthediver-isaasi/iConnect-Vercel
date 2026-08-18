@@ -241,6 +241,7 @@ export default function MemberDetailView({
     job_title: '',
     biography: '',
     organization_id: defaultOrganizationId,
+    organization_group_id: '',
     login_enabled: true,
     show_in_directory: true,
       guest_expires_at: ''
@@ -258,6 +259,7 @@ export default function MemberDetailView({
         job_title: member.job_title || '',
         biography: member.biography || '',
         organization_id: member.organization_id || '',
+        organization_group_id: member.organization_group_id || '',
         login_enabled: member.login_enabled !== false,
         show_in_directory: member.show_in_directory !== false,
         guest_expires_at: member.guest_expires_at ? String(member.guest_expires_at).slice(0, 10) : ''
@@ -456,6 +458,17 @@ export default function MemberDetailView({
         return await publicClient.getOrganizationDomains(memberOrgId);
       } catch {
         return { verified_domains: [] };
+      }
+    }
+  });
+
+  const { data: orgGroups = EMPTY_ARRAY } = useQuery({
+    queryKey: ['org-groups-for-member-detail-view'],
+    queryFn: async () => {
+      try {
+        return await base44.entities.OrganizationGroup.list({ sort: { name: 'asc' } });
+      } catch {
+        return [];
       }
     }
   });
@@ -918,6 +931,9 @@ export default function MemberDetailView({
       
       const createPayload = { ...formData, role_id: selectedRoleId };
       delete createPayload.guest_expires_at;
+      // When an org is set the effective group is org-derived; don't persist
+      // the manual value (selector is hidden when org is present).
+      if (createPayload.organization_id) delete createPayload.organization_group_id;
       createMutation.mutate(createPayload, {
         onSuccess: async (createdMember) => {
           const currentCustomFieldValues = { ...customFieldValues };
@@ -951,6 +967,9 @@ export default function MemberDetailView({
 
       try {
         const updatePayload = { ...formData, role_id: selectedRoleId };
+        // When an org is set the effective group is org-derived; don't overwrite
+        // the stored manual value (selector is hidden when org is present).
+        if (updatePayload.organization_id) delete updatePayload.organization_group_id;
         const memberOrgForGuest = organizations.find(o => o.id === member?.organization_id);
         if (memberOrgForGuest?.guest_access_enabled) {
           updatePayload.guest_expires_at = formData.guest_expires_at
@@ -1012,6 +1031,7 @@ export default function MemberDetailView({
       job_title: member.job_title || '',
       biography: member.biography || '',
       organization_id: member.organization_id || '',
+      organization_group_id: member.organization_group_id || '',
       login_enabled: member.login_enabled !== false,
       show_in_directory: member.show_in_directory !== false,
         guest_expires_at: member.guest_expires_at ? String(member.guest_expires_at).slice(0, 10) : ''
@@ -1430,6 +1450,66 @@ export default function MemberDetailView({
                     ) : (
                       <p className="text-sm text-slate-500">No organisation assigned</p>
                     )}
+                  </CardContent>
+                </Card>
+
+                {/* Group card: derived from org when member has one, manual selector otherwise */}
+                <Card>
+                  <CardHeader className="py-3">
+                    <CardTitle className="text-base flex items-center gap-2">
+                      <Users className="w-4 h-4 text-green-600" />
+                      Group
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="py-3">
+                    {(() => {
+                      // Derive purely from formData so the card follows in-progress edits:
+                      // clearing the org reveals the manual selector; changing org shows
+                      // the new org's group immediately without waiting for a save.
+                      const hasOrg = !!formData.organization_id;
+                      const selectedOrgForGroup = organizations.find(o => o.id === formData.organization_id);
+                      const derivedGroupId = hasOrg
+                        ? (selectedOrgForGroup?.organization_group_id || null)
+                        : (isEditing ? (formData.organization_group_id || null) : (member?.organization_group_id || null));
+                      const displayedGroup = orgGroups.find(g => g.id === derivedGroupId);
+
+                      if (hasOrg) {
+                        return displayedGroup ? (
+                          <div>
+                            <p className="text-sm font-medium">{displayedGroup.name}</p>
+                            <p className="text-xs text-slate-500 mt-0.5">Derived from organisation</p>
+                          </div>
+                        ) : (
+                          <p className="text-sm text-slate-500">No group (via organisation)</p>
+                        );
+                      }
+                      if (isEditing) {
+                        return (
+                          <div className="space-y-2">
+                            <Label>Group</Label>
+                            <Select
+                              value={formData.organization_group_id || '__none__'}
+                              onValueChange={(v) => setFormData(prev => ({ ...prev, organization_group_id: v === '__none__' ? '' : v }))}
+                            >
+                              <SelectTrigger data-testid="select-member-group">
+                                <SelectValue placeholder="Select group" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="__none__">No Group</SelectItem>
+                                {orgGroups.map(g => (
+                                  <SelectItem key={g.id} value={g.id}>{g.name}</SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        );
+                      }
+                      return displayedGroup ? (
+                        <p className="text-sm font-medium">{displayedGroup.name}</p>
+                      ) : (
+                        <p className="text-sm text-slate-500">No group</p>
+                      );
+                    })()}
                   </CardContent>
                 </Card>
 

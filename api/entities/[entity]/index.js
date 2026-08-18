@@ -1240,6 +1240,23 @@ export default async function handler(req, res) {
         if (strippedPause.length > 0) {
           console.warn(`[Entity API] Stripped protected membership pause field(s) from Member create: ${strippedPause.join(', ')}`);
         }
+        // SECURITY (Task #3667): when assigning a manual group to a member on
+        // create, verify the target group belongs to the same tenant.
+        // Clearing (null / empty) is always permitted.
+        if (sanitizedBody.organization_group_id) {
+          const memberCreateTenantId = tenantCtx.tenantId || tenantCtx.effectiveTenantId;
+          if (!memberCreateTenantId) {
+            return res.status(400).json({ error: 'Tenant context required to assign a member group' });
+          }
+          const { data: targetGroup, error: targetGroupError } = await supabase
+            .from('organization_group')
+            .select('id, tenant_id')
+            .eq('id', sanitizedBody.organization_group_id)
+            .single();
+          if (targetGroupError || !targetGroup || targetGroup.tenant_id !== memberCreateTenantId) {
+            return res.status(403).json({ error: 'Organisation group not found in this tenant' });
+          }
+        }
       }
 
       // SECURITY (Task #3330): survey submissions must go through the public

@@ -831,6 +831,24 @@ export default async function handler(req, res) {
         }
       }
 
+      // SECURITY (Task #3667): when assigning a manual group to a member (no-org
+      // scenario), verify the target group belongs to the same tenant.
+      // Clearing (null) is always permitted.
+      if (entityNormalized === 'member' && 'organization_group_id' in sanitizedBody && sanitizedBody.organization_group_id) {
+        const memberTenantId = beforeData?.tenant_id || tenantCtx?.tenantId || null;
+        if (!memberTenantId) {
+          return res.status(400).json({ error: 'Tenant context required to assign a member group' });
+        }
+        const { data: targetGroup, error: targetGroupError } = await supabase
+          .from('organization_group')
+          .select('id, tenant_id')
+          .eq('id', sanitizedBody.organization_group_id)
+          .single();
+        if (targetGroupError || !targetGroup || targetGroup.tenant_id !== memberTenantId) {
+          return res.status(403).json({ error: 'Organisation group not found in this tenant' });
+        }
+      }
+
       // Normalize email to lowercase for member, team_member, magic_link, and external_writer entities
       // Use normalized entity name (already computed above) to handle both PascalCase and slug-case variants
       if ((entityNormalized === 'member' || entityNormalized === 'teammember' || entityNormalized === 'magiclink' || entityNormalized === 'externalwriter') && sanitizedBody.email) {

@@ -70,6 +70,7 @@ import { listOrganizationsForAdmin } from '@/lib/adminOrgList';
 // undefined forever) that starved React Router's navigation transitions —
 // the URL changed but the page never repainted.
 const EMPTY_PREF_VALUES = [];
+const EMPTY_ORG_GROUPS = [];
 
 function MemberDetailCountryMultiSelect({ fieldId, selectedValues, availableCountries, onChange, label }) {
   const [open, setOpen] = useState(false);
@@ -173,6 +174,7 @@ export default function MemberDetail() {
     job_title: '',
     biography: '',
     organization_id: '',
+    organization_group_id: '',
     login_enabled: true,
     show_in_directory: true,
       guest_expires_at: ''
@@ -317,6 +319,18 @@ export default function MemberDetail() {
     queryKey: ['organizations-for-member-detail'],
     enabled: isAccessReady,
     queryFn: () => listOrganizationsForAdmin('name')
+  });
+
+  const { data: orgGroups = EMPTY_ORG_GROUPS } = useQuery({
+    queryKey: ['org-groups-for-member-detail'],
+    enabled: isAccessReady,
+    queryFn: async () => {
+      try {
+        return await base44.entities.OrganizationGroup.list({ sort: { name: 'asc' } });
+      } catch {
+        return [];
+      }
+    }
   });
 
   const { data: roles = [] } = useQuery({
@@ -738,6 +752,7 @@ export default function MemberDetail() {
         job_title: member.job_title || '',
         biography: member.biography || '',
         organization_id: member.organization_id || '',
+        organization_group_id: member.organization_group_id || '',
         login_enabled: member.login_enabled !== false,
         show_in_directory: member.show_in_directory !== false,
         guest_expires_at: member.guest_expires_at ? String(member.guest_expires_at).slice(0, 10) : ''
@@ -1049,6 +1064,11 @@ export default function MemberDetail() {
     } else {
       delete payload.guest_expires_at;
     }
+    // When an org is set the effective group is org-derived; don't overwrite
+    // the stored manual value from this page (the selector is hidden).
+    if (payload.organization_id) {
+      delete payload.organization_group_id;
+    }
     updateMutation.mutate(payload);
   };
 
@@ -1062,6 +1082,7 @@ export default function MemberDetail() {
       job_title: member.job_title || '',
       biography: member.biography || '',
       organization_id: member.organization_id || '',
+      organization_group_id: member.organization_group_id || '',
       login_enabled: member.login_enabled !== false,
       show_in_directory: member.show_in_directory !== false,
         guest_expires_at: member.guest_expires_at ? String(member.guest_expires_at).slice(0, 10) : ''
@@ -1771,6 +1792,66 @@ export default function MemberDetail() {
                   ) : (
                     <p className="text-sm text-slate-500">No organisation assigned</p>
                   )}
+                </CardContent>
+              </Card>
+
+              {/* Group card: derived from org when member has one, manual selector otherwise */}
+              <Card>
+                <CardHeader className="py-3">
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <Users className="w-4 h-4 text-green-600" />
+                    Group
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="py-3">
+                  {(() => {
+                    // Derive purely from formData so the card follows in-progress edits:
+                    // clearing the org reveals the manual selector; changing org shows
+                    // the new org's group immediately without waiting for a save.
+                    const hasOrg = !!formData.organization_id;
+                    const selectedOrgForGroup = organizations.find(o => o.id === formData.organization_id);
+                    const derivedGroupId = hasOrg
+                      ? (selectedOrgForGroup?.organization_group_id || null)
+                      : (isEditing ? (formData.organization_group_id || null) : (member?.organization_group_id || null));
+                    const displayedGroup = orgGroups.find(g => g.id === derivedGroupId);
+
+                    if (hasOrg) {
+                      return displayedGroup ? (
+                        <div>
+                          <p className="text-sm font-medium">{displayedGroup.name}</p>
+                          <p className="text-xs text-slate-500 mt-0.5">Derived from organisation</p>
+                        </div>
+                      ) : (
+                        <p className="text-sm text-slate-500">No group (via organisation)</p>
+                      );
+                    }
+                    if (isEditing) {
+                      return (
+                        <div className="space-y-2">
+                          <Label>Group</Label>
+                          <Select
+                            value={formData.organization_group_id || '__none__'}
+                            onValueChange={(v) => setFormData(prev => ({ ...prev, organization_group_id: v === '__none__' ? '' : v }))}
+                          >
+                            <SelectTrigger data-testid="select-member-group">
+                              <SelectValue placeholder="Select group" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="__none__">No Group</SelectItem>
+                              {orgGroups.map(g => (
+                                <SelectItem key={g.id} value={g.id}>{g.name}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      );
+                    }
+                    return displayedGroup ? (
+                      <p className="text-sm font-medium">{displayedGroup.name}</p>
+                    ) : (
+                      <p className="text-sm text-slate-500">No group</p>
+                    );
+                  })()}
                 </CardContent>
               </Card>
 
