@@ -3011,18 +3011,25 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
               const gridClass = columnCount === 2 
                 ? 'grid grid-cols-1 md:grid-cols-2 gap-4' 
                 : 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4';
+
+              // Payment fields must render full-width regardless of column assignment.
+              const isPaymentField = (f) => f.type === 'membership_payment' || f.type === 'payment';
+              const unassignedNonPayment = unassignedFields.filter(f => !isPaymentField(f));
+              const unassignedPayment = unassignedFields.filter(isPaymentField);
+              const assignedPayment = pageAssignedFields.filter(isPaymentField);
+              const fullWidthPaymentFields = [...unassignedPayment, ...assignedPayment];
               
               return (
                 <>
-                  {unassignedFields.length > 0 && (
+                  {unassignedNonPayment.length > 0 && (
                     <div className="space-y-4 mb-4">
-                      {unassignedFields.map(renderField)}
+                      {unassignedNonPayment.map(renderField)}
                     </div>
                   )}
                   <div className={gridClass}>
                     {Array.from({ length: columnCount }).map((_, colIndex) => {
                       const columnFields = pageAssignedFields.filter(f => 
-                        (f.column_index || 0) === colIndex
+                        !isPaymentField(f) && (f.column_index || 0) === colIndex
                       );
                       return (
                         <div key={colIndex} className="space-y-4">
@@ -3031,6 +3038,11 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
                       );
                     })}
                   </div>
+                  {fullWidthPaymentFields.length > 0 && (
+                    <div className="space-y-4 mt-4">
+                      {fullWidthPaymentFields.map(renderField)}
+                    </div>
+                  )}
                 </>
               );
             })()}
