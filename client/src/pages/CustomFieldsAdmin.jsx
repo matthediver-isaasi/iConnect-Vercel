@@ -51,6 +51,22 @@ const ENTITY_SCOPES = [
   { value: 'organization', label: 'Organisation', icon: Building2, description: 'Field appears in organisation profile' }
 ];
 
+/**
+ * Normalize a preference-field option to {value, label}.
+ * Stored options may be plain strings (e.g. from import scripts) or
+ * {value, label} objects.  Both shapes are supported here so rendering
+ * and editing work correctly regardless of what the DB contains.
+ */
+function resolveOption(o) {
+  if (typeof o === 'string') return { value: o, label: o };
+  if (o && typeof o === 'object') {
+    const value = o.value != null ? String(o.value) : '';
+    const label = o.label != null ? String(o.label) : value;
+    return { value, label };
+  }
+  return { value: '', label: '' };
+}
+
 export default function CustomFieldsAdminPage() {
   const { isFeatureExcluded, isAccessReady } = useMemberAccess();
   const [accessChecked, setAccessChecked] = useState(false);
@@ -437,7 +453,7 @@ function CustomFieldsManager({ queryClient, entityScope, title, description }) {
     setFieldLabel(field.label || '');
     setFieldType(field.field_type || 'text');
     setFieldRequired(field.is_required || false);
-    setFieldOptions(field.options || []);
+    setFieldOptions((field.options || []).map(resolveOption));
     setFieldFilterable(field.is_filterable || false);
     setFieldFilterMultiSelect(field.filter_multi_select === true);
     setMinSelections(field.min_selections != null ? String(field.min_selections) : '');
@@ -881,7 +897,7 @@ function CustomFieldsManager({ queryClient, entityScope, title, description }) {
                             })()}
                             {field.options && field.options.length > 0 && (
                               <p className="text-sm text-slate-400 mt-1">
-                                Options: {field.options.map(o => o.label).join(', ')}
+                                Options: {field.options.map(o => resolveOption(o).label).join(', ')}
                               </p>
                             )}
                             {field.field_type === 'file' && field.allowed_file_types && (() => {
