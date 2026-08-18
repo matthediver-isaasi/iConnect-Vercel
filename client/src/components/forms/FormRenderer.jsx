@@ -793,7 +793,7 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
 
       case 'boolean':
         const booleanValue = value !== undefined && value !== null 
-          ? (value === true || value === 'true')
+          ? (value === true || (typeof value === 'string' && value.trim().toLowerCase() === 'true'))
           : (field.default_value === true);
         return (
           <div className="flex items-center space-x-3">

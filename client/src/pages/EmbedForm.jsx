@@ -414,6 +414,21 @@ export default function EmbedFormPage() {
     return false;
   };
 
+  // Coerce a computed set_value to the correct type for the target field.
+  // For boolean fields, tolerates "True", "TRUE", "yes", "1", etc.
+  const coerceValueForField = (value, fieldId) => {
+    if (value === null || value === undefined) return value;
+    const field = form?.fields?.find(f => f.id === fieldId);
+    if (field?.type === 'boolean') {
+      if (typeof value === 'boolean') return value;
+      const s = String(value).trim().toLowerCase();
+      if (['true', 'yes', 'y', 'on', '1'].includes(s)) return true;
+      if (['false', 'no', 'n', 'off', '0'].includes(s)) return false;
+      return value;
+    }
+    return value;
+  };
+
   const computeSetValue = (action) => {
     const sourceType = action.set_value_source || 'static';
     if (sourceType === 'static') {
@@ -588,13 +603,13 @@ export default function EmbedFormPage() {
                   originalValuesRef.current[action.target_field_id] = formValues[action.target_field_id] ?? '';
                 }
                 
-                const valueToSet = computeSetValue(action);
+                const valueToSet = coerceValueForField(computeSetValue(action), action.target_field_id);
                 if (valueToSet !== null && valueToSet !== undefined) {
                   updates[action.target_field_id] = valueToSet;
                 }
               }
               if ((action.set_value_source || 'static') === 'field' && action.set_value_field_id && activeSetValueActionsRef.current.has(actionKey)) {
-                const sourceValue = formValues[action.set_value_field_id];
+                const sourceValue = coerceValueForField(formValues[action.set_value_field_id], action.target_field_id);
                 const currentTargetValue = formValues[action.target_field_id];
                 if (sourceValue !== currentTargetValue && sourceValue !== null && sourceValue !== undefined) {
                   updates[action.target_field_id] = sourceValue;
@@ -607,7 +622,7 @@ export default function EmbedFormPage() {
                                     (action.formula_operand_b_mode !== 'value' && (action.formula_operand_b_field_id || action.formula_field_b));
                 
                 if (hasOperandA || hasOperandB) {
-                  const newValue = computeSetValue(action);
+                  const newValue = coerceValueForField(computeSetValue(action), action.target_field_id);
                   const currentTargetValue = formValues[action.target_field_id];
                   if (newValue !== currentTargetValue && newValue !== null && newValue !== undefined) {
                     updates[action.target_field_id] = newValue;
@@ -634,13 +649,13 @@ export default function EmbedFormPage() {
               originalValuesRef.current[rule.target_field_id] = formValues[rule.target_field_id] ?? '';
             }
             
-            const valueToSet = computeLegacySetValue(rule);
+            const valueToSet = coerceValueForField(computeLegacySetValue(rule), rule.target_field_id);
             if (valueToSet !== null && valueToSet !== undefined) {
               updates[rule.target_field_id] = valueToSet;
             }
           }
           else if ((rule.set_value_source || 'static') === 'field' && rule.set_value_field_id) {
-            const sourceValue = formValues[rule.set_value_field_id];
+            const sourceValue = coerceValueForField(formValues[rule.set_value_field_id], rule.target_field_id);
             const currentTargetValue = formValues[rule.target_field_id];
             if (sourceValue !== currentTargetValue && sourceValue !== null && sourceValue !== undefined) {
               updates[rule.target_field_id] = sourceValue;

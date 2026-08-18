@@ -1589,6 +1589,27 @@ function LogicRulesSection({
                   </SelectContent>
                 </Select>
               )
+            ) : targetInfo.type === 'boolean' ? (
+              <div className="flex gap-2">
+                <Button
+                  variant={action.set_value === true || action.set_value === 'true' ? 'default' : 'outline'}
+                  size="sm"
+                  className="h-7 text-xs"
+                  onClick={() => updateAction(ruleId, action.id, { set_value: true })}
+                  data-testid={`button-set-value-true-${actionIndex}`}
+                >
+                  True (Yes)
+                </Button>
+                <Button
+                  variant={action.set_value === false || action.set_value === 'false' ? 'default' : 'outline'}
+                  size="sm"
+                  className="h-7 text-xs"
+                  onClick={() => updateAction(ruleId, action.id, { set_value: false })}
+                  data-testid={`button-set-value-false-${actionIndex}`}
+                >
+                  False (No)
+                </Button>
+              </div>
             ) : targetInfo.type === 'date' ? (
               <Input
                 type="date"

@@ -1746,6 +1746,21 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
   }, [form?.id]);
   
   // Helper to compute the value for a set_value action
+  // Coerce a computed set_value to the correct type for the target field.
+  // For boolean fields, tolerates "True", "TRUE", "yes", "1", etc.
+  const coerceValueForField = (value, fieldId) => {
+    if (value === null || value === undefined) return value;
+    const field = form?.fields?.find(f => f.id === fieldId);
+    if (field?.type === 'boolean') {
+      if (typeof value === 'boolean') return value;
+      const s = String(value).trim().toLowerCase();
+      if (['true', 'yes', 'y', 'on', '1'].includes(s)) return true;
+      if (['false', 'no', 'n', 'off', '0'].includes(s)) return false;
+      return value;
+    }
+    return value;
+  };
+
   const computeSetValue = (action, prefillEntity) => {
     const sourceType = action.set_value_source || 'static';
     
@@ -1912,7 +1927,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
                   console.log(`[SetValue Debug] Action ${actionKey}: Saved original value "${originalValuesRef.current[action.target_field_id]}"`);
                 }
                 
-                const valueToSet = computeSetValue(action, prefillEntity);
+                const valueToSet = coerceValueForField(computeSetValue(action, prefillEntity), action.target_field_id);
                 console.log(`[SetValue Debug] Action ${actionKey}: computeSetValue returned "${valueToSet}" (type: ${typeof valueToSet})`);
                 if (valueToSet !== null && valueToSet !== undefined) {
                   updates[action.target_field_id] = valueToSet;
@@ -1925,7 +1940,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
               }
               // For field-source actions that are already active, continuously sync with source field
               if ((action.set_value_source || 'static') === 'field' && action.set_value_field_id && activeSetValueActionsRef.current.has(actionKey)) {
-                const sourceValue = formValues[action.set_value_field_id];
+                const sourceValue = coerceValueForField(formValues[action.set_value_field_id], action.target_field_id);
                 const currentTargetValue = formValues[action.target_field_id];
                 console.log(`[SetValue Debug] Action ${actionKey}: Field source sync - source="${sourceValue}", current="${currentTargetValue}"`);
                 // Only update if source changed and target doesn't match
@@ -1943,7 +1958,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
                                     (action.formula_operand_b_mode !== 'value' && (action.formula_operand_b_field_id || action.formula_field_b));
                 
                 if (hasOperandA || hasOperandB) {
-                  const newValue = computeSetValue(action, prefillEntity);
+                  const newValue = coerceValueForField(computeSetValue(action, prefillEntity), action.target_field_id);
                   const currentTargetValue = formValues[action.target_field_id];
                   // Only update if calculated value differs from current
                   if (newValue !== currentTargetValue && newValue !== null && newValue !== undefined) {
@@ -1975,14 +1990,14 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
               originalValuesRef.current[rule.target_field_id] = formValues[rule.target_field_id] ?? '';
             }
             
-            const valueToSet = computeLegacySetValue(rule, prefillEntity);
+            const valueToSet = coerceValueForField(computeLegacySetValue(rule, prefillEntity), rule.target_field_id);
             if (valueToSet !== null && valueToSet !== undefined) {
               updates[rule.target_field_id] = valueToSet;
             }
           }
           // For field-source rules that are already active, continuously sync with source field
           else if ((rule.set_value_source || 'static') === 'field' && rule.set_value_field_id) {
-            const sourceValue = formValues[rule.set_value_field_id];
+            const sourceValue = coerceValueForField(formValues[rule.set_value_field_id], rule.target_field_id);
             const currentTargetValue = formValues[rule.target_field_id];
             // Only update if source changed and target doesn't match
             if (sourceValue !== currentTargetValue && sourceValue !== null && sourceValue !== undefined) {
