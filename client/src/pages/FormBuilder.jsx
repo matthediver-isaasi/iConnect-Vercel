@@ -2916,7 +2916,13 @@ function UnreachableHiddenWarning({ fields, pages, visibilityRules }) {
 function MembershipStructureActionSettings({ action, ruleId, fields, updateAction, index, actionIndex, entityPipelines }) {
   const [tierConfigs, setTierConfigs] = useState([]);
   const [requiredFields, setRequiredFields] = useState([]);
+  const [autoConfigs, setAutoConfigs] = useState(null); // null = loading
   const [loadingFields, setLoadingFields] = useState(false);
+
+  // Auto-resolve mode (Task #3659): instead of pinning one structure, the
+  // server matches the mapped answer against each active member-scoped
+  // structure's match value at quote/charge time.
+  const isAutoMode = action.resolve_mode === 'auto';
 
   useEffect(() => {
     fetch('/api/membership/tiers', { credentials: 'include' })
@@ -2928,6 +2934,19 @@ function MembershipStructureActionSettings({ action, ruleId, fields, updateActio
   }, []);
 
   useEffect(() => {
+    if (isAutoMode) {
+      setLoadingFields(true);
+      fetch('/api/membership/tier-required-fields?auto=1&scope=member', { credentials: 'include' })
+        .then(res => res.ok ? res.json() : null)
+        .then(data => {
+          setRequiredFields(data?.requiredFields || []);
+          setAutoConfigs(data?.configs || []);
+        })
+        .catch(() => { setRequiredFields([]); setAutoConfigs([]); })
+        .finally(() => setLoadingFields(false));
+      return;
+    }
+    setAutoConfigs(null);
     const configId = action.config_id;
     if (!configId) {
       setRequiredFields([]);
@@ -2939,7 +2958,7 @@ function MembershipStructureActionSettings({ action, ruleId, fields, updateActio
       .then(data => setRequiredFields(data?.requiredFields || []))
       .catch(() => setRequiredFields([]))
       .finally(() => setLoadingFields(false));
-  }, [action.config_id]);
+  }, [action.config_id, isAutoMode]);
 
   const fieldMappings = action.field_mappings || {};
   const selectedConfig = tierConfigs.find(c => c.id === action.config_id);
@@ -2949,12 +2968,21 @@ function MembershipStructureActionSettings({ action, ruleId, fields, updateActio
   // server enforces the same rule before creating any charge.
   const hasMemberPipeline = (entityPipelines?.members?.length || 0) > 0;
   const hasOrgPipeline = (entityPipelines?.organisations?.length || 0) > 0;
-  const selectedScope = selectedConfig ? (selectedConfig.structure_scope_type === 'member' ? 'member' : 'organization') : null;
+  const selectedScope = isAutoMode
+    ? 'member'
+    : selectedConfig ? (selectedConfig.structure_scope_type === 'member' ? 'member' : 'organization') : null;
   const scopeMismatch = selectedScope === 'member'
     ? !hasMemberPipeline
     : selectedScope === 'organization'
       ? !hasOrgPipeline
       : false;
+
+  // Auto-mode validation: the structure-scoping field(s) MUST be mapped —
+  // without the mapped answer the server can never resolve a structure.
+  const structureFields = requiredFields.filter(rf => rf.usage === 'structure');
+  const unmappedStructureFields = isAutoMode
+    ? structureFields.filter(rf => !fieldMappings[rf.field_id])
+    : [];
 
   const updateMapping = (dbFieldId, formFieldId) => {
     const newMappings = { ...fieldMappings };
@@ -2985,22 +3013,70 @@ function MembershipStructureActionSettings({ action, ruleId, fields, updateActio
         </p>
       )}
       <div className="space-y-2">
-        <Label className="text-xs">Membership structure</Label>
+        <Label className="text-xs">Structure selection</Label>
         <Select
-          value={action.config_id || ''}
-          onValueChange={(val) => updateAction(ruleId, action.id, { config_id: val, field_mappings: {} })}
+          value={isAutoMode ? '_auto_resolve' : '_specific'}
+          onValueChange={(val) => {
+            if (val === '_auto_resolve') {
+              updateAction(ruleId, action.id, { resolve_mode: 'auto', config_id: '', field_mappings: {} });
+            } else {
+              updateAction(ruleId, action.id, { resolve_mode: null, config_id: '', field_mappings: {} });
+            }
+          }}
         >
-          <SelectTrigger className="h-8 text-xs" data-testid={`select-membership-config-${index}-${actionIndex}`}>
-            <SelectValue placeholder="Select a membership structure…" />
+          <SelectTrigger className="h-8 text-xs" data-testid={`select-membership-mode-${index}-${actionIndex}`}>
+            <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            {tierConfigs.map(cfg => (
-              <SelectItem key={cfg.id} value={cfg.id}>
-                {cfg.name || 'Unnamed'} ({cfg.structure_scope_type === 'member' ? 'member' : 'organisation'})
-              </SelectItem>
-            ))}
+            <SelectItem value="_specific">Specific structure</SelectItem>
+            <SelectItem value="_auto_resolve">Auto-resolve from mapped field</SelectItem>
           </SelectContent>
         </Select>
+        {isAutoMode && (
+          <p className="text-xs text-slate-500">
+            The structure is chosen at payment time by matching the applicant's mapped answer against each active member-scoped structure's match value (case-insensitive). Newly added structures work automatically.
+          </p>
+        )}
+        {!isAutoMode && (
+          <Select
+            value={action.config_id || ''}
+            onValueChange={(val) => updateAction(ruleId, action.id, { config_id: val, field_mappings: {} })}
+          >
+            <SelectTrigger className="h-8 text-xs" data-testid={`select-membership-config-${index}-${actionIndex}`}>
+              <SelectValue placeholder="Select a membership structure…" />
+            </SelectTrigger>
+            <SelectContent>
+              {tierConfigs.map(cfg => (
+                <SelectItem key={cfg.id} value={cfg.id}>
+                  {cfg.name || 'Unnamed'} ({cfg.structure_scope_type === 'member' ? 'member' : 'organisation'})
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+        {isAutoMode && autoConfigs !== null && (
+          autoConfigs.length === 0 ? (
+            <p className="text-xs text-red-600" data-testid={`warning-membership-auto-none-${index}-${actionIndex}`}>
+              No member-scoped membership structures are currently in effect, so nothing can be auto-resolved. Create structures with a match value first.
+            </p>
+          ) : (
+            <div className="space-y-1" data-testid={`membership-auto-preview-${index}-${actionIndex}`}>
+              <p className="text-xs text-slate-500">Structures this rule can currently resolve to:</p>
+              <ul className="text-xs text-slate-500 list-disc pl-4 space-y-0.5">
+                {autoConfigs.map(cfg => (
+                  <li key={cfg.id}>
+                    {cfg.name}{cfg.structure_match_value ? <> — matches "<span className="font-medium">{cfg.structure_match_value}</span>"</> : <> — fallback (no match value)</>}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )
+        )}
+        {isAutoMode && unmappedStructureFields.length > 0 && (
+          <p className="text-xs text-red-600" data-testid={`warning-membership-auto-unmapped-${index}-${actionIndex}`}>
+            Auto-resolve requires the {unmappedStructureFields.map(rf => `"${rf.field_label}"`).join(', ')} answer to be mapped to a form field below — payments will fail until it is mapped.
+          </p>
+        )}
         {selectedConfig && (
           <p className="text-xs text-slate-400">
             Membership will be created for the {selectedScope === 'member' ? 'member' : 'organisation'} resolved by this form's processing pipelines.
@@ -3015,16 +3091,18 @@ function MembershipStructureActionSettings({ action, ruleId, fields, updateActio
         )}
       </div>
 
-      {action.config_id && (
+      {(action.config_id || isAutoMode) && (
         <div className="space-y-2">
           <Label className="text-xs font-medium">Fee calculation mappings</Label>
           <p className="text-xs text-slate-500">
-            Map the values used in the fee calculation to form fields, so the fee can be worked out from the applicant's answers before their record exists.
+            {isAutoMode
+              ? 'Map the answers used to pick the structure and calculate its fee. The structure-selection mapping is required in auto-resolve mode.'
+              : 'Map the values used in the fee calculation to form fields, so the fee can be worked out from the applicant\'s answers before their record exists.'}
           </p>
           {loadingFields ? (
             <p className="text-xs text-slate-400">Loading required fields…</p>
           ) : requiredFields.length === 0 ? (
-            <p className="text-xs text-slate-400">This structure needs no mapped answers (flat rate).</p>
+            <p className="text-xs text-slate-400">{isAutoMode ? 'No active member-scoped structures need mapped answers yet.' : 'This structure needs no mapped answers (flat rate).'}</p>
           ) : (
             <div className="space-y-2">
               {requiredFields.map(rf => (

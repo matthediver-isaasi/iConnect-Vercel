@@ -12,9 +12,48 @@ export default async function handler(req, res) {
   }
 
   const tenantId = context.tenantId;
-  const { configId } = req.query;
+  const { configId, auto, scope } = req.query;
 
   try {
+    // Auto-resolve mode (Task #3659): union of required fields across ALL
+    // currently-active configs of the requested scope, so a single
+    // auto-resolve form action can map every answer any resolvable
+    // structure might need.
+    if (auto === '1' || auto === 'true') {
+      const targetScope = scope === 'organization' ? 'organization' : 'member';
+      const onDate = new Date().toISOString().split('T')[0];
+      const { data: activeRows } = await supabase
+        .from('membership_tier_config')
+        .select('*')
+        .eq('tenant_id', tenantId)
+        .or(`effective_from.is.null,effective_from.lte.${onDate}`)
+        .or(`effective_to.is.null,effective_to.gte.${onDate}`)
+        .order('effective_from', { ascending: false, nullsFirst: true });
+      const scopedConfigs = (activeRows || []).filter(c => (c.structure_scope_type || 'organization') === targetScope);
+      const merged = [];
+      const seenKeys = new Set();
+      for (const cfg of scopedConfigs) {
+        const fields = await collectRequiredFields(cfg, tenantId);
+        for (const f of fields) {
+          const key = `${f.field_id}:${f.usage}`;
+          if (seenKeys.has(key)) continue;
+          seenKeys.add(key);
+          merged.push(f);
+        }
+      }
+      return res.json({
+        auto: true,
+        scopeType: targetScope,
+        configs: scopedConfigs.map(c => ({
+          id: c.id,
+          name: c.name || 'Unnamed',
+          structure_field_id: c.structure_field_id || null,
+          structure_match_value: c.structure_match_value || null,
+        })),
+        requiredFields: merged,
+      });
+    }
+
     let config;
     if (configId) {
       const { data } = await supabase
@@ -39,6 +78,22 @@ export default async function handler(req, res) {
       return res.json({ requiredFields: [] });
     }
 
+    const dedupedFields = await collectRequiredFields(config, tenantId);
+
+    return res.json({
+      configId: config.id,
+      configName: config.name || 'Default',
+      scopeType: config.structure_scope_type || 'organization',
+      requiredFields: dedupedFields,
+    });
+  } catch (err) {
+    console.error('[TierRequiredFields] Error:', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+}
+
+// Shared by the single-config and auto-resolve (union) modes.
+async function collectRequiredFields(config, tenantId) {
     const requiredFields = [];
     const fieldIdsToResolve = [];
 
@@ -153,14 +208,5 @@ export default async function handler(req, res) {
       return true;
     });
 
-    return res.json({
-      configId: config.id,
-      configName: config.name || 'Default',
-      scopeType: config.structure_scope_type || 'organization',
-      requiredFields: dedupedFields,
-    });
-  } catch (err) {
-    console.error('[TierRequiredFields] Error:', err);
-    return res.status(500).json({ error: 'Internal server error' });
-  }
+    return dedupedFields;
 }

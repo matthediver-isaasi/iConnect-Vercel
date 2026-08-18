@@ -22,16 +22,18 @@
 import { evaluateSubmitControlRule } from './formSubmitControl.js';
 
 export function isMembershipStructureAction(action) {
-  return !!action
-    && action.action_type === 'membership_structure'
-    && typeof action.config_id === 'string'
-    && action.config_id.trim() !== '';
+  if (!action || action.action_type !== 'membership_structure') return false;
+  // Auto-resolve mode (Task #3659): no pinned structure — the concrete
+  // config is resolved from the mapped answer at quote/charge time.
+  if (action.resolve_mode === 'auto') return true;
+  return typeof action.config_id === 'string' && action.config_id.trim() !== '';
 }
 
 /**
  * Resolve the membership action for the current answers.
- * Returns { configId, fieldMappings, ruleId, actionId } for the first
- * matched rule carrying a valid membership action, or null.
+ * Returns { configId, autoResolve, fieldMappings, ruleId, actionId } for
+ * the first matched rule carrying a valid membership action, or null.
+ * In auto-resolve mode configId is null and autoResolve is true.
  */
 export function resolveMembershipAction(visibilityRules, formValues, options = {}) {
   const rules = Array.isArray(visibilityRules) ? visibilityRules : [];
@@ -42,8 +44,10 @@ export function resolveMembershipAction(visibilityRules, formValues, options = {
     if (!rule.trigger_field_id && !(Array.isArray(rule.conditions) && rule.conditions.length > 0)) continue;
     if (!evaluateSubmitControlRule(rule, formValues, options)) continue;
     const action = actions[0];
+    const autoResolve = action.resolve_mode === 'auto';
     return {
-      configId: action.config_id.trim(),
+      configId: autoResolve ? null : action.config_id.trim(),
+      autoResolve,
       fieldMappings: (action.field_mappings && typeof action.field_mappings === 'object')
         ? action.field_mappings : {},
       ruleId: rule.id ?? null,
@@ -51,6 +55,54 @@ export function resolveMembershipAction(visibilityRules, formValues, options = {
     };
   }
   return null;
+}
+
+/**
+ * Auto-resolve the concrete membership structure from the mapped form
+ * answers (Task #3659). Mirrors getConfigForMember's scoped match-value
+ * semantics: among the supplied ACTIVE configs of the requested scope,
+ * the first whose structure_match_value equals (case-insensitive, trimmed)
+ * the override value for its structure_field_id wins; configs without a
+ * structure field are an unscoped fallback. Pure — the caller supplies
+ * today's-effective configs (getAllActiveConfigs) and the overrides built
+ * from the form answers.
+ *
+ * Returns { config } or { error } (descriptive, never a £0 fallback).
+ */
+export function autoResolveMembershipConfig(activeConfigs, fieldOverrides = {}, { scope = 'member' } = {}) {
+  const all = Array.isArray(activeConfigs) ? activeConfigs : [];
+  const configs = all.filter(c => c && (c.structure_scope_type || 'organization') === scope);
+  if (configs.length === 0) {
+    return { error: 'No membership structures are currently in effect for this form. Ask the administrator to update the form.' };
+  }
+  const scoped = configs.filter(c => c.structure_field_id && c.structure_match_value);
+  const unscoped = configs.filter(c => !c.structure_field_id);
+
+  const norm = (v) => (v === undefined || v === null) ? '' : String(v).toLowerCase().trim();
+  const overrides = (fieldOverrides && typeof fieldOverrides === 'object') ? fieldOverrides : {};
+
+  for (const cfg of scoped) {
+    const answer = norm(overrides[cfg.structure_field_id]);
+    const matchVal = norm(cfg.structure_match_value);
+    if (answer && matchVal && answer === matchVal) {
+      return { config: cfg };
+    }
+  }
+  if (unscoped.length > 0) return { config: unscoped[0] };
+
+  if (scoped.length === 0) {
+    return { error: 'No membership structures are currently in effect for this form. Ask the administrator to update the form.' };
+  }
+  // Descriptive no-match error: surface the applicant's mapped answer.
+  let rawAnswer = null;
+  for (const cfg of scoped) {
+    const v = overrides[cfg.structure_field_id];
+    if (v !== undefined && v !== null && String(v).trim() !== '') { rawAnswer = String(v).trim(); break; }
+  }
+  if (rawAnswer === null) {
+    return { error: 'The membership structure could not be determined because the answer it depends on is missing.' };
+  }
+  return { error: `No membership structure matches '${rawAnswer}'` };
 }
 
 /**

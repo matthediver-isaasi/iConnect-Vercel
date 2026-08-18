@@ -34,7 +34,7 @@ export function membershipQuoteKey(match, formValues) {
   for (const fid of mappedFieldIds) {
     vals[fid] = (formValues || {})[fid] ?? null;
   }
-  return JSON.stringify({ configId: match.configId, ruleId: match.ruleId, vals });
+  return JSON.stringify({ configId: match.autoResolve ? 'auto' : match.configId, ruleId: match.ruleId, vals });
 }
 
 /**

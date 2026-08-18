@@ -145,10 +145,25 @@ async function resolvePayableCharge({ supabase, tenantData, form, paymentField, 
     // rejected before any charge exists).
     const { getAllActiveConfigs } = await import('../_lib/membershipConfigResolver.js');
     const activeConfigs = await getAllActiveConfigs(tenantData.id);
-    const membershipConfig = (activeConfigs || []).find(c => c.id === membershipAction.configId);
-    if (!membershipConfig) {
-      return { error: { status: 400, body: { error: 'The selected membership structure is not currently in effect. Ask the administrator to update the form.', code: 'MEMBERSHIP_QUOTE_FAILED' } } };
+    const fieldOverrides = buildMembershipFieldOverrides(membershipAction.fieldMappings, values);
+    let membershipConfig = null;
+    if (membershipAction.autoResolve) {
+      // Auto-resolve mode (Task #3659): the concrete structure is chosen by
+      // matching the mapped answer against each active member-scoped
+      // structure's match value — never a £0 / price-source fallback.
+      const { autoResolveMembershipConfig } = await import('../_lib/formMembershipAction.js');
+      const autoResolved = autoResolveMembershipConfig(activeConfigs, fieldOverrides, { scope: 'member' });
+      if (autoResolved.error) {
+        return { error: { status: 400, body: { error: autoResolved.error, code: 'MEMBERSHIP_QUOTE_FAILED' } } };
+      }
+      membershipConfig = autoResolved.config;
+    } else {
+      membershipConfig = (activeConfigs || []).find(c => c.id === membershipAction.configId);
+      if (!membershipConfig) {
+        return { error: { status: 400, body: { error: 'The selected membership structure is not currently in effect. Ask the administrator to update the form.', code: 'MEMBERSHIP_QUOTE_FAILED' } } };
+      }
     }
+    const membershipConfigId = membershipConfig.id;
     const membershipTarget = membershipConfig.structure_scope_type === 'member' ? 'member' : 'organization';
 
     // Scope-to-pipeline validation BEFORE any charge is created: the form's
@@ -169,14 +184,13 @@ async function resolvePayableCharge({ supabase, tenantData, form, paymentField, 
       } } };
     }
 
-    const fieldOverrides = buildMembershipFieldOverrides(membershipAction.fieldMappings, values);
     let quote = null;
     if (membershipTarget === 'organization' && prefill_organization_id) {
       // An existing organisation is already known: use the full simulation
       // (honours go-live date, existing records, overrides, stored values).
       const { simulateMembershipForOrg } = await import('../_lib/membershipSimulation.js');
       const simResult = await simulateMembershipForOrg(tenantData.id, prefill_organization_id, {
-        source: 'form-payment', mode: 'manual', configId: membershipAction.configId, fieldOverrides,
+        source: 'form-payment', mode: 'manual', configId: membershipConfigId, fieldOverrides,
       });
       if (!simResult.success) {
         return { error: { status: 400, body: { error: simResult.error || 'The membership fee could not be calculated', code: 'MEMBERSHIP_QUOTE_FAILED' } } };
@@ -191,7 +205,7 @@ async function resolvePayableCharge({ supabase, tenantData, form, paymentField, 
       // even when prefill_organization_id is present — the membership
       // belongs to the member the pipeline creates, not the organisation.
       const quoted = await quoteMembershipForNewApplicant({
-        tenantId: tenantData.id, configId: membershipAction.configId, fieldOverrides,
+        tenantId: tenantData.id, configId: membershipConfigId, fieldOverrides,
       });
       if (!quoted.success) {
         return { error: { status: 400, body: { error: quoted.error || 'The membership fee could not be calculated', code: 'MEMBERSHIP_QUOTE_FAILED' } } };
