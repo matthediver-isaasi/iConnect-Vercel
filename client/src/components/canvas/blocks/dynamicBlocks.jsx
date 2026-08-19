@@ -4278,6 +4278,7 @@ function ArticleListRender({ block, breakpoint, asEditor }) {
                   badgeTextColor={badgeTextColor}
                   cardHeight={cardHeight}
                   imageHeightPercent={imageHeightPercent}
+                   imageAspectRatio={source === 'news' ? '1200 / 630' : null}
                   showImageBorder={!!c.showImageBorder}
                   imageBorderWeight={imageBorderWeight}
                   imageBorderColor={c.imageBorderColor || '#2563eb'}

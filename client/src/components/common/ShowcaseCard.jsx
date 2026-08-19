@@ -14,6 +14,7 @@
 //
 // Keep this component purely presentational: no data fetching, no routing
 // decisions beyond rendering the wrapper the caller asks for.
+import React from 'react';
 import { Link } from 'react-router-dom';
 import { Badge } from '@/components/ui/badge';
 import { Calendar, User, ArrowUpRight, Lock } from 'lucide-react';
@@ -42,6 +43,10 @@ export default function ShowcaseCard({
   cardHeight = 400,
   cardBorderRadius = 8,
   imageHeightPercent = 50,
+  // Optional responsive image ratio. When provided, the image box follows
+  // the card's available width instead of the legacy percentage of card
+  // height. Keep this unset for iEdit and non-news cards.
+  imageAspectRatio = null,
   showImageArea = true,
   showImageBorder = false,
   imageBorderWeight = 3,
@@ -70,7 +75,10 @@ export default function ShowcaseCard({
   // block keeps its legacy `link-article-<id>` contract).
   wrapperTestId,
 }) {
-  const imageHeight = Math.round(cardHeight * (imageHeightPercent / 100));
+  const hasImageAspectRatio = imageAspectRatio != null && imageAspectRatio !== '';
+  const imageHeight = hasImageAspectRatio
+    ? null
+    : Math.round(cardHeight * (imageHeightPercent / 100));
   const buttonSize = ctaButtonSize;
   const buttonMargin = ctaButtonMargin;
   const justify = textAlign === 'center' ? 'center' : textAlign === 'right' ? 'flex-end' : 'flex-start';
@@ -78,7 +86,12 @@ export default function ShowcaseCard({
   const cardContent = (
     <>
       {showImageArea && (
-        <div className="relative" style={{ height: `${imageHeight}px` }}>
+        <div
+          className="relative"
+          style={hasImageAspectRatio
+            ? { aspectRatio: imageAspectRatio, height: 'auto', flexShrink: 0 }
+            : { height: `${imageHeight}px` }}
+        >
           {imageUrl && (
             <img
               src={imageUrl}
@@ -108,7 +121,16 @@ export default function ShowcaseCard({
           }}
         />
       )}
-      <div className="p-4 flex-1 overflow-hidden relative" style={{ textAlign }}>
+      <div
+        className="p-4 flex-1 overflow-hidden relative"
+        style={{
+          textAlign,
+          // `flex-1` has a zero flex basis. In responsive ratio mode, retain
+          // the body's natural content height so a wide image cannot leave
+          // the title, summary, metadata, and CTA with a zero-height area.
+          ...(hasImageAspectRatio ? { flex: '1 1 auto' } : {}),
+        }}
+      >
         <h3
           className="font-semibold text-slate-900 mb-2 line-clamp-2"
           style={titleStyleOverride || { fontSize: `${titleFontSize}px` }}
@@ -199,10 +221,19 @@ export default function ShowcaseCard({
   );
 
   const wrapperClassName = 'bg-white shadow-xl overflow-hidden hover:shadow-2xl hover:scale-105 transition-all duration-300 block flex flex-col';
-  const wrapperStyle = {
-    height: `${cardHeight}px`,
-    borderRadius: `${cardBorderRadius}px`,
-  };
+  const wrapperStyle = hasImageAspectRatio
+    ? {
+        // The saved card height remains the minimum design size, but the
+        // responsive image and card body may grow beyond it when a wide list
+        // row needs more room than the image leaves for the text.
+        minHeight: `${cardHeight}px`,
+        height: 'auto',
+        borderRadius: `${cardBorderRadius}px`,
+      }
+    : {
+        height: `${cardHeight}px`,
+        borderRadius: `${cardBorderRadius}px`,
+      };
 
   // In the canvas editor, clicking a card must select the block instead of
   // navigating; likewise a card with no URL at all (e.g. a resource without a
