@@ -884,7 +884,9 @@ export default function FormSubmissionsPage() {
     // Task #3483: submissions awaiting payment aren't real submissions yet —
     // they're finalised (or reconciled) once the payment confirms. Failed
     // payments stay hidden too.
-    const paid = submissions.filter(s => !s.payment_status || s.payment_status === 'paid');
+    const paid = submissions.filter(s => !s.payment_status
+      || s.payment_status === 'paid'
+      || (s.payment_provider === 'stripe_monthly_card' && s.payment_status === 'setup_complete'));
     if (activeTab === 'owned') {
       return paid.filter(s => ownedFormIds.has(s.form_id));
     }
@@ -2298,6 +2300,15 @@ export default function FormSubmissionsPage() {
                               {submission.payment_provider ? ` · ${submission.payment_provider === 'gocardless' ? 'Direct Debit' : 'Card'}` : ''}
                             </Badge>
                           )}
+                          {submission.payment_provider === 'stripe_monthly_card'
+                            && submission.payment_status === 'setup_complete' && (
+                            <Badge className="bg-emerald-100 text-emerald-800 border-emerald-200" data-testid={`badge-payment-${submission.id}`}>
+                              Monthly card set up
+                              {submission.payment_amount != null
+                                ? ` · ${(submission.payment_currency || 'GBP').toUpperCase()} ${Number(submission.payment_amount).toFixed(2)}/month`
+                                : ''}
+                            </Badge>
+                          )}
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
@@ -2554,6 +2565,7 @@ export default function FormSubmissionsPage() {
                     <div className="flex items-center gap-2 flex-wrap">
                       {{
                         paid: <Badge className="bg-emerald-100 text-emerald-800 border-emerald-200">Paid</Badge>,
+                        setup_complete: <Badge className="bg-emerald-100 text-emerald-800 border-emerald-200">Monthly card set up</Badge>,
                         pending_payment: <Badge className="bg-amber-100 text-amber-800 border-amber-200">Awaiting payment</Badge>,
                         failed: <Badge className="bg-red-100 text-red-800 border-red-200">Payment failed</Badge>,
                       }[viewingSubmission.payment_status] || <Badge variant="outline">{viewingSubmission.payment_status}</Badge>}
@@ -2564,7 +2576,10 @@ export default function FormSubmissionsPage() {
                       )}
                       {viewingSubmission.payment_provider && (
                         <span className="text-sm text-slate-600">
-                          via {viewingSubmission.payment_provider === 'gocardless' ? 'Direct Debit (GoCardless)' : 'Card (Stripe)'}
+                          via {{
+                            gocardless: 'Direct Debit (GoCardless)',
+                            stripe_monthly_card: 'Monthly card (Stripe)',
+                          }[viewingSubmission.payment_provider] || 'Card (Stripe)'}
                         </span>
                       )}
                     </div>

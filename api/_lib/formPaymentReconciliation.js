@@ -16,6 +16,8 @@ import { markFormSubmissionPaid, finalizeFormSubmission } from './formPaymentFin
 import { finalizeFormMembership, WORKFLOW_CLAIM_TTL_MS } from './formMembershipFinalize.js';
 import { runFormEntityPipelines } from './formEntityPipelines.js';
 import { getTrustedBaseUrlForTenant } from './publicBaseUrl.js';
+import { finalizeFormMonthlyCardCheckout, FINALIZE_CLAIM_TTL_MS } from './formMonthlyCardFinalize.js';
+import { findFormMonthlyCardAgreement } from './formMonthlyCardCheckout.js';
 
 const FORM_COLUMNS = 'id, name, tenant_id, fields, pages, visibility_rules, entity_pipelines, field_mappings, application_level, submission_emails, submission_email_template_id, submission_email_recipient, submission_email_cc, submission_email_bcc, submission_email_field_mapping, form_type';
 
@@ -228,6 +230,56 @@ export async function reconcileFormPayments(supabase, { baseUrl = null, limit = 
     }
   } catch (err) {
     console.warn('[formPaymentReconciliation] Membership retry sweep failed:', err?.message);
+  }
+
+  // Fourth sweep (Task #3680): form_submission rows with
+  // payment_provider='stripe_monthly_card' and payment_status='setup_complete'
+  // whose finalisation is incomplete. Selects rows where monthly_card_state is:
+  //   - absent (null)        — no attempt has run yet (crash before claim)
+  //   - processing + stale   — active lease expired (process crash)
+  //   - not 'done'           — any other non-terminal state
+  // Rows with a fresh 'processing' lease are skipped (the active holder will
+  // stamp 'done' or release on failure). Rows already at 'done' are excluded.
+  // Deliberately NOT bounded by the payment lookback: like the third sweep,
+  // an unfinished setup_complete row must be retried until complete however
+  // old it is. Oldest-first ordering makes progress deterministic.
+  try {
+    const staleCutoff = new Date(now - FINALIZE_CLAIM_TTL_MS).toISOString();
+    const { data: setupCompleteRows } = await supabase
+      .from('form_submission')
+      .select('*')
+      .eq('payment_provider', 'stripe_monthly_card')
+      .eq('payment_status', 'setup_complete')
+      .or([
+        'payment_meta->monthly_card_state.is.null',
+        `and(payment_meta->monthly_card_state->>status.eq.processing,payment_meta->monthly_card_state->>claimed_at.lt.${staleCutoff})`,
+      ].join(','))
+      .order('created_date', { ascending: true })
+      .limit(20);
+    for (const row of setupCompleteRows || []) {
+      try {
+        // Load the associated billing agreement via the agreement_id stored in
+        // payment_meta.monthly_card.agreement_id (set at checkout creation time).
+        const agreementId = row.payment_meta?.monthly_card?.agreement_id || null;
+        const { data: agreement } = await findFormMonthlyCardAgreement(supabase, {
+          tenantId: row.tenant_id,
+          submissionId: row.id,
+          agreementId,
+        });
+        if (!agreement) continue;
+        const rowBaseUrl = await resolveBaseUrl(row.tenant_id);
+        await finalizeFormMonthlyCardCheckout({
+          db: supabase,
+          agreement,
+          session: { metadata: { form_submission_id: row.id } },
+          baseUrl: rowBaseUrl,
+        });
+      } catch (err) {
+        console.warn('[formPaymentReconciliation] Monthly-card setup_complete retry failed for', row.id, err?.message);
+      }
+    }
+  } catch (err) {
+    console.warn('[formPaymentReconciliation] Monthly-card setup_complete sweep failed:', err?.message);
   }
 
   return results;

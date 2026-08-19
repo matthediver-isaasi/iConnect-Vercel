@@ -27,6 +27,8 @@ import {
   settleCardPlanCompletion,
 } from '../_lib/stripeMonthlyCard.js';
 import { postStripeInstalmentInvoice } from '../_lib/membershipInstalmentInvoicing.js';
+import { getTrustedBaseUrlForTenant } from '../_lib/publicBaseUrl.js';
+import { releaseExpiredFormMonthlyCardCheckout } from '../_lib/formMonthlyCardCheckout.js';
 
 const CHECKOUT_PENDING_STALE_HOURS = 6;
 const PLAN_STALE_DAYS = 2;
@@ -75,11 +77,13 @@ export default async function handler(req, res) {
   }
   if (!supabase) return res.status(500).json({ error: 'Database not configured' });
   credsCache.clear(); // fresh credentials each run (warm serverless containers)
+  baseUrlCache.clear(); // fresh base URLs each run
 
   const startTime = Date.now();
   const results = { repaired: 0, flagged: 0, skipped: 0, errors: 0, details: [] };
 
   try {
+    await reconcileFormConflictCompensations(results);
     await reconcileStaleCheckouts(results);
     await reconcileStalePlans(results);
     await retryFailedInstalmentInvoices(results);
@@ -116,12 +120,97 @@ async function flagAttention(table, id, reason) {
   if (error) console.error(`[cron/reconcile-stripe-card-plans] failed to flag ${table}#${id}: ${error.message}`);
 }
 
+// One trusted base-URL fetch per tenant per run (caches alongside creds).
+const baseUrlCache = new Map();
+async function baseUrlFor(tenantId) {
+  if (!baseUrlCache.has(tenantId)) {
+    baseUrlCache.set(tenantId, await getTrustedBaseUrlForTenant(null, supabase, tenantId).catch(() => ''));
+  }
+  return baseUrlCache.get(tenantId) || '';
+}
+
 // Replay a Stripe event through the shared processor with mode-tolerant client.
-async function replayEvent(tenantId, event) {
+// baseUrl is resolved per tenant so form entity pipelines work correctly for
+// form-originated checkout sessions (Task #3680).
+async function replayEvent(tenantId, event, matchedClient = null) {
   const creds = await credsFor(tenantId);
   const clients = stripeClients(creds);
-  const getStripe = async () => clients[0] || null;
-  return processStripeCardPlanEvent(event, { db: supabase, getStripe, baseUrl: '' });
+  const getStripe = async () => matchedClient || clients[0] || null;
+  const baseUrl = await baseUrlFor(tenantId);
+  return processStripeCardPlanEvent(event, { db: supabase, getStripe, baseUrl });
+}
+
+// Form/member resolution can discover a member-year conflict only after the
+// subscription Checkout completed. The processor records a durable "pending"
+// compensation before touching Stripe; this sweep retries cancellation/refund
+// even after webhook retries are exhausted and even when needs_attention=true.
+async function reconcileFormConflictCompensations(results) {
+  const { data: rows, error } = await supabase
+    .from('membership_billing_agreements')
+    .select('*')
+    .eq('provider', 'stripe')
+    .filter('metadata->form_conflict_resolution->>status', 'eq', 'pending')
+    .order('updated_at', { ascending: true })
+    .limit(MAX_ROWS_PER_GROUP);
+  if (error) throw new Error(`load pending form conflict compensations failed: ${error.message}`);
+
+  for (const agreement of rows || []) {
+    try {
+      const subscriptionId = agreement.metadata?.form_conflict_resolution?.subscription_id
+        || agreement.stripe_subscription_id
+        || null;
+      if (!subscriptionId) throw new Error('pending form conflict has no Stripe subscription id');
+      const clients = stripeClients(await credsFor(agreement.tenant_id));
+      if (clients.length === 0) throw new Error('Stripe credentials unavailable for conflict compensation');
+      const { client, result: subscription } = await withModeTolerance(
+        clients,
+        (candidate) => candidate.subscriptions.retrieve(subscriptionId),
+      );
+      if (!client || !subscription) throw new Error(`Stripe subscription ${subscriptionId} not found`);
+      const outcome = await replayEvent(agreement.tenant_id, {
+        id: `reconcile-form-conflict-${agreement.id}`,
+        type: 'checkout.session.completed',
+        data: {
+          object: {
+            id: agreement.stripe_checkout_session_id || `agreement-${agreement.id}`,
+            mode: 'subscription',
+            status: 'complete',
+            subscription: subscriptionId,
+            invoice: subscription.latest_invoice || null,
+            metadata: {
+              kind: CARD_PLAN_KIND,
+              agreement_id: agreement.id,
+              form_submission_id: agreement.metadata?.form_submission_id || '',
+            },
+          },
+        },
+      }, client);
+      if (!outcome?.conflict || !outcome?.handled) {
+        throw new Error(outcome?.detail || 'conflict compensation did not complete');
+      }
+      results.repaired++;
+      results.details.push({ agreement: agreement.id, repaired: outcome.detail });
+    } catch (err) {
+      results.errors++;
+      await flagAttention(
+        'membership_billing_agreements',
+        agreement.id,
+        `Membership conflict cleanup pending: ${err.message}`,
+      );
+      results.details.push({ agreement: agreement.id, error: err.message });
+    }
+  }
+}
+
+async function resetExpiredFormCheckout(agreement) {
+  const released = await releaseExpiredFormMonthlyCardCheckout(supabase, {
+    agreementId: agreement.id,
+    checkoutSessionId: agreement.stripe_checkout_session_id,
+  });
+  if (!released.ok) {
+    throw new Error(released.detail || 'expired Checkout reservation was not released');
+  }
+  return released;
 }
 
 // Task #3633 — retry per-instalment accounting invoices that previously
@@ -200,7 +289,7 @@ async function reconcileStaleCheckouts(results) {
       const creds = await credsFor(agreement.tenant_id);
       const clients = stripeClients(creds);
       if (clients.length === 0) { results.skipped++; continue; }
-      const { result: session } = await withModeTolerance(clients, (c) =>
+      const { client, result: session } = await withModeTolerance(clients, (c) =>
         c.checkout.sessions.retrieve(agreement.stripe_checkout_session_id));
       if (!session) { results.skipped++; continue; }
 
@@ -210,7 +299,7 @@ async function reconcileStaleCheckouts(results) {
           id: `reconcile-checkout-${session.id}`,
           type: 'checkout.session.completed',
           data: { object: { ...session, metadata: { ...(session.metadata || {}), kind: CARD_PLAN_KIND, agreement_id: agreement.id } } },
-        });
+        }, client);
         results.repaired++;
         results.details.push({ agreement: agreement.id, repaired: outcome.detail });
       } else if (session.status === 'expired') {
@@ -221,8 +310,14 @@ async function reconcileStaleCheckouts(results) {
           reason: 'reconciliation: checkout session expired',
           source: 'reconciliation',
         });
-        if (outcome.applied) results.repaired++;
-        else results.skipped++;
+        // payment_setup_required -> payment_setup_required is intentionally a
+        // no-op transition, but the expired provider link still must be
+        // cleared so the next attempt creates a fresh Checkout.
+        await resetExpiredFormCheckout(agreement);
+        results.repaired++;
+        if (!outcome.applied && outcome.skippedReason !== 'no-change') {
+          results.details.push({ agreement: agreement.id, warning: outcome.skippedReason });
+        }
       } else {
         // Still open after the stale window — the member may just be slow;
         // flag only after a much longer window (2 days).
@@ -303,7 +398,7 @@ async function reconcileStalePlans(results) {
           id: `reconcile-invoice-${inv.id}`,
           type: 'invoice.paid',
           data: { object: { ...inv, subscription: plan.stripe_subscription_id } },
-        });
+        }, client);
         if (outcome.handled) replayed++;
       }
       if (replayed > 0) {

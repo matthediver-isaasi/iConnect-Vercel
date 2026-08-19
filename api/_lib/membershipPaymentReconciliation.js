@@ -483,7 +483,14 @@ function skipped(table, recordId, reason) {
  * @returns {Promise<{ fired: boolean, skippedReason?: string }>}
  */
 export async function fireWorkflowForPaidRow(
-  { table, row, snapshot, baseUrl = '', source = 'membership_payment_reconciliation' },
+  {
+    table,
+    row,
+    snapshot,
+    baseUrl = '',
+    source = 'membership_payment_reconciliation',
+    deliveryKey = null,
+  },
   deps = {},
 ) {
   const db = deps.db || supabase;
@@ -499,13 +506,19 @@ export async function fireWorkflowForPaidRow(
 
   // Hydrate the entity record so workflow conditions referencing other
   // fields (status, name, etc.) evaluate correctly.
-  const { data: entity } = await db
+  const { data: entity, error: entityErr } = await db
     .from(isOrg ? 'organization' : 'member')
     .select('*')
     .eq('id', entityId)
     .maybeSingle();
+  if (entityErr && deliveryKey) {
+    throw new Error(`load workflow entity for durable delivery failed: ${entityErr.message}`);
+  }
 
   if (!entity) {
+    if (deliveryKey) {
+      throw new Error(`workflow entity ${entityType}#${entityId} is not available for durable delivery`);
+    }
     console.warn(`[membershipPaymentReconciliation] entity ${entityType}#${entityId} not found; skipping workflow trigger`);
     return { fired: false, skippedReason: 'entity-not-found' };
   }
@@ -537,14 +550,22 @@ export async function fireWorkflowForPaidRow(
   };
 
   console.log(`[membershipPaymentReconciliation] Firing workflow for ${entityType}#${entityId} (payment_status unpaid->paid, source=${source})`);
-  await trigger(
+  const triggerResult = await trigger(
     entityType,
     entityId,
     beforeData,
     afterData,
     'field_change',
     baseUrl,
-    { source, historyTable: table, historyRecordId: row.id },
+    {
+      source,
+      historyTable: table,
+      historyRecordId: row.id,
+      ...(deliveryKey ? { deliveryKey } : {}),
+    },
   );
+  if (deliveryKey && triggerResult?.delivery?.status !== 'completed') {
+    throw new Error(`workflow delivery ${deliveryKey} is ${triggerResult?.delivery?.status || 'unconfirmed'}`);
+  }
   return { fired: true };
 }

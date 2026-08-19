@@ -21,6 +21,7 @@ import { matchBand } from './tierBandMatcher.js';
 import { calculateMembershipYearWindow } from './membershipYear.js';
 import { evaluateDiscountsForEntity, applyDiscountsToAnnualCost } from './discountHelper.js';
 import { evaluateVatOverrideForOrg, evaluateVatOverrideForMember } from './vatOverrideHelper.js';
+import { resolveCardMonthlyOffer } from './stripeMonthlyCard.js';
 
 // Sentinel entity id used when calling helpers that expect an entity id but
 // only need it for stored-value lookups (a nil uuid matches no rows, so all
@@ -252,9 +253,7 @@ export async function quoteMembershipForNewApplicant({ tenantId, configId, field
   const vatAmount = vatRatePercent ? parseFloat((cost.finalCost * vatRatePercent / 100).toFixed(2)) : 0;
   const totalWithVat = parseFloat((cost.finalCost + vatAmount).toFixed(2));
 
-  return {
-    success: true,
-    quote: {
+  const quote = {
       target,
       config_id: config.id,
       config_name: config.name || null,
@@ -268,6 +267,9 @@ export async function quoteMembershipForNewApplicant({ tenantId, configId, field
       final_cost: cost.finalCost,
       currency: config.currency || 'GBP',
       membership_year: membershipYear.label,
+      membership_year_start: membershipYear.start
+        ? new Date(membershipYear.start).toISOString().slice(0, 10)
+        : null,
       year_number: 1,
       prorata_cost: cost.prorataCost,
       prorata_days: cost.prorataDays,
@@ -281,8 +283,19 @@ export async function quoteMembershipForNewApplicant({ tenantId, configId, field
       tax_label: taxLabel,
       nominal_code: String(matchedBand?.nominal_code || (isFlat ? config.nominal_code : '') || '').trim() || null,
       invoice_description: config.invoice_description || null,
-    },
-  };
+    };
+  // The public form needs an offer derived from the same resolved config and
+  // band as its annual quote. This is display data only; checkout repeats the
+  // calculation and never accepts it from the browser.
+  const monthlyCardOffer = target === 'member'
+    ? resolveCardMonthlyOffer({
+      success: true, config, matchedBand, currency: quote.currency,
+      membershipYear: { label: membershipYear.label, start: membershipYear.start },
+      tierLabel, annualCost, finalCost: quote.final_cost,
+    })
+    : null;
+  if (monthlyCardOffer) quote.monthly_card_offer = monthlyCardOffer;
+  return { success: true, quote };
 }
 
 /**
@@ -291,7 +304,7 @@ export async function quoteMembershipForNewApplicant({ tenantId, configId, field
  * shape as quoteMembershipForNewApplicant.
  */
 export function quoteFromSimulationResult(simResult, target) {
-  return {
+  const quote = {
     target,
     config_id: simResult.config?.id || null,
     config_name: simResult.config?.name || null,
@@ -305,6 +318,9 @@ export function quoteFromSimulationResult(simResult, target) {
     final_cost: simResult.finalCost,
     currency: simResult.currency || 'GBP',
     membership_year: simResult.membershipYear?.label || null,
+    membership_year_start: simResult.membershipYear?.start
+      ? new Date(simResult.membershipYear.start).toISOString().slice(0, 10)
+      : null,
     year_number: simResult.yearNumber || null,
     prorata_cost: simResult.prorataCost,
     prorata_days: simResult.prorataDays,
@@ -319,4 +335,7 @@ export function quoteFromSimulationResult(simResult, target) {
     nominal_code: simResult.nominalCode || null,
     invoice_description: simResult.config?.invoice_description || null,
   };
+  const monthlyCardOffer = target === 'member' ? resolveCardMonthlyOffer(simResult) : null;
+  if (monthlyCardOffer) quote.monthly_card_offer = monthlyCardOffer;
+  return quote;
 }

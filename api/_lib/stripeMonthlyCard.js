@@ -23,6 +23,7 @@
 
 import { supabase } from './database.js';
 import { applyStatusTransition, STATUS } from './gocardlessState.js';
+import { randomUUID } from 'node:crypto';
 import {
   toMinorUnits,
   ACTIVATION_RULES,
@@ -31,6 +32,7 @@ import {
 import { computeGraceExpiry, recoveryPlanUpdate } from './gocardlessArrears.js';
 import { fireWorkflowForPaidRow } from './membershipPaymentReconciliation.js';
 import { isPerInstalmentAgreement, postStripeInstalmentInvoice } from './membershipInstalmentInvoicing.js';
+import { finalizeFormMonthlyCardCheckout } from './formMonthlyCardFinalize.js';
 
 export const CARD_PLAN_KIND = 'monthly_card';
 
@@ -107,8 +109,12 @@ export function buildCardAgreementSnapshot({ offer, simResult, acceptedAt = new 
     config_id: simResult?.config?.id || null,
     band_id: simResult?.matchedBand?.id || null,
     tier_label: simResult?.tierLabel || null,
+    field_value: simResult?.fieldValue ?? null,
     annual_cost: simResult?.annualCost ?? null,
     final_cost: simResult?.finalCost ?? null,
+    vat_rate_percent: simResult?.vatRatePercent ?? null,
+    vat_amount: simResult?.vatAmount ?? 0,
+    total_with_vat: simResult?.totalWithVat ?? offer.planTotal,
   };
 }
 
@@ -168,6 +174,175 @@ export function cardPlanCompletionDecision({ plan, invoiceId }) {
     complete: total > 0 && instalmentsPaid >= total,
     paidInvoiceIds: invoiceId ? [...paidIds, invoiceId] : paidIds,
   };
+}
+
+const COMPLETION_WORKFLOW_LEASE_MS = 5 * 60 * 1000;
+
+async function claimCompletionWorkflow({ db, plan, agreement, historyTable }) {
+  const existing = plan.metadata?.workflow_pending || null;
+  const claimedAtMs = existing?.claimed_at ? new Date(existing.claimed_at).getTime() : 0;
+  if (existing?.status === 'processing'
+      && Number.isFinite(claimedAtMs)
+      && Date.now() - claimedAtMs < COMPLETION_WORKFLOW_LEASE_MS) {
+    return { claimed: false, pending: true };
+  }
+
+  const ownerToken = randomUUID();
+  const marker = {
+    status: 'processing',
+    owner_token: ownerToken,
+    claimed_at: new Date().toISOString(),
+    table: historyTable,
+    agreement_id: agreement.id,
+  };
+  let query = db
+    .from('membership_payment_plans')
+    .update({
+      metadata: { ...(plan.metadata || {}), workflow_pending: marker },
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', plan.id);
+  if (!existing) {
+    query = query.filter('metadata->workflow_pending', 'is', null);
+  } else if (existing.claimed_at) {
+    query = query.filter(
+      'metadata->workflow_pending->>claimed_at',
+      'eq',
+      existing.claimed_at,
+    );
+  } else {
+    // Adopt the marker written by releases before owner-token leases existed.
+    query = query.filter(
+      'metadata->workflow_pending->>agreement_id',
+      'eq',
+      existing.agreement_id || agreement.id,
+    );
+  }
+  const { data, error } = await query.select('*').maybeSingle();
+  if (error) throw new Error(`persist workflow marker failed: ${error.message}`);
+  if (!data) return { claimed: false, pending: true };
+  return {
+    claimed: true,
+    ownerToken,
+    reclaimed: !!existing,
+    plan: data,
+  };
+}
+
+async function reserveCompletionWorkflowDelivery({
+  db,
+  plan,
+  ownerToken,
+  historyTable,
+  historyRowId,
+}) {
+  const deliveryKey = `membership-paid:${historyTable}:${historyRowId}`;
+  const priorDelivery = plan.metadata?.workflow_delivery || null;
+  if (priorDelivery && priorDelivery.key !== deliveryKey) {
+    throw new Error(`workflow delivery key mismatch for payment plan ${plan.id}`);
+  }
+
+  // Renew ownership immediately before reserving the side effect. A worker
+  // whose lease was reclaimed while it was settling history fails this CAS and
+  // can never call triggerWorkflows.
+  const renewedMarker = {
+    ...(plan.metadata?.workflow_pending || {}),
+    claimed_at: new Date().toISOString(),
+  };
+  const { data: renewed, error: renewErr } = await db
+    .from('membership_payment_plans')
+    .update({
+      metadata: { ...(plan.metadata || {}), workflow_pending: renewedMarker },
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', plan.id)
+    .filter('metadata->workflow_pending->>owner_token', 'eq', ownerToken)
+    .select('*')
+    .maybeSingle();
+  if (renewErr) throw new Error(`renew workflow settlement lease failed: ${renewErr.message}`);
+  if (!renewed) return { owned: false, shouldDispatch: false, plan: null };
+  const renewedDelivery = renewed.metadata?.workflow_delivery || priorDelivery;
+  if (renewedDelivery?.key === deliveryKey) {
+    return {
+      owned: true,
+      shouldDispatch: renewedDelivery.status !== 'completed',
+      deliveryKey,
+      plan: renewed,
+    };
+  }
+
+  // Durable pending marker. The workflow engine accepts the same delivery key
+  // and owns retry/deduplication; this plan marker is only completed after that
+  // engine confirms dispatch.
+  const delivery = {
+    key: deliveryKey,
+    status: 'pending',
+    owner_token: ownerToken,
+    reserved_at: new Date().toISOString(),
+  };
+  const { data: reserved, error: reserveErr } = await db
+    .from('membership_payment_plans')
+    .update({
+      metadata: { ...(renewed.metadata || {}), workflow_delivery: delivery },
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', plan.id)
+    .filter('metadata->workflow_pending->>owner_token', 'eq', ownerToken)
+    .filter('metadata->workflow_delivery', 'is', null)
+    .select('*')
+    .maybeSingle();
+  if (reserveErr) throw new Error(`reserve workflow delivery failed: ${reserveErr.message}`);
+  if (!reserved) {
+    const { data: latest, error: latestErr } = await db
+      .from('membership_payment_plans')
+      .select('*')
+      .eq('id', plan.id)
+      .maybeSingle();
+    if (latestErr) throw new Error(`reload workflow delivery failed: ${latestErr.message}`);
+    if (latest?.metadata?.workflow_delivery?.key === deliveryKey) {
+      return {
+        owned: true,
+        shouldDispatch: latest.metadata.workflow_delivery.status !== 'completed',
+        deliveryKey,
+        plan: latest,
+      };
+    }
+    return { owned: false, shouldDispatch: false, plan: latest || null };
+  }
+  return {
+    owned: true,
+    shouldDispatch: true,
+    deliveryKey,
+    plan: reserved,
+  };
+}
+
+async function completeCompletionWorkflowDelivery({
+  db,
+  plan,
+  ownerToken,
+  deliveryKey,
+}) {
+  const completed = {
+    ...(plan.metadata?.workflow_delivery || {}),
+    key: deliveryKey,
+    status: 'completed',
+    completed_at: new Date().toISOString(),
+  };
+  const { data, error } = await db
+    .from('membership_payment_plans')
+    .update({
+      metadata: { ...(plan.metadata || {}), workflow_delivery: completed },
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', plan.id)
+    .filter('metadata->workflow_pending->>owner_token', 'eq', ownerToken)
+    .filter('metadata->workflow_delivery->>key', 'eq', deliveryKey)
+    .select('*')
+    .maybeSingle();
+  if (error) throw new Error(`complete workflow delivery failed: ${error.message}`);
+  if (!data) throw new Error('complete workflow delivery failed: settlement ownership was lost');
+  return data;
 }
 
 // ---------------------------------------------------------------------------
@@ -262,6 +437,43 @@ export async function recordCardPaymentProgress(agreement, { db: dbArg } = {}) {
   return { updated: true };
 }
 
+async function progressCardPlanAfterPaidInvoice({
+  plan,
+  agreement,
+  instalmentsPaid,
+  eventId,
+  db,
+}) {
+  // The first invoice may also be the final invoice (a supported one-instalment
+  // plan). Always run first-payment progression before completion settlement,
+  // and make it safe to replay if the counter committed but a later step failed.
+  await applyStatusTransition({
+    entityType: 'payment_plan',
+    entityId: plan.id,
+    toStatus: STATUS.ACTIVE,
+    reason: `card invoice paid (instalment ${instalmentsPaid})`,
+    source: 'webhook',
+    eventId,
+    extraUpdate: recoveryPlanUpdate(),
+  }, { db });
+  if (agreement.status !== STATUS.ACTIVE) {
+    await applyStatusTransition({
+      entityType: 'billing_agreement',
+      entityId: agreement.id,
+      toStatus: STATUS.ACTIVE,
+      reason: 'card first payment confirmed',
+      source: 'webhook',
+      eventId,
+    }, { db });
+  }
+  const activation = await activateMembershipForCardAgreement(
+    agreement,
+    { trigger: 'first_payment_confirmed', db },
+  );
+  await recordCardPaymentProgress(agreement, { db });
+  return activation;
+}
+
 /**
  * All instalments collected — durable, resumable settlement.
  *
@@ -285,18 +497,21 @@ export async function settleCardPlanCompletion({ plan, agreement, stripe = null,
   let workflowFired = false;
 
   if (historyTable) {
-    const preexistingMarker = plan.metadata?.workflow_pending || null;
-    if (!preexistingMarker) {
-      // Durable obligation marker BEFORE the paid flip: if we crash after the
-      // flip but before the workflow, the retry knows the workflow is owed.
-      const { error: mkErr } = await db
-        .from('membership_payment_plans')
-        .update({
-          metadata: { ...(plan.metadata || {}), workflow_pending: { table: historyTable, agreement_id: agreement.id } },
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', plan.id);
-      if (mkErr) throw new Error(`persist workflow marker failed: ${mkErr.message}`);
+    const workflowClaim = await claimCompletionWorkflow({
+      db,
+      plan,
+      agreement,
+      historyTable,
+    });
+    if (!workflowClaim.claimed) {
+      // Another handler owns workflow delivery. It must clear its token before
+      // any caller can cancel/terminalize the plan, otherwise the obligation
+      // could be lost while the owner is still dispatching it.
+      return {
+        transition: { applied: false, skippedReason: 'workflow-settlement-in-progress' },
+        workflowFired: false,
+        concluded: false,
+      };
     }
 
     // Guarded settle: only the write that actually flips unpaid->paid owns
@@ -323,7 +538,7 @@ export async function settleCardPlanCompletion({ plan, agreement, stripe = null,
         // terminalize on top of it.
         throw new Error(`membership history row missing for agreement ${agreement.id} — settlement retryable`);
       }
-      if (preexistingMarker) {
+      if (workflowClaim.reclaimed) {
         // We flipped it on a previous attempt but the workflow never confirmed.
         rowForWorkflow = row;
       }
@@ -332,25 +547,67 @@ export async function settleCardPlanCompletion({ plan, agreement, stripe = null,
     }
 
     if (rowForWorkflow) {
-      // Throws on failure — marker persists, retry refires.
-      await fireWorkflowForPaidRow({
-        table: historyTable,
-        row: rowForWorkflow,
-        snapshot: { payment_status: 'unpaid' },
-        baseUrl,
-        source: 'stripe_monthly_card_completion',
-      }, { db });
-      workflowFired = true;
+      const delivery = await reserveCompletionWorkflowDelivery({
+        db,
+        plan: workflowClaim.plan || plan,
+        ownerToken: workflowClaim.ownerToken,
+        historyTable,
+        historyRowId: rowForWorkflow.id,
+      });
+      if (!delivery.owned) {
+        return {
+          transition: { applied: false, skippedReason: 'workflow-settlement-ownership-lost' },
+          workflowFired: false,
+          concluded: false,
+        };
+      }
+      workflowClaim.plan = delivery.plan || workflowClaim.plan;
+      if (delivery.shouldDispatch) {
+        try {
+          await fireWorkflowForPaidRow({
+            table: historyTable,
+            row: rowForWorkflow,
+            snapshot: { payment_status: 'unpaid' },
+            baseUrl,
+            source: 'stripe_monthly_card_completion',
+            deliveryKey: delivery.deliveryKey,
+          }, { db });
+        } catch (err) {
+          const { error: attentionErr } = await db
+            .from('membership_payment_plans')
+            .update({
+              needs_attention: true,
+              attention_reason: `Membership-paid workflow delivery requires review before retry: ${err.message}`,
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', plan.id);
+          if (attentionErr) {
+            console.error('[StripeCard] Failed to flag ambiguous workflow delivery:', attentionErr.message);
+          }
+          throw err;
+        }
+        workflowFired = true;
+        workflowClaim.plan = await completeCompletionWorkflowDelivery({
+          db,
+          plan: workflowClaim.plan,
+          ownerToken: workflowClaim.ownerToken,
+          deliveryKey: delivery.deliveryKey,
+        });
+      }
     }
 
-    const { error: clrErr } = await db
+    const { data: clearedOwner, error: clrErr } = await db
       .from('membership_payment_plans')
       .update({
-        metadata: { ...(plan.metadata || {}), workflow_pending: null },
+        metadata: { ...(workflowClaim.plan?.metadata || plan.metadata || {}), workflow_pending: null },
         updated_at: new Date().toISOString(),
       })
-      .eq('id', plan.id);
+      .eq('id', plan.id)
+      .filter('metadata->workflow_pending->>owner_token', 'eq', workflowClaim.ownerToken)
+      .select('id')
+      .maybeSingle();
     if (clrErr) throw new Error(`clear workflow marker failed: ${clrErr.message}`);
+    if (!clearedOwner) throw new Error('clear workflow marker failed: settlement ownership was lost');
   }
 
   // Conclude the Stripe subscription; only a CONFIRMED conclusion unlocks the
@@ -404,7 +661,11 @@ export async function settleCardPlanCompletion({ plan, agreement, stripe = null,
     reason: 'card plan completed (all instalments paid)',
     source: 'webhook',
     eventId,
-    extraUpdate: { completed_at: new Date().toISOString() },
+    extraUpdate: {
+      completed_at: new Date().toISOString(),
+      needs_attention: false,
+      attention_reason: null,
+    },
   }, { db });
 
   return { transition, workflowFired, concluded: true };
@@ -515,6 +776,156 @@ export async function ensureCardPlanForCheckout({ agreement, session, db: dbArg 
 }
 
 /**
+ * A form Checkout may resolve to an existing member only after Stripe has
+ * collected the first instalment. If that member already has this membership
+ * year (or another open plan), cancel the subscription and refund the first
+ * invoice instead of creating a duplicate local plan. Stripe idempotency makes
+ * this safe across webhook, browser-confirm, and cron retries.
+ */
+export async function compensateFormMonthlyCardConflict({
+  agreement,
+  session,
+  detail,
+  db: dbArg,
+  stripe,
+} = {}) {
+  const db = dbArg || supabase;
+  if (!agreement?.id || !stripe) throw new Error('agreement and stripe client are required');
+  const formSubmissionId = agreement.metadata?.form_submission_id
+    || session?.metadata?.form_submission_id
+    || null;
+  const subscriptionId = typeof session?.subscription === 'string'
+    ? session.subscription
+    : session?.subscription?.id;
+  if (!subscriptionId) throw new Error('conflicting checkout has no subscription');
+  const conflictMetadata = {
+    ...(agreement.metadata || {}),
+    form_conflict_resolution: {
+      ...(agreement.metadata?.form_conflict_resolution || {}),
+      status: 'pending',
+      detail: detail || agreement.metadata?.form_conflict_resolution?.detail || null,
+      subscription_id: subscriptionId,
+      last_attempt_at: new Date().toISOString(),
+    },
+  };
+
+  try {
+    const { error: pendingErr } = await db
+      .from('membership_billing_agreements')
+      .update({ metadata: conflictMetadata, updated_at: new Date().toISOString() })
+      .eq('id', agreement.id);
+    if (pendingErr) {
+      throw new Error(`persist conflict compensation state failed: ${pendingErr.message}`);
+    }
+
+    let subscription = await stripe.subscriptions.retrieve(subscriptionId);
+    const invoiceRef = session?.invoice || subscription?.latest_invoice || null;
+    if (subscription?.status !== 'canceled') {
+      subscription = await stripe.subscriptions.cancel(subscriptionId, { prorate: false });
+    }
+
+    const invoiceId = typeof invoiceRef === 'string' ? invoiceRef : invoiceRef?.id;
+    let invoice = typeof invoiceRef === 'object' && invoiceRef ? invoiceRef : null;
+    if (invoiceId && (!invoice || invoice.amount_paid == null)) {
+      invoice = await stripe.invoices.retrieve(invoiceId);
+    }
+    const amountPaid = Number(invoice?.amount_paid || 0);
+    let refundId = null;
+    if (amountPaid > 0) {
+      const paymentIntentId = typeof invoice?.payment_intent === 'string'
+        ? invoice.payment_intent
+        : invoice?.payment_intent?.id;
+      if (!paymentIntentId) {
+        throw new Error(`paid invoice ${invoiceId || '(unknown)'} has no refundable payment intent`);
+      }
+      const refund = await stripe.refunds.create({
+        payment_intent: paymentIntentId,
+        reason: 'requested_by_customer',
+        metadata: {
+          kind: 'form_monthly_card_membership_conflict',
+          agreement_id: agreement.id,
+          form_submission_id: formSubmissionId || '',
+        },
+      }, { idempotencyKey: `form-card-conflict-refund:${agreement.id}` });
+      refundId = refund?.id || null;
+    } else if (!invoiceId && session?.payment_status === 'paid') {
+      throw new Error('paid conflicting checkout has no invoice to refund');
+    }
+
+    let submissionMeta = {};
+    if (formSubmissionId) {
+      const { data: formRow, error: formReadErr } = await db
+        .from('form_submission')
+        .select('payment_meta')
+        .eq('id', formSubmissionId)
+        .maybeSingle();
+      if (formReadErr) throw new Error(`load conflicting form submission failed: ${formReadErr.message}`);
+      submissionMeta = formRow?.payment_meta || {};
+      const { error: formUpdateErr } = await db
+        .from('form_submission')
+        .update({
+          payment_status: 'failed',
+          payment_meta: {
+            ...submissionMeta,
+            monthly_card_state: {
+              status: 'conflict_refunded',
+              resolved_at: new Date().toISOString(),
+              refund_id: refundId,
+            },
+          },
+          processing_notes: `${detail || 'Membership for this year is already recorded'}. The duplicate Stripe subscription was cancelled${refundId ? ' and its payment refunded' : ' before a payment was taken'}.`,
+        })
+        .eq('id', formSubmissionId);
+      if (formUpdateErr) throw new Error(`save conflicting form submission failed: ${formUpdateErr.message}`);
+    }
+
+    const { error: agreementUpdateErr } = await db
+      .from('membership_billing_agreements')
+      .update({
+        status: STATUS.PAYMENT_PLAN_CANCELLED,
+        stripe_subscription_id: subscriptionId,
+        needs_attention: false,
+        attention_reason: null,
+        metadata: {
+          ...conflictMetadata,
+          form_conflict_resolution: {
+            ...conflictMetadata.form_conflict_resolution,
+            status: 'resolved',
+            resolved_at: new Date().toISOString(),
+            refund_id: refundId,
+            detail: detail || null,
+          },
+        },
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', agreement.id);
+    if (agreementUpdateErr) throw new Error(`save conflict resolution failed: ${agreementUpdateErr.message}`);
+
+    return {
+      handled: true,
+      conflict: true,
+      refunded: !!refundId,
+      refundId,
+      detail: refundId
+        ? 'Existing membership detected; duplicate subscription cancelled and first payment refunded'
+        : 'Existing membership detected; duplicate subscription cancelled before payment',
+    };
+  } catch (err) {
+    try {
+      await db
+        .from('membership_billing_agreements')
+        .update({
+          needs_attention: true,
+          attention_reason: `Membership conflict cleanup pending: ${err.message}`,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', agreement.id);
+    } catch {}
+    throw err;
+  }
+}
+
+/**
  * Does this invoice belong to one of OUR monthly-card subscriptions?
  * Checks the metadata Stripe echoes on the invoice payload first, then (if
  * inconclusive) retrieves the subscription. Used to keep out-of-order
@@ -560,6 +971,68 @@ export async function processStripeCardPlanEvent(event, deps = {}) {
       agreement = await findCardAgreementById(db, object.metadata.agreement_id);
     }
     if (!agreement) return { handled: false, detail: `no agreement for checkout session ${object.id}` };
+
+    // Task #3680: if this checkout was initiated from a form submission
+    // (agreement.metadata.form_submission_id is set), finalize the form
+    // BEFORE creating the payment plan. This marks the submission as
+    // setup_complete, runs entity pipelines (creates the member record),
+    // attaches member_id to the agreement, and creates the membership history
+    // row with monthly_card / unpaid semantics. If the member cannot be
+    // resolved yet the event is left retryable so Stripe redelivers.
+    const isFormCheckout = !!(
+      agreement.metadata?.form_submission_id
+      || object.metadata?.form_submission_id
+    );
+    if (isFormCheckout) {
+      const conflictResolution = agreement.metadata?.form_conflict_resolution;
+      if (conflictResolution?.status === 'pending') {
+        const stripe = await getStripe();
+        return compensateFormMonthlyCardConflict({
+          agreement,
+          session: object,
+          detail: conflictResolution.detail,
+          db,
+          stripe,
+        });
+      }
+      if (conflictResolution?.status === 'resolved') {
+        return {
+          handled: true,
+          conflict: true,
+          refunded: !!conflictResolution.refund_id,
+          detail: 'Existing membership conflict was already reversed',
+        };
+      }
+      const formResult = await finalizeFormMonthlyCardCheckout({
+        db,
+        agreement,
+        session: object,
+        baseUrl,
+      });
+      if (formResult.conflict) {
+        const stripe = await getStripe();
+        return compensateFormMonthlyCardConflict({
+          agreement,
+          session: object,
+          detail: formResult.detail,
+          db,
+          stripe,
+        });
+      }
+      if (!formResult.handled) {
+        // Never create a detached plan for a form-backed checkout. Even a
+        // terminal-looking form mismatch needs durable operator attention,
+        // rather than losing the paid subscription's member/history link.
+        return {
+          handled: false,
+          retryable: true,
+          detail: `form checkout not yet finalizable: ${formResult.detail}`,
+        };
+      }
+      // Re-load the agreement in case member_id was just attached.
+      const refreshed = await findCardAgreementById(db, agreement.id);
+      if (refreshed) agreement = refreshed;
+    }
 
     const ensured = await ensureCardPlanForCheckout({ agreement, session: object, db });
     await applyStatusTransition({
@@ -630,6 +1103,13 @@ export async function processStripeCardPlanEvent(event, deps = {}) {
       // Resumable completion: the counter committed on a previous attempt but
       // settlement failed afterwards — retry settlement, don't exit silently.
       if (cardPlanNeedsSettlement(plan)) {
+        await progressCardPlanAfterPaidInvoice({
+          plan,
+          agreement,
+          instalmentsPaid: plan.instalments_paid,
+          eventId: event.id,
+          db,
+        });
         const stripe = getStripe ? await getStripe() : null;
         const settled = await settleCardPlanCompletion({ plan, agreement, stripe, baseUrl, eventId: event.id, db });
         return { handled: true, detail: `invoice ${object.id} already counted; settlement resumed (workflow=${settled.workflowFired})` };
@@ -658,6 +1138,13 @@ export async function processStripeCardPlanEvent(event, deps = {}) {
       decision = cardPlanCompletionDecision({ plan, invoiceId: object.id });
       if (decision.duplicate) {
         if (cardPlanNeedsSettlement(plan)) {
+          await progressCardPlanAfterPaidInvoice({
+            plan,
+            agreement,
+            instalmentsPaid: plan.instalments_paid,
+            eventId: event.id,
+            db,
+          });
           const stripe = getStripe ? await getStripe() : null;
           const settled = await settleCardPlanCompletion({ plan, agreement, stripe, baseUrl, eventId: event.id, db });
           return { handled: true, detail: `invoice ${object.id} already counted (race); settlement resumed (workflow=${settled.workflowFired})` };
@@ -668,33 +1155,25 @@ export async function processStripeCardPlanEvent(event, deps = {}) {
     }
 
     if (decision.complete) {
+      await progressCardPlanAfterPaidInvoice({
+        plan,
+        agreement,
+        instalmentsPaid: decision.instalmentsPaid,
+        eventId: event.id,
+        db,
+      });
       const stripe = getStripe ? await getStripe() : null;
       const settled = await settleCardPlanCompletion({ plan, agreement, stripe, baseUrl, eventId: event.id, db });
       return { handled: true, detail: `instalment ${decision.instalmentsPaid}/${plan.instalments_total} paid; plan complete (workflow=${settled.workflowFired})` };
     }
 
-    // Recovery / steady state: plan ACTIVE, arrears bookkeeping cleared.
-    await applyStatusTransition({
-      entityType: 'payment_plan',
-      entityId: plan.id,
-      toStatus: STATUS.ACTIVE,
-      reason: `card invoice paid (instalment ${decision.instalmentsPaid})`,
-      source: 'webhook',
+    const activation = await progressCardPlanAfterPaidInvoice({
+      plan,
+      agreement,
+      instalmentsPaid: decision.instalmentsPaid,
       eventId: event.id,
-      extraUpdate: recoveryPlanUpdate(),
-    }, { db });
-    if (agreement.status !== STATUS.ACTIVE) {
-      await applyStatusTransition({
-        entityType: 'billing_agreement',
-        entityId: agreement.id,
-        toStatus: STATUS.ACTIVE,
-        reason: 'card first payment confirmed',
-        source: 'webhook',
-        eventId: event.id,
-      }, { db });
-    }
-    const activation = await activateMembershipForCardAgreement(agreement, { trigger: 'first_payment_confirmed', db });
-    await recordCardPaymentProgress(agreement, { db });
+      db,
+    });
     return { handled: true, detail: `instalment ${decision.instalmentsPaid}/${plan.instalments_total} paid; activation: ${activation.detail}` };
   }
 

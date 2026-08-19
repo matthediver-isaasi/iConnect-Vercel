@@ -102,3 +102,79 @@ test('quoteFromSimulationResult adapts a simulation result to the quote shape', 
   assert.equal(quote.nominal_code, '200');
   assert.equal(quote.invoice_description, 'Membership {year}');
 });
+
+test('member quote exposes the flat monthly-card offer from the resolved structure', () => {
+  const quote = quoteFromSimulationResult({
+    success: true,
+    config: {
+      id: 'cfg-flat',
+      name: 'Individual',
+      pricing_model: 'flat',
+      card_monthly_enabled: true,
+      dd_monthly_amount: 25,
+      dd_instalment_count: 10,
+      currency: 'GBP',
+    },
+    matchedBand: null,
+    annualCost: 250,
+    finalCost: 250,
+    currency: 'GBP',
+    membershipYear: { label: '2026/2027', start: new Date('2026-01-01T00:00:00Z') },
+  }, 'member');
+
+  assert.deepEqual(quote.monthly_card_offer, {
+    monthlyAmount: 25,
+    monthlyAmountMinor: 2500,
+    instalmentCount: 10,
+    planTotal: 250,
+    currency: 'GBP',
+    activationRule: 'first_payment',
+    graceDays: 7,
+    termsVersion: 'v1',
+    invoicingMode: 'annual',
+  });
+  assert.equal(quote.membership_year_start, '2026-01-01');
+});
+
+test('member quote uses the resolved pricing band monthly amount', () => {
+  const quote = quoteFromSimulationResult({
+    success: true,
+    config: {
+      id: 'cfg-tiered',
+      pricing_model: 'tiered',
+      card_monthly_enabled: true,
+      dd_monthly_amount: 999,
+      dd_instalment_count: 12,
+    },
+    matchedBand: { id: 'band-2', dd_monthly_amount: 17.5 },
+    annualCost: 200,
+    finalCost: 200,
+    currency: 'GBP',
+    membershipYear: { label: '2026/2027' },
+  }, 'member');
+
+  assert.equal(quote.monthly_card_offer.monthlyAmount, 17.5);
+  assert.equal(quote.monthly_card_offer.planTotal, 210);
+  assert.equal(quote.band_id, 'band-2');
+});
+
+test('monthly-card offer is omitted when disabled and for organisation quotes', () => {
+  const enabled = {
+    success: true,
+    config: {
+      id: 'cfg',
+      pricing_model: 'flat',
+      card_monthly_enabled: true,
+      dd_monthly_amount: 20,
+    },
+    annualCost: 240,
+    finalCost: 240,
+    currency: 'GBP',
+    membershipYear: { label: '2026/2027' },
+  };
+  assert.equal(quoteFromSimulationResult(enabled, 'organization').monthly_card_offer, undefined);
+  assert.equal(quoteFromSimulationResult({
+    ...enabled,
+    config: { ...enabled.config, card_monthly_enabled: false },
+  }, 'member').monthly_card_offer, undefined);
+});

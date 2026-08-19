@@ -2470,6 +2470,74 @@ async function logWorkflowExecution(workflow, entityType, entityId, triggerData,
   console.log(`[Workflows] Logged execution for ${workflow.name}`);
 }
 
+async function claimWorkflowDelivery({ deliveryKey, tenantId, entityType, entityId }) {
+  const ownerToken = crypto.randomUUID();
+  const now = new Date().toISOString();
+  const { data: inserted, error: insertErr } = await supabase
+    .from('workflow_delivery_claim')
+    .insert({
+      delivery_key: deliveryKey,
+      tenant_id: tenantId,
+      entity_type: entityType,
+      entity_id: entityId,
+      status: 'processing',
+      owner_token: ownerToken,
+      claimed_at: now,
+      updated_at: now,
+    })
+    .select('*')
+    .maybeSingle();
+  if (!insertErr && inserted) return { owned: true, ownerToken };
+  if (insertErr?.code !== '23505') {
+    throw new Error(`workflow delivery claim failed: ${insertErr?.message || 'no claim row returned'}`);
+  }
+
+  const { data: existing, error: readErr } = await supabase
+    .from('workflow_delivery_claim')
+    .select('*')
+    .eq('delivery_key', deliveryKey)
+    .maybeSingle();
+  if (readErr || !existing) {
+    throw new Error(`workflow delivery claim reload failed: ${readErr?.message || 'row missing'}`);
+  }
+  if (existing.status === 'completed') return { owned: false, completed: true };
+  // Never auto-reclaim an ambiguous action batch. A worker may have sent an
+  // email or performed another external action before crashing, and those
+  // sinks do not all accept idempotency keys. Replaying would risk duplicate
+  // side effects. Keep the durable failed/processing claim for explicit
+  // operator review instead.
+  return { owned: false, inProgress: true, needsAttention: true };
+}
+
+async function finishWorkflowDelivery(deliveryKey, ownerToken) {
+  const { data, error } = await supabase
+    .from('workflow_delivery_claim')
+    .update({
+      status: 'completed',
+      completed_at: new Date().toISOString(),
+      last_error: null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('delivery_key', deliveryKey)
+    .eq('owner_token', ownerToken)
+    .select('delivery_key')
+    .maybeSingle();
+  if (error) throw new Error(`workflow delivery completion failed: ${error.message}`);
+  if (!data) throw new Error('workflow delivery completion failed: ownership lost');
+}
+
+async function failWorkflowDelivery(deliveryKey, ownerToken, error) {
+  await supabase
+    .from('workflow_delivery_claim')
+    .update({
+      status: 'failed',
+      last_error: String(error?.message || error || 'workflow dispatch failed').slice(0, 2000),
+      updated_at: new Date().toISOString(),
+    })
+    .eq('delivery_key', deliveryKey)
+    .eq('owner_token', ownerToken);
+}
+
 export async function triggerWorkflows(entityType, entityId, beforeData, afterData, triggerType, baseUrl, context = {}) {
   console.log(`[Workflows] triggerWorkflows called: entityType=${entityType}, entityId=${entityId}, triggerType=${triggerType}`);
   console.log(`[Workflows] afterData.tenant_id=${afterData?.tenant_id}, beforeData.tenant_id=${beforeData?.tenant_id}`);
@@ -2482,6 +2550,7 @@ export async function triggerWorkflows(entityType, entityId, beforeData, afterDa
     return { pendingConfirmations, reverts };
   }
   
+  let deliveryClaim = null;
   try {
     // Get tenant_id from entity data (afterData or beforeData)
     let tenantId = afterData?.tenant_id || beforeData?.tenant_id;
@@ -2517,10 +2586,31 @@ export async function triggerWorkflows(entityType, entityId, beforeData, afterDa
       .eq('is_active', true);
 
     console.log(`[Workflows] Query result: ${workflows?.length || 0} workflows found, error:`, workflowError);
+    if (workflowError && context.deliveryKey) {
+      throw new Error(`load workflows for durable delivery failed: ${workflowError.message}`);
+    }
     
     if (!workflows || workflows.length === 0) {
       console.log(`[Workflows] No matching workflows found for ${entityType} in tenant ${tenantId}`);
-      return { pendingConfirmations, reverts };
+      return {
+        pendingConfirmations,
+        reverts,
+        ...(context.deliveryKey ? { delivery: { status: 'completed', noop: true } } : {}),
+      };
+    }
+    if (context.deliveryKey) {
+      deliveryClaim = await claimWorkflowDelivery({
+        deliveryKey: context.deliveryKey,
+        tenantId,
+        entityType,
+        entityId,
+      });
+      if (deliveryClaim.completed) {
+        return { pendingConfirmations, reverts, delivery: { status: 'completed', duplicate: true } };
+      }
+      if (!deliveryClaim.owned) {
+        return { pendingConfirmations, reverts, delivery: { status: 'in_progress' } };
+      }
     }
     
     console.log(`[Workflows] Evaluating ${workflows.length} workflows for ${entityType}:${entityId} (tenant: ${tenantId})`);
@@ -2808,9 +2898,20 @@ export async function triggerWorkflows(entityType, entityId, beforeData, afterDa
       await logWorkflowExecution(workflow, entityType, entityId, { before: beforeData, after: afterData, trigger_type: triggerType, ...(context.systemInitiated ? { system_initiated: true, ...(context.triggeredByWorkflow ? { triggered_by_workflow: context.triggeredByWorkflow } : {}) } : {}) }, results);
     }
     
-    return { pendingConfirmations, reverts };
+    if (deliveryClaim?.owned) {
+      await finishWorkflowDelivery(context.deliveryKey, deliveryClaim.ownerToken);
+    }
+    return {
+      pendingConfirmations,
+      reverts,
+      ...(context.deliveryKey ? { delivery: { status: 'completed' } } : {}),
+    };
   } catch (err) {
     console.error('[Workflows] Error:', err.message, err.stack);
+    if (deliveryClaim?.owned) {
+      await failWorkflowDelivery(context.deliveryKey, deliveryClaim.ownerToken, err);
+    }
+    if (context.deliveryKey) throw err;
     return { pendingConfirmations: [], reverts: [] };
   }
 }

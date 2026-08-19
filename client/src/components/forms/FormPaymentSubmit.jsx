@@ -213,6 +213,24 @@ export default function FormPaymentSubmit({
     }
   };
 
+  const startMonthlyCard = async () => {
+    setPaymentError(null);
+    const payload = await buildPayload();
+    if (!payload) return;
+    setCreating(true);
+    try {
+      const res = await fetch('/api/public/form-payment', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+        body: JSON.stringify({ action: 'create_monthly_card', form_id: payload.form_id, submission_data: payload.submission_data,
+          idempotency_key: idempotencyKey || undefined, prefill_organization_id: payload.prefill_organization_id || null,
+          role_id: payload.role_id || null, return_path: `${window.location.pathname}${window.location.search}` }) });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || 'Failed to start monthly card set-up');
+      if (!json.checkoutUrl) throw new Error('Could not start secure card checkout');
+      try { sessionStorage.setItem(SS_KEY, json.submissionId); } catch { /* ignore */ }
+      window.location.href = json.checkoutUrl;
+    } catch (err) { setPaymentError(err.message); } finally { setCreating(false); }
+  };
+
   const handleStripeConfirm = async () => {
     if (!stripeRef.current || !elementsRef.current) return;
     setProcessing(true);
@@ -247,7 +265,9 @@ export default function FormPaymentSubmit({
   // matched membership quote is loading or failed — that would submit a
   // fee-carrying application unpaid.
   const fallbackToNormalSubmit = !effective.blocked
-    && (amount <= 0 || (usableProviders !== null && usableProviders.length === 0));
+    && (amount <= 0 || (usableProviders !== null
+      && usableProviders.length === 0
+      && !effective.membership?.monthly_card));
 
   return (
     <div className="space-y-3" data-testid={`form-payment-submit-${field?.id || 'unknown'}`}>
@@ -354,6 +374,12 @@ export default function FormPaymentSubmit({
             </div>
           )}
           <div className="flex flex-wrap gap-2">
+             {effective.membership?.monthly_card && (
+               <Button variant="outline" onClick={startMonthlyCard} disabled={disabled || anyBusy} data-testid={`button-form-payment-monthly-card-${field?.id}`}>
+                 {creating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CreditCard className="mr-2 h-4 w-4" />}
+                 {`Pay monthly by card — ${formatPaymentAmount(effective.membership.monthly_card.monthlyAmount, effective.membership.monthly_card.currency || currency)} × ${effective.membership.monthly_card.instalmentCount} (total ${formatPaymentAmount(effective.membership.monthly_card.planTotal, effective.membership.monthly_card.currency || currency)})`}
+               </Button>
+             )}
             {(usableProviders || []).map((p) => (
               <Button
                 key={p.id}

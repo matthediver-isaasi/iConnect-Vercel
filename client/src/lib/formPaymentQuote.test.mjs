@@ -109,7 +109,10 @@ test('membership match but server says nothing due: plain submit allowed', () =>
 test('server form-payment endpoint wires the quote action through the shared resolver', () => {
   const src = readFileSync(join(repoRoot, 'api', 'public', 'form-payment.js'), 'utf8');
   assert.match(src, /action === 'quote'.*handleQuote/s, 'quote action must be routed');
-  const quoteBody = src.slice(src.indexOf('async function handleQuote'), src.indexOf('async function handleCreate'));
+  const quoteBody = src.slice(
+    src.indexOf('async function handleQuote'),
+    src.indexOf('async function handleCreateMonthlyCard'),
+  );
   assert.match(quoteBody, /resolvePayableCharge/, 'quote must reuse the same charge resolver as create');
   assert.ok(!/\.insert\(|\.update\(/.test(quoteBody), 'quote must never write');
   assert.ok(!/req\.body[^\n]*amount/.test(quoteBody), 'quote must never read an amount from the client');
@@ -136,4 +139,77 @@ test('FormPaymentSubmit blocks the unpaid fallback while a membership quote is u
   const src = readFileSync(join(repoRoot, 'client', 'src', 'components', 'forms', 'FormPaymentSubmit.jsx'), 'utf8');
   assert.match(src, /!effective\.blocked\s*&&/, 'fallbackToNormalSubmit must be gated on effective.blocked');
   assert.match(src, /resolveEffectivePayment/, 'must use the shared decision helper');
+});
+
+test('monthly card is shown with server-quoted amount, instalments, total, and currency', () => {
+  const src = readFileSync(join(repoRoot, 'client', 'src', 'components', 'forms', 'FormPaymentSubmit.jsx'), 'utf8');
+  assert.match(src, /effective\.membership\?\.monthly_card/, 'offer must be conditional on the server quote');
+  assert.match(src, /Pay monthly by card/, 'choice must be clearly labelled');
+  assert.match(src, /monthlyAmount/, 'label must show the monthly amount');
+  assert.match(src, /instalmentCount/, 'label must show the instalment count');
+  assert.match(src, /planTotal/, 'label must show the plan total');
+  assert.match(src, /monthly_card\.currency \|\| currency/, 'offer currency must drive formatting');
+});
+
+test('monthly card starts a server-derived subscription checkout and preserves return recovery', () => {
+  const src = readFileSync(join(repoRoot, 'client', 'src', 'components', 'forms', 'FormPaymentSubmit.jsx'), 'utf8');
+  const monthly = src.slice(src.indexOf('const startMonthlyCard'), src.indexOf('const handleStripeConfirm'));
+  assert.match(monthly, /action:\s*'create_monthly_card'/);
+  assert.doesNotMatch(monthly, /\bamount\s*:/, 'browser must not submit a price');
+  assert.match(monthly, /sessionStorage\.setItem\(SS_KEY,\s*json\.submissionId\)/);
+  assert.ok(
+    monthly.indexOf('sessionStorage.setItem') < monthly.indexOf('window.location.href'),
+    'recovery id must be stored before leaving for Stripe',
+  );
+});
+
+test('existing one-off card and Direct Debit choices remain wired', () => {
+  const src = readFileSync(join(repoRoot, 'client', 'src', 'components', 'forms', 'FormPaymentSubmit.jsx'), 'utf8');
+  assert.match(src, /action:\s*'create'/, 'one-off create action must remain');
+  assert.match(src, /providerId === 'gocardless'/, 'GoCardless path must remain');
+  assert.match(src, /\(usableProviders \|\| \[\]\)\.map/, 'configured one-off choices must still render');
+  assert.match(src, /onClick=\{\(\) => startPayment\(p\.id\)\}/, 'one-off provider buttons must still start their provider');
+});
+
+test('server monthly checkout re-derives membership terms and uses durable idempotency', () => {
+  const src = readFileSync(join(repoRoot, 'api', 'public', 'form-payment.js'), 'utf8');
+  const monthly = src.slice(src.indexOf('async function handleCreateMonthlyCard'), src.indexOf('async function handleCreate('));
+  assert.match(monthly, /resolvePayableCharge/, 'checkout must re-resolve answers and membership server-side');
+  assert.doesNotMatch(monthly, /req\.body[^\n]*amount/, 'checkout must not accept a browser price');
+  assert.match(monthly, /membership_billing_agreements/);
+  assert.match(monthly, /idempotencyKey:\s*`form-card-session:/, 'Stripe session creation must be idempotent');
+  assert.match(monthly, /mode:\s*'subscription'/);
+  assert.match(monthly, /form_payment_submission/, 'success return must use shared form return parameters');
+  assert.match(monthly, /form_payment_provider/);
+});
+
+test('monthly checkout prevents duplicate member-year plans before Stripe can charge', () => {
+  const src = readFileSync(join(repoRoot, 'api', 'public', 'form-payment.js'), 'utf8');
+  const monthly = src.slice(src.indexOf('async function handleCreateMonthlyCard'), src.indexOf('async function handleCreate('));
+  const identityKey = monthly.indexOf('formMonthlyCardApplicantAgreementKey');
+  const crossAttemptGuard = monthly.indexOf('MEMBERSHIP_PAYMENT_IN_PROGRESS');
+  const memberYearClaim = monthly.indexOf('claimFormMonthlyCardMembership');
+  const stripeCreate = monthly.indexOf('stripe.checkout.sessions.create');
+  assert.ok(identityKey > -1, 'all form attempts for one applicant/year need one agreement key');
+  assert.ok(crossAttemptGuard > identityKey, 'a second form attempt must be rejected against the shared agreement');
+  assert.ok(memberYearClaim > -1 && memberYearClaim < stripeCreate,
+    'a returning member year must be atomically reserved before Stripe Checkout');
+  assert.match(monthly, /MEMBERSHIP_EMAIL_REQUIRED/, 'the pipeline identity must be stable before recurring checkout');
+});
+
+test('server confirm securely retrieves and replays a monthly-card checkout', () => {
+  const src = readFileSync(join(repoRoot, 'api', 'public', 'form-payment.js'), 'utf8');
+  const confirm = src.slice(src.indexOf('async function handleConfirm'));
+  assert.match(confirm, /payment_provider === 'stripe_monthly_card'/);
+  assert.match(confirm, /checkout\.sessions\.retrieve\(checkoutSessionId\)/);
+  assert.match(confirm, /session\.status !== 'complete'/);
+  assert.match(confirm, /processStripeCardPlanEvent/);
+  assert.match(confirm, /outcome\.conflict/);
+  assert.match(confirm, /MEMBERSHIP_YEAR_CONFLICT/);
+});
+
+test('completed monthly-card applications remain visible in Form Submissions', () => {
+  const src = readFileSync(join(repoRoot, 'client', 'src', 'pages', 'FormSubmissions.jsx'), 'utf8');
+  assert.match(src, /payment_provider === 'stripe_monthly_card'.*payment_status === 'setup_complete'/s);
+  assert.match(src, /Monthly card set up/);
 });
