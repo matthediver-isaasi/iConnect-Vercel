@@ -67,6 +67,7 @@ import WallOfFameDisplay from '@/components/walloffame/WallOfFameDisplay';
 import ResourceCard from '@/components/resources/ResourceCard';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { DirectoryMemberCard, DirectoryOrganizationCard } from '@/components/directory/DirectoryCards';
+import MemberGroupBlockView, { resolveMemberGroupGrid } from './MemberGroupBlockView';
 import { GalleryImage, Lightbox, resolveAlt } from '@/components/iedit/elements/IEditGalleryElement';
 import {
   TypographyStyleField,
@@ -6092,6 +6093,196 @@ function DynamicDirectoryEmbedInspector({ block, update }) {
 }
 
 // ============================================================================
+// MEMBER GROUP
+// ============================================================================
+function useCanvasMemberGroups() {
+  return useQuery({
+    queryKey: ['canvas', 'member-groups'],
+    queryFn: async () => {
+      const groups = await base44.entities.MemberGroup.listAll({
+        filter: { is_active: true },
+        sort: { name: 'asc' },
+      });
+      return (Array.isArray(groups) ? groups : [])
+        .filter((group) => group?.id && group.is_active !== false)
+        .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
+    },
+    staleTime: 60_000,
+  });
+}
+
+function useMemberGroupBreakpoint(editorBreakpoint) {
+  const explicit = isEditorPreviewBreakpoint(editorBreakpoint) ? editorBreakpoint : null;
+  const detect = () => {
+    if (typeof window === 'undefined') return 'desktop';
+    if (window.innerWidth <= BREAKPOINT_MAX_PX.mobile) return 'mobile';
+    if (window.innerWidth <= BREAKPOINT_MAX_PX.tablet) return 'tablet';
+    return 'desktop';
+  };
+  const [liveBreakpoint, setLiveBreakpoint] = useState(() => explicit || detect());
+
+  useEffect(() => {
+    if (explicit) {
+      setLiveBreakpoint(explicit);
+      return undefined;
+    }
+    const update = () => setLiveBreakpoint(detect());
+    update();
+    window.addEventListener('resize', update);
+    return () => window.removeEventListener('resize', update);
+  }, [explicit]);
+
+  return explicit || liveBreakpoint;
+}
+
+function useMemberGroupMembers({ groupId, roles, page, limit }) {
+  return useQuery({
+    queryKey: ['canvas', 'public-member-group', groupId, roles, page, limit],
+    queryFn: async () => {
+      const tenant = publicClient.getTenantSlug();
+      const params = new URLSearchParams();
+      params.set('groupId', groupId);
+      params.set('page', String(page));
+      params.set('limit', String(limit));
+      for (const role of roles || []) params.append('roles', role);
+      if (tenant) params.set('tenant', tenant);
+      const res = await fetch(`/api/public/member-group-members?${params.toString()}`);
+      if (!res.ok) {
+        let message = 'Member group fetch failed';
+        try {
+          const payload = await res.json();
+          if (payload?.error) message = payload.error;
+        } catch {}
+        throw new Error(message);
+      }
+      return res.json();
+    },
+    enabled: !!groupId,
+    keepPreviousData: true,
+    staleTime: 60_000,
+  });
+}
+
+function MemberGroupRender({ block, breakpoint, asEditor }) {
+  const c = block.content || {};
+  const activeBreakpoint = useMemberGroupBreakpoint(breakpoint);
+  const { columns, pageSize } = resolveMemberGroupGrid(c, activeBreakpoint);
+  const selectedRoles = Array.isArray(c.roleFilter) ? c.roleFilter.filter(Boolean) : [];
+  const [currentPage, setCurrentPage] = useState(1);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [c.groupId, pageSize, selectedRoles.join('\u0000')]);
+
+  const { data, isLoading, isError, error, isFetching } = useMemberGroupMembers({
+    groupId: c.groupId,
+    roles: selectedRoles,
+    page: currentPage,
+    limit: pageSize,
+  });
+  const group = data?.config?.group || null;
+  const records = Array.isArray(data?.records) ? data.records : [];
+  const total = Number(data?.total || 0);
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+
+  useEffect(() => {
+    if (currentPage > totalPages) setCurrentPage(totalPages);
+  }, [currentPage, totalPages]);
+
+  if (!c.groupId) return <EmptyState icon={Users} text="Pick a member group in the inspector." />;
+
+  return (
+    <MemberGroupBlockView
+      block={block}
+      content={c}
+      group={group}
+      records={records}
+      displaySettings={data?.config?.displaySettings}
+      columns={columns}
+      pageSize={pageSize}
+      currentPage={currentPage}
+      total={total}
+      isLoading={isLoading}
+      isError={isError}
+      errorMessage={String(error?.message || '')}
+      isFetching={isFetching}
+      asEditor={asEditor}
+      onPrevious={() => setCurrentPage((page) => Math.max(1, page - 1))}
+      onNext={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}
+    />
+  );
+}
+
+function MemberGroupInspector({ block, update }) {
+  const c = block.content || {};
+  const set = (patch) => update((current) => ({
+    ...current,
+    content: { ...current.content, ...patch },
+  }));
+  const { data: groups = [], isLoading } = useCanvasMemberGroups();
+  const selectedGroup = groups.find((group) => group.id === c.groupId) || null;
+  const groupRoles = Array.isArray(selectedGroup?.roles) ? selectedGroup.roles.filter(Boolean) : [];
+
+  useEffect(() => {
+    const current = Array.isArray(c.roleFilter) ? c.roleFilter : [];
+    const valid = current.filter((role) => groupRoles.includes(role));
+    if (valid.length !== current.length) set({ roleFilter: valid });
+  }, [
+    c.groupId,
+    groupRoles.join('\u0000'),
+    (Array.isArray(c.roleFilter) ? c.roleFilter : []).join('\u0000'),
+  ]);
+
+  return (
+    <>
+      <Field label="Member group" hint={isLoading ? 'Loading member groups…' : null}>
+        <Select
+          value={c.groupId || ''}
+          onValueChange={(groupId) => set({ groupId, roleFilter: [] })}
+        >
+          <SelectTrigger className="h-8" data-testid="select-member-group">
+            <SelectValue placeholder="Select a member group" />
+          </SelectTrigger>
+          <SelectContent>
+            {groups.length === 0 ? (
+              <SelectItem value="__none__" disabled>No active member groups</SelectItem>
+            ) : groups.map((group) => (
+              <SelectItem key={group.id} value={group.id}>{group.name || 'Unnamed group'}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </Field>
+      <MultiCheckboxField
+        label="Roles to show"
+        value={c.roleFilter}
+        onChange={(roleFilter) => set({ roleFilter })}
+        options={groupRoles.map((role) => ({ value: role, label: role }))}
+        testId="member-group-role-filter"
+        hint={!c.groupId
+          ? 'Select a group to choose roles.'
+          : groupRoles.length === 0
+            ? 'This group has no configured roles.'
+            : 'Leave every role unticked to show all current members.'}
+      />
+      <ToggleField label="Show member cards" value={c.showMembers !== false} onChange={(showMembers) => set({ showMembers })} testId="toggle-member-group-members" />
+      <ToggleField label="Show group name" value={c.showGroupName !== false} onChange={(showGroupName) => set({ showGroupName })} testId="toggle-member-group-name" />
+      <ToggleField label="Show group description" value={c.showGroupDescription !== false} onChange={(showGroupDescription) => set({ showGroupDescription })} testId="toggle-member-group-description" />
+      <SelectField
+        label="Group name heading level"
+        value={String(c.headingLevel || 2)}
+        onChange={(headingLevel) => set({ headingLevel: Number(headingLevel) })}
+        options={[2, 3, 4].map((level) => ({ value: String(level), label: `H${level}` }))}
+        testId="select-member-group-heading-level"
+      />
+      <NumberField label="Rows per page" min={1} max={6} value={c.rows ?? 2} onChange={(rows) => set({ rows })} testId="input-member-group-rows" />
+      <PerBreakpointColumns value={c.columns} onChange={(columns) => set({ columns })} />
+      <NumberField label="Gap (px)" min={0} max={100} value={c.gap ?? 16} onChange={(gap) => set({ gap })} testId="input-member-group-gap" />
+      <TextField label="Empty state text" value={c.emptyText} onChange={(emptyText) => set({ emptyText })} testId="input-member-group-empty" />
+    </>
+  );
+}
+
+// ============================================================================
 // CARD DECK
 // ============================================================================
 // Renders a responsive grid of cards from the shared card library (the same
@@ -7338,6 +7529,15 @@ export const DYNAMIC_BLOCK_DEFINITIONS = {
     Editor: (props) => <DynamicDirectoryEmbedRender {...props} asEditor />,
     Renderer: DynamicDirectoryEmbedRender,
     Inspector: DynamicDirectoryEmbedInspector,
+    allowOverflow: true,
+  },
+  [BLOCK_TYPES.MEMBER_GROUP]: {
+    label: 'Member Group',
+    icon: Users,
+    category: 'data',
+    Editor: (props) => <MemberGroupRender {...props} asEditor />,
+    Renderer: MemberGroupRender,
+    Inspector: MemberGroupInspector,
     allowOverflow: true,
   },
   [BLOCK_TYPES.CARD_DECK]: {

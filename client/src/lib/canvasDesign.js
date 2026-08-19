@@ -191,6 +191,7 @@ export const BLOCK_TYPES = {
   CAMPAIGN_EMBED: 'campaign-embed',
   MEMBER_DIRECTORY_EMBED: 'member-directory-embed',
   DYNAMIC_DIRECTORY_EMBED: 'dynamic-directory-embed',
+  MEMBER_GROUP: 'member-group',
   CARD_DECK: 'card-deck',
   WALL_OF_FAME: 'wall-of-fame',
   GALLERY: 'gallery',
@@ -1494,6 +1495,23 @@ export const BLOCK_DEFAULTS = {
       showPhoto: true,
       ctaLabel: 'View full directory',
       emptyText: 'No records to show yet.',
+    },
+  },
+  [BLOCK_TYPES.MEMBER_GROUP]: {
+    name: 'Member Group',
+    geom: { w: 800, h: 620 },
+    style: { background: 'transparent', borderWidth: 0 },
+    content: {
+      groupId: '',
+      roleFilter: [],
+      showMembers: true,
+      showGroupName: true,
+      showGroupDescription: true,
+      headingLevel: 2,
+      rows: 2,
+      columns: { desktop: 3, tablet: 2, mobile: 1 },
+      gap: 16,
+      emptyText: 'No group members to show yet.',
     },
   },
   [BLOCK_TYPES.CARD_DECK]: {
@@ -3150,6 +3168,28 @@ export function validateBlock(block) {
     case BLOCK_TYPES.MEMBER_DIRECTORY_EMBED:
       if (!c.directorySlug) errors.push('Member directory embed requires a directory.');
       break;
+    case BLOCK_TYPES.MEMBER_GROUP: {
+      if (!c.groupId) errors.push('Member Group requires a group.');
+      const rows = Number(c.rows);
+      if (!Number.isInteger(rows) || rows < 1 || rows > 6) {
+        errors.push('Member Group rows must be a whole number from 1 to 6.');
+      }
+      const columns = c.columns && typeof c.columns === 'object' ? c.columns : {};
+      for (const breakpoint of ['desktop', 'tablet', 'mobile']) {
+        const value = Number(columns[breakpoint]);
+        if (!Number.isInteger(value) || value < 1 || value > 6) {
+          errors.push(`Member Group ${breakpoint} columns must be a whole number from 1 to 6.`);
+        }
+      }
+      const gap = Number(c.gap);
+      if (!Number.isFinite(gap) || gap < 0 || gap > 100) {
+        errors.push('Member Group gap must be from 0 to 100 pixels.');
+      }
+      if (!Array.isArray(c.roleFilter) || c.roleFilter.some((role) => typeof role !== 'string' || !role.trim())) {
+        errors.push('Member Group role filters are invalid.');
+      }
+      break;
+    }
     case BLOCK_TYPES.CARD_DECK:
       if (!Array.isArray(c.cardIds) || c.cardIds.filter(Boolean).length === 0) {
         errors.push('Card deck has no cards selected.');

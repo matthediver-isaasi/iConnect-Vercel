@@ -8,3 +8,5 @@ description: Paginating supabase-js .range() without a stable ORDER BY silently 
 **Why:** Postgres gives no ordering guarantee without ORDER BY; each ranged request is a fresh query, so rows shuffle between pages. The failure is silent — no error, just missing data.
 
 **How to apply:** In any `fetchAll`-style helper, bake the ordering into the helper itself (default `order('id')`) rather than trusting call sites. Secondary `.order()` calls compose fine with an existing one. Related: PostgREST also caps un-ranged selects at 1000 rows (see import-idempotency-1000-cap.md).
+
+**Related boundary:** Do not collect an unbounded relationship's IDs and feed them to a second `.in('id', ids)` query for public pagination. UUID lists exceed normal request-URI limits; apply relationship validity, privacy filters, ordering, count, and range in one database-side join instead.
