@@ -30,6 +30,7 @@ import { isCategoryRestricted, hasSubcategoryRestrictions, filterCategoriesForVi
 import { sendSubmissionEmailsGuarded } from '../../_lib/formSubmissionEmails.js';
 import { getTrustedBaseUrlForTenant } from '../../_lib/publicBaseUrl.js';
 import { isReservedPageSlug, reservedPageSlugMessage } from '../../../shared/memberAliases.js';
+import { hasManagedJobProvenance, stripManagedJobProvenance } from '../../_lib/jobFeedOwnership.js';
 
 /**
  * Task #3100: support staff = tenant users (admin dashboard), tenant admins,
@@ -1143,11 +1144,16 @@ export default async function handler(req, res) {
 
     } else if (req.method === 'POST') {
       // Create entity
+      if (entityNorm === 'jobposting' && hasManagedJobProvenance(req.body)) {
+        return res.status(403).json({ error: 'External job provenance is managed by the feed synchronizer' });
+      }
       console.log(`POST to ${tableName}:`, JSON.stringify(req.body));
       
       // Sanitize empty strings to null for UUID fields to avoid "invalid input syntax for type uuid" errors
       // Only modify fields that are already present in the request body
-      const sanitizedBody = { ...req.body };
+      const sanitizedBody = entityNorm === 'jobposting'
+        ? stripManagedJobProvenance(req.body)
+        : { ...req.body };
       const uuidFields = ['role_id', 'organization_id', 'organization_group_id', 'member_id', 'parent_id', 'form_id', 'event_id', 'related_event_id',
                           'category_id', 'template_id', 'workflow_id', 'speaker_id', 'created_by', 'updated_by',
                           'organisation_award_id', 'offline_award_id', 'engagement_award_id', 'award_id'];

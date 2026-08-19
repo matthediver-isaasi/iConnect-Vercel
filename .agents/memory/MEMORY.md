@@ -143,3 +143,4 @@
 - [Per-instalment monthly invoicing](per-instalment-invoicing.md) — mode snapshotted at consent; idempotency via invoice linkage (GC row cols / Stripe unique table); annual paths must call shouldSuppressAnnualInvoice.
 - [Form membership auto-resolve](form-membership-auto-resolve.md) — membership action resolve_mode='auto' picks the structure from the mapped answer vs match values; no-match = descriptive error, never £0; tierless classes hide the payment field.
 - [GoCardless Drop-in modal](gocardless-dropin.md) — DD start endpoints return flowId+environment; shared GoCardlessDropinFlow wrapper opens modal, onLoadFailure falls back to hosted redirect.
+- [Tenant feed cron fairness](tenant-feed-cron-fairness.md) — time-bounded tenant feed crons need an ordered durable cursor, or the first page silently starves later tenants.

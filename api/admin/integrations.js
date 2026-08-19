@@ -1,4 +1,4 @@
-import { getSessionTenantUser } from '../_lib/session.js';
+import { getTenantContext, hasAdminAccess } from '../_lib/tenantContext.js';
 import { supabase } from '../_lib/database.js';
 import { getTrustedBaseUrlForTenant } from '../_lib/publicBaseUrl.js';
 import crypto from 'crypto';
@@ -43,7 +43,7 @@ function decrypt(encryptedText) {
   }
 }
 
-const NON_SECRET_FIELDS = ['region', 'accounts_domain', 'campaigns_domain', 'stripe_mode_events', 'stripe_mode_membership', 'stripe_mode_jobs', 'stripe_mode_fundraising', 'environment'];
+const NON_SECRET_FIELDS = ['region', 'accounts_domain', 'campaigns_domain', 'stripe_mode_events', 'stripe_mode_membership', 'stripe_mode_jobs', 'stripe_mode_fundraising', 'environment', 'country'];
 
 function encryptCredentials(credentials) {
   if (!credentials) return {};
@@ -92,6 +92,16 @@ function maskCredentials(credentials) {
   return masked;
 }
 
+function mergeCredentialUpdates(existingCredentials = {}, incomingCredentials = {}) {
+  const merged = { ...existingCredentials };
+  for (const [key, value] of Object.entries(incomingCredentials || {})) {
+    if (value === undefined || value === null) continue;
+    if (typeof value === 'string' && value.includes('****')) continue;
+    merged[key] = value;
+  }
+  return merged;
+}
+
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Credentials', 'true');
   res.setHeader('Access-Control-Allow-Origin', req.headers.origin || '*');
@@ -106,13 +116,15 @@ export default async function handler(req, res) {
     return res.status(503).json({ error: 'Database not configured' });
   }
 
-  const tenantUser = await getSessionTenantUser(req);
-  
-  if (!tenantUser) {
+  const tenantContext = await getTenantContext(req);
+  if (!tenantContext?.isAuthenticated || !tenantContext.tenantId) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
+  if (!await hasAdminAccess(tenantContext)) {
+    return res.status(403).json({ error: 'Admin access required' });
+  }
 
-  const tenantId = tenantUser.tenant_id;
+  const tenantId = tenantContext.tenantId;
 
   if (req.method === 'GET') {
     try {
@@ -152,7 +164,7 @@ export default async function handler(req, res) {
         return res.status(400).json({ error: 'integration_type is required' });
       }
 
-      const validTypes = ['zoom', 'zoho_campaigns', 'xero', 'stripe', 'quickbooks', 'gocardless'];
+      const validTypes = ['zoom', 'zoho_campaigns', 'xero', 'stripe', 'quickbooks', 'gocardless', 'adzuna'];
       if (!validTypes.includes(integration_type)) {
         return res.status(400).json({ error: 'Invalid integration type' });
       }
@@ -168,14 +180,7 @@ export default async function handler(req, res) {
       
       if (credentials) {
         const existingDecrypted = existing ? decryptCredentials(existing.credentials) : {};
-        const mergedCreds = { ...existingDecrypted };
-        
-        for (const [key, value] of Object.entries(credentials)) {
-          if (value !== undefined && value !== null && !value.includes('****')) {
-            mergedCreds[key] = value;
-          }
-        }
-        
+        const mergedCreds = mergeCredentialUpdates(existingDecrypted, credentials);
         encryptedCreds = encryptCredentials(mergedCreds);
       }
 
@@ -219,6 +224,16 @@ export default async function handler(req, res) {
         result = data;
       }
 
+      if (integration_type === 'adzuna' && is_enabled === false) {
+        const { error: retireError } = await supabase
+          .from('job_posting')
+          .update({ status: 'expired' })
+          .eq('tenant_id', tenantId)
+          .eq('external_source', 'adzuna')
+          .eq('status', 'active');
+        if (retireError) throw retireError;
+      }
+
       console.log('[Integrations] Saved:', integration_type, 'for tenant:', tenantId);
       
       res.json({ 
@@ -252,6 +267,18 @@ export default async function handler(req, res) {
         return res.status(500).json({ error: 'Failed to delete integration' });
       }
 
+      if (integration_type === 'adzuna') {
+        const { error: retireError } = await supabase
+          .from('job_posting')
+          .update({ status: 'expired' })
+          .eq('tenant_id', tenantId)
+          .eq('external_source', 'adzuna')
+          .eq('status', 'active');
+        if (retireError) {
+          return res.status(500).json({ error: 'Adzuna was disconnected but imported jobs could not be retired' });
+        }
+      }
+
       console.log('[Integrations] Deleted:', integration_type, 'for tenant:', tenantId);
       res.json({ success: true });
     } catch (error) {
@@ -263,4 +290,4 @@ export default async function handler(req, res) {
   }
 }
 
-export { decrypt, decryptCredentials };
+export { decrypt, decryptCredentials, encryptCredentials, maskCredentials, mergeCredentialUpdates };

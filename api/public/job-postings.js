@@ -51,7 +51,10 @@ export default async function handler(req, res) {
         closing_date,
         expiry_date,
         featured,
-        created_date
+        created_date,
+        external_source,
+        external_url,
+        source_attribution
       `)
       .eq('tenant_id', tenant.id)
       .eq('status', 'active')

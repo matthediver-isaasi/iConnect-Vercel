@@ -94,7 +94,11 @@ export default function JobPostingManagementPage() {
   });
 
   const approveMutation = useMutation({
-    mutationFn: (jobId) => base44.entities.JobPosting.update(jobId, { status: 'active' }),
+    mutationFn: (jobId) => {
+      const job = jobs.find(item => item.id === jobId);
+      if (job?.external_source) throw new Error('External jobs are managed by their feed');
+      return base44.entities.JobPosting.update(jobId, { status: 'active' });
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin-job-postings'] });
       toast.success('Job posting approved and is now live');
@@ -106,7 +110,11 @@ export default function JobPostingManagementPage() {
   });
 
   const rejectMutation = useMutation({
-    mutationFn: (jobId) => base44.entities.JobPosting.update(jobId, { status: 'rejected' }),
+    mutationFn: (jobId) => {
+      const job = jobs.find(item => item.id === jobId);
+      if (job?.external_source) throw new Error('External jobs are managed by their feed');
+      return base44.entities.JobPosting.update(jobId, { status: 'rejected' });
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin-job-postings'] });
       toast.success('Job posting rejected');
@@ -118,7 +126,10 @@ export default function JobPostingManagementPage() {
   });
 
   const updateJobMutation = useMutation({
-    mutationFn: ({ id, data }) => base44.entities.JobPosting.update(id, data),
+    mutationFn: ({ id, data }) => {
+      if (jobs.find(item => item.id === id)?.external_source) throw new Error('External jobs are managed by their feed');
+      return base44.entities.JobPosting.update(id, data);
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin-job-postings'] });
       toast.success('Job posting updated successfully');
@@ -129,7 +140,10 @@ export default function JobPostingManagementPage() {
   });
 
   const deleteJobMutation = useMutation({
-    mutationFn: (jobId) => base44.entities.JobPosting.delete(jobId),
+    mutationFn: (jobId) => {
+      if (jobs.find(item => item.id === jobId)?.external_source) throw new Error('External jobs are managed by their feed');
+      return base44.entities.JobPosting.delete(jobId);
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin-job-postings'] });
       toast.success('Job posting deleted');
@@ -149,6 +163,7 @@ export default function JobPostingManagementPage() {
       }
       // Then toggle the selected job
       const job = jobs.find(j => j.id === jobId);
+      if (job?.external_source) throw new Error('External jobs are managed by their feed');
       const newFeaturedState = !job?.featured;
       return base44.entities.JobPosting.update(jobId, { featured: newFeaturedState });
     },
@@ -417,7 +432,7 @@ export default function JobPostingManagementPage() {
                               </h3>
                               <p className="text-sm font-medium text-slate-700">{job.company_name}</p>
                             </div>
-                            {job.status === 'active' && (
+                            {job.status === 'active' && !job.external_source && (
                               <button
                                 onClick={(e) => {
                                   e.stopPropagation();
@@ -439,6 +454,9 @@ export default function JobPostingManagementPage() {
 
                           <div className="flex flex-wrap gap-2 mb-4">
                             {getStatusBadge(job.status, job)}
+                            {job.external_source === 'adzuna' && (
+                              <Badge className="bg-blue-100 text-blue-700">External · Adzuna</Badge>
+                            )}
                             {job.is_member_post ? (
                               <Badge className="bg-purple-100 text-purple-700">
                                 Member: {job.contact_email}
@@ -507,7 +525,7 @@ export default function JobPostingManagementPage() {
                             >
                               View Details
                             </Button>
-                            {['active', 'paused', 'archived'].includes(job.status) && (
+                            {['active', 'paused', 'archived'].includes(job.status) && !job.external_source && (
                               <Button
                                 variant="outline"
                                 size="sm"
@@ -613,6 +631,9 @@ export default function JobPostingManagementPage() {
                   <p className="text-slate-600 mb-4">{selectedJob.company_name}</p>
                   <div className="flex gap-2 mb-4 flex-wrap">
                     {getStatusBadge(selectedJob.status, selectedJob)}
+                    {selectedJob.external_source === 'adzuna' && (
+                      <Badge className="bg-blue-100 text-blue-700">External · Adzuna</Badge>
+                    )}
                     {selectedJob.is_member_post ? (
                       <Badge className="bg-purple-100 text-purple-700">
                         Member: {selectedJob.contact_email}
@@ -704,7 +725,7 @@ export default function JobPostingManagementPage() {
               </div>
             )}
             <DialogFooter>
-              {selectedJob?.status === 'pending_approval' && (
+              {selectedJob?.status === 'pending_approval' && !selectedJob?.external_source && (
                 <>
                   <Button
                     variant="outline"
@@ -725,7 +746,7 @@ export default function JobPostingManagementPage() {
                   </Button>
                 </>
               )}
-              {selectedJob?.status === 'active' && (
+              {selectedJob?.status === 'active' && !selectedJob?.external_source && (
                 <Button
                   variant={selectedJob?.featured ? "default" : "outline"}
                   onClick={() => toggleFeaturedMutation.mutate(selectedJob.id)}
@@ -737,7 +758,7 @@ export default function JobPostingManagementPage() {
                   {selectedJob?.featured ? 'Featured on Web' : 'Feature on Web'}
                 </Button>
               )}
-              {['active', 'paused', 'archived'].includes(selectedJob?.status) && (
+              {['active', 'paused', 'archived'].includes(selectedJob?.status) && !selectedJob?.external_source && (
                 <Button
                   variant="outline"
                   onClick={() => handleEdit(selectedJob)}
@@ -747,7 +768,7 @@ export default function JobPostingManagementPage() {
                   Edit
                 </Button>
               )}
-              {selectedJob && (
+              {selectedJob && !selectedJob.external_source && (
                 <Button
                   variant="outline"
                   onClick={() => setConfirmAction({ type: 'delete', jobId: selectedJob.id, fromViewDialog: true })}

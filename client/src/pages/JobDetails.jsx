@@ -242,6 +242,24 @@ export default function JobDetailsPage() {
                     data-testid="button-apply-now"
                   />
 
+                  {job.external_source === 'adzuna' && (
+                    <div className="rounded-lg border border-blue-100 bg-blue-50 p-3 text-sm text-slate-700">
+                      <Badge className="mb-2 bg-blue-100 text-blue-700">External vacancy</Badge>
+                      <p>
+                        Source:{" "}
+                        <a
+                          href="https://www.adzuna.co.uk/"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="font-medium text-blue-700 hover:underline"
+                        >
+                          Jobs by Adzuna
+                        </a>
+                      </p>
+                      <p className="mt-1 text-xs text-slate-500">Applications open on the provider's website.</p>
+                    </div>
+                  )}
+
                   <div className="space-y-3 pt-4 border-t border-slate-200">
                     <h3 className="font-semibold text-slate-900">Job Details</h3>
                     

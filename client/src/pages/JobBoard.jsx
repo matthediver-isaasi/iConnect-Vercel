@@ -292,7 +292,8 @@ export default function JobBoardPage() {
               const daysUntilClosing = closingDateParsed ? differenceInDays(closingDateParsed, startOfLocalToday()) : null;
 
               return (
-                <Link key={job.id} to={createPageUrl(`JobDetails?id=${job.id}`)} className="min-w-0">
+                <div key={job.id} className="min-w-0 flex flex-col">
+                <Link to={createPageUrl(`JobDetails?id=${job.id}`)} className="min-w-0 flex-1">
                   <Card className={`border-slate-200 hover:shadow-xl transition-all cursor-pointer h-full group overflow-hidden ${
                     closingSoon ? 'border-l-4 border-l-amber-500 hover:border-warning/30' : 'hover:border-blue-300'
                   }`}>
@@ -391,6 +392,17 @@ export default function JobBoardPage() {
                     </CardContent>
                   </Card>
                 </Link>
+                {job.external_source === 'adzuna' && (
+                  <a
+                    href="https://www.adzuna.co.uk/"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="mt-2 inline-flex self-start text-xs font-medium text-blue-600 hover:underline"
+                  >
+                    Jobs by Adzuna
+                  </a>
+                )}
+                </div>
               );
             })}
           </div>

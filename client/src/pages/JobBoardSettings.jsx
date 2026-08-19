@@ -10,6 +10,7 @@ import { Save, Plus, X, Settings, FileText } from "lucide-react";
 import { toast } from "sonner";
 import { createPageUrl } from "@/utils";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
+import { adminFetch } from "@/lib/adminFetch";
 import ReactQuill from 'react-quill';
 
 const defaultTermsContent = `<h3>1. Introduction</h3>
@@ -75,6 +76,14 @@ export default function JobBoardSettingsPage() {
   const [newHour, setNewHour] = useState('');
   const [termsTitle, setTermsTitle] = useState('Graduate Futures Job Advertising Terms and Conditions');
   const [termsContent, setTermsContent] = useState(defaultTermsContent);
+  const [feedConfig, setFeedConfig] = useState({
+    keywords: '', exclusions: '', category: '', location: '',
+    max_days_old: 30, result_limit: 25
+  });
+  const [feedStatus, setFeedStatus] = useState(null);
+  const [feedPreview, setFeedPreview] = useState([]);
+  const [feedLoading, setFeedLoading] = useState(true);
+  const [feedAction, setFeedAction] = useState('');
   
   const queryClient = useQueryClient();
 
@@ -87,6 +96,55 @@ export default function JobBoardSettingsPage() {
       }
     }
   }, [isFeatureExcluded, isAccessReady]);
+
+  const loadFeedSettings = async () => {
+    setFeedLoading(true);
+    try {
+      const response = await adminFetch('/api/admin/job-feed/adzuna', { credentials: 'include' });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Unable to load Adzuna settings');
+      setFeedStatus(data);
+      setFeedConfig(prev => ({ ...prev, ...(data.config || {}) }));
+    } catch (error) {
+      toast.error(error.message);
+    } finally {
+      setFeedLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (accessChecked) loadFeedSettings();
+  }, [accessChecked]);
+
+  const runFeedAction = async (action) => {
+    setFeedAction(action);
+    try {
+      const response = await adminFetch('/api/admin/job-feed/adzuna', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action, ...feedConfig })
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || `Unable to ${action} Adzuna feed`);
+      if (action === 'preview') {
+        setFeedPreview(data.jobs || []);
+        toast.success(`Found ${(data.jobs || []).length} matching jobs`);
+      } else if (action === 'sync') {
+        toast.success(`Adzuna sync completed: ${data.imported || 0} jobs imported or updated`);
+        setFeedPreview([]);
+        await loadFeedSettings();
+      } else {
+        toast.success('Adzuna feed settings saved');
+        await loadFeedSettings();
+      }
+    } catch (error) {
+      toast.error(error.message);
+      await loadFeedSettings();
+    } finally {
+      setFeedAction('');
+    }
+  };
 
   const { data: priceSettings } = useQuery({
     queryKey: ['job-board-price-settings'],
@@ -324,6 +382,93 @@ export default function JobBoardSettingsPage() {
         </div>
 
         <div className="space-y-6">
+          <Card className="border-slate-200 shadow-sm">
+            <CardHeader>
+              <CardTitle>Adzuna Job Feed</CardTitle>
+              <CardDescription>
+                Choose the UK vacancies to import. Preview uses the same search as manual and hourly syncs.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-5">
+              {feedLoading ? (
+                <p className="text-sm text-slate-500">Loading feed settings...</p>
+              ) : !feedStatus?.configured ? (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
+                  <p className="font-medium text-amber-900">Adzuna is not connected and enabled.</p>
+                  <p className="mt-1 text-sm text-amber-800">
+                    Add credentials and enable the connection in{" "}
+                    <a href="/admin/integrations" className="font-medium underline">Admin → Integrations</a>.
+                  </p>
+                </div>
+              ) : (
+                <div className="rounded-lg border border-green-200 bg-green-50 p-3 text-sm text-green-800">
+                  Adzuna is connected and enabled. Country is fixed to United Kingdom.
+                </div>
+              )}
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-2 md:col-span-2">
+                  <Label htmlFor="adzuna-keywords">Keywords or phrases</Label>
+                  <Textarea id="adzuna-keywords" value={feedConfig.keywords || ''} onChange={e => setFeedConfig(p => ({ ...p, keywords: e.target.value }))} placeholder={'e.g. "career development" employability graduate'} />
+                </div>
+                <div className="space-y-2 md:col-span-2">
+                  <Label htmlFor="adzuna-exclusions">Excluded words or phrases</Label>
+                  <Textarea id="adzuna-exclusions" value={feedConfig.exclusions || ''} onChange={e => setFeedConfig(p => ({ ...p, exclusions: e.target.value }))} placeholder="e.g. sales retail" />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="adzuna-category">Adzuna category</Label>
+                  <Input id="adzuna-category" value={feedConfig.category || ''} onChange={e => setFeedConfig(p => ({ ...p, category: e.target.value }))} placeholder="Optional category tag" />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="adzuna-location">Location</Label>
+                  <Input id="adzuna-location" value={feedConfig.location || ''} onChange={e => setFeedConfig(p => ({ ...p, location: e.target.value }))} placeholder="e.g. London or United Kingdom" />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="adzuna-age">Maximum vacancy age (days)</Label>
+                  <Input id="adzuna-age" type="number" min="1" max="90" value={feedConfig.max_days_old} onChange={e => setFeedConfig(p => ({ ...p, max_days_old: Number(e.target.value) }))} />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="adzuna-limit">Result limit</Label>
+                  <Input id="adzuna-limit" type="number" min="1" max="50" value={feedConfig.result_limit} onChange={e => setFeedConfig(p => ({ ...p, result_limit: Number(e.target.value) }))} />
+                </div>
+              </div>
+
+              {feedStatus?.config?.last_sync_at && (
+                <div className={`rounded-lg border p-3 text-sm ${feedStatus.config.last_error ? 'border-red-200 bg-red-50 text-red-800' : 'border-slate-200 bg-slate-50 text-slate-700'}`}>
+                  <p>Last run: {new Date(feedStatus.config.last_sync_at).toLocaleString()}</p>
+                  {feedStatus.config.last_success_at && <p>Last successful: {new Date(feedStatus.config.last_success_at).toLocaleString()}</p>}
+                  {feedStatus.config.last_error
+                    ? <p className="mt-1 font-medium">{feedStatus.config.last_error}</p>
+                    : <p>{feedStatus.config.last_imported_count || 0} jobs imported or updated</p>}
+                </div>
+              )}
+
+              <div className="flex flex-wrap gap-3">
+                <Button variant="outline" disabled={!!feedAction} onClick={() => runFeedAction('save')}>
+                  <Save className="mr-2 h-4 w-4" /> {feedAction === 'save' ? 'Saving...' : 'Save Search'}
+                </Button>
+                <Button variant="outline" disabled={!!feedAction || !feedStatus?.configured} onClick={() => runFeedAction('preview')}>
+                  {feedAction === 'preview' ? 'Loading Preview...' : 'Preview Matches'}
+                </Button>
+                <Button className="bg-blue-600 hover:bg-blue-700" disabled={!!feedAction || !feedStatus?.configured} onClick={() => runFeedAction('sync')}>
+                  {feedAction === 'sync' ? 'Syncing...' : 'Run Manual Sync'}
+                </Button>
+              </div>
+
+              {feedPreview.length > 0 && (
+                <div className="space-y-2 border-t pt-4">
+                  <h4 className="font-semibold text-slate-900">Preview ({feedPreview.length})</h4>
+                  {feedPreview.map(job => (
+                    <div key={job.external_id} className="rounded-lg border border-slate-200 p-3">
+                      <p className="font-medium text-slate-900">{job.title}</p>
+                      <p className="text-sm text-slate-600">{job.company_name} · {job.location}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
           {/* Price Settings */}
           <Card className="border-slate-200 shadow-sm">
             <CardHeader>

@@ -31,6 +31,7 @@ import { isCategoryRestricted, hasSubcategoryRestrictions, isCategoryVisibleToVi
 // Entity name to Supabase table mapping (singular names for Base44 compatibility)
 import { anonymizeMember } from '../../_lib/memberAnonymize.js';
 import { isReservedPageSlug, reservedPageSlugMessage } from '../../../shared/memberAliases.js';
+import { hasManagedJobProvenance, stripManagedJobProvenance } from '../../_lib/jobFeedOwnership.js';
 const entityToTable = {
   'Gallery': 'gallery',
   'GalleryPhoto': 'gallery_photo',
@@ -483,6 +484,24 @@ export default async function handler(req, res) {
     } else if (req.method === 'PATCH') {
       // Normalize entity name for comparison (handles both PascalCase and slug-case)
       const entityNormalized = entity.replace(/[-_]/g, '').toLowerCase();
+
+      // Feed-owned job postings are updated only by their synchronizer. Keeping
+      // this guard in the entity API prevents stale clients from entering an
+      // imported job into native approval, payment, ownership or editing flows.
+      if (entityNormalized === 'jobposting') {
+        if (hasManagedJobProvenance(req.body)) {
+          return res.status(403).json({ error: 'External job provenance is managed by the feed synchronizer' });
+        }
+        let externalQuery = supabase
+          .from('job_posting')
+          .select('external_source')
+          .eq('id', id);
+        if (tenantCtx.tenantId) externalQuery = externalQuery.eq('tenant_id', tenantCtx.tenantId);
+        const { data: externalJob } = await externalQuery.maybeSingle();
+        if (externalJob?.external_source) {
+          return res.status(403).json({ error: 'External job postings are managed by their feed and cannot be edited' });
+        }
+      }
       
       // SECURITY (Task #3306): excluded_role_ids is an access-control field on
       // resource categories. Only admins / resource managers may change it —
@@ -631,7 +650,9 @@ export default async function handler(req, res) {
 
       // Sanitize empty strings to null for UUID fields to avoid "invalid input syntax for type uuid" errors
       // Only modify fields that are already present in the request body
-      const sanitizedBody = { ...req.body };
+      const sanitizedBody = entityNormalized === 'jobposting'
+        ? stripManagedJobProvenance(req.body)
+        : { ...req.body };
       const uuidFields = ['role_id', 'organization_id', 'organization_group_id', 'member_id', 'parent_id', 'form_id', 'event_id', 'related_event_id',
                           'category_id', 'template_id', 'workflow_id', 'speaker_id', 'created_by', 'updated_by'];
       for (const field of uuidFields) {
@@ -1658,6 +1679,17 @@ export default async function handler(req, res) {
       // the generic entity API — see the PATCH guard above.
       {
         const entityNormalizedDel = entity.replace(/[-_]/g, '').toLowerCase();
+        if (entityNormalizedDel === 'jobposting') {
+          let externalQuery = supabase
+            .from('job_posting')
+            .select('external_source')
+            .eq('id', id);
+          if (tenantCtx.tenantId) externalQuery = externalQuery.eq('tenant_id', tenantCtx.tenantId);
+          const { data: externalJob } = await externalQuery.maybeSingle();
+          if (externalJob?.external_source) {
+            return res.status(403).json({ error: 'External job postings are managed by their feed and cannot be deleted' });
+          }
+        }
         if (entityNormalizedDel === 'formsubmission') {
           const { data: subRow } = await supabase
             .from('form_submission')

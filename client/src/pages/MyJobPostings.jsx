@@ -52,7 +52,7 @@ export default function MyJobPostingsPage() {
       // Merge and deduplicate jobs using a Map
       const jobMap = new Map();
       results.forEach(jobList => {
-        jobList.forEach(job => {
+        jobList.filter(job => !job.external_source).forEach(job => {
           if (!jobMap.has(job.id)) {
             jobMap.set(job.id, job);
           }
@@ -402,7 +402,7 @@ export default function MyJobPostingsPage() {
               const hasAttachments = job.attachment_urls && job.attachment_urls.length > 0;
               
               // Allow editing if job is pending or active
-              const canEdit = job.status === 'pending_approval' || job.status === 'active';
+              const canEdit = !job.external_source && (job.status === 'pending_approval' || job.status === 'active');
 
               return (
                 <Card 

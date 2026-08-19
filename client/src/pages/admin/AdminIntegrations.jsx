@@ -104,6 +104,14 @@ export default function AdminIntegrations() {
   const [showSecrets, setShowSecrets] = useState(false);
   const [hasZoomCredentials, setHasZoomCredentials] = useState(false);
 
+  const [adzunaForm, setAdzunaForm] = useState({ app_id: '', app_key: '', country: 'gb' });
+  const [adzunaEnabled, setAdzunaEnabled] = useState(false);
+  const [adzunaSaving, setAdzunaSaving] = useState(false);
+  const [adzunaTesting, setAdzunaTesting] = useState(false);
+  const [adzunaTestResult, setAdzunaTestResult] = useState(null);
+  const [hasAdzunaCredentials, setHasAdzunaCredentials] = useState(false);
+  const [showAdzunaSecrets, setShowAdzunaSecrets] = useState(false);
+
   const [zohoForm, setZohoForm] = useState({
     client_id: '',
     client_secret: '',
@@ -342,6 +350,19 @@ export default function AdminIntegrations() {
               account_id: zoomIntegration.credentials.account_id || '',
               client_id: zoomIntegration.credentials.client_id || '',
               client_secret: zoomIntegration.credentials.client_secret || ''
+            });
+          }
+        }
+
+        const adzunaIntegration = data.integrations?.find(i => i.integration_type === 'adzuna');
+        if (adzunaIntegration) {
+          setAdzunaEnabled(adzunaIntegration.is_enabled === true);
+          setHasAdzunaCredentials(adzunaIntegration.has_credentials === true);
+          if (adzunaIntegration.credentials) {
+            setAdzunaForm({
+              app_id: adzunaIntegration.credentials.app_id || '',
+              app_key: adzunaIntegration.credentials.app_key || '',
+              country: 'gb'
             });
           }
         }
@@ -689,6 +710,77 @@ export default function AdminIntegrations() {
       });
     } catch (err) {
       console.error('Failed to toggle zoom:', err);
+    }
+  };
+
+  const handleSaveAdzuna = async () => {
+    if (!adzunaForm.app_id.trim() || !adzunaForm.app_key.trim()) {
+      toast({ title: "Credentials required", description: "Enter both the Adzuna API ID and API key.", variant: "destructive" });
+      return;
+    }
+    setAdzunaSaving(true);
+    setAdzunaTestResult(null);
+    try {
+      const response = await adminFetch('/api/admin/integrations', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          integration_type: 'adzuna',
+          credentials: adzunaForm,
+          is_enabled: adzunaEnabled
+        })
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) throw new Error(data.error || 'Failed to save Adzuna settings');
+      setHasAdzunaCredentials(true);
+      toast({ title: "Saved", description: "Adzuna credentials were saved securely." });
+      await fetchIntegrations();
+    } catch (error) {
+      toast({ title: "Error", description: error.message || "Failed to save Adzuna settings", variant: "destructive" });
+    } finally {
+      setAdzunaSaving(false);
+    }
+  };
+
+  const handleTestAdzuna = async () => {
+    setAdzunaTesting(true);
+    setAdzunaTestResult(null);
+    try {
+      const response = await adminFetch('/api/admin/integrations/test-adzuna', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      const data = await response.json();
+      setAdzunaTestResult(data);
+      toast({
+        title: data.success ? "Connection Successful" : "Connection Failed",
+        description: data.message || data.error,
+        variant: data.success ? "default" : "destructive"
+      });
+    } catch {
+      setAdzunaTestResult({ success: false, error: 'Unable to test the connection.' });
+    } finally {
+      setAdzunaTesting(false);
+    }
+  };
+
+  const handleToggleAdzuna = async (enabled) => {
+    setAdzunaEnabled(enabled);
+    setAdzunaTestResult(null);
+    if (!hasAdzunaCredentials) return;
+    try {
+      const response = await adminFetch('/api/admin/integrations', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ integration_type: 'adzuna', is_enabled: enabled })
+      });
+      if (!response.ok) throw new Error();
+    } catch {
+      setAdzunaEnabled(!enabled);
+      toast({ title: "Could not update Adzuna", description: "Please try again.", variant: "destructive" });
     }
   };
 
@@ -1415,6 +1507,97 @@ export default function AdminIntegrations() {
 
       <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="space-y-6">
+          <Card className="bg-slate-800/50 border-slate-700">
+            <CardHeader>
+              <div className="flex items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-lg bg-green-500/10 flex items-center justify-center">
+                    <Building2 className="h-5 w-5 text-green-400" />
+                  </div>
+                  <div>
+                    <CardTitle className="text-white">Adzuna Job Feed</CardTitle>
+                    <CardDescription className="text-slate-400">
+                      Import UK vacancies from Adzuna into this tenant's job board
+                    </CardDescription>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3">
+                  {hasAdzunaCredentials && (
+                    <Badge className={adzunaEnabled ? "bg-green-500/20 text-green-400 border-green-500/30" : ""}>
+                      {adzunaEnabled ? 'Enabled' : 'Disabled'}
+                    </Badge>
+                  )}
+                  <Switch
+                    checked={adzunaEnabled}
+                    onCheckedChange={handleToggleAdzuna}
+                    data-testid="switch-adzuna-enabled"
+                  />
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="rounded-lg bg-slate-900/50 p-4 border border-slate-700">
+                <p className="text-xs text-slate-400 mb-4">
+                  Create API credentials in the{" "}
+                  <a href="https://developer.adzuna.com/" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline inline-flex items-center gap-1">
+                    Adzuna developer portal <ExternalLink className="h-3 w-3" />
+                  </a>. Saved values are encrypted and shown only in masked form.
+                </p>
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="adzuna_app_id" className="text-slate-300">API ID</Label>
+                    <Input
+                      id="adzuna_app_id"
+                      type={showAdzunaSecrets ? "text" : "password"}
+                      value={adzunaForm.app_id}
+                      onChange={(e) => setAdzunaForm(prev => ({ ...prev, app_id: e.target.value }))}
+                      placeholder="Enter your Adzuna API ID"
+                      className="bg-slate-800 border-slate-600 text-white placeholder:text-slate-500"
+                      data-testid="input-adzuna-app-id"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="adzuna_app_key" className="text-slate-300">API Key</Label>
+                    <Input
+                      id="adzuna_app_key"
+                      type={showAdzunaSecrets ? "text" : "password"}
+                      value={adzunaForm.app_key}
+                      onChange={(e) => setAdzunaForm(prev => ({ ...prev, app_key: e.target.value }))}
+                      placeholder="Enter your Adzuna API key"
+                      className="bg-slate-800 border-slate-600 text-white placeholder:text-slate-500"
+                      data-testid="input-adzuna-app-key"
+                    />
+                  </div>
+                  <Button variant="ghost" size="sm" onClick={() => setShowAdzunaSecrets(v => !v)} className="text-slate-400 hover:text-white">
+                    {showAdzunaSecrets ? <><EyeOff className="h-4 w-4 mr-2" /> Hide values</> : <><Eye className="h-4 w-4 mr-2" /> Show values</>}
+                  </Button>
+                </div>
+              </div>
+
+              {adzunaTestResult && (
+                <div className={`rounded-lg p-4 border ${adzunaTestResult.success ? 'bg-green-500/10 border-green-500/30' : 'bg-red-500/10 border-red-500/30'}`}>
+                  <div className="flex items-center gap-2">
+                    {adzunaTestResult.success ? <CheckCircle2 className="h-5 w-5 text-green-400" /> : <AlertTriangle className="h-5 w-5 text-red-400" />}
+                    <p className={adzunaTestResult.success ? 'text-sm text-green-400' : 'text-sm text-red-400'}>
+                      {adzunaTestResult.message || adzunaTestResult.error}
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              <div className="flex flex-wrap items-center gap-3 pt-2">
+                <Button onClick={handleSaveAdzuna} disabled={adzunaSaving} className="bg-primary hover:bg-primary/90" data-testid="button-save-adzuna">
+                  {adzunaSaving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Save className="h-4 w-4 mr-2" />}
+                  Save Credentials
+                </Button>
+                <Button variant="outline" onClick={handleTestAdzuna} disabled={adzunaTesting || !hasAdzunaCredentials || !adzunaEnabled} className="border-slate-600 text-slate-300 hover:bg-slate-700" data-testid="button-test-adzuna">
+                  {adzunaTesting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <RefreshCw className="h-4 w-4 mr-2" />}
+                  Test Connection
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+
           <Card className="bg-slate-800/50 border-slate-700">
             <CardHeader>
               <div className="flex items-center justify-between">
