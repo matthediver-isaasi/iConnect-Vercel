@@ -44,6 +44,10 @@ import {
   ChartTooltip,
   ChartTooltipContent,
 } from "@/components/ui/chart";
+import {
+  BAR_CHART_MARGIN,
+  getBarHeightProps,
+} from "@/components/dashboard/barChartHeight";
 import { formatNumber } from "@/components/dashboard/WidgetCard";
 import { Textarea } from "@/components/ui/textarea";
 import { describeWidgetConfig } from "@shared/widgetDescriber.js";
@@ -2201,6 +2205,7 @@ function PreviewBody({ widget, payload }) {
       const cats = Array.isArray(payload?.categories) ? payload.categories : [];
       const seriesCats =
         cats.length > 0 && !(cats.length === 1 && cats[0] === "value") ? cats : null;
+      const barProps = getBarHeightProps(widget.height);
       return (
         <ChartContainer
           config={
@@ -2213,11 +2218,19 @@ function PreviewBody({ widget, payload }) {
                 )
               : { value: { label: "Value", color: CHART_COLOURS[0] } }
           }
-          className="h-56 w-full"
+          className={barProps.className}
         >
-          <BarChart data={rows} margin={{ top: 10, right: 10, left: 0, bottom: 30 }}>
+          <BarChart data={rows} margin={BAR_CHART_MARGIN}>
             <CartesianGrid vertical={false} strokeDasharray="3 3" />
-            <XAxis dataKey="key" tickLine={false} axisLine={false} angle={-25} textAnchor="end" height={50} interval={0} />
+            <XAxis
+              dataKey="key"
+              tickLine={false}
+              axisLine={false}
+              angle={barProps.angle}
+              textAnchor="end"
+              height={barProps.xAxisHeight}
+              interval={0}
+            />
             <YAxis tickLine={false} axisLine={false} width={40} />
             <ChartTooltip content={<ChartTooltipContent />} />
             {seriesCats ? (

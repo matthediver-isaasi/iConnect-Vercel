@@ -17,6 +17,10 @@ import {
   ChartTooltipContent,
 } from "@/components/ui/chart";
 import {
+  BAR_CHART_MARGIN,
+  getBarHeightProps,
+} from "@/components/dashboard/barChartHeight";
+import {
   Bar,
   BarChart,
   CartesianGrid,
@@ -131,14 +135,6 @@ const WIDTH_LABEL = { fifth: "1/5", third: "1/3", half: "1/2", full: "Full" };
 const NEXT_HEIGHT = { short: "medium", medium: "tall", tall: "xtall", xtall: "xxtall", xxtall: "short" };
 const HEIGHT_LABEL = { short: "Short", medium: "Medium", tall: "Tall", xtall: "Extra Tall", xxtall: "Huge" };
 
-// Per-height chart body class + bar XAxis props for each widget type.
-const BAR_HEIGHT_PROPS = {
-  short:  { className: "h-32 w-full", xAxisHeight: 40, angle: -20 },
-  medium: { className: "h-44 w-full", xAxisHeight: 50, angle: -25 },
-  tall:   { className: "h-72 w-full", xAxisHeight: 80, angle: -45 },
-  xtall:  { className: "h-96 w-full", xAxisHeight: 100, angle: -55 },
-  xxtall: { className: "h-[30rem] w-full", xAxisHeight: 120, angle: -60 },
-};
 const LINE_HEIGHT_CLASS = { short: "h-40 w-full", medium: "h-56 w-full", tall: "h-80 w-full", xtall: "h-[26rem] w-full", xxtall: "h-[32rem] w-full" };
 // Pie/donut: outerRadius and innerRadius scale with height so the chart
 // fills its container without clipping. Each outerRadius fits comfortably
@@ -619,7 +615,7 @@ function BarBody({ payload, widget, onDrill = null }) {
     [rows],
   );
   const heightKey = widget.height || "medium";
-  const barProps = BAR_HEIGHT_PROPS[heightKey] || BAR_HEIGHT_PROPS.medium;
+  const barProps = getBarHeightProps(heightKey);
   if (rows.length === 0) {
     return <EmptyChart heightClass={barProps.className} />;
   }
@@ -628,7 +624,7 @@ function BarBody({ payload, widget, onDrill = null }) {
     return (
       <div className="flex flex-1 flex-col gap-2">
         <ChartContainer config={config} className={barProps.className}>
-          <BarChart data={rows} margin={{ top: 18, right: 10, left: 0, bottom: 30 }}>
+          <BarChart data={rows} margin={BAR_CHART_MARGIN}>
             <CartesianGrid vertical={false} strokeDasharray="3 3" />
             <XAxis
               dataKey="key"
@@ -682,7 +678,7 @@ function BarBody({ payload, widget, onDrill = null }) {
   return (
     <div className="flex flex-1 flex-col gap-2">
       <ChartContainer config={config} className={barProps.className}>
-        <BarChart data={rows} margin={{ top: 18, right: 10, left: 0, bottom: 30 }}>
+        <BarChart data={rows} margin={BAR_CHART_MARGIN}>
           <CartesianGrid vertical={false} strokeDasharray="3 3" />
           <XAxis
             dataKey="key"

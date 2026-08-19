@@ -4,11 +4,15 @@
  *  2. Height defaults correctly when omitted
  *  3. Update schema accepts height patches
  *  4. PIE_HEIGHT_CONFIG: outerRadius fits inside container height without clipping
- *  5. BAR_HEIGHT_PROPS: xAxisHeight stays below chart height so labels don't crowd the plot
+ *  5. BAR_HEIGHT_PROPS: progressively reserves enough X-axis space for rotated labels
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { widgetCreateSchema, widgetUpdateSchema } from './validation.js';
+import {
+  BAR_CHART_MARGIN,
+  BAR_HEIGHT_PROPS,
+} from '../../../client/src/components/dashboard/barChartHeight.js';
 
 // ---------------------------------------------------------------------------
 // Minimal valid widget payload used as a base for create tests.
@@ -90,17 +94,9 @@ test('widgetUpdateSchema rejects invalid height in a PATCH', () => {
 // ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
-// Client-side height config tables — structural invariants.
-// Mirrors the constants in client/src/components/dashboard/WidgetCard.jsx
-// so that geometry mistakes are caught without a browser/DOM runtime.
+// Client-side height config tables — structural invariants. Bar geometry is
+// imported from the shared renderer config so this test checks production data.
 // ---------------------------------------------------------------------------
-
-// Mirrors BAR_HEIGHT_PROPS (className converted to approximate px).
-const BAR_HEIGHT_PROPS = {
-  short:  { classNamePx: 128, xAxisHeight: 40, angle: -20 },
-  medium: { classNamePx: 176, xAxisHeight: 50, angle: -25 },
-  tall:   { classNamePx: 288, xAxisHeight: 80, angle: -45 },
-};
 
 // Mirrors PIE_HEIGHT_CONFIG.
 const PIE_HEIGHT_CONFIG = {
@@ -124,13 +120,71 @@ const STAT_HEIGHT_CLASS = {
 };
 
 for (const [height, cfg] of Object.entries(BAR_HEIGHT_PROPS)) {
-  test(`BAR_HEIGHT_PROPS[${height}]: xAxisHeight (${cfg.xAxisHeight}px) is less than chart height (${cfg.classNamePx}px)`, () => {
+  test(`BAR_HEIGHT_PROPS[${height}]: xAxisHeight (${cfg.xAxisHeight}px) is less than chart height (${cfg.chartHeight}px)`, () => {
     assert.ok(
-      cfg.xAxisHeight < cfg.classNamePx,
-      `xAxisHeight ${cfg.xAxisHeight} must be less than chart container height ${cfg.classNamePx}`,
+      cfg.xAxisHeight < cfg.chartHeight,
+      `xAxisHeight ${cfg.xAxisHeight} must be less than chart container height ${cfg.chartHeight}`,
     );
   });
 }
+
+test('BAR_HEIGHT_PROPS: covers all five widget height presets', () => {
+  assert.deepEqual(
+    Object.keys(BAR_HEIGHT_PROPS),
+    ['short', 'medium', 'tall', 'xtall', 'xxtall'],
+  );
+});
+
+test('BAR_HEIGHT_PROPS: all five presets reserve progressively more X-axis label space', () => {
+  const labelBands = Object.values(BAR_HEIGHT_PROPS).map(cfg => cfg.xAxisHeight);
+  for (let index = 1; index < labelBands.length; index += 1) {
+    assert.ok(
+      labelBands[index] > labelBands[index - 1],
+      `Expected label band ${index} (${labelBands[index]}) to exceed ${index - 1} (${labelBands[index - 1]})`,
+    );
+  }
+});
+
+test('BAR_HEIGHT_PROPS: every preset retains a usable plot area after label allocation', () => {
+  for (const [height, cfg] of Object.entries(BAR_HEIGHT_PROPS)) {
+    const verticalMargin = BAR_CHART_MARGIN.top + BAR_CHART_MARGIN.bottom;
+    const plotHeight = cfg.chartHeight - cfg.xAxisHeight - verticalMargin;
+    assert.ok(
+      plotHeight >= 42,
+      `${height} leaves only ${plotHeight}px for bars after chart margins and labels`,
+    );
+  }
+});
+
+test('BAR_HEIGHT_PROPS: representative category labels fit inside every axis band', () => {
+  const labelWidth = 18 * 7;
+  const tickPadding = 12;
+  for (const [height, cfg] of Object.entries(BAR_HEIGHT_PROPS)) {
+    const verticalLabelExtent =
+      Math.ceil(labelWidth * Math.sin((Math.abs(cfg.angle) * Math.PI) / 180)) + tickPadding;
+    assert.ok(
+      verticalLabelExtent <= cfg.xAxisHeight,
+      `${height} needs ${verticalLabelExtent}px for its rotated long label, but reserves ${cfg.xAxisHeight}px`,
+    );
+  }
+});
+
+test('BAR_HEIGHT_PROPS: Extra Tall and Huge contain long rotated category labels', () => {
+  const representativeLongLabel = 'International member organisations';
+  const estimatedLabelWidth = representativeLongLabel.length * 7;
+  const tickPadding = 12;
+
+  for (const height of ['xtall', 'xxtall']) {
+    const cfg = BAR_HEIGHT_PROPS[height];
+    const verticalLabelExtent =
+      Math.ceil(estimatedLabelWidth * Math.sin((Math.abs(cfg.angle) * Math.PI) / 180)) +
+      tickPadding;
+    assert.ok(
+      verticalLabelExtent <= cfg.xAxisHeight,
+      `${height} needs ${verticalLabelExtent}px for "${representativeLongLabel}", but reserves ${cfg.xAxisHeight}px`,
+    );
+  }
+});
 
 for (const [height, cfg] of Object.entries(PIE_HEIGHT_CONFIG)) {
   test(`PIE_HEIGHT_CONFIG[${height}]: outerRadius diameter (${cfg.outerRadius * 2}px) fits inside container (${cfg.containerPx}px)`, () => {
