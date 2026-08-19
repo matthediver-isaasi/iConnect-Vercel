@@ -39,6 +39,7 @@ import {
   AUTO_HEIGHT_LEAF_TYPES,
   forEachFlowNode,
 } from './canvasDesign.js';
+import { estimateDataTableHeight } from './canvasDataTable.js';
 
 // Resolve a `flow.basis` value (px number, '<n>%' string, or null) against an
 // available main-axis size. null -> the full available size (stretch).
@@ -418,21 +419,55 @@ function flowNodeRuleBody(box, autoLeaf) {
  * can coexist on a document without rule collisions. Returns '' for a design
  * with no placed nodes.
  */
-export function buildFlowCanvasCss(design, scope) {
+export function buildFlowCanvasCss(design, scope, options = {}) {
   const sc = scope || '.canvas-page';
   const stageSel = `${sc} .canvas-stage`;
+  const typographyById = new Map(
+    (Array.isArray(options.typographyStyles) ? options.typographyStyles : [])
+      .filter((style) => style?.id)
+      .map((style) => [String(style.id), style]),
+  );
 
+  const staticMeasurements = (breakpoint) => {
+    const measured = {};
+    forEachFlowNode(design, (node) => {
+      if (
+        node.type === BLOCK_TYPES.DATA_TABLE &&
+        ((node.flow && node.flow.heightMode) || 'auto') !== 'fixed'
+      ) {
+        const storedHeight = resolveBlockAtBreakpoint(node, breakpoint).h;
+        const style = node.style || {};
+        const verticalPadding =
+          Math.max(0, Number(style.paddingTop) || 0) +
+          Math.max(0, Number(style.paddingBottom) || 0);
+        const verticalBorder = Math.max(0, Number(style.borderWidth) || 0) * 2;
+        measured[node.id] = {
+          height: Math.max(
+            Number.isFinite(storedHeight) ? storedHeight : 0,
+            estimateDataTableHeight(node.content, breakpoint, {
+              headerStyle: typographyById.get(String(node.content?.headerTypographyStyleId || '')),
+              bodyStyle: typographyById.get(String(node.content?.bodyTypographyStyleId || '')),
+            }) + verticalPadding + verticalBorder,
+          ),
+        };
+      }
+    });
+    return measured;
+  };
   const dl = resolveFlowLayout(design, {
     breakpoint: 'desktop',
     containerWidth: BREAKPOINT_WIDTHS.desktop,
+    measured: staticMeasurements('desktop'),
   });
   const tl = resolveFlowLayout(design, {
     breakpoint: 'tablet',
     containerWidth: BREAKPOINT_WIDTHS.tablet,
+    measured: staticMeasurements('tablet'),
   });
   const ml = resolveFlowLayout(design, {
     breakpoint: 'mobile',
     containerWidth: BREAKPOINT_WIDTHS.mobile,
+    measured: staticMeasurements('mobile'),
   });
 
   // Union of every node that has a box at ANY breakpoint, in DFS (paint) order

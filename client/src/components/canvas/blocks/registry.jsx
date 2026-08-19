@@ -98,6 +98,16 @@ import {
   resolveBoxShadowCss,
   resolveWrapperBackground,
 } from '@/lib/canvasDesign';
+import {
+  TABLE_LIMITS,
+  makeTableRow,
+  normalizeTableContent,
+  addTableColumn,
+  removeTableColumn,
+  reorderTableColumns,
+  parseDelimitedTable,
+  appendParsedTableRows,
+} from '@/lib/canvasDataTable';
 import ImageSelector from '@/components/ImageSelector';
 import { FocalPointPicker, getFocalPointStyle } from '@/components/FocalPointPicker';
 import { sanitizeRichText, stripTrailingEmptyParagraphs, sanitizeCustomHtml, isRichTextEmpty } from './sanitize';
@@ -10264,6 +10274,180 @@ function HeroCarouselMobileInspector(props) {
 }
 
 // ---------------------------------------------------------------------------
+// Data table — plain-text, author-managed rows keyed by stable column IDs.
+// ---------------------------------------------------------------------------
+
+function DataTableRender({ block, breakpoint, asEditor = false }) {
+  const c = normalizeTableContent(block.content);
+  const { styles: tenantStyles, resolved } = useTenantTypographyStylesState();
+  const headerStyle = resolveTenantStyle(c.headerTypographyStyleId, tenantStyles);
+  const bodyStyle = resolveTenantStyle(c.bodyTypographyStyleId, tenantStyles);
+  // Flow public pages pass their current runtime breakpoint, but still need
+  // responsive @media CSS in the SSR/first-paint markup. Only the live Canvas
+  // editor pins a breakpoint inline.
+  const preview = asEditor;
+  const bp = preview ? breakpoint : 'desktop';
+  const headerAwaiting = isAwaitingTypographyStyle(c.headerTypographyStyleId, headerStyle, resolved);
+  const bodyAwaiting = isAwaitingTypographyStyle(c.bodyTypographyStyleId, bodyStyle, resolved);
+  const safeId = String(block.id || '').replace(/["\\]/g, '');
+  const responsiveCss = !preview ? [
+    headerStyle && hasResponsiveTypographyOverride(headerStyle)
+      ? buildTenantTypographyResponsiveCss(`[data-cb="${safeId}"] [data-tg-r="table-header"]`, headerStyle) : null,
+    bodyStyle && hasResponsiveTypographyOverride(bodyStyle)
+      ? buildTenantTypographyResponsiveCss(`[data-cb="${safeId}"] [data-tg-r="table-cell"]`, bodyStyle) : null,
+  ].filter(Boolean).join('') : '';
+  const tableRef = useReportReflowHeight(
+    block.id,
+    (block.style?.paddingTop || 0) + (block.style?.paddingBottom || 0),
+  );
+  const headerInline = headerStyle ? buildTypographyInlineStyle(headerStyle, { breakpoint: bp }) : {};
+  const bodyInline = bodyStyle ? buildTypographyInlineStyle(bodyStyle, { breakpoint: bp }) : {};
+  return (
+    <>
+      {responsiveCss && <style dangerouslySetInnerHTML={{ __html: responsiveCss }} />}
+      <div ref={tableRef} className="w-full overflow-x-auto" style={{ visibility: headerAwaiting || bodyAwaiting ? 'hidden' : undefined }}>
+        <table className="w-full min-w-max border-collapse text-left" data-testid="canvas-data-table">
+          <thead>
+            <tr className="border-b-2 border-slate-300">
+              {c.columns.map((column) => (
+                <th key={column.id} scope="col" data-tg-r="table-header" className="px-3 py-2 font-semibold align-top" style={headerInline}>
+                  {column.heading}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {c.rows.map((row) => (
+              <tr key={row.id} className="border-b border-slate-200">
+                {c.columns.map((column) => (
+                  <td key={column.id} data-tg-r="table-cell" className="px-3 py-2 align-top whitespace-pre-wrap" style={bodyInline}>
+                    {row.cells?.[column.id] || ''}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </>
+  );
+}
+
+function DataTableInspector({ block, update }) {
+  const c = normalizeTableContent(block.content);
+  const [pasteText, setPasteText] = useState('');
+  const [pastePreview, setPastePreview] = useState(null);
+  const [treatHeader, setTreatHeader] = useState(true);
+  const setContent = (next) => update((b) => ({ ...b, content: next }));
+  const set = (patch) => setContent({ ...c, ...patch });
+  const columns = c.columns;
+  const rows = c.rows;
+  const columnSignature = columns.map((column) => `${column.id}\u0000${column.heading}`).join('\u0001');
+  useEffect(() => { setPastePreview(null); }, [columnSignature]);
+  const parsePaste = () => {
+    const result = parseDelimitedTable(pasteText, columns);
+    setPastePreview(result);
+    setTreatHeader(result.headerMatches);
+  };
+  const appendPaste = () => {
+    if (!pastePreview || pastePreview.errors.length) return;
+    try {
+      setContent(appendParsedTableRows(c, pastePreview.rows, treatHeader && pastePreview.headerMatches));
+      setPasteText('');
+      setPastePreview(null);
+    } catch (error) {
+      setPastePreview({ ...pastePreview, errors: [error.message] });
+    }
+  };
+  const changeCell = (rowIndex, columnId, value) => {
+    const nextRows = rows.map((row, i) => i === rowIndex
+      ? { ...row, cells: { ...row.cells, [columnId]: value.slice(0, TABLE_LIMITS.maxCellChars) } } : row);
+    set({ rows: nextRows });
+  };
+  return (
+    <div className="space-y-4">
+      <div className="space-y-2">
+        <div className="flex items-center justify-between"><Label className="text-xs text-slate-600">Columns</Label><span className="text-xs text-slate-400">{columns.length}/{TABLE_LIMITS.maxColumns}</span></div>
+        {columns.map((column, index) => (
+          <div key={column.id} className="flex gap-1 items-end">
+            <div className="flex-1"><Input value={column.heading} onChange={(e) => set({ columns: columns.map((item, i) => i === index ? { ...item, heading: e.target.value } : item) })} className="h-8" data-testid={`table-column-heading-${index}`} /></div>
+            <Button type="button" size="icon" variant="ghost" disabled={index === 0} onClick={() => setContent(reorderTableColumns(c, index, index - 1))} aria-label="Move column up"><ArrowUp className="w-4 h-4" /></Button>
+            <Button type="button" size="icon" variant="ghost" disabled={index === columns.length - 1} onClick={() => setContent(reorderTableColumns(c, index, index + 1))} aria-label="Move column down"><ArrowDown className="w-4 h-4" /></Button>
+            <Button type="button" size="icon" variant="ghost" disabled={columns.length <= 1} onClick={() => setContent(removeTableColumn(c, column.id))} aria-label="Remove column"><Trash2 className="w-4 h-4" /></Button>
+          </div>
+        ))}
+        <Button type="button" size="sm" variant="outline" disabled={columns.length >= TABLE_LIMITS.maxColumns} onClick={() => setContent(addTableColumn(c, `Column ${columns.length + 1}`))} data-testid="table-column-add"><Plus className="w-4 h-4 mr-1" />Add column</Button>
+      </div>
+
+      <div className="space-y-2 border-t pt-3">
+        <TypographyStyleField
+          label="Column heading typography"
+          value={c.headerTypographyStyleId}
+          onChange={(id) => set({ headerTypographyStyleId: id })}
+          testId="table-header-typography"
+        />
+        <TypographyStyleField
+          label="Body cell typography"
+          value={c.bodyTypographyStyleId}
+          onChange={(id) => set({ bodyTypographyStyleId: id })}
+          testId="table-body-typography"
+        />
+      </div>
+
+      <div className="space-y-2 border-t pt-3">
+        <div className="flex items-center justify-between"><Label className="text-xs text-slate-600">Rows</Label><span className="text-xs text-slate-400">{rows.length}/{TABLE_LIMITS.maxRows}</span></div>
+        <ArrayList
+          items={rows}
+          onChange={(next) => set({ rows: next })}
+          testIdPrefix="table-row"
+          addLabel="Add row"
+          maxItems={TABLE_LIMITS.maxRows}
+          collapsible
+          getItemTitle={(_, index) => `Row ${index + 1}`}
+          makeNew={() => makeTableRow(columns)}
+          duplicateItem={(row) => makeTableRow(columns, row.cells)}
+          renderItem={(row, rowIndex) => (
+            <div className="grid gap-2">
+              {columns.map((column) => (
+                <TextField key={column.id} label={column.heading || 'Untitled column'} value={row.cells?.[column.id] || ''} onChange={(value) => changeCell(rowIndex, column.id, value)} testId={`table-cell-${rowIndex}-${column.id}`} />
+              ))}
+            </div>
+          )}
+        />
+      </div>
+
+      <div className="space-y-2 border-t pt-3">
+        <Label className="text-xs text-slate-600">Append pasted CSV or spreadsheet rows</Label>
+        <Textarea value={pasteText} onChange={(e) => { setPasteText(e.target.value); setPastePreview(null); }} rows={5} placeholder="Paste comma-separated or tab-separated rows" data-testid="table-paste" />
+        <Button type="button" size="sm" variant="outline" onClick={parsePaste} data-testid="table-paste-preview">Preview pasted rows</Button>
+        {pastePreview && (
+          <div className={`rounded-md p-2 text-xs ${pastePreview.errors.length ? 'bg-red-50 text-red-700' : 'bg-slate-50 text-slate-700'}`} data-testid="table-paste-result">
+            {pastePreview.errors.length ? <ul className="list-disc pl-4">{pastePreview.errors.slice(0, 5).map((error) => <li key={error}>{error}</li>)}</ul> : (
+              <>
+                <p>{pastePreview.rows.length} row{pastePreview.rows.length === 1 ? '' : 's'} parsed. Nothing has been added yet.</p>
+                {pastePreview.headerMatches && <ToggleField label="First row matches the headings — treat it as a header" value={treatHeader} onChange={setTreatHeader} testId="table-paste-header" />}
+                <div className="mt-2 max-w-full overflow-x-auto rounded border border-slate-200 bg-white">
+                  <table className="min-w-max border-collapse text-[11px]">
+                    <tbody>
+                      {pastePreview.rows.slice(0, 5).map((values, rowIndex) => (
+                        <tr key={rowIndex} className="border-b last:border-b-0">
+                          {values.map((value, cellIndex) => <td key={cellIndex} className="max-w-40 truncate px-2 py-1 border-r last:border-r-0">{value || <span className="text-slate-400">blank</span>}</td>)}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <Button type="button" size="sm" className="mt-2" onClick={appendPaste} data-testid="table-paste-append">Append valid rows</Button>
+              </>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Registry
 // ---------------------------------------------------------------------------
 
@@ -10291,6 +10475,7 @@ const REGISTRY = {
   [BLOCK_TYPES.LOGO_STRIP]:   { label: 'Logo strip',     icon: Images,         category: 'ui',       Editor: LogoStripRender,    Renderer: LogoStripRender,    Inspector: LogoStripInspector },
   [BLOCK_TYPES.MAP]:          { label: 'Map',            icon: MapIcon,        category: 'media',    Editor: MapRender,          Renderer: MapRender,          Inspector: MapInspector },
   [BLOCK_TYPES.PRICING_TABLE]:    { label: 'Pricing table',   icon: TableIcon,         category: 'content',  Editor: PricingTableRender,    Renderer: PricingTableRender,    Inspector: PricingTableInspector },
+  [BLOCK_TYPES.DATA_TABLE]:       { label: 'Table',           icon: TableIcon,         category: 'content',  Editor: DataTableRender,       Renderer: DataTableRender,       Inspector: DataTableInspector, allowOverflow: true, autoHeight: true, widthResizeOnly: true },
   [BLOCK_TYPES.TESTIMONIAL_GRID]: { label: 'Testimonial grid',icon: MessageSquareQuote,category: 'content',  Editor: TestimonialGridRender, Renderer: TestimonialGridRender, Inspector: TestimonialGridInspector },
   [BLOCK_TYPES.NEWS_TICKER]:      { label: 'News Ticker',     icon: Megaphone,         category: 'content',  Editor: NewsTickerRender,      Renderer: NewsTickerRender,      Inspector: NewsTickerInspector },
   [BLOCK_TYPES.MEGA_MENU]:        { label: 'Mega Menu',       icon: Menu,              category: 'content',  Editor: MegaMenuRender,        Renderer: MegaMenuRender,        Inspector: MegaMenuInspector, allowOverflow: true },

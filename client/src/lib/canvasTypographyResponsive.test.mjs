@@ -93,3 +93,13 @@ test('all four properties are emitted with their units at mobile', () => {
   assert.ok(css.includes('letter-spacing:0.5px !important;'));
   assert.ok(css.includes('margin-bottom:12px !important;'));
 });
+
+test('table typography rules can target the semantic header and cell elements', () => {
+  const headerSelector = '[data-cb="table-1"] [data-tg-r="table-header"]';
+  const cellSelector = '[data-cb="table-1"] [data-tg-r="table-cell"]';
+  const headerCss = buildTenantTypographyResponsiveCss(headerSelector, H2_HERO);
+  const cellCss = buildTenantTypographyResponsiveCss(cellSelector, H2_HERO);
+  assert.ok(headerCss.includes(headerSelector));
+  assert.ok(cellCss.includes(cellSelector));
+  assert.ok(!headerCss.includes('[data-cb="table-1"]{'));
+});

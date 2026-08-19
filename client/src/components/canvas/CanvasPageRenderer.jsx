@@ -21,7 +21,7 @@ import {
   isFlowDesign,
 } from "@/lib/canvasDesign";
 import { buildFlowCanvasCss } from "@/lib/canvasFlowLayout";
-import { getBlockDefinition } from "./blocks/registry";
+import { getBlockDefinition, useTenantTypographyStylesState } from "./blocks/registry";
 import { AccordionReflowProvider, useAccordionReflow } from "./AccordionReflowContext";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import CanvasFlowStage from "./CanvasFlowStage";
@@ -554,6 +554,7 @@ export default function CanvasPageRenderer({ page, symbols, forceBreakpoint }) {
   const isFlow = useMemo(() => isFlowDesign(baseDesign), [baseDesign]);
   const symbolsById = useSymbolsForDesign(baseDesign, symbols);
   const theme = useTenantCanvasTheme();
+  const { styles: tenantTypographyStyles } = useTenantTypographyStylesState();
   const design = useMemo(
     // Symbol splicing is a v1-only transform; leave flow documents untouched.
     () => (isFlow ? baseDesign : resolveSymbolsInDesign(baseDesign, symbolsById) || baseDesign),
@@ -602,8 +603,10 @@ export default function CanvasPageRenderer({ page, symbols, forceBreakpoint }) {
   // CanvasFlowStage's client-side measurement loop runs. Its inline styles take
   // over (and override this) once measured, so there is no visible shift.
   const flowCss = useMemo(
-    () => (isFlow && flowHasNodes ? buildFlowCanvasCss(design, `#${scopeId}`) : ''),
-    [isFlow, flowHasNodes, design, scopeId],
+    () => (isFlow && flowHasNodes
+      ? buildFlowCanvasCss(design, `#${scopeId}`, { typographyStyles: tenantTypographyStyles })
+      : ''),
+    [isFlow, flowHasNodes, design, scopeId, tenantTypographyStyles],
   );
   const lcpBlockId = useMemo(() => (hasBlocks ? findLcpBlockId(children) : null), [children, hasBlocks]);
 

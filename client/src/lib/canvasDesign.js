@@ -1,4 +1,5 @@
 // Canvas Builder design document helpers.
+import { normalizeTableContent, TABLE_LIMITS } from './canvasDataTable.js';
 //
 // The canvas_design column on i_edit_page stores a versioned JSON document
 // describing a free-form page laid out by the Canvas Builder.
@@ -170,6 +171,7 @@ export const BLOCK_TYPES = {
   LOGO_STRIP: 'logo-strip',
   MAP: 'map',
   PRICING_TABLE: 'pricing-table',
+  DATA_TABLE: 'data-table',
   TESTIMONIAL_GRID: 'testimonial-grid',
   NEWS_TICKER: 'news-ticker',
   MEGA_MENU: 'mega-menu',
@@ -991,6 +993,22 @@ export const BLOCK_DEFAULTS = {
           recommended: false,
         },
       ],
+    },
+  },
+  [BLOCK_TYPES.DATA_TABLE]: {
+    name: 'Table',
+    geom: { w: 720, h: 180 },
+    style: { background: 'transparent', borderWidth: 0 },
+    content: {
+      columns: [
+        { id: 'col-name', heading: 'Name' },
+        { id: 'col-detail', heading: 'Detail' },
+      ],
+      rows: [
+        { id: 'row-1', cells: { 'col-name': 'Example', 'col-detail': 'Add your table data in the inspector.' } },
+      ],
+      headerTypographyStyleId: '',
+      bodyTypographyStyleId: '',
     },
   },
   [BLOCK_TYPES.TESTIMONIAL_GRID]: {
@@ -2332,6 +2350,7 @@ export const AUTO_HEIGHT_LEAF_TYPES = new Set([
   BLOCK_TYPES.TEXT,
   BLOCK_TYPES.ACCORDION,
   BLOCK_TYPES.CARD,
+  BLOCK_TYPES.DATA_TABLE,
   // AI Compositions size to their generated content (Task #2849): the block
   // reports its rendered height so the parent canvas reflows around it.
   BLOCK_TYPES.AI_COMPOSITION,
@@ -2716,6 +2735,9 @@ function normalizeBlock(block) {
         paddingLeft: 0,
       };
     }
+  }
+  if (type === BLOCK_TYPES.DATA_TABLE) {
+    normalized.content = normalizeTableContent(normalized.content);
   }
 
   // Task #1675: preserve resolved symbol children across re-normalization.
@@ -3244,6 +3266,26 @@ export function validateBlock(block) {
       if (tiers.filter((t) => t?.recommended).length > 1) {
         errors.push('Only one pricing tier can be marked recommended.');
       }
+      break;
+    }
+    case BLOCK_TYPES.DATA_TABLE: {
+      const columns = Array.isArray(c.columns) ? c.columns : [];
+      const rows = Array.isArray(c.rows) ? c.rows : [];
+      if (columns.length < 1) errors.push('Table needs at least one column.');
+      if (columns.length > TABLE_LIMITS.maxColumns) errors.push(`Table supports a maximum of ${TABLE_LIMITS.maxColumns} columns.`);
+      if (rows.length > TABLE_LIMITS.maxRows) errors.push(`Table supports a maximum of ${TABLE_LIMITS.maxRows} rows.`);
+      const ids = new Set();
+      columns.forEach((column, index) => {
+        if (!column?.id || ids.has(column.id)) errors.push(`Table column #${index + 1} has an invalid identifier.`);
+        ids.add(column?.id);
+        if (!String(column?.heading || '').trim()) errors.push(`Table column #${index + 1} requires a heading.`);
+      });
+      rows.forEach((row, index) => {
+        if (!row?.cells || typeof row.cells !== 'object') errors.push(`Table row #${index + 1} is invalid.`);
+        else if (Object.values(row.cells).some((value) => String(value ?? '').length > TABLE_LIMITS.maxCellChars)) {
+          errors.push(`Table row #${index + 1} contains a cell longer than ${TABLE_LIMITS.maxCellChars.toLocaleString()} characters.`);
+        }
+      });
       break;
     }
     case BLOCK_TYPES.TESTIMONIAL_GRID: {
