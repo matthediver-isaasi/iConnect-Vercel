@@ -7,6 +7,13 @@ import 'react-quill/dist/quill.snow.css';
 import DOMPurify from 'dompurify';
 import { AlignLeft, AlignCenter, AlignRight, ChevronDown, ChevronUp } from "lucide-react";
 import { useScreenReader } from "@/contexts/ScreenReaderContext";
+import { FocalPointPicker } from "@/components/FocalPointPicker";
+import {
+  getHeroImageFocusStyle,
+  isCoverImageFit,
+  normalizeHeroImageFocus,
+  resolveHeroImageFocus,
+} from "@/lib/heroImageFocus";
 
 const heroQuillModules = {
   toolbar: [
@@ -452,6 +459,8 @@ export default function IEditHeroElement({ content, variant, settings, previewVi
   const effectiveMobileOverlayStyle = mobile_background_type === 'same' ? overlay_style : mobile_overlay_style;
   const effectiveMobileOverlayStops = mobile_background_type === 'same' ? overlay_gradient_stops : mobile_overlay_gradient_stops;
   const effectiveMobileOverlayAngle = mobile_background_type === 'same' ? overlay_gradient_angle : mobile_overlay_gradient_angle;
+  const desktopImageFocus = resolveHeroImageFocus(content);
+  const mobileImageFocus = resolveHeroImageFocus(content, { mobile: true });
 
   const effectiveHeadingAlign = heading_text_align || text_align;
   const effectiveSubheadingAlign = subheading_text_align || text_align;
@@ -931,7 +940,10 @@ export default function IEditHeroElement({ content, variant, settings, previewVi
               src={image_url} 
               alt={content.heading || 'Hero background'} 
               className="absolute inset-0 w-full h-full"
-              style={{ objectFit: image_fit }}
+              style={{
+                objectFit: image_fit,
+                ...getHeroImageFocusStyle(image_fit, desktopImageFocus),
+              }}
             />
             {overlay_enabled && (
               <div 
@@ -959,7 +971,8 @@ export default function IEditHeroElement({ content, variant, settings, previewVi
                 left: 0,
                 width: '100%',
                 height: '100%',
-                objectFit: effectiveMobileImageFit
+                objectFit: effectiveMobileImageFit,
+                ...getHeroImageFocusStyle(effectiveMobileImageFit, mobileImageFocus),
               }}
             />
             {effectiveMobileOverlayEnabled && (
@@ -1049,7 +1062,65 @@ export default function IEditHeroElement({ content, variant, settings, previewVi
   );
 }
 
-export function IEditHeroElementEditor({ element, onChange }) {
+function ImageFocusControls({ imageUrl, focalPoint, onChange, idPrefix }) {
+  const safeFocus = normalizeHeroImageFocus(focalPoint);
+  const setAxis = (axis, rawValue) => {
+    const value = rawValue === '' ? 50 : Number(rawValue);
+    onChange(normalizeHeroImageFocus({ ...safeFocus, [axis]: value }));
+  };
+
+  return (
+    <div className="space-y-3 rounded-md border border-slate-200 bg-white p-3">
+      <div>
+        <p className="text-sm font-medium">Image Focus</p>
+        <p className="text-xs text-slate-500 mt-1">
+          Choose which part of the image stays visible when the banner crops.
+        </p>
+      </div>
+      <FocalPointPicker
+        imageUrl={imageUrl}
+        focalPoint={safeFocus}
+        onChange={onChange}
+      />
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label htmlFor={`${idPrefix}-focus-x`} className="block text-xs font-medium text-slate-600 mb-1">
+            X position (%)
+          </label>
+          <input
+            id={`${idPrefix}-focus-x`}
+            type="number"
+            min="0"
+            max="100"
+            step="1"
+            value={safeFocus.x}
+            onChange={(event) => setAxis('x', event.target.value)}
+            className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm"
+            data-testid={`${idPrefix}-focus-x`}
+          />
+        </div>
+        <div>
+          <label htmlFor={`${idPrefix}-focus-y`} className="block text-xs font-medium text-slate-600 mb-1">
+            Y position (%)
+          </label>
+          <input
+            id={`${idPrefix}-focus-y`}
+            type="number"
+            min="0"
+            max="100"
+            step="1"
+            value={safeFocus.y}
+            onChange={(event) => setAxis('y', event.target.value)}
+            className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm"
+            data-testid={`${idPrefix}-focus-y`}
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export function IEditHeroElementEditor({ element, onChange, enableFocalPointControls = false }) {
   const defaultButton = { 
     text: '', 
     link: '', 
@@ -1406,6 +1477,10 @@ export function IEditHeroElementEditor({ element, onChange }) {
                           src={content.image_url}
                           alt="Preview"
                           className="w-full h-32 object-cover rounded"
+                          style={getHeroImageFocusStyle(
+                            content.image_fit,
+                            resolveHeroImageFocus(content)
+                          )}
                           onError={(e) => { e.target.style.display = 'none'; }}
                         />
                         <button
@@ -1435,6 +1510,15 @@ export function IEditHeroElementEditor({ element, onChange }) {
                         : 'Image fills the full width and height, keeping proportions. Parts may be cropped if needed.'}
                     </p>
                   </div>
+
+                  {enableFocalPointControls && content.image_url && isCoverImageFit(content.image_fit) && (
+                    <ImageFocusControls
+                      imageUrl={content.image_url}
+                      focalPoint={content.image_focal_point}
+                      onChange={(focus) => updateContent('image_focal_point', focus)}
+                      idPrefix="desktop"
+                    />
+                  )}
 
                   <div className="space-y-3 p-3 bg-slate-50 rounded-md">
                     <div className="flex items-center gap-2">
@@ -2457,6 +2541,10 @@ export function IEditHeroElementEditor({ element, onChange }) {
                             src={content.mobile_image_url}
                             alt="Mobile Preview"
                             className="w-full h-24 object-cover rounded"
+                            style={getHeroImageFocusStyle(
+                              content.mobile_image_fit,
+                              resolveHeroImageFocus(content, { mobile: true })
+                            )}
                             onError={(e) => { e.target.style.display = 'none'; }}
                           />
                           <button
@@ -2481,6 +2569,15 @@ export function IEditHeroElementEditor({ element, onChange }) {
                         <option value="contain">Fit entire image (may show gaps)</option>
                       </select>
                     </div>
+
+                    {enableFocalPointControls && content.mobile_image_url && isCoverImageFit(content.mobile_image_fit) && (
+                      <ImageFocusControls
+                        imageUrl={content.mobile_image_url}
+                        focalPoint={content.mobile_image_focal_point}
+                        onChange={(focus) => updateContent('mobile_image_focal_point', focus)}
+                        idPrefix="mobile"
+                      />
+                    )}
 
                     <div className="space-y-2">
                       <div className="flex items-center gap-2">

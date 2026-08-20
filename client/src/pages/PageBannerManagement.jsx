@@ -19,6 +19,7 @@ import TypographyStyleSelector, { applyTypographyStyle } from "@/components/iedi
 import { createPageUrl } from "@/utils";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import IEditHeroElement, { IEditHeroElementEditor } from "@/components/iedit/elements/IEditHeroElement";
+import { getHeroThumbnailBackgroundStyle, resolveHeroImageFocus } from "@/lib/heroImageFocus";
 
 const fontFamilies = [
   'Poppins',
@@ -462,11 +463,21 @@ export default function PageBannerManagementPage() {
                         <div 
                           className="w-full h-full flex items-center justify-center"
                           style={{
-                            background: banner.hero_content?.background_type === 'gradient' 
-                              ? `linear-gradient(${banner.hero_content?.gradient_angle || 135}deg, ${banner.hero_content?.gradient_start_color || '#3b82f6'}, ${banner.hero_content?.gradient_end_color || '#8b5cf6'})`
-                              : banner.hero_content?.background_type === 'image' && banner.hero_content?.image_url
-                              ? `url(${banner.hero_content.image_url}) center/cover`
-                              : banner.hero_content?.background_color || '#3b82f6'
+                             ...(banner.hero_content?.background_type === 'gradient'
+                               ? {
+                                 background: `linear-gradient(${banner.hero_content?.gradient_angle || 135}deg, ${banner.hero_content?.gradient_start_color || '#3b82f6'}, ${banner.hero_content?.gradient_end_color || '#8b5cf6'})`,
+                               }
+                               : banner.hero_content?.background_type === 'image' && banner.hero_content?.image_url
+                                 ? {
+                                   ...getHeroThumbnailBackgroundStyle(
+                                     banner.hero_content.image_url,
+                                     banner.hero_content.image_fit,
+                                     resolveHeroImageFocus(banner.hero_content)
+                                   ),
+                                 }
+                                 : {
+                                   background: banner.hero_content?.background_color || '#3b82f6',
+                                 })
                           }}
                         >
                           <div className="text-center p-4" style={{ color: banner.hero_content?.text_color || '#ffffff' }}>
@@ -1036,6 +1047,7 @@ export default function PageBannerManagementPage() {
                     </div>
                     <IEditHeroElementEditor
                       element={{ content: editingBanner.hero_content || {} }}
+                      enableFocalPointControls
                       onChange={(updatedElement) => {
                         setEditingBanner({
                           ...editingBanner,
