@@ -86,6 +86,7 @@ import {
   buildSectionGradientBackground,
   buildSectionOverlayBackground,
 } from './registry';
+import { applyFormEmbedResize } from './formEmbedResize';
 
 // ---- Shared small primitives (duplicated minimally from registry.jsx to
 // keep this file self-contained without forcing big imports).
@@ -5280,57 +5281,7 @@ function FormEmbedIframe({ href, title }) {
     if (!iframe) return;
     const blockEl = iframe.closest('[data-cb]');
     if (!blockEl) return;
-
-    const stageEl = blockEl.closest('.canvas-stage');
-
-    // Measure the block's allocated (pre-growth) geometry first so we can
-    // work out how far it grows and which siblings sit beneath it.
-    const originalHeight = blockEl.offsetHeight;
-    const originalBottom = blockEl.offsetTop + originalHeight;
-
-    const prevHeight = blockEl.style.height;
-    const prevOverflow = blockEl.style.overflow;
-    blockEl.style.height = 'auto';
-    blockEl.style.overflow = 'visible';
-
-    const delta = blockEl.offsetHeight - originalHeight;
-
-    // Push down every sibling block whose top sits at or below the form's
-    // original bottom edge. Adjusting inline `top` (rather than a transform)
-    // keeps offset math natural for the stage-height calc below and is fully
-    // reverted on cleanup. Blocks placed beside the form (overlapping its
-    // vertical range) are intentionally left untouched.
-    const movedTops = [];
-    if (stageEl && delta > 0) {
-      stageEl.querySelectorAll('[data-cb]').forEach((el) => {
-        if (el === blockEl || blockEl.contains(el)) return;
-        if (el.offsetTop >= originalBottom - 1) {
-          movedTops.push([el, el.style.top]);
-          el.style.top = `${el.offsetTop + delta}px`;
-        }
-      });
-    }
-
-    let prevStageMinHeight;
-    if (stageEl) {
-      prevStageMinHeight = stageEl.style.minHeight;
-      // Extend the stage to contain the lowest block edge after the form has
-      // grown and the blocks below it have been pushed down.
-      let maxBottom = blockEl.offsetTop + blockEl.offsetHeight;
-      stageEl.querySelectorAll('[data-cb]').forEach((el) => {
-        if (el === blockEl || blockEl.contains(el)) return;
-        const bottom = el.offsetTop + el.offsetHeight;
-        if (bottom > maxBottom) maxBottom = bottom;
-      });
-      stageEl.style.minHeight = `${Math.ceil(maxBottom + 80)}px`;
-    }
-
-    return () => {
-      blockEl.style.height = prevHeight;
-      blockEl.style.overflow = prevOverflow;
-      if (stageEl) stageEl.style.minHeight = prevStageMinHeight;
-      movedTops.forEach(([el, prev]) => { el.style.top = prev; });
-    };
+    return applyFormEmbedResize(blockEl);
   }, [height]);
 
   return (

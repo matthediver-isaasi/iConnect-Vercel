@@ -11,16 +11,9 @@ import {
 import { getBlockDefinition } from './blocks/registry';
 import { BLOCK_TYPES, isAspectHeightCarousel, resolveAspectReflowReferenceHeight } from '../../lib/canvasDesign';
 import { computeBoxGrowthDelta, computeCardReferenceHeight, normalizeMeasuredLength, updateReflowBaseline } from './autoHeightBake';
+import { computeReflowStageHeight, offsetForStoredY } from './reflowStageHeight';
 
 const AccordionReflowCtx = createContext(null);
-
-// Task #2840: slack (px) applied when deciding whether a SIGNED
-// (aspect-carousel) row pushes a block below it — see getOffset. Covers the
-// few-px rounding drift between where an author drags a block flush with the
-// carousel's visible bottom on the editor stage and the exact aspect-derived
-// reference bottom. Small enough to never capture blocks intentionally
-// overlapping the carousel (overlays sit far above the bottom edge).
-const SIGNED_ROW_PUSH_TOLERANCE = 12;
 
 export function useAccordionReflow() {
   return useContext(AccordionReflowCtx);
@@ -496,6 +489,7 @@ export function AccordionReflowProvider({ children, blocks, resolveGeom, editorM
         cur.renderedHeight = Math.max(cur.renderedHeight, e.effectiveH);
         cur.signed = cur.signed && e.signed;
         cur.ids.push(e.id);
+        cur.members.push(e);
         if (!e.isCard) {
           const mb = e.top + e.effectiveH;
           cur.nonCardMeasuredBottom = cur.nonCardMeasuredBottom === null
@@ -519,6 +513,7 @@ export function AccordionReflowProvider({ children, blocks, resolveGeom, editorM
           renderedHeight: e.effectiveH,
           signed: e.signed,
           ids: [e.id],
+          members: [e],
           nonCardMeasuredBottom: e.isCard ? null : e.top + e.effectiveH,
           nonCardStoredBottom: e.isCard ? null : e.bottom,
         };
@@ -577,22 +572,10 @@ export function AccordionReflowProvider({ children, blocks, resolveGeom, editorM
       // stored positions so dragging/dropping never shifts unrelated blocks.
       if (editorMode) return 0;
       if (rowGroups.length === 0) return 0;
-      let offset = 0;
-      for (const grp of rowGroups) {
-        // Task #2840: signed (aspect-carousel) rows allow a few px of slack.
-        // Their reference bottom is the aspect-DERIVED height at the stage
-        // width (e.g. 375 × ratio → 619px) while authors drag the blocks
-        // below flush with the VISIBLE bottom on the editor stage and can
-        // land a few px short (616 vs 619). The strict `refBottom <= storedY`
-        // test would skip exactly those flush blocks, so the carousel's
-        // viewport-driven grow/shrink would leave them behind (overlap on
-        // wide phones, gap on narrow ones). The tolerance only widens the
-        // band for signed rows; push-down-only rows keep the strict test so
-        // author-intended overlaps are never disturbed.
-        const slack = grp.signed ? SIGNED_ROW_PUSH_TOLERANCE : 0;
-        if (grp.refBottom - slack <= storedY) offset += grp.growth;
-      }
-      return offset;
+      // Task #2840: signed (aspect-carousel) rows allow a few px of slack.
+      // Keep this shared with the stage-bottom calculation so the page edge
+      // follows the exact displacement applied to its blocks.
+      return offsetForStoredY(rowGroups, storedY);
     },
     [editorMode, rowGroups],
   );
@@ -662,9 +645,9 @@ export function AccordionReflowProvider({ children, blocks, resolveGeom, editorM
    * type that wraps other blocks. A block is "inside" the container when its
    * stored top ≥ container.y AND its stored bottom ≤ container.y + container.h.
    *
-   * SECTIONS are grow-only (non-negative): per-row growth is push-down-only, so
-   * a section never shrinks to close author-intended gaps around its contained
-   * blocks; it only grows when contained content expands.
+   * SECTIONS follow the net growth of their contained rows. Ordinary rows are
+   * grow-only; the existing signed aspect-carousel exception can shrink a
+   * section so it continues to wrap the carousel's deterministic live height.
    *
    * BOXES (Task #2583) are decorative backgrounds drawn behind overlapping text
    * and additionally SHRINK back toward their authored height when that content
@@ -726,7 +709,8 @@ export function AccordionReflowProvider({ children, blocks, resolveGeom, editorM
           rows,
         });
       }
-      // Sections: grow-only by the sum of contained row growth (unchanged).
+      // Sections: sum contained row growth. Ordinary rows are grow-only; signed
+      // aspect-carousel rows retain their existing deterministic shrink path.
       let total = 0;
       for (const grp of rowGroups) {
         if (grp.top >= containerGeom.y && grp.bottom <= containerBottom) {
@@ -741,8 +725,20 @@ export function AccordionReflowProvider({ children, blocks, resolveGeom, editorM
   // Back-compat alias: sections are just one kind of container.
   const getSectionGrowth = getContainerGrowth;
 
+  const getStageHeight = useCallback(
+    (baseHeight) => computeReflowStageHeight({
+      baseHeight,
+      blocks,
+      resolveGeom,
+      rowGroups,
+      editorMode,
+      getContainerGrowth,
+    }),
+    [blocks, resolveGeom, rowGroups, editorMode, getContainerGrowth],
+  );
+
   return (
-    <AccordionReflowCtx.Provider value={{ editorMode, zoom, reportHeight, reportSize, getOffset, getMeasuredHeight, getContentHeight, getRowHeight, getTotalGrowth, getSectionGrowth, getContainerGrowth }}>
+    <AccordionReflowCtx.Provider value={{ editorMode, zoom, reportHeight, reportSize, getOffset, getMeasuredHeight, getContentHeight, getRowHeight, getTotalGrowth, getStageHeight, getSectionGrowth, getContainerGrowth }}>
       {children}
     </AccordionReflowCtx.Provider>
   );

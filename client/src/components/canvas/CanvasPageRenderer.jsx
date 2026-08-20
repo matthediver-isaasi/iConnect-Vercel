@@ -489,29 +489,25 @@ function useAnchorSmoothScroll(containerRef, enabled) {
 
 /**
  * Inner stage element that lives inside AccordionReflowProvider so it can
- * read getTotalGrowth() and extend the stage height when accordions expand.
+ * derive the real lowest rendered block bottom as content reflows.
  * The CSS stylesheet sets an explicit `height:` on .canvas-stage; we override
  * it via `minHeight` so blocks that are pushed down are never clipped.
  */
 function CanvasPageStage({ children, lcpBlockId, forcedBreakpoint, windowBp, activeBp, pinStageWidth }) {
   const reflow = useAccordionReflow();
-  const growth = reflow ? reflow.getTotalGrowth() : 0;
   // Baseline stage height at the active breakpoint from stored geometry.
   const baseHeight = useMemo(
     () => stageHeightForBreakpoint(children, activeBp, { buffer: 0 }),
     [children, activeBp],
   );
-  // - growth > 0: minHeight overrides the CSS `height` when larger (stage grows)
-  // - growth = 0: no override (CSS height is authoritative)
-  // - growth < 0 (Task #2824 — only rows of aspect-height Hero Carousels can
-  //   report signed shrink): override `height` directly so the stage pulls
-  //   the page bottom up with the shrunken carousel instead of leaving a
-  //   dead gap. All other rows are push-down-only, so author-intended gaps
-  //   are still preserved exactly as the editor shows them.
-  const netHeight = baseHeight + growth;
-  const stageStyle = growth > 0
-    ? { minHeight: netHeight }
-    : (growth < 0 ? { height: Math.max(0, netHeight) } : undefined);
+  const renderedHeight = reflow ? reflow.getStageHeight(baseHeight) : baseHeight;
+  // - renderedHeight > base: grow to the true lowest pushed/rendered bottom.
+  // - renderedHeight = base: no override, keeping non-reflow pages identical.
+  // - renderedHeight < base: signed aspect-height carousel shrink only; pull
+  //   the page edge up to the true lowest bottom.
+  const stageStyle = renderedHeight > baseHeight
+    ? { minHeight: renderedHeight }
+    : (renderedHeight < baseHeight ? { height: Math.max(0, renderedHeight) } : undefined);
 
   // Embedded previews (forceBreakpoint prop) live in the host document, not
   // a device-sized iframe, so the viewport-based @media rules in the page
