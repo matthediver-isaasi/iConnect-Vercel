@@ -1,6 +1,7 @@
 // v2.1.0 - Added non-member guest booking support
 import { useState, useMemo, Fragment } from "react";
 import { resolveEventCtaLabel } from "@/lib/eventCtaLabel";
+import { isImmediateEvent } from "@shared/eventTiming.js";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -54,8 +55,9 @@ import {
 
 // formatEventTime, formatEventDate, and is24HourFormat are imported from @/utils/timeFormat
 
-// Check if event is past by comparing dates
+// Check if event is past by comparing dates. Immediate events are never past.
 const isEventInPast = (event) => {
+  if (isImmediateEvent(event?.status)) return false;
   const dateStr = event.end_date || event.start_date;
   if (!dateStr) return false;
   try {
@@ -387,6 +389,9 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
   
   // For TBC events, we don't show dates
   const isTbcEvent = event.status === 'tbc';
+
+  // Immediate events never show date/time/timezone or training agenda
+  const isImmediate = isImmediateEvent(event?.status);
   
   // Check if event is in the past
   const isEventPast = isEventInPast(event);
@@ -833,13 +838,14 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
         </CardHeader>
 
         <CardContent className="space-y-3">
+          {/* Immediate events show no date/time/timezone or training agenda */}
           {/* For TBC events, show "To be confirmed" instead of dates */}
-          {event.status === 'tbc' ? (
+          {isImmediate ? null : event.status === 'tbc' ? (
             <div className="flex items-center gap-2 text-sm text-blue-600">
               <Calendar className="w-4 h-4 text-blue-400" />
               <span className="font-medium">Date to be confirmed</span>
             </div>
-          ) : (event.is_training && Array.isArray(agendaSummary) && agendaSummary.length > 0) ? (
+          ) : (!isImmediate && event.is_training && Array.isArray(agendaSummary) && agendaSummary.length > 0) ? (
             /* Training events with an agenda show a compact date+type agenda
                instead of the single date/time rows (empty agenda falls back). */
             <TrainingMiniAgenda items={agendaSummary} testId={`agenda-event-${event.id}`} />

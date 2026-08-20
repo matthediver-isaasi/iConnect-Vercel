@@ -25,6 +25,8 @@
 // exported for unit tests (memberAiStructured.test.mjs); DB access lives only
 // in executeQuerySpec / the fetch helpers.
 
+import { PUBLIC_SIMPLE_EVENT_STATUSES } from '../../shared/eventTiming.js';
+
 // ---------------------------------------------------------------------------
 // Whitelisted entity catalog
 //
@@ -328,11 +330,11 @@ export function isOrgRowVisible(row, { excludedOrgIds } = {}) {
   return true;
 }
 
-// Mirrors api/public/events.js + memberContentVisibility.js: published/tbc,
+// Mirrors api/public/events.js + memberContentVisibility.js: published/tbc/immediate,
 // never draft, group events only for members of the group (or when public).
 export function isEventRowVisible(row, { isAdmin = false, groupIds = new Set() } = {}) {
   if (!row) return false;
-  if (!['published', 'tbc'].includes(row.status)) return false;
+  if (!PUBLIC_SIMPLE_EVENT_STATUSES.includes(row.status)) return false;
   if (row.event_state === 'draft') return false;
   if (!isAdmin && row.member_group_id) {
     if (row.group_event_public !== true && !groupIds.has(row.member_group_id)) {
@@ -827,7 +829,7 @@ async function fetchVisibleEvents({ supabase, tenantId, viewer, complex }) {
         'id, title, status, event_state, member_group_id, group_event_public, event_type, location, start_date, end_date, available_seats'
       )
       .eq('tenant_id', tenantId)
-      .in('status', ['published', 'tbc'])
+      .in('status', complex ? ['published', 'tbc'] : PUBLIC_SIMPLE_EVENT_STATUSES)
   );
   const ctx = { isAdmin: viewer.isAdmin, groupIds: viewer.groupIds };
   return rows.filter((r) =>

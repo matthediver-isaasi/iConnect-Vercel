@@ -14,9 +14,17 @@ import TenantCtaButton from "@/components/common/TenantCtaButton";
 import { getSeatStatusLabels } from "@/lib/seatStatusLabels";
 import TrainingMiniAgenda from "@/components/events/TrainingMiniAgenda";
 import { getTenantCtaLabel, isEventRegistrationClosed, resolveEventCtaLabel } from "@/lib/eventCtaLabel";
+import {
+  isImmediateEvent as isImmediateEventTiming,
+  compareEventsByTiming,
+} from "@shared/eventTiming";
 
+// Mini agenda shown only for non-immediate training events with agenda data.
 const hasMiniAgenda = (event) =>
-  !!event.is_training && Array.isArray(event.agenda_summary) && event.agenda_summary.length > 0;
+  !!event.is_training &&
+  !isImmediateEventTiming(event?.status) &&
+  Array.isArray(event.agenda_summary) &&
+  event.agenda_summary.length > 0;
 
 const DEFAULT_TIMEZONE = "Europe/London";
 
@@ -123,11 +131,9 @@ export default function PublicEventsPage() {
   const events = useMemo(() => {
     const filteredSimple = allSimpleEvents.filter(hasPublicTickets);
     const combined = [...filteredSimple, ...allComplexEvents];
-    combined.sort((a, b) => {
-      const dateA = a.start_date ? new Date(a.start_date).getTime() : 0;
-      const dateB = b.start_date ? new Date(b.start_date).getTime() : 0;
-      return dateA - dateB;
-    });
+    // Sort: scheduled/dated first chronologically, immediate next (by title/id),
+    // TBC/no-date last. Immediate events never land under the TBC banner.
+    combined.sort(compareEventsByTiming);
     return combined;
   }, [allSimpleEvents, allComplexEvents]);
 
@@ -219,6 +225,7 @@ export default function PublicEventsPage() {
                     ? systemSettings.find(s => s.setting_key === 'show_event_card_prices')?.setting_value === 'true'
                     : false;
 
+                  const isFeaturedImmediate = isImmediateEventTiming(event?.status);
                   return (
                     <Card
                       key={`featured-${isComplex ? 'complex' : 'simple'}-${event.id}`}
@@ -256,9 +263,10 @@ export default function PublicEventsPage() {
                       </CardHeader>
 
                       <CardContent className="space-y-3">
-                        {hasMiniAgenda(event) ? (
+                        {/* Immediate events: no date/time/timezone or training agenda */}
+                        {!isFeaturedImmediate && hasMiniAgenda(event) ? (
                           <TrainingMiniAgenda items={event.agenda_summary} testId={`agenda-featured-${event.id}`} />
-                        ) : (
+                        ) : !isFeaturedImmediate ? (
                         <>
                         {event.start_date && (
                           <div className="flex items-center gap-2 text-sm text-slate-600">
@@ -291,7 +299,7 @@ export default function PublicEventsPage() {
                           </div>
                         )}
                         </>
-                        )}
+                        ) : null}
 
                         {event.location && !event.is_training && (
                           <div className="flex items-center gap-2 text-sm text-slate-600">
@@ -358,6 +366,7 @@ export default function PublicEventsPage() {
                 : baseDetailUrl;
               const isExternalDetailUrl = /^https?:\/\//i.test(detailUrl);
 
+              const isCardImmediate = isImmediateEventTiming(event?.status);
               return (
                 <Card
                   key={`${isComplex ? 'complex' : 'simple'}-${event.id}`}
@@ -395,9 +404,10 @@ export default function PublicEventsPage() {
                   </CardHeader>
 
                   <CardContent className="space-y-3">
-                    {hasMiniAgenda(event) ? (
+                    {/* Immediate events: no date/time/timezone or training agenda */}
+                    {!isCardImmediate && hasMiniAgenda(event) ? (
                       <TrainingMiniAgenda items={event.agenda_summary} testId={`agenda-public-${event.id}`} />
-                    ) : (
+                    ) : !isCardImmediate ? (
                     <>
                     {event.start_date && (
                       <div className="flex items-center gap-2 text-sm text-slate-600">
@@ -430,7 +440,7 @@ export default function PublicEventsPage() {
                       </div>
                     )}
                     </>
-                    )}
+                    ) : null}
 
                     {event.location && !event.is_training && (
                       <div className="flex items-center gap-2 text-sm text-slate-600">

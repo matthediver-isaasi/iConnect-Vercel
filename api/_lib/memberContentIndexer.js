@@ -17,6 +17,7 @@ import { chunkMemberContent } from './memberContentChunker.js';
 import { getDefaultOpenAIClient, embedTexts, EMBEDDING_MODEL } from './helpArticleIndexer.js';
 import { CONTENT_TYPES, PUBLIC_CANVAS_LAYOUT_TYPES } from './memberContentVisibility.js';
 import { collectCanvasSymbolIds } from '../../client/src/lib/canvasText.js';
+import { isPublicSimpleEventStatus } from '../../shared/eventTiming.js';
 
 export { getDefaultOpenAIClient, EMBEDDING_MODEL };
 
@@ -115,7 +116,9 @@ export function isIndexable(contentType, item) {
       }
       return item.status === 'active';
     case 'event':
+      return isPublicSimpleEventStatus(item.status) && item.event_state !== 'draft';
     case 'complex_event':
+      // complex events: immutable allowlist — no 'immediate'
       return ['published', 'tbc'].includes(item.status) && item.event_state !== 'draft';
     case 'news_post':
       return item.status === 'published';

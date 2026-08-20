@@ -1,4 +1,8 @@
 import { supabase } from './database.js';
+import {
+  PUBLIC_SIMPLE_EVENT_STATUSES,
+  isImmediateEvent,
+} from '../../shared/eventTiming.js';
 import { getArticleUrlConfig } from './articleUrlPaths.js';
 import { resolveBlogPostAuthors } from './blogPostAuthors.js';
 import { resolveMicrositeByPrefix } from './microsites.js';
@@ -80,7 +84,7 @@ async function resolveEvent(tenantId, { id, slug }) {
     .select('id, title, slug, summary, description, image_url, start_date, location, status, tenant_id, seo_title, seo_description, og_image_url')
     .eq('tenant_id', tenantId)
     .is('member_group_id', null)
-    .in('status', ['published', 'tbc']);
+    .in('status', PUBLIC_SIMPLE_EVENT_STATUSES);
   if (slug) q = q.eq('slug', slug);
   else q = q.eq('id', id);
   let { data, error } = await q.maybeSingle();
@@ -89,7 +93,7 @@ async function resolveEvent(tenantId, { id, slug }) {
       .from('event')
       .select('id, title, slug, summary, description, image_url, start_date, location, status, seo_title, seo_description, og_image_url')
       .is('member_group_id', null)
-      .in('status', ['published', 'tbc']);
+      .in('status', PUBLIC_SIMPLE_EVENT_STATUSES);
     if (slug) fb = fb.eq('slug', slug);
     else fb = fb.eq('id', id);
     let r = await fb.maybeSingle();
@@ -99,7 +103,7 @@ async function resolveEvent(tenantId, { id, slug }) {
         .from('event')
         .select('id, title, slug, summary, description, image_url, start_date, location, status')
         .is('member_group_id', null)
-        .in('status', ['published', 'tbc']);
+        .in('status', PUBLIC_SIMPLE_EVENT_STATUSES);
       if (slug) fb2 = fb2.eq('slug', slug);
       else fb2 = fb2.eq('id', id);
       r = await fb2.maybeSingle();
@@ -107,7 +111,7 @@ async function resolveEvent(tenantId, { id, slug }) {
     data = r.data;
   }
   if (!data) return null;
-  const dateStr = data.start_date
+  const dateStr = !isImmediateEvent(data) && data.start_date
     ? new Date(data.start_date).toLocaleDateString('en-GB', { dateStyle: 'long' })
     : '';
   const descBase = stripHtml(data.summary || data.description);

@@ -3,6 +3,7 @@ import React, { useState, useEffect, useRef, useMemo, useCallback } from "react"
 import { base44 } from "@/api/base44Client";
 import { publicClient } from "@/api/publicClient";
 import { supabase } from "@/api/supabaseClient";
+import { isImmediateEvent as isImmediateEventTiming } from "@shared/eventTiming";
 import { useQuery } from "@tanstack/react-query";
 import { useEventData, useEventDataBySlug, useMyGroupIds } from "@/hooks/useEventsData";
 import PublicDocumentsSection from "@/components/events/PublicDocumentsSection";
@@ -495,7 +496,7 @@ export default function EventDetailsPage() {
     enabled: !!event?.id && !!event?.is_complex
   });
 
-  // Training-event agenda lines (Task #3419)
+  // Training-event agenda lines (Task #3419). Never fetched for immediate events.
   const { data: agendaLines = [] } = useQuery({
     queryKey: ['event-agenda', event?.id],
     queryFn: async () => {
@@ -503,7 +504,7 @@ export default function EventDetailsPage() {
       if (!response.ok) return [];
       return response.json();
     },
-    enabled: !!event?.id && !!event?.is_training
+    enabled: !!event?.id && !!event?.is_training && !isImmediateEventTiming(event?.status)
   });
 
   // Speakers assigned to this event — event-level plus any per-agenda-item
@@ -1663,7 +1664,8 @@ export default function EventDetailsPage() {
                 </div>
                 
                 <div className="space-y-3 pt-4">
-                  {startDate && (
+                  {/* Immediate events: no date, time, or timezone */}
+                  {!isImmediateEventTiming(event?.status) && startDate && (
                     <div className="flex items-center gap-3 text-slate-700">
                       <Calendar className="w-5 h-5 text-slate-400" />
                       <span className="font-medium">{format(startDate, "EEEE, MMMM d, yyyy")}</span>
@@ -1673,7 +1675,7 @@ export default function EventDetailsPage() {
                     </div>
                   )}
 
-                  {startDate && (
+                  {!isImmediateEventTiming(event?.status) && startDate && (
                     <div className="flex items-center gap-3 text-slate-700">
                       <Clock className="w-5 h-5 text-slate-400" />
                       <span>{formatEventTime(startDate, systemSettings, event?.timezone)}</span>
@@ -1858,8 +1860,8 @@ export default function EventDetailsPage() {
                 </CardContent>
               )}
 
-              {/* Training agenda (Task #3419) */}
-              {event.is_training && agendaLines.length > 0 && (
+              {/* Training agenda (Task #3419). Hidden for immediate events. */}
+              {event.is_training && agendaLines.length > 0 && !isImmediateEventTiming(event?.status) && (
                 <CardContent className="pt-6 border-t border-slate-200">
                   <h3 className="font-semibold text-slate-900 mb-4 flex items-center gap-2">
                     <Calendar className="w-5 h-5 text-blue-600" />

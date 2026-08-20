@@ -47,7 +47,8 @@ export default async function handler(req, res) {
       .select('id')
       .in('id', ids)
       .eq('tenant_id', tenant.id)
-      .eq('is_training', true);
+      .eq('is_training', true)
+      .neq('status', 'immediate');
     if (!isTenantMember) {
       eventQuery = eventQuery
         .in('status', ['published', 'tbc'])

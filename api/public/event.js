@@ -1,5 +1,9 @@
 import { createClient } from '@supabase/supabase-js';
 import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
+import {
+  PUBLIC_SIMPLE_EVENT_DETAIL_STATUSES,
+  suppressImmediateSchedule,
+} from '../../shared/eventTiming.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
@@ -73,7 +77,7 @@ export default async function handler(req, res) {
         group_event_public
       `)
       .eq('tenant_id', tenant.id)
-      .in('status', ['published', 'tbc', 'draft']);
+      .in('status', PUBLIC_SIMPLE_EVENT_DETAIL_STATUSES);
       // Task #3508: group events ARE returned by the single-event lookup so
       // anyone with a direct link can view them; booking is gated separately
       // (server-side membership check in the booking paths). List endpoints
@@ -85,23 +89,26 @@ export default async function handler(req, res) {
       query = query.eq('id', eventId);
     }
 
-    const { data: event, error } = await query.single();
+    const { data: rawEvent, error } = await query.single();
 
-    if (error || !event) {
+    if (error || !rawEvent) {
       return res.status(404).json({ error: 'Event not found' });
     }
 
     // Task #3508: include the linked member group's name so the UI can render
     // a "join <group> to book" dialogue for non-members.
     let memberGroupName = null;
-    if (event.member_group_id) {
+    if (rawEvent.member_group_id) {
       const { data: groupRow } = await supabase
         .from('member_group')
         .select('id, name')
-        .eq('id', event.member_group_id)
+        .eq('id', rawEvent.member_group_id)
         .maybeSingle();
       memberGroupName = groupRow?.name || null;
     }
+
+    // Immediate events: suppress schedule fields defensively before building payload
+    const event = suppressImmediateSchedule(rawEvent);
 
     const allowGuestsToViewAllTickets = event.pricing_config?.allowGuestsToViewAllTickets || false;
 

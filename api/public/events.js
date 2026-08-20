@@ -1,5 +1,10 @@
 import { createClient } from '@supabase/supabase-js';
 import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
+import {
+  PUBLIC_SIMPLE_EVENT_STATUSES,
+  isImmediateEvent,
+  suppressImmediateSchedule,
+} from '../../shared/eventTiming.js';
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -67,7 +72,7 @@ export default async function handler(req, res) {
         group_event_public
       `)
       .eq('tenant_id', tenant.id)
-      .in('status', ['published', 'tbc'])
+      .in('status', PUBLIC_SIMPLE_EVENT_STATUSES)
       // Surface ordinary (non-group) events PLUS public group events
       // (group_event_public = true). Group-only events (false / default) and
       // old bespoke RSVP group events are never leaked to anonymous visitors.
@@ -81,8 +86,8 @@ export default async function handler(req, res) {
 
     // Batched agenda summaries for Training events (dates + type label only,
     // never Zoom/LMS links) so cards can show a mini agenda without
-    // per-event calls.
-    const trainingIds = (rawEvents || []).filter(e => e.is_training).map(e => e.id);
+    // per-event calls. Immediate events never expose training agenda.
+    const trainingIds = (rawEvents || []).filter(e => e.is_training && !isImmediateEvent(e)).map(e => e.id);
     const agendaByEvent = {};
     if (trainingIds.length > 0) {
       const { data: agendaLines, error: agendaError } = await supabase
@@ -109,7 +114,9 @@ export default async function handler(req, res) {
       }
     }
 
-    const events = (rawEvents || []).map(event => {
+    const events = (rawEvents || []).map(rawEvent => {
+      // Immediate events: suppress schedule fields and training agenda
+      const event = suppressImmediateSchedule(rawEvent);
       const allTicketClasses = event.pricing_config?.ticket_classes || [];
       const allPrices = allTicketClasses
         .map(tc => {

@@ -137,8 +137,8 @@ test('event: unpublished status hidden', () => {
   assert.equal(isChunkVisibleToMember(chunk, memberCtx()), false);
 });
 
-test('event: published and tbc are visible', () => {
-  for (const status of ['published', 'tbc']) {
+test('event: published, tbc, and immediate are visible', () => {
+  for (const status of ['published', 'tbc', 'immediate']) {
     const chunk = { tenant_id: TENANT, content_type: 'event', status };
     assert.equal(isChunkVisibleToMember(chunk, memberCtx()), true);
   }
@@ -165,7 +165,7 @@ test('event: group-private hidden unless in group or group_event_public', () => 
   );
 });
 
-test('complex_event uses the same rules as event', () => {
+test('complex_event keeps published/tbc timing and rejects immediate', () => {
   const chunk = {
     tenant_id: TENANT,
     content_type: 'complex_event',
@@ -179,6 +179,10 @@ test('complex_event uses the same rules as event', () => {
       memberCtx()
     ),
     true
+  );
+  assert.equal(
+    isChunkVisibleToMember({ ...chunk, event_state: 'active', status: 'immediate' }, memberCtx()),
+    false
   );
 });
 

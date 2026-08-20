@@ -312,6 +312,7 @@ test('event visibility: draft/unpublished never visible', () => {
   const ctx = { isAdmin: false, groupIds: new Set() };
   assert.equal(isEventRowVisible({ status: 'published' }, ctx), true);
   assert.equal(isEventRowVisible({ status: 'tbc' }, ctx), true);
+  assert.equal(isEventRowVisible({ status: 'immediate' }, ctx), true);
   assert.equal(isEventRowVisible({ status: 'draft' }, ctx), false);
   assert.equal(isEventRowVisible({ status: 'cancelled' }, ctx), false);
   assert.equal(

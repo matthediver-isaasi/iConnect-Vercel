@@ -76,10 +76,16 @@ import {
   getFilterTagLabels,
   parseEventTypes
 } from "@/lib/utils";
+import {
+  isImmediateEvent as isImmediateEventTiming,
+  compareEventsByTiming,
+} from "@shared/eventTiming";
 
 const DEFAULT_TIMEZONE = "Europe/London";
 
 const isEventInPast = (event) => {
+  // Immediate events are never in the past
+  if (isImmediateEventTiming(event?.status)) return false;
   const dateStr = event.end_date || event.start_date;
   if (!dateStr) return false;
   try {
@@ -495,8 +501,9 @@ export default function EventsPage({
     return filtered;
   }, [events, canToggleDrafts, showDraftEvents]);
 
-  // Helper to check if event is in the past (timezone-aware)
+  // Helper to check if event is in the past (timezone-aware). Immediate events are never past.
   const isEventPast = (event) => {
+    if (isImmediateEventTiming(event?.status)) return false;
     const dateStr = event.end_date || event.start_date;
     if (!dateStr) return false;
     try {
@@ -709,18 +716,10 @@ export default function EventsPage({
       return sortBy === 'price_asc' ? priceA - priceB : priceB - priceA;
     });
   } else {
-    filteredEvents.sort((a, b) => {
-      const aIsTbc = a.status === 'tbc' || !a.start_date;
-      const bIsTbc = b.status === 'tbc' || !b.start_date;
-      if (aIsTbc && !bIsTbc) return 1;
-      if (!aIsTbc && bIsTbc) return -1;
-      if (aIsTbc && bIsTbc) {
-        return (a.title || '').localeCompare(b.title || '');
-      }
-      const dateA = new Date(a.start_date);
-      const dateB = new Date(b.start_date);
-      return dateA.getTime() - dateB.getTime();
-    });
+    // Sort: scheduled/dated first chronologically, immediate next (by title/id),
+    // TBC/no-date last. Uses shared compareEventsByTiming so immediate events
+    // never land under the TBC banner.
+    filteredEvents.sort(compareEventsByTiming);
   }
 
   const featuredEvents = filteredEvents.filter(e => e.is_featured === true);
@@ -1922,12 +1921,13 @@ export default function EventsPage({
                               )}
                             </CardHeader>
                             <CardContent className="space-y-3">
-                              {event.status === 'tbc' ? (
+                              {/* Immediate events: no date/time/timezone */}
+                              {!isImmediateEventTiming(event.status) && (event.status === 'tbc' ? (
                                 <div className="flex items-center gap-2 text-sm text-blue-600">
                                   <Calendar className="w-4 h-4 text-blue-400" />
                                   <span className="font-medium">Date to be confirmed</span>
                                 </div>
-                              ) : event.start_date && (
+                              ) : event.start_date ? (
                                 <div className="flex items-center gap-2 text-sm text-slate-600">
                                   <Calendar className="w-4 h-4 text-slate-400 shrink-0" />
                                   <span>
@@ -1935,14 +1935,14 @@ export default function EventsPage({
                                     {event.end_date && !event.days_nonconsecutive && ` - ${formatInTimeZone(parseISO(event.end_date), eventTimezone, "MMM d, yyyy")}`}
                                   </span>
                                 </div>
-                              )}
-                              {event.status !== 'tbc' && event.days_nonconsecutive && event.day_count > 1 && (
+                              ) : null)}
+                              {!isImmediateEventTiming(event.status) && event.status !== 'tbc' && event.days_nonconsecutive && event.day_count > 1 && (
                                 <div className="flex items-center gap-2 text-sm text-slate-600" data-testid={`text-day-count-${event.id}`}>
                                   <CalendarDays className="w-4 h-4 text-slate-400 shrink-0" />
                                   <span>{event.day_count} days</span>
                                 </div>
                               )}
-                              {event.status !== 'tbc' && event.days_nonconsecutive && event.day_count > 1 && event.custom_duration_explainer && (
+                              {!isImmediateEventTiming(event.status) && event.status !== 'tbc' && event.days_nonconsecutive && event.day_count > 1 && event.custom_duration_explainer && (
                                 <div className="flex items-center gap-2 text-sm text-slate-600" data-testid={`text-duration-explainer-${event.id}`}>
                                   <Info className="w-4 h-4 text-slate-400 shrink-0" />
                                   <span>{event.custom_duration_explainer}</span>
@@ -2283,12 +2283,13 @@ export default function EventsPage({
                           )}
                         </CardHeader>
                         <CardContent className="space-y-3">
-                          {event.status === 'tbc' ? (
+                          {/* Immediate events: no date/time/timezone */}
+                          {!isImmediateEventTiming(event.status) && (event.status === 'tbc' ? (
                             <div className="flex items-center gap-2 text-sm text-blue-600">
                               <Calendar className="w-4 h-4 text-blue-400" />
                               <span className="font-medium">Date to be confirmed</span>
                             </div>
-                          ) : event.start_date && (
+                          ) : event.start_date ? (
                             <div className="flex items-center gap-2 text-sm text-slate-600">
                               <Calendar className="w-4 h-4 text-slate-400 shrink-0" />
                               <span>
@@ -2296,14 +2297,14 @@ export default function EventsPage({
                                 {event.end_date && !event.days_nonconsecutive && ` - ${formatInTimeZone(parseISO(event.end_date), eventTimezone, "MMM d, yyyy")}`}
                               </span>
                             </div>
-                          )}
-                          {event.status !== 'tbc' && event.days_nonconsecutive && event.day_count > 1 && (
+                          ) : null)}
+                          {!isImmediateEventTiming(event.status) && event.status !== 'tbc' && event.days_nonconsecutive && event.day_count > 1 && (
                             <div className="flex items-center gap-2 text-sm text-slate-600" data-testid={`text-grid-day-count-${event.id}`}>
                               <CalendarDays className="w-4 h-4 text-slate-400 shrink-0" />
                               <span>{event.day_count} days</span>
                             </div>
                           )}
-                          {event.status !== 'tbc' && event.days_nonconsecutive && event.day_count > 1 && event.custom_duration_explainer && (
+                          {!isImmediateEventTiming(event.status) && event.status !== 'tbc' && event.days_nonconsecutive && event.day_count > 1 && event.custom_duration_explainer && (
                             <div className="flex items-center gap-2 text-sm text-slate-600" data-testid={`text-grid-duration-explainer-${event.id}`}>
                               <Info className="w-4 h-4 text-slate-400 shrink-0" />
                               <span>{event.custom_duration_explainer}</span>

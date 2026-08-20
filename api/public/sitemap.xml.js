@@ -1,4 +1,8 @@
 import { supabase } from '../_lib/database.js';
+import {
+  PUBLIC_SIMPLE_EVENT_STATUSES,
+  isImmediateEvent,
+} from '../../shared/eventTiming.js';
 import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
 import { getArticleUrlConfig } from '../_lib/articleUrlPaths.js';
 import { listActiveMicrosites } from '../_lib/microsites.js';
@@ -86,9 +90,9 @@ export default async function handler(req, res) {
 
     let eventsResult = await supabase
       .from('event')
-      .select('id, slug, start_date')
+      .select('id, slug, start_date, status')
       .eq('tenant_id', tenant.id)
-      .in('status', ['published', 'tbc'])
+      .in('status', PUBLIC_SIMPLE_EVENT_STATUSES)
       .is('member_group_id', null)
       .order('start_date', { ascending: false });
 
@@ -96,8 +100,8 @@ export default async function handler(req, res) {
       console.warn('[Sitemap] event.tenant_id not recognised by PostgREST, retrying without tenant filter');
       eventsResult = await supabase
         .from('event')
-        .select('id, slug, start_date')
-        .in('status', ['published', 'tbc'])
+        .select('id, slug, start_date, status')
+        .in('status', PUBLIC_SIMPLE_EVENT_STATUSES)
         .is('member_group_id', null)
         .order('start_date', { ascending: false });
     }
@@ -173,7 +177,7 @@ export default async function handler(req, res) {
           : `/EventDetails?id=${event.id}`;
         urls.push({
           loc: baseUrl + path,
-          lastmod: formatDate(event.start_date),
+          lastmod: isImmediateEvent(event) ? null : formatDate(event.start_date),
           changefreq: 'weekly',
           priority: '0.7'
         });

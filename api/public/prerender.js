@@ -1,4 +1,8 @@
 import { supabase } from '../_lib/database.js';
+import {
+  PUBLIC_SIMPLE_EVENT_STATUSES,
+  isImmediateEvent,
+} from '../../shared/eventTiming.js';
 import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
 import { getArticleUrlConfig } from '../_lib/articleUrlPaths.js';
 import { resolveMicrositeByPrefix } from '../_lib/microsites.js';
@@ -124,7 +128,7 @@ async function renderEventPage(supabaseClient, tenant, slug, eventId, baseUrl) {
     return null;
   }
 
-  query = query.in('status', ['published', 'tbc']);
+  query = query.in('status', PUBLIC_SIMPLE_EVENT_STATUSES);
 
   let { data: event, error } = await query.single();
 
@@ -135,7 +139,7 @@ async function renderEventPage(supabaseClient, tenant, slug, eventId, baseUrl) {
       .is('member_group_id', null);
     if (slug) fallbackQuery = fallbackQuery.eq('slug', slug);
     else if (eventId) fallbackQuery = fallbackQuery.eq('id', eventId);
-    fallbackQuery = fallbackQuery.in('status', ['published', 'tbc']);
+    fallbackQuery = fallbackQuery.in('status', PUBLIC_SIMPLE_EVENT_STATUSES);
     const fallbackResult = await fallbackQuery.single();
     event = fallbackResult.data;
   }
@@ -143,7 +147,9 @@ async function renderEventPage(supabaseClient, tenant, slug, eventId, baseUrl) {
   if (!event) return null;
 
   const desc = truncate(stripHtml(event.summary || event.description));
-  const dateStr = event.start_date ? new Date(event.start_date).toLocaleDateString('en-US', { dateStyle: 'long' }) : '';
+  const dateStr = !isImmediateEvent(event) && event.start_date
+    ? new Date(event.start_date).toLocaleDateString('en-US', { dateStyle: 'long' })
+    : '';
   const locationStr = event.location ? ` | ${event.location}` : '';
 
   return {
@@ -1224,22 +1230,22 @@ async function renderListPage(supabaseClient, tenant, pageType, baseUrl) {
       query: async () => {
         let result = await supabaseClient
           .from('event')
-          .select('id, title, slug, start_date, location, summary')
+          .select('id, title, slug, start_date, location, summary, status')
           .eq('tenant_id', tenant.id)
-          .in('status', ['published', 'tbc'])
+          .in('status', PUBLIC_SIMPLE_EVENT_STATUSES)
           .is('member_group_id', null)
           .order('start_date', { ascending: true })
           .limit(50);
         if (result.error?.code === '42703') {
           result = await supabaseClient
             .from('event')
-            .select('id, title, slug, start_date, location, summary')
-            .in('status', ['published', 'tbc'])
+            .select('id, title, slug, start_date, location, summary, status')
+            .in('status', PUBLIC_SIMPLE_EVENT_STATUSES)
             .is('member_group_id', null)
             .order('start_date', { ascending: true })
             .limit(50);
         }
-        return (result.data || []).map(e => `<li><strong>${escapeHtml(e.title)}</strong>${e.start_date ? ` - ${escapeHtml(new Date(e.start_date).toLocaleDateString('en-US', { dateStyle: 'long' }))}` : ''}${e.location ? ` | ${escapeHtml(e.location)}` : ''}</li>`).join('\n');
+        return (result.data || []).map(e => `<li><strong>${escapeHtml(e.title)}</strong>${!isImmediateEvent(e) && e.start_date ? ` - ${escapeHtml(new Date(e.start_date).toLocaleDateString('en-US', { dateStyle: 'long' }))}` : ''}${e.location ? ` | ${escapeHtml(e.location)}` : ''}</li>`).join('\n');
       }
     },
     'PublicArticles': {

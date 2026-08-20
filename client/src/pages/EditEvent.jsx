@@ -86,6 +86,12 @@ import EventEmailSettingsEditor, {
   mapEmailSaveFailureDetails,
   putEventEmails,
 } from "@/components/events/EventEmailSettingsEditor";
+import {
+  canUseImmediateTiming,
+  normalizeSimpleEventTiming,
+  resolveSimpleEventOnlineState,
+  SIMPLE_EVENT_TIMING,
+} from "@shared/eventTiming.js";
 import UnfurlPreview from "@/components/UnfurlPreview";
 import ZoomPolls from "@/components/events/ZoomPolls";
 
@@ -190,7 +196,7 @@ export default function EditEvent() {
   // just when the event is detected as out-of-sync.
   const [zoomLinkDialog, setZoomLinkDialog] = useState({ open: false, mode: 'change' });
   
-  // Event timing: published or tbc - affects date requirements
+  // Event timing: published, tbc, or immediate
   const [eventTiming, setEventTiming] = useState("published");
   // TBC-only: replace standard booking elements on the public detail page
   const [replaceBookingElements, setReplaceBookingElements] = useState(false);
@@ -209,10 +215,10 @@ export default function EditEvent() {
   const [showTicketAvailability, setShowTicketAvailability] = useState(false);
   const [qrOnConfirmation, setQrOnConfirmation] = useState(true);
   
-  // Handler for timing changes - clears TBC-incompatible fields synchronously
+  // Handler for timing changes - clears TBC/immediate-incompatible fields synchronously
   const handleTimingChange = (newTiming) => {
-    if (newTiming === 'tbc') {
-      // Clear dates, registration deadline and webinar/meeting when switching to TBC (but keep online mode available)
+    if (newTiming === 'tbc' || newTiming === SIMPLE_EVENT_TIMING.IMMEDIATE) {
+      // Clear dates, registration deadline and webinar/meeting when switching to TBC or Immediate
       setSelectedMeetingId("");
       setFormData(prev => ({
         ...prev,
@@ -220,7 +226,8 @@ export default function EditEvent() {
         end_date: '',
         registration_closes_at: '',
         zoom_webinar_id: null,
-        zoom_meeting_id: null
+        zoom_meeting_id: null,
+        ...(newTiming === SIMPLE_EVENT_TIMING.IMMEDIATE ? { timezone: null } : {}),
       }));
     }
     setEventTiming(newTiming);
@@ -239,6 +246,15 @@ export default function EditEvent() {
   // events. The URL params keep entering directly from the group surfaces fast.
   const groupId = groupIdParam || event?.member_group_id || null;
   const isGroupLimited = (groupEventParam && !!groupIdParam) || !!event?.member_group_id;
+
+  // Task #3691: Immediate Access timing availability
+  // canUseImmediate depends on isTraining (state) and isGroupLimited (derived) — both stable after load
+  const canUseImmediate = canUseImmediateTiming({
+    isTraining,
+    isComplex: false,
+    isGroupLimited,
+  });
+  const isImmediate = eventTiming === SIMPLE_EVENT_TIMING.IMMEDIATE;
 
   // Resolve the locked group's name for the read-only banner.
   const { data: limitedGroup } = useQuery({
@@ -1011,8 +1027,10 @@ export default function EditEvent() {
   
   useEffect(() => {
     if (event && !initialDataLoaded) {
-      // For TBC events, don't populate dates or zoom_webinar_id
+      // For TBC or immediate events, don't populate dates or zoom_webinar_id
       const isTbcEvent = event.status === 'tbc';
+      const isImmediateLoad = event.status === SIMPLE_EVENT_TIMING.IMMEDIATE;
+      const suppressScheduleLoad = isTbcEvent || isImmediateLoad;
       setFormData({
         title: event.title || "",
         summary: event.summary || "",
@@ -1021,9 +1039,9 @@ export default function EditEvent() {
         xero_account_code: event.xero_account_code || "",
         event_type: parseEventTypes(event.event_type),
         program_tag: event.program_tag || "",
-        start_date: isTbcEvent ? "" : (event.start_date || ""),
-        end_date: isTbcEvent ? "" : (event.end_date || ""),
-        registration_closes_at: event.registration_closes_at || "",
+        start_date: suppressScheduleLoad ? "" : (event.start_date || ""),
+        end_date: suppressScheduleLoad ? "" : (event.end_date || ""),
+        registration_closes_at: suppressScheduleLoad ? "" : (event.registration_closes_at || ""),
         location: event.location || "",
         image_url: event.image_url || "",
         image_focal_point: event.image_focal_point || null,
@@ -1031,8 +1049,9 @@ export default function EditEvent() {
         available_seats: event.available_seats !== null && event.available_seats !== undefined && event.available_seats > 0
           ? String(event.available_seats) 
           : "",
-        zoom_webinar_id: event.zoom_webinar_id || null,
-        zoom_meeting_id: event.zoom_meeting_id || null,
+        // Immediate events strip zoom ids on load
+        zoom_webinar_id: isImmediateLoad ? null : (event.zoom_webinar_id || null),
+        zoom_meeting_id: isImmediateLoad ? null : (event.zoom_meeting_id || null),
         online_meeting_url: event.online_meeting_url || "",
         cta_override_url: event.cta_override_url || "",
         cta_override_mode: event.cta_override_mode || "card",
@@ -1283,7 +1302,7 @@ export default function EditEvent() {
       setIsFeatured(event.is_featured === true);
 
       // Load timing and state from event with migration for old status values
-      // Old values: draft, published, tbc, closed -> New: timing (published/tbc) + state (active/draft/closed)
+      // Old values: draft, published, tbc, closed -> New: timing (published/tbc/immediate) + state (active/draft/closed)
       const oldStatus = event.status || 'published';
       if (oldStatus === 'draft') {
         setEventTiming('published');
@@ -1294,8 +1313,19 @@ export default function EditEvent() {
       } else if (oldStatus === 'tbc') {
         setEventTiming('tbc');
         setEventState(event.event_state || 'active');
+      } else if (oldStatus === SIMPLE_EVENT_TIMING.IMMEDIATE) {
+        // Task #3691: reload immediate events correctly.
+        // Normalise: if the stored status is immediate but the event is now training
+        // or group-limited (shouldn't happen but guard anyway), fall back to published.
+        const normalised = normalizeSimpleEventTiming(SIMPLE_EVENT_TIMING.IMMEDIATE, {
+          isTraining: event.is_training === true,
+          isComplex: false,
+          isGroupLimited: !!(event.member_group_id),
+        });
+        setEventTiming(normalised);
+        setEventState(event.event_state || 'active');
       } else {
-        // published or any new timing value
+        // published or any other timing value
         setEventTiming(oldStatus);
         setEventState(event.event_state || 'active');
       }
@@ -1399,18 +1429,7 @@ export default function EditEvent() {
   const [isOnlineInitialized, setIsOnlineInitialized] = useState(false);
   useEffect(() => {
     if (event && !isOnlineInitialized) {
-      // Don't set isOnline if event is TBC status
-      if (event.status === 'tbc') {
-        setIsOnlineEvent(false);
-      } else {
-        const isOnline = event.is_online === true || 
-          (event.is_online === undefined && (
-            formData.location?.toLowerCase().includes('online') || 
-            formData.location?.includes('zoom.us') ||
-            formData.location?.includes('https://')
-          ));
-        setIsOnlineEvent(isOnline);
-      }
+      setIsOnlineEvent(resolveSimpleEventOnlineState(event, formData.location));
       setIsOnlineInitialized(true);
     }
   }, [event?.id, isOnlineInitialized]); // Only run when event changes and not yet initialized
@@ -1458,7 +1477,8 @@ export default function EditEvent() {
     
     // Only require start_date for non-TBC events. Training events derive their
     // start/end dates from the agenda lines instead (Task #3419).
-    if (eventTiming !== 'tbc' && !formData.start_date && !isTraining) {
+    // Immediate events (Task #3691) also skip the date requirement.
+    if (eventTiming !== 'tbc' && !isImmediate && !formData.start_date && !isTraining) {
       toast.error('Please set a start date');
       return;
     }
@@ -1620,9 +1640,6 @@ export default function EditEvent() {
       }
     }
 
-    // For TBC events, explicitly null out dates and Zoom webinar
-    const isTbcEvent = eventTiming === 'tbc';
-
     // Training events: the overall start/end span the agenda using the real
     // agenda datetimes (earliest start, latest end — Task #3443).
     let trainingStart = null;
@@ -1641,6 +1658,16 @@ export default function EditEvent() {
       return;
     }
 
+    // Normalise status: never emit immediate from group-limited or when training
+    const resolvedStatus = normalizeSimpleEventTiming(eventTiming, {
+      isTraining,
+      isComplex: false,
+      isGroupLimited,
+    });
+    const isImmediateSave = resolvedStatus === SIMPLE_EVENT_TIMING.IMMEDIATE;
+    const suppressSchedule =
+      resolvedStatus === SIMPLE_EVENT_TIMING.TBC || isImmediateSave;
+
     const eventData = {
       title: formData.title,
       slug: slug || null,
@@ -1653,10 +1680,11 @@ export default function EditEvent() {
       // Visibility is determined by program_tag: empty = one-off event, non-empty = program event
       program_tag: isOneOffEvent ? "" : formData.program_tag,
       is_training: isTraining,
-      // For TBC events, dates must be null. Training events span their agenda.
-      start_date: isTbcEvent ? null : (isTraining && trainingStart ? trainingStart : (formData.start_date || null)),
-      end_date: isTbcEvent ? null : (isTraining && trainingEnd ? trainingEnd : (formData.end_date || formData.start_date || null)),
-      registration_closes_at: formData.registration_closes_at || null,
+      // For TBC/immediate events, dates must be null. Training events span their agenda.
+      start_date: suppressSchedule ? null : (isTraining && trainingStart ? trainingStart : (formData.start_date || null)),
+      end_date: suppressSchedule ? null : (isTraining && trainingEnd ? trainingEnd : (formData.end_date || formData.start_date || null)),
+      registration_closes_at: suppressSchedule ? null : (formData.registration_closes_at || null),
+      timezone: isImmediateSave ? null : eventTimezone,
       location: (isOnlineEvent || isTraining) ? null : (formData.location || null),
       image_url: formData.image_url || null,
       image_focal_point: formData.image_focal_point || null,
@@ -1668,10 +1696,10 @@ export default function EditEvent() {
       show_ticket_availability: showTicketAvailability,
       // Per-event entrance QR on confirmation emails (only meaningful for in-person events)
       qr_on_confirmation: isOnlineEvent ? false : qrOnConfirmation,
-      // TBC events can optionally have a Zoom webinar or meeting.
+      // Immediate events clear all Zoom ids. TBC events optionally keep them.
       // Group-limited events never use Zoom — they use a manual meeting link.
-      zoom_webinar_id: isGroupLimited ? null : (zoomType === 'webinar' ? (formData.zoom_webinar_id || null) : null),
-      zoom_meeting_id: isGroupLimited ? null : (zoomType === 'meeting' ? (selectedMeetingId || null) : null),
+      zoom_webinar_id: isImmediateSave ? null : (isGroupLimited ? null : (zoomType === 'webinar' ? (formData.zoom_webinar_id || null) : null)),
+      zoom_meeting_id: isImmediateSave ? null : (isGroupLimited ? null : (zoomType === 'meeting' ? (selectedMeetingId || null) : null)),
       speaker_ids: selectedSpeakers.length > 0 ? selectedSpeakers : [],
       speaker_award_config: formStateToConfig(speakerAwards),
       // Convert composite keys back to plain labels for database storage
@@ -1681,9 +1709,9 @@ export default function EditEvent() {
       cta_override_url: formData.cta_override_url || null,
       cta_override_mode: formData.cta_override_mode || 'card',
       cta_button_label: (formData.cta_button_label || '').trim() || null,
-      // TBC events can still be online, but webinar is optional
+      // Immediate events are online-capable but have no schedule
       is_online: isOnlineEvent,
-      status: eventTiming,
+      status: resolvedStatus,
       // TBC-only booking-element replacement (persisted regardless of timing;
       // it only applies on the public page when status === 'tbc')
       replace_booking_elements: replaceBookingElements === true,
@@ -1692,7 +1720,6 @@ export default function EditEvent() {
       booking_replacement_title: bookingReplacementTitle.trim() || null,
       event_state: eventState,
       is_featured: isFeatured,
-      timezone: eventTimezone,
       donation_config: isDonationGloballyEnabled ? donationConfig : undefined,
       seo_title: seoTitle || null,
       seo_description: seoDescription || null,
@@ -2069,7 +2096,7 @@ export default function EditEvent() {
                 <RadioGroup
                   value={eventTiming}
                   onValueChange={handleTimingChange}
-                  className="grid grid-cols-2 gap-4"
+                  className={`grid gap-4 ${canUseImmediate ? 'grid-cols-3' : 'grid-cols-2'}`}
                   data-testid="radio-event-timing"
                 >
                   <div className={`flex items-center space-x-2 p-3 rounded-lg border-2 cursor-pointer transition-colors ${eventTiming === 'published' ? 'border-green-500 bg-green-50' : 'border-slate-200 hover:border-slate-300'}`}>
@@ -2086,10 +2113,26 @@ export default function EditEvent() {
                       <p className="text-xs text-slate-500">Dates not yet set</p>
                     </Label>
                   </div>
+                  {/* Task #3691: Immediate Access — only for standard non-training non-group events */}
+                  {canUseImmediate && (
+                    <div className={`flex items-center space-x-2 p-3 rounded-lg border-2 cursor-pointer transition-colors ${isImmediate ? 'border-purple-500 bg-purple-50' : 'border-slate-200 hover:border-slate-300'}`}>
+                      <RadioGroupItem value={SIMPLE_EVENT_TIMING.IMMEDIATE} id="timing-immediate" data-testid="radio-timing-immediate" />
+                      <Label htmlFor="timing-immediate" className="cursor-pointer flex-1">
+                        <span className="font-medium">Immediate access</span>
+                        <p className="text-xs text-slate-500">No schedule — available right now</p>
+                      </Label>
+                    </div>
+                  )}
                 </RadioGroup>
                 {eventTiming === 'tbc' && (
                   <p className="mt-3 text-sm text-blue-600 bg-blue-50 p-2 rounded">
                     Dates will be shown as "To be confirmed" and Zoom webinar/meeting selection is optional.
+                  </p>
+                )}
+                {/* Task #3691: Immediate access info banner */}
+                {isImmediate && (
+                  <p className="mt-3 text-sm text-purple-700 bg-purple-50 p-2 rounded" data-testid="immediate-info-banner">
+                    This event is immediately accessible — no dates, timezone, or Zoom selection are needed.
                   </p>
                 )}
                 {eventTiming === 'tbc' && (
@@ -2249,7 +2292,13 @@ export default function EditEvent() {
                   <Switch
                     id="is-training"
                     checked={isTraining}
-                    onCheckedChange={setIsTraining}
+                    onCheckedChange={(val) => {
+                      setIsTraining(val);
+                      // Task #3691: training and immediate timing are incompatible — normalise back to published
+                      if (val && isImmediate) {
+                        setEventTiming(SIMPLE_EVENT_TIMING.SCHEDULED);
+                      }
+                    }}
                     data-testid="switch-is-training"
                   />
                 </div>
@@ -2890,6 +2939,9 @@ export default function EditEvent() {
               </div>
               )}
 
+              {/* Task #3691: Schedule fields hidden entirely for immediate events */}
+              {!isImmediate && (
+              <>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="start_date">
@@ -3027,6 +3079,8 @@ export default function EditEvent() {
                   If set, registration will automatically close at this time. Must be on or before the event end time.
                 </p>
               </div>
+              </>
+              )}
             </CardContent>
           </Card>
 
@@ -4136,8 +4190,9 @@ export default function EditEvent() {
         {/* task-692: panel is always rendered (regardless of isOnlineEvent /
             sync state) so admins can attach/change/detach Zoom at any time.
             Hidden in group-limited mode — group events never use Zoom — and
-            for training events, where Zoom is set per agenda item (Task #3436). */}
-          {!isGroupLimited && !isTraining && (
+            for training events, where Zoom is set per agenda item (Task #3436).
+            Also hidden for immediate events (Task #3691) — no schedule, no Zoom. */}
+          {!isGroupLimited && !isTraining && !isImmediate && (
         <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg" data-testid="panel-zoom-link-admin">
           <div className="flex items-center gap-2 mb-2">
             <Globe className="h-4 w-4 text-blue-600" />
@@ -4676,7 +4731,7 @@ export default function EditEvent() {
           </TabsContent>
           </Tabs>
 
-          {!isGroupLimited && !isTraining && (
+          {!isGroupLimited && !isTraining && !isImmediate && (
         <ChangeZoomDialog
           open={zoomLinkDialog.open}
           onOpenChange={(open) => setZoomLinkDialog((s) => ({ ...s, open }))}

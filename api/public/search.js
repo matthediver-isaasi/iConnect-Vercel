@@ -2,6 +2,10 @@ import { createClient } from '@supabase/supabase-js';
 import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
 import { stripHtml } from '../_lib/searchTextBuilder.js';
 import { resolveMicrositeByPrefix, listActiveMicrosites, isMissingMicrositeSchema } from '../_lib/microsites.js';
+import {
+  PUBLIC_SIMPLE_EVENT_STATUSES,
+  isImmediateEvent,
+} from '../../shared/eventTiming.js';
 
 function extractSnippet(text, searchTerm, maxLength = 150) {
   if (!text || !searchTerm) return '';
@@ -100,7 +104,11 @@ export default async function handler(req, res) {
         .eq('tenant_id', tenant.id)
         .is('member_group_id', null)
         .or(`title.ilike.${searchPattern},description.ilike.${searchPattern},search_text.ilike.${searchPattern}`)
-        .gte('start_date', new Date().toISOString())
+        // Include future scheduled events (start_date in future) OR immediate events (no start_date).
+        // TBC events (no start_date, status=tbc) remain excluded as before — they have no date so
+        // the gte filter would drop them, and we only add immediate as an explicit exception.
+        .or(`status.eq.immediate,start_date.gte.${new Date().toISOString()}`)
+        .in('status', PUBLIC_SIMPLE_EVENT_STATUSES)
         .limit(limitNum)),
       
       contentQuery(supabase
@@ -155,7 +163,7 @@ export default async function handler(req, res) {
           description,
           image: event.image_url,
           url: `/EventDetails?id=${event.id}`,
-          date: event.start_date
+          date: isImmediateEvent(event) ? null : event.start_date
         });
       });
     }

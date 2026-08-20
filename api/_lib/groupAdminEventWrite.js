@@ -1,6 +1,10 @@
 import { supabase } from './database.js';
 import { hasAdminAccess } from './tenantContext.js';
 import { getCallerGroupEventsAccess } from './memberGroupEventsAccess.js';
+import {
+  SIMPLE_EVENT_TIMING,
+  normalizeSimpleEventWrite,
+} from '../../shared/eventTiming.js';
 
 /**
  * Task #1519: Server-side authorization + guardrails for Group-Admin event writes.
@@ -13,8 +17,8 @@ import { getCallerGroupEventsAccess } from './memberGroupEventsAccess.js';
  *   3. The event is locked to an administered member_group_id; audience is a
  *      per-event group-only (default) / public choice (group_event_public).
  *
- * Tenant admins (tenant users OR members with an admin role) are unaffected —
- * their writes pass straight through unchanged.
+ * Immediate simple-event timing is validated for every caller before the
+ * group-admin-specific rules run. All other tenant-admin writes pass through.
  *
  * The generic entity API has no server-side admin gate on tenant-scoped event
  * writes today (RBAC is client-side), so this layer TIGHTENS security: a
@@ -272,9 +276,26 @@ export async function authorizeGroupAdminEventWrite({ entity, op, body, existing
   const n = norm(entity);
   if (!EVENT_FAMILY.has(n)) return { ok: true, body };
 
-  // Tenant admins keep the full, unchanged write path.
+  let timingGuardedBody = body;
+  if (n === 'event') {
+    const timing = normalizeSimpleEventWrite(body, existingRow);
+    if (!timing.ok) return timing;
+    timingGuardedBody = timing.body;
+  } else if (
+    n === 'complexevent' &&
+    body?.status === SIMPLE_EVENT_TIMING.IMMEDIATE
+  ) {
+    return {
+      ok: false,
+      status: 400,
+      error: 'Immediate access is not available for multi-session events',
+    };
+  }
+
+  // Tenant admins keep the full write path after the timing invariant is
+  // enforced and immediate schedule fields are normalized.
   const isAdmin = await hasAdminAccess(tenantCtx);
-  if (isAdmin) return { ok: true, body };
+  if (isAdmin) return { ok: true, body: timingGuardedBody };
 
   // Non-admin caller: must be a Group Admin of at least one events-enabled group.
   const access = await getCallerGroupEventsAccess(req);
@@ -292,7 +313,7 @@ export async function authorizeGroupAdminEventWrite({ entity, op, body, existing
   const groupAllowsSimple = (groupId) => groupFlags.get(groupId)?.simpleEnabled === true;
   const groupAllowsComplex = (groupId) => groupFlags.get(groupId)?.complexEnabled === true;
 
-  const out = { ...body };
+  const out = { ...timingGuardedBody };
 
   // ---- Parent events (Event / ComplexEvent) ----
   if (n === 'event' || n === 'complexevent') {

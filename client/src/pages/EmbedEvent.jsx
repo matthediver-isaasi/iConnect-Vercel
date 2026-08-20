@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useParams, useSearchParams } from "react-router-dom";
+import { isImmediateEvent as isImmediateEventTiming } from "@shared/eventTiming";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -178,6 +179,7 @@ export default function EmbedEventPage() {
   const timezoneAbbr = getTimezoneAbbr(event.start_date, eventTimezone);
   const isOnline = event.is_online || event.zoom_webinar_id || event.zoom_meeting_id;
   const isTBC = event.status === 'tbc';
+  const isImmediate = isImmediateEventTiming(event.status);
 
   return (
     <div className="p-4" data-testid="embed-event-container">
@@ -208,7 +210,8 @@ export default function EmbedEventPage() {
             {event.title}
           </CardTitle>
           
-          {!isTBC && event.start_date && (
+          {/* Immediate events: no date, time, or timezone */}
+          {!isImmediate && !isTBC && event.start_date && (
             <div className="space-y-1 mt-2">
               <div className="flex items-center gap-2 text-sm text-slate-600">
                 <Calendar className="w-4 h-4 text-slate-500" />
@@ -227,7 +230,7 @@ export default function EmbedEventPage() {
             </div>
           )}
 
-          {isTBC && (
+          {!isImmediate && isTBC && (
             <div className="flex items-center gap-2 text-sm text-warning mt-2">
               <Calendar className="w-4 h-4" />
               <span data-testid="event-tbc">Date to be confirmed</span>

@@ -5,7 +5,7 @@
 // member is allowed to SEE on the portal — mirroring the public/browse rules:
 //   - resources : api/public/resources.js  (status active, member_group_id,
 //                  allowed_role_ids)
-//   - events    : api/public/events.js     (status published/tbc, never
+//   - events    : api/public/events.js     (status published/tbc/immediate, never
 //                  event_state=draft, group_event_public / group membership)
 //   - news      : api/public/news.js       (status published, published_date<=now)
 //   - blog      : api/public/article.js    (status published)
@@ -45,6 +45,8 @@ export const PUBLIC_CANVAS_LAYOUT_TYPES = [
  *   - now {Date}                 clock for published_date checks
  * @returns {boolean}
  */
+import { isPublicSimpleEventStatus } from '../../shared/eventTiming.js';
+
 export function isChunkVisibleToMember(chunk, ctx) {
   if (!chunk) return false;
   const {
@@ -79,7 +81,11 @@ export function isChunkVisibleToMember(chunk, ctx) {
   }
 
   if (type === 'event' || type === 'complex_event') {
-    if (!['published', 'tbc'].includes(chunk.status)) return false;
+    // simple events also accept 'immediate'; complex_event does not (immutable complex allowlist)
+    const validStatus = type === 'event'
+      ? isPublicSimpleEventStatus(chunk.status)
+      : ['published', 'tbc'].includes(chunk.status);
+    if (!validStatus) return false;
     if (chunk.event_state === 'draft') return false;
     if (!isAdmin && chunk.member_group_id) {
       if (chunk.group_event_public !== true && !groupIds.has(chunk.member_group_id)) {

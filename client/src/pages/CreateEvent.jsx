@@ -69,6 +69,11 @@ import EventEmailSettingsEditor, {
   findInvalidCcAddresses,
   putEventEmails,
 } from "@/components/events/EventEmailSettingsEditor";
+import {
+  canUseImmediateTiming,
+  normalizeSimpleEventTiming,
+  SIMPLE_EVENT_TIMING,
+} from "@shared/eventTiming.js";
 
 async function apiRequest(url, options = {}) {
   const response = await fetch(url, {
@@ -142,8 +147,23 @@ export default function CreateEvent() {
     return `${createPageUrl('MemberGroupDetail')}?id=${groupId}`;
   }, [isGroupLimited, groupSearchParams, groupId]);
   const [groupEventPublic, setGroupEventPublic] = useState(false);
+  // Training event (Task #3419): simple event + multi-day agenda lines.
+  // Declare this before deriving Immediate eligibility to avoid a TDZ render error.
+  // ?training=1 preselects the toggle (Multi-Day Event card in Create New Event modal)
+  const [isTraining, setIsTraining] = useState(() => groupSearchParams.get('training') === '1');
 
-  const [eventTiming, setEventTiming] = useState("published"); // published or tbc - affects date requirements
+  const [eventTiming, setEventTiming] = useState("published"); // published, tbc, or immediate
+
+  // Task #3691: whether Immediate Access timing is available for this editor session
+  // (only for standard non-training non-group simple events)
+  const canUseImmediate = canUseImmediateTiming({
+    isTraining,
+    isComplex: false,
+    isGroupLimited,
+  });
+  // Derived: is the current timing selection "immediate"?
+  const isImmediate = eventTiming === SIMPLE_EVENT_TIMING.IMMEDIATE;
+
   // TBC-only: replace standard booking elements on the public detail page
   const [replaceBookingElements, setReplaceBookingElements] = useState(false);
   const [bookingReplacementMessage, setBookingReplacementMessage] = useState("");
@@ -153,9 +173,6 @@ export default function CreateEvent() {
   const [isFeatured, setIsFeatured] = useState(false);
   const [isOnline, setIsOnline] = useState(false);
   const [isProgramEvent, setIsProgramEvent] = useState(false);
-  // Training event (Task #3419): simple event + multi-day agenda lines
-  // ?training=1 preselects the toggle (Multi-Day Event card in Create New Event modal)
-  const [isTraining, setIsTraining] = useState(() => groupSearchParams.get('training') === '1');
   const [agendaLines, setAgendaLines] = useState([]);
   const [zoomType, setZoomType] = useState("webinar"); // "webinar" or "meeting"
   const [selectedWebinarId, setSelectedWebinarId] = useState("");
@@ -170,17 +187,20 @@ export default function CreateEvent() {
   const [allergyOptions, setAllergyOptions] = useState([]);
   const [accessibilityOptions, setAccessibilityOptions] = useState([]);
   
-  // Handler for timing changes - clears TBC-incompatible fields synchronously
+  // Handler for timing changes - clears TBC/immediate-incompatible fields synchronously
   const handleTimingChange = (newTiming) => {
-    if (newTiming === 'tbc') {
-      // Clear dates, registration deadline and webinar/meeting when switching to TBC (but keep online mode available)
+    if (newTiming === 'tbc' || newTiming === SIMPLE_EVENT_TIMING.IMMEDIATE) {
+      // Clear dates, registration deadline and webinar/meeting when switching to TBC or Immediate
       setSelectedWebinarId(null);
       setSelectedMeetingId(null);
       setFormData(prev => ({
         ...prev,
         start_date: '',
         end_date: '',
-        registration_closes_at: ''
+        registration_closes_at: '',
+        timezone: newTiming === SIMPLE_EVENT_TIMING.IMMEDIATE ? null : prev.timezone,
+        zoom_webinar_id: null,
+        zoom_meeting_id: null,
       }));
     }
     setEventTiming(newTiming);
@@ -855,9 +875,9 @@ export default function CreateEvent() {
       errors.push('Please select a program for this event');
     }
     
-    // Only require start_date for non-TBC events. Training events derive their
+    // Only require start_date for non-TBC, non-immediate events. Training events derive their
     // start/end dates from the agenda lines instead (Task #3419).
-    if (eventTiming !== 'tbc' && !formData.start_date && !isTraining) {
+    if (eventTiming !== 'tbc' && !isImmediate && !formData.start_date && !isTraining) {
       errors.push('Please set a start date and time');
     }
 
@@ -870,12 +890,13 @@ export default function CreateEvent() {
     }
     
     // Group-limited online events use a manual meeting link instead of Zoom.
+    // Immediate events never require Zoom (no schedule).
     if (isGroupLimited) {
       if (isOnline && !formData.online_meeting_url?.trim()) {
         errors.push('Please enter a meeting link for this online event');
       }
-    } else {
-      // Only require Zoom webinar/meeting for non-TBC online events.
+    } else if (!isImmediate) {
+      // Only require Zoom webinar/meeting for non-TBC, non-immediate online events.
       // Training events manage Zoom per agenda item (Task #3436), never event-level.
       if (eventTiming !== 'tbc' && isOnline && !isTraining) {
         const hasZoomSelection = (zoomType === 'webinar' && selectedWebinarId) || (zoomType === 'meeting' && selectedMeetingId);
@@ -988,9 +1009,6 @@ export default function CreateEvent() {
     // Training events also carry no event-level location (per agenda item instead).
     let locationValue = (isOnline || isTraining) ? null : (formData.location || null);
 
-    // For TBC events, explicitly null out dates and Zoom webinar
-    const isTbcEvent = eventTiming === 'tbc';
-
     // Training events: the overall start/end span the agenda using the real
     // agenda datetimes (earliest start, latest end — Task #3443).
     let trainingStart = null;
@@ -1003,6 +1021,16 @@ export default function CreateEvent() {
         trainingEnd = ends[ends.length - 1];
       }
     }
+
+    // Normalise status: never emit immediate from group-limited or when training
+    const resolvedStatus = normalizeSimpleEventTiming(eventTiming, {
+      isTraining,
+      isComplex: false,
+      isGroupLimited,
+    });
+    const isImmediateSave = resolvedStatus === SIMPLE_EVENT_TIMING.IMMEDIATE;
+    const suppressSchedule =
+      resolvedStatus === SIMPLE_EVENT_TIMING.TBC || isImmediateSave;
     
     const eventData = {
       title: formData.title,
@@ -1013,10 +1041,11 @@ export default function CreateEvent() {
       event_type: serializeEventTypes(formData.event_type),
       // Visibility is determined by program_tag: empty = one-off event, non-empty = program event
       program_tag: isProgramEvent ? formData.program_tag : "",
-      // For TBC events, dates must be null
-      start_date: isTbcEvent ? null : (isTraining && trainingStart ? trainingStart : (formData.start_date || null)),
-      end_date: isTbcEvent ? null : (isTraining && trainingEnd ? trainingEnd : (formData.end_date || formData.start_date || null)),
-      registration_closes_at: formData.registration_closes_at || null,
+      // For TBC/immediate events, dates must be null
+      start_date: suppressSchedule ? null : (isTraining && trainingStart ? trainingStart : (formData.start_date || null)),
+      end_date: suppressSchedule ? null : (isTraining && trainingEnd ? trainingEnd : (formData.end_date || formData.start_date || null)),
+      registration_closes_at: suppressSchedule ? null : (formData.registration_closes_at || null),
+      timezone: isImmediateSave ? null : (formData.timezone || null),
       location: locationValue,
       image_url: formData.image_url || null,
       available_seats: unlimitedSeats ? null : (formData.available_seats ? parseInt(formData.available_seats) : null),
@@ -1027,10 +1056,10 @@ export default function CreateEvent() {
       show_ticket_availability: showTicketAvailability,
       // Per-event entrance QR on confirmation emails (only meaningful for in-person events)
       qr_on_confirmation: isOnline ? false : qrOnConfirmation,
-      // TBC events can optionally have a Zoom webinar or meeting.
-      // Group-limited events never use Zoom — they use a manual meeting link.
-      zoom_webinar_id: (isGroupLimited || isTraining) ? null : (isOnline && zoomType === 'webinar' && selectedWebinarId ? selectedWebinarId : null),
-      zoom_meeting_id: (isGroupLimited || isTraining) ? null : (isOnline && zoomType === 'meeting' && selectedMeetingId ? selectedMeetingId : null),
+      // Immediate events clear all Zoom ids. TBC events optionally keep them.
+      // Group-limited and training events never use Zoom — they use a manual meeting link.
+      zoom_webinar_id: isImmediateSave ? null : ((isGroupLimited || isTraining) ? null : (isOnline && zoomType === 'webinar' && selectedWebinarId ? selectedWebinarId : null)),
+      zoom_meeting_id: isImmediateSave ? null : ((isGroupLimited || isTraining) ? null : (isOnline && zoomType === 'meeting' && selectedMeetingId ? selectedMeetingId : null)),
       speaker_ids: selectedSpeakers.length > 0 ? selectedSpeakers : [],
       speaker_award_config: formStateToConfig(speakerAwards),
       // Convert composite keys back to plain labels for database storage
@@ -1040,11 +1069,11 @@ export default function CreateEvent() {
       cta_override_url: formData.cta_override_url || null,
       cta_override_mode: formData.cta_override_mode || 'card',
       cta_button_label: (formData.cta_button_label || '').trim() || null,
-      // TBC events can still be online, but webinar is optional
+      // Immediate events are online-capable but have no schedule
       is_online: isOnline,
       is_complex: false,
       is_training: isTraining,
-      status: eventTiming,
+      status: resolvedStatus,
       // TBC-only booking-element replacement (persisted regardless of timing;
       // it only applies on the public page when status === 'tbc')
       replace_booking_elements: replaceBookingElements === true,
@@ -1291,7 +1320,7 @@ export default function CreateEvent() {
                 <RadioGroup
                   value={eventTiming}
                   onValueChange={handleTimingChange}
-                  className="grid grid-cols-2 gap-4"
+                  className={`grid gap-4 ${canUseImmediate ? 'grid-cols-3' : 'grid-cols-2'}`}
                   data-testid="radio-event-timing"
                 >
                   <div className={`flex items-center space-x-2 p-3 rounded-lg border-2 cursor-pointer transition-colors ${eventTiming === 'published' ? 'border-green-500 bg-green-50' : 'border-slate-200 hover:border-slate-300'}`}>
@@ -1308,10 +1337,26 @@ export default function CreateEvent() {
                       <p className="text-xs text-slate-500">Dates not yet set</p>
                     </Label>
                   </div>
+                  {/* Task #3691: Immediate Access — only for standard non-training non-group events */}
+                  {canUseImmediate && (
+                    <div className={`flex items-center space-x-2 p-3 rounded-lg border-2 cursor-pointer transition-colors ${isImmediate ? 'border-purple-500 bg-purple-50' : 'border-slate-200 hover:border-slate-300'}`}>
+                      <RadioGroupItem value={SIMPLE_EVENT_TIMING.IMMEDIATE} id="timing-immediate" data-testid="radio-timing-immediate" />
+                      <Label htmlFor="timing-immediate" className="cursor-pointer flex-1">
+                        <span className="font-medium">Immediate access</span>
+                        <p className="text-xs text-slate-500">No schedule — available right now</p>
+                      </Label>
+                    </div>
+                  )}
                 </RadioGroup>
                 {eventTiming === 'tbc' && (
                   <p className="mt-3 text-sm text-blue-600 bg-blue-50 p-2 rounded">
                     Dates will be shown as "To be confirmed" and Zoom webinar/meeting selection is optional.
+                  </p>
+                )}
+                {/* Task #3691: Immediate access info banner */}
+                {isImmediate && (
+                  <p className="mt-3 text-sm text-purple-700 bg-purple-50 p-2 rounded" data-testid="immediate-info-banner">
+                    This event is immediately accessible — no dates, timezone, or Zoom selection are needed.
                   </p>
                 )}
                 {eventTiming === 'tbc' && (
@@ -1476,8 +1521,9 @@ export default function CreateEvent() {
                 </div>
               )}
 
-              {/* Training events set Zoom per agenda item (Task #3436), so no event-level Zoom selection. */}
-              {isOnline && !isGroupLimited && !isTraining && (
+              {/* Training events set Zoom per agenda item (Task #3436), so no event-level Zoom selection.
+                  Immediate events (Task #3691) also skip Zoom — they have no schedule. */}
+              {isOnline && !isGroupLimited && !isTraining && !isImmediate && (
                 <div className="space-y-4">
                   <div className="space-y-2">
                     <Label>Zoom Event Type</Label>
@@ -1673,7 +1719,13 @@ export default function CreateEvent() {
                   <Switch
                     id="is-training"
                     checked={isTraining}
-                    onCheckedChange={setIsTraining}
+                    onCheckedChange={(val) => {
+                      setIsTraining(val);
+                      // Task #3691: training and immediate timing are incompatible — normalise back to published
+                      if (val && isImmediate) {
+                        setEventTiming(SIMPLE_EVENT_TIMING.SCHEDULED);
+                      }
+                    }}
                     data-testid="switch-is-training"
                   />
                 </div>
@@ -2189,6 +2241,9 @@ export default function CreateEvent() {
               </div>
               </>)}
 
+              {/* Task #3691: Schedule fields hidden entirely for immediate events */}
+              {!isImmediate && (
+              <>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="start_date">
@@ -2292,6 +2347,8 @@ export default function CreateEvent() {
                   If set, registration will automatically close at this time. Must be on or before the event end time.
                 </p>
               </div>
+              </>
+              )}
             </CardContent>
           </Card>
 
