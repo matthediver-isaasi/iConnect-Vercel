@@ -68,6 +68,9 @@ import ResourceCard from '@/components/resources/ResourceCard';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { DirectoryMemberCard, DirectoryOrganizationCard } from '@/components/directory/DirectoryCards';
 import MemberGroupBlockView, { resolveMemberGroupGrid } from './MemberGroupBlockView';
+import MemberGroupCardsBlockView from './MemberGroupCardsBlockView';
+import { useMemberGroupCardsData } from '@/hooks/useMemberGroupCards';
+import { resolveMemberGroupCardLimit, selectSelfJoinMemberGroups } from '@/lib/memberGroupCards';
 import { GalleryImage, Lightbox, resolveAlt } from '@/components/iedit/elements/IEditGalleryElement';
 import {
   TypographyStyleField,
@@ -6234,6 +6237,58 @@ function MemberGroupInspector({ block, update }) {
 }
 
 // ============================================================================
+// MEMBER GROUP CARDS
+// ============================================================================
+// This distinct block lists eligible groups. It deliberately shares both the
+// live data state and card component with /MemberGroups so the portal and a
+// Canvas page cannot drift in viewer indicators or activation behavior.
+function MemberGroupCardsRender({ block, asEditor }) {
+  const c = block.content || {};
+  const data = useMemberGroupCardsData();
+  const limit = resolveMemberGroupCardLimit(c.limit);
+  const groups = useMemo(
+    () => selectSelfJoinMemberGroups(data.groups, limit),
+    [data.groups, limit],
+  );
+
+  return (
+    <MemberGroupCardsBlockView
+      block={block}
+      groups={groups}
+      isAuthenticated={data.isAuthenticated}
+      assignmentByGroup={data.assignmentByGroup}
+      openVacancyCountByGroup={data.openVacancyCountByGroup}
+      groupAdminIds={data.groupAdminIds}
+      isLoading={data.isLoading}
+      isError={!!data.dataError}
+      errorMessage={String(data.dataError?.message || '')}
+      accessRestricted={data.accessRestricted}
+      asEditor={asEditor}
+    />
+  );
+}
+
+function MemberGroupCardsInspector({ block, update }) {
+  const c = block.content || {};
+  const set = (patch) => update((current) => ({
+    ...current,
+    content: { ...current.content, ...patch },
+  }));
+
+  return (
+    <NumberField
+      label="Number of cards"
+      hint="Shows active groups open for self-join, in alphabetical order."
+      min={1}
+      max={24}
+      value={c.limit ?? 6}
+      onChange={(limit) => set({ limit })}
+      testId="input-member-group-cards-limit"
+    />
+  );
+}
+
+// ============================================================================
 // CARD DECK
 // ============================================================================
 // Renders a responsive grid of cards from the shared card library (the same
@@ -7489,6 +7544,15 @@ export const DYNAMIC_BLOCK_DEFINITIONS = {
     Editor: (props) => <MemberGroupRender {...props} asEditor />,
     Renderer: MemberGroupRender,
     Inspector: MemberGroupInspector,
+    allowOverflow: true,
+  },
+  [BLOCK_TYPES.MEMBER_GROUP_CARDS]: {
+    label: 'Member Group Cards',
+    icon: Users,
+    category: 'data',
+    Editor: (props) => <MemberGroupCardsRender {...props} asEditor />,
+    Renderer: MemberGroupCardsRender,
+    Inspector: MemberGroupCardsInspector,
     allowOverflow: true,
   },
   [BLOCK_TYPES.CARD_DECK]: {

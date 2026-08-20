@@ -194,6 +194,7 @@ export const BLOCK_TYPES = {
   MEMBER_DIRECTORY_EMBED: 'member-directory-embed',
   DYNAMIC_DIRECTORY_EMBED: 'dynamic-directory-embed',
   MEMBER_GROUP: 'member-group',
+  MEMBER_GROUP_CARDS: 'member-group-cards',
   CARD_DECK: 'card-deck',
   WALL_OF_FAME: 'wall-of-fame',
   GALLERY: 'gallery',
@@ -1530,6 +1531,14 @@ export const BLOCK_DEFAULTS = {
       columns: { desktop: 3, tablet: 2, mobile: 1 },
       gap: 16,
       emptyText: 'No group members to show yet.',
+    },
+  },
+  [BLOCK_TYPES.MEMBER_GROUP_CARDS]: {
+    name: 'Member Group Cards',
+    geom: { w: 800, h: 760 },
+    style: { background: 'transparent', borderWidth: 0 },
+    content: {
+      limit: 6,
     },
   },
   [BLOCK_TYPES.CARD_DECK]: {
@@ -3209,6 +3218,13 @@ export function validateBlock(block) {
       }
       if (!Array.isArray(c.roleFilter) || c.roleFilter.some((role) => typeof role !== 'string' || !role.trim())) {
         errors.push('Member Group role filters are invalid.');
+      }
+      break;
+    }
+    case BLOCK_TYPES.MEMBER_GROUP_CARDS: {
+      const limit = Number(c.limit);
+      if (!Number.isInteger(limit) || limit < 1 || limit > 24) {
+        errors.push('Member Group Cards count must be a whole number from 1 to 24.');
       }
       break;
     }
