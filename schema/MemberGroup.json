@@ -107,6 +107,52 @@
         "type": "boolean",
         "default": false,
         "description": "When true, Group Admins of this group may edit the header image and the description text fields (description, who_is_it_for, about_the_group) from the group detail page. Never grants name editing; enforced server-side on the generic entity PATCH."
+      },
+      "automatic_membership_enabled": {
+        "type": "boolean",
+        "default": false,
+        "description": "When true, members matching automatic_membership_filter_groups are automatically added to this group with the role automatic_membership_role."
+      },
+      "automatic_membership_role": {
+        "type": "string",
+        "description": "Role assigned to members added by automatic membership. Must be a value in the group's roles array. Required when automatic_membership_enabled is true."
+      },
+      "automatic_membership_filter_groups": {
+        "type": "array",
+        "default": [],
+        "description": "Filter groups (OR between groups, AND within each group) that define which members are automatically added. Each group has a conditions array."
+      },
+      "allow_members_to_leave": {
+        "type": "boolean",
+        "default": true,
+        "description": "When false, non-admin members may not self-remove from this group (enforced server-side on generic assignment DELETE)."
+      },
+      "automatic_membership_sync_status": {
+        "type": "string",
+        "default": "idle",
+        "description": "Current sync state: idle | queued | running | error"
+      },
+      "automatic_membership_last_synced_at": {
+        "type": "string",
+        "format": "date-time",
+        "description": "Timestamp of last completed automatic membership sync."
+      },
+      "automatic_membership_match_count": {
+        "type": "number",
+        "description": "Number of members matched by the filter on the last completed sync."
+      },
+      "automatic_membership_sync_error": {
+        "type": "string",
+        "description": "Error message from the last failed sync, if any."
+      },
+      "automatic_membership_cursor": {
+        "type": "string",
+        "description": "Pagination cursor for resumable batch processing (null when idle/complete)."
+      },
+      "automatic_membership_generation": {
+        "type": "integer",
+        "default": 0,
+        "description": "Monotonically-increasing generation counter incremented by a DB trigger whenever automatic_membership_enabled, automatic_membership_role, or automatic_membership_filter_groups changes. Used for stale-worker fencing in the reconcile RPC: a worker that reads a generation and later calls the RPC with that value will be rejected if the config has since changed."
       }
     },
     "required": [

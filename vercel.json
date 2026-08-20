@@ -9,6 +9,9 @@
     "api/cron/backup-database-to-r2.js": {
       "maxDuration": 300
     },
+    "api/cron/process-automatic-memberships.js": {
+      "maxDuration": 60
+    },
     "api/platform/backups/run.js": {
       "maxDuration": 300
     },
@@ -144,6 +147,10 @@
     {
       "path": "/api/cron/grant-speaker-awards",
       "schedule": "*/10 * * * *"
+    },
+    {
+      "path": "/api/cron/process-automatic-memberships",
+      "schedule": "* * * * *"
     }
   ],
   "rewrites": [

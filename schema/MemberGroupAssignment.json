@@ -56,6 +56,12 @@
       "term_number": {
         "type": "number",
         "description": "Which term the member is currently serving for this role in this group (e.g. 1 means 'Term 1 of max_terms')."
+      },
+      "assignment_source": {
+        "type": "string",
+        "enum": ["manual", "self_join", "automatic"],
+        "default": "manual",
+        "description": "How this assignment was created: manual (admin UI), self_join (member self-joined), or automatic (automatic membership rule)."
       }
     },
     "required": [

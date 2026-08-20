@@ -31,6 +31,13 @@ import { sendSubmissionEmailsGuarded } from '../../_lib/formSubmissionEmails.js'
 import { getTrustedBaseUrlForTenant } from '../../_lib/publicBaseUrl.js';
 import { isReservedPageSlug, reservedPageSlugMessage } from '../../../shared/memberAliases.js';
 import { hasManagedJobProvenance, stripManagedJobProvenance } from '../../_lib/jobFeedOwnership.js';
+import {
+  validateAutomaticMembershipSettings,
+  fetchAllowedCustomFieldIdsByScope,
+  buildFieldMeta,
+  roleExistsInGroup,
+  authorizeAutomaticMembershipPolicyWrite,
+} from '../../_lib/automaticMembership.js';
 
 /**
  * Task #3100: support staff = tenant users (admin dashboard), tenant admins,
@@ -1856,6 +1863,52 @@ export default async function handler(req, res) {
           return res.status(authz.status || 403).json({ error: authz.error });
         }
         Object.assign(sanitizedBody, authz.body);
+      }
+
+      if (entityNorm === 'membergroup' && tenantCtx.tenantId) {
+        const policyAuth = authorizeAutomaticMembershipPolicyWrite({
+          body: sanitizedBody,
+          isAdmin: await hasAdminAccess(tenantCtx),
+        });
+        if (!policyAuth.ok) {
+          return res.status(policyAuth.status).json({ error: policyAuth.error });
+        }
+        // Reconciliation state is server-owned. Generic entity callers may
+        // configure the rule but cannot forge worker status or fencing values.
+        for (const key of [
+          'automatic_membership_generation',
+          'automatic_membership_sync_status',
+          'automatic_membership_last_synced_at',
+          'automatic_membership_match_count',
+          'automatic_membership_sync_error',
+          'automatic_membership_cursor',
+        ]) {
+          delete sanitizedBody[key];
+        }
+        const amTenantId = sanitizedBody.tenant_id || tenantCtx.tenantId;
+        if (sanitizedBody.automatic_membership_enabled) {
+          const scopeResult = await fetchAllowedCustomFieldIdsByScope(supabase, amTenantId);
+          const fieldMeta = buildFieldMeta(scopeResult);
+          const roleCheck = (role) => roleExistsInGroup(role, sanitizedBody.roles || []);
+          const amValidation = await validateAutomaticMembershipSettings(sanitizedBody, {
+            allowedCustomFieldIdsByScope: scopeResult,
+            fieldMeta,
+            roleExists: roleCheck,
+          });
+          if (!amValidation.ok) {
+            return res.status(422).json({ error: amValidation.error });
+          }
+          // INSERT triggers do not run the UPDATE-only generation trigger.
+          sanitizedBody.automatic_membership_sync_status = 'queued';
+          sanitizedBody.automatic_membership_cursor = null;
+        }
+      }
+
+      if (entityNorm === 'membergroupassignment' && tenantCtx.isAuthenticated) {
+        // Force assignment_source: non-admin = self_join, admin = manual.
+        // Never trust a caller-supplied value; automatic is only set via RPC.
+        const isAdminForSource = await hasAdminAccess(tenantCtx);
+        sanitizedBody.assignment_source = isAdminForSource ? 'manual' : 'self_join';
       }
 
       const { data, error } = await supabase

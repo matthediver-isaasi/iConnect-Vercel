@@ -22,7 +22,7 @@ import {
 import { evaluateTermLimit } from "@/lib/memberGroupTermSnapshot";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { Users, Plus, Pencil, Trash2, UserPlus, X, Copy, ListPlus, CheckSquare, Calendar, Loader2, Crown, Tag, Mail, Send, RotateCw, CheckCircle2, XCircle, Clock, AlertTriangle, ChevronDown, Award } from "lucide-react";
+import { Users, Plus, Pencil, Trash2, UserPlus, X, Copy, ListPlus, CheckSquare, Calendar, Loader2, Crown, Tag, Mail, Send, RotateCw, CheckCircle2, XCircle, Clock, AlertTriangle, ChevronDown, Award, Zap, RefreshCw, Eye } from "lucide-react";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar as CalendarComponent } from "@/components/ui/calendar";
@@ -37,6 +37,16 @@ import EventImageUpload from "@/components/events/EventImageUpload";
 import SimpleRichTextEditor from "@/components/SimpleRichTextEditor";
 import { sanitizeRichText } from "@/components/canvas/blocks/sanitize";
 import { listOrganizationsForAdmin } from '@/lib/adminOrgList';
+import {
+  operatorsForDataType,
+  isNullaryOperator,
+  isMultiValueOperator,
+  normalizeConditionValue,
+  buildFieldOptions,
+  blankFilterGroup,
+  blankCondition,
+  validateAutoConfig,
+} from '@/lib/automaticMembership';
 
 function isDuplicateClassificationError(error) {
   const msg = (error?.message || error?.error || '').toLowerCase();
@@ -127,7 +137,11 @@ export default function MemberGroupManagementPage() {
     approval_email_template_id: '',
     decline_email_template_id: '',
     self_join_closed: false,
-    self_join_closed_label: ''
+    self_join_closed_label: '',
+    allow_members_to_leave: true,
+    automatic_membership_enabled: false,
+    automatic_membership_role: '',
+    automatic_membership_filter_groups: [],
   });
   const [groupSubcategorySearch, setGroupSubcategorySearch] = useState('');
   const [assignForm, setAssignForm] = useState({
@@ -238,6 +252,62 @@ export default function MemberGroupManagementPage() {
     [libraryBadges]
   );
 
+  // Automatic membership field metadata.
+  // Use a stable query key: for create dialogs (no group id) use the sentinel
+  // '__new__' so the query fires once and is cached across open/close cycles.
+  const autoMembershipGroupId = editingGroup?.id || null;
+  const { data: autoFieldsMeta = null } = useQuery({
+    queryKey: ['auto-membership-fields', autoMembershipGroupId ?? '__new__'],
+    queryFn: () => {
+      const url = autoMembershipGroupId
+        ? `/api/member-groups/automatic-membership?group_id=${autoMembershipGroupId}`
+        : '/api/member-groups/automatic-membership';
+      return fetch(url, { credentials: 'include' }).then((r) => r.ok ? r.json() : null);
+    },
+    enabled: showGroupDialog,
+    staleTime: 30 * 1000,
+  });
+  const autoFieldOptions = React.useMemo(
+    () => buildFieldOptions(autoFieldsMeta?.fields),
+    [autoFieldsMeta]
+  );
+  // Preview state: { matchCount, validationErrors } or { error } or null
+  const [autoPreviewResult, setAutoPreviewResult] = useState(null);
+  const [autoPreviewLoading, setAutoPreviewLoading] = useState(false);
+
+  const runAutoPreview = async () => {
+    setAutoPreviewLoading(true);
+    setAutoPreviewResult(null);
+    try {
+      const resp = await fetch('/api/member-groups/automatic-membership', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'preview',
+          groupId: editingGroup?.id || undefined,
+          config: {
+            enabled: groupForm.automatic_membership_enabled,
+            role: groupForm.automatic_membership_role,
+            filterGroups: groupForm.automatic_membership_filter_groups,
+            roles: groupForm.roles || [],
+          },
+        }),
+      });
+      if (!resp.ok) {
+        const errData = await resp.json().catch(() => ({}));
+        setAutoPreviewResult({ error: errData?.error || `Server error ${resp.status}` });
+        return;
+      }
+      const data = await resp.json();
+      setAutoPreviewResult(data);
+    } catch (e) {
+      setAutoPreviewResult({ error: e.message });
+    } finally {
+      setAutoPreviewLoading(false);
+    }
+  };
+
   // Email templates power the group-level approval/decline decision pickers
   // (Task #1700). Both are optional.
   const { data: emailTemplates = [] } = useQuery({
@@ -297,13 +367,52 @@ export default function MemberGroupManagementPage() {
     enabled: showAssignDialog && assignMode === 'member' && debouncedMemberSearch.trim().length >= 2
   });
 
+  // Trigger reconcile after save when automatic membership is enabled.
+  // Awaits the response so the group list refreshes with updated sync status.
+  // Does not block the save-success flow — shows advisory toast if sync fails.
+  const triggerAutoReconcile = async (groupId, { notifySuccess = false } = {}) => {
+    try {
+      const resp = await fetch('/api/member-groups/automatic-membership', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'reconcile', groupId }),
+      });
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        toast.warning('Automatic membership sync could not be queued: ' + (err?.error || 'unknown error'));
+        return false;
+      }
+      const result = await resp.json().catch(() => ({}));
+      setEditingGroup((prev) => prev?.id === groupId ? {
+        ...prev,
+        automatic_membership_sync_status: result.syncStatus || 'queued',
+        automatic_membership_sync_error: null,
+        automatic_membership_match_count: result.matchCount ?? prev.automatic_membership_match_count,
+      } : prev);
+      if (notifySuccess) toast.success('Automatic membership sync restarted');
+      // Re-invalidate so the card picks up updated sync_status after reconcile.
+      queryClient.invalidateQueries({ queryKey: ['member-groups'] });
+      queryClient.invalidateQueries({ queryKey: ['member-group-assignments'] });
+      return true;
+    } catch (e) {
+      toast.warning('Automatic membership sync could not be queued: ' + e.message);
+      return false;
+    }
+  };
+
   const createGroupMutation = useMutation({
     mutationFn: (data) => base44.entities.MemberGroup.create(data),
-    onSuccess: () => {
+    onSuccess: (created, data) => {
       queryClient.invalidateQueries({ queryKey: ['member-groups'] });
       setShowGroupDialog(false);
+      const wasEnabled = !!data?.automatic_membership_enabled;
       resetGroupForm();
       toast.success('Group created successfully');
+      if (wasEnabled && created?.id) {
+        // Non-blocking: save already succeeded; reconcile in background.
+        triggerAutoReconcile(created.id);
+      }
     },
     onError: (error) => {
       if (isDuplicateGroupNameError(error)) {
@@ -316,11 +425,16 @@ export default function MemberGroupManagementPage() {
 
   const updateGroupMutation = useMutation({
     mutationFn: ({ id, data }) => base44.entities.MemberGroup.update(id, data),
-    onSuccess: () => {
+    onSuccess: (_result, { id, data }) => {
       queryClient.invalidateQueries({ queryKey: ['member-groups'] });
       setShowGroupDialog(false);
+      const wasEnabled = !!data?.automatic_membership_enabled;
       resetGroupForm();
       toast.success('Group updated successfully');
+      if (wasEnabled && id) {
+        // Non-blocking: save already succeeded; reconcile in background.
+        triggerAutoReconcile(id);
+      }
     },
     onError: (error) => {
       if (isDuplicateGroupNameError(error)) {
@@ -570,11 +684,17 @@ export default function MemberGroupManagementPage() {
       approval_email_template_id: '',
       decline_email_template_id: '',
       self_join_closed: false,
-      self_join_closed_label: ''
+      self_join_closed_label: '',
+      allow_members_to_leave: true,
+      automatic_membership_enabled: false,
+      automatic_membership_role: '',
+      automatic_membership_filter_groups: [],
     });
     setGroupSubcategorySearch('');
     setTorOpen(false);
     setEditingGroup(null);
+    setAutoPreviewResult(null);
+    setAutoPreviewLoading(false);
   };
 
   const handleEditGroup = (group) => {
@@ -609,7 +729,13 @@ export default function MemberGroupManagementPage() {
       approval_email_template_id: group.approval_email_template_id || '',
       decline_email_template_id: group.decline_email_template_id || '',
       self_join_closed: !!group.self_join_closed,
-      self_join_closed_label: group.self_join_closed_label || ''
+      self_join_closed_label: group.self_join_closed_label || '',
+      allow_members_to_leave: group.allow_members_to_leave !== false,
+      automatic_membership_enabled: !!group.automatic_membership_enabled,
+      automatic_membership_role: group.automatic_membership_role || '',
+      automatic_membership_filter_groups: Array.isArray(group.automatic_membership_filter_groups)
+        ? JSON.parse(JSON.stringify(group.automatic_membership_filter_groups))
+        : [],
     });
     setGroupSubcategorySearch('');
     setShowGroupDialog(true);
@@ -646,7 +772,14 @@ export default function MemberGroupManagementPage() {
       approval_email_template_id: group.approval_email_template_id || '',
       decline_email_template_id: group.decline_email_template_id || '',
       self_join_closed: false,
-      self_join_closed_label: ''
+      self_join_closed_label: '',
+      // Duplicate copies rule config but starts sync fresh (no enabled auto-membership)
+      allow_members_to_leave: group.allow_members_to_leave !== false,
+      automatic_membership_enabled: false,
+      automatic_membership_role: group.automatic_membership_role || '',
+      automatic_membership_filter_groups: Array.isArray(group.automatic_membership_filter_groups)
+        ? JSON.parse(JSON.stringify(group.automatic_membership_filter_groups))
+        : [],
     });
     setGroupSubcategorySearch('');
     setShowGroupDialog(true);
@@ -733,6 +866,18 @@ export default function MemberGroupManagementPage() {
         toast.error('Default self-join role must be one of the group roles');
         return;
       }
+    }
+
+    // Validate automatic membership config.
+    const autoErrors = validateAutoConfig({
+      enabled: groupForm.automatic_membership_enabled,
+      role: groupForm.automatic_membership_role,
+      filterGroups: groupForm.automatic_membership_filter_groups,
+      availableRoles: groupForm.roles || [],
+    });
+    if (autoErrors.length > 0) {
+      toast.error(autoErrors[0]);
+      return;
     }
 
     // Normalise the optional LinkedIn URL: trim, treat blank as null, and
@@ -919,7 +1064,15 @@ export default function MemberGroupManagementPage() {
         ? Array.from(new Set(groupForm.resource_subcategories.filter((s) => typeof s === 'string' && s.trim())))
         : [],
       approval_email_template_id: groupForm.approval_email_template_id || null,
-      decline_email_template_id: groupForm.decline_email_template_id || null
+      decline_email_template_id: groupForm.decline_email_template_id || null,
+      allow_members_to_leave: groupForm.allow_members_to_leave !== false,
+      automatic_membership_enabled: !!groupForm.automatic_membership_enabled,
+      automatic_membership_role: groupForm.automatic_membership_enabled
+        ? (groupForm.automatic_membership_role || null)
+        : null,
+      automatic_membership_filter_groups: groupForm.automatic_membership_enabled
+        ? (groupForm.automatic_membership_filter_groups || [])
+        : [],
     };
 
     // Diff the role→badge map against the loaded group (Task #3302). Badge
@@ -1043,6 +1196,9 @@ export default function MemberGroupManagementPage() {
     delete nextRoleTermsUrl[role];
     const nextRoleBadgeIds = { ...(groupForm.role_badge_ids || {}) };
     delete nextRoleBadgeIds[role];
+    // If the removed role was the automatic membership role, clear it and
+    // disable automation rather than retain an invalid role.
+    const autoRoleCleared = groupForm.automatic_membership_role === role;
     setGroupForm({
       ...groupForm,
       roles: groupForm.roles.filter(r => r !== role),
@@ -1052,7 +1208,9 @@ export default function MemberGroupManagementPage() {
       default_self_join_role: groupForm.default_self_join_role === role ? '' : groupForm.default_self_join_role,
       role_terms_of_reference: nextRoleTerms,
       role_terms_url: nextRoleTermsUrl,
-      role_badge_ids: nextRoleBadgeIds
+      role_badge_ids: nextRoleBadgeIds,
+      automatic_membership_role: autoRoleCleared ? '' : groupForm.automatic_membership_role,
+      automatic_membership_enabled: autoRoleCleared ? false : groupForm.automatic_membership_enabled,
     });
   };
 
@@ -2723,6 +2881,422 @@ export default function MemberGroupManagementPage() {
                     </>
                   );
                 })()}
+              </div>
+
+              {/* Allow members to leave */}
+              <div className="pt-2 border-t border-slate-200 space-y-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex flex-col gap-1">
+                    <Label htmlFor="allow_members_to_leave" className="cursor-pointer">Allow members to leave</Label>
+                    <span className="text-xs text-slate-500">
+                      When off, members cannot leave this group themselves. Use this for mandatory or automatically-managed groups.
+                    </span>
+                  </div>
+                  <Switch
+                    id="allow_members_to_leave"
+                    checked={groupForm.allow_members_to_leave !== false}
+                    onCheckedChange={(checked) => setGroupForm({ ...groupForm, allow_members_to_leave: checked })}
+                    data-testid="switch-allow-members-to-leave"
+                  />
+                </div>
+              </div>
+
+              {/* Automatic membership */}
+              <div className="pt-2 border-t border-slate-200 space-y-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex flex-col gap-1">
+                    <Label htmlFor="automatic_membership_enabled" className="cursor-pointer">Automatic membership</Label>
+                    <span className="text-xs text-slate-500">
+                      Automatically add or remove members based on field-matching rules. Runs after saving and on a scheduled basis.
+                    </span>
+                  </div>
+                  <Switch
+                    id="automatic_membership_enabled"
+                    checked={!!groupForm.automatic_membership_enabled}
+                    onCheckedChange={(checked) => {
+                      setGroupForm({ ...groupForm, automatic_membership_enabled: checked });
+                      setAutoPreviewResult(null);
+                    }}
+                    data-testid="switch-automatic-membership-enabled"
+                  />
+                </div>
+
+                {groupForm.automatic_membership_enabled && (
+                  <div className="space-y-4 rounded-md border border-slate-200 bg-slate-50 p-3">
+                    {/* Role picker */}
+                    <div className="flex flex-col gap-1.5">
+                      <Label htmlFor="auto_membership_role">Assigned role *</Label>
+                      <span className="text-xs text-slate-500">Members matched by these rules will be assigned this role.</span>
+                      {(groupForm.roles || []).length === 0 ? (
+                        <p className="text-xs text-amber-600" data-testid="text-auto-no-roles">Add at least one role above to configure automatic membership.</p>
+                      ) : (
+                        <Select
+                          value={groupForm.automatic_membership_role}
+                          onValueChange={(v) => {
+                            setGroupForm({ ...groupForm, automatic_membership_role: v });
+                            setAutoPreviewResult(null);
+                          }}
+                        >
+                          <SelectTrigger id="auto_membership_role" className="bg-white" data-testid="select-auto-membership-role">
+                            <SelectValue placeholder="Select a role..." />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {(groupForm.roles || []).map((r) => (
+                              <SelectItem key={r} value={r}>{r}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      )}
+                    </div>
+
+                    {/* Filter groups (AND/OR editor) */}
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <Label>Membership filter rules</Label>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-7 text-xs"
+                          onClick={() => {
+                            setGroupForm((prev) => ({
+                              ...prev,
+                              automatic_membership_filter_groups: [
+                                ...(prev.automatic_membership_filter_groups || []),
+                                blankFilterGroup(),
+                              ],
+                            }));
+                            setAutoPreviewResult(null);
+                          }}
+                          data-testid="button-add-filter-group"
+                        >
+                          <Plus className="w-3 h-3 mr-1" />
+                          Add OR group
+                        </Button>
+                      </div>
+                      <p className="text-xs text-slate-500">
+                        A member must match <strong>all</strong> conditions in a group (AND), and at least <strong>one</strong> group (OR).
+                      </p>
+
+                      {(groupForm.automatic_membership_filter_groups || []).length === 0 && (
+                        <p className="text-xs text-slate-400 italic" data-testid="text-no-filter-groups">No filter groups yet. Add one above.</p>
+                      )}
+
+                      {(groupForm.automatic_membership_filter_groups || []).map((fg, gi) => (
+                        <div key={gi} className="rounded border border-slate-200 bg-white p-2 space-y-2" data-testid={`filter-group-${gi}`}>
+                          <div className="flex items-center justify-between">
+                            <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide">
+                              {gi === 0 ? 'Group 1' : `OR — Group ${gi + 1}`}
+                            </span>
+                            <div className="flex gap-1">
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                className="h-6 text-xs px-1.5"
+                                onClick={() => {
+                                  setGroupForm((prev) => {
+                                    const fgs = [...(prev.automatic_membership_filter_groups || [])];
+                                    fgs[gi] = {
+                                      ...fgs[gi],
+                                      conditions: [...(fgs[gi].conditions || []), blankCondition()],
+                                    };
+                                    return { ...prev, automatic_membership_filter_groups: fgs };
+                                  });
+                                  setAutoPreviewResult(null);
+                                }}
+                                data-testid={`button-add-condition-${gi}`}
+                              >
+                                <Plus className="w-3 h-3 mr-0.5" />
+                                AND
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                className="h-6 px-1.5 text-red-500 hover:text-red-700"
+                                onClick={() => {
+                                  setGroupForm((prev) => {
+                                    const fgs = (prev.automatic_membership_filter_groups || []).filter((_, i) => i !== gi);
+                                    return { ...prev, automatic_membership_filter_groups: fgs };
+                                  });
+                                  setAutoPreviewResult(null);
+                                }}
+                                data-testid={`button-remove-filter-group-${gi}`}
+                              >
+                                <X className="w-3 h-3" />
+                              </Button>
+                            </div>
+                          </div>
+
+                          {(fg.conditions || []).map((cond, ci) => {
+                            const ops = operatorsForDataType(cond.data_type);
+                            const nullary = isNullaryOperator(cond.operator);
+                            const fieldDef = autoFieldOptions.find(
+                              (f) => f.field_key === cond.field_key && f.entity_scope === cond.entity_scope && f.field_type === cond.field_type
+                            );
+                            const isSelectType = cond.data_type === 'select' || cond.data_type === 'multi_select';
+                            const fieldOptions = fieldDef?.options || [];
+                            const updateCond = (patch) => {
+                              setGroupForm((prev) => {
+                                const fgs = [...(prev.automatic_membership_filter_groups || [])];
+                                const conds = [...(fgs[gi].conditions || [])];
+                                conds[ci] = { ...conds[ci], ...patch };
+                                fgs[gi] = { ...fgs[gi], conditions: conds };
+                                return { ...prev, automatic_membership_filter_groups: fgs };
+                              });
+                              setAutoPreviewResult(null);
+                            };
+                            return (
+                              <div key={ci} className="flex flex-wrap items-center gap-1.5" data-testid={`condition-${gi}-${ci}`}>
+                                {/* Field selector */}
+                                <Select
+                                  value={cond.field_key ? `${cond.entity_scope}:${cond.field_type}:${cond.field_key}` : ''}
+                                  onValueChange={(v) => {
+                                    if (!v) return;
+                                    const [es, ft, fk] = v.split(':');
+                                    const def = autoFieldOptions.find(
+                                      (f) => f.entity_scope === es && f.field_type === ft && f.field_key === fk
+                                    );
+                                    updateCond({
+                                      entity_scope: es,
+                                      field_type: ft,
+                                      field_key: fk,
+                                      data_type: def?.data_type || 'text',
+                                      operator: operatorsForDataType(def?.data_type || 'text')[0]?.value || 'contains',
+                                      value: '',
+                                    });
+                                  }}
+                                >
+                                  <SelectTrigger className="h-7 text-xs w-44 bg-white" data-testid={`select-field-${gi}-${ci}`}>
+                                    <SelectValue placeholder="Select field…" />
+                                  </SelectTrigger>
+                                  <SelectContent className="max-h-64">
+                                    {autoFieldOptions.length === 0 && (
+                                      <SelectItem value="_loading" disabled>Loading fields…</SelectItem>
+                                    )}
+                                    {autoFieldOptions.map((f) => (
+                                      <SelectItem
+                                        key={`${f.entity_scope}:${f.field_type}:${f.field_key}`}
+                                        value={`${f.entity_scope}:${f.field_type}:${f.field_key}`}
+                                        className="text-xs"
+                                      >
+                                        {f._label}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+
+                                {/* Operator */}
+                                <Select
+                                  value={cond.operator}
+                                  onValueChange={(v) => updateCond({ operator: v, value: (v === 'is_one_of' || v === 'is_not_one_of') ? [] : '' })}
+                                >
+                                  <SelectTrigger className="h-7 text-xs w-36 bg-white" data-testid={`select-operator-${gi}-${ci}`}>
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {ops.map((op) => (
+                                      <SelectItem key={op.value} value={op.value} className="text-xs">
+                                        {op.label}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+
+                                {/* Value — hidden for nullary ops (is_empty, is_not_empty,
+                                    is_true, is_false). is_one_of/is_not_one_of use
+                                    toggle-badge multi-select when field options are known;
+                                    everything else uses a single text/number/date/select. */}
+                                {!nullary && (() => {
+                                  const isMulti = isMultiValueOperator(cond.operator);
+                                  const currentArr = Array.isArray(cond.value)
+                                    ? cond.value
+                                    : (cond.value ? [cond.value] : []);
+                                  if (isMulti && isSelectType && fieldOptions.length > 0) {
+                                    return (
+                                      <div className="flex flex-wrap gap-1" data-testid={`multivalue-${gi}-${ci}`}>
+                                        {fieldOptions.map((opt) => {
+                                          const optVal = opt.value ?? opt;
+                                          const optLabel = opt.label ?? opt;
+                                          const active = currentArr.includes(optVal);
+                                          return (
+                                            <button
+                                              key={optVal}
+                                              type="button"
+                                              onClick={() => {
+                                                const next = active
+                                                  ? currentArr.filter((v) => v !== optVal)
+                                                  : [...currentArr, optVal];
+                                                updateCond({ value: next });
+                                              }}
+                                              className={`h-6 px-2 rounded text-[11px] border transition-colors ${
+                                                active
+                                                  ? 'bg-blue-600 text-white border-blue-600'
+                                                  : 'bg-white text-slate-600 border-slate-300 hover:border-blue-400'
+                                              }`}
+                                              data-testid={`toggle-opt-${gi}-${ci}-${optVal}`}
+                                            >
+                                              {optLabel}
+                                            </button>
+                                          );
+                                        })}
+                                      </div>
+                                    );
+                                  }
+                                  if (isSelectType && fieldOptions.length > 0) {
+                                    const selectVal = Array.isArray(cond.value)
+                                      ? (cond.value[0] ?? '')
+                                      : (cond.value ?? '');
+                                    return (
+                                      <Select
+                                        value={selectVal}
+                                        onValueChange={(v) => updateCond({ value: v })}
+                                      >
+                                        <SelectTrigger className="h-7 text-xs w-32 bg-white" data-testid={`select-value-${gi}-${ci}`}>
+                                          <SelectValue placeholder="Value" />
+                                        </SelectTrigger>
+                                        <SelectContent className="max-h-48">
+                                          {fieldOptions.map((opt) => (
+                                            <SelectItem key={opt.value ?? opt} value={opt.value ?? opt} className="text-xs">
+                                              {opt.label ?? opt}
+                                            </SelectItem>
+                                          ))}
+                                        </SelectContent>
+                                      </Select>
+                                    );
+                                  }
+                                  if (cond.data_type === 'date') {
+                                    return (
+                                      <Input
+                                        type="date"
+                                        value={cond.value || ''}
+                                        onChange={(e) => updateCond({ value: e.target.value })}
+                                        className="h-7 text-xs w-36 bg-white"
+                                        data-testid={`input-value-${gi}-${ci}`}
+                                      />
+                                    );
+                                  }
+                                  return (
+                                    <Input
+                                      type={cond.data_type === 'number' ? 'number' : 'text'}
+                                      value={Array.isArray(cond.value) ? cond.value.join(', ') : (cond.value || '')}
+                                      onChange={(e) => updateCond({ value: e.target.value })}
+                                      placeholder="Value"
+                                      className="h-7 text-xs w-32 bg-white"
+                                      data-testid={`input-value-${gi}-${ci}`}
+                                    />
+                                  );
+                                })()}
+
+                                {/* Remove condition */}
+                                {(fg.conditions || []).length > 1 && (
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-6 px-1 text-red-400 hover:text-red-600"
+                                    onClick={() => {
+                                      setGroupForm((prev) => {
+                                        const fgs = [...(prev.automatic_membership_filter_groups || [])];
+                                        const conds = (fgs[gi].conditions || []).filter((_, i) => i !== ci);
+                                        fgs[gi] = { ...fgs[gi], conditions: conds };
+                                        return { ...prev, automatic_membership_filter_groups: fgs };
+                                      });
+                                      setAutoPreviewResult(null);
+                                    }}
+                                    data-testid={`button-remove-condition-${gi}-${ci}`}
+                                  >
+                                    <X className="w-3 h-3" />
+                                  </Button>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Preview */}
+                    <div className="flex items-center gap-2 pt-1">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-7 text-xs"
+                        onClick={runAutoPreview}
+                        disabled={autoPreviewLoading}
+                        data-testid="button-preview-auto-membership"
+                      >
+                        {autoPreviewLoading ? (
+                          <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                        ) : (
+                          <Eye className="w-3 h-3 mr-1" />
+                        )}
+                        Preview match count
+                      </Button>
+                      {autoPreviewResult && !autoPreviewResult.error && (
+                        <span className="text-xs text-slate-600" data-testid="text-auto-preview-result">
+                          {autoPreviewResult.matchCount != null ? (
+                            <><strong>{autoPreviewResult.matchCount}</strong> member{autoPreviewResult.matchCount === 1 ? '' : 's'} would match</>
+                          ) : null}
+                          {autoPreviewResult.validationErrors?.length > 0 && (
+                            <span className="text-amber-600 ml-2">
+                              {autoPreviewResult.validationErrors[0]}
+                            </span>
+                          )}
+                        </span>
+                      )}
+                      {autoPreviewResult?.error && (
+                        <span className="text-xs text-red-500" data-testid="text-auto-preview-error">
+                          Preview failed: {autoPreviewResult.error}
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Sync status — only shown in edit mode (group already exists) */}
+                    {editingGroup && (() => {
+                      const syncStatus = editingGroup.automatic_membership_sync_status;
+                      const lastSynced = editingGroup.automatic_membership_last_synced_at;
+                      const matchCount = editingGroup.automatic_membership_match_count;
+                      const syncError = editingGroup.automatic_membership_sync_error;
+                      // Canonical statuses: idle | queued | running | error
+                      // Only render when a status is present.
+                      if (!syncStatus) return null;
+                      const isIdle = syncStatus === 'idle';
+                      const isQueued = syncStatus === 'queued';
+                      const isRunning = syncStatus === 'running';
+                      const isError = syncStatus === 'error';
+                      const statusLabel = isIdle ? 'Synced' : isQueued ? 'Queued' : isRunning ? 'Running…' : 'Error';
+                      return (
+                        <div className="rounded bg-white border border-slate-200 p-2 text-xs space-y-0.5" data-testid="text-auto-sync-status">
+                          <div className="flex items-center gap-1.5 font-medium text-slate-700">
+                            {isIdle && <CheckCircle2 className="w-3.5 h-3.5 text-green-600" />}
+                            {isQueued && <Clock className="w-3.5 h-3.5 text-amber-500" />}
+                            {isRunning && <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-500" />}
+                            {isError && <XCircle className="w-3.5 h-3.5 text-red-500" />}
+                            {statusLabel}
+                            {matchCount != null && <span className="text-slate-500 font-normal">· {matchCount} matched</span>}
+                          </div>
+                          {lastSynced && <div className="text-slate-400">Last synced: {new Date(lastSynced).toLocaleString()}</div>}
+                          {syncError && <div className="text-red-500">{syncError}</div>}
+                          {isError && (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="mt-1 h-7 text-xs"
+                              onClick={() => triggerAutoReconcile(editingGroup.id, { notifySuccess: true })}
+                              data-testid="button-retry-auto-membership"
+                            >
+                              Retry sync
+                            </Button>
+                          )}
+                        </div>
+                      );
+                    })()}
+                  </div>
+                )}
               </div>
             </div>
             <DialogFooter>

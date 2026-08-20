@@ -565,6 +565,10 @@ export default function MemberGroupDetailPage() {
       if (isSoleActiveAdmin) {
         throw new Error(soleAdminLeaveMessage);
       }
+      // Advisory guard: membership managed automatically (Task #3690).
+      if (group?.allow_members_to_leave === false) {
+        throw new Error("Membership in this group is managed automatically and cannot be left manually.");
+      }
       return base44.entities.MemberGroupAssignment.delete(assignment.id);
     },
     onSuccess: () => {
@@ -2017,14 +2021,23 @@ export default function MemberGroupDetailPage() {
                     <Check className="w-4 h-4 mr-2 text-green-600" />
                     Already a member
                   </div>
-                  <Button
-                    variant="outline"
-                    onClick={() => setConfirmLeave(true)}
-                    data-testid="button-leave-group"
-                  >
-                    <LogOut className="w-4 h-4 mr-2" />
-                    Leave Group
-                  </Button>
+                  {group.allow_members_to_leave !== false ? (
+                    <Button
+                      variant="outline"
+                      onClick={() => setConfirmLeave(true)}
+                      data-testid="button-leave-group"
+                    >
+                      <LogOut className="w-4 h-4 mr-2" />
+                      Leave Group
+                    </Button>
+                  ) : (
+                    <span
+                      className="inline-flex items-center text-xs text-slate-500 px-2 py-1 rounded border border-slate-200 bg-slate-50"
+                      data-testid="text-managed-membership-notice"
+                    >
+                      Membership is managed automatically — you cannot leave this group.
+                    </span>
+                  )}
                 </>
               ) : selfJoinClosed ? (
                 <Button
@@ -3370,7 +3383,9 @@ export default function MemberGroupDetailPage() {
             <AlertDialogDescription>
               {isSoleActiveAdmin
                 ? soleAdminLeaveMessage
-                : `Are you sure you want to leave "${group.name}"? You can rejoin at any time while this group remains open for self-join.`}
+                : group?.allow_members_to_leave === false
+                  ? "Membership in this group is managed automatically. You cannot leave this group manually."
+                  : `Are you sure you want to leave "${group.name}"? You can rejoin at any time while this group remains open for self-join.`}
             </AlertDialogDescription>
           </AlertDialogHeader>
           {isSoleActiveAdmin && (
@@ -3378,14 +3393,21 @@ export default function MemberGroupDetailPage() {
               <AlertDescription>{soleAdminLeaveMessage}</AlertDescription>
             </Alert>
           )}
+          {!isSoleActiveAdmin && group?.allow_members_to_leave === false && (
+            <Alert variant="default" data-testid="alert-managed-membership-leave">
+              <AlertDescription>
+                Membership in this group is managed automatically and cannot be left manually.
+              </AlertDescription>
+            </Alert>
+          )}
           <AlertDialogFooter>
             <AlertDialogCancel
               disabled={leaveMutation.isPending}
               data-testid="button-cancel-leave"
             >
-              {isSoleActiveAdmin ? "Close" : "Stay in Group"}
+              {isSoleActiveAdmin || group?.allow_members_to_leave === false ? "Close" : "Stay in Group"}
             </AlertDialogCancel>
-            {!isSoleActiveAdmin && (
+            {!isSoleActiveAdmin && group?.allow_members_to_leave !== false && (
               <AlertDialogAction
                 onClick={(e) => {
                   e.preventDefault();

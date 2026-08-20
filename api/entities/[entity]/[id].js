@@ -32,6 +32,13 @@ import { isCategoryRestricted, hasSubcategoryRestrictions, isCategoryVisibleToVi
 import { anonymizeMember } from '../../_lib/memberAnonymize.js';
 import { isReservedPageSlug, reservedPageSlugMessage } from '../../../shared/memberAliases.js';
 import { hasManagedJobProvenance, stripManagedJobProvenance } from '../../_lib/jobFeedOwnership.js';
+import {
+  validateAutomaticMembershipSettings,
+  fetchAllowedCustomFieldIdsByScope,
+  buildFieldMeta,
+  roleExistsInGroup,
+  authorizeAutomaticMembershipPolicyWrite,
+} from '../../_lib/automaticMembership.js';
 const entityToTable = {
   'Gallery': 'gallery',
   'GalleryPhoto': 'gallery_photo',
@@ -1167,6 +1174,74 @@ export default async function handler(req, res) {
         }
       }
 
+      if (entityNormalized === 'membergroup' && tenantCtx.tenantId) {
+        const policyAuth = authorizeAutomaticMembershipPolicyWrite({
+          body: sanitizedBody,
+          isAdmin: await hasAdminAccess(tenantCtx),
+        });
+        if (!policyAuth.ok) {
+          return res.status(policyAuth.status).json({ error: policyAuth.error });
+        }
+        // Reconciliation state is written only by the trigger/worker.
+        for (const key of [
+          'automatic_membership_generation',
+          'automatic_membership_sync_status',
+          'automatic_membership_last_synced_at',
+          'automatic_membership_match_count',
+          'automatic_membership_sync_error',
+          'automatic_membership_cursor',
+        ]) {
+          delete sanitizedBody[key];
+        }
+        const amRelevantFields = [
+          'automatic_membership_enabled', 'automatic_membership_role',
+          'automatic_membership_filter_groups', 'roles',
+        ];
+        const patchTouchesAm = amRelevantFields.some(f => f in sanitizedBody);
+        if (patchTouchesAm) {
+          const { data: currentGroupRow, error: cgErr } = await supabase
+            .from('member_group')
+            .select('automatic_membership_enabled, automatic_membership_role, automatic_membership_filter_groups, roles')
+            .eq('id', id)
+            .eq('tenant_id', tenantCtx.tenantId)
+            .maybeSingle();
+
+          if (cgErr) {
+            console.error('[Entity PATCH] member_group auto-membership lookup error:', cgErr.message);
+            return res.status(500).json({ error: 'Failed to load group for automatic membership validation' });
+          }
+
+          if (currentGroupRow) {
+            const effectiveRow = { ...currentGroupRow, ...sanitizedBody };
+            const scopeResult = await fetchAllowedCustomFieldIdsByScope(supabase, tenantCtx.tenantId);
+            const fieldMeta = buildFieldMeta(scopeResult);
+            const roleCheck = (role) => roleExistsInGroup(role, effectiveRow.roles || []);
+            const amValidation = await validateAutomaticMembershipSettings(effectiveRow, {
+              allowedCustomFieldIdsByScope: scopeResult,
+              fieldMeta,
+              roleExists: roleCheck,
+            });
+            if (!amValidation.ok) {
+              return res.status(422).json({ error: amValidation.error });
+            }
+
+            // DB trigger increments generation and resets sync fields when
+            // enabled/role/filter_groups changes — we don't need to set these
+            // explicitly; the trigger handles it atomically.
+            // We do NOT set automatic_membership_sync_status here because:
+            //   a) the trigger already does it
+            //   b) setting it here could race with the trigger on the same row
+          }
+        }
+      }
+
+      // Any assignment change through the authenticated entity API is a manual
+      // exception. Automation is the only writer allowed to retain the
+      // automatic provenance, so a role/admin/expiry amendment is preserved.
+      if (isMemberGroupAssignmentEntity(entity)) {
+        sanitizedBody.assignment_source = 'manual';
+      }
+
       // AI Design Studio V2 publish gate (Task #2906): a canvas page cannot
       // flip to "published" while any placed V2 composition still has
       // unresolved data-ai-action links — those would render as dead ends on
@@ -1845,6 +1920,28 @@ export default async function handler(req, res) {
           return res
             .status(leaveAuthz.status || 409)
             .json({ error: leaveAuthz.error, ...(leaveAuthz.code && { code: leaveAuthz.code }) });
+        }
+
+        // Enforce allow_members_to_leave=false.
+        // Only blocks non-admin members removing their own assignment.
+        if (existingAssignment && existingAssignment.group_id && tenantCtx.isAuthenticated) {
+          const isAdminDel = await hasAdminAccess(tenantCtx);
+          const isSelfDel  = !!(tenantCtx.memberId && existingAssignment.member_id === tenantCtx.memberId);
+          if (!isAdminDel && isSelfDel) {
+            const { data: grpForLeave, error: grpLeaveErr } = await supabase
+              .from('member_group')
+              .select('allow_members_to_leave')
+              .eq('id', existingAssignment.group_id)
+              .eq('tenant_id', tenantCtx.tenantId)
+              .maybeSingle();
+            if (grpLeaveErr) {
+              console.error('[Entity DELETE] allow_members_to_leave lookup error:', grpLeaveErr.message);
+              return res.status(500).json({ error: 'Failed to verify group leave policy' });
+            }
+            if (grpForLeave && grpForLeave.allow_members_to_leave === false) {
+              return res.status(403).json({ error: 'Members are not allowed to leave this group.' });
+            }
+          }
         }
       }
 
