@@ -4,9 +4,14 @@ import { base44 } from '@/api/base44Client';
 import { publicClient } from '@/api/publicClient';
 import { useMemberAccess } from '@/hooks/useMemberAccess';
 import { useLayoutContext } from '@/contexts/LayoutContext';
-import { resolveMemberGroupCardsAccess } from '@/lib/memberGroupCards';
+import {
+  MEMBER_GROUP_CARD_SOURCE,
+  resolveMemberGroupCardsAccess,
+  resolveMemberGroupCardSource,
+  resolveSelectedMemberGroupIds,
+} from '@/lib/memberGroupCards';
 
-export function useMemberGroupCardsData() {
+export function useMemberGroupCardsData({ source, selectedGroupIds } = {}) {
   const { memberInfo, isFeatureExcluded, isAccessReady } = useMemberAccess();
   const { authResolved, sessionValidated } = useLayoutContext();
   const featureExcluded = authResolved
@@ -26,19 +31,32 @@ export function useMemberGroupCardsData() {
     isAccessReady,
     featureExcluded,
   });
+  const resolvedSource = resolveMemberGroupCardSource(source);
+  const manualMode = resolvedSource === MEMBER_GROUP_CARD_SOURCE.SELECTED;
+  const resolvedSelectedGroupIds = resolveSelectedMemberGroupIds(selectedGroupIds);
+  const shouldLoadManualGroups = !manualMode || resolvedSelectedGroupIds.length > 0;
 
   const publicGroupsQuery = useQuery({
-    queryKey: ['public-member-groups'],
-    queryFn: () => publicClient.listMemberGroups(),
-    enabled: shouldLoadPublicData,
+    queryKey: ['public-member-groups', resolvedSource, resolvedSelectedGroupIds],
+    queryFn: () => publicClient.listMemberGroups(
+      manualMode ? { groupIds: resolvedSelectedGroupIds } : undefined,
+    ),
+    enabled: shouldLoadPublicData && shouldLoadManualGroups,
     staleTime: 0,
     refetchOnMount: true,
   });
 
   const authenticatedGroupsQuery = useQuery({
-    queryKey: ['member-groups-self-join'],
-    queryFn: () => base44.entities.MemberGroup.list(),
-    enabled: shouldLoadAuthenticatedData,
+    queryKey: ['member-groups-cards', resolvedSource, resolvedSelectedGroupIds],
+    queryFn: () => (
+      manualMode
+        ? base44.entities.MemberGroup.listAll({
+          filter: { is_active: true },
+          sort: { name: 'asc' },
+        })
+        : base44.entities.MemberGroup.list()
+    ),
+    enabled: shouldLoadAuthenticatedData && shouldLoadManualGroups,
     staleTime: 0,
     refetchOnMount: true,
   });
@@ -46,7 +64,7 @@ export function useMemberGroupCardsData() {
   const vacanciesQuery = useQuery({
     queryKey: ['member-groups-open-vacancies'],
     queryFn: () => base44.entities.Vacancy.filter({ status: 'open' }),
-    enabled: shouldLoadAuthenticatedData,
+    enabled: shouldLoadAuthenticatedData && shouldLoadManualGroups,
     staleTime: 0,
     refetchOnMount: true,
   });
@@ -57,7 +75,7 @@ export function useMemberGroupCardsData() {
       if (!memberInfo?.id) return [];
       return base44.entities.MemberGroupAssignment.filter({ member_id: memberInfo.id });
     },
-    enabled: shouldLoadAuthenticatedData && !!memberInfo?.id,
+    enabled: shouldLoadAuthenticatedData && shouldLoadManualGroups && !!memberInfo?.id,
     staleTime: 0,
     refetchOnMount: true,
   });
@@ -118,6 +136,8 @@ export function useMemberGroupCardsData() {
     authResolved,
     isAccessReady,
     accessRestricted,
+    source: resolvedSource,
+    selectedGroupIds: resolvedSelectedGroupIds,
     groups,
     dataError,
     isLoading: !authResolved || (isAuthenticated && (!isAccessReady || dataLoading)) || dataLoading,

@@ -673,9 +673,16 @@ class PublicClient {
     });
   }
 
-  // Member Groups (self-join, active groups only — no auth required)
-  async listMemberGroups() {
-    return this._fetch('/api/public/member-groups');
+  // Member Groups (self-join feed by default; explicitly selected active cards
+  // may be loaded with a bounded group ID list).
+  async listMemberGroups({ groupIds } = {}) {
+    const ids = Array.isArray(groupIds)
+      ? [...new Set(groupIds.map((id) => String(id || '').trim()).filter(Boolean))].slice(0, 24)
+      : [];
+    const query = ids.length > 0
+      ? `?groupIds=${encodeURIComponent(ids.join(','))}`
+      : '';
+    return this._fetch(`/api/public/member-groups${query}`);
   }
 }
 

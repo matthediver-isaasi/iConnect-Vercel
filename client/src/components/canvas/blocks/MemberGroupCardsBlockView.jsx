@@ -26,6 +26,8 @@ export default function MemberGroupCardsBlockView({
   errorMessage,
   accessRestricted,
   asEditor,
+  manualMode = false,
+  selectedGroupCount = 0,
 }) {
   const cards = Array.isArray(groups) ? groups : [];
 
@@ -66,7 +68,13 @@ export default function MemberGroupCardsBlockView({
           <p className="text-sm">{errorMessage || "Couldn't load member groups right now."}</p>
         </div>
       ) : cards.length === 0 ? (
-        <MemberGroupCardsEmptyState text="There are no member groups open for self-join right now." />
+        <MemberGroupCardsEmptyState
+          text={manualMode
+            ? (selectedGroupCount > 0
+              ? 'None of the selected member groups are currently available.'
+              : 'Choose active member groups in the inspector.')
+            : 'There are no member groups open for self-join right now.'}
+        />
       ) : (
         <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6" data-testid="member-group-cards-grid">
           {cards.map((group) => (

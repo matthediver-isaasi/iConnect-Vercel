@@ -26,11 +26,21 @@ export default function MemberGroupCard({
   onNavigate,
 }) {
   const navigate = useNavigate();
-  const isJoined = !!assignment;
+  const hasAssignment = !!assignment;
+  const hasCurrentAssignment = hasAssignment && (
+    !assignment.expires_at || new Date(assignment.expires_at) > new Date()
+  );
   const groupId = group?.id;
+  // Legacy card callers pre-date the explicit flag and are self-join cards.
+  // Only a deliberate false value identifies a managed-membership card.
+  const isSelfJoinGroup = group?.allow_self_join !== false;
+  const isJoined = isSelfJoinGroup ? hasAssignment : hasCurrentAssignment;
+  const canOpenDetail = isSelfJoinGroup || (
+    !!isAuthenticated && (hasCurrentAssignment || isGroupAdmin)
+  );
 
   const activate = () => {
-    if (!groupId) return;
+    if (!groupId || !canOpenDetail) return;
     const destination = buildMemberGroupCardDestination({
       groupId,
       isAuthenticated,
@@ -78,10 +88,10 @@ export default function MemberGroupCard({
 
   return (
     <Card
-      className="overflow-hidden flex flex-col cursor-pointer hover-elevate"
+      className={`overflow-hidden flex flex-col ${canOpenDetail ? 'cursor-pointer hover-elevate' : ''}`}
       onClick={handleCardClick}
-      role="link"
-      tabIndex={0}
+      role={canOpenDetail ? 'link' : undefined}
+      tabIndex={canOpenDetail ? 0 : undefined}
       onKeyDown={handleCardKeyDown}
       data-testid={`card-group-${groupId}`}
       data-canvas-editor={asEditor ? 'true' : undefined}
@@ -143,7 +153,7 @@ export default function MemberGroupCard({
             </Badge>
           </div>
         ) : (
-          isAuthenticated && group.default_self_join_role && (
+          isAuthenticated && isSelfJoinGroup && group.default_self_join_role && (
             <div className="mb-3" data-testid={`text-join-as-${groupId}`}>
               <span className="text-xs text-slate-500">You&apos;ll join as: </span>
               <Badge className="bg-blue-100 text-blue-700 text-xs">
@@ -153,7 +163,16 @@ export default function MemberGroupCard({
           )
         )}
         <div className="mt-auto pt-3" onClick={(event) => event.stopPropagation()}>
-          {!isAuthenticated ? (
+          {!canOpenDetail ? (
+            <Button
+              variant="outline"
+              className="w-full"
+              disabled
+              data-testid={`button-members-only-${groupId}`}
+            >
+              Available to group members
+            </Button>
+          ) : !isAuthenticated ? (
             group.self_join_closed ? (
               <Button
                 variant="outline"

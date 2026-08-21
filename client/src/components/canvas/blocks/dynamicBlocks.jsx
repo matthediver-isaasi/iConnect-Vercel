@@ -70,7 +70,14 @@ import { DirectoryMemberCard, DirectoryOrganizationCard } from '@/components/dir
 import MemberGroupBlockView, { resolveMemberGroupGrid } from './MemberGroupBlockView';
 import MemberGroupCardsBlockView from './MemberGroupCardsBlockView';
 import { useMemberGroupCardsData } from '@/hooks/useMemberGroupCards';
-import { resolveMemberGroupCardLimit, selectSelfJoinMemberGroups } from '@/lib/memberGroupCards';
+import {
+  MEMBER_GROUP_CARD_SOURCE,
+  resolveMemberGroupCardLimit,
+  resolveMemberGroupCardSource,
+  resolveSelectedMemberGroupIds,
+  selectSelectedMemberGroups,
+  selectSelfJoinMemberGroups,
+} from '@/lib/memberGroupCards';
 import { GalleryImage, Lightbox, resolveAlt } from '@/components/iedit/elements/IEditGalleryElement';
 import {
   TypographyStyleField,
@@ -6049,7 +6056,7 @@ function DynamicDirectoryEmbedInspector({ block, update }) {
 // ============================================================================
 // MEMBER GROUP
 // ============================================================================
-function useCanvasMemberGroups() {
+function useCanvasMemberGroups({ enabled = true } = {}) {
   return useQuery({
     queryKey: ['canvas', 'member-groups'],
     queryFn: async () => {
@@ -6061,6 +6068,7 @@ function useCanvasMemberGroups() {
         .filter((group) => group?.id && group.is_active !== false)
         .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
     },
+    enabled,
     staleTime: 60_000,
   });
 }
@@ -6244,11 +6252,16 @@ function MemberGroupInspector({ block, update }) {
 // Canvas page cannot drift in viewer indicators or activation behavior.
 function MemberGroupCardsRender({ block, asEditor }) {
   const c = block.content || {};
-  const data = useMemberGroupCardsData();
+  const source = resolveMemberGroupCardSource(c.source);
+  const selectedGroupIds = resolveSelectedMemberGroupIds(c.selectedGroupIds);
+  const manualMode = source === MEMBER_GROUP_CARD_SOURCE.SELECTED;
+  const data = useMemberGroupCardsData({ source, selectedGroupIds });
   const limit = resolveMemberGroupCardLimit(c.limit);
   const groups = useMemo(
-    () => selectSelfJoinMemberGroups(data.groups, limit),
-    [data.groups, limit],
+    () => (manualMode
+      ? selectSelectedMemberGroups(data.groups, selectedGroupIds)
+      : selectSelfJoinMemberGroups(data.groups, limit)),
+    [data.groups, limit, manualMode, selectedGroupIds],
   );
 
   return (
@@ -6264,6 +6277,8 @@ function MemberGroupCardsRender({ block, asEditor }) {
       errorMessage={String(data.dataError?.message || '')}
       accessRestricted={data.accessRestricted}
       asEditor={asEditor}
+      manualMode={manualMode}
+      selectedGroupCount={selectedGroupIds.length}
     />
   );
 }
@@ -6275,16 +6290,160 @@ function MemberGroupCardsInspector({ block, update }) {
     content: { ...current.content, ...patch },
   }));
 
+  const source = resolveMemberGroupCardSource(c.source);
+  const manualMode = source === MEMBER_GROUP_CARD_SOURCE.SELECTED;
+  const selectedGroupIds = resolveSelectedMemberGroupIds(c.selectedGroupIds);
+  const {
+    data: groups = [],
+    isLoading,
+    isError,
+    error,
+  } = useCanvasMemberGroups({ enabled: manualMode });
+  const [search, setSearch] = useState('');
+  const groupById = useMemo(
+    () => new Map(groups.map((group) => [String(group.id), group])),
+    [groups],
+  );
+  const groupKind = (group) => (
+    group.allow_self_join
+      ? 'Self-join'
+      : group.automatic_membership_enabled
+        ? 'Automatic membership'
+        : 'Managed membership'
+  );
+  const normalizedSearch = search.trim().toLowerCase();
+  const matchingGroups = groups.filter((group) => (
+    !selectedGroupIds.includes(String(group.id))
+    && (
+      !normalizedSearch
+      || String(group.name || '').toLowerCase().includes(normalizedSearch)
+      || groupKind(group).toLowerCase().includes(normalizedSearch)
+    )
+  )).slice(0, 12);
+  const setSelectedGroupIds = (ids) => set({
+    selectedGroupIds: resolveSelectedMemberGroupIds(ids),
+  });
+  const moveSelected = (index, direction) => {
+    const nextIndex = index + direction;
+    if (nextIndex < 0 || nextIndex >= selectedGroupIds.length) return;
+    const next = [...selectedGroupIds];
+    [next[index], next[nextIndex]] = [next[nextIndex], next[index]];
+    setSelectedGroupIds(next);
+  };
+
   return (
-    <NumberField
-      label="Number of cards"
-      hint="Shows active groups open for self-join, in alphabetical order."
-      min={1}
-      max={24}
-      value={c.limit ?? 6}
-      onChange={(limit) => set({ limit })}
-      testId="input-member-group-cards-limit"
-    />
+    <>
+      <SelectField
+        label="Group source"
+        value={source}
+        onChange={(nextSource) => set({ source: resolveMemberGroupCardSource(nextSource) })}
+        options={[
+          { value: MEMBER_GROUP_CARD_SOURCE.SELF_JOIN, label: 'Active self-join groups' },
+          { value: MEMBER_GROUP_CARD_SOURCE.SELECTED, label: 'Selected active groups' },
+        ]}
+        testId="select-member-group-cards-source"
+      />
+      {!manualMode ? (
+        <NumberField
+          label="Number of cards"
+          hint="Shows active groups open for self-join, in alphabetical order."
+          min={1}
+          max={24}
+          value={c.limit ?? 6}
+          onChange={(limit) => set({ limit })}
+          testId="input-member-group-cards-limit"
+        />
+      ) : (
+        <div className="space-y-3" data-testid="member-group-cards-picker">
+          <Field
+            label="Find active member groups"
+            hint={isLoading
+              ? 'Loading active member groups…'
+              : isError
+                ? 'Active member groups could not be loaded.'
+              : selectedGroupIds.length >= 24
+                ? 'You can select up to 24 groups.'
+                : 'Search by group name or membership type.'}
+          >
+            <Input
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Search groups"
+              className="h-8"
+              data-testid="input-member-group-cards-search"
+            />
+          </Field>
+          {isError ? (
+            <p className="text-xs text-rose-600" role="alert" data-testid="member-group-cards-picker-error">
+              {String(error?.message || "Couldn't load active member groups right now.")}
+            </p>
+          ) : !isLoading && matchingGroups.length > 0 ? (
+            <div className="max-h-48 overflow-y-auto rounded-md border border-slate-200" data-testid="member-group-cards-search-results">
+              {matchingGroups.map((group) => (
+                <button
+                  key={group.id}
+                  type="button"
+                  className="flex w-full items-center justify-between gap-3 border-b border-slate-100 px-2 py-2 text-left text-xs last:border-b-0 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                  onClick={() => setSelectedGroupIds([...selectedGroupIds, group.id])}
+                  disabled={selectedGroupIds.length >= 24}
+                  data-testid={`button-add-member-group-card-${group.id}`}
+                >
+                  <span className="truncate font-medium text-slate-700">{group.name || 'Unnamed group'}</span>
+                  <span className="shrink-0 text-slate-500">{groupKind(group)}</span>
+                </button>
+              ))}
+            </div>
+          ) : !isLoading && (
+            <p className="text-xs text-slate-500" data-testid="member-group-cards-no-search-results">
+              {groups.length === 0 ? 'No active member groups are available.' : 'No matching available groups.'}
+            </p>
+          )}
+          <Field
+            label="Selected groups"
+            hint={isLoading
+              ? 'Checking the saved selections…'
+              : isError
+                ? 'Saved selections could not be checked.'
+              : selectedGroupIds.length === 0
+              ? 'No groups selected yet.'
+              : 'Groups display in this order. Inactive or deleted selections are not published.'}
+          >
+            <div className="flex flex-col gap-1.5" data-testid="member-group-cards-selected">
+              {!isLoading && !isError && selectedGroupIds.map((id, index) => {
+                const group = groupById.get(id);
+                const unavailable = !group;
+                const label = group?.name || 'Unavailable selection';
+                return (
+                  <div
+                    key={id}
+                    className={`flex items-center gap-1 rounded-md border px-2 py-1 ${
+                      unavailable
+                        ? 'border-amber-200 bg-amber-50 text-amber-800'
+                        : 'border-slate-200 text-slate-700'
+                    }`}
+                    data-testid={unavailable ? `member-group-card-unavailable-${id}` : `member-group-card-selected-${id}`}
+                  >
+                    <span className="min-w-0 flex-1 truncate text-xs">
+                      {label}
+                      {group ? <span className="text-slate-400"> ({groupKind(group)})</span> : null}
+                    </span>
+                    <Button size="icon" variant="ghost" disabled={index === 0} onClick={() => moveSelected(index, -1)} aria-label={`Move ${label} up`} data-testid={`button-member-group-card-up-${id}`}>
+                      <ChevronUp className="w-3 h-3" />
+                    </Button>
+                    <Button size="icon" variant="ghost" disabled={index === selectedGroupIds.length - 1} onClick={() => moveSelected(index, 1)} aria-label={`Move ${label} down`} data-testid={`button-member-group-card-down-${id}`}>
+                      <ChevronDown className="w-3 h-3" />
+                    </Button>
+                    <Button size="sm" variant="ghost" onClick={() => setSelectedGroupIds(selectedGroupIds.filter((selectedId) => selectedId !== id))} data-testid={`button-remove-member-group-card-${id}`}>
+                      Remove
+                    </Button>
+                  </div>
+                );
+              })}
+            </div>
+          </Field>
+        </div>
+      )}
+    </>
   );
 }
 

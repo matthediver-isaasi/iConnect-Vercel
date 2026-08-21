@@ -59,6 +59,16 @@ test('authenticated card shows joined role, group-admin and vacancy indicators',
   assert.match(html, /Find out more/);
 });
 
+test('standalone self-join cards preserve the legacy joined display for an existing assignment', () => {
+  const html = render({
+    isAuthenticated: true,
+    assignment: { group_role: 'Former member', expires_at: '2020-01-01' },
+  });
+  assert.match(html, /You have joined the group as/);
+  assert.match(html, /Former member/);
+  assert.match(html, /Find out more/);
+});
+
 test('closed registration retains its disabled CTA for guests and members', () => {
   const html = render({
     group: { ...group, self_join_closed: true, self_join_closed_label: 'Applications are closed' },

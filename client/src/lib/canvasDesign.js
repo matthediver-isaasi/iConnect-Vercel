@@ -1539,6 +1539,8 @@ export const BLOCK_DEFAULTS = {
     style: { background: 'transparent', borderWidth: 0 },
     content: {
       limit: 6,
+      source: 'self_join',
+      selectedGroupIds: [],
     },
   },
   [BLOCK_TYPES.CARD_DECK]: {
@@ -3225,6 +3227,21 @@ export function validateBlock(block) {
       const limit = Number(c.limit);
       if (!Number.isInteger(limit) || limit < 1 || limit > 24) {
         errors.push('Member Group Cards count must be a whole number from 1 to 24.');
+      }
+      if (c.source !== undefined && c.source !== 'self_join' && c.source !== 'selected') {
+        errors.push('Member Group Cards source must be self_join or selected.');
+      }
+      if (c.selectedGroupIds !== undefined) {
+        if (!Array.isArray(c.selectedGroupIds)) {
+          errors.push('Member Group Cards selected groups must be a list.');
+        } else {
+          const ids = c.selectedGroupIds.map((id) => String(id || '').trim()).filter(Boolean);
+          if (ids.length !== c.selectedGroupIds.length) {
+            errors.push('Member Group Cards selected groups must use non-empty IDs.');
+          }
+          if (ids.length > 24) errors.push('Member Group Cards can select at most 24 groups.');
+          if (new Set(ids).size !== ids.length) errors.push('Member Group Cards selected groups must be unique.');
+        }
       }
       break;
     }

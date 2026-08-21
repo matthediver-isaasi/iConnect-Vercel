@@ -50,6 +50,8 @@ test('loading, empty, failed and access restricted states are explicit', () => {
   assert.match(render({ groups: [] }), /member-group-cards-empty/);
   assert.match(render({ groups: [], isError: true, errorMessage: 'Unavailable' }), /role="alert"[^]*Unavailable/);
   assert.match(render({ accessRestricted: true }), /member-group-cards-restricted/);
+  assert.match(render({ groups: [], manualMode: true, selectedGroupCount: 0 }), /Choose active member groups/);
+  assert.match(render({ groups: [], manualMode: true, selectedGroupCount: 2 }), /selected member groups are currently available/);
 });
 
 test('the block clamps count values to the safe publishing bounds', () => {

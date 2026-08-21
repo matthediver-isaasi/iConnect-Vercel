@@ -591,6 +591,13 @@ export default function MemberGroupDetailPage() {
     () => myAssignments.some((a) => a.group_id === groupId),
     [myAssignments, groupId]
   );
+  const hasCurrentAssignment = useMemo(() => {
+    const now = Date.now();
+    return myAssignments.some((assignment) => (
+      assignment.group_id === groupId
+      && (!assignment.expires_at || new Date(assignment.expires_at).getTime() > now)
+    ));
+  }, [myAssignments, groupId]);
 
   const isGroupAdmin = useMemo(() => {
     const nowIso = new Date().toISOString();
@@ -1877,7 +1884,10 @@ export default function MemberGroupDetailPage() {
   const groupUnavailable =
     !group ||
     groupError ||
-    (!isGroupAdmin && (!group.allow_self_join || group.is_active === false));
+    (!isGroupAdmin && (
+      group.is_active === false
+      || (!group.allow_self_join && !hasCurrentAssignment)
+    ));
 
   const selfJoinClosed = !!group?.self_join_closed;
   const selfJoinClosedLabel = group?.self_join_closed_label?.trim() || 'Registrations closed';
