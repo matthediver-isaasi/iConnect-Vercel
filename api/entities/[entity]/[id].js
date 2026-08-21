@@ -39,6 +39,10 @@ import {
   roleExistsInGroup,
   authorizeAutomaticMembershipPolicyWrite,
 } from '../../_lib/automaticMembership.js';
+import {
+  isSpeakerMemberUniqueViolation,
+  validateSpeakerMemberLink,
+} from '../../_lib/speakerMemberLink.js';
 const entityToTable = {
   'Gallery': 'gallery',
   'GalleryPhoto': 'gallery_photo',
@@ -793,13 +797,13 @@ export default async function handler(req, res) {
       // ("No Organisation") or move them between organisations — but only within
       // the same tenant. Tenant safety for non-null targets is enforced below.
       const entitiesAllowingOrgReassign = ['Voucher', 'VoucherTransaction', 'DiscountCode', 'Member'];
-      const entitiesAllowingMemberReassign = ['DiscountCode'];
+      const entitiesAllowingMemberReassign = ['discountcode', 'speaker'];
       if (shouldApplyTenantFilter) {
         delete sanitizedBody.tenant_id;
         if (!entitiesAllowingOrgReassign.includes(entity)) {
           delete sanitizedBody.organization_id;
         }
-        if (!entitiesAllowingMemberReassign.includes(entity)) {
+        if (!entitiesAllowingMemberReassign.includes(entityNormalized)) {
           delete sanitizedBody.member_id;
         }
       }
@@ -906,6 +910,29 @@ export default async function handler(req, res) {
           if (existingWriter && existingWriter.length > 0) {
             return res.status(409).json({ error: 'An external writer with this email already exists' });
           }
+        }
+      }
+
+      const isSpeakerMemberLinkUpdate = entityNormalized === 'speaker'
+        && Object.prototype.hasOwnProperty.call(sanitizedBody, 'member_id');
+      if (isSpeakerMemberLinkUpdate) {
+        const canManageSpeakerLinks = await hasAdminAccess(tenantCtx)
+          || (tenantCtx.roleId
+            ? await hasFeatureAccess(tenantCtx.roleId, 'events.speakers')
+            : false);
+        if (!canManageSpeakerLinks) {
+          return res.status(403).json({ error: 'Speaker Management access required' });
+        }
+      }
+      if (isSpeakerMemberLinkUpdate && sanitizedBody.member_id) {
+        const linkValidation = await validateSpeakerMemberLink({
+          db: supabase,
+          tenantId: tenantCtx.tenantId,
+          memberId: sanitizedBody.member_id,
+          excludeSpeakerId: id,
+        });
+        if (!linkValidation.ok) {
+          return res.status(linkValidation.status).json(linkValidation.body);
         }
       }
 
@@ -1390,6 +1417,12 @@ export default async function handler(req, res) {
           // 404 is greppable in production.
           console.warn(`[Entity PATCH] Update matched no rows (PGRST116 -> 404): entity="${entity}" id="${id}" method=${req.method} tenantScope=${tenantScope} tenantId=${tenantCtx.tenantId} organizationId=${tenantCtx.organizationId} memberId=${tenantCtx.memberId} roleId=${tenantCtx.roleId}`);
           return res.status(404).json({ error: 'Not found or access denied' });
+        }
+        if (tableName === 'speaker' && isSpeakerMemberUniqueViolation(error)) {
+          return res.status(409).json({
+            error: 'This member is already linked to another speaker',
+            code: 'DUPLICATE_SPEAKER_MEMBER',
+          });
         }
         return res.status(500).json({ error: error.message });
       }

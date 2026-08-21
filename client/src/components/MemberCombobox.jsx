@@ -26,6 +26,7 @@ export default function MemberCombobox({
   unassignedLabel = "Unassigned",
   testId = "combobox-member",
   initialMember = null,
+  getOptionDisabledReason = null,
   // Optional pass-through org filter for /api/members/search:
   // a specific org UUID, 'none'/'__no_org__'/'null', or '__primary__'
   // (resolved server-side to the tenant's primary organisation).
@@ -132,11 +133,11 @@ export default function MemberCombobox({
   const handleSelect = (memberId) => {
     if (memberId === "unassigned") {
       setResolvedMember(null);
-      onValueChange("unassigned");
+      onValueChange("unassigned", null);
     } else {
       const member = results.find((m) => m.id === memberId);
       if (member) setResolvedMember(member);
-      onValueChange(memberId);
+      onValueChange(memberId, member || null);
     }
     setOpen(false);
   };
@@ -190,17 +191,20 @@ export default function MemberCombobox({
               </CommandItem>
               {results.map((m) => {
                 const label = getMemberLabel(m);
+                const disabledReason = getOptionDisabledReason?.(m) || "";
                 return (
                   <CommandItem
                     key={m.id}
                     value={m.id}
                     onSelect={() => handleSelect(m.id)}
+                    disabled={Boolean(disabledReason)}
                     data-testid={`${testId}-option-${m.id}`}
                   >
                     <Check className={cn("mr-2 h-4 w-4", value === m.id ? "opacity-100" : "opacity-0")} />
                     <div className="flex flex-col min-w-0">
                       <span className="text-sm truncate">{label}</span>
                       {m.email && <span className="text-xs text-muted-foreground truncate">{m.email}</span>}
+                      {disabledReason && <span className="text-xs text-amber-700 truncate">{disabledReason}</span>}
                     </div>
                   </CommandItem>
                 );

@@ -1,5 +1,5 @@
 import { supabase } from '../../_lib/database.js';
-import { getTenantContext } from '../../_lib/tenantContext.js';
+import { getTenantContext, hasAdminAccess, hasFeatureAccess } from '../../_lib/tenantContext.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
@@ -14,6 +14,13 @@ export default async function handler(req, res) {
   const tenantId = tenantCtx.tenantId;
   if (!tenantId) {
     return res.status(403).json({ error: 'Invalid tenant context' });
+  }
+  const canManageSpeakers = await hasAdminAccess(tenantCtx)
+    || (tenantCtx.roleId
+      ? await hasFeatureAccess(tenantCtx.roleId, 'events.speakers')
+      : false);
+  if (!canManageSpeakers) {
+    return res.status(403).json({ error: 'Speaker Management access required' });
   }
 
   try {
@@ -40,6 +47,7 @@ export default async function handler(req, res) {
         job_title,
         biography,
         profile_photo_url,
+        member_id,
         is_active,
         created_at
       `, { count: 'exact' })
@@ -70,10 +78,40 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: 'Failed to fetch speakers' });
     }
 
+    const linkedMemberIds = [...new Set((speakers || []).map((speaker) => speaker.member_id).filter(Boolean))];
+    const linkedMembersById = {};
+    if (linkedMemberIds.length > 0) {
+      const { data: members, error: membersError } = await supabase
+        .from('member')
+        .select('id, first_name, last_name, email, job_title, biography, profile_photo_url, organization (id, name)')
+        .eq('tenant_id', tenantId)
+        .in('id', linkedMemberIds);
+      if (membersError) {
+        console.error('[SpeakersPaginated] Linked member query error:', membersError);
+        return res.status(500).json({ error: 'Failed to fetch linked members' });
+      }
+      (members || []).forEach((member) => {
+        linkedMembersById[member.id] = {
+          id: member.id,
+          first_name: member.first_name,
+          last_name: member.last_name,
+          email: member.email,
+          job_title: member.job_title || null,
+          biography: member.biography || null,
+          profile_photo_url: member.profile_photo_url || null,
+          organization_id: member.organization?.id || null,
+          organization_name: member.organization?.name || null,
+        };
+      });
+    }
+
     const totalPages = Math.ceil((count || 0) / limitNum);
 
     return res.json({
-      speakers: speakers || [],
+      speakers: (speakers || []).map((speaker) => ({
+        ...speaker,
+        linked_member: speaker.member_id ? (linkedMembersById[speaker.member_id] || null) : null,
+      })),
       pagination: {
         page: pageNum,
         limit: limitNum,

@@ -78,7 +78,7 @@ export default async function handler(req, res) {
         if (speakerIds.length > 0) {
           const { data, error } = await supabase
             .from('speaker')
-            .select('id, full_name, email')
+            .select('id, full_name, email, member_id')
             .in('id', speakerIds)
             .eq('tenant_id', event.tenant_id);
           if (error) throw new Error(`speaker fetch failed: ${error.message}`);

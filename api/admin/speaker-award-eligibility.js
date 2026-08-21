@@ -34,7 +34,7 @@ export default async function handler(req, res) {
   try {
     const { data: speakers, error } = await supabase
       .from('speaker')
-      .select('id, full_name, email')
+      .select('id, full_name, email, member_id')
       .in('id', speakerIds)
       .eq('tenant_id', ctx.tenantId);
     if (error) throw new Error(error.message);

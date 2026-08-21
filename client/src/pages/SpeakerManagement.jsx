@@ -27,6 +27,12 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
+import MemberCombobox from "@/components/MemberCombobox";
+import {
+  createEmptySpeakerForm,
+  memberToSpeakerForm,
+  speakerToForm,
+} from "@/lib/speakerMemberProfile";
 
 function useDebounce(value, delay) {
   const [debouncedValue, setDebouncedValue] = useState(value);
@@ -65,15 +71,7 @@ export default function SpeakerManagementPage() {
   const itemsPerPage = 20;
   const debouncedSearch = useDebounce(searchQuery, 300);
 
-  const [formData, setFormData] = useState({
-    full_name: "",
-    email: "",
-    organization: "",
-    job_title: "",
-    biography: "",
-    profile_photo_url: "",
-    is_active: true
-  });
+  const [formData, setFormData] = useState(createEmptySpeakerForm);
 
   const queryClient = useQueryClient();
 
@@ -200,26 +198,10 @@ export default function SpeakerManagementPage() {
   const handleOpenEditor = (speaker = null) => {
     if (speaker) {
       setEditingSpeaker(speaker);
-      setFormData({
-        full_name: speaker.full_name || "",
-        email: speaker.email || "",
-        organization: speaker.organization || "",
-        job_title: speaker.job_title || "",
-        biography: speaker.biography || "",
-        profile_photo_url: speaker.profile_photo_url || "",
-        is_active: speaker.is_active !== false
-      });
+      setFormData(speakerToForm(speaker));
     } else {
       setEditingSpeaker(null);
-      setFormData({
-        full_name: "",
-        email: "",
-        organization: "",
-        job_title: "",
-        biography: "",
-        profile_photo_url: "",
-        is_active: true
-      });
+      setFormData(createEmptySpeakerForm());
     }
     setIsEditorOpen(true);
   };
@@ -227,15 +209,17 @@ export default function SpeakerManagementPage() {
   const handleCloseEditor = () => {
     setIsEditorOpen(false);
     setEditingSpeaker(null);
-    setFormData({
-      full_name: "",
-      email: "",
-      organization: "",
-      job_title: "",
-      biography: "",
-      profile_photo_url: "",
-      is_active: true
-    });
+    setFormData(createEmptySpeakerForm());
+  };
+
+  const handleMemberChange = (memberId, member) => {
+    if (memberId === "unassigned") {
+      setFormData((current) => ({ ...current, member_id: null }));
+      return;
+    }
+    if (member) {
+      setFormData((current) => memberToSpeakerForm(current, member));
+    }
   };
 
   const handleSave = () => {
@@ -458,6 +442,14 @@ export default function SpeakerManagementPage() {
                       <h3 className="font-semibold text-slate-900 mb-1" data-testid={`text-speaker-name-${speaker.id}`}>
                         {speaker.full_name}
                       </h3>
+                      {speaker.member_id && (
+                        <span
+                          className="inline-flex mt-1 text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full"
+                          data-testid={`badge-linked-member-${speaker.id}`}
+                        >
+                          Linked member
+                        </span>
+                      )}
                       {!speaker.is_active && (
                         <span className="text-xs bg-slate-200 text-slate-600 px-2 py-0.5 rounded-full">
                           Inactive
@@ -467,6 +459,16 @@ export default function SpeakerManagementPage() {
                   </div>
 
                   <div className="space-y-2 mb-4">
+                    {speaker.member_id && (
+                      <div className="flex items-center gap-2 text-sm text-blue-700">
+                        <User className="w-4 h-4 flex-shrink-0" />
+                        <span className="truncate">
+                          {speaker.linked_member
+                            ? [speaker.linked_member.first_name, speaker.linked_member.last_name].filter(Boolean).join(" ") || speaker.linked_member.email
+                            : "Member profile linked"}
+                        </span>
+                      </div>
+                    )}
                     {speaker.job_title && (
                       <div className="flex items-center gap-2 text-sm text-slate-600">
                         <Briefcase className="w-4 h-4 flex-shrink-0" />
@@ -559,6 +561,31 @@ export default function SpeakerManagementPage() {
             </DialogHeader>
 
             <div className="space-y-4">
+              <div className="space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-4">
+                <Label>Linked Member (optional)</Label>
+                <MemberCombobox
+                  value={formData.member_id || "unassigned"}
+                  onValueChange={handleMemberChange}
+                  initialMember={editingSpeaker?.linked_member || null}
+                  placeholder="Search members by name or email..."
+                  unassignedLabel="No linked member"
+                  testId="combobox-speaker-member"
+                  getOptionDisabledReason={(member) => (
+                    member.linked_speaker_id && member.linked_speaker_id !== editingSpeaker?.id
+                      ? `Already linked to ${member.linked_speaker_name || "another speaker"}`
+                      : ""
+                  )}
+                />
+                <p className="text-xs text-slate-600">
+                  Selecting a member copies their current profile details. You can edit the speaker fields below without changing the member profile.
+                </p>
+                {formData.member_id && (
+                  <p className="text-xs font-medium text-blue-700">
+                    Linked. Choose another member to switch, or “No linked member” to keep this as an ad-hoc speaker.
+                  </p>
+                )}
+              </div>
+
               {/* Profile Photo */}
               <div className="space-y-2">
                 <Label>Profile Photo</Label>

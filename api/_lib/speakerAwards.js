@@ -75,34 +75,66 @@ export function resolveSpeakerAward(config, speakerId) {
   return award;
 }
 
-// Match speakers to members by email (case-insensitive). Returns
+// Build a PostgREST `.or()` clause for exact, case-insensitive email matches.
+// Escape LIKE wildcards and reserved `.or()` syntax so user-controlled email
+// values cannot broaden or alter the filter.
+export function buildSpeakerEmailMatchOr(emails) {
+  const escapeLike = (value) => String(value).replace(/([%_\\])/g, '\\$1');
+  const escapeOr = (value) => String(value).replace(/([\\(),"])/g, '\\$1');
+  return emails
+    .map((email) => `email.ilike."${escapeOr(escapeLike(email))}"`)
+    .join(',');
+}
+
+// Match speakers to members using the persisted member link first, then by
+// email (case-insensitive) for legacy and ad-hoc speaker profiles. Returns
 // { [speakerId]: { member_id, organization_id, organization_name } }.
 export async function matchSpeakersToMembers(supabase, tenantId, speakers) {
   const bySpeaker = {};
+  const linkedMemberIds = [...new Set(
+    (speakers || []).map(s => s?.member_id).filter(Boolean)
+  )];
   const emails = [...new Set(
     (speakers || [])
       .map(s => (s?.email || '').trim().toLowerCase())
       .filter(Boolean)
   )];
-  if (emails.length === 0) return bySpeaker;
+  if (linkedMemberIds.length === 0 && emails.length === 0) return bySpeaker;
 
-  // Case-insensitive match: emails are stored lowercased by convention, but
-  // legacy rows can be mixed-case, so use ilikeAnyOf on escaped literals.
-  const patterns = emails.map(e => e.replace(/([%_\\])/g, '\\$1'));
-  const { data: members, error } = await supabase
-    .from('member')
-    .select('id, email, organization_id')
-    .eq('tenant_id', tenantId)
-    .ilikeAnyOf('email', patterns);
-  if (error) throw new Error(`member lookup failed: ${error.message}`);
+  let linkedMembers = [];
+  if (linkedMemberIds.length > 0) {
+    const { data, error } = await supabase
+      .from('member')
+      .select('id, email, organization_id')
+      .eq('tenant_id', tenantId)
+      .in('id', linkedMemberIds);
+    if (error) throw new Error(`linked member lookup failed: ${error.message}`);
+    linkedMembers = data || [];
+  }
 
+  let emailMembers = [];
+  if (emails.length > 0) {
+    // Case-insensitive match: emails are stored lowercased by convention, but
+    // legacy rows can be mixed-case.
+    const { data, error } = await supabase
+      .from('member')
+      .select('id, email, organization_id')
+      .eq('tenant_id', tenantId)
+      .or(buildSpeakerEmailMatchOr(emails));
+    if (error) throw new Error(`member lookup failed: ${error.message}`);
+    emailMembers = data || [];
+  }
+
+  const byId = {};
   const byEmail = {};
-  (members || []).forEach(m => {
+  linkedMembers.forEach(m => { byId[m.id] = m; });
+  emailMembers.forEach(m => {
     const key = (m.email || '').trim().toLowerCase();
     if (key && !byEmail[key]) byEmail[key] = m;
   });
 
-  const orgIds = [...new Set((members || []).map(m => m.organization_id).filter(Boolean))];
+  const allMatchedMembers = [...linkedMembers, ...emailMembers];
+  const orgIds = [...new Set(allMatchedMembers.map(m => m.organization_id).filter(Boolean))];
   const orgNames = {};
   if (orgIds.length > 0) {
     const { data: orgs } = await supabase
@@ -114,7 +146,7 @@ export async function matchSpeakersToMembers(supabase, tenantId, speakers) {
 
   (speakers || []).forEach(s => {
     const email = (s?.email || '').trim().toLowerCase();
-    const m = email ? byEmail[email] : null;
+    const m = (s?.member_id && byId[s.member_id]) || (email ? byEmail[email] : null);
     if (m) {
       bySpeaker[s.id] = {
         member_id: m.id,

@@ -23,7 +23,7 @@ export default async function handler(req, res) {
   try {
     const { data: members, error } = await supabase
       .from('member')
-      .select('id, first_name, last_name, email, job_title, organization (id, name)')
+      .select('id, first_name, last_name, email, job_title, biography, profile_photo_url, organization (id, name)')
       .eq('tenant_id', tenantId)
       .in('id', uniqueIds);
 
@@ -32,13 +32,33 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: 'Failed to fetch members' });
     }
 
+    const linkedSpeakersByMemberId = {};
+    const { data: linkedSpeakers, error: linkedError } = await supabase
+      .from('speaker')
+      .select('id, full_name, member_id')
+      .eq('tenant_id', tenantId)
+      .in('member_id', uniqueIds);
+    if (linkedError) {
+      console.error('[Member By IDs] Speaker link lookup error:', linkedError);
+      return res.status(500).json({ error: 'Failed to fetch members' });
+    }
+    (linkedSpeakers || []).forEach((speaker) => {
+      linkedSpeakersByMemberId[speaker.member_id] = speaker;
+    });
+
     const normalized = (members || []).map((m) => ({
       id: m.id,
       first_name: m.first_name,
       last_name: m.last_name,
       email: m.email,
       job_title: m.job_title || null,
+      biography: m.biography || null,
+      profile_photo_url: m.profile_photo_url || null,
+      organization_id: m.organization?.id || null,
+      organization_name: m.organization?.name || null,
       organisation_name: m.organization?.name || null,
+      linked_speaker_id: linkedSpeakersByMemberId[m.id]?.id || null,
+      linked_speaker_name: linkedSpeakersByMemberId[m.id]?.full_name || null,
     }));
 
     return res.json(normalized);

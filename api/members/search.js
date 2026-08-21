@@ -1,4 +1,4 @@
-import { getTenantContext, hasAdminAccess } from '../_lib/tenantContext.js';
+import { getTenantContext, hasAdminAccess, hasFeatureAccess } from '../_lib/tenantContext.js';
 import { supabase } from '../_lib/database.js';
 
 // Resolve the tenant's primary organisation (is_primary=true, created at
@@ -50,9 +50,12 @@ export default async function handler(req, res) {
     return res.status(401).json({ error: 'Unauthorized - authentication and tenant context required' });
   }
 
-  const isAdmin = await hasAdminAccess(tenantContext);
-  if (!isAdmin) {
-    return res.status(403).json({ error: 'Admin access required' });
+  const canManageSpeakers = tenantContext.roleId
+    ? await hasFeatureAccess(tenantContext.roleId, 'events.speakers')
+    : false;
+  const canSearchMembers = await hasAdminAccess(tenantContext) || canManageSpeakers;
+  if (!canSearchMembers) {
+    return res.status(403).json({ error: 'Member search access required' });
   }
 
   const { tenantId } = tenantContext;
@@ -73,7 +76,7 @@ export default async function handler(req, res) {
 
     let memberQuery = supabase
       .from('member')
-      .select('id, first_name, last_name, email, job_title, biography, profile_photo_url, linkedin_url, organization_id')
+      .select('id, first_name, last_name, email, job_title, biography, profile_photo_url, linkedin_url, organization_id, organization (id, name)')
       .eq('tenant_id', tenantId)
       .not('email', 'ilike', 'deleted_%@deleted.local');
 
@@ -109,7 +112,32 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: 'Failed to search members' });
     }
 
-    return res.json(members || []);
+    const memberIds = (members || []).map((member) => member.id);
+    const linkedSpeakersByMemberId = {};
+    if (memberIds.length > 0) {
+      const { data: linkedSpeakers, error: linkedError } = await supabase
+        .from('speaker')
+        .select('id, full_name, member_id')
+        .eq('tenant_id', tenantId)
+        .in('member_id', memberIds);
+      if (linkedError) {
+        console.error('[Member Search] Speaker link lookup error:', linkedError);
+        return res.status(500).json({ error: 'Failed to search members' });
+      }
+      (linkedSpeakers || []).forEach((speaker) => {
+        linkedSpeakersByMemberId[speaker.member_id] = speaker;
+      });
+    }
+
+    return res.json((members || []).map((member) => {
+      const linkedSpeaker = linkedSpeakersByMemberId[member.id] || null;
+      return {
+        ...member,
+        organization_name: member.organization?.name || null,
+        linked_speaker_id: linkedSpeaker?.id || null,
+        linked_speaker_name: linkedSpeaker?.full_name || null,
+      };
+    }));
   } catch (err) {
     console.error('[Member Search] Error:', err);
     return res.status(500).json({ error: 'Failed to search members' });

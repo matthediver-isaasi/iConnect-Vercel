@@ -38,6 +38,10 @@ import {
   roleExistsInGroup,
   authorizeAutomaticMembershipPolicyWrite,
 } from '../../_lib/automaticMembership.js';
+import {
+  isSpeakerMemberUniqueViolation,
+  validateSpeakerMemberLink,
+} from '../../_lib/speakerMemberLink.js';
 
 /**
  * Task #3100: support staff = tenant users (admin dashboard), tenant admins,
@@ -1745,6 +1749,24 @@ export default async function handler(req, res) {
         }
       }
 
+      if (entityNorm === 'speaker' && sanitizedBody.member_id) {
+        const canManageSpeakerLinks = await hasAdminAccess(tenantCtx)
+          || (tenantCtx.roleId
+            ? await hasFeatureAccess(tenantCtx.roleId, 'events.speakers')
+            : false);
+        if (!canManageSpeakerLinks) {
+          return res.status(403).json({ error: 'Speaker Management access required' });
+        }
+        const linkValidation = await validateSpeakerMemberLink({
+          db: supabase,
+          tenantId: sanitizedBody.tenant_id || tenantCtx.tenantId,
+          memberId: sanitizedBody.member_id,
+        });
+        if (!linkValidation.ok) {
+          return res.status(linkValidation.status).json(linkValidation.body);
+        }
+      }
+
       // SECURITY: Self-join enforcement for MemberGroupAssignment.
       // Non-admin members may only create assignments that satisfy the
       // group's self-join configuration; admins (tenant users or members
@@ -1922,6 +1944,12 @@ export default async function handler(req, res) {
         
         // Handle unique constraint violations with user-friendly messages
         if (error.code === '23505') {
+          if (tableName === 'speaker' && isSpeakerMemberUniqueViolation(error)) {
+            return res.status(409).json({
+              error: 'This member is already linked to another speaker',
+              code: 'DUPLICATE_SPEAKER_MEMBER',
+            });
+          }
           // Race-safe FormSubmission idempotency backstop: two concurrent
           // requests with the same key both pass the pre-check above; the
           // unique partial index on (form_id, idempotency_key) rejects the
