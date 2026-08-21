@@ -478,6 +478,7 @@ export function AccordionReflowProvider({ children, blocks, resolveGeom, editorM
         effectiveH,
         signed,
         isCard,
+        allowSectionBottomOverflow: !!def?.autoHeight,
       });
     }
     return buildReflowRowGroups(entries);
@@ -493,6 +494,7 @@ export function AccordionReflowProvider({ children, blocks, resolveGeom, editorM
     for (const block of blocks) {
       const geom = resolveGeom(block);
       if (!geom || geom.hidden) continue;
+      const def = getBlockDefinition(block.type);
       const target = {
         ...geom,
         id: block.id,
@@ -501,11 +503,13 @@ export function AccordionReflowProvider({ children, blocks, resolveGeom, editorM
         left: geom.x,
         right: geom.x + geom.w,
         fullWidth: blockIsFullWidthLike(block),
+        // Only intrinsically auto-height content can use top-anchor Section
+        // ownership. Fixed blocks and background containers remain strict.
+        allowSectionBottomOverflow: !!def?.autoHeight,
       };
       targets.push(target);
       if (block.type === BLOCK_TYPES.SECTION) sectionTargets.push(target);
 
-      const def = getBlockDefinition(block.type);
       if (
         !def?.autoHeight &&
         block.type !== BLOCK_TYPES.SECTION &&
@@ -676,8 +680,17 @@ export function AccordionReflowProvider({ children, blocks, resolveGeom, editorM
           left: geom.x,
           right: geom.x + geom.w,
           fullWidth: blockIsFullWidthLike(block),
+          allowSectionBottomOverflow: !!def?.autoHeight,
         };
-        if (reflowMemberIsContained(spatialContainerGeom, target)) {
+        if (reflowMemberIsContained(spatialContainerGeom, target, {
+          // Section contents are anchored by their stored top. Auto-height
+          // text may cross the authored bottom edge and must still move/grow
+          // with the Section. Decorative Boxes retain strict containment.
+          allowBottomOverflow: (
+            !isBox &&
+            target.allowSectionBottomOverflow
+          ),
+        })) {
           containedTargets.push(target);
         }
       }
@@ -688,6 +701,7 @@ export function AccordionReflowProvider({ children, blocks, resolveGeom, editorM
         growOnly: isBox,
         relayTargets: collisionTargets,
         inheritedOffsets,
+        allowBottomOverflow: !isBox,
       });
     },
     [editorMode, rowGroups, blocks, resolveGeom, collisionTargets, inheritedOffsets],

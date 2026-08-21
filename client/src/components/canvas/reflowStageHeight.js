@@ -34,7 +34,11 @@ export function horizontalReflowOverlap(a, b) {
   return aBounds.left < bBounds.right && bBounds.left < aBounds.right;
 }
 
-function containsMember(containerGeom, member) {
+function containsMember(
+  containerGeom,
+  member,
+  { allowBottomOverflow = false } = {},
+) {
   if (!containerGeom || !member) return false;
   const containerTop = Number.isFinite(containerGeom.y) ? containerGeom.y : 0;
   const containerBottom = containerTop + (Number.isFinite(containerGeom.h) ? containerGeom.h : 0);
@@ -42,7 +46,17 @@ function containsMember(containerGeom, member) {
   const memberBottom = Number.isFinite(member.bottom)
     ? member.bottom
     : memberTop;
-  if (memberTop < containerTop || memberBottom > containerBottom) return false;
+  // Section content is authored as independent absolute blocks. Auto-height
+  // text can therefore begin inside the Section while its stored or measured
+  // box crosses the authored bottom edge. Its top anchor still establishes
+  // visual ownership. Boxes and nested Sections keep strict full-rectangle
+  // containment so overlapping peer backgrounds cannot become parents.
+  if (
+    memberTop < containerTop ||
+    (allowBottomOverflow
+      ? memberTop >= containerBottom
+      : memberBottom > containerBottom)
+  ) return false;
 
   const containerBounds = horizontalBounds({
     ...containerGeom,
@@ -428,7 +442,12 @@ function sectionOwnerMap(targets, sectionTargets) {
     const candidates = sectionTargets
       .filter((section) => {
         if (!section?.id || section.id === target.id) return false;
-        if (!containsMember(section, target)) return false;
+        if (!containsMember(section, target, {
+          allowBottomOverflow: (
+            !targetIsSection &&
+            target.allowSectionBottomOverflow === true
+          ),
+        })) return false;
         // Equal-sized overlapping Section backgrounds are peers, not a
         // parent/child pair. Treating them as owners would create a cycle.
         return !targetIsSection || !sameStoredRect(section, target);
@@ -550,11 +569,17 @@ export function growthForContainedGeom(
     growOnly = false,
     relayTargets = containedTargets,
     inheritedOffsets,
+    allowBottomOverflow = false,
   } = {},
 ) {
   if (!containerGeom) return 0;
   const allSources = reflowSources(rowGroups);
-  const sources = allSources.filter((source) => containsMember(containerGeom, source));
+  const sources = allSources.filter((source) => containsMember(containerGeom, source, {
+    allowBottomOverflow: (
+      allowBottomOverflow &&
+      source.allowSectionBottomOverflow === true
+    ),
+  }));
   if (sources.length === 0) return 0;
   let signedGrowth = 0;
   for (const source of sources) {
@@ -581,7 +606,12 @@ export function growthForContainedGeom(
   let overflow = 0;
 
   for (const target of targets) {
-    if (!containsMember(containerGeom, target)) continue;
+    if (!containsMember(containerGeom, target, {
+      allowBottomOverflow: (
+        allowBottomOverflow &&
+        target.allowSectionBottomOverflow === true
+      ),
+    })) continue;
     const renderedBottom = (
       target.y +
       liveTargetHeight(target, membersById) +
@@ -598,8 +628,12 @@ export function growthForContainedGeom(
   return growOnly ? Math.max(0, growth) : growth;
 }
 
-export function reflowMemberIsContained(containerGeom, member) {
-  return containsMember(containerGeom, member);
+export function reflowMemberIsContained(
+  containerGeom,
+  member,
+  { allowBottomOverflow = false } = {},
+) {
+  return containsMember(containerGeom, member, { allowBottomOverflow });
 }
 
 /**

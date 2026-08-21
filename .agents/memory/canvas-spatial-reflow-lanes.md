@@ -23,5 +23,8 @@ compose without overlap. A displaced non-auto content block becomes a
 zero-growth collision relay; Section and Box backgrounds do not. Size
 containers and the stage from final rendered bottoms. Infer Section ownership
 from the active breakpoint's stored rectangle, never from full-width/full-bleed
-rendering reach; nested Sections inherit once and unrelated adjacent content
-stays independent. Editor displacement remains zero.
+rendering reach. Auto-height content whose top anchor is inside a Section may
+remain owned when its bottom crosses the Section edge, but only with full
+horizontal containment; fixed blocks, Boxes, and nested Sections still require
+full-rectangle containment. Nested Sections inherit once and unrelated adjacent
+content stays independent. Editor displacement remains zero.

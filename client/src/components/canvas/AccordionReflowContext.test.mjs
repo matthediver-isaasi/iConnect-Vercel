@@ -51,6 +51,7 @@ const entry = ({
   isCard = false,
   signed = false,
   fullWidth = false,
+  allowSectionBottomOverflow = true,
 }) => ({
   id,
   top: y,
@@ -62,6 +63,7 @@ const entry = ({
   effectiveH: measuredH,
   isCard,
   signed,
+  allowSectionBottomOverflow,
 });
 
 function height({
@@ -462,6 +464,208 @@ test('a moved Section carries paragraph text from a non-colliding lane with it',
   assert.equal(result.offsets.get('paragraph'), 50);
   assert.equal(result.offsets.get('external'), 0);
   assert.equal(result.owners.get('paragraph'), 'section');
+});
+
+test('a moved Section carries an edge-straddling auto-height paragraph before and after measurement', () => {
+  const unmeasuredTextRows = buildReflowRowGroups([
+    entry({ id: 'accordion', x: 0, y: 0, w: 600, h: 100, measuredH: 300 }),
+  ]);
+  const measuredTextRows = buildReflowRowGroups([
+    entry({ id: 'accordion', x: 0, y: 0, w: 600, h: 100, measuredH: 300 }),
+    entry({
+      id: 'paragraph',
+      x: 650,
+      y: 300,
+      w: 500,
+      h: 180,
+      measuredH: 220,
+    }),
+  ]);
+  const collapsedRows = buildReflowRowGroups([
+    entry({ id: 'accordion', x: 0, y: 0, w: 600, h: 100, measuredH: 100 }),
+    entry({
+      id: 'paragraph',
+      x: 650,
+      y: 300,
+      w: 500,
+      h: 180,
+      measuredH: 220,
+    }),
+  ]);
+  const section = {
+    id: 'section',
+    x: 0,
+    y: 250,
+    w: 1200,
+    h: 200,
+    top: 250,
+    bottom: 450,
+    fullWidth: true,
+  };
+  const heading = {
+    id: 'heading',
+    x: 0,
+    y: 270,
+    w: 500,
+    h: 50,
+    top: 270,
+    bottom: 320,
+  };
+  const image = {
+    id: 'image',
+    x: 0,
+    y: 330,
+    w: 500,
+    h: 100,
+    top: 330,
+    bottom: 430,
+  };
+  // Real public text can begin inside a Section while its stored auto-height
+  // box extends below the Section's authored edge.
+  const paragraph = {
+    id: 'paragraph',
+    x: 650,
+    y: 300,
+    w: 500,
+    h: 180,
+    top: 300,
+    bottom: 480,
+    allowSectionBottomOverflow: true,
+  };
+  const fixedOverlay = {
+    id: 'fixed-overlay',
+    x: 875,
+    y: 300,
+    w: 100,
+    h: 300,
+    top: 300,
+    bottom: 600,
+  };
+  const childBox = {
+    id: 'child-box',
+    x: 1000,
+    y: 300,
+    w: 100,
+    h: 300,
+    top: 300,
+    bottom: 600,
+  };
+  const nestedSection = {
+    id: 'nested-section',
+    x: 1120,
+    y: 300,
+    w: 80,
+    h: 300,
+    top: 300,
+    bottom: 600,
+  };
+  const adjacentParagraph = {
+    id: 'adjacent-paragraph',
+    x: 1220,
+    y: 300,
+    w: 300,
+    h: 180,
+    top: 300,
+    bottom: 480,
+    allowSectionBottomOverflow: true,
+  };
+  const targets = [
+    section,
+    heading,
+    image,
+    paragraph,
+    fixedOverlay,
+    childBox,
+    nestedSection,
+    adjacentParagraph,
+  ];
+  const relays = [heading, image, fixedOverlay, adjacentParagraph];
+  const sectionTargets = [section, nestedSection];
+
+  for (const rowGroups of [unmeasuredTextRows, measuredTextRows]) {
+    const result = resolveSectionAwareOffsets({
+      rowGroups,
+      targets,
+      sectionTargets,
+      relayTargets: relays,
+    });
+
+    assert.equal(result.offsets.get('section'), 50);
+    assert.equal(result.offsets.get('heading'), 50);
+    assert.equal(result.offsets.get('image'), 50);
+    assert.equal(result.offsets.get('paragraph'), 50);
+    assert.equal(result.owners.get('paragraph'), 'section');
+    assert.equal(result.offsets.get('fixed-overlay'), 0);
+    assert.equal(result.owners.has('fixed-overlay'), false);
+    assert.equal(result.offsets.get('child-box'), 0);
+    assert.equal(result.owners.has('child-box'), false);
+    assert.equal(result.offsets.get('nested-section'), 0);
+    assert.equal(result.owners.has('nested-section'), false);
+    assert.equal(result.offsets.get('adjacent-paragraph'), 0);
+    assert.equal(result.owners.has('adjacent-paragraph'), false);
+  }
+
+  const collapsedResult = resolveSectionAwareOffsets({
+    rowGroups: collapsedRows,
+    targets,
+    sectionTargets,
+    relayTargets: relays,
+  });
+  assert.equal(collapsedResult.offsets.get('section'), 0);
+  assert.equal(collapsedResult.offsets.get('paragraph'), 0);
+  assert.equal(collapsedResult.owners.get('paragraph'), 'section');
+
+  const measuredResult = resolveSectionAwareOffsets({
+    rowGroups: measuredTextRows,
+    targets,
+    sectionTargets,
+    relayTargets: relays,
+  });
+  const containedTargets = [
+    heading,
+    image,
+    paragraph,
+    fixedOverlay,
+    childBox,
+    nestedSection,
+  ];
+  const sectionGrowth = growthForContainedGeom(
+    measuredTextRows,
+    section,
+    containedTargets,
+    {
+      relayTargets: relays,
+      inheritedOffsets: measuredResult.inheritedOffsets,
+      allowBottomOverflow: true,
+    },
+  );
+
+  // The moved Section ends at 500. The measured paragraph ends at 570 after
+  // inheriting the same 50px movement, so the wrapper grows by the remaining
+  // 70px and the stage uses that same final bottom.
+  assert.equal(sectionGrowth, 70);
+  assert.equal(computeReflowStageHeight({
+    baseHeight: 450,
+    blocks: [
+      {
+        id: 'section',
+        type: BLOCK_TYPES.SECTION,
+        fullWidth: true,
+        geom: { x: 0, y: 250, w: 1200, h: 200, hidden: false },
+      },
+      block('heading', BLOCK_TYPES.TEXT, 270, 50, 0, 500),
+      block('image', BLOCK_TYPES.IMAGE, 330, 100, 0, 500),
+      block('paragraph', BLOCK_TYPES.TEXT, 300, 180, 650, 500),
+      block('adjacent-paragraph', BLOCK_TYPES.TEXT, 300, 180, 1220, 300),
+    ],
+    resolveGeom,
+    rowGroups: measuredTextRows,
+    relayTargets: relays,
+    inheritedOffsets: measuredResult.inheritedOffsets,
+    getContainerGrowth: (containerBlock) => (
+      containerBlock.id === 'section' ? sectionGrowth : 0
+    ),
+  }), 570);
 });
 
 test('a contained block can move farther than its displaced Section after a local collision', () => {
@@ -902,4 +1106,114 @@ test('stage height includes collision relayed through stacked static blocks', ()
     rowGroups: rows,
     relayTargets,
   }), 600);
+});
+
+test('public reflow provider gives an edge-straddling paragraph the Section wrapper offset', async () => {
+  const { JSDOM } = await import('jsdom');
+  const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', {
+    url: 'http://localhost/',
+  });
+  const previousGlobals = {
+    window: globalThis.window,
+    document: globalThis.document,
+    navigator: globalThis.navigator,
+    HTMLElement: globalThis.HTMLElement,
+    Node: globalThis.Node,
+    localStorage: globalThis.localStorage,
+    sessionStorage: globalThis.sessionStorage,
+    React: globalThis.React,
+    requestAnimationFrame: globalThis.requestAnimationFrame,
+    cancelAnimationFrame: globalThis.cancelAnimationFrame,
+    IS_REACT_ACT_ENVIRONMENT: globalThis.IS_REACT_ACT_ENVIRONMENT,
+  };
+  globalThis.window = dom.window;
+  globalThis.document = dom.window.document;
+  globalThis.navigator = dom.window.navigator;
+  globalThis.HTMLElement = dom.window.HTMLElement;
+  globalThis.Node = dom.window.Node;
+  globalThis.localStorage = dom.window.localStorage;
+  globalThis.sessionStorage = dom.window.sessionStorage;
+  globalThis.requestAnimationFrame = (callback) => setTimeout(() => callback(Date.now()), 0);
+  globalThis.cancelAnimationFrame = (id) => clearTimeout(id);
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+
+  const React = (await import('react')).default;
+  globalThis.React = React;
+  const { act, createElement } = React;
+  const { createRoot } = await import('react-dom/client');
+  const {
+    AccordionReflowProvider,
+    useAccordionReflow,
+  } = await import('./AccordionReflowContext.jsx');
+
+  const sectionBlock = block('section', BLOCK_TYPES.SECTION, 250, 200, 0, 1200);
+  sectionBlock.fullWidth = true;
+  const blocks = [
+    block('accordion', BLOCK_TYPES.ACCORDION, 0, 100, 0, 600),
+    sectionBlock,
+    block('heading', BLOCK_TYPES.TEXT, 270, 50, 0, 500),
+    block('image', BLOCK_TYPES.IMAGE, 330, 100, 0, 500),
+    block('paragraph', BLOCK_TYPES.TEXT, 300, 180, 650, 500),
+    block('fixed-overlay', BLOCK_TYPES.IMAGE, 300, 300, 875, 100),
+  ];
+  const api = { reflow: null };
+
+  function Probe() {
+    const reflow = useAccordionReflow();
+    api.reflow = reflow;
+    const sectionOffset = reflow.getOffset('section', 250);
+    const paragraphOffset = reflow.getOffset('paragraph', 300);
+    const fixedOffset = reflow.getOffset('fixed-overlay', 300);
+    const sectionGrowth = reflow.getContainerGrowth(sectionBlock, sectionBlock.geom);
+    return createElement('div', {
+      'data-section-top': 250 + sectionOffset,
+      'data-paragraph-top': 300 + paragraphOffset,
+      'data-fixed-top': 300 + fixedOffset,
+      'data-section-growth': sectionGrowth,
+    });
+  }
+
+  const rootElement = document.getElementById('root');
+  const reactRoot = createRoot(rootElement);
+  try {
+    await act(async () => {
+      reactRoot.render(createElement(
+        AccordionReflowProvider,
+        {
+          blocks,
+          breakpoint: 'desktop',
+          resolveGeom,
+        },
+        createElement(Probe),
+      ));
+    });
+
+    await act(async () => {
+      api.reflow.reportHeight('accordion', 300);
+    });
+    assert.equal(rootElement.firstChild.dataset.sectionTop, '300');
+    assert.equal(rootElement.firstChild.dataset.paragraphTop, '350');
+    assert.equal(rootElement.firstChild.dataset.fixedTop, '300');
+
+    await act(async () => {
+      api.reflow.reportHeight('paragraph', 220);
+    });
+    assert.equal(rootElement.firstChild.dataset.paragraphTop, '350');
+    assert.equal(rootElement.firstChild.dataset.sectionGrowth, '70');
+
+    await act(async () => {
+      api.reflow.reportHeight('accordion', 100);
+    });
+    assert.equal(rootElement.firstChild.dataset.sectionTop, '250');
+    assert.equal(rootElement.firstChild.dataset.paragraphTop, '300');
+  } finally {
+    await act(async () => {
+      reactRoot.unmount();
+    });
+    dom.window.close();
+    for (const [key, value] of Object.entries(previousGlobals)) {
+      if (value === undefined) delete globalThis[key];
+      else globalThis[key] = value;
+    }
+  }
 });
