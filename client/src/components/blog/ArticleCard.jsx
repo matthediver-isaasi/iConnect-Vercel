@@ -26,10 +26,12 @@ export default function ArticleCard({
   authorHandles = {}, // Map of author_id to handle
   authorNames = {}, // Map of author_id (or guest_gwId) to full name
   coAuthors = [], // Task #1225: ordered co-author cards (primary already excluded)
-  viewCount = null
+  viewCount = null,
+  newsCardDesign = null,
 }) {
   const { getArticleViewUrl } = useArticleUrl();
   const accentBar = resolveCardAccentBar(useTenantBranding()?.branding);
+  const divider = newsCardDesign?.divider || { ...accentBar, weight: 3 };
   
   // Use String() for type-safe comparison
   const isAuthor = currentMemberId && String(article.author_id) === String(currentMemberId);
@@ -103,8 +105,8 @@ export default function ArticleCard({
               style={{ objectPosition: article.feature_image_focal_point ? `${article.feature_image_focal_point.x}% ${article.feature_image_focal_point.y}%` : '50% 50%' }}
             />
           </div>
-          {accentBar.enabled && (
-            <div className="w-full h-[3px]" style={{ backgroundColor: accentBar.color }}></div>
+          {divider.enabled && (
+            <div className="w-full" style={{ height: `${divider.weight}px`, backgroundColor: divider.color }}></div>
           )}
         </>
       )}
@@ -211,6 +213,7 @@ export default function ArticleCard({
           as="link"
           to={articleUrl}
           applySize={false}
+          radiusOverride={newsCardDesign?.ctaRadius}
           className="w-12 h-12"
           fallbackClassName="inline-flex items-center justify-center bg-black hover:bg-gray-800 text-white transition-colors duration-200"
           data-testid={`button-read-article-${article.id}`}

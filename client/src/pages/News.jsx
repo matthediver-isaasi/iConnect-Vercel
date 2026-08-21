@@ -17,10 +17,13 @@ import { createPageUrl } from "@/utils";
 import { toast } from "sonner";
 import { useLayoutContext } from "@/contexts/LayoutContext";
 import { useNewsPostsData } from "@/hooks/useNewsPostData";
+import { useTenantBranding } from "@/contexts/TenantBrandingContext";
+import { resolveNewsCardDesign } from "@/lib/newsCardDesign";
 
 export default function NewsPage() {
   const { hasBanner } = useLayoutContext();
   const { memberInfo, isFeatureExcluded } = useMemberAccess();
+  const branding = useTenantBranding()?.branding;
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedSubcategories, setSelectedSubcategories] = useState([]);
   const [sortBy, setSortBy] = useState("newest");
@@ -66,7 +69,8 @@ export default function NewsPage() {
       return {
         cardsPerRow: parseInt(cardsPerRowSetting?.setting_value) || 3,
         showImage: showImageSetting?.setting_value !== 'false',
-        showAuthor: showAuthorSetting?.setting_value !== 'false'
+        showAuthor: showAuthorSetting?.setting_value !== 'false',
+        allSettings,
       };
     },
   });
@@ -74,6 +78,10 @@ export default function NewsPage() {
   const cardsPerRow = displaySettings?.cardsPerRow || 3;
   const showImage = displaySettings?.showImage ?? true;
   const showAuthor = displaySettings?.showAuthor ?? true;
+  const newsCardDesign = useMemo(
+    () => resolveNewsCardDesign(displaySettings?.allSettings, branding),
+    [displaySettings?.allSettings, branding],
+  );
 
   // Fetch published news (for general view) - uses hybrid hook for public/authenticated routing
   const { data: rawPublishedNews = [], isLoading: publishedNewsLoading } = useNewsPostsData();
@@ -548,6 +556,7 @@ export default function NewsPage() {
                   showImage={showImage}
                   showAuthor={showAuthor}
                   showDraftBadge={showMyNewsOnly}
+                  cardDesign={newsCardDesign}
                 />
               ))}
             </div>

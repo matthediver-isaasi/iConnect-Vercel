@@ -19,10 +19,12 @@ export default function NewsCard({
   currentMemberId = null,
   showImage = true,
   showAuthor = true,
-  showDraftBadge = false
+  showDraftBadge = false,
+  cardDesign = null,
 }) {
   const articleUrl = `${createPageUrl('NewsView')}?slug=${article.slug}`;
   const accentBar = resolveCardAccentBar(useTenantBranding()?.branding);
+  const divider = cardDesign?.divider || { ...accentBar, weight: 3 };
 
   // Check if current user is the author of this article
   const isAuthor = currentMemberId && article.author_id === currentMemberId;
@@ -86,8 +88,8 @@ export default function NewsCard({
               style={{ objectPosition: article.feature_image_focal_point ? `${article.feature_image_focal_point.x}% ${article.feature_image_focal_point.y}%` : '50% 50%' }}
             />
           </div>
-          {accentBar.enabled && (
-            <div className="w-full h-[3px]" style={{ backgroundColor: accentBar.color }}></div>
+          {divider.enabled && (
+            <div className="w-full" style={{ height: `${divider.weight}px`, backgroundColor: divider.color }}></div>
           )}
         </>
       )}
@@ -151,6 +153,7 @@ export default function NewsCard({
           as="link"
           to={articleUrl}
           applySize={false}
+          radiusOverride={cardDesign?.ctaRadius}
           className="w-12 h-12 ml-auto"
           fallbackClassName="inline-flex items-center justify-center bg-black hover:bg-gray-800 text-white transition-colors duration-200"
           data-testid={`button-read-news-${article.id}`}

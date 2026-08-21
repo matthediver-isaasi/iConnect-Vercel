@@ -8,8 +8,11 @@ import { publicClient } from "@/api/publicClient";
 import ArticleFilter from "../components/blog/ArticleFilter";
 import ArticleCard from "../components/blog/ArticleCard";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useTenantBranding } from "@/contexts/TenantBrandingContext";
+import { resolveNewsCardDesign } from "@/lib/newsCardDesign";
 
 export default function PublicNewsPage() {
+  const branding = useTenantBranding()?.branding;
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedSubcategories, setSelectedSubcategories] = useState([]);
   const [sortBy, setSortBy] = useState("newest");
@@ -41,6 +44,17 @@ export default function PublicNewsPage() {
     },
     refetchOnWindowFocus: true
   });
+
+  const { data: newsCardSettings = [] } = useQuery({
+    queryKey: ['public-news-card-settings'],
+    queryFn: () => publicClient.listSystemSettings(),
+    refetchOnWindowFocus: true,
+  });
+
+  const newsCardDesign = useMemo(
+    () => resolveNewsCardDesign(newsCardSettings, branding),
+    [newsCardSettings, branding],
+  );
 
   // Filter news
   const filteredNews = useMemo(() => {
@@ -217,6 +231,7 @@ export default function PublicNewsPage() {
                       article={item} 
                       buttonStyles={buttonStyles}
                       viewPageUrl="NewsView"
+                      newsCardDesign={newsCardDesign}
                     />
                   ))}
                 </div>

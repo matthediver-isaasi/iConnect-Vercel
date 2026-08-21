@@ -11,6 +11,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
+import {
+  isValidNewsCardColor,
+  NEWS_CARD_CTA_RADIUS_MAX,
+  NEWS_CARD_DIVIDER_WEIGHT_MAX,
+  NEWS_CARD_SETTING_KEYS,
+} from "@/lib/newsCardDesign";
 
 export default function NewsSettingsPage() {
   const { isFeatureExcluded, isAccessReady } = useMemberAccess();
@@ -36,6 +42,10 @@ export default function NewsSettingsPage() {
   const [tickerBgStart, setTickerBgStart] = useState("");
   const [tickerBgEnd, setTickerBgEnd] = useState("");
   const [tickerTextColor, setTickerTextColor] = useState("");
+  const [cardCtaRadius, setCardCtaRadius] = useState("");
+  const [cardDividerMode, setCardDividerMode] = useState("inherit");
+  const [cardDividerWeight, setCardDividerWeight] = useState("3");
+  const [cardDividerColor, setCardDividerColor] = useState("");
 
   const queryClient = useQueryClient();
 
@@ -53,7 +63,11 @@ export default function NewsSettingsPage() {
         s.setting_key === 'news_show_image' ||
         s.setting_key === 'news_ticker_bg_start' ||
         s.setting_key === 'news_ticker_bg_end' ||
-        s.setting_key === 'news_ticker_text_color'
+        s.setting_key === 'news_ticker_text_color' ||
+        s.setting_key === NEWS_CARD_SETTING_KEYS.ctaRadius ||
+        s.setting_key === NEWS_CARD_SETTING_KEYS.dividerMode ||
+        s.setting_key === NEWS_CARD_SETTING_KEYS.dividerWeight ||
+        s.setting_key === NEWS_CARD_SETTING_KEYS.dividerColor
       );
     },
     enabled: accessChecked
@@ -71,6 +85,10 @@ export default function NewsSettingsPage() {
       const bgStartSetting = settings.find(s => s.setting_key === 'news_ticker_bg_start');
       const bgEndSetting = settings.find(s => s.setting_key === 'news_ticker_bg_end');
       const textColorSetting = settings.find(s => s.setting_key === 'news_ticker_text_color');
+      const ctaRadiusSetting = settings.find(s => s.setting_key === NEWS_CARD_SETTING_KEYS.ctaRadius);
+      const dividerModeSetting = settings.find(s => s.setting_key === NEWS_CARD_SETTING_KEYS.dividerMode);
+      const dividerWeightSetting = settings.find(s => s.setting_key === NEWS_CARD_SETTING_KEYS.dividerWeight);
+      const dividerColorSetting = settings.find(s => s.setting_key === NEWS_CARD_SETTING_KEYS.dividerColor);
       
       if (countSetting) setTickerCount(parseInt(countSetting.setting_value) || 3);
       if (cycleSetting) setCycleSeconds(parseInt(cycleSetting.setting_value) || 5);
@@ -82,6 +100,22 @@ export default function NewsSettingsPage() {
       if (bgStartSetting) setTickerBgStart(bgStartSetting.setting_value || "");
       if (bgEndSetting) setTickerBgEnd(bgEndSetting.setting_value || "");
       if (textColorSetting) setTickerTextColor(textColorSetting.setting_value || "");
+      if (ctaRadiusSetting) setCardCtaRadius(ctaRadiusSetting.setting_value ?? "");
+      if (dividerModeSetting) {
+        setCardDividerMode(
+          ['inherit', 'show', 'hide'].includes(dividerModeSetting.setting_value)
+            ? dividerModeSetting.setting_value
+            : 'inherit'
+        );
+      }
+      if (dividerWeightSetting) setCardDividerWeight(dividerWeightSetting.setting_value || "3");
+      if (dividerColorSetting) {
+        setCardDividerColor(
+          isValidNewsCardColor(dividerColorSetting.setting_value)
+            ? dividerColorSetting.setting_value
+            : ""
+        );
+      }
     }
   }, [settings]);
 
@@ -99,6 +133,20 @@ export default function NewsSettingsPage() {
       const textColorSetting = settings.find(s => s.setting_key === 'news_ticker_text_color');
 
       const promises = [];
+      const queueSettingSave = (settingKey, settingValue, description) => {
+        const existingSetting = settings.find(s => s.setting_key === settingKey);
+        promises.push(
+          existingSetting
+            ? base44.entities.SystemSettings.update(existingSetting.id, {
+                setting_value: settingValue,
+              })
+            : base44.entities.SystemSettings.create({
+                setting_key: settingKey,
+                setting_value: settingValue,
+                description,
+              })
+        );
+      };
 
       if (countSetting) {
         promises.push(
@@ -260,11 +308,33 @@ export default function NewsSettingsPage() {
         );
       }
 
+      queueSettingSave(
+        NEWS_CARD_SETTING_KEYS.ctaRadius,
+        cardCtaRadius.trim(),
+        'Optional corner radius override for News card CTA buttons'
+      );
+      queueSettingSave(
+        NEWS_CARD_SETTING_KEYS.dividerMode,
+        cardDividerMode,
+        'Whether News card image dividers inherit, show, or hide'
+      );
+      queueSettingSave(
+        NEWS_CARD_SETTING_KEYS.dividerWeight,
+        cardDividerWeight,
+        'News card image divider weight in pixels'
+      );
+      queueSettingSave(
+        NEWS_CARD_SETTING_KEYS.dividerColor,
+        cardDividerColor,
+        'Optional News card image divider colour'
+      );
+
       await Promise.all(promises);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['news-ticker-settings'] });
       queryClient.invalidateQueries({ queryKey: ['news-display-settings'] });
+      queryClient.invalidateQueries({ queryKey: ['public-news-card-settings'] });
       toast.success('News settings saved successfully');
     },
     onError: (error) => {
@@ -280,6 +350,26 @@ export default function NewsSettingsPage() {
     }
     if (cycleSeconds < 2) {
       toast.error('Cycle time must be at least 2 seconds');
+      return;
+    }
+    const radiusNumber = Number(cardCtaRadius);
+    if (
+      cardCtaRadius.trim() !== '' &&
+      (!Number.isInteger(radiusNumber) || radiusNumber < 0 || radiusNumber > NEWS_CARD_CTA_RADIUS_MAX)
+    ) {
+      toast.error(`CTA corner radius must be a whole number between 0 and ${NEWS_CARD_CTA_RADIUS_MAX}`);
+      return;
+    }
+    const dividerWeightNumber = Number(cardDividerWeight);
+    if (
+      cardDividerMode === 'show' &&
+      (!Number.isInteger(dividerWeightNumber) || dividerWeightNumber < 1 || dividerWeightNumber > NEWS_CARD_DIVIDER_WEIGHT_MAX)
+    ) {
+      toast.error(`Divider weight must be a whole number between 1 and ${NEWS_CARD_DIVIDER_WEIGHT_MAX}`);
+      return;
+    }
+    if (cardDividerColor && !isValidNewsCardColor(cardDividerColor)) {
+      toast.error('Divider colour must be a valid hex colour');
       return;
     }
     saveMutation.mutate();
@@ -365,6 +455,98 @@ export default function NewsSettingsPage() {
                         Display author information on news cards and articles
                       </p>
                     </div>
+                  </div>
+
+                  <div className="border-t border-slate-200 pt-6 space-y-6">
+                    <div>
+                      <h3 className="font-semibold text-slate-900">News Card Design</h3>
+                      <p className="text-xs text-slate-500 mt-1">
+                        These overrides apply only to cards on News listing pages.
+                      </p>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="card-cta-radius">CTA Corner Radius (pixels)</Label>
+                      <Input
+                        id="card-cta-radius"
+                        type="number"
+                        min="0"
+                        max={NEWS_CARD_CTA_RADIUS_MAX}
+                        step="1"
+                        value={cardCtaRadius}
+                        onChange={(event) => setCardCtaRadius(event.target.value)}
+                        placeholder="Inherit Primary button style"
+                        data-testid="input-news-card-cta-radius"
+                      />
+                      <p className="text-xs text-slate-500">
+                        Leave blank to inherit the tenant Primary button corner radius.
+                      </p>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="card-divider-mode">Feature Image Divider</Label>
+                      <Select value={cardDividerMode} onValueChange={setCardDividerMode}>
+                        <SelectTrigger id="card-divider-mode" data-testid="select-news-card-divider-mode">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="inherit">Inherit global card accent</SelectItem>
+                          <SelectItem value="show">Show custom divider</SelectItem>
+                          <SelectItem value="hide">Hide divider</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <p className="text-xs text-slate-500">
+                        Inherit keeps News cards aligned with the global content-card accent.
+                      </p>
+                    </div>
+
+                    {cardDividerMode === 'show' && (
+                      <>
+                        <div className="space-y-2">
+                          <Label htmlFor="card-divider-weight">Divider Weight (pixels)</Label>
+                          <Input
+                            id="card-divider-weight"
+                            type="number"
+                            min="1"
+                            max={NEWS_CARD_DIVIDER_WEIGHT_MAX}
+                            step="1"
+                            value={cardDividerWeight}
+                            onChange={(event) => setCardDividerWeight(event.target.value)}
+                            data-testid="input-news-card-divider-weight"
+                          />
+                          <p className="text-xs text-slate-500">
+                            Choose a whole number from 1 to {NEWS_CARD_DIVIDER_WEIGHT_MAX}.
+                          </p>
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label htmlFor="card-divider-color">Divider Colour</Label>
+                          <div className="flex items-center gap-2">
+                            <Input
+                              id="card-divider-color"
+                              type="color"
+                              value={cardDividerColor || "#5d0d77"}
+                              onChange={(event) => setCardDividerColor(event.target.value)}
+                              className="h-9 w-16 p-1 cursor-pointer"
+                              data-testid="input-news-card-divider-color"
+                            />
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => setCardDividerColor("")}
+                              disabled={!cardDividerColor}
+                              data-testid="button-reset-news-card-divider-color"
+                            >
+                              Use global accent colour
+                            </Button>
+                          </div>
+                          <p className="text-xs text-slate-500">
+                            Leave unset to use the global card accent colour.
+                          </p>
+                        </div>
+                      </>
+                    )}
                   </div>
                 </>
               )}

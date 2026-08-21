@@ -33,14 +33,23 @@ export default function TenantCtaButton({
   fallbackClassName = '',
   fallbackVariant,
   applySize = true,
+  radiusOverride,
   disabled = false,
   size,
   children,
+  style: suppliedStyle,
   ...rest
 }) {
   const branding = useTenantBranding()?.branding || null;
   const style = resolveTenantButtonStyle('tenant-primary', branding);
   const [hovered, setHovered] = useState(false);
+  const hasRadiusOverride = radiusOverride !== null
+    && radiusOverride !== undefined
+    && radiusOverride !== '';
+  const radiusValue = Number(radiusOverride);
+  const radiusStyle = hasRadiusOverride && Number.isFinite(radiusValue) && radiusValue >= 0
+    ? { borderRadius: `${radiusValue}px` }
+    : null;
 
   // No tenant Primary style configured → preserve the existing hardcoded look.
   if (!style || disabled) {
@@ -51,6 +60,7 @@ export default function TenantCtaButton({
           size={size}
           disabled={disabled}
           className={cn(className, fallbackClassName)}
+          style={{ ...suppliedStyle, ...radiusStyle }}
           asChild
           {...rest}
         >
@@ -67,6 +77,7 @@ export default function TenantCtaButton({
           size={size}
           disabled={disabled}
           className={cn(className, fallbackClassName)}
+          style={{ ...suppliedStyle, ...radiusStyle }}
           asChild
           {...rest}
         >
@@ -83,6 +94,7 @@ export default function TenantCtaButton({
         onClick={onClick}
         disabled={disabled}
         className={cn(className, fallbackClassName)}
+        style={{ ...suppliedStyle, ...radiusStyle }}
         {...rest}
       >
         {children}
@@ -90,7 +102,11 @@ export default function TenantCtaButton({
     );
   }
 
-  const inlineStyle = buildTenantButtonInlineStyle(style, { hovered, applySize });
+  const inlineStyle = {
+    ...buildTenantButtonInlineStyle(style, { hovered, applySize }),
+    ...suppliedStyle,
+    ...radiusStyle,
+  };
   // Growth: for full-width CTAs (callers that pass a `w-full` layout class),
   // fill at least the container but expand to fit long labels instead of
   // clipping — mirroring the Canvas Button render path (minWidth:100% +
