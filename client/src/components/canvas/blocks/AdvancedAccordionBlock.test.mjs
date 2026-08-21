@@ -360,6 +360,68 @@ test('representative behaviour, item, nested-content, and visual edits all prese
   assert.equal(results[3].content.styles.itemGap ?? results[3].content.itemGap, 24);
 });
 
+test('nested child inspector functional updates change the accordion block', async () => {
+  const child = createBlock(BLOCK_TYPES.TEXT, {
+    id: 'nested-text',
+    name: 'Nested text',
+    content: { html: '<p>Original text</p>' },
+  });
+  const block = makeBlock({
+    items: [{
+      id: 'item-one',
+      title: 'Item one',
+      anchor: 'item-one',
+      children: [child],
+    }],
+  });
+  const updates = [];
+  const definitions = (type) => ({
+    ...getBlockDefinition(type),
+    Inspector: ({ block: nestedBlock, update }) => React.createElement(
+      'button',
+      {
+        type: 'button',
+        'data-testid': 'edit-nested-text',
+        onClick: () => update((current) => ({
+          ...current,
+          content: {
+            ...current.content,
+            html: '<p>Updated text</p>',
+          },
+        })),
+      },
+      nestedBlock.content.html,
+    ),
+  });
+
+  await act(async () => {
+    root.render(React.createElement(AdvancedAccordionInspector, {
+      block,
+      update: (updater) => updates.push(updater),
+      getBlockDefinition: definitions,
+      listPaletteBlocks: () => [],
+    }));
+  });
+
+  const selectChild = Array.from(container.querySelectorAll('button'))
+    .find((button) => button.textContent === 'Nested text');
+  assert.ok(selectChild);
+  await act(async () => selectChild.click());
+
+  const editChild = container.querySelector('[data-testid="edit-nested-text"]');
+  assert.ok(editChild);
+  await act(async () => editChild.click());
+
+  assert.equal(updates.length, 1);
+  assert.equal(typeof updates[0], 'function');
+  const next = updates[0](block);
+  assertBlockIdentityPreserved(block, next);
+  assert.equal(
+    next.content.items[0].children[0].content.html,
+    '<p>Updated text</p>',
+  );
+});
+
 test('editor pointer bridge selects the parent while header toggling and nested selection still work', async () => {
   const block = makeBlock({ initialState: 'first' });
   const selected = [];

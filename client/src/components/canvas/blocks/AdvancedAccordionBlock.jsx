@@ -711,7 +711,12 @@ export function AdvancedAccordionInspector({
   const patchSelectedChild = (patch) => {
     if (!activeItem || !selectedChild) return;
     updateItem(activeItem.id, {
-      children: updateNestedBlock(activeItem.children, selectedChild.id, (child) => ({ ...child, ...patch })),
+      children: updateNestedBlock(activeItem.children, selectedChild.id, (child) => {
+        if (typeof patch === 'function') {
+          return patch(child);
+        }
+        return { ...child, ...patch };
+      }),
     });
   };
 
