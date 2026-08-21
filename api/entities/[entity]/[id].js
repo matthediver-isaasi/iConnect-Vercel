@@ -31,6 +31,7 @@ import { isCategoryRestricted, hasSubcategoryRestrictions, isCategoryVisibleToVi
 // Entity name to Supabase table mapping (singular names for Base44 compatibility)
 import { anonymizeMember } from '../../_lib/memberAnonymize.js';
 import { isReservedPageSlug, reservedPageSlugMessage } from '../../../shared/memberAliases.js';
+import { validatePortalMenuRecord } from '../../../shared/portalMenuLinks.js';
 import { hasManagedJobProvenance, stripManagedJobProvenance } from '../../_lib/jobFeedOwnership.js';
 import {
   validateAutomaticMembershipSettings,
@@ -669,6 +670,45 @@ export default async function handler(req, res) {
       for (const field of uuidFields) {
         if (field in sanitizedBody && sanitizedBody[field] === '') {
           sanitizedBody[field] = null;
+        }
+      }
+
+      if (entityNormalized === 'portalmenu'
+          && ['link_type', 'url', 'open_in_new_tab'].some(
+            (field) => Object.prototype.hasOwnProperty.call(sanitizedBody, field)
+          )) {
+        let existingPortalMenuQuery = supabase
+          .from(tableName)
+          .select('link_type, url, open_in_new_tab')
+          .eq('id', id);
+        if (tenantCtx.tenantId) {
+          existingPortalMenuQuery = existingPortalMenuQuery.eq('tenant_id', tenantCtx.tenantId);
+        }
+        const { data: existingPortalMenu, error: existingPortalMenuError } =
+          await existingPortalMenuQuery.maybeSingle();
+        if (existingPortalMenuError) {
+          console.error('[Entity PATCH] PortalMenu validation lookup failed:', existingPortalMenuError);
+          return res.status(500).json({ error: 'Failed to validate portal menu destination' });
+        }
+        if (!existingPortalMenu) {
+          return res.status(404).json({ error: 'Portal menu item not found' });
+        }
+
+        const portalMenuValidation = validatePortalMenuRecord({
+          ...existingPortalMenu,
+          ...sanitizedBody,
+        });
+        if (!portalMenuValidation.isValid) {
+          return res.status(400).json({ error: portalMenuValidation.error });
+        }
+        if ('link_type' in sanitizedBody) {
+          sanitizedBody.link_type = portalMenuValidation.linkType;
+        }
+        if ('link_type' in sanitizedBody || 'url' in sanitizedBody) {
+          sanitizedBody.url = portalMenuValidation.url;
+        }
+        if ('link_type' in sanitizedBody || 'open_in_new_tab' in sanitizedBody) {
+          sanitizedBody.open_in_new_tab = portalMenuValidation.openInNewTab;
         }
       }
 

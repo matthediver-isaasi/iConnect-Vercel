@@ -12,6 +12,12 @@ import { isResourceExcluded, setDbRoleAccessOverlay } from "@/lib/roleVisibility
 import { migrateLegacyFeatureId } from "@/lib/roleAccessMap";
 import { buildPortalNavBackgroundStyle } from "@/lib/canvasBackground";
 import { InstalledFontsLoader } from "@/lib/installedFonts";
+import PortalNavLink from "@/components/navigation/PortalNavLink";
+import {
+  getPortalMenuFallbackFeatureId,
+  isPortalMenuDestinationActive,
+  resolvePortalMenuDestination,
+} from "@/lib/portalMenuLinks";
 import { publicClient } from "@/api/publicClient";
 import {
   Sidebar,
@@ -59,16 +65,6 @@ import dougalAvatar from "@assets/ChatGPT_Image_Jul_4,_2026,_06_26_22_PM_1783182
 
 import { useQuery } from '@tanstack/react-query';
 import { base44 } from "@/api/base44Client";
-
-// Ref-forwarding Link component for Shadcn sidebar integration
-const SidebarNavLink = React.forwardRef(({ to, children, className, ...props }, ref) => {
-  return (
-    <Link ref={ref} to={to} className={className} {...props}>
-      {children}
-    </Link>
-  );
-});
-SidebarNavLink.displayName = 'SidebarNavLink';
 
 
 
@@ -808,8 +804,8 @@ function CollapsibleNavItem({ item, location, variant = 'user', hasPendingPOs = 
   const isCollapsed = state === 'collapsed';
   const [popoverOpen, setPopoverOpen] = useState(false);
   const Icon = item.icon;
-  const isActive = item.url === location.pathname || 
-                   (item.subItems && item.subItems.some(sub => sub.url === location.pathname));
+  const isActive = isPortalMenuDestinationActive(item, location.pathname)
+    || (item.subItems && item.subItems.some(sub => isPortalMenuDestinationActive(sub, location.pathname)));
   
   // Variant-specific colors
   const colors = variant === 'admin' 
@@ -851,13 +847,13 @@ function CollapsibleNavItem({ item, location, variant = 'user', hasPendingPOs = 
           >
             <div className="space-y-1">
               {item.subItems.map(subItem => {
-                const isSubItemActive = subItem.url === location.pathname;
+                const isSubItemActive = isPortalMenuDestinationActive(subItem, location.pathname);
                 const isBookingsPage = subItem.url?.toLowerCase() === '/bookings';
                 const showSubPendingPOWarning = hasPendingPOs && isBookingsPage && variant === 'user';
                 return (
-                  <Link
+                  <PortalNavLink
                     key={subItem.title}
-                    to={subItem.url}
+                    destination={subItem}
                     onClick={() => setPopoverOpen(false)}
                     style={subItemStyle(isSubItemActive)}
                     className={`nav-item-themed flex items-center gap-2 px-2 py-1.5 rounded-md text-sm ${
@@ -869,7 +865,7 @@ function CollapsibleNavItem({ item, location, variant = 'user', hasPendingPOs = 
                     {showSubPendingPOWarning && (
                       <Bell className="w-3 h-3 text-warning animate-pulse" />
                     )}
-                  </Link>
+                  </PortalNavLink>
                 );
               })}
             </div>
@@ -901,13 +897,13 @@ function CollapsibleNavItem({ item, location, variant = 'user', hasPendingPOs = 
       <CollapsibleContent>
         <SidebarMenuSub>
           {item.subItems.map(subItem => {
-            const isSubItemActive = subItem.url === location.pathname;
+            const isSubItemActive = isPortalMenuDestinationActive(subItem, location.pathname);
             const isBookingsPage = subItem.url?.toLowerCase() === '/bookings';
             const showSubPendingPOWarning = hasPendingPOs && isBookingsPage && variant === 'user';
             return (
               <SidebarMenuSubItem key={subItem.title}>
-                <Link
-                  to={subItem.url}
+                <PortalNavLink
+                  destination={subItem}
                   style={subItemStyle(isSubItemActive)}
                   className={`nav-item-themed flex items-start gap-3 px-3 py-2.5 rounded-lg text-sm ${
                     isSubItemActive ? `${colors.active} font-medium` : colors.hover
@@ -917,7 +913,7 @@ function CollapsibleNavItem({ item, location, variant = 'user', hasPendingPOs = 
                   {showSubPendingPOWarning && (
                     <Bell className="w-4 h-4 text-warning animate-pulse" data-testid="pending-po-warning-bell-sub" />
                   )}
-                </Link>
+                </PortalNavLink>
               </SidebarMenuSubItem>
             );
           })}
@@ -2081,6 +2077,9 @@ useEffect(() => {
       if (item.feature_id) {
         return item.feature_id;
       }
+      if (item.link_type === 'external') {
+        return getPortalMenuFallbackFeatureId({ ...item, section: itemSection });
+      }
       // Generate feature_id from URL or title
       if (item.url) {
         // For admin section, use page_admin_* pattern; for user, use page_* pattern
@@ -2107,7 +2106,8 @@ useEffect(() => {
       const IconComponent = iconMap[parent.icon] || Menu;
       // Only mark parent as article section if the PARENT ITSELF has an article URL
       // Children having article URLs should NOT cause the parent title to be renamed
-      const isArticleSection = isArticleUrl(parent.url);
+      const parentDestination = resolvePortalMenuDestination(parent, createPageUrl);
+      const isArticleSection = !parentDestination.isExternal && isArticleUrl(parent.url);
       
       if (children.length > 0) {
         return {
@@ -2115,24 +2115,27 @@ useEffect(() => {
           icon: IconComponent,
           featureId: getFeatureId(parent, section),
           isDynamicArticleSection: isArticleSection,
-          subItems: children.sort((a, b) => a.display_order - b.display_order).map(child => ({
-            title: child.title,
-            url: child.url ? createPageUrl(child.url) : '',
-            featureId: getFeatureId(child, section),
-            isDynamicMyArticles: child.url?.toLowerCase() === 'myarticles',
-            isDynamicArticles: child.url?.toLowerCase() === 'articles',
-            isDynamicMembersList: isMembersListUrl(child.url)
-          }))
+          subItems: children.sort((a, b) => a.display_order - b.display_order).map(child => {
+            const childDestination = resolvePortalMenuDestination(child, createPageUrl);
+            return {
+              title: child.title,
+              ...childDestination,
+              featureId: getFeatureId(child, section),
+              isDynamicMyArticles: !childDestination.isExternal && child.url?.toLowerCase() === 'myarticles',
+              isDynamicArticles: !childDestination.isExternal && child.url?.toLowerCase() === 'articles',
+              isDynamicMembersList: !childDestination.isExternal && isMembersListUrl(child.url)
+            };
+          })
         };
       } else {
         return {
           title: parent.title,
-          url: parent.url ? createPageUrl(parent.url) : '',
+          ...parentDestination,
           icon: IconComponent,
           featureId: getFeatureId(parent, section),
-          isDynamicArticles: parent.url?.toLowerCase() === 'articles',
-          isDynamicMyArticles: parent.url?.toLowerCase() === 'myarticles',
-          isDynamicMembersList: isMembersListUrl(parent.url)
+          isDynamicArticles: !parentDestination.isExternal && parent.url?.toLowerCase() === 'articles',
+          isDynamicMyArticles: !parentDestination.isExternal && parent.url?.toLowerCase() === 'myarticles',
+          isDynamicMembersList: !parentDestination.isExternal && isMembersListUrl(parent.url)
         };
       }
     });
@@ -2625,8 +2628,8 @@ useEffect(() => {
                     {filteredNavigationItems.map((item) => {
                       const Icon = item.icon;
                       // Determine if the current item (or any of its sub-items) is active
-                      const isActive = item.url === location.pathname || 
-                                       (item.subItems && item.subItems.some(sub => sub.url === location.pathname));
+                      const isActive = isPortalMenuDestinationActive(item, location.pathname)
+                        || (item.subItems && item.subItems.some(sub => isPortalMenuDestinationActive(sub, location.pathname)));
 
                       if (item.subItems) {
                         return (
@@ -2659,7 +2662,7 @@ useEffect(() => {
                                 isActive ? 'bg-blue-50 text-blue-700 font-medium' : ''
                               }`}
                             >
-                              <SidebarNavLink to={item.url}>
+                              <PortalNavLink destination={item}>
                                 <Icon className="w-4 h-4 shrink-0 mt-0.5 group-data-[collapsible=icon]:mt-0" style={portalNavIconStyle(portalNav, isActive)} />
                                 <span className="group-data-[collapsible=icon]:hidden">{item.title}</span>
                                 {showPendingPOWarning && (
@@ -2670,7 +2673,7 @@ useEffect(() => {
                                     {inboxUnreadCount}
                                   </Badge>
                                 )}
-                              </SidebarNavLink>
+                              </PortalNavLink>
                             </SidebarMenuButton>
                           </SidebarMenuItem>
                         );
@@ -2691,8 +2694,8 @@ useEffect(() => {
                       {filteredAdminNavigationItems.map((item) => {
                         const Icon = item.icon;
                         // Determine if the current item (or any of its sub-items) is active
-                        const isActive = item.url === location.pathname || 
-                                         (item.subItems && item.subItems.some(sub => sub.url === location.pathname));
+                        const isActive = isPortalMenuDestinationActive(item, location.pathname)
+                          || (item.subItems && item.subItems.some(sub => isPortalMenuDestinationActive(sub, location.pathname)));
 
                         if (item.subItems) {
                           return (
@@ -2716,10 +2719,10 @@ useEffect(() => {
                                     isActive ? 'bg-warning/10 text-warning font-medium' : ''
                                   }`}
                                 >
-                                  <SidebarNavLink to={item.url}>
+                                  <PortalNavLink destination={item}>
                                     <Icon className="w-4 h-4 shrink-0 mt-0.5 group-data-[collapsible=icon]:mt-0" style={portalNavIconStyle(portalNav, isActive)} />
                                     <span className="group-data-[collapsible=icon]:hidden">{item.title}</span>
-                                  </SidebarNavLink>
+                                  </PortalNavLink>
                               </SidebarMenuButton>
                             </SidebarMenuItem>
                           );
@@ -2873,8 +2876,8 @@ useEffect(() => {
                     <nav className="space-y-1">
                       {filteredNavigationItems.map((item) => {
                         const Icon = item.icon;
-                        const isActive = item.url === location.pathname || 
-                                         (item.subItems && item.subItems.some(sub => sub.url === location.pathname));
+                        const isActive = isPortalMenuDestinationActive(item, location.pathname)
+                          || (item.subItems && item.subItems.some(sub => isPortalMenuDestinationActive(sub, location.pathname)));
                         const isBookingsPage = item.url?.toLowerCase() === '/bookings';
                         const showPendingPOWarning = hasPendingPOs && isBookingsPage;
                         const isInboxPage = item.url?.toLowerCase() === '/inbox';
@@ -2893,11 +2896,11 @@ useEffect(() => {
                               <CollapsibleContent>
                                 <div className="pl-7 space-y-1 mt-1">
                                   {item.subItems.map(subItem => {
-                                    const isSubItemActive = subItem.url === location.pathname;
+                                    const isSubItemActive = isPortalMenuDestinationActive(subItem, location.pathname);
                                     return (
-                                      <Link
+                                      <PortalNavLink
                                         key={subItem.title}
-                                        to={subItem.url}
+                                        destination={subItem}
                                         onClick={() => setMobileMenuOpen(false)}
                                         style={portalNavItemStyle(portalNav, isSubItemActive)}
                                         className={`nav-item-themed block px-3 py-2 rounded-lg text-sm ${
@@ -2905,7 +2908,7 @@ useEffect(() => {
                                         }`}
                                       >
                                         {subItem.title}
-                                      </Link>
+                                      </PortalNavLink>
                                     );
                                   })}
                                 </div>
@@ -2914,9 +2917,9 @@ useEffect(() => {
                           );
                         } else {
                           return (
-                            <Link
+                            <PortalNavLink
                               key={item.title}
-                              to={item.url}
+                              destination={item}
                               onClick={() => setMobileMenuOpen(false)}
                               style={portalNavItemStyle(portalNav, isActive)}
                               className={`nav-item-themed flex items-start gap-3 px-3 py-2.5 rounded-lg text-sm ${
@@ -2933,7 +2936,7 @@ useEffect(() => {
                                   {inboxUnreadCount}
                                 </Badge>
                               )}
-                            </Link>
+                            </PortalNavLink>
                           );
                         }
                       })}
@@ -2949,8 +2952,8 @@ useEffect(() => {
                       <nav className="space-y-1">
                         {filteredAdminNavigationItems.map((item) => {
                           const Icon = item.icon;
-                          const isActive = item.url === location.pathname || 
-                                           (item.subItems && item.subItems.some(sub => sub.url === location.pathname));
+                          const isActive = isPortalMenuDestinationActive(item, location.pathname)
+                            || (item.subItems && item.subItems.some(sub => isPortalMenuDestinationActive(sub, location.pathname)));
 
                           if (item.subItems) {
                             return (
@@ -2965,11 +2968,11 @@ useEffect(() => {
                                 <CollapsibleContent>
                                   <div className="pl-7 space-y-1 mt-1">
                                     {item.subItems.map(subItem => {
-                                      const isSubItemActive = subItem.url === location.pathname;
+                                      const isSubItemActive = isPortalMenuDestinationActive(subItem, location.pathname);
                                       return (
-                                        <Link
+                                        <PortalNavLink
                                           key={subItem.title}
-                                          to={subItem.url}
+                                          destination={subItem}
                                           onClick={() => setMobileMenuOpen(false)}
                                           style={portalNavItemStyle(portalNav, isSubItemActive)}
                                           className={`nav-item-themed block px-3 py-2 rounded-lg text-sm ${
@@ -2977,7 +2980,7 @@ useEffect(() => {
                                           }`}
                                         >
                                           {subItem.title}
-                                        </Link>
+                                        </PortalNavLink>
                                       );
                                     })}
                                   </div>
@@ -2986,9 +2989,9 @@ useEffect(() => {
                             );
                           } else {
                             return (
-                              <Link
+                              <PortalNavLink
                                 key={item.title}
-                                to={item.url}
+                                destination={item}
                                 onClick={() => setMobileMenuOpen(false)}
                                 style={portalNavItemStyle(portalNav, isActive)}
                                 className={`nav-item-themed flex items-start gap-3 px-3 py-2.5 rounded-lg text-sm ${
@@ -2997,7 +3000,7 @@ useEffect(() => {
                               >
                                 <Icon className="w-4 h-4 shrink-0 mt-0.5" style={portalNavIconStyle(portalNav, isActive)} />
                                 <span>{item.title}</span>
-                              </Link>
+                              </PortalNavLink>
                             );
                           }
                         })}

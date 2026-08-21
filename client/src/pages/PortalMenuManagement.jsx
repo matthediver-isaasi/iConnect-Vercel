@@ -18,6 +18,12 @@ import { cn } from "@/lib/utils";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
 import { ROLE_ACCESS_MAP } from "@/lib/roleAccessMap";
+import {
+  getPortalMenuFallbackFeatureId,
+  getPortalMenuLinkType,
+  PORTAL_MENU_LINK_TYPES,
+  validatePortalMenuDestination,
+} from "@/lib/portalMenuLinks";
 
 // Build grouped role access options by module for better organization (sorted alphabetically)
 const staticRoleAccessOptions = (() => {
@@ -364,6 +370,8 @@ export default function PortalMenuManagementPage() {
     setEditingItem({
       title: "",
       url: "",
+      link_type: PORTAL_MENU_LINK_TYPES.INTERNAL,
+      open_in_new_tab: false,
       icon: "Menu",
       feature_id: "",
       section,
@@ -375,31 +383,55 @@ export default function PortalMenuManagementPage() {
   };
 
   const handleEdit = (item) => {
-    setEditingItem({ ...item });
+    setEditingItem({
+      ...item,
+      link_type: getPortalMenuLinkType(item),
+      open_in_new_tab: item.open_in_new_tab === true,
+    });
     setShowDialog(true);
   };
 
   const handleSave = () => {
-    if (!editingItem.title) {
+    const title = editingItem.title?.trim();
+    if (!title) {
       toast.error('Title is required');
       return;
+    }
+
+    const linkType = getPortalMenuLinkType(editingItem);
+    let url = editingItem.url?.trim() || "";
+    if (linkType === PORTAL_MENU_LINK_TYPES.EXTERNAL) {
+      const hasChildren = editingItem.id
+        ? menuItems.some(item => item.parent_id === editingItem.id)
+        : false;
+      const validation = validatePortalMenuDestination(
+        { ...editingItem, url, link_type: linkType },
+        { hasChildren },
+      );
+      if (!validation.isValid) {
+        toast.error(validation.error);
+        return;
+      }
+      url = validation.url;
     }
 
     // Use manually selected feature_id if set, otherwise auto-generate
     let featureId = editingItem.feature_id;
     if (!featureId) {
-      const section = editingItem.section;
-      if (editingItem.url) {
-        featureId = `page_${section}_${editingItem.url}`;
-      } else {
-        // For parent menus, use title converted to PascalCase
-        featureId = `page_${section}_${editingItem.title.replace(/\s+/g, '')}`;
-      }
+      featureId = getPortalMenuFallbackFeatureId({
+        ...editingItem,
+        title,
+        url,
+        link_type: linkType,
+      });
     }
 
     const data = {
-      title: editingItem.title,
-      url: editingItem.url || "",
+      title,
+      url,
+      link_type: linkType,
+      open_in_new_tab: linkType === PORTAL_MENU_LINK_TYPES.EXTERNAL
+        && editingItem.open_in_new_tab === true,
       icon: editingItem.icon,
       feature_id: featureId,
       section: editingItem.section,
@@ -496,7 +528,14 @@ export default function PortalMenuManagementPage() {
           
           <div className="flex-1 min-w-0">
             <div className="font-medium text-slate-900">{item.title}</div>
-            <div className="text-xs text-slate-500">{item.url || '(parent menu)'}</div>
+             <div className="flex items-center gap-2 text-xs text-slate-500">
+               <span className="truncate">{item.url || '(parent menu)'}</span>
+               {getPortalMenuLinkType(item) === PORTAL_MENU_LINK_TYPES.EXTERNAL && (
+                 <Badge variant="outline" className="text-[10px] px-1.5 py-0">
+                   External{item.open_in_new_tab ? ' · new tab' : ''}
+                 </Badge>
+               )}
+             </div>
           </div>
 
           {hasChildren && (
@@ -520,7 +559,7 @@ export default function PortalMenuManagementPage() {
             >
               ▼
             </Button>
-            {!isChild && (
+            {!isChild && getPortalMenuLinkType(item) !== PORTAL_MENU_LINK_TYPES.EXTERNAL && (
               <Button
                 variant="ghost"
                 size="sm"
@@ -675,37 +714,93 @@ export default function PortalMenuManagementPage() {
                 </div>
 
                 <div className="space-y-2">
-                  <Label>Page</Label>
+                  <Label>Destination type *</Label>
                   <Select
-                    value={editingItem.url || "_none"}
-                    onValueChange={(value) => {
-                      const url = value === "_none" ? "" : value;
-                      const next = { ...editingItem, url };
-                      // Pre-associate the matching RBAC permission when the page has one.
-                      if (!editingItem.feature_id && PAGE_DEFAULT_FEATURES[url]) {
-                        next.feature_id = PAGE_DEFAULT_FEATURES[url];
-                      }
-                      setEditingItem(next);
-                    }}
+                    value={getPortalMenuLinkType(editingItem)}
+                    onValueChange={(value) => setEditingItem({
+                      ...editingItem,
+                      link_type: value,
+                      url: "",
+                      open_in_new_tab: false,
+                    })}
                   >
-                    <SelectTrigger>
-                      <SelectValue placeholder="No Page (Parent Menu)" />
+                    <SelectTrigger data-testid="select-portal-link-type">
+                      <SelectValue />
                     </SelectTrigger>
-                    <SelectContent className="max-h-[400px]">
-                      {availablePages.map((page) => (
-                        <SelectItem key={page.value} value={page.value}>
-                          <div className="flex flex-col">
-                            <span>{page.label}</span>
-                            {page.value && page.value !== "_none" && (
-                              <span className="text-xs text-muted-foreground">/{page.value}</span>
-                            )}
-                          </div>
-                        </SelectItem>
-                      ))}
+                    <SelectContent>
+                      <SelectItem value={PORTAL_MENU_LINK_TYPES.INTERNAL}>Internal portal page</SelectItem>
+                      <SelectItem value={PORTAL_MENU_LINK_TYPES.EXTERNAL}>External website</SelectItem>
                     </SelectContent>
                   </Select>
-                  <p className="text-xs text-slate-500">Leave empty if this is a parent menu with sub-items</p>
                 </div>
+
+                {getPortalMenuLinkType(editingItem) === PORTAL_MENU_LINK_TYPES.INTERNAL ? (
+                  <div className="space-y-2">
+                    <Label>Page</Label>
+                    <Select
+                      value={editingItem.url || "_none"}
+                      onValueChange={(value) => {
+                        const url = value === "_none" ? "" : value;
+                        const next = { ...editingItem, url };
+                        // Pre-associate the matching RBAC permission when the page has one.
+                        if (!editingItem.feature_id && PAGE_DEFAULT_FEATURES[url]) {
+                          next.feature_id = PAGE_DEFAULT_FEATURES[url];
+                        }
+                        setEditingItem(next);
+                      }}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="No Page (Parent Menu)" />
+                      </SelectTrigger>
+                      <SelectContent className="max-h-[400px]">
+                        {availablePages.map((page) => (
+                          <SelectItem key={page.value} value={page.value}>
+                            <div className="flex flex-col">
+                              <span>{page.label}</span>
+                              {page.value && page.value !== "_none" && (
+                                <span className="text-xs text-muted-foreground">/{page.value}</span>
+                              )}
+                            </div>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-slate-500">Leave empty if this is a parent menu with sub-items</p>
+                  </div>
+                ) : (
+                  <>
+                    <div className="space-y-2">
+                      <Label htmlFor="portal-menu-external-url">External URL *</Label>
+                      <Input
+                        id="portal-menu-external-url"
+                        type="url"
+                        value={editingItem.url || ""}
+                        onChange={(e) => setEditingItem({ ...editingItem, url: e.target.value })}
+                        placeholder="https://www.example.com"
+                        data-testid="input-portal-external-url"
+                      />
+                      <p className="text-xs text-slate-500">
+                        Enter the complete address starting with http:// or https://.
+                      </p>
+                    </div>
+
+                    <div className="flex items-center justify-between gap-4 rounded-lg border border-slate-200 p-3">
+                      <div>
+                        <Label htmlFor="portal-menu-new-tab">Open in a new tab</Label>
+                        <p className="text-xs text-slate-500">Keeps the member portal open in the current tab.</p>
+                      </div>
+                      <Switch
+                        id="portal-menu-new-tab"
+                        checked={editingItem.open_in_new_tab === true}
+                        onCheckedChange={(checked) => setEditingItem({
+                          ...editingItem,
+                          open_in_new_tab: checked,
+                        })}
+                        data-testid="switch-portal-external-new-tab"
+                      />
+                    </div>
+                  </>
+                )}
 
                 <div className="space-y-2">
                   <Label>Icon *</Label>

@@ -30,6 +30,7 @@ import { isCategoryRestricted, hasSubcategoryRestrictions, filterCategoriesForVi
 import { sendSubmissionEmailsGuarded } from '../../_lib/formSubmissionEmails.js';
 import { getTrustedBaseUrlForTenant } from '../../_lib/publicBaseUrl.js';
 import { isReservedPageSlug, reservedPageSlugMessage } from '../../../shared/memberAliases.js';
+import { validatePortalMenuRecord } from '../../../shared/portalMenuLinks.js';
 import { hasManagedJobProvenance, stripManagedJobProvenance } from '../../_lib/jobFeedOwnership.js';
 import {
   validateAutomaticMembershipSettings,
@@ -1172,6 +1173,16 @@ export default async function handler(req, res) {
         if (field in sanitizedBody && sanitizedBody[field] === '') {
           sanitizedBody[field] = null;
         }
+      }
+
+      if (entityNorm === 'portalmenu') {
+        const portalMenuValidation = validatePortalMenuRecord(sanitizedBody);
+        if (!portalMenuValidation.isValid) {
+          return res.status(400).json({ error: portalMenuValidation.error });
+        }
+        sanitizedBody.link_type = portalMenuValidation.linkType;
+        sanitizedBody.open_in_new_tab = portalMenuValidation.openInNewTab;
+        sanitizedBody.url = portalMenuValidation.url;
       }
 
       // SECURITY (Task #3371): the static "AI generated" page class stores
