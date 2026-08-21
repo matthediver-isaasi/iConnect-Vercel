@@ -9,9 +9,16 @@ import {
   useLayoutEffect,
 } from 'react';
 import { getBlockDefinition } from './blocks/registry';
-import { BLOCK_TYPES, isAspectHeightCarousel, resolveAspectReflowReferenceHeight } from '../../lib/canvasDesign';
+import { BLOCK_TYPES, blockIsFullWidthLike, isAspectHeightCarousel, resolveAspectReflowReferenceHeight } from '../../lib/canvasDesign';
 import { computeBoxGrowthDelta, computeCardReferenceHeight, normalizeMeasuredLength, updateReflowBaseline } from './autoHeightBake';
-import { computeReflowStageHeight, offsetForStoredY } from './reflowStageHeight';
+import {
+  buildReflowRowGroups,
+  computeReflowStageHeight,
+  growthForContainedGeom,
+  offsetForTargetGeom,
+  relativeOffsetWithinContainer,
+  reflowMemberIsContained,
+} from './reflowStageHeight';
 
 const AccordionReflowCtx = createContext(null);
 
@@ -460,99 +467,29 @@ export function AccordionReflowProvider({ children, blocks, resolveGeom, editorM
         ? resolveAspectReflowReferenceHeight(block, g, breakpoint)
         : null;
       const finalReferenceH = Number.isFinite(aspectRefH) ? aspectRefH : referenceH;
-      entries.push({ id, top: g.y, bottom: g.y + g.h, refBottom: g.y + finalReferenceH, effectiveH, signed, isCard });
+      entries.push({
+        id,
+        top: g.y,
+        bottom: g.y + g.h,
+        refBottom: g.y + finalReferenceH,
+        left: g.x,
+        right: g.x + g.w,
+        fullWidth: blockIsFullWidthLike(block),
+        effectiveH,
+        signed,
+        isCard,
+      });
     }
-    if (entries.length === 0) return [];
-    entries.sort((a, b) => a.top - b.top);
-    const groups = [];
-    let cur = null;
-    for (const e of entries) {
-      if (cur && e.top < cur.refBottom) {
-        // Row membership is decided by overlap with the running REFERENCE band
-        // (`cur.refBottom`), not the stored box bottom. For cards the reference
-        // is the VISIBLE builder bottom (max of stored height and collapsed
-        // baseline — Task #3468), so a row of cards that share the same stored
-        // `y` still collapses into ONE row whose rendered height is the
-        // TALLEST member's — auto-equalising card heights is unchanged.
-        //
-        // For an auto-height accordion whose stored box is far taller than its
-        // collapsed state, the reference is the COLLAPSED-baseline bottom. A
-        // block authored just under the accordion's collapsed state — but still
-        // inside its oversized stored box — therefore starts BELOW the
-        // reference band and is NOT merged in. It forms its own row so the
-        // expanding accordion pushes it down (matching the getOffset test
-        // below), instead of being swallowed into the accordion's row and
-        // silently overlapped.
-        cur.top = Math.min(cur.top, e.top);
-        cur.bottom = Math.max(cur.bottom, e.bottom);
-        cur.refBottom = Math.max(cur.refBottom, e.refBottom);
-        cur.renderedHeight = Math.max(cur.renderedHeight, e.effectiveH);
-        cur.signed = cur.signed && e.signed;
-        cur.ids.push(e.id);
-        cur.members.push(e);
-        if (!e.isCard) {
-          const mb = e.top + e.effectiveH;
-          cur.nonCardMeasuredBottom = cur.nonCardMeasuredBottom === null
-            ? mb
-            : Math.max(cur.nonCardMeasuredBottom, mb);
-          cur.nonCardStoredBottom = cur.nonCardStoredBottom === null
-            ? e.bottom
-            : Math.max(cur.nonCardStoredBottom, e.bottom);
-        }
-      } else {
-        // Task #3469: track the deepest NON-CARD member bottoms separately so
-        // the Box re-anchor path (getContainerGrowth) can exclude card rows,
-        // mirroring the editor bake's boxReanchorHeight exclusion. Cards'
-        // stored/manual height is the author's intended size; feeding their
-        // rendered height into the box re-anchor grew boxes on the public page
-        // that stayed at their authored height in the builder.
-        cur = {
-          top: e.top,
-          bottom: e.bottom,
-          refBottom: e.refBottom,
-          renderedHeight: e.effectiveH,
-          signed: e.signed,
-          ids: [e.id],
-          members: [e],
-          nonCardMeasuredBottom: e.isCard ? null : e.top + e.effectiveH,
-          nonCardStoredBottom: e.isCard ? null : e.bottom,
-        };
-        groups.push(cur);
-      }
-    }
-    // Growth = how far the row's rendered bottom extends past its REFERENCE
-    // bottom band. For cards the reference is the stored bottom; for plain
-    // auto-height blocks it is the collapsed-baseline bottom (so an accordion
-    // whose stored box is taller than its collapsed state still pushes blocks
-    // below down when expanded — see the referenceH comment above).
-    // PUSH-DOWN-ONLY: clamped to be non-negative so a row that renders SHORTER
-    // than its reference never pulls the blocks below it upward. The editor is
-    // the source of truth for stored gaps and no longer reflows, so the public
-    // renderer must preserve those gaps rather than collapse trailing
-    // whitespace. Positive growth (accordion expand, a card row grown to its
-    // tallest member) still pushes blocks below down. Computed after merges so
-    // `refBottom` is final.
-    //
-    // EXCEPTION (Task #2824): rows composed entirely of aspect-height Hero
-    // Carousels keep the SIGNED delta. Their reference is the stored box
-    // height, and their rendered height is deterministic (viewport width ÷
-    // image aspect ratio), so a negative delta means "the carousel really is
-    // shorter than authored at this viewport" — blocks below are pulled up by
-    // that amount so no dead gap appears. Mixed rows fall back to the clamp.
-    for (const grp of groups) {
-      const delta = (grp.top + grp.renderedHeight) - grp.refBottom;
-      grp.growth = grp.signed ? delta : Math.max(0, delta);
-    }
-    return groups;
+    return buildReflowRowGroups(entries);
   }, [measuredHeights, blocks, resolveGeom, breakpoint]);
 
   /**
-   * Returns the total downward offset (px) that should be applied to a block
-   * whose stored top edge is at storedY.
+   * Returns the live offset (px) for a block at its stored geometry.
    *
-   * A row group pushes a target block down when the group's REFERENCE bottom
+   * A source row pushes a target block down when the row's REFERENCE bottom
    * (`refBottom` — the point from which its growth is measured) sits at or above
-   * storedY. This MUST use the same reference the growth is measured from, not
+   * storedY AND their horizontal bounds overlap. This MUST use the same
+   * reference the growth is measured from, not
    * the stored box bottom: an accordion's stored box is frequently far taller
    * than its collapsed state, and blocks authored to sit just under the
    * collapsed accordion land in the band [refBottom, bottom). Testing against
@@ -560,11 +497,9 @@ export function AccordionReflowProvider({ children, blocks, resolveGeom, editorM
    * accordion would grow straight through and overlap them. Testing against
    * `refBottom` pushes them down as intended.
    *
-   * A block is never pushed by its own row: every member's stored top is < its
-   * row's refBottom (a member only merges when its top is within the running
-   * reference band), so `refBottom <= storedY` is always false for members.
-   * Push-down growth is clamped non-negative in rowGroups, so this only ever
-   * moves blocks down, never up.
+   * Side-by-side sources contribute the largest relevant displacement rather
+   * than adding together; vertically stacked sources in the same lane remain
+   * cumulative. Signed aspect-carousel rows retain their existing exception.
    */
   const getOffset = useCallback(
     (blockId, storedY) => {
@@ -572,12 +507,15 @@ export function AccordionReflowProvider({ children, blocks, resolveGeom, editorM
       // stored positions so dragging/dropping never shifts unrelated blocks.
       if (editorMode) return 0;
       if (rowGroups.length === 0) return 0;
-      // Task #2840: signed (aspect-carousel) rows allow a few px of slack.
-      // Keep this shared with the stage-bottom calculation so the page edge
-      // follows the exact displacement applied to its blocks.
-      return offsetForStoredY(rowGroups, storedY);
+      const block = blocks.find((entry) => entry.id === blockId);
+      const geom = block ? resolveGeom(block) : null;
+      return offsetForTargetGeom(rowGroups, {
+        ...(geom || {}),
+        y: storedY,
+        fullWidth: blockIsFullWidthLike(block),
+      });
     },
-    [editorMode, rowGroups],
+    [editorMode, rowGroups, blocks, resolveGeom],
   );
 
   /** Measured height for a specific block (undefined if not yet reported). */
@@ -624,19 +562,11 @@ export function AccordionReflowProvider({ children, blocks, resolveGeom, editorM
     [editorMode, blocks, resolveGeom, rowGroups],
   );
 
-  /**
-   * Net height change (px) across all auto-height blocks. Non-negative because
-   * per-row growth is clamped push-down-only: positive when accordions are
-   * expanded / a card row grew, zero otherwise. Use this to extend the
-   * page-stage minHeight so pushed-down blocks are never clipped. It never
-   * shrinks the stage (which would collapse author-intended gaps).
-   */
+  /** Deepest cumulative reflow path across the whole stage. */
   const getTotalGrowth = useCallback(() => {
     // Editor mode: stage height derives from stored geometry only.
     if (editorMode) return 0;
-    let total = 0;
-    for (const grp of rowGroups) total += grp.growth;
-    return total;
+    return offsetForTargetGeom(rowGroups, { y: Infinity, fullWidth: true });
   }, [editorMode, rowGroups]);
 
   /**
@@ -672,8 +602,11 @@ export function AccordionReflowProvider({ children, blocks, resolveGeom, editorM
       // editor bakes committed heights into stored geometry instead.
       if (editorMode) return 0;
       if (!containerGeom || rowGroups.length === 0) return 0;
+      const spatialContainerGeom = {
+        ...containerGeom,
+        fullWidth: blockIsFullWidthLike(containerBlock),
+      };
       const isBox = containerBlock?.type === BLOCK_TYPES.BOX;
-      const containerBottom = containerGeom.y + containerGeom.h;
       if (isBox) {
         // Box: GROW-ONLY on the front-end. Re-anchor to the deepest contained
         // content via the SHARED formula (Task #2680), but never render the box
@@ -694,12 +627,22 @@ export function AccordionReflowProvider({ children, blocks, resolveGeom, editorM
         // on the public page exactly like the builder.
         const rows = [];
         for (const grp of rowGroups) {
-          if (
-            grp.nonCardMeasuredBottom !== null &&
-            grp.top >= containerGeom.y &&
-            grp.bottom <= containerBottom
-          ) {
-            rows.push({ measuredBottom: grp.nonCardMeasuredBottom, storedBottom: grp.nonCardStoredBottom });
+          for (const member of grp.members || []) {
+            if (member.isCard || !reflowMemberIsContained(spatialContainerGeom, member)) continue;
+            const relativeOffset = relativeOffsetWithinContainer(rowGroups, {
+              x: member.left,
+              y: member.top,
+              w: member.right - member.left,
+              h: member.bottom - member.top,
+              fullWidth: member.fullWidth,
+            }, spatialContainerGeom);
+            rows.push({
+              // Re-anchor from the member's position relative to the Box.
+              // Growth above the Box moves the Box and its contents together;
+              // counting that shared displacement here would grow the Box too.
+              measuredBottom: member.top + member.effectiveH + relativeOffset,
+              storedBottom: member.bottom,
+            });
           }
         }
         if (rows.length === 0) return 0; // no contained content
@@ -709,15 +652,9 @@ export function AccordionReflowProvider({ children, blocks, resolveGeom, editorM
           rows,
         });
       }
-      // Sections: sum contained row growth. Ordinary rows are grow-only; signed
-      // aspect-carousel rows retain their existing deterministic shrink path.
-      let total = 0;
-      for (const grp of rowGroups) {
-        if (grp.top >= containerGeom.y && grp.bottom <= containerBottom) {
-          total += grp.growth;
-        }
-      }
-      return total;
+      // Sections follow the deepest contained spatial path: stacked growth in
+      // one lane accumulates, while parallel columns contribute their maximum.
+      return growthForContainedGeom(rowGroups, spatialContainerGeom);
     },
     [editorMode, rowGroups],
   );
