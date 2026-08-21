@@ -54,6 +54,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import {
   createBlock,
+  cloneCanvasBlockWithFreshIds,
   createFlowNode,
   insertFlowNode,
   getBlockDefaults,
@@ -1099,14 +1100,16 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
     replaceChildren((arr) => {
       const toDup = arr.filter((b) => selectedIds.includes(b.id));
       const copies = toDup.map((b) => {
-        const copy = createBlock(b.type, {
-          desktop: { ...resolveBlockAtBreakpoint(b, 'desktop'),
-            x: (b.bp.desktop.x || 0) + 16, y: (b.bp.desktop.y || 0) + 16 },
-          tablet: { ...b.bp.tablet },
-          mobile: { ...b.bp.mobile },
-          style: { ...b.style },
-          a11y: { ...b.a11y },
-          content: JSON.parse(JSON.stringify(b.content || {})),
+        const source = JSON.parse(JSON.stringify(b));
+        const copy = cloneCanvasBlockWithFreshIds(source, {
+          bp: {
+            ...source.bp,
+            desktop: {
+              ...(source.bp?.desktop || {}),
+              x: (b.bp.desktop.x || 0) + 16,
+              y: (b.bp.desktop.y || 0) + 16,
+            },
+          },
           name: `${b.name} copy`,
         });
         newIds.push(copy.id);
@@ -1120,14 +1123,16 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
   const duplicateById = useCallback((id) => {
     const b = children.find((c) => c.id === id);
     if (!b) return;
-    const copy = createBlock(b.type, {
-      desktop: { ...resolveBlockAtBreakpoint(b, 'desktop'),
-        x: (b.bp.desktop.x || 0) + 16, y: (b.bp.desktop.y || 0) + 16 },
-      tablet: { ...b.bp.tablet },
-      mobile: { ...b.bp.mobile },
-      style: { ...b.style },
-      a11y: { ...b.a11y },
-      content: JSON.parse(JSON.stringify(b.content || {})),
+    const source = JSON.parse(JSON.stringify(b));
+    const copy = cloneCanvasBlockWithFreshIds(source, {
+      bp: {
+        ...source.bp,
+        desktop: {
+          ...(source.bp?.desktop || {}),
+          x: (b.bp.desktop.x || 0) + 16,
+          y: (b.bp.desktop.y || 0) + 16,
+        },
+      },
       name: `${b.name} copy`,
     });
     replaceChildren((arr) => [...arr, copy]);
@@ -1318,17 +1323,16 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
           const newIds = [];
           replaceChildren((arr) => {
             const copies = clip.map((b) => {
-              const copy = createBlock(b.type, {
-                desktop: {
-                  ...(b.bp?.desktop || {}),
-                  x: (b.bp?.desktop?.x || 0) + 24,
-                  y: (b.bp?.desktop?.y || 0) + 24,
+              const source = JSON.parse(JSON.stringify(b));
+              const copy = cloneCanvasBlockWithFreshIds(source, {
+                bp: {
+                  ...source.bp,
+                  desktop: {
+                    ...(source.bp?.desktop || {}),
+                    x: (b.bp?.desktop?.x || 0) + 24,
+                    y: (b.bp?.desktop?.y || 0) + 24,
+                  },
                 },
-                tablet: { ...(b.bp?.tablet || {}) },
-                mobile: { ...(b.bp?.mobile || {}) },
-                style: { ...(b.style || {}) },
-                a11y: { ...(b.a11y || {}) },
-                content: JSON.parse(JSON.stringify(b.content || {})),
                 name: b.name,
               });
               newIds.push(copy.id);

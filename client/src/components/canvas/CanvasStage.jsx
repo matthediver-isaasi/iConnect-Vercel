@@ -285,7 +285,7 @@ function CanvasBlockView({
     >
       {EditorComponent && (
         <div
-          className={isAutoHeight ? 'w-full pointer-events-none' : 'absolute pointer-events-none'}
+          className={`${isAutoHeight ? 'w-full' : 'absolute'} ${def.editorInteractive ? 'pointer-events-auto' : 'pointer-events-none'}`}
           // Task #3188: fixed-height content used to mount at `inset-0`, which
           // spans the wrapper's PADDING box — so style.padding* was invisible
           // in the editor while the public renderer (normal flow inside the

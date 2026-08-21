@@ -20,6 +20,8 @@ import {
   isInteractiveBlock,
   moveBlockInReadingOrder,
   findReadingOrderPosition,
+  auditCanvasDesign,
+  auditBlock,
 } from './canvasA11y.js';
 
 import { BLOCK_TYPES, LAYOUT_MODES } from './canvasDesign.js';
@@ -439,4 +441,162 @@ test('moveBlockInReadingOrder: is pure (never mutates input blocks)', () => {
   const before = JSON.stringify([group]);
   moveBlockInReadingOrder([group], 'g2', 'up');
   assert.equal(JSON.stringify([group]), before);
+});
+
+// -- Advanced Accordion deep-nesting a11y audit -----------------------------
+
+// A design with a single advanced-accordion block and one H1 (so the
+// no-h1-on-page rule never masks the child-block issues we assert on).
+function makeAdvAccAuditDesign(items) {
+  const hero = {
+    id: 'hero',
+    type: BLOCK_TYPES.HERO,
+    content: { headingLevel: 1, textColor: '#ffffff', bgType: 'color', bgColor: '#000000' },
+    bp: { desktop: { x: 0, y: 0, w: 1200, h: 200, hidden: false } },
+  };
+  const acc = {
+    id: 'acc1',
+    type: BLOCK_TYPES.ADVANCED_ACCORDION,
+    content: { items },
+    bp: { desktop: { x: 0, y: 200, w: 1200, h: 400, hidden: false } },
+  };
+  return { version: 1, root: { sections: [{ id: 's1', children: [hero, acc] }] } };
+}
+
+test('advanced accordion audit: direct-child image-alt issue is reported (unchanged)', () => {
+  const design = makeAdvAccAuditDesign([
+    {
+      title: 'Panel A',
+      children: [
+        { id: 'img', type: BLOCK_TYPES.IMAGE, content: { src: 'https://cdn/x.jpg', alt: '' } },
+      ],
+    },
+  ]);
+  const issues = auditCanvasDesign(design).filter((i) => i.rule === 'image-alt-missing');
+  assert.equal(issues.length, 1);
+  assert.equal(issues[0].blockId, 'acc1');
+  assert.match(issues[0].blockName, /Panel A/);
+});
+
+// NOTE on deep-nesting a11y: auditCanvasDesign normalizes first, and the v1
+// absolute block model flattens nested `child.children[]` during normalization
+// (groups are logical, not structural). So the recursion into arbitrary nested
+// accordion child layout trees is exercised directly on `auditBlock` with a
+// pre-shaped (un-normalized) block, which preserves the nesting.
+
+// A pre-shaped advanced-accordion block carrying panel items verbatim.
+function mkAdvAccBlock(items) {
+  return {
+    id: 'acc1',
+    type: BLOCK_TYPES.ADVANCED_ACCORDION,
+    name: 'Accordion',
+    content: { items },
+    bp: { desktop: { x: 0, y: 0, w: 1200, h: 400, hidden: false } },
+  };
+}
+
+test('auditBlock: grandchild image-alt issue is reported under the accordion', () => {
+  // Panel > group (child) > image (grandchild) with a missing alt.
+  const block = mkAdvAccBlock([
+    {
+      title: 'Panel A',
+      children: [
+        {
+          id: 'grp',
+          type: BLOCK_TYPES.GROUP,
+          children: [
+            { id: 'img', type: BLOCK_TYPES.IMAGE, content: { src: 'https://cdn/x.jpg', alt: '' } },
+          ],
+        },
+      ],
+    },
+  ]);
+  const issues = auditBlock(block, {}).filter((i) => i.rule === 'image-alt-missing');
+  assert.equal(issues.length, 1);
+  assert.equal(issues[0].blockId, 'acc1');
+  assert.match(issues[0].blockName, /Panel A/);
+});
+
+test('auditBlock: deeply nested button-no-accessible-name is reported', () => {
+  // Panel > group > group > button with no visible label / aria-label.
+  const block = mkAdvAccBlock([
+    {
+      title: 'Panel B',
+      children: [
+        {
+          id: 'g1',
+          type: BLOCK_TYPES.GROUP,
+          children: [
+            {
+              id: 'g2',
+              type: BLOCK_TYPES.GROUP,
+              children: [
+                { id: 'btn', type: BLOCK_TYPES.BUTTON, content: { label: '' } },
+              ],
+            },
+          ],
+        },
+      ],
+    },
+  ]);
+  const issues = auditBlock(block, {}).filter((i) => i.rule === 'button-no-accessible-name');
+  assert.equal(issues.length, 1);
+  assert.equal(issues[0].blockId, 'acc1');
+  assert.match(issues[0].blockName, /Panel B/);
+});
+
+test('auditBlock: a clean deep tree reports no child issues', () => {
+  const block = mkAdvAccBlock([
+    {
+      title: 'Panel A',
+      children: [
+        {
+          id: 'grp',
+          type: BLOCK_TYPES.GROUP,
+          children: [
+            { id: 'img', type: BLOCK_TYPES.IMAGE, content: { src: 'https://cdn/x.jpg', alt: 'Ok' } },
+            { id: 'btn', type: BLOCK_TYPES.BUTTON, content: { label: 'Press me' } },
+          ],
+        },
+      ],
+    },
+  ]);
+  // Child-derived issues carry the "Accordion › Panel …" blockName; the block's
+  // own audit (e.g. mobile-overflow warnings from its full-width geometry) is
+  // not a child issue and is excluded here.
+  const childIssues = auditBlock(block, {}).filter((i) => / › /.test(i.blockName || ''));
+  assert.equal(childIssues.length, 0);
+});
+
+test('auditBlock: mixed depths each surface exactly once (no double counting)', () => {
+  const block = mkAdvAccBlock([
+    {
+      title: 'Panel A',
+      children: [
+        // direct child with a missing alt
+        { id: 'img1', type: BLOCK_TYPES.IMAGE, content: { src: 'https://cdn/1.jpg', alt: '' } },
+        // grandchild with a missing alt
+        {
+          id: 'grp',
+          type: BLOCK_TYPES.GROUP,
+          children: [
+            { id: 'img2', type: BLOCK_TYPES.IMAGE, content: { src: 'https://cdn/2.jpg', alt: '' } },
+          ],
+        },
+      ],
+    },
+  ]);
+  const issues = auditBlock(block, {}).filter((i) => i.rule === 'image-alt-missing');
+  // Two distinct images, each reported once (recursion visits every node once).
+  assert.equal(issues.length, 2);
+  assert.ok(issues.every((i) => i.blockId === 'acc1'));
+});
+
+test('auditBlock: cycle guard prevents infinite recursion on a self-referential tree', () => {
+  const child = { id: 'c', type: BLOCK_TYPES.IMAGE, content: { src: 'https://cdn/x.jpg', alt: '' } };
+  child.children = [child]; // pathological self-reference
+  const block = mkAdvAccBlock([{ title: 'Panel A', children: [child] }]);
+  const issues = auditBlock(block, {}).filter((i) => i.rule === 'image-alt-missing');
+  // Visited exactly once despite the cycle.
+  assert.equal(issues.length, 1);
 });

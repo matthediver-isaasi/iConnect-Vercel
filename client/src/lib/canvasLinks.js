@@ -50,6 +50,182 @@ import { BLOCK_TYPES } from './canvasDesign.js';
 //                                           `ctaEnabled !== false`).
 // A returned row is { contentPath: [...], value, label, context? }.
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Advanced Accordion helpers.
+// Walk a child block (nested inside an advanced-accordion item) and pull out
+// all structured link rows, mirroring the existing LINK_FIELD_SPECS logic.
+// Each child may be any block type that the registry supports (text, image,
+// button, card, etc.).  We reuse the existing specs lookup rather than
+// duplicating logic.
+// ---------------------------------------------------------------------------
+
+// Extract structured link rows from a single advanced-accordion child block.
+// `childPath` is the contentPath prefix up to (and including) the child block,
+// e.g. ['items', 0, 'children', 2] or a deeper nested path such as
+//   ['items', 0, 'children', 2, 'children', 1]
+// Returns [] when the child has no known link specs. NOTE: this only walks the
+// child's OWN link fields — recursion into `child.children[]` is handled by
+// extractAdvAccLinks so the walk order and path bookkeeping stay in one place.
+function extractAdvAccChildLinks(child, childPath) {
+  if (!child || typeof child !== 'object') return [];
+  const type = child.type;
+  const content = child.content && typeof child.content === 'object' ? child.content : {};
+  const rows = [];
+
+  const specs = LINK_FIELD_SPECS[type] || [];
+  for (const spec of specs) {
+    if (typeof spec.extract === 'function') {
+      // Custom extractor: rebase each row's contentPath under childPath.
+      const custom = spec.extract(content) || [];
+      for (const r of custom) {
+        rows.push({
+          contentPath: [...childPath, 'content', ...r.contentPath],
+          value: r.value,
+          label: r.label,
+          context: r.context,
+        });
+      }
+      continue;
+    }
+    if (spec.enabledContentField && content[spec.enabledContentField] === false) continue;
+    if (spec.array) {
+      const arr = Array.isArray(content[spec.array]) ? content[spec.array] : [];
+      arr.forEach((item, i) => {
+        if (spec.onlyWhenPopulated) {
+          const v = typeof item?.[spec.field] === 'string' ? item[spec.field].trim() : '';
+          if (!v) return;
+        }
+        rows.push({
+          contentPath: [...childPath, 'content', spec.array, i, spec.field],
+          value: typeof item?.[spec.field] === 'string' ? item[spec.field] : '',
+          label: spec.label,
+          context: item?.label || item?.name || item?.alt || undefined,
+        });
+      });
+    } else {
+      if (spec.onlyWhenPopulated) {
+        const v = typeof content[spec.field] === 'string' ? content[spec.field].trim() : '';
+        if (!v) continue;
+      }
+      rows.push({
+        contentPath: [...childPath, 'content', spec.field],
+        value: typeof content[spec.field] === 'string' ? content[spec.field] : '',
+        label: spec.label,
+        context: undefined,
+      });
+    }
+  }
+
+  // Also extract inline html-anchor links from child html fields.
+  const htmlSpecs = HTML_FIELD_SPECS[type] || [];
+  // NOTE: html anchor rows are NOT returned here — they need anchorIndex which
+  // is handled separately in the main extraction loop. This function only
+  // returns structured field rows.
+
+  return rows;
+}
+
+// Recursively collect structured link rows from a child block AND every block
+// nested beneath it via `child.children[]`. `childPath` addresses this child;
+// grandchildren extend it with ['children', gi] so link-update paths stay
+// correct at any depth. A cycle guard (`seen`) protects against a malformed
+// document whose children reference an ancestor.
+function collectAdvAccChildLinks(child, childPath, rows, seen) {
+  if (!child || typeof child !== 'object') return;
+  if (seen.has(child)) return;
+  seen.add(child);
+
+  rows.push(...extractAdvAccChildLinks(child, childPath));
+
+  const grandchildren = Array.isArray(child.children) ? child.children : [];
+  grandchildren.forEach((grandchild, gi) => {
+    collectAdvAccChildLinks(grandchild, [...childPath, 'children', gi], rows, seen);
+  });
+}
+
+// Extract all link rows (structured) from the items of an advanced-accordion
+// content object. Walks items[].children[] and recurses into every nested
+// child.children[] layout tree so links inside grandchildren (and deeper) are
+// surfaced with the correct content path.
+function extractAdvAccLinks(content) {
+  const rows = [];
+  const items = Array.isArray(content.items) ? content.items : [];
+  items.forEach((item, i) => {
+    const children = Array.isArray(item?.children) ? item.children : [];
+    const seen = new Set();
+    children.forEach((child, ci) => {
+      collectAdvAccChildLinks(child, ['items', i, 'children', ci], rows, seen);
+    });
+  });
+  return rows;
+}
+
+// Recursively collect inline html-anchor rows from a child block AND every
+// block nested beneath it via `child.children[]`. Returns rows with shape
+// { contentPath, anchorIndex, value, label, context }. `childPath` addresses
+// this child; grandchildren extend it with ['children', gi]. A cycle guard
+// (`seen`) protects against malformed self-referential trees.
+function collectAdvAccChildHtmlAnchors(child, childPath, rows, seen) {
+  if (!child || typeof child !== 'object') return;
+  if (seen.has(child)) return;
+  seen.add(child);
+
+  const type = child.type;
+  const childContent = child.content && typeof child.content === 'object' ? child.content : {};
+  const htmlSpecs = HTML_FIELD_SPECS[type] || [];
+  for (const spec of htmlSpecs) {
+    if (spec.array) {
+      const arr = Array.isArray(childContent[spec.array]) ? childContent[spec.array] : [];
+      arr.forEach((subItem, si) => {
+        const html = subItem?.[spec.field];
+        extractAnchors(html).forEach((a) => {
+          rows.push({
+            contentPath: [...childPath, 'content', spec.array, si, spec.field],
+            anchorIndex: a.index,
+            value: a.href || '',
+            label: 'Inline text link',
+            context: a.text || undefined,
+          });
+        });
+      });
+    } else {
+      const html = childContent[spec.field];
+      extractAnchors(html).forEach((a) => {
+        rows.push({
+          contentPath: [...childPath, 'content', spec.field],
+          anchorIndex: a.index,
+          value: a.href || '',
+          label: 'Inline text link',
+          context: a.text || undefined,
+        });
+      });
+    }
+  }
+
+  const grandchildren = Array.isArray(child.children) ? child.children : [];
+  grandchildren.forEach((grandchild, gi) => {
+    collectAdvAccChildHtmlAnchors(grandchild, [...childPath, 'children', gi], rows, seen);
+  });
+}
+
+// Extract all html-anchor rows from the items of an advanced-accordion content
+// object. Walks items[].children[] and recurses into every nested
+// child.children[] layout tree. Returns rows with shape
+// { contentPath, anchorIndex, value, label, context }.
+function extractAdvAccHtmlAnchors(content, blockId, sectionId) {
+  const rows = [];
+  const items = Array.isArray(content.items) ? content.items : [];
+  items.forEach((item, i) => {
+    const children = Array.isArray(item?.children) ? item.children : [];
+    const seen = new Set();
+    children.forEach((child, ci) => {
+      collectAdvAccChildHtmlAnchors(child, ['items', i, 'children', ci], rows, seen);
+    });
+  });
+  return rows;
+}
+
 export const LINK_FIELD_SPECS = {
   [BLOCK_TYPES.HERO]: [{ array: 'ctas', field: 'href', label: 'Hero CTA', imageSrcContentField: 'bgImageUrl', buttonLabelField: 'label' }],
   [BLOCK_TYPES.IMAGE]: [{ field: 'href', label: 'Image link', imageSrcField: 'src', imageAltField: 'alt', onlyWhenPopulated: true }],
@@ -80,6 +256,17 @@ export const LINK_FIELD_SPECS = {
         });
         return rows;
       },
+    },
+  ],
+  // Advanced Accordion: each item contains arbitrary nested Canvas child blocks
+  // (text, image, button, etc.). Links are extracted by walking children and
+  // re-using the per-block LINK_FIELD_SPECS. Defined AFTER the helpers above so
+  // extractAdvAccLinks can reference LINK_FIELD_SPECS without a forward-ref issue
+  // (the spec object is evaluated lazily via the `extract` function call, not at
+  // module load time).
+  'advanced-accordion': [
+    {
+      extract: extractAdvAccLinks,
     },
   ],
   [BLOCK_TYPES.MEGA_MENU]: [
@@ -449,6 +636,26 @@ export function extractCanvasLinks(design) {
             value: a.href || '',
             path: { contentPath: [spec.field], anchorIndex: a.index },
           });
+        });
+      }
+    }
+
+    // 3. For advanced-accordion blocks, also extract inline html-anchor links
+    //    from every child block's rich-text fields. This is handled separately
+    //    from the HTML_FIELD_SPECS map because child blocks sit two levels deep
+    //    inside `content.items[i].children[ci]` and require a custom walk.
+    if (type === 'advanced-accordion') {
+      const anchorRows = extractAdvAccHtmlAnchors(content, blockId, sectionId);
+      for (const r of anchorRows) {
+        rows.push({
+          blockId,
+          sectionId,
+          blockType: type,
+          kind: 'html-anchor',
+          label: r.label,
+          context: r.context,
+          value: r.value,
+          path: { contentPath: r.contentPath, anchorIndex: r.anchorIndex },
         });
       }
     }

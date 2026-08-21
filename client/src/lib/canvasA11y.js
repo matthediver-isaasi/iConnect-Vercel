@@ -246,7 +246,35 @@ function stripHtml(html) {
   return String(html).replace(/<[^>]*>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
-function auditBlock(block, ctx) {
+// Audit a single advanced-accordion panel child AND recurse into every block
+// nested beneath it via `child.children[]` (arbitrary layout trees). Each issue
+// is re-emitted under the accordion block's id (`ownerId`) with `ownerName` as
+// context so the editor can locate the panel. A cycle guard (`seen`) protects
+// against a malformed self-referential tree.
+function auditAdvAccChild(child, ctx, ownerId, ownerName, out, seen) {
+  if (!child || typeof child !== 'object') return;
+  if (seen.has(child)) return;
+  seen.add(child);
+
+  // Child blocks inside accordion panels have no bp/geometry, so mobile
+  // heuristics are skipped (resolveBlockAtBreakpoint returns safe defaults).
+  const childIssues = auditBlock(child, ctx);
+  for (const ci of childIssues) {
+    // Re-emit under the accordion block's id. Keep the original rule/severity.
+    out.push(issue(ownerId, ownerName, ci.rule, ci.severity, ci.message));
+  }
+
+  const grandchildren = Array.isArray(child.children) ? child.children : [];
+  grandchildren.forEach((grandchild) => {
+    auditAdvAccChild(grandchild, ctx, ownerId, ownerName, out, seen);
+  });
+}
+
+// Exported so the recursion into advanced-accordion child layout trees can be
+// unit-tested directly. `auditCanvasDesign` normalizes first (which flattens
+// nested `children` in the v1 absolute model), so testing deep nesting through
+// the public entry point isn't possible — call this with a pre-shaped block.
+export function auditBlock(block, ctx) {
   const out = [];
   const c = block.content || {};
   const a11y = block.a11y || {};
@@ -419,6 +447,25 @@ function auditBlock(block, ctx) {
       out.push(issue(block.id, name, 'mobile-text-too-small', SEVERITY.WARNING,
         `Text uses ${inline}px font-size — below the 14px minimum recommended for mobile readability.`));
     }
+  }
+
+  // --- Advanced Accordion: audit each panel's child blocks for accessibility.
+  // Child blocks live in content.items[i].children[] (not in block.children),
+  // so the generic auditCanvasDesign loop never visits them — we recurse here
+  // to catch image alts, button names, etc. nested inside panels.
+  if (block.type === BLOCK_TYPES.ADVANCED_ACCORDION) {
+    const items = Array.isArray(c.items) ? c.items : [];
+    items.forEach((item, i) => {
+      const panelTitle = String(item?.title || `Panel ${i + 1}`);
+      const children = Array.isArray(item?.children) ? item.children : [];
+      const seen = new Set();
+      children.forEach((child) => {
+        // Walk each panel child AND every block nested beneath it via
+        // child.children[] (arbitrary layout trees), re-emitting each issue
+        // under the accordion block's id with the panel title as context.
+        auditAdvAccChild(child, ctx, block.id, `${name} › ${panelTitle}`, out, seen);
+      });
+    });
   }
 
   return out;

@@ -99,6 +99,10 @@ import {
   resolveWrapperBackground,
 } from '@/lib/canvasDesign';
 import {
+  AdvancedAccordionInspector,
+  AdvancedAccordionRender,
+} from './AdvancedAccordionBlock';
+import {
   TABLE_LIMITS,
   makeTableRow,
   normalizeTableContent,
@@ -10467,6 +10471,23 @@ const REGISTRY = {
   [BLOCK_TYPES.DIVIDER]:      { label: 'Divider',        icon: Minus,          category: 'layout',   Editor: DividerRender,      Renderer: DividerRender,      Inspector: DividerInspector, allowOverflow: true },
   [BLOCK_TYPES.VERTICAL_DIVIDER]: { label: 'Vertical Divider', icon: SeparatorVertical, category: 'layout', Editor: VerticalDividerRender, Renderer: VerticalDividerRender, Inspector: VerticalDividerInspector, allowOverflow: true },
   [BLOCK_TYPES.ACCORDION]:    { label: 'FAQ / Accordion',icon: HelpCircle,     category: 'content',  Editor: AccordionRender,    Renderer: AccordionRender,    Inspector: AccordionInspector, allowOverflow: true, autoHeight: true },
+  [BLOCK_TYPES.ADVANCED_ACCORDION]: {
+    label: 'Advanced Accordion',
+    icon: Rows3,
+    category: 'content',
+    Renderer: (props) => <AdvancedAccordionRender {...props} getBlockDefinition={getBlockDefinition} />,
+    Editor: (props) => <AdvancedAccordionRender {...props} asEditor getBlockDefinition={getBlockDefinition} />,
+    Inspector: (props) => (
+      <AdvancedAccordionInspector
+        {...props}
+        getBlockDefinition={getBlockDefinition}
+        listPaletteBlocks={listPaletteBlocks}
+      />
+    ),
+    allowOverflow: true,
+    autoHeight: true,
+    editorInteractive: true,
+  },
   [BLOCK_TYPES.TESTIMONIALS]: { label: 'Testimonials',   icon: Quote,          category: 'content',  Editor: TestimonialsRender, Renderer: TestimonialsRender, Inspector: TestimonialsInspector },
   [BLOCK_TYPES.CUSTOM_HTML]:  { label: 'Custom HTML',    icon: Code2,          category: 'advanced', Editor: CustomHtmlRender,   Renderer: CustomHtmlRender,   Inspector: CustomHtmlInspector },
   [BLOCK_TYPES.ICON]:         { label: 'Icon',           icon: Star,           category: 'ui',       Editor: IconRender,         Renderer: IconRender,         Inspector: IconInspector },

@@ -230,6 +230,11 @@ export const BLOCK_TYPES = {
   // Both are containers: they carry a `children` array and a `layoutMode`.
   ROW: 'row',
   GROUP: 'group',
+  // Advanced Accordion: a richer accordion variant where each panel contains
+  // arbitrary nested Canvas child blocks (text, image, button, etc.) instead of
+  // a single rich-text answer. Distinct from the legacy ACCORDION ('accordion')
+  // which is preserved byte-for-byte.
+  ADVANCED_ACCORDION: 'advanced-accordion',
 };
 
 // Block types whose accessible name already comes from their own content, so
@@ -765,6 +770,95 @@ export const BLOCK_DEFAULTS = {
       answerTypographyStyleId: '',
       questionColor: '',
       answerColor: '',
+    },
+  },
+  // Advanced Accordion: each item carries an `id`, `title`, `anchor`, and a
+  // `children` array of normal canvas leaf blocks (no nested advanced accordions).
+  // `mode` controls single-open ('single') vs multi-open ('multi') behaviour.
+  // `initialId` is the item id that should start expanded ('' = all closed).
+  [BLOCK_TYPES.ADVANCED_ACCORDION]: {
+    name: 'Advanced Accordion',
+    geom: { w: 600, h: 320 },
+    style: { background: 'transparent', borderWidth: 0 },
+    content: {
+      items: [
+        {
+          id: 'adv-acc-item-1',
+          title: 'Panel one',
+          subtitle: 'Add supporting text or remove it.',
+          badge: '',
+          leadingIcon: '',
+          anchor: '',
+          children: [
+            {
+              id: 'adv-acc-item-1-text-1',
+              type: 'text',
+              name: 'Text',
+              content: { html: '<p>Content for panel one.</p>' },
+            },
+          ],
+        },
+        {
+          id: 'adv-acc-item-2',
+          title: 'Panel two',
+          subtitle: '',
+          badge: '',
+          leadingIcon: '',
+          anchor: '',
+          children: [
+            {
+              id: 'adv-acc-item-2-text-1',
+              type: 'text',
+              name: 'Text',
+              content: { html: '<p>Content for panel two.</p>' },
+            },
+          ],
+        },
+      ],
+      // multiple | single | single-required
+      mode: 'single',
+      // all-closed | first | specific | multiple
+      initialState: 'all-closed',
+      initialOpenIds: [],
+      // Legacy alias retained for early advanced-accordion drafts.
+      initialId: '',
+      indicator: 'plus-minus',
+      headingLevel: 3,
+      syncHashOnOpen: false,
+      itemGap: 8,
+      styles: {
+        itemBackground: '#ffffff',
+        itemBorderColor: '#cbd5e1',
+        itemBorderWidth: 1,
+        itemBorderRadius: 8,
+        itemShadow: 'none',
+        dividerColor: '#e2e8f0',
+        dividerWidth: 0,
+        headerClosedBackground: '#ffffff',
+        headerClosedColor: '#0f172a',
+        headerOpenBackground: '#f8fafc',
+        headerOpenColor: '#0f172a',
+        headerHoverBackground: '#f8fafc',
+        headerPaddingX: 16,
+        headerPaddingY: 14,
+        headerMinHeight: 52,
+        headerAlign: 'center',
+        titleFontSize: 16,
+        titleFontWeight: 600,
+        subtitleFontSize: 13,
+        subtitleColor: '#64748b',
+        panelBackground: '#ffffff',
+        panelColor: '#0f172a',
+        panelPaddingX: 16,
+        panelPaddingY: 16,
+        panelBorderColor: '#e2e8f0',
+        panelBorderWidth: 0,
+        childGap: 12,
+        badgeBackground: '#e2e8f0',
+        badgeColor: '#334155',
+        iconColor: '',
+        iconSize: 20,
+      },
     },
   },
   [BLOCK_TYPES.TESTIMONIALS]: {
@@ -2099,6 +2193,81 @@ function generateId(prefix = 'block') {
 }
 
 // ---------------------------------------------------------------------------
+// Recursive fresh-ID clone.
+//
+// Deep-clones a Canvas block and assigns fresh ids to every block node in its
+// descendant trees — both `children[]` (flow-model containers) and Advanced
+// Accordion `content.items[].children[]` — plus a fresh id for every Advanced
+// Accordion item. References that point at old item ids (`initialId` and
+// `initialOpenIds`) are remapped to the new ids so the initial-open contract
+// survives duplication. Everything else (content/style/bp/a11y/name/etc.) is
+// preserved. Top-level `overrides` are shallow-merged onto the cloned root so
+// callers can set a new name, position, etc. without losing the fresh ids.
+export function cloneCanvasBlockWithFreshIds(block, overrides = {}) {
+  if (!block || typeof block !== 'object') return block;
+
+  function cloneChildren(children) {
+    if (!Array.isArray(children)) return children;
+    return children.map((child) => cloneNode(child));
+  }
+
+  function cloneAdvancedAccordionContent(content) {
+    if (!content || typeof content !== 'object') return content;
+    const items = Array.isArray(content.items) ? content.items : null;
+    if (!items) return { ...content };
+    // Map old item id -> new item id so we can remap initial references.
+    const idMap = new Map();
+    const newItems = items.map((item) => {
+      if (!item || typeof item !== 'object') return item;
+      const freshItemId = generateId('adv-acc-item');
+      if (typeof item.id === 'string' && item.id) idMap.set(item.id, freshItemId);
+      return {
+        ...item,
+        id: freshItemId,
+        anchor: sanitizeAnchorId(
+          item.anchor
+            ? `${item.anchor}-${freshItemId.slice(-6)}`
+            : `accordion-${freshItemId}`,
+        ),
+        children: cloneChildren(item.children),
+      };
+    });
+    const nextContent = { ...content, items: newItems };
+    if (typeof content.initialId === 'string' && content.initialId) {
+      nextContent.initialId = idMap.get(content.initialId) || '';
+    }
+    if (Array.isArray(content.initialOpenIds)) {
+      nextContent.initialOpenIds = content.initialOpenIds
+        .map((id) => idMap.get(id))
+        .filter(Boolean);
+    }
+    return nextContent;
+  }
+
+  function cloneNode(node) {
+    if (!node || typeof node !== 'object') return node;
+    const freshId = generateId();
+    const next = {
+      ...node,
+      id: freshId,
+      anchorId: node.anchorId
+        ? sanitizeAnchorId(`${node.anchorId}-${freshId.slice(-6)}`)
+        : '',
+    };
+    if (Array.isArray(node.children)) {
+      next.children = cloneChildren(node.children);
+    }
+    if (node.type === BLOCK_TYPES.ADVANCED_ACCORDION) {
+      next.content = cloneAdvancedAccordionContent(node.content);
+    }
+    return next;
+  }
+
+  const cloned = cloneNode(block);
+  return { ...cloned, ...overrides };
+}
+
+// ---------------------------------------------------------------------------
 // Task #2558 — Flow (auto-layout) model, version 2.
 //
 // A flow design is an ordered tree of nodes. Every node has the same v1 leaf
@@ -2298,6 +2467,7 @@ export function normalizeFlowDesign(design) {
     ? root.sections.map(normalizeFlowNode).filter(Boolean)
     : [];
   if (sections.length === 0) sections = [createFlowSection({ name: 'Section' })];
+  sections = ensureUniqueAdvancedAccordionAnchors(sections);
 
   // Preserve the layer-group registry + editor guides exactly as the v1 path
   // does (they remain valid organisational/authoring aids in the flow model).
@@ -2365,6 +2535,9 @@ export function insertFlowNode(design, node, options = {}) {
 export const AUTO_HEIGHT_LEAF_TYPES = new Set([
   BLOCK_TYPES.TEXT,
   BLOCK_TYPES.ACCORDION,
+  // Advanced Accordion is also content-driven: panel open/close changes
+  // its rendered height, so it must be measured rather than pinned.
+  BLOCK_TYPES.ADVANCED_ACCORDION,
   BLOCK_TYPES.CARD,
   BLOCK_TYPES.DATA_TABLE,
   // AI Compositions size to their generated content (Task #2849): the block
@@ -2543,6 +2716,21 @@ function buildBlockContent(type, defaultContent, overrideContent) {
   if (type === BLOCK_TYPES.COUNTDOWN && !merged.targetDate && !merged.eventSlug && !merged.eventId) {
     merged.targetDate = toDatetimeLocalValue(new Date(Date.now() + 24 * 60 * 60 * 1000));
   }
+  // Palette-created Advanced Accordions need globally fresh item, child, and
+  // anchor identities. The static defaults are only a template; carrying those
+  // ids into every new block would make two accordions on one page ambiguous.
+  if (type === BLOCK_TYPES.ADVANCED_ACCORDION && !Array.isArray(overrideContent?.items)) {
+    merged.items = (Array.isArray(merged.items) ? merged.items : []).map((item) => {
+      const itemId = generateId('adv-acc-item');
+      return {
+        ...item,
+        id: itemId,
+        anchor: `accordion-${itemId}`,
+        children: (Array.isArray(item.children) ? item.children : [])
+          .map((child) => cloneCanvasBlockWithFreshIds(child)),
+      };
+    });
+  }
   return merged;
 }
 
@@ -2599,9 +2787,10 @@ export function normalizeCanvasDesign(design) {
   // path below is left byte-identical for existing (absolute-geometry) pages.
   if (isFlowDesign(design)) return normalizeFlowDesign(design);
   const root = design.root && typeof design.root === 'object' ? design.root : {};
-  const sections = Array.isArray(root.sections) && root.sections.length > 0
+  let sections = Array.isArray(root.sections) && root.sections.length > 0
     ? root.sections.map(normalizeSection)
     : [{ id: 'root-section', children: [] }];
+  sections = ensureUniqueAdvancedAccordionAnchors(sections);
 
   // Task #1425: normalize the group registry. Drop malformed entries, then
   // reconcile against actual block membership so the document is always
@@ -2682,6 +2871,336 @@ function normalizeGroup(group) {
   };
 }
 
+// ---------------------------------------------------------------------------
+// Advanced Accordion normalizer
+//
+// normalizeAdvancedAccordionItem normalizes a single item in an advanced
+// accordion. Each item carries:
+//   id       — stable string id; generated if missing or duplicate
+//   title    — display label for the panel trigger; defaults to 'Panel'
+//   anchor   — optional in-page anchor slug (sanitized); defaults to ''
+//   children — array of canvas leaf blocks (no nested advanced accordions);
+//              normalized via normalizeBlock but with advanced-accordion
+//              recursion suppressed.
+//
+// normalizeAdvancedAccordionContent normalizes the whole block's content:
+//   items    — normalized item array; if empty, seeded with one default item
+//   mode     — 'single' | 'multi'; invalid values default to 'single'
+//   initialId — '' or a valid item id; invalid references cleared to ''
+//   Other display fields (gap, color, typographyStyleId) are passed through.
+// ---------------------------------------------------------------------------
+
+// Types that CANNOT appear as children inside an Advanced Accordion item panel.
+// Advanced accordion recursion is disallowed to prevent pathological nesting.
+const ADVANCED_ACCORDION_DISALLOWED_CHILD_TYPES = new Set([
+  BLOCK_TYPES.ADVANCED_ACCORDION,
+]);
+
+let _advAccNormDepth = 0;
+
+function normalizeAdvancedAccordionChildBlock(block) {
+  if (!block || typeof block !== 'object') return null;
+  const type = block.type || BLOCK_TYPES.BOX;
+  // Prevent advanced accordion recursion: silently drop nested advanced
+  // accordions rather than silently embedding them without renderer support.
+  if (ADVANCED_ACCORDION_DISALLOWED_CHILD_TYPES.has(type)) return null;
+  // Guard against deep re-entrance (malformed data) — bail out to a plain
+  // text block stub so we never recurse infinitely.
+  if (_advAccNormDepth > 8) return null;
+  _advAccNormDepth += 1;
+  try {
+    const normalized = normalizeBlock(block);
+    if (!normalized) return null;
+    const rawChildren = Array.isArray(block.children) ? block.children : [];
+    if (rawChildren.length > 0 || type === BLOCK_TYPES.ROW || type === BLOCK_TYPES.GROUP) {
+      normalized.children = rawChildren
+        .map(normalizeAdvancedAccordionChildBlock)
+        .filter(Boolean);
+      normalized.layoutMode = block.layoutMode === 'flow'
+        ? 'flow'
+        : (type === BLOCK_TYPES.ROW ? 'flow' : 'free');
+      normalized.flow = block.flow && typeof block.flow === 'object'
+        ? { ...block.flow }
+        : {};
+    }
+    return normalized;
+  } finally {
+    _advAccNormDepth -= 1;
+  }
+}
+
+function normalizeAdvancedAccordionItem(item, seenIds, seenAnchors) {
+  if (!item || typeof item !== 'object') return null;
+  // Stable id: must be a non-empty string, unique within the accordion.
+  let id = typeof item.id === 'string' && item.id.trim() ? item.id.trim() : '';
+  if (!id || seenIds.has(id)) {
+    // Generate a stable-enough replacement so the id uniqueness contract holds.
+    id = generateId('adv-acc-item');
+  }
+  seenIds.add(id);
+  const title = typeof item.title === 'string' && item.title ? item.title : 'Panel';
+  const subtitle = typeof item.subtitle === 'string' ? item.subtitle : '';
+  const badge = typeof item.badge === 'string' ? item.badge : '';
+  const leadingIcon = typeof item.leadingIcon === 'string' ? item.leadingIcon : '';
+  let anchor = sanitizeAnchorId(item.anchor || `accordion-${id}`);
+  if (!anchor) anchor = sanitizeAnchorId(`accordion-${id}`);
+  if (seenAnchors.has(anchor)) {
+    anchor = sanitizeAnchorId(`${anchor}-${id.slice(-6)}`);
+  }
+  seenAnchors.add(anchor);
+  const rawChildren = Array.isArray(item.children) ? item.children : [];
+  const children = rawChildren
+    .map(normalizeAdvancedAccordionChildBlock)
+    .filter(Boolean);
+  return { id, title, subtitle, badge, leadingIcon, anchor, children };
+}
+
+function normalizeAdvancedAccordionContent(content) {
+  const c = content && typeof content === 'object' ? content : {};
+  const rawItems = Array.isArray(c.items) ? c.items : [];
+  const seenIds = new Set();
+  const seenAnchors = new Set();
+  let items = rawItems
+    .map((item) => normalizeAdvancedAccordionItem(item, seenIds, seenAnchors))
+    .filter(Boolean);
+  if (items.length === 0) {
+    // Seed with a single default item so the block is always renderable.
+    const newId = generateId('adv-acc-item');
+    items = [{
+      id: newId,
+      title: 'Panel one',
+      subtitle: '',
+      badge: '',
+      leadingIcon: '',
+      anchor: `accordion-${newId}`,
+      children: [],
+    }];
+  }
+  const mode = c.mode === 'multiple' || c.mode === 'multi'
+    ? 'multiple'
+    : (c.mode === 'single-required' ? 'single-required' : 'single');
+  const itemIdSet = new Set(items.map((it) => it.id));
+  const rawInitialId = typeof c.initialId === 'string' ? c.initialId : '';
+  const initialId = rawInitialId && itemIdSet.has(rawInitialId) ? rawInitialId : '';
+  const rawIds = Array.isArray(c.initialOpenIds)
+    ? c.initialOpenIds.filter((id) => typeof id === 'string' && itemIdSet.has(id))
+    : (initialId ? [initialId] : []);
+  const initialOpenIds = Array.from(new Set(rawIds));
+  let initialState = ['all-closed', 'first', 'specific', 'multiple'].includes(c.initialState)
+    ? c.initialState
+    : (initialId ? 'specific' : 'all-closed');
+  if (mode === 'single-required' && initialState === 'all-closed') initialState = 'first';
+  if (mode !== 'multiple' && initialState === 'multiple') initialState = 'specific';
+  const defaults = BLOCK_DEFAULTS[BLOCK_TYPES.ADVANCED_ACCORDION].content.styles;
+  const rawStyles = c.styles && typeof c.styles === 'object' ? c.styles : {};
+  const styles = { ...defaults, ...rawStyles };
+  const numberKeys = [
+    'itemBorderWidth', 'itemBorderRadius', 'dividerWidth', 'headerPaddingX',
+    'headerPaddingY', 'headerMinHeight', 'titleFontSize', 'titleFontWeight',
+    'subtitleFontSize', 'panelPaddingX', 'panelPaddingY', 'panelBorderWidth',
+    'childGap', 'iconSize',
+  ];
+  numberKeys.forEach((key) => {
+    const n = Number(styles[key]);
+    styles[key] = Number.isFinite(n) ? Math.max(0, n) : defaults[key];
+  });
+  return {
+    items,
+    mode,
+    initialState,
+    initialOpenIds,
+    initialId,
+    indicator: ['plus-minus', 'chevron-down', 'chevron-right', 'arrow'].includes(c.indicator)
+      ? c.indicator
+      : 'plus-minus',
+    headingLevel: [2, 3, 4, 5, 6].includes(Number(c.headingLevel))
+      ? Number(c.headingLevel)
+      : 3,
+    syncHashOnOpen: !!c.syncHashOnOpen,
+    itemGap: Number.isFinite(Number(c.itemGap)) ? Number(c.itemGap) : 8,
+    styles,
+  };
+}
+
+// Advanced Accordion items render their anchor directly as an HTML id. Keep
+// those ids unique across the entire page, including collisions with ordinary
+// Canvas block anchors and anchors nested inside panel layout containers.
+// Ordinary block anchors are never rewritten here; item anchors receive a
+// stable item-id suffix when their requested slug is already reserved.
+function ensureUniqueAdvancedAccordionAnchors(sections) {
+  const reserved = new Set();
+  const safeSections = Array.isArray(sections) ? sections : [];
+
+  const collectBlockAnchors = (block, depth = 0) => {
+    if (!block || typeof block !== 'object' || depth > 64) return;
+    const anchor = sanitizeAnchorId(block.anchorId || '');
+    if (anchor) reserved.add(anchor);
+    if (block.type === BLOCK_TYPES.ADVANCED_ACCORDION) {
+      for (const item of (Array.isArray(block.content?.items) ? block.content.items : [])) {
+        for (const child of (Array.isArray(item?.children) ? item.children : [])) {
+          collectBlockAnchors(child, depth + 1);
+        }
+      }
+    }
+    for (const child of (Array.isArray(block.children) ? block.children : [])) {
+      collectBlockAnchors(child, depth + 1);
+    }
+  };
+
+  for (const section of safeSections) {
+    collectBlockAnchors(section);
+    for (const block of (Array.isArray(section?.children) ? section.children : [])) {
+      collectBlockAnchors(block);
+    }
+  }
+
+  const allocate = (requested, itemId) => {
+    const base = sanitizeAnchorId(requested || `accordion-${itemId}`) || 'accordion-panel';
+    if (!reserved.has(base)) {
+      reserved.add(base);
+      return base;
+    }
+    const suffix = sanitizeAnchorId(String(itemId || '').slice(-8)) || 'panel';
+    let candidate = sanitizeAnchorId(`${base}-${suffix}`);
+    let index = 2;
+    while (reserved.has(candidate)) {
+      candidate = sanitizeAnchorId(`${base}-${suffix}-${index}`);
+      index += 1;
+    }
+    reserved.add(candidate);
+    return candidate;
+  };
+
+  const rewriteBlock = (block, depth = 0) => {
+    if (!block || typeof block !== 'object' || depth > 64) return block;
+    let next = block;
+    if (block.type === BLOCK_TYPES.ADVANCED_ACCORDION) {
+      const items = (Array.isArray(block.content?.items) ? block.content.items : []).map((item) => ({
+        ...item,
+        anchor: allocate(item?.anchor, item?.id),
+        children: (Array.isArray(item?.children) ? item.children : [])
+          .map((child) => rewriteBlock(child, depth + 1)),
+      }));
+      next = { ...next, content: { ...next.content, items } };
+    }
+    if (Array.isArray(block.children)) {
+      next = {
+        ...next,
+        children: block.children.map((child) => rewriteBlock(child, depth + 1)),
+      };
+    }
+    return next;
+  };
+
+  return safeSections.map((section) => ({
+    ...section,
+    children: (Array.isArray(section?.children) ? section.children : [])
+      .map((block) => rewriteBlock(block)),
+  }));
+}
+
+// ---------------------------------------------------------------------------
+// Advanced Accordion CRUD helpers
+// ---------------------------------------------------------------------------
+
+// Add a new item to an advanced accordion block's content. Returns updated content.
+export function addAdvancedAccordionItem(content, overrides = {}) {
+  const c = normalizeAdvancedAccordionContent(content);
+  const id = overrides.id && typeof overrides.id === 'string' && overrides.id.trim()
+    ? overrides.id.trim()
+    : generateId('adv-acc-item');
+  // Ensure uniqueness.
+  const seenIds = new Set(c.items.map((it) => it.id));
+  const safeId = seenIds.has(id) ? generateId('adv-acc-item') : id;
+  const seenAnchors = new Set(c.items.map((it) => sanitizeAnchorId(it.anchor || '')).filter(Boolean));
+  let anchor = sanitizeAnchorId(overrides.anchor || `accordion-${safeId}`);
+  if (!anchor || seenAnchors.has(anchor)) {
+    anchor = sanitizeAnchorId(`${anchor || 'accordion'}-${safeId.slice(-6)}`);
+  }
+  const newItem = {
+    id: safeId,
+    title: overrides.title || 'New Panel',
+    subtitle: overrides.subtitle || '',
+    badge: overrides.badge || '',
+    leadingIcon: overrides.leadingIcon || '',
+    anchor,
+    children: Array.isArray(overrides.children)
+      ? overrides.children.map(normalizeAdvancedAccordionChildBlock).filter(Boolean)
+      : [],
+  };
+  return { ...c, items: [...c.items, newItem] };
+}
+
+// Remove an item by id. Returns updated content.
+export function removeAdvancedAccordionItem(content, itemId) {
+  const c = normalizeAdvancedAccordionContent(content);
+  const items = c.items.filter((it) => it.id !== itemId);
+  // Clear initialId if it pointed at the removed item.
+  const initialId = c.initialId === itemId ? '' : c.initialId;
+  const initialOpenIds = c.initialOpenIds.filter((id) => id !== itemId);
+  return { ...c, items, initialId, initialOpenIds };
+}
+
+// Update fields on an item by id. Returns updated content.
+export function updateAdvancedAccordionItem(content, itemId, patch, { reservedAnchors = [] } = {}) {
+  const c = normalizeAdvancedAccordionContent(content);
+  const occupiedAnchors = new Set([
+    ...c.items
+      .filter((item) => item.id !== itemId)
+      .map((item) => sanitizeAnchorId(item.anchor || ''))
+      .filter(Boolean),
+    ...(Array.isArray(reservedAnchors) ? reservedAnchors : [])
+      .map((anchor) => sanitizeAnchorId(anchor || ''))
+      .filter(Boolean),
+  ]);
+  const items = c.items.map((it) => {
+    if (it.id !== itemId) return it;
+    const updated = { ...it };
+    if (patch.title !== undefined) updated.title = patch.title || 'Panel';
+    if (patch.subtitle !== undefined) updated.subtitle = String(patch.subtitle || '');
+    if (patch.badge !== undefined) updated.badge = String(patch.badge || '');
+    if (patch.leadingIcon !== undefined) updated.leadingIcon = String(patch.leadingIcon || '');
+    if (patch.anchor !== undefined) {
+      const base = sanitizeAnchorId(patch.anchor) || sanitizeAnchorId(`accordion-${it.id}`);
+      let anchor = base;
+      if (occupiedAnchors.has(anchor)) {
+        const suffix = sanitizeAnchorId(String(it.id || '').slice(-8)) || 'panel';
+        anchor = sanitizeAnchorId(`${base}-${suffix}`);
+        let index = 2;
+        while (occupiedAnchors.has(anchor)) {
+          anchor = sanitizeAnchorId(`${base}-${suffix}-${index}`);
+          index += 1;
+        }
+      }
+      updated.anchor = anchor;
+      occupiedAnchors.add(anchor);
+    }
+    if (Array.isArray(patch.children)) {
+      updated.children = patch.children
+        .map(normalizeAdvancedAccordionChildBlock)
+        .filter(Boolean);
+    }
+    return updated;
+  });
+  return { ...c, items };
+}
+
+// Reorder items by supplying the desired new order of ids.
+// Missing ids are dropped; ids not in the list are appended at the end.
+export function reorderAdvancedAccordionItems(content, orderedIds) {
+  const c = normalizeAdvancedAccordionContent(content);
+  const byId = new Map(c.items.map((it) => [it.id, it]));
+  const seen = new Set();
+  const ordered = (Array.isArray(orderedIds) ? orderedIds : [])
+    .filter((id) => byId.has(id) && !seen.has(id))
+    .map((id) => { seen.add(id); return byId.get(id); });
+  // Append any items not covered by orderedIds (defensive).
+  for (const it of c.items) {
+    if (!seen.has(it.id)) ordered.push(it);
+  }
+  return { ...c, items: ordered };
+}
+
 function normalizeSection(section) {
   if (!section || typeof section !== 'object') {
     return { id: 'root-section', children: [] };
@@ -2754,6 +3273,9 @@ function normalizeBlock(block) {
   }
   if (type === BLOCK_TYPES.DATA_TABLE) {
     normalized.content = normalizeTableContent(normalized.content);
+  }
+  if (type === BLOCK_TYPES.ADVANCED_ACCORDION) {
+    normalized.content = normalizeAdvancedAccordionContent(normalized.content);
   }
   if (type === BLOCK_TYPES.MEMBER_GROUP_CARDS) {
     normalized.content.selectedGroupIds = resolveSelectedMemberGroupIds(
@@ -3324,6 +3846,53 @@ export function validateBlock(block) {
       if (!(Number(c.rowsPerPage) >= 1)) errors.push('Card Flip Grid needs at least 1 row per page.');
       if (c.titleAlignment != null && !['left', 'center', 'right'].includes(c.titleAlignment)) {
         errors.push('Card Flip Grid title alignment must be left, center, or right.');
+      }
+      break;
+    }
+    case BLOCK_TYPES.ADVANCED_ACCORDION: {
+      const aaItems = Array.isArray(c.items) ? c.items : [];
+      if (aaItems.length === 0) {
+        errors.push('Advanced Accordion has no items.');
+      }
+      const aaIdSet = new Set();
+      const aaAnchorSet = new Set();
+      aaItems.forEach((it, i) => {
+        if (!it?.id || typeof it.id !== 'string' || !it.id.trim()) {
+          errors.push(`Advanced Accordion item #${i + 1} is missing a unique id.`);
+        } else if (aaIdSet.has(it.id)) {
+          errors.push(`Advanced Accordion item #${i + 1} has a duplicate id "${it.id}".`);
+        } else {
+          aaIdSet.add(it.id);
+        }
+        if (!it?.title || !String(it.title).trim()) {
+          errors.push(`Advanced Accordion item #${i + 1} requires a title.`);
+        }
+        const anchor = sanitizeAnchorId(it?.anchor || '');
+        if (anchor) {
+          if (aaAnchorSet.has(anchor)) {
+            errors.push(`Advanced Accordion item #${i + 1} anchor "#${anchor}" is duplicated within this block.`);
+          } else {
+            aaAnchorSet.add(anchor);
+          }
+        }
+        const visitChildren = (children, trail, depth = 0) => {
+          if (depth > 20) return;
+          (Array.isArray(children) ? children : []).forEach((child, childIndex) => {
+            if (!child || typeof child !== 'object') return;
+            const label = child.name || child.type || `Block ${childIndex + 1}`;
+            validateBlock(child).forEach((message) => {
+              errors.push(`Advanced Accordion item #${i + 1} (${trail} › ${label}): ${message}`);
+            });
+            visitChildren(child.children, `${trail} › ${label}`, depth + 1);
+          });
+        };
+        visitChildren(it?.children, it?.title || `Panel ${i + 1}`);
+      });
+      // initialId must reference an existing item (or be empty).
+      if (c.initialId && typeof c.initialId === 'string' && c.initialId.trim()) {
+        if (!aaIdSet.has(c.initialId)) {
+          errors.push(`Advanced Accordion initialId "${c.initialId}" does not match any item id.`);
+        }
       }
       break;
     }
@@ -4032,23 +4601,75 @@ export function sanitizeAnchorId(text) {
 // Flat list of every block that has an anchor id, in document order.
 // Each entry: { blockId, anchorId, blockName, blockType, duplicate }.
 // `duplicate` is true for the 2nd+ occurrence of a repeated anchor id.
+// Advanced Accordion item anchors and their nested child block anchors are
+// included so in-page jump links to accordion panels resolve correctly.
 export function getPageAnchors(design) {
   if (!design || typeof design !== 'object') return [];
   const sections = Array.isArray(design?.root?.sections) ? design.root.sections : [];
   const out = [];
   const seen = new Set();
+
+  function pushAnchor(anchorId, blockId, blockName, blockType) {
+    if (!anchorId) return;
+    out.push({
+      blockId,
+      anchorId,
+      blockName,
+      blockType,
+      duplicate: seen.has(anchorId),
+    });
+    seen.add(anchorId);
+  }
+
+  // Depth guard prevents runaway recursion on malformed/deeply-nested trees.
+  // Track object references on the current ancestry path (not ids): duplicate
+  // ids are precisely the kind of malformed data anchor discovery must still
+  // inspect so it can report duplicate anchors rather than silently skipping.
+  const MAX_DEPTH = 64;
+
+  function visitBlock(block, labelPrefix, depth, ancestors) {
+    if (!block || typeof block !== 'object') return;
+    if (depth > MAX_DEPTH) return;
+    if (ancestors.has(block)) return;
+    ancestors.add(block);
+    const selfLabel = block.name || block.type || 'Block';
+    const anchorId = sanitizeAnchorId(block?.anchorId || '');
+    pushAnchor(
+      anchorId,
+      block.id,
+      labelPrefix ? `${labelPrefix} › ${selfLabel}` : selfLabel,
+      block.type,
+    );
+
+    // Advanced Accordion: emit anchors for each item panel plus every
+    // descendant block anchor (recursively, at arbitrary depth).
+    if (block.type === BLOCK_TYPES.ADVANCED_ACCORDION) {
+      const items = Array.isArray(block.content?.items) ? block.content.items : [];
+      for (const item of items) {
+        if (!item || typeof item !== 'object') continue;
+        const itemLabelBase = `${block.name || 'Advanced Accordion'} › ${item.title || 'Panel'}`;
+        const itemAnchor = sanitizeAnchorId(item?.anchor || '');
+        pushAnchor(itemAnchor, item.id || block.id, itemLabelBase, block.type);
+        const children = Array.isArray(item.children) ? item.children : [];
+        for (const child of children) {
+          visitBlock(child, itemLabelBase, depth + 1, ancestors);
+        }
+      }
+    }
+
+    // Generic flow-model containers: recurse into `children[]`.
+    if (Array.isArray(block.children)) {
+      const childPrefix = labelPrefix ? `${labelPrefix} › ${selfLabel}` : selfLabel;
+      for (const child of block.children) {
+        visitBlock(child, childPrefix, depth + 1, ancestors);
+      }
+    }
+    ancestors.delete(block);
+  }
+
   for (const section of sections) {
     for (const block of (section?.children || [])) {
-      const anchorId = sanitizeAnchorId(block?.anchorId || '');
-      if (!anchorId) continue;
-      out.push({
-        blockId: block.id,
-        anchorId,
-        blockName: block.name || block.type || 'Block',
-        blockType: block.type,
-        duplicate: seen.has(anchorId),
-      });
-      seen.add(anchorId);
+      visitBlock(block, '', 0, new Set());
     }
   }
   return out;
@@ -4070,9 +4691,12 @@ export function validateCanvasDesign(design) {
   for (const section of d.root.sections) {
     for (const block of section.children || []) {
       const errs = validateBlock(block);
-      const anchorId = sanitizeAnchorId(block.anchorId || '');
-      if (anchorId && duplicateAnchors.has(anchorId)) {
-        errs.push(`Anchor ID "#${anchorId}" is used by more than one block — make it unique so jump links stay unambiguous.`);
+      const blockAnchorIds = getPageAnchors({
+        root: { sections: [{ id: section.id, children: [block] }] },
+      }).map((entry) => entry.anchorId);
+      const duplicateInBlock = blockAnchorIds.find((anchorId) => duplicateAnchors.has(anchorId));
+      if (duplicateInBlock) {
+        errs.push(`Anchor ID "#${duplicateInBlock}" is used by more than one block — make it unique so jump links stay unambiguous.`);
       }
       if (errs.length > 0) {
         issues.push({ blockId: block.id, blockName: block.name, blockType: block.type, errors: errs });
