@@ -7,6 +7,7 @@ import {
   growthForContainedGeom,
   offsetForTargetGeom,
   relativeOffsetWithinContainer,
+  resolveSectionAwareOffsets,
 } from './reflowStageHeight.js';
 import { computeBoxGrowthDelta } from './autoHeightBake.js';
 
@@ -395,6 +396,290 @@ test('a displaced static block relays its remaining collision to the next block'
     containedTargets,
     { relayTargets: relays },
   ), 40);
+});
+
+test('a moved Section carries paragraph text from a non-colliding lane with it', () => {
+  const rows = buildReflowRowGroups([
+    entry({ id: 'accordion', x: 0, y: 0, w: 600, h: 100, measuredH: 300 }),
+  ]);
+  const section = {
+    id: 'section',
+    x: 0,
+    y: 250,
+    w: 1200,
+    h: 400,
+    top: 250,
+    bottom: 650,
+    fullWidth: true,
+  };
+  const heading = {
+    id: 'heading',
+    x: 0,
+    y: 250,
+    w: 500,
+    h: 80,
+    top: 250,
+    bottom: 330,
+  };
+  const image = {
+    id: 'image',
+    x: 0,
+    y: 340,
+    w: 500,
+    h: 120,
+    top: 340,
+    bottom: 460,
+  };
+  const paragraph = {
+    id: 'paragraph',
+    x: 650,
+    y: 300,
+    w: 500,
+    h: 140,
+    top: 300,
+    bottom: 440,
+  };
+  const external = {
+    id: 'external',
+    x: 650,
+    y: 800,
+    w: 500,
+    h: 100,
+    top: 800,
+    bottom: 900,
+  };
+  const targets = [section, heading, image, paragraph, external];
+  const result = resolveSectionAwareOffsets({
+    rowGroups: rows,
+    targets,
+    sectionTargets: [section],
+    relayTargets: [heading, image, external],
+  });
+
+  assert.equal(result.offsets.get('section'), 50);
+  assert.equal(result.offsets.get('heading'), 50);
+  assert.equal(result.offsets.get('image'), 50);
+  assert.equal(result.offsets.get('paragraph'), 50);
+  assert.equal(result.offsets.get('external'), 0);
+  assert.equal(result.owners.get('paragraph'), 'section');
+});
+
+test('a contained block can move farther than its displaced Section after a local collision', () => {
+  const rows = buildReflowRowGroups([
+    entry({ id: 'outer-accordion', x: 0, y: 0, w: 600, h: 100, measuredH: 300 }),
+    entry({ id: 'inner-accordion', x: 0, y: 400, w: 600, h: 100, measuredH: 300 }),
+  ]);
+  const section = {
+    id: 'section',
+    x: 0,
+    y: 250,
+    w: 1200,
+    h: 600,
+    top: 250,
+    bottom: 850,
+    fullWidth: true,
+  };
+  const innerAccordion = {
+    id: 'inner-accordion',
+    x: 0,
+    y: 400,
+    w: 600,
+    h: 100,
+    top: 400,
+    bottom: 500,
+  };
+  const child = {
+    id: 'child',
+    x: 0,
+    y: 680,
+    w: 600,
+    h: 100,
+    top: 680,
+    bottom: 780,
+  };
+  const result = resolveSectionAwareOffsets({
+    rowGroups: rows,
+    targets: [section, innerAccordion, child],
+    sectionTargets: [section],
+    relayTargets: [child],
+  });
+
+  assert.equal(result.offsets.get('section'), 50);
+  assert.equal(result.offsets.get('inner-accordion'), 50);
+  assert.equal(result.offsets.get('child'), 70);
+});
+
+test('a Section-inherited auto-height child relays from its final rendered bottom', () => {
+  const rows = buildReflowRowGroups([
+    entry({ id: 'accordion', x: 0, y: 0, w: 600, h: 100, measuredH: 300 }),
+    entry({
+      id: 'paragraph',
+      x: 650,
+      y: 300,
+      w: 500,
+      h: 140,
+      measuredH: 140,
+    }),
+  ]);
+  const section = {
+    id: 'section',
+    x: 0,
+    y: 250,
+    w: 1200,
+    h: 200,
+    top: 250,
+    bottom: 450,
+    fullWidth: true,
+  };
+  const paragraph = {
+    id: 'paragraph',
+    x: 650,
+    y: 300,
+    w: 500,
+    h: 140,
+    top: 300,
+    bottom: 440,
+  };
+  const laterContent = {
+    id: 'later-content',
+    x: 650,
+    y: 460,
+    w: 500,
+    h: 100,
+    top: 460,
+    bottom: 560,
+  };
+  const result = resolveSectionAwareOffsets({
+    rowGroups: rows,
+    targets: [section, paragraph, laterContent],
+    sectionTargets: [section],
+    relayTargets: [laterContent],
+  });
+
+  assert.equal(result.offsets.get('section'), 50);
+  assert.equal(result.offsets.get('paragraph'), 50);
+  // Paragraph's final bottom is 490, so content outside the Section at y=460
+  // follows by only the 30px collision that remains.
+  assert.equal(result.offsets.get('later-content'), 30);
+  assert.equal(result.owners.has('later-content'), false);
+});
+
+test('container growth uses inherited and local child displacement consistently', () => {
+  const rows = buildReflowRowGroups([
+    entry({ id: 'outer-accordion', x: 0, y: 0, w: 600, h: 100, measuredH: 300 }),
+    entry({ id: 'inner-accordion', x: 0, y: 400, w: 600, h: 100, measuredH: 300 }),
+  ]);
+  const section = {
+    id: 'section',
+    x: 0,
+    y: 250,
+    w: 1200,
+    h: 500,
+    top: 250,
+    bottom: 750,
+    fullWidth: true,
+  };
+  const innerAccordion = {
+    id: 'inner-accordion',
+    x: 0,
+    y: 400,
+    w: 600,
+    h: 100,
+    top: 400,
+    bottom: 500,
+  };
+  const child = {
+    id: 'child',
+    x: 0,
+    y: 640,
+    w: 600,
+    h: 100,
+    top: 640,
+    bottom: 740,
+  };
+  const targets = [section, innerAccordion, child];
+  const relays = [child];
+  const result = resolveSectionAwareOffsets({
+    rowGroups: rows,
+    targets,
+    sectionTargets: [section],
+    relayTargets: relays,
+  });
+
+  assert.equal(result.offsets.get('section'), 50);
+  assert.equal(result.offsets.get('child'), 110);
+  // The moved Section ends at 800; the child ends at 850, so only 50px of
+  // additional height is required.
+  assert.equal(growthForContainedGeom(rows, section, targets, {
+    relayTargets: relays,
+    inheritedOffsets: result.inheritedOffsets,
+  }), 50);
+});
+
+test('nested Sections inherit once and adjacent Section contents remain independent', () => {
+  const rows = buildReflowRowGroups([
+    entry({ id: 'accordion', x: 0, y: 0, w: 600, h: 100, measuredH: 300 }),
+  ]);
+  const outer = {
+    id: 'outer',
+    x: 0,
+    y: 250,
+    w: 1200,
+    h: 500,
+    top: 250,
+    bottom: 750,
+    fullWidth: true,
+  };
+  const inner = {
+    id: 'inner',
+    x: 100,
+    y: 300,
+    w: 500,
+    h: 300,
+    top: 300,
+    bottom: 600,
+  };
+  const nestedText = {
+    id: 'nested-text',
+    x: 150,
+    y: 350,
+    w: 400,
+    h: 100,
+    top: 350,
+    bottom: 450,
+  };
+  const adjacent = {
+    id: 'adjacent',
+    x: 650,
+    y: 800,
+    w: 500,
+    h: 300,
+    top: 800,
+    bottom: 1100,
+  };
+  const adjacentText = {
+    id: 'adjacent-text',
+    x: 700,
+    y: 850,
+    w: 400,
+    h: 100,
+    top: 850,
+    bottom: 950,
+  };
+  const result = resolveSectionAwareOffsets({
+    rowGroups: rows,
+    targets: [outer, inner, nestedText, adjacent, adjacentText],
+    sectionTargets: [outer, inner, adjacent],
+    relayTargets: [nestedText, adjacentText],
+  });
+
+  assert.equal(result.offsets.get('outer'), 50);
+  assert.equal(result.offsets.get('inner'), 50);
+  assert.equal(result.offsets.get('nested-text'), 50);
+  assert.equal(result.offsets.get('adjacent'), 0);
+  assert.equal(result.offsets.get('adjacent-text'), 0);
+  assert.equal(result.owners.get('inner'), 'outer');
+  assert.equal(result.owners.get('nested-text'), 'inner');
 });
 
 test('card rows keep equalized height when collision displacement is calculated', () => {

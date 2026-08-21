@@ -325,7 +325,26 @@ function relaySource(target) {
   };
 }
 
-function reflowPaths(sources, relayTargets) {
+function inheritedOffsetFor(inheritedOffsets, id) {
+  if (!id || !inheritedOffsets || typeof inheritedOffsets.get !== 'function') return 0;
+  const offset = inheritedOffsets.get(id);
+  return Number.isFinite(offset) ? offset : 0;
+}
+
+function combineInheritedOffset(localOffset, inheritedOffset) {
+  if (!Number.isFinite(inheritedOffset) || inheritedOffset === 0) return localOffset;
+  if (!Number.isFinite(localOffset) || localOffset === 0) return inheritedOffset;
+  if (localOffset > 0 && inheritedOffset > 0) {
+    return Math.max(localOffset, inheritedOffset);
+  }
+  if (localOffset < 0 && inheritedOffset < 0) {
+    return Math.min(localOffset, inheritedOffset);
+  }
+  // Opposing signed movement and container movement are independent effects.
+  return localOffset + inheritedOffset;
+}
+
+function reflowPaths(sources, relayTargets, inheritedOffsets) {
   const paths = [];
   const sourceIds = new Set(sources.map((source) => source.id).filter(Boolean));
   const relays = (relayTargets || [])
@@ -337,26 +356,167 @@ function reflowPaths(sources, relayTargets) {
 
   for (const source of sorted) {
     const baseOffset = signedBaseOffset(sources, source, source.top);
-    const preliminaryTop = source.top + baseOffset;
+    const inheritedOffset = inheritedOffsetFor(inheritedOffsets, source.id);
+    const preliminaryOffset = combineInheritedOffset(baseOffset, inheritedOffset);
+    const preliminaryTop = source.top + preliminaryOffset;
     const collision = collisionOffset(paths, source, source.top, preliminaryTop);
     paths.push({
       source,
-      visibleBottom: source.refBottom + baseOffset + collision + source.growth,
+      visibleBottom: source.refBottom + preliminaryOffset + collision + source.growth,
     });
   }
   return paths;
 }
 
-export function offsetForTargetGeom(rowGroups, targetGeom, relayTargets) {
+export function offsetForTargetGeom(
+  rowGroups,
+  targetGeom,
+  relayTargets,
+  inheritedOffsets,
+) {
   if (!targetGeom) return 0;
   const targetY = numericBound(targetGeom.y) ? targetGeom.y : 0;
   const sources = reflowSources(rowGroups);
   const baseOffset = signedBaseOffset(sources, targetGeom, targetY);
-  const preliminaryY = targetY + baseOffset;
+  const inheritedOffset = inheritedOffsetFor(inheritedOffsets, targetGeom.id);
+  const preliminaryOffset = combineInheritedOffset(baseOffset, inheritedOffset);
+  const preliminaryY = targetY + preliminaryOffset;
   return (
-    baseOffset +
-    collisionOffset(reflowPaths(sources, relayTargets), targetGeom, targetY, preliminaryY)
+    preliminaryOffset +
+    collisionOffset(
+      reflowPaths(sources, relayTargets, inheritedOffsets),
+      targetGeom,
+      targetY,
+      preliminaryY,
+    )
   );
+}
+
+function sameStoredRect(a, b) {
+  if (!a || !b) return false;
+  return (
+    a.top === b.top &&
+    a.bottom === b.bottom &&
+    a.left === b.left &&
+    a.right === b.right
+  );
+}
+
+function targetArea(target) {
+  const width = Number.isFinite(target?.w)
+    ? Math.max(0, target.w)
+    : Math.max(0, (target?.right || 0) - (target?.left || 0));
+  const height = Number.isFinite(target?.h)
+    ? Math.max(0, target.h)
+    : Math.max(0, (target?.bottom || 0) - (target?.top || 0));
+  return width * height;
+}
+
+function sectionOwnerMap(targets, sectionTargets) {
+  const owners = new Map();
+  const sectionIds = new Set(sectionTargets.map((section) => section.id).filter(Boolean));
+
+  for (const target of targets) {
+    if (!target?.id) continue;
+    const targetIsSection = sectionIds.has(target.id);
+    const candidates = sectionTargets
+      .filter((section) => {
+        if (!section?.id || section.id === target.id) return false;
+        if (!containsMember(section, target)) return false;
+        // Equal-sized overlapping Section backgrounds are peers, not a
+        // parent/child pair. Treating them as owners would create a cycle.
+        return !targetIsSection || !sameStoredRect(section, target);
+      })
+      .sort((a, b) => (
+        targetArea(a) - targetArea(b) ||
+        b.top - a.top ||
+        String(a.id).localeCompare(String(b.id))
+      ));
+    if (candidates.length > 0) owners.set(target.id, candidates[0].id);
+  }
+  return owners;
+}
+
+function sameOffsetMaps(a, b) {
+  if (a.size !== b.size) return false;
+  for (const [id, value] of a) {
+    if (b.get(id) !== value) return false;
+  }
+  return true;
+}
+
+/**
+ * Resolve the effective public offset for every block while keeping geometric
+ * Section contents attached to their background. Sections remain root-level
+ * absolute blocks, so ownership is inferred from active-breakpoint bounds.
+ *
+ * A child inherits its owning Section's absolute displacement as a starting
+ * position. Its own collision can still move it farther; inherited movement is
+ * never added twice. Reflow paths are rebuilt with those inherited positions so
+ * moved content relays collisions from the same bottom that is actually drawn.
+ */
+export function resolveSectionAwareOffsets({
+  rowGroups,
+  targets,
+  sectionTargets,
+  relayTargets,
+}) {
+  const spatialTargets = (targets || []).map(spatialTarget).filter(Boolean);
+  const spatialSections = (sectionTargets || []).map(spatialTarget).filter(Boolean);
+  const owners = sectionOwnerMap(spatialTargets, spatialSections);
+  const targetById = new Map(
+    spatialTargets.filter((target) => target.id).map((target) => [target.id, target]),
+  );
+  const sectionById = new Map(
+    spatialSections.filter((section) => section.id).map((section) => [section.id, section]),
+  );
+  let inheritedOffsets = new Map();
+
+  // Each pass can carry a moved source through one more Section boundary. A
+  // strict containment chain cannot be deeper than the number of Sections.
+  const maxPasses = Math.max(1, spatialSections.length + 1);
+  for (let pass = 0; pass < maxPasses; pass += 1) {
+    const sectionOffsets = new Map();
+    for (const section of spatialSections) {
+      if (!section.id) continue;
+      sectionOffsets.set(
+        section.id,
+        offsetForTargetGeom(rowGroups, section, relayTargets, inheritedOffsets),
+      );
+    }
+
+    const nextInheritedOffsets = new Map();
+    for (const target of spatialTargets) {
+      const ownerId = owners.get(target.id);
+      if (!ownerId) continue;
+      const ownerOffset = sectionOffsets.get(ownerId);
+      if (Number.isFinite(ownerOffset) && ownerOffset !== 0) {
+        nextInheritedOffsets.set(target.id, ownerOffset);
+      }
+    }
+    if (sameOffsetMaps(inheritedOffsets, nextInheritedOffsets)) break;
+    inheritedOffsets = nextInheritedOffsets;
+  }
+
+  const offsets = new Map();
+  for (const [id, target] of targetById) {
+    offsets.set(
+      id,
+      offsetForTargetGeom(rowGroups, target, relayTargets, inheritedOffsets),
+    );
+  }
+
+  // Keep Sections available even if a caller supplied them separately from the
+  // general target list.
+  for (const [id, section] of sectionById) {
+    if (offsets.has(id)) continue;
+    offsets.set(
+      id,
+      offsetForTargetGeom(rowGroups, section, relayTargets, inheritedOffsets),
+    );
+  }
+
+  return { offsets, inheritedOffsets, owners };
 }
 
 export function relativeOffsetWithinContainer(
@@ -364,22 +524,27 @@ export function relativeOffsetWithinContainer(
   targetGeom,
   containerGeom,
   relayTargets,
+  inheritedOffsets,
 ) {
   return (
-    offsetForTargetGeom(rowGroups, targetGeom, relayTargets) -
-    offsetForTargetGeom(rowGroups, containerGeom, relayTargets)
+    offsetForTargetGeom(rowGroups, targetGeom, relayTargets, inheritedOffsets) -
+    offsetForTargetGeom(rowGroups, containerGeom, relayTargets, inheritedOffsets)
   );
 }
 
-export function offsetForStoredY(rowGroups, storedY, relayTargets) {
-  return offsetForTargetGeom(rowGroups, { y: storedY }, relayTargets);
+export function offsetForStoredY(rowGroups, storedY, relayTargets, inheritedOffsets) {
+  return offsetForTargetGeom(rowGroups, { y: storedY }, relayTargets, inheritedOffsets);
 }
 
 export function growthForContainedGeom(
   rowGroups,
   containerGeom,
   containedTargets,
-  { growOnly = false, relayTargets = containedTargets } = {},
+  {
+    growOnly = false,
+    relayTargets = containedTargets,
+    inheritedOffsets,
+  } = {},
 ) {
   if (!containerGeom) return 0;
   const allSources = reflowSources(rowGroups);
@@ -393,7 +558,12 @@ export function growthForContainedGeom(
   const targets = Array.isArray(containedTargets)
     ? containedTargets.map(spatialTarget).filter(Boolean)
     : rowMemberTargets(rowGroups);
-  const containerOffset = offsetForTargetGeom(rowGroups, containerGeom, relayTargets);
+  const containerOffset = offsetForTargetGeom(
+    rowGroups,
+    containerGeom,
+    relayTargets,
+    inheritedOffsets,
+  );
   const containerTop = Number.isFinite(containerGeom.y) ? containerGeom.y : 0;
   const containerHeight = Number.isFinite(containerGeom.h) ? containerGeom.h : 0;
   const renderedContainerBottom = (
@@ -409,7 +579,7 @@ export function growthForContainedGeom(
     const renderedBottom = (
       target.y +
       liveTargetHeight(target, membersById) +
-      offsetForTargetGeom(rowGroups, target, relayTargets)
+      offsetForTargetGeom(rowGroups, target, relayTargets, inheritedOffsets)
     );
     overflow = Math.max(overflow, renderedBottom - renderedContainerBottom);
   }
@@ -439,6 +609,7 @@ export function computeReflowStageHeight({
   editorMode = false,
   getContainerGrowth,
   relayTargets,
+  inheritedOffsets,
 }) {
   const baseline = Number.isFinite(baseHeight) ? baseHeight : 0;
   if (editorMode || !Array.isArray(rowGroups) || rowGroups.length === 0) return baseline;
@@ -473,8 +644,9 @@ export function computeReflowStageHeight({
     const storedY = Number.isFinite(g.y) ? g.y : 0;
     const offset = offsetForTargetGeom(rowGroups, {
       ...g,
+      id: block.id,
       fullWidth: blockIsFullWidthLike(block),
-    }, relayTargets);
+    }, relayTargets, inheritedOffsets);
     const isContainer = block.type === BLOCK_TYPES.SECTION || block.type === BLOCK_TYPES.BOX;
     const containerGrowth = isContainer && typeof getContainerGrowth === 'function'
       ? getContainerGrowth(block, g)

@@ -17,6 +17,7 @@ import {
   growthForContainedGeom,
   offsetForTargetGeom,
   reflowMemberIsContained,
+  resolveSectionAwareOffsets,
 } from './reflowStageHeight';
 
 const AccordionReflowCtx = createContext(null);
@@ -482,23 +483,17 @@ export function AccordionReflowProvider({ children, blocks, resolveGeom, editorM
     return buildReflowRowGroups(entries);
   }, [measuredHeights, blocks, resolveGeom, breakpoint]);
 
-  // Non-auto-height content can relay a collision after it has been displaced.
-  // Containers are backgrounds, not content obstacles; measured auto-height
-  // blocks already contribute their live bottoms through rowGroups.
-  const collisionTargets = useMemo(() => {
+  // Resolve every visible block once for collision relays and Section
+  // attachment. Containers are backgrounds, not collision obstacles; measured
+  // auto-height blocks already contribute their live bottoms through rowGroups.
+  const reflowGeometry = useMemo(() => {
     const targets = [];
+    const collisionTargets = [];
+    const sectionTargets = [];
     for (const block of blocks) {
-      const def = getBlockDefinition(block.type);
-      if (
-        def?.autoHeight ||
-        block.type === BLOCK_TYPES.SECTION ||
-        block.type === BLOCK_TYPES.BOX
-      ) {
-        continue;
-      }
       const geom = resolveGeom(block);
       if (!geom || geom.hidden) continue;
-      targets.push({
+      const target = {
         ...geom,
         id: block.id,
         top: geom.y,
@@ -506,10 +501,33 @@ export function AccordionReflowProvider({ children, blocks, resolveGeom, editorM
         left: geom.x,
         right: geom.x + geom.w,
         fullWidth: blockIsFullWidthLike(block),
-      });
+      };
+      targets.push(target);
+      if (block.type === BLOCK_TYPES.SECTION) sectionTargets.push(target);
+
+      const def = getBlockDefinition(block.type);
+      if (
+        !def?.autoHeight &&
+        block.type !== BLOCK_TYPES.SECTION &&
+        block.type !== BLOCK_TYPES.BOX
+      ) {
+        collisionTargets.push(target);
+      }
     }
-    return targets;
+    return { targets, collisionTargets, sectionTargets };
   }, [blocks, resolveGeom]);
+  const { targets: reflowTargets, collisionTargets, sectionTargets } = reflowGeometry;
+
+  const sectionAwareOffsets = useMemo(
+    () => resolveSectionAwareOffsets({
+      rowGroups,
+      targets: reflowTargets,
+      sectionTargets,
+      relayTargets: collisionTargets,
+    }),
+    [rowGroups, reflowTargets, sectionTargets, collisionTargets],
+  );
+  const inheritedOffsets = sectionAwareOffsets.inheritedOffsets;
 
   /**
    * Returns the live offset (px) for a block at its stored geometry.
@@ -535,15 +553,26 @@ export function AccordionReflowProvider({ children, blocks, resolveGeom, editorM
       // stored positions so dragging/dropping never shifts unrelated blocks.
       if (editorMode) return 0;
       if (rowGroups.length === 0) return 0;
+      const resolvedOffset = sectionAwareOffsets.offsets.get(blockId);
+      if (Number.isFinite(resolvedOffset)) return resolvedOffset;
       const block = blocks.find((entry) => entry.id === blockId);
       const geom = block ? resolveGeom(block) : null;
       return offsetForTargetGeom(rowGroups, {
         ...(geom || {}),
+        id: blockId,
         y: storedY,
         fullWidth: blockIsFullWidthLike(block),
-      }, collisionTargets);
+      }, collisionTargets, inheritedOffsets);
     },
-    [editorMode, rowGroups, blocks, resolveGeom, collisionTargets],
+    [
+      editorMode,
+      rowGroups,
+      sectionAwareOffsets,
+      blocks,
+      resolveGeom,
+      collisionTargets,
+      inheritedOffsets,
+    ],
   );
 
   /** Measured height for a specific block (undefined if not yet reported). */
@@ -598,8 +627,9 @@ export function AccordionReflowProvider({ children, blocks, resolveGeom, editorM
       rowGroups,
       { y: Infinity, fullWidth: true },
       collisionTargets,
+      inheritedOffsets,
     );
-  }, [editorMode, rowGroups, collisionTargets]);
+  }, [editorMode, rowGroups, collisionTargets, inheritedOffsets]);
 
   /**
    * Height growth (px) required by a CONTAINING background-style block — a
@@ -625,6 +655,7 @@ export function AccordionReflowProvider({ children, blocks, resolveGeom, editorM
       if (!containerGeom || rowGroups.length === 0) return 0;
       const spatialContainerGeom = {
         ...containerGeom,
+        id: containerBlock?.id,
         fullWidth: blockIsFullWidthLike(containerBlock),
       };
       const isBox = containerBlock?.type === BLOCK_TYPES.BOX;
@@ -656,9 +687,10 @@ export function AccordionReflowProvider({ children, blocks, resolveGeom, editorM
       return growthForContainedGeom(rowGroups, spatialContainerGeom, containedTargets, {
         growOnly: isBox,
         relayTargets: collisionTargets,
+        inheritedOffsets,
       });
     },
-    [editorMode, rowGroups, blocks, resolveGeom, collisionTargets],
+    [editorMode, rowGroups, blocks, resolveGeom, collisionTargets, inheritedOffsets],
   );
 
   // Back-compat alias: sections are just one kind of container.
@@ -673,8 +705,17 @@ export function AccordionReflowProvider({ children, blocks, resolveGeom, editorM
       editorMode,
       getContainerGrowth,
       relayTargets: collisionTargets,
+      inheritedOffsets,
     }),
-    [blocks, resolveGeom, rowGroups, editorMode, getContainerGrowth, collisionTargets],
+    [
+      blocks,
+      resolveGeom,
+      rowGroups,
+      editorMode,
+      getContainerGrowth,
+      collisionTargets,
+      inheritedOffsets,
+    ],
   );
 
   return (
