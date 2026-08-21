@@ -564,6 +564,84 @@ test('a Section-inherited auto-height child relays from its final rendered botto
   assert.equal(result.owners.has('later-content'), false);
 });
 
+test('full-width rendering does not attach a block outside the Section rectangle', () => {
+  const rows = buildReflowRowGroups([
+    entry({ id: 'outer-accordion', x: 0, y: 0, w: 600, h: 100, measuredH: 300 }),
+    entry({ id: 'inner-content', x: 0, y: 300, w: 600, h: 100, measuredH: 100 }),
+    entry({ id: 'external', x: 650, y: 300, w: 100, h: 100, measuredH: 300 }),
+  ]);
+  const section = {
+    id: 'section',
+    x: 0,
+    y: 250,
+    w: 600,
+    h: 300,
+    top: 250,
+    bottom: 550,
+    left: 0,
+    right: 600,
+    fullWidth: true,
+  };
+  const innerContent = {
+    id: 'inner-content',
+    x: 0,
+    y: 300,
+    w: 600,
+    h: 100,
+    top: 300,
+    bottom: 400,
+    left: 0,
+    right: 600,
+  };
+  const external = {
+    id: 'external',
+    x: 650,
+    y: 300,
+    w: 100,
+    h: 100,
+    top: 300,
+    bottom: 400,
+    left: 650,
+    right: 750,
+  };
+  const targets = [section, innerContent, external];
+  const result = resolveSectionAwareOffsets({
+    rowGroups: rows,
+    targets,
+    sectionTargets: [section],
+    relayTargets: [],
+  });
+
+  assert.equal(result.offsets.get('section'), 50);
+  assert.equal(result.offsets.get('inner-content'), 50);
+  assert.equal(result.offsets.get('external'), 0);
+  assert.equal(result.owners.has('external'), false);
+
+  const sectionGrowth = growthForContainedGeom(rows, section, [innerContent, external], {
+    relayTargets: [],
+    inheritedOffsets: result.inheritedOffsets,
+  });
+  assert.equal(sectionGrowth, 0);
+
+  const sectionBlock = {
+    id: 'section',
+    type: BLOCK_TYPES.SECTION,
+    fullWidth: true,
+    geom: { x: 0, y: 250, w: 600, h: 300, hidden: false },
+  };
+  const innerBlock = block('inner-content', BLOCK_TYPES.TEXT, 300, 100, 0, 600);
+  const externalBlock = block('external', BLOCK_TYPES.TEXT, 300, 100, 650, 100);
+  assert.equal(computeReflowStageHeight({
+    baseHeight: 600,
+    blocks: [sectionBlock, innerBlock, externalBlock],
+    resolveGeom,
+    rowGroups: rows,
+    relayTargets: [],
+    inheritedOffsets: result.inheritedOffsets,
+    getContainerGrowth: () => sectionGrowth,
+  }), 600);
+});
+
 test('container growth uses inherited and local child displacement consistently', () => {
   const rows = buildReflowRowGroups([
     entry({ id: 'outer-accordion', x: 0, y: 0, w: 600, h: 100, measuredH: 300 }),

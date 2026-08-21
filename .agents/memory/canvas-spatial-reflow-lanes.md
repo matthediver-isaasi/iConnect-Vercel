@@ -7,7 +7,9 @@ description: How V1 absolute-canvas auto-height growth propagates through column
 source affects only targets below it whose resolved horizontal bounds overlap,
 and only when its final visible bottom crosses the target's authored top. The
 target moves by that overlap, not by the source's raw height delta. Parallel
-lanes contribute the deepest collision path rather than being summed.
+lanes contribute the deepest collision path rather than being summed. Content
+geometrically contained by a Section inherits that Section's absolute
+displacement; its own lane collision may move it farther.
 
 **Why:** Raw growth offsets moved content even when an authored gap fully
 absorbed an accordion expansion. A simple overlap filter is also insufficient:
@@ -19,5 +21,7 @@ breakpoint's resolved lanes. Apply signed aspect-carousel movement as the base
 position before collision checks, so upstream pushes and signed shrink/grow
 compose without overlap. A displaced non-auto content block becomes a
 zero-growth collision relay; Section and Box backgrounds do not. Size
-containers and the stage from final rendered bottoms. Editor displacement
-remains zero.
+containers and the stage from final rendered bottoms. Infer Section ownership
+from the active breakpoint's stored rectangle, never from full-width/full-bleed
+rendering reach; nested Sections inherit once and unrelated adjacent content
+stays independent. Editor displacement remains zero.

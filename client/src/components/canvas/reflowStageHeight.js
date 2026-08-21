@@ -44,7 +44,13 @@ function containsMember(containerGeom, member) {
     : memberTop;
   if (memberTop < containerTop || memberBottom > containerBottom) return false;
 
-  const containerBounds = horizontalBounds(containerGeom);
+  const containerBounds = horizontalBounds({
+    ...containerGeom,
+    // Like the member below, containment follows the resolved stored rectangle.
+    // fullWidth/fullBleed only changes rendering and collision reach; it must not
+    // attach blocks that are geometrically beside a Section or Box.
+    fullWidth: false,
+  });
   const memberBounds = horizontalBounds({
     ...member,
     // Full-width is a rendering instruction. Geometric containment must still
