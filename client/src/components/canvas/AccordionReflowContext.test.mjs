@@ -466,6 +466,117 @@ test('a moved Section carries paragraph text from a non-colliding lane with it',
   assert.equal(result.owners.get('paragraph'), 'section');
 });
 
+test('a moved Box carries the exact BNMS panel contents by one shared offset', () => {
+  const expandedRows = buildReflowRowGroups([
+    entry({
+      id: 'accordion',
+      x: 0,
+      y: 1784,
+      w: 1200,
+      h: 426,
+      measuredH: 567,
+    }),
+  ]);
+  const collapsedRows = buildReflowRowGroups([
+    entry({
+      id: 'accordion',
+      x: 0,
+      y: 1784,
+      w: 1200,
+      h: 426,
+      measuredH: 426,
+    }),
+  ]);
+  const box = {
+    id: 'box',
+    containerType: BLOCK_TYPES.BOX,
+    x: 0,
+    y: 2250,
+    w: 1200,
+    h: 352,
+    top: 2250,
+    bottom: 2602,
+  };
+  const icon = {
+    id: 'icon',
+    x: 16,
+    y: 2258,
+    w: 88,
+    h: 88,
+    top: 2258,
+    bottom: 2346,
+  };
+  const heading = {
+    id: 'heading',
+    x: 112,
+    y: 2280,
+    w: 392,
+    h: 66,
+    top: 2280,
+    bottom: 2346,
+  };
+  const paragraph = {
+    id: 'paragraph',
+    x: 112,
+    y: 2330,
+    w: 1056,
+    h: 255,
+    top: 2330,
+    bottom: 2585,
+    allowSectionBottomOverflow: true,
+  };
+  const edgeStraddlingText = {
+    id: 'edge-straddling-text',
+    x: 112,
+    y: 2500,
+    w: 1056,
+    h: 150,
+    top: 2500,
+    bottom: 2650,
+    allowSectionBottomOverflow: true,
+  };
+  const adjacent = {
+    id: 'adjacent',
+    x: 1220,
+    y: 2330,
+    w: 300,
+    h: 100,
+    top: 2330,
+    bottom: 2430,
+  };
+  const targets = [box, icon, heading, paragraph, edgeStraddlingText, adjacent];
+
+  const expanded = resolveSectionAwareOffsets({
+    rowGroups: expandedRows,
+    targets,
+    containerTargets: [box],
+    relayTargets: [icon, heading, edgeStraddlingText, adjacent],
+  });
+
+  assert.equal(expanded.offsets.get('box'), 101);
+  assert.equal(expanded.offsets.get('icon'), 101);
+  assert.equal(expanded.offsets.get('heading'), 101);
+  assert.equal(expanded.offsets.get('paragraph'), 101);
+  assert.equal(expanded.owners.get('icon'), 'box');
+  assert.equal(expanded.owners.get('heading'), 'box');
+  assert.equal(expanded.owners.get('paragraph'), 'box');
+  assert.equal(expanded.offsets.get('edge-straddling-text'), 0);
+  assert.equal(expanded.owners.has('edge-straddling-text'), false);
+  assert.equal(expanded.offsets.get('adjacent'), 0);
+  assert.equal(expanded.owners.has('adjacent'), false);
+
+  const collapsed = resolveSectionAwareOffsets({
+    rowGroups: collapsedRows,
+    targets,
+    containerTargets: [box],
+    relayTargets: [icon, heading, edgeStraddlingText, adjacent],
+  });
+  assert.equal(collapsed.offsets.get('box'), 0);
+  assert.equal(collapsed.offsets.get('icon'), 0);
+  assert.equal(collapsed.offsets.get('heading'), 0);
+  assert.equal(collapsed.offsets.get('paragraph'), 0);
+});
+
 test('a moved Section carries an edge-straddling auto-height paragraph before and after measurement', () => {
   const unmeasuredTextRows = buildReflowRowGroups([
     entry({ id: 'accordion', x: 0, y: 0, w: 600, h: 100, measuredH: 300 }),
@@ -711,6 +822,52 @@ test('a contained block can move farther than its displaced Section after a loca
   assert.equal(result.offsets.get('section'), 50);
   assert.equal(result.offsets.get('inner-accordion'), 50);
   assert.equal(result.offsets.get('child'), 70);
+});
+
+test('a contained block can move farther than its displaced Box after a local collision', () => {
+  const rows = buildReflowRowGroups([
+    entry({ id: 'outer-accordion', x: 0, y: 0, w: 600, h: 100, measuredH: 300 }),
+    entry({ id: 'inner-accordion', x: 0, y: 400, w: 600, h: 100, measuredH: 300 }),
+  ]);
+  const box = {
+    id: 'box',
+    containerType: BLOCK_TYPES.BOX,
+    x: 0,
+    y: 250,
+    w: 1200,
+    h: 600,
+    top: 250,
+    bottom: 850,
+  };
+  const innerAccordion = {
+    id: 'inner-accordion',
+    x: 0,
+    y: 400,
+    w: 600,
+    h: 100,
+    top: 400,
+    bottom: 500,
+  };
+  const child = {
+    id: 'child',
+    x: 0,
+    y: 680,
+    w: 600,
+    h: 100,
+    top: 680,
+    bottom: 780,
+  };
+  const result = resolveSectionAwareOffsets({
+    rowGroups: rows,
+    targets: [box, innerAccordion, child],
+    containerTargets: [box],
+    relayTargets: [child],
+  });
+
+  assert.equal(result.offsets.get('box'), 50);
+  assert.equal(result.offsets.get('inner-accordion'), 50);
+  assert.equal(result.offsets.get('child'), 70);
+  assert.equal(result.owners.get('child'), 'box');
 });
 
 test('a Section-inherited auto-height child relays from its final rendered bottom', () => {
@@ -964,6 +1121,93 @@ test('nested Sections inherit once and adjacent Section contents remain independ
   assert.equal(result.owners.get('nested-text'), 'inner');
 });
 
+test('nested Section and Box containers use the smallest owner and inherit once', () => {
+  const rows = buildReflowRowGroups([
+    entry({ id: 'accordion', x: 0, y: 0, w: 600, h: 100, measuredH: 300 }),
+  ]);
+  const outerSection = {
+    id: 'outer-section',
+    containerType: BLOCK_TYPES.SECTION,
+    x: 0,
+    y: 250,
+    w: 1200,
+    h: 600,
+    top: 250,
+    bottom: 850,
+  };
+  const innerBox = {
+    id: 'inner-box',
+    containerType: BLOCK_TYPES.BOX,
+    x: 100,
+    y: 300,
+    w: 500,
+    h: 300,
+    top: 300,
+    bottom: 600,
+  };
+  const nestedText = {
+    id: 'nested-text',
+    x: 150,
+    y: 350,
+    w: 400,
+    h: 100,
+    top: 350,
+    bottom: 450,
+  };
+  const sectionOnlyText = {
+    id: 'section-only-text',
+    x: 700,
+    y: 350,
+    w: 400,
+    h: 100,
+    top: 350,
+    bottom: 450,
+  };
+  const adjacentBox = {
+    id: 'adjacent-box',
+    containerType: BLOCK_TYPES.BOX,
+    x: 0,
+    y: 900,
+    w: 500,
+    h: 300,
+    top: 900,
+    bottom: 1200,
+  };
+  const adjacentText = {
+    id: 'adjacent-text',
+    x: 50,
+    y: 950,
+    w: 400,
+    h: 100,
+    top: 950,
+    bottom: 1050,
+  };
+  const result = resolveSectionAwareOffsets({
+    rowGroups: rows,
+    targets: [
+      outerSection,
+      innerBox,
+      nestedText,
+      sectionOnlyText,
+      adjacentBox,
+      adjacentText,
+    ],
+    containerTargets: [outerSection, innerBox, adjacentBox],
+    relayTargets: [nestedText, sectionOnlyText, adjacentText],
+  });
+
+  assert.equal(result.offsets.get('outer-section'), 50);
+  assert.equal(result.offsets.get('inner-box'), 50);
+  assert.equal(result.offsets.get('nested-text'), 50);
+  assert.equal(result.offsets.get('section-only-text'), 50);
+  assert.equal(result.offsets.get('adjacent-box'), 0);
+  assert.equal(result.offsets.get('adjacent-text'), 0);
+  assert.equal(result.owners.get('inner-box'), 'outer-section');
+  assert.equal(result.owners.get('nested-text'), 'inner-box');
+  assert.equal(result.owners.get('section-only-text'), 'outer-section');
+  assert.equal(result.owners.get('adjacent-text'), 'adjacent-box');
+});
+
 test('card rows keep equalized height when collision displacement is calculated', () => {
   const rows = buildReflowRowGroups([
     entry({ id: 'left-card', x: 0, y: 0, w: 360, h: 100, measuredH: 180, isCard: true }),
@@ -1108,7 +1352,7 @@ test('stage height includes collision relayed through stacked static blocks', ()
   }), 600);
 });
 
-test('public reflow provider gives an edge-straddling paragraph the Section wrapper offset', async () => {
+test('public reflow provider gives Section and live Box contents their wrapper offsets', async () => {
   const { JSDOM } = await import('jsdom');
   const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', {
     url: 'http://localhost/',
@@ -1156,6 +1400,15 @@ test('public reflow provider gives an edge-straddling paragraph the Section wrap
     block('paragraph', BLOCK_TYPES.TEXT, 300, 180, 650, 500),
     block('fixed-overlay', BLOCK_TYPES.IMAGE, 300, 300, 875, 100),
   ];
+  const boxBlock = block('live-box', BLOCK_TYPES.BOX, 2250, 352, 0, 1200);
+  const boxBlocks = [
+    block('live-accordion', BLOCK_TYPES.ADVANCED_ACCORDION, 1784, 426, 0, 1200),
+    boxBlock,
+    block('live-icon', BLOCK_TYPES.IMAGE, 2258, 88, 16, 88),
+    block('live-heading', BLOCK_TYPES.TEXT, 2280, 66, 112, 392),
+    block('live-paragraph', BLOCK_TYPES.TEXT, 2330, 255, 112, 1056),
+    block('live-adjacent', BLOCK_TYPES.IMAGE, 2330, 100, 1220, 300),
+  ];
   const api = { reflow: null };
 
   function Probe() {
@@ -1170,6 +1423,19 @@ test('public reflow provider gives an edge-straddling paragraph the Section wrap
       'data-paragraph-top': 300 + paragraphOffset,
       'data-fixed-top': 300 + fixedOffset,
       'data-section-growth': sectionGrowth,
+    });
+  }
+
+  function BoxProbe() {
+    const reflow = useAccordionReflow();
+    api.reflow = reflow;
+    return createElement('div', {
+      'data-box-top': 2250 + reflow.getOffset('live-box', 2250),
+      'data-icon-top': 2258 + reflow.getOffset('live-icon', 2258),
+      'data-heading-top': 2280 + reflow.getOffset('live-heading', 2280),
+      'data-paragraph-top': 2330 + reflow.getOffset('live-paragraph', 2330),
+      'data-adjacent-top': 2330 + reflow.getOffset('live-adjacent', 2330),
+      'data-box-growth': reflow.getContainerGrowth(boxBlock, boxBlock.geom),
     });
   }
 
@@ -1206,6 +1472,52 @@ test('public reflow provider gives an edge-straddling paragraph the Section wrap
     });
     assert.equal(rootElement.firstChild.dataset.sectionTop, '250');
     assert.equal(rootElement.firstChild.dataset.paragraphTop, '300');
+
+    await act(async () => {
+      reactRoot.render(createElement(
+        AccordionReflowProvider,
+        {
+          key: 'live-box-provider',
+          blocks: boxBlocks,
+          breakpoint: 'desktop',
+          resolveGeom,
+        },
+        createElement(BoxProbe),
+      ));
+    });
+    assert.equal(rootElement.firstChild.dataset.boxTop, '2250');
+    assert.equal(rootElement.firstChild.dataset.iconTop, '2258');
+    assert.equal(rootElement.firstChild.dataset.headingTop, '2280');
+    assert.equal(rootElement.firstChild.dataset.paragraphTop, '2330');
+
+    await act(async () => {
+      api.reflow.reportHeight('live-accordion', 426);
+    });
+    assert.equal(rootElement.firstChild.dataset.boxTop, '2250');
+    assert.equal(rootElement.firstChild.dataset.paragraphTop, '2330');
+
+    await act(async () => {
+      api.reflow.reportHeight('live-accordion', 567);
+    });
+    assert.equal(rootElement.firstChild.dataset.boxTop, '2351');
+    assert.equal(rootElement.firstChild.dataset.iconTop, '2359');
+    assert.equal(rootElement.firstChild.dataset.headingTop, '2381');
+    assert.equal(rootElement.firstChild.dataset.paragraphTop, '2431');
+    assert.equal(rootElement.firstChild.dataset.adjacentTop, '2330');
+
+    await act(async () => {
+      api.reflow.reportHeight('live-paragraph', 270);
+    });
+    assert.equal(rootElement.firstChild.dataset.paragraphTop, '2431');
+    assert.equal(rootElement.firstChild.dataset.boxGrowth, '0');
+
+    await act(async () => {
+      api.reflow.reportHeight('live-accordion', 426);
+    });
+    assert.equal(rootElement.firstChild.dataset.boxTop, '2250');
+    assert.equal(rootElement.firstChild.dataset.iconTop, '2258');
+    assert.equal(rootElement.firstChild.dataset.headingTop, '2280');
+    assert.equal(rootElement.firstChild.dataset.paragraphTop, '2330');
   } finally {
     await act(async () => {
       reactRoot.unmount();

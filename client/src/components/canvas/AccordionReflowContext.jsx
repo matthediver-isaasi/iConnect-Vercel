@@ -484,13 +484,13 @@ export function AccordionReflowProvider({ children, blocks, resolveGeom, editorM
     return buildReflowRowGroups(entries);
   }, [measuredHeights, blocks, resolveGeom, breakpoint]);
 
-  // Resolve every visible block once for collision relays and Section
+  // Resolve every visible block once for collision relays and container
   // attachment. Containers are backgrounds, not collision obstacles; measured
   // auto-height blocks already contribute their live bottoms through rowGroups.
   const reflowGeometry = useMemo(() => {
     const targets = [];
     const collisionTargets = [];
-    const sectionTargets = [];
+    const containerTargets = [];
     for (const block of blocks) {
       const geom = resolveGeom(block);
       if (!geom || geom.hidden) continue;
@@ -506,9 +506,15 @@ export function AccordionReflowProvider({ children, blocks, resolveGeom, editorM
         // Only intrinsically auto-height content can use top-anchor Section
         // ownership. Fixed blocks and background containers remain strict.
         allowSectionBottomOverflow: !!def?.autoHeight,
+        // Boxes participate in ownership but never receive the Section-only
+        // bottom-overflow relaxation.
+        containerType: (
+          block.type === BLOCK_TYPES.SECTION ||
+          block.type === BLOCK_TYPES.BOX
+        ) ? block.type : undefined,
       };
       targets.push(target);
-      if (block.type === BLOCK_TYPES.SECTION) sectionTargets.push(target);
+      if (target.containerType) containerTargets.push(target);
 
       if (
         !def?.autoHeight &&
@@ -518,20 +524,20 @@ export function AccordionReflowProvider({ children, blocks, resolveGeom, editorM
         collisionTargets.push(target);
       }
     }
-    return { targets, collisionTargets, sectionTargets };
+    return { targets, collisionTargets, containerTargets };
   }, [blocks, resolveGeom]);
-  const { targets: reflowTargets, collisionTargets, sectionTargets } = reflowGeometry;
+  const { targets: reflowTargets, collisionTargets, containerTargets } = reflowGeometry;
 
-  const sectionAwareOffsets = useMemo(
+  const containerAwareOffsets = useMemo(
     () => resolveSectionAwareOffsets({
       rowGroups,
       targets: reflowTargets,
-      sectionTargets,
+      containerTargets,
       relayTargets: collisionTargets,
     }),
-    [rowGroups, reflowTargets, sectionTargets, collisionTargets],
+    [rowGroups, reflowTargets, containerTargets, collisionTargets],
   );
-  const inheritedOffsets = sectionAwareOffsets.inheritedOffsets;
+  const inheritedOffsets = containerAwareOffsets.inheritedOffsets;
 
   /**
    * Returns the live offset (px) for a block at its stored geometry.
@@ -557,7 +563,7 @@ export function AccordionReflowProvider({ children, blocks, resolveGeom, editorM
       // stored positions so dragging/dropping never shifts unrelated blocks.
       if (editorMode) return 0;
       if (rowGroups.length === 0) return 0;
-      const resolvedOffset = sectionAwareOffsets.offsets.get(blockId);
+      const resolvedOffset = containerAwareOffsets.offsets.get(blockId);
       if (Number.isFinite(resolvedOffset)) return resolvedOffset;
       const block = blocks.find((entry) => entry.id === blockId);
       const geom = block ? resolveGeom(block) : null;
@@ -571,7 +577,7 @@ export function AccordionReflowProvider({ children, blocks, resolveGeom, editorM
     [
       editorMode,
       rowGroups,
-      sectionAwareOffsets,
+      containerAwareOffsets,
       blocks,
       resolveGeom,
       collisionTargets,

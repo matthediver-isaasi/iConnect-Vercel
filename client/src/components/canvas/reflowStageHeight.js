@@ -432,25 +432,32 @@ function targetArea(target) {
   return width * height;
 }
 
-function sectionOwnerMap(targets, sectionTargets) {
+function containerOwnerMap(targets, containerTargets) {
   const owners = new Map();
-  const sectionIds = new Set(sectionTargets.map((section) => section.id).filter(Boolean));
+  const containerIds = new Set(
+    containerTargets.map((container) => container.id).filter(Boolean),
+  );
 
   for (const target of targets) {
     if (!target?.id) continue;
-    const targetIsSection = sectionIds.has(target.id);
-    const candidates = sectionTargets
-      .filter((section) => {
-        if (!section?.id || section.id === target.id) return false;
-        if (!containsMember(section, target, {
+    const targetIsContainer = containerIds.has(target.id);
+    const candidates = containerTargets
+      .filter((container) => {
+        if (!container?.id || container.id === target.id) return false;
+        const containerIsBox = (
+          container.containerType === BLOCK_TYPES.BOX ||
+          container.type === BLOCK_TYPES.BOX
+        );
+        if (!containsMember(container, target, {
           allowBottomOverflow: (
-            !targetIsSection &&
+            !containerIsBox &&
+            !targetIsContainer &&
             target.allowSectionBottomOverflow === true
           ),
         })) return false;
-        // Equal-sized overlapping Section backgrounds are peers, not a
+        // Equal-sized overlapping container backgrounds are peers, not a
         // parent/child pair. Treating them as owners would create a cycle.
-        return !targetIsSection || !sameStoredRect(section, target);
+        return !targetIsContainer || !sameStoredRect(container, target);
       })
       .sort((a, b) => (
         targetArea(a) - targetArea(b) ||
@@ -472,41 +479,53 @@ function sameOffsetMaps(a, b) {
 
 /**
  * Resolve the effective public offset for every block while keeping geometric
- * Section contents attached to their background. Sections remain root-level
- * absolute blocks, so ownership is inferred from active-breakpoint bounds.
+ * Section and Box contents attached to their background. Containers remain
+ * root-level absolute blocks, so ownership is inferred from active-breakpoint
+ * bounds.
  *
- * A child inherits its owning Section's absolute displacement as a starting
- * position. Its own collision can still move it farther; inherited movement is
- * never added twice. Reflow paths are rebuilt with those inherited positions so
- * moved content relays collisions from the same bottom that is actually drawn.
+ * A child inherits its owning container's absolute displacement as a starting
+ * position. Section ownership permits explicitly eligible auto-height content
+ * to cross the Section bottom; Box ownership always requires strict
+ * full-rectangle containment. A child's own collision can still move it
+ * farther; inherited movement is never added twice. Reflow paths are rebuilt
+ * with those inherited positions so moved content relays collisions from the
+ * same bottom that is actually drawn.
  */
 export function resolveSectionAwareOffsets({
   rowGroups,
   targets,
   sectionTargets,
+  containerTargets,
   relayTargets,
 }) {
   const spatialTargets = (targets || []).map(spatialTarget).filter(Boolean);
-  const spatialSections = (sectionTargets || []).map(spatialTarget).filter(Boolean);
-  const owners = sectionOwnerMap(spatialTargets, spatialSections);
+  // `sectionTargets` remains supported for existing pure callers. The public
+  // provider supplies the generalized list containing Sections and Boxes.
+  const suppliedContainers = Array.isArray(containerTargets)
+    ? containerTargets
+    : (sectionTargets || []);
+  const spatialContainers = suppliedContainers.map(spatialTarget).filter(Boolean);
+  const owners = containerOwnerMap(spatialTargets, spatialContainers);
   const targetById = new Map(
     spatialTargets.filter((target) => target.id).map((target) => [target.id, target]),
   );
-  const sectionById = new Map(
-    spatialSections.filter((section) => section.id).map((section) => [section.id, section]),
+  const containerById = new Map(
+    spatialContainers
+      .filter((container) => container.id)
+      .map((container) => [container.id, container]),
   );
   let inheritedOffsets = new Map();
 
-  // Each pass can carry a moved source through one more Section boundary. A
-  // strict containment chain cannot be deeper than the number of Sections.
-  const maxPasses = Math.max(1, spatialSections.length + 1);
+  // Each pass can carry a moved source through one more container boundary. A
+  // strict containment chain cannot be deeper than the number of containers.
+  const maxPasses = Math.max(1, spatialContainers.length + 1);
   for (let pass = 0; pass < maxPasses; pass += 1) {
-    const sectionOffsets = new Map();
-    for (const section of spatialSections) {
-      if (!section.id) continue;
-      sectionOffsets.set(
-        section.id,
-        offsetForTargetGeom(rowGroups, section, relayTargets, inheritedOffsets),
+    const containerOffsets = new Map();
+    for (const container of spatialContainers) {
+      if (!container.id) continue;
+      containerOffsets.set(
+        container.id,
+        offsetForTargetGeom(rowGroups, container, relayTargets, inheritedOffsets),
       );
     }
 
@@ -514,7 +533,7 @@ export function resolveSectionAwareOffsets({
     for (const target of spatialTargets) {
       const ownerId = owners.get(target.id);
       if (!ownerId) continue;
-      const ownerOffset = sectionOffsets.get(ownerId);
+      const ownerOffset = containerOffsets.get(ownerId);
       if (Number.isFinite(ownerOffset) && ownerOffset !== 0) {
         nextInheritedOffsets.set(target.id, ownerOffset);
       }
@@ -531,13 +550,13 @@ export function resolveSectionAwareOffsets({
     );
   }
 
-  // Keep Sections available even if a caller supplied them separately from the
-  // general target list.
-  for (const [id, section] of sectionById) {
+  // Keep containers available even if a caller supplied them separately from
+  // the general target list.
+  for (const [id, container] of containerById) {
     if (offsets.has(id)) continue;
     offsets.set(
       id,
-      offsetForTargetGeom(rowGroups, section, relayTargets, inheritedOffsets),
+      offsetForTargetGeom(rowGroups, container, relayTargets, inheritedOffsets),
     );
   }
 
