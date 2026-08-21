@@ -1,5 +1,9 @@
 // Canvas Builder design document helpers.
 import { normalizeTableContent, TABLE_LIMITS } from './canvasDataTable.js';
+import {
+  resolveSelectedMemberGroupIds,
+  resolveSelectedMemberGroupRoles,
+} from './memberGroupCards.js';
 //
 // The canvas_design column on i_edit_page stores a versioned JSON document
 // describing a free-form page laid out by the Canvas Builder.
@@ -1541,6 +1545,7 @@ export const BLOCK_DEFAULTS = {
       limit: 6,
       source: 'self_join',
       selectedGroupIds: [],
+      selectedGroupRoles: {},
     },
   },
   [BLOCK_TYPES.CARD_DECK]: {
@@ -2750,6 +2755,15 @@ function normalizeBlock(block) {
   if (type === BLOCK_TYPES.DATA_TABLE) {
     normalized.content = normalizeTableContent(normalized.content);
   }
+  if (type === BLOCK_TYPES.MEMBER_GROUP_CARDS) {
+    normalized.content.selectedGroupIds = resolveSelectedMemberGroupIds(
+      normalized.content.selectedGroupIds,
+    );
+    normalized.content.selectedGroupRoles = resolveSelectedMemberGroupRoles(
+      normalized.content.selectedGroupRoles,
+      normalized.content.selectedGroupIds,
+    );
+  }
 
   // Task #1675: preserve resolved symbol children across re-normalization.
   // resolveSymbolsInDesign attaches a non-standard __symbolChildren array onto
@@ -3241,6 +3255,31 @@ export function validateBlock(block) {
           }
           if (ids.length > 24) errors.push('Member Group Cards can select at most 24 groups.');
           if (new Set(ids).size !== ids.length) errors.push('Member Group Cards selected groups must be unique.');
+        }
+      }
+      if (c.selectedGroupRoles !== undefined) {
+        if (
+          !c.selectedGroupRoles
+          || typeof c.selectedGroupRoles !== 'object'
+          || Array.isArray(c.selectedGroupRoles)
+        ) {
+          errors.push('Member Group Cards selected group roles must be an object.');
+        } else {
+          const selectedIds = new Set(
+            Array.isArray(c.selectedGroupIds)
+              ? c.selectedGroupIds.map((id) => String(id || '').trim()).filter(Boolean)
+              : [],
+          );
+          for (const [groupId, role] of Object.entries(c.selectedGroupRoles)) {
+            if (!selectedIds.has(String(groupId).trim())) {
+              errors.push('Member Group Cards roles may only be configured for selected groups.');
+              break;
+            }
+            if (typeof role !== 'string' || !role.trim()) {
+              errors.push('Member Group Cards configured roles must use non-empty names.');
+              break;
+            }
+          }
         }
       }
       break;

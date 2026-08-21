@@ -1,5 +1,6 @@
 export const DEFAULT_MEMBER_GROUP_CARD_LIMIT = 6;
 export const MAX_MEMBER_GROUP_CARD_LIMIT = 24;
+export const MAX_MEMBER_GROUP_ROLE_HOLDERS = 50;
 export const MEMBER_GROUP_CARD_SOURCE = Object.freeze({
   SELF_JOIN: 'self_join',
   SELECTED: 'selected',
@@ -22,6 +23,43 @@ export function resolveSelectedMemberGroupIds(value) {
     if (selected.length === MAX_MEMBER_GROUP_CARD_LIMIT) break;
   }
   return selected;
+}
+
+export function resolveSelectedMemberGroupRoles(value, selectedGroupIds) {
+  const selectedIds = resolveSelectedMemberGroupIds(selectedGroupIds);
+  const source = value && typeof value === 'object' && !Array.isArray(value)
+    ? value
+    : {};
+  const roles = {};
+  for (const groupId of selectedIds) {
+    const role = typeof source[groupId] === 'string'
+      ? source[groupId].trim()
+      : '';
+    if (role) roles[groupId] = role;
+  }
+  return roles;
+}
+
+export function buildMemberGroupRoleHolderRequests(groups, selectedGroupRoles) {
+  const availableGroupIds = new Set(
+    (Array.isArray(groups) ? groups : [])
+      .filter((group) => group?.id && group.is_active !== false)
+      .map((group) => String(group.id)),
+  );
+  const source = selectedGroupRoles
+    && typeof selectedGroupRoles === 'object'
+    && !Array.isArray(selectedGroupRoles)
+    ? selectedGroupRoles
+    : {};
+  const requests = [];
+  for (const [rawGroupId, rawRole] of Object.entries(source)) {
+    const groupId = String(rawGroupId || '').trim();
+    const role = typeof rawRole === 'string' ? rawRole.trim() : '';
+    if (!groupId || !role || !availableGroupIds.has(groupId)) continue;
+    requests.push({ groupId, role });
+    if (requests.length === MAX_MEMBER_GROUP_CARD_LIMIT) break;
+  }
+  return requests;
 }
 
 export function resolveMemberGroupCardLimit(value) {

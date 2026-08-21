@@ -684,6 +684,31 @@ class PublicClient {
       : '';
     return this._fetch(`/api/public/member-groups${query}`);
   }
+
+  async listMemberGroupMembers({
+    groupId,
+    roles = [],
+    page = 1,
+    limit = 12,
+    presentation,
+  } = {}) {
+    const id = String(groupId || '').trim();
+    if (!id) return null;
+    const params = new URLSearchParams({
+      groupId: id,
+      page: String(page),
+      limit: String(limit),
+    });
+    for (const role of [...new Set(
+      (Array.isArray(roles) ? roles : [])
+        .map((value) => String(value || '').trim())
+        .filter(Boolean),
+    )]) {
+      params.append('roles', role);
+    }
+    if (presentation) params.set('presentation', presentation);
+    return this._fetch(`/api/public/member-group-members?${params.toString()}`);
+  }
 }
 
 // Export singleton instance

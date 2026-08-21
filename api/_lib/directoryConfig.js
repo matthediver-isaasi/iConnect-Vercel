@@ -14,6 +14,16 @@ export const MEMBER_DISPLAY_DEFAULTS = {
   show_awards: true, show_bio_in_popup: true,
 };
 
+export function isMemberFieldVisibleOnFront(settings, key) {
+  const value = settings?.[key];
+  if (value === undefined || value === null) return true;
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'object' && !Array.isArray(value)) {
+    return value.front !== false;
+  }
+  return true;
+}
+
 // --- per-directory core-field visibility (mirror client logic) --------------
 //
 // dynamic_directory.core_field_visibility is a JSONB map:

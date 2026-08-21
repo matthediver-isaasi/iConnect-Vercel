@@ -59,6 +59,42 @@ test('authenticated card shows joined role, group-admin and vacancy indicators',
   assert.match(html, /Find out more/);
 });
 
+test('Canvas cards show every supplied safe holder while ordinary cards remain unchanged', () => {
+  const html = render({
+    featuredRole: 'Chair',
+    roleHolders: [
+      {
+        id: 'member-1',
+        name: 'Ada Lovelace',
+        job_title: 'Director',
+        organization_name: 'Analytical Society',
+        profile_photo_url: 'https://example.test/ada.jpg',
+      },
+      {
+        id: 'member-2',
+        first_name: 'Grace',
+        last_name: 'Hopper',
+        subtitle: 'Admiral',
+      },
+    ],
+  });
+  assert.match(html, /group-role-holders-group-1/);
+  assert.match(html, />Chair</);
+  assert.match(html, /Ada Lovelace/);
+  assert.match(html, /Director/);
+  assert.match(html, /Analytical Society/);
+  assert.match(html, /https:\/\/example.test\/ada.jpg/);
+  assert.match(html, /Grace Hopper/);
+  assert.match(html, /Admiral/);
+
+  const noPublishableHolder = render({
+    featuredRole: 'Chair',
+    roleHolders: [],
+  });
+  assert.ok(!noPublishableHolder.includes('group-role-holders-group-1'));
+  assert.ok(!render().includes('group-role-holders-group-1'));
+});
+
 test('standalone self-join cards preserve the legacy joined display for an existing assignment', () => {
   const html = render({
     isAuthenticated: true,

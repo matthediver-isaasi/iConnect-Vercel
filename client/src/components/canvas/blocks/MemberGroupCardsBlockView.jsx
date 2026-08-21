@@ -28,6 +28,7 @@ export default function MemberGroupCardsBlockView({
   asEditor,
   manualMode = false,
   selectedGroupCount = 0,
+  roleHolderByGroup = {},
 }) {
   const cards = Array.isArray(groups) ? groups : [];
 
@@ -86,6 +87,8 @@ export default function MemberGroupCardsBlockView({
               isGroupAdmin={groupAdminIds?.has(group.id)}
               openVacancyCount={openVacancyCountByGroup?.[group.id] || 0}
               asEditor={asEditor}
+              featuredRole={roleHolderByGroup?.[group.id]?.role}
+              roleHolders={roleHolderByGroup?.[group.id]?.holders}
             />
           ))}
         </div>

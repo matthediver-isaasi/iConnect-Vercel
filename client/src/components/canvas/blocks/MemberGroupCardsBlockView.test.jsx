@@ -45,6 +45,32 @@ test('the group card grid matches the Member Groups responsive treatment', () =>
   assert.match(html, /card-group-b/);
 });
 
+test('role-holder data is optional and one unavailable role does not block other cards', () => {
+  const html = render({
+    roleHolderByGroup: {
+      a: {
+        role: 'Chair',
+        holders: [{
+          id: 'member-1',
+          name: 'Ada Lovelace',
+          job_title: 'Director',
+          organization_name: 'Analytical Society',
+        }],
+      },
+      b: {
+        role: 'Treasurer',
+        holders: [],
+        isError: true,
+      },
+    },
+  });
+  assert.match(html, /card-group-a/);
+  assert.match(html, /card-group-b/);
+  assert.match(html, /group-role-holder-a-member-1/);
+  assert.match(html, /Ada Lovelace/);
+  assert.ok(!html.includes('Treasurer'));
+});
+
 test('loading, empty, failed and access restricted states are explicit', () => {
   assert.match(render({ groups: [], isLoading: true }), /member-group-cards-loading/);
   assert.match(render({ groups: [] }), /member-group-cards-empty/);

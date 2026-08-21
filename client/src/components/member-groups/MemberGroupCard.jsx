@@ -11,6 +11,14 @@ import {
   isMemberGroupCardActivationKey,
 } from '@/lib/memberGroupCards';
 
+function resolveHolderName(holder) {
+  return String(
+    holder?.name
+    || [holder?.first_name, holder?.last_name].filter(Boolean).join(' ')
+    || '',
+  ).trim();
+}
+
 export function guardMemberGroupCardEditorInteraction(event) {
   event.preventDefault();
   event.stopPropagation();
@@ -24,6 +32,8 @@ export default function MemberGroupCard({
   openVacancyCount = 0,
   asEditor = false,
   onNavigate,
+  featuredRole,
+  roleHolders,
 }) {
   const navigate = useNavigate();
   const hasAssignment = !!assignment;
@@ -38,6 +48,9 @@ export default function MemberGroupCard({
   const canOpenDetail = isSelfJoinGroup || (
     !!isAuthenticated && (hasCurrentAssignment || isGroupAdmin)
   );
+  const visibleRoleHolders = featuredRole && Array.isArray(roleHolders)
+    ? roleHolders.filter((holder) => holder?.id && resolveHolderName(holder))
+    : [];
 
   const activate = () => {
     if (!groupId || !canOpenDetail) return;
@@ -136,6 +149,55 @@ export default function MemberGroupCard({
             className="text-sm text-slate-600 mb-3 line-clamp-3 prose prose-sm max-w-none"
             dangerouslySetInnerHTML={{ __html: sanitizeRichText(group.description) }}
           />
+        )}
+        {visibleRoleHolders.length > 0 && (
+          <div
+            className="mb-3 space-y-2 border-y border-slate-100 py-3"
+            data-testid={`group-role-holders-${groupId}`}
+          >
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+              {featuredRole}
+            </p>
+            {visibleRoleHolders.map((holder) => {
+              const holderName = resolveHolderName(holder);
+              const photoUrl = holder.profile_photo_url || holder.image_url;
+              const jobTitle = holder.job_title || holder.subtitle;
+              return (
+                <div
+                  key={`${featuredRole}:${holder.id}`}
+                  className="flex items-center gap-2.5"
+                  data-testid={`group-role-holder-${groupId}-${holder.id}`}
+                >
+                  <div className="h-10 w-10 shrink-0 overflow-hidden rounded-full bg-slate-100">
+                    {photoUrl ? (
+                      <img
+                        src={photoUrl}
+                        alt=""
+                        className="h-full w-full object-cover"
+                        onError={(event) => {
+                          event.currentTarget.onerror = null;
+                          event.currentTarget.style.display = 'none';
+                        }}
+                      />
+                    ) : (
+                      <div className="flex h-full w-full items-center justify-center text-xs font-semibold text-slate-500">
+                        {holderName.split(/\s+/).map((part) => part[0]).slice(0, 2).join('').toUpperCase()}
+                      </div>
+                    )}
+                  </div>
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium text-slate-900">{holderName}</p>
+                    {jobTitle ? (
+                      <p className="truncate text-xs text-slate-600">{jobTitle}</p>
+                    ) : null}
+                    {holder.organization_name ? (
+                      <p className="truncate text-xs text-slate-500">{holder.organization_name}</p>
+                    ) : null}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         )}
         {isAuthenticated && isGroupAdmin && (
           <div className="mb-3">

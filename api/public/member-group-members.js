@@ -1,6 +1,9 @@
 import { createClient } from '@supabase/supabase-js';
 import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
-import { fetchMemberDisplaySettings } from '../_lib/directoryConfig.js';
+import {
+  fetchMemberDisplaySettings,
+  isMemberFieldVisibleOnFront,
+} from '../_lib/directoryConfig.js';
 
 // Public, tenant-scoped member-group member endpoint (Task #3685).
 //
@@ -29,6 +32,11 @@ const MEMBER_ASSIGNMENT_SELECT =
   `group_role, member:member!inner(${MEMBER_CARD_SELECT})`;
 const MEMBER_CARD_SELECT_WITHOUT_LINKEDIN =
   'id, first_name, last_name, job_title, profile_photo_url, handle, role_id, organization_id';
+const CANVAS_ROLE_HOLDER_PRESENTATION = 'canvas_role_holders';
+
+function normalizeGroupRole(value) {
+  return typeof value === 'string' ? value.trim() : '';
+}
 
 // Public shape of the group returned to embeds. Keep this intentionally
 // narrower than the standalone group page: Canvas needs only live display copy
@@ -39,7 +47,11 @@ function buildPublicGroupPayload(group) {
     id: group.id,
     name: group.name || null,
     description: group.description || null,
-    roles: Array.isArray(group.roles) ? group.roles.filter(Boolean) : [],
+    roles: [...new Set(
+      (Array.isArray(group.roles) ? group.roles : [])
+        .map(normalizeGroupRole)
+        .filter(Boolean),
+    )],
   };
 }
 
@@ -55,18 +67,25 @@ function parseRequestedRoles(rolesParam) {
 }
 
 function selectCurrentAssignments(assignments, groupRoles, requestedRoles, now = Date.now()) {
-  const allowedRoles = new Set(Array.isArray(groupRoles) ? groupRoles : []);
-  const filteredRoles = requestedRoles?.length ? new Set(requestedRoles) : null;
+  const allowedRoles = new Set(
+    (Array.isArray(groupRoles) ? groupRoles : [])
+      .map(normalizeGroupRole)
+      .filter(Boolean),
+  );
+  const filteredRoles = requestedRoles?.length
+    ? new Set(requestedRoles.map(normalizeGroupRole).filter(Boolean))
+    : null;
   const byMemberId = new Map();
   for (const assignment of assignments || []) {
     if (!assignment?.member_id || assignment.guest_id) continue;
-    if (!allowedRoles.has(assignment.group_role)) continue;
+    const assignmentRole = normalizeGroupRole(assignment.group_role);
+    if (!allowedRoles.has(assignmentRole)) continue;
     const expiry = assignment.expires_at ? Date.parse(assignment.expires_at) : null;
     if (expiry !== null && (!Number.isFinite(expiry) || expiry <= now)) continue;
-    if (filteredRoles && !filteredRoles.has(assignment.group_role)) continue;
+    if (filteredRoles && !filteredRoles.has(assignmentRole)) continue;
     if (!byMemberId.has(assignment.member_id)) {
       byMemberId.set(assignment.member_id, {
-        groupRole: assignment.group_role,
+        groupRole: assignmentRole,
         isGroupAdmin: assignment.is_group_admin === true,
       });
     }
@@ -147,6 +166,7 @@ async function handleMemberGroupMembers(req, res, dependencies = {}) {
   if (!groupId) return res.status(400).json({ error: 'groupId is required' });
 
   const requestedRoles = parseRequestedRoles(req.query.roles);
+  const roleHolderPresentation = req.query.presentation === CANVAS_ROLE_HOLDER_PRESENTATION;
 
   try {
     // Resolve the group and confirm it belongs to this tenant and is active.
@@ -165,7 +185,15 @@ async function handleMemberGroupMembers(req, res, dependencies = {}) {
     const group = groups?.[0];
     if (!group) return res.status(404).json({ error: 'Member group not found' });
 
-    const groupRoles = Array.isArray(group.roles) ? group.roles.filter(Boolean) : [];
+    const rawRolesByNormalized = new Map();
+    for (const rawRole of Array.isArray(group.roles) ? group.roles : []) {
+      const normalizedRole = normalizeGroupRole(rawRole);
+      if (!normalizedRole) continue;
+      const rawRoles = rawRolesByNormalized.get(normalizedRole) || [];
+      if (!rawRoles.includes(rawRole)) rawRoles.push(rawRole);
+      rawRolesByNormalized.set(normalizedRole, rawRoles);
+    }
+    const groupRoles = [...rawRolesByNormalized.keys()];
     const groupRoleSet = new Set(groupRoles);
 
     // Validate that every requested group-role actually belongs to this group.
@@ -179,9 +207,16 @@ async function handleMemberGroupMembers(req, res, dependencies = {}) {
       }
       roleFilter = new Set(requestedRoles);
     }
+    if (roleHolderPresentation && requestedRoles?.length !== 1) {
+      return res.status(400).json({
+        error: 'Canvas role-holder requests require exactly one configured role',
+      });
+    }
 
     const { pageNum, pageSize, offset } = parsePagination(page, limit);
-    const effectiveRoles = roleFilter ? [...roleFilter] : groupRoles;
+    const effectiveRoles = roleFilter
+      ? [...roleFilter].flatMap((role) => rawRolesByNormalized.get(role) || [])
+      : [...rawRolesByNormalized.values()].flat();
 
     // A group with no configured roles cannot have a publicly valid
     // assignment. Avoid emitting an invalid empty `in.()` PostgREST filter.
@@ -193,11 +228,13 @@ async function handleMemberGroupMembers(req, res, dependencies = {}) {
         total: 0,
         page: pageNum,
         pageSize,
-        config: {
-          displaySettings,
-          group: buildPublicGroupPayload(group),
-          requestedRoles: requestedRoles || null,
-        },
+        config: roleHolderPresentation
+          ? { requestedRoles: requestedRoles || null }
+          : {
+            displaySettings,
+            group: buildPublicGroupPayload(group),
+            requestedRoles: requestedRoles || null,
+          },
       });
     }
 
@@ -231,15 +268,26 @@ async function handleMemberGroupMembers(req, res, dependencies = {}) {
     }
     const pageMembers = (data || [])
       .map((assignment) => assignment?.member
-        ? { ...assignment.member, group_role: assignment.group_role || null }
+        ? {
+          ...assignment.member,
+          group_role: normalizeGroupRole(assignment.group_role) || null,
+        }
         : null)
       .filter(Boolean);
 
     // Config needed to render cards identically to the portal / guest view.
     const displaySettings = await fetchMemberDisplaySettings(supabase, tenantId);
 
-    // Resolve organisation names for this page's members.
-    const orgIds = [...new Set(pageMembers.map((m) => m.organization_id).filter(Boolean))];
+    // Resolve organisation names for this page's members. Canvas role-holder
+    // requests apply display settings on the server so hidden fields never
+    // enter the browser response.
+    const showOrganization = isMemberFieldVisibleOnFront(
+      displaySettings,
+      'show_organization',
+    );
+    const orgIds = showOrganization
+      ? [...new Set(pageMembers.map((m) => m.organization_id).filter(Boolean))]
+      : [];
     const orgNameById = {};
     if (orgIds.length > 0) {
       const { data: orgRows } = await supabase
@@ -265,18 +313,38 @@ async function handleMemberGroupMembers(req, res, dependencies = {}) {
       organization_name: m.organization_id ? (orgNameById[m.organization_id] || null) : null,
       group_role: m.group_role || null,
     }));
+    const responseRecords = roleHolderPresentation
+      ? records.map((record) => ({
+        id: record.id,
+        name: record.name,
+        group_role: record.group_role,
+        ...(isMemberFieldVisibleOnFront(displaySettings, 'show_profile_photo')
+          && record.profile_photo_url
+          ? { profile_photo_url: record.profile_photo_url }
+          : {}),
+        ...(isMemberFieldVisibleOnFront(displaySettings, 'show_job_title')
+          && record.job_title
+          ? { job_title: record.job_title }
+          : {}),
+        ...(showOrganization && record.organization_name
+          ? { organization_name: record.organization_name }
+          : {}),
+      }))
+      : records;
 
     return res.json({
       groupId: group.id,
-      records,
+      records: responseRecords,
       total: total || 0,
       page: pageNum,
       pageSize,
-      config: {
-        displaySettings,
-        group: buildPublicGroupPayload(group),
-        requestedRoles: requestedRoles || null,
-      },
+      config: roleHolderPresentation
+        ? { requestedRoles: requestedRoles || null }
+        : {
+          displaySettings,
+          group: buildPublicGroupPayload(group),
+          requestedRoles: requestedRoles || null,
+        },
     });
   } catch (err) {
     console.error('[PublicMemberGroupMembers] Error:', err);
@@ -297,4 +365,5 @@ export {
   handleMemberGroupMembers,
   MEMBER_ASSIGNMENT_SELECT,
   MEMBER_CARD_SELECT,
+  CANVAS_ROLE_HOLDER_PRESENTATION,
 };

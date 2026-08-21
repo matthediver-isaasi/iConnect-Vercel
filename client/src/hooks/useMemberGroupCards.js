@@ -1,15 +1,57 @@
 import { useMemo } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQueries, useQuery } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { publicClient } from '@/api/publicClient';
 import { useMemberAccess } from '@/hooks/useMemberAccess';
 import { useLayoutContext } from '@/contexts/LayoutContext';
 import {
   MEMBER_GROUP_CARD_SOURCE,
+  MAX_MEMBER_GROUP_ROLE_HOLDERS,
+  buildMemberGroupRoleHolderRequests,
   resolveMemberGroupCardsAccess,
   resolveMemberGroupCardSource,
   resolveSelectedMemberGroupIds,
 } from '@/lib/memberGroupCards';
+
+export function useMemberGroupRoleHolders({
+  groups,
+  selectedGroupRoles,
+  enabled = true,
+} = {}) {
+  const requests = useMemo(
+    () => buildMemberGroupRoleHolderRequests(groups, selectedGroupRoles),
+    [groups, selectedGroupRoles],
+  );
+  const queries = useQueries({
+    queries: requests.map(({ groupId, role }) => ({
+      queryKey: ['canvas', 'member-group-role-holders', groupId, role],
+      queryFn: () => publicClient.listMemberGroupMembers({
+        groupId,
+        roles: [role],
+        page: 1,
+        limit: MAX_MEMBER_GROUP_ROLE_HOLDERS,
+        presentation: 'canvas_role_holders',
+      }),
+      enabled,
+      retry: 1,
+      staleTime: 60_000,
+    })),
+  });
+
+  return useMemo(() => {
+    const byGroup = {};
+    requests.forEach(({ groupId, role }, index) => {
+      const query = queries[index];
+      byGroup[groupId] = {
+        role,
+        holders: Array.isArray(query?.data?.records) ? query.data.records : [],
+        isLoading: !!query?.isLoading,
+        isError: !!query?.isError,
+      };
+    });
+    return byGroup;
+  }, [queries, requests]);
+}
 
 export function useMemberGroupCardsData({ source, selectedGroupIds } = {}) {
   const { memberInfo, isFeatureExcluded, isAccessReady } = useMemberAccess();

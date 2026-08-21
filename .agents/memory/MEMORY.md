@@ -145,3 +145,4 @@
 - [GoCardless Drop-in modal](gocardless-dropin.md) — DD start endpoints return flowId+environment; shared GoCardlessDropinFlow wrapper opens modal, onLoadFailure falls back to hosted redirect.
 - [Tenant feed cron fairness](tenant-feed-cron-fairness.md) — time-bounded tenant feed crons need an ordered durable cursor, or the first page silently starves later tenants.
 - [Simple-event timing invariants](simple-event-timing-invariants.md) — enforce timing rules before event-write admin bypasses; training normalizes timing, while public reads suppress stale schedule data.
+- [Public directory field privacy](public-directory-field-privacy.md) — public projections must enforce both member eligibility and tenant field visibility server-side.

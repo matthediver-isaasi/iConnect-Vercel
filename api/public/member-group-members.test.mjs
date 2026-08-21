@@ -9,6 +9,7 @@ import {
   handleMemberGroupMembers,
   MEMBER_ASSIGNMENT_SELECT,
   MEMBER_CARD_SELECT,
+  CANVAS_ROLE_HOLDER_PRESENTATION,
 } from './member-group-members.js';
 
 class FakeQuery {
@@ -285,7 +286,7 @@ test('buildPublicGroupPayload exposes public metadata and normalises collections
     id: 'g1',
     name: 'Advisory Board',
     description: 'desc',
-    roles: ['Chair', null, 'Member'],
+    roles: [' Chair ', null, 'Member', 'Chair'],
     is_active: true,
   });
   assert.equal(payload.id, 'g1');
@@ -422,6 +423,166 @@ test('handler applies a valid configured role filter to the joined page', async 
   assert.equal(res.body.total, 1);
   assert.deepEqual(res.body.records.map((record) => record.id), ['chair']);
   assert.equal(res.body.records[0].group_role, 'Chair');
+});
+
+test('configured role lookup returns every publishable holder using only safe card fields', async () => {
+  const { res } = await requestEndpoint({
+    query: {
+      groupId: 'group-1',
+      roles: 'Chair',
+      limit: '50',
+      presentation: CANVAS_ROLE_HOLDER_PRESENTATION,
+    },
+    tables: baseTables({
+      member_group_assignment: [
+        { tenant_id: 'tenant-1', group_id: 'group-1', member_id: 'chair-1', guest_id: null, group_role: 'Chair', expires_at: null },
+        { tenant_id: 'tenant-1', group_id: 'group-1', member_id: 'chair-2', guest_id: null, group_role: 'Chair', expires_at: null },
+        { tenant_id: 'tenant-1', group_id: 'group-1', member_id: 'hidden-chair', guest_id: null, group_role: 'Chair', expires_at: null },
+      ],
+      member: [
+        {
+          id: 'chair-1',
+          tenant_id: 'tenant-1',
+          first_name: 'Ada',
+          last_name: 'Lovelace',
+          job_title: 'Director',
+          profile_photo_url: '/ada.jpg',
+          organization_id: 'org-1',
+          email: 'ada@example.test',
+        },
+        {
+          id: 'chair-2',
+          tenant_id: 'tenant-1',
+          first_name: 'Grace',
+          last_name: 'Hopper',
+          email: 'grace@example.test',
+        },
+        {
+          id: 'hidden-chair',
+          tenant_id: 'tenant-1',
+          first_name: 'Hidden',
+          show_in_directory: false,
+          email: 'hidden@example.test',
+        },
+      ],
+      organization: [{ id: 'org-1', name: 'Analytical Society' }],
+    }),
+  });
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(res.body.records.map((record) => record.name), [
+    'Ada Lovelace',
+    'Grace Hopper',
+  ]);
+  assert.equal(res.body.records[0].group_role, 'Chair');
+  assert.equal(res.body.records[0].job_title, 'Director');
+  assert.equal(res.body.records[0].profile_photo_url, '/ada.jpg');
+  assert.equal(res.body.records[0].organization_name, 'Analytical Society');
+  assert.deepEqual(Object.keys(res.body.records[0]).sort(), [
+    'group_role',
+    'id',
+    'job_title',
+    'name',
+    'organization_name',
+    'profile_photo_url',
+  ]);
+  assert.deepEqual(Object.keys(res.body.config), ['requestedRoles']);
+});
+
+test('Canvas role-holder projection omits tenant-hidden profile fields at the server boundary', async () => {
+  const { res } = await requestEndpoint({
+    query: {
+      groupId: 'group-1',
+      roles: 'Chair',
+      presentation: CANVAS_ROLE_HOLDER_PRESENTATION,
+    },
+    tables: baseTables({
+      member_group_assignment: [{
+        tenant_id: 'tenant-1',
+        group_id: 'group-1',
+        member_id: 'chair',
+        guest_id: null,
+        group_role: 'Chair',
+        expires_at: null,
+      }],
+      member: [{
+        id: 'chair',
+        tenant_id: 'tenant-1',
+        first_name: 'Ada',
+        last_name: 'Lovelace',
+        job_title: 'Director',
+        profile_photo_url: '/ada.jpg',
+        organization_id: 'org-1',
+        email: 'ada@example.test',
+      }],
+      organization: [{ id: 'org-1', name: 'Analytical Society' }],
+      system_settings: [{
+        tenant_id: 'tenant-1',
+        setting_key: 'member_directory_display',
+        setting_value: JSON.stringify({
+          show_profile_photo: { front: false, back: true },
+          show_job_title: false,
+          show_organization: { front: false },
+        }),
+      }],
+    }),
+  });
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(res.body.records, [{
+    id: 'chair',
+    name: 'Ada Lovelace',
+    group_role: 'Chair',
+  }]);
+});
+
+test('role filters match every stored whitespace variant of a normalized configured role', async () => {
+  const { res } = await requestEndpoint({
+    query: {
+      groupId: 'group-1',
+      roles: 'Chair',
+      presentation: CANVAS_ROLE_HOLDER_PRESENTATION,
+    },
+    tables: baseTables({
+      member_group: [{
+        id: 'group-1',
+        tenant_id: 'tenant-1',
+        name: 'Leadership',
+        roles: ['Chair', ' Chair '],
+        is_active: true,
+      }],
+      member_group_assignment: [{
+        tenant_id: 'tenant-1',
+        group_id: 'group-1',
+        member_id: 'chair-1',
+        guest_id: null,
+        group_role: ' Chair ',
+        expires_at: null,
+      }, {
+        tenant_id: 'tenant-1',
+        group_id: 'group-1',
+        member_id: 'chair-2',
+        guest_id: null,
+        group_role: 'Chair',
+        expires_at: null,
+      }],
+      member: [{
+        id: 'chair-1',
+        tenant_id: 'tenant-1',
+        first_name: 'Ada',
+        email: 'ada@example.test',
+      }, {
+        id: 'chair-2',
+        tenant_id: 'tenant-1',
+        first_name: 'Grace',
+        email: 'grace@example.test',
+      }],
+    }),
+  });
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body.total, 2);
+  assert.deepEqual(
+    res.body.records.map((record) => [record.name, record.group_role]),
+    [['Ada', 'Chair'], ['Grace', 'Chair']],
+  );
 });
 
 test('handler enforces assignment and directory privacy before deterministic pagination', async () => {

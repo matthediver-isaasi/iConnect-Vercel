@@ -69,12 +69,16 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 import { DirectoryMemberCard, DirectoryOrganizationCard } from '@/components/directory/DirectoryCards';
 import MemberGroupBlockView, { resolveMemberGroupGrid } from './MemberGroupBlockView';
 import MemberGroupCardsBlockView from './MemberGroupCardsBlockView';
-import { useMemberGroupCardsData } from '@/hooks/useMemberGroupCards';
+import {
+  useMemberGroupCardsData,
+  useMemberGroupRoleHolders,
+} from '@/hooks/useMemberGroupCards';
 import {
   MEMBER_GROUP_CARD_SOURCE,
   resolveMemberGroupCardLimit,
   resolveMemberGroupCardSource,
   resolveSelectedMemberGroupIds,
+  resolveSelectedMemberGroupRoles,
   selectSelectedMemberGroups,
   selectSelfJoinMemberGroups,
 } from '@/lib/memberGroupCards';
@@ -178,9 +182,9 @@ function ResponsiveNumberField({ label, value, onChange, breakpoint, min, max, s
     </Field>
   );
 }
-function SelectField({ label, value, onChange, options, testId, disabled, warning }) {
+function SelectField({ label, value, onChange, options, testId, disabled, warning, hint }) {
   return (
-    <Field label={label}>
+    <Field label={label} hint={hint}>
       <Select value={value || ''} onValueChange={onChange} disabled={disabled}>
         <SelectTrigger className="h-8" data-testid={testId}><SelectValue /></SelectTrigger>
         <SelectContent>
@@ -6100,25 +6104,12 @@ function useMemberGroupBreakpoint(editorBreakpoint) {
 function useMemberGroupMembers({ groupId, roles, page, limit }) {
   return useQuery({
     queryKey: ['canvas', 'public-member-group', groupId, roles, page, limit],
-    queryFn: async () => {
-      const tenant = publicClient.getTenantSlug();
-      const params = new URLSearchParams();
-      params.set('groupId', groupId);
-      params.set('page', String(page));
-      params.set('limit', String(limit));
-      for (const role of roles || []) params.append('roles', role);
-      if (tenant) params.set('tenant', tenant);
-      const res = await fetch(`/api/public/member-group-members?${params.toString()}`);
-      if (!res.ok) {
-        let message = 'Member group fetch failed';
-        try {
-          const payload = await res.json();
-          if (payload?.error) message = payload.error;
-        } catch {}
-        throw new Error(message);
-      }
-      return res.json();
-    },
+    queryFn: () => publicClient.listMemberGroupMembers({
+      groupId,
+      roles,
+      page,
+      limit,
+    }),
     enabled: !!groupId,
     keepPreviousData: true,
     staleTime: 60_000,
@@ -6254,6 +6245,10 @@ function MemberGroupCardsRender({ block, asEditor }) {
   const c = block.content || {};
   const source = resolveMemberGroupCardSource(c.source);
   const selectedGroupIds = resolveSelectedMemberGroupIds(c.selectedGroupIds);
+  const selectedGroupRoles = resolveSelectedMemberGroupRoles(
+    c.selectedGroupRoles,
+    selectedGroupIds,
+  );
   const manualMode = source === MEMBER_GROUP_CARD_SOURCE.SELECTED;
   const data = useMemberGroupCardsData({ source, selectedGroupIds });
   const limit = resolveMemberGroupCardLimit(c.limit);
@@ -6263,6 +6258,11 @@ function MemberGroupCardsRender({ block, asEditor }) {
       : selectSelfJoinMemberGroups(data.groups, limit)),
     [data.groups, limit, manualMode, selectedGroupIds],
   );
+  const roleHolderByGroup = useMemberGroupRoleHolders({
+    groups,
+    selectedGroupRoles,
+    enabled: manualMode,
+  });
 
   return (
     <MemberGroupCardsBlockView
@@ -6279,6 +6279,7 @@ function MemberGroupCardsRender({ block, asEditor }) {
       asEditor={asEditor}
       manualMode={manualMode}
       selectedGroupCount={selectedGroupIds.length}
+      roleHolderByGroup={roleHolderByGroup}
     />
   );
 }
@@ -6293,6 +6294,10 @@ function MemberGroupCardsInspector({ block, update }) {
   const source = resolveMemberGroupCardSource(c.source);
   const manualMode = source === MEMBER_GROUP_CARD_SOURCE.SELECTED;
   const selectedGroupIds = resolveSelectedMemberGroupIds(c.selectedGroupIds);
+  const selectedGroupRoles = resolveSelectedMemberGroupRoles(
+    c.selectedGroupRoles,
+    selectedGroupIds,
+  );
   const {
     data: groups = [],
     isLoading,
@@ -6322,6 +6327,16 @@ function MemberGroupCardsInspector({ block, update }) {
   )).slice(0, 12);
   const setSelectedGroupIds = (ids) => set({
     selectedGroupIds: resolveSelectedMemberGroupIds(ids),
+    selectedGroupRoles: resolveSelectedMemberGroupRoles(
+      selectedGroupRoles,
+      resolveSelectedMemberGroupIds(ids),
+    ),
+  });
+  const setSelectedGroupRole = (groupId, role) => set({
+    selectedGroupRoles: resolveSelectedMemberGroupRoles({
+      ...selectedGroupRoles,
+      [groupId]: role,
+    }, selectedGroupIds),
   });
   const moveSelected = (index, direction) => {
     const nextIndex = index + direction;
@@ -6413,29 +6428,68 @@ function MemberGroupCardsInspector({ block, update }) {
                 const group = groupById.get(id);
                 const unavailable = !group;
                 const label = group?.name || 'Unavailable selection';
+                const groupRoles = [...new Set(
+                  (Array.isArray(group?.roles) ? group.roles : [])
+                    .map((role) => String(role || '').trim())
+                    .filter(Boolean),
+                )];
+                const configuredRole = selectedGroupRoles[id] || '';
+                const staleRole = !!configuredRole && !groupRoles.includes(configuredRole);
+                const noRoleValue = '__canvas_no_group_role__';
+                const roleOptions = [
+                  { value: noRoleValue, label: 'Do not show a role' },
+                  ...groupRoles.map((role) => ({ value: role, label: role })),
+                ];
+                if (staleRole) {
+                  roleOptions.push({
+                    value: configuredRole,
+                    label: `${configuredRole} (unavailable)`,
+                  });
+                }
                 return (
                   <div
                     key={id}
-                    className={`flex items-center gap-1 rounded-md border px-2 py-1 ${
+                    className={`rounded-md border px-2 py-1 ${
                       unavailable
                         ? 'border-amber-200 bg-amber-50 text-amber-800'
                         : 'border-slate-200 text-slate-700'
                     }`}
                     data-testid={unavailable ? `member-group-card-unavailable-${id}` : `member-group-card-selected-${id}`}
                   >
-                    <span className="min-w-0 flex-1 truncate text-xs">
-                      {label}
-                      {group ? <span className="text-slate-400"> ({groupKind(group)})</span> : null}
-                    </span>
-                    <Button size="icon" variant="ghost" disabled={index === 0} onClick={() => moveSelected(index, -1)} aria-label={`Move ${label} up`} data-testid={`button-member-group-card-up-${id}`}>
-                      <ChevronUp className="w-3 h-3" />
-                    </Button>
-                    <Button size="icon" variant="ghost" disabled={index === selectedGroupIds.length - 1} onClick={() => moveSelected(index, 1)} aria-label={`Move ${label} down`} data-testid={`button-member-group-card-down-${id}`}>
-                      <ChevronDown className="w-3 h-3" />
-                    </Button>
-                    <Button size="sm" variant="ghost" onClick={() => setSelectedGroupIds(selectedGroupIds.filter((selectedId) => selectedId !== id))} data-testid={`button-remove-member-group-card-${id}`}>
-                      Remove
-                    </Button>
+                    <div className="flex items-center gap-1">
+                      <span className="min-w-0 flex-1 truncate text-xs">
+                        {label}
+                        {group ? <span className="text-slate-400"> ({groupKind(group)})</span> : null}
+                      </span>
+                      <Button size="icon" variant="ghost" disabled={index === 0} onClick={() => moveSelected(index, -1)} aria-label={`Move ${label} up`} data-testid={`button-member-group-card-up-${id}`}>
+                        <ChevronUp className="w-3 h-3" />
+                      </Button>
+                      <Button size="icon" variant="ghost" disabled={index === selectedGroupIds.length - 1} onClick={() => moveSelected(index, 1)} aria-label={`Move ${label} down`} data-testid={`button-member-group-card-down-${id}`}>
+                        <ChevronDown className="w-3 h-3" />
+                      </Button>
+                      <Button size="sm" variant="ghost" onClick={() => setSelectedGroupIds(selectedGroupIds.filter((selectedId) => selectedId !== id))} data-testid={`button-remove-member-group-card-${id}`}>
+                        Remove
+                      </Button>
+                    </div>
+                    <div className="mt-1.5">
+                      <SelectField
+                        label="Role to show"
+                        value={configuredRole || noRoleValue}
+                        onChange={(role) => setSelectedGroupRole(
+                          id,
+                          role === noRoleValue ? '' : role,
+                        )}
+                        options={roleOptions}
+                        disabled={unavailable || groupRoles.length === 0}
+                        hint={!unavailable && groupRoles.length === 0
+                          ? 'This group has no configured roles.'
+                          : 'Optional. Current directory-visible holders appear on this Canvas card.'}
+                        warning={staleRole
+                          ? `The saved role “${configuredRole}” is no longer configured for this group.`
+                          : undefined}
+                        testId={`select-member-group-card-role-${id}`}
+                      />
+                    </div>
                   </div>
                 );
               })}

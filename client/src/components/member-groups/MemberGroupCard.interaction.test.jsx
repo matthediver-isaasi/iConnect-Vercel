@@ -111,12 +111,19 @@ test('closed CTA is disabled while whole-card detail activation remains availabl
 });
 
 test('editor mode suppresses card, CTA and keyboard navigation without trapping Tab', async () => {
-  const view = await mount({ asEditor: true, isAuthenticated: true });
+  const view = await mount({
+    asEditor: true,
+    isAuthenticated: true,
+    featuredRole: 'Chair',
+    roleHolders: [{ id: 'member-1', name: 'Ada Lovelace' }],
+  });
   const card = view.container.querySelector('[data-testid="card-group-group-1"]');
   const cta = view.container.querySelector('[data-testid="button-find-out-more-group-1"]');
+  const holder = view.container.querySelector('[data-testid="group-role-holder-group-1-member-1"]');
 
   await act(async () => click(card));
   await act(async () => click(cta));
+  await act(async () => click(holder));
   await act(async () => press(card, 'Enter'));
   const tabEvent = new window.KeyboardEvent('keydown', {
     key: 'Tab',
