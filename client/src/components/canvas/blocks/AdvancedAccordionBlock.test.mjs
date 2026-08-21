@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
 import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
+import { Simulate } from 'react-dom/test-utils';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 // Some shared Canvas dependencies resolve the tenant from window.location at
 // module evaluation time. Provide a tiny browser before importing the block.
@@ -14,11 +16,25 @@ global.document = bootstrapDom.window.document;
 global.navigator = bootstrapDom.window.navigator;
 global.localStorage = bootstrapDom.window.localStorage;
 global.sessionStorage = bootstrapDom.window.sessionStorage;
+global.React = React;
+global.HTMLElement = bootstrapDom.window.HTMLElement;
+global.Element = bootstrapDom.window.Element;
+global.Node = bootstrapDom.window.Node;
 const {
   AdvancedAccordionInspector,
   AdvancedAccordionRender,
 } = await import('./AdvancedAccordionBlock.jsx');
-const { BLOCK_TYPES, createBlock } = await import('../../../lib/canvasDesign.js');
+const {
+  BLOCK_TYPES,
+  CANVAS_FLOW_VERSION,
+  createBlock,
+  createFlowNode,
+  createFlowSection,
+} = await import('../../../lib/canvasDesign.js');
+const { DndContext } = await import('@dnd-kit/core');
+const { default: CanvasStage } = await import('../CanvasStage.jsx');
+const { default: CanvasFlowEditorStage } = await import('../CanvasFlowEditorStage.jsx');
+const { getBlockDefinition: getRegisteredBlockDefinition } = await import('./registry.jsx');
 
 let dom;
 let container;
@@ -31,11 +47,20 @@ beforeEach(() => {
   global.window = dom.window;
   global.document = dom.window.document;
   global.navigator = dom.window.navigator;
+  global.React = React;
   global.HTMLElement = dom.window.HTMLElement;
   global.Element = dom.window.Element;
   global.Node = dom.window.Node;
   global.DocumentFragment = dom.window.DocumentFragment;
   global.CustomEvent = dom.window.CustomEvent;
+  global.MutationObserver = dom.window.MutationObserver;
+  global.getComputedStyle = dom.window.getComputedStyle;
+  global.ResizeObserver = class ResizeObserver {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  };
+  window.ResizeObserver = global.ResizeObserver;
   global.requestAnimationFrame = (callback) => setTimeout(callback, 0);
   global.cancelAnimationFrame = clearTimeout;
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -49,11 +74,15 @@ afterEach(async () => {
   delete global.window;
   delete global.document;
   delete global.navigator;
+  delete global.React;
   delete global.HTMLElement;
   delete global.Element;
   delete global.Node;
   delete global.DocumentFragment;
   delete global.CustomEvent;
+  delete global.MutationObserver;
+  delete global.getComputedStyle;
+  delete global.ResizeObserver;
   delete global.requestAnimationFrame;
   delete global.cancelAnimationFrame;
 });
@@ -85,6 +114,23 @@ function makeBlock(patch = {}) {
   };
 }
 
+function makeStageBlock(patch = {}) {
+  const block = makeBlock({ initialState: 'first', ...patch });
+  return {
+    ...block,
+    content: {
+      ...block.content,
+      items: block.content.items.map((item) => ({
+        ...item,
+        children: [createBlock(BLOCK_TYPES.SPACER, {
+          id: `${item.id}-stage-child`,
+          content: { height: 24 },
+        })],
+      })),
+    },
+  };
+}
+
 async function render(block, props = {}) {
   await act(async () => {
     root.render(React.createElement(AdvancedAccordionRender, {
@@ -93,6 +139,27 @@ async function render(block, props = {}) {
       ...props,
     }));
   });
+}
+
+function pointerDown(element, options = {}) {
+  element.dispatchEvent(new window.MouseEvent('pointerdown', {
+    bubbles: true,
+    button: 0,
+    ...options,
+  }));
+}
+
+function assertBlockIdentityPreserved(before, after) {
+  assert.equal(after.type, BLOCK_TYPES.ADVANCED_ACCORDION);
+  assert.equal(after.id, before.id);
+  assert.equal(after.name, before.name);
+  assert.equal(after.anchorId, before.anchorId);
+  assert.equal(after.locked, before.locked);
+  assert.equal(after.groupId, before.groupId);
+  assert.equal(after.fullWidth, before.fullWidth);
+  assert.deepEqual(after.bp, before.bp);
+  assert.deepEqual(after.style, before.style);
+  assert.deepEqual(after.a11y, before.a11y);
 }
 
 test('renders semantic disclosure relationships and hides collapsed descendants', async () => {
@@ -220,7 +287,7 @@ test('renders descendants inside a responsive nested row layout', async () => {
   assert.equal(row.firstElementChild.style.flexDirection, 'column');
 });
 
-test('inspector accepts the normal Canvas update prop', async () => {
+test('inspector edits use the functional Canvas contract and preserve the complete block', async () => {
   const block = makeBlock();
   const updates = [];
   await act(async () => {
@@ -236,5 +303,214 @@ test('inspector accepts the normal Canvas update prop', async () => {
   assert.ok(addItem);
   await act(async () => addItem.click());
   assert.equal(updates.length, 1);
-  assert.equal(updates[0].content.items.length, block.content.items.length + 1);
+  assert.equal(typeof updates[0], 'function');
+  const next = updates[0](block);
+  assertBlockIdentityPreserved(block, next);
+  assert.equal(next.content.items.length, block.content.items.length + 1);
+});
+
+test('representative behaviour, item, nested-content, and visual edits all preserve block metadata', async () => {
+  const block = makeBlock();
+  const updates = [];
+  await act(async () => {
+    root.render(React.createElement(AdvancedAccordionInspector, {
+      block,
+      update: (updater) => updates.push(updater),
+      getBlockDefinition,
+      listPaletteBlocks: () => [],
+    }));
+  });
+
+  const syncHashSwitch = container.querySelector('button[role="switch"]');
+  assert.ok(syncHashSwitch);
+  await act(async () => syncHashSwitch.click());
+
+  const titleInput = container.querySelector('[data-testid="advanced-accordion-item-title"]');
+  assert.ok(titleInput);
+  await act(async () => Simulate.change(titleInput, {
+    target: { value: 'Updated panel title' },
+  }));
+
+  const addChild = Array.from(container.querySelectorAll('button'))
+    .find((button) => button.textContent.includes('Add to panel'));
+  assert.ok(addChild);
+  await act(async () => addChild.click());
+
+  const itemSpacingLabel = Array.from(container.querySelectorAll('label'))
+    .find((label) => label.textContent === 'Item spacing');
+  const itemSpacingInput = itemSpacingLabel?.parentElement?.querySelector('input');
+  assert.ok(itemSpacingInput);
+  await act(async () => Simulate.change(itemSpacingInput, {
+    target: { value: '24' },
+  }));
+
+  assert.equal(updates.length, 4);
+  const results = updates.map((updater) => {
+    assert.equal(typeof updater, 'function');
+    const next = updater(block);
+    assertBlockIdentityPreserved(block, next);
+    return next;
+  });
+  assert.equal(results[0].content.syncHashOnOpen, !block.content.syncHashOnOpen);
+  assert.equal(results[1].content.items[0].title, 'Updated panel title');
+  assert.equal(
+    results[2].content.items[0].children.length,
+    block.content.items[0].children.length + 1,
+  );
+  assert.equal(results[3].content.styles.itemGap ?? results[3].content.itemGap, 24);
+});
+
+test('editor pointer bridge selects the parent while header toggling and nested selection still work', async () => {
+  const block = makeBlock({ initialState: 'first' });
+  const selected = [];
+  const bubbled = [];
+  const nestedSelections = [];
+  const onNestedSelect = (event) => nestedSelections.push(event.detail);
+  window.addEventListener('canvas:advanced-accordion-select', onNestedSelect);
+
+  await act(async () => {
+    root.render(React.createElement(
+      'div',
+      { onPointerDown: () => bubbled.push(true) },
+      React.createElement(AdvancedAccordionRender, {
+        block,
+        asEditor: true,
+        getBlockDefinition,
+        onSelectParent: () => selected.push(block.id),
+      }),
+    ));
+  });
+
+  const header = container.querySelector('button[aria-expanded]');
+  assert.equal(header.getAttribute('aria-expanded'), 'true');
+  await act(async () => pointerDown(header));
+  assert.deepEqual(selected, [block.id]);
+  assert.equal(bubbled.length, 0);
+  await act(async () => header.click());
+  assert.equal(header.getAttribute('aria-expanded'), 'false');
+
+  const child = container.querySelector('[data-advanced-accordion-child]');
+  assert.ok(child);
+  await act(async () => pointerDown(child));
+  assert.deepEqual(selected, [block.id, block.id]);
+  assert.equal(bubbled.length, 0);
+  assert.equal(nestedSelections.at(-1)?.parentId, block.id);
+  assert.equal(nestedSelections.at(-1)?.childId, child.dataset.advancedAccordionChild);
+  assert.equal(header.getAttribute('aria-expanded'), 'true');
+
+  window.removeEventListener('canvas:advanced-accordion-select', onNestedSelect);
+});
+
+test('absolute Canvas stage selects Advanced Accordion from its interactive header and nested child', async () => {
+  const block = makeStageBlock();
+  const selections = [];
+  const nestedSelections = [];
+  const onNestedSelect = (event) => nestedSelections.push(event.detail);
+  window.addEventListener('canvas:advanced-accordion-select', onNestedSelect);
+  await act(async () => {
+    root.render(React.createElement(
+      DndContext,
+      null,
+      React.createElement(CanvasStage, {
+        blocks: [block],
+        selectedIds: [],
+        breakpoint: 'desktop',
+        canvasWidth: 1200,
+        canvasHeight: 800,
+        onSelect: (ids) => selections.push(ids),
+        onApplyGeometry: () => {},
+        onMarqueeSelect: () => {},
+      }),
+    ));
+  });
+
+  const header = container.querySelector('button[aria-expanded]');
+  const child = container.querySelector('[data-advanced-accordion-child]');
+  assert.ok(header);
+  assert.ok(child);
+  await act(async () => pointerDown(header));
+  await act(async () => header.click());
+  assert.equal(header.getAttribute('aria-expanded'), 'false');
+  await act(async () => pointerDown(child));
+  assert.deepEqual(selections, [[block.id], [block.id]]);
+  assert.equal(nestedSelections.at(-1)?.parentId, block.id);
+  assert.equal(nestedSelections.at(-1)?.childId, child.dataset.advancedAccordionChild);
+  assert.equal(header.getAttribute('aria-expanded'), 'true');
+  window.removeEventListener('canvas:advanced-accordion-select', onNestedSelect);
+});
+
+test('flow Canvas stage selects Advanced Accordion from its interactive header and nested child', async () => {
+  const stageBlock = makeStageBlock();
+  const accordion = createFlowNode(BLOCK_TYPES.ADVANCED_ACCORDION, {
+    id: 'flow-advanced-accordion',
+    content: stageBlock.content,
+  });
+  const section = createFlowSection({
+    id: 'flow-section',
+    children: [accordion],
+  });
+  const design = {
+    version: CANVAS_FLOW_VERSION,
+    root: {
+      layout: 'flow',
+      sections: [section],
+    },
+  };
+  const selections = [];
+  const nestedSelections = [];
+  const onNestedSelect = (event) => nestedSelections.push(event.detail);
+  window.addEventListener('canvas:advanced-accordion-select', onNestedSelect);
+  await act(async () => {
+    root.render(React.createElement(
+      DndContext,
+      null,
+      React.createElement(CanvasFlowEditorStage, {
+        design,
+        breakpoint: 'desktop',
+        canvasWidth: 1200,
+        canvasHeight: 800,
+        selectedIds: [],
+        onSelect: (ids) => selections.push(ids),
+      }),
+    ));
+  });
+
+  const header = container.querySelector('button[aria-expanded]');
+  const child = container.querySelector('[data-advanced-accordion-child]');
+  assert.ok(header);
+  assert.ok(child);
+  await act(async () => pointerDown(header));
+  await act(async () => header.click());
+  assert.equal(header.getAttribute('aria-expanded'), 'false');
+  await act(async () => pointerDown(child));
+  assert.deepEqual(selections, [[accordion.id], [accordion.id]]);
+  assert.equal(nestedSelections.at(-1)?.parentId, accordion.id);
+  assert.equal(nestedSelections.at(-1)?.childId, child.dataset.advancedAccordionChild);
+  assert.equal(header.getAttribute('aria-expanded'), 'true');
+  window.removeEventListener('canvas:advanced-accordion-select', onNestedSelect);
+});
+
+test('legacy FAQ Accordion remains non-interactive in the editor and keeps its disclosure behaviour', async () => {
+  const definition = getRegisteredBlockDefinition(BLOCK_TYPES.ACCORDION);
+  assert.notEqual(definition.editorInteractive, true);
+
+  const block = createBlock(BLOCK_TYPES.ACCORDION);
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  queryClient.setQueryData(['/api/public/typography-styles', null], []);
+  await act(async () => {
+    root.render(React.createElement(
+      QueryClientProvider,
+      { client: queryClient },
+      React.createElement(definition.Renderer, { block }),
+    ));
+  });
+
+  const header = container.querySelector('button[aria-expanded]');
+  assert.equal(header.getAttribute('aria-expanded'), 'false');
+  await act(async () => header.click());
+  assert.equal(header.getAttribute('aria-expanded'), 'true');
+  await act(async () => header.click());
+  assert.equal(header.getAttribute('aria-expanded'), 'false');
 });

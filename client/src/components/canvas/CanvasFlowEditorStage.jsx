@@ -105,7 +105,14 @@ function FlowLeaf({ node, box, breakpoint, isSelected, measureRef, onSelect }) {
           className={`${fixedFill ? 'absolute inset-0' : 'w-full'} ${def.editorInteractive ? 'pointer-events-auto' : 'pointer-events-none'}`}
           data-testid={`canvas-block-content-${node.id}`}
         >
-          <EditorComponent block={node} breakpoint={breakpoint} asEditor />
+          <EditorComponent
+            block={node}
+            breakpoint={breakpoint}
+            asEditor
+            onSelectParent={(event) => {
+              onSelect?.([node.id], event.shiftKey || event.metaKey || event.ctrlKey);
+            }}
+          />
         </div>
       )}
     </div>

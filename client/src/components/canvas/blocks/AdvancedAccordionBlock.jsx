@@ -362,6 +362,7 @@ export function AdvancedAccordionRender({
   breakpoint,
   asEditor = false,
   getBlockDefinition,
+  onSelectParent,
 }) {
   const content = block.content || {};
   const items = Array.isArray(content.items) ? content.items : [];
@@ -425,6 +426,13 @@ export function AdvancedAccordionRender({
     <div
       ref={containerRef}
       data-advanced-accordion={block.id}
+      onPointerDownCapture={(event) => {
+        if (!asEditor || event.button !== 0) return;
+        onSelectParent?.(event);
+      }}
+      onPointerDown={(event) => {
+        if (asEditor) event.stopPropagation();
+      }}
       style={{
         display: 'flex',
         flexDirection: 'column',
@@ -629,7 +637,13 @@ export function AdvancedAccordionInspector({
   const selectedChild = findNestedBlock(activeItem?.children, selectedChildId);
 
   const commitUpdate = onUpdate || update;
-  const updateContent = (patch) => commitUpdate?.({ content: { ...content, ...patch } });
+  const updateContent = (patch) => commitUpdate?.((currentBlock) => ({
+    ...currentBlock,
+    content: {
+      ...(currentBlock?.content || {}),
+      ...patch,
+    },
+  }));
   const updateStyles = (patch) => updateContent({ styles: { ...styles, ...patch } });
   const updateItem = (itemId, patch) => updateContent(updateAdvancedAccordionItem(
     content,

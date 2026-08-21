@@ -189,6 +189,7 @@ function CanvasBlockView({
   showAllBoxes,
   breakpoint,
   onPointerDownBlock,
+  onSelectInteractiveBlock,
   onPointerDownResize,
   onDoubleClickBlock,
   focusZIndex,
@@ -301,7 +302,12 @@ function CanvasBlockView({
           }}
           data-testid={`canvas-block-content-${block.id}`}
         >
-          <EditorComponent block={block} breakpoint={breakpoint} asEditor />
+          <EditorComponent
+            block={block}
+            breakpoint={breakpoint}
+            asEditor
+            onSelectParent={(event) => onSelectInteractiveBlock?.(event, block.id)}
+          />
         </div>
       )}
       {isSelected && !block.locked && (
@@ -436,17 +442,9 @@ function CanvasStageInner({
     };
   }, [zoom]);
 
-  // ----- Block pointer down: select + start drag -----
-  const handlePointerDownBlock = useCallback((e, blockId) => {
-    if (e.button !== 0) return;
-    e.stopPropagation();
-    // Suppress the browser's native text-selection gesture. Without this,
-    // shift-clicking blocks highlights the text between them, and that live
-    // native selection makes the browser hijack the first drag as a text-drag
-    // (so the move preview is discarded on pointer-up and snaps back).
-    e.preventDefault();
+  const selectBlock = useCallback((e, blockId) => {
     const block = blocks.find((b) => b.id === blockId);
-    if (!block) return;
+    if (!block) return null;
 
     const shift = e.shiftKey;
     // Expand the clicked block to its whole group (identity when ungrouped),
@@ -463,6 +461,30 @@ function CanvasStageInner({
       nextSelection = groupMembers;
     }
     onSelect(nextSelection);
+    return { block, nextSelection };
+  }, [blocks, selectedIds, onSelect, expand]);
+
+  // Interactive editor content (such as Advanced Accordion controls) owns the
+  // pointer gesture, but still needs to select its parent Canvas block. Keep
+  // this path selection-only so buttons and nested-child selection remain
+  // usable instead of accidentally starting a block drag.
+  const handleSelectInteractiveBlock = useCallback((e, blockId) => {
+    if (e.button !== 0) return;
+    selectBlock(e, blockId);
+  }, [selectBlock]);
+
+  // ----- Block pointer down: select + start drag -----
+  const handlePointerDownBlock = useCallback((e, blockId) => {
+    if (e.button !== 0) return;
+    e.stopPropagation();
+    // Suppress the browser's native text-selection gesture. Without this,
+    // shift-clicking blocks highlights the text between them, and that live
+    // native selection makes the browser hijack the first drag as a text-drag
+    // (so the move preview is discarded on pointer-up and snaps back).
+    e.preventDefault();
+    const selection = selectBlock(e, blockId);
+    if (!selection) return;
+    const { block, nextSelection } = selection;
 
     if (block.locked) return;
     // Start drag for all currently-(post-select)-selected blocks except locked
@@ -489,7 +511,7 @@ function CanvasStageInner({
       hasMoved: false,
     });
     try { e.currentTarget.setPointerCapture?.(e.pointerId); } catch {}
-  }, [blocks, selectedIds, onSelect, getStageCoords, breakpoint, canvasWidth, expand]);
+  }, [blocks, selectBlock, getStageCoords, breakpoint, canvasWidth]);
 
   // Task #2609 — double-clicking a grouped block enters focus mode for its
   // group and selects just that member. Double-clicking an ungrouped block is
@@ -870,6 +892,7 @@ function CanvasStageInner({
                     isAnchor={anchorId === block.id}
                     showAllBoxes={showAllBoxes}
                     onPointerDownBlock={handlePointerDownBlock}
+                    onSelectInteractiveBlock={handleSelectInteractiveBlock}
                     onPointerDownResize={handlePointerDownResize}
                     onDoubleClickBlock={handleDoubleClickBlock}
                     focusZIndex={focusZIndex}
