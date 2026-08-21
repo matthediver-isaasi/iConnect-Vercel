@@ -197,78 +197,229 @@ function reflowSources(rowGroups) {
   return sources;
 }
 
-function positivePathGrowth(sources, targetGeom) {
-  const paths = [];
-  let targetGrowth = 0;
-  const targetY = numericBound(targetGeom?.y) ? targetGeom.y : 0;
-  const sorted = [...sources]
-    .filter((source) => !source.signed && Number.isFinite(source.growth))
-    .sort((a, b) => a.refBottom - b.refBottom || a.top - b.top);
-
-  for (const source of sorted) {
-    let upstream = 0;
-    for (const path of paths) {
-      if (
-        path.source.refBottom <= source.top &&
-        horizontalReflowOverlap(path.source, source)
-      ) {
-        upstream = Math.max(upstream, path.cumulative);
-      }
-    }
-    const cumulative = upstream + Math.max(0, source.growth);
-    paths.push({ source, cumulative });
-    if (
-      source.refBottom <= targetY &&
-      horizontalReflowOverlap(source, targetGeom)
-    ) {
-      targetGrowth = Math.max(targetGrowth, cumulative);
+function rowMembersById(rowGroups) {
+  const members = new Map();
+  for (const group of rowGroups || []) {
+    for (const member of group.members || []) {
+      if (member?.id) members.set(member.id, { group, member });
     }
   }
-  return targetGrowth;
+  return members;
 }
 
-export function offsetForTargetGeom(rowGroups, targetGeom) {
-  if (!targetGeom) return 0;
-  const targetY = numericBound(targetGeom.y) ? targetGeom.y : 0;
-  const sources = reflowSources(rowGroups);
-  let signedOffset = 0;
+function spatialTarget(target) {
+  if (!target) return null;
+  const top = Number.isFinite(target.top)
+    ? target.top
+    : (Number.isFinite(target.y) ? target.y : 0);
+  const left = Number.isFinite(target.left) ? target.left : target.x;
+  const right = Number.isFinite(target.right)
+    ? target.right
+    : (
+      Number.isFinite(target.x) && Number.isFinite(target.w)
+        ? target.x + Math.max(0, target.w)
+        : undefined
+    );
+  const bottom = Number.isFinite(target.bottom)
+    ? target.bottom
+    : top + (Number.isFinite(target.h) ? target.h : 0);
+  return {
+    ...target,
+    x: Number.isFinite(target.x) ? target.x : left,
+    y: Number.isFinite(target.y) ? target.y : top,
+    w: Number.isFinite(target.w)
+      ? target.w
+      : (
+        Number.isFinite(left) && Number.isFinite(right)
+          ? Math.max(0, right - left)
+          : 0
+      ),
+    h: Number.isFinite(target.h) ? target.h : Math.max(0, bottom - top),
+    top,
+    bottom,
+    left,
+    right,
+  };
+}
+
+function rowMemberTargets(rowGroups) {
+  const targets = [];
+  for (const group of rowGroups || []) {
+    const members = Array.isArray(group.members) && group.members.length
+      ? group.members
+      : [{ id: group.ids?.[0] }];
+    for (const member of members) {
+      targets.push(spatialTarget({
+        id: member?.id,
+        top: Number.isFinite(member?.top) ? member.top : group.top,
+        bottom: Number.isFinite(member?.bottom) ? member.bottom : group.bottom,
+        left: Number.isFinite(member?.left) ? member.left : group.left,
+        right: Number.isFinite(member?.right) ? member.right : group.right,
+        fullWidth: member?.fullWidth ?? group.fullWidth,
+      }));
+    }
+  }
+  return targets;
+}
+
+function liveTargetHeight(target, membersById) {
+  const storedHeight = Number.isFinite(target?.h) ? target.h : 0;
+  const rowEntry = membersById.get(target?.id);
+  if (!rowEntry) return storedHeight;
+  const measuredHeight = rowEntry.member.isCard
+    ? rowEntry.group.renderedHeight
+    : rowEntry.member.effectiveH;
+  return Number.isFinite(measuredHeight) ? measuredHeight : storedHeight;
+}
+
+function signedBaseOffset(sources, targetGeom, targetY) {
+  let offset = 0;
   for (const source of sources) {
     if (!source.signed) continue;
     if (
       source.refBottom - SIGNED_ROW_PUSH_TOLERANCE <= targetY &&
       horizontalReflowOverlap(source, targetGeom)
     ) {
-      signedOffset += source.growth;
+      offset += source.growth;
     }
   }
-  return signedOffset + positivePathGrowth(sources, targetGeom);
+  return offset;
 }
 
-export function relativeOffsetWithinContainer(rowGroups, targetGeom, containerGeom) {
+function collisionOffset(paths, targetGeom, targetY, preliminaryY) {
+  let offset = 0;
+  for (const path of paths) {
+    if (
+      path.source.refBottom <= targetY &&
+      horizontalReflowOverlap(path.source, targetGeom)
+    ) {
+      offset = Math.max(offset, Math.max(0, path.visibleBottom - preliminaryY));
+    }
+  }
+  return offset;
+}
+
+/**
+ * Resolve every auto-height source's final visible bottom after signed
+ * carousel movement and collisions from earlier sources in the same lane.
+ *
+ * Ordinary growth consumes authored gaps before it becomes displacement.
+ * Signed rows keep their historical grow/shrink base offset, but can also be
+ * moved by a real upstream collision. Their resulting visible bottom then
+ * participates in later collisions, preventing a following block from being
+ * pulled through a carousel that an accordion already moved.
+ */
+function relaySource(target) {
+  const spatial = spatialTarget(target);
+  if (!spatial) return null;
+  return {
+    id: spatial.id,
+    top: spatial.top,
+    bottom: spatial.bottom,
+    refBottom: spatial.bottom,
+    left: spatial.left,
+    right: spatial.right,
+    fullWidth: spatial.fullWidth,
+    growth: 0,
+    signed: false,
+  };
+}
+
+function reflowPaths(sources, relayTargets) {
+  const paths = [];
+  const sourceIds = new Set(sources.map((source) => source.id).filter(Boolean));
+  const relays = (relayTargets || [])
+    .map(relaySource)
+    .filter((source) => source && (!source.id || !sourceIds.has(source.id)));
+  const sorted = [...sources, ...relays]
+    .filter((source) => Number.isFinite(source.growth))
+    .sort((a, b) => a.top - b.top || a.refBottom - b.refBottom);
+
+  for (const source of sorted) {
+    const baseOffset = signedBaseOffset(sources, source, source.top);
+    const preliminaryTop = source.top + baseOffset;
+    const collision = collisionOffset(paths, source, source.top, preliminaryTop);
+    paths.push({
+      source,
+      visibleBottom: source.refBottom + baseOffset + collision + source.growth,
+    });
+  }
+  return paths;
+}
+
+export function offsetForTargetGeom(rowGroups, targetGeom, relayTargets) {
+  if (!targetGeom) return 0;
+  const targetY = numericBound(targetGeom.y) ? targetGeom.y : 0;
+  const sources = reflowSources(rowGroups);
+  const baseOffset = signedBaseOffset(sources, targetGeom, targetY);
+  const preliminaryY = targetY + baseOffset;
   return (
-    offsetForTargetGeom(rowGroups, targetGeom) -
-    offsetForTargetGeom(rowGroups, containerGeom)
+    baseOffset +
+    collisionOffset(reflowPaths(sources, relayTargets), targetGeom, targetY, preliminaryY)
   );
 }
 
-export function offsetForStoredY(rowGroups, storedY) {
-  return offsetForTargetGeom(rowGroups, { y: storedY });
+export function relativeOffsetWithinContainer(
+  rowGroups,
+  targetGeom,
+  containerGeom,
+  relayTargets,
+) {
+  return (
+    offsetForTargetGeom(rowGroups, targetGeom, relayTargets) -
+    offsetForTargetGeom(rowGroups, containerGeom, relayTargets)
+  );
 }
 
-export function growthForContainedGeom(rowGroups, containerGeom) {
+export function offsetForStoredY(rowGroups, storedY, relayTargets) {
+  return offsetForTargetGeom(rowGroups, { y: storedY }, relayTargets);
+}
+
+export function growthForContainedGeom(
+  rowGroups,
+  containerGeom,
+  containedTargets,
+  { growOnly = false, relayTargets = containedTargets } = {},
+) {
   if (!containerGeom) return 0;
-  const sources = reflowSources(rowGroups).filter((source) => containsMember(containerGeom, source));
+  const allSources = reflowSources(rowGroups);
+  const sources = allSources.filter((source) => containsMember(containerGeom, source));
   if (sources.length === 0) return 0;
   let signedGrowth = 0;
   for (const source of sources) {
     if (source.signed) signedGrowth += source.growth;
   }
-  // An infinitely-low target captures the deepest cumulative path among the
-  // contained positive-growth sources: stacked blocks add, columns take max.
-  return signedGrowth + positivePathGrowth(sources, {
-    ...containerGeom,
-    y: Infinity,
-  });
+  const membersById = rowMembersById(rowGroups);
+  const targets = Array.isArray(containedTargets)
+    ? containedTargets.map(spatialTarget).filter(Boolean)
+    : rowMemberTargets(rowGroups);
+  const containerOffset = offsetForTargetGeom(rowGroups, containerGeom, relayTargets);
+  const containerTop = Number.isFinite(containerGeom.y) ? containerGeom.y : 0;
+  const containerHeight = Number.isFinite(containerGeom.h) ? containerGeom.h : 0;
+  const renderedContainerBottom = (
+    containerTop +
+    containerHeight +
+    containerOffset +
+    signedGrowth
+  );
+  let overflow = 0;
+
+  for (const target of targets) {
+    if (!containsMember(containerGeom, target)) continue;
+    const renderedBottom = (
+      target.y +
+      liveTargetHeight(target, membersById) +
+      offsetForTargetGeom(rowGroups, target, relayTargets)
+    );
+    overflow = Math.max(overflow, renderedBottom - renderedContainerBottom);
+  }
+
+  // Keep the signed carousel exception intact for Sections, then extend that
+  // adjusted boundary only when a contained block's final visible bottom
+  // crosses it. Decorative Boxes remain public grow-only so their runtime
+  // geometry never drops below what the author sees in the editor.
+  const growth = signedGrowth + Math.max(0, overflow);
+  return growOnly ? Math.max(0, growth) : growth;
 }
 
 export function reflowMemberIsContained(containerGeom, member) {
@@ -287,6 +438,7 @@ export function computeReflowStageHeight({
   rowGroups,
   editorMode = false,
   getContainerGrowth,
+  relayTargets,
 }) {
   const baseline = Number.isFinite(baseHeight) ? baseHeight : 0;
   if (editorMode || !Array.isArray(rowGroups) || rowGroups.length === 0) return baseline;
@@ -311,11 +463,10 @@ export function computeReflowStageHeight({
         ? rowEntry.grp.renderedHeight
         : rowEntry.member.effectiveH;
       if (Number.isFinite(measuredHeight)) {
-        // Only deterministic aspect-height carousels may shrink below authored
-        // geometry. Every other auto-height row keeps the public grow-only floor.
-        renderedHeight = rowEntry.grp.signed
-          ? measuredHeight
-          : Math.max(storedHeight, measuredHeight);
+        // Stage growth follows the live visible bottom. The baseline guard below
+        // still prevents ordinary measured shrink from shortening the authored
+        // stage; only signed aspect rows may do that.
+        renderedHeight = measuredHeight;
       }
     }
 
@@ -323,7 +474,7 @@ export function computeReflowStageHeight({
     const offset = offsetForTargetGeom(rowGroups, {
       ...g,
       fullWidth: blockIsFullWidthLike(block),
-    });
+    }, relayTargets);
     const isContainer = block.type === BLOCK_TYPES.SECTION || block.type === BLOCK_TYPES.BOX;
     const containerGrowth = isContainer && typeof getContainerGrowth === 'function'
       ? getContainerGrowth(block, g)

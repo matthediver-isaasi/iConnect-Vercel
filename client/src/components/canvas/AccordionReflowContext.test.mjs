@@ -63,13 +63,20 @@ const entry = ({
   signed,
 });
 
-function height({ baseHeight, blocks, rowGroups, getContainerGrowth = () => 0 }) {
+function height({
+  baseHeight,
+  blocks,
+  rowGroups,
+  getContainerGrowth = () => 0,
+  relayTargets,
+}) {
   return computeReflowStageHeight({
     baseHeight,
     blocks,
     resolveGeom,
     rowGroups,
     getContainerGrowth,
+    relayTargets,
   });
 }
 
@@ -87,7 +94,7 @@ test('stage ignores row growth that does not move or extend the deepest block', 
   assert.equal(height({ baseHeight: 1000, blocks: [growing, deepest], rowGroups: rows }), 1000);
 });
 
-test('accordion/text growth extends the stage by the offset applied to the final block', () => {
+test('accordion growth uses the authored gap before moving the final block', () => {
   const growing = block('accordion', BLOCK_TYPES.ACCORDION, 100, 100);
   const deepest = block('final', BLOCK_TYPES.SECTION, 500, 200);
   const rows = [row({
@@ -98,7 +105,7 @@ test('accordion/text growth extends the stage by the offset applied to the final
     members: [member('accordion', 250)],
   })];
 
-  assert.equal(height({ baseHeight: 700, blocks: [growing, deepest], rowGroups: rows }), 850);
+  assert.equal(height({ baseHeight: 700, blocks: [growing, deepest], rowGroups: rows }), 700);
 });
 
 test('a final auto-height block extends the stage by its own measured growth', () => {
@@ -201,8 +208,8 @@ test('left-column accordion growth does not move a right-column target', () => {
     entry({ id: 'left-accordion', x: 0, w: 600, measuredH: 300 }),
   ]);
 
-  assert.equal(offsetForTargetGeom(rows, { x: 650, y: 400, w: 550, h: 100 }), 0);
-  assert.equal(offsetForTargetGeom(rows, { x: 0, y: 400, w: 600, h: 100 }), 200);
+  assert.equal(offsetForTargetGeom(rows, { x: 650, y: 250, w: 550, h: 100 }), 0);
+  assert.equal(offsetForTargetGeom(rows, { x: 0, y: 250, w: 600, h: 100 }), 50);
 });
 
 test('reflow follows the active breakpoint geometry when columns stack on mobile', () => {
@@ -214,12 +221,12 @@ test('reflow follows the active breakpoint geometry when columns stack on mobile
   ]);
 
   assert.equal(
-    offsetForTargetGeom(desktopRows, { x: 640, y: 400, w: 560, h: 100 }),
+    offsetForTargetGeom(desktopRows, { x: 640, y: 250, w: 560, h: 100 }),
     0,
   );
   assert.equal(
-    offsetForTargetGeom(mobileRows, { x: 0, y: 400, w: 375, h: 100 }),
-    200,
+    offsetForTargetGeom(mobileRows, { x: 0, y: 250, w: 375, h: 100 }),
+    50,
   );
 });
 
@@ -229,32 +236,32 @@ test('a spanning target follows the greatest side-by-side row growth without dou
     entry({ id: 'right-accordion', x: 620, w: 580, measuredH: 220 }),
   ]);
 
-  assert.equal(offsetForTargetGeom(rows, { x: 0, y: 400, w: 1200, h: 100 }), 200);
-  assert.equal(offsetForTargetGeom(rows, { x: 900, y: 400, w: 20, h: 100, fullWidth: true }), 200);
+  assert.equal(offsetForTargetGeom(rows, { x: 0, y: 250, w: 1200, h: 100 }), 50);
+  assert.equal(offsetForTargetGeom(rows, { x: 900, y: 250, w: 20, h: 100, fullWidth: true }), 50);
 });
 
-test('growth from vertically stacked blocks accumulates within the same column', () => {
+test('stacked collisions preserve gaps and pass only remaining displacement', () => {
   const rows = buildReflowRowGroups([
     entry({ id: 'upper', x: 0, y: 0, w: 600, h: 100, measuredH: 300 }),
     entry({ id: 'lower', x: 0, y: 150, w: 600, h: 100, measuredH: 150 }),
   ]);
 
-  assert.equal(offsetForTargetGeom(rows, { x: 0, y: 400, w: 600, h: 100 }), 250);
+  assert.equal(offsetForTargetGeom(rows, { x: 0, y: 400, w: 600, h: 100 }), 50);
   assert.equal(offsetForTargetGeom(rows, { x: 650, y: 400, w: 550, h: 100 }), 0);
 });
 
-test('container growth follows contained lanes but ignores growth in an adjacent column', () => {
+test('container growth preserves authored room beneath independent lanes', () => {
   const rows = buildReflowRowGroups([
     entry({ id: 'left-accordion', x: 0, w: 580, measuredH: 300 }),
     entry({ id: 'right-accordion', x: 620, w: 580, measuredH: 220 }),
   ]);
 
-  assert.equal(growthForContainedGeom(rows, { x: 0, y: 0, w: 580, h: 500 }), 200);
-  assert.equal(growthForContainedGeom(rows, { x: 620, y: 0, w: 580, h: 500 }), 120);
-  assert.equal(growthForContainedGeom(rows, { x: 0, y: 0, w: 1200, h: 500 }), 200);
+  assert.equal(growthForContainedGeom(rows, { x: 0, y: 0, w: 580, h: 500 }), 0);
+  assert.equal(growthForContainedGeom(rows, { x: 620, y: 0, w: 580, h: 500 }), 0);
+  assert.equal(growthForContainedGeom(rows, { x: 0, y: 0, w: 1200, h: 500 }), 0);
 });
 
-test('upstream growth moves a Box and its static content together without growing the Box', () => {
+test('an authored gap keeps a Box and its static content in place', () => {
   const rows = buildReflowRowGroups([
     entry({ id: 'accordion', x: 0, y: 0, w: 600, h: 100, measuredH: 300 }),
   ]);
@@ -262,8 +269,8 @@ test('upstream growth moves a Box and its static content together without growin
   const memberGeom = { x: 20, y: 440, w: 560, h: 100 };
   const relativeOffset = relativeOffsetWithinContainer(rows, memberGeom, boxGeom);
 
-  assert.equal(offsetForTargetGeom(rows, boxGeom), 200);
-  assert.equal(offsetForTargetGeom(rows, memberGeom), 200);
+  assert.equal(offsetForTargetGeom(rows, boxGeom), 0);
+  assert.equal(offsetForTargetGeom(rows, memberGeom), 0);
   assert.equal(relativeOffset, 0);
   assert.equal(computeBoxGrowthDelta({
     containerTop: boxGeom.y,
@@ -289,7 +296,7 @@ test('stage height does not grow when only the deepest right-column block is unr
   }), 700);
 });
 
-test('stage height grows when the deepest block is beneath the accordion lane', () => {
+test('stage height preserves authored room beneath the accordion lane', () => {
   const accordion = block('accordion', BLOCK_TYPES.ACCORDION, 0, 100, 0, 600);
   const leftDeepest = block('left-deepest', BLOCK_TYPES.IMAGE, 500, 200, 0, 600);
   const rows = buildReflowRowGroups([
@@ -300,5 +307,236 @@ test('stage height grows when the deepest block is beneath the accordion lane', 
     baseHeight: 700,
     blocks: [accordion, leftDeepest],
     rowGroups: rows,
-  }), 900);
+  }), 700);
+});
+
+test('growth smaller than the available gap does not move content', () => {
+  const rows = buildReflowRowGroups([
+    entry({ id: 'accordion', y: 0, h: 100, measuredH: 250 }),
+  ]);
+
+  assert.equal(offsetForTargetGeom(rows, { x: 0, y: 300, w: 100, h: 100 }), 0);
+});
+
+test('growth that exactly fills the available gap does not move content', () => {
+  const rows = buildReflowRowGroups([
+    entry({ id: 'accordion', y: 0, h: 100, measuredH: 300 }),
+  ]);
+
+  assert.equal(offsetForTargetGeom(rows, { x: 0, y: 300, w: 100, h: 100 }), 0);
+});
+
+test('partial overlap moves content by exactly the overlap and collapse restores zero', () => {
+  const expandedRows = buildReflowRowGroups([
+    entry({ id: 'accordion', y: 0, h: 100, measuredH: 340 }),
+  ]);
+  const collapsedRows = buildReflowRowGroups([
+    entry({ id: 'accordion', y: 0, h: 100, measuredH: 100 }),
+  ]);
+  const target = { x: 0, y: 300, w: 100, h: 100 };
+
+  assert.equal(offsetForTargetGeom(expandedRows, target), 40);
+  assert.equal(offsetForTargetGeom(collapsedRows, target), 0);
+});
+
+test('a chained collision consumes both authored gaps before reaching the target', () => {
+  const rows = buildReflowRowGroups([
+    entry({ id: 'upper', x: 0, y: 0, w: 500, h: 100, measuredH: 280 }),
+    entry({ id: 'lower', x: 0, y: 240, w: 500, h: 100, measuredH: 180 }),
+  ]);
+
+  // Upper crosses lower by 40. Lower then ends at 460, crossing the target by
+  // only 30 after consuming the target's authored 90px gap.
+  assert.equal(offsetForTargetGeom(rows, { x: 0, y: 430, w: 500, h: 100 }), 30);
+});
+
+test('a displaced static block relays its remaining collision to the next block', () => {
+  const rows = buildReflowRowGroups([
+    entry({ id: 'accordion', x: 0, y: 0, w: 600, h: 100, measuredH: 300 }),
+  ]);
+  const first = {
+    id: 'first-static',
+    x: 0,
+    y: 250,
+    w: 600,
+    h: 200,
+    top: 250,
+    bottom: 450,
+  };
+  const second = {
+    id: 'second-static',
+    x: 0,
+    y: 460,
+    w: 600,
+    h: 100,
+    top: 460,
+    bottom: 560,
+  };
+  const relays = [first, second];
+  const containedTargets = [
+    {
+      id: 'accordion',
+      x: 0,
+      y: 0,
+      w: 600,
+      h: 100,
+      top: 0,
+      bottom: 100,
+    },
+    first,
+    second,
+  ];
+
+  assert.equal(offsetForTargetGeom(rows, first, relays), 50);
+  assert.equal(offsetForTargetGeom(rows, second, relays), 40);
+  assert.equal(growthForContainedGeom(
+    rows,
+    { x: 0, y: 0, w: 600, h: 560 },
+    containedTargets,
+    { relayTargets: relays },
+  ), 40);
+});
+
+test('card rows keep equalized height when collision displacement is calculated', () => {
+  const rows = buildReflowRowGroups([
+    entry({ id: 'left-card', x: 0, y: 0, w: 360, h: 100, measuredH: 180, isCard: true }),
+    entry({ id: 'right-card', x: 400, y: 0, w: 360, h: 100, measuredH: 240, isCard: true }),
+  ]);
+
+  assert.equal(rows[0].renderedHeight, 240);
+  assert.equal(offsetForTargetGeom(rows, { x: 0, y: 200, w: 760, h: 100 }), 40);
+});
+
+test('a displaced static child grows a Section or Box by only its final overflow', () => {
+  const rows = buildReflowRowGroups([
+    entry({ id: 'accordion', x: 0, y: 100, w: 600, h: 100, measuredH: 300 }),
+  ]);
+  const container = { x: 0, y: 0, w: 600, h: 500 };
+  const targets = [
+    { id: 'accordion', x: 0, y: 100, w: 600, h: 100, top: 100, bottom: 200 },
+    { id: 'image', x: 0, y: 350, w: 600, h: 140, top: 350, bottom: 490 },
+  ];
+
+  // Accordion ends at 400, pushing the image 50px. Its final bottom is 540,
+  // therefore the background grows 40px rather than the accordion's 200px.
+  assert.equal(growthForContainedGeom(rows, container, targets), 40);
+});
+
+test('ordinary collision composes with signed carousel container sizing', () => {
+  const rows = buildReflowRowGroups([
+    entry({ id: 'accordion', x: 0, y: 0, w: 600, h: 100, measuredH: 300 }),
+    entry({
+      id: 'carousel',
+      x: 0,
+      y: 250,
+      w: 600,
+      h: 200,
+      measuredH: 150,
+      referenceH: 200,
+      signed: true,
+    }),
+  ]);
+  const container = { x: 0, y: 0, w: 600, h: 450 };
+  const targets = [
+    { id: 'accordion', x: 0, y: 0, w: 600, h: 100, top: 0, bottom: 100 },
+    { id: 'carousel', x: 0, y: 250, w: 600, h: 200, top: 250, bottom: 450 },
+  ];
+
+  // The carousel's signed shrink would reduce the container by 50px, but the
+  // accordion collides with and moves it 50px, putting its live bottom back at
+  // the authored boundary.
+  assert.equal(growthForContainedGeom(rows, container, targets), 0);
+});
+
+test('a Box stays at its authored height when a signed carousel shrinks', () => {
+  const rows = buildReflowRowGroups([
+    entry({
+      id: 'carousel',
+      x: 0,
+      y: 0,
+      w: 600,
+      h: 200,
+      measuredH: 150,
+      referenceH: 200,
+      signed: true,
+    }),
+  ]);
+  const container = { x: 0, y: 0, w: 600, h: 200 };
+  const targets = [
+    { id: 'carousel', x: 0, y: 0, w: 600, h: 200, top: 0, bottom: 200 },
+  ];
+
+  // Sections preserve the signed carousel shrink; decorative Boxes retain
+  // their authored height on the public page.
+  assert.equal(growthForContainedGeom(rows, container, targets), -50);
+  assert.equal(growthForContainedGeom(rows, container, targets, { growOnly: true }), 0);
+});
+
+test('a signed carousel relays only the residual collision to a following block', () => {
+  const cancellingRows = buildReflowRowGroups([
+    entry({ id: 'accordion', x: 0, y: 0, w: 600, h: 100, measuredH: 300 }),
+    entry({
+      id: 'carousel',
+      x: 0,
+      y: 250,
+      w: 600,
+      h: 200,
+      measuredH: 150,
+      referenceH: 200,
+      signed: true,
+    }),
+  ]);
+  const residualRows = buildReflowRowGroups([
+    entry({ id: 'accordion', x: 0, y: 0, w: 600, h: 100, measuredH: 320 }),
+    entry({
+      id: 'carousel',
+      x: 0,
+      y: 250,
+      w: 600,
+      h: 200,
+      measuredH: 150,
+      referenceH: 200,
+      signed: true,
+    }),
+  ]);
+  const target = { x: 0, y: 450, w: 600, h: 100 };
+
+  // A 50px accordion collision and 50px carousel shrink cancel exactly.
+  assert.equal(offsetForTargetGeom(cancellingRows, target), 0);
+  // With a 70px collision, only the uncancelled 20px reaches the target.
+  assert.equal(offsetForTargetGeom(residualRows, target), 20);
+});
+
+test('stage height follows the deepest final static bottom after collision', () => {
+  const accordion = block('accordion', BLOCK_TYPES.ACCORDION, 100, 100, 0, 600);
+  const image = block('image', BLOCK_TYPES.IMAGE, 350, 140, 0, 600);
+  const rows = buildReflowRowGroups([
+    entry({ id: 'accordion', x: 0, y: 100, w: 600, h: 100, measuredH: 300 }),
+  ]);
+
+  assert.equal(height({
+    baseHeight: 500,
+    blocks: [accordion, image],
+    rowGroups: rows,
+  }), 540);
+});
+
+test('stage height includes collision relayed through stacked static blocks', () => {
+  const accordion = block('accordion', BLOCK_TYPES.ACCORDION, 0, 100, 0, 600);
+  const first = block('first-static', BLOCK_TYPES.IMAGE, 250, 200, 0, 600);
+  const second = block('second-static', BLOCK_TYPES.IMAGE, 460, 100, 0, 600);
+  const rows = buildReflowRowGroups([
+    entry({ id: 'accordion', x: 0, y: 0, w: 600, h: 100, measuredH: 300 }),
+  ]);
+  const relayTargets = [
+    { id: first.id, ...first.geom, top: 250, bottom: 450 },
+    { id: second.id, ...second.geom, top: 460, bottom: 560 },
+  ];
+
+  assert.equal(height({
+    baseHeight: 560,
+    blocks: [accordion, first, second],
+    rowGroups: rows,
+    relayTargets,
+  }), 600);
 });

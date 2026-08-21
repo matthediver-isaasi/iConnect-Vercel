@@ -10,13 +10,12 @@ import {
 } from 'react';
 import { getBlockDefinition } from './blocks/registry';
 import { BLOCK_TYPES, blockIsFullWidthLike, isAspectHeightCarousel, resolveAspectReflowReferenceHeight } from '../../lib/canvasDesign';
-import { computeBoxGrowthDelta, computeCardReferenceHeight, normalizeMeasuredLength, updateReflowBaseline } from './autoHeightBake';
+import { computeCardReferenceHeight, normalizeMeasuredLength, updateReflowBaseline } from './autoHeightBake';
 import {
   buildReflowRowGroups,
   computeReflowStageHeight,
   growthForContainedGeom,
   offsetForTargetGeom,
-  relativeOffsetWithinContainer,
   reflowMemberIsContained,
 } from './reflowStageHeight';
 
@@ -483,6 +482,35 @@ export function AccordionReflowProvider({ children, blocks, resolveGeom, editorM
     return buildReflowRowGroups(entries);
   }, [measuredHeights, blocks, resolveGeom, breakpoint]);
 
+  // Non-auto-height content can relay a collision after it has been displaced.
+  // Containers are backgrounds, not content obstacles; measured auto-height
+  // blocks already contribute their live bottoms through rowGroups.
+  const collisionTargets = useMemo(() => {
+    const targets = [];
+    for (const block of blocks) {
+      const def = getBlockDefinition(block.type);
+      if (
+        def?.autoHeight ||
+        block.type === BLOCK_TYPES.SECTION ||
+        block.type === BLOCK_TYPES.BOX
+      ) {
+        continue;
+      }
+      const geom = resolveGeom(block);
+      if (!geom || geom.hidden) continue;
+      targets.push({
+        ...geom,
+        id: block.id,
+        top: geom.y,
+        bottom: geom.y + geom.h,
+        left: geom.x,
+        right: geom.x + geom.w,
+        fullWidth: blockIsFullWidthLike(block),
+      });
+    }
+    return targets;
+  }, [blocks, resolveGeom]);
+
   /**
    * Returns the live offset (px) for a block at its stored geometry.
    *
@@ -513,9 +541,9 @@ export function AccordionReflowProvider({ children, blocks, resolveGeom, editorM
         ...(geom || {}),
         y: storedY,
         fullWidth: blockIsFullWidthLike(block),
-      });
+      }, collisionTargets);
     },
-    [editorMode, rowGroups, blocks, resolveGeom],
+    [editorMode, rowGroups, blocks, resolveGeom, collisionTargets],
   );
 
   /** Measured height for a specific block (undefined if not yet reported). */
@@ -566,31 +594,24 @@ export function AccordionReflowProvider({ children, blocks, resolveGeom, editorM
   const getTotalGrowth = useCallback(() => {
     // Editor mode: stage height derives from stored geometry only.
     if (editorMode) return 0;
-    return offsetForTargetGeom(rowGroups, { y: Infinity, fullWidth: true });
-  }, [editorMode, rowGroups]);
+    return offsetForTargetGeom(
+      rowGroups,
+      { y: Infinity, fullWidth: true },
+      collisionTargets,
+    );
+  }, [editorMode, rowGroups, collisionTargets]);
 
   /**
-   * Net height change (px) that should be added to a CONTAINING background-style
-   * block's rendered height — a Section, a decorative Box, or any future shape
-   * type that wraps other blocks. A block is "inside" the container when its
+   * Height growth (px) required by a CONTAINING background-style block — a
+   * Section, a decorative Box, or any future shape that wraps other blocks.
+   * Ordinary content consumes the container's authored bottom inset before it
+   * can grow the container. A block is "inside" the container when its
    * stored top ≥ container.y AND its stored bottom ≤ container.y + container.h.
    *
-   * SECTIONS follow the net growth of their contained rows. Ordinary rows are
-   * grow-only; the existing signed aspect-carousel exception can shrink a
-   * section so it continues to wrap the carousel's deterministic live height.
-   *
-   * BOXES (Task #2583) are decorative backgrounds drawn behind overlapping text
-   * and additionally SHRINK back toward their authored height when that content
-   * shrinks or is removed — reversing the #2575 grow — so a box that grew once
-   * no longer stays too tall. A box is sized from the GEOMETRY of the content it
-   * wraps: it keeps its authored bottom inset (the gap below the deepest
-   * contained row's stored bottom) and re-anchors that inset beneath the deepest
-   * contained row's MEASURED (live) bottom. It therefore grows when content
-   * renders taller and shrinks when it renders shorter, and — because it is
-   * driven by the deepest measured bottom rather than a per-row delta — a fixed
-   * child that did not change can neither block a shrink nor force growth.
-   * Static content (rendered == stored) yields 0, preserving the authored height
-   * exactly; the non-negative inset guarantees the box never clips its content.
+   * Sections and Boxes compare their final rendered bottom with every contained
+   * block's final rendered bottom. This includes static blocks displaced by an
+   * upstream accordion. Boxes remain grow-only and continue to exclude card-row
+   * equalisation; signed aspect carousels retain their existing section delta.
    *
    * @param containerBlock – the containing canvas block (section, box, …)
    * @param containerGeom  – breakpoint-resolved geometry { x, y, w, h } of the
@@ -607,56 +628,37 @@ export function AccordionReflowProvider({ children, blocks, resolveGeom, editorM
         fullWidth: blockIsFullWidthLike(containerBlock),
       };
       const isBox = containerBlock?.type === BLOCK_TYPES.BOX;
-      if (isBox) {
-        // Box: GROW-ONLY on the front-end. Re-anchor to the deepest contained
-        // content via the SHARED formula (Task #2680), but never render the box
-        // SHORTER than its authored (stored) height — the builder shows a Box at
-        // its stored geometry (editorMode keeps containers rigid), so flooring
-        // the front-end at the stored height keeps the two surfaces identical.
-        // Without the floor a published box whose text renders shorter than its
-        // stored geometry collapsed below the authored height on the front-end
-        // while the builder still showed the full height. Track the geometry of
-        // the deepest contained row (live + stored) rather than a per-row delta,
-        // so an unchanged row can neither block a shrink driven by a shrinking
-        // row nor force spurious growth.
-        // Task #3469: card rows are EXCLUDED from box re-anchoring, mirroring
-        // the editor bake (autoHeightBake boxReanchorHeight skips
-        // autoHeight+cardGrow blocks). Only the deepest NON-CARD member bottoms
-        // feed the formula; a group with no non-card members contributes
-        // nothing, so a Box drawn behind a card row keeps its authored height
-        // on the public page exactly like the builder.
-        const rows = [];
-        for (const grp of rowGroups) {
-          for (const member of grp.members || []) {
-            if (member.isCard || !reflowMemberIsContained(spatialContainerGeom, member)) continue;
-            const relativeOffset = relativeOffsetWithinContainer(rowGroups, {
-              x: member.left,
-              y: member.top,
-              w: member.right - member.left,
-              h: member.bottom - member.top,
-              fullWidth: member.fullWidth,
-            }, spatialContainerGeom);
-            rows.push({
-              // Re-anchor from the member's position relative to the Box.
-              // Growth above the Box moves the Box and its contents together;
-              // counting that shared displacement here would grow the Box too.
-              measuredBottom: member.top + member.effectiveH + relativeOffset,
-              storedBottom: member.bottom,
-            });
-          }
+      const containedTargets = [];
+      for (const block of blocks) {
+        if (!block || block.id === containerBlock?.id) continue;
+        const geom = resolveGeom(block);
+        if (!geom || geom.hidden) continue;
+        const def = getBlockDefinition(block.type);
+        // Preserve the existing decorative-Box exception: equalized card rows
+        // never resize a Box drawn behind them.
+        if (isBox && def?.autoHeight && def?.cardGrow) continue;
+        const target = {
+          ...geom,
+          id: block.id,
+          top: geom.y,
+          bottom: geom.y + geom.h,
+          left: geom.x,
+          right: geom.x + geom.w,
+          fullWidth: blockIsFullWidthLike(block),
+        };
+        if (reflowMemberIsContained(spatialContainerGeom, target)) {
+          containedTargets.push(target);
         }
-        if (rows.length === 0) return 0; // no contained content
-        return computeBoxGrowthDelta({
-          containerTop: containerGeom.y,
-          containerHeight: containerGeom.h,
-          rows,
-        });
       }
-      // Sections follow the deepest contained spatial path: stacked growth in
-      // one lane accumulates, while parallel columns contribute their maximum.
-      return growthForContainedGeom(rowGroups, spatialContainerGeom);
+      // Containers follow final contained visible bottoms: stacked collisions
+      // propagate, parallel lanes contribute their deepest path, and authored
+      // room beneath content is consumed before the background grows.
+      return growthForContainedGeom(rowGroups, spatialContainerGeom, containedTargets, {
+        growOnly: isBox,
+        relayTargets: collisionTargets,
+      });
     },
-    [editorMode, rowGroups],
+    [editorMode, rowGroups, blocks, resolveGeom, collisionTargets],
   );
 
   // Back-compat alias: sections are just one kind of container.
@@ -670,8 +672,9 @@ export function AccordionReflowProvider({ children, blocks, resolveGeom, editorM
       rowGroups,
       editorMode,
       getContainerGrowth,
+      relayTargets: collisionTargets,
     }),
-    [blocks, resolveGeom, rowGroups, editorMode, getContainerGrowth],
+    [blocks, resolveGeom, rowGroups, editorMode, getContainerGrowth, collisionTargets],
   );
 
   return (

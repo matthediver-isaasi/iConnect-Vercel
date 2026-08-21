@@ -177,8 +177,8 @@ function CanvasBlockRender({ block, lcpBlockId, forcedBreakpoint, windowBp, pinS
   const activeBp = forcedBreakpoint || windowBp || 'desktop';
   const storedGeom = resolveBlockAtBreakpoint(block, activeBp);
   const topOffset = reflow ? reflow.getOffset(block.id, storedGeom.y) : 0;
-  // Container backgrounds (section, box) grow by the net delta of the
-  // auto-height blocks they contain.
+  // Container backgrounds grow only when their final contained content reaches
+  // beyond their authored bottom.
   const containerGrowth = isContainerBg && reflow
     ? reflow.getContainerGrowth(block, storedGeom)
     : 0;
