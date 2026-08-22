@@ -306,14 +306,37 @@ function signedBaseOffset(sources, targetGeom, targetY) {
   return offset;
 }
 
-function collisionOffset(paths, targetGeom, targetY, preliminaryY) {
+function collisionOffset(
+  paths,
+  targetGeom,
+  targetY,
+  preliminaryY,
+  { preserveAuthoredGap = true } = {},
+) {
   let offset = 0;
+  const preliminaryOffset = preliminaryY - targetY;
   for (const path of paths) {
     if (
       path.source.refBottom <= targetY &&
-      horizontalReflowOverlap(path.source, targetGeom)
+      horizontalReflowOverlap(path.source, targetGeom) &&
+      path.visibleBottom > preliminaryY
     ) {
-      offset = Math.max(offset, Math.max(0, path.visibleBottom - preliminaryY));
+      // A gap can absorb growth until the source actually reaches this target.
+      // Once it does, carry the source's full final displacement instead of
+      // moving by only the overlap. That restores the authored source→target
+      // gap and lets the same displacement relay through a stacked chain.
+      const sourceDisplacement = preserveAuthoredGap
+        ? path.visibleBottom - path.source.refBottom
+        : path.visibleBottom - preliminaryY;
+      offset = Math.max(
+        offset,
+        Math.max(
+          0,
+          preserveAuthoredGap
+            ? sourceDisplacement - preliminaryOffset
+            : sourceDisplacement,
+        ),
+      );
     }
   }
   return offset;
@@ -323,11 +346,13 @@ function collisionOffset(paths, targetGeom, targetY, preliminaryY) {
  * Resolve every auto-height source's final visible bottom after signed
  * carousel movement and collisions from earlier sources in the same lane.
  *
- * Ordinary growth consumes authored gaps before it becomes displacement.
- * Signed rows keep their historical grow/shrink base offset, but can also be
- * moved by a real upstream collision. Their resulting visible bottom then
- * participates in later collisions, preventing a following block from being
- * pulled through a carousel that an accordion already moved.
+ * Ordinary growth uses authored room until a real collision occurs. Once a
+ * collision starts, the downstream source carries the upstream source's full
+ * displacement so each authored inter-block gap is preserved through the
+ * chain. Signed rows keep their historical grow/shrink base offset, but can
+ * also be moved by a real upstream collision. Their resulting visible bottom
+ * then participates in later collisions, preventing a following block from
+ * being pulled through a carousel that an accordion already moved.
  */
 function relaySource(target) {
   const spatial = spatialTarget(target);
@@ -379,7 +404,15 @@ function reflowPaths(sources, relayTargets, inheritedOffsets) {
     const inheritedOffset = inheritedOffsetFor(inheritedOffsets, source.id);
     const preliminaryOffset = combineInheritedOffset(baseOffset, inheritedOffset);
     const preliminaryTop = source.top + preliminaryOffset;
-    const collision = collisionOffset(paths, source, source.top, preliminaryTop);
+    const collision = collisionOffset(
+      paths,
+      source,
+      source.top,
+      preliminaryTop,
+      // Signed aspect rows intentionally retain their historical collision
+      // cancellation with the row's measured grow/shrink delta.
+      { preserveAuthoredGap: !source.signed },
+    );
     paths.push({
       source,
       visibleBottom: source.refBottom + preliminaryOffset + collision + source.growth,
@@ -401,6 +434,13 @@ export function offsetForTargetGeom(
   const inheritedOffset = inheritedOffsetFor(inheritedOffsets, targetGeom.id);
   const preliminaryOffset = combineInheritedOffset(baseOffset, inheritedOffset);
   const preliminaryY = targetY + preliminaryOffset;
+  const signedTarget = targetGeom.id != null && rowGroups.some((group) => (
+    group.signed &&
+    (
+      group.ids?.includes(targetGeom.id) ||
+      group.members?.some((member) => member.id === targetGeom.id)
+    )
+  ));
   return (
     preliminaryOffset +
     collisionOffset(
@@ -408,6 +448,7 @@ export function offsetForTargetGeom(
       targetGeom,
       targetY,
       preliminaryY,
+      { preserveAuthoredGap: !signedTarget },
     )
   );
 }

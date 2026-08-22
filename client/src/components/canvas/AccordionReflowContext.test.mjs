@@ -212,7 +212,7 @@ test('left-column accordion growth does not move a right-column target', () => {
   ]);
 
   assert.equal(offsetForTargetGeom(rows, { x: 650, y: 250, w: 550, h: 100 }), 0);
-  assert.equal(offsetForTargetGeom(rows, { x: 0, y: 250, w: 600, h: 100 }), 50);
+  assert.equal(offsetForTargetGeom(rows, { x: 0, y: 250, w: 600, h: 100 }), 200);
 });
 
 test('reflow follows the active breakpoint geometry when columns stack on mobile', () => {
@@ -229,7 +229,7 @@ test('reflow follows the active breakpoint geometry when columns stack on mobile
   );
   assert.equal(
     offsetForTargetGeom(mobileRows, { x: 0, y: 250, w: 375, h: 100 }),
-    50,
+    200,
   );
 });
 
@@ -239,17 +239,17 @@ test('a spanning target follows the greatest side-by-side row growth without dou
     entry({ id: 'right-accordion', x: 620, w: 580, measuredH: 220 }),
   ]);
 
-  assert.equal(offsetForTargetGeom(rows, { x: 0, y: 250, w: 1200, h: 100 }), 50);
-  assert.equal(offsetForTargetGeom(rows, { x: 900, y: 250, w: 20, h: 100, fullWidth: true }), 50);
+  assert.equal(offsetForTargetGeom(rows, { x: 0, y: 250, w: 1200, h: 100 }), 200);
+  assert.equal(offsetForTargetGeom(rows, { x: 900, y: 250, w: 20, h: 100, fullWidth: true }), 200);
 });
 
-test('stacked collisions preserve gaps and pass only remaining displacement', () => {
+test('stacked collisions preserve gaps and carry full displacement', () => {
   const rows = buildReflowRowGroups([
     entry({ id: 'upper', x: 0, y: 0, w: 600, h: 100, measuredH: 300 }),
     entry({ id: 'lower', x: 0, y: 150, w: 600, h: 100, measuredH: 150 }),
   ]);
 
-  assert.equal(offsetForTargetGeom(rows, { x: 0, y: 400, w: 600, h: 100 }), 50);
+  assert.equal(offsetForTargetGeom(rows, { x: 0, y: 400, w: 600, h: 100 }), 250);
   assert.equal(offsetForTargetGeom(rows, { x: 650, y: 400, w: 550, h: 100 }), 0);
 });
 
@@ -329,7 +329,7 @@ test('growth that exactly fills the available gap does not move content', () => 
   assert.equal(offsetForTargetGeom(rows, { x: 0, y: 300, w: 100, h: 100 }), 0);
 });
 
-test('partial overlap moves content by exactly the overlap and collapse restores zero', () => {
+test('a real collision carries full displacement and collapse restores zero', () => {
   const expandedRows = buildReflowRowGroups([
     entry({ id: 'accordion', y: 0, h: 100, measuredH: 340 }),
   ]);
@@ -338,19 +338,19 @@ test('partial overlap moves content by exactly the overlap and collapse restores
   ]);
   const target = { x: 0, y: 300, w: 100, h: 100 };
 
-  assert.equal(offsetForTargetGeom(expandedRows, target), 40);
+  assert.equal(offsetForTargetGeom(expandedRows, target), 240);
   assert.equal(offsetForTargetGeom(collapsedRows, target), 0);
 });
 
-test('a chained collision consumes both authored gaps before reaching the target', () => {
+test('a chained collision preserves both authored gaps through the target', () => {
   const rows = buildReflowRowGroups([
     entry({ id: 'upper', x: 0, y: 0, w: 500, h: 100, measuredH: 280 }),
     entry({ id: 'lower', x: 0, y: 240, w: 500, h: 100, measuredH: 180 }),
   ]);
 
-  // Upper crosses lower by 40. Lower then ends at 460, crossing the target by
-  // only 30 after consuming the target's authored 90px gap.
-  assert.equal(offsetForTargetGeom(rows, { x: 0, y: 430, w: 500, h: 100 }), 30);
+  // Upper moves lower by its full 180px displacement. Lower adds its own 80px
+  // growth, so the target follows by 260px and both authored gaps remain.
+  assert.equal(offsetForTargetGeom(rows, { x: 0, y: 430, w: 500, h: 100 }), 260);
 });
 
 test('a displaced static block relays its remaining collision to the next block', () => {
@@ -390,14 +390,100 @@ test('a displaced static block relays its remaining collision to the next block'
     second,
   ];
 
-  assert.equal(offsetForTargetGeom(rows, first, relays), 50);
-  assert.equal(offsetForTargetGeom(rows, second, relays), 40);
+  assert.equal(offsetForTargetGeom(rows, first, relays), 200);
+  assert.equal(offsetForTargetGeom(rows, second, relays), 200);
   assert.equal(growthForContainedGeom(
     rows,
     { x: 0, y: 0, w: 600, h: 560 },
     containedTargets,
     { relayTargets: relays },
-  ), 40);
+  ), 200);
+});
+
+test('BNMS accordion chain preserves every authored gap through moved containers', () => {
+  const expandedRows = buildReflowRowGroups([
+    entry({ id: 'expanded-accordion', x: 0, y: 0, w: 560, h: 100, measuredH: 360 }),
+  ]);
+  const collapsedRows = buildReflowRowGroups([
+    entry({ id: 'expanded-accordion', x: 0, y: 0, w: 560, h: 100, measuredH: 100 }),
+  ]);
+  const afterScan = {
+    id: 'after-scan',
+    x: 0,
+    y: 110,
+    w: 560,
+    h: 100,
+    top: 110,
+    bottom: 210,
+  };
+  const infoBox = {
+    id: 'info-box',
+    containerType: BLOCK_TYPES.BOX,
+    x: 0,
+    y: 230,
+    w: 560,
+    h: 260,
+    top: 230,
+    bottom: 490,
+  };
+  const image = {
+    id: 'image',
+    x: 0,
+    y: 510,
+    w: 500,
+    h: 300,
+    top: 510,
+    bottom: 810,
+  };
+  const lowerPanel = {
+    id: 'lower-panel',
+    containerType: BLOCK_TYPES.SECTION,
+    x: 500,
+    y: 510,
+    w: 560,
+    h: 300,
+    top: 510,
+    bottom: 810,
+  };
+  const targets = [afterScan, infoBox, image, lowerPanel];
+  const relayTargets = [afterScan, infoBox, image, lowerPanel];
+  const containerTargets = [infoBox, lowerPanel];
+
+  const expanded = resolveSectionAwareOffsets({
+    rowGroups: expandedRows,
+    targets,
+    containerTargets,
+    relayTargets,
+  });
+
+  assert.equal(expanded.offsets.get('after-scan'), 260);
+  assert.equal(expanded.offsets.get('info-box'), 260);
+  assert.equal(expanded.offsets.get('image'), 260);
+  assert.equal(expanded.offsets.get('lower-panel'), 260);
+  assert.equal(
+    (afterScan.y + expanded.offsets.get('after-scan')) - 360,
+    afterScan.y - 100,
+  );
+  assert.equal(
+    (infoBox.y + expanded.offsets.get('info-box')) -
+      (afterScan.bottom + expanded.offsets.get('after-scan')),
+    infoBox.y - afterScan.bottom,
+  );
+  assert.equal(
+    (image.y + expanded.offsets.get('image')) -
+      (infoBox.bottom + expanded.offsets.get('info-box')),
+    image.y - infoBox.bottom,
+  );
+
+  const collapsed = resolveSectionAwareOffsets({
+    rowGroups: collapsedRows,
+    targets,
+    containerTargets,
+    relayTargets,
+  });
+  for (const target of targets) {
+    assert.equal(collapsed.offsets.get(target.id), 0);
+  }
 });
 
 test('a moved Section carries paragraph text from a non-colliding lane with it', () => {
@@ -458,10 +544,10 @@ test('a moved Section carries paragraph text from a non-colliding lane with it',
     relayTargets: [heading, image, external],
   });
 
-  assert.equal(result.offsets.get('section'), 50);
-  assert.equal(result.offsets.get('heading'), 50);
-  assert.equal(result.offsets.get('image'), 50);
-  assert.equal(result.offsets.get('paragraph'), 50);
+  assert.equal(result.offsets.get('section'), 200);
+  assert.equal(result.offsets.get('heading'), 200);
+  assert.equal(result.offsets.get('image'), 200);
+  assert.equal(result.offsets.get('paragraph'), 200);
   assert.equal(result.offsets.get('external'), 0);
   assert.equal(result.owners.get('paragraph'), 'section');
 });
@@ -553,10 +639,10 @@ test('a moved Box carries the exact BNMS panel contents by one shared offset', (
     relayTargets: [icon, heading, edgeStraddlingText, adjacent],
   });
 
-  assert.equal(expanded.offsets.get('box'), 101);
-  assert.equal(expanded.offsets.get('icon'), 101);
-  assert.equal(expanded.offsets.get('heading'), 101);
-  assert.equal(expanded.offsets.get('paragraph'), 101);
+  assert.equal(expanded.offsets.get('box'), 141);
+  assert.equal(expanded.offsets.get('icon'), 141);
+  assert.equal(expanded.offsets.get('heading'), 141);
+  assert.equal(expanded.offsets.get('paragraph'), 141);
   assert.equal(expanded.owners.get('icon'), 'box');
   assert.equal(expanded.owners.get('heading'), 'box');
   assert.equal(expanded.owners.get('paragraph'), 'box');
@@ -701,10 +787,10 @@ test('a moved Section carries an edge-straddling auto-height paragraph before an
       relayTargets: relays,
     });
 
-    assert.equal(result.offsets.get('section'), 50);
-    assert.equal(result.offsets.get('heading'), 50);
-    assert.equal(result.offsets.get('image'), 50);
-    assert.equal(result.offsets.get('paragraph'), 50);
+    assert.equal(result.offsets.get('section'), 200);
+    assert.equal(result.offsets.get('heading'), 200);
+    assert.equal(result.offsets.get('image'), 200);
+    assert.equal(result.offsets.get('paragraph'), 200);
     assert.equal(result.owners.get('paragraph'), 'section');
     assert.equal(result.offsets.get('fixed-overlay'), 0);
     assert.equal(result.owners.has('fixed-overlay'), false);
@@ -751,8 +837,8 @@ test('a moved Section carries an edge-straddling auto-height paragraph before an
     },
   );
 
-  // The moved Section ends at 500. The measured paragraph ends at 570 after
-  // inheriting the same 50px movement, so the wrapper grows by the remaining
+  // The moved Section ends at 650. The measured paragraph ends at 720 after
+  // inheriting the same 200px movement, so the wrapper grows by the remaining
   // 70px and the stage uses that same final bottom.
   assert.equal(sectionGrowth, 70);
   assert.equal(computeReflowStageHeight({
@@ -776,7 +862,7 @@ test('a moved Section carries an edge-straddling auto-height paragraph before an
     getContainerGrowth: (containerBlock) => (
       containerBlock.id === 'section' ? sectionGrowth : 0
     ),
-  }), 570);
+  }), 720);
 });
 
 test('a contained block can move farther than its displaced Section after a local collision', () => {
@@ -819,9 +905,9 @@ test('a contained block can move farther than its displaced Section after a loca
     relayTargets: [child],
   });
 
-  assert.equal(result.offsets.get('section'), 50);
-  assert.equal(result.offsets.get('inner-accordion'), 50);
-  assert.equal(result.offsets.get('child'), 70);
+  assert.equal(result.offsets.get('section'), 200);
+  assert.equal(result.offsets.get('inner-accordion'), 200);
+  assert.equal(result.offsets.get('child'), 400);
 });
 
 test('a contained block can move farther than its displaced Box after a local collision', () => {
@@ -864,9 +950,9 @@ test('a contained block can move farther than its displaced Box after a local co
     relayTargets: [child],
   });
 
-  assert.equal(result.offsets.get('box'), 50);
-  assert.equal(result.offsets.get('inner-accordion'), 50);
-  assert.equal(result.offsets.get('child'), 70);
+  assert.equal(result.offsets.get('box'), 200);
+  assert.equal(result.offsets.get('inner-accordion'), 200);
+  assert.equal(result.offsets.get('child'), 400);
   assert.equal(result.owners.get('child'), 'box');
 });
 
@@ -917,11 +1003,11 @@ test('a Section-inherited auto-height child relays from its final rendered botto
     relayTargets: [laterContent],
   });
 
-  assert.equal(result.offsets.get('section'), 50);
-  assert.equal(result.offsets.get('paragraph'), 50);
-  // Paragraph's final bottom is 490, so content outside the Section at y=460
-  // follows by only the 30px collision that remains.
-  assert.equal(result.offsets.get('later-content'), 30);
+  assert.equal(result.offsets.get('section'), 200);
+  assert.equal(result.offsets.get('paragraph'), 200);
+  // Paragraph and following content share the Section's full displacement,
+  // preserving their authored 20px separation.
+  assert.equal(result.offsets.get('later-content'), 200);
   assert.equal(result.owners.has('later-content'), false);
 });
 
@@ -973,8 +1059,8 @@ test('full-width rendering does not attach a block outside the Section rectangle
     relayTargets: [],
   });
 
-  assert.equal(result.offsets.get('section'), 50);
-  assert.equal(result.offsets.get('inner-content'), 50);
+  assert.equal(result.offsets.get('section'), 200);
+  assert.equal(result.offsets.get('inner-content'), 200);
   assert.equal(result.offsets.get('external'), 0);
   assert.equal(result.owners.has('external'), false);
 
@@ -1000,7 +1086,7 @@ test('full-width rendering does not attach a block outside the Section rectangle
     relayTargets: [],
     inheritedOffsets: result.inheritedOffsets,
     getContainerGrowth: () => sectionGrowth,
-  }), 600);
+  }), 750);
 });
 
 test('container growth uses inherited and local child displacement consistently', () => {
@@ -1045,17 +1131,17 @@ test('container growth uses inherited and local child displacement consistently'
     relayTargets: relays,
   });
 
-  assert.equal(result.offsets.get('section'), 50);
-  assert.equal(result.offsets.get('child'), 110);
-  // The moved Section ends at 800; the child ends at 850, so only 50px of
-  // additional height is required.
+  assert.equal(result.offsets.get('section'), 200);
+  assert.equal(result.offsets.get('child'), 400);
+  // The moved Section ends at 950; the locally displaced child ends at 1140,
+  // so only that final 190px overflow grows the background.
   assert.equal(growthForContainedGeom(rows, section, targets, {
     relayTargets: relays,
     inheritedOffsets: result.inheritedOffsets,
-  }), 50);
+  }), 190);
 });
 
-test('nested Sections inherit once and adjacent Section contents remain independent', () => {
+test('nested Sections inherit once and relay to an adjacent Section', () => {
   const rows = buildReflowRowGroups([
     entry({ id: 'accordion', x: 0, y: 0, w: 600, h: 100, measuredH: 300 }),
   ]);
@@ -1109,14 +1195,14 @@ test('nested Sections inherit once and adjacent Section contents remain independ
     rowGroups: rows,
     targets: [outer, inner, nestedText, adjacent, adjacentText],
     sectionTargets: [outer, inner, adjacent],
-    relayTargets: [nestedText, adjacentText],
+    relayTargets: [outer, inner, nestedText, adjacent, adjacentText],
   });
 
-  assert.equal(result.offsets.get('outer'), 50);
-  assert.equal(result.offsets.get('inner'), 50);
-  assert.equal(result.offsets.get('nested-text'), 50);
-  assert.equal(result.offsets.get('adjacent'), 0);
-  assert.equal(result.offsets.get('adjacent-text'), 0);
+  assert.equal(result.offsets.get('outer'), 200);
+  assert.equal(result.offsets.get('inner'), 200);
+  assert.equal(result.offsets.get('nested-text'), 200);
+  assert.equal(result.offsets.get('adjacent'), 200);
+  assert.equal(result.offsets.get('adjacent-text'), 200);
   assert.equal(result.owners.get('inner'), 'outer');
   assert.equal(result.owners.get('nested-text'), 'inner');
 });
@@ -1193,15 +1279,22 @@ test('nested Section and Box containers use the smallest owner and inherit once'
       adjacentText,
     ],
     containerTargets: [outerSection, innerBox, adjacentBox],
-    relayTargets: [nestedText, sectionOnlyText, adjacentText],
+    relayTargets: [
+      outerSection,
+      innerBox,
+      nestedText,
+      sectionOnlyText,
+      adjacentBox,
+      adjacentText,
+    ],
   });
 
-  assert.equal(result.offsets.get('outer-section'), 50);
-  assert.equal(result.offsets.get('inner-box'), 50);
-  assert.equal(result.offsets.get('nested-text'), 50);
-  assert.equal(result.offsets.get('section-only-text'), 50);
-  assert.equal(result.offsets.get('adjacent-box'), 0);
-  assert.equal(result.offsets.get('adjacent-text'), 0);
+  assert.equal(result.offsets.get('outer-section'), 200);
+  assert.equal(result.offsets.get('inner-box'), 200);
+  assert.equal(result.offsets.get('nested-text'), 200);
+  assert.equal(result.offsets.get('section-only-text'), 200);
+  assert.equal(result.offsets.get('adjacent-box'), 200);
+  assert.equal(result.offsets.get('adjacent-text'), 200);
   assert.equal(result.owners.get('inner-box'), 'outer-section');
   assert.equal(result.owners.get('nested-text'), 'inner-box');
   assert.equal(result.owners.get('section-only-text'), 'outer-section');
@@ -1215,10 +1308,10 @@ test('card rows keep equalized height when collision displacement is calculated'
   ]);
 
   assert.equal(rows[0].renderedHeight, 240);
-  assert.equal(offsetForTargetGeom(rows, { x: 0, y: 200, w: 760, h: 100 }), 40);
+  assert.equal(offsetForTargetGeom(rows, { x: 0, y: 200, w: 760, h: 100 }), 140);
 });
 
-test('a displaced static child grows a Section or Box by only its final overflow', () => {
+test('a displaced static child preserves its gap and grows a container by final overflow', () => {
   const rows = buildReflowRowGroups([
     entry({ id: 'accordion', x: 0, y: 100, w: 600, h: 100, measuredH: 300 }),
   ]);
@@ -1228,9 +1321,9 @@ test('a displaced static child grows a Section or Box by only its final overflow
     { id: 'image', x: 0, y: 350, w: 600, h: 140, top: 350, bottom: 490 },
   ];
 
-  // Accordion ends at 400, pushing the image 50px. Its final bottom is 540,
-  // therefore the background grows 40px rather than the accordion's 200px.
-  assert.equal(growthForContainedGeom(rows, container, targets), 40);
+  // Accordion ends at 400, so the image carries its full 200px displacement.
+  // Its final bottom is 690 and the background grows only that 190px overflow.
+  assert.equal(growthForContainedGeom(rows, container, targets), 190);
 });
 
 test('ordinary collision composes with signed carousel container sizing', () => {
@@ -1329,7 +1422,7 @@ test('stage height follows the deepest final static bottom after collision', () 
     baseHeight: 500,
     blocks: [accordion, image],
     rowGroups: rows,
-  }), 540);
+  }), 690);
 });
 
 test('stage height includes collision relayed through stacked static blocks', () => {
@@ -1349,7 +1442,7 @@ test('stage height includes collision relayed through stacked static blocks', ()
     blocks: [accordion, first, second],
     rowGroups: rows,
     relayTargets,
-  }), 600);
+  }), 760);
 });
 
 test('public reflow provider gives Section and live Box contents their wrapper offsets', async () => {
@@ -1408,6 +1501,7 @@ test('public reflow provider gives Section and live Box contents their wrapper o
     block('live-heading', BLOCK_TYPES.TEXT, 2280, 66, 112, 392),
     block('live-paragraph', BLOCK_TYPES.TEXT, 2330, 255, 112, 1056),
     block('live-adjacent', BLOCK_TYPES.IMAGE, 2330, 100, 1220, 300),
+    block('live-below', BLOCK_TYPES.IMAGE, 2620, 200, 0, 1200),
   ];
   const api = { reflow: null };
 
@@ -1435,6 +1529,7 @@ test('public reflow provider gives Section and live Box contents their wrapper o
       'data-heading-top': 2280 + reflow.getOffset('live-heading', 2280),
       'data-paragraph-top': 2330 + reflow.getOffset('live-paragraph', 2330),
       'data-adjacent-top': 2330 + reflow.getOffset('live-adjacent', 2330),
+      'data-below-top': 2620 + reflow.getOffset('live-below', 2620),
       'data-box-growth': reflow.getContainerGrowth(boxBlock, boxBlock.geom),
     });
   }
@@ -1457,14 +1552,14 @@ test('public reflow provider gives Section and live Box contents their wrapper o
     await act(async () => {
       api.reflow.reportHeight('accordion', 300);
     });
-    assert.equal(rootElement.firstChild.dataset.sectionTop, '300');
-    assert.equal(rootElement.firstChild.dataset.paragraphTop, '350');
+    assert.equal(rootElement.firstChild.dataset.sectionTop, '450');
+    assert.equal(rootElement.firstChild.dataset.paragraphTop, '500');
     assert.equal(rootElement.firstChild.dataset.fixedTop, '300');
 
     await act(async () => {
       api.reflow.reportHeight('paragraph', 220);
     });
-    assert.equal(rootElement.firstChild.dataset.paragraphTop, '350');
+    assert.equal(rootElement.firstChild.dataset.paragraphTop, '500');
     assert.equal(rootElement.firstChild.dataset.sectionGrowth, '70');
 
     await act(async () => {
@@ -1489,6 +1584,7 @@ test('public reflow provider gives Section and live Box contents their wrapper o
     assert.equal(rootElement.firstChild.dataset.iconTop, '2258');
     assert.equal(rootElement.firstChild.dataset.headingTop, '2280');
     assert.equal(rootElement.firstChild.dataset.paragraphTop, '2330');
+    assert.equal(rootElement.firstChild.dataset.belowTop, '2620');
 
     await act(async () => {
       api.reflow.reportHeight('live-accordion', 426);
@@ -1499,16 +1595,17 @@ test('public reflow provider gives Section and live Box contents their wrapper o
     await act(async () => {
       api.reflow.reportHeight('live-accordion', 567);
     });
-    assert.equal(rootElement.firstChild.dataset.boxTop, '2351');
-    assert.equal(rootElement.firstChild.dataset.iconTop, '2359');
-    assert.equal(rootElement.firstChild.dataset.headingTop, '2381');
-    assert.equal(rootElement.firstChild.dataset.paragraphTop, '2431');
+    assert.equal(rootElement.firstChild.dataset.boxTop, '2391');
+    assert.equal(rootElement.firstChild.dataset.iconTop, '2399');
+    assert.equal(rootElement.firstChild.dataset.headingTop, '2421');
+    assert.equal(rootElement.firstChild.dataset.paragraphTop, '2471');
     assert.equal(rootElement.firstChild.dataset.adjacentTop, '2330');
+    assert.equal(rootElement.firstChild.dataset.belowTop, '2761');
 
     await act(async () => {
       api.reflow.reportHeight('live-paragraph', 270);
     });
-    assert.equal(rootElement.firstChild.dataset.paragraphTop, '2431');
+    assert.equal(rootElement.firstChild.dataset.paragraphTop, '2471');
     assert.equal(rootElement.firstChild.dataset.boxGrowth, '0');
 
     await act(async () => {
@@ -1518,6 +1615,7 @@ test('public reflow provider gives Section and live Box contents their wrapper o
     assert.equal(rootElement.firstChild.dataset.iconTop, '2258');
     assert.equal(rootElement.firstChild.dataset.headingTop, '2280');
     assert.equal(rootElement.firstChild.dataset.paragraphTop, '2330');
+    assert.equal(rootElement.firstChild.dataset.belowTop, '2620');
   } finally {
     await act(async () => {
       reactRoot.unmount();

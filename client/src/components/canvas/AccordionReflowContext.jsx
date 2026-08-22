@@ -485,8 +485,10 @@ export function AccordionReflowProvider({ children, blocks, resolveGeom, editorM
   }, [measuredHeights, blocks, resolveGeom, breakpoint]);
 
   // Resolve every visible block once for collision relays and container
-  // attachment. Containers are backgrounds, not collision obstacles; measured
-  // auto-height blocks already contribute their live bottoms through rowGroups.
+  // attachment. Measured auto-height blocks already contribute their live
+  // bottoms through rowGroups. Other blocks, including displaced Section/Box
+  // backgrounds, relay their final displacement to unrelated content below so
+  // authored gaps survive a stacked push-down chain.
   const reflowGeometry = useMemo(() => {
     const targets = [];
     const collisionTargets = [];
@@ -516,11 +518,7 @@ export function AccordionReflowProvider({ children, blocks, resolveGeom, editorM
       targets.push(target);
       if (target.containerType) containerTargets.push(target);
 
-      if (
-        !def?.autoHeight &&
-        block.type !== BLOCK_TYPES.SECTION &&
-        block.type !== BLOCK_TYPES.BOX
-      ) {
+      if (!def?.autoHeight) {
         collisionTargets.push(target);
       }
     }
@@ -554,8 +552,9 @@ export function AccordionReflowProvider({ children, blocks, resolveGeom, editorM
    * `refBottom` pushes them down as intended.
    *
    * Side-by-side sources contribute the largest relevant displacement rather
-   * than adding together; vertically stacked sources in the same lane remain
-   * cumulative. Signed aspect-carousel rows retain their existing exception.
+   * than adding together. Once an actual collision begins, vertically stacked
+   * sources relay the full displacement so their authored gaps remain intact.
+   * Signed aspect-carousel rows retain their existing exception.
    */
   const getOffset = useCallback(
     (blockId, storedY) => {
