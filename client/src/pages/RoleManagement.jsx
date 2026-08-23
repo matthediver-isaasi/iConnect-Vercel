@@ -14,7 +14,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { Shield, Plus, Pencil, Trash2, AlertCircle, Mail, Upload, X, Loader2, Award, Settings, Building2, ChevronRight, ChevronDown, Calendar, CreditCard, Users, FileText, Briefcase, Layout, ClipboardList, HelpCircle, MailIcon, Cog } from "lucide-react";
+import { Shield, Plus, Pencil, Trash2, Copy, AlertCircle, Mail, Upload, X, Loader2, Award, Settings, Building2, ChevronRight, ChevronDown, Calendar, CreditCard, Users, FileText, Briefcase, Layout, ClipboardList, HelpCircle, MailIcon, Cog } from "lucide-react";
 import { toast } from "sonner";
 import { createPageUrl } from "@/utils";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
@@ -438,6 +438,55 @@ export default function RoleManagementPage() {
     }
   });
 
+  const duplicateRoleMutation = useMutation({
+    mutationFn: async (sourceRoleId) => {
+      const response = await fetch('/api/admin/roles/duplicate', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sourceRoleId }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || !result.role) {
+        const error = new Error(result.error || 'Failed to duplicate role');
+        error.copyRoleId = result.copyRoleId;
+        throw error;
+      }
+      return result;
+    },
+    onSuccess: async (result) => {
+      queryClient.invalidateQueries({ queryKey: ['roles'] });
+      queryClient.invalidateQueries({ queryKey: ['role-member-counts'] });
+      queryClient.invalidateQueries({ queryKey: ['resource-categories-for-roles'] });
+      queryClient.invalidateQueries({ queryKey: ['authenticated-resource-categories'] });
+      setEditingRole({ ...result.role, segment_values: result.role.segment_values || [] });
+      // Seed the editor with the restrictions the server just applied. This
+      // avoids a stale-cache window where the copied role could briefly appear
+      // unrestricted before the invalidated categories finish refetching.
+      const copiedCategoryRestrictions = {};
+      const copiedSubcategoryRestrictions = {};
+      for (const change of result.resourceAccessChanges || []) {
+        if (change.subcategory) {
+          copiedSubcategoryRestrictions[`${change.categoryId}::${change.subcategory}`] = false;
+        } else {
+          copiedCategoryRestrictions[change.categoryId] = false;
+        }
+      }
+      setCategoryAccessOverrides(copiedCategoryRestrictions);
+      setSubcategoryAccessOverrides(copiedSubcategoryRestrictions);
+      setExpandedCategoryAccess({});
+      setShowDialog(true);
+      toast.success('Role duplicated. Review and rename the copy before saving.');
+    },
+    onError: (error) => {
+      if (error.copyRoleId) {
+        queryClient.invalidateQueries({ queryKey: ['roles'] });
+        queryClient.invalidateQueries({ queryKey: ['resource-categories-for-roles'] });
+      }
+      toast.error(error.message || 'Failed to duplicate role');
+    },
+  });
+
   const handleCreateNew = () => {
     // Note: is_admin is now derived from excluded_features when saving (based on admin.role-management exclusion)
     setEditingRole({
@@ -467,6 +516,10 @@ export default function RoleManagementPage() {
     setSubcategoryAccessOverrides({});
     setExpandedCategoryAccess({});
     setShowDialog(true);
+  };
+
+  const handleDuplicate = (role) => {
+    duplicateRoleMutation.mutate(role.id);
   };
 
   // Task #3306: whether a role can currently see a category (pending edits first).
@@ -822,6 +875,27 @@ export default function RoleManagementPage() {
                     >
                       <Pencil className="w-3 h-3 mr-1" />
                       Edit
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleDuplicate(role)}
+                      className="flex-1"
+                      disabled={duplicateRoleMutation.isPending}
+                      title={`Duplicate ${role.name}`}
+                      data-testid={`button-duplicate-role-${role.id}`}
+                    >
+                      {duplicateRoleMutation.isPending && duplicateRoleMutation.variables === role.id ? (
+                        <>
+                          <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                          Duplicating...
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="w-3 h-3 mr-1" />
+                          Duplicate
+                        </>
+                      )}
                     </Button>
                     <Button
                       variant="outline"
