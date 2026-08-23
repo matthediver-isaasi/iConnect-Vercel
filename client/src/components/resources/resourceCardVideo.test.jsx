@@ -59,3 +59,17 @@ test("download resource card still renders its normal CTA", () => {
   assert.ok(html.includes("Download"));
   assert.ok(!html.includes("dialog-resource-video"));
 });
+
+test("tenant form resource card renders a form-specific CTA without changing its target", () => {
+  const html = render({
+    id: "res-form-1",
+    title: "Update your member profile",
+    resource_type: "tenant_form",
+    is_public: true,
+    open_in_new_tab: false,
+    target_url: "/FormView?slug=member-update",
+  });
+  assert.ok(html.includes("Open Form"));
+  assert.ok(html.includes("Update your member profile"));
+  assert.ok(!html.includes("Watch Video"));
+});

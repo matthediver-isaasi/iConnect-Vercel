@@ -7,9 +7,14 @@ import { Plus, Edit, Trash2, Check, X, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import AGCASButton from "../components/ui/AGCASButton";
 import AGCASSquareButton from "../components/ui/AGCASSquareButton";
-import { ArrowUpRight, Download, ExternalLink, PlayCircle, Eye, FileText, Mail, Plus as PlusIcon } from "lucide-react";
+import { ArrowUpRight, Download, ExternalLink, PlayCircle, Eye, FileText, ClipboardList, Mail, Plus as PlusIcon } from "lucide-react";
 import { createPageUrl } from "@/utils";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 
 const iconMap = {
   ArrowUpRight,
@@ -18,6 +23,7 @@ const iconMap = {
   PlayCircle,
   Eye,
   FileText,
+  ClipboardList,
   Mail,
   Plus: PlusIcon,
 };
@@ -25,6 +31,7 @@ const iconMap = {
 export default function ButtonStyleManagementPage() {
   const { isFeatureExcluded, isAccessReady } = useMemberAccess();
   const [accessChecked, setAccessChecked] = useState(false);
+  const [tenantFormStyleDraft, setTenantFormStyleDraft] = useState(null);
   const queryClient = useQueryClient();
 
   useEffect(() => {
@@ -53,6 +60,32 @@ export default function ButtonStyleManagementPage() {
     },
   });
 
+  const saveTenantFormStyleMutation = useMutation({
+    mutationFn: async (draft) => {
+      const payload = {
+        name: draft.name.trim(),
+        description: (draft.description || '').trim(),
+        card_type: 'resource',
+        resource_type: 'tenant_form',
+        button_type: draft.button_type,
+        button_text: (draft.button_text || '').trim() || 'Open Form',
+        icon_name: draft.icon_name || 'ClipboardList',
+        is_active: draft.is_active !== false,
+      };
+      return draft.id
+        ? base44.entities.ButtonStyle.update(draft.id, payload)
+        : base44.entities.ButtonStyle.create(payload);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['buttonStyles'] });
+      setTenantFormStyleDraft(null);
+      toast.success('Tenant form button style saved');
+    },
+    onError: (error) => {
+      toast.error('Failed to save button style: ' + error.message);
+    },
+  });
+
   if (!accessChecked) {
     return (
       <div className="min-h-screen p-4 md:p-8 flex items-center justify-center">
@@ -67,6 +100,18 @@ export default function ButtonStyleManagementPage() {
 
   const handleEdit = (style) => {
     window.location.href = createPageUrl('ButtonElements') + `?mode=edit&id=${style.id}`;
+  };
+
+  const openTenantFormStyleEditor = (style = null) => {
+    setTenantFormStyleDraft({
+      id: style?.id || null,
+      name: style?.name || 'Tenant form resource',
+      description: style?.description || '',
+      button_type: style?.button_type || 'rectangular_agcas',
+      button_text: style?.button_text || 'Open Form',
+      icon_name: style?.icon_name || 'ClipboardList',
+      is_active: style?.is_active !== false,
+    });
   };
 
   const handleDelete = (id) => {
@@ -101,6 +146,7 @@ export default function ButtonStyleManagementPage() {
       case 'download': return 'Download Resources';
       case 'video': return 'Video Resources';
       case 'external_link': return 'External Link Resources';
+      case 'tenant_form': return 'Tenant Form Resources';
       default: return 'Resources';
     }
   };
@@ -110,13 +156,17 @@ export default function ButtonStyleManagementPage() {
   const downloadStyles = buttonStyles.filter(s => s.card_type === 'resource' && s.resource_type === 'download');
   const videoStyles = buttonStyles.filter(s => s.card_type === 'resource' && s.resource_type === 'video');
   const externalLinkStyles = buttonStyles.filter(s => s.card_type === 'resource' && s.resource_type === 'external_link');
+  const tenantFormStyles = buttonStyles.filter(s => s.card_type === 'resource' && s.resource_type === 'tenant_form');
 
-  const renderStyleSection = (title, styles, emptyMessage) => (
+  const renderStyleSection = (title, styles, emptyMessage, {
+    onAdd = handleCreateNew,
+    onEdit = handleEdit,
+  } = {}) => (
     <div>
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-xl font-semibold text-slate-900">{title}</h2>
         {styles.length === 0 && (
-          <Button onClick={handleCreateNew} variant="outline" size="sm" className="gap-2">
+          <Button onClick={onAdd} variant="outline" size="sm" className="gap-2">
             <Plus className="w-4 h-4" />
             Add Style
           </Button>
@@ -145,7 +195,7 @@ export default function ButtonStyleManagementPage() {
                     <Button
                       variant="ghost"
                       size="icon"
-                      onClick={() => handleEdit(style)}
+                      onClick={() => onEdit(style)}
                     >
                       <Edit className="w-4 h-4" />
                     </Button>
@@ -224,6 +274,14 @@ export default function ButtonStyleManagementPage() {
             <Plus className="w-4 h-4" />
             Create Button Style
           </Button>
+          <Button
+            onClick={() => openTenantFormStyleEditor(tenantFormStyles[0] || null)}
+            variant="outline"
+            className="gap-2"
+          >
+            <ClipboardList className="w-4 h-4" />
+            Configure Tenant Form Style
+          </Button>
         </div>
 
         {isLoading ? (
@@ -252,6 +310,10 @@ export default function ButtonStyleManagementPage() {
               <Button onClick={handleCreateNew} className="bg-blue-600 hover:bg-blue-700 gap-2">
                 <Plus className="w-4 h-4" />
                 Create First Style
+              </Button>
+              <Button onClick={() => openTenantFormStyleEditor()} variant="outline" className="ml-2 gap-2">
+                <ClipboardList className="w-4 h-4" />
+                Create Tenant Form Style
               </Button>
             </CardContent>
           </Card>
@@ -284,9 +346,95 @@ export default function ButtonStyleManagementPage() {
               externalLinkStyles,
               'No button style defined for External Link resources yet'
             )}
+
+            {renderStyleSection(
+              'Tenant Form Resources',
+              tenantFormStyles,
+              'No button style defined for Tenant Form resources yet',
+              {
+                onAdd: () => openTenantFormStyleEditor(),
+                onEdit: openTenantFormStyleEditor,
+              }
+            )}
           </div>
         )}
       </div>
+
+      <Dialog open={!!tenantFormStyleDraft} onOpenChange={(open) => !open && setTenantFormStyleDraft(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Tenant form resource button style</DialogTitle>
+          </DialogHeader>
+          {tenantFormStyleDraft && (
+            <div className="space-y-4 py-2">
+              <div className="space-y-2">
+                <Label htmlFor="tenant-form-style-name">Style name</Label>
+                <Input
+                  id="tenant-form-style-name"
+                  value={tenantFormStyleDraft.name}
+                  onChange={(event) => setTenantFormStyleDraft((draft) => ({ ...draft, name: event.target.value }))}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="tenant-form-style-text">Button text</Label>
+                <Input
+                  id="tenant-form-style-text"
+                  value={tenantFormStyleDraft.button_text}
+                  onChange={(event) => setTenantFormStyleDraft((draft) => ({ ...draft, button_text: event.target.value }))}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Button style</Label>
+                <Select
+                  value={tenantFormStyleDraft.button_type}
+                  onValueChange={(button_type) => setTenantFormStyleDraft((draft) => ({ ...draft, button_type }))}
+                >
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="rectangular_agcas">Rectangular AGCAS</SelectItem>
+                    <SelectItem value="square_agcas">Square AGCAS</SelectItem>
+                    <SelectItem value="standard">Standard</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Icon</Label>
+                <Select
+                  value={tenantFormStyleDraft.icon_name}
+                  onValueChange={(icon_name) => setTenantFormStyleDraft((draft) => ({ ...draft, icon_name }))}
+                >
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="ClipboardList">Form</SelectItem>
+                    <SelectItem value="FileText">Document</SelectItem>
+                    <SelectItem value="ArrowUpRight">Arrow</SelectItem>
+                    <SelectItem value="ExternalLink">External link</SelectItem>
+                    <SelectItem value="none">No icon</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex items-center gap-2">
+                <Switch
+                  id="tenant-form-style-active"
+                  checked={tenantFormStyleDraft.is_active}
+                  onCheckedChange={(is_active) => setTenantFormStyleDraft((draft) => ({ ...draft, is_active }))}
+                />
+                <Label htmlFor="tenant-form-style-active">Active</Label>
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setTenantFormStyleDraft(null)}>Cancel</Button>
+            <Button
+              onClick={() => saveTenantFormStyleMutation.mutate(tenantFormStyleDraft)}
+              disabled={saveTenantFormStyleMutation.isPending || !tenantFormStyleDraft?.name?.trim()}
+            >
+              {saveTenantFormStyleMutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
+              Save style
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

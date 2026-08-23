@@ -4,7 +4,7 @@ import { useParams, useSearchParams } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, Lock, Download, ExternalLink, PlayCircle, Calendar, User, Share2, Mail, Copy, Check } from "lucide-react";
+import { Loader2, Lock, Download, ExternalLink, PlayCircle, ClipboardList, Calendar, User, Share2, Mail, Copy, Check } from "lucide-react";
 import { toast, Toaster } from "sonner";
 import { format } from "date-fns";
 import {
@@ -15,6 +15,8 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { extractVideoEmbedSrc } from "@/lib/resourceVideoEmbed.mjs";
+import { getResourceTypeLabel, TENANT_FORM_RESOURCE_TYPE } from "@/lib/resourcePresentation";
+import { recordEmbeddedResourceView } from "@/lib/resourceViewTracking";
 
 export default function EmbedResourcePage() {
   const { identifier } = useParams();
@@ -69,33 +71,27 @@ export default function EmbedResourcePage() {
         return <Download className="w-4 h-4" />;
       case 'video':
         return <PlayCircle className="w-4 h-4" />;
+      case TENANT_FORM_RESOURCE_TYPE:
+        return <ClipboardList className="w-4 h-4" />;
       case 'external_link':
         return <ExternalLink className="w-4 h-4" />;
       default:
         return <ExternalLink className="w-4 h-4" />;
-    }
-  };
-
-  const getResourceLabel = (type) => {
-    switch (type) {
-      case 'download':
-        return 'Download';
-      case 'video':
-        return 'Watch Video';
-      case 'external_link':
-        return 'Visit Site';
-      default:
-        return 'View Resource';
     }
   };
 
   const handleResourceClick = () => {
+    void recordEmbeddedResourceView(resource?.id);
     if (videoEmbedSrc) {
       setVideoOpen(true);
       return;
     }
     if (resource?.target_url) {
-      window.open(resource.target_url, '_blank', 'noopener,noreferrer');
+      if (resource.open_in_new_tab !== false) {
+        window.open(resource.target_url, '_blank', 'noopener,noreferrer');
+      } else {
+        window.top.location.href = resource.target_url;
+      }
     }
   };
 
@@ -234,7 +230,7 @@ export default function EmbedResourcePage() {
                 data-testid="button-resource-cta"
               >
                 {getResourceIcon(resource.resource_type)}
-                <span className="ml-2">{getResourceLabel(resource.resource_type)}</span>
+                <span className="ml-2">{getResourceTypeLabel(resource.resource_type)}</span>
               </Button>
               
               {resource.is_public && (

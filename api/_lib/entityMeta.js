@@ -331,7 +331,10 @@ async function resolveResource(tenantId, identifier) {
   q = isUUID ? q.eq('id', identifier) : q.eq('slug', identifier);
   const { data } = await q.maybeSingle();
   if (!data) return null;
-  const descParts = [data.resource_type, data.author_name].filter(Boolean).join(' · ');
+  const resourceTypeName = data.resource_type === 'tenant_form'
+    ? 'Tenant form'
+    : String(data.resource_type || '').replaceAll('_', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
+  const descParts = [resourceTypeName, data.author_name].filter(Boolean).join(' · ');
   const descBase = stripHtml(data.description);
   const autoDescription = truncate([descParts, descBase].filter(Boolean).join(' — '), 300);
   return {

@@ -10,6 +10,7 @@ import { isAdminOnlyEntity } from '../../_lib/adminOnlyEntities.js';
 import { isEventFamilyEntity, authorizeGroupAdminEventWrite } from '../../_lib/groupAdminEventWrite.js';
 import { checkBadgeWriteAccess } from '../../_lib/badgeAccess.js';
 import { isResourceEntity, applyGroupResourceSubcategoryDefaults } from '../../_lib/groupAdminResourceWrite.js';
+import { normalizeTenantFormResourceTarget } from '../../_lib/resourceFormTarget.js';
 import { resolveSubmitControl } from '../../_lib/formSubmitControl.js';
 import { rulesUseLmicOperators } from '../../_lib/formLmicConditions.js';
 import { getSession } from '../../_lib/session.js';
@@ -1386,6 +1387,16 @@ export default async function handler(req, res) {
       // surfaces tenant-wide under the matching filter.
       if (isResourceEntity(entity)) {
         await applyGroupResourceSubcategoryDefaults(sanitizedBody);
+        const formTargetValidation = await normalizeTenantFormResourceTarget({
+          supabase,
+          tenantId: tenantCtx.tenantId || tenantCtx.effectiveTenantId,
+          resourceBody: sanitizedBody,
+        });
+        if (!formTargetValidation.ok) {
+          return res.status(formTargetValidation.status || 400).json({
+            error: formTargetValidation.error,
+          });
+        }
       }
 
       // CardDeck: normalize and cap the links array (max 10 rows of { text, url })

@@ -16,6 +16,7 @@ import ReactQuill from "react-quill";
 import DOMPurify from "dompurify";
 import "react-quill/dist/quill.snow.css";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { recordEmbeddedResourceView } from "@/lib/resourceViewTracking";
 
 const showcaseQuillModules = {
   toolbar: [
@@ -1264,7 +1265,7 @@ export function IEditShowcaseElementRenderer({ element, settings }) {
       case 'news':
         return createPageUrl(`NewsView?id=${item.id}`);
       case 'resources':
-        return item.download_url || item.content_url || '#';
+        return item.target_url || `/resources?resourceId=${encodeURIComponent(item.id)}`;
       case 'articles':
         return createPageUrl(`ArticleView?slug=${item.slug}`);
       case 'jobs':
@@ -1399,7 +1400,9 @@ export function IEditShowcaseElementRenderer({ element, settings }) {
         ) : (
           <div className={`grid grid-cols-1 ${content.cardCount >= 2 ? 'md:grid-cols-2' : ''} ${content.cardCount >= 4 ? 'lg:grid-cols-4' : content.cardCount === 3 ? 'lg:grid-cols-3' : ''} gap-6`}>
             {items.map((item) => {
-              const isExternalLink = item._contentType === 'resources' && (item.download_url || item.content_url);
+              const isExternalLink = item._contentType === 'resources'
+                && !!item.target_url
+                && item.open_in_new_tab !== false;
               const url = getItemUrl(item);
               const authorText = item._contentType === 'articles'
                 ? formatAuthorNames(coAuthorsData?.authors?.[item.id])
@@ -1418,6 +1421,9 @@ export function IEditShowcaseElementRenderer({ element, settings }) {
                   url={url}
                   external={!!isExternalLink}
                   newTab={!!isExternalLink}
+                  onClick={item._contentType === 'resources'
+                    ? () => void recordEmbeddedResourceView(item.id)
+                    : undefined}
                   showBadge={item._cardConfig?.showLabel !== false}
                   badgeText={item._cardConfig?.labelText || getContentTypeLabel(item._contentType)}
                   badgeBgColor={item._cardConfig?.labelBgColor || '#2563eb'}

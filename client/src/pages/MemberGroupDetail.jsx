@@ -93,6 +93,7 @@ import GroupEmailManager from "@/components/group-email/GroupEmailManager";
 import GroupAdminSupportSection from "@/components/support/GroupAdminSupportSection";
 import { uploadFileWithProgress, UPLOAD_TYPES } from "@/lib/tenantUpload";
 import { createPageUrl } from "@/utils";
+import { buildTenantFormResourceUrl, TENANT_FORM_RESOURCE_TYPE } from "@/lib/resourcePresentation";
 import MemberProfileModal from "@/components/MemberProfileModal";
 import SimpleRichTextEditor from "@/components/SimpleRichTextEditor";
 import EventImageUpload from "@/components/events/EventImageUpload";
@@ -137,6 +138,7 @@ const EMPTY_RESOURCE_FORM = {
   description: "",
   resource_type: "download",
   target_url: "",
+  open_in_new_tab: true,
   is_public: false,
 };
 
@@ -848,6 +850,18 @@ export default function MemberGroupDetailPage() {
     },
     enabled: accessChecked && isGroupAdmin,
     staleTime: 0,
+  });
+
+  const { data: resourceForms = [] } = useQuery({
+    queryKey: ["tenant-forms-for-group-resources"],
+    queryFn: async () => {
+      const all = await base44.entities.Form.list();
+      return (all || [])
+        .filter((form) => form.is_active === true && form.slug)
+        .sort((a, b) => String(a.name || a.title || a.slug).localeCompare(String(b.name || b.title || b.slug)));
+    },
+    enabled: accessChecked && isGroupAdmin,
+    staleTime: 60_000,
   });
 
   // Public form list lets any member resolve a linked form's slug from its id
@@ -1644,6 +1658,7 @@ export default function MemberGroupDetailPage() {
   const createResourceMutation = useMutation({
     mutationFn: async (form) => {
       const isDownload = form.resource_type === "download";
+      const isTenantForm = form.resource_type === TENANT_FORM_RESOURCE_TYPE;
 
       let targetUrl = (form.target_url || "").trim();
 
@@ -1697,6 +1712,11 @@ export default function MemberGroupDetailPage() {
       } else if (!targetUrl) {
         throw new Error("Please enter a URL for this resource.");
       }
+      if (isTenantForm && !resourceForms.some(
+        (tenantForm) => buildTenantFormResourceUrl(tenantForm.slug) === targetUrl
+      )) {
+        throw new Error("Please choose an active tenant form.");
+      }
 
       let imageUrl = undefined;
       if (resourceImageFile) {
@@ -1712,6 +1732,7 @@ export default function MemberGroupDetailPage() {
         description: (form.description || "").trim(),
         resource_type: form.resource_type,
         target_url: targetUrl,
+        open_in_new_tab: form.open_in_new_tab !== false,
         is_public: form.is_public === true,
         status: "active",
         member_group_id: groupId,
@@ -1746,6 +1767,7 @@ export default function MemberGroupDetailPage() {
   const updateResourceMutation = useMutation({
     mutationFn: async ({ id, form }) => {
       const isDownload = form.resource_type === "download";
+      const isTenantForm = form.resource_type === TENANT_FORM_RESOURCE_TYPE;
 
       let targetUrl = (form.target_url || "").trim();
 
@@ -1767,6 +1789,11 @@ export default function MemberGroupDetailPage() {
       } else if (!targetUrl) {
         throw new Error("Please enter a URL for this resource.");
       }
+      if (isTenantForm && !resourceForms.some(
+        (tenantForm) => buildTenantFormResourceUrl(tenantForm.slug) === targetUrl
+      )) {
+        throw new Error("Please choose an active tenant form.");
+      }
 
       let imageUrl = undefined;
       if (resourceImageFile) {
@@ -1782,6 +1809,7 @@ export default function MemberGroupDetailPage() {
         description: (form.description || "").trim(),
         resource_type: form.resource_type,
         target_url: targetUrl,
+        open_in_new_tab: form.open_in_new_tab !== false,
         is_public: form.is_public === true,
         ...(imageUrl ? { image_url: imageUrl } : {}),
       });
@@ -1829,6 +1857,7 @@ export default function MemberGroupDetailPage() {
       description: resource.description || "",
       resource_type: resource.resource_type || "external_link",
       target_url: resource.target_url || "",
+      open_in_new_tab: resource.open_in_new_tab !== false,
       is_public: resource.is_public === true,
     });
     setResourceFile(null);
@@ -2994,7 +3023,11 @@ export default function MemberGroupDetailPage() {
               <Select
                 value={resourceForm.resource_type}
                 onValueChange={(value) =>
-                  setResourceForm((f) => ({ ...f, resource_type: value }))
+                  setResourceForm((form) => ({
+                    ...form,
+                    resource_type: value,
+                    target_url: value === TENANT_FORM_RESOURCE_TYPE ? "" : form.target_url,
+                  }))
                 }
               >
                 <SelectTrigger data-testid="select-resource-type">
@@ -3004,6 +3037,7 @@ export default function MemberGroupDetailPage() {
                   <SelectItem value="download">File download</SelectItem>
                   <SelectItem value="external_link">External link</SelectItem>
                   <SelectItem value="video">Video</SelectItem>
+                  <SelectItem value={TENANT_FORM_RESOURCE_TYPE}>Tenant form</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -3030,6 +3064,38 @@ export default function MemberGroupDetailPage() {
                   </p>
                 )}
               </div>
+            ) : resourceForm.resource_type === TENANT_FORM_RESOURCE_TYPE ? (
+              <div className="space-y-2">
+                <Label htmlFor="group-resource-form">Tenant form</Label>
+                <Select
+                  value={resourceForms.find(
+                    (form) => buildTenantFormResourceUrl(form.slug) === resourceForm.target_url
+                  )?.id || undefined}
+                  onValueChange={(formId) => {
+                    const selectedForm = resourceForms.find((form) => form.id === formId);
+                    if (selectedForm) {
+                      setResourceForm((form) => ({
+                        ...form,
+                        target_url: buildTenantFormResourceUrl(selectedForm.slug),
+                      }));
+                    }
+                  }}
+                >
+                  <SelectTrigger id="group-resource-form" data-testid="select-resource-tenant-form">
+                    <SelectValue placeholder={resourceForms.length ? "Choose a form" : "No active forms available"} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {resourceForms.map((form) => (
+                      <SelectItem key={form.id} value={form.id}>
+                        {form.name || form.title || form.slug}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-slate-500">
+                  Opens the form's normal standalone page with its existing login and prefill behavior.
+                </p>
+              </div>
             ) : (
               <div className="space-y-2">
                 <Label htmlFor="resource-url">URL</Label>
@@ -3045,6 +3111,23 @@ export default function MemberGroupDetailPage() {
                   placeholder="https://..."
                   data-testid="input-resource-url"
                 />
+              </div>
+            )}
+
+            {(resourceForm.resource_type === "external_link"
+              || resourceForm.resource_type === TENANT_FORM_RESOURCE_TYPE) && (
+              <div className="flex items-center gap-2">
+                <Switch
+                  id="resource-open-new-tab"
+                  checked={resourceForm.open_in_new_tab !== false}
+                  onCheckedChange={(checked) =>
+                    setResourceForm((form) => ({ ...form, open_in_new_tab: checked }))
+                  }
+                  data-testid="switch-resource-open-new-tab"
+                />
+                <Label htmlFor="resource-open-new-tab" className="text-sm text-slate-600 cursor-pointer">
+                  Open in new tab
+                </Label>
               </div>
             )}
 

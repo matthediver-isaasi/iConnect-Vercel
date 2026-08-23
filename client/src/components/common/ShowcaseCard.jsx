@@ -32,6 +32,7 @@ export default function ShowcaseCard({
   url,
   external = false, // render <a target=_blank> instead of router <Link>
   newTab = false, // force new tab for internal links too
+  onClick,
   asEditor = false, // render a non-navigating wrapper (canvas editor)
   locked = false, // member-only content: CTA shows a lock icon instead of the arrow
   // Badge
@@ -240,7 +241,7 @@ export default function ShowcaseCard({
   // download/content link) must not render as a broken anchor.
   if (asEditor || !url) {
     return (
-      <div className={wrapperClassName} style={wrapperStyle} data-testid={wrapperTestId || (testId ? `card-showcase-${testId}` : undefined)}>
+      <div className={wrapperClassName} style={wrapperStyle} onClick={onClick} data-testid={wrapperTestId || (testId ? `card-showcase-${testId}` : undefined)}>
         {cardContent}
       </div>
     );
@@ -254,6 +255,7 @@ export default function ShowcaseCard({
         href={url}
         target={newTab ? '_blank' : undefined}
         rel={newTab ? 'noopener noreferrer' : undefined}
+        onClick={onClick}
         className={wrapperClassName}
         style={wrapperStyle}
         data-testid={wrapperTestId || (testId ? `card-showcase-${testId}` : undefined)}
@@ -266,6 +268,7 @@ export default function ShowcaseCard({
   return (
     <Link
       to={url}
+      onClick={onClick}
       className={wrapperClassName}
       style={wrapperStyle}
       data-testid={wrapperTestId || (testId ? `card-showcase-${testId}` : undefined)}

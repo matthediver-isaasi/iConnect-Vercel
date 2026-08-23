@@ -23,18 +23,19 @@
         "enum": [
           "download",
           "video",
-          "external_link"
+          "external_link",
+          "tenant_form"
         ],
-        "description": "Defines the nature of the resource and dictates the CTA button text/action"
+        "description": "Defines the nature of the resource and dictates the CTA button text/action. tenant_form targets the canonical standalone FormView URL (/FormView?slug=<form-slug>) for an active form owned by this tenant."
       },
       "target_url": {
         "type": "string",
-        "description": "The URL for the resource itself (download link, YouTube/Vimeo embed code, or external website URL)"
+        "description": "The URL for the resource itself (download link, YouTube/Vimeo embed code, external website URL, or the canonical standalone FormView URL for tenant_form resources)."
       },
       "open_in_new_tab": {
         "type": "boolean",
         "default": true,
-        "description": "For external_link type: whether to open in a new tab or same window"
+        "description": "For external_link and tenant_form types: whether to open in a new tab or same window"
       },
       "image_url": {
         "type": "string",

@@ -18,6 +18,7 @@ import SEOSettings from "@/components/blog/SEOSettings";
 import { format } from "date-fns";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
+import { buildTenantFormResourceUrl, TENANT_FORM_RESOURCE_TYPE } from "@/lib/resourcePresentation";
 
 export default function ResourceManagementPage() {
   const { isFeatureExcluded, isAccessReady } = useMemberAccess();
@@ -102,6 +103,17 @@ export default function ResourceManagementPage() {
     },
     staleTime: 0,
     refetchOnMount: true,
+  });
+
+  const { data: tenantForms = [] } = useQuery({
+    queryKey: ['resource-tenant-forms'],
+    queryFn: async () => {
+      const forms = await base44.entities.Form.list();
+      return (forms || [])
+        .filter((form) => form.is_active === true && form.slug)
+        .sort((a, b) => String(a.name || a.title || a.slug).localeCompare(String(b.name || b.title || b.slug)));
+    },
+    staleTime: 60_000,
   });
 
   const { data: repositoryFiles = [] } = useQuery({
@@ -949,6 +961,15 @@ export default function ResourceManagementPage() {
     if (!editingResource.target_url.trim()) {
       toast.error(editingResource.resource_type === 'video' ? 'Embed code is required' : 'Target URL is required');
       return;
+    }
+    if (editingResource.resource_type === TENANT_FORM_RESOURCE_TYPE) {
+      const selectedForm = tenantForms.find(
+        (form) => buildTenantFormResourceUrl(form.slug) === editingResource.target_url
+      );
+      if (!selectedForm) {
+        toast.error('Please choose an active tenant form');
+        return;
+      }
     }
     if (!editingResource.subcategories || editingResource.subcategories.length === 0) {
       toast.error('Please select at least one subcategory');
@@ -2000,7 +2021,11 @@ export default function ResourceManagementPage() {
                   <Select
                     value={editingResource.resource_type}
                     onValueChange={(value) => {
-                      setEditingResource({ ...editingResource, resource_type: value });
+                        setEditingResource((resource) => ({
+                          ...resource,
+                          resource_type: value,
+                          target_url: value === TENANT_FORM_RESOURCE_TYPE ? '' : resource.target_url,
+                        }));
                       // Reset target repository flag and file name when changing type
                       if (value !== 'download') {
                         setTargetFromRepository(false);
@@ -2015,6 +2040,7 @@ export default function ResourceManagementPage() {
                       <SelectItem value="download">Download</SelectItem>
                       <SelectItem value="video">Video</SelectItem>
                       <SelectItem value="external_link">External Link</SelectItem>
+                      <SelectItem value={TENANT_FORM_RESOURCE_TYPE}>Tenant form</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -2161,6 +2187,36 @@ export default function ResourceManagementPage() {
                         </button>
                       </div>
                     )}
+                  </div>
+                ) : editingResource.resource_type === TENANT_FORM_RESOURCE_TYPE ? (
+                  <div className="space-y-2">
+                    <Label htmlFor="tenant-form">Tenant form *</Label>
+                    <Select
+                      value={tenantForms.find((form) => buildTenantFormResourceUrl(form.slug) === editingResource.target_url)?.id || undefined}
+                      onValueChange={(formId) => {
+                        const selectedForm = tenantForms.find((form) => form.id === formId);
+                        if (selectedForm) {
+                          setEditingResource((resource) => ({
+                            ...resource,
+                            target_url: buildTenantFormResourceUrl(selectedForm.slug),
+                          }));
+                        }
+                      }}
+                    >
+                      <SelectTrigger id="tenant-form">
+                        <SelectValue placeholder={tenantForms.length ? 'Choose a form' : 'No active forms available'} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {tenantForms.map((form) => (
+                          <SelectItem key={form.id} value={form.id}>
+                            {form.name || form.title || form.slug}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-slate-500">
+                      The resource opens this form through its normal standalone page, preserving its existing login and prefill behavior.
+                    </p>
                   </div>
                 ) : (
                   <div className="space-y-2">

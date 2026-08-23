@@ -18,6 +18,16 @@ function escapeHtml(str) {
     .replace(/"/g, '&quot;');
 }
 
+function resourceTypeLabel(type) {
+  switch (type) {
+    case 'download': return 'Download';
+    case 'video': return 'Video';
+    case 'external_link': return 'External link';
+    case 'tenant_form': return 'Tenant form';
+    default: return type || '';
+  }
+}
+
 function decodeHtmlEntities(str) {
   if (!str) return '';
   return str
@@ -1011,7 +1021,7 @@ async function renderCanvasDynamicBlock(supabaseClient, tenant, block) {
         if (r.description) texts.push(stripHtml(r.description));
         return `<article>
   <h3>${escapeHtml(r.title || '')}</h3>
-  ${r.resource_type ? `<p><strong>Type:</strong> ${escapeHtml(r.resource_type)}</p>` : ''}
+  ${r.resource_type ? `<p><strong>Type:</strong> ${escapeHtml(resourceTypeLabel(r.resource_type))}</p>` : ''}
   ${r.description ? `<p>${escapeHtml(truncate(stripHtml(r.description), 240))}</p>` : ''}
 </article>`;
       }).join('\n');
@@ -1306,7 +1316,7 @@ async function renderListPage(supabaseClient, tenant, pageType, baseUrl) {
           .eq('status', 'active')
           .order('release_date', { ascending: false })
           .limit(50);
-        return (data || []).map(r => `<li><strong>${escapeHtml(r.title)}</strong>${r.resource_type ? ` (${escapeHtml(r.resource_type)})` : ''}${r.release_date ? ` - ${escapeHtml(new Date(r.release_date).toLocaleDateString('en-US', { dateStyle: 'long' }))}` : ''}</li>`).join('\n');
+        return (data || []).map(r => `<li><strong>${escapeHtml(r.title)}</strong>${r.resource_type ? ` (${escapeHtml(resourceTypeLabel(r.resource_type))})` : ''}${r.release_date ? ` - ${escapeHtml(new Date(r.release_date).toLocaleDateString('en-US', { dateStyle: 'long' }))}` : ''}</li>`).join('\n');
       }
     }
   };

@@ -9,6 +9,7 @@ import { isAdminOnlyEntity } from '../../_lib/adminOnlyEntities.js';
 import { isEventFamilyEntity, authorizeGroupAdminEventWrite } from '../../_lib/groupAdminEventWrite.js';
 import { checkBadgeWriteAccess } from '../../_lib/badgeAccess.js';
 import { isResourceEntity, authorizeGroupAdminResourceWrite } from '../../_lib/groupAdminResourceWrite.js';
+import { normalizeTenantFormResourceTarget } from '../../_lib/resourceFormTarget.js';
 import { isMemberGroupAssignmentEntity, authorizeMemberGroupAdminAssignmentChange } from '../../_lib/groupAdminAssignmentLeave.js';
 import { getCallerGroupManageAccess, canManageGroup } from '../../_lib/memberGroupAdminAccess.js';
 import { getSession } from '../../_lib/session.js';
@@ -1166,9 +1167,20 @@ export default async function handler(req, res) {
       if (isResourceEntity(entity)) {
         const { data: existingRow } = await supabase
           .from(tableName)
-          .select('id, member_group_id, tenant_id')
+          .select('id, member_group_id, tenant_id, resource_type, target_url')
           .eq('id', id)
           .maybeSingle();
+        const formTargetValidation = await normalizeTenantFormResourceTarget({
+          supabase,
+          tenantId: tenantCtx.tenantId || tenantCtx.effectiveTenantId,
+          resourceBody: sanitizedBody,
+          existingResource: existingRow || null,
+        });
+        if (!formTargetValidation.ok) {
+          return res.status(formTargetValidation.status || 400).json({
+            error: formTargetValidation.error,
+          });
+        }
         const authz = await authorizeGroupAdminResourceWrite({
           op: 'update',
           existingRow: existingRow || null,

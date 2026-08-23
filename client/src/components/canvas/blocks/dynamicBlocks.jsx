@@ -65,6 +65,7 @@ import {
 import { ComplexEventProgramme } from '@/components/events/ComplexEventSchedule';
 import WallOfFameDisplay from '@/components/walloffame/WallOfFameDisplay';
 import ResourceCard from '@/components/resources/ResourceCard';
+import { resolveResourceNewTab, TENANT_FORM_RESOURCE_TYPE } from '@/lib/resourcePresentation';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { DirectoryMemberCard, DirectoryOrganizationCard } from '@/components/directory/DirectoryCards';
 import MemberGroupBlockView, { resolveMemberGroupGrid } from './MemberGroupBlockView';
@@ -4602,7 +4603,7 @@ function ResourceListRender({ block, breakpoint, asEditor }) {
                 resource={r}
                 isLocked={!r.is_public && !isLoggedIn}
                 buttonStyles={buttonStyles}
-                openInNewTab={openLinksInNewTab}
+                openInNewTab={resolveResourceNewTab(r, openLinksInNewTab)}
                 cornerRadius={cardCornerRadius}
               />
             </li>
@@ -4750,7 +4751,19 @@ function ResourceFilterFields({ c, set, idPrefix }) {
 
   return (
     <>
-      <TextField label="Resource type" value={c.resourceType} onChange={(v) => set({ resourceType: v })} testId={`input-${idPrefix}-type`} />
+      <SelectField
+        label="Resource type"
+        value={c.resourceType || 'all'}
+        onChange={(v) => set({ resourceType: v === 'all' ? '' : v })}
+        options={[
+          { value: 'all', label: 'All resource types' },
+          { value: 'download', label: 'Download' },
+          { value: 'video', label: 'Video' },
+          { value: 'external_link', label: 'External link' },
+          { value: 'tenant_form', label: 'Tenant form' },
+        ]}
+        testId={`select-${idPrefix}-type`}
+      />
       <TextField label="Filter tag" value={c.tag} onChange={(v) => set({ tag: v })} testId={`input-${idPrefix}-tag`} />
       <MultiCheckboxField
         label="Filter categories"
@@ -4908,6 +4921,26 @@ function ResourceShowcaseRender({ block, breakpoint, asEditor }) {
     staleTime: 60_000,
   });
 
+  const { data: buttonStyles = [] } = useQuery({
+    queryKey: ['canvas', 'public-button-styles-resources'],
+    queryFn: async () => {
+      const styles = await publicClient.listButtonStyles();
+      return (Array.isArray(styles) ? styles : []).filter((style) => style.card_type === 'resource' && style.is_active);
+    },
+    staleTime: 60_000,
+  });
+
+  const isLoggedIn = useMemo(() => {
+    try {
+      const raw = localStorage.getItem('agcas_member');
+      if (!raw) return false;
+      const member = JSON.parse(raw);
+      return !member.sessionExpiry || new Date(member.sessionExpiry) >= new Date();
+    } catch {
+      return false;
+    }
+  }, []);
+
   const items = useMemo(() => {
     let list = filterResourcesByContent(data, c, categoriesData);
     const dir = c.sortBy === 'date-asc' ? 1 : -1;
@@ -4984,6 +5017,27 @@ function ResourceShowcaseRender({ block, breakpoint, asEditor }) {
             const url = isLocked
               ? `/resources?resourceId=${r.id}`
               : (r.target_url || r.download_url || r.content_url || '');
+            if (r.resource_type === TENANT_FORM_RESOURCE_TYPE) {
+              return (
+                <li
+                  key={r.id}
+                  className="list-none"
+                  onClickCapture={asEditor ? (event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                  } : undefined}
+                >
+                  <ResourceCard
+                    resource={r}
+                    isLocked={isLocked}
+                    isAuthenticated={isLoggedIn}
+                    buttonStyles={buttonStyles}
+                    openInNewTab={resolveResourceNewTab(r, linkNewTab)}
+                    cornerRadius={cardBorderRadius}
+                  />
+                </li>
+              );
+            }
             return (
               <li key={r.id} className="list-none">
                 <ShowcaseCard

@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Download, ExternalLink, PlayCircle, Calendar, User, Share2, Mail, Lock, ArrowUpRight, Eye, FileText, Plus, Copy, Check, Bookmark, Pencil, Trash2 } from "lucide-react";
+import { Download, ExternalLink, PlayCircle, Calendar, User, Share2, Mail, Lock, ArrowUpRight, Eye, FileText, ClipboardList, Plus, Copy, Check, Bookmark, Pencil, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import {
@@ -21,6 +21,8 @@ import { resolveTenantButtonStyle } from "@/lib/tenantButtonStyle";
 import { resolveCardAccentBar } from "@/lib/cardAccentBar";
 import { extractVideoEmbedSrc } from "@/lib/resourceVideoEmbed.mjs";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { getResourceTypeLabel, TENANT_FORM_RESOURCE_TYPE } from "@/lib/resourcePresentation";
+import { recordEmbeddedResourceView } from "@/lib/resourceViewTracking";
 
 const iconMap = {
   ArrowUpRight,
@@ -29,6 +31,7 @@ const iconMap = {
   PlayCircle,
   Eye,
   FileText,
+  ClipboardList,
   Mail,
   Plus,
 };
@@ -38,7 +41,7 @@ const iconMap = {
 // existing caller render byte-identically; the Canvas Resource list block
 // passes a clamped value through. overflow-hidden on the Card already clips
 // the image/top edge to the rounded corners.
-export default function ResourceCard({ resource, isLocked = false, isEventLocked = false, joinLocked = false, buttonStyles = [], enabledSocialIcons = ['x', 'linkedin', 'email'], isAuthenticated = true, viewCount = null, onResourceView, onEdit, onDelete, openInNewTab = true, cornerRadius = null }) {
+export default function ResourceCard({ resource, isLocked = false, isEventLocked = false, joinLocked = false, buttonStyles = [], enabledSocialIcons = ['x', 'linkedin', 'email'], isAuthenticated = true, viewCount = null, onResourceView, onEdit, onDelete, openInNewTab, cornerRadius = null }) {
   const [copied, setCopied] = useState(false);
   const [videoOpen, setVideoOpen] = useState(false);
   // Video resources store raw iframe embed code in target_url (see Resource
@@ -69,23 +72,12 @@ export default function ResourceCard({ resource, isLocked = false, isEventLocked
         return <Download className="w-4 h-4" />;
       case 'video':
         return <PlayCircle className="w-4 h-4" />;
+      case TENANT_FORM_RESOURCE_TYPE:
+        return <ClipboardList className="w-4 h-4" />;
       case 'external_link':
         return <ExternalLink className="w-4 h-4" />;
       default:
         return <ExternalLink className="w-4 h-4" />;
-    }
-  };
-
-  const getResourceLabel = (type) => {
-    switch (type) {
-      case 'download':
-        return 'Download';
-      case 'video':
-        return 'Watch Video';
-      case 'external_link':
-        return 'Visit Site';
-      default:
-        return 'View Resource';
     }
   };
 
@@ -98,12 +90,15 @@ export default function ResourceCard({ resource, isLocked = false, isEventLocked
     }
     if (onResourceView) {
       onResourceView(resource.id);
+    } else {
+      void recordEmbeddedResourceView(resource.id);
     }
     if (videoEmbedSrc) {
       setVideoOpen(true);
       return;
     }
-    if (openInNewTab) {
+    const shouldOpenInNewTab = openInNewTab ?? resource.open_in_new_tab !== false;
+    if (shouldOpenInNewTab) {
       window.open(resource.target_url, '_blank', 'noopener,noreferrer');
     } else {
       window.location.href = resource.target_url;
@@ -111,7 +106,13 @@ export default function ResourceCard({ resource, isLocked = false, isEventLocked
   };
 
   const handleShare = async (platform) => {
-    const shareUrl = resource.target_url || resource.login_redirect_url || '';
+    // Never share a private resource's underlying target. The resource-library
+    // URL re-runs the established resource access/login checks before opening
+    // the target (important for authenticated cards, which do hold target_url).
+    const protectedResourceUrl = `${window.location.origin}/resources?resourceId=${encodeURIComponent(resource.id)}`;
+    const shareUrl = resource.is_public && resource.target_url
+      ? resource.target_url
+      : protectedResourceUrl;
     const url = encodeURIComponent(shareUrl);
     const title = encodeURIComponent(resource.title);
     const description = encodeURIComponent(resource.description || '');
@@ -175,7 +176,7 @@ export default function ResourceCard({ resource, isLocked = false, isEventLocked
       const ctaIcon = IconComponent && buttonStyle?.icon_name !== 'none'
         ? <IconComponent className="w-4 h-4" />
         : getResourceIcon(resource.resource_type);
-      const ctaText = buttonStyle?.button_text || getResourceLabel(resource.resource_type);
+      const ctaText = buttonStyle?.button_text || getResourceTypeLabel(resource.resource_type);
       return (
         <div className="flex gap-2">
           <TenantCtaButton
@@ -239,7 +240,7 @@ export default function ResourceCard({ resource, isLocked = false, isEventLocked
             className={`bg-blue-600 hover:bg-blue-700 ${resource.is_public ? 'flex-1' : 'w-full'}`}
           >
             {getResourceIcon(resource.resource_type)}
-            <span className="ml-2">{getResourceLabel(resource.resource_type)}</span>
+            <span className="ml-2">{getResourceTypeLabel(resource.resource_type)}</span>
           </Button>
           
           {resource.is_public && (
@@ -285,7 +286,7 @@ export default function ResourceCard({ resource, isLocked = false, isEventLocked
       );
     }
 
-    const buttonText = buttonStyle.button_text || getResourceLabel(resource.resource_type);
+    const buttonText = buttonStyle.button_text || getResourceTypeLabel(resource.resource_type);
     const buttonType = buttonStyle.button_type;
     const IconComponent = buttonStyle.icon_name && iconMap[buttonStyle.icon_name];
 
@@ -524,8 +525,20 @@ export default function ResourceCard({ resource, isLocked = false, isEventLocked
           )}
           {viewCount !== null && viewCount !== undefined && (
             <div className="flex items-center gap-1 text-xs text-slate-500" data-testid={`text-resource-views-${resource.id}`}>
-              {resource.resource_type === 'download' ? <Download className="w-3 h-3" /> : resource.resource_type === 'video' ? <PlayCircle className="w-3 h-3" /> : <ExternalLink className="w-3 h-3" />}
-              <span>{viewCount} {resource.resource_type === 'download' ? (viewCount === 1 ? 'Download' : 'Downloads') : resource.resource_type === 'video' ? (viewCount === 1 ? 'View' : 'Views') : (viewCount === 1 ? 'Visit' : 'Visits')}</span>
+              {resource.resource_type === 'download'
+                ? <Download className="w-3 h-3" />
+                : resource.resource_type === 'video'
+                  ? <PlayCircle className="w-3 h-3" />
+                  : resource.resource_type === TENANT_FORM_RESOURCE_TYPE
+                    ? <ClipboardList className="w-3 h-3" />
+                    : <ExternalLink className="w-3 h-3" />}
+              <span>{viewCount} {resource.resource_type === 'download'
+                ? (viewCount === 1 ? 'Download' : 'Downloads')
+                : resource.resource_type === 'video'
+                  ? (viewCount === 1 ? 'View' : 'Views')
+                  : resource.resource_type === TENANT_FORM_RESOURCE_TYPE
+                    ? (viewCount === 1 ? 'Open' : 'Opens')
+                    : (viewCount === 1 ? 'Visit' : 'Visits')}</span>
             </div>
           )}
         </div>

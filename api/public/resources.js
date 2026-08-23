@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
 import { fetchCategoriesWithAccess, computeHiddenSubcategories, filterResourcesByCategoryAccess } from '../_lib/resourceCategoryAccess.js';
+import { projectPublicResourceAccess } from '../_lib/publicResourceProjection.js';
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -93,14 +94,7 @@ export default async function handler(req, res) {
         return false;
       }
       return true;
-    }).map(r => ({
-      ...r,
-      target_url: r.is_public ? r.target_url : null,
-      is_locked: !r.is_public,
-      login_redirect_url: !r.is_public
-        ? `https://${tenant_domain}/login?returnTo=/resources&resourceId=${r.id}`
-        : null
-    }));
+    }).map((resource) => projectPublicResourceAccess(resource, tenant_domain));
 
     res.json(publicResources);
   } catch (error) {

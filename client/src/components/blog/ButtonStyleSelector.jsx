@@ -8,7 +8,7 @@ import { Check } from "lucide-react";
 import AGCASButton from "../ui/AGCASButton";
 import AGCASSquareButton from "../ui/AGCASSquareButton";
 import { Button } from "@/components/ui/button";
-import { ArrowUpRight, Download, ExternalLink, PlayCircle, Eye, FileText, Mail, Plus } from "lucide-react";
+import { ArrowUpRight, Download, ExternalLink, PlayCircle, Eye, FileText, ClipboardList, Mail, Plus } from "lucide-react";
 
 const iconMap = {
   ArrowUpRight,
@@ -17,6 +17,7 @@ const iconMap = {
   PlayCircle,
   Eye,
   FileText,
+  ClipboardList,
   Mail,
   Plus,
 };

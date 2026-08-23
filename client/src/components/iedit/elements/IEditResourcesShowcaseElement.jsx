@@ -7,11 +7,13 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
-import { Upload, Loader2, Trash2, FileText, ArrowRight, Lock, LockOpen } from "lucide-react";
+import { Upload, Loader2, Trash2, FileText, ClipboardList, ArrowRight, Lock, LockOpen } from "lucide-react";
 import { toast } from "sonner";
 import { useQuery } from "@tanstack/react-query";
 import AGCASButton from "@/components/ui/AGCASButton";
 import TypographyStyleSelector, { applyTypographyStyle, useTypographyStyles } from "../TypographyStyleSelector";
+import { TENANT_FORM_RESOURCE_TYPE } from "@/lib/resourcePresentation";
+import { recordEmbeddedResourceView } from "@/lib/resourceViewTracking";
 
 export function IEditResourcesShowcaseElementEditor({ element, onChange }) {
   const [isUploadingBg, setIsUploadingBg] = React.useState(false);
@@ -1137,6 +1139,7 @@ export function IEditResourcesShowcaseElementRenderer({ element, settings }) {
                     href={resourceLink}
                     target={isExternalLink ? '_blank' : '_self'}
                     rel={isExternalLink ? 'noopener noreferrer' : undefined}
+                    onClick={() => void recordEmbeddedResourceView(resource.id)}
                     className="bg-white p-6 shadow-lg hover:shadow-xl transition-shadow group aspect-square flex flex-col justify-between relative"
                     style={{ borderRadius: `${content.cardBorderRadius ?? 8}px` }}
                   >
@@ -1165,7 +1168,16 @@ export function IEditResourcesShowcaseElementRenderer({ element, settings }) {
                           right: `${content.ctaButtonMargin ?? 16}px`
                         }}
                       >
-                        {resource.is_public ? (
+                        {resource.resource_type === TENANT_FORM_RESOURCE_TYPE && resource.is_public ? (
+                          <ClipboardList
+                            aria-label="Open form"
+                            style={{
+                              width: `${(content.ctaButtonSize || 48) * 0.5}px`,
+                              height: `${(content.ctaButtonSize || 48) * 0.5}px`,
+                              color: content.ctaButtonIconColor || '#ffffff'
+                            }}
+                          />
+                        ) : resource.is_public ? (
                           <LockOpen 
                             style={{ 
                               width: `${(content.ctaButtonSize || 48) * 0.5}px`, 
