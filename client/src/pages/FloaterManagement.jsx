@@ -36,9 +36,16 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
+import { publicClient } from "@/api/publicClient";
+import {
+  normalizeFloaterSiteTargets,
+  selectedFloaterTargetIds,
+  serializeFloaterSiteTargets,
+} from "@/lib/floaterSiteTargets";
 
 export default function FloaterManagementPage() {
   const { isAdmin, isFeatureExcluded, isAccessReady, authResolved, sessionValidated } = useMemberAccess();
@@ -68,7 +75,9 @@ export default function FloaterManagementPage() {
     height: 80,
     show_background: true,
     is_active: true,
-    display_order: 0
+    display_order: 0,
+    selected_site_targets: [],
+    preserve_legacy_site_targets: false
   });
 
   const queryClient = useQueryClient();
@@ -95,6 +104,25 @@ export default function FloaterManagementPage() {
     },
     enabled: isAuthenticated,
   });
+
+  // Public microsites are already tenant-scoped by the host and this endpoint
+  // only returns active sites, which are the available floater targets.
+  const { data: activeMicrosites = [], isLoading: micrositesLoading } = useQuery({
+    queryKey: ['floater-active-microsites'],
+    queryFn: async () => {
+      const result = await publicClient.listMicrosites();
+      return Array.isArray(result?.microsites) ? result.microsites : [];
+    },
+    enabled: isAuthenticated,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const allSiteTargetIds = () => ['main-site', ...activeMicrosites.map((microsite) => microsite.id)];
+
+  const siteTargetLabel = (targetId) => {
+    if (targetId === 'main-site') return 'Main site';
+    return activeMicrosites.find((microsite) => microsite.id === targetId)?.name || 'Unavailable microsite';
+  };
 
   const createFloaterMutation = useMutation({
     mutationFn: async (floaterData) => {
@@ -171,7 +199,9 @@ export default function FloaterManagementPage() {
         height: floater.height || 80,
         show_background: floater.show_background ?? true,
         is_active: floater.is_active ?? true,
-        display_order: floater.display_order || 0
+        display_order: floater.display_order || 0,
+        selected_site_targets: selectedFloaterTargetIds(floater.site_targets, activeMicrosites),
+        preserve_legacy_site_targets: !normalizeFloaterSiteTargets(floater.site_targets)
       });
     } else {
       setEditingFloater(null);
@@ -194,7 +224,9 @@ export default function FloaterManagementPage() {
         height: 80,
         show_background: true,
         is_active: true,
-        display_order: 0
+        display_order: 0,
+        selected_site_targets: allSiteTargetIds(),
+        preserve_legacy_site_targets: false
       });
     }
     setDialogOpen(true);
@@ -222,7 +254,9 @@ export default function FloaterManagementPage() {
       height: 80,
       show_background: true,
       is_active: true,
-      display_order: 0
+      display_order: 0,
+      selected_site_targets: [],
+      preserve_legacy_site_targets: false
     });
   };
 
@@ -268,6 +302,11 @@ export default function FloaterManagementPage() {
       return;
     }
 
+    if (formData.selected_site_targets.length === 0) {
+      toast.error('Select at least one public site target');
+      return;
+    }
+
     const floaterData = {
       name: formData.name,
       description: formData.description,
@@ -287,7 +326,11 @@ export default function FloaterManagementPage() {
       height: Number(formData.height),
       show_background: formData.show_background,
       is_active: formData.is_active,
-      display_order: Number(formData.display_order)
+      display_order: Number(formData.display_order),
+      site_targets: serializeFloaterSiteTargets(
+        formData.selected_site_targets,
+        formData.preserve_legacy_site_targets,
+      )
     };
 
     if (editingFloater) {
@@ -315,6 +358,16 @@ export default function FloaterManagementPage() {
     }
   };
 
+  const getSiteTargetBadges = (floater) => {
+    const targets = normalizeFloaterSiteTargets(floater.site_targets);
+    if (!targets) return [{ id: 'legacy-all-sites', label: 'All sites (legacy)' }];
+    const selectedIds = [
+      ...(targets.main_site ? ['main-site'] : []),
+      ...targets.microsite_ids,
+    ];
+    return selectedIds.map((targetId) => ({ id: targetId, label: siteTargetLabel(targetId) }));
+  };
+
   if (!accessChecked || isLoading) {
     return (
       <div className="min-h-screen p-4 md:p-8 flex items-center justify-center">
@@ -335,6 +388,7 @@ export default function FloaterManagementPage() {
           </div>
           <Button
             onClick={() => handleOpenDialog()}
+            disabled={micrositesLoading}
             className="bg-blue-600 hover:bg-blue-700"
           >
             <Plus className="w-4 h-4 mr-2" />
@@ -348,7 +402,11 @@ export default function FloaterManagementPage() {
               <MousePointer2 className="w-16 h-16 text-slate-300 mx-auto mb-4" />
               <h3 className="text-xl font-semibold text-slate-900 mb-2">No floaters yet</h3>
               <p className="text-slate-600 mb-6">Create your first floating widget to get started</p>
-              <Button onClick={() => handleOpenDialog()} className="bg-blue-600 hover:bg-blue-700">
+              <Button
+                onClick={() => handleOpenDialog()}
+                disabled={micrositesLoading}
+                className="bg-blue-600 hover:bg-blue-700"
+              >
                 <Plus className="w-4 h-4 mr-2" />
                 Create Floater
               </Button>
@@ -401,6 +459,11 @@ export default function FloaterManagementPage() {
                               </>
                             )}
                           </Badge>
+                           {getSiteTargetBadges(floater).map((target) => (
+                             <Badge key={target.id} variant="outline" className="bg-amber-50 text-amber-800 border-amber-200">
+                               {target.label}
+                             </Badge>
+                           ))}
                         </div>
                       </div>
                       {floater.image_url && (
@@ -693,6 +756,48 @@ export default function FloaterManagementPage() {
               </div>
             </div>
 
+            <div className="space-y-2">
+              <Label>Public Site Targets *</Label>
+              <p className="text-xs text-slate-500">
+                Choose where this floater appears on public pages. Portal display remains controlled by Display Location.
+              </p>
+              <div className="space-y-2 rounded-md border border-slate-200 p-3">
+                {micrositesLoading ? (
+                  <div className="flex items-center gap-2 text-sm text-slate-500">
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Loading available sites…
+                  </div>
+                ) : (
+                  [
+                    { id: 'main-site', name: 'Main site' },
+                    ...activeMicrosites,
+                  ].map((site) => {
+                    const checked = formData.selected_site_targets.includes(site.id);
+                    return (
+                      <div key={site.id} className="flex items-center gap-2">
+                        <Checkbox
+                          id={`floater-site-${site.id}`}
+                          checked={checked}
+                          onCheckedChange={(nextChecked) => {
+                            setFormData((current) => ({
+                              ...current,
+                              preserve_legacy_site_targets: false,
+                              selected_site_targets: nextChecked
+                                ? [...new Set([...current.selected_site_targets, site.id])]
+                                : current.selected_site_targets.filter((id) => id !== site.id),
+                            }));
+                          }}
+                        />
+                        <Label htmlFor={`floater-site-${site.id}`} className="font-normal cursor-pointer">
+                          {site.name}{site.path_prefix ? ` (/${site.path_prefix})` : ''}
+                        </Label>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="offset_x">Offset X (px)</Label>
@@ -774,6 +879,7 @@ export default function FloaterManagementPage() {
             </Button>
             <Button
               onClick={handleSubmit}
+               disabled={micrositesLoading}
               className="bg-blue-600 hover:bg-blue-700"
             >
               {editingFloater ? 'Update' : 'Create'} Floater

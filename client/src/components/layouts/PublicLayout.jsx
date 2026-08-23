@@ -64,7 +64,7 @@ export default function PublicLayout({ children, currentPageName }) {
   // Task #2426: on microsite routes this returns the microsite-merged
   // branding (footer config/logo overrides); elsewhere the tenant branding.
   const { branding, hasBranding } = usePublicChromeBranding();
-  const { micrositePrefix } = useMicrosite();
+  const { micrositePrefix, activeMicrosite, micrositesLoaded } = useMicrosite();
   const [banners, setBanners] = useState([]);
   const [loadingBanners, setLoadingBanners] = useState(true);
   const [showNewsletterDialog, setShowNewsletterDialog] = useState(false);
@@ -966,7 +966,11 @@ export default function PublicLayout({ children, currentPageName }) {
         )}
 
         {/* Floater Display for Public Pages */}
-        <FloaterDisplay location="public" />
+        <FloaterDisplay
+          location="public"
+          activeMicrositeId={activeMicrosite?.id || null}
+          publicSiteContextReady={micrositesLoaded}
+        />
       </div>
       {/* Newsletter Dialog - uses IEditFormElement for full form rendering */}
       <Dialog open={showNewsletterDialog} onOpenChange={handleNewsletterDialogChange}>

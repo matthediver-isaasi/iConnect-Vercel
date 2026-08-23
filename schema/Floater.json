@@ -67,6 +67,10 @@
         "default": "both",
         "description": "Where this floater should appear"
       },
+       "site_targets": {
+         "type": "object",
+         "description": "Public-site targets: { main_site: boolean, microsite_ids: string[] }. Omit for legacy visibility on all public sites."
+       },
       "position": {
         "type": "string",
         "enum": [

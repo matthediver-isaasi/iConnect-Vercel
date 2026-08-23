@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import FormRenderer from "../forms/FormRenderer";
@@ -7,8 +7,15 @@ import { Loader2, ChevronLeft, ChevronRight } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/api/supabaseClient";
 import { publicClient, getTenantSlugFromLocation } from "@/api/publicClient";
+import { resolveDisplayedFloaters } from "@/lib/floaterSiteTargets";
 
-export default function FloaterDisplay({ location = "portal", memberInfo, organizationInfo }) {
+export default function FloaterDisplay({
+  location = "portal",
+  memberInfo,
+  organizationInfo,
+  activeMicrositeId = null,
+  publicSiteContextReady = true,
+}) {
   // Get tenant_id for filtering - from memberInfo if authenticated, otherwise resolve from tenant slug or host
   const [tenantId, setTenantId] = useState(memberInfo?.tenant_id || null);
   
@@ -146,6 +153,15 @@ export default function FloaterDisplay({ location = "portal", memberInfo, organi
     },
     enabled: !!tenantId, // Only fetch when tenant_id is available
   });
+
+  // Site targets apply only to the public web presence. Portal visibility
+  // remains controlled solely by display_location, as it was before targeting.
+  const visibleFloaters = useMemo(() => resolveDisplayedFloaters({
+    floaters,
+    location,
+    activeMicrositeId,
+    publicSiteContextReady,
+  }), [floaters, location, activeMicrositeId, publicSiteContextReady]);
 
   // Fetch forms (was base44.entities.Form.list)
   // SECURITY: Filter by tenant_id for proper tenant isolation
@@ -443,11 +459,11 @@ export default function FloaterDisplay({ location = "portal", memberInfo, organi
   // Use memberRecord (full data) if available, otherwise fallback to memberInfo
   const memberData = memberRecord || memberInfo;
 
-  if (floaters.length === 0) return null;
+  if (visibleFloaters.length === 0) return null;
 
   return (
     <>
-      {!selectedForm && floaters.map((floater) => (
+      {!selectedForm && visibleFloaters.map((floater) => (
         <div
           key={floater.id}
           style={getPositionStyles(floater)}
