@@ -63,3 +63,37 @@ The original file contained a **hard-coded Zoho client id, client secret and ref
 
 - `php -l` (PHP 8.1): no syntax errors.
 - Automated check: all 1,113 lines of the original file are present in the deliverable, either verbatim (untouched sections) or commented out inside marked blocks — nothing was deleted.
+
+## Member-count reconciliation
+
+The read-only reconciliation added on 24 August 2026 lives beside this handover:
+
+- `RECONCILIATION-2026-08-24.md` — dated evidence and the current finding.
+- `wp-gsf-map-reconcile.php` — an all-status WordPress inventory for WP-CLI.
+- `../../scripts/reconcile-gsf-map.mjs` — dashboard/feed/WordPress comparator.
+
+Run the WordPress inventory from the WordPress root:
+
+```bash
+wp eval-file /path/to/wp-gsf-map-reconcile.php \
+  > /tmp/gsf-wordpress-inventory.json
+```
+
+It only reads the configured iConnect feed and `gsf_member` posts across every
+registered post status. It does not create, update, publish, draft, trash, or
+delete anything. The export includes a minimal ID/name snapshot of the exact
+configured feed response so the next comparison cannot accidentally use a
+different endpoint or database state.
+
+Then compare it from this repository:
+
+```bash
+node scripts/reconcile-gsf-map.mjs \
+  --wordpress-inventory=/tmp/gsf-wordpress-inventory.json \
+  --format=markdown
+```
+
+Avoid using the site's public `search_members` AJAX action as an audit probe:
+that route calls `getMembers()`, which may start a normal sync when its interval
+has elapsed. The public REST inventory used by the Node diagnostic is
+publish-only but does not trigger the plugin's sync path.

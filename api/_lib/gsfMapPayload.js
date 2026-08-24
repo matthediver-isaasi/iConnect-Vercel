@@ -36,7 +36,7 @@ export const SETTING_COUNTRY_ROW_IDS = 'gsf_map_country_row_ids';
 export const SETTING_ORG_LEGACY = 'gsf_map_org_legacy';
 
 // GSF preference-field ids used by derived (non-mapping) fields.
-const FIELD_IDS = {
+export const GSF_MAP_FIELD_IDS = {
   org_status: '077f1aa6-abdc-4bdc-a6ca-34b93c8726fd',
   org_type: '7af40750-1543-44e8-8022-0e0e27bc2c5c',
   member_type_sub_category: '0cf72e9f-000f-473a-a3f0-c8716bb14226',
@@ -46,6 +46,8 @@ const FIELD_IDS = {
   countries_of_operation: 'b799fad7-db74-443c-b461-93d30b7f4bba',
   ceo_flag: 'ee00b2a0-4ec4-4988-bac9-fd2b195b9d7a'
 };
+
+const FIELD_IDS = GSF_MAP_FIELD_IDS;
 
 // iConnect country names that differ from Zoho's country-master names.
 const COUNTRY_NAME_ALIASES = {
@@ -390,6 +392,7 @@ export async function loadGsfMapData() {
   return {
     supabaseUrl,
     fieldMappings,
+    orgs,
     memberOrgs,
     prefByOrg,
     membersByOrg,
