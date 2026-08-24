@@ -8,6 +8,7 @@ import {
   Copy,
   Minus,
   Plus,
+  RotateCcw,
   Trash2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -24,6 +25,7 @@ import {
   createBlock,
   removeAdvancedAccordionItem,
   reorderAdvancedAccordionItems,
+  resolveAdvancedAccordionChildLayout,
   resolveBleedBorderRadius,
   resolveBlockAtBreakpoint,
   resolveBoxShadowCss,
@@ -238,6 +240,164 @@ function isNestedContainer(block) {
     || Array.isArray(block?.children);
 }
 
+const SIZED_NESTED_CHILD_TYPES = new Set([BLOCK_TYPES.BUTTON, BLOCK_TYPES.VIDEO]);
+const NESTED_LAYOUT_BREAKPOINTS = ['desktop', 'tablet', 'mobile'];
+
+function hasOwnNestedLayoutValue(child, breakpoint, field) {
+  return Object.prototype.hasOwnProperty.call(child?.accordionLayout?.[breakpoint] || {}, field);
+}
+
+function setNestedLayoutLayer(child, breakpoint, patch) {
+  const accordionLayout = { ...(child.accordionLayout || {}) };
+  const layer = { ...(accordionLayout[breakpoint] || {}) };
+  for (const [field, value] of Object.entries(patch || {})) {
+    if (value === null || value === undefined) delete layer[field];
+    else layer[field] = value;
+  }
+  if (Object.keys(layer).length > 0) accordionLayout[breakpoint] = layer;
+  else delete accordionLayout[breakpoint];
+  const next = { ...child };
+  if (Object.keys(accordionLayout).length > 0) next.accordionLayout = accordionLayout;
+  else delete next.accordionLayout;
+  return next;
+}
+
+function setNestedGeometryValue(child, breakpoint, field, value) {
+  const bp = { ...(child.bp || {}) };
+  const layer = { ...(bp[breakpoint] || {}) };
+  if (Number.isFinite(value)) layer[field] = Math.max(24, value);
+  else if (breakpoint !== 'desktop') delete layer[field];
+  bp[breakpoint] = layer;
+  return { ...child, bp };
+}
+
+function NestedLayoutControls({ child, breakpoint, update }) {
+  const activeBreakpoint = NESTED_LAYOUT_BREAKPOINTS.includes(breakpoint) ? breakpoint : 'desktop';
+  const resolvedLayout = resolveAdvancedAccordionChildLayout(child, activeBreakpoint);
+  const resolvedGeom = resolveBlockAtBreakpoint(child, activeBreakpoint);
+  const ownGeom = child.bp?.[activeBreakpoint] || {};
+  const isDesktop = activeBreakpoint === 'desktop';
+  const ownWidth = Number.isFinite(ownGeom.w) ? ownGeom.w : null;
+  const ownHeight = Number.isFinite(ownGeom.h) ? ownGeom.h : null;
+  const inheritedBreakpoint = activeBreakpoint === 'mobile' ? 'tablet' : 'desktop';
+  const inheritedGeom = isDesktop ? null : resolveBlockAtBreakpoint(child, inheritedBreakpoint);
+  const modeInherited = !hasOwnNestedLayoutValue(child, activeBreakpoint, 'mode');
+  const alignInherited = !hasOwnNestedLayoutValue(child, activeBreakpoint, 'align');
+
+  const writeLayout = (patch) => update((current) => (
+    setNestedLayoutLayer(current, activeBreakpoint, patch)
+  ));
+  const writeGeometry = (field, raw) => update((current) => (
+    setNestedGeometryValue(current, activeBreakpoint, field, raw === '' ? null : Number(raw))
+  ));
+  const resetBreakpoint = () => update((current) => {
+    let next = setNestedLayoutLayer(current, activeBreakpoint, { mode: null, align: null });
+    if (!isDesktop) {
+      next = setNestedGeometryValue(next, activeBreakpoint, 'w', null);
+      next = setNestedGeometryValue(next, activeBreakpoint, 'h', null);
+    }
+    return next;
+  });
+
+  return (
+    <div className="space-y-3 rounded-md border border-slate-200 bg-slate-50 p-3" data-testid="advanced-accordion-child-layout">
+      <div>
+        <div className="text-xs font-medium text-slate-700">
+          Panel layout ({activeBreakpoint})
+        </div>
+        <p className="mt-1 text-[11px] leading-snug text-slate-500">
+          {isDesktop
+            ? 'Fill is the legacy default. Custom size uses this block’s Canvas width and height.'
+            : `Blank values inherit from ${inheritedBreakpoint}. Use Reset to restore inheritance.`}
+        </p>
+      </div>
+
+      <Field label={`Width mode${modeInherited && !isDesktop ? ` (inherited: ${resolvedLayout.mode})` : ''}`}>
+        <div className="grid grid-cols-2 gap-2">
+          <Button
+            type="button"
+            size="sm"
+            variant={resolvedLayout.mode === 'fill' ? 'default' : 'outline'}
+            onClick={() => writeLayout({ mode: 'fill' })}
+            data-testid="advanced-accordion-layout-fill"
+          >
+            Fill panel
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant={resolvedLayout.mode === 'custom' ? 'default' : 'outline'}
+            onClick={() => writeLayout({ mode: 'custom' })}
+            data-testid="advanced-accordion-layout-custom"
+          >
+            Custom size
+          </Button>
+        </div>
+      </Field>
+
+      <div className="grid grid-cols-2 gap-2">
+        <Field label={`Width (px)${!isDesktop && ownWidth === null ? ' — inherit' : ''}`}>
+          <Input
+            type="number"
+            min={24}
+            step={1}
+            disabled={resolvedLayout.mode !== 'custom'}
+            value={isDesktop ? resolvedGeom.w : (ownWidth ?? '')}
+            placeholder={!isDesktop ? `${inheritedGeom?.w ?? resolvedGeom.w} (inherit)` : ''}
+            onChange={(event) => writeGeometry('w', event.target.value)}
+            data-testid="advanced-accordion-layout-width"
+          />
+        </Field>
+        <Field label={`Height (px)${!isDesktop && ownHeight === null ? ' — inherit' : ''}`}>
+          <Input
+            type="number"
+            min={24}
+            step={1}
+            value={isDesktop ? resolvedGeom.h : (ownHeight ?? '')}
+            placeholder={!isDesktop ? `${inheritedGeom?.h ?? resolvedGeom.h} (inherit)` : ''}
+            onChange={(event) => writeGeometry('h', event.target.value)}
+            data-testid="advanced-accordion-layout-height"
+          />
+        </Field>
+      </div>
+
+      <Field label={`Horizontal alignment${alignInherited && !isDesktop ? ` (inherited: ${resolvedLayout.align})` : ''}`}>
+        <div className="grid grid-cols-3 gap-2">
+          {[
+            ['left', 'Left'],
+            ['center', 'Centre'],
+            ['right', 'Right'],
+          ].map(([value, label]) => (
+            <Button
+              key={value}
+              type="button"
+              size="sm"
+              variant={resolvedLayout.align === value ? 'default' : 'outline'}
+              disabled={resolvedLayout.mode !== 'custom'}
+              onClick={() => writeLayout({ align: value })}
+              data-testid={`advanced-accordion-layout-align-${value}`}
+            >
+              {label}
+            </Button>
+          ))}
+        </div>
+      </Field>
+
+      <Button
+        type="button"
+        size="sm"
+        variant="ghost"
+        className="w-full"
+        onClick={resetBreakpoint}
+        data-testid="advanced-accordion-layout-reset"
+      >
+        <RotateCcw className="mr-1 h-3.5 w-3.5" />
+        {isDesktop ? 'Reset to full-width layout' : `Reset ${activeBreakpoint} to inherited layout`}
+      </Button>
+    </div>
+  );
+}
+
 function NestedCanvasChild({
   parentId,
   itemId,
@@ -271,6 +431,16 @@ function NestedCanvasChild({
 
   const fixedHeight = Math.max(24, Number(geom.h) || 40);
   const isAutoHeight = definition?.autoHeight || isFlowContainer;
+  const hasExplicitNestedLayout = placement === 'stack'
+    && SIZED_NESTED_CHILD_TYPES.has(child.type)
+    && !!child.accordionLayout;
+  const nestedLayout = hasExplicitNestedLayout
+    ? resolveAdvancedAccordionChildLayout(child, breakpoint || 'desktop')
+    : null;
+  const customWidth = Math.max(24, Number(geom.w) || 120);
+  const customAlignment = nestedLayout?.align === 'center'
+    ? 'center'
+    : (nestedLayout?.align === 'right' ? 'flex-end' : 'flex-start');
   const placementStyle = placement === 'absolute'
     ? {
         position: 'absolute',
@@ -284,12 +454,20 @@ function NestedCanvasChild({
           flex: `${Math.max(0, Number(child.flow?.grow) || 1)} 1 ${Number(child.flow?.basis) > 0 ? `${Number(child.flow.basis)}px` : '0'}`,
           width: 0,
         }
-      : { position: 'relative', width: '100%' };
+      : hasExplicitNestedLayout && nestedLayout.mode === 'custom'
+        ? {
+            position: 'relative',
+            width: `min(100%, ${customWidth}px)`,
+            maxWidth: '100%',
+            alignSelf: customAlignment,
+          }
+        : { position: 'relative', width: '100%' };
 
   return (
     <div
       id={sanitizeAnchorId(child.anchorId || '') || undefined}
       data-advanced-accordion-child={child.id}
+      data-advanced-accordion-layout-mode={nestedLayout?.mode || 'legacy-fill'}
       className={selectedChildId === child.id ? 'ring-2 ring-blue-500 ring-offset-2' : ''}
       onPointerDown={(event) => {
         if (!asEditor) return;
@@ -315,11 +493,20 @@ function NestedCanvasChild({
         borderColor: style.borderColor || 'transparent',
         borderRadius: resolveBleedBorderRadius(child),
         boxShadow: resolveBoxShadowCss(style),
-        overflow: definition?.allowOverflow || nestedChildren.length > 0 ? 'visible' : 'hidden',
+        overflow: hasExplicitNestedLayout && child.type === BLOCK_TYPES.BUTTON
+          ? 'hidden'
+          : (definition?.allowOverflow || nestedChildren.length > 0 ? 'visible' : 'hidden'),
         pointerEvents: asEditor ? 'auto' : undefined,
       }}
     >
-      {Component ? <Component block={child} breakpoint={breakpoint} asEditor={asEditor} /> : null}
+      {Component ? (
+        <Component
+          block={child}
+          breakpoint={breakpoint}
+          asEditor={asEditor}
+          constrainToBounds={hasExplicitNestedLayout}
+        />
+      ) : null}
       {nestedChildren.length > 0 ? (
         <div
           style={isFlowContainer ? {
@@ -624,6 +811,7 @@ export function AdvancedAccordionInspector({
   block,
   onUpdate,
   update,
+  breakpoint,
   getBlockDefinition,
   listPaletteBlocks,
 }) {
@@ -635,6 +823,9 @@ export function AdvancedAccordionInspector({
   const { anchors: pageAnchors = [] } = useCanvasAnchors();
   const activeItem = (content.items || []).find((item) => item.id === activeItemId) || content.items?.[0];
   const selectedChild = findNestedBlock(activeItem?.children, selectedChildId);
+  const selectedChildUsesPanelStack = (activeItem?.children || []).some(
+    (child) => child?.id === selectedChildId,
+  );
 
   const commitUpdate = onUpdate || update;
   const updateContent = (patch) => commitUpdate?.((currentBlock) => ({
@@ -908,6 +1099,17 @@ export function AdvancedAccordionInspector({
 
       {selectedChild ? (
         <InspectorSection title={`Edit ${selectedChild.name || getBlockDefinition(selectedChild.type)?.label || 'block'}`}>
+          {SIZED_NESTED_CHILD_TYPES.has(selectedChild.type) && selectedChildUsesPanelStack ? (
+            <NestedLayoutControls
+              child={selectedChild}
+              breakpoint={breakpoint || 'desktop'}
+              update={patchSelectedChild}
+            />
+          ) : SIZED_NESTED_CHILD_TYPES.has(selectedChild.type) ? (
+            <p className="text-xs text-slate-500">
+              This block’s size and alignment are managed by its parent Row or Group layout.
+            </p>
+          ) : null}
           {(() => {
             const ChildInspector = getBlockDefinition(selectedChild.type)?.Inspector;
             return ChildInspector
@@ -916,7 +1118,7 @@ export function AdvancedAccordionInspector({
                     block={selectedChild}
                     update={patchSelectedChild}
                     onUpdate={patchSelectedChild}
-                    breakpoint="desktop"
+                    breakpoint={breakpoint || 'desktop'}
                   />
                 )
               : <div className="text-xs text-slate-500">This block has no content-specific settings.</div>;

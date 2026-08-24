@@ -14,6 +14,7 @@ import {
   cloneCanvasBlockWithFreshIds,
   addAdvancedAccordionItem,
   removeAdvancedAccordionItem,
+  resolveAdvancedAccordionChildLayout,
   updateAdvancedAccordionItem,
   reorderAdvancedAccordionItems,
 } from './canvasDesign.js';
@@ -92,6 +93,67 @@ test('normalizeCanvasDesign preserves advanced accordion content across a round-
   assert.equal(reBlock.type, 'advanced-accordion');
   assert.equal(reBlock.content.items.length, 2);
   assert.equal(reBlock.content.mode, 'single');
+});
+
+test('normalization preserves valid nested CTA layout and removes invalid layout values', () => {
+  const button = createBlock(BLOCK_TYPES.BUTTON);
+  button.accordionLayout = {
+    desktop: { mode: 'custom', align: 'center', ignored: 'value' },
+    tablet: { align: 'right' },
+    mobile: { mode: 'invalid', align: 'invalid' },
+  };
+  const text = createBlock(BLOCK_TYPES.TEXT);
+  text.accordionLayout = { desktop: { mode: 'custom', align: 'right' } };
+  const block = createBlock(BLOCK_TYPES.ADVANCED_ACCORDION);
+  block.content.items[0].children = [button, text];
+
+  const design = normalizeCanvasDesign({
+    version: 1,
+    root: { sections: [{ id: 'root-section', children: [block] }] },
+  });
+  const [normalizedButton, normalizedText] =
+    design.root.sections[0].children[0].content.items[0].children;
+
+  assert.deepEqual(normalizedButton.accordionLayout, {
+    desktop: { mode: 'custom', align: 'center' },
+    tablet: { align: 'right' },
+  });
+  assert.equal(normalizedText.accordionLayout, undefined);
+
+  const reloaded = normalizeCanvasDesign(JSON.parse(JSON.stringify(design)));
+  assert.deepEqual(
+    reloaded.root.sections[0].children[0].content.items[0].children[0].accordionLayout,
+    normalizedButton.accordionLayout,
+  );
+});
+
+test('nested CTA and video layout inherits wider breakpoints and defaults legacy children to fill', () => {
+  const legacy = createBlock(BLOCK_TYPES.BUTTON);
+  assert.deepEqual(resolveAdvancedAccordionChildLayout(legacy, 'mobile'), {
+    mode: 'fill',
+    align: 'left',
+  });
+
+  const video = {
+    ...createBlock(BLOCK_TYPES.VIDEO),
+    accordionLayout: {
+      desktop: { mode: 'custom', align: 'center' },
+      tablet: { align: 'right' },
+      mobile: { mode: 'fill' },
+    },
+  };
+  assert.deepEqual(resolveAdvancedAccordionChildLayout(video, 'desktop'), {
+    mode: 'custom',
+    align: 'center',
+  });
+  assert.deepEqual(resolveAdvancedAccordionChildLayout(video, 'tablet'), {
+    mode: 'custom',
+    align: 'right',
+  });
+  assert.deepEqual(resolveAdvancedAccordionChildLayout(video, 'mobile'), {
+    mode: 'fill',
+    align: 'right',
+  });
 });
 
 // ---------------------------------------------------------------------------

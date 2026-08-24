@@ -2705,7 +2705,7 @@ function ImageInspector({ block, update }) {
 }
 
 // BUTTON ---------------------------------------------------------------------
-function ButtonRender({ block, asEditor, breakpoint }) {
+function ButtonRender({ block, asEditor, breakpoint, constrainToBounds = false }) {
   const c = block.content || {};
   const Icon = getLucideIcon(c.icon);
   // Task #3167: icon-only mode. Strict-true gated so legacy buttons render
@@ -2846,7 +2846,8 @@ function ButtonRender({ block, asEditor, breakpoint }) {
       // The label font comes from the typography / labelSize path only (below),
       // NOT from the removed Size-tab font slider.
       minWidth: '100%',
-      width: 'max-content',
+      width: constrainToBounds ? '100%' : 'max-content',
+      maxWidth: constrainToBounds ? '100%' : undefined,
       transition: 'background-color 0.2s ease, color 0.2s ease, background 0.2s ease',
     };
     // Default icon from the tenant button style. The per-block icon (c.icon,
@@ -3303,6 +3304,17 @@ function ButtonInspector({ block, update, breakpoint }) {
 // used (rather than guessing iframe URLs from regex). Aspect ratio is
 // applied to layout via CSS aspect-ratio on a centered inner wrapper so the
 // configured ratio visibly drives rendered sizing.
+export function fitAspectRatioWithinBounds(width, height, aspectRatio) {
+  const w = Number(width);
+  const h = Number(height);
+  const ratio = Number(aspectRatio);
+  if (!(w > 0) || !(h > 0) || !(ratio > 0)) return null;
+  if (w / h > ratio) {
+    return { width: h * ratio, height: h };
+  }
+  return { width: w, height: w / ratio };
+}
+
 function useOEmbed(provider, url) {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
@@ -3328,6 +3340,32 @@ function VideoRender({ block, asEditor }) {
   const ratioStr = (c.aspectRatio || '16:9').replace(':', ' / ');
   const ar = aspectFromRatio(c.aspectRatio);
   const { data: oembed, error: oembedError } = useOEmbed(c.provider, c.url);
+  const hostRef = useRef(null);
+  const [hostSize, setHostSize] = useState(null);
+
+  useLayoutEffect(() => {
+    const host = hostRef.current;
+    if (!host) return undefined;
+    const measure = () => {
+      const width = host.clientWidth;
+      const height = host.clientHeight;
+      if (!(width > 0) || !(height > 0)) return;
+      setHostSize((current) => (
+        current?.width === width && current?.height === height
+          ? current
+          : { width, height }
+      ));
+    };
+    measure();
+    if (typeof ResizeObserver === 'undefined') return undefined;
+    const observer = new ResizeObserver(measure);
+    observer.observe(host);
+    return () => observer.disconnect();
+  }, []);
+
+  const fittedSize = hostSize
+    ? fitAspectRatioWithinBounds(hostSize.width, hostSize.height, ar)
+    : null;
 
   const inner = (() => {
     if (!c.url) {
@@ -3384,12 +3422,24 @@ function VideoRender({ block, asEditor }) {
 
   return (
     <div
+      ref={hostRef}
       className="w-full h-full flex items-center justify-center"
       data-aspect={ar.toFixed(3)}
+      style={{ containerType: 'size' }}
     >
       <div
-        className="w-full max-h-full"
-        style={{ aspectRatio: ratioStr, maxWidth: '100%' }}
+        style={fittedSize ? {
+          width: fittedSize.width,
+          height: fittedSize.height,
+          aspectRatio: ratioStr,
+          maxWidth: '100%',
+          maxHeight: '100%',
+        } : {
+          width: '100%',
+          maxWidth: `min(100%, calc(100cqh * ${ar}))`,
+          maxHeight: '100%',
+          aspectRatio: ratioStr,
+        }}
       >
         {inner}
       </div>

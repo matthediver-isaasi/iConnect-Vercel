@@ -34,7 +34,10 @@ const {
 const { DndContext } = await import('@dnd-kit/core');
 const { default: CanvasStage } = await import('../CanvasStage.jsx');
 const { default: CanvasFlowEditorStage } = await import('../CanvasFlowEditorStage.jsx');
-const { getBlockDefinition: getRegisteredBlockDefinition } = await import('./registry.jsx');
+const {
+  fitAspectRatioWithinBounds,
+  getBlockDefinition: getRegisteredBlockDefinition,
+} = await import('./registry.jsx');
 
 let dom;
 let container;
@@ -420,6 +423,379 @@ test('nested child inspector functional updates change the accordion block', asy
     next.content.items[0].children[0].content.html,
     '<p>Updated text</p>',
   );
+});
+
+test('nested CTA layout inspector writes responsive geometry and resets tablet overrides', async () => {
+  const child = {
+    ...createBlock(BLOCK_TYPES.BUTTON, {
+      id: 'nested-cta',
+      name: 'Nested CTA',
+      desktop: { x: 0, y: 0, w: 320, h: 64 },
+      tablet: { w: 260, h: 56 },
+    }),
+    accordionLayout: {
+      desktop: { mode: 'custom', align: 'left' },
+      tablet: { mode: 'custom', align: 'right' },
+    },
+  };
+  const block = makeBlock({
+    items: [{
+      id: 'item-one',
+      title: 'Item one',
+      anchor: 'item-one',
+      children: [child],
+    }],
+  });
+  const updates = [];
+  const childInspectorBreakpoints = [];
+  const definitions = (type) => ({
+    ...getBlockDefinition(type),
+    label: type === BLOCK_TYPES.BUTTON ? 'Button / CTA' : type,
+    Inspector: ({ breakpoint: childBreakpoint }) => {
+      childInspectorBreakpoints.push(childBreakpoint);
+      return React.createElement('div', { 'data-testid': 'nested-content-inspector' });
+    },
+  });
+
+  await act(async () => {
+    root.render(React.createElement(AdvancedAccordionInspector, {
+      block,
+      breakpoint: 'tablet',
+      update: (updater) => updates.push(updater),
+      getBlockDefinition: definitions,
+      listPaletteBlocks: () => [],
+    }));
+  });
+
+  const selectChild = Array.from(container.querySelectorAll('button'))
+    .find((button) => button.textContent === 'Nested CTA');
+  assert.ok(selectChild);
+  await act(async () => selectChild.click());
+  assert.ok(container.querySelector('[data-testid="advanced-accordion-child-layout"]'));
+  assert.ok(container.querySelector('[data-testid="nested-content-inspector"]'));
+  assert.equal(childInspectorBreakpoints.at(-1), 'tablet');
+
+  const width = container.querySelector('[data-testid="advanced-accordion-layout-width"]');
+  await act(async () => Simulate.change(width, { target: { value: '240' } }));
+  const alignCenter = container.querySelector('[data-testid="advanced-accordion-layout-align-center"]');
+  await act(async () => alignCenter.click());
+  const fill = container.querySelector('[data-testid="advanced-accordion-layout-fill"]');
+  await act(async () => fill.click());
+  const reset = container.querySelector('[data-testid="advanced-accordion-layout-reset"]');
+  await act(async () => reset.click());
+
+  assert.equal(updates.length, 4);
+  const widthResult = updates[0](block);
+  assert.equal(widthResult.content.items[0].children[0].bp.tablet.w, 240);
+  assert.equal(widthResult.content.items[0].children[0].bp.tablet.h, 56);
+  const alignResult = updates[1](block);
+  assert.equal(alignResult.content.items[0].children[0].accordionLayout.tablet.align, 'center');
+  const fillResult = updates[2](block);
+  assert.equal(fillResult.content.items[0].children[0].accordionLayout.tablet.mode, 'fill');
+  const resetResult = updates[3](block);
+  assert.deepEqual(resetResult.content.items[0].children[0].bp.tablet, {});
+  assert.equal(resetResult.content.items[0].children[0].accordionLayout.tablet, undefined);
+  assert.deepEqual(resetResult.content.items[0].children[0].accordionLayout.desktop, {
+    mode: 'custom',
+    align: 'left',
+  });
+});
+
+test('nested layout controls are not shown when a Row or Group owns child placement', async () => {
+  const nestedButton = {
+    ...createBlock(BLOCK_TYPES.BUTTON, {
+      id: 'row-button',
+      name: 'Row button',
+    }),
+    accordionLayout: {
+      desktop: { mode: 'custom', align: 'center' },
+    },
+  };
+  const row = {
+    ...createBlock(BLOCK_TYPES.ROW, {
+      id: 'row',
+      name: 'Row',
+    }),
+    layoutMode: 'flow',
+    flow: { gap: 12, align: 'stretch' },
+    children: [nestedButton],
+  };
+  const block = makeBlock({
+    items: [{
+      id: 'item-one',
+      title: 'Item one',
+      anchor: 'item-one',
+      children: [row],
+    }],
+  });
+  await act(async () => {
+    root.render(React.createElement(AdvancedAccordionInspector, {
+      block,
+      breakpoint: 'desktop',
+      update: () => {},
+      getBlockDefinition,
+      listPaletteBlocks: () => [],
+    }));
+  });
+  const selectChild = Array.from(container.querySelectorAll('button'))
+    .find((button) => button.textContent.includes('Row button'));
+  await act(async () => selectChild.click());
+  assert.equal(container.querySelector('[data-testid="advanced-accordion-child-layout"]'), null);
+  assert.match(container.textContent, /managed by its parent Row or Group layout/);
+});
+
+test('responsive nested CTA and video wrappers inherit custom size, align, height, and clamp to the panel', async () => {
+  const cta = {
+    ...createBlock(BLOCK_TYPES.BUTTON, {
+      id: 'sized-cta',
+      desktop: { x: 0, y: 0, w: 360, h: 72 },
+      tablet: { w: 280, h: 60 },
+    }),
+    accordionLayout: {
+      desktop: { mode: 'custom', align: 'center' },
+      tablet: { align: 'right' },
+    },
+  };
+  const video = {
+    ...createBlock(BLOCK_TYPES.VIDEO, {
+      id: 'sized-video',
+      desktop: { x: 0, y: 0, w: 640, h: 360 },
+      tablet: { w: 420, h: 236 },
+    }),
+    accordionLayout: {
+      desktop: { mode: 'custom', align: 'center' },
+    },
+  };
+  const block = makeBlock({
+    initialState: 'first',
+    items: [{
+      id: 'item',
+      title: 'Sized content',
+      anchor: 'sized-content',
+      children: [cta, video],
+    }],
+  });
+  const definitions = (type) => ({
+    autoHeight: false,
+    allowOverflow: type === BLOCK_TYPES.BUTTON,
+    Renderer: ({ block: nested, constrainToBounds }) => React.createElement(
+      'div',
+      {
+        'data-testid': `nested-${nested.id}`,
+        'data-constrained': String(!!constrainToBounds),
+        style: { width: '100%', height: '100%' },
+      },
+    ),
+    Editor: ({ block: nested, constrainToBounds }) => React.createElement(
+      'div',
+      {
+        'data-testid': `nested-${nested.id}`,
+        'data-constrained': String(!!constrainToBounds),
+        style: { width: '100%', height: '100%' },
+      },
+    ),
+  });
+
+  await render(block, { breakpoint: 'mobile', getBlockDefinition: definitions });
+  const ctaWrapper = container.querySelector('[data-advanced-accordion-child="sized-cta"]');
+  const videoWrapper = container.querySelector('[data-advanced-accordion-child="sized-video"]');
+  assert.equal(ctaWrapper.dataset.advancedAccordionLayoutMode, 'custom');
+  assert.equal(ctaWrapper.style.width, 'min(100%, 280px)');
+  assert.equal(ctaWrapper.style.maxWidth, '100%');
+  assert.equal(ctaWrapper.style.alignSelf, 'flex-end');
+  assert.equal(ctaWrapper.style.height, '60px');
+  assert.equal(ctaWrapper.style.overflow, 'hidden');
+  assert.equal(ctaWrapper.firstElementChild.dataset.constrained, 'true');
+  assert.equal(videoWrapper.style.width, 'min(100%, 420px)');
+  assert.equal(videoWrapper.style.alignSelf, 'center');
+  assert.equal(videoWrapper.style.height, '236px');
+  assert.equal(videoWrapper.firstElementChild.dataset.constrained, 'true');
+});
+
+test('legacy nested children and explicit fill mode keep the existing full-panel width', async () => {
+  const legacy = createBlock(BLOCK_TYPES.BUTTON, {
+    id: 'legacy-cta',
+    desktop: { x: 0, y: 0, w: 180, h: 44 },
+  });
+  const explicitFill = {
+    ...createBlock(BLOCK_TYPES.VIDEO, {
+      id: 'fill-video',
+      desktop: { x: 0, y: 0, w: 560, h: 315 },
+    }),
+    accordionLayout: {
+      desktop: { mode: 'custom', align: 'right' },
+      mobile: { mode: 'fill' },
+    },
+  };
+  const block = makeBlock({
+    initialState: 'first',
+    items: [{
+      id: 'item',
+      title: 'Compatibility',
+      anchor: 'compatibility',
+      children: [legacy, explicitFill],
+    }],
+  });
+  await render(block, { breakpoint: 'mobile' });
+
+  const legacyWrapper = container.querySelector('[data-advanced-accordion-child="legacy-cta"]');
+  const fillWrapper = container.querySelector('[data-advanced-accordion-child="fill-video"]');
+  assert.equal(legacyWrapper.dataset.advancedAccordionLayoutMode, 'legacy-fill');
+  assert.equal(legacyWrapper.style.width, '100%');
+  assert.equal(legacyWrapper.firstElementChild.dataset.constrained, undefined);
+  assert.equal(fillWrapper.dataset.advancedAccordionLayoutMode, 'fill');
+  assert.equal(fillWrapper.style.width, '100%');
+  assert.equal(fillWrapper.style.alignSelf, '');
+});
+
+test('registered CTA stays centred and registered video keeps its aspect ratio inside configured bounds', async () => {
+  const cta = {
+    ...createBlock(BLOCK_TYPES.BUTTON, {
+      id: 'real-cta',
+      desktop: { x: 0, y: 0, w: 240, h: 52 },
+      content: { label: 'Apply now', href: '/apply', variant: 'default' },
+    }),
+    accordionLayout: { desktop: { mode: 'custom', align: 'center' } },
+  };
+  const video = {
+    ...createBlock(BLOCK_TYPES.VIDEO, {
+      id: 'real-video',
+      desktop: { x: 0, y: 0, w: 400, h: 180 },
+      content: { provider: 'youtube', url: '', aspectRatio: '4:3' },
+    }),
+    accordionLayout: { desktop: { mode: 'custom', align: 'left' } },
+  };
+  const block = makeBlock({
+    initialState: 'first',
+    items: [{
+      id: 'item',
+      title: 'Real renderers',
+      anchor: 'real-renderers',
+      children: [cta, video],
+    }],
+  });
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  queryClient.setQueryData(['/api/public/typography-styles', null], []);
+  await act(async () => {
+    root.render(React.createElement(
+      QueryClientProvider,
+      { client: queryClient },
+      React.createElement(AdvancedAccordionRender, {
+        block,
+        breakpoint: 'desktop',
+        getBlockDefinition: getRegisteredBlockDefinition,
+      }),
+    ));
+  });
+
+  const ctaAnchor = container.querySelector('[data-advanced-accordion-child="real-cta"] a');
+  const videoAspect = container.querySelector('[data-advanced-accordion-child="real-video"] [data-aspect]');
+  assert.ok(ctaAnchor);
+  assert.match(ctaAnchor.className, /justify-center/);
+  assert.equal(ctaAnchor.style.width, '100%');
+  assert.ok(videoAspect);
+  assert.equal(videoAspect.dataset.aspect, (4 / 3).toFixed(3));
+  assert.equal(videoAspect.firstElementChild.style.aspectRatio, '4 / 3');
+});
+
+test('video aspect fitting preserves ratio for both height-limited and width-limited bounds', () => {
+  assert.deepEqual(fitAspectRatioWithinBounds(400, 180, 4 / 3), {
+    width: 240,
+    height: 180,
+  });
+  assert.deepEqual(fitAspectRatioWithinBounds(180, 400, 16 / 9), {
+    width: 180,
+    height: 101.25,
+  });
+  assert.equal(fitAspectRatioWithinBounds(0, 400, 16 / 9), null);
+});
+
+test('public runtime, absolute stage, and flow stage resolve the same nested mobile layout', async () => {
+  const child = {
+    ...createBlock(BLOCK_TYPES.VIDEO, {
+      id: 'parity-video',
+      desktop: { x: 0, y: 0, w: 500, h: 280 },
+      tablet: { w: 360, h: 200 },
+      mobile: { w: 240, h: 135 },
+      content: { provider: 'youtube', url: '', aspectRatio: '16:9' },
+    }),
+    accordionLayout: {
+      desktop: { mode: 'custom', align: 'left' },
+      mobile: { align: 'center' },
+    },
+  };
+  const stageBlock = makeBlock({
+    initialState: 'first',
+    items: [{
+      id: 'item',
+      title: 'Parity',
+      anchor: 'parity',
+      children: [child],
+    }],
+  });
+
+  Object.defineProperty(window, 'innerWidth', { configurable: true, value: 390 });
+  await render(stageBlock, { getBlockDefinition: getRegisteredBlockDefinition });
+  let wrapper = container.querySelector('[data-advanced-accordion-child="parity-video"]');
+  assert.equal(wrapper.style.width, 'min(100%, 240px)');
+  assert.equal(wrapper.style.height, '135px');
+  assert.equal(wrapper.style.alignSelf, 'center');
+
+  await act(async () => {
+    root.render(React.createElement(
+      DndContext,
+      null,
+      React.createElement(CanvasStage, {
+        blocks: [stageBlock],
+        selectedIds: [],
+        breakpoint: 'mobile',
+        canvasWidth: 375,
+        canvasHeight: 800,
+        onSelect: () => {},
+        onApplyGeometry: () => {},
+        onMarqueeSelect: () => {},
+      }),
+    ));
+  });
+  wrapper = container.querySelector('[data-advanced-accordion-child="parity-video"]');
+  assert.equal(wrapper.style.width, 'min(100%, 240px)');
+  assert.equal(wrapper.style.height, '135px');
+  assert.equal(wrapper.style.alignSelf, 'center');
+
+  const accordion = createFlowNode(BLOCK_TYPES.ADVANCED_ACCORDION, {
+    id: 'flow-parity-accordion',
+    content: stageBlock.content,
+  });
+  const design = {
+    version: CANVAS_FLOW_VERSION,
+    root: {
+      layout: 'flow',
+      sections: [createFlowSection({
+        id: 'flow-parity-section',
+        children: [accordion],
+      })],
+    },
+  };
+  await act(async () => {
+    root.render(React.createElement(
+      DndContext,
+      null,
+      React.createElement(CanvasFlowEditorStage, {
+        design,
+        breakpoint: 'mobile',
+        canvasWidth: 375,
+        canvasHeight: 800,
+        selectedIds: [],
+        onSelect: () => {},
+      }),
+    ));
+  });
+  wrapper = container.querySelector('[data-advanced-accordion-child="parity-video"]');
+  assert.equal(wrapper.style.width, 'min(100%, 240px)');
+  assert.equal(wrapper.style.height, '135px');
+  assert.equal(wrapper.style.alignSelf, 'center');
 });
 
 test('editor pointer bridge selects the parent while header toggling and nested selection still work', async () => {

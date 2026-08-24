@@ -2906,6 +2906,45 @@ const ADVANCED_ACCORDION_DISALLOWED_CHILD_TYPES = new Set([
 
 let _advAccNormDepth = 0;
 
+const ADVANCED_ACCORDION_SIZED_CHILD_TYPES = new Set([
+  BLOCK_TYPES.BUTTON,
+  BLOCK_TYPES.VIDEO,
+]);
+
+function normalizeAdvancedAccordionChildLayout(layout) {
+  if (!layout || typeof layout !== 'object' || Array.isArray(layout)) return null;
+  const normalized = {};
+  for (const breakpoint of ['desktop', 'tablet', 'mobile']) {
+    const rawLayer = layout[breakpoint];
+    if (!rawLayer || typeof rawLayer !== 'object' || Array.isArray(rawLayer)) continue;
+    const layer = {};
+    if (rawLayer.mode === 'fill' || rawLayer.mode === 'custom') {
+      layer.mode = rawLayer.mode;
+    }
+    if (['left', 'center', 'right'].includes(rawLayer.align)) {
+      layer.align = rawLayer.align;
+    }
+    if (Object.keys(layer).length > 0) normalized[breakpoint] = layer;
+  }
+  return Object.keys(normalized).length > 0 ? normalized : null;
+}
+
+export function resolveAdvancedAccordionChildLayout(block, breakpoint = 'desktop') {
+  const layout = block?.accordionLayout;
+  const resolved = { mode: 'fill', align: 'left' };
+  if (!layout || typeof layout !== 'object' || Array.isArray(layout)) return resolved;
+  const breakpoints = breakpoint === 'mobile'
+    ? ['desktop', 'tablet', 'mobile']
+    : (breakpoint === 'tablet' ? ['desktop', 'tablet'] : ['desktop']);
+  for (const bp of breakpoints) {
+    const layer = layout[bp];
+    if (!layer || typeof layer !== 'object' || Array.isArray(layer)) continue;
+    if (layer.mode === 'fill' || layer.mode === 'custom') resolved.mode = layer.mode;
+    if (['left', 'center', 'right'].includes(layer.align)) resolved.align = layer.align;
+  }
+  return resolved;
+}
+
 function normalizeAdvancedAccordionChildBlock(block) {
   if (!block || typeof block !== 'object') return null;
   const type = block.type || BLOCK_TYPES.BOX;
@@ -2919,6 +2958,10 @@ function normalizeAdvancedAccordionChildBlock(block) {
   try {
     const normalized = normalizeBlock(block);
     if (!normalized) return null;
+    if (ADVANCED_ACCORDION_SIZED_CHILD_TYPES.has(type)) {
+      const accordionLayout = normalizeAdvancedAccordionChildLayout(block.accordionLayout);
+      if (accordionLayout) normalized.accordionLayout = accordionLayout;
+    }
     const rawChildren = Array.isArray(block.children) ? block.children : [];
     if (rawChildren.length > 0 || type === BLOCK_TYPES.ROW || type === BLOCK_TYPES.GROUP) {
       normalized.children = rawChildren
