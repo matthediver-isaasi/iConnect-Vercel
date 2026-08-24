@@ -17,6 +17,13 @@ import HeaderIconsConfig from "../components/navigation/HeaderIconsConfig";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
+import {
+  NO_NAVIGATION_PAGE_VALUE,
+  canBePageLessParentMenu,
+  getNavigationDestinationError,
+  getNavigationPageSelectValue,
+  getNavigationPageUrl,
+} from "@/lib/navigationItemDestination";
 import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
 import { arrayMove, SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
@@ -675,8 +682,9 @@ export default function NavigationManagementPage() {
       toast.error('Title is required');
       return;
     }
-    if (editingItem.link_type !== 'content_block' && editingItem.link_type !== 'form_modal' && !editingItem.url) {
-      toast.error('URL is required');
+    const destinationError = getNavigationDestinationError(editingItem);
+    if (destinationError) {
+      toast.error(destinationError);
       return;
     }
     if (editingItem.link_type === 'form_modal' && !editingItem.form_slug) {
@@ -1568,18 +1576,24 @@ export default function NavigationManagementPage() {
                 {editingItem.link_type !== 'form_modal' && (editingItem.link_type !== 'content_block' || editingItem.content_block_type === 'cta') && (
                   <div className="space-y-2">
                     <Label htmlFor="url">
-                      {editingItem.link_type === 'internal' ? 'Page *' : 
+                      {editingItem.link_type === 'internal'
+                        ? (canBePageLessParentMenu(editingItem) ? 'Page (optional for parent menu)' : 'Page *')
+                        :
                        editingItem.content_block_type === 'cta' ? 'Button Link URL *' : 'URL *'}
                     </Label>
                     {editingItem.link_type === 'internal' ? (
                       <Select
-                        value={editingItem.url}
-                        onValueChange={(value) => setEditingItem({ ...editingItem, url: value })}
+                        value={getNavigationPageSelectValue(editingItem.url)}
+                        onValueChange={(value) => setEditingItem({
+                          ...editingItem,
+                          url: getNavigationPageUrl(value)
+                        })}
                       >
-                        <SelectTrigger>
+                        <SelectTrigger data-testid="select-navigation-page">
                           <SelectValue placeholder="Select a page..." />
                         </SelectTrigger>
                         <SelectContent>
+                          <SelectItem value={NO_NAVIGATION_PAGE_VALUE}>No page / parent menu</SelectItem>
                           {availablePages.map(page => (
                             <SelectItem key={page.name} value={page.name}>
                               {page.label}
@@ -1597,7 +1611,11 @@ export default function NavigationManagementPage() {
                     )}
                     <p className="text-xs text-slate-500">
                       {editingItem.link_type === 'internal' 
-                        ? 'Select from available public pages'
+                        ? (editingItem.url
+                          ? 'Select from available public pages'
+                          : canBePageLessParentMenu(editingItem)
+                            ? 'No page selected — this top-level item can act as a parent menu for sub-items'
+                            : 'Sub-menu and footer items require a page before they can be saved')
                         : editingItem.content_block_type === 'cta' 
                           ? 'Enter the URL the button should link to'
                           : 'Enter the full URL including https://'}
