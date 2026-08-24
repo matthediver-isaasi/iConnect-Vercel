@@ -1509,6 +1509,11 @@ export const BLOCK_DEFAULTS = {
     geom: { w: 800, h: 460 },
     style: { background: 'transparent', borderWidth: 0 },
     content: {
+      // Keep the established filtered-and-sorted resource feed as the default.
+      // `resourceIds` retains a manual selection when an author switches back
+      // and forth between source modes.
+      sourceMode: 'automatic',
+      resourceIds: [],
       limit: 3,
       resourceType: '',
       tag: '',

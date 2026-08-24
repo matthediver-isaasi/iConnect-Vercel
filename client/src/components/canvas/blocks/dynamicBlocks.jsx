@@ -50,6 +50,10 @@ import {
   buildResponsiveImage,
   setBlockContentFullBleed,
 } from '@/lib/canvasDesign';
+import {
+  getResourceShowcaseSourceMode,
+  resolveSpecificResourceShowcaseItems,
+} from '@/lib/resourceShowcaseSelection';
 import { publicClient } from '@/api/publicClient';
 import { base44 } from '@/api/base44Client';
 import { useNavigate } from 'react-router-dom';
@@ -4909,6 +4913,11 @@ function ResourceShowcaseRender({ block, breakpoint, asEditor }) {
   const c = block.content || {};
   const cols = columnsForBreakpoint(c, breakpoint);
   const linkNewTab = resolveNewTab(c, true);
+  // Saved blocks from before source modes existed must keep their established
+  // automatic behaviour. A manual list is deliberately ordered by its IDs,
+  // rather than by the normal resource date sort.
+  const sourceMode = getResourceShowcaseSourceMode(c);
+  const selectedResourceIds = Array.isArray(c.resourceIds) ? c.resourceIds : [];
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ['canvas', 'public-resources'],
@@ -4942,6 +4951,9 @@ function ResourceShowcaseRender({ block, breakpoint, asEditor }) {
   }, []);
 
   const items = useMemo(() => {
+    if (sourceMode === 'specific') {
+      return resolveSpecificResourceShowcaseItems(data, selectedResourceIds);
+    }
     let list = filterResourcesByContent(data, c, categoriesData);
     const dir = c.sortBy === 'date-asc' ? 1 : -1;
     list.sort((a, b) => {
@@ -4951,7 +4963,7 @@ function ResourceShowcaseRender({ block, breakpoint, asEditor }) {
     });
     const limit = Number(c.limit) > 0 ? Number(c.limit) : 0;
     return limit ? list.slice(0, limit) : list;
-  }, [data, categoriesData, c.resourceType, c.tag, c.category, c.subcategory, c.categories, c.subcategories, c.audience, c.sortBy, c.limit]);
+  }, [data, categoriesData, sourceMode, selectedResourceIds, c.resourceType, c.tag, c.category, c.subcategory, c.categories, c.subcategories, c.audience, c.sortBy, c.limit]);
 
   // Shared Showcase-card knobs — identical to the article/news list block.
   const {
@@ -4999,7 +5011,13 @@ function ResourceShowcaseRender({ block, breakpoint, asEditor }) {
     <div className="w-full h-full overflow-auto" aria-label={block.a11y?.ariaLabel || 'Resources'}>
       {responsiveCss ? <style dangerouslySetInnerHTML={{ __html: responsiveCss }} /> : null}
       {isLoading ? (
-        <ListSkeleton count={Math.min(c.limit || 3, 6)} columns={cols} gap={c.gap} />
+        <ListSkeleton
+          count={sourceMode === 'specific'
+            ? Math.min(Math.max(selectedResourceIds.filter(Boolean).length, 1), 6)
+            : Math.min(c.limit || 3, 6)}
+          columns={cols}
+          gap={c.gap}
+        />
       ) : isError ? (
         <ErrorState message="Couldn't load resources right now." />
       ) : items.length === 0 ? (
@@ -5090,23 +5108,128 @@ function ResourceShowcaseRender({ block, breakpoint, asEditor }) {
   );
 }
 
+function ResourceShowcasePickerRow({ value, onChange, testId, disabledValues = [] }) {
+  const { data: resources, isLoading, isError } = useQuery({
+    queryKey: ['canvas', 'public-resources'],
+    queryFn: () => publicClient.listResources(),
+    staleTime: 60_000,
+  });
+  const [open, setOpen] = useState(false);
+  const options = (Array.isArray(resources) ? resources : []).map((resource) => ({
+    value: String(resource.id),
+    label: resource.title || resource.name || '(untitled resource)',
+  }));
+  const current = options.find((option) => option.value === String(value || ''));
+  const disabledSet = new Set((disabledValues || []).filter(Boolean).map(String));
+  const hint = isLoading
+    ? 'Loading resources…'
+    : isError
+      ? 'Couldn’t load resources right now.'
+      : options.length === 0
+        ? 'No resources are currently available in the public resource feed.'
+        : 'Search the resources currently available in the public resource feed.';
+
+  return (
+    <Field label="Resource" hint={hint}>
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
+          <Button
+            type="button"
+            variant="outline"
+            role="combobox"
+            aria-expanded={open}
+            className="w-full h-8 justify-between font-normal"
+            data-testid={testId}
+          >
+            <span className="truncate text-left">
+              {current ? current.label : value ? 'Unavailable resource' : 'Select a resource'}
+            </span>
+            <ChevronRight className="ml-2 h-4 w-4 shrink-0 opacity-50 rotate-90" aria-hidden="true" />
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent className="p-0 w-[--radix-popover-trigger-width]" align="start">
+          <Command>
+            <CommandInput placeholder="Search resources…" data-testid={`${testId}-search`} />
+            <CommandList>
+              <CommandEmpty>{isLoading ? 'Loading resources…' : 'No resources found.'}</CommandEmpty>
+              <CommandGroup>
+                {options.map((option) => {
+                  const isDisabled = disabledSet.has(option.value) && option.value !== String(value || '');
+                  return (
+                    <CommandItem
+                      key={option.value}
+                      value={`${option.label} ${option.value}`}
+                      disabled={isDisabled}
+                      onSelect={() => { onChange(option.value); setOpen(false); }}
+                      data-testid={`${testId}-option-${option.value}`}
+                    >
+                      <span className="truncate">{option.label}</span>
+                      {isDisabled ? (
+                        <span className="ml-auto text-[10px] uppercase tracking-wide text-slate-400">Added</span>
+                      ) : null}
+                    </CommandItem>
+                  );
+                })}
+              </CommandGroup>
+            </CommandList>
+          </Command>
+        </PopoverContent>
+      </Popover>
+    </Field>
+  );
+}
+
 function ResourceShowcaseInspector({ block, update }) {
   const c = block.content || {};
   const set = (patch) => update((b) => ({ ...b, content: { ...b.content, ...patch } }));
+  const sourceMode = getResourceShowcaseSourceMode(c);
+  const resourceIds = Array.isArray(c.resourceIds) ? c.resourceIds.map((id) => String(id || '')) : [];
   return (
     <>
-      <ResourceFilterFields c={c} set={set} idPrefix="resource-showcase" />
       <SelectField
-        label="Sort"
-        value={c.sortBy || 'date-desc'}
-        onChange={(v) => set({ sortBy: v })}
+        label="Resource source"
+        value={sourceMode}
+        onChange={(v) => set({ sourceMode: v })}
         options={[
-          { value: 'date-desc', label: 'Newest first' },
-          { value: 'date-asc', label: 'Oldest first' },
+          { value: 'automatic', label: 'Automatic resources' },
+          { value: 'specific', label: 'Specific resources' },
         ]}
-        testId="select-resource-showcase-sort"
+        testId="select-resource-showcase-source"
       />
-      <NumberField label="Limit" min={1} max={50} value={c.limit || 3} onChange={(v) => set({ limit: Math.max(1, Number(v) || 1) })} testId="input-resource-showcase-limit" />
+      {sourceMode === 'automatic' ? (
+        <>
+          <ResourceFilterFields c={c} set={set} idPrefix="resource-showcase" />
+          <SelectField
+            label="Sort"
+            value={c.sortBy || 'date-desc'}
+            onChange={(v) => set({ sortBy: v })}
+            options={[
+              { value: 'date-desc', label: 'Newest first' },
+              { value: 'date-asc', label: 'Oldest first' },
+            ]}
+            testId="select-resource-showcase-sort"
+          />
+          <NumberField label="Limit" min={1} max={50} value={c.limit || 3} onChange={(v) => set({ limit: Math.max(1, Number(v) || 1) })} testId="input-resource-showcase-limit" />
+        </>
+      ) : (
+        <Field label="Selected resources" hint="Add resources from the public feed. Use Up and Down to choose their display order.">
+          <CarouselArrayList
+            items={resourceIds}
+            onChange={(next) => set({ resourceIds: next })}
+            renderItem={(item, idx, setItem) => (
+              <ResourceShowcasePickerRow
+                value={item}
+                onChange={setItem}
+                testId={`select-resource-showcase-resource-${idx}`}
+                disabledValues={resourceIds.filter((_, index) => index !== idx)}
+              />
+            )}
+            makeNew={() => ''}
+            addLabel="Add resource"
+            testIdPrefix="resource-showcase-resources"
+          />
+        </Field>
+      )}
       <PerBreakpointColumns value={c.columns} onChange={(v) => set({ columns: v })} />
       <NumberField label="Gap (px)" min={0} value={c.gap ?? 24} onChange={(v) => set({ gap: Math.max(0, Number(v) || 0) })} testId="input-resource-showcase-gap" />
       <ShowcaseCardSettingsFields c={c} set={set} idPrefix="resource-showcase" badgeTextPlaceholder="Default: Resource" />
