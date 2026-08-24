@@ -45,6 +45,8 @@ import {
   isSpeakerMemberUniqueViolation,
   validateSpeakerMemberLink,
 } from '../../_lib/speakerMemberLink.js';
+import { validateFormAccessPolicy } from '../../_lib/formAccessPolicy.js';
+import { remapGroupRolePolicy } from '../../../client/src/lib/memberGroupRoleNames.js';
 const entityToTable = {
   'Gallery': 'gallery',
   'GalleryPhoto': 'gallery_photo',
@@ -557,6 +559,22 @@ export default async function handler(req, res) {
       // of any FormSubmission whose persisted form is a survey (form looked up
       // server-side, tenant-scoped; never trust the request body).
       if (entityNormalized === 'formsubmission') {
+        const serverOwnedPaymentFields = [
+          'payment_status',
+          'payment_provider',
+          'payment_reference',
+          'payment_amount',
+          'payment_currency',
+          'payment_meta',
+          'payment_paid_at',
+        ];
+        if (serverOwnedPaymentFields.some((field) => (
+          Object.prototype.hasOwnProperty.call(req.body || {}, field)
+        ))) {
+          return res.status(403).json({
+            error: 'Form payment state can only be changed by the payment service',
+          });
+        }
         const { data: subRow } = await supabase
           .from('form_submission')
           .select('form_id')
@@ -672,6 +690,16 @@ export default async function handler(req, res) {
         if (field in sanitizedBody && sanitizedBody[field] === '') {
           sanitizedBody[field] = null;
         }
+      }
+
+      if (entityNormalized === 'form' && Object.prototype.hasOwnProperty.call(sanitizedBody, 'access_policy')) {
+        const validation = await validateFormAccessPolicy({
+          supabase,
+          tenantId: tenantCtx.tenantId,
+          policy: sanitizedBody.access_policy,
+        });
+        if (!validation.ok) return res.status(422).json({ error: validation.error, code: 'INVALID_FORM_ACCESS_POLICY' });
+        sanitizedBody.access_policy = validation.policy;
       }
 
       if (entityNormalized === 'portalmenu'
@@ -1477,6 +1505,50 @@ export default async function handler(req, res) {
           });
         }
         return res.status(500).json({ error: error.message });
+      }
+
+      // Group roles are canonical references in form access policies. A group
+      // save may change spelling or merge case variants, so rewrite matching
+      // policy references to the canonical surviving names. References to
+      // removed roles stay in place and make the policy fail closed rather
+      // than silently broadening it to any group member. Both reads and writes
+      // are tenant-scoped.
+      if (entityNormalized === 'membergroup'
+          && Object.prototype.hasOwnProperty.call(sanitizedBody, 'roles')
+          && data?.tenant_id) {
+        const pageSize = 500;
+        for (let from = 0; ; from += pageSize) {
+          const { data: formRows, error: formLoadError } = await supabase
+            .from('form')
+            .select('id, access_policy')
+            .eq('tenant_id', data.tenant_id)
+            .not('access_policy', 'is', null)
+            .order('id', { ascending: true })
+            .range(from, from + pageSize - 1);
+          if (formLoadError) {
+            console.error('[Entity PATCH] Failed to load form group-role policies:', formLoadError.message);
+            return res.status(500).json({ error: 'Group updated, but form access policies could not be synchronized' });
+          }
+
+          for (const formRow of formRows || []) {
+            const nextPolicy = remapGroupRolePolicy(formRow.access_policy, id, data.roles || []);
+            if (nextPolicy === formRow.access_policy) continue;
+            const { error: formUpdateError } = await supabase
+              .from('form')
+              .update({ access_policy: nextPolicy })
+              .eq('id', formRow.id)
+              .eq('tenant_id', data.tenant_id);
+            if (formUpdateError) {
+              console.error(
+                `[Entity PATCH] Failed to synchronize form ${formRow.id} group-role policy:`,
+                formUpdateError.message
+              );
+              return res.status(500).json({ error: 'Group updated, but form access policies could not be synchronized' });
+            }
+          }
+
+          if (!formRows || formRows.length < pageSize) break;
+        }
       }
 
       // SECURITY: If login_enabled was changed to false for a member, invalidate all their sessions

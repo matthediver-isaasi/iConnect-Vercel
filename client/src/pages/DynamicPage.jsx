@@ -436,6 +436,12 @@ export default function DynamicPage() {
         const form = await publicClient.getForm(slug, { authenticated: !!memberInfo });
         return form || null;
       } catch (e) {
+        // A policy-denied form still exists at this pretty URL. Preserve the
+        // structured access result so FormView can render its shared sign-in
+        // or access-requirements state instead of collapsing to "not found".
+        if (e?.errorData?.access) {
+          return { __access: e.errorData.access };
+        }
         // 404 (no form with this slug) or any other failure → no fallback.
         return null;
       }

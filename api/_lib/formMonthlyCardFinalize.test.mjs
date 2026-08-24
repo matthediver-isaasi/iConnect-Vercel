@@ -1189,11 +1189,12 @@ test('src: stripeMonthlyCard.js calls finalizeFormMonthlyCardCheckout before ens
   assert.ok(finalizeIdx < ensureIdx, 'finalizeFormMonthlyCardCheckout must come BEFORE ensureCardPlanForCheckout');
 });
 
-test('src: stripeMonthlyCard.js keeps every incomplete form finalize retryable', () => {
+test('src: stripeMonthlyCard.js preserves terminal access-proof denials', () => {
   const cardSrc = src('./stripeMonthlyCard.js');
   const formBlock = cardSrc.slice(cardSrc.indexOf('const isFormCheckout'), cardSrc.indexOf('const ensured'));
   assert.match(formBlock, /if \(!formResult\.handled\)/);
-  assert.match(formBlock, /retryable: true.*form checkout not yet finalizable/s);
+  assert.match(formBlock, /retryable: formResult\.retryable !== false/);
+  assert.match(formBlock, /code: formResult\.code/);
 });
 
 test('src: stripeMonthlyCard.js refreshes agreement after form finalize', () => {

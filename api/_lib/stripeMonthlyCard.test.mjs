@@ -1011,6 +1011,10 @@ test('processStripeCardPlanEvent: form-checkout membership conflict resolves via
       },
       error: null,
     },
+    form: {
+      data: { id: 'form1', tenant_id: 't1', access_policy: null },
+      error: null,
+    },
     membership_payment_plans: { data: null, error: null },
   };
   const db = captureDb(reads);

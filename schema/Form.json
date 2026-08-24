@@ -50,6 +50,10 @@
       "default": false,
       "description": "Whether users must be logged in to submit"
     },
+    "access_policy": {
+      "type": "object",
+      "description": "Optional versioned audience policy. Version 1 stores group_rules (each with a tenant member-group id and optional canonical role_names), tenant RBAC role ids, and an 'and'/'or' operator between the group and RBAC dimensions. Missing, null, or empty policies are unrestricted."
+    },
     "is_active": {
       "type": "boolean",
       "default": true,

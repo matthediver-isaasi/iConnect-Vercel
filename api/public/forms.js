@@ -1,5 +1,8 @@
 import { createClient } from '@supabase/supabase-js';
 import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
+import { resolveFormAccess } from '../_lib/formAccessPolicy.js';
+import { getSession, getSessionMember } from '../_lib/session.js';
+import { isFormScheduleAvailable } from '../_lib/formAvailability.js';
 
 const PUBLIC_FORM_FIELDS = [
   'id', 'name', 'slug', 'description', 'is_active', 
@@ -48,15 +51,34 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: 'Failed to fetch forms' });
     }
 
-    const publicForms = (forms || []).map(form => {
+    const availableForms = (forms || []).filter((form) => isFormScheduleAvailable(form));
+    const hasRestrictions = availableForms.some((form) => (
+      (form.access_policy?.group_rules?.length || 0) > 0
+      || (form.access_policy?.rbac_role_ids?.length || 0) > 0
+    ));
+    let session = null;
+    let member = null;
+    if (hasRestrictions) {
+      session = await getSession(req);
+      if (session) member = await getSessionMember(req);
+    }
+    const publicForms = (await Promise.all(availableForms.map(async form => {
+      const access = await resolveFormAccess({
+        supabase, req, tenantId: tenant.id, policy: form.access_policy, session, member,
+      });
+      // A list response must not disclose even a partial record for a form the
+      // viewer cannot open. Eligible restricted forms remain visible.
+      if (!access.allowed) return null;
       const publicForm = {};
       for (const field of PUBLIC_FORM_FIELDS) {
         if (form[field] !== undefined) {
           publicForm[field] = form[field];
         }
       }
+      publicForm.access_policy_required = access.restricted;
+      publicForm.access = access;
       return publicForm;
-    });
+    }))).filter(Boolean);
 
     return res.status(200).json(publicForms);
   } catch (error) {

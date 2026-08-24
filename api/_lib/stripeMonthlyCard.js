@@ -1025,7 +1025,8 @@ export async function processStripeCardPlanEvent(event, deps = {}) {
         // rather than losing the paid subscription's member/history link.
         return {
           handled: false,
-          retryable: true,
+          retryable: formResult.retryable !== false,
+          code: formResult.code,
           detail: `form checkout not yet finalizable: ${formResult.detail}`,
         };
       }

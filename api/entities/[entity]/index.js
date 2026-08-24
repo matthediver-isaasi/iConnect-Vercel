@@ -44,6 +44,12 @@ import {
   isSpeakerMemberUniqueViolation,
   validateSpeakerMemberLink,
 } from '../../_lib/speakerMemberLink.js';
+import {
+  resolveFormAccess,
+  sendFormAccessDenied,
+  validateFormAccessPolicy,
+} from '../../_lib/formAccessPolicy.js';
+import { isFormScheduleAvailable } from '../../_lib/formAvailability.js';
 
 /**
  * Task #3100: support staff = tenant users (admin dashboard), tenant admins,
@@ -1176,6 +1182,16 @@ export default async function handler(req, res) {
         }
       }
 
+      if (entityNorm === 'form' && Object.prototype.hasOwnProperty.call(sanitizedBody, 'access_policy')) {
+        const validation = await validateFormAccessPolicy({
+          supabase,
+          tenantId: tenantCtx.tenantId,
+          policy: sanitizedBody.access_policy,
+        });
+        if (!validation.ok) return res.status(422).json({ error: validation.error, code: 'INVALID_FORM_ACCESS_POLICY' });
+        sanitizedBody.access_policy = validation.policy;
+      }
+
       if (entityNorm === 'portalmenu') {
         const portalMenuValidation = validatePortalMenuRecord(sanitizedBody);
         if (!portalMenuValidation.isValid) {
@@ -1628,6 +1644,8 @@ export default async function handler(req, res) {
         }
       }
       
+      let formSubmissionForm = null;
+
       // SPECIAL CASE: FormSubmission can be created by unauthenticated users (public/embedded forms)
       // Derive tenant_id from hostname or from the parent Form's tenant_id
       if (entityNorm === 'formsubmission' && !sanitizedBody.tenant_id) {
@@ -1657,6 +1675,56 @@ export default async function handler(req, res) {
         } else {
           console.error(`[Entity POST] SECURITY: FormSubmission missing tenant_id and unable to resolve from hostname or form`);
           return res.status(403).json({ error: 'Unable to determine tenant context for form submission' });
+        }
+      }
+
+      if (entityNorm === 'formsubmission') {
+        if (!sanitizedBody.form_id) {
+          return res.status(400).json({ error: 'form_id is required' });
+        }
+
+        // The generic entity route is still used by authenticated iEdit form
+        // blocks. Apply the same authoritative audience gate as the dedicated
+        // public endpoint before idempotency reads, inserts, or side effects.
+        const { data: accessForm, error: accessFormError } = await supabase
+          .from('form')
+          .select('id, tenant_id, is_active, deactivate_at, access_policy, visibility_rules')
+          .eq('id', sanitizedBody.form_id)
+          .eq('tenant_id', sanitizedBody.tenant_id)
+          .eq('is_active', true)
+          .maybeSingle();
+        if (accessFormError) {
+          console.error('[Entity POST] FormSubmission access lookup failed:', accessFormError);
+          return res.status(500).json({ error: 'Failed to validate form access' });
+        }
+        if (!accessForm) {
+          return res.status(404).json({ error: 'Form not found' });
+        }
+        if (!isFormScheduleAvailable(accessForm)) {
+          return res.status(404).json({ error: 'Form not found or inactive' });
+        }
+        const formAccess = await resolveFormAccess({
+          supabase,
+          req,
+          tenantId: sanitizedBody.tenant_id,
+          policy: accessForm.access_policy,
+        });
+        if (!formAccess.allowed) return sendFormAccessDenied(res, formAccess);
+        formSubmissionForm = accessForm;
+
+        // Payment lifecycle fields are server-owned. Public/generic form
+        // submissions must never be able to forge the authorization proof
+        // consumed by browser, webhook, or cron finalizers.
+        for (const field of [
+          'payment_status',
+          'payment_provider',
+          'payment_reference',
+          'payment_amount',
+          'payment_currency',
+          'payment_meta',
+          'payment_paid_at',
+        ]) {
+          delete sanitizedBody[field];
         }
       }
       
@@ -1710,15 +1778,7 @@ export default async function handler(req, res) {
         // disables the Submit button with the same shared evaluator, so this
         // only fires when the UI was bypassed.
         if (sanitizedBody.form_id) {
-          const { data: submitControlForm, error: submitControlFormError } = await supabase
-            .from('form')
-            .select('visibility_rules, tenant_id')
-            .eq('id', sanitizedBody.form_id)
-            .maybeSingle();
-          if (submitControlFormError) {
-            console.error('[Entity POST] FormSubmission submit-control rules lookup failed:', submitControlFormError);
-            return res.status(500).json({ error: 'Failed to validate submission rules' });
-          }
+          const submitControlForm = formSubmissionForm;
           // Task #3477: LMIC operators compare against the tenant's STORED
           // LMIC list so submit rules can't be bypassed.
           const submitControlOptions = {};

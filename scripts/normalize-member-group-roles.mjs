@@ -38,6 +38,7 @@
 import { createClient } from '@supabase/supabase-js';
 import {
   remapRoleKeyedMap,
+  remapGroupRolePolicy,
   isEmptyRoleHtml,
   isEmptyRoleUrl,
   isEmptyRoleTermDef,
@@ -132,7 +133,7 @@ async function processTenant(tenant) {
     'id, name, roles, leadership_roles, projects_enabled_roles, forum_enabled_roles, default_self_join_role, role_terms_of_reference, role_terms_url, role_term_definitions',
     (q) => q.eq('tenant_id', tenant.id)
   );
-  if (groups.length === 0) return { groups: 0, assignments: 0, invitations: 0 };
+  if (groups.length === 0) return { groups: 0, assignments: 0, invitations: 0, forms: 0 };
 
   const groupIds = groups.map((g) => g.id);
   const assignments = await fetchAll('member_group_assignment', 'id, group_id, group_role', (q) =>
@@ -140,6 +141,9 @@ async function processTenant(tenant) {
   );
   const invitations = await fetchAll('member_group_role_invitation', 'id, group_id, group_role', (q) =>
     q.in('group_id', groupIds)
+  );
+  const forms = await fetchAll('form', 'id, access_policy', (q) =>
+    q.eq('tenant_id', tenant.id).not('access_policy', 'is', null)
   );
 
   // ---- Pick a canonical spelling per lowercase key, tenant-wide. ----
@@ -189,6 +193,8 @@ async function processTenant(tenant) {
   let changedGroups = 0;
   let changedAssignments = 0;
   let changedInvitations = 0;
+  let changedForms = 0;
+  const canonicalRolesByGroupId = new Map();
 
   for (const g of groups) {
     const next = {
@@ -203,6 +209,7 @@ async function processTenant(tenant) {
       role_terms_url: remapRoleKeyedMap(g.role_terms_url, canonicalByKey, preferredVariantByKey, isEmptyRoleUrl),
       role_term_definitions: remapRoleKeyedMap(g.role_term_definitions, canonicalByKey, preferredVariantByKey, isEmptyRoleTermDef),
     };
+    canonicalRolesByGroupId.set(g.id, next.roles);
     const changed =
       !sameJson(next.roles, g.roles || []) ||
       !sameJson(next.leadership_roles, g.leadership_roles || []) ||
@@ -247,23 +254,39 @@ async function processTenant(tenant) {
     }
   }
 
-  return { groups: changedGroups, assignments: changedAssignments, invitations: changedInvitations };
+  for (const form of forms) {
+    let nextPolicy = form.access_policy;
+    for (const [groupId, roleNames] of canonicalRolesByGroupId) {
+      nextPolicy = remapGroupRolePolicy(nextPolicy, groupId, roleNames);
+    }
+    if (sameJson(nextPolicy, form.access_policy)) continue;
+    changedForms += 1;
+    console.log(`  form ${form.id}: canonicalised member-group access roles`);
+    if (APPLY) {
+      const { error } = await sb.from('form').update({ access_policy: nextPolicy })
+        .eq('id', form.id).eq('tenant_id', tenant.id);
+      if (error) throw new Error(`update form ${form.id}: ${error.message}`);
+    }
+  }
+
+  return { groups: changedGroups, assignments: changedAssignments, invitations: changedInvitations, forms: changedForms };
 }
 
 (async () => {
   console.log(`[normalize-roles] mode: ${APPLY ? 'APPLY' : 'DRY-RUN'}${tenantArg ? ` tenant=${tenantArg}` : ' (all tenants)'}`);
   const tenants = await resolveTenantIds();
-  const totals = { groups: 0, assignments: 0, invitations: 0 };
+  const totals = { groups: 0, assignments: 0, invitations: 0, forms: 0 };
   for (const tenant of tenants) {
     const res = await processTenant(tenant);
-    if (res.groups || res.assignments || res.invitations) {
-      console.log(`[normalize-roles] tenant ${tenant.slug || tenant.id} (${tenant.name}): groups=${res.groups} assignments=${res.assignments} invitations=${res.invitations}`);
+    if (res.groups || res.assignments || res.invitations || res.forms) {
+      console.log(`[normalize-roles] tenant ${tenant.slug || tenant.id} (${tenant.name}): groups=${res.groups} assignments=${res.assignments} invitations=${res.invitations} forms=${res.forms}`);
     }
     totals.groups += res.groups;
     totals.assignments += res.assignments;
     totals.invitations += res.invitations;
+    totals.forms += res.forms;
   }
-  console.log(`[normalize-roles] TOTAL changed: groups=${totals.groups} assignments=${totals.assignments} invitations=${totals.invitations}${APPLY ? '' : ' (dry-run; nothing written)'}`);
+  console.log(`[normalize-roles] TOTAL changed: groups=${totals.groups} assignments=${totals.assignments} invitations=${totals.invitations} forms=${totals.forms}${APPLY ? '' : ' (dry-run; nothing written)'}`);
 })().catch((err) => {
   console.error('[normalize-roles] FAILED:', err.message || err);
   process.exit(1);

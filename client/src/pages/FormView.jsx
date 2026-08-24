@@ -21,6 +21,7 @@ import { useSubmissionIdempotencyKey } from "@/lib/useSubmissionIdempotencyKey";
 import { useCardSwipeAutoFocus } from "@/lib/cardSwipeAutoFocus";
 import { useMembershipFeeQuote } from "@/lib/useMembershipFeeQuote";
 import { COUNTRIES } from "@/data/countries";
+import FormAccessRestriction, { resolveFormAccess } from "@/components/forms/FormAccessRestriction";
 
 // A `redirect_url` beginning with this prefix means the redirect target is driven
 // by the value the respondent submitted for the field whose id follows the prefix.
@@ -86,8 +87,6 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
   // wizard/step state matters — a GoCardless or Stripe 3DS redirect lands
   // back at step 0 with empty values, so the old in-component (last-step
   // only) handling never fired and the user saw a blank cleared form.
-  const paymentReturn = useFormPaymentReturn();
-
   // Clear submission error when form values change (user is correcting their input)
   useEffect(() => {
     if (submissionError) {
@@ -162,6 +161,15 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
   // Assignment metadata (event context + window state) when opened via an
   // assignment link; null for slug-based access.
   const assignmentMeta = rawForm?.__assignment || null;
+  const accessPayload = rawForm || (formError?.errorData?.access
+    ? { __access: formError.errorData.access }
+    : null);
+  const formAccess = resolveFormAccess(accessPayload, !!memberInfo);
+  // A return-leg confirms only a server-created pending payment. The server
+  // checks the live policy for legacy rows and accepts its own authorization
+  // proof for already-started payments, so membership changes cannot strand
+  // money after the provider redirect.
+  const paymentReturn = useFormPaymentReturn();
 
   // Task #3364: anonymous visitor on an auth-required form (or an
   // auth-required survey assignment) — send them through login and back to
@@ -171,7 +179,8 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
   // still in flight.
   const needsLoginRedirect = !memberInfo && !!(
     assignmentMeta?.require_authentication ||
-    (!assignmentMeta && rawForm?.require_authentication)
+    (!assignmentMeta && rawForm?.require_authentication) ||
+    formAccess.anonymous
   );
   useEffect(() => {
     if (!authResolved || !needsLoginRedirect) return;
@@ -223,7 +232,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
       // Use publicClient which handles both subdomain and custom domain resolution
       return publicClient.getFormDraft(draftToken);
     },
-    enabled: !!draftToken && !draftLoaded,
+    enabled: !!draftToken && !draftLoaded && !!rawForm && !formAccess.restricted,
     retry: false
   });
 
@@ -391,7 +400,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
       }
       return publicClient.getOrganization(prefillOrgId);
     },
-    enabled: !!prefillOrgId // Fetch whenever org ID is in URL
+    enabled: !!prefillOrgId && !!rawForm && !formAccess.restricted
   });
 
   // Determine the organization name for display in error messages
@@ -583,7 +592,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
   const { data: selectedOrg } = useQuery({
     queryKey: ['selected-org-for-validation', selectedOrgId],
     queryFn: async () => await publicClient.getOrganizationDomains(selectedOrgId) || null,
-    enabled: !!selectedOrgId,
+    enabled: !!selectedOrgId && !!rawForm && !formAccess.restricted,
     staleTime: 5 * 60 * 1000 // Cache for 5 minutes
   });
 
@@ -2108,6 +2117,19 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
         <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+      </div>
+    );
+  }
+
+  if (formAccess.restricted) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
+        <FormAccessRestriction
+          form={accessPayload}
+          isAuthenticated={!!memberInfo}
+          standalone
+          className="min-h-screen"
+        />
       </div>
     );
   }

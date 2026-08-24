@@ -4,6 +4,8 @@ import { getSessionMember } from '../../_lib/session.js';
 import { assignmentWindowState, assignmentClosedMessage } from '../../_lib/surveyAssignment.js';
 import { rulesUseLmicOperators } from '../../_lib/formLmicConditions.js';
 import { loadTenantLmicCodes } from '../../_lib/tenantLmicCodes.js';
+import { resolveFormAccess, sendFormAccessDenied } from '../../_lib/formAccessPolicy.js';
+import { isFormScheduleAvailable } from '../../_lib/formAvailability.js';
 
 /**
  * Task #3331: serve a survey via its event-assignment token.
@@ -57,6 +59,27 @@ export default async function handler(req, res) {
       return res.status(404).json({ error: 'Survey not found' });
     }
 
+    // Resolve and authorize the form before returning even closed-window event
+    // context. Otherwise an assignment token for a restricted survey could
+    // disclose its event metadata without satisfying the form policy.
+    const { data: form, error: formErr } = await supabase
+      .from('form')
+      .select('*')
+      .eq('id', assignment.form_id)
+      .eq('tenant_id', tenant.id)
+      .eq('is_active', true)
+      .maybeSingle();
+    if (formErr || !form || form.form_type !== 'survey') {
+      return res.status(404).json({ error: 'Survey not found' });
+    }
+    if (!isFormScheduleAvailable(form)) {
+      return res.status(404).json({ error: 'Survey not found' });
+    }
+    const access = await resolveFormAccess({
+      supabase, req, tenantId: tenant.id, policy: form.access_policy,
+    });
+    if (!access.allowed) return sendFormAccessDenied(res, access);
+
     const windowState = assignmentWindowState(assignment);
 
     // Resolve live event context (title may have changed since the snapshot;
@@ -86,6 +109,8 @@ export default async function handler(req, res) {
     }
 
     const baseResponse = {
+      access,
+      access_policy_required: access.restricted,
       assignment: {
         token: assignment.token,
         access_mode: assignment.access_mode,
@@ -120,17 +145,8 @@ export default async function handler(req, res) {
       });
     }
 
-    // Load the survey form — must still be an active, published survey.
-    const { data: form, error: formErr } = await supabase
-      .from('form')
-      .select('*')
-      .eq('id', assignment.form_id)
-      .eq('tenant_id', tenant.id)
-      .eq('is_active', true)
-      .maybeSingle();
-    if (formErr || !form || form.form_type !== 'survey') {
-      return res.status(404).json({ error: 'Survey not found' });
-    }
+    // The survey form was loaded and access-checked before any assignment or
+    // event context was released; it must also remain published.
     if (form.survey_settings?.status !== 'published') {
       return res.status(200).json({
         ...baseResponse,

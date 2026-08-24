@@ -56,13 +56,14 @@ import { runFormEntityPipelines } from './formEntityPipelines.js';
 import { sendSubmissionEmailsGuarded } from './formSubmissionEmails.js';
 import { claimFormMonthlyCardMembership } from './formMonthlyCardCheckout.js';
 import { randomUUID } from 'node:crypto';
+import { hasFormPaymentAccessProof } from './formPaymentAccess.js';
 
 // A processing lease older than this may be re-claimed by any subsequent
 // caller (webhook retry, reconciliation cron). Mirrors WORKFLOW_CLAIM_TTL_MS.
 export const FINALIZE_CLAIM_TTL_MS = 15 * 60 * 1000; // 15 minutes
 
 // Full form columns needed for entity pipelines + submission emails.
-export const FORM_COLUMNS = 'id, name, tenant_id, fields, pages, visibility_rules, entity_pipelines, field_mappings, application_level, submission_emails, submission_email_template_id, submission_email_recipient, submission_email_cc, submission_email_bcc, submission_email_field_mapping, form_type';
+export const FORM_COLUMNS = 'id, name, tenant_id, access_policy, fields, pages, visibility_rules, entity_pipelines, field_mappings, application_level, submission_emails, submission_email_template_id, submission_email_recipient, submission_email_cc, submission_email_bcc, submission_email_field_mapping, form_type';
 
 // ── Internal helpers ────────────────────────────────────────────────────────
 
@@ -281,6 +282,34 @@ export async function finalizeFormMonthlyCardCheckout({ db, agreement, session, 
   if (!submission) {
     return { handled: false, retryable: true, detail: `form_submission ${formSubmissionId} not found` };
   }
+  if (submission.payment_status !== 'pending' && submission.payment_status !== 'setup_complete') {
+    return { handled: false, detail: `form_submission ${formSubmissionId} is ${submission.payment_status}, not setup_complete` };
+  }
+
+  // Webhooks and reconciliation jobs do not carry a member session. Load the
+  // form before changing payment state and require payment-start proof for a
+  // restricted policy. Unrestricted legacy rows remain compatible.
+  const { data: form, error: formErr } = await db
+    .from('form')
+    .select(FORM_COLUMNS)
+    .eq('id', submission.form_id)
+    .eq('tenant_id', tenantId)
+    .maybeSingle();
+  if (formErr || !form) {
+    return {
+      handled: false,
+      retryable: true,
+      detail: `load form failed: ${formErr?.message || 'form not found'}`,
+    };
+  }
+  if (!hasFormPaymentAccessProof(submission, form)) {
+    return {
+      handled: false,
+      retryable: false,
+      code: 'FORM_ACCESS_NOT_AUTHORIZED',
+      detail: `form_submission ${formSubmissionId} has no trusted form-access authorization`,
+    };
+  }
 
   // ── CAS pending → setup_complete ─────────────────────────────────────────
   let currentRow = submission;
@@ -370,22 +399,6 @@ export async function finalizeFormMonthlyCardCheckout({ db, agreement, session, 
   // ── We hold the lease — run side effects ─────────────────────────────────
   // On any failure: release the lease (set state back to null) so the next
   // caller retries from scratch. On success: stamp 'done'.
-
-  // ── Load the form (pipelines + emails need full columns) ─────────────────
-  const { data: form, error: formErr } = await db
-    .from('form')
-    .select(FORM_COLUMNS)
-    .eq('id', currentRow.form_id)
-    .eq('tenant_id', tenantId)
-    .maybeSingle();
-  if (formErr || !form) {
-    await writeClaimResult(db, formSubmissionId, { done: false, ownerToken });
-    return {
-      handled: false,
-      retryable: true,
-      detail: `load form failed: ${formErr?.message || 'form not found'}`,
-    };
-  }
 
   // ── Entity pipelines ─────────────────────────────────────────────────────
   let pipelineMemberId = null;

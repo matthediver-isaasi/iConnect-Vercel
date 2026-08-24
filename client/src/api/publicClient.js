@@ -466,13 +466,17 @@ class PublicClient {
   
   // Forms
   async listForms() {
-    return this._fetch('/api/public/forms');
+    return this._fetch('/api/public/forms', { credentials: 'include' });
   }
   
   async getForm(slug, { authenticated = false } = {}) {
     if (!slug) return null;
     const authQuery = authenticated ? '?authenticated=1' : '';
-    return this._fetch(`/api/public/form/${encodeURIComponent(slug)}${authQuery}`);
+    // Access-policy evaluation is session-derived. Always carry cookies; the
+    // query flag only asks the endpoint for the authenticated form shape.
+    return this._fetch(`/api/public/form/${encodeURIComponent(slug)}${authQuery}`, {
+      credentials: 'include'
+    });
   }
   
   // Task #3331: survey opened via an event-assignment link. Returns
@@ -480,17 +484,18 @@ class PublicClient {
   // the server resolves tenant, version snapshot, event and window state.
   async getSurveyAssignment(token) {
     if (!token) return null;
-    return this._fetch(`/api/public/survey-assignment/${encodeURIComponent(token)}`);
+    return this._fetch(`/api/public/survey-assignment/${encodeURIComponent(token)}`, { credentials: 'include' });
   }
 
   async getFormDraft(token) {
     if (!token) return null;
-    return this._fetch(`/api/public/form-draft?token=${encodeURIComponent(token)}`);
+    return this._fetch(`/api/public/form-draft?token=${encodeURIComponent(token)}`, { credentials: 'include' });
   }
   
   async saveFormDraft(data) {
     return this._fetch('/api/public/form-draft', {
       method: 'POST',
+      credentials: 'include',
       body: JSON.stringify(data)
     });
   }

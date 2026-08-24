@@ -19,6 +19,7 @@ import { evaluateLmicCondition } from "../../../api/_lib/formLmicConditions.js";
 import { resolveSubmitControl } from "../../../api/_lib/formSubmitControl.js";
 import FormPaymentSubmit from "../components/forms/FormPaymentSubmit";
 import { useFormPaymentReturn, FormPaymentReturnScreen } from "../components/forms/FormPaymentReturn";
+import FormAccessRestriction, { resolveFormAccess } from "@/components/forms/FormAccessRestriction";
 
 // Stable empty array so disabled custom-value queries don't create a fresh
 // default identity every render (which would re-trigger dependent effects).
@@ -39,7 +40,6 @@ export default function EmbedFormPage() {
 
   // Task #3501: page-level payment return-leg handling (see FormView) —
   // the embed page must handle redirect returns identically.
-  const paymentReturn = useFormPaymentReturn();
   const [fieldValidity, setFieldValidity] = useState({});
   const [submissionError, setSubmissionError] = useState(null);
 
@@ -117,11 +117,18 @@ export default function EmbedFormPage() {
 
   // Survey presentation (question numbering) — no-op for standard forms
   const form = useMemo(() => applySurveyPresentation(rawForm), [rawForm]);
+  const accessPayload = rawForm || (error?.errorData?.access
+    ? { __access: error.errorData.access }
+    : null);
+  const formAccess = resolveFormAccess(accessPayload, !!authMember);
+  // Return-leg confirmation is safe before the form body is released: it can
+  // only finalize a server-created pending payment carrying prior access proof.
+  const paymentReturn = useFormPaymentReturn();
 
   // Task #3364: auth-required form viewed anonymously. Wait for the auth
   // probe to settle so a logged-in visitor is never bounced to /login while
   // their authenticated refetch is still in flight.
-  const authRequiredAnonymous = !!form?.require_authentication && !authMember && !authMemberLoading;
+  const authRequiredAnonymous = (!!form?.require_authentication || formAccess.anonymous) && !authMember && !authMemberLoading;
   useEffect(() => {
     if (authRequiredAnonymous && !isFramed) {
       window.location.replace(loginHref);
@@ -1017,6 +1024,17 @@ export default function EmbedFormPage() {
       <div className="flex items-center justify-center min-h-[200px] p-4" data-testid="embed-form-loading">
         <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
       </div>
+    );
+  }
+
+  if (formAccess.restricted) {
+    return (
+      <FormAccessRestriction
+        form={accessPayload}
+        isAuthenticated={!!authMember}
+        framed={isFramed}
+        standalone={!isFramed}
+      />
     );
   }
 

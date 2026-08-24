@@ -11,6 +11,8 @@ import { resolveSubmitControl } from '../_lib/formSubmitControl.js';
 import { rulesUseLmicOperators } from '../_lib/formLmicConditions.js';
 import { loadTenantLmicCodes } from '../_lib/tenantLmicCodes.js';
 import { computeHiddenFieldIds, findPaymentField, derivePaymentAmount } from '../_lib/formFieldVisibility.js';
+import { resolveFormAccess, sendFormAccessDenied } from '../_lib/formAccessPolicy.js';
+import { isFormScheduleAvailable } from '../_lib/formAvailability.js';
 
 export default async function handler(req, res) {
   console.log('[Public Form Submission] === ENDPOINT CALLED ===');
@@ -59,7 +61,7 @@ export default async function handler(req, res) {
     // Include communication_category_id for newsletter subscription
     const { data: form, error: formError } = await supabase
       .from('form')
-      .select('id, name, tenant_id, require_authentication, fields, entity_pipelines, field_mappings, application_level, due_diligence_required, communication_category_id, allow_submitter_email_copy, prevent_duplicate_email_submission, is_event_related, related_event_id, deactivate_at, submission_emails, submission_email_template_id, submission_email_recipient, submission_email_cc, submission_email_bcc, submission_email_field_mapping, form_type, survey_settings')
+      .select('id, name, tenant_id, require_authentication, access_policy, fields, entity_pipelines, field_mappings, application_level, due_diligence_required, communication_category_id, allow_submitter_email_copy, prevent_duplicate_email_submission, is_event_related, related_event_id, deactivate_at, submission_emails, submission_email_template_id, submission_email_recipient, submission_email_cc, submission_email_bcc, submission_email_field_mapping, form_type, survey_settings')
       .eq('id', form_id)
       .eq('tenant_id', tenantData.id)
       .eq('is_active', true)
@@ -79,11 +81,8 @@ export default async function handler(req, res) {
     // passed, even though is_active is still true. Mirrors the read-time guard
     // in api/public/form/[slug].js so a known form_id can't be POSTed after the
     // deadline.
-    if (form.deactivate_at) {
-      const deactivateTime = new Date(form.deactivate_at).getTime();
-      if (!Number.isNaN(deactivateTime) && deactivateTime <= Date.now()) {
-        return res.status(404).json({ error: 'Form not found or inactive' });
-      }
+    if (!isFormScheduleAvailable(form)) {
+      return res.status(404).json({ error: 'Form not found or inactive' });
     }
 
     // Resolve the authenticated submitter (if any) from the server-side
@@ -129,6 +128,14 @@ export default async function handler(req, res) {
         return res.status(403).json({ error: 'This form requires authentication' });
       }
     }
+
+    const formAccess = await resolveFormAccess({
+      supabase,
+      req,
+      tenantId: tenantData.id,
+      policy: form.access_policy,
+    });
+    if (!formAccess.allowed) return sendFormAccessDenied(res, formAccess);
 
     // --- Event survey assignment (Task #3331) ---------------------------
     // When the survey was opened via an assignment link, the ASSIGNMENT is

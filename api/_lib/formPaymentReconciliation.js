@@ -18,8 +18,9 @@ import { runFormEntityPipelines } from './formEntityPipelines.js';
 import { getTrustedBaseUrlForTenant } from './publicBaseUrl.js';
 import { finalizeFormMonthlyCardCheckout, FINALIZE_CLAIM_TTL_MS } from './formMonthlyCardFinalize.js';
 import { findFormMonthlyCardAgreement } from './formMonthlyCardCheckout.js';
+import { hasFormPaymentAccessProof } from './formPaymentAccess.js';
 
-const FORM_COLUMNS = 'id, name, tenant_id, fields, pages, visibility_rules, entity_pipelines, field_mappings, application_level, submission_emails, submission_email_template_id, submission_email_recipient, submission_email_cc, submission_email_bcc, submission_email_field_mapping, form_type';
+const FORM_COLUMNS = 'id, name, tenant_id, access_policy, fields, pages, visibility_rules, entity_pipelines, field_mappings, application_level, submission_emails, submission_email_template_id, submission_email_recipient, submission_email_cc, submission_email_bcc, submission_email_field_mapping, form_type';
 
 // Only look at rows old enough that the browser confirm is clearly not
 // coming, and young enough to be worth polling.
@@ -84,6 +85,11 @@ export async function reconcileFormPayments(supabase, { baseUrl = null, limit = 
   for (const row of rows) {
     results.checked += 1;
     try {
+      const form = await loadForm(row.form_id, row.tenant_id);
+      // Async reconciliation cannot evaluate a member session. A restricted
+      // form therefore needs the durable proof written at payment start (or
+      // by an eligible member's legacy browser confirmation).
+      if (!hasFormPaymentAccessProof(row, form)) continue;
       if (row.payment_provider === 'stripe') {
         const found = await retrieveTenantPaymentIntent(row.tenant_id, 'forms', row.payment_reference);
         if (!found) continue;
@@ -99,7 +105,6 @@ export async function reconcileFormPayments(supabase, { baseUrl = null, limit = 
             reference: pi.id,
           });
           if (updated) results.paid += 1;
-          const form = await loadForm(row.form_id, row.tenant_id);
           if (form) {
             const fin = await finalizeFormSubmission({
               supabase,
@@ -124,7 +129,6 @@ export async function reconcileFormPayments(supabase, { baseUrl = null, limit = 
         if (br.status === 'fulfilled') {
           const { updated, row: paidRow } = await markFormSubmissionPaid(supabase, row.id, { reference: br.id });
           if (updated) results.paid += 1;
-          const form = await loadForm(row.form_id, row.tenant_id);
           if (form) {
             const fin = await finalizeFormSubmission({
               supabase,
@@ -158,7 +162,7 @@ export async function reconcileFormPayments(supabase, { baseUrl = null, limit = 
       .limit(20);
     for (const row of unfinalized || []) {
       const form = await loadForm(row.form_id, row.tenant_id);
-      if (!form) continue;
+      if (!hasFormPaymentAccessProof(row, form)) continue;
       const fin = await finalizeFormSubmission({ supabase, submission: row, form, baseUrl: await resolveBaseUrl(row.tenant_id) });
       if (fin.finalized && !fin.alreadyFinalized) results.finalized += 1;
     }
@@ -198,6 +202,8 @@ export async function reconcileFormPayments(supabase, { baseUrl = null, limit = 
       .order('id', { ascending: true })
       .limit(20);
     for (const row of pendingMembership || []) {
+      const form = await loadForm(row.form_id, row.tenant_id);
+      if (!hasFormPaymentAccessProof(row, form)) continue;
       // If the membership target entity is still unresolved (pipeline
       // failed or never ran to completion), re-run the form's entity
       // pipelines first — the same operation an admin performs via
@@ -211,11 +217,6 @@ export async function reconcileFormPayments(supabase, { baseUrl = null, limit = 
       const rowBaseUrl = await resolveBaseUrl(row.tenant_id);
       if (entityMissing && rowBaseUrl) {
         try {
-          const { data: form } = await supabase
-            .from('form')
-            .select(FORM_COLUMNS)
-            .eq('id', row.form_id)
-            .maybeSingle();
           if (form) {
             const pipelineOut = await runFormEntityPipelines({ supabase, submission: row, form, baseUrl: rowBaseUrl });
             if (pipelineOut.memberId) row.created_member_id = row.created_member_id || pipelineOut.memberId;
@@ -258,6 +259,8 @@ export async function reconcileFormPayments(supabase, { baseUrl = null, limit = 
       .limit(20);
     for (const row of setupCompleteRows || []) {
       try {
+        const form = await loadForm(row.form_id, row.tenant_id);
+        if (!hasFormPaymentAccessProof(row, form)) continue;
         // Load the associated billing agreement via the agreement_id stored in
         // payment_meta.monthly_card.agreement_id (set at checkout creation time).
         const agreementId = row.payment_meta?.monthly_card?.agreement_id || null;

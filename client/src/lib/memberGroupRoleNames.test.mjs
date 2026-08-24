@@ -11,6 +11,7 @@ import {
   isEmptyRoleHtml,
   isEmptyRoleUrl,
   isEmptyRoleTermDef,
+  remapGroupRolePolicy,
 } from './memberGroupRoleNames.js';
 
 test('toTitleCase capitalises words and preserves acronyms', () => {
@@ -83,4 +84,39 @@ test('remapRoleKeyedMap: term definitions with data survive merge with empty def
 test('remapRoleKeyedMap: unmapped keys kept as-is', () => {
   const out = remapRoleKeyedMap({ Secretary: 'https://s.test' }, canon, new Map(), isEmptyRoleUrl);
   assert.deepEqual(out, { Secretary: 'https://s.test' });
+});
+
+test('remapGroupRolePolicy canonicalises and merges while retaining stale names for fail-closed evaluation', () => {
+  const policy = {
+    mode: 'restricted',
+    group_rules: [
+      { group_id: 'group-a', role_names: [' chair ', 'CHAIR', 'Removed'] },
+      { group_id: 'group-b', role_names: ['Other spelling'] },
+    ],
+  };
+  const out = remapGroupRolePolicy(policy, 'group-a', ['Chair', 'Member']);
+  assert.deepEqual(out, {
+    mode: 'restricted',
+    group_rules: [
+      { group_id: 'group-a', role_names: ['Chair', 'Removed'] },
+      { group_id: 'group-b', role_names: ['Other spelling'] },
+    ],
+  });
+});
+
+test('remapGroupRolePolicy preserves removed role references so access fails closed', () => {
+  const out = remapGroupRolePolicy(
+    { group_rules: [{ group_id: 'group-a', role_names: ['Deleted role'] }] },
+    'group-a',
+    ['Chair']
+  );
+  assert.deepEqual(out, {
+    group_rules: [{ group_id: 'group-a', role_names: ['Deleted role'] }],
+  });
+});
+
+test('remapGroupRolePolicy leaves unrelated and malformed policies alone', () => {
+  const policy = { group_rules: [{ group_id: 'group-b', role_names: ['Chair'] }] };
+  assert.equal(remapGroupRolePolicy(policy, 'group-a', ['Chair']), policy);
+  assert.equal(remapGroupRolePolicy(null, 'group-a', ['Chair']), null);
 });

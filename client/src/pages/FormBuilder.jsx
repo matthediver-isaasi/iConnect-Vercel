@@ -159,6 +159,187 @@ function LinkedEventCombobox({ eventOptions, value, onChange, includesPastEvents
   );
 }
 
+function PolicyMultiSelect({ options, value = [], onChange, placeholder, testId }) {
+  const selected = new Set(value);
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button type="button" variant="outline" className="w-full justify-between font-normal" data-testid={testId}>
+          <span className={cn("truncate", value.length === 0 && "text-muted-foreground")}>
+            {value.length === 0
+              ? placeholder
+              : value.length === 1
+                ? options.find(option => option.value === value[0])?.label || "1 selected"
+                : `${value.length} selected`}
+          </span>
+          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+        <Command>
+          <CommandInput placeholder="Search…" />
+          <CommandList>
+            <CommandEmpty>No options found.</CommandEmpty>
+            {value.length > 0 && (
+              <CommandItem onSelect={() => onChange([])} data-testid={`${testId}-clear`}>
+                <X className="mr-2 h-4 w-4" /> Clear selection
+              </CommandItem>
+            )}
+            {options.map(option => (
+              <CommandItem
+                key={option.value}
+                value={`${option.label} ${option.value}`}
+                onSelect={() => onChange(selected.has(option.value)
+                  ? value.filter(item => item !== option.value)
+                  : [...value, option.value])}
+              >
+                <Check className={cn("mr-2 h-4 w-4", selected.has(option.value) ? "opacity-100" : "opacity-0")} />
+                {option.label}
+              </CommandItem>
+            ))}
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function FormAccessPolicyEditor({ policy, onChange, groups, roles }) {
+  const rules = Array.isArray(policy?.group_rules) ? policy.group_rules : [];
+  const selectedRoleIds = Array.isArray(policy?.rbac_role_ids) ? policy.rbac_role_ids : [];
+  const groupOptions = groups.map(group => ({ value: group.id, label: group.name || "Unnamed group" }));
+  const roleOptions = roles.map(role => ({ value: role.id, label: role.name || "Unnamed role" }));
+  const usedGroups = new Set(rules.map(rule => rule.group_id));
+
+  const nextPolicy = (updates) => ({
+    version: 1,
+    group_rules: rules,
+    rbac_role_ids: selectedRoleIds,
+    operator: policy?.operator || "or",
+    ...updates,
+  });
+  const updateRule = (groupId, updates) => {
+    onChange(nextPolicy({
+      group_rules: rules.map(rule => rule.group_id === groupId ? { ...rule, ...updates } : rule)
+    }));
+  };
+  const addRule = (groupId) => {
+    if (!groupId || usedGroups.has(groupId)) return;
+    onChange(nextPolicy({
+      group_rules: [...rules, {
+        group_id: groupId,
+        role_names: [],
+      }],
+    }));
+  };
+
+  return (
+    <div className="mt-6 space-y-4 border-t border-slate-100 pt-5" data-testid="form-access-policy-editor">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <Label className="text-base font-medium">Form access policy</Label>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Restrict this form to active member groups, optionally matching a group role, tenant role, or both.
+            A viewer matches the group side when any configured group rule matches.
+          </p>
+        </div>
+        {(rules.length > 0 || selectedRoleIds.length > 0) && (
+          <Button type="button" variant="ghost" size="sm" onClick={() => onChange(null)} data-testid="button-clear-form-access-policy">
+            <X className="mr-1 h-4 w-4" /> Clear policy
+          </Button>
+        )}
+      </div>
+
+      {rules.map((rule, index) => {
+        const group = groups.find(item => item.id === rule.group_id);
+        const groupRoleOptions = (Array.isArray(group?.roles) ? group.roles : [])
+          .filter(Boolean)
+          .map(name => ({ value: name, label: name }));
+        return (
+          <div key={rule.group_id} className="space-y-3 rounded-lg border border-slate-200 bg-slate-50 p-4" data-testid={`form-access-rule-${index}`}>
+            <div className="flex items-center justify-between gap-2">
+              <p className="font-medium text-slate-800">{group?.name || "Unavailable group"}</p>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                onClick={() => {
+                  const remainingRules = rules.filter(item => item.group_id !== rule.group_id);
+                  if (remainingRules.length === 0 && selectedRoleIds.length === 0) onChange(null);
+                  else onChange(nextPolicy({ group_rules: remainingRules }));
+                }}
+                aria-label={`Remove ${group?.name || "group"} rule`}
+              >
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            </div>
+            <div className="grid gap-3 md:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label className="text-xs">Group roles (optional)</Label>
+                <PolicyMultiSelect
+                  options={groupRoleOptions}
+                  value={rule.role_names || []}
+                  onChange={roleNames => updateRule(rule.group_id, { role_names: roleNames })}
+                  placeholder={groupRoleOptions.length ? "Any role in this group" : "This group has no roles"}
+                  testId={`select-access-group-roles-${index}`}
+                />
+              </div>
+            </div>
+          </div>
+        );
+      })}
+
+      <div className="grid gap-4 md:grid-cols-2">
+        <div className="space-y-1.5">
+          <Label className="text-xs">Add member group rule</Label>
+          <Select value="" onValueChange={addRule}>
+            <SelectTrigger data-testid="select-add-form-access-group">
+              <SelectValue placeholder="Add an active member group…" />
+            </SelectTrigger>
+            <SelectContent>
+              {groupOptions.filter(group => !usedGroups.has(group.value)).map(group => (
+                <SelectItem key={group.value} value={group.value}>{group.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {groups.length === 0 && <p className="text-sm text-muted-foreground">No active member groups are available.</p>}
+        </div>
+        <div className="space-y-1.5">
+          <Label className="text-xs">Tenant RBAC roles (optional)</Label>
+          <PolicyMultiSelect
+            options={roleOptions}
+            value={selectedRoleIds}
+            onChange={(roleIds) => {
+              if (rules.length === 0 && roleIds.length === 0) onChange(null);
+              else onChange(nextPolicy({ rbac_role_ids: roleIds }));
+            }}
+            placeholder="Select tenant roles…"
+            testId="select-access-rbac-roles"
+          />
+        </div>
+      </div>
+
+      {rules.length > 0 && selectedRoleIds.length > 0 && (
+        <div className="flex flex-wrap items-center gap-3 rounded-md border border-slate-200 p-3">
+          <Label className="text-sm">Allow viewers who match</Label>
+          <Select
+            value={policy?.operator || "or"}
+            onValueChange={operator => onChange(nextPolicy({ operator }))}
+          >
+            <SelectTrigger className="w-48" data-testid="select-access-operator">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="and">Both group AND role</SelectItem>
+              <SelectItem value="or">Either group OR role</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // Survey-only field types (Task #3330). Only offered when form_type === 'survey'.
 const SURVEY_FIELD_TYPES = [
   { value: 'score', label: 'Score / Rating' },
@@ -6015,6 +6196,7 @@ export default function FormBuilderPage() {
     success_message: "Thank you for your submission!",
     redirect_url: "",
     require_authentication: false,
+    access_policy: null,
     is_active: true,
     deactivate_at: null,
     deactivate_timezone: "Europe/London",
@@ -6222,6 +6404,21 @@ export default function FormBuilderPage() {
       try {
         const allRoles = await base44.entities.Role.list();
         return allRoles || [];
+      } catch {
+        return [];
+      }
+    }
+  });
+
+  const { data: activeMemberGroups = [] } = useQuery({
+    queryKey: ['/api/entities/MemberGroup', 'active-for-form-access'],
+    queryFn: async () => {
+      try {
+        const groups = await base44.entities.MemberGroup.list({
+          filter: { is_active: true },
+          sort: { name: 'asc' }
+        });
+        return (groups || []).filter(group => group.is_active !== false);
       } catch {
         return [];
       }
@@ -6523,6 +6720,10 @@ export default function FormBuilderPage() {
         success_message: existingForm.success_message || "Thank you for your submission!",
         redirect_url: existingForm.redirect_url || "",
         require_authentication: existingForm.require_authentication || false,
+        access_policy: (
+          existingForm.access_policy?.group_rules?.length ||
+          existingForm.access_policy?.rbac_role_ids?.length
+        ) ? existingForm.access_policy : null,
         is_active: existingForm.is_active ?? true,
         deactivate_at: existingForm.deactivate_at || null,
         deactivate_timezone: existingForm.deactivate_timezone || "Europe/London",
@@ -7452,6 +7653,13 @@ export default function FormBuilderPage() {
                 URL: /FormView?slug={formData.slug || 'your-slug'}
               </div>
             </div>
+
+            <FormAccessPolicyEditor
+              policy={formData.access_policy}
+              onChange={(accessPolicy) => setFormData(prev => ({ ...prev, access_policy: accessPolicy }))}
+              groups={activeMemberGroups}
+              roles={roles}
+            />
 
             {/* Event link selector - shown only when the form is related to an event */}
             {formData.is_event_related && (

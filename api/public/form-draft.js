@@ -1,6 +1,8 @@
 import { createClient } from '@supabase/supabase-js';
 import crypto from 'crypto';
 import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
+import { resolveFormAccess, sendFormAccessDenied } from '../_lib/formAccessPolicy.js';
+import { isFormScheduleAvailable } from '../_lib/formAvailability.js';
 
 // Generate a secure random token
 function generateResumeToken() {
@@ -69,7 +71,7 @@ export default async function handler(req, res) {
       // Get form to verify it exists
       let formQuery = supabase
         .from('form')
-        .select('id, tenant_id')
+        .select('id, tenant_id, access_policy, deactivate_at')
         .eq('tenant_id', tenantData.id)
         .eq('is_active', true);
 
@@ -99,6 +101,13 @@ export default async function handler(req, res) {
           debug: { form_id, form_slug, tenant_id: tenantData.id, dbError: formError?.message }
         });
       }
+      if (!isFormScheduleAvailable(form)) {
+        return res.status(404).json({ error: 'Form not found or inactive' });
+      }
+      const access = await resolveFormAccess({
+        supabase, req, tenantId: tenantData.id, policy: form.access_policy,
+      });
+      if (!access.allowed) return sendFormAccessDenied(res, access);
 
       // Calculate expiry date (always use default since settings column doesn't exist)
       const expiryDays = DEFAULT_EXPIRY_DAYS;
@@ -111,12 +120,12 @@ export default async function handler(req, res) {
         
         const { data: existingDraft, error: findError } = await supabase
           .from('form_draft_submission')
-          .select('id')
+          .select('id, form_id')
           .eq('resume_token_hash', tokenHash)
           .eq('tenant_id', tenantData.id)
           .single();
 
-        if (findError || !existingDraft) {
+        if (findError || !existingDraft || existingDraft.form_id !== form.id) {
           return res.status(404).json({ error: 'Draft not found or expired' });
         }
 
@@ -218,7 +227,7 @@ export default async function handler(req, res) {
       // Must include tenant_id filter for Supabase RLS policies
       const { data: form, error: formError } = await supabase
         .from('form')
-        .select('id, slug, name')
+        .select('id, slug, name, access_policy, deactivate_at')
         .eq('id', draft.form_id)
         .eq('tenant_id', tenantData.id)
         .eq('is_active', true)
@@ -228,6 +237,13 @@ export default async function handler(req, res) {
         console.error('[Form Draft] Form lookup error:', { formError, formId: draft.form_id, tenantId: tenantData.id });
         return res.status(404).json({ error: 'Form no longer exists' });
       }
+      if (!isFormScheduleAvailable(form)) {
+        return res.status(404).json({ error: 'Form not found or inactive' });
+      }
+      const access = await resolveFormAccess({
+        supabase, req, tenantId: tenantData.id, policy: form.access_policy,
+      });
+      if (!access.allowed) return sendFormAccessDenied(res, access);
 
       // Schema drift detection is not currently supported (form table lacks updated_at column)
       const schemaChanged = false;
@@ -268,6 +284,29 @@ export default async function handler(req, res) {
       }
 
       const tokenHash = hashToken(token);
+
+      const { data: draft, error: draftError } = await supabase
+        .from('form_draft_submission')
+        .select('form_id')
+        .eq('resume_token_hash', tokenHash)
+        .eq('tenant_id', tenantData.id)
+        .maybeSingle();
+      if (draftError || !draft) return res.status(404).json({ error: 'Draft not found or expired' });
+      const { data: form, error: formError } = await supabase
+        .from('form')
+        .select('access_policy, deactivate_at')
+        .eq('id', draft.form_id)
+        .eq('tenant_id', tenantData.id)
+        .eq('is_active', true)
+        .maybeSingle();
+      if (formError || !form) return res.status(404).json({ error: 'Form no longer exists' });
+      if (!isFormScheduleAvailable(form)) {
+        return res.status(404).json({ error: 'Form not found or inactive' });
+      }
+      const access = await resolveFormAccess({
+        supabase, req, tenantId: tenantData.id, policy: form.access_policy,
+      });
+      if (!access.allowed) return sendFormAccessDenied(res, access);
 
       const { error: deleteError } = await supabase
         .from('form_draft_submission')

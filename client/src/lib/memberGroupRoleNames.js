@@ -101,3 +101,55 @@ export function collectTenantRoleNames(groups = []) {
   }
   return [...byKey.values()].sort((a, b) => a.localeCompare(b));
 }
+
+// Keep a form access policy's member-group role references aligned with the
+// roles that actually survive a group save. Matching is case-insensitive (and
+// whitespace-normalised), while values are always rewritten to the surviving
+// role's canonical spelling. References with no surviving role are deliberately
+// retained so the server treats the policy as stale and denies access safely;
+// silently dropping the last role would broaden the rule to any group member.
+//
+// The rest of the policy and all rules for other groups are left untouched.
+// Malformed/non-array role_names are left alone rather than manufacturing role
+// restrictions.
+export function remapGroupRolePolicy(accessPolicy, groupId, survivingRoleNames = []) {
+  if (!accessPolicy || typeof accessPolicy !== 'object' || Array.isArray(accessPolicy)) {
+    return accessPolicy;
+  }
+  if (!Array.isArray(accessPolicy.group_rules)) return accessPolicy;
+
+  const canonicalByKey = new Map();
+  for (const roleName of Array.isArray(survivingRoleNames) ? survivingRoleNames : []) {
+    if (typeof roleName !== 'string') continue;
+    const key = roleNameKey(roleName);
+    if (key && !canonicalByKey.has(key)) {
+      canonicalByKey.set(key, String(roleName).trim().replace(/\s+/g, ' '));
+    }
+  }
+
+  let changed = false;
+  const groupRules = accessPolicy.group_rules.map((rule) => {
+    if (!rule || typeof rule !== 'object' || String(rule.group_id || '') !== String(groupId || '')) {
+      return rule;
+    }
+
+    if (!Array.isArray(rule.role_names)) return rule;
+    const nextRoleNames = [];
+    const seen = new Set();
+    for (const roleName of rule.role_names) {
+      if (typeof roleName !== 'string') continue;
+      const canonical = canonicalByKey.get(roleNameKey(roleName))
+        || String(roleName).trim().replace(/\s+/g, ' ');
+      const key = roleNameKey(canonical);
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      nextRoleNames.push(canonical);
+    }
+
+    if (JSON.stringify(nextRoleNames) === JSON.stringify(rule.role_names || [])) return rule;
+    changed = true;
+    return { ...rule, role_names: nextRoleNames };
+  });
+
+  return changed ? { ...accessPolicy, group_rules: groupRules } : accessPolicy;
+}

@@ -45,10 +45,13 @@ import {
   persistMonthlyCheckoutLink,
   releaseExpiredFormMonthlyCardCheckout,
 } from '../_lib/formMonthlyCardCheckout.js';
+import { resolveFormAccess, sendFormAccessDenied } from '../_lib/formAccessPolicy.js';
+import { withFormPaymentAccessProof } from '../_lib/formPaymentAccess.js';
+import { isFormScheduleAvailable } from '../_lib/formAvailability.js';
 
 const STRIPE_MINIMUMS = { GBP: 0.30, USD: 0.50, EUR: 0.50, AUD: 0.50, NZD: 0.50 };
 
-const FORM_COLUMNS = 'id, name, tenant_id, require_authentication, fields, pages, visibility_rules, entity_pipelines, field_mappings, application_level, deactivate_at, submission_emails, submission_email_template_id, submission_email_recipient, submission_email_cc, submission_email_bcc, submission_email_field_mapping, form_type';
+const FORM_COLUMNS = 'id, name, tenant_id, require_authentication, access_policy, fields, pages, visibility_rules, entity_pipelines, field_mappings, application_level, deactivate_at, submission_emails, submission_email_template_id, submission_email_recipient, submission_email_cc, submission_email_bcc, submission_email_field_mapping, form_type';
 
 function sanitizeReturnPath(p) {
   if (typeof p !== 'string') return '/';
@@ -134,11 +137,19 @@ async function loadForm(supabase, formId, tenantId) {
     .eq('is_active', true)
     .single();
   if (error || !form) return null;
-  if (form.deactivate_at) {
-    const t = new Date(form.deactivate_at).getTime();
-    if (!Number.isNaN(t) && t <= Date.now()) return null;
-  }
+  if (!isFormScheduleAvailable(form)) return null;
   return form;
+}
+
+async function authorizePaymentStart(req, res, supabase, tenantData, form) {
+  const access = await resolveFormAccess({
+    supabase, req, tenantId: tenantData.id, policy: form.access_policy,
+  });
+  if (!access.allowed) {
+    sendFormAccessDenied(res, access);
+    return null;
+  }
+  return access;
 }
 
 /**
@@ -273,6 +284,8 @@ async function handleQuote(req, res, supabase, tenantData) {
 
   const form = await loadForm(supabase, form_id, tenantData.id);
   if (!form) return res.status(404).json({ error: 'Form not found' });
+  const access = await authorizePaymentStart(req, res, supabase, tenantData, form);
+  if (!access) return;
   if (form.form_type === 'survey') {
     return res.status(400).json({ error: 'Payment fields are not supported on surveys' });
   }
@@ -327,6 +340,8 @@ async function handleCreateMonthlyCard(req, res, supabase, tenantData) {
   if (!form_id) return res.status(400).json({ error: 'Form ID is required' });
   const form = await loadForm(supabase, form_id, tenantData.id);
   if (!form || form.form_type === 'survey') return res.status(404).json({ error: 'Form not found' });
+  const access = await authorizePaymentStart(req, res, supabase, tenantData, form);
+  if (!access) return;
   const paymentField = findPaymentField(form);
   if (!paymentField) return res.status(400).json({ error: 'This form has no payment field' });
   const enabledProviders = Array.isArray(paymentField.payment_providers) ? paymentField.payment_providers : [];
@@ -379,11 +394,11 @@ async function handleCreateMonthlyCard(req, res, supabase, tenantData) {
       submitted_by_email: applicantEmail, created_date: new Date().toISOString(),
       payment_status: 'pending', payment_provider: 'stripe_monthly_card',
       payment_amount: offer.monthlyAmount, payment_currency: offer.currency,
-      payment_meta: { prefill_organization_id: prefill_organization_id || null, role_id: role_id || null,
+      payment_meta: withFormPaymentAccessProof({ prefill_organization_id: prefill_organization_id || null, role_id: role_id || null,
         membership: resolved.membershipMeta, monthly_card: {
           offer,
           pre_resolved_member_id: existingApplicant?.id || null,
-        } }, ...(idemKey && { idempotency_key: idemKey }),
+        } }, { accessPolicyRequired: access.restricted }), ...(idemKey && { idempotency_key: idemKey }),
     }).select().single();
     if (error?.code === '23505' && idemKey) {
       const { data: winner, error: winnerErr } = await supabase.from('form_submission').select('*')
@@ -645,6 +660,8 @@ async function handleCreate(req, res, supabase, tenantData) {
 
   const form = await loadForm(supabase, form_id, tenantData.id);
   if (!form) return res.status(404).json({ error: 'Form not found' });
+  const access = await authorizePaymentStart(req, res, supabase, tenantData, form);
+  if (!access) return;
   if (form.form_type === 'survey') {
     return res.status(400).json({ error: 'Payment fields are not supported on surveys' });
   }
@@ -748,13 +765,13 @@ async function handleCreate(req, res, supabase, tenantData) {
           payment_currency: currency,
           payment_provider: provider,
           submitted_by_email: submitterEmail,
-          payment_meta: {
+          payment_meta: withFormPaymentAccessProof({
             ...(existing.payment_meta || {}),
             price_field_id: paymentField.price_field_id || null,
             prefill_organization_id: prefill_organization_id || null,
             role_id: role_id || null,
             membership: membershipMeta,
-          },
+          }, { accessPolicyRequired: access.restricted }),
         })
         .eq('id', existing.id)
         .eq('payment_status', 'pending')
@@ -781,12 +798,12 @@ async function handleCreate(req, res, supabase, tenantData) {
       payment_provider: provider,
       payment_amount: amount,
       payment_currency: currency,
-      payment_meta: {
+      payment_meta: withFormPaymentAccessProof({
         price_field_id: paymentField.price_field_id || null,
         prefill_organization_id: prefill_organization_id || null,
         role_id: role_id || null,
         membership: membershipMeta,
-      },
+      }, { accessPolicyRequired: access.restricted }),
       ...(idemKey && { idempotency_key: idemKey }),
     };
     const { data: inserted, error: insertError } = await supabase
@@ -1004,7 +1021,7 @@ async function handleConfirm(req, res, supabase, tenantData) {
   const { submission_id, payment_intent_id } = req.body || {};
   if (!submission_id) return res.status(400).json({ error: 'submission_id is required' });
 
-  const { data: row, error: rowErr } = await supabase
+  let { data: row, error: rowErr } = await supabase
     .from('form_submission')
     .select('*')
     .eq('id', submission_id)
@@ -1017,6 +1034,33 @@ async function handleConfirm(req, res, supabase, tenantData) {
 
   const form = await loadFormForFinalize(supabase, row.form_id, tenantData.id);
   const baseUrl = getTenantTrustedBaseUrl(req, tenantData);
+
+  // A pending payment carries a server-written proof that access was granted
+  // before money was taken. Do not revoke finalisation if membership changes
+  // while the provider is completing. Legacy rows without that proof are
+  // checked against the live policy and fail closed.
+  if (!row.payment_meta?.access_authorized_at) {
+    if (!form) return res.status(404).json({ error: 'Form not found' });
+    const access = await authorizePaymentStart(req, res, supabase, tenantData, form);
+    if (!access) return;
+    const paymentMeta = withFormPaymentAccessProof(row.payment_meta, {
+      accessPolicyRequired: access.restricted,
+    });
+    const { data: authorizedRow, error: authorizationError } = await supabase
+      .from('form_submission')
+      .update({ payment_meta: paymentMeta })
+      .eq('id', row.id)
+      .eq('tenant_id', tenantData.id)
+      .select('*')
+      .maybeSingle();
+    if (authorizationError || !authorizedRow) {
+      console.error('[form-payment] Failed to persist live access authorization:', authorizationError);
+      return res.status(500).json({
+        error: 'Payment access was confirmed but could not be recorded. Please try confirming again.',
+      });
+    }
+    row = authorizedRow;
+  }
 
   if (row.payment_status === 'paid') {
     // Idempotent: ensure finalisation ran (e.g. earlier confirm crashed

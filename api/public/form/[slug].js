@@ -3,6 +3,8 @@ import { resolveTenantFromRequest } from '../../_lib/tenantResolver.js';
 import { getSession } from '../../_lib/session.js';
 import { rulesUseLmicOperators } from '../../_lib/formLmicConditions.js';
 import { loadTenantLmicCodes } from '../../_lib/tenantLmicCodes.js';
+import { resolveFormAccess, sendFormAccessDenied } from '../../_lib/formAccessPolicy.js';
+import { isFormScheduleAvailable } from '../../_lib/formAvailability.js';
 
 const PUBLIC_FORM_FIELDS = [
   'id', 'name', 'slug', 'description', 'fields', 'is_active', 
@@ -77,12 +79,14 @@ export default async function handler(req, res) {
 
     // Scheduled deactivation: once the configured time has passed, treat the
     // form as inactive even though is_active is still true.
-    if (form.deactivate_at) {
-      const deactivateTime = new Date(form.deactivate_at).getTime();
-      if (!Number.isNaN(deactivateTime) && deactivateTime <= Date.now()) {
-        return res.status(404).json({ error: 'Form not found or inactive' });
-      }
+    if (!isFormScheduleAvailable(form)) {
+      return res.status(404).json({ error: 'Form not found or inactive' });
     }
+
+    const access = await resolveFormAccess({
+      supabase, req, tenantId: tenant.id, policy: form.access_policy,
+    });
+    if (!access.allowed) return sendFormAccessDenied(res, access);
 
     const isAuthenticatedRequest = req.query.authenticated === '1';
     let hasValidSession = false;
@@ -182,7 +186,9 @@ export default async function handler(req, res) {
         is_active: form.is_active,
         layout_type: form.layout_type,
         submit_button_text: form.submit_button_text,
-        require_authentication: true
+        require_authentication: true,
+        access_policy_required: access.restricted,
+        access
       });
     }
 
@@ -192,6 +198,8 @@ export default async function handler(req, res) {
         publicForm[field] = form[field];
       }
     }
+    publicForm.access_policy_required = access.restricted;
+    publicForm.access = access;
 
     if (hasValidSession) {
       for (const field of AUTHENTICATED_EXTRA_FIELDS) {

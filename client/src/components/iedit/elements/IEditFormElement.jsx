@@ -10,7 +10,7 @@ import { useSubmissionIdempotencyKey } from "@/lib/useSubmissionIdempotencyKey";
 import { useCardSwipeAutoFocus } from "@/lib/cardSwipeAutoFocus";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Loader2, AlertCircle, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Upload, X, Image as ImageIcon, FolderOpen, Folder, Home, Search, FileText, CheckCircle2, Save, Copy, Check, AlertTriangle, LogIn, Lock } from "lucide-react";
+import { Loader2, AlertCircle, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Upload, X, Image as ImageIcon, FolderOpen, Folder, Home, Search, FileText, CheckCircle2, Save, Copy, Check, AlertTriangle } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -25,6 +25,7 @@ import { getFormPagination } from "@/lib/formPagination";
 import { resolveSubmitControl } from "../../../../../api/_lib/formSubmitControl.js";
 import { evaluateLmicCondition } from "../../../../../api/_lib/formLmicConditions.js";
 import { applySurveyPresentation, surveyIntroText, surveySuccessMessage } from "@/lib/surveyPresentation";
+import FormAccessRestriction, { resolveFormAccess } from "@/components/forms/FormAccessRestriction";
 
 const formQuillModules = {
   toolbar: [
@@ -254,7 +255,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
 
   const tenantSlug = getTenantSlugFromLocation();
 
-  const { data: rawForm, isLoading } = useQuery({
+  const { data: rawForm, isLoading, error: formError } = useQuery({
     queryKey: ['form-embed', formSlug, tenantSlug, !!memberInfo],
     queryFn: async () => {
       if (!formSlug) return null;
@@ -266,6 +267,10 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
   // transform FormView/EmbedForm apply. iEdit's native per-step progress bar
   // covers the survey progress indicator.
   const form = useMemo(() => applySurveyPresentation(rawForm), [rawForm]);
+  const accessPayload = rawForm || (formError?.errorData?.access
+    ? { __access: formError.errorData.access }
+    : null);
+  const formAccess = resolveFormAccess(accessPayload, !!memberInfo);
 
   // Task #3336: authenticated fallback — when the form uses member/organisation
   // prefill and no explicit URL param is supplied, prefill from the logged-in
@@ -287,7 +292,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
       // Use publicClient which handles both subdomain and custom domain resolution
       return publicClient.getFormDraft(draftToken);
     },
-    enabled: !!draftToken && !draftLoaded,
+    enabled: !!draftToken && !draftLoaded && !!rawForm && !formAccess.restricted,
     retry: false
   });
 
@@ -1674,6 +1679,17 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
     );
   }
 
+  if (formAccess.restricted) {
+    return (
+      <FormAccessRestriction
+        form={accessPayload}
+        isAuthenticated={!!memberInfo}
+        framed
+        style={getBackgroundStyle()}
+      />
+    );
+  }
+
   if (!form) {
     return (
       <div className="flex items-center justify-center py-12" style={getBackgroundStyle()}>
@@ -1752,65 +1768,16 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
   };
 
   if (form.require_authentication && !memberInfo) {
-    const returnTo = encodeURIComponent(window.location.pathname + window.location.search);
+    let framed = false;
+    try { framed = window.self !== window.top; } catch { framed = true; }
     return (
-      <div id={anchor || undefined} style={{ ...getBackgroundStyle(), position: 'relative' }} data-testid="form-auth-required-overlay">
-        <div style={{ filter: 'blur(8px)', pointerEvents: 'none', userSelect: 'none' }}>
-          <div className="relative mx-auto px-4 py-8" style={{ maxWidth: `${content_max_width}px` }}>
-            {renderHeaderSection()}
-            <Card className="iedit-form-styled !rounded-none" style={getCardStyle()}>
-              {(show_form_title || show_form_description) && (
-                <CardHeader>
-                  {show_form_title && <CardTitle>{form.name}</CardTitle>}
-                  {show_form_description && form.description && (
-                    <CardDescription className="whitespace-pre-line">{form.description}</CardDescription>
-                  )}
-                </CardHeader>
-              )}
-              <CardContent className="min-h-[200px] pt-6">
-                <div className="space-y-6">
-                  {(form.fields || []).slice(0, 4).map((field, idx) => (
-                    <div key={field.id || idx} className="space-y-2">
-                      <Label className="text-sm font-medium text-slate-700">
-                        {field.label || `Field ${idx + 1}`}
-                        {field.required && <span className="text-red-500 ml-1">*</span>}
-                      </Label>
-                      <div className="h-10 bg-slate-100 rounded border border-slate-200" />
-                    </div>
-                  ))}
-                  {(form.fields || []).length > 4 && (
-                    <div className="text-center text-sm text-slate-400">
-                      + {form.fields.length - 4} more fields
-                    </div>
-                  )}
-                </div>
-              </CardContent>
-              <div className="p-6 pt-0">
-                <Button disabled className="w-full bg-blue-600">
-                  {form.submit_button_text || 'Submit'}
-                </Button>
-              </div>
-            </Card>
-          </div>
-        </div>
-        <div className="absolute inset-0 flex items-center justify-center" style={{ zIndex: 10 }}>
-          <Card className="max-w-sm shadow-lg" data-testid="card-login-required">
-            <CardContent className="p-8 text-center">
-              <Lock className="w-10 h-10 text-slate-400 mx-auto mb-4" />
-              <h3 className="text-lg font-semibold text-slate-800 mb-2">Login Required</h3>
-              <p className="text-slate-600 mb-6">You must be logged in to complete this form.</p>
-              <Button 
-                className="bg-blue-600 hover:bg-blue-700"
-                onClick={() => { window.location.href = `/login?returnTo=${returnTo}`; }}
-                data-testid="button-login-redirect"
-              >
-                <LogIn className="w-4 h-4 mr-2" />
-                Log in
-              </Button>
-            </CardContent>
-          </Card>
-        </div>
-      </div>
+      <FormAccessRestriction
+        form={{ ...rawForm, __access: { allowed: false } }}
+        isAuthenticated={false}
+        framed={framed}
+        standalone={!framed}
+        style={getBackgroundStyle()}
+      />
     );
   }
 
