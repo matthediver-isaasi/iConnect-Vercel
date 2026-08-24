@@ -80,6 +80,7 @@ import {
 } from '@/hooks/useMemberGroupCards';
 import {
   MEMBER_GROUP_CARD_SOURCE,
+  resolveMemberGroupCardColumns,
   resolveMemberGroupCardLimit,
   resolveMemberGroupCardSource,
   resolveSelectedMemberGroupIds,
@@ -6418,7 +6419,7 @@ function MemberGroupInspector({ block, update }) {
 // This distinct block lists eligible groups. It deliberately shares both the
 // live data state and card component with /MemberGroups so the portal and a
 // Canvas page cannot drift in viewer indicators or activation behavior.
-function MemberGroupCardsRender({ block, asEditor }) {
+function MemberGroupCardsRender({ block, breakpoint, asEditor }) {
   const c = block.content || {};
   const source = resolveMemberGroupCardSource(c.source);
   const selectedGroupIds = resolveSelectedMemberGroupIds(c.selectedGroupIds);
@@ -6454,6 +6455,7 @@ function MemberGroupCardsRender({ block, asEditor }) {
       errorMessage={String(data.dataError?.message || '')}
       accessRestricted={data.accessRestricted}
       asEditor={asEditor}
+      breakpoint={breakpoint}
       manualMode={manualMode}
       selectedGroupCount={selectedGroupIds.length}
       roleHolderByGroup={roleHolderByGroup}
@@ -6534,6 +6536,10 @@ function MemberGroupCardsInspector({ block, update }) {
           { value: MEMBER_GROUP_CARD_SOURCE.SELECTED, label: 'Selected active groups' },
         ]}
         testId="select-member-group-cards-source"
+      />
+      <PerBreakpointColumns
+        value={resolveMemberGroupCardColumns(c.columns)}
+        onChange={(columns) => set({ columns })}
       />
       {!manualMode ? (
         <NumberField

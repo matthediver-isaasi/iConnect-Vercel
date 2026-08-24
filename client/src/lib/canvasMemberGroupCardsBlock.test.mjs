@@ -9,6 +9,7 @@ import {
 } from './canvasDesign.js';
 import {
   buildMemberGroupRoleHolderRequests,
+  resolveMemberGroupCardColumns,
   resolveSelectedMemberGroupRoles,
 } from './memberGroupCards.js';
 
@@ -17,9 +18,38 @@ test('Member Group Cards has a safe live-data default', () => {
   assert.equal(defaults.name, 'Member Group Cards');
   assert.equal(defaults.content.limit, 6);
   assert.equal(defaults.content.source, 'self_join');
+  assert.deepEqual(defaults.content.columns, { desktop: 3, tablet: 2, mobile: 1 });
   assert.deepEqual(defaults.content.selectedGroupIds, []);
   assert.deepEqual(defaults.content.selectedGroupRoles, {});
   assert.equal('groupId' in defaults.content, false);
+});
+
+test('Member Group Cards resolves legacy and partial column settings to the established layout', () => {
+  assert.deepEqual(
+    resolveMemberGroupCardColumns(undefined),
+    { desktop: 3, tablet: 2, mobile: 1 },
+  );
+  assert.deepEqual(
+    resolveMemberGroupCardColumns({ desktop: 5 }),
+    { desktop: 5, tablet: 2, mobile: 1 },
+  );
+
+  const normalized = normalizeCanvasDesign({
+    root: {
+      sections: [{
+        id: 'root-section',
+        children: [{
+          id: 'legacy-cards',
+          type: BLOCK_TYPES.MEMBER_GROUP_CARDS,
+          content: { limit: 6 },
+        }],
+      }],
+    },
+  });
+  assert.deepEqual(
+    normalized.root.sections[0].children[0].content.columns,
+    { desktop: 3, tablet: 2, mobile: 1 },
+  );
 });
 
 test('Member Group Cards normalizes per-group roles by stable selected group ID', () => {
@@ -132,4 +162,49 @@ test('Member Group Cards validates a bounded card count before publishing', () =
     content: { limit: 24.5 },
   });
   assert.ok(errors.includes('Member Group Cards count must be a whole number from 1 to 24.'));
+});
+
+test('Member Group Cards validates complete bounded responsive column settings', () => {
+  assert.deepEqual(validateBlock({
+    type: BLOCK_TYPES.MEMBER_GROUP_CARDS,
+    content: {
+      limit: 6,
+      columns: { desktop: 6, tablet: 3, mobile: 2 },
+    },
+  }), []);
+
+  const errors = validateBlock({
+    type: BLOCK_TYPES.MEMBER_GROUP_CARDS,
+    content: {
+      limit: 6,
+      columns: { desktop: 7, tablet: 2.5, mobile: 0 },
+    },
+  });
+  assert.ok(errors.some((error) => error.includes('desktop columns')));
+  assert.ok(errors.some((error) => error.includes('tablet columns')));
+  assert.ok(errors.some((error) => error.includes('mobile columns')));
+
+  const incomplete = validateBlock({
+    type: BLOCK_TYPES.MEMBER_GROUP_CARDS,
+    content: {
+      limit: 6,
+      columns: { desktop: 3 },
+    },
+  });
+  assert.ok(incomplete.some((error) => error.includes('tablet columns')));
+  assert.ok(incomplete.some((error) => error.includes('mobile columns')));
+
+  for (const invalidValue of [true, [2], null, '2']) {
+    const typeErrors = validateBlock({
+      type: BLOCK_TYPES.MEMBER_GROUP_CARDS,
+      content: {
+        limit: 6,
+        columns: { desktop: invalidValue, tablet: 2, mobile: 1 },
+      },
+    });
+    assert.ok(
+      typeErrors.some((error) => error.includes('desktop columns')),
+      `expected ${JSON.stringify(invalidValue)} to be rejected`,
+    );
+  }
 });

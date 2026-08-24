@@ -1,10 +1,31 @@
 export const DEFAULT_MEMBER_GROUP_CARD_LIMIT = 6;
 export const MAX_MEMBER_GROUP_CARD_LIMIT = 24;
 export const MAX_MEMBER_GROUP_ROLE_HOLDERS = 50;
+export const DEFAULT_MEMBER_GROUP_CARD_COLUMNS = Object.freeze({
+  desktop: 3,
+  tablet: 2,
+  mobile: 1,
+});
+export const MAX_MEMBER_GROUP_CARD_COLUMNS = 6;
 export const MEMBER_GROUP_CARD_SOURCE = Object.freeze({
   SELF_JOIN: 'self_join',
   SELECTED: 'selected',
 });
+
+export function resolveMemberGroupCardColumns(value) {
+  const source = value && typeof value === 'object' && !Array.isArray(value)
+    ? value
+    : {};
+  return Object.fromEntries(
+    Object.entries(DEFAULT_MEMBER_GROUP_CARD_COLUMNS).map(([breakpoint, fallback]) => {
+      const parsed = Number(source[breakpoint]);
+      const columns = Number.isInteger(parsed)
+        ? Math.max(1, Math.min(MAX_MEMBER_GROUP_CARD_COLUMNS, parsed))
+        : fallback;
+      return [breakpoint, columns];
+    }),
+  );
+}
 
 export function resolveMemberGroupCardSource(value) {
   return value === MEMBER_GROUP_CARD_SOURCE.SELECTED

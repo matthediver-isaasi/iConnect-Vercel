@@ -1,6 +1,8 @@
 // Canvas Builder design document helpers.
 import { normalizeTableContent, TABLE_LIMITS } from './canvasDataTable.js';
 import {
+  DEFAULT_MEMBER_GROUP_CARD_COLUMNS,
+  MAX_MEMBER_GROUP_CARD_COLUMNS,
   resolveSelectedMemberGroupIds,
   resolveSelectedMemberGroupRoles,
 } from './memberGroupCards.js';
@@ -1643,6 +1645,7 @@ export const BLOCK_DEFAULTS = {
     content: {
       limit: 6,
       source: 'self_join',
+      columns: { ...DEFAULT_MEMBER_GROUP_CARD_COLUMNS },
       selectedGroupIds: [],
       selectedGroupRoles: {},
     },
@@ -3768,6 +3771,26 @@ export function validateBlock(block) {
       const limit = Number(c.limit);
       if (!Number.isInteger(limit) || limit < 1 || limit > 24) {
         errors.push('Member Group Cards count must be a whole number from 1 to 24.');
+      }
+      if (c.columns !== undefined) {
+        if (!c.columns || typeof c.columns !== 'object' || Array.isArray(c.columns)) {
+          errors.push('Member Group Cards columns must be configured per breakpoint.');
+        } else {
+          for (const breakpoint of ['desktop', 'tablet', 'mobile']) {
+            const value = c.columns[breakpoint];
+            if (
+              typeof value !== 'number'
+              ||
+              !Number.isInteger(value)
+              || value < 1
+              || value > MAX_MEMBER_GROUP_CARD_COLUMNS
+            ) {
+              errors.push(
+                `Member Group Cards ${breakpoint} columns must be a whole number from 1 to ${MAX_MEMBER_GROUP_CARD_COLUMNS}.`,
+              );
+            }
+          }
+        }
       }
       if (c.source !== undefined && c.source !== 'self_join' && c.source !== 'selected') {
         errors.push('Member Group Cards source must be self_join or selected.');
