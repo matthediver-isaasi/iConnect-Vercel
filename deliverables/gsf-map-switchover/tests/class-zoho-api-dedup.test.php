@@ -11,6 +11,8 @@ $GLOBALS['test_uuid'] = 0;
 $GLOBALS['test_insert_count'] = 0;
 $GLOBALS['test_update_count'] = 0;
 $GLOBALS['test_before_query'] = null;
+$GLOBALS['test_db_connection'] = 1;
+$GLOBALS['test_db_locks'] = [];
 
 class TestWpdb
 {
@@ -23,6 +25,37 @@ class TestWpdb
 
     public function get_var($prepared)
     {
+        $query = $prepared['query'];
+        if (str_contains($query, 'GET_LOCK')) {
+            [$name] = $prepared['args'];
+            $owner = $GLOBALS['test_db_locks'][$name]['owner'] ?? null;
+            $connection = $GLOBALS['test_db_connection'];
+            if ($owner === null || $owner === $connection) {
+                $GLOBALS['test_db_locks'][$name] = [
+                    'owner' => $connection,
+                    'depth' => ($GLOBALS['test_db_locks'][$name]['depth'] ?? 0) + 1,
+                ];
+                return '1';
+            }
+            return '0';
+        }
+        if (str_contains($query, 'IS_USED_LOCK')) {
+            [$name] = $prepared['args'];
+            return (($GLOBALS['test_db_locks'][$name]['owner'] ?? null) === $GLOBALS['test_db_connection']) ? '1' : '0';
+        }
+        if (str_contains($query, 'RELEASE_LOCK')) {
+            [$name] = $prepared['args'];
+            $lock = $GLOBALS['test_db_locks'][$name] ?? null;
+            if (!$lock || $lock['owner'] !== $GLOBALS['test_db_connection']) {
+                return '0';
+            }
+            if ($lock['depth'] > 1) {
+                $GLOBALS['test_db_locks'][$name]['depth']--;
+            } else {
+                unset($GLOBALS['test_db_locks'][$name]);
+            }
+            return '1';
+        }
         $key = $prepared['args'][0];
         return array_key_exists($key, $GLOBALS['test_options'])
             ? maybe_serialize($GLOBALS['test_options'][$key])

@@ -62,6 +62,7 @@ if (!class_exists('GSF_Member_Sync_Lock_Exception')) {
 class ZohoAPI
 {
     const MEMBER_SYNC_LOCK_OPTION = 'gsf_iconnect_member_sync_lock';
+    const MEMBER_SYNC_DB_LOCK_NAME = 'gsf_iconnect_member_sync';
     const MEMBER_SYNC_LOCK_TTL = 900;
 
     // [ICONNECT 2026-08-25] Literal legacy Zoho OAuth credentials were removed
@@ -334,11 +335,55 @@ class ZohoAPI
         return false;
     }
 
+    private function acquireMemberDatabaseLock()
+    {
+        global $wpdb;
+        $acquired = $wpdb->get_var($wpdb->prepare(
+            'SELECT GET_LOCK(%s, %d)',
+            self::MEMBER_SYNC_DB_LOCK_NAME,
+            0
+        ));
+        return (string) $acquired === '1';
+    }
+
+    private function releaseMemberDatabaseLock()
+    {
+        global $wpdb;
+        $wpdb->get_var($wpdb->prepare(
+            'SELECT RELEASE_LOCK(%s)',
+            self::MEMBER_SYNC_DB_LOCK_NAME
+        ));
+    }
+
     /**
      * Acquire an expiring lease. Initial acquisition uses add_option()'s unique
      * key; expired takeover is one compare-and-swap UPDATE, never read/delete.
      */
     private function acquireMemberSyncLock()
+    {
+        if (!$this->acquireMemberDatabaseLock()) {
+            $row = $this->readMemberSyncLockRow();
+            $current = is_array($row['value'] ?? null) ? $row['value'] : [];
+            return [
+                'acquired' => false,
+                'busy_until' => (int) ($current['expires_at'] ?? 0),
+                'acquired_at' => (int) ($current['acquired_at'] ?? 0),
+                'database_lock_busy' => true,
+            ];
+        }
+        try {
+            $result = $this->acquireMemberSyncOptionLock();
+            if (empty($result['acquired'])) {
+                $this->releaseMemberDatabaseLock();
+            }
+            return $result;
+        } catch (Throwable $error) {
+            $this->releaseMemberDatabaseLock();
+            throw $error;
+        }
+    }
+
+    private function acquireMemberSyncOptionLock()
     {
         $now = time();
         $token = function_exists('wp_generate_uuid4')
@@ -412,23 +457,27 @@ class ZohoAPI
     private function releaseMemberSyncLock($token)
     {
         global $wpdb;
-        $row = $this->readMemberSyncLockRow();
-        $current = is_array($row['value'] ?? null) ? $row['value'] : [];
-        if (
-            $row === null
-            || !isset($current['token'])
-            || !hash_equals((string) $current['token'], (string) $token)
-        ) {
-            return;
-        }
-        $deleted = $wpdb->query($wpdb->prepare(
-            "DELETE FROM {$wpdb->options}
-             WHERE option_name = %s AND option_value = %s",
-            self::MEMBER_SYNC_LOCK_OPTION,
-            $row['raw']
-        ));
-        if ($deleted === 1) {
-            $this->clearMemberSyncLockCache();
+        try {
+            $row = $this->readMemberSyncLockRow();
+            $current = is_array($row['value'] ?? null) ? $row['value'] : [];
+            if (
+                $row === null
+                || !isset($current['token'])
+                || !hash_equals((string) $current['token'], (string) $token)
+            ) {
+                return;
+            }
+            $deleted = $wpdb->query($wpdb->prepare(
+                "DELETE FROM {$wpdb->options}
+                 WHERE option_name = %s AND option_value = %s",
+                self::MEMBER_SYNC_LOCK_OPTION,
+                $row['raw']
+            ));
+            if ($deleted === 1) {
+                $this->clearMemberSyncLockCache();
+            }
+        } finally {
+            $this->releaseMemberDatabaseLock();
         }
     }
 
@@ -1804,4 +1853,1407 @@ class ZohoAPI
     {
         return $this->syncCountriesFromZoho();
     }
+}
+
+/**
+ * [ICONNECT 2026-08-25] Temporary browser-only cleanup for the five reviewed
+ * duplicate member identities. This deliberately lives in the replaceable
+ * ZohoAPI distribution so an operator without WP-CLI can install it by replacing
+ * the same PHP file. Remove this whole class and the registration block below
+ * after the cleanup evidence has been downloaded.
+ */
+if (!class_exists('GSF_Reviewed_Duplicate_Cleanup_Admin')) {
+    class GSF_Reviewed_Duplicate_Cleanup_Admin
+    {
+        const PAGE_SLUG = 'gsf-reviewed-duplicate-cleanup';
+        const POST_ACTION = 'gsf_reviewed_duplicate_cleanup';
+        const DOWNLOAD_ACTION = 'gsf_reviewed_duplicate_cleanup_download';
+        const LOCK_OPTION = 'gsf_iconnect_member_sync_lock';
+        const DB_LOCK_NAME = 'gsf_iconnect_member_sync';
+        const LOCK_TTL = 900;
+        const EVIDENCE_TTL = 86400;
+        const EXPECTED_FEED_COUNT = 232;
+        const EXPECTED_PRE_CLEANUP_POST_COUNT = 237;
+        const CONFIRMATION_PHRASE = 'DELETE REVIEWED DUPLICATES';
+        const DRY_RUN_NONCE_ACTION = 'gsf_reviewed_duplicate_cleanup_dry_run';
+        const APPLY_NONCE_PREFIX = 'gsf_reviewed_duplicate_cleanup_apply_';
+        const DOWNLOAD_NONCE_PREFIX = 'gsf_reviewed_duplicate_cleanup_download_';
+
+        const REVIEWED_IDENTITIES = [
+            '815132000006866401' => 'Abaarso Network',
+            '815132000006866292' => 'Rangeet',
+            '815132000006866295' => 'Sabre Education',
+            '815132000006929885' => 'Learning Equality',
+            '815132000012585001' => 'Plato Cultural',
+        ];
+
+        public static function register()
+        {
+            add_action('admin_menu', [__CLASS__, 'registerMenu']);
+            add_action('admin_post_' . self::POST_ACTION, [__CLASS__, 'handlePost']);
+            add_action('admin_post_' . self::DOWNLOAD_ACTION, [__CLASS__, 'handleDownload']);
+        }
+
+        public static function registerMenu()
+        {
+            add_submenu_page(
+                'edit.php?post_type=gsf_member',
+                'Reviewed Member Duplicate Cleanup',
+                'Duplicate Cleanup',
+                'manage_options',
+                self::PAGE_SLUG,
+                [__CLASS__, 'renderPage']
+            );
+        }
+
+        private static function allStatuses()
+        {
+            $statuses = array_values(get_post_stati([], 'names'));
+            return empty($statuses)
+                ? ['publish', 'draft', 'pending', 'private', 'future', 'trash']
+                : $statuses;
+        }
+
+        private static function findMatches($feed_id)
+        {
+            return get_posts([
+                'post_type' => 'gsf_member',
+                'post_status' => self::allStatuses(),
+                'posts_per_page' => -1,
+                'orderby' => 'ID',
+                'order' => 'ASC',
+                'suppress_filters' => false,
+                'meta_query' => [[
+                    'key' => 'zoho_id',
+                    'value' => $feed_id,
+                    'compare' => '=',
+                ]],
+            ]);
+        }
+
+        private static function selectCanonical($posts)
+        {
+            if (empty($posts)) {
+                return null;
+            }
+            usort($posts, function ($left, $right) {
+                $left_published = $left->post_status === 'publish' ? 0 : 1;
+                $right_published = $right->post_status === 'publish' ? 0 : 1;
+                if ($left_published !== $right_published) {
+                    return $left_published <=> $right_published;
+                }
+                return ((int) $left->ID) <=> ((int) $right->ID);
+            });
+            return $posts[0];
+        }
+
+        private static function describePost($post)
+        {
+            return [
+                'wp_post_id' => (int) $post->ID,
+                'status' => (string) $post->post_status,
+                'name' => html_entity_decode((string) $post->post_title, ENT_QUOTES, 'UTF-8'),
+                'feed_id' => trim((string) get_post_meta($post->ID, 'zoho_id', true)),
+                'created_at' => (string) $post->post_date,
+                'created_at_gmt' => (string) ($post->post_date_gmt ?? ''),
+                'modified_at' => (string) $post->post_modified,
+                'modified_at_gmt' => (string) ($post->post_modified_gmt ?? ''),
+                'last_sync' => (string) get_post_meta($post->ID, 'last_sync', true),
+            ];
+        }
+
+        private static function fetchFeed()
+        {
+            $base_url = rtrim(trim((string) get_option('gsf_iconnect_base_url', '')), '/');
+            $api_key = trim((string) get_option('gsf_iconnect_api_key', ''));
+            if ($base_url === '' || $api_key === '') {
+                return [
+                    'source' => $base_url === '' ? null : $base_url . '/api/public/gsf-map/members',
+                    'rows' => [],
+                    'error' => 'Missing gsf_iconnect_base_url or gsf_iconnect_api_key option',
+                ];
+            }
+
+            $response = wp_remote_get($base_url . '/api/public/gsf-map/members', [
+                'headers' => [
+                    'X-Api-Key' => $api_key,
+                    'Accept' => 'application/json',
+                ],
+                'timeout' => 60,
+            ]);
+            if (is_wp_error($response)) {
+                return [
+                    'source' => $base_url . '/api/public/gsf-map/members',
+                    'rows' => [],
+                    'error' => $response->get_error_message(),
+                ];
+            }
+
+            $status = (int) wp_remote_retrieve_response_code($response);
+            $decoded = json_decode(wp_remote_retrieve_body($response), true);
+            if ($status !== 200) {
+                return [
+                    'source' => $base_url . '/api/public/gsf-map/members',
+                    'rows' => [],
+                    'error' => 'iConnect member feed returned HTTP ' . $status,
+                ];
+            }
+            if (!is_array($decoded)) {
+                return [
+                    'source' => $base_url . '/api/public/gsf-map/members',
+                    'rows' => [],
+                    'error' => 'iConnect member feed did not return a JSON array',
+                ];
+            }
+
+            return [
+                'source' => $base_url . '/api/public/gsf-map/members',
+                'rows' => $decoded,
+                'error' => null,
+            ];
+        }
+
+        private static function gate($passed, $detail)
+        {
+            return [
+                'passed' => (bool) $passed,
+                'detail' => (string) $detail,
+            ];
+        }
+
+        private static function buildIdentitySnapshot($feed_by_id, $records)
+        {
+            $feed_ids = array_values(array_map('strval', array_keys($feed_by_id)));
+            sort($feed_ids, SORT_STRING);
+            $wordpress = array_map(function ($record) {
+                return [
+                    'wp_post_id' => (int) $record['wp_post_id'],
+                    'status' => (string) $record['status'],
+                    'feed_id' => (string) $record['feed_id'],
+                ];
+            }, $records);
+            usort($wordpress, function ($left, $right) {
+                return $left['wp_post_id'] <=> $right['wp_post_id'];
+            });
+            return [
+                'feed_ids' => $feed_ids,
+                'wordpress' => $wordpress,
+            ];
+        }
+
+        private static function identitySignature($snapshot)
+        {
+            return hash('sha256', wp_json_encode([
+                'feed_ids' => array_values($snapshot['feed_ids'] ?? []),
+                'wordpress' => array_values($snapshot['wordpress'] ?? []),
+            ]));
+        }
+
+        private static function identitySnapshotAfterDeletions($snapshot, $deleted_post_ids)
+        {
+            $deleted = array_fill_keys(array_map('intval', $deleted_post_ids), true);
+            $next = $snapshot;
+            $next['wordpress'] = array_values(array_filter(
+                $snapshot['wordpress'] ?? [],
+                function ($record) use ($deleted) {
+                    return !isset($deleted[(int) ($record['wp_post_id'] ?? 0)]);
+                }
+            ));
+            return $next;
+        }
+
+        /**
+         * Build one all-status WordPress/configured-feed snapshot. This method is
+         * public only so the distributable's regression harness can exercise the
+         * exact browser report path without needing a WordPress HTTP server.
+         */
+        public static function buildInventoryReport()
+        {
+            $feed_result = self::fetchFeed();
+            $feed_rows = $feed_result['rows'];
+            $feed_by_id = [];
+            $feed_blank = [];
+            foreach ($feed_rows as $row) {
+                $feed_id = trim((string) ($row['id'] ?? ''));
+                if ($feed_id === '') {
+                    $feed_blank[] = [
+                        'name' => (string) ($row['Account_Name'] ?? ''),
+                    ];
+                    continue;
+                }
+                if (!isset($feed_by_id[$feed_id])) {
+                    $feed_by_id[$feed_id] = [];
+                }
+                $feed_by_id[$feed_id][] = [
+                    'id' => $feed_id,
+                    'name' => (string) ($row['Account_Name'] ?? ''),
+                ];
+            }
+
+            $feed_duplicates = [];
+            foreach ($feed_by_id as $feed_id => $rows) {
+                if (count($rows) > 1) {
+                    $feed_duplicates[$feed_id] = $rows;
+                }
+            }
+
+            $posts = get_posts([
+                'post_type' => 'gsf_member',
+                'post_status' => self::allStatuses(),
+                'posts_per_page' => -1,
+                'orderby' => 'ID',
+                'order' => 'ASC',
+                'suppress_filters' => false,
+            ]);
+            $records = [];
+            $posts_by_id = [];
+            $published_by_id = [];
+            $counts_by_status = [];
+            foreach ($posts as $post) {
+                $record = self::describePost($post);
+                $records[] = $record;
+                $counts_by_status[$record['status']] = ($counts_by_status[$record['status']] ?? 0) + 1;
+                if ($record['feed_id'] !== '') {
+                    if (!isset($posts_by_id[$record['feed_id']])) {
+                        $posts_by_id[$record['feed_id']] = [];
+                    }
+                    $posts_by_id[$record['feed_id']][] = $record;
+                    if ($record['status'] === 'publish') {
+                        if (!isset($published_by_id[$record['feed_id']])) {
+                            $published_by_id[$record['feed_id']] = [];
+                        }
+                        $published_by_id[$record['feed_id']][] = $record;
+                    }
+                }
+            }
+
+            $duplicates = [];
+            foreach ($posts_by_id as $feed_id => $matches) {
+                if (count($matches) > 1) {
+                    $duplicates[$feed_id] = $matches;
+                }
+            }
+
+            $blank_wordpress_ids = array_values(array_filter($records, function ($record) {
+                return $record['feed_id'] === '';
+            }));
+            $stale_wordpress_ids = array_values(array_filter($records, function ($record) use ($feed_by_id) {
+                return $record['feed_id'] !== '' && !isset($feed_by_id[$record['feed_id']]);
+            }));
+            $missing_from_any_status = [];
+            $missing_from_published = [];
+            foreach ($feed_by_id as $feed_id => $rows) {
+                if (!isset($posts_by_id[$feed_id])) {
+                    $missing_from_any_status[] = $feed_id;
+                }
+                if (!isset($published_by_id[$feed_id])) {
+                    $missing_from_published[] = $feed_id;
+                }
+            }
+
+            $published_duplicates = [];
+            foreach ($published_by_id as $feed_id => $matches) {
+                if (count($matches) > 1) {
+                    $published_duplicates[$feed_id] = $matches;
+                }
+            }
+
+            $reviewed = [];
+            foreach (self::REVIEWED_IDENTITIES as $feed_id_key => $expected_name) {
+                // PHP coerces digit-only array keys to integers. Stable feed IDs
+                // are identifiers, so normalize them back to strings at the
+                // boundary before they enter reports, plans, or strict fences.
+                $feed_id = (string) $feed_id_key;
+                $matches = self::findMatches($feed_id);
+                $canonical = self::selectCanonical($matches);
+                $records_for_id = array_values(array_map([__CLASS__, 'describePost'], $matches));
+                $noncanonical = [];
+                foreach ($records_for_id as $record) {
+                    if ($canonical === null || $record['wp_post_id'] !== (int) $canonical->ID) {
+                        $noncanonical[] = $record;
+                    }
+                }
+                $reviewed[] = [
+                    'expected_name' => $expected_name,
+                    'feed_id' => $feed_id,
+                    'feed_rows' => $feed_by_id[$feed_id] ?? [],
+                    'records' => $records_for_id,
+                    'canonical_record' => $canonical === null ? null : self::describePost($canonical),
+                    'noncanonical_records' => $noncanonical,
+                ];
+            }
+
+            $reviewed_ids = array_values(array_map('strval', array_keys(self::REVIEWED_IDENTITIES)));
+            sort($reviewed_ids, SORT_STRING);
+            $duplicate_ids = array_values(array_map('strval', array_keys($duplicates)));
+            sort($duplicate_ids, SORT_STRING);
+            $all_reviewed_are_pairs = true;
+            foreach ($reviewed as $finding) {
+                if (
+                    count($finding['records']) !== 2
+                    || count($finding['noncanonical_records']) !== 1
+                    || $finding['canonical_record'] === null
+                    || $finding['canonical_record']['status'] !== 'publish'
+                    || count($finding['feed_rows']) !== 1
+                ) {
+                    $all_reviewed_are_pairs = false;
+                    break;
+                }
+            }
+
+            $published_count = (int) ($counts_by_status['publish'] ?? 0);
+            $feed_clean = $feed_result['error'] === null
+                && count($feed_rows) === self::EXPECTED_FEED_COUNT
+                && count($feed_by_id) === self::EXPECTED_FEED_COUNT
+                && empty($feed_blank)
+                && empty($feed_duplicates);
+            $wordpress_identity_clean = empty($blank_wordpress_ids)
+                && empty($stale_wordpress_ids)
+                && empty($missing_from_any_status)
+                && empty($missing_from_published)
+                && empty($published_duplicates);
+            $pre_cleanup_safe = $feed_clean
+                && count($records) === self::EXPECTED_PRE_CLEANUP_POST_COUNT
+                && $published_count === self::EXPECTED_FEED_COUNT
+                && count($posts_by_id) === self::EXPECTED_FEED_COUNT
+                && count($published_by_id) === self::EXPECTED_FEED_COUNT
+                && $duplicate_ids === $reviewed_ids
+                && $all_reviewed_are_pairs
+                && $wordpress_identity_clean;
+            $strict_clean = $feed_clean
+                && count($records) === self::EXPECTED_FEED_COUNT
+                && $published_count === self::EXPECTED_FEED_COUNT
+                && count($posts_by_id) === self::EXPECTED_FEED_COUNT
+                && count($published_by_id) === self::EXPECTED_FEED_COUNT
+                && empty($duplicates)
+                && $wordpress_identity_clean;
+
+            $identity_snapshot = self::buildIdentitySnapshot($feed_by_id, $records);
+
+            return [
+                'generated_at' => gmdate('c'),
+                'read_only' => true,
+                'feed' => [
+                    'source' => $feed_result['source'],
+                    'error' => $feed_result['error'],
+                    'raw_records' => count($feed_rows),
+                    'unique_nonblank_ids' => count($feed_by_id),
+                    'blank_ids' => $feed_blank,
+                    'duplicate_ids' => $feed_duplicates,
+                ],
+                'wordpress' => [
+                    'registered_post_statuses' => self::allStatuses(),
+                    'raw_posts' => count($records),
+                    'published_posts' => $published_count,
+                    'unique_nonblank_ids' => count($posts_by_id),
+                    'published_unique_nonblank_ids' => count($published_by_id),
+                    'counts_by_status' => $counts_by_status,
+                    'duplicate_ids' => $duplicates,
+                    'published_duplicate_ids' => $published_duplicates,
+                    'blank_ids' => $blank_wordpress_ids,
+                    'stale_ids' => $stale_wordpress_ids,
+                    'missing_from_any_status' => $missing_from_any_status,
+                    'missing_from_published' => $missing_from_published,
+                    'records' => $records,
+                ],
+                'reviewed_identities' => $reviewed,
+                'acceptance' => [
+                    'configured_feed_has_232_unique_nonblank_ids' => self::gate(
+                        $feed_clean,
+                        count($feed_rows) . ' feed rows; ' . count($feed_by_id) . ' unique nonblank IDs'
+                    ),
+                    'wordpress_has_232_published_members' => self::gate(
+                        $published_count === self::EXPECTED_FEED_COUNT
+                            && count($published_by_id) === self::EXPECTED_FEED_COUNT
+                            && empty($missing_from_published)
+                            && empty($published_duplicates),
+                        $published_count . ' published posts; ' . count($published_by_id) . ' unique published stable IDs'
+                    ),
+                    'no_duplicate_wordpress_stable_ids' => self::gate(
+                        empty($duplicates),
+                        count($duplicates) . ' duplicate stable IDs'
+                    ),
+                    'no_blank_wordpress_stable_ids' => self::gate(
+                        empty($blank_wordpress_ids),
+                        count($blank_wordpress_ids) . ' blank stable IDs'
+                    ),
+                    'no_stale_wordpress_stable_ids' => self::gate(
+                        empty($stale_wordpress_ids),
+                        count($stale_wordpress_ids) . ' stale WordPress records'
+                    ),
+                    'no_orphan_or_missing_stable_ids' => self::gate(
+                        empty($missing_from_any_status) && empty($missing_from_published),
+                        count($missing_from_any_status) . ' missing from all statuses; '
+                            . count($missing_from_published) . ' missing from published'
+                    ),
+                    'strict_post_cleanup_reconciliation_passed' => self::gate(
+                        $strict_clean,
+                        count($records) . ' all-status posts; ' . $published_count . ' published posts'
+                    ),
+                ],
+                'pre_cleanup_checks' => [
+                    'all_five_reviewed_identities_are_exact_pairs' => self::gate(
+                        $all_reviewed_are_pairs && $duplicate_ids === $reviewed_ids,
+                        count($duplicate_ids) . ' duplicate identities found; expected exactly the five reviewed IDs'
+                    ),
+                    'safe_pre_cleanup_state' => self::gate(
+                        $pre_cleanup_safe,
+                        'Requires 232 clean feed IDs, 232 published survivors, 237 all-status posts, and only the five reviewed pairs'
+                    ),
+                ],
+                'pre_cleanup_safe' => $pre_cleanup_safe,
+                'strict_clean' => $strict_clean,
+                'identity_signature' => self::identitySignature($identity_snapshot),
+                'identity_snapshot' => $identity_snapshot,
+            ];
+        }
+
+        public static function buildDeletionPlan($report)
+        {
+            if (empty($report['pre_cleanup_safe'])) {
+                throw new RuntimeException(
+                    'Dry run blocked: live data is not the exact reviewed 232-feed/237-post five-pair state'
+                );
+            }
+
+            $pairs = [];
+            foreach ($report['reviewed_identities'] as $finding) {
+                $canonical = $finding['canonical_record'];
+                $noncanonical = $finding['noncanonical_records'];
+                if (
+                    $canonical === null
+                    || $canonical['status'] !== 'publish'
+                    || count($finding['records']) !== 2
+                    || count($noncanonical) !== 1
+                ) {
+                    throw new RuntimeException(
+                        'Dry run blocked: ' . $finding['feed_id'] . ' is not one published survivor plus one noncanonical post'
+                    );
+                }
+                $pairs[] = [
+                    'organisation' => self::REVIEWED_IDENTITIES[$finding['feed_id']],
+                    'feed_id' => $finding['feed_id'],
+                    'survivor_post_id' => (int) $canonical['wp_post_id'],
+                    'noncanonical_post_ids' => [(int) $noncanonical[0]['wp_post_id']],
+                    'action' => 'delete',
+                    'survivor' => $canonical,
+                    'noncanonical' => $noncanonical,
+                ];
+            }
+
+            return [
+                'generated_at' => gmdate('c'),
+                'source_identity_signature' => $report['identity_signature'],
+                'pairs' => $pairs,
+            ];
+        }
+
+        public static function validateLivePlan($plan, $report)
+        {
+            if (!is_array($plan) || !isset($plan['pairs']) || count($plan['pairs']) !== count(self::REVIEWED_IDENTITIES)) {
+                throw new RuntimeException('Apply requires exactly all five reviewed identity pairs');
+            }
+            if (
+                empty($plan['source_identity_signature'])
+                || empty($report['identity_signature'])
+                || !hash_equals((string) $plan['source_identity_signature'], (string) $report['identity_signature'])
+            ) {
+                throw new RuntimeException('Live feed or WordPress identity sets changed after dry run');
+            }
+            if (empty($report['pre_cleanup_safe'])) {
+                throw new RuntimeException('Live data no longer passes the exact pre-cleanup safety gates');
+            }
+
+            $seen = [];
+            foreach ($plan['pairs'] as $pair) {
+                $feed_id = trim((string) ($pair['feed_id'] ?? ''));
+                $survivor_id = (int) ($pair['survivor_post_id'] ?? 0);
+                $noncanonical_ids = array_values(array_unique(array_map('intval', $pair['noncanonical_post_ids'] ?? [])));
+                sort($noncanonical_ids, SORT_NUMERIC);
+                if (!isset(self::REVIEWED_IDENTITIES[$feed_id]) || isset($seen[$feed_id])) {
+                    throw new RuntimeException('Plan contains an unknown or repeated reviewed identity');
+                }
+                if (
+                    ($pair['action'] ?? '') !== 'delete'
+                    || $survivor_id <= 0
+                    || count($noncanonical_ids) !== 1
+                    || in_array($survivor_id, $noncanonical_ids, true)
+                ) {
+                    throw new RuntimeException('Plan contains an invalid or unsafe exact-ID deletion instruction');
+                }
+
+                $matches = self::findMatches($feed_id);
+                $canonical = self::selectCanonical($matches);
+                $live_ids = array_values(array_map(function ($post) {
+                    return (int) $post->ID;
+                }, $matches));
+                sort($live_ids, SORT_NUMERIC);
+                $planned_ids = array_merge([$survivor_id], $noncanonical_ids);
+                sort($planned_ids, SORT_NUMERIC);
+                if ($live_ids !== $planned_ids) {
+                    throw new RuntimeException('Live post IDs changed for reviewed identity ' . $feed_id);
+                }
+                if (
+                    $canonical === null
+                    || (int) $canonical->ID !== $survivor_id
+                    || $canonical->post_status !== 'publish'
+                ) {
+                    throw new RuntimeException('The approved survivor is missing, changed, or unpublished for ' . $feed_id);
+                }
+                $seen[$feed_id] = true;
+            }
+            if (count($seen) !== count(self::REVIEWED_IDENTITIES)) {
+                throw new RuntimeException('Plan does not contain all five reviewed identities');
+            }
+            return true;
+        }
+
+        private static function clearOptionCache($option_name)
+        {
+            wp_cache_delete($option_name, 'options');
+            wp_cache_delete('alloptions', 'options');
+        }
+
+        private static function readOptionRow($option_name)
+        {
+            global $wpdb;
+            $raw = $wpdb->get_var($wpdb->prepare(
+                "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s LIMIT 1",
+                $option_name
+            ));
+            if ($raw === null) {
+                return null;
+            }
+            return [
+                'raw' => (string) $raw,
+                'value' => maybe_unserialize($raw),
+            ];
+        }
+
+        private static function compareAndSwapOption($option_name, $expected_raw, $replacement)
+        {
+            global $wpdb;
+            $updated = $wpdb->query($wpdb->prepare(
+                "UPDATE {$wpdb->options}
+                 SET option_value = %s
+                 WHERE option_name = %s AND option_value = %s",
+                maybe_serialize($replacement),
+                $option_name,
+                $expected_raw
+            ));
+            if ($updated === 1) {
+                self::clearOptionCache($option_name);
+                return true;
+            }
+            return false;
+        }
+
+        private static function compareAndDeleteOption($option_name, $expected_raw)
+        {
+            global $wpdb;
+            $deleted = $wpdb->query($wpdb->prepare(
+                "DELETE FROM {$wpdb->options}
+                 WHERE option_name = %s AND option_value = %s",
+                $option_name,
+                $expected_raw
+            ));
+            if ($deleted === 1) {
+                self::clearOptionCache($option_name);
+                return true;
+            }
+            return false;
+        }
+
+        private static function acquireDatabaseLock()
+        {
+            global $wpdb;
+            $acquired = $wpdb->get_var($wpdb->prepare(
+                'SELECT GET_LOCK(%s, %d)',
+                self::DB_LOCK_NAME,
+                0
+            ));
+            return (string) $acquired === '1';
+        }
+
+        private static function databaseLockIsOwned()
+        {
+            global $wpdb;
+            $owned = $wpdb->get_var($wpdb->prepare(
+                'SELECT IF(IS_USED_LOCK(%s) = CONNECTION_ID(), 1, 0)',
+                self::DB_LOCK_NAME
+            ));
+            return (string) $owned === '1';
+        }
+
+        private static function releaseDatabaseLock()
+        {
+            global $wpdb;
+            $wpdb->get_var($wpdb->prepare(
+                'SELECT RELEASE_LOCK(%s)',
+                self::DB_LOCK_NAME
+            ));
+        }
+
+        private static function acquireLock()
+        {
+            if (!self::acquireDatabaseLock()) {
+                $row = self::readOptionRow(self::LOCK_OPTION);
+                $current = is_array($row['value'] ?? null) ? $row['value'] : [];
+                $busy_until = (int) ($current['expires_at'] ?? 0);
+                throw new RuntimeException(
+                    'Member sync/cleanup database lock is already held'
+                    . ($busy_until > 0 ? ' (option lease until ' . gmdate('c', $busy_until) . ')' : '')
+                );
+            }
+            try {
+                return self::acquireOptionLock();
+            } catch (Throwable $error) {
+                self::releaseDatabaseLock();
+                throw $error;
+            }
+        }
+
+        private static function acquireOptionLock()
+        {
+            $now = time();
+            $token = function_exists('wp_generate_uuid4')
+                ? wp_generate_uuid4()
+                : uniqid('gsf-browser-cleanup-', true);
+            $lock = [
+                'token' => $token,
+                'acquired_at' => $now,
+                'expires_at' => $now + self::LOCK_TTL,
+                'owner' => 'reviewed_duplicate_browser_cleanup',
+            ];
+            if (add_option(self::LOCK_OPTION, $lock, '', false)) {
+                return $lock;
+            }
+
+            $row = self::readOptionRow(self::LOCK_OPTION);
+            if ($row === null) {
+                if (add_option(self::LOCK_OPTION, $lock, '', false)) {
+                    return $lock;
+                }
+                $row = self::readOptionRow(self::LOCK_OPTION);
+            }
+            $current = is_array($row['value'] ?? null) ? $row['value'] : [];
+            if ((int) ($current['expires_at'] ?? 0) <= $now) {
+                if (self::compareAndSwapOption(self::LOCK_OPTION, $row['raw'], $lock)) {
+                    return $lock;
+                }
+                $row = self::readOptionRow(self::LOCK_OPTION);
+                $current = is_array($row['value'] ?? null) ? $row['value'] : [];
+            }
+            $busy_until = (int) ($current['expires_at'] ?? 0);
+            throw new RuntimeException(
+                'Member sync/cleanup is already running'
+                . ($busy_until > 0 ? ' until ' . gmdate('c', $busy_until) : '')
+            );
+        }
+
+        private static function renewLock(&$lock)
+        {
+            $row = self::readOptionRow(self::LOCK_OPTION);
+            $current = is_array($row['value'] ?? null) ? $row['value'] : [];
+            if (
+                $row === null
+                || !isset($current['token'])
+                || !hash_equals((string) $current['token'], (string) ($lock['token'] ?? ''))
+                || (int) ($current['expires_at'] ?? 0) <= time()
+            ) {
+                throw new RuntimeException('Member sync/cleanup lease ownership was lost or expired');
+            }
+            $replacement = $current;
+            $replacement['expires_at'] = max(
+                time() + self::LOCK_TTL,
+                (int) ($current['expires_at'] ?? 0) + 1
+            );
+            if (!self::compareAndSwapOption(self::LOCK_OPTION, $row['raw'], $replacement)) {
+                throw new RuntimeException('Member sync/cleanup lease renewal lost a concurrent race');
+            }
+            $lock = $replacement;
+        }
+
+        private static function assertLockOwnedAndUnexpired($lock)
+        {
+            $row = self::readOptionRow(self::LOCK_OPTION);
+            $current = is_array($row['value'] ?? null) ? $row['value'] : [];
+            if (
+                !self::databaseLockIsOwned()
+                ||
+                $row === null
+                || !isset($current['token'])
+                || !hash_equals((string) $current['token'], (string) ($lock['token'] ?? ''))
+                || (int) ($current['expires_at'] ?? 0) <= time()
+            ) {
+                throw new RuntimeException('Destructive action blocked because the member sync/cleanup lease is not currently owned');
+            }
+        }
+
+        private static function releaseLock($token)
+        {
+            try {
+                $row = self::readOptionRow(self::LOCK_OPTION);
+                $current = is_array($row['value'] ?? null) ? $row['value'] : [];
+                if (
+                    $row === null
+                    || !isset($current['token'])
+                    || !hash_equals((string) $current['token'], (string) $token)
+                ) {
+                    return;
+                }
+                self::compareAndDeleteOption(self::LOCK_OPTION, $row['raw']);
+            } finally {
+                self::releaseDatabaseLock();
+            }
+        }
+
+        private static function evidenceKey($user_id)
+        {
+            return 'gsf_cleanup_evidence_' . (int) $user_id;
+        }
+
+        private static function journalKey($user_id)
+        {
+            return 'gsf_cleanup_journal_' . (int) $user_id;
+        }
+
+        private static function appendJournalEvent($user_id, $run_token, $event_type, $apply, $after = null)
+        {
+            $key = self::journalKey($user_id);
+            $run_id = substr(hash('sha256', (string) $run_token), 0, 24);
+            $journal = get_option($key, []);
+            if (!is_array($journal) || ($journal['run_id'] ?? '') !== $run_id) {
+                $journal = [
+                    'run_id' => $run_id,
+                    'user_id' => (int) $user_id,
+                    'started_at' => gmdate('c'),
+                    'events' => [],
+                ];
+            }
+            $sequence = count($journal['events']) + 1;
+            $event = [
+                'sequence' => $sequence,
+                'recorded_at' => gmdate('c'),
+                'type' => (string) $event_type,
+                'apply' => $apply,
+                'after' => $after,
+            ];
+            $journal['events'][] = $event;
+            $journal['updated_at'] = $event['recorded_at'];
+            update_option($key, $journal);
+
+            $stored = get_option($key, []);
+            $stored_events = is_array($stored) && isset($stored['events']) && is_array($stored['events'])
+                ? $stored['events']
+                : [];
+            $stored_last = empty($stored_events) ? null : $stored_events[count($stored_events) - 1];
+            if (
+                !is_array($stored_last)
+                || (int) ($stored_last['sequence'] ?? 0) !== $sequence
+                || ($stored_last['type'] ?? '') !== $event_type
+            ) {
+                throw new RuntimeException('Cleanup audit journal could not be persisted; no further deletion is allowed');
+            }
+            return $stored;
+        }
+
+        private static function loadEvidence($user_id)
+        {
+            $evidence = get_transient(self::evidenceKey($user_id));
+            if (is_array($evidence)) {
+                return $evidence;
+            }
+            $evidence = [];
+            $journal = get_option(self::journalKey($user_id), []);
+            $events = is_array($journal) && isset($journal['events']) && is_array($journal['events'])
+                ? $journal['events']
+                : [];
+            if (!empty($events)) {
+                $last = $events[count($events) - 1];
+                if (empty($evidence['apply']) && !empty($last['apply'])) {
+                    $evidence['apply'] = $last['apply'];
+                }
+                if (empty($evidence['after']) && !empty($last['after'])) {
+                    $evidence['after'] = $last['after'];
+                }
+            }
+            return $evidence;
+        }
+
+        private static function ticketOptionName($token)
+        {
+            return 'gsf_cleanup_ticket_' . substr(hash('sha256', (string) $token), 0, 40);
+        }
+
+        private static function createTicket($user_id, $plan, $identity_snapshot)
+        {
+            for ($attempt = 0; $attempt < 3; $attempt++) {
+                $token = function_exists('wp_generate_uuid4')
+                    ? wp_generate_uuid4()
+                    : uniqid('gsf-cleanup-ticket-', true);
+                $ticket = [
+                    'token' => $token,
+                    'user_id' => (int) $user_id,
+                    'created_at' => time(),
+                    'expires_at' => time() + self::EVIDENCE_TTL,
+                    'plan' => $plan,
+                    'identity_snapshot' => $identity_snapshot,
+                ];
+                if (add_option(self::ticketOptionName($token), $ticket, '', false)) {
+                    return $token;
+                }
+            }
+            throw new RuntimeException('Could not create a one-time cleanup plan ticket');
+        }
+
+        private static function claimTicket($user_id, $token)
+        {
+            if (!is_string($token) || !preg_match('/^[A-Za-z0-9._-]{8,200}$/', $token)) {
+                throw new RuntimeException('Cleanup plan ticket is invalid');
+            }
+            $option_name = self::ticketOptionName($token);
+            $row = self::readOptionRow($option_name);
+            $ticket = is_array($row['value'] ?? null) ? $row['value'] : [];
+            if (
+                $row === null
+                || !isset($ticket['token'])
+                || !hash_equals((string) $ticket['token'], $token)
+                || (int) ($ticket['user_id'] ?? 0) !== (int) $user_id
+                || (int) ($ticket['expires_at'] ?? 0) < time()
+            ) {
+                throw new RuntimeException('Cleanup plan ticket is invalid, expired, or already used');
+            }
+            if (!self::compareAndDeleteOption($option_name, $row['raw'])) {
+                throw new RuntimeException('Cleanup plan ticket was already claimed by another request');
+            }
+            return $ticket;
+        }
+
+        private static function invalidateTicket($user_id, $token)
+        {
+            if (!is_string($token) || !preg_match('/^[A-Za-z0-9._-]{8,200}$/', $token)) {
+                return;
+            }
+            $option_name = self::ticketOptionName($token);
+            $row = self::readOptionRow($option_name);
+            $ticket = is_array($row['value'] ?? null) ? $row['value'] : [];
+            if (
+                $row !== null
+                && isset($ticket['token'])
+                && hash_equals((string) $ticket['token'], $token)
+                && (int) ($ticket['user_id'] ?? 0) === (int) $user_id
+            ) {
+                self::compareAndDeleteOption($option_name, $row['raw']);
+            }
+        }
+
+        public static function validateBrowserRequest($operation, $method, $can_manage, $nonce_valid, $confirmed)
+        {
+            if (!$can_manage) {
+                throw new RuntimeException('Administrator permission is required');
+            }
+            if (strtoupper((string) $method) !== 'POST') {
+                throw new RuntimeException('Cleanup actions require an authenticated POST request');
+            }
+            if (!in_array($operation, ['dry-run', 'apply'], true)) {
+                throw new RuntimeException('Unknown cleanup action');
+            }
+            if (!$nonce_valid) {
+                throw new RuntimeException('Cleanup security token is invalid or expired');
+            }
+            if ($operation === 'apply' && !$confirmed) {
+                throw new RuntimeException('Permanent cleanup requires the checkbox and exact confirmation phrase');
+            }
+            return true;
+        }
+
+        /**
+         * Execute the same authenticated controller path used by admin-post.php,
+         * without redirecting. Kept public for the browser-path regression
+         * harness; callers cannot bypass WordPress capability or nonce checks.
+         */
+        public static function processBrowserPost($source, $method)
+        {
+            $operation = sanitize_key((string) self::requestValue($source, 'operation'));
+            $token = (string) self::requestValue($source, 'plan_token');
+            $nonce = (string) self::requestValue($source, '_gsf_cleanup_nonce');
+            $nonce_action = $operation === 'apply'
+                ? self::APPLY_NONCE_PREFIX . $token
+                : self::DRY_RUN_NONCE_ACTION;
+            $nonce_valid = $nonce !== '' && wp_verify_nonce($nonce, $nonce_action);
+            $confirmed = self::requestValue($source, 'confirm_delete') === '1'
+                && hash_equals(
+                    self::CONFIRMATION_PHRASE,
+                    trim((string) self::requestValue($source, 'confirmation_phrase'))
+                );
+
+            self::validateBrowserRequest(
+                $operation,
+                $method,
+                current_user_can('manage_options'),
+                $nonce_valid,
+                $confirmed
+            );
+            return $operation === 'dry-run'
+                ? self::performDryRun((int) get_current_user_id())
+                : self::performApply((int) get_current_user_id(), $token);
+        }
+
+        public static function getDownloadPayload($phase, $user_id, $can_manage, $nonce_valid)
+        {
+            if (!$can_manage) {
+                throw new RuntimeException('Administrator permission is required');
+            }
+            if (!in_array($phase, ['before', 'dry_run', 'apply', 'after'], true)) {
+                throw new RuntimeException('Unknown cleanup evidence phase');
+            }
+            if (!$nonce_valid) {
+                throw new RuntimeException('Cleanup evidence security token is invalid or expired');
+            }
+            $evidence = self::loadEvidence($user_id);
+            if (empty($evidence[$phase])) {
+                throw new RuntimeException('That cleanup evidence is no longer available');
+            }
+            return $evidence[$phase];
+        }
+
+        public static function performDryRun($user_id)
+        {
+            $lock = self::acquireLock();
+            try {
+                $before = self::buildInventoryReport();
+                $plan = self::buildDeletionPlan($before);
+                $previous_evidence = get_transient(self::evidenceKey($user_id));
+                if (is_array($previous_evidence) && !empty($previous_evidence['active_token'])) {
+                    self::invalidateTicket($user_id, (string) $previous_evidence['active_token']);
+                }
+                $token = self::createTicket($user_id, $plan, $before['identity_snapshot']);
+                $dry_run = [
+                    'generated_at' => gmdate('c'),
+                    'mode' => 'dry-run',
+                    'applied' => false,
+                    'message' => 'No member post was changed. Review this exact five-ID deletion plan before applying.',
+                    'plan' => $plan,
+                ];
+                $evidence = [
+                    'before' => $before,
+                    'dry_run' => $dry_run,
+                    'apply' => null,
+                    'after' => null,
+                    'active_token' => $token,
+                    'last_error' => null,
+                ];
+                set_transient(self::evidenceKey($user_id), $evidence, self::EVIDENCE_TTL);
+                return $evidence;
+            } finally {
+                self::releaseLock($lock['token']);
+            }
+        }
+
+        public static function performApply($user_id, $token)
+        {
+            $ticket = self::claimTicket($user_id, $token);
+            $existing_evidence = get_transient(self::evidenceKey($user_id));
+            if (!is_array($existing_evidence)) {
+                $existing_evidence = [];
+            }
+            $existing_evidence['active_token'] = null;
+            $apply = [
+                'generated_at' => gmdate('c'),
+                'mode' => 'apply',
+                'applied' => false,
+                'acceptance_passed' => false,
+                'plan' => $ticket['plan'],
+                'attempts' => [],
+                'error' => null,
+            ];
+            $after = null;
+            $lock = null;
+            $deleted_post_ids = [];
+            $existing_evidence['apply'] = $apply;
+            $existing_evidence['after'] = null;
+            $existing_evidence['last_error'] = null;
+            set_transient(self::evidenceKey($user_id), $existing_evidence, self::EVIDENCE_TTL);
+            self::appendJournalEvent($user_id, $token, 'apply_started', $apply);
+
+            try {
+                $lock = self::acquireLock();
+                $live_before_apply = self::buildInventoryReport();
+                self::validateLivePlan($ticket['plan'], $live_before_apply);
+
+                foreach ($ticket['plan']['pairs'] as $pair) {
+                    $feed_id = (string) $pair['feed_id'];
+                    $survivor_id = (int) $pair['survivor_post_id'];
+                    $post_id = (int) $pair['noncanonical_post_ids'][0];
+                    self::renewLock($lock);
+
+                    $stage_report = self::buildInventoryReport();
+                    $expected_snapshot = self::identitySnapshotAfterDeletions(
+                        $ticket['identity_snapshot'] ?? [],
+                        $deleted_post_ids
+                    );
+                    $expected_signature = self::identitySignature($expected_snapshot);
+                    if (
+                        empty($stage_report['identity_signature'])
+                        || !hash_equals($expected_signature, (string) $stage_report['identity_signature'])
+                    ) {
+                        throw new RuntimeException(
+                            'Live feed or WordPress identity sets changed before deleting post ' . $post_id
+                        );
+                    }
+
+                    $survivor = get_post($survivor_id);
+                    $candidate = get_post($post_id);
+                    if (
+                        !$survivor
+                        || $survivor->post_status !== 'publish'
+                        || trim((string) get_post_meta($survivor_id, 'zoho_id', true)) !== $feed_id
+                    ) {
+                        throw new RuntimeException('Survivor protection check failed for post ' . $survivor_id);
+                    }
+                    if (
+                        !$candidate
+                        || $post_id === $survivor_id
+                        || trim((string) get_post_meta($post_id, 'zoho_id', true)) !== $feed_id
+                    ) {
+                        throw new RuntimeException('Exact-ID deletion fence failed for post ' . $post_id);
+                    }
+
+                    $attempt = [
+                        'feed_id' => $feed_id,
+                        'survivor_post_id' => $survivor_id,
+                        'wp_post_id' => $post_id,
+                        'action' => 'delete_permanently',
+                        'attempted_at' => gmdate('c'),
+                        'result' => 'pending_delete',
+                    ];
+                    $apply['attempts'][] = $attempt;
+                    $attempt_index = count($apply['attempts']) - 1;
+                    $existing_evidence['apply'] = $apply;
+                    set_transient(self::evidenceKey($user_id), $existing_evidence, self::EVIDENCE_TTL);
+                    self::appendJournalEvent($user_id, $token, 'delete_pending', $apply);
+
+                    try {
+                        // This ownership/expiry fence is intentionally the final
+                        // operation before the destructive WordPress call.
+                        self::assertLockOwnedAndUnexpired($lock);
+                    } catch (Throwable $lock_error) {
+                        $apply['attempts'][$attempt_index]['result'] = 'blocked_before_delete';
+                        $existing_evidence['apply'] = $apply;
+                        set_transient(self::evidenceKey($user_id), $existing_evidence, self::EVIDENCE_TTL);
+                        self::appendJournalEvent($user_id, $token, 'delete_blocked', $apply);
+                        throw $lock_error;
+                    }
+
+                    $deleted = wp_delete_post($post_id, true);
+                    if (!$deleted) {
+                        $apply['attempts'][$attempt_index]['result'] = 'failed';
+                        $existing_evidence['apply'] = $apply;
+                        set_transient(self::evidenceKey($user_id), $existing_evidence, self::EVIDENCE_TTL);
+                        self::appendJournalEvent($user_id, $token, 'delete_failed', $apply);
+                        throw new RuntimeException('WordPress failed to permanently delete post ' . $post_id);
+                    }
+                    if (get_post($post_id)) {
+                        $apply['attempts'][$attempt_index]['result'] = 'failed_still_present';
+                        $existing_evidence['apply'] = $apply;
+                        set_transient(self::evidenceKey($user_id), $existing_evidence, self::EVIDENCE_TTL);
+                        self::appendJournalEvent($user_id, $token, 'delete_failed_still_present', $apply);
+                        throw new RuntimeException('WordPress returned success but post ' . $post_id . ' is still present');
+                    }
+                    $apply['attempts'][$attempt_index]['result'] = 'deleted';
+                    $apply['attempts'][$attempt_index]['completed_at'] = gmdate('c');
+                    $deleted_post_ids[] = $post_id;
+                    $existing_evidence['apply'] = $apply;
+                    set_transient(self::evidenceKey($user_id), $existing_evidence, self::EVIDENCE_TTL);
+                    self::appendJournalEvent($user_id, $token, 'delete_succeeded', $apply);
+                }
+
+                self::renewLock($lock);
+                $after = self::buildInventoryReport();
+                $expected_after = self::identitySnapshotAfterDeletions(
+                    $ticket['identity_snapshot'] ?? [],
+                    $deleted_post_ids
+                );
+                $expected_after_signature = self::identitySignature($expected_after);
+                $apply['expected_final_identity_signature'] = $expected_after_signature;
+                $apply['actual_final_identity_signature'] = (string) ($after['identity_signature'] ?? '');
+                $apply['final_identity_snapshot_matched'] = $apply['actual_final_identity_signature'] !== ''
+                    && hash_equals($expected_after_signature, $apply['actual_final_identity_signature']);
+                $apply['applied'] = count($apply['attempts']) === count(self::REVIEWED_IDENTITIES);
+                $apply['acceptance_passed'] = !empty($after['strict_clean'])
+                    && $apply['final_identity_snapshot_matched'];
+                if (!$apply['acceptance_passed']) {
+                    $apply['error'] = !$apply['final_identity_snapshot_matched']
+                        ? 'Deletion completed, but the final feed/WordPress survivor identity snapshot changed'
+                        : 'Deletion completed, but the strict 232/232 post-cleanup reconciliation did not pass';
+                }
+            } catch (Throwable $error) {
+                $apply['error'] = $error->getMessage();
+                try {
+                    $after = self::buildInventoryReport();
+                } catch (Throwable $after_error) {
+                    $after = [
+                        'generated_at' => gmdate('c'),
+                        'read_only' => true,
+                        'error' => $after_error->getMessage(),
+                    ];
+                }
+                try {
+                    self::appendJournalEvent($user_id, $token, 'apply_error', $apply, $after);
+                } catch (Throwable $journal_error) {
+                    $apply['journal_error'] = $journal_error->getMessage();
+                }
+            } finally {
+                if (is_array($lock) && isset($lock['token'])) {
+                    self::releaseLock($lock['token']);
+                }
+            }
+
+            $existing_evidence['apply'] = $apply;
+            $existing_evidence['after'] = $after;
+            $existing_evidence['last_error'] = $apply['error'];
+            set_transient(self::evidenceKey($user_id), $existing_evidence, self::EVIDENCE_TTL);
+            self::appendJournalEvent($user_id, $token, 'apply_finished', $apply, $after);
+            return $existing_evidence;
+        }
+
+        private static function requestValue($source, $key)
+        {
+            $value = $source[$key] ?? '';
+            return is_string($value) ? wp_unslash($value) : $value;
+        }
+
+        public static function handlePost()
+        {
+            $user_id = (int) get_current_user_id();
+            $operation = sanitize_key((string) self::requestValue($_POST, 'operation'));
+            try {
+                self::processBrowserPost($_POST, $_SERVER['REQUEST_METHOD'] ?? '');
+            } catch (Throwable $error) {
+                $evidence = self::loadEvidence($user_id);
+                $evidence['last_error'] = $error->getMessage();
+                set_transient(self::evidenceKey($user_id), $evidence, self::EVIDENCE_TTL);
+            }
+
+            wp_safe_redirect(self::pageUrl());
+            exit;
+        }
+
+        public static function handleDownload()
+        {
+            $phase = sanitize_key((string) self::requestValue($_GET, 'phase'));
+            $nonce = (string) self::requestValue($_GET, '_wpnonce');
+            try {
+                $payload = self::getDownloadPayload(
+                    $phase,
+                    (int) get_current_user_id(),
+                    current_user_can('manage_options'),
+                    $nonce !== '' && wp_verify_nonce($nonce, self::DOWNLOAD_NONCE_PREFIX . $phase)
+                );
+            } catch (Throwable $error) {
+                wp_die($error->getMessage(), '', ['response' => 403]);
+            }
+
+            nocache_headers();
+            header('Content-Type: application/json; charset=utf-8');
+            header('Content-Disposition: attachment; filename="gsf-member-cleanup-' . $phase . '-' . gmdate('Ymd-His') . '.json"');
+            echo wp_json_encode($payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+            exit;
+        }
+
+        private static function pageUrl()
+        {
+            return admin_url('edit.php?post_type=gsf_member&page=' . self::PAGE_SLUG);
+        }
+
+        private static function renderGateTable($gates)
+        {
+            if (empty($gates) || !is_array($gates)) {
+                return;
+            }
+            echo '<table class="widefat striped gsf-cleanup-gates"><thead><tr><th>Gate</th><th>Result</th><th>Detail</th></tr></thead><tbody>';
+            foreach ($gates as $key => $gate) {
+                $passed = !empty($gate['passed']);
+                echo '<tr>';
+                echo '<td><code>' . esc_html($key) . '</code></td>';
+                echo '<td><strong style="color:' . ($passed ? '#008a20' : '#b32d2e') . '">'
+                    . ($passed ? 'PASS' : 'BLOCKED') . '</strong></td>';
+                echo '<td>' . esc_html($gate['detail'] ?? '') . '</td>';
+                echo '</tr>';
+            }
+            echo '</tbody></table>';
+        }
+
+        private static function renderAcceptance($report)
+        {
+            if (is_array($report)) {
+                self::renderGateTable($report['acceptance'] ?? []);
+            }
+        }
+
+        private static function renderReviewedIdentities($report)
+        {
+            echo '<h2>Five reviewed stable identities</h2>';
+            echo '<p>Identity is the exact stable feed ID, never the organisation title or the 237-versus-232 count.</p>';
+            foreach ($report['reviewed_identities'] as $finding) {
+                echo '<div class="postbox"><div class="inside">';
+                echo '<h3>' . esc_html($finding['expected_name']) . ' <code>' . esc_html($finding['feed_id']) . '</code></h3>';
+                echo '<table class="widefat striped"><thead><tr>'
+                    . '<th>Role</th><th>WordPress post ID</th><th>Status</th><th>Title</th>'
+                    . '<th>Created</th><th>Modified</th><th>Per-record sync</th></tr></thead><tbody>';
+                if (empty($finding['records'])) {
+                    echo '<tr><td colspan="7"><strong>No WordPress record found.</strong></td></tr>';
+                }
+                $canonical_id = (int) ($finding['canonical_record']['wp_post_id'] ?? 0);
+                foreach ($finding['records'] as $record) {
+                    $is_canonical = (int) $record['wp_post_id'] === $canonical_id;
+                    echo '<tr>';
+                    echo '<td><strong>' . ($is_canonical ? 'Canonical survivor' : 'Noncanonical deletion candidate') . '</strong></td>';
+                    echo '<td><code>' . (int) $record['wp_post_id'] . '</code></td>';
+                    echo '<td>' . esc_html($record['status']) . '</td>';
+                    echo '<td>' . esc_html($record['name']) . '</td>';
+                    echo '<td>' . esc_html($record['created_at']) . '</td>';
+                    echo '<td>' . esc_html($record['modified_at']) . '</td>';
+                    echo '<td>' . esc_html($record['last_sync'] === '' ? 'Not recorded' : $record['last_sync']) . '</td>';
+                    echo '</tr>';
+                }
+                echo '</tbody></table></div></div>';
+            }
+        }
+
+        private static function renderEvidence($evidence)
+        {
+            $labels = [
+                'before' => 'Before report',
+                'dry_run' => 'Dry-run deletion plan',
+                'apply' => 'Apply log',
+                'after' => 'After report',
+            ];
+            $shown = false;
+            foreach ($labels as $phase => $label) {
+                if (empty($evidence[$phase])) {
+                    continue;
+                }
+                if (!$shown) {
+                    echo '<h2>Deployment evidence</h2>';
+                    echo '<p>Copy each JSON block or download it before removing this temporary interface.</p>';
+                    $shown = true;
+                }
+                $url = wp_nonce_url(
+                    add_query_arg([
+                        'action' => self::DOWNLOAD_ACTION,
+                        'phase' => $phase,
+                    ], admin_url('admin-post.php')),
+                    self::DOWNLOAD_NONCE_PREFIX . $phase
+                );
+                echo '<h3>' . esc_html($label) . ' <a class="button button-small" href="' . esc_url($url) . '">Download JSON</a></h3>';
+                echo '<textarea readonly rows="12" style="width:100%;font-family:monospace;">'
+                    . esc_textarea(wp_json_encode($evidence[$phase], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES))
+                    . '</textarea>';
+            }
+        }
+
+        public static function renderPage()
+        {
+            if (!current_user_can('manage_options')) {
+                wp_die('Administrator permission is required.', '', ['response' => 403]);
+            }
+            $user_id = (int) get_current_user_id();
+            $evidence = self::loadEvidence($user_id);
+            try {
+                $live_report = self::buildInventoryReport();
+                $live_error = null;
+            } catch (Throwable $error) {
+                $live_report = null;
+                $live_error = $error->getMessage();
+            }
+            ?>
+            <div class="wrap">
+                <h1>Reviewed Member Duplicate Cleanup</h1>
+                <div class="notice notice-warning inline">
+                    <p><strong>Temporary destructive administration tool.</strong>
+                        Normal member sync never deletes these duplicates. Apply permanently deletes only the exact
+                        noncanonical post IDs captured by a fresh dry run.</p>
+                </div>
+
+                <?php if (!empty($evidence['last_error'])): ?>
+                    <div class="notice notice-error inline"><p><strong>Cleanup blocked:</strong>
+                        <?php echo esc_html($evidence['last_error']); ?></p></div>
+                <?php endif; ?>
+                <?php if ($live_error !== null): ?>
+                    <div class="notice notice-error inline"><p><strong>Live inventory failed:</strong>
+                        <?php echo esc_html($live_error); ?></p></div>
+                <?php else: ?>
+                    <?php if (!empty($live_report['strict_clean'])): ?>
+                        <div class="notice notice-success inline"><p><strong>Strict cleanup acceptance passed:</strong>
+                            232 configured feed records, 232 published WordPress members, and no duplicate, blank,
+                            stale, orphan, or missing stable IDs.</p></div>
+                    <?php endif; ?>
+
+                    <h2>Live all-status reconciliation</h2>
+                    <?php self::renderAcceptance($live_report); ?>
+                    <?php self::renderReviewedIdentities($live_report); ?>
+
+                    <?php if (empty($live_report['strict_clean'])): ?>
+                        <h2>Step 1 — Non-mutating dry run</h2>
+                        <?php self::renderGateTable($live_report['pre_cleanup_checks'] ?? []); ?>
+                        <p>This obtains the same token-fenced lease used by member syncs, captures the before report,
+                            and creates a one-time exact-ID plan. It does not edit, trash, or delete a member post.</p>
+                        <?php if (!empty($live_report['pre_cleanup_safe'])): ?>
+                            <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
+                                <input type="hidden" name="action" value="<?php echo esc_attr(self::POST_ACTION); ?>">
+                                <input type="hidden" name="operation" value="dry-run">
+                                <?php wp_nonce_field(self::DRY_RUN_NONCE_ACTION, '_gsf_cleanup_nonce'); ?>
+                                <?php submit_button('Generate fresh dry run', 'secondary', 'submit', false); ?>
+                            </form>
+                        <?php else: ?>
+                            <div class="notice notice-error inline"><p><strong>Dry run is unavailable.</strong>
+                                Resolve the blocked pre-cleanup checks; this tool will not create a deletion plan
+                                from an ambiguous or unexpected live inventory.</p></div>
+                        <?php endif; ?>
+                    <?php endif; ?>
+                <?php endif; ?>
+
+                <?php if (!empty($evidence['active_token']) && !empty($evidence['dry_run']['plan'])): ?>
+                    <h2>Step 2 — Explicit permanent cleanup</h2>
+                    <div class="notice notice-error inline"><p><strong>This cannot be undone from this screen.</strong>
+                        The one-time plan will be consumed even if apply is blocked. Run another dry run to retry.</p></div>
+                    <table class="widefat striped">
+                        <thead><tr><th>Stable feed ID</th><th>Published survivor</th><th>Permanent deletion</th></tr></thead>
+                        <tbody>
+                        <?php foreach ($evidence['dry_run']['plan']['pairs'] as $pair): ?>
+                            <tr>
+                                <td><code><?php echo esc_html($pair['feed_id']); ?></code></td>
+                                <td><code><?php echo (int) $pair['survivor_post_id']; ?></code></td>
+                                <td><code><?php echo (int) $pair['noncanonical_post_ids'][0]; ?></code></td>
+                            </tr>
+                        <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                    <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="margin-top:16px;">
+                        <input type="hidden" name="action" value="<?php echo esc_attr(self::POST_ACTION); ?>">
+                        <input type="hidden" name="operation" value="apply">
+                        <input type="hidden" name="plan_token" value="<?php echo esc_attr($evidence['active_token']); ?>">
+                        <?php wp_nonce_field(
+                            self::APPLY_NONCE_PREFIX . $evidence['active_token'],
+                            '_gsf_cleanup_nonce'
+                        ); ?>
+                        <p><label><input type="checkbox" name="confirm_delete" value="1">
+                            I understand the five listed noncanonical WordPress posts will be permanently deleted.</label></p>
+                        <p><label>Type <code><?php echo esc_html(self::CONFIRMATION_PHRASE); ?></code><br>
+                            <input type="text" name="confirmation_phrase" class="regular-text" autocomplete="off"></label></p>
+                        <?php submit_button('Permanently delete the five reviewed copies', 'delete', 'submit', false); ?>
+                    </form>
+                <?php endif; ?>
+
+                <?php self::renderEvidence($evidence); ?>
+            </div>
+            <?php
+        }
+    }
+}
+
+if (function_exists('add_action')) {
+    GSF_Reviewed_Duplicate_Cleanup_Admin::register();
 }

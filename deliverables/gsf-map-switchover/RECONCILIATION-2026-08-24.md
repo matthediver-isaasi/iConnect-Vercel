@@ -128,6 +128,101 @@ The cleanup tool is hard-limited to these IDs. Titles are used only to make the
 inventory easy to review; cleanup identity is always the stable feed ID plus
 exact WordPress post IDs.
 
+### Browser procedure (no WP-CLI required)
+
+The hardened `class-zoho-api.iconnect.php` temporarily embeds
+`GSF_Reviewed_Duplicate_Cleanup_Admin`. Back up the class file installed on the
+WordPress host, then install the deliverable by replacing that **same PHP class
+file**. Do not install it alongside the old class. Sign in with an administrator
+account and open **Members > Duplicate Cleanup**.
+
+The page first builds a live, read-only all-status WordPress/configured-feed
+inventory. Stop unless its gates show exactly:
+
+- configured feed: 232 raw rows and 232 unique nonblank IDs, with no blanks or
+  duplicates;
+- WordPress before cleanup: 237 all-status posts, 232 published posts, and 232
+  unique stable IDs;
+- exactly the five reviewed IDs above, each with one published canonical
+  survivor and one noncanonical deletion candidate; and
+- no blank, stale, orphan, published-duplicate, or missing feed IDs.
+
+Select **Generate fresh dry run**. A dry run is mandatory: it obtains the shared
+sync lease, captures the before inventory, and creates a user-bound one-time
+exact-ID plan without changing any member post. Review all five survivor and
+deletion IDs. Before apply, use **Download JSON** or copy the complete JSON text
+for both **Before report** and **Dry-run deletion plan** into the deployment
+record, and take a verified WordPress database backup from which the exact
+pre-apply state can be restored.
+
+To apply, tick the deletion acknowledgement and type the exact case-sensitive
+confirmation phrase:
+
+```text
+DELETE REVIEWED DUPLICATES
+```
+
+The apply request consumes the one-time plan, re-fetches live inventory, and
+refuses changed feed/post identity sets or a missing, changed, or unpublished
+survivor. Before each permanent deletion it rebuilds and compares the exact
+staged feed/WordPress identity snapshot, verifies the survivor and candidate,
+and immediately before `wp_delete_post` verifies current ownership of both the
+connection-owned MySQL advisory lock and token-fenced option lease. It verifies
+that the post is actually absent after deletion. It never trashes or edits the
+survivor. The final report must match the expected final survivor identity
+snapshot, not merely the count gates. The plan is consumed even if a subsequent
+gate or lock check blocks apply, so it cannot be submitted twice.
+
+After apply, immediately download or copy **Apply log** and **After report**
+JSON. Keep all four artifacts: before, dry run, apply, and after. Browser
+evidence and the plan expire after 24 hours, so the page is not the archive.
+Each pending deletion, result, and error is also appended to the non-expiring
+per-user WordPress option `gsf_cleanup_journal_<user-id>`. If the transient
+browser evidence has expired, the Apply/After downloads fall back to that
+journal; save its recovery evidence with the four JSON artifacts.
+Every after acceptance gate must pass, including
+`strict_post_cleanup_reconciliation_passed`: feed 232 raw/232 unique, WordPress
+232 all-status and 232 published/unique, with zero duplicate, blank, stale,
+orphan, or missing IDs, and the expected final survivor identity snapshot must
+equal the actual final snapshot.
+
+#### Lock contention and retry
+
+Browser cleanup and normal member sync use a layered lock: a connection-owned
+MySQL advisory lock plus the token-fenced, 15-minute
+`gsf_iconnect_member_sync_lock` option lease. If it says a sync or cleanup is
+already running, do not remove or override the option or bypass the advisory
+lock. Wait for the legitimate operation to finish, reload and review the live
+inventory, then generate a **new dry run**. An expired option lease may be
+taken over safely only while holding the advisory lock. Any apply failure
+requires a new dry run because its ticket has already been consumed.
+
+If apply is blocked before deleting anything, preserve the shown error and any
+available apply/after JSON, correct the contention, feed, permission, or
+changed-live-state cause, and restart from live inventory plus a fresh dry run.
+If **Apply log** records some but not all five rows as `deleted`, stop all sync
+and cleanup activity. Save the apply and after evidence; do not recreate posts
+manually or attempt the stale plan. Restore the WordPress database from the
+pre-apply backup to the exact reviewed 237-post state, confirm every pre-cleanup
+gate with a new live inventory, and only then repeat dry run/apply. Escalate if
+that exact state cannot be restored. A crashed request releases its
+connection-owned MySQL advisory lock, but that does not establish whether a
+deletion completed: inspect `gsf_cleanup_journal_<user-id>` and the available
+Apply/After evidence first. For any partial cleanup, restore the pre-apply
+backup before retrying.
+
+After the four JSON artifacts are safely archived and strict 232/232 acceptance
+has been independently confirmed, remove the browser tool. Replace the deployed
+PHP file with a copy that removes the temporary
+`GSF_Reviewed_Duplicate_Cleanup_Admin` class and the final registration block
+that calls its `register()` method. Keep the hardened `ZohoAPI` implementation
+and its normal sync/result wording unchanged.
+
+### WP-CLI alternative
+
+The browser procedure does not remove the existing WP-CLI route. Operators with
+shell access may instead use the following before/dry-run/apply/after procedure.
+
 ### 1. Deploy the hardened class and capture the before report
 
 Do not run a sync or cleanup before this inventory:
@@ -273,6 +368,9 @@ the old 237 count.
 From this repository:
 
 ```bash
+# Temporary browser cleanup regression harness
+php deliverables/gsf-map-switchover/tests/class-zoho-api-browser-cleanup.test.php
+
 # Dashboard + current builder, read-only
 node scripts/reconcile-gsf-map.mjs --format=markdown
 

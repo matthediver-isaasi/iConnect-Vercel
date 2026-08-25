@@ -82,8 +82,15 @@ logical_id = "760d9b3a-c839-4ec7-bedb-b327c005aa4a"
 id = "Fpuq_XA8DI46uNcZHuKuZ"
 uri = "file://deliverables/gsf-map-switchover/gsf-map-iconnect-switchover.zip"
 type = "unspecified"
-title = "Both files zipped (includes the .php version)"
-logical_id = "b3f5396a-c7d6-4af6-ab18-fd53584cde96"
+title = "GSF Map Browser Duplicate Cleanup Package"
+description = "Installable WordPress class replacement, browser-only cleanup workflow, retained WP-CLI tools, operator handover, reconciliation procedure, and regression tests."
+logical_id = "a0ad0d8c-a301-4152-add0-e96ef8b1eecb"
+content_hash = "sha256:308c505ed0b32ccc2528f63879a5b2e3d51f957585d5028c9c638a373eaff252"
+size = 62266
+mtime_ms = 1787654948192
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/a0ad0d8c-a301-4152-add0-e96ef8b1eecb/499e2500-c14a-44f4-9147-b35eef92f4e6"
+storage_version_token = "1787655036196664"
+content_type = "application/octet-stream"
 
 [[outputs]]
 id = "oifXWZnx3cfDJZsSdPajB"
