@@ -45,3 +45,24 @@ export const relationshipRoutes = {
   deleteCoreEdge: (edgeId, { kind, recordId, definitionId, side }) =>
     `/api/custom-objects/core/relationships/${edgeId}?${new URLSearchParams({ kind, recordId, definitionId, side })}`,
 };
+
+export const loadActiveRelationshipObjects = async (
+  request = relationshipRequest,
+  pageSize = 100,
+) => {
+  const first = await request(relationshipRoutes.objects(1, pageSize));
+  const total = Number(first.total) || 0;
+  const pageCount = Math.max(1, Math.ceil(total / pageSize));
+  if (pageCount > 100)
+    throw new Error("There are too many active Custom Objects to load safely.");
+  const additional = await Promise.all(
+    Array.from(
+      { length: Math.max(0, pageCount - 1) },
+      (_, index) => request(relationshipRoutes.objects(index + 2, pageSize)),
+    ),
+  );
+  return {
+    ...first,
+    data: [first, ...additional].flatMap((result) => result.data || []),
+  };
+};

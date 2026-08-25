@@ -665,6 +665,7 @@ function Detail() {
           <TabsContent value="relationships" className="mt-5">
             <RelationshipDefinitions
               objectId={objectId}
+              object={object}
               canManage={canManage && object.status !== "archived"}
             />
           </TabsContent>

@@ -146,6 +146,22 @@ export const defaultDefinitionForm = (objectId) => ({
   configuration: {},
 });
 
+export const relationshipSourceName = (object = {}) =>
+  object.plural_label || object.singular_label || object.object_key || "Current custom object";
+
+export const resolveRelationshipSourceObject = ({
+  currentObject,
+  sourceObjectId,
+  objects = [],
+}) => {
+  if (!sourceObjectId || String(sourceObjectId) === String(currentObject?.id)) {
+    return currentObject;
+  }
+  return objects.find((item) => String(item.id) === String(sourceObjectId)) || null;
+};
+
+export const canDefineRelationships = (object = {}) => object.status === "active";
+
 export const definitionPayload = (form) => ({
   ...form,
   relationship_key: form.relationship_key.trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, ""),

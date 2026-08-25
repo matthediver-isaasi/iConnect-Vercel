@@ -8,6 +8,11 @@ import {
   relationshipPayload,
   relationshipPanels,
   relatedRecordPath,
+  canDefineRelationships,
+  defaultDefinitionForm,
+  definitionPayload,
+  relationshipSourceName,
+  resolveRelationshipSourceObject,
 } from "./relationshipHelpers.js";
 
 test("identifies the configured side without recursive lookups", () => {
@@ -127,4 +132,95 @@ test("builds links for core and custom related records", () => {
     relatedRecordPath({ kind: "custom_object", custom_object_id: "8", id: "2" }),
     "/CustomObjectsAdmin/8/records/2",
   );
+});
+
+test("uses the current object label for a fixed relationship source", () => {
+  assert.equal(relationshipSourceName({ plural_label: "Departments" }), "Departments");
+  assert.equal(
+    relationshipSourceName({ singular_label: "Department", object_key: "departments" }),
+    "Department",
+  );
+});
+
+test("resolves the real source when a relationship is edited from its target object", () => {
+  const source = { id: "object-department", plural_label: "Departments" };
+  const target = { id: "object-team", plural_label: "Teams" };
+
+  assert.equal(
+    resolveRelationshipSourceObject({
+      currentObject: target,
+      sourceObjectId: source.id,
+      objects: [target, source],
+    }),
+    source,
+  );
+  assert.equal(
+    relationshipSourceName(resolveRelationshipSourceObject({
+      currentObject: target,
+      sourceObjectId: source.id,
+      objects: [target, source],
+    })),
+    "Departments",
+  );
+});
+
+test("target-side edits preserve source and target endpoint labels", () => {
+  const form = {
+    ...defaultDefinitionForm("object-team"),
+    source_custom_object_id: "object-department",
+    target_kind: "custom_object",
+    target_custom_object_id: "object-team",
+    relationship_key: "department_teams",
+    source_label: "Teams",
+    target_label: "Department",
+  };
+
+  assert.deepEqual(definitionPayload(form), {
+    ...form,
+    source_custom_object_id: "object-department",
+    target_custom_object_id: "object-team",
+  });
+});
+
+test("keeps the current object as source for new definitions and source-side edits", () => {
+  const current = { id: "object-department", plural_label: "Departments" };
+
+  assert.equal(
+    resolveRelationshipSourceObject({
+      currentObject: current,
+      sourceObjectId: current.id,
+      objects: [{ id: "object-team", plural_label: "Teams" }],
+    }),
+    current,
+  );
+  assert.equal(
+    resolveRelationshipSourceObject({
+      currentObject: current,
+      sourceObjectId: null,
+      objects: [],
+    }),
+    current,
+  );
+});
+
+test("relationship definitions can only be created for active objects", () => {
+  assert.equal(canDefineRelationships({ status: "active" }), true);
+  assert.equal(canDefineRelationships({ status: "draft" }), false);
+  assert.equal(canDefineRelationships({ status: "archived" }), false);
+});
+
+test("relationship definition payload keeps the fixed current object as source", () => {
+  const form = {
+    ...defaultDefinitionForm("object-current"),
+    relationship_key: "Department members",
+    source_label: "Members",
+    target_label: "Departments",
+  };
+
+  assert.deepEqual(definitionPayload(form), {
+    ...form,
+    relationship_key: "department_members",
+    source_custom_object_id: "object-current",
+    target_custom_object_id: null,
+  });
 });
