@@ -7,7 +7,10 @@ import {
   computeEffectiveLoginStatus,
   isMemberSoftDeleted,
 } from '../_lib/memberLoginResolver.js';
-import { evaluateOrganisationLoginGate } from '../_lib/organisationLoginGate.js';
+import {
+  evaluateMemberPortalLoginGate,
+  evaluateOrganisationLoginGate,
+} from '../_lib/organisationLoginGate.js';
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Credentials', 'true');
@@ -453,6 +456,21 @@ export default async function handler(req, res) {
         .eq('id', member.organization_id)
         .single();
       sessionTenantId = orgData?.tenant_id;
+    }
+
+    const portalGateResult = await evaluateMemberPortalLoginGate({
+      supabase,
+      tenantId: sessionTenantId,
+      userType: 'member',
+      member,
+    });
+    if (portalGateResult.blocked) {
+      console.log('[Auth Login] Member portal login unavailable for member:', member.id);
+      return res.status(403).json({
+        success: false,
+        error: portalGateResult.message,
+        memberPortalLoginUnavailable: true,
+      });
     }
 
     // Organisation Login Gate: tenant-configurable rule that requires a

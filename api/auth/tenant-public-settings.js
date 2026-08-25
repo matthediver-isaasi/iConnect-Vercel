@@ -17,6 +17,7 @@ export default async function handler(req, res) {
       return res.json({
         success: true,
         settings: {
+          member_portal_login_enabled: true,
           member_google_login_enabled: true
         }
       });
@@ -24,6 +25,7 @@ export default async function handler(req, res) {
 
     const settings = tenant.settings || {};
     const isEnabled = settings.member_google_login_enabled !== false;
+    const isMemberPortalLoginEnabled = settings.member_portal_login_enabled !== false;
     console.log('[Tenant Public Settings] Tenant settings:', { member_google_login_enabled: settings.member_google_login_enabled, isEnabled });
     
     return res.json({
@@ -31,6 +33,7 @@ export default async function handler(req, res) {
       tenantId: tenant.id,
       tenantName: tenant.name,
       settings: {
+        member_portal_login_enabled: isMemberPortalLoginEnabled,
         member_google_login_enabled: isEnabled
       }
     });

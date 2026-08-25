@@ -66,6 +66,7 @@ export default function AdminSettings() {
       welcome_email_from_name: '',
       email_from_name: '',
       email_from_address: '',
+      member_portal_login_enabled: true,
       member_google_login_enabled: true,
       allow_search_indexing: false
     }
@@ -126,6 +127,7 @@ export default function AdminSettings() {
                 welcome_email_from_name: settings.welcome_email_from_name || '',
                 email_from_name: emailDomain.from_name || settings.welcome_email_from_name || '',
                 email_from_address: emailDomain.from_email || settings.welcome_email_from_address || '',
+                member_portal_login_enabled: settings.member_portal_login_enabled !== false,
                 member_google_login_enabled: settings.member_google_login_enabled !== false,
                 allow_search_indexing: settings.allow_search_indexing === true
               }
@@ -1012,6 +1014,30 @@ export default function AdminSettings() {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
+              <div className="flex items-center justify-between gap-4 p-4 bg-slate-900/50 rounded-lg border border-slate-600">
+                <div className="space-y-1">
+                  <Label htmlFor="member-portal-login" className="text-slate-200 font-medium">Allow member portal login</Label>
+                  <p className="text-sm text-slate-400">
+                    When disabled, only members of the primary organisation can start a portal session.
+                    Admin login and existing member sessions are not affected.
+                  </p>
+                </div>
+                <Switch
+                  id="member-portal-login"
+                  checked={formData.settings.member_portal_login_enabled}
+                  onCheckedChange={(checked) => setFormData({
+                    ...formData,
+                    settings: { ...formData.settings, member_portal_login_enabled: checked }
+                  })}
+                  data-testid="switch-member-portal-login"
+                />
+              </div>
+              {!formData.settings.member_portal_login_enabled && (
+                <div className="flex items-start gap-2 rounded-lg border border-amber-700/60 bg-amber-950/30 p-3 text-sm text-amber-200">
+                  <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0" />
+                  <p>Member portal access is paused for members outside the primary organisation.</p>
+                </div>
+              )}
               <div className="flex items-center justify-between p-4 bg-slate-900/50 rounded-lg border border-slate-600">
                 <div className="space-y-1">
                   <Label htmlFor="google-login" className="text-slate-200 font-medium">Allow Google Sign-In for Portal Members</Label>

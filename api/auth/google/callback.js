@@ -6,7 +6,10 @@ import {
   computeEffectiveLoginStatus,
   isMemberSoftDeleted,
 } from '../../_lib/memberLoginResolver.js';
-import { evaluateOrganisationLoginGate } from '../../_lib/organisationLoginGate.js';
+import {
+  evaluateMemberPortalLoginGate,
+  evaluateOrganisationLoginGate,
+} from '../../_lib/organisationLoginGate.js';
 
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
@@ -213,6 +216,17 @@ export default async function handler(req, res) {
         .eq('id', member.organization_id)
         .single();
       sessionTenantId = orgData?.tenant_id;
+    }
+
+    const portalGateResult = await evaluateMemberPortalLoginGate({
+      supabase,
+      tenantId: sessionTenantId,
+      userType: 'member',
+      member,
+    });
+    if (portalGateResult.blocked) {
+      console.log('[Google OAuth Callback] Member portal login unavailable for member:', member.id);
+      return res.redirect(buildErrorRedirect(tenantSlug, 'member_portal_unavailable', isProduction));
     }
 
     // Organisation Login Gate: tenant-configurable rule applied uniformly.

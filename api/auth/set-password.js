@@ -2,6 +2,7 @@ import bcrypt from 'bcryptjs';
 import { createSession } from '../_lib/session.js';
 import { supabase } from '../_lib/database.js';
 import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
+import { evaluateMemberPortalLoginGate } from '../_lib/organisationLoginGate.js';
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Credentials', 'true');
@@ -138,6 +139,21 @@ export default async function handler(req, res) {
       }
       
       console.log('[Auth] Token validated successfully');
+    }
+
+    const portalGateResult = await evaluateMemberPortalLoginGate({
+      supabase,
+      tenantId,
+      userType: 'member',
+      member,
+    });
+    if (portalGateResult.blocked) {
+      console.log('[Auth SetPassword] Member portal login unavailable for member:', member.id);
+      return res.status(403).json({
+        success: false,
+        error: portalGateResult.message,
+        memberPortalLoginUnavailable: true,
+      });
     }
 
     const passwordHash = await bcrypt.hash(password, 12);

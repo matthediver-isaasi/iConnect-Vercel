@@ -29,6 +29,7 @@ export default function LoginForm({ className }) {
   const [emailSent, setEmailSent] = useState(false);
   const [confirmPassword, setConfirmPassword] = useState("");
   const [googleLoginEnabled, setGoogleLoginEnabled] = useState(null);
+  const [memberPortalLoginEnabled, setMemberPortalLoginEnabled] = useState(true);
   const [resetToken, setResetToken] = useState("");
 
   const urlParams = new URLSearchParams(window.location.search);
@@ -62,6 +63,7 @@ export default function LoginForm({ className }) {
         'missing_params': 'Sign-in was incomplete. Please try again.',
         'google_disabled': 'Google sign-in is not available for this organization. Please use email and password.',
         'organisation_login_gate': 'Login is not currently available for your organisation. Please contact your administrator.',
+        'member_portal_unavailable': 'Access to the member portal is currently unavailable',
       };
       setError(msgs[oauthError] || 'Sign-in failed. Please try again.');
       window.history.replaceState({}, '', '/login');
@@ -87,14 +89,18 @@ export default function LoginForm({ className }) {
           const data = await r.json();
           if (data.success && data.settings) {
             setGoogleLoginEnabled(data.settings.member_google_login_enabled !== false);
+            setMemberPortalLoginEnabled(data.settings.member_portal_login_enabled !== false);
           } else {
             setGoogleLoginEnabled(true);
+            setMemberPortalLoginEnabled(true);
           }
         } else {
           setGoogleLoginEnabled(true);
+          setMemberPortalLoginEnabled(true);
         }
       } catch {
         setGoogleLoginEnabled(true);
+        setMemberPortalLoginEnabled(true);
       }
     };
     fetchSettings();
@@ -247,6 +253,14 @@ export default function LoginForm({ className }) {
                 <div className="flex items-start gap-3 p-3 mb-4 bg-red-50 border border-red-200 rounded-lg">
                   <AlertCircle className="h-5 w-5 text-red-600 flex-shrink-0" />
                   <p className="text-sm text-red-700 whitespace-pre-line" data-testid="text-login-error">{error}</p>
+                </div>
+              )}
+              {!memberPortalLoginEnabled && mode === "login" && (
+                <div className="flex items-start gap-3 p-3 mb-4 bg-amber-50 border border-amber-200 rounded-lg">
+                  <AlertCircle className="h-5 w-5 text-amber-600 flex-shrink-0" />
+                  <p className="text-sm text-amber-800" data-testid="text-member-portal-unavailable">
+                    Access to the member portal is currently unavailable
+                  </p>
                 </div>
               )}
 

@@ -1,5 +1,6 @@
 import { getSession, createSession } from '../_lib/session.js';
 import { supabase } from '../_lib/database.js';
+import { evaluateMemberPortalLoginGate } from '../_lib/organisationLoginGate.js';
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Credentials', 'true');
@@ -204,6 +205,20 @@ export default async function handler(req, res) {
 
       if (!member) {
         return res.status(404).json({ success: false, error: 'Member record not found for this tenant.' });
+      }
+
+      const portalGateResult = await evaluateMemberPortalLoginGate({
+        supabase,
+        tenantId: membership.tenant_id,
+        userType: 'member',
+        member,
+      });
+      if (portalGateResult.blocked) {
+        return res.status(403).json({
+          success: false,
+          error: portalGateResult.message,
+          memberPortalLoginUnavailable: true,
+        });
       }
 
       sessionData = {

@@ -1,6 +1,7 @@
 import bcrypt from 'bcryptjs';
 import { createBearerSession } from '../_lib/session.js';
 import { supabase } from '../_lib/database.js';
+import { evaluateMemberPortalLoginGate } from '../_lib/organisationLoginGate.js';
 
 /**
  * Token-based login for native/mobile clients (e.g. the Event Check-in app).
@@ -240,6 +241,20 @@ export default async function handler(req, res) {
       // Membership pause (Task #3586): paused members cannot log in via mobile.
       if (member.membership_paused === true) {
         return res.status(403).json({ success: false, error: 'Your membership is currently paused. Please contact an administrator.' });
+      }
+
+      const portalGateResult = await evaluateMemberPortalLoginGate({
+        supabase,
+        tenantId,
+        userType: 'member',
+        member,
+      });
+      if (portalGateResult.blocked) {
+        return res.status(403).json({
+          success: false,
+          error: portalGateResult.message,
+          memberPortalLoginUnavailable: true,
+        });
       }
 
       sessionData = {

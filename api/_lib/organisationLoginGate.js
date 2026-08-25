@@ -3,6 +3,9 @@ import { supabase as defaultSupabase } from './database.js';
 export const DEFAULT_GATE_BLOCKED_MESSAGE =
   'Login is not currently available for your organisation. Please contact your administrator.';
 
+export const MEMBER_PORTAL_GATE_BLOCKED_MESSAGE =
+  'Access to the member portal is currently unavailable';
+
 const ALLOWED_CORE_FIELDS = new Set([
   'is_active',
   'status',
@@ -132,4 +135,118 @@ export async function evaluateOrganisationLoginGate({
   }
 
   return { blocked: false, message: null, gate };
+}
+
+/**
+ * Evaluate the tenant-wide member portal availability switch.
+ *
+ * This gate is deliberately limited to member logins. Tenant users and other
+ * administrative login types bypass it before any database lookup is made.
+ * When disabled, only a member of the tenant's primary organisation may log
+ * in. Older tenants without an is_primary marker use their earliest-created
+ * organisation as the primary organisation.
+ *
+ * Availability lookups fail open: an infrastructure or schema error must not
+ * lock every member out of a tenant. A successfully resolved disabled gate,
+ * however, fails closed for missing or non-primary organisation membership.
+ */
+export async function evaluateMemberPortalLoginGate({
+  supabase = defaultSupabase,
+  tenantId,
+  userType,
+  member,
+  organizationId,
+} = {}) {
+  const allow = (reason) => ({ blocked: false, message: null, reason });
+  const block = (reason) => ({
+    blocked: true,
+    message: MEMBER_PORTAL_GATE_BLOCKED_MESSAGE,
+    reason,
+  });
+
+  // The switch controls the member portal only. In particular, tenant admins
+  // must retain access so that they can turn the portal back on.
+  if (userType !== 'member') {
+    return allow('USER_TYPE_EXEMPT');
+  }
+
+  if (!supabase || !tenantId) {
+    return allow('LOOKUP_UNAVAILABLE');
+  }
+
+  try {
+    const { data: tenant, error: tenantError } = await supabase
+      .from('tenant')
+      .select('id, settings')
+      .eq('id', tenantId)
+      .maybeSingle();
+
+    if (tenantError) {
+      return allow('TENANT_LOOKUP_FAILED');
+    }
+
+    // Missing tenants/settings and all values other than an explicit false
+    // preserve the historical, enabled-by-default behavior.
+    if (tenant?.settings?.member_portal_login_enabled !== false) {
+      return allow('ENABLED');
+    }
+
+    if (member?.tenant_id && member.tenant_id !== tenantId) {
+      return block('MEMBER_TENANT_MISMATCH');
+    }
+
+    const memberOrganizationId = organizationId ?? member?.organization_id ?? null;
+    if (!memberOrganizationId) {
+      return block('MEMBER_ORGANIZATION_MISSING');
+    }
+
+    const {
+      data: markedPrimary,
+      error: primaryError,
+    } = await supabase
+      .from('organization')
+      .select('id')
+      .eq('tenant_id', tenantId)
+      .eq('is_primary', true)
+      .limit(1)
+      .maybeSingle();
+
+    let primaryOrganizationId = markedPrimary?.id || null;
+
+    if (primaryError) {
+      // PostgreSQL 42703 means this legacy schema has no is_primary column,
+      // for which the documented earliest-created fallback still applies.
+      if (primaryError.code !== '42703') {
+        return allow('PRIMARY_LOOKUP_FAILED');
+      }
+      primaryOrganizationId = null;
+    }
+
+    if (!primaryOrganizationId) {
+      const { data: earliest, error: earliestError } = await supabase
+        .from('organization')
+        .select('id')
+        .eq('tenant_id', tenantId)
+        .order('created_at', { ascending: true })
+        .limit(1)
+        .maybeSingle();
+
+      if (earliestError) {
+        return allow('PRIMARY_FALLBACK_LOOKUP_FAILED');
+      }
+      primaryOrganizationId = earliest?.id || null;
+    }
+
+    if (!primaryOrganizationId) {
+      return block('PRIMARY_ORGANIZATION_MISSING');
+    }
+
+    if (memberOrganizationId !== primaryOrganizationId) {
+      return block('MEMBER_ORGANIZATION_NOT_PRIMARY');
+    }
+
+    return allow('PRIMARY_ORGANIZATION_MEMBER');
+  } catch (error) {
+    return allow('LOOKUP_FAILED');
+  }
 }

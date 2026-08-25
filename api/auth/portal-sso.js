@@ -1,5 +1,6 @@
 import { getSession, createSession, updateSession } from '../_lib/session.js';
 import { supabase } from '../_lib/database.js';
+import { evaluateMemberPortalLoginGate } from '../_lib/organisationLoginGate.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
@@ -64,6 +65,18 @@ export default async function handler(req, res) {
     if (member.membership_paused === true) {
       console.log('[Portal SSO] Member membership paused');
       return res.redirect('/login?error=account_disabled');
+    }
+
+    const sessionTenantId = member.tenant_id || member.organization?.tenant_id || null;
+    const portalGateResult = await evaluateMemberPortalLoginGate({
+      supabase,
+      tenantId: sessionTenantId,
+      userType: 'member',
+      member,
+    });
+    if (portalGateResult.blocked) {
+      console.log('[Portal SSO] Member portal login unavailable for member:', member.id);
+      return res.redirect('/login?error=member_portal_unavailable');
     }
 
     // Log member data for debugging handle generation
