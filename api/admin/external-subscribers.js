@@ -1,5 +1,6 @@
 import { supabase } from '../_lib/database.js';
 import { getTenantContext } from '../_lib/tenantContext.js';
+import { listExternalSubscribers } from '../_lib/externalSubscriberSearch.js';
 
 export default async function handler(req, res) {
   if (!supabase) {
@@ -20,39 +21,23 @@ export default async function handler(req, res) {
 
   try {
     if (req.method === 'GET') {
-      const { category_id, page = 1, per_page = 20 } = req.query;
+      const { category_id, page = 1, per_page = 20, search = '' } = req.query;
 
       if (category_id) {
-        const offset = (parseInt(page) - 1) * parseInt(per_page);
-        const limit = parseInt(per_page);
-
-        const { data: subscribers, error: subError } = await supabase
-          .from('email_subscriber')
-          .select('id, email, first_name, last_name, subscribed_at, opted_out, form_id')
-          .eq('tenant_id', tenantId)
-          .eq('communication_category_id', category_id)
-          .eq('opted_out', false)
-          .order('subscribed_at', { ascending: false })
-          .range(offset, offset + limit - 1);
-
-        if (subError) {
-          console.error('[External Subscribers] Error fetching subscribers:', subError);
+        try {
+          const result = await listExternalSubscribers({
+            database: supabase,
+            tenantId,
+            categoryId: category_id,
+            search,
+            page,
+            perPage: per_page,
+          });
+          return res.json(result);
+        } catch (error) {
+          console.error('[External Subscribers] Error fetching subscribers:', error);
           return res.status(500).json({ error: 'Failed to fetch subscribers' });
         }
-
-        const { count, error: countError } = await supabase
-          .from('email_subscriber')
-          .select('id', { count: 'exact', head: true })
-          .eq('tenant_id', tenantId)
-          .eq('communication_category_id', category_id)
-          .eq('opted_out', false);
-
-        return res.json({
-          subscribers: subscribers || [],
-          total: count || 0,
-          page: parseInt(page),
-          per_page: parseInt(per_page)
-        });
       }
 
       const { data: counts, error: countsError } = await supabase

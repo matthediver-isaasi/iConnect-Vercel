@@ -152,3 +152,4 @@
 - [Preference-field ownership scopes](preference-field-ownership-scopes.md) — adding a new field owner requires API and DB guards on every legacy value table, not just filtering field definitions.
 - [Stable Lucide icon identities](lucide-icon-identities.md) — lucide-react component.name is not a stable persisted key; pair components with explicit string identifiers.
 - [External campaign contacts](external-campaign-contacts.md) — non-member recipients may have no subscriber row; resolve them before shared suppression and treat email_unsubscribe as canonical.
+- [Bounded list APIs and exports](bounded-list-api-exports.md) — when an interactive list API caps page size, existing exports must paginate to the exact total or they silently truncate.

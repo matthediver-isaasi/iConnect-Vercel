@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { base44 } from "@/api/base44Client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -21,6 +21,19 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import EmailCampaigns from "@/components/EmailCampaigns";
 import { listAllOrganizationsForAdmin } from '@/lib/adminOrgList';
 import { parseExternalContacts } from "@/lib/externalContactsCsv";
+import {
+  beginExternalSubscriberRequest,
+  createLatestRequestTracker,
+  fetchAllExternalSubscribers,
+  filterMemberSubscribers,
+  getPageAfterRemoval,
+  getSubscriberEmptyState,
+  normalizeSubscriberSearch,
+  paginateSubscriberResults,
+} from "@/lib/subscriberModalSearch";
+
+const SUBSCRIBERS_PER_PAGE = 10;
+const EXTERNAL_SEARCH_DEBOUNCE_MS = 300;
 
 export default function CommunicationsManagementPage() {
   const { isFeatureExcluded, isAccessReady } = useMemberAccess();
@@ -923,7 +936,7 @@ export default function CommunicationsManagementPage() {
   const [showSubscribersDialog, setShowSubscribersDialog] = useState(false);
   const [viewingCategory, setViewingCategory] = useState(null);
   const [subscribersPage, setSubscribersPage] = useState(1);
-  const SUBSCRIBERS_PER_PAGE = 10;
+  const [memberSearch, setMemberSearch] = useState('');
 
   const [optOutSearch, setOptOutSearch] = useState('');
   const [optOutPage, setOptOutPage] = useState(1);
@@ -981,30 +994,95 @@ export default function CommunicationsManagementPage() {
   const [externalSubscribers, setExternalSubscribers] = useState([]);
   const [externalSubscribersTotal, setExternalSubscribersTotal] = useState(0);
   const [externalSubscribersPage, setExternalSubscribersPage] = useState(1);
+  const [externalSearch, setExternalSearch] = useState('');
   const [loadingExternalSubscribers, setLoadingExternalSubscribers] = useState(false);
+  const [externalSubscribersError, setExternalSubscribersError] = useState('');
   const [removingSubscriberId, setRemovingSubscriberId] = useState(null);
-  const [optedOutPage, setOptedOutPage] = useState(1);
+  const externalRequestTrackerRef = useRef(createLatestRequestTracker());
+  const externalAbortControllerRef = useRef(null);
+  const subscriberModalContextRef = useRef({
+    generation: 0,
+    open: false,
+    categoryId: null,
+    externalSearch: '',
+    externalPage: 1,
+    externalTotal: 0,
+    externalActionGeneration: 0,
+  });
 
-  const fetchExternalSubscribers = async (categoryId, page = 1) => {
+  const fetchExternalSubscribers = useCallback(async (categoryId, page = 1, search = '') => {
+    subscriberModalContextRef.current = beginExternalSubscriberRequest(
+      subscriberModalContextRef.current,
+      page,
+      search
+    );
+    externalAbortControllerRef.current?.abort();
+    const controller = new AbortController();
+    externalAbortControllerRef.current = controller;
+    const requestId = externalRequestTrackerRef.current.begin();
     setLoadingExternalSubscribers(true);
+    setExternalSubscribersError('');
+
     try {
-      const response = await fetch(`/api/admin/external-subscribers?category_id=${categoryId}&page=${page}&per_page=${SUBSCRIBERS_PER_PAGE}`, {
-        credentials: 'include'
+      const params = new URLSearchParams({
+        category_id: categoryId,
+        page: String(page),
+        per_page: String(SUBSCRIBERS_PER_PAGE),
       });
-      if (response.ok) {
-        const data = await response.json();
-        setExternalSubscribers(data.subscribers || []);
-        setExternalSubscribersTotal(data.total || 0);
-        setExternalSubscribersPage(page);
+      const normalizedSearch = normalizeSubscriberSearch(search);
+      if (normalizedSearch) params.set('search', normalizedSearch);
+
+      const response = await fetch(`/api/admin/external-subscribers?${params}`, {
+        credentials: 'include',
+        signal: controller.signal,
+      });
+      if (!response.ok) {
+        throw new Error('Failed to fetch external subscribers');
       }
+      const data = await response.json();
+      if (!externalRequestTrackerRef.current.isLatest(requestId)) return false;
+
+      setExternalSubscribers(data.subscribers || []);
+      setExternalSubscribersTotal(data.total || 0);
+      setExternalSubscribersPage(data.page || page);
+      subscriberModalContextRef.current.externalPage = data.page || page;
+      subscriberModalContextRef.current.externalTotal = data.total || 0;
+      return true;
     } catch (error) {
+      if (error.name === 'AbortError' || !externalRequestTrackerRef.current.isLatest(requestId)) {
+        return false;
+      }
       console.error('Error fetching external subscribers:', error);
+      setExternalSubscribersError('External subscribers could not be loaded. Please try again.');
+      return false;
     } finally {
-      setLoadingExternalSubscribers(false);
+      if (externalRequestTrackerRef.current.isLatest(requestId)) {
+        setLoadingExternalSubscribers(false);
+      }
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    if (!showSubscribersDialog || subscriberTab !== 'external' || !viewingCategory) return undefined;
+
+    const timeout = window.setTimeout(() => {
+      fetchExternalSubscribers(viewingCategory.id, 1, externalSearch);
+    }, EXTERNAL_SEARCH_DEBOUNCE_MS);
+
+    return () => window.clearTimeout(timeout);
+  }, [
+    externalSearch,
+    fetchExternalSubscribers,
+    showSubscribersDialog,
+    subscriberTab,
+    viewingCategory,
+  ]);
 
   const handleRemoveExternalSubscriber = async (subscriberId) => {
+    const deleteContext = {
+      generation: subscriberModalContextRef.current.generation,
+      categoryId: subscriberModalContextRef.current.categoryId,
+    };
     setRemovingSubscriberId(subscriberId);
     try {
       const response = await fetch('/api/admin/external-subscribers', {
@@ -1015,9 +1093,24 @@ export default function CommunicationsManagementPage() {
       });
       if (response.ok) {
         toast.success('External subscriber removed');
-        setExternalSubscribers(prev => prev.filter(s => s.id !== subscriberId));
-        setExternalSubscribersTotal(prev => prev - 1);
         queryClient.invalidateQueries({ queryKey: ['external-subscriber-counts'] });
+        const currentContext = subscriberModalContextRef.current;
+        if (
+          currentContext.open &&
+          currentContext.generation === deleteContext.generation &&
+          currentContext.categoryId === deleteContext.categoryId
+        ) {
+          const recoveryPage = getPageAfterRemoval(
+            currentContext.externalPage,
+            currentContext.externalTotal,
+            SUBSCRIBERS_PER_PAGE
+          );
+          await fetchExternalSubscribers(
+            currentContext.categoryId,
+            recoveryPage,
+            currentContext.externalSearch
+          );
+        }
       } else {
         toast.error('Failed to remove subscriber');
       }
@@ -1029,26 +1122,56 @@ export default function CommunicationsManagementPage() {
   };
 
   const openSubscribersView = (category, initialTab = 'members') => {
+    externalRequestTrackerRef.current.invalidate();
+    externalAbortControllerRef.current?.abort();
     setViewingCategory(category);
     setSubscribersPage(1);
     setOptedOutPage(1);
+    setMemberSearch('');
+    setExternalSearch('');
     setSubscriberTab(initialTab);
     setExternalSubscribers([]);
     setExternalSubscribersTotal(0);
-    if (initialTab === 'external') {
-      fetchExternalSubscribers(category.id, 1);
-    }
+    setExternalSubscribersPage(1);
+    setExternalSubscribersError('');
+    setLoadingExternalSubscribers(initialTab === 'external');
+    subscriberModalContextRef.current = {
+      generation: subscriberModalContextRef.current.generation + 1,
+      open: true,
+      categoryId: category.id,
+      externalSearch: '',
+      externalPage: 1,
+      externalTotal: 0,
+      externalActionGeneration: 0,
+    };
     setShowSubscribersDialog(true);
   };
 
   const getPaginatedSubscribers = () => {
-    if (!viewingCategory) return { subscribers: [], totalPages: 0, total: 0 };
+    if (!viewingCategory) {
+      return { subscribers: [], totalPages: 1, total: 0, unfilteredTotal: 0, currentPage: 1 };
+    }
     const allSubscribers = getSubscribersForCategory(viewingCategory.id);
-    const total = allSubscribers.length;
-    const totalPages = Math.ceil(total / SUBSCRIBERS_PER_PAGE);
-    const start = (subscribersPage - 1) * SUBSCRIBERS_PER_PAGE;
-    const subscribers = allSubscribers.slice(start, start + SUBSCRIBERS_PER_PAGE);
-    return { subscribers, totalPages, total };
+    const filteredSubscribers = filterMemberSubscribers(
+      allSubscribers,
+      memberSearch,
+      orgLookup,
+      roleLookup
+    );
+    const page = paginateSubscriberResults(
+      filteredSubscribers,
+      subscribersPage,
+      SUBSCRIBERS_PER_PAGE
+    );
+    return {
+      subscribers: page.items,
+      totalPages: page.totalPages,
+      total: page.total,
+      unfilteredTotal: allSubscribers.length,
+      currentPage: page.currentPage,
+      rangeStart: page.rangeStart,
+      rangeEnd: page.rangeEnd,
+    };
   };
 
   const getPaginatedOptedOut = () => {
@@ -1135,18 +1258,7 @@ export default function CommunicationsManagementPage() {
     try {
       const memberSubscribers = getSubscribersForCategory(category.id);
       
-      let extSubs = [];
-      try {
-        const response = await fetch(`/api/admin/external-subscribers?category_id=${category.id}&page=1&per_page=10000`, {
-          credentials: 'include'
-        });
-        if (response.ok) {
-          const data = await response.json();
-          extSubs = data.subscribers || [];
-        }
-      } catch (e) {
-        console.error('Error fetching external subscribers for export:', e);
-      }
+      const extSubs = await fetchAllExternalSubscribers({ categoryId: category.id });
 
       if (memberSubscribers.length === 0 && extSubs.length === 0) {
         toast.info('No subscribers to export for this category');
@@ -2198,7 +2310,21 @@ CREATE POLICY "Service role has full access to member_communication_preference"
           </DialogContent>
         </Dialog>
 
-        <Dialog open={showSubscribersDialog} onOpenChange={setShowSubscribersDialog}>
+        <Dialog
+          open={showSubscribersDialog}
+          onOpenChange={(open) => {
+            if (!open) {
+              externalRequestTrackerRef.current.invalidate();
+              externalAbortControllerRef.current?.abort();
+              subscriberModalContextRef.current = {
+                ...subscriberModalContextRef.current,
+                generation: subscriberModalContextRef.current.generation + 1,
+                open: false,
+              };
+            }
+            setShowSubscribersDialog(open);
+          }}
+        >
           <DialogContent className="max-w-4xl max-h-[80vh] overflow-hidden flex flex-col" aria-describedby="subscribers-dialog-description">
             <DialogHeader className="flex-shrink-0">
               <div className="flex items-center justify-between">
@@ -2245,8 +2371,8 @@ CREATE POLICY "Service role has full access to member_communication_preference"
             <div className="flex-1 overflow-auto mt-4">
               <Tabs value={subscriberTab} onValueChange={(val) => {
                 setSubscriberTab(val);
-                if (val === 'external' && viewingCategory) {
-                  fetchExternalSubscribers(viewingCategory.id, 1);
+                if (val === 'external') {
+                  setLoadingExternalSubscribers(true);
                 }
               }}>
                 <TabsList className="mb-4" data-testid="tabs-subscriber-type">
@@ -2265,6 +2391,19 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                 </TabsList>
 
                 <TabsContent value="members">
+                  <div className="relative mb-4">
+                    <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                    <Input
+                      value={memberSearch}
+                      onChange={(event) => {
+                        setMemberSearch(event.target.value);
+                        setSubscribersPage(1);
+                      }}
+                      placeholder="Search members by name, email, organisation, or role"
+                      className="pl-9"
+                      data-testid="input-search-member-subscribers"
+                    />
+                  </div>
                   {membersLoading ? (
                     <div className="flex items-center justify-center py-12">
                       <Loader2 className="w-6 h-6 animate-spin text-blue-600 mr-2" />
@@ -2273,13 +2412,30 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                   ) : (
                     <>
                       {(() => {
-                        const { subscribers, totalPages, total } = getPaginatedSubscribers();
+                        const {
+                          subscribers,
+                          totalPages,
+                          total,
+                          unfilteredTotal,
+                          currentPage,
+                          rangeStart,
+                          rangeEnd,
+                        } = getPaginatedSubscribers();
+                        const emptyState = getSubscriberEmptyState(
+                          unfilteredTotal,
+                          total,
+                          memberSearch
+                        );
                         
-                        if (total === 0) {
+                        if (emptyState) {
                           return (
                             <div className="text-center py-12">
                               <Users className="w-12 h-12 text-slate-300 mx-auto mb-3" />
-                              <p className="text-slate-600">No member subscribers for this category</p>
+                              <p className="text-slate-600">
+                                {emptyState === 'no-match'
+                                  ? 'No member subscribers match your search'
+                                  : 'No member subscribers for this category'}
+                              </p>
                             </div>
                           );
                         }
@@ -2321,27 +2477,27 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                             {totalPages > 1 && (
                               <div className="flex items-center justify-between mt-4 pt-4 border-t">
                                 <div className="text-sm text-slate-600">
-                                  Showing {((subscribersPage - 1) * SUBSCRIBERS_PER_PAGE) + 1} - {Math.min(subscribersPage * SUBSCRIBERS_PER_PAGE, total)} of {total}
+                                  Showing {rangeStart} - {rangeEnd} of {total}
                                 </div>
                                 <div className="flex items-center gap-2">
                                   <Button
                                     variant="outline"
                                     size="sm"
                                     onClick={() => setSubscribersPage(p => Math.max(1, p - 1))}
-                                    disabled={subscribersPage === 1}
+                                    disabled={currentPage === 1}
                                     data-testid="button-prev-page"
                                   >
                                     <ChevronLeft className="w-4 h-4" />
                                     Previous
                                   </Button>
                                   <span className="text-sm text-slate-600 px-2">
-                                    Page {subscribersPage} of {totalPages}
+                                    Page {currentPage} of {totalPages}
                                   </span>
                                   <Button
                                     variant="outline"
                                     size="sm"
                                     onClick={() => setSubscribersPage(p => Math.min(totalPages, p + 1))}
-                                    disabled={subscribersPage === totalPages}
+                                    disabled={currentPage === totalPages}
                                     data-testid="button-next-page"
                                   >
                                     Next
@@ -2358,7 +2514,47 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                 </TabsContent>
 
                 <TabsContent value="external">
-                  {loadingExternalSubscribers ? (
+                  <div className="relative mb-4">
+                    <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                    <Input
+                      value={externalSearch}
+                      onChange={(event) => {
+                        const nextSearch = event.target.value;
+                        externalRequestTrackerRef.current.invalidate();
+                        externalAbortControllerRef.current?.abort();
+                        subscriberModalContextRef.current.externalSearch = nextSearch;
+                        subscriberModalContextRef.current.externalPage = 1;
+                        subscriberModalContextRef.current.externalActionGeneration += 1;
+                        setExternalSearch(nextSearch);
+                        setExternalSubscribersPage(1);
+                        setExternalSubscribersError('');
+                        setLoadingExternalSubscribers(true);
+                      }}
+                      placeholder="Search external subscribers by name or email"
+                      className="pl-9"
+                      data-testid="input-search-external-subscribers"
+                    />
+                  </div>
+                  {externalSubscribersError ? (
+                    <div className="text-center py-12">
+                      <AlertTriangle className="w-12 h-12 text-amber-400 mx-auto mb-3" />
+                      <p className="text-slate-600">{externalSubscribersError}</p>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="mt-4"
+                        onClick={() => viewingCategory && fetchExternalSubscribers(
+                          viewingCategory.id,
+                          externalSubscribersPage,
+                          externalSearch
+                        )}
+                        data-testid="button-retry-external-subscribers"
+                      >
+                        <RefreshCw className="w-4 h-4 mr-2" />
+                        Try again
+                      </Button>
+                    </div>
+                  ) : loadingExternalSubscribers ? (
                     <div className="flex items-center justify-center py-12">
                       <Loader2 className="w-6 h-6 animate-spin text-blue-600 mr-2" />
                       <span className="text-slate-600">Loading external subscribers...</span>
@@ -2366,8 +2562,14 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                   ) : externalSubscribersTotal === 0 ? (
                     <div className="text-center py-12">
                       <Globe className="w-12 h-12 text-slate-300 mx-auto mb-3" />
-                      <p className="text-slate-600">No external subscribers for this category</p>
-                      <p className="text-xs text-slate-400 mt-1">External subscribers are non-members who subscribed via public forms, event donations, or direct signup</p>
+                      {normalizeSubscriberSearch(externalSearch) ? (
+                        <p className="text-slate-600">No external subscribers match your search</p>
+                      ) : (
+                        <>
+                          <p className="text-slate-600">No external subscribers for this category</p>
+                          <p className="text-xs text-slate-400 mt-1">External subscribers are non-members who subscribed via public forms, event donations, or direct signup</p>
+                        </>
+                      )}
                     </div>
                   ) : (
                     <>
@@ -2423,7 +2625,11 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                               <Button
                                 variant="outline"
                                 size="sm"
-                                onClick={() => viewingCategory && fetchExternalSubscribers(viewingCategory.id, externalSubscribersPage - 1)}
+                                onClick={() => viewingCategory && fetchExternalSubscribers(
+                                  viewingCategory.id,
+                                  externalSubscribersPage - 1,
+                                  externalSearch
+                                )}
                                 disabled={externalSubscribersPage === 1}
                                 data-testid="button-ext-prev-page"
                               >
@@ -2436,7 +2642,11 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                               <Button
                                 variant="outline"
                                 size="sm"
-                                onClick={() => viewingCategory && fetchExternalSubscribers(viewingCategory.id, externalSubscribersPage + 1)}
+                                onClick={() => viewingCategory && fetchExternalSubscribers(
+                                  viewingCategory.id,
+                                  externalSubscribersPage + 1,
+                                  externalSearch
+                                )}
                                 disabled={externalSubscribersPage === extTotalPages}
                                 data-testid="button-ext-next-page"
                               >
