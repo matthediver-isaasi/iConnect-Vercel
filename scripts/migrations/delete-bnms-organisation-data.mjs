@@ -27,6 +27,14 @@ const MUTATION_BATCH_SIZE = 150;
 const MANIFEST_DIR = path.resolve('.local/task-artifacts');
 const BEFORE_MANIFEST = path.join(MANIFEST_DIR, 'bnms-organisation-cleanup-before.json');
 const AFTER_MANIFEST = path.join(MANIFEST_DIR, 'bnms-organisation-cleanup-after.json');
+const APPROVED_CROSS_TENANT_EXCEPTION = {
+  table: 'booking',
+  column: 'organization_id',
+  id: '2d81e61f-ab8e-43ef-b811-53ba464457f1',
+  tenantId: 'fd82da65-aab7-4a5c-85b8-b2febeb2003d',
+  tenantSlug: 'gfi',
+  organizationId: 'd2bbe3f3-64ff-47e7-bec2-a66b8a69f0f5',
+};
 
 const SET_NULL_REFERENCES = [
   ['booking', 'organization_id'],
@@ -90,14 +98,21 @@ function fail(message) {
 }
 
 function parseArgs() {
-  const args = { apply: false, reviewed: false, help: false };
+  const args = {
+    apply: false,
+    verify: false,
+    reviewed: false,
+    help: false,
+  };
   for (const arg of process.argv.slice(2)) {
     if (arg === '--apply') args.apply = true;
+    else if (arg === '--verify') args.verify = true;
     else if (arg === '--dry-run') args.apply = false;
     else if (arg === '--i-have-reviewed-the-dry-run') args.reviewed = true;
     else if (arg === '--help' || arg === '-h') args.help = true;
     else fail(`Unknown option: ${arg}`);
   }
+  if (args.apply && args.verify) fail('--apply and --verify cannot be used together.');
   return args;
 }
 
@@ -217,6 +232,16 @@ function tableHasColumn(definitions, table, column) {
   return Object.hasOwn(definitions[table]?.properties || {}, column);
 }
 
+function isApprovedCrossTenantException(table, column, row) {
+  return (
+    table === APPROVED_CROSS_TENANT_EXCEPTION.table
+    && column === APPROVED_CROSS_TENANT_EXCEPTION.column
+    && row.id === APPROVED_CROSS_TENANT_EXCEPTION.id
+    && row.tenant_id === APPROVED_CROSS_TENANT_EXCEPTION.tenantId
+    && row[column] === APPROVED_CROSS_TENANT_EXCEPTION.organizationId
+  );
+}
+
 async function fetchTenantRows(client, table, columns, tenantId = TENANT_ID) {
   const rows = [];
   for (let from = 0; ; from += PAGE_SIZE) {
@@ -247,6 +272,22 @@ async function fetchOtherTenantIds(client, table) {
   }
 }
 
+async function fetchAllRows(client, table, columns, configure = (query) => query) {
+  const rows = [];
+  for (let from = 0; ; from += PAGE_SIZE) {
+    const { data, error } = await configure(
+      client
+        .from(table)
+        .select(columns)
+        .order('id', { ascending: true })
+        .range(from, from + PAGE_SIZE - 1),
+    );
+    if (error) fail(`Could not read global verification rows from ${table}: ${error.message}`);
+    rows.push(...(data || []));
+    if ((data || []).length < PAGE_SIZE) return rows;
+  }
+}
+
 async function fetchReferenceRows(client, definitions, table, column, organizationIds) {
   const byId = new Map();
   const hasTenantId = tableHasColumn(definitions, table, 'tenant_id');
@@ -272,7 +313,12 @@ async function fetchReferenceRows(client, definitions, table, column, organizati
 
 function assertReferenceOwnership(definitions, table, column, rows) {
   if (!tableHasColumn(definitions, table, 'tenant_id')) return;
-  const foreignRows = rows.filter((row) => row.tenant_id != null && row.tenant_id !== TENANT_ID);
+  const foreignRows = rows.filter(
+    (row) => (
+      row.tenant_id !== TENANT_ID
+      && !isApprovedCrossTenantException(table, column, row)
+    ),
+  );
   if (foreignRows.length) {
     fail(
       `${table}.${column} has ${foreignRows.length} row(s) pointing at BNMS data `
@@ -294,7 +340,12 @@ async function resolveTenant(client) {
   return data;
 }
 
-async function buildSnapshot(client, definitions, schemaAudit) {
+async function buildSnapshot(
+  client,
+  definitions,
+  schemaAudit,
+  { requireApprovedException = true } = {},
+) {
   const tenant = await resolveTenant(client);
   const organizations = await fetchTenantRows(client, 'organization', 'id, tenant_id, organization_group_id');
   const organizationGroups = await fetchTenantRows(client, 'organization_group', 'id, tenant_id');
@@ -309,12 +360,24 @@ async function buildSnapshot(client, definitions, schemaAudit) {
 
   const dependencies = {};
   const dependencyRows = {};
+  const allTenantReferenceControls = {};
   for (const [action, references] of [
     ['SET NULL', SET_NULL_REFERENCES],
     ['DELETE', DELETE_REFERENCES],
   ]) {
     for (const [table, column] of references) {
       const key = referenceKey(table, column);
+      if (key === 'member.organization_id') {
+        const capturedParentRows = await fetchReferenceRows(
+          client,
+          definitions,
+          table,
+          column,
+          organizationIds,
+        );
+        assertReferenceOwnership(definitions, table, column, capturedParentRows);
+        allTenantReferenceControls[key] = summarizeIds(capturedParentRows.map((row) => row.id));
+      }
       // Clear every Organisation link on BNMS Members. This also safely repairs
       // a cross-tenant link without modifying the Organisation it points to.
       const rows = key === 'member.organization_id'
@@ -325,7 +388,7 @@ async function buildSnapshot(client, definitions, schemaAudit) {
       dependencies[key] = {
         action,
         ownership: tableHasColumn(definitions, table, 'tenant_id')
-          ? 'tenant_id verified as BNMS or null; captured parent ID is BNMS'
+          ? 'tenant_id verified as BNMS'
           : 'derived from captured BNMS Organisation ID',
         ...summarizeIds(rows.map((row) => row.id)),
       };
@@ -357,6 +420,27 @@ async function buildSnapshot(client, definitions, schemaAudit) {
     crossTenantControls[table] = summarizeIds(await fetchOtherTenantIds(client, table));
   }
 
+  const approvedExceptionRows = dependencyRows['booking.organization_id']
+    .filter((row) => isApprovedCrossTenantException('booking', 'organization_id', row));
+  const { data: approvedTenant, error: approvedTenantError } = await client
+    .from('tenant')
+    .select('id, slug')
+    .eq('id', APPROVED_CROSS_TENANT_EXCEPTION.tenantId)
+    .maybeSingle();
+  if (approvedTenantError) {
+    fail(`Could not validate approved exception tenant: ${approvedTenantError.message}`);
+  }
+  if (
+    !approvedTenant
+    || approvedTenant.id !== APPROVED_CROSS_TENANT_EXCEPTION.tenantId
+    || approvedTenant.slug !== APPROVED_CROSS_TENANT_EXCEPTION.tenantSlug
+  ) {
+    fail('Approved cross-tenant exception tenant identity does not match GFI.');
+  }
+  if (requireApprovedException && approvedExceptionRows.length !== 1) {
+    fail(`Expected exactly one approved GFI booking exception; found ${approvedExceptionRows.length}.`);
+  }
+
   const snapshot = {
     tenant,
     schema: schemaAudit,
@@ -370,6 +454,16 @@ async function buildSnapshot(client, definitions, schemaAudit) {
       memberGroupAssignments: summarizeIds(memberGroupAssignments.map((row) => row.id)),
     },
     dependencies,
+    allTenantReferenceControls,
+    approvedCrossTenantException: {
+      table: APPROVED_CROSS_TENANT_EXCEPTION.table,
+      column: APPROVED_CROSS_TENANT_EXCEPTION.column,
+      tenantId: approvedTenant.id,
+      tenantSlug: approvedTenant.slug,
+      bookingIdHash: hashIds(approvedExceptionRows.map((row) => row.id)),
+      organizationIdHash: hashIds(approvedExceptionRows.map((row) => row.organization_id)),
+      matched: approvedExceptionRows.length,
+    },
     crossTenantControls,
   };
 
@@ -410,6 +504,12 @@ function printSnapshot(snapshot, digest, mode) {
   for (const [key, value] of Object.entries(snapshot.dependencies)) {
     if (value.count) console.log(`  ${value.action.padEnd(8)} ${key}: ${value.count}`);
   }
+  if (snapshot.approvedCrossTenantException.matched) {
+    console.log(
+      `  APPROVED cross-tenant link cleanup: ${snapshot.approvedCrossTenantException.matched} `
+      + `${snapshot.approvedCrossTenantException.tenantSlug} booking`,
+    );
+  }
   console.log('');
   console.log(`Review digest: ${digest}`);
 }
@@ -424,19 +524,31 @@ async function setReferencesNull(client, definitions, table, column, rows) {
   if (!rows.length) return 0;
   const hasTenantId = tableHasColumn(definitions, table, 'tenant_id');
   let changed = 0;
-  for (const rowChunk of chunks(rows, MUTATION_BATCH_SIZE)) {
-    let query = client
-      .from(table)
-      .update({ [column]: null })
-      .in('id', rowChunk.map((row) => row.id))
-      .in(column, [...new Set(rowChunk.map((row) => row[column]))]);
-    if (hasTenantId) query = query.or(`tenant_id.eq.${TENANT_ID},tenant_id.is.null`);
-    const { data, error } = await query.select('id');
-    if (error) fail(`Could not clear ${table}.${column}: ${error.message}`);
-    if ((data || []).length !== rowChunk.length) {
-      fail(`Clearing ${table}.${column} expected ${rowChunk.length} rows but changed ${(data || []).length}.`);
+
+  const normalRows = rows.filter((row) => !isApprovedCrossTenantException(table, column, row));
+  const approvedRows = rows.filter((row) => isApprovedCrossTenantException(table, column, row));
+  for (const [scope, scopedRows] of [
+    ['BNMS_OR_NULL', normalRows],
+    ['APPROVED_EXCEPTION', approvedRows],
+  ]) {
+    for (const rowChunk of chunks(scopedRows, MUTATION_BATCH_SIZE)) {
+      let query = client
+        .from(table)
+        .update({ [column]: null })
+        .in('id', rowChunk.map((row) => row.id))
+        .in(column, [...new Set(rowChunk.map((row) => row[column]))]);
+      if (hasTenantId) {
+        query = scope === 'APPROVED_EXCEPTION'
+          ? query.eq('tenant_id', APPROVED_CROSS_TENANT_EXCEPTION.tenantId)
+          : query.eq('tenant_id', TENANT_ID);
+      }
+      const { data, error } = await query.select('id');
+      if (error) fail(`Could not clear ${table}.${column}: ${error.message}`);
+      if ((data || []).length !== rowChunk.length) {
+        fail(`Clearing ${table}.${column} expected ${rowChunk.length} rows but changed ${(data || []).length}.`);
+      }
+      changed += data.length;
     }
-    changed += data.length;
   }
   return changed;
 }
@@ -446,7 +558,7 @@ async function deleteRows(
   definitions,
   table,
   rows,
-  { referenceColumn = null, allowNullTenant = false } = {},
+  { referenceColumn = null } = {},
 ) {
   if (!rows.length) return 0;
   const hasTenantId = tableHasColumn(definitions, table, 'tenant_id');
@@ -459,11 +571,7 @@ async function deleteRows(
     if (referenceColumn) {
       query = query.in(referenceColumn, [...new Set(rowChunk.map((row) => row[referenceColumn]))]);
     }
-    if (hasTenantId) {
-      query = allowNullTenant
-        ? query.or(`tenant_id.eq.${TENANT_ID},tenant_id.is.null`)
-        : query.eq('tenant_id', TENANT_ID);
-    }
+    if (hasTenantId) query = query.eq('tenant_id', TENANT_ID);
     const { data, error } = await query.select('id');
     if (error) fail(`Could not delete ${table} rows: ${error.message}`);
     if ((data || []).length !== rowChunk.length) {
@@ -490,7 +598,7 @@ async function applyCleanup(client, definitions, working) {
       definitions,
       table,
       working.dependencyRows[key],
-      { referenceColumn: column, allowNullTenant: true },
+      { referenceColumn: column },
     );
     if (deleted) console.log(`  DELETE ${table}: ${deleted}`);
   }
@@ -505,7 +613,7 @@ async function applyCleanup(client, definitions, working) {
     definitions,
     'organization_group_preference_value',
     working.dependencyRows[groupPreferenceKey],
-    { referenceColumn: 'organization_group_id', allowNullTenant: true },
+    { referenceColumn: 'organization_group_id' },
   );
   if (groupPreferencesDeleted) {
     console.log(`  DELETE organization_group_preference_value: ${groupPreferencesDeleted}`);
@@ -542,6 +650,117 @@ async function findOriginalReferenceResidue(client, definitions, working) {
   return residue;
 }
 
+async function findGlobalDanglingReferences(client, definitions, reviewedSnapshot) {
+  const organizationIds = new Set(
+    (await fetchAllRows(client, 'organization', 'id')).map((row) => String(row.id)),
+  );
+  const organizationGroupIds = new Set(
+    (await fetchAllRows(client, 'organization_group', 'id')).map((row) => String(row.id)),
+  );
+  const dangling = {};
+  const bnmsOwnedDangling = {};
+
+  for (const [table, column] of [...SET_NULL_REFERENCES, ...DELETE_REFERENCES]) {
+    const hasTenantId = tableHasColumn(definitions, table, 'tenant_id');
+    const rows = await fetchAllRows(
+      client,
+      table,
+      `id, ${column}${hasTenantId ? ', tenant_id' : ''}`,
+      (query) => query.not(column, 'is', null),
+    );
+    const missing = rows.filter((row) => !organizationIds.has(String(row[column])));
+    const key = referenceKey(table, column);
+    dangling[key] = summarizeIds(missing.map((row) => row.id));
+    const bnmsMissing = hasTenantId
+      ? missing.filter((row) => row.tenant_id === TENANT_ID)
+      : reviewedSnapshot.dependencies[key]?.count
+        ? missing
+        : [];
+    bnmsOwnedDangling[key] = summarizeIds(bnmsMissing.map((row) => row.id));
+  }
+
+  const organizationsWithGroups = await fetchAllRows(
+    client,
+    'organization',
+    'id, tenant_id, organization_group_id',
+    (query) => query.not('organization_group_id', 'is', null),
+  );
+  const missingOrganizationGroups = organizationsWithGroups.filter(
+    (row) => !organizationGroupIds.has(String(row.organization_group_id)),
+  );
+  dangling['organization.organization_group_id'] = summarizeIds(
+    missingOrganizationGroups.map((row) => row.id),
+  );
+  bnmsOwnedDangling['organization.organization_group_id'] = summarizeIds(
+    missingOrganizationGroups
+      .filter((row) => row.tenant_id === TENANT_ID)
+      .map((row) => row.id),
+  );
+
+  const groupPreferences = await fetchAllRows(
+    client,
+    'organization_group_preference_value',
+    'id, tenant_id, organization_group_id',
+    (query) => query.not('organization_group_id', 'is', null),
+  );
+  const missingPreferenceGroups = groupPreferences.filter(
+    (row) => !organizationGroupIds.has(String(row.organization_group_id)),
+  );
+  dangling['organization_group_preference_value.organization_group_id'] = summarizeIds(
+    missingPreferenceGroups.map((row) => row.id),
+  );
+  bnmsOwnedDangling['organization_group_preference_value.organization_group_id'] = summarizeIds(
+    missingPreferenceGroups
+      .filter((row) => row.tenant_id === TENANT_ID)
+      .map((row) => row.id),
+  );
+
+  const failures = Object.entries(bnmsOwnedDangling).filter(([, value]) => value.count !== 0);
+  if (failures.length) {
+    fail(
+      `BNMS-owned dangling-reference verification failed: ${
+        failures.map(([key, value]) => `${key}=${value.count}`).join(', ')
+      }.`,
+    );
+  }
+  return {
+    allTenants: dangling,
+    bnmsOwned: bnmsOwnedDangling,
+    outsideBnmsCount: Object.values(dangling).reduce((sum, value) => sum + value.count, 0),
+  };
+}
+
+async function verifyApprovedCrossTenantException(client) {
+  const { data: tenant, error: tenantError } = await client
+    .from('tenant')
+    .select('id, slug')
+    .eq('id', APPROVED_CROSS_TENANT_EXCEPTION.tenantId)
+    .maybeSingle();
+  if (tenantError) fail(`Could not verify approved exception tenant: ${tenantError.message}`);
+  if (!tenant || tenant.slug !== APPROVED_CROSS_TENANT_EXCEPTION.tenantSlug) {
+    fail('Approved cross-tenant exception tenant identity changed.');
+  }
+
+  const { data: booking, error: bookingError } = await client
+    .from('booking')
+    .select('id, tenant_id, organization_id')
+    .eq('id', APPROVED_CROSS_TENANT_EXCEPTION.id)
+    .maybeSingle();
+  if (bookingError) fail(`Could not verify approved booking exception: ${bookingError.message}`);
+  if (
+    !booking
+    || booking.tenant_id !== APPROVED_CROSS_TENANT_EXCEPTION.tenantId
+    || booking.organization_id !== null
+  ) {
+    fail('Approved GFI booking was not preserved with only its Organisation link cleared.');
+  }
+  return {
+    bookingPreserved: true,
+    tenantIdUnchanged: true,
+    organizationLinkCleared: true,
+  };
+}
+
 function verifyAfter(before, after, originalReferenceResidue) {
   if (after.bnms.organizations.count !== 0) fail(`Expected zero BNMS Organisations; found ${after.bnms.organizations.count}.`);
   if (after.bnms.organizationGroups.count !== 0) fail(`Expected zero BNMS Organisation Groups; found ${after.bnms.organizationGroups.count}.`);
@@ -569,9 +788,11 @@ async function main() {
     console.log(`Usage:
   node scripts/migrations/delete-bnms-organisation-data.mjs
   node scripts/migrations/delete-bnms-organisation-data.mjs --apply --i-have-reviewed-the-dry-run
+  node scripts/migrations/delete-bnms-organisation-data.mjs --verify
 
 Dry-run is the default. Apply mode requires a reviewed dry-run manifest whose
-digest still matches the live destination data.`);
+digest still matches the live destination data. Verify mode recovers and writes
+the after manifest if the apply process times out after its mutation stages.`);
     return;
   }
   if (args.apply && !args.reviewed) {
@@ -581,6 +802,47 @@ digest still matches the live destination data.`);
   const { client, url, headers } = getSupabase();
   const definitions = await loadSchema(url, headers);
   const schemaAudit = auditReferenceSchema(definitions);
+
+  if (args.verify) {
+    if (!fs.existsSync(BEFORE_MANIFEST)) {
+      fail(`Reviewed manifest is missing: ${BEFORE_MANIFEST}.`);
+    }
+    const reviewed = JSON.parse(fs.readFileSync(BEFORE_MANIFEST, 'utf8'));
+    const after = await buildSnapshot(
+      client,
+      definitions,
+      schemaAudit,
+      { requireApprovedException: false },
+    );
+    verifyAfter(reviewed.snapshot, after.snapshot, {});
+    const globalDanglingReferences = await findGlobalDanglingReferences(
+      client,
+      definitions,
+      reviewed.snapshot,
+    );
+    const approvedCrossTenantExceptionVerification = await verifyApprovedCrossTenantException(client);
+    const afterDigest = stableDigest(after.snapshot);
+    writeJson(AFTER_MANIFEST, {
+      generatedAt: new Date().toISOString(),
+      recoveredAfterApplyTimeout: true,
+      beforeReviewDigest: reviewed.reviewDigest,
+      afterDigest,
+      snapshot: after.snapshot,
+      globalDanglingReferences,
+      approvedCrossTenantExceptionVerification,
+    });
+    console.log('Post-cleanup verification passed');
+    console.log(`  Organisations:            ${after.snapshot.bnms.organizations.count}`);
+    console.log(`  Organisation Groups:      ${after.snapshot.bnms.organizationGroups.count}`);
+    console.log(`  Members preserved:        ${after.snapshot.bnms.members.count}`);
+    console.log(`  Member Groups preserved:  ${after.snapshot.bnms.memberGroups.count}`);
+    console.log(`  Group assignments kept:   ${after.snapshot.bnms.memberGroupAssignments.count}`);
+    console.log(`  BNMS-owned dangling refs: 0`);
+    console.log(`  Existing outside BNMS:    ${globalDanglingReferences.outsideBnmsCount}`);
+    console.log(`  After manifest: ${AFTER_MANIFEST}`);
+    return;
+  }
+
   const before = await buildSnapshot(client, definitions, schemaAudit);
   const reviewDigest = stableDigest(before.snapshot);
   printSnapshot(before.snapshot, reviewDigest, args.apply ? 'APPLY' : 'DRY-RUN');
@@ -605,13 +867,19 @@ digest still matches the live destination data.`);
 
   await applyCleanup(client, definitions, before.working);
 
-  const after = await buildSnapshot(client, definitions, schemaAudit);
+  const after = await buildSnapshot(
+    client,
+    definitions,
+    schemaAudit,
+    { requireApprovedException: false },
+  );
   const originalReferenceResidue = await findOriginalReferenceResidue(
     client,
     definitions,
     before.working,
   );
   verifyAfter(before.snapshot, after.snapshot, originalReferenceResidue);
+  const approvedCrossTenantExceptionVerification = await verifyApprovedCrossTenantException(client);
   const afterDigest = stableDigest(after.snapshot);
   writeJson(AFTER_MANIFEST, {
     generatedAt: new Date().toISOString(),
@@ -619,6 +887,7 @@ digest still matches the live destination data.`);
     afterDigest,
     snapshot: after.snapshot,
     originalReferenceResidue,
+    approvedCrossTenantExceptionVerification,
   });
 
   console.log('\nCleanup verified successfully');
