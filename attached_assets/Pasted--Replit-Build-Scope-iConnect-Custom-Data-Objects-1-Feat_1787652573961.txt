@@ -1,0 +1,1607 @@
+# Replit Build Scope — iConnect Custom Data Objects
+
+## 1. Feature objective
+
+iConnect already supports extensive **custom fields against the existing core entities**:
+
+* Members
+* Organisations
+* Groups
+
+We now need to extend the platform so that individual tenants can create entirely new **Custom Data Objects** through the iConnect admin UI.
+
+Examples might include:
+
+* Departments
+* Branches
+* Regions
+* Committees
+* Practices
+* Hospitals
+* Chapters
+* Teams
+* Qualifications
+* Accreditations
+* Projects
+
+These Custom Objects must be capable of holding their own records and fields and, crucially, of having defined relationships with:
+
+* Members
+* Organisations
+* Groups
+* Other Custom Objects
+
+The purpose is to remove the need for tenant-specific database development whenever a client needs to store a new category of structured information.
+
+---
+
+# 2. Core principle
+
+Do **not** dynamically create physical PostgreSQL/Supabase tables such as:
+
+```text
+tenant_123_departments
+tenant_456_branches
+tenant_789_committees
+```
+
+Instead, build a controlled metadata-driven Custom Object architecture within the existing iConnect tenancy model.
+
+From the tenant administrator's perspective, a Custom Object should behave like a normal table/entity.
+
+From the underlying platform perspective, all Custom Objects should use a shared and controlled data architecture.
+
+---
+
+# 3. Existing custom fields
+
+This project must **reuse the existing iConnect custom-field capability wherever technically possible**.
+
+Do not build a separate field builder unnecessarily.
+
+Before implementing Custom Objects, inspect the existing implementation for custom fields attached to:
+
+* Members
+* Organisations
+* Groups
+
+Identify and reuse:
+
+* Field types
+* Validation
+* Required field handling
+* Option lists
+* Field labels
+* Help text
+* Ordering
+* Rendering
+* Editing
+* Storage
+* Permissions where applicable
+
+The intention is that a Custom Object record can use substantially the same field-definition and field-rendering engine as the existing core entities.
+
+---
+
+# 4. Terminology
+
+Use the following terminology within the product.
+
+### Core Objects
+
+Existing built-in iConnect entities:
+
+* Members
+* Organisations
+* Groups
+
+These cannot be deleted or structurally replaced through Data Studio.
+
+### Custom Objects
+
+Tenant-created entities such as:
+
+* Department
+* Branch
+* Committee
+* Region
+
+### Records
+
+Individual instances of an object.
+
+Example:
+
+```text
+Object:
+Department
+
+Records:
+Nuclear Medicine
+Radiology
+Oncology
+Cardiology
+```
+
+### Relationships
+
+Defined connections between Core Objects and/or Custom Objects.
+
+---
+
+# 5. New administration area
+
+Create:
+
+**Admin → Data → Custom Objects**
+
+Potential route:
+
+```text
+/admin/data/custom-objects
+```
+
+This should show all tenant-created Custom Objects.
+
+Example:
+
+| Object      | Records | Fields | Relationships | Status |
+| ----------- | ------: | -----: | ------------: | ------ |
+| Departments |      42 |      8 |             2 | Active |
+| Regions     |      12 |      5 |             1 | Active |
+| Committees  |       7 |      9 |             2 | Active |
+
+Actions:
+
+* Create Custom Object
+* Open
+* Edit configuration
+* Manage records
+* Archive
+* View audit history
+
+Do not allow destructive hard deletion of an Object containing live data without an explicit safe workflow.
+
+---
+
+# 6. Creating a Custom Object
+
+Provide a wizard or structured creation screen.
+
+Required configuration:
+
+### Singular Name
+
+Example:
+
+```text
+Department
+```
+
+### Plural Name
+
+Example:
+
+```text
+Departments
+```
+
+### Internal Key
+
+Automatically generated:
+
+```text
+department
+```
+
+The internal key must:
+
+* Be tenant-unique
+* Use safe slug formatting
+* Be immutable once the Object has been created
+
+The tenant may rename "Department" to "Business Unit" later without changing the internal key.
+
+### Description
+
+Optional administrator-facing explanation.
+
+### Icon
+
+Optional, selected from the existing iConnect icon library where available.
+
+### Primary Display Field
+
+Once fields exist, administrators should designate the primary field used to identify records.
+
+Example:
+
+```text
+Department Name
+```
+
+---
+
+# 7. Custom Object lifecycle
+
+Support at least:
+
+* Draft
+* Active
+* Archived
+
+### Draft
+
+Object can be configured but should not be available throughout the wider system.
+
+### Active
+
+Object and its records are available.
+
+### Archived
+
+No new records should normally be created, but historic data must remain available.
+
+Avoid hard deletion as the normal workflow.
+
+---
+
+# 8. Custom Object field builder
+
+Each Custom Object must have a **Fields** area.
+
+Reuse the existing custom-field system.
+
+For example:
+
+**Department**
+
+| Field           | Type      | Required |
+| --------------- | --------- | -------- |
+| Department Name | Text      | Yes      |
+| Department Code | Text      | No       |
+| Type            | Select    | No       |
+| Telephone       | Telephone | No       |
+| Email           | Email     | No       |
+| Active          | Boolean   | Yes      |
+| Notes           | Rich Text | No       |
+
+Use all existing supported field types that are technically compatible.
+
+Do not unnecessarily recreate field types.
+
+---
+
+# 9. System fields
+
+Every Custom Object record must automatically include internal platform fields such as:
+
+* ID
+* Tenant ID
+* Object definition ID
+* Created date
+* Created by
+* Last updated date
+* Last updated by
+* Archived date where applicable
+* Archived by where applicable
+
+These should not need to be created manually by the tenant.
+
+---
+
+# 10. Relationships
+
+This is the most important new capability.
+
+Each Custom Object must have:
+
+**Fields | Relationships | Records | Views | Permissions**
+
+Within **Relationships**, allow administrators to define connections.
+
+Relationship targets must support:
+
+### Core Objects
+
+* Member
+* Organisation
+* Group
+
+### Custom Objects
+
+Any active Custom Object within the same tenant.
+
+---
+
+# 11. Relationship types
+
+Architect the engine to support:
+
+### One-to-one
+
+Example:
+
+```text
+Organisation
+has one
+Primary Region
+```
+
+### One-to-many
+
+Example:
+
+```text
+Organisation
+has many
+Departments
+```
+
+Reverse:
+
+```text
+Department
+belongs to
+Organisation
+```
+
+### Many-to-many
+
+Example:
+
+```text
+Members
+belong to many
+Committees
+```
+
+and:
+
+```text
+Committees
+contain many
+Members
+```
+
+Custom Object ↔ Custom Object relationships must be supported by the underlying architecture from the outset.
+
+---
+
+# 12. Relationship definition UI
+
+Example:
+
+### Add Relationship
+
+**From**
+
+```text
+Department
+```
+
+**Relationship**
+
+```text
+belongs to
+```
+
+**Target**
+
+```text
+Organisation
+```
+
+**Cardinality**
+
+```text
+Many Departments → One Organisation
+```
+
+Additional configuration:
+
+* Required / optional
+* Relationship display name
+* Reverse relationship display name
+* Show on source record
+* Show on target record
+* Allow editing from source
+* Allow editing from target
+
+Example:
+
+```text
+Source label:
+Organisation
+
+Reverse label:
+Departments
+```
+
+---
+
+# 13. Relationship storage
+
+Do not create dedicated relationship tables such as:
+
+```text
+department_members
+organisation_departments
+committee_members
+```
+
+for each tenant-created relationship.
+
+Build a generic relationship architecture.
+
+Conceptually something similar to:
+
+```text
+custom_relationship_definitions
+```
+
+containing:
+
+```text
+id
+tenant_id
+source_object_type
+source_custom_object_id
+target_object_type
+target_custom_object_id
+relationship_type
+source_label
+target_label
+required
+configuration
+created_at
+created_by
+```
+
+and a generic record relationship store such as:
+
+```text
+custom_record_relationships
+```
+
+containing:
+
+```text
+id
+tenant_id
+relationship_definition_id
+source_record_type
+source_record_id
+target_record_type
+target_record_id
+created_at
+created_by
+```
+
+Exact implementation should follow existing iConnect conventions.
+
+---
+
+# 14. Do not hard-code entity names
+
+Avoid code such as:
+
+```javascript
+if (objectType === "department") {
+   ...
+}
+```
+
+The system must operate from Object Definitions.
+
+Creating:
+
+```text
+Departments
+```
+
+or:
+
+```text
+Football Teams
+```
+
+must result in the same generic behaviour.
+
+---
+
+# 15. Managing Custom Object records
+
+Each Custom Object automatically receives an admin data-management screen.
+
+Example route:
+
+```text
+/admin/data/objects/department
+```
+
+or preferably ID-based internally:
+
+```text
+/admin/data/objects/{objectDefinitionId}
+```
+
+Example:
+
+### Departments
+
+| Department Name  | Organisation  | Type      | Active |
+| ---------------- | ------------- | --------- | ------ |
+| Nuclear Medicine | ABC NHS Trust | Clinical  | Yes    |
+| Radiology        | ABC NHS Trust | Clinical  | Yes    |
+| Finance          | ABC NHS Trust | Corporate | Yes    |
+
+Support:
+
+* Search
+* Sort
+* Pagination
+* Column selection
+* Filters
+* Add record
+* Edit record
+* Archive record
+* Bulk archive where permitted
+
+Use the Custom Object's primary display field wherever a record needs to be represented elsewhere.
+
+---
+
+# 16. Generated record forms
+
+The Add/Edit screen must automatically render from the Object's field definitions.
+
+For example:
+
+```text
+Add Department
+
+Department Name *
+Department Code
+Type
+Telephone
+Email
+Active
+Notes
+```
+
+The administrator must not have to manually build a form after defining the Object.
+
+---
+
+# 17. Relationships on record screens
+
+Relationships should automatically become visible on relevant record screens.
+
+Example Department:
+
+```text
+Department
+Nuclear Medicine
+
+Organisation
+ABC NHS Trust
+
+Members
+14 Members
+
+Department Head
+Dr Jane Smith
+```
+
+Likewise, opening the Organisation should automatically be able to show:
+
+```text
+Departments
+```
+
+containing:
+
+| Department       | Type     | Members |
+| ---------------- | -------- | ------: |
+| Nuclear Medicine | Clinical |      14 |
+| Radiology        | Clinical |      23 |
+
+---
+
+# 18. Integration with existing Core Object screens
+
+When a relationship is configured to display on a Core Object, automatically expose it on the appropriate screen.
+
+For example:
+
+```text
+Organisation → Departments
+```
+
+could result in:
+
+```text
+Overview
+Members
+Groups
+Departments
+Activity
+```
+
+Do not hard-code "Departments".
+
+The tab/panel should be generated from the relationship definition.
+
+The same mechanism should therefore support:
+
+```text
+Organisation → Branches
+Organisation → Regions
+Organisation → Projects
+Member → Qualifications
+Member → Committees
+Group → Chapters
+```
+
+---
+
+# 19. Relationship display configuration
+
+Allow configuration of whether related information appears as:
+
+* Tab
+* Panel/card
+* Count only
+
+MVP may begin with:
+
+* Tab
+* Hidden
+
+but underlying configuration should be extensible.
+
+---
+
+# 20. Record selection control
+
+Create/reuse a generic **Entity/Record Picker**.
+
+It must be able to select records from:
+
+* Members
+* Organisations
+* Groups
+* Custom Objects
+
+The control should support:
+
+* Search
+* Primary display value
+* Optional secondary information
+* Single selection
+* Multiple selection where allowed
+* Pagination/search for large datasets
+
+Do not build separate DepartmentPicker, CommitteePicker, BranchPicker components.
+
+Build one reusable generic component.
+
+---
+
+# 21. Filtering relationship choices
+
+Relationship selectors must be capable of contextual filtering.
+
+Example:
+
+A Member belongs to:
+
+```text
+Organisation = ABC NHS Trust
+```
+
+When selecting their Department, it should eventually be possible to restrict:
+
+```text
+Departments
+WHERE Department.Organisation =
+Member.Organisation
+```
+
+Full dynamic filtering can be phased, but the architecture must not prevent it.
+
+---
+
+# 22. Views
+
+Each Custom Object should support configurable list views.
+
+Initially provide a default:
+
+```text
+All Departments
+```
+
+A view should retain:
+
+* Visible columns
+* Column order
+* Sort
+* Filters
+
+Example:
+
+```text
+Active Clinical Departments
+```
+
+Conditions:
+
+```text
+Active = Yes
+AND
+Type = Clinical
+```
+
+Saved view functionality can be kept relatively simple in the first release.
+
+---
+
+# 23. Search and filtering
+
+Custom Object records must be searchable.
+
+Search should include fields configured as searchable.
+
+Filtering should use existing field metadata where possible.
+
+Examples:
+
+```text
+Active = Yes
+```
+
+```text
+Type = Clinical
+```
+
+```text
+Organisation = ABC NHS Trust
+```
+
+```text
+Created after 01/01/2026
+```
+
+Do not indiscriminately search very large JSON payloads if the existing architecture offers a more efficient approach.
+
+---
+
+# 24. Import
+
+Custom Objects should support CSV import.
+
+Example:
+
+**Departments.csv**
+
+```csv
+Department Name,Department Code,Type,Active
+Nuclear Medicine,NM001,Clinical,Yes
+Radiology,RAD001,Clinical,Yes
+Finance,FIN001,Corporate,Yes
+```
+
+Import workflow should include:
+
+1. Upload CSV
+2. Map columns
+3. Validate
+4. Preview
+5. Import
+6. Show result summary
+
+Where relationship columns are imported, records should preferably be matched using a controlled identifier rather than unreliable free text.
+
+This may be Phase 2 if required, but architecture should accommodate it.
+
+---
+
+# 25. Export
+
+Administrators with permission should be able to export records to CSV.
+
+Export should respect:
+
+* Tenant
+* Current Object
+* Selected view/filter where possible
+* Permissions
+
+---
+
+# 26. Permissions
+
+Extend the existing iConnect role/permission architecture.
+
+At minimum support:
+
+### Custom Objects
+
+* View Objects
+* Manage Objects
+
+### Per Object
+
+* View records
+* Create records
+* Edit records
+* Archive records
+* Export records
+
+### Schema
+
+A separate high-level permission:
+
+```text
+Manage Data Model
+```
+
+This permission allows creation/editing of:
+
+* Objects
+* Fields
+* Relationships
+
+A user may therefore be allowed to manage Department records without being allowed to modify the Department schema.
+
+---
+
+# 27. Tenant isolation
+
+This feature must follow iConnect's existing multi-tenant architecture.
+
+A Custom Object must belong to exactly one tenant unless explicitly implemented later as a system object.
+
+Every query must be tenant scoped.
+
+It must not be possible for:
+
+```text
+Tenant A
+```
+
+to discover:
+
+* Object definitions
+* Field definitions
+* Relationship definitions
+* Records
+* Relationship records
+
+belonging to:
+
+```text
+Tenant B
+```
+
+Existing Supabase/RLS conventions should be reused.
+
+---
+
+# 28. Custom Object storage
+
+The exact implementation should be chosen after examining the existing custom-field architecture.
+
+However, the preferred conceptual structure is:
+
+### Object Definitions
+
+```text
+custom_object_definitions
+```
+
+### Records
+
+```text
+custom_object_records
+```
+
+### Relationship Definitions
+
+```text
+custom_relationship_definitions
+```
+
+### Relationship Instances
+
+```text
+custom_record_relationships
+```
+
+Existing custom-field definition/value tables should be reused wherever practical.
+
+---
+
+# 29. Record data architecture
+
+If the existing custom-field engine is compatible, follow its established pattern.
+
+If a new generic record store is required, JSONB is acceptable for tenant-defined field data.
+
+Conceptually:
+
+```text
+custom_object_records
+
+id
+tenant_id
+object_definition_id
+data JSONB
+created_at
+created_by
+updated_at
+updated_by
+archived_at
+archived_by
+```
+
+Example:
+
+```json
+{
+  "department_name": "Nuclear Medicine",
+  "department_code": "NM001",
+  "type": "clinical",
+  "active": true
+}
+```
+
+Do not automatically adopt a classic EAV design of one database row per field/value unless the existing iConnect custom-field implementation already relies upon that architecture and changing it would create unnecessary duplication.
+
+---
+
+# 30. Indexing and performance
+
+Design for tenants potentially having:
+
+* Tens of Custom Objects
+* Hundreds of fields
+* Tens or hundreds of thousands of records
+* Large numbers of relationships
+
+Ensure indexes cover at least:
+
+```text
+tenant_id
+object_definition_id
+relationship_definition_id
+source_record_id
+target_record_id
+archived state
+```
+
+Frequently searchable JSON/custom field properties may require appropriate PostgreSQL indexing.
+
+Avoid loading complete datasets client-side for searching/filtering.
+
+Use server-side/database filtering and pagination.
+
+---
+
+# 31. Schema change safety
+
+Object schemas will change after records exist.
+
+Examples:
+
+* Rename a field
+* Add a field
+* Change help text
+* Add relationship
+* Make a field required
+* Archive a field
+
+The system must handle these safely.
+
+### Renaming
+
+Changing the display name must not change its internal field identifier.
+
+### Removing fields
+
+Prefer:
+
+```text
+Archive Field
+```
+
+rather than immediate destructive deletion.
+
+Existing values must not silently disappear.
+
+### Required fields
+
+If a field containing null historic records is changed to Required:
+
+* Existing records remain valid
+* New/edited records enforce the rule
+
+Do not create a migration that unexpectedly destroys or invalidates historic data.
+
+---
+
+# 32. Audit logging
+
+Integrate with the existing iConnect audit architecture.
+
+Record:
+
+### Schema actions
+
+* Object created
+* Object renamed
+* Object archived
+* Field created
+* Field modified
+* Field archived
+* Relationship created
+* Relationship modified
+* Relationship removed
+
+### Record actions
+
+* Record created
+* Record edited
+* Record archived
+* Relationship added
+* Relationship removed
+
+Record:
+
+* Tenant
+* User
+* Timestamp
+* Action
+* Entity
+* Record where applicable
+* Before/after values where existing audit conventions support this
+
+---
+
+# 33. Deletion and referential integrity
+
+Deletion must be conservative.
+
+If a Custom Object is referenced by:
+
+* Records
+* Relationships
+* Forms
+* Reports
+* Other platform functionality
+
+do not allow destructive removal without a dependency check.
+
+For initial implementation, prefer:
+
+```text
+Archive
+```
+
+rather than:
+
+```text
+Delete
+```
+
+Relationships should never be silently orphaned.
+
+---
+
+# 34. Example implementation test
+
+Use the following as a functional test case.
+
+## Create Object
+
+```text
+Department
+```
+
+Fields:
+
+```text
+Department Name – Text – Required
+Department Code – Text
+Department Type – Select
+Active – Boolean
+Email – Email
+Telephone – Telephone
+Notes – Rich Text
+```
+
+Relationships:
+
+```text
+Department → belongs to → Organisation
+Department → has many → Members
+```
+
+Create:
+
+```text
+Department:
+Nuclear Medicine
+
+Organisation:
+ABC NHS Trust
+
+Members:
+Dr Jane Smith
+John Brown
+Sarah Jones
+```
+
+Expected result:
+
+### Organisation screen
+
+ABC NHS Trust should display:
+
+```text
+Departments
+
+Nuclear Medicine
+```
+
+### Member screen
+
+Dr Jane Smith should show:
+
+```text
+Department
+
+Nuclear Medicine
+```
+
+### Department screen
+
+Should show:
+
+```text
+Nuclear Medicine
+
+Organisation
+ABC NHS Trust
+
+Members
+Dr Jane Smith
+John Brown
+Sarah Jones
+```
+
+No Department-specific React component, SQL table or route logic should have been created to achieve this.
+
+---
+
+# 35. Custom Object ↔ Custom Object test
+
+Also validate:
+
+```text
+Custom Object:
+Region
+
+Custom Object:
+Department
+```
+
+Relationship:
+
+```text
+Region
+has many
+Departments
+```
+
+This must work using exactly the same relationship engine.
+
+This test is important because the architecture must not assume one side of a relationship is always Member, Organisation or Group.
+
+---
+
+# 36. Integration points to prepare for
+
+The first release does not necessarily need to fully integrate Custom Objects into every feature.
+
+However, the architecture must support future integration with:
+
+### FormBuilder
+
+Examples:
+
+```text
+Select a Department
+```
+
+or:
+
+```text
+Create Department record
+```
+
+### Reporting
+
+Examples:
+
+```text
+Members by Department
+Departments by Organisation
+```
+
+### Communications
+
+Examples:
+
+```text
+Members where Department = Nuclear Medicine
+```
+
+### Segmentation
+
+Example:
+
+```text
+Organisation.Region = North West
+```
+
+### Events
+
+Examples:
+
+```text
+Available to selected Chapters
+```
+
+### Workflow
+
+Example:
+
+```text
+When Member joins Department X → perform action
+```
+
+### APIs
+
+Generic access to permitted Custom Objects.
+
+Do not tightly couple the first implementation to any of these, but ensure Custom Objects have stable IDs and metadata necessary for these future capabilities.
+
+---
+
+# 37. API/service architecture
+
+Do not write separate endpoint families for each generated object.
+
+Avoid:
+
+```text
+/api/departments
+/api/branches
+/api/committees
+```
+
+Prefer generic services such as:
+
+```text
+/api/custom-objects/{objectId}/records
+```
+
+and:
+
+```text
+/api/custom-objects/{objectId}/records/{recordId}
+```
+
+Internally, routes must validate:
+
+* Tenant
+* Object
+* Permissions
+* Fields
+* Relationships
+
+before processing the request.
+
+Follow existing iConnect API conventions rather than introducing a parallel architectural style.
+
+---
+
+# 38. Front-end architecture
+
+Create reusable components rather than object-specific interfaces.
+
+Likely component concepts:
+
+```text
+CustomObjectList
+CustomObjectEditor
+CustomObjectFieldManager
+CustomObjectRelationshipManager
+CustomRecordList
+CustomRecordForm
+CustomRecordDetails
+RelatedRecordPanel
+GenericEntityPicker
+```
+
+Names can follow existing project conventions.
+
+There should be **zero Department-specific UI code** in the production implementation.
+
+---
+
+# 39. UX requirements
+
+This feature is intended for membership administrators, not developers or database engineers.
+
+Avoid terminology such as:
+
+* SQL
+* JSON
+* Foreign Key
+* Join Table
+* Database Schema
+
+Use:
+
+* Object
+* Record
+* Field
+* Relationship
+* Related Records
+
+Relationship setup should use understandable language such as:
+
+```text
+Organisation
+has many
+Departments
+```
+
+rather than:
+
+```text
+organisation_id FK
+```
+
+---
+
+# 40. Validation
+
+Validate:
+
+* Duplicate Object names/keys
+* Duplicate internal field keys
+* Required fields
+* Unique fields where supported
+* Relationship cardinality
+* Related record existence
+* Tenant ownership
+* Archived targets
+* Permission checks
+
+All validation must also occur server-side.
+
+Client-side validation alone is insufficient.
+
+---
+
+# 41. Circular relationships
+
+Circular data relationships themselves should not be prohibited unnecessarily.
+
+For example:
+
+```text
+Department → Parent Department
+```
+
+may eventually be legitimate.
+
+However, protect UI rendering and queries against infinite recursive traversal.
+
+Related-record screens should only follow specifically requested relationship levels.
+
+---
+
+# 42. Security requirements
+
+All CRUD and relationship operations must enforce:
+
+* Authentication
+* Tenant isolation
+* Role permissions
+* Record availability
+* Object availability
+
+Never trust tenant IDs, Object IDs or record IDs supplied by the browser without server-side validation.
+
+Ensure RLS/service-layer protections are consistent with the rest of iConnect.
+
+---
+
+# 43. MVP scope
+
+The first production release should include:
+
+1. Custom Object management
+2. Creation and editing of Objects
+3. Reuse of existing custom-field builder
+4. Custom Object records
+5. Generic record Add/Edit/View/List
+6. Core Object relationships
+7. Custom Object relationships
+8. One-to-one
+9. One-to-many
+10. Many-to-many
+11. Related records on Core Object screens
+12. Related records on Custom Object screens
+13. Generic entity picker
+14. Search
+15. Filtering
+16. Sorting
+17. Pagination
+18. Permissions
+19. Tenant isolation
+20. Audit logging
+21. Archive behaviour
+22. Schema change safety
+
+---
+
+# 44. Phase 2
+
+Following successful MVP deployment:
+
+* CSV import
+* CSV export
+* Saved/custom views
+* More advanced relationship filtering
+* Bulk record editing
+* FormBuilder lookup fields
+* FormBuilder Create/Update Custom Object
+* Reporting integration
+* Communications/segmentation integration
+
+---
+
+# 45. Phase 3
+
+Future opportunities:
+
+* Calculated fields
+* Formula fields
+* Roll-up fields
+* Conditional field visibility
+* Record workflows
+* Object templates
+* Custom Object APIs
+* AI-assisted Object creation
+* Public/member portal exposure
+* Custom record layouts
+* Automation triggers
+* Related record counts
+* Graph-style relationship visualisation
+
+---
+
+# 46. Future Object Templates
+
+Do not implement unless trivial within the first release, but ensure Objects can ultimately be cloned or instantiated from templates.
+
+Examples:
+
+```text
+Department
+Committee
+Region
+Branch
+Chapter
+Qualification
+Accreditation
+```
+
+A template would simply create normal Object, Field and Relationship definitions.
+
+There should be no architectural distinction between a templated Object and one built manually.
+
+---
+
+# 47. Important architectural rules
+
+Replit should treat these as hard requirements:
+
+**1. Do not create physical tenant-specific SQL tables.**
+
+**2. Do not duplicate the existing custom-field engine unless absolutely necessary.**
+
+**3. Do not hard-code Departments, Branches or any other example Object.**
+
+**4. Custom Object ↔ Custom Object relationships must be supported.**
+
+**5. All data must remain tenant-isolated.**
+
+**6. Object names and field labels may change without breaking IDs or relationships.**
+
+**7. Related record interfaces must be generated dynamically.**
+
+**8. All record queries must be server-side paginated.**
+
+**9. Destructive schema operations must be heavily restricted.**
+
+**10. Core Objects must continue functioning exactly as they do today.**
+
+---
+
+# 48. Regression requirement
+
+Existing:
+
+* Members
+* Groups
+* Organisations
+* Custom fields
+* Forms
+* Permissions
+* Imports
+* Existing data
+* Tenant separation
+
+must continue functioning unchanged.
+
+Do not migrate existing Core Objects into the new Custom Object architecture.
+
+The new architecture should **extend iConnect**, not replace its established data model.
+
+---
+
+# 49. Definition of done
+
+The implementation is complete when a tenant administrator can, without developer intervention:
+
+1. Open **Custom Objects**
+2. Create `Department`
+3. Add fields using the existing field system
+4. Relate Department to Organisation
+5. Relate Department to Members
+6. Activate the Object
+7. Add Department records
+8. Associate them with Organisations
+9. Associate Members
+10. Search/filter Department records
+11. See Departments from an Organisation
+12. See related Members from a Department
+13. Create another Object such as `Region`
+14. Relate Region to Department
+15. Achieve all of this without any new Department/Region-specific database table, route or UI code.
+
+---
+
+## Recommended product positioning
+
+I would expose this to administrators as:
+
+**Data → Custom Objects**
+
+rather than making the initial feature itself overly grand.
+
+Later, once reporting, forms, workflows and communications are using the same architecture, it could naturally evolve into a broader **Data Studio** area.
+
+The significant architectural goal for Replit is simple:
+
+> **iConnect currently lets tenants define additional information about Members, Organisations and Groups. This project must allow tenants to define entirely new types of information and relate those records to the rest of iConnect — without requiring code changes for each tenant.**
+
+That is the principle I would use to judge every implementation decision in this build.

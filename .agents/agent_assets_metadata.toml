@@ -6,84 +6,98 @@ id = "tQsX-aQ3iKoUUe1yU_gzl"
 uri = "file://attached_assets/mailchimp_member_lookup_results.xlsx"
 type = "table"
 title = "MailChimp Member Lookup Results (Corrected)"
+logical_id = "6bf6ae9b-2624-4d92-b865-b6d93cb78420"
 
 [[outputs]]
 id = "axW6smhLqW0Do65uDwzr1"
 uri = "file://.local/wordpress-integration-proposal.md"
 type = "text"
 title = "WordPress Content Sync — Global Schools Forum / iConnect Proposal"
+logical_id = "7359ac75-8484-45a4-8186-0bc1d97ef264"
 
 [[outputs]]
 id = "N2B6mBZOqqmKvuZjHrXnS"
 uri = "file://.local/wordpress-integration-proposal.docx"
 type = "word_document"
 title = "WordPress Content Sync — Global Schools Forum / iConnect Proposal (Word)"
+logical_id = "739921a0-7d44-41db-8929-a61d28a222e9"
 
 [[outputs]]
 id = "ww54CePseorboUB_oDbud"
 uri = "file://iconnect-sync.zip"
 type = "unspecified"
 title = "iConnect Content Sync WordPress Plugin (v1.1.0)"
+logical_id = "915420ef-8a71-4e0f-833a-7d4f6a47d19a"
 
 [[outputs]]
 id = "qQGKfoAGhoJvr-dmsdNAv"
 uri = "file://reports/seo-board-report.docx"
 type = "word_document"
 title = "GFI — SEO & Link-Preview Capability Board Update"
+logical_id = "de56bd25-ce85-44b4-8cd1-9a1076ccb1a3"
 
 [[outputs]]
 id = "vRAAVRf2iHTJl2DiEwJEr"
 uri = "file://exports/GFI-Security-and-Support-Board-Paper-v1.0.docx"
 type = "word_document"
 title = "GFI Security & 5-Year Support — Board Paper v1.0"
+logical_id = "624fbc9a-9ecb-4177-ab00-083710860e0e"
 
 [[outputs]]
 id = "72kzeHLD3gkxPvjWWw4-s"
 uri = "file://guides/canvasbuilder-accessibility-board-report.pdf"
 type = "pdf"
 title = "CanvasBuilder Accessibility — Board Report (PDF)"
+logical_id = "23ace045-1c1a-4b1f-86e6-fe49afd95f97"
 
 [[outputs]]
 id = "LoUrLCdSsQf9xpcI3LBby"
 uri = "file://reports/iConnect-Search-and-Member-AI-Board-Report.docx"
 type = "word_document"
 title = "iConnect Search & Member AI — Board Report"
+logical_id = "6ecd7629-64d7-4776-a1d1-f73b8606f2c3"
 
 [[outputs]]
 id = "6aUPznNyx_OakArBO13rz"
 uri = "file://guides/canvasbuilder-accessibility-board-report.docx"
 type = "word_document"
 title = "CanvasBuilder Accessibility Board Report (Word)"
+logical_id = "3b973f4c-aa43-437c-8cb8-ecfab82adcd2"
 
 [[outputs]]
 id = "MOntkLH5GvWaSFOVeH2rf"
 uri = "file://deliverables/gsf-map-switchover/class-zoho-api.iconnect.php.txt"
 type = "text"
 title = "Annotated WordPress plugin file (Zoho → iConnect)"
+logical_id = "73bcfe93-a0c0-47cc-be25-3cfc2b90f63a"
 
 [[outputs]]
 id = "0XgBoHweJu_bqx8dUgi1L"
 uri = "file://deliverables/gsf-map-switchover/HANDOVER.md"
 type = "text"
 title = "Handover note for the WordPress developers"
+logical_id = "760d9b3a-c839-4ec7-bedb-b327c005aa4a"
 
 [[outputs]]
 id = "Fpuq_XA8DI46uNcZHuKuZ"
 uri = "file://deliverables/gsf-map-switchover/gsf-map-iconnect-switchover.zip"
 type = "unspecified"
 title = "Both files zipped (includes the .php version)"
+logical_id = "b3f5396a-c7d6-4af6-ab18-fd53584cde96"
 
 [[outputs]]
 id = "oifXWZnx3cfDJZsSdPajB"
 uri = "file://.local/tasks/seo-prerender-ssr-scope.md"
 type = "text"
 title = "SEO Prerender/SSR Scope (single-tenant)"
+logical_id = "40f4be3e-a77f-496a-92a4-4a2aa8727420"
 
 [[outputs]]
 id = "Q0YW-61b8IPWdIZvJvwHQ"
 uri = "file://exports/job-posting-wrong-email-recipients.csv"
 type = "table"
 title = "Job Posting email recipients (317)"
+logical_id = "d0c08a7e-9b40-41d2-83f9-f664630325e8"
 
 [[outputs]]
 id = "wXUdkECOJMO0ScuvTxJcm"
@@ -91,6 +105,7 @@ uri = "file://.local/reports/bnms-memberships-unpaid-invoices.csv"
 type = "table"
 title = "BNMS Outstanding Membership Invoices"
 description = "21 AUTHORISED (unpaid) membership invoices — total AmountDue £6,578.80"
+logical_id = "42dc9e71-d60d-41a2-8db0-9ee405b456f4"
 
 [[outputs]]
 id = "8knhZEEwY0VeFSncM0VnW"
@@ -98,6 +113,7 @@ uri = "file://exports/bnms-memberships-invoices.csv"
 type = "table"
 title = "BNMS MEMBERSHIPS Invoices (2025-01-01 onward)"
 description = "7,379 Xero invoices with Projects = MEMBERSHIPS tracking. Columns: InvoiceNumber, Contact, Date, Status, SubTotal, Tax, Total, AmountDue, Currency, Reference."
+logical_id = "a279c33d-e78d-4789-9193-17123a137898"
 
 [[outputs]]
 id = "EgUk8ClNwZyKrlLlkks6-"
@@ -105,3 +121,4 @@ uri = "file://bnms-memberships-invoices.csv"
 type = "table"
 title = "BNMS MEMBERSHIPS Invoices (2025-01-01 onward)"
 description = "7,379 Xero invoices with Projects = MEMBERSHIPS tracking (7,319 PAID, 21 AUTHORISED, 38 VOIDED, 1 DELETED; £314,621.06 live value). Columns: InvoiceNumber, Contact, Date, Status, SubTotal, Tax, Total, AmountDue, Currency, Reference."
+logical_id = "de237524-406d-4367-b9f2-7b787f827d46"
