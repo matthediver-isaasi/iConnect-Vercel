@@ -11,11 +11,12 @@ function decodeTrackingToken(token) {
 }
 
 async function processUnsubscribe(campaignId, recipientId, recipient, campaign, source) {
-  await supabase
+  const normalizedEmail = recipient.email.trim().toLowerCase();
+  const { error: unsubscribeError } = await supabase
     .from('email_unsubscribe')
     .upsert({
       tenant_id: campaign.tenant_id,
-      email: recipient.email,
+      email: normalizedEmail,
       member_id: recipient.member_id,
       unsubscribe_type: 'all',
       campaign_id: campaignId,
@@ -24,14 +25,17 @@ async function processUnsubscribe(campaignId, recipientId, recipient, campaign, 
     }, {
       onConflict: 'tenant_id,email,unsubscribe_type,communication_category_id'
     });
+  if (unsubscribeError) throw unsubscribeError;
 
-  await supabase
+  const { error: recipientUpdateError } = await supabase
     .from('email_campaign_recipient')
     .update({
       status: 'unsubscribed',
       unsubscribed_at: new Date().toISOString()
     })
-    .eq('id', recipientId);
+    .eq('id', recipientId)
+    .eq('campaign_id', campaignId);
+  if (recipientUpdateError) throw recipientUpdateError;
 
   await supabase
     .from('email_campaign')
@@ -40,8 +44,15 @@ async function processUnsubscribe(campaignId, recipientId, recipient, campaign, 
     })
     .eq('id', campaignId);
 
-  if (!recipient.member_id) {
-    await supabase
+  if (recipient.member_id) {
+    const { error: memberUpdateError } = await supabase
+      .from('member')
+      .update({ communications_opted_out_all: true })
+      .eq('id', recipient.member_id)
+      .eq('tenant_id', campaign.tenant_id);
+    if (memberUpdateError) throw memberUpdateError;
+  } else {
+    const { error: subscriberUpdateError } = await supabase
       .from('email_subscriber')
       .update({
         opted_out: true,
@@ -49,7 +60,8 @@ async function processUnsubscribe(campaignId, recipientId, recipient, campaign, 
         updated_at: new Date().toISOString()
       })
       .eq('tenant_id', campaign.tenant_id)
-      .eq('email', recipient.email.toLowerCase());
+      .eq('email', normalizedEmail);
+    if (subscriberUpdateError) throw subscriberUpdateError;
 
     console.log(`[Unsubscribe] Updated email_subscriber opted_out for external subscriber: ${recipient.email}`);
   }
@@ -90,6 +102,12 @@ export default async function handler(req, res) {
       .single();
 
     if (recipientError || !recipient) {
+      if (req.method === 'POST') {
+        return res.status(400).json({ error: 'Invalid unsubscribe link' });
+      }
+      return res.status(400).send(renderPage('Invalid unsubscribe link', 'error'));
+    }
+    if (recipient.campaign_id !== campaignId) {
       if (req.method === 'POST') {
         return res.status(400).json({ error: 'Invalid unsubscribe link' });
       }

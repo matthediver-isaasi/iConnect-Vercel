@@ -1,10 +1,13 @@
-import { getTenantContext } from './_lib/tenantContext.js';
+import { getTenantContext, hasAdminAccess } from './_lib/tenantContext.js';
 import { supabase } from './_lib/database.js';
 
 export default async function handler(req, res) {
   const tenantContext = await getTenantContext(req);
-  if (!tenantContext.tenantId) {
-    return res.status(401).json({ error: 'Unauthorized - tenant required' });
+  if (!tenantContext.isAuthenticated || !tenantContext.tenantId) {
+    return res.status(401).json({ error: 'Authentication required' });
+  }
+  if (!(await hasAdminAccess(tenantContext))) {
+    return res.status(403).json({ error: 'Admin access required' });
   }
 
   const { tenantId } = tenantContext;
@@ -37,8 +40,8 @@ export default async function handler(req, res) {
         return res.status(400).json({ error: 'Name is required' });
       }
 
-      if (!Array.isArray(target_audiences) || target_audiences.length === 0) {
-        return res.status(400).json({ error: 'At least one audience segment is required' });
+      if (!Array.isArray(target_audiences)) {
+        return res.status(400).json({ error: 'Audience segments must be an array' });
       }
 
       const insertPayload = {
@@ -78,8 +81,8 @@ export default async function handler(req, res) {
         return res.status(400).json({ error: 'Name is required' });
       }
 
-      if (!Array.isArray(target_audiences) || target_audiences.length === 0) {
-        return res.status(400).json({ error: 'At least one audience segment is required' });
+      if (!Array.isArray(target_audiences)) {
+        return res.status(400).json({ error: 'Audience segments must be an array' });
       }
 
       const updatePayload = {

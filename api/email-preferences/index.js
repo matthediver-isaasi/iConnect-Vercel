@@ -135,7 +135,7 @@ async function handleCampaignToken(req, res, token, tokenData) {
   try {
     const { data: recipient, error: recipientError } = await supabase
       .from('email_campaign_recipient')
-      .select('id, email, member_id, campaign_id')
+      .select('id, email, first_name, last_name, member_id, campaign_id')
       .eq('id', recipientId)
       .single();
 
@@ -188,15 +188,33 @@ async function handleCampaignToken(req, res, token, tokenData) {
         memberPreferences = prefs || [];
       }
     } else {
-      const { data: subscriberRecords } = await supabase
-        .from('email_subscriber')
-        .select('opted_out')
-        .eq('tenant_id', tenantId)
-        .eq('email', recipient.email.toLowerCase())
-        .limit(1);
+      const normalizedEmail = recipient.email.trim().toLowerCase();
+      const [
+        { data: subscriberRecords, error: subscriberError },
+        { data: globalUnsubscribes, error: globalUnsubscribeError },
+      ] = await Promise.all([
+        supabase
+          .from('email_subscriber')
+          .select('opted_out')
+          .eq('tenant_id', tenantId)
+          .eq('email', normalizedEmail)
+          .limit(1),
+        supabase
+          .from('email_unsubscribe')
+          .select('id')
+          .eq('tenant_id', tenantId)
+          .ilike('email', normalizedEmail)
+          .eq('unsubscribe_type', 'all')
+          .limit(1),
+      ]);
+      if (subscriberError) throw subscriberError;
+      if (globalUnsubscribeError) throw globalUnsubscribeError;
       
       if (subscriberRecords && subscriberRecords.length > 0) {
         subscriberOptedOut = subscriberRecords[0].opted_out === true;
+      }
+      if (globalUnsubscribes && globalUnsubscribes.length > 0) {
+        subscriberOptedOut = true;
       }
     }
 
@@ -229,8 +247,8 @@ async function handleCampaignToken(req, res, token, tokenData) {
       success: true,
       token,
       email: recipient.email,
-      firstName: member?.first_name || '',
-      lastName: member?.last_name || '',
+      firstName: member?.first_name || recipient.first_name || '',
+      lastName: member?.last_name || recipient.last_name || '',
       optedOutAll: member ? (member.communications_opted_out_all || false) : subscriberOptedOut,
       categories: categoriesWithStatus,
       campaignName: campaign.name,
@@ -256,6 +274,7 @@ async function handlePreferenceUpdate(req, res, context) {
     const { action, categoryId, optOutAll } = body;
 
     if (action === 'toggle_all') {
+      const normalizedEmail = recipient.email.trim().toLowerCase();
       if (member) {
         // Member: update the communications_opted_out_all flag
         await supabase
@@ -272,7 +291,7 @@ async function handlePreferenceUpdate(req, res, context) {
             updated_at: new Date().toISOString()
           })
           .eq('tenant_id', tenantId)
-          .eq('email', recipient.email.toLowerCase());
+          .eq('email', normalizedEmail);
         
         console.log('[Preferences] Updated email_subscriber opted_out to:', optOutAll, 'for:', recipient.email);
       }
@@ -284,11 +303,11 @@ async function handlePreferenceUpdate(req, res, context) {
           }
         }
 
-        await supabase
+        const { error: unsubscribeError } = await supabase
           .from('email_unsubscribe')
           .upsert({
             tenant_id: tenantId,
-            email: recipient.email,
+            email: normalizedEmail,
             member_id: member?.id || null,
             unsubscribe_type: 'all',
             campaign_id: campaign?.id || null,
@@ -297,13 +316,15 @@ async function handlePreferenceUpdate(req, res, context) {
           }, {
             onConflict: 'tenant_id,email,unsubscribe_type,communication_category_id'
           });
+        if (unsubscribeError) throw unsubscribeError;
       } else {
-        await supabase
+        const { error: deleteError } = await supabase
           .from('email_unsubscribe')
           .delete()
           .eq('tenant_id', tenantId)
-          .eq('email', recipient.email)
+          .ilike('email', normalizedEmail)
           .eq('unsubscribe_type', 'all');
+        if (deleteError) throw deleteError;
       }
 
       return res.json({ success: true, optedOutAll: optOutAll });

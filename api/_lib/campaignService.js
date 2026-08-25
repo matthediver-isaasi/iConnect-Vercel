@@ -962,6 +962,64 @@ function validateCampaignTargeting(campaign) {
   return { valid: false, reason: 'Campaign has no audience targeting configured. Please select an audience list before sending.' };
 }
 
+async function getAudienceListRecipients(targetIds, tenantId, visitedListIds = new Set(), inheritedBypassOptOut = false) {
+  const listIds = [...new Set((targetIds || []).filter(Boolean))]
+    .filter((listId) => !visitedListIds.has(listId));
+  if (listIds.length === 0) return [];
+
+  const { data: lists, error: listsError } = await supabase
+    .from('audience_list')
+    .select('id, target_audiences, ignore_opt_outs')
+    .eq('tenant_id', tenantId)
+    .in('id', listIds);
+  if (listsError) throw listsError;
+
+  const recipients = [];
+  for (const list of lists || []) {
+    const visitedForChildren = new Set(visitedListIds);
+    visitedForChildren.add(list.id);
+    const bypassOptOut = inheritedBypassOptOut || list.ignore_opt_outs === true;
+
+    const contacts = await fetchAllRows((offset, pageSize) => supabase
+      .from('audience_list_external_contact')
+      .select('id, email, first_name, last_name')
+      .eq('tenant_id', tenantId)
+      .eq('audience_list_id', list.id)
+      .order('id', { ascending: true })
+      .range(offset, offset + pageSize - 1));
+
+    for (const contact of contacts) {
+      if (!contact.email) continue;
+      recipients.push({
+        id: contact.id,
+        member_id: null,
+        email: contact.email,
+        first_name: contact.first_name,
+        last_name: contact.last_name,
+        ...(bypassOptOut ? { bypass_opt_out: true } : {}),
+      });
+    }
+
+    for (const segment of Array.isArray(list.target_audiences) ? list.target_audiences : []) {
+      const segmentRecipients = segment.type === 'audience_list'
+        ? await getAudienceListRecipients(
+          segment.ids || [],
+          tenantId,
+          visitedForChildren,
+          bypassOptOut,
+        )
+        : await getRecipientsForSegment(segment.type, segment.ids || [], tenantId, segment);
+
+      if (bypassOptOut) {
+        for (const recipient of segmentRecipients) recipient.bypass_opt_out = true;
+      }
+      recipients.push(...segmentRecipients);
+    }
+  }
+
+  return recipients;
+}
+
 async function getRecipientsForSegment(targetType, targetIds, tenantId, segmentData = null) {
   let recipients = [];
 
@@ -1778,28 +1836,7 @@ async function getRecipientsForSegment(targetType, targetIds, tenantId, segmentD
       }
     }
   } else if (targetType === 'audience_list' && targetIds.length > 0) {
-    const { data: lists } = await supabase
-      .from('audience_list')
-      .select('id, target_audiences, ignore_opt_outs')
-      .eq('tenant_id', tenantId)
-      .in('id', targetIds);
-
-    if (lists && lists.length > 0) {
-      for (const list of lists) {
-        const savedAudiences = list.target_audiences;
-        const bypassOptOut = list.ignore_opt_outs === true;
-        if (Array.isArray(savedAudiences) && savedAudiences.length > 0) {
-          for (const segment of savedAudiences) {
-            if (segment.type === 'audience_list') continue;
-            const segRecipients = await getRecipientsForSegment(segment.type, segment.ids || [], tenantId, segment);
-            if (bypassOptOut) {
-              for (const r of segRecipients) r.bypass_opt_out = true;
-            }
-            recipients.push(...segRecipients);
-          }
-        }
-      }
-    }
+    recipients = await getAudienceListRecipients(targetIds, tenantId);
   } else if (targetType === 'field_filter' && segmentData) {
     const ALLOWED_CORE_MEMBER_KEYS = new Set(['first_name', 'last_name', 'email', 'job_title', 'role_id', 'login_enabled', 'communications_opted_out_all']);
     const ALLOWED_CORE_ORG_KEYS = new Set(['name', 'status']);
@@ -2331,7 +2368,7 @@ export async function getTargetRecipients(campaign, tenantId, countOnly = false,
     }
 
     const deletedPattern = /^deleted_.*@deleted\.local$/i;
-    allRecipients = allRecipients.filter(r => !deletedPattern.test(r.email));
+    allRecipients = allRecipients.filter(r => r.email && !deletedPattern.test(r.email));
 
     // If the campaign / audience list is configured to ignore opt-outs, mark
     // every resolved recipient so the suppression steps below skip them.
@@ -2350,11 +2387,16 @@ export async function getTargetRecipients(campaign, tenantId, countOnly = false,
     allRecipients = allRecipients.filter(r => r.bypass_opt_out === true || r.communications_opted_out_all !== true);
 
     // Step 1b: Remove emails with global unsubscribe record
-    const { data: globalUnsubscribes } = await supabase
-      .from('email_unsubscribe')
-      .select('email')
-      .eq('tenant_id', tenantId)
-      .eq('unsubscribe_type', 'all');
+    let globalUnsubscribes = [];
+    if (allRecipients.some((recipient) => recipient.bypass_opt_out !== true)) {
+      const { data, error: globalUnsubscribeError } = await supabase
+        .from('email_unsubscribe')
+        .select('email')
+        .eq('tenant_id', tenantId)
+        .eq('unsubscribe_type', 'all');
+      if (globalUnsubscribeError) throw globalUnsubscribeError;
+      globalUnsubscribes = data || [];
+    }
 
     const globalUnsubSet = new Set((globalUnsubscribes || []).map(u => u.email.toLowerCase()));
     const globalEmailRemoved = detailedLists ? allRecipients.filter(r => r.bypass_opt_out !== true && globalUnsubSet.has(r.email.toLowerCase())) : [];
@@ -2368,7 +2410,7 @@ export async function getTargetRecipients(campaign, tenantId, countOnly = false,
     let categoryOptOuts = 0;
     let categoryOptOutList = detailedLists ? [] : null;
     const communicationCategoryId = campaign.communication_category_id;
-    if (communicationCategoryId) {
+    if (communicationCategoryId && allRecipients.some((recipient) => recipient.bypass_opt_out !== true)) {
       const beforeCategory = allRecipients.length;
       const resolveMemberId = (r) => {
         if (r.member_id === null) return null;
@@ -2389,9 +2431,7 @@ export async function getTargetRecipients(campaign, tenantId, countOnly = false,
             .eq('is_subscribed', true)
             .in('member_id', batch);
 
-          if (prefError) {
-            console.error(`[Campaign Service] Error fetching category subscriptions for batch ${i / PAGE_SIZE + 1}:`, prefError.message || prefError);
-          }
+          if (prefError) throw prefError;
 
           if (prefs && prefs.length > 0) {
             for (const p of prefs) {
@@ -2428,9 +2468,7 @@ export async function getTargetRecipients(campaign, tenantId, countOnly = false,
         .eq('unsubscribe_type', 'category')
         .eq('communication_category_id', communicationCategoryId);
 
-      if (catUnsubError) {
-        console.error('[Campaign Service] Error fetching category unsubscribes:', catUnsubError.message || catUnsubError);
-      }
+      if (catUnsubError) throw catUnsubError;
 
       if (categoryUnsubscribes && categoryUnsubscribes.length > 0) {
         const categoryUnsubSet = new Set(categoryUnsubscribes.map(u => u.email.toLowerCase()));

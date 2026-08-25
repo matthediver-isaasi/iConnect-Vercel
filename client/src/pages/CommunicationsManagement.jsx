@@ -20,6 +20,7 @@ import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import EmailCampaigns from "@/components/EmailCampaigns";
 import { listAllOrganizationsForAdmin } from '@/lib/adminOrgList';
+import { parseExternalContacts } from "@/lib/externalContactsCsv";
 
 export default function CommunicationsManagementPage() {
   const { isFeatureExcluded, isAccessReady } = useMemberAccess();
@@ -76,6 +77,17 @@ export default function CommunicationsManagementPage() {
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewPage, setPreviewPage] = useState(1);
   const previewPageSize = 20;
+  const [externalContactsList, setExternalContactsList] = useState(null);
+  const [externalContacts, setExternalContacts] = useState([]);
+  const [externalContactsLoading, setExternalContactsLoading] = useState(false);
+  const [externalContactForm, setExternalContactForm] = useState({ first_name: '', last_name: '', email: '' });
+  const [individualGdprAcknowledged, setIndividualGdprAcknowledged] = useState(false);
+  const [bulkGdprAcknowledged, setBulkGdprAcknowledged] = useState(false);
+  const [bulkText, setBulkText] = useState('');
+  const [bulkRows, setBulkRows] = useState([]);
+  const [bulkSource, setBulkSource] = useState('pasted_rows');
+  const [bulkOutcomes, setBulkOutcomes] = useState([]);
+  const [contactsSubmitting, setContactsSubmitting] = useState(false);
 
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -656,7 +668,6 @@ export default function CommunicationsManagementPage() {
 
   const handleSaveListEdit = async () => {
     if (!editListName.trim()) { toast.error('Please enter a list name'); return; }
-    if (editListAudiences.length === 0) { toast.error('At least one audience segment is required'); return; }
     setSavingListEdit(true);
     try {
       const isCreating = !editingList;
@@ -677,6 +688,7 @@ export default function CommunicationsManagementPage() {
       });
       if (response.ok) {
         toast.success(isCreating ? 'Audience list created' : 'Audience list updated');
+        if (isCreating && editListAudiences.length === 0) toast.message('This list has no dynamic segments yet. Add external contacts from the list card.');
         setShowEditListDialog(false);
         queryClient.invalidateQueries({ queryKey: ['audience-lists'] });
       } else {
@@ -688,6 +700,71 @@ export default function CommunicationsManagementPage() {
     } finally {
       setSavingListEdit(false);
     }
+  };
+
+  const refreshAudienceContactData = () => {
+    queryClient.invalidateQueries({ queryKey: ['audience-list-counts'] });
+    queryClient.invalidateQueries({ queryKey: ['audience-lists'] });
+  };
+  const loadExternalContacts = async (listId) => {
+    setExternalContactsLoading(true);
+    try {
+      const response = await fetch(`/api/audience-lists/external-contacts?listId=${encodeURIComponent(listId)}`, { credentials: 'include' });
+      if (!response.ok) throw new Error('Unable to load contacts');
+      const data = await response.json();
+      setExternalContacts(data.contacts || []);
+    } catch (error) {
+      toast.error('Unable to load external contacts');
+    } finally { setExternalContactsLoading(false); }
+  };
+  const openExternalContacts = (list) => {
+    setExternalContactsList(list); setExternalContacts([]); setBulkOutcomes([]); setBulkRows([]); setBulkText('');
+    setExternalContactForm({ first_name: '', last_name: '', email: '' }); setIndividualGdprAcknowledged(false); setBulkGdprAcknowledged(false);
+    loadExternalContacts(list.id);
+  };
+  const submitExternalContacts = async (rows, source, dryRun) => {
+    const response = await fetch('/api/audience-lists/external-contacts', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+      body: JSON.stringify({ listId: externalContactsList.id, rows, source, gdprAcknowledged: source === 'individual' ? individualGdprAcknowledged : bulkGdprAcknowledged, dryRun }),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'Could not validate contacts');
+    return data;
+  };
+  const handleSingleContactAdd = async () => {
+    if (!individualGdprAcknowledged) return toast.error('Confirm the lawful basis before storing a contact.');
+    if (!externalContactForm.email.trim()) return toast.error('Email is required.');
+    setContactsSubmitting(true);
+    try {
+      const result = await submitExternalContacts([externalContactForm], 'individual', false);
+      if ((result.insertedCount || 0) > 0) { toast.success('External contact added'); setExternalContactForm({ first_name: '', last_name: '', email: '' }); setIndividualGdprAcknowledged(false); await loadExternalContacts(externalContactsList.id); refreshAudienceContactData(); }
+      else toast.error(result.outcomes?.[0]?.error || 'Contact was not added.');
+    } catch (error) { toast.error(error.message); } finally { setContactsSubmitting(false); }
+  };
+  const handleBulkPreview = async () => {
+    if (!bulkGdprAcknowledged) return toast.error('Confirm the lawful basis before validating this import.');
+    const parsed = parseExternalContacts(bulkText);
+    if (parsed.error) return toast.error(parsed.error);
+    setBulkRows(parsed.rows); setContactsSubmitting(true);
+    try { const result = await submitExternalContacts(parsed.rows, bulkSource, true); setBulkOutcomes(result.outcomes || []); }
+    catch (error) { toast.error(error.message); } finally { setContactsSubmitting(false); }
+  };
+  const handleBulkConfirm = async () => {
+    setContactsSubmitting(true);
+    try {
+      const result = await submitExternalContacts(bulkRows, bulkSource, false);
+      setBulkOutcomes(result.outcomes || []);
+      toast.success(`${result.insertedCount || 0} contact${result.insertedCount === 1 ? '' : 's'} added`);
+      await loadExternalContacts(externalContactsList.id); refreshAudienceContactData();
+    } catch (error) { toast.error(error.message); } finally { setContactsSubmitting(false); }
+  };
+  const removeExternalContact = async (contact) => {
+    if (!externalContactsList || !window.confirm(`Remove ${contact.email} from this list?`)) return;
+    try {
+      const response = await fetch(`/api/audience-lists/external-contacts?listId=${encodeURIComponent(externalContactsList.id)}&id=${encodeURIComponent(contact.id)}`, { method: 'DELETE', credentials: 'include' });
+      if (!response.ok) throw new Error();
+      toast.success('External contact removed'); await loadExternalContacts(externalContactsList.id); refreshAudienceContactData();
+    } catch { toast.error('Could not remove contact'); }
   };
 
   const handleDeleteList = async () => {
@@ -1487,6 +1564,15 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                               </div>
                             </div>
                             <div className="flex items-center gap-1">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => openExternalContacts(list)}
+                                data-testid={`button-manage-external-contacts-${list.id}`}
+                              >
+                                <Users className="w-4 h-4 mr-1.5" />
+                                Manage external contacts
+                              </Button>
                               <Button
                                 variant="ghost"
                                 size="icon"
@@ -2562,12 +2648,107 @@ CREATE POLICY "Service role has full access to member_communication_preference"
           </DialogContent>
         </Dialog>
 
+        <Dialog open={!!externalContactsList} onOpenChange={(open) => !open && setExternalContactsList(null)}>
+          <DialogContent className="max-w-4xl max-h-[88vh] overflow-hidden flex flex-col" data-testid="dialog-external-contacts">
+            <DialogHeader>
+              <DialogTitle>External contacts</DialogTitle>
+              <DialogDescription>
+                {externalContactsList?.name} · Contacts added here are included in this saved list and retain their source and audit trail.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="grid gap-5 overflow-y-auto pr-1 md:grid-cols-[1.15fr_.85fr]">
+              <section className="min-w-0">
+                <div className="flex items-center justify-between mb-2">
+                  <div>
+                    <h3 className="text-sm font-semibold text-slate-900">Stored contacts</h3>
+                    <p className="text-xs text-slate-500">Who is in this list, and how they were added.</p>
+                  </div>
+                  <Badge variant="secondary">{externalContacts.length}</Badge>
+                </div>
+                <div className="rounded-md border border-slate-200 overflow-hidden">
+                  {externalContactsLoading ? (
+                    <div className="p-8 text-center text-sm text-slate-500"><Loader2 className="inline w-4 h-4 mr-2 animate-spin" />Loading contacts</div>
+                  ) : externalContacts.length === 0 ? (
+                    <div className="p-8 text-center text-sm text-slate-500" data-testid="external-contacts-empty">No external contacts have been stored for this list.</div>
+                  ) : (
+                    <div className="max-h-[360px] overflow-y-auto">
+                      {externalContacts.map((contact) => (
+                        <div key={contact.id} className="border-b border-slate-100 last:border-0 px-3 py-3 flex gap-3 justify-between" data-testid={`external-contact-${contact.id}`}>
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium text-slate-800 truncate">{[contact.first_name, contact.last_name].filter(Boolean).join(' ') || 'Unnamed contact'}</p>
+                            <p className="text-sm text-slate-600 truncate">{contact.email}</p>
+                            <p className="mt-1 text-[11px] text-slate-500">
+                              Added {contact.addition_source?.replace(/_/g, ' ') || 'manually'} by {contact.added_by_actor_label || 'Unknown operator'}
+                              {contact.created_at ? ` · ${new Date(contact.created_at).toLocaleString()}` : ''}
+                            </p>
+                          </div>
+                          <Button variant="ghost" size="icon" className="shrink-0 text-slate-500 hover:text-red-600" onClick={() => removeExternalContact(contact)} data-testid={`button-remove-external-contact-${contact.id}`} aria-label={`Remove ${contact.email}`}>
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </section>
+              <section className="space-y-5">
+                <div className="rounded-md border border-slate-200 p-4 space-y-3">
+                  <div><h3 className="text-sm font-semibold text-slate-900">Add one contact</h3><p className="text-xs text-slate-500">Record an individual recipient with a documented lawful basis.</p></div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Input value={externalContactForm.first_name} onChange={(e) => setExternalContactForm((current) => ({ ...current, first_name: e.target.value }))} placeholder="First name" data-testid="input-external-first-name" />
+                    <Input value={externalContactForm.last_name} onChange={(e) => setExternalContactForm((current) => ({ ...current, last_name: e.target.value }))} placeholder="Last name" data-testid="input-external-last-name" />
+                  </div>
+                  <Input type="email" value={externalContactForm.email} onChange={(e) => setExternalContactForm((current) => ({ ...current, email: e.target.value }))} placeholder="Email address" data-testid="input-external-email" />
+                  <div className="flex items-start gap-2 rounded bg-amber-50 p-2.5">
+                    <Checkbox id="individual-gdpr" checked={individualGdprAcknowledged} onCheckedChange={(checked) => setIndividualGdprAcknowledged(checked === true)} data-testid="checkbox-individual-gdpr" />
+                    <Label htmlFor="individual-gdpr" className="text-xs leading-5 text-slate-700">I confirm we have a lawful basis to store and contact this person, and that this entry is accurate.</Label>
+                  </div>
+                  <Button className="w-full" onClick={handleSingleContactAdd} disabled={contactsSubmitting || !individualGdprAcknowledged} data-testid="button-add-external-contact">
+                    {contactsSubmitting && <Loader2 className="w-4 h-4 mr-2 animate-spin" />} Store contact
+                  </Button>
+                </div>
+                <div className="rounded-md border border-slate-200 p-4 space-y-3">
+                  <div><h3 className="text-sm font-semibold text-slate-900">Import contacts</h3><p className="text-xs text-slate-500">Upload CSV or paste CSV/tab-delimited rows. XLSX files are not accepted.</p></div>
+                  <Input type="file" accept=".csv,text/csv" data-testid="input-external-csv-file" onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    if (!file.name.toLowerCase().endsWith('.csv')) { toast.error('Please choose a CSV file.'); e.target.value = ''; return; }
+                    const reader = new FileReader();
+                    reader.onload = () => { setBulkText(String(reader.result || '')); setBulkSource('csv_upload'); setBulkOutcomes([]); };
+                    reader.readAsText(file);
+                  }} />
+                  <Textarea value={bulkText} onChange={(e) => { setBulkText(e.target.value); setBulkSource('pasted_rows'); setBulkOutcomes([]); }} placeholder={'first_name,last_name,email\nMira,Patel,mira@example.org'} className="min-h-[100px] font-mono text-xs" data-testid="textarea-external-contact-import" />
+                  <div className="flex items-start gap-2 rounded bg-amber-50 p-2.5">
+                    <Checkbox id="bulk-gdpr" checked={bulkGdprAcknowledged} onCheckedChange={(checked) => setBulkGdprAcknowledged(checked === true)} data-testid="checkbox-bulk-gdpr" />
+                    <Label htmlFor="bulk-gdpr" className="text-xs leading-5 text-slate-700">I confirm every imported contact has a lawful basis for storage and contact, and this source has been reviewed.</Label>
+                  </div>
+                  <Button variant="outline" className="w-full" onClick={handleBulkPreview} disabled={contactsSubmitting || !bulkGdprAcknowledged || !bulkText.trim()} data-testid="button-preview-external-import">
+                    {contactsSubmitting && <Loader2 className="w-4 h-4 mr-2 animate-spin" />} Validate import
+                  </Button>
+                  {bulkOutcomes.length > 0 && (
+                    <div className="space-y-2" data-testid="external-import-preview">
+                      <p className="text-xs font-medium text-slate-700">Authoritative validation · {bulkOutcomes.length} rows</p>
+                      <div className="max-h-44 overflow-y-auto rounded border border-slate-200">
+                        {bulkOutcomes.map((outcome) => <div key={`${outcome.rowNumber}-${outcome.email}`} className="px-2 py-1.5 border-b last:border-0 text-xs flex gap-2 justify-between"><span className="truncate">{outcome.rowNumber}. {outcome.email || 'No email'}</span><Badge variant={outcome.status === 'valid' ? 'secondary' : 'outline'} className="text-[10px]">{outcome.status.replace(/_/g, ' ')}</Badge>{outcome.error && <span className="text-red-600">{outcome.error}</span>}</div>)}
+                      </div>
+                      <Button className="w-full" onClick={handleBulkConfirm} disabled={contactsSubmitting || !bulkOutcomes.some((outcome) => outcome.status === 'valid')} data-testid="button-confirm-external-import">
+                        {contactsSubmitting && <Loader2 className="w-4 h-4 mr-2 animate-spin" />} Confirm and store valid contacts
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              </section>
+            </div>
+            <DialogFooter><Button variant="outline" onClick={() => setExternalContactsList(null)} data-testid="button-close-external-contacts">Done</Button></DialogFooter>
+          </DialogContent>
+        </Dialog>
+
         <Dialog open={showEditListDialog} onOpenChange={setShowEditListDialog}>
           <DialogContent className="max-w-lg max-h-[80vh] overflow-hidden flex flex-col">
             <DialogHeader>
               <DialogTitle>{editingList ? 'Edit List' : 'Create List'}</DialogTitle>
               <DialogDescription>
-                {editingList ? 'Update the name or audience segments for this list.' : 'Define a reusable audience list for your email campaigns.'}
+                {editingList ? 'Update the name or audience segments for this list.' : 'Define a reusable audience list for your email campaigns. You can save without segments and add external contacts afterwards.'}
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-4 py-2 overflow-y-auto flex-1 min-h-0">
@@ -3738,7 +3919,7 @@ CREATE POLICY "Service role has full access to member_communication_preference"
               </Button>
               <Button
                 onClick={handleSaveListEdit}
-                disabled={savingListEdit || !editListName.trim() || editListAudiences.length === 0}
+                disabled={savingListEdit || !editListName.trim()}
                 data-testid="button-save-edit-list"
               >
                 {savingListEdit ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <Save className="w-4 h-4 mr-1" />}

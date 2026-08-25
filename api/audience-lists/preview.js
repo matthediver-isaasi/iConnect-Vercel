@@ -1,4 +1,4 @@
-import { getTenantContext } from '../_lib/tenantContext.js';
+import { getTenantContext, hasAdminAccess } from '../_lib/tenantContext.js';
 import { supabase } from '../_lib/database.js';
 import { getTargetRecipients } from '../_lib/campaignService.js';
 
@@ -8,8 +8,11 @@ export default async function handler(req, res) {
   }
 
   const tenantContext = await getTenantContext(req);
-  if (!tenantContext.tenantId) {
-    return res.status(401).json({ error: 'Unauthorized - tenant required' });
+  if (!tenantContext.isAuthenticated || !tenantContext.tenantId) {
+    return res.status(401).json({ error: 'Authentication required' });
+  }
+  if (!(await hasAdminAccess(tenantContext))) {
+    return res.status(403).json({ error: 'Admin access required' });
   }
 
   const { tenantId } = tenantContext;
@@ -32,8 +35,7 @@ export default async function handler(req, res) {
     }
 
     const fakeCampaign = {
-      target_audiences: list.target_audiences || [],
-      ignore_opt_outs: list.ignore_opt_outs === true,
+      target_audiences: [{ type: 'audience_list', ids: [list.id] }],
     };
 
     const result = await getTargetRecipients(fakeCampaign, tenantId, false, false);
