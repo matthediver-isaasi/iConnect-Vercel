@@ -1490,3 +1490,196 @@ test('non-admin record APIs cannot enumerate or mutate core-endpoint relationshi
     (error) => error.status === 403 && /administrator/.test(error.message),
   );
 });
+
+test('core relationship discovery is generic across all core kinds and hides inactive or one-sided definitions', async () => {
+  const coreKinds = ['member', 'organization', 'organization_group'];
+  const coreTables = Object.fromEntries(coreKinds.map((kind) => [
+    kind,
+    [{ id: `${kind}-1`, tenant_id: tenantId, name: `${kind} one` }],
+  ]));
+  const definitions = coreKinds.map((kind, index) => ({
+    id: `definition-${index}`,
+    tenant_id: tenantId,
+    relationship_key: `${kind}_departments`,
+    status: 'active',
+    source_kind: kind,
+    source_custom_object_id: null,
+    target_kind: 'custom_object',
+    target_custom_object_id: objectId,
+    source_label: 'Departments',
+    target_label: kind,
+    cardinality: 'many_to_many',
+    show_on_source: true,
+    edit_from_source: index !== 1,
+    created_at: `2026-01-0${index + 1}`,
+  }));
+  const db = mockDb({
+    ...coreTables,
+    custom_object_definition: [object({
+      singular_label: 'Department',
+      plural_label: 'Departments',
+      primary_display_field_id: 'field-name',
+    })],
+    preference_field: [field({
+      id: 'field-name',
+      name: 'name',
+      label: 'Name',
+      field_type: 'text',
+      is_required: false,
+    })],
+    custom_object_relationship_definition: [
+      ...definitions,
+      { ...definitions[0], id: 'draft', relationship_key: 'draft', status: 'draft' },
+      { ...definitions[0], id: 'hidden', relationship_key: 'hidden', show_on_source: false },
+      { ...definitions[0], id: 'foreign', relationship_key: 'foreign', tenant_id: 'other-tenant' },
+    ],
+    custom_object_relationship: coreKinds.map((kind, index) => ({
+      id: `edge-${index}`,
+      tenant_id: tenantId,
+      relationship_definition_id: `definition-${index}`,
+      source_record_id: `${kind}-1`,
+      target_record_id: `department-${index}`,
+      archived_at: null,
+    })),
+  });
+  const service = createCustomObjectService({ db, context: context(), isAdmin: true });
+  for (let index = 0; index < coreKinds.length; index += 1) {
+    const kind = coreKinds[index];
+    const result = await service.listCoreRelationshipDefinitions(kind, `${kind}-1`);
+    assert.equal(result.data.length, 1);
+    assert.deepEqual(result.data[0], {
+      definition: {
+        id: `definition-${index}`,
+        relationship_key: `${kind}_departments`,
+        status: 'active',
+        source_kind: kind,
+        source_custom_object_id: null,
+        target_kind: 'custom_object',
+        target_custom_object_id: objectId,
+        source_label: 'Departments',
+        target_label: kind,
+        cardinality: 'many_to_many',
+        show_on_source: true,
+        show_on_target: undefined,
+        edit_from_source: index !== 1,
+        edit_from_target: undefined,
+      },
+      side: 'source',
+      label: 'Departments',
+      related_object: {
+        id: objectId,
+        object_key: 'departments',
+        singular_label: 'Department',
+        plural_label: 'Departments',
+      },
+      count: 1,
+      can_edit: index !== 1,
+    });
+  }
+  db.tables.custom_object_relationship_definition.length = 0;
+  assert.deepEqual(
+    await service.listCoreRelationshipDefinitions('member', 'member-1'),
+    { data: [] },
+  );
+});
+
+test('core relationship rows use primary labels, paginate, enforce edit flags, permissions, and tenant isolation', async () => {
+  const definitionId = 'core-definition';
+  const db = mockDb({
+    member: [
+      { id: 'member-1', tenant_id: tenantId, first_name: 'Ada' },
+      { id: 'foreign-member', tenant_id: 'other-tenant' },
+    ],
+    custom_object_definition: [object({
+      singular_label: 'Qualification',
+      plural_label: 'Qualifications',
+      primary_display_field_id: 'field-name',
+    })],
+    preference_field: [field({
+      id: 'field-name', name: 'name', field_type: 'text', is_required: false,
+    })],
+    custom_object_relationship_definition: [{
+      id: definitionId,
+      tenant_id: tenantId,
+      status: 'active',
+      source_kind: 'member',
+      source_custom_object_id: null,
+      target_kind: 'custom_object',
+      target_custom_object_id: objectId,
+      show_on_source: true,
+      edit_from_source: true,
+      cardinality: 'many_to_many',
+    }],
+    custom_object_record: [{
+      id: 'qualification-1',
+      tenant_id: tenantId,
+      custom_object_id: objectId,
+      data: { name: 'First Aid' },
+      archived_at: null,
+      created_at: '2026-01-01',
+    }, {
+      id: 'qualification-2',
+      tenant_id: tenantId,
+      custom_object_id: objectId,
+      data: { name: 'Governance' },
+      archived_at: null,
+      created_at: '2026-01-02',
+    }, {
+      id: 'foreign-qualification',
+      tenant_id: 'other-tenant',
+      custom_object_id: objectId,
+      data: { name: 'Private' },
+      archived_at: null,
+    }],
+    custom_object_relationship: [{
+      id: 'edge-1',
+      tenant_id: tenantId,
+      relationship_definition_id: definitionId,
+      source_record_id: 'member-1',
+      target_record_id: 'qualification-1',
+      archived_at: null,
+      created_at: '2026-01-01',
+    }, {
+      id: 'edge-2',
+      tenant_id: tenantId,
+      relationship_definition_id: definitionId,
+      source_record_id: 'member-1',
+      target_record_id: 'qualification-2',
+      archived_at: null,
+      created_at: '2026-01-02',
+    }, {
+      id: 'foreign-edge',
+      tenant_id: 'other-tenant',
+      relationship_definition_id: definitionId,
+      source_record_id: 'member-1',
+      target_record_id: 'foreign-qualification',
+      archived_at: null,
+    }],
+  });
+  const service = createCustomObjectService({ db, context: context(), isAdmin: true });
+  const page = await service.listCoreRelationships('member', 'member-1', {
+    definitionId, page: '2', pageSize: '1',
+  });
+  assert.equal(page.total, 2);
+  assert.equal(page.page, 2);
+  assert.equal(page.data[0].related.primary_label, 'First Aid');
+  const picker = await service.coreEntityPicker('member', 'member-1', {
+    definitionId, page: '1', pageSize: '1',
+  });
+  assert.equal(picker.total, 2);
+  assert.equal(picker.data[0].primary_label, 'First Aid');
+  await assert.rejects(
+    () => service.listCoreRelationshipDefinitions('member', 'foreign-member'),
+    (error) => error.status === 404,
+  );
+  db.tables.custom_object_relationship_definition[0].edit_from_source = false;
+  await assert.rejects(
+    () => service.coreEntityPicker('member', 'member-1', { definitionId }),
+    (error) => error.status === 403,
+  );
+  await assert.rejects(
+    () => createCustomObjectService({ db, context: context(), isAdmin: false })
+      .listCoreRelationshipDefinitions('member', 'member-1'),
+    (error) => error.status === 403 && /administrator/.test(error.message),
+  );
+});

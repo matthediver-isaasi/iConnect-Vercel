@@ -312,3 +312,56 @@ test('entity picker route returns service validation errors for arbitrary endpoi
   assert.equal(res.statusCode, 400);
   assert.match(res.payload.error, /derived from definitionId/);
 });
+
+test('existing generic routes dispatch core relationship discovery, rows, picker, and mutations', async () => {
+  const calls = [];
+  const dependencies = {
+    getTenantContext: async () => ({
+      isAuthenticated: true, tenantId: 'tenant-1', tenantUserId: 'admin-1',
+    }),
+    hasAdminAccess: async () => true,
+    createCustomObjectService: () => ({
+      listCoreRelationshipDefinitions: async (kind, recordId) => {
+        calls.push(['definitions', kind, recordId]);
+        return { data: [] };
+      },
+      listCoreRelationships: async (kind, recordId, query) => {
+        calls.push(['rows', kind, recordId, query.definitionId]);
+        return { data: [] };
+      },
+      coreEntityPicker: async (kind, recordId, query) => {
+        calls.push(['picker', kind, recordId, query.definitionId]);
+        return { data: [] };
+      },
+      createCoreRelationship: async (kind, recordId, body) => {
+        calls.push(['create', kind, recordId, body.related_record_id]);
+        return { id: 'edge-1' };
+      },
+      archiveCoreRelationship: async (kind, recordId, edgeId) => {
+        calls.push(['archive', kind, recordId, edgeId]);
+        return { id: edgeId };
+      },
+    }),
+  };
+  const resourceHandler = createCustomObjectRouteHandler('resource', dependencies);
+  const itemHandler = createCustomObjectRouteHandler('item', dependencies);
+  const requests = [
+    { handler: resourceHandler, request: { method: 'GET', query: { objectId: 'core', resource: 'relationship-definitions', kind: 'member', recordId: 'member-1' } } },
+    { handler: resourceHandler, request: { method: 'GET', query: { objectId: 'core', resource: 'relationships', kind: 'member', recordId: 'member-1', definitionId: 'definition-1' } } },
+    { handler: resourceHandler, request: { method: 'GET', query: { objectId: 'core', resource: 'entity-picker', kind: 'member', recordId: 'member-1', definitionId: 'definition-1' } } },
+    { handler: resourceHandler, request: { method: 'POST', query: { objectId: 'core', resource: 'relationships', kind: 'member', recordId: 'member-1' }, body: { related_record_id: 'record-1' } } },
+    { handler: itemHandler, request: { method: 'DELETE', query: { objectId: 'core', resource: 'relationships', resourceId: 'edge-1', kind: 'member', recordId: 'member-1' } } },
+  ];
+  for (const { handler, request } of requests) {
+    const res = response();
+    await handler(request, res);
+    assert.ok([200, 201].includes(res.statusCode));
+  }
+  assert.deepEqual(calls, [
+    ['definitions', 'member', 'member-1'],
+    ['rows', 'member', 'member-1', 'definition-1'],
+    ['picker', 'member', 'member-1', 'definition-1'],
+    ['create', 'member', 'member-1', 'record-1'],
+    ['archive', 'member', 'member-1', 'edge-1'],
+  ]);
+});

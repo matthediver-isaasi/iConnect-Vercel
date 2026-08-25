@@ -24,6 +24,9 @@ import { COUNTRIES } from "@/data/countries";
 import OrgDetailLayoutEditor from "@/components/OrgDetailLayoutEditor";
 import OrgFieldVisibilityRulesEditor from "@/components/OrgFieldVisibilityRulesEditor";
 import { ListFieldEditorOrg, OrgCountryMultiSelect } from "@/components/OrganisationDetailView";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { RelatedRecordsPanel, useRelatedRecordDefinitions } from "@/pages/customObjects/RelatedRecordsPanel";
+import { labelForSide, relationshipTabValue } from "@/pages/customObjects/relationshipHelpers";
 
 const EMPTY_ARR = [];
 
@@ -57,6 +60,10 @@ export default function OrganisationGroupDetailView({ group, orgs = EMPTY_ARR, o
   const { formatDate } = useDateFormat();
 
   const groupId = group?.id;
+  const relatedRecords = useRelatedRecordDefinitions({
+    context: { kind: "organization_group", recordId: groupId },
+    enabled: !!groupId,
+  });
 
   // Custom field definitions scoped to organisation groups.
   const { data: groupCustomFields = EMPTY_ARR } = useQuery({
@@ -517,6 +524,38 @@ export default function OrganisationGroupDetailView({ group, orgs = EMPTY_ARR, o
   };
 
   const memberOrgs = orgs.filter(o => o.organization_group_id === groupId);
+  const renderOverview = () => (
+    <>
+      {mergedLayout.cards.map(renderLayoutCard)}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <Building2 className="w-4 h-4 text-blue-600" />
+            Organisations in this group ({memberOrgs.length})
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {memberOrgs.length === 0 ? (
+            <p className="text-sm text-slate-400">No organisations assigned yet. Assign one from an organisation's detail page.</p>
+          ) : (
+            <div className="divide-y border rounded-md">
+              {memberOrgs.map((o) => (
+                <Link
+                  key={o.id}
+                  to={`/organisations/${o.id}`}
+                  className="flex items-center justify-between px-4 py-3 text-sm hover:bg-slate-50"
+                  data-testid={`link-group-org-${o.id}`}
+                >
+                  <span className="font-medium text-slate-700">{o.name}</span>
+                  <ExternalLink className="w-4 h-4 text-slate-400" />
+                </Link>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </>
+  );
 
   return (
     <div className="p-6 max-w-4xl mx-auto space-y-4">
@@ -561,35 +600,24 @@ export default function OrganisationGroupDetailView({ group, orgs = EMPTY_ARR, o
         <h1 className="text-2xl font-semibold text-slate-800" data-testid="text-group-detail-name">{group?.name}</h1>
       </div>
 
-      {mergedLayout.cards.map(renderLayoutCard)}
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base flex items-center gap-2">
-            <Building2 className="w-4 h-4 text-blue-600" />
-            Organisations in this group ({memberOrgs.length})
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          {memberOrgs.length === 0 ? (
-            <p className="text-sm text-slate-400">No organisations assigned yet. Assign one from an organisation's detail page.</p>
-          ) : (
-            <div className="divide-y border rounded-md">
-              {memberOrgs.map((o) => (
-                <Link
-                  key={o.id}
-                  to={`/organisations/${o.id}`}
-                  className="flex items-center justify-between px-4 py-3 text-sm hover:bg-slate-50"
-                  data-testid={`link-group-org-${o.id}`}
-                >
-                  <span className="font-medium text-slate-700">{o.name}</span>
-                  <ExternalLink className="w-4 h-4 text-slate-400" />
-                </Link>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
+      {relatedRecords.panels.length === 0 ? renderOverview() : (
+        <Tabs defaultValue="overview">
+          <TabsList>
+            <TabsTrigger value="overview">Overview</TabsTrigger>
+            {relatedRecords.panels.map(({ definition, side, count }) => (
+              <TabsTrigger key={`${definition.id}-${side}`} value={relationshipTabValue(definition, side)} data-testid={`tab-relationship-${definition.id}-${side}`}>
+                {labelForSide(definition, side)}{count != null ? ` (${count})` : ""}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+          <TabsContent value="overview" className="space-y-4">{renderOverview()}</TabsContent>
+          {relatedRecords.panels.map(({ definition, side }) => (
+            <TabsContent key={`${definition.id}-${side}`} value={relationshipTabValue(definition, side)}>
+              <RelatedRecordsPanel context={relatedRecords.context} record={group} definition={definition} side={side} showHeading={false} />
+            </TabsContent>
+          ))}
+        </Tabs>
+      )}
 
       {showLayoutEditor && (
         <OrgDetailLayoutEditor

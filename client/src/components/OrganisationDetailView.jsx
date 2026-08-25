@@ -104,6 +104,8 @@ import { useMemberTerminology } from "@/contexts/MemberTerminologyContext";
 import WorkflowConfirmationModal, { DryRunSimulationModal } from "@/components/WorkflowConfirmationModal";
 import { listAllOrganizationsForAdmin } from '@/lib/adminOrgList';
 import InviteMemberDialog from "@/components/InviteMemberDialog";
+import { RelatedRecordsPanel, useRelatedRecordDefinitions } from "@/pages/customObjects/RelatedRecordsPanel";
+import { labelForSide, relationshipTabValue } from "@/pages/customObjects/relationshipHelpers";
 
 const getMemberName = (m) => {
   return [m?.first_name, m?.last_name].filter(Boolean).join(' ') || m?.full_name || '';
@@ -276,6 +278,10 @@ export default function OrganisationDetailView({
   const hideTrainingFundCard = isFeatureExcluded('crm.organisations.fund');
   const { formatDate } = useDateFormat();
   const queryClient = useQueryClient();
+  const relatedRecords = useRelatedRecordDefinitions({
+    context: { kind: "organization", recordId: organization?.id },
+    enabled: !isNew && !!organization?.id,
+  });
 
   // Subscribe to realtime changes for organization and preference values
   // Only enable when both entity ID and tenant ID are available to ensure tenant scoping
@@ -1802,6 +1808,11 @@ export default function OrganisationDetailView({
               <TabsTrigger value="membership" className="data-[state=active]:border-b-2 data-[state=active]:border-blue-600 rounded-none" data-testid="tab-membership">
                 Membership
               </TabsTrigger>
+              {relatedRecords.panels.map(({ definition, side, count }) => (
+                <TabsTrigger key={`${definition.id}-${side}`} value={relationshipTabValue(definition, side)} className="data-[state=active]:border-b-2 data-[state=active]:border-blue-600 rounded-none" data-testid={`tab-relationship-${definition.id}-${side}`}>
+                  {labelForSide(definition, side)}{count != null ? ` (${count})` : ""}
+                </TabsTrigger>
+              ))}
             </TabsList>
           </Tabs>
         )}
@@ -1832,6 +1843,18 @@ export default function OrganisationDetailView({
       />
 
       <main className="p-6">
+        {relatedRecords.panels.map(({ definition, side }) => (
+          activeTab === relationshipTabValue(definition, side) && (
+            <RelatedRecordsPanel
+              key={`${definition.id}-${side}`}
+              context={relatedRecords.context}
+              record={organization}
+              definition={definition}
+              side={side}
+              showHeading={false}
+            />
+          )
+        ))}
         {(activeTab === 'overview' || isNew) && (
           <div className={isNew ? "max-w-4xl mx-auto space-y-6" : "grid grid-cols-1 lg:grid-cols-3 gap-6"}>
             <div className={isNew ? "space-y-6" : "lg:col-span-2 space-y-6"}>

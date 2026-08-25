@@ -33,4 +33,14 @@ export const relationshipRoutes = {
     `/api/custom-objects/${objectId}/relationships?${new URLSearchParams(params)}`,
   createEdge: (objectId) => `/api/custom-objects/${objectId}/relationships`,
   deleteEdge: (objectId, edgeId) => `/api/custom-objects/${objectId}/relationships/${edgeId}`,
+  coreDefinitions: ({ kind, recordId }) =>
+    `/api/custom-objects/core/relationship-definitions?${new URLSearchParams({ kind, recordId })}`,
+  corePicker: (params) =>
+    `/api/custom-objects/core/entity-picker?${new URLSearchParams(params)}`,
+  coreEdges: (params) =>
+    `/api/custom-objects/core/relationships?${new URLSearchParams(params)}`,
+  createCoreEdge: ({ kind, recordId, definitionId, side }) =>
+    `/api/custom-objects/core/relationships?${new URLSearchParams({ kind, recordId, definitionId, side })}`,
+  deleteCoreEdge: (edgeId, { kind, recordId, definitionId, side }) =>
+    `/api/custom-objects/core/relationships/${edgeId}?${new URLSearchParams({ kind, recordId, definitionId, side })}`,
 };

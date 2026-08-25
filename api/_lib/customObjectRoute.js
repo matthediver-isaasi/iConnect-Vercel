@@ -8,6 +8,7 @@ const MANAGE_SCHEMA_FEATURE = 'data.custom-objects.manage-data-model';
 
 function schemaAccessRequired(level, resource, method) {
   if (['records', 'relationships', 'entity-picker'].includes(resource)) return null;
+  if (level === 'resource' && resource === 'relationship-definitions') return method === 'GET' ? 'view' : 'manage';
   if (
     method === 'GET'
     && (
@@ -87,7 +88,15 @@ export function createCustomObjectRouteHandler(level, dependencies = {}) {
         else if (req.method === 'DELETE') data = await service.updateObject(objectId, req.body, true);
         else return methodNotAllowed(res, ['GET', 'PATCH', 'DELETE']);
       } else if (level === 'resource') {
-        if (resource === 'fields' && req.method === 'GET') data = await service.listFields(objectId, req.query);
+        if (objectId === 'core' && resource === 'relationship-definitions' && req.method === 'GET') {
+          data = await service.listCoreRelationshipDefinitions(req.query.kind, req.query.recordId);
+        } else if (objectId === 'core' && resource === 'relationships' && req.method === 'GET') {
+          data = await service.listCoreRelationships(req.query.kind, req.query.recordId, req.query);
+        } else if (objectId === 'core' && resource === 'entity-picker' && req.method === 'GET') {
+          data = await service.coreEntityPicker(req.query.kind, req.query.recordId, req.query);
+        } else if (objectId === 'core' && resource === 'relationships' && req.method === 'POST') {
+          data = await service.createCoreRelationship(req.query.kind, req.query.recordId, req.body);
+        } else if (resource === 'fields' && req.method === 'GET') data = await service.listFields(objectId, req.query);
         else if (resource === 'fields' && req.method === 'POST') data = await service.createField(objectId, req.body);
         else if (resource === 'records' && req.method === 'GET') data = await service.listRecords(objectId, req.query);
         else if (resource === 'records' && req.method === 'POST') data = await service.createRecord(objectId, req.body);
@@ -101,7 +110,9 @@ export function createCustomObjectRouteHandler(level, dependencies = {}) {
         else if (resource === 'audit' && req.method === 'GET') data = await service.listAudit(objectId, req.query);
         else return methodNotAllowed(res, ['GET', 'POST', 'PUT']);
       } else if (level === 'item') {
-        if (resource === 'fields' && req.method === 'PATCH') data = await service.updateField(objectId, resourceId, req.body);
+        if (objectId === 'core' && resource === 'relationships' && req.method === 'DELETE') {
+          data = await service.archiveCoreRelationship(req.query.kind, req.query.recordId, resourceId);
+        } else if (resource === 'fields' && req.method === 'PATCH') data = await service.updateField(objectId, resourceId, req.body);
         else if (resource === 'fields' && req.method === 'DELETE') data = await service.updateField(objectId, resourceId, req.body, true);
         else if (resource === 'records' && req.method === 'GET') data = await service.getRecord(objectId, resourceId);
         else if (resource === 'records' && req.method === 'PATCH') data = await service.updateRecord(objectId, resourceId, req.body);

@@ -4,7 +4,10 @@ import {
   cardinalityLimitReached,
   applicableSidesForRecord,
   displaySide,
+  relationshipCreatePayload,
   relationshipPayload,
+  relationshipPanels,
+  relatedRecordPath,
 } from "./relationshipHelpers.js";
 
 test("identifies the configured side without recursive lookups", () => {
@@ -50,5 +53,59 @@ test("builds edge payload with endpoints in their defined order", () => {
       routed_side: "target",
       routed_record_id: 9,
     },
+  );
+});
+
+test("builds the core create payload expected by the core relationship service", () => {
+  assert.deepEqual(
+    relationshipCreatePayload({
+      contextKind: "member",
+      definitionId: 3,
+      recordId: 9,
+      entityId: 14,
+      editSide: "source",
+    }),
+    {
+      relationship_definition_id: 3,
+      related_record_id: 14,
+    },
+  );
+});
+
+test("no relationship metadata produces no dynamic tabs", () => {
+  assert.deepEqual(
+    relationshipPanels({ data: [] }, { kind: "organization", recordId: "12" }),
+    [],
+  );
+  assert.deepEqual(
+    relationshipPanels(undefined, { kind: "organization_group", recordId: "4" }),
+    [],
+  );
+});
+
+test("core metadata controls side, label count and visibility", () => {
+  const panels = relationshipPanels({
+    data: [{
+      side: "target",
+      count: 3,
+      definition: {
+        id: 7,
+        status: "active",
+        target_kind: "member",
+        target_label: "Qualifications",
+        show_on_target: true,
+      },
+    }],
+  }, { kind: "member", recordId: "9" });
+  assert.equal(panels.length, 1);
+  assert.equal(panels[0].side, "target");
+  assert.equal(panels[0].count, 3);
+});
+
+test("builds links for core and custom related records", () => {
+  assert.equal(relatedRecordPath({ kind: "member", id: "3" }), "/members/3");
+  assert.equal(
+    relatedRecordPath({ kind: "custom_object", custom_object_id: "8", id: "2" }),
+    "/CustomObjectsAdmin/8/records/2",
   );
 });

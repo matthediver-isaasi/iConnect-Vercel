@@ -94,6 +94,8 @@ import MemberActivityTimeline from "@/components/MemberActivityTimeline";
 import MemberMembershipTab from "@/components/MemberMembershipTab";
 import CrmTagInput from "@/components/crm/CrmTagInput";
 import { formatTermLength } from "@/lib/memberGroupTermSnapshot";
+import { RelatedRecordsPanel, useRelatedRecordDefinitions } from "@/pages/customObjects/RelatedRecordsPanel";
+import { labelForSide, relationshipTabValue } from "@/pages/customObjects/relationshipHelpers";
 
 // Stable empty-array fallback for disabled/unloaded useQuery data.
 // Inline `= []` defaults create a fresh array identity every render, which
@@ -198,6 +200,10 @@ export default function MemberDetailView({
   const { formatDate } = useDateFormat();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+  const relatedRecords = useRelatedRecordDefinitions({
+    context: { kind: "member", recordId: member?.id },
+    enabled: !isNew && !!member?.id,
+  });
 
   // WORKAROUND: Use window.location.href for navigation
   // React Router navigation is blocked by something in this component causing re-renders
@@ -1257,6 +1263,11 @@ export default function MemberDetailView({
                 Membership
               </TabsTrigger>
             )}
+            {relatedRecords.panels.map(({ definition, side, count }) => (
+              <TabsTrigger key={`${definition.id}-${side}`} value={relationshipTabValue(definition, side)} className="gap-1" data-testid={`tab-relationship-${definition.id}-${side}`}>
+                {labelForSide(definition, side)}{count != null ? ` (${count})` : ""}
+              </TabsTrigger>
+            ))}
           </TabsList>
 
           <TabsContent value="overview" className="space-y-6">
@@ -2701,6 +2712,11 @@ export default function MemberDetailView({
               <MemberMembershipTab memberId={member?.id} memberEmail={member?.email} />
             </TabsContent>
           )}
+          {relatedRecords.panels.map(({ definition, side }) => (
+            <TabsContent key={`${definition.id}-${side}`} value={relationshipTabValue(definition, side)} className="space-y-6">
+              <RelatedRecordsPanel context={relatedRecords.context} record={member} definition={definition} side={side} showHeading={false} />
+            </TabsContent>
+          ))}
         </Tabs>
 
         <AlertDialog open={!!noteToDelete} onOpenChange={(open) => !open && setNoteToDelete(null)}>

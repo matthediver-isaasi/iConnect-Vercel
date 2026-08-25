@@ -61,6 +61,8 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Command, CommandInput, CommandList, CommandEmpty, CommandGroup, CommandItem } from "@/components/ui/command";
 import { ChevronsUpDown } from "lucide-react";
 import { listOrganizationsForAdmin } from '@/lib/adminOrgList';
+import { RelatedRecordsPanel, useRelatedRecordDefinitions } from "@/pages/customObjects/RelatedRecordsPanel";
+import { labelForSide, relationshipTabValue } from "@/pages/customObjects/relationshipHelpers";
 
 // Stable empty-array fallback for disabled/unloaded queries. Using an inline
 // `= []` destructure default creates a NEW array identity on every render,
@@ -150,6 +152,10 @@ export default function MemberDetail() {
   const { isAdmin, isAccessReady, isFeatureExcluded } = useMemberAccess();
   const { memberLabel, listPath } = useMemberTerminology();
   const { formatDate } = useDateFormat();
+  const relatedRecords = useRelatedRecordDefinitions({
+    context: { kind: "member", recordId: id },
+    enabled: isAccessReady && !!id,
+  });
 
   const {
     pendingWorkflows,
@@ -1666,6 +1672,11 @@ export default function MemberDetail() {
               Membership
             </TabsTrigger>
           )}
+          {relatedRecords.panels.map(({ definition, side, count }) => (
+            <TabsTrigger key={`${definition.id}-${side}`} value={relationshipTabValue(definition, side)} className="gap-1" data-testid={`tab-relationship-${definition.id}-${side}`}>
+              {labelForSide(definition, side)}{count != null ? ` (${count})` : ""}
+            </TabsTrigger>
+          ))}
         </TabsList>
 
         {/* Overview Tab */}
@@ -2775,6 +2786,11 @@ export default function MemberDetail() {
               <MemberMembershipTab memberId={member?.id} memberEmail={member?.email} />
             </TabsContent>
           )}
+          {relatedRecords.panels.map(({ definition, side }) => (
+            <TabsContent key={`${definition.id}-${side}`} value={relationshipTabValue(definition, side)} className="space-y-6">
+              <RelatedRecordsPanel context={relatedRecords.context} record={member} definition={definition} side={side} showHeading={false} />
+            </TabsContent>
+          ))}
       </Tabs>
 
       {/* Delete Note Confirmation Dialog */}

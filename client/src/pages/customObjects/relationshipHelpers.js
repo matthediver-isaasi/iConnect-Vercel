@@ -13,7 +13,43 @@ export const CARDINALITIES = [
 ];
 
 export const definitionList = (payload) =>
-  Array.isArray(payload) ? payload : payload?.data || [];
+  Array.isArray(payload) ? payload : payload?.data || payload?.definitions || [];
+
+export const relationshipPanels = (payload, context) =>
+  definitionList(payload).flatMap((item) => {
+    const rawDefinition = item.definition || item;
+    const definition = {
+      ...rawDefinition,
+      can_edit: item.can_edit ?? item.capabilities?.can_edit ?? rawDefinition.can_edit,
+    };
+    const suppliedSide = item.side || definition.side || definition.routed_side;
+    const sides = suppliedSide
+      ? [suppliedSide]
+      : applicableSidesForRecord(definition, context.kind, context.objectId);
+    return sides
+      .filter((side) => definition.status !== "archived" && definition.status !== "inactive")
+      .filter((side) => isDefinitionVisible(definition, side))
+      .map((side) => ({
+        definition,
+        side,
+        count: item.count ?? item.total ?? definition.count ?? definition.total,
+      }));
+  });
+
+export const relationshipTabValue = (definition, side) =>
+  `relationship-${definition.id}-${side}`;
+
+export const relatedRecordPath = (related = {}) => {
+  if (related.href || related.url) return related.href || related.url;
+  const kind = related.kind || related.entity_kind;
+  const id = related.id || related.record_id;
+  if (!id) return null;
+  if (kind === "member") return `/members/${id}`;
+  if (kind === "organization") return `/organisations/${id}`;
+  if (kind === "organization_group") return `/OrganisationGroups/${id}`;
+  const objectId = related.custom_object_id || related.object_id;
+  return objectId ? `/CustomObjectsAdmin/${objectId}/records/${id}` : null;
+};
 
 export const isDefinitionVisible = (definition, side) =>
   side === "source" ? definition.show_on_source !== false : definition.show_on_target !== false;
@@ -21,6 +57,7 @@ export const isDefinitionVisible = (definition, side) =>
 export const canEditDefinitionFrom = (definition, side, hasPermission = true) =>
   Boolean(
     hasPermission &&
+      definition.can_edit !== false &&
       (side === "source" ? definition.edit_from_source !== false : definition.edit_from_target !== false),
   );
 
@@ -75,6 +112,19 @@ export const relationshipPayload = ({ definitionId, recordId, entityId, editSide
         routed_side: editSide,
         routed_record_id: recordId,
       };
+
+export const relationshipCreatePayload = ({
+  contextKind,
+  definitionId,
+  recordId,
+  entityId,
+  editSide,
+}) => contextKind === "custom_object"
+  ? relationshipPayload({ definitionId, recordId, entityId, editSide })
+  : {
+      relationship_definition_id: definitionId,
+      related_record_id: entityId,
+    };
 
 export const defaultDefinitionForm = (objectId) => ({
   relationship_key: "",
