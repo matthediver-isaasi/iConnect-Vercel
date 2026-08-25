@@ -115,7 +115,7 @@ test('collection reads reach service record-grant fallback when schema view is u
     canManageSchema: false,
     fallbackReached: true,
   });
-  assert.ok(checked.includes('data.custom-objects'));
+  assert.ok(checked.includes('admin.data-studio'));
 });
 
 test('object and field reads reach service object-grant fallback without schema features', async () => {
@@ -167,7 +167,7 @@ test('view access permits catalogue GET but not schema mutation without manage a
       isAuthenticated: true, tenantId: 'tenant-1', roleId: 'role-1',
     }),
     hasAdminAccess: async () => false,
-    hasFeatureAccess: async (_roleId, feature) => feature === 'data.custom-objects',
+    hasFeatureAccess: async (_roleId, feature) => feature === 'admin.data-studio',
     createCustomObjectService: ({ canViewSchema, canManageSchema }) => ({
       listObjects: async () => ({ canViewSchema, canManageSchema }),
       createObject: async () => ({ unexpected: true }),

@@ -183,3 +183,38 @@ test('generic API route entry points remain registered and non-public', async ()
   assert.match(route, /if \(!context\?\.isAuthenticated\)/);
   assert.match(route, /if \(!context\?\.tenantId\)/);
 });
+
+test('Data Studio uses one canonical page permission across routes and menu catalogues', async () => {
+  const [layout, pageIndex, adminPage, portalMenu, navigationMenu] = await Promise.all([
+    readFile(new URL('../../client/src/pages/Layout.jsx', import.meta.url), 'utf8'),
+    readFile(new URL('../../client/src/pages/index.jsx', import.meta.url), 'utf8'),
+    readFile(new URL('../../client/src/pages/CustomObjectsAdmin.jsx', import.meta.url), 'utf8'),
+    readFile(new URL('../../client/src/pages/PortalMenuManagement.jsx', import.meta.url), 'utf8'),
+    readFile(new URL('../../client/src/pages/NavigationManagement.jsx', import.meta.url), 'utf8'),
+  ]);
+
+  assert.match(layout, /'CustomObjectsAdmin': 'admin\.data-studio'/);
+  assert.match(layout, /featureId: "admin\.data-studio"/);
+  assert.match(
+    layout,
+    /itemSection === 'admin'[\s\S]*`page_admin_\$\{item\.url\}`/,
+  );
+  assert.match(adminPage, /isFeatureExcluded\("admin\.data-studio"\)/);
+  assert.doesNotMatch(adminPage, /isFeatureExcluded\("data\.custom-objects"\)/);
+  assert.match(
+    pageIndex,
+    /urlParts\[0\]\?\.toLowerCase\(\) === 'customobjectsadmin'[\s\S]*return 'CustomObjectsAdmin'/,
+  );
+  assert.equal(
+    (pageIndex.match(/<Route path="\/CustomObjectsAdmin[^"]*"/g) || []).length,
+    6,
+  );
+  assert.match(
+    portalMenu,
+    /\{ value: "CustomObjectsAdmin", label: "Data Studio" \}/,
+  );
+  assert.match(
+    navigationMenu,
+    /\{ name: "CustomObjectsAdmin", label: "Data Studio" \}/,
+  );
+});

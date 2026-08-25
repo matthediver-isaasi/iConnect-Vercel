@@ -60,6 +60,10 @@ const LEGACY_ID_SNAPSHOT: Record<string, string> = {
   // dotted legacy aliases (old canonical keys that were later renamed)
   "membership.my-organisation": "organisation.my-organisation",
   "membership.organisation-preferences": "organisation.field-permissions",
+  "data": "admin.data-studio",
+  "data.custom-objects": "admin.data-studio",
+  "page_CustomObjectsAdmin": "admin.data-studio",
+  "page_admin_CustomObjectsAdmin": "admin.data-studio",
   // "communication.preferences" is a live resource, NOT a legacy alias: it must
   // resolve to itself so its exclusions are honored (a stale alias to
   // "user.about-me" previously shadowed it and prevented hiding the page).
@@ -139,6 +143,15 @@ test("stored legacy exclusions still hide the canonical resource", () => {
 
   // A legacy module/page exclusion cascades to its children.
   assert.equal(isResourceExcluded(["page_admin_PageBuilder"], "site-builder.pages"), true);
+  assert.equal(isResourceExcluded(["data.custom-objects"], "admin.data-studio"), true);
+  assert.equal(
+    isResourceExcluded(["admin.data-studio"], "page_admin_CustomObjectsAdmin"),
+    true,
+  );
+  assert.equal(
+    isResourceExcluded(["data"], "data.custom-objects.manage-data-model"),
+    true,
+  );
 
   // Unrelated resources remain visible.
   assert.equal(isResourceExcluded(["page_CancellationRequests"], "events.browse-events"), false);
@@ -196,6 +209,7 @@ const MISMATCHED: Array<[string, string | null, string]> = [
   ["dashboard.view", "dashboard.view", "system"],
   ["dashboard.shared-widgets.manage", "dashboard.view", "system"],
   ["dashboard.personal-widgets.manage", "dashboard.view", "system"],
+  ["data.custom-objects.manage-data-model", "admin.data-studio", "admin"],
 ];
 
 test("parent resolution follows the map, not the dot-prefix", () => {
@@ -221,6 +235,10 @@ test("parent-level exclusions gate mismatched children", () => {
   assert.equal(isResourceExcluded(["site-builder"], "admin.canvas-links-manager"), true);
   assert.equal(isResourceExcluded(["system"], "dashboard.view"), true);
   assert.equal(isResourceExcluded(["system"], "dashboard.shared-widgets.manage"), true);
+  assert.equal(
+    isResourceExcluded(["admin.data-studio"], "data.custom-objects.manage-data-model"),
+    true,
+  );
   // sanity: unrelated parents don't gate them
   assert.equal(isResourceExcluded(["admin"], "admin.canvas-links-manager"), false);
   assert.equal(isResourceExcluded(["dashboard"], "dashboard.view"), false);

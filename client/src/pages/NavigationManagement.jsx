@@ -234,6 +234,7 @@ const hardcodedPublicPages = [
   { name: "CategoryManagement", label: "Category Management" },
   { name: "Dashboard", label: "Dashboard" },
   { name: "DataExport", label: "Data Export" },
+  { name: "CustomObjectsAdmin", label: "Data Studio" },
   { name: "DiscountCodeManagement", label: "Discount Code Management" },
   { name: "DynamicPage", label: "Dynamic Page" },
   { name: "EventDetails", label: "Event Details" },

@@ -1,10 +1,16 @@
 #!/usr/bin/env node
 /**
- * Idempotently register the Data / Custom Objects / Manage data model RBAC
- * hierarchy. Dry-run by default; pass --apply to write.
+ * Idempotently register the Admin Toolkit / Data Studio / Manage data model
+ * RBAC hierarchy. Dry-run by default; pass --apply to write.
  */
 import { createClient } from '@supabase/supabase-js';
 import { isResourceExcluded } from '../api/_lib/roleVisibility.js';
+import {
+  DATA_STUDIO_PAGE,
+  DATA_STUDIO_PAGE_KEY,
+  normaliseDataStudioExclusions,
+  planDataStudioPageMigration,
+} from './custom-objects-role-access-helpers.mjs';
 
 const APPLY = process.argv.includes('--apply');
 const TAG = '[seed-custom-objects-role-access]';
@@ -19,17 +25,19 @@ if (!url || !key) {
 }
 const db = createClient(url, key);
 
-const ITEMS = [
-  { item_type: 'module', item_key: 'data', label: 'Data', icon: 'Database' },
-  { item_type: 'page', item_key: 'data.custom-objects', label: 'Custom Objects', icon: null },
-  {
-    item_type: 'feature',
-    item_key: 'data.custom-objects.manage-data-model',
-    label: 'Manage data model',
-    icon: null,
-  },
-];
-const DEFAULT_EXCLUSIONS = ITEMS.slice(1).map((item) => item.item_key);
+const ADMIN_MODULE = {
+  item_type: 'module',
+  item_key: 'admin',
+  label: 'Admin Toolkit',
+  icon: 'Shield',
+};
+const MANAGE_DATA_MODEL = {
+  item_type: 'feature',
+  item_key: 'data.custom-objects.manage-data-model',
+  label: 'Manage Data Model',
+  icon: null,
+};
+const DEFAULT_EXCLUSIONS = [DATA_STUDIO_PAGE_KEY, MANAGE_DATA_MODEL.item_key];
 
 function isAdmin(exclusions) {
   return !isResourceExcluded(
@@ -41,7 +49,7 @@ function isAdmin(exclusions) {
 async function ensureItem(item, parentId) {
   const { data: existing, error } = await db.from('role_access_item')
     .select('id,item_type,item_key,label,icon,parent_id,is_active')
-    .eq('item_key', item.item_key).maybeSingle();
+    .eq('item_key', item.item_key).limit(1).maybeSingle();
   if (error) throw error;
   if (existing) {
     const repairs = {};
@@ -91,6 +99,71 @@ async function ensureItem(item, parentId) {
   return data.id;
 }
 
+async function ensureDataStudioPage(parentId) {
+  const keys = [DATA_STUDIO_PAGE_KEY, 'data.custom-objects'];
+  const { data: rows, error } = await db.from('role_access_item')
+    .select('id,item_type,item_key,label,icon,parent_id,is_active')
+    .in('item_key', keys);
+  if (error) throw error;
+
+  const plan = planDataStudioPageMigration(rows, parentId);
+  if (!plan.keeper) return ensureItem(DATA_STUDIO_PAGE, parentId);
+
+  if (Object.keys(plan.repairs).length === 0) {
+    console.log(`${TAG} ${DATA_STUDIO_PAGE_KEY} already configured.`);
+  } else if (!APPLY) {
+    console.log(`${TAG} DRY RUN: would migrate ${plan.keeper.item_key} to ${DATA_STUDIO_PAGE_KEY}.`);
+  } else {
+    const { error: updateError } = await db.from('role_access_item')
+      .update(plan.repairs)
+      .eq('id', plan.keeper.id);
+    if (updateError) throw updateError;
+    console.log(`${TAG} Migrated ${plan.keeper.item_key} to ${DATA_STUDIO_PAGE_KEY}.`);
+  }
+
+  if (plan.retireIds.length > 0) {
+    if (!APPLY) {
+      console.log(`${TAG} DRY RUN: would deactivate ${plan.retireIds.length} duplicate Data Studio row(s).`);
+    } else {
+      const { error: retireError } = await db.from('role_access_item')
+        .update({ is_active: false })
+        .in('id', plan.retireIds);
+      if (retireError) throw retireError;
+      console.log(`${TAG} Deactivated ${plan.retireIds.length} duplicate Data Studio row(s).`);
+    }
+  }
+
+  return plan.keeper.id;
+}
+
+async function retireEmptyLegacyDataModule(movedPageId) {
+  const { data: modules, error: moduleError } = await db.from('role_access_item')
+    .select('id,is_active')
+    .eq('item_type', 'module')
+    .eq('item_key', 'data');
+  if (moduleError) throw moduleError;
+
+  for (const module of modules || []) {
+    if (module.is_active === false) continue;
+    const { data: children, error: childrenError } = await db.from('role_access_item')
+      .select('id,is_active')
+      .eq('parent_id', module.id)
+      .eq('is_active', true);
+    if (childrenError) throw childrenError;
+    const remaining = (children || []).filter((child) => child.id !== movedPageId);
+    if (remaining.length > 0) continue;
+    if (!APPLY) {
+      console.log(`${TAG} DRY RUN: would deactivate the empty legacy data module.`);
+    } else {
+      const { error: retireError } = await db.from('role_access_item')
+        .update({ is_active: false })
+        .eq('id', module.id);
+      if (retireError) throw retireError;
+      console.log(`${TAG} Deactivated the empty legacy data module.`);
+    }
+  }
+}
+
 async function fetchRoles() {
   const roles = [];
   for (let from = 0; ; from += 500) {
@@ -105,9 +178,10 @@ async function fetchRoles() {
 async function seedRoleExclusions() {
   for (const role of await fetchRoles()) {
     const current = Array.isArray(role.excluded_features) ? role.excluded_features : [];
-    const desired = isAdmin(current)
-      ? current.filter((feature) => !DEFAULT_EXCLUSIONS.includes(feature))
-      : [...new Set([...current, ...DEFAULT_EXCLUSIONS])];
+    const migrated = normaliseDataStudioExclusions(current);
+    const desired = isAdmin(migrated)
+      ? migrated
+      : [...new Set([...migrated, ...DEFAULT_EXCLUSIONS])];
     if (JSON.stringify(current) === JSON.stringify(desired)) continue;
     if (!APPLY) {
       console.log(`${TAG} DRY RUN: would update role "${role.name}".`);
@@ -127,9 +201,10 @@ async function seedTemplates() {
   let changed = false;
   const roles = data.value.roles.map((role) => {
     const current = Array.isArray(role.excluded_features) ? role.excluded_features : [];
-    const desired = isAdmin(current)
-      ? current.filter((feature) => !DEFAULT_EXCLUSIONS.includes(feature))
-      : [...new Set([...current, ...DEFAULT_EXCLUSIONS])];
+    const migrated = normaliseDataStudioExclusions(current);
+    const desired = isAdmin(migrated)
+      ? migrated
+      : [...new Set([...migrated, ...DEFAULT_EXCLUSIONS])];
     if (JSON.stringify(current) === JSON.stringify(desired)) return role;
     changed = true;
     return { ...role, excluded_features: desired };
@@ -150,8 +225,10 @@ async function seedTemplates() {
 
 async function run() {
   console.log(`${TAG} ${APPLY ? 'APPLY mode' : 'DRY RUN — pass --apply to write'}`);
-  let parentId = null;
-  for (const item of ITEMS) parentId = await ensureItem(item, parentId);
+  const adminId = await ensureItem(ADMIN_MODULE, null);
+  const dataStudioId = await ensureDataStudioPage(adminId);
+  await ensureItem(MANAGE_DATA_MODEL, dataStudioId);
+  await retireEmptyLegacyDataModule(dataStudioId);
   await seedRoleExclusions();
   await seedTemplates();
   console.log(`${TAG} Done.`);

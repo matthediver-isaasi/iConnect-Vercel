@@ -695,23 +695,6 @@ export const ROLE_ACCESS_MAP: Module[] = [
     ]
   },
   {
-    id: "data",
-    label: "Data",
-    icon: "Database",
-    pages: [
-      {
-        id: "data.custom-objects",
-        label: "Custom Objects",
-        features: [
-          {
-            id: "data.custom-objects.manage-data-model",
-            label: "Manage Data Model"
-          }
-        ]
-      }
-    ]
-  },
-  {
     id: "admin",
     label: "Admin Toolkit",
     icon: "Shield",
@@ -738,6 +721,16 @@ export const ROLE_ACCESS_MAP: Module[] = [
       {
         id: "admin.custom-fields",
         label: "Custom Fields"
+      },
+      {
+        id: "admin.data-studio",
+        label: "Data Studio",
+        features: [
+          {
+            id: "data.custom-objects.manage-data-model",
+            label: "Manage Data Model"
+          }
+        ]
       },
       {
         id: "admin.data-export",
@@ -1045,6 +1038,8 @@ export function getResourceLabel(resourceId: string): string | null {
 }
 
 export const LEGACY_TO_NEW_MAPPING: Record<string, string> = {
+  "data": "admin.data-studio",
+  "data.custom-objects": "admin.data-studio",
   "page_user_BuyProgramTickets": "commerce.buy-tickets",
   "page_user_Events": "events.browse-events",
   "page_user_Bookings": "commerce.bookings",
@@ -1224,7 +1219,8 @@ export const LEGACY_TO_NEW_MAPPING: Record<string, string> = {
   "page_PreferenceSettings": "communication.preference-settings",
   "page_FormBuilder": "forms.form-builder",
   "page_CustomFieldsAdmin": "admin.custom-fields",
-  "page_CustomObjectsAdmin": "data.custom-objects",
+  "page_CustomObjectsAdmin": "admin.data-studio",
+  "page_admin_CustomObjectsAdmin": "admin.data-studio",
   "page_EmailTemplateManagement": "communication.email-templates",
   "page_EmailPlaceholders": "communication.email-placeholders",
   "page_CommunicationsManagement": "communication.management",

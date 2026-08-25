@@ -3,7 +3,7 @@ import { getTenantContext, hasAdminAccess, hasFeatureAccess } from './tenantCont
 import { isResourceExcluded } from './roleVisibility.js';
 import { CustomObjectHttpError, createCustomObjectService } from './customObjectService.js';
 
-const VIEW_SCHEMA_FEATURE = 'data.custom-objects';
+const VIEW_SCHEMA_FEATURE = 'admin.data-studio';
 const MANAGE_SCHEMA_FEATURE = 'data.custom-objects.manage-data-model';
 
 function schemaAccessRequired(level, resource, method) {

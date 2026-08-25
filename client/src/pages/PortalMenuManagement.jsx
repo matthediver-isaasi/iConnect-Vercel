@@ -88,6 +88,7 @@ const builtInPages = [
   { value: "MemberGroupClassificationReport", label: "Group Classification Report" },
   { value: "Dashboard", label: "Dashboard" },
   { value: "DataExport", label: "Data Export" },
+  { value: "CustomObjectsAdmin", label: "Data Studio" },
   { value: "DirectDebitAdmin", label: "Direct Debit Console" },
   { value: "DiscountCodeManagement", label: "Discount Code Management" },
   { value: "DynamicDirectoryManagement", label: "Dynamic Directory Management" },

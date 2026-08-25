@@ -110,10 +110,7 @@ function AccessGate({ children }) {
   const [checked, setChecked] = useState(false);
   useEffect(() => {
     if (!isAccessReady) return;
-    if (
-      isFeatureExcluded("data.custom-objects") ||
-      isFeatureExcluded("page_CustomObjectsAdmin")
-    )
+    if (isFeatureExcluded("admin.data-studio"))
       window.location.href = createPageUrl("Events");
     else setChecked(true);
   }, [isAccessReady, isFeatureExcluded]);
