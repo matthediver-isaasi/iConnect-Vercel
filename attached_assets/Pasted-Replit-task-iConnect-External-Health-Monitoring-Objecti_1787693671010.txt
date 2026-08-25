@@ -1,0 +1,256 @@
+Replit task: iConnect External Health Monitoring
+Objective
+
+Add the minimum application-side functionality required for Better Stack to monitor iConnect reliably.
+
+We are not building monitoring dashboards, incident management, alerting, reporting or status-page functionality inside iConnect. Better Stack will provide those services.
+
+The implementation should consist of:
+
+Better Stack
+     │
+     ├── Public iConnect availability
+     │
+     ├── Protected iConnect health endpoint
+     │        ├── Database
+     │        ├── Authentication
+     │        └── Storage
+     │
+     └── Critical job heartbeats
+1. Add a server-side health endpoint
+
+Create:
+
+GET /api/health
+
+This must be a genuine application health check rather than simply returning 200 OK.
+
+It should test the critical services iConnect requires to function.
+
+Database
+
+Perform a lightweight, read-only Supabase database query.
+
+Do not:
+
+create records;
+update records;
+delete records;
+run an expensive query.
+
+Use an existing stable table/query where possible.
+
+If the database query succeeds:
+
+database: ok
+
+Otherwise:
+
+database: failed
+Supabase Auth
+
+Test the project's Supabase Auth service.
+
+Supabase provides a dedicated /auth/v1/health endpoint specifically for this purpose.
+
+This must not log a user in, create a user or generate an email.
+
+Supabase Storage
+
+Perform a lightweight, read-only request against the existing Supabase Storage configuration.
+
+For example, list/check an existing known bucket without downloading files.
+
+No health check should create or modify files.
+
+2. Health response
+
+Healthy:
+
+{
+  "status": "ok",
+  "checks": {
+    "database": "ok",
+    "auth": "ok",
+    "storage": "ok"
+  },
+  "timestamp": "2026-08-25T17:00:00.000Z"
+}
+
+Return:
+
+HTTP 200
+
+If a critical dependency fails:
+
+{
+  "status": "failed",
+  "checks": {
+    "database": "failed",
+    "auth": "ok",
+    "storage": "ok"
+  },
+  "timestamp": "2026-08-25T17:00:00.000Z"
+}
+
+Return:
+
+HTTP 503
+
+The important part is the HTTP status code: Better Stack can monitor an API for a successful 2xx response and raise an incident when it stops receiving one.
+
+3. Protect /api/health
+
+I wouldn't leave the detailed health endpoint completely public.
+
+Add:
+
+ICONNECT_HEALTH_CHECK_TOKEN
+
+as a Vercel server environment variable.
+
+Require:
+
+X-Health-Token: <token>
+
+on requests to /api/health.
+
+Better Stack supports custom HTTP request headers, so we'll supply this value when configuring the monitor.
+
+An invalid/missing token should return:
+
+401 Unauthorized
+
+Never return:
+
+database credentials;
+Supabase keys;
+connection strings;
+bucket contents;
+SQL errors;
+stack traces;
+tenant information.
+
+Detailed errors may be logged server-side, but the health endpoint itself should remain sanitised.
+
+4. Prevent caching
+
+The health endpoint must represent the state of the system now.
+
+Return appropriate headers such as:
+
+Cache-Control: no-store
+
+and ensure Vercel/CDN behaviour cannot cache a previous successful health response.
+
+5. Dependency timeout protection
+
+Health checks must run in parallel where practical.
+
+A stalled dependency must not leave /api/health hanging indefinitely.
+
+Use short sensible timeouts, e.g. approximately 5 seconds per dependency, with an overall endpoint timeout.
+
+If a critical service times out, treat that service as failed.
+
+6. Add Better Stack heartbeat support
+
+We also want to detect jobs that silently stop running.
+
+Create a small reusable server-side utility along the lines of:
+
+sendBetterStackHeartbeat(url)
+sendBetterStackHeartbeatFailure(url, error)
+
+Heartbeat URLs must come from environment variables and must never be committed to source control.
+
+Better Stack heartbeat monitoring expects a request to its unique URL within a defined period. If the heartbeat doesn't arrive, it automatically creates an incident. A job can also explicitly report failure using the /fail URL.
+
+7. Connect only genuinely important jobs
+
+Don't add heartbeats to everything.
+
+Review the existing iConnect scheduled jobs and identify anything where silent failure would materially affect operation.
+
+Examples might include:
+
+Critical scheduled process
+        │
+        ▼
+Job starts
+        │
+   ┌────┴────┐
+   │         │
+Success    Failure
+   │         │
+   ▼         ▼
+heartbeat   /fail
+
+For each agreed critical job:
+
+On successful completion
+
+GET <BETTER_STACK_HEARTBEAT_URL>
+
+On caught failure
+
+GET <BETTER_STACK_HEARTBEAT_URL>/fail
+
+The heartbeat notification itself must not cause the underlying iConnect job to fail if Better Stack happens to be unavailable.
+
+8. Environment configuration
+
+Structure the implementation so I can subsequently add environment variables such as:
+
+ICONNECT_HEALTH_CHECK_TOKEN
+
+BETTERSTACK_HEARTBEAT_<JOB_NAME>_URL
+BETTERSTACK_HEARTBEAT_<ANOTHER_JOB>_URL
+
+Heartbeat integration must gracefully do nothing when the corresponding environment variable has not yet been configured.
+
+This means Replit can complete the implementation before I have generated the Better Stack heartbeat URLs.
+
+9. Do NOT build
+
+Specifically exclude:
+
+iConnect monitoring dashboard
+incident database
+incident admin screens
+alert notification system
+SMS service
+email alert service
+uptime history
+status-page builder
+Better Stack API management UI
+automatic failover
+automatic Supabase restart/recovery
+automated remediation
+
+Better Stack is responsible for monitoring and alerting.
+
+10. Acceptance testing
+
+Replit should demonstrate:
+
+Normal system
+/api/health → HTTP 200
+
+Invalid health token
+/api/health → HTTP 401
+
+Database unavailable/simulated failure
+/api/health → HTTP 503
+
+Auth failure/simulated
+/api/health → HTTP 503
+
+Storage failure/simulated
+/api/health → HTTP 503
+
+Successful scheduled job
+Heartbeat sent
+
+Failed scheduled job
+Failure heartbeat sent
