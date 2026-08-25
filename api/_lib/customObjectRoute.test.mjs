@@ -91,8 +91,7 @@ test('dedicated nested route dispatches object-scoped record reads', async () =>
   assert.deepEqual(res.payload, { objectId: 'object-1', recordId: 'record-1' });
 });
 
-test('schema catalogue access is denied directly when the view page is excluded', async () => {
-  let serviceCreated = false;
+test('collection reads reach service record-grant fallback when schema view is unavailable', async () => {
   const checked = [];
   const handler = createCustomObjectRouteHandler('collection', {
     getTenantContext: async () => ({
@@ -103,16 +102,62 @@ test('schema catalogue access is denied directly when the view page is excluded'
       checked.push(feature);
       return false;
     },
-    createCustomObjectService: () => {
-      serviceCreated = true;
-      return {};
-    },
+    createCustomObjectService: ({ canViewSchema, canManageSchema }) => ({
+      listObjects: async () => ({ canViewSchema, canManageSchema, fallbackReached: true }),
+    }),
   });
   const res = response();
   await handler({ method: 'GET', query: {} }, res);
-  assert.equal(res.statusCode, 403);
-  assert.equal(serviceCreated, false);
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(res.payload, {
+    canViewSchema: false,
+    canManageSchema: false,
+    fallbackReached: true,
+  });
   assert.ok(checked.includes('data.custom-objects'));
+});
+
+test('object and field reads reach service object-grant fallback without schema features', async () => {
+  const dependencies = {
+    getTenantContext: async () => ({
+      isAuthenticated: true, tenantId: 'tenant-1', roleId: 'role-1',
+    }),
+    hasAdminAccess: async () => false,
+    hasFeatureAccess: async () => false,
+    createCustomObjectService: ({ canViewSchema, canManageSchema }) => ({
+      getObject: async (objectId) => ({
+        objectId, canViewSchema, canManageSchema, fallbackReached: true,
+      }),
+      listFields: async (objectId) => ({
+        objectId, canViewSchema, canManageSchema, fallbackReached: true,
+      }),
+    }),
+  };
+  const objectRes = response();
+  await createCustomObjectRouteHandler('object', dependencies)({
+    method: 'GET',
+    query: { objectId: 'object-1' },
+  }, objectRes);
+  assert.equal(objectRes.statusCode, 200);
+  assert.deepEqual(objectRes.payload, {
+    objectId: 'object-1',
+    canViewSchema: false,
+    canManageSchema: false,
+    fallbackReached: true,
+  });
+
+  const fieldRes = response();
+  await createCustomObjectRouteHandler('resource', dependencies)({
+    method: 'GET',
+    query: { objectId: 'object-1', resource: 'fields' },
+  }, fieldRes);
+  assert.equal(fieldRes.statusCode, 200);
+  assert.deepEqual(fieldRes.payload, {
+    objectId: 'object-1',
+    canViewSchema: false,
+    canManageSchema: false,
+    fallbackReached: true,
+  });
 });
 
 test('view access permits catalogue GET but not schema mutation without manage access', async () => {

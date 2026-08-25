@@ -1,6 +1,8 @@
 import {
   CustomObjectDomainError,
   assertImmutableInternalKey,
+  coerceCustomObjectFieldValue,
+  getCustomObjectFieldMetadata,
   resolveCustomObjectDisplayValue,
   resolveCustomObjectLifecycleUpdate,
   resolveCustomObjectPermission,
@@ -37,6 +39,159 @@ const PERMISSION_COLUMNS = [
   'can_view_records', 'can_create_records', 'can_edit_records',
   'can_archive_records', 'can_export_records',
 ];
+const RECORD_CAPABILITY_KEYS = Object.freeze({
+  view: 'view_records',
+  create: 'create_records',
+  edit: 'edit_records',
+  archive: 'archive_records',
+  export: 'export_records',
+});
+const SAFE_JSON_KEY = /^[a-z][a-z0-9_]{0,99}$/;
+const SEARCHABLE_FIELD_TYPES = new Set(['text', 'textarea', 'email', 'url', 'dropdown', 'country']);
+const TEXT_FILTER_TYPES = new Set(['text', 'textarea', 'email', 'url']);
+const NUMERIC_FILTER_TYPES = new Set(['number', 'decimal']);
+const OPTION_FILTER_TYPES = new Set(['picklist', 'dropdown', 'country', 'countries', 'list']);
+
+function queryError(message, details = null) {
+  throw new CustomObjectHttpError(400, message, details);
+}
+
+function parseRecordFilters(rawFilters) {
+  if (rawFilters === undefined || rawFilters === null || rawFilters === '') return {};
+  let parsed = rawFilters;
+  if (typeof rawFilters === 'string') {
+    try {
+      parsed = JSON.parse(rawFilters);
+    } catch {
+      queryError('filters must be a valid JSON object');
+    }
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    queryError('filters must be a JSON object keyed by field id');
+  }
+  return parsed;
+}
+
+function quotePostgrestValue(value) {
+  return `"${String(value).replaceAll('\\', '\\\\').replaceAll('"', '\\"')}"`;
+}
+
+function filterValues(value, label) {
+  const values = Array.isArray(value) ? value : [value];
+  if (values.length === 0) queryError(`${label} requires at least one value`);
+  return values;
+}
+
+function coerceFilterValue(field, value) {
+  const result = coerceCustomObjectFieldValue(value, field);
+  if (!result.ok) queryError(`Invalid filter value: ${result.error}`);
+  return result.value;
+}
+
+function buildRecordQueryPlan(query, definitions) {
+  const activeById = new Map();
+  for (const field of definitions) {
+    const metadata = getCustomObjectFieldMetadata(field);
+    if (metadata.active && SAFE_JSON_KEY.test(metadata.key)) activeById.set(String(field.id), { field, metadata });
+  }
+
+  const filters = [];
+  for (const [fieldId, specification] of Object.entries(parseRecordFilters(query?.filters))) {
+    const definition = activeById.get(fieldId);
+    if (!definition) queryError(`Unknown or inactive filter field: ${fieldId}`);
+    if (!specification || typeof specification !== 'object' || Array.isArray(specification)) {
+      queryError(`Filter for ${fieldId} must contain an operator and value`);
+    }
+    const { field, metadata } = definition;
+    const op = specification.op;
+    const column = `data->${metadata.key}`;
+    const textColumn = `data->>${metadata.key}`;
+
+    if (TEXT_FILTER_TYPES.has(metadata.type)) {
+      if (!['contains', 'equals', 'is_empty', 'is_not_empty'].includes(op)) {
+        queryError(`Operator ${op || '(empty)'} is not supported for ${metadata.type}`);
+      }
+      if (op === 'contains') filters.push({ kind: 'filter', column: textColumn, op: 'ilike', value: `*${String(specification.value ?? '')}*` });
+      else if (op === 'equals') filters.push({ kind: 'filter', column: textColumn, op: 'eq', value: String(specification.value ?? '') });
+      else filters.push({ kind: op, column: textColumn });
+      continue;
+    }
+    if (NUMERIC_FILTER_TYPES.has(metadata.type) || metadata.type === 'date') {
+      if (!['equals', 'gte', 'lte'].includes(op)) {
+        queryError(`Operator ${op || '(empty)'} is not supported for ${metadata.type}`);
+      }
+      const value = coerceFilterValue(field, specification.value);
+      filters.push({ kind: 'filter', column, op: { equals: 'eq', gte: 'gte', lte: 'lte' }[op], value: JSON.stringify(value) });
+      continue;
+    }
+    if (OPTION_FILTER_TYPES.has(metadata.type)) {
+      if (!['any_of', 'none_of'].includes(op)) {
+        queryError(`Operator ${op || '(empty)'} is not supported for ${metadata.type}`);
+      }
+      const values = filterValues(specification.value, op).map((value) => {
+        const coerced = coerceFilterValue(field, ['picklist', 'countries', 'list'].includes(metadata.type) ? [value] : value);
+        return Array.isArray(coerced) ? coerced[0] : coerced;
+      });
+      filters.push({
+        kind: ['picklist', 'countries', 'list'].includes(metadata.type) ? `${op}_array` : `${op}_scalar`,
+        column,
+        textColumn,
+        values,
+      });
+      continue;
+    }
+    if (metadata.type === 'boolean') {
+      if (op !== 'equals') queryError(`Operator ${op || '(empty)'} is not supported for boolean`);
+      filters.push({ kind: 'filter', column, op: 'eq', value: JSON.stringify(coerceFilterValue(field, specification.value)) });
+      continue;
+    }
+    queryError(`Field type ${metadata.type} cannot be filtered`);
+  }
+
+  const sortField = query?.sortField || 'created_at';
+  let sortColumn;
+  if (['created_at', 'updated_at'].includes(sortField)) {
+    sortColumn = sortField;
+  } else {
+    const definition = activeById.get(String(sortField));
+    if (!definition) queryError('sortField must be created_at, updated_at, or an active field id');
+    sortColumn = `data->${definition.metadata.key}`;
+  }
+  const sortDir = query?.sortDir || 'desc';
+  if (!['asc', 'desc'].includes(sortDir)) queryError('sortDir must be asc or desc');
+
+  const search = typeof query?.search === 'string' ? query.search.trim() : '';
+  const searchableColumns = [...activeById.values()]
+    .filter(({ metadata }) => SEARCHABLE_FIELD_TYPES.has(metadata.type))
+    .map(({ metadata }) => `data->>${metadata.key}`);
+  return { filters, search, searchableColumns, sortColumn, ascending: sortDir === 'asc' };
+}
+
+function applyRecordQueryPlan(q, plan) {
+  for (const filter of plan.filters) {
+    if (filter.kind === 'filter') q = q.filter(filter.column, filter.op, filter.value);
+    else if (filter.kind === 'is_empty') q = q.or(`${filter.column}.is.null,${filter.column}.eq.""`);
+    else if (filter.kind === 'is_not_empty') {
+      q = q.not(filter.column, 'is', null).neq(filter.column, '');
+    }
+    else if (filter.kind === 'any_of_scalar') {
+      q = q.in(filter.textColumn, filter.values.map(String));
+    } else if (filter.kind === 'none_of_scalar') {
+      q = q.not(filter.textColumn, 'in', `(${filter.values.map(quotePostgrestValue).join(',')})`);
+    } else if (filter.kind === 'any_of_array') {
+      q = q.or(filter.values.map((value) => `${filter.column}.cs.${quotePostgrestValue(JSON.stringify([value]))}`).join(','));
+    } else if (filter.kind === 'none_of_array') {
+      for (const value of filter.values) q = q.not(filter.column, 'cs', JSON.stringify([value]));
+    }
+  }
+  if (plan.search && plan.searchableColumns.length > 0) {
+    const searchValue = quotePostgrestValue(`*${plan.search}*`);
+    q = q.or(plan.searchableColumns.map((column) => `${column}.ilike.${searchValue}`).join(','));
+  }
+  q = q.order(plan.sortColumn, { ascending: plan.ascending, nullsFirst: false });
+  if (plan.sortColumn !== 'id') q = q.order('id', { ascending: plan.ascending });
+  return q;
+}
 
 function pick(body, columns) {
   return Object.fromEntries(columns.filter((column) => body?.[column] !== undefined)
@@ -135,10 +290,32 @@ export function createCustomObjectService({
     return data || null;
   }
 
+  function projectCapabilities(definition, permissionRow = null) {
+    return Object.fromEntries(Object.entries(RECORD_CAPABILITY_KEYS).map(([name, capability]) => [
+      name,
+      !(['create', 'edit'].includes(name) && definition.status !== 'active') && (
+        isAdmin || (
+          definition.status !== 'draft'
+          && resolveCustomObjectPermission({
+            permission: permissionRow,
+            capability,
+            isTenantAdmin: false,
+          })
+        )
+      ),
+    ]));
+  }
+
   async function hasCapability(objectId, capability) {
     if (!isAdmin) {
       const definition = await object(objectId);
-      if (definition.status !== 'active') {
+      if (
+        definition.status === 'draft'
+        || (
+          definition.status === 'archived'
+          && ['create_records', 'edit_records'].includes(capability)
+        )
+      ) {
         return false;
       }
     }
@@ -220,7 +397,11 @@ export function createCustomObjectService({
     let q = db.from('custom_object_definition').select('*', { count: 'exact' })
       .eq('tenant_id', tenantId).order('created_at', { ascending: false });
     if (allowedObjectIds) q = q.in('id', allowedObjectIds);
-    if (!canViewSchema && !canManageSchema) q = q.eq('status', 'active');
+    if (!canViewSchema && !canManageSchema) {
+      q = query?.includeArchived === 'true'
+        ? q.neq('status', 'draft')
+        : q.eq('status', 'active');
+    }
     else if (query?.includeArchived !== 'true') q = q.neq('status', 'archived');
     const { data, error, count } = await q.range(p.from, p.to);
     throwDb(error);
@@ -229,7 +410,12 @@ export function createCustomObjectService({
     if (objectIds.length === 0) {
       return { data: [], total: count || 0, page: p.page, pageSize: p.pageSize };
     }
-    const [recordResult, fieldResult, relationshipResult] = await Promise.all([
+    const permissionQuery = !isAdmin && context.roleId
+      ? db.from('custom_object_role_permission').select('*')
+        .eq('tenant_id', tenantId).eq('role_id', context.roleId)
+        .in('custom_object_id', objectIds)
+      : Promise.resolve({ data: [], error: null });
+    const [recordResult, fieldResult, relationshipResult, permissionResult] = await Promise.all([
       db.from('custom_object_record').select('custom_object_id')
         .eq('tenant_id', tenantId).in('custom_object_id', objectIds).is('archived_at', null),
       db.from('preference_field').select('custom_object_id')
@@ -237,10 +423,12 @@ export function createCustomObjectService({
         .eq('entity_scope', 'custom_object').eq('is_active', true),
       db.from('custom_object_relationship_definition')
         .select('source_custom_object_id,target_custom_object_id,status').eq('tenant_id', tenantId),
+      permissionQuery,
     ]);
     throwDb(recordResult.error);
     throwDb(fieldResult.error);
     throwDb(relationshipResult.error);
+    throwDb(permissionResult.error);
     const countBy = (items, key) => (items || []).reduce((counts, item) => {
       counts[item[key]] = (counts[item[key]] || 0) + 1;
       return counts;
@@ -248,6 +436,9 @@ export function createCustomObjectService({
     const recordCounts = countBy(recordResult.data, 'custom_object_id');
     const fieldCounts = countBy(fieldResult.data, 'custom_object_id');
     const relationshipCounts = {};
+    const permissionsByObjectId = new Map(
+      (permissionResult.data || []).map((row) => [row.custom_object_id, row]),
+    );
     for (const relationship of relationshipResult.data || []) {
       if (relationship.status === 'archived') continue;
       for (const id of new Set([
@@ -263,6 +454,7 @@ export function createCustomObjectService({
         record_count: recordCounts[row.id] || 0,
         field_count: fieldCounts[row.id] || 0,
         relationship_count: relationshipCounts[row.id] || 0,
+        capabilities: projectCapabilities(row, permissionsByObjectId.get(row.id) || null),
       })),
       total: count || 0,
       page: p.page,
@@ -286,8 +478,12 @@ export function createCustomObjectService({
 
   async function getObject(objectId) {
     const row = await object(objectId);
-    if (!canViewSchema && !canManageSchema) await requireCapability(objectId, 'view_records');
-    return row;
+    const permissionRow = isAdmin ? null : await permission(objectId);
+    const capabilities = projectCapabilities(row, permissionRow);
+    if (!canViewSchema && !canManageSchema && !capabilities.view) {
+      throw new CustomObjectHttpError(403, 'Access denied');
+    }
+    return { ...row, capabilities };
   }
 
   async function updateObject(objectId, body, archive = false) {
@@ -385,10 +581,11 @@ export function createCustomObjectService({
     await requireCapability(objectId, 'view_records');
     const definitions = await fields(objectId);
     const p = pagination(query);
+    const plan = buildRecordQueryPlan(query, definitions);
     let q = db.from('custom_object_record').select('*', { count: 'exact' })
-      .eq('tenant_id', tenantId).eq('custom_object_id', objectId)
-      .order('created_at', { ascending: false });
+      .eq('tenant_id', tenantId).eq('custom_object_id', objectId);
     if (query?.includeArchived !== 'true') q = q.is('archived_at', null);
+    q = applyRecordQueryPlan(q, plan);
     const { data, error, count } = await q.range(p.from, p.to);
     throwDb(error);
     return {
@@ -401,8 +598,11 @@ export function createCustomObjectService({
   }
 
   async function createRecord(objectId, body) {
-    await object(objectId);
+    const definition = await object(objectId);
     await requireCapability(objectId, 'create_records');
+    if (definition.status !== 'active') {
+      throw new CustomObjectHttpError(409, 'Records can only be created for active Custom Objects');
+    }
     const validation = validateCustomObjectRecordData({ data: body?.data, fields: await fields(objectId, true), mode: 'create' });
     if (!validation.ok) throw new CustomObjectHttpError(400, 'Invalid record data', validation.errors);
     const payload = { tenant_id: tenantId, custom_object_id: objectId, data: validation.data, ...authored('created'), ...authored() };
@@ -420,8 +620,11 @@ export function createCustomObjectService({
   }
 
   async function updateRecord(objectId, recordId, body, archive = false) {
-    await object(objectId);
+    const definition = await object(objectId);
     await requireCapability(objectId, archive ? 'archive_records' : 'edit_records');
+    if (!archive && definition.status !== 'active') {
+      throw new CustomObjectHttpError(409, 'Records can only be edited for active Custom Objects');
+    }
     const before = await one('custom_object_record', recordId, { custom_object_id: objectId });
     let payload;
     if (archive) {
@@ -580,12 +783,23 @@ export function createCustomObjectService({
     requireSchemaViewer();
     await object(objectId);
     const p = pagination(query);
-    const { data, error, count } = await db.from('custom_object_role_permission')
-      .select('*', { count: 'exact' }).eq('tenant_id', tenantId)
-      .eq('custom_object_id', objectId).order('created_at', { ascending: false })
-      .range(p.from, p.to);
-    throwDb(error);
-    return { data: data || [], total: count || 0, page: p.page, pageSize: p.pageSize };
+    const [permissionResult, roleResult] = await Promise.all([
+      db.from('custom_object_role_permission')
+        .select('*', { count: 'exact' }).eq('tenant_id', tenantId)
+        .eq('custom_object_id', objectId).order('created_at', { ascending: false })
+        .range(p.from, p.to),
+      db.from('role').select('id,name,label,is_system')
+        .eq('tenant_id', tenantId).order('name', { ascending: true }),
+    ]);
+    throwDb(permissionResult.error);
+    throwDb(roleResult.error);
+    return {
+      data: permissionResult.data || [],
+      roles: roleResult.data || [],
+      total: permissionResult.count || 0,
+      page: p.page,
+      pageSize: p.pageSize,
+    };
   }
 
   async function upsertPermission(objectId, body) {
@@ -593,9 +807,42 @@ export function createCustomObjectService({
     requireMutableObject(await object(objectId));
     if (!body?.role_id) throw new CustomObjectHttpError(400, 'role_id is required');
     await one('role', body.role_id);
+    for (const column of PERMISSION_COLUMNS) {
+      if (body[column] !== undefined && typeof body[column] !== 'boolean') {
+        throw new CustomObjectHttpError(400, `${column} must be a boolean`);
+      }
+    }
+    const { data: existing, error: existingError } = await db
+      .from('custom_object_role_permission')
+      .select('*')
+      .eq('tenant_id', tenantId)
+      .eq('custom_object_id', objectId)
+      .eq('role_id', body.role_id)
+      .maybeSingle();
+    throwDb(existingError);
+    const capabilities = Object.fromEntries(PERMISSION_COLUMNS.map((column) => [
+      column,
+      body[column] ?? existing?.[column] ?? false,
+    ]));
+    if (
+      !capabilities.can_view_records
+      && [
+        'can_create_records',
+        'can_edit_records',
+        'can_archive_records',
+        'can_export_records',
+      ].some((column) => capabilities[column])
+    ) {
+      throw new CustomObjectHttpError(
+        400,
+        'View records permission is required for create, edit, archive, or export permissions',
+      );
+    }
     const payload = {
       tenant_id: tenantId, custom_object_id: objectId, role_id: body.role_id,
-      ...pick(body, PERMISSION_COLUMNS), ...authored('created'), ...authored(),
+      ...capabilities,
+      ...(!existing ? authored('created') : {}),
+      ...authored(),
     };
     const { data, error } = await db.from('custom_object_role_permission')
       .upsert(payload, { onConflict: 'tenant_id,custom_object_id,role_id' }).select('*').single();

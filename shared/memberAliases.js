@@ -45,6 +45,7 @@ export const RESERVED_MEMBER_SLUGS = new Set([
   'createcomplexevent',
   'createevent',
   'customfieldsadmin',
+  'customobjectsadmin',
   'dashboard',
   'dataexport',
   'discountcodemanagement',

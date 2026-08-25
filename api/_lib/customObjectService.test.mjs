@@ -22,15 +22,55 @@ function mockDb(seed = {}) {
       this.operation = 'select';
       this.payload = null;
       this.wantCount = false;
+      this.orders = [];
     }
 
     select(_columns, options = {}) { this.wantCount = options.count === 'exact'; return this; }
     eq(column, value) { this.filters.push((row) => row[column] === value); calls.push({ table: this.table, type: 'eq', column, value }); return this; }
-    neq(column, value) { this.filters.push((row) => row[column] !== value); return this; }
-    is(column, value) { this.filters.push((row) => row[column] === value); return this; }
-    in(column, values) { this.filters.push((row) => values.includes(row[column])); return this; }
-    or() { return this; }
-    order() { return this; }
+    neq(column, value) {
+      this.filters.push((row) => this.value(row, column) !== value);
+      calls.push({ table: this.table, type: 'neq', column, value });
+      return this;
+    }
+    is(column, value) { this.filters.push((row) => this.value(row, column) === value); return this; }
+    value(row, column) {
+      const match = column.match(/^data->>?([a-z][a-z0-9_]*)$/);
+      return match ? (row.data?.[match[1]] ?? null) : row[column];
+    }
+    in(column, values) {
+      this.filters.push((row) => values.includes(this.value(row, column)));
+      calls.push({ table: this.table, type: 'in', column, values });
+      return this;
+    }
+    filter(column, operator, value) {
+      const expected = column.includes('->>') ? value : JSON.parse(value);
+      this.filters.push((row) => {
+        const actual = this.value(row, column);
+        if (operator === 'eq') return actual === expected;
+        if (operator === 'gte') return actual >= expected;
+        if (operator === 'lte') return actual <= expected;
+        if (operator === 'ilike') return String(actual ?? '').toLowerCase().includes(String(expected).replaceAll('*', '').toLowerCase());
+        return true;
+      });
+      calls.push({ table: this.table, type: 'filter', column, operator, value });
+      return this;
+    }
+    not(column, operator, value) {
+      if (operator === 'cs') {
+        const excluded = JSON.parse(value);
+        this.filters.push((row) => !excluded.some((item) => (this.value(row, column) || []).includes(item)));
+      } else if (operator === 'is') {
+        this.filters.push((row) => this.value(row, column) !== value);
+      }
+      calls.push({ table: this.table, type: 'not', column, operator, value });
+      return this;
+    }
+    or(expression) { calls.push({ table: this.table, type: 'or', expression }); return this; }
+    order(column, options = {}) {
+      this.orders.push({ column, ascending: options.ascending !== false });
+      calls.push({ table: this.table, type: 'order', column, ...options });
+      return this;
+    }
     range(from, to) { this.slice = [from, to + 1]; return this; }
     insert(payload) { this.operation = 'insert'; this.payload = payload; return this; }
     update(payload) { this.operation = 'update'; this.payload = payload; return this; }
@@ -58,6 +98,20 @@ function mockDb(seed = {}) {
       let rows = tables[this.table].filter((row) => this.filters.every((filter) => filter(row)));
       if (this.operation === 'update') {
         rows.forEach((row) => Object.assign(row, structuredClone(this.payload)));
+      }
+      if (this.orders.length > 0) {
+        rows.sort((left, right) => {
+          for (const order of this.orders) {
+            const a = this.value(left, order.column);
+            const b = this.value(right, order.column);
+            if (a === b) continue;
+            if (a === null || a === undefined) return 1;
+            if (b === null || b === undefined) return -1;
+            const comparison = a < b ? -1 : 1;
+            return order.ascending ? comparison : -comparison;
+          }
+          return 0;
+        });
       }
       const count = rows.length;
       if (this.slice) rows = rows.slice(...this.slice);
@@ -157,7 +211,7 @@ test('record creation coerces typed JSONB, rejects invalid values, and authors m
     preference_field: [field()],
     custom_object_role_permission: [{
       tenant_id: tenantId, custom_object_id: objectId, role_id: roleId,
-      can_create_records: true,
+      can_view_records: true, can_create_records: true,
     }],
   });
   const service = createCustomObjectService({
@@ -178,6 +232,73 @@ test('record creation coerces typed JSONB, rejects invalid values, and authors m
   );
 });
 
+test('record create and update reject non-canonical country codes even when all countries are enabled', async () => {
+  const countryField = field({
+    id: 'country-field',
+    name: 'country',
+    label: 'Country',
+    field_type: 'country',
+    is_required: false,
+    all_countries: true,
+  });
+  const countriesField = field({
+    id: 'countries-field',
+    name: 'countries',
+    label: 'Countries',
+    field_type: 'countries',
+    is_required: false,
+    all_countries: true,
+  });
+  const db = mockDb({
+    custom_object_definition: [object()],
+    preference_field: [countryField, countriesField],
+    custom_object_record: [{
+      id: 'record-1',
+      tenant_id: tenantId,
+      custom_object_id: objectId,
+      data: { country: 'GB', countries: ['GB'] },
+      archived_at: null,
+    }],
+    custom_object_role_permission: [{
+      tenant_id: tenantId,
+      custom_object_id: objectId,
+      role_id: roleId,
+      can_view_records: true,
+      can_create_records: true,
+      can_edit_records: true,
+    }],
+  });
+  const service = createCustomObjectService({ db, context: context() });
+  await assert.rejects(
+    () => service.createRecord(objectId, {
+      data: { country: 'XX', countries: ['GB'] },
+    }),
+    (error) => error.status === 400
+      && error.details.some((detail) => detail.field === 'country' && /ISO-2/.test(detail.message)),
+  );
+  await assert.rejects(
+    () => service.createRecord(objectId, {
+      data: { country: 'GB', countries: ['GB', 'XX'] },
+    }),
+    (error) => error.status === 400
+      && error.details.some((detail) => detail.field === 'countries' && /ISO-2/.test(detail.message)),
+  );
+  await assert.rejects(
+    () => service.updateRecord(objectId, 'record-1', {
+      data: { country: 'XX' },
+    }),
+    (error) => error.status === 400
+      && error.details.some((detail) => detail.field === 'country' && /ISO-2/.test(detail.message)),
+  );
+  await assert.rejects(
+    () => service.updateRecord(objectId, 'record-1', {
+      data: { countries: ['GB', 'XX'] },
+    }),
+    (error) => error.status === 400
+      && error.details.some((detail) => detail.field === 'countries' && /ISO-2/.test(detail.message)),
+  );
+});
+
 test('relationship creation validates endpoint kind/object and authors mutation identity', async () => {
   const targetObjectId = '44444444-4444-4444-8444-444444444444';
   const definitionId = '55555555-5555-4555-8555-555555555555';
@@ -187,9 +308,11 @@ test('relationship creation validates endpoint kind/object and authors mutation 
       object({ id: targetObjectId, object_key: 'locations' }),
     ],
     custom_object_role_permission: [{
-      tenant_id: tenantId, custom_object_id: objectId, role_id: roleId, can_edit_records: true,
+      tenant_id: tenantId, custom_object_id: objectId, role_id: roleId,
+      can_view_records: true, can_edit_records: true,
     }, {
-      tenant_id: tenantId, custom_object_id: targetObjectId, role_id: roleId, can_edit_records: true,
+      tenant_id: tenantId, custom_object_id: targetObjectId, role_id: roleId,
+      can_view_records: true, can_edit_records: true,
     }],
     custom_object_relationship_definition: [{
       id: definitionId, tenant_id: tenantId, status: 'active', cardinality: 'many_to_many',
@@ -485,4 +608,384 @@ test('active primary display field cannot be deactivated', async () => {
     (error) => error.status === 409 && /primary display field/.test(error.message),
   );
   assert.equal(db.tables.preference_field[0].is_active, true);
+});
+
+test('object responses project only the current role effective record capabilities', async () => {
+  const otherRoleId = '99999999-9999-4999-8999-999999999999';
+  const db = mockDb({
+    custom_object_definition: [object()],
+    custom_object_role_permission: [{
+      tenant_id: tenantId,
+      custom_object_id: objectId,
+      role_id: roleId,
+      can_view_records: true,
+      can_create_records: true,
+      can_edit_records: false,
+      can_archive_records: true,
+      can_export_records: false,
+    }, {
+      tenant_id: tenantId,
+      custom_object_id: objectId,
+      role_id: otherRoleId,
+      can_view_records: true,
+      can_create_records: false,
+      can_edit_records: true,
+      can_archive_records: false,
+      can_export_records: true,
+    }],
+  });
+  const service = createCustomObjectService({
+    db,
+    context: context(),
+    canViewSchema: true,
+  });
+  const detail = await service.getObject(objectId);
+  assert.deepEqual(detail.capabilities, {
+    view: true, create: true, edit: false, archive: true, export: false,
+  });
+  const listed = await service.listObjects({});
+  assert.deepEqual(listed.data[0].capabilities, detail.capabilities);
+  assert.equal(Object.hasOwn(listed.data[0], 'role_id'), false);
+  const permissionRoleLookups = db.calls.filter((call) =>
+    call.table === 'custom_object_role_permission'
+    && call.type === 'eq'
+    && call.column === 'role_id');
+  assert.ok(permissionRoleLookups.every((call) => call.value === roleId));
+});
+
+test('tenant administrators receive all projected record capabilities without role rows', async () => {
+  const db = mockDb({ custom_object_definition: [object()] });
+  const service = createCustomObjectService({
+    db,
+    context: context({ roleId: null }),
+    isAdmin: true,
+    canViewSchema: true,
+  });
+  assert.deepEqual((await service.getObject(objectId)).capabilities, {
+    view: true, create: true, edit: true, archive: true, export: true,
+  });
+});
+
+test('archived objects honor non-admin retrieval grants while disabling create and edit', async () => {
+  const archivedObject = object({
+    status: 'archived',
+    archived_at: '2026-01-01T00:00:00.000Z',
+  });
+  const db = mockDb({
+    custom_object_definition: [archivedObject],
+    preference_field: [field({ is_required: false })],
+    custom_object_record: [{
+      id: 'record-1',
+      tenant_id: tenantId,
+      custom_object_id: objectId,
+      data: { headcount: 12, historic_value: 'preserved' },
+      archived_at: null,
+    }],
+    custom_object_role_permission: [{
+      tenant_id: tenantId,
+      custom_object_id: objectId,
+      role_id: roleId,
+      can_view_records: true,
+      can_create_records: true,
+      can_edit_records: true,
+      can_archive_records: true,
+      can_export_records: true,
+    }],
+  });
+  const service = createCustomObjectService({ db, context: context() });
+  const detail = await service.getObject(objectId);
+  assert.deepEqual(detail.capabilities, {
+    view: true,
+    create: false,
+    edit: false,
+    archive: true,
+    export: true,
+  });
+  const records = await service.listRecords(objectId, {});
+  assert.equal(records.total, 1);
+  assert.deepEqual(records.data[0].data, {
+    headcount: 12,
+    historic_value: 'preserved',
+  });
+});
+
+test('record-only catalogue can discover granted archived objects but never drafts', async () => {
+  const draftId = '44444444-4444-4444-8444-444444444444';
+  const db = mockDb({
+    custom_object_definition: [
+      object({ status: 'archived', archived_at: '2026-01-01T00:00:00.000Z' }),
+      object({ id: draftId, object_key: 'draft_object', status: 'draft' }),
+    ],
+    custom_object_role_permission: [{
+      tenant_id: tenantId,
+      custom_object_id: objectId,
+      role_id: roleId,
+      can_view_records: true,
+      can_archive_records: true,
+    }, {
+      tenant_id: tenantId,
+      custom_object_id: draftId,
+      role_id: roleId,
+      can_view_records: true,
+    }],
+  });
+  const service = createCustomObjectService({ db, context: context() });
+  assert.deepEqual((await service.listObjects({})).data, []);
+  const result = await service.listObjects({ includeArchived: 'true' });
+  assert.deepEqual(result.data.map((row) => row.id), [objectId]);
+  assert.deepEqual(result.data[0].capabilities, {
+    view: true,
+    create: false,
+    edit: false,
+    archive: true,
+    export: false,
+  });
+});
+
+test('tenant admin archived projection keeps retrieval bypass but disables create and edit', async () => {
+  const db = mockDb({
+    custom_object_definition: [object({
+      status: 'archived',
+      archived_at: '2026-01-01T00:00:00.000Z',
+    })],
+  });
+  const detail = await createCustomObjectService({
+    db,
+    context: context({ roleId: null }),
+    isAdmin: true,
+    canViewSchema: true,
+  }).getObject(objectId);
+  assert.deepEqual(detail.capabilities, {
+    view: true,
+    create: false,
+    edit: false,
+    archive: true,
+    export: true,
+  });
+});
+
+test('record writes explicitly reject draft or archived object lifecycles even for admins', async () => {
+  for (const status of ['draft', 'archived']) {
+    const db = mockDb({
+      custom_object_definition: [object({ status })],
+      custom_object_record: [{
+        id: 'record-1', tenant_id: tenantId, custom_object_id: objectId,
+        data: { headcount: 1 }, archived_at: null,
+      }],
+      preference_field: [field()],
+    });
+    const service = createCustomObjectService({ db, context: context(), isAdmin: true });
+    await assert.rejects(
+      () => service.createRecord(objectId, { data: { headcount: 2 } }),
+      (error) => error.status === 409 && /active Custom Objects/.test(error.message),
+    );
+    await assert.rejects(
+      () => service.updateRecord(objectId, 'record-1', { data: { headcount: 2 } }),
+      (error) => error.status === 409 && /active Custom Objects/.test(error.message),
+    );
+  }
+});
+
+test('record listing applies typed metadata filters, exact filtered count, and stable field sorting', async () => {
+  const sortable = field({ id: '44444444-4444-4444-8444-444444444444' });
+  const records = [
+    { id: 'b', tenant_id: tenantId, custom_object_id: objectId, data: { headcount: 20, historic: 'kept' }, archived_at: null },
+    { id: 'a', tenant_id: tenantId, custom_object_id: objectId, data: { headcount: 20 }, archived_at: null },
+    { id: 'c', tenant_id: tenantId, custom_object_id: objectId, data: { headcount: 5 }, archived_at: null },
+  ];
+  const db = mockDb({
+    custom_object_definition: [object()],
+    preference_field: [sortable],
+    custom_object_record: records,
+  });
+  const result = await createCustomObjectService({
+    db, context: context(), isAdmin: true,
+  }).listRecords(objectId, {
+    page: '1',
+    pageSize: '1',
+    sortField: sortable.id,
+    sortDir: 'asc',
+    filters: JSON.stringify({ [sortable.id]: { op: 'gte', value: '20' } }),
+  });
+  assert.equal(result.total, 2);
+  assert.equal(result.data[0].id, 'a');
+  assert.equal(result.data[0].data.headcount, 20);
+  const orders = db.calls.filter((call) => call.table === 'custom_object_record' && call.type === 'order');
+  assert.deepEqual(orders.map((call) => call.column), ['data->headcount', 'id']);
+  assert.ok(db.calls.some((call) =>
+    call.type === 'filter' && call.column === 'data->headcount' && call.operator === 'gte'));
+});
+
+test('record search uses only active searchable metadata and rejects unwhitelisted fields/operators', async () => {
+  const title = field({
+    id: '44444444-4444-4444-8444-444444444444',
+    name: 'title',
+    label: 'Title',
+    field_type: 'text',
+    is_required: false,
+  });
+  const archived = field({
+    id: '55555555-5555-4555-8555-555555555555',
+    name: 'secret',
+    field_type: 'text',
+    is_active: false,
+  });
+  const db = mockDb({
+    custom_object_definition: [object()],
+    preference_field: [title, archived],
+    custom_object_record: [],
+  });
+  const service = createCustomObjectService({ db, context: context(), isAdmin: true });
+  await service.listRecords(objectId, { search: 'quoted",unsafe', pageSize: '25' });
+  const searchCall = db.calls.find((call) =>
+    call.table === 'custom_object_record' && call.type === 'or');
+  assert.match(searchCall.expression, /^data->>title\.ilike\./);
+  assert.doesNotMatch(searchCall.expression, /secret/);
+
+  await assert.rejects(
+    () => service.listRecords(objectId, {
+      filters: JSON.stringify({ [archived.id]: { op: 'contains', value: 'x' } }),
+    }),
+    (error) => error.status === 400 && /Unknown or inactive/.test(error.message),
+  );
+  await assert.rejects(
+    () => service.listRecords(objectId, {
+      filters: JSON.stringify({ [title.id]: { op: 'gte', value: 'x' } }),
+    }),
+    (error) => error.status === 400 && /not supported/.test(error.message),
+  );
+});
+
+test('is_not_empty uses explicit non-null and non-empty predicates', async () => {
+  const title = field({
+    id: '44444444-4444-4444-8444-444444444444',
+    name: 'title',
+    label: 'Title',
+    field_type: 'text',
+    is_required: false,
+  });
+  const db = mockDb({
+    custom_object_definition: [object()],
+    preference_field: [title],
+    custom_object_record: [
+      { id: 'null', tenant_id: tenantId, custom_object_id: objectId, data: { title: null }, archived_at: null },
+      { id: 'empty', tenant_id: tenantId, custom_object_id: objectId, data: { title: '' }, archived_at: null },
+      { id: 'missing', tenant_id: tenantId, custom_object_id: objectId, data: {}, archived_at: null },
+      { id: 'value', tenant_id: tenantId, custom_object_id: objectId, data: { title: 'Present' }, archived_at: null },
+    ],
+  });
+  const result = await createCustomObjectService({
+    db, context: context(), isAdmin: true,
+  }).listRecords(objectId, {
+    filters: JSON.stringify({ [title.id]: { op: 'is_not_empty' } }),
+  });
+  assert.deepEqual(result.data.map((record) => record.id), ['value']);
+  assert.ok(db.calls.some((call) =>
+    call.type === 'not'
+    && call.column === 'data->>title'
+    && call.operator === 'is'
+    && call.value === null));
+  assert.ok(db.calls.some((call) =>
+    call.type === 'neq' && call.column === 'data->>title' && call.value === ''));
+  assert.equal(db.calls.some((call) =>
+    call.type === 'not' && call.operator === 'in'), false);
+});
+
+test('permission listing includes every tenant role and never returns another tenant role', async () => {
+  const db = mockDb({
+    custom_object_definition: [object()],
+    role: [
+      { id: 'role-z', tenant_id: tenantId, name: 'Zeta', label: 'Zeta role', is_system: false },
+      { id: 'role-a', tenant_id: tenantId, name: 'Alpha', label: 'Alpha role', is_system: true },
+      { id: 'foreign-role', tenant_id: 'other-tenant', name: 'Foreign', is_system: false },
+    ],
+    custom_object_role_permission: [
+      {
+        id: 'permission-1',
+        tenant_id: tenantId,
+        custom_object_id: objectId,
+        role_id: 'role-a',
+        can_view_records: true,
+      },
+      {
+        id: 'foreign-permission',
+        tenant_id: 'other-tenant',
+        custom_object_id: objectId,
+        role_id: 'foreign-role',
+        can_view_records: true,
+      },
+    ],
+  });
+  const result = await createCustomObjectService({
+    db,
+    context: context(),
+    canViewSchema: true,
+  }).listPermissions(objectId, { page: '1', pageSize: '1' });
+  assert.deepEqual(result.data.map((permission) => permission.id), ['permission-1']);
+  assert.equal(result.total, 1);
+  assert.deepEqual(result.roles.map((role) => role.id), ['role-a', 'role-z']);
+  assert.ok(db.calls.some((call) =>
+    call.table === 'role'
+    && call.type === 'eq'
+    && call.column === 'tenant_id'
+    && call.value === tenantId));
+});
+
+test('permission upserts require view for every dependent record capability', async () => {
+  const db = mockDb({
+    custom_object_definition: [object()],
+    role: [{ id: roleId, tenant_id: tenantId, name: 'Member' }],
+  });
+  const service = createCustomObjectService({
+    db,
+    context: context(),
+    canManageSchema: true,
+  });
+  for (const capability of [
+    'can_create_records',
+    'can_edit_records',
+    'can_archive_records',
+    'can_export_records',
+  ]) {
+    await assert.rejects(
+      () => service.upsertPermission(objectId, {
+        role_id: roleId,
+        can_view_records: false,
+        [capability]: true,
+      }),
+      (error) => error.status === 400 && /View records permission is required/.test(error.message),
+      capability,
+    );
+  }
+  await assert.rejects(
+    () => service.upsertPermission(objectId, {
+      role_id: roleId,
+      can_view_records: 'true',
+    }),
+    (error) => error.status === 400 && /must be a boolean/.test(error.message),
+  );
+
+  const granted = await service.upsertPermission(objectId, {
+    role_id: roleId,
+    can_view_records: true,
+    can_create_records: true,
+  });
+  assert.equal(granted.can_view_records, true);
+  assert.equal(granted.can_create_records, true);
+  assert.equal(granted.can_edit_records, false);
+
+  await assert.rejects(
+    () => service.upsertPermission(objectId, {
+      role_id: roleId,
+      can_view_records: false,
+    }),
+    (error) => error.status === 400 && /View records permission is required/.test(error.message),
+  );
+  const revoked = await service.upsertPermission(objectId, {
+    role_id: roleId,
+    can_view_records: false,
+    can_create_records: false,
+  });
+  assert.equal(revoked.can_view_records, false);
+  assert.equal(revoked.can_create_records, false);
 });

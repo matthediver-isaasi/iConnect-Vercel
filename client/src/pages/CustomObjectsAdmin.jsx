@@ -66,6 +66,7 @@ import {
   parseArray,
   validateFieldDefinition,
 } from "./customObjects/fieldDefinition";
+import { CustomObjectPermissionsEditor } from "./CustomObjectRecords";
 const ICONS = [
   { key: "Boxes", Icon: Boxes },
   { key: "Database", Icon: Database },
@@ -392,7 +393,11 @@ function Catalogue() {
                   ICONS.find((item) => item.key === object.icon)?.Icon || Boxes;
                 return (
                   <Link
-                    to={`/CustomObjectsAdmin/${object.id}`}
+                    to={
+                      object.status === "active"
+                        ? `/CustomObjectsAdmin/${object.id}/records`
+                        : `/CustomObjectsAdmin/${object.id}`
+                    }
                     key={object.id}
                     className="grid items-center gap-3 border-b px-4 py-4 last:border-0 transition-colors hover:bg-slate-50 md:grid-cols-[minmax(250px,1fr)_120px_110px_130px_36px] md:px-5"
                   >
@@ -570,6 +575,7 @@ function Detail() {
         <Tabs defaultValue="overview" className="mt-6">
           <TabsList className="bg-white">
             <TabsTrigger value="overview">Overview</TabsTrigger>
+            <TabsTrigger value="records">Records</TabsTrigger>
             <TabsTrigger value="fields">
               Fields{" "}
               <span className="ml-1 text-xs text-slate-500">
@@ -582,6 +588,7 @@ function Detail() {
                 {relationshipCount}
               </span>
             </TabsTrigger>
+            <TabsTrigger value="permissions">Permissions</TabsTrigger>
           </TabsList>
           <TabsContent value="overview" className="mt-5">
             <Overview
@@ -607,6 +614,25 @@ function Detail() {
               onChanged={invalidate}
             />
           </TabsContent>
+          <TabsContent value="records" className="mt-5">
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg">Record workspace</CardTitle>
+                <CardDescription>
+                  Search, filter, add, edit, and archive records using this
+                  object&apos;s field definitions.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Button asChild>
+                  <Link to={`/CustomObjectsAdmin/${objectId}/records`}>
+                    Open {object.plural_label}
+                    <ChevronRight className="ml-2 h-4 w-4" />
+                  </Link>
+                </Button>
+              </CardContent>
+            </Card>
+          </TabsContent>
           <TabsContent value="relationships" className="mt-5">
             <Card>
               <CardContent className="py-14 text-center">
@@ -621,6 +647,13 @@ function Detail() {
                 </p>
               </CardContent>
             </Card>
+          </TabsContent>
+          <TabsContent value="permissions" className="mt-5">
+            <CustomObjectPermissionsEditor
+              objectId={objectId}
+              canManage={canManage}
+              archived={object.status === "archived"}
+            />
           </TabsContent>
         </Tabs>
       </div>

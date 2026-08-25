@@ -278,6 +278,11 @@ import PreferenceSettings from "./PreferenceSettings";
 
 import CustomFieldsAdmin from "./CustomFieldsAdmin";
 import CustomObjectsAdmin, { CustomObjectDetail } from "./CustomObjectsAdmin";
+import {
+    CustomObjectRecordDetail,
+    CustomObjectRecordForm,
+    CustomObjectRecordList,
+} from "./CustomObjectRecords";
 
 import ZoomWebinarProvisioning from "./ZoomWebinarProvisioning";
 
@@ -807,6 +812,9 @@ function _getCurrentPage(url) {
     
     // Handle parameterized routes like /members/:id (and member-list aliases)
     const urlParts = url.split('/').filter(Boolean);
+    if (urlParts[0]?.toLowerCase() === 'customobjectsadmin') {
+        return 'CustomObjectsAdmin';
+    }
     if (urlParts.length >= 2 && BUILTIN_MEMBER_ALIASES.includes(urlParts[0].toLowerCase())) {
         return 'MemberDetail';
     }
@@ -1197,6 +1205,10 @@ function PagesContent() {
                 <Route path="/CustomFieldsAdmin" element={<CustomFieldsAdmin />} />
                 <Route path="/CustomObjectsAdmin" element={<CustomObjectsAdmin />} />
                 <Route path="/CustomObjectsAdmin/:objectId" element={<CustomObjectDetail />} />
+                <Route path="/CustomObjectsAdmin/:objectId/records" element={<CustomObjectRecordList />} />
+                <Route path="/CustomObjectsAdmin/:objectId/records/new" element={<CustomObjectRecordForm />} />
+                <Route path="/CustomObjectsAdmin/:objectId/records/:recordId" element={<CustomObjectRecordDetail />} />
+                <Route path="/CustomObjectsAdmin/:objectId/records/:recordId/edit" element={<CustomObjectRecordForm />} />
                 
                 <Route path="/ZoomWebinarProvisioning" element={<ZoomWebinarProvisioning />} />
                 

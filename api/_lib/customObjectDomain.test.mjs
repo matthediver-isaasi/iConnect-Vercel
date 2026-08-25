@@ -142,6 +142,24 @@ test('typed JSONB coercion covers every supported preference-field type', () => 
   assert.equal(coerceCustomObjectFieldValue('not-an-email', field({ field_type: 'email' })).ok, false);
   assert.equal(coerceCustomObjectFieldValue('javascript:alert(1)', field({ field_type: 'url' })).ok, false);
   assert.equal(coerceCustomObjectFieldValue('2026-02-30', field({ field_type: 'date' })).ok, false);
+  assert.equal(coerceCustomObjectFieldValue('XX', field({
+    field_type: 'country',
+    all_countries: true,
+  })).ok, false);
+  assert.equal(coerceCustomObjectFieldValue(['GB', 'XX'], field({
+    field_type: 'countries',
+    all_countries: true,
+  })).ok, false);
+  assert.equal(coerceCustomObjectFieldValue('FR', field({
+    field_type: 'country',
+    all_countries: false,
+    selected_countries: ['GB'],
+  })).ok, false);
+  assert.equal(coerceCustomObjectFieldValue(['GB', 'FR'], field({
+    field_type: 'countries',
+    all_countries: false,
+    selected_countries: ['GB'],
+  })).ok, false);
 });
 
 test('record validation enforces required fields and rejects unknown incoming keys', () => {
@@ -250,8 +268,12 @@ test('permission defaults deny access while tenant admins bypass per-object rows
   assert.equal(resolveCustomObjectPermission({ capability: 'view_records' }), false);
   assert.equal(resolveCustomObjectPermission({
     capability: 'edit_records',
-    permission: { can_edit_records: true },
+    permission: { can_view_records: true, can_edit_records: true },
   }), true);
+  assert.equal(resolveCustomObjectPermission({
+    capability: 'edit_records',
+    permission: { can_view_records: false, can_edit_records: true },
+  }), false);
   assert.equal(resolveCustomObjectPermission({
     capability: 'archive_records',
     isTenantAdmin: true,

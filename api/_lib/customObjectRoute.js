@@ -8,12 +8,26 @@ const MANAGE_SCHEMA_FEATURE = 'data.custom-objects.manage-data-model';
 
 function schemaAccessRequired(level, resource, method) {
   if (['records', 'relationships'].includes(resource)) return null;
+  if (
+    method === 'GET'
+    && (
+      ['collection', 'object'].includes(level)
+      || resource === 'fields'
+    )
+  ) return null;
   if (method === 'GET') return 'view';
   if (
     ['collection', 'object'].includes(level)
     || ['fields', 'relationship-definitions', 'permissions'].includes(resource)
   ) return 'manage';
   return null;
+}
+
+function supportsRecordGrantFallback(level, resource, method) {
+  return method === 'GET' && (
+    ['collection', 'object'].includes(level)
+    || resource === 'fields'
+  );
 }
 
 function methodNotAllowed(res, methods) {
@@ -38,12 +52,14 @@ export function createCustomObjectRouteHandler(level, dependencies = {}) {
       const resourceId = req.query.resourceId;
       const isAdmin = await adminCheck(context);
       const requiredAccess = schemaAccessRequired(level, resource, req.method);
+      const resolveSchemaAccess = requiredAccess
+        || supportsRecordGrantFallback(level, resource, req.method);
       // Schema access follows the role editor exactly. A portal member's broad
       // admin capability must not override an explicit schema exclusion.
       const override = Boolean(context.tenantUserId);
       let canViewSchema = override;
       let canManageSchema = override;
-      if (requiredAccess && !override && context.roleId) {
+      if (resolveSchemaAccess && !override && context.roleId) {
         const memberExclusions = context.memberExcludedFeatures || [];
         canViewSchema = Boolean(await featureCheck(context.roleId, VIEW_SCHEMA_FEATURE))
           && !isResourceExcluded(memberExclusions, VIEW_SCHEMA_FEATURE);

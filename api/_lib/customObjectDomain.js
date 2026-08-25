@@ -1,4 +1,5 @@
 import { coerceBooleanPreferenceValue } from './booleanCoercion.js';
+import { COUNTRIES } from '../../shared/countries.js';
 
 export const CUSTOM_OBJECT_LIFECYCLE_STATES = Object.freeze(['draft', 'active', 'archived']);
 export const CUSTOM_OBJECT_RELATIONSHIP_CARDINALITIES = Object.freeze([
@@ -40,6 +41,7 @@ export const CUSTOM_OBJECT_CAPABILITIES = Object.freeze([
 const INTERNAL_KEY_RE = /^[a-z][a-z0-9_]{0,99}$/;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const ISO_2_COUNTRY_CODES = new Set(COUNTRIES.map(({ code }) => code));
 const FILE_TYPE_EXTENSIONS = Object.freeze({
   pdf: ['.pdf'],
   word: ['.doc', '.docx'],
@@ -312,6 +314,12 @@ export function coerceCustomObjectFieldValue(value, field) {
     }
     if (
       metadata.type === 'countries'
+      && values.some((entry) => !ISO_2_COUNTRY_CODES.has(entry))
+    ) {
+      return { ok: false, error: 'must contain only valid ISO-2 country codes' };
+    }
+    if (
+      metadata.type === 'countries'
       && !metadata.allCountries
       && values.some((entry) => !metadata.selectedCountries.includes(entry))
     ) {
@@ -354,6 +362,12 @@ export function coerceCustomObjectFieldValue(value, field) {
   if (metadata.type === 'dropdown' && metadata.options.length > 0) {
     const allowed = new Set(metadata.options.map((option) => option.value));
     if (!allowed.has(stringValue)) return { ok: false, error: 'must use an allowed option' };
+  }
+  if (
+    metadata.type === 'country'
+    && !ISO_2_COUNTRY_CODES.has(stringValue)
+  ) {
+    return { ok: false, error: 'must use a valid ISO-2 country code' };
   }
   if (
     metadata.type === 'country'
@@ -496,6 +510,7 @@ export function resolveCustomObjectPermission({
   }
   if (isTenantAdmin) return true;
   if (!permission) return false;
+  if (capability !== 'view_records' && permission.can_view_records !== true) return false;
   return permission[`can_${capability}`] === true;
 }
 
