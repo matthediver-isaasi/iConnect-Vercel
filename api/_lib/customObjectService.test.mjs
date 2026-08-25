@@ -170,7 +170,7 @@ test('record creation coerces typed JSONB, rejects invalid values, and authors m
     actor_id: 'forged',
   });
   assert.equal(created.data.headcount, 42);
-  assert.equal(created.created_by, 'trusted-member');
+  assert.equal(created.created_by, 'member:trusted-member');
 
   await assert.rejects(
     () => service.createRecord(objectId, { data: { headcount: '4.2' } }),
@@ -209,7 +209,7 @@ test('relationship creation validates endpoint kind/object and authors mutation 
     target_record_id: 'target-1',
     created_by: 'forged',
   });
-  assert.equal(relation.created_by, 'member-1');
+  assert.equal(relation.created_by, 'member:member-1');
   await assert.rejects(
     () => service.createRelationship(objectId, {
       relationship_definition_id: definitionId,
@@ -218,4 +218,271 @@ test('relationship creation validates endpoint kind/object and authors mutation 
     }),
     (error) => error.status === 400 && /different Custom Object/.test(error.message),
   );
+});
+
+test('schema catalogue counts active tenant-scoped records, fields, and relationships', async () => {
+  const otherObjectId = '44444444-4444-4444-8444-444444444444';
+  const db = mockDb({
+    custom_object_definition: [object(), object({ id: otherObjectId, object_key: 'offices' })],
+    custom_object_record: [
+      { tenant_id: tenantId, custom_object_id: objectId, archived_at: null },
+      { tenant_id: tenantId, custom_object_id: objectId, archived_at: '2026-01-01' },
+      { tenant_id: 'other-tenant', custom_object_id: objectId, archived_at: null },
+    ],
+    preference_field: [
+      field(),
+      field({ id: 'field-2', is_active: false }),
+      field({ id: 'field-other', tenant_id: 'other-tenant' }),
+    ],
+    custom_object_relationship_definition: [{
+      tenant_id: tenantId, source_custom_object_id: objectId,
+      target_custom_object_id: otherObjectId, status: 'active',
+    }, {
+      tenant_id: tenantId, source_custom_object_id: objectId,
+      target_custom_object_id: otherObjectId, status: 'archived',
+    }, {
+      tenant_id: 'other-tenant', source_custom_object_id: objectId,
+      target_custom_object_id: otherObjectId, status: 'active',
+    }],
+  });
+  const result = await createCustomObjectService({
+    db,
+    context: context(),
+    canViewSchema: true,
+  }).listObjects({});
+  const row = result.data.find((item) => item.id === objectId);
+  assert.deepEqual(
+    [row.record_count, row.field_count, row.relationship_count],
+    [1, 1, 1],
+  );
+});
+
+test('activation requires a valid active field owned by the same tenant and object', async () => {
+  const db = mockDb({
+    custom_object_definition: [object({ status: 'draft' })],
+    preference_field: [
+      field({ id: 'inactive', is_active: false }),
+      field({ id: 'invalid', field_type: 'unsupported' }),
+      field({ id: 'valid', field_type: 'text', is_required: false }),
+    ],
+  });
+  const service = createCustomObjectService({
+    db,
+    context: context(),
+    canManageSchema: true,
+  });
+  await assert.rejects(
+    () => service.updateObject(objectId, { status: 'active', primary_display_field_id: 'inactive' }),
+    (error) => error.status === 400 && /active field/.test(error.message),
+  );
+  await assert.rejects(
+    () => service.updateObject(objectId, { status: 'active', primary_display_field_id: 'invalid' }),
+    (error) => error.status === 400 && /invalid field definition/.test(error.message),
+  );
+  assert.equal(
+    (await service.updateObject(objectId, {
+      status: 'active',
+      primary_display_field_id: 'valid',
+    })).status,
+    'active',
+  );
+});
+
+test('field schema settings persist through the dedicated service', async () => {
+  const db = mockDb({
+    custom_object_definition: [object({ status: 'draft' })],
+  });
+  const service = createCustomObjectService({
+    db,
+    context: context(),
+    canManageSchema: true,
+  });
+  const countries = await service.createField(objectId, {
+    name: 'operating_countries',
+    label: 'Operating countries',
+    field_type: 'countries',
+    all_countries: false,
+    selected_countries: ['GB', 'FR'],
+    default_countries: ['GB'],
+  });
+  assert.deepEqual(countries.default_countries, ['GB']);
+
+  const upload = await service.createField(objectId, {
+    name: 'supporting_file',
+    label: 'Supporting file',
+    field_type: 'file',
+    allowed_file_types: ['pdf'],
+    public_access: true,
+  });
+  assert.equal(upload.public_access, true);
+});
+
+test('object and field keys are immutable and archived objects are terminal', async () => {
+  const db = mockDb({
+    custom_object_definition: [object({ status: 'draft' })],
+    preference_field: [field()],
+  });
+  const service = createCustomObjectService({
+    db,
+    context: context(),
+    canManageSchema: true,
+    now: () => '2026-08-25T00:00:00.000Z',
+  });
+  await assert.rejects(
+    () => service.updateObject(objectId, { object_key: 'renamed' }),
+    (error) => error.status === 400 && /cannot be changed/.test(error.message),
+  );
+  await assert.rejects(
+    () => service.updateField(objectId, 'field-1', { name: 'renamed' }),
+    (error) => error.status === 400 && /cannot be changed/.test(error.message),
+  );
+  const archived = await service.updateObject(objectId, {}, true);
+  assert.equal(archived.status, 'archived');
+  assert.equal(db.tables.custom_object_definition.length, 1);
+  assert.deepEqual(await service.updateObject(objectId, {}, true), archived);
+  await assert.rejects(
+    () => service.updateObject(objectId, { singular_label: 'Changed' }),
+    (error) => error.status === 409 && /cannot be modified/.test(error.message),
+  );
+});
+
+test('database duplicate-key errors map to useful conflict responses', async () => {
+  const db = {
+    from() {
+      return {
+        insert() { return this; },
+        select() { return this; },
+        async single() {
+          return {
+            data: null,
+            error: { code: '23505', constraint: 'custom_object_definition_tenant_key_unique' },
+          };
+        },
+      };
+    },
+  };
+  const service = createCustomObjectService({
+    db,
+    context: context(),
+    canManageSchema: true,
+  });
+  await assert.rejects(
+    () => service.createObject({
+      object_key: 'departments',
+      singular_label: 'Department',
+      plural_label: 'Departments',
+    }),
+    (error) => error.status === 409 && /object key already exists/i.test(error.message),
+  );
+});
+
+test('audit listing returns only tenant/object events and does not write audit rows itself', async () => {
+  const db = mockDb({
+    custom_object_definition: [object()],
+    custom_object_audit_event: [
+      { id: 'audit-1', tenant_id: tenantId, custom_object_id: objectId, action: 'updated' },
+      { id: 'audit-2', tenant_id: 'other-tenant', custom_object_id: objectId, action: 'updated' },
+    ],
+  });
+  const result = await createCustomObjectService({
+    db,
+    context: context(),
+    canViewSchema: true,
+  }).listAudit(objectId, {});
+  assert.deepEqual(result.data.map((event) => event.id), ['audit-1']);
+  assert.equal(db.calls.filter(
+    (call) => call.table === 'custom_object_audit_event' && call.type === 'from',
+  ).length, 1);
+});
+
+test('schema service authorization does not treat record admin status as schema access', async () => {
+  const db = mockDb({ custom_object_definition: [object({ status: 'draft' })] });
+  const service = createCustomObjectService({
+    db,
+    context: context(),
+    isAdmin: true,
+  });
+  await assert.rejects(
+    () => service.createField(objectId, {
+      name: 'title', label: 'Title', field_type: 'text',
+    }),
+    (error) => error.status === 403 && /management access/.test(error.message),
+  );
+  await assert.rejects(
+    () => service.listAudit(objectId, {}),
+    (error) => error.status === 403 && /catalogue access/.test(error.message),
+  );
+});
+
+test('view-only schema catalogue can include draft, active, and archived objects', async () => {
+  const db = mockDb({
+    custom_object_definition: [
+      object({ id: 'draft', status: 'draft' }),
+      object({ id: 'active', status: 'active' }),
+      object({ id: 'archived', status: 'archived' }),
+    ],
+  });
+  const service = createCustomObjectService({
+    db,
+    context: context(),
+    canViewSchema: true,
+  });
+  const normal = await service.listObjects({});
+  assert.deepEqual(normal.data.map((row) => row.status).sort(), ['active', 'draft']);
+  const includingArchived = await service.listObjects({ includeArchived: 'true' });
+  assert.deepEqual(
+    includingArchived.data.map((row) => row.status).sort(),
+    ['active', 'archived', 'draft'],
+  );
+});
+
+test('archived objects reject child schema and permission mutations', async () => {
+  const relationshipId = '55555555-5555-4555-8555-555555555555';
+  const db = mockDb({
+    custom_object_definition: [object({ status: 'archived', archived_at: '2026-01-01' })],
+    preference_field: [field()],
+    custom_object_relationship_definition: [{
+      id: relationshipId,
+      tenant_id: tenantId,
+      source_custom_object_id: objectId,
+      target_custom_object_id: null,
+    }],
+  });
+  const service = createCustomObjectService({
+    db,
+    context: context(),
+    canManageSchema: true,
+  });
+  const assertions = [
+    () => service.createField(objectId, { name: 'title', label: 'Title', field_type: 'text' }),
+    () => service.updateField(objectId, 'field-1', { label: 'Changed' }),
+    () => service.updateField(objectId, 'field-1', {}, true),
+    () => service.createRelationshipDefinition(objectId, {}),
+    () => service.updateRelationshipDefinition(objectId, relationshipId, {}),
+    () => service.updateRelationshipDefinition(objectId, relationshipId, {}, true),
+    () => service.upsertPermission(objectId, { role_id: roleId }),
+  ];
+  for (const mutate of assertions) {
+    await assert.rejects(
+      mutate,
+      (error) => error.status === 409 && /Archived Custom Objects/.test(error.message),
+    );
+  }
+});
+
+test('active primary display field cannot be deactivated', async () => {
+  const db = mockDb({
+    custom_object_definition: [object({ primary_display_field_id: 'field-1' })],
+    preference_field: [field()],
+  });
+  const service = createCustomObjectService({
+    db,
+    context: context(),
+    canManageSchema: true,
+  });
+  await assert.rejects(
+    () => service.updateField(objectId, 'field-1', {}, true),
+    (error) => error.status === 409 && /primary display field/.test(error.message),
+  );
+  assert.equal(db.tables.preference_field[0].is_active, true);
 });

@@ -60,6 +60,22 @@ test('field definitions reuse supported preference field metadata', () => {
   assert.equal(validateCustomObjectFieldDefinition(field({
     name: 'Display Name',
   })).ok, false);
+  assert.equal(validateCustomObjectFieldDefinition(field({
+    field_type: 'file',
+    allowed_file_types: [],
+  })).ok, false);
+  assert.equal(validateCustomObjectFieldDefinition(field({
+    field_type: 'country',
+    all_countries: false,
+    selected_countries: ['GB'],
+    default_country: 'US',
+  })).ok, false);
+  assert.equal(validateCustomObjectFieldDefinition(field({
+    field_type: 'countries',
+    all_countries: false,
+    selected_countries: ['GB'],
+    default_countries: ['GB', 'US'],
+  })).ok, false);
 });
 
 test('field inventory matches every type offered by the existing custom-field editor', () => {
@@ -108,6 +124,7 @@ test('typed JSONB coercion covers every supported preference-field type', () => 
       options: ['picklist', 'dropdown'].includes(fieldType)
         ? [{ value: 'a', label: 'A' }, { value: 'b', label: 'B' }]
         : undefined,
+      allowed_file_types: fieldType === 'file' ? ['pdf'] : undefined,
     });
     assert.equal(validateCustomObjectFieldDefinition(definition).ok, true, fieldType);
     assert.deepEqual(
@@ -203,6 +220,14 @@ test('lifecycle archive defaults are server-authored and archive is terminal', (
     status: 'archived',
     archived_at: '2026-08-25T12:00:00.000Z',
   });
+  assert.throws(
+    () => resolveCustomObjectLifecycleUpdate({
+      currentStatus: 'active',
+      nextStatus: 'draft',
+      hasPrimaryDisplayField: true,
+    }),
+    (error) => error.code === 'ACTIVE_CANNOT_RETURN_TO_DRAFT',
+  );
   assert.throws(
     () => resolveCustomObjectLifecycleUpdate({
       currentStatus: 'archived',

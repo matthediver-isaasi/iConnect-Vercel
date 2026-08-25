@@ -24,7 +24,8 @@ const OBJECT_COLUMNS = [
 const FIELD_COLUMNS = [
   'name', 'label', 'field_type', 'is_required', 'options', 'min_selections',
   'max_selections', 'min_length', 'max_length', 'all_countries',
-  'selected_countries', 'allowed_file_types', 'display_order',
+  'selected_countries', 'default_country', 'default_countries',
+  'allowed_file_types', 'public_access', 'display_order',
 ];
 const RELATIONSHIP_DEFINITION_COLUMNS = [
   'relationship_key', 'source_kind', 'source_custom_object_id', 'target_kind',
@@ -55,7 +56,18 @@ function pagination(query = {}) {
 }
 
 function throwDb(error, fallback = 'Database operation failed') {
-  if (error) throw new CustomObjectHttpError(500, error.message || fallback);
+  if (!error) return;
+  if (error.code === '23505') {
+    const constraint = error.constraint || error.details || error.message || '';
+    let message = 'A record with this unique key already exists';
+    if (/custom_object_definition.*key|tenant_key/i.test(constraint)) {
+      message = 'A Custom Object with this object key already exists';
+    } else if (/preference_field.*name|field_object/i.test(constraint)) {
+      message = 'A field with this field key already exists on this Custom Object';
+    }
+    throw new CustomObjectHttpError(409, message);
+  }
+  throw new CustomObjectHttpError(500, error.message || fallback);
 }
 
 function domainGuard(fn) {
@@ -73,6 +85,8 @@ export function createCustomObjectService({
   db,
   context,
   isAdmin = false,
+  canViewSchema = false,
+  canManageSchema = false,
   now = () => new Date().toISOString(),
 }) {
   if (!context?.isAuthenticated) throw new CustomObjectHttpError(401, 'Authentication required');
@@ -82,7 +96,12 @@ export function createCustomObjectService({
 
   const tenantId = context.tenantId;
   const currentActor = actor(context);
-  const authored = (kind = 'updated') => ({ [`${kind}_by`]: currentActor.id });
+  const currentActorReference = currentActor.id
+    ? `${currentActor.type}:${currentActor.id}`
+    : null;
+  const authored = (kind = 'updated') => ({
+    [`${kind}_by`]: currentActorReference,
+  });
 
   async function one(table, id, extra = {}) {
     let query = db.from(table).select('*').eq('tenant_id', tenantId).eq('id', id);
@@ -148,14 +167,44 @@ export function createCustomObjectService({
     }
   }
 
-  function requireAdmin() {
-    if (!isAdmin) throw new CustomObjectHttpError(403, 'Administrator access required');
+  function requireSchemaManager() {
+    if (!canManageSchema) throw new CustomObjectHttpError(403, 'Data model management access required');
+  }
+
+  function requireSchemaViewer() {
+    if (!canViewSchema && !canManageSchema) throw new CustomObjectHttpError(403, 'Custom Object catalogue access required');
+  }
+
+  function requireMutableObject(definition) {
+    if (definition.status === 'archived') {
+      throw new CustomObjectHttpError(409, 'Archived Custom Objects cannot have their data model modified');
+    }
+  }
+
+  async function validatePrimaryDisplayField(objectId, fieldId) {
+    if (!fieldId) throw new CustomObjectHttpError(400, 'An active Custom Object requires a primary display field');
+    let query = db.from('preference_field').select('*')
+      .eq('tenant_id', tenantId).eq('custom_object_id', objectId)
+      .eq('entity_scope', 'custom_object').eq('id', fieldId).eq('is_active', true);
+    const { data, error } = await query.maybeSingle();
+    throwDb(error);
+    if (!data) {
+      throw new CustomObjectHttpError(400, 'Primary display field must be an active field on the same Custom Object');
+    }
+    const validation = validateCustomObjectFieldDefinition(data, {
+      tenantId,
+      customObjectId: objectId,
+    });
+    if (!validation.ok) {
+      throw new CustomObjectHttpError(400, 'Primary display field has an invalid field definition', validation.errors);
+    }
+    return data;
   }
 
   async function listObjects(query) {
     const p = pagination(query);
     let allowedObjectIds = null;
-    if (!isAdmin) {
+    if (!isAdmin && !canViewSchema && !canManageSchema) {
       if (!context.roleId) {
         return { data: [], total: 0, page: p.page, pageSize: p.pageSize };
       }
@@ -171,12 +220,50 @@ export function createCustomObjectService({
     let q = db.from('custom_object_definition').select('*', { count: 'exact' })
       .eq('tenant_id', tenantId).order('created_at', { ascending: false });
     if (allowedObjectIds) q = q.in('id', allowedObjectIds);
-    if (!isAdmin) q = q.eq('status', 'active');
+    if (!canViewSchema && !canManageSchema) q = q.eq('status', 'active');
     else if (query?.includeArchived !== 'true') q = q.neq('status', 'archived');
     const { data, error, count } = await q.range(p.from, p.to);
     throwDb(error);
+    const rows = data || [];
+    const objectIds = rows.map((row) => row.id);
+    if (objectIds.length === 0) {
+      return { data: [], total: count || 0, page: p.page, pageSize: p.pageSize };
+    }
+    const [recordResult, fieldResult, relationshipResult] = await Promise.all([
+      db.from('custom_object_record').select('custom_object_id')
+        .eq('tenant_id', tenantId).in('custom_object_id', objectIds).is('archived_at', null),
+      db.from('preference_field').select('custom_object_id')
+        .eq('tenant_id', tenantId).in('custom_object_id', objectIds)
+        .eq('entity_scope', 'custom_object').eq('is_active', true),
+      db.from('custom_object_relationship_definition')
+        .select('source_custom_object_id,target_custom_object_id,status').eq('tenant_id', tenantId),
+    ]);
+    throwDb(recordResult.error);
+    throwDb(fieldResult.error);
+    throwDb(relationshipResult.error);
+    const countBy = (items, key) => (items || []).reduce((counts, item) => {
+      counts[item[key]] = (counts[item[key]] || 0) + 1;
+      return counts;
+    }, {});
+    const recordCounts = countBy(recordResult.data, 'custom_object_id');
+    const fieldCounts = countBy(fieldResult.data, 'custom_object_id');
+    const relationshipCounts = {};
+    for (const relationship of relationshipResult.data || []) {
+      if (relationship.status === 'archived') continue;
+      for (const id of new Set([
+        relationship.source_custom_object_id,
+        relationship.target_custom_object_id,
+      ].filter((candidate) => objectIds.includes(candidate)))) {
+        relationshipCounts[id] = (relationshipCounts[id] || 0) + 1;
+      }
+    }
     return {
-      data: data || [],
+      data: rows.map((row) => ({
+        ...row,
+        record_count: recordCounts[row.id] || 0,
+        field_count: fieldCounts[row.id] || 0,
+        relationship_count: relationshipCounts[row.id] || 0,
+      })),
       total: count || 0,
       page: p.page,
       pageSize: p.pageSize,
@@ -184,16 +271,13 @@ export function createCustomObjectService({
   }
 
   async function createObject(body) {
-    requireAdmin();
+    requireSchemaManager();
     const payload = {
       ...pick(body, OBJECT_COLUMNS), tenant_id: tenantId, status: body?.status || 'draft',
       configuration: body?.configuration || {}, ...authored('created'), ...authored(),
     };
     if (payload.status !== 'draft') {
-      Object.assign(payload, domainGuard(() => resolveCustomObjectLifecycleUpdate({
-        currentStatus: 'draft', nextStatus: payload.status,
-        hasPrimaryDisplayField: Boolean(payload.primary_display_field_id), now: now(),
-      })));
+      throw new CustomObjectHttpError(400, 'Custom Objects must be created as draft and activated after fields are configured');
     }
     const { data, error } = await db.from('custom_object_definition').insert(payload).select('*').single();
     throwDb(error);
@@ -202,23 +286,36 @@ export function createCustomObjectService({
 
   async function getObject(objectId) {
     const row = await object(objectId);
-    await requireCapability(objectId, 'view_records');
+    if (!canViewSchema && !canManageSchema) await requireCapability(objectId, 'view_records');
     return row;
   }
 
   async function updateObject(objectId, body, archive = false) {
-    requireAdmin();
+    requireSchemaManager();
     const before = await object(objectId);
+    if (before.status === 'archived') {
+      if (archive) return before;
+      throw new CustomObjectHttpError(409, 'Archived Custom Objects cannot be modified or reactivated');
+    }
     const payload = pick(body, OBJECT_COLUMNS);
     if (payload.object_key !== undefined) domainGuard(() => assertImmutableInternalKey(before.object_key, payload.object_key, 'Object key'));
     const nextStatus = archive ? 'archived' : (payload.status || before.status);
+    if (nextStatus === 'active' && (
+      before.status !== 'active'
+      || payload.primary_display_field_id !== undefined
+    )) {
+      await validatePrimaryDisplayField(
+        objectId,
+        payload.primary_display_field_id ?? before.primary_display_field_id,
+      );
+    }
     if (archive || payload.status !== undefined) {
       Object.assign(payload, domainGuard(() => resolveCustomObjectLifecycleUpdate({
         currentStatus: before.status, nextStatus, currentArchivedAt: before.archived_at,
         hasPrimaryDisplayField: Boolean(payload.primary_display_field_id ?? before.primary_display_field_id),
         now: now(),
       })));
-      if (nextStatus === 'archived') payload.archived_by = currentActor.id;
+      if (nextStatus === 'archived') payload.archived_by = currentActorReference;
     }
     Object.assign(payload, authored());
     const { data, error } = await db.from('custom_object_definition').update(payload)
@@ -229,7 +326,7 @@ export function createCustomObjectService({
 
   async function listFields(objectId, query) {
     await object(objectId);
-    await requireCapability(objectId, 'view_records');
+    if (!canViewSchema && !canManageSchema) await requireCapability(objectId, 'view_records');
     const p = pagination(query);
     let q = db.from('preference_field').select('*', { count: 'exact' })
       .eq('tenant_id', tenantId).eq('custom_object_id', objectId)
@@ -241,8 +338,8 @@ export function createCustomObjectService({
   }
 
   async function createField(objectId, body) {
-    requireAdmin();
-    await object(objectId);
+    requireSchemaManager();
+    requireMutableObject(await object(objectId));
     const payload = {
       ...pick(body, FIELD_COLUMNS), tenant_id: tenantId, custom_object_id: objectId,
       entity_scope: 'custom_object', is_active: true,
@@ -256,9 +353,17 @@ export function createCustomObjectService({
   }
 
   async function updateField(objectId, fieldId, body, deactivate = false) {
-    requireAdmin();
-    await object(objectId);
+    requireSchemaManager();
+    const definition = await object(objectId);
+    requireMutableObject(definition);
     const before = await one('preference_field', fieldId, { custom_object_id: objectId });
+    if (
+      deactivate
+      && definition.status === 'active'
+      && definition.primary_display_field_id === before.id
+    ) {
+      throw new CustomObjectHttpError(409, 'The primary display field of an active Custom Object cannot be deactivated');
+    }
     const payload = { ...before, ...pick(body, FIELD_COLUMNS), is_active: deactivate ? false : before.is_active };
     if (body?.name !== undefined) domainGuard(() => assertImmutableInternalKey(before.name, body.name, 'Field key'));
     const validation = validateCustomObjectFieldDefinition(payload, { tenantId, customObjectId: objectId });
@@ -320,7 +425,8 @@ export function createCustomObjectService({
     const before = await one('custom_object_record', recordId, { custom_object_id: objectId });
     let payload;
     if (archive) {
-      payload = { archived_at: before.archived_at || now(), archived_by: currentActor.id, archive_reason: body?.archive_reason || null, ...authored() };
+      if (before.archived_at) return before;
+      payload = { archived_at: before.archived_at || now(), archived_by: currentActorReference, archive_reason: body?.archive_reason || null, ...authored() };
     } else {
       if (before.archived_at) throw new CustomObjectHttpError(409, 'Archived records cannot be edited');
       const validation = validateCustomObjectRecordData({
@@ -338,7 +444,7 @@ export function createCustomObjectService({
 
   async function listRelationshipDefinitions(objectId, query) {
     await object(objectId);
-    await requireCapability(objectId, 'view_records');
+    if (!canViewSchema && !canManageSchema) await requireCapability(objectId, 'view_records');
     const p = pagination(query);
     let q = db.from('custom_object_relationship_definition').select('*', { count: 'exact' })
       .eq('tenant_id', tenantId)
@@ -348,7 +454,7 @@ export function createCustomObjectService({
     const { data, error, count } = await q.range(p.from, p.to);
     throwDb(error);
     let visible = data || [];
-    if (!isAdmin) {
+    if (!isAdmin && !canViewSchema && !canManageSchema) {
       const checks = await Promise.all(visible.map(async (definition) => {
         for (const relatedObjectId of relationshipObjectIds(definition)) {
           if (!(await hasCapability(relatedObjectId, 'view_records'))) return false;
@@ -366,8 +472,8 @@ export function createCustomObjectService({
   }
 
   async function createRelationshipDefinition(objectId, body) {
-    requireAdmin();
-    await object(objectId);
+    requireSchemaManager();
+    requireMutableObject(await object(objectId));
     const payload = {
       ...pick(body, RELATIONSHIP_DEFINITION_COLUMNS), tenant_id: tenantId,
       status: body?.status || 'draft', configuration: body?.configuration || {},
@@ -385,8 +491,8 @@ export function createCustomObjectService({
   }
 
   async function updateRelationshipDefinition(objectId, id, body, archive = false) {
-    requireAdmin();
-    await object(objectId);
+    requireSchemaManager();
+    requireMutableObject(await object(objectId));
     const before = await one('custom_object_relationship_definition', id);
     if (before.source_custom_object_id !== objectId && before.target_custom_object_id !== objectId) throw new CustomObjectHttpError(404, 'Resource not found');
     const payload = pick(body, RELATIONSHIP_DEFINITION_COLUMNS);
@@ -395,7 +501,7 @@ export function createCustomObjectService({
       currentStatus: before.status, nextStatus: archive ? 'archived' : payload.status,
       currentArchivedAt: before.archived_at, hasPrimaryDisplayField: true, now: now(),
     })));
-    if ((payload.status || (archive && 'archived')) === 'archived') payload.archived_by = currentActor.id;
+    if ((payload.status || (archive && 'archived')) === 'archived') payload.archived_by = currentActorReference;
     Object.assign(payload, authored());
     const { data, error } = await db.from('custom_object_relationship_definition').update(payload)
       .eq('tenant_id', tenantId).eq('id', id).select('*').single();
@@ -464,14 +570,14 @@ export function createCustomObjectService({
       throw new CustomObjectHttpError(403, 'This relationship cannot be edited from the routed Custom Object');
     }
     const { data, error } = await db.from('custom_object_relationship')
-      .update({ archived_at: before.archived_at || now(), archived_by: currentActor.id })
+      .update({ archived_at: before.archived_at || now(), archived_by: currentActorReference })
       .eq('tenant_id', tenantId).eq('id', id).select('*').single();
     throwDb(error);
     return data;
   }
 
   async function listPermissions(objectId, query) {
-    requireAdmin();
+    requireSchemaViewer();
     await object(objectId);
     const p = pagination(query);
     const { data, error, count } = await db.from('custom_object_role_permission')
@@ -483,8 +589,8 @@ export function createCustomObjectService({
   }
 
   async function upsertPermission(objectId, body) {
-    requireAdmin();
-    await object(objectId);
+    requireSchemaManager();
+    requireMutableObject(await object(objectId));
     if (!body?.role_id) throw new CustomObjectHttpError(400, 'role_id is required');
     await one('role', body.role_id);
     const payload = {
@@ -498,7 +604,7 @@ export function createCustomObjectService({
   }
 
   async function listAudit(objectId, query) {
-    requireAdmin();
+    requireSchemaViewer();
     await object(objectId);
     const p = pagination(query);
     let q = db.from('custom_object_audit_event').select('*', { count: 'exact' })

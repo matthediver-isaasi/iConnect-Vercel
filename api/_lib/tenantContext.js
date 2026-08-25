@@ -313,6 +313,9 @@ export async function getTenantContext(req) {
       organizationId: associatedOrganizationId, // Include if tenant user has member association
       memberId: associatedMemberId, // Include if tenant user has member association
       roleId: associatedRoleId, // Include role_id for permission checks
+      memberExcludedFeatures: Array.isArray(member?.member_excluded_features)
+        ? member.member_excluded_features
+        : [],
       tenantUserId: tenantUser.id,
       isAuthenticated: true,
       isSuperAdmin: tenantUser.role === 'super_admin',
@@ -357,6 +360,9 @@ export async function getTenantContext(req) {
     organizationId: member.organization_id,
     memberId: member.id,
     roleId: member.role_id, // Include role_id for permission checks
+    memberExcludedFeatures: Array.isArray(member.member_excluded_features)
+      ? member.member_excluded_features
+      : [],
     isAuthenticated: true,
     isSuperAdmin,
     tenantFromHost,

@@ -150,3 +150,4 @@
 - [Supabase public Storage misses](supabase-storage-missing-object.md) — a missing public object can be HTTP 400 with an embedded 404/NoSuchKey; inspect the JSON body before treating it as absent.
 - [WordPress option leases](wordpress-option-leases.md) — expiring locks need DB compare-and-swap takeover/renewal and compare-and-delete release; read/delete/add reopens concurrency races.
 - [Preference-field ownership scopes](preference-field-ownership-scopes.md) — adding a new field owner requires API and DB guards on every legacy value table, not just filtering field definitions.
+- [Stable Lucide icon identities](lucide-icon-identities.md) — lucide-react component.name is not a stable persisted key; pair components with explicit string identifiers.

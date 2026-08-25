@@ -7,6 +7,13 @@ const migrationUrl = new URL(
   import.meta.url,
 );
 const sql = await readFile(migrationUrl, 'utf8');
+const schemaAdminSql = await readFile(
+  new URL(
+    '../../supabase/migrations/20260825_custom_object_schema_admin_guards.sql',
+    import.meta.url,
+  ),
+  'utf8',
+);
 
 test('migration uses shared generic tables instead of tenant-specific tables', () => {
   for (const table of [
@@ -48,6 +55,7 @@ test('tenant-leading indexes, RLS, and explicit service-role-only access are pre
 
 test('database guards cover immutable keys, same-tenant ownership, cardinality, and append-only audit', () => {
   assert.match(sql, /custom_object_definition_immutable_identity/);
+  assert.match(sql, /custom_object_definition_active_not_draft/);
   assert.match(sql, /preference_field_custom_object_immutable_identity/);
   assert.match(sql, /preference_field_custom_object_active_primary_required/);
   assert.match(sql, /custom_object_record_same_tenant/);
@@ -66,5 +74,11 @@ test('database guards cover immutable keys, same-tenant ownership, cardinality, 
   assert.match(sql, /organization_preference_value_custom_object_guard/);
   assert.match(sql, /organization_group_preference_value_custom_object_guard/);
   assert.match(sql, /audit_custom_object_mutation/);
+  assert.match(sql, /v_actor_reference LIKE 'tenant_user:%'/);
+  assert.match(sql, /v_actor_reference LIKE 'member:%'/);
   assert.match(sql, /custom_object_record_audit_trigger/);
+  assert.match(schemaAdminSql, /custom_object_definition_active_not_draft/);
+  assert.match(schemaAdminSql, /custom_object_audit_actor_type_trigger/);
+  assert.match(schemaAdminSql, /NEW\.actor_type := 'tenant_user'/);
+  assert.match(schemaAdminSql, /NEW\.actor_type := 'member'/);
 });

@@ -363,6 +363,10 @@ BEGIN
       RAISE EXCEPTION 'Archived Custom Objects cannot be reactivated'
         USING ERRCODE = '23514', CONSTRAINT = 'custom_object_definition_archived_terminal';
     END IF;
+    IF OLD.status = 'active' AND NEW.status = 'draft' THEN
+      RAISE EXCEPTION 'Active Custom Objects cannot return to draft'
+        USING ERRCODE = '23514', CONSTRAINT = 'custom_object_definition_active_not_draft';
+    END IF;
   END IF;
 
   IF NEW.status = 'archived' THEN
@@ -930,9 +934,9 @@ CREATE TRIGGER custom_object_audit_event_guard_trigger
   FOR EACH ROW EXECUTE FUNCTION public.guard_custom_object_audit_event();
 
 -- Every domain mutation and its audit event commit in the same database
--- transaction. Actor ids are supplied only through server-authored mutation
--- columns; actor_type remains system because the database does not trust a
--- caller-provided identity class.
+-- transaction. Dedicated services encode the authenticated identity class in
+-- server-authored mutation columns so the trigger can persist both actor id
+-- and actor type without accepting caller-controlled audit rows.
 CREATE OR REPLACE FUNCTION public.audit_custom_object_mutation()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -946,7 +950,9 @@ DECLARE
   v_record_id uuid;
   v_relationship_definition_id uuid;
   v_relationship_id uuid;
+  v_actor_reference text;
   v_actor_id text;
+  v_actor_type text := 'system';
   v_action text;
   v_entity_type text;
 BEGIN
@@ -956,13 +962,22 @@ BEGIN
   END IF;
 
   v_tenant_id := (v_after->>'tenant_id')::uuid;
-  v_actor_id := COALESCE(
+  v_actor_reference := COALESCE(
     NULLIF(v_after->>'archived_by', ''),
     NULLIF(v_after->>'updated_by', ''),
     NULLIF(v_after->>'created_by', ''),
     NULLIF(v_before->>'updated_by', ''),
     NULLIF(v_before->>'created_by', '')
   );
+  IF v_actor_reference LIKE 'tenant_user:%' THEN
+    v_actor_type := 'tenant_user';
+    v_actor_id := substring(v_actor_reference FROM char_length('tenant_user:') + 1);
+  ELSIF v_actor_reference LIKE 'member:%' THEN
+    v_actor_type := 'member';
+    v_actor_id := substring(v_actor_reference FROM char_length('member:') + 1);
+  ELSE
+    v_actor_id := v_actor_reference;
+  END IF;
 
   CASE TG_TABLE_NAME
     WHEN 'custom_object_definition' THEN
@@ -1043,7 +1058,7 @@ BEGIN
     v_relationship_definition_id,
     v_relationship_id,
     v_actor_id,
-    'system',
+    v_actor_type,
     v_action,
     v_entity_type,
     NEW.id,

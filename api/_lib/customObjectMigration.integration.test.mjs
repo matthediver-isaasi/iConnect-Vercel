@@ -9,6 +9,9 @@ import test from 'node:test';
 const migrationPath = fileURLToPath(
   new URL('../../supabase/migrations/20260825_custom_object_foundation.sql', import.meta.url),
 );
+const schemaAdminMigrationPath = fileURLToPath(
+  new URL('../../supabase/migrations/20260825_custom_object_schema_admin_guards.sql', import.meta.url),
+);
 
 function findExecutable(name) {
   const result = spawnSync('sh', ['-c', `command -v ${name}`], { encoding: 'utf8' });
@@ -138,6 +141,8 @@ test('migration replays and persists every supported Custom Object field type', 
     run(psql, connectionArgs, { input: baselineSql });
     run(psql, [...connectionArgs, '-f', migrationPath]);
     run(psql, [...connectionArgs, '-f', migrationPath]);
+    run(psql, [...connectionArgs, '-f', schemaAdminMigrationPath]);
+    run(psql, [...connectionArgs, '-f', schemaAdminMigrationPath]);
 
     const fieldTypes = [
       'text',
@@ -199,6 +204,18 @@ test('migration replays and persists every supported Custom Object field type', 
     runFailure(
       psql,
       connectionArgs,
+      /Active Custom Objects cannot return to draft/,
+      {
+        input: `
+          UPDATE public.custom_object_definition
+          SET status = 'draft'
+          WHERE id = '00000000-0000-4000-8000-000000000011';
+        `,
+      },
+    );
+    runFailure(
+      psql,
+      connectionArgs,
       /primary display field of an active Custom Object cannot be deactivated/,
       {
         input: `
@@ -223,6 +240,19 @@ test('migration replays and persists every supported Custom Object field type', 
       `,
     });
     assert.equal(switchedPrimary.trim(), 'f');
+
+    const classifiedActor = run(psql, [...connectionArgs, '-t', '-A'], {
+      input: `
+        UPDATE public.preference_field
+        SET label = 'Updated text',
+            updated_by = 'tenant_user:admin-42'
+        WHERE id = '10000000-0000-4000-8000-000000000001';
+        SELECT actor_id || ':' || actor_type
+        FROM public.custom_object_audit_event
+        WHERE actor_id = 'admin-42';
+      `,
+    });
+    assert.equal(classifiedActor.trim(), 'admin-42:tenant_user');
 
     run(psql, connectionArgs, {
       input: `

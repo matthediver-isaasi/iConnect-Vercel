@@ -102,6 +102,7 @@ export const PAGE_NAMES = [
   "CommunicationsManagement",
   "EmailCampaignEdit",
   "CustomFieldsAdmin",
+  "CustomObjectsAdmin",
   "SpeakerManagement",
   "SponsorManagement",
   "CardDeckManagement",

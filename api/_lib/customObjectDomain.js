@@ -106,6 +106,9 @@ export function getCustomObjectFieldMetadata(field) {
   const allowedFileTypes = Array.isArray(field?.allowed_file_types)
     ? field.allowed_file_types.map(String)
     : parseJsonArray(field?.allowed_file_types)?.map(String) || [];
+  const defaultCountries = Array.isArray(field?.default_countries)
+    ? field.default_countries.map(String)
+    : parseJsonArray(field?.default_countries)?.map(String) || [];
 
   return {
     id: field?.id || null,
@@ -122,7 +125,10 @@ export function getCustomObjectFieldMetadata(field) {
     maxLength: Number.isInteger(field?.max_length) ? field.max_length : null,
     allCountries: field?.all_countries !== false,
     selectedCountries,
+    defaultCountry: field?.default_country ? String(field.default_country) : null,
+    defaultCountries,
     allowedFileTypes,
+    publicAccess: field?.public_access === true,
   };
 }
 
@@ -165,6 +171,34 @@ export function validateCustomObjectFieldDefinition(field, expected = {}) {
     && metadata.minLength > metadata.maxLength
   ) {
     errors.push('Minimum length cannot exceed maximum length');
+  }
+  if (metadata.type === 'file' && metadata.allowedFileTypes.length === 0) {
+    errors.push('File fields must allow at least one file type');
+  }
+  if (
+    ['country', 'countries'].includes(metadata.type)
+    && !metadata.allCountries
+    && metadata.selectedCountries.length === 0
+  ) {
+    errors.push('Restricted country fields must allow at least one country');
+  }
+  const availableCountries = metadata.allCountries
+    ? null
+    : new Set(metadata.selectedCountries);
+  if (
+    metadata.type === 'country'
+    && metadata.defaultCountry
+    && availableCountries
+    && !availableCountries.has(metadata.defaultCountry)
+  ) {
+    errors.push('The default country must be one of the available countries');
+  }
+  if (
+    metadata.type === 'countries'
+    && availableCountries
+    && metadata.defaultCountries.some((country) => !availableCountries.has(country))
+  ) {
+    errors.push('Default countries must be selected from the available countries');
   }
 
   return { ok: errors.length === 0, metadata, errors };
@@ -433,6 +467,12 @@ export function resolveCustomObjectLifecycleUpdate({
   }
   if (currentStatus === 'archived' && nextStatus !== 'archived') {
     throw new CustomObjectDomainError('ARCHIVED_IS_TERMINAL', 'Archived Custom Objects cannot be reactivated');
+  }
+  if (currentStatus === 'active' && nextStatus === 'draft') {
+    throw new CustomObjectDomainError(
+      'ACTIVE_CANNOT_RETURN_TO_DRAFT',
+      'Active Custom Objects cannot return to draft',
+    );
   }
   if (nextStatus === 'active' && !hasPrimaryDisplayField) {
     throw new CustomObjectDomainError(

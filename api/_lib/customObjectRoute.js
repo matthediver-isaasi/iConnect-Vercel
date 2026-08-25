@@ -1,6 +1,20 @@
 import { supabase } from './database.js';
-import { getTenantContext, hasAdminAccess } from './tenantContext.js';
+import { getTenantContext, hasAdminAccess, hasFeatureAccess } from './tenantContext.js';
+import { isResourceExcluded } from './roleVisibility.js';
 import { CustomObjectHttpError, createCustomObjectService } from './customObjectService.js';
+
+const VIEW_SCHEMA_FEATURE = 'data.custom-objects';
+const MANAGE_SCHEMA_FEATURE = 'data.custom-objects.manage-data-model';
+
+function schemaAccessRequired(level, resource, method) {
+  if (['records', 'relationships'].includes(resource)) return null;
+  if (method === 'GET') return 'view';
+  if (
+    ['collection', 'object'].includes(level)
+    || ['fields', 'relationship-definitions', 'permissions'].includes(resource)
+  ) return 'manage';
+  return null;
+}
 
 function methodNotAllowed(res, methods) {
   res.setHeader('Allow', methods);
@@ -10,6 +24,7 @@ function methodNotAllowed(res, methods) {
 export function createCustomObjectRouteHandler(level, dependencies = {}) {
   const getContext = dependencies.getTenantContext || getTenantContext;
   const adminCheck = dependencies.hasAdminAccess || hasAdminAccess;
+  const featureCheck = dependencies.hasFeatureAccess || hasFeatureAccess;
   const db = dependencies.db || supabase;
   const serviceFactory = dependencies.createCustomObjectService || createCustomObjectService;
   return async function handler(req, res) {
@@ -18,12 +33,32 @@ export function createCustomObjectRouteHandler(level, dependencies = {}) {
       if (context?.tenantMismatch) throw new CustomObjectHttpError(409, 'Tenant context mismatch');
       if (!context?.isAuthenticated) throw new CustomObjectHttpError(401, 'Authentication required');
       if (!context?.tenantId) throw new CustomObjectHttpError(400, 'Tenant context not found');
-      const service = serviceFactory({
-        db, context, isAdmin: await adminCheck(context), now: dependencies.now,
-      });
       const objectId = req.query.objectId;
       const resource = req.query.resource;
       const resourceId = req.query.resourceId;
+      const isAdmin = await adminCheck(context);
+      const requiredAccess = schemaAccessRequired(level, resource, req.method);
+      // Schema access follows the role editor exactly. A portal member's broad
+      // admin capability must not override an explicit schema exclusion.
+      const override = Boolean(context.tenantUserId);
+      let canViewSchema = override;
+      let canManageSchema = override;
+      if (requiredAccess && !override && context.roleId) {
+        const memberExclusions = context.memberExcludedFeatures || [];
+        canViewSchema = Boolean(await featureCheck(context.roleId, VIEW_SCHEMA_FEATURE))
+          && !isResourceExcluded(memberExclusions, VIEW_SCHEMA_FEATURE);
+        canManageSchema = Boolean(await featureCheck(context.roleId, MANAGE_SCHEMA_FEATURE))
+          && !isResourceExcluded(memberExclusions, MANAGE_SCHEMA_FEATURE);
+      }
+      if (
+        (requiredAccess === 'view' && !canViewSchema)
+        || (requiredAccess === 'manage' && !canManageSchema)
+      ) {
+        throw new CustomObjectHttpError(403, 'Access denied');
+      }
+      const service = serviceFactory({
+        db, context, isAdmin, canViewSchema, canManageSchema, now: dependencies.now,
+      });
       let data;
 
       if (level === 'collection') {

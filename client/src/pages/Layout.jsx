@@ -266,6 +266,18 @@ const adminNavigationItems = [
     featureId: "page_admin_OrganisationPreferences"
   },
   {
+    title: "Data",
+    icon: Database,
+    featureId: "data.custom-objects",
+    subItems: [
+      {
+        title: "Custom Objects",
+        url: createPageUrl("CustomObjectsAdmin"),
+        featureId: "data.custom-objects"
+      }
+    ]
+  },
+  {
     title: "Member Preferences",
     url: createPageUrl("MemberPreferences"),
     icon: UserCog,

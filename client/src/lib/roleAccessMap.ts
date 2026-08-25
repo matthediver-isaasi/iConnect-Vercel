@@ -695,6 +695,23 @@ export const ROLE_ACCESS_MAP: Module[] = [
     ]
   },
   {
+    id: "data",
+    label: "Data",
+    icon: "Database",
+    pages: [
+      {
+        id: "data.custom-objects",
+        label: "Custom Objects",
+        features: [
+          {
+            id: "data.custom-objects.manage-data-model",
+            label: "Manage Data Model"
+          }
+        ]
+      }
+    ]
+  },
+  {
     id: "admin",
     label: "Admin Toolkit",
     icon: "Shield",
@@ -1207,6 +1224,7 @@ export const LEGACY_TO_NEW_MAPPING: Record<string, string> = {
   "page_PreferenceSettings": "communication.preference-settings",
   "page_FormBuilder": "forms.form-builder",
   "page_CustomFieldsAdmin": "admin.custom-fields",
+  "page_CustomObjectsAdmin": "data.custom-objects",
   "page_EmailTemplateManagement": "communication.email-templates",
   "page_EmailPlaceholders": "communication.email-placeholders",
   "page_CommunicationsManagement": "communication.management",
