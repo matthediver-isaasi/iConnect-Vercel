@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createCustomObjectRouteHandler } from './customObjectRoute.js';
+import { CustomObjectHttpError } from './customObjectService.js';
 
 function response() {
   return {
@@ -229,4 +230,85 @@ test('member-level hierarchical exclusions deny schema access even when the role
   await handler({ method: 'POST', query: {}, body: {} }, res);
   assert.equal(res.statusCode, 403);
   assert.equal(serviceCreated, false);
+});
+
+test('resource routes expose entity picker and pass explicit archive verification body', async () => {
+  const calls = [];
+  const dependencies = {
+    getTenantContext: async () => ({
+      isAuthenticated: true, tenantId: 'tenant-1', roleId: 'role-1',
+    }),
+    hasAdminAccess: async () => false,
+    hasFeatureAccess: async () => false,
+    createCustomObjectService: () => ({
+      entityPicker: async (objectId, query) => {
+        calls.push(['picker', objectId, query.definitionId, query.recordId, query.side]);
+        return { data: [], page: 1, pageSize: 25, total: 0 };
+      },
+      archiveRelationship: async (objectId, edgeId, body) => {
+        calls.push(['archive', objectId, edgeId, body]);
+        return { id: edgeId, archived_at: 'now' };
+      },
+    }),
+  };
+  const pickerRes = response();
+  await createCustomObjectRouteHandler('resource', dependencies)({
+    method: 'GET',
+    query: {
+      objectId: 'object-1',
+      resource: 'entity-picker',
+      definitionId: 'definition-1',
+      recordId: 'record-1',
+      side: 'source',
+    },
+  }, pickerRes);
+  assert.equal(pickerRes.statusCode, 200);
+
+  const archiveRes = response();
+  await createCustomObjectRouteHandler('item', dependencies)({
+    method: 'DELETE',
+    query: {
+      objectId: 'object-1', resource: 'relationships', resourceId: 'edge-1',
+    },
+    body: { routed_side: 'target', routed_record_id: 'record-1' },
+  }, archiveRes);
+  assert.deepEqual(calls, [
+    ['picker', 'object-1', 'definition-1', 'record-1', 'source'],
+    ['archive', 'object-1', 'edge-1', {
+      routed_side: 'target', routed_record_id: 'record-1',
+    }],
+  ]);
+});
+
+test('entity picker route returns service validation errors for arbitrary endpoint parameters', async () => {
+  const handler = createCustomObjectRouteHandler('resource', {
+    getTenantContext: async () => ({
+      isAuthenticated: true, tenantId: 'tenant-1', roleId: 'role-1',
+    }),
+    hasAdminAccess: async () => false,
+    hasFeatureAccess: async () => false,
+    createCustomObjectService: () => ({
+      entityPicker: async (_objectId, query) => {
+        if (query.kind || query.customObjectId) {
+          throw new CustomObjectHttpError(
+            400,
+            'Picker endpoint type is derived from definitionId and side',
+          );
+        }
+        return {};
+      },
+    }),
+  });
+  const res = response();
+  await handler({
+    method: 'GET',
+    query: {
+      objectId: 'object-1',
+      resource: 'entity-picker',
+      kind: 'member',
+      customObjectId: 'forged',
+    },
+  }, res);
+  assert.equal(res.statusCode, 400);
+  assert.match(res.payload.error, /derived from definitionId/);
 });

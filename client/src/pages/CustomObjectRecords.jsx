@@ -53,6 +53,7 @@ import {
   optionValues,
   validateRecordValues,
 } from "./customObjects/recordHelpers";
+import { RelatedRecordsPanel } from "./customObjects/RelatedRecordsPanel";
 
 class ApiError extends Error {
   constructor(status, message, details) {
@@ -613,6 +614,12 @@ export function CustomObjectRecordDetail() {
             </div>
           ))}
         </CardContent></Card>
+        <RelatedRecordsPanel
+          objectId={objectId}
+          recordId={recordId}
+          object={object}
+          record={record}
+        />
       </div>
       <Dialog open={archiveOpen} onOpenChange={setArchiveOpen}>
         <DialogContent><DialogHeader><DialogTitle>Archive {record.display_value}?</DialogTitle></DialogHeader><p className="text-sm text-slate-600">The record will be hidden from the default list but remains available when archived records are shown.</p><div><Label>Reason (optional)</Label><Textarea className="mt-2" value={reason} onChange={(event) => setReason(event.target.value)} /></div><DialogFooter><Button variant="outline" onClick={() => setArchiveOpen(false)}>Cancel</Button><Button variant="destructive" disabled={archive.isPending} onClick={() => archive.mutate()}>{archive.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Archive</Button></DialogFooter></DialogContent>

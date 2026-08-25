@@ -14,6 +14,13 @@ const schemaAdminSql = await readFile(
   ),
   'utf8',
 );
+const relationshipRuntimeSql = await readFile(
+  new URL(
+    '../../supabase/migrations/20260826_custom_object_relationship_runtime.sql',
+    import.meta.url,
+  ),
+  'utf8',
+);
 
 test('migration uses shared generic tables instead of tenant-specific tables', () => {
   for (const table of [
@@ -81,4 +88,26 @@ test('database guards cover immutable keys, same-tenant ownership, cardinality, 
   assert.match(schemaAdminSql, /custom_object_audit_actor_type_trigger/);
   assert.match(schemaAdminSql, /NEW\.actor_type := 'tenant_user'/);
   assert.match(schemaAdminSql, /NEW\.actor_type := 'member'/);
+});
+
+test('forward migration transactionally protects required final edges under the relationship lock', () => {
+  assert.match(relationshipRuntimeSql, /guard_custom_object_required_relationship/);
+  assert.match(relationshipRuntimeSql, /pg_advisory_xact_lock\(hashtext\(OLD\.relationship_definition_id::text\)\)/);
+  assert.match(relationshipRuntimeSql, /remaining\.source_record_id = OLD\.source_record_id/);
+  assert.match(relationshipRuntimeSql, /remaining\.archived_at IS NULL/);
+  assert.match(relationshipRuntimeSql, /custom_object_relationship_required_source/);
+  assert.match(relationshipRuntimeSql, /BEFORE UPDATE OF archived_at/);
+  assert.match(relationshipRuntimeSql, /archive_custom_object_relationship\(/);
+  assert.match(relationshipRuntimeSql, /SECURITY DEFINER/);
+  assert.match(relationshipRuntimeSql, /FOR UPDATE/);
+  assert.match(relationshipRuntimeSql, /REVOKE ALL ON FUNCTION public\.archive_custom_object_relationship[\s\S]*PUBLIC, anon, authenticated/);
+  assert.match(relationshipRuntimeSql, /archive_custom_object_record_relationships/);
+  assert.match(relationshipRuntimeSql, /AFTER UPDATE OF archived_at ON public\.custom_object_record/);
+  assert.match(relationshipRuntimeSql, /archive_custom_object_definition_relationships/);
+  assert.match(relationshipRuntimeSql, /AFTER UPDATE OF status ON public\.custom_object_definition/);
+  assert.match(relationshipRuntimeSql, /definition\.source_custom_object_id = NEW\.id[\s\S]*definition\.target_custom_object_id = NEW\.id/);
+  assert.match(relationshipRuntimeSql, /SET status = 'archived',[\s\S]*archived_at = retirement_at,[\s\S]*archived_by = NEW\.archived_by/);
+  assert.match(relationshipRuntimeSql, /archive_custom_object_relationship_definition_edges/);
+  assert.match(relationshipRuntimeSql, /relationship\.relationship_definition_id = NEW\.id/);
+  assert.match(relationshipRuntimeSql, /REVOKE ALL ON FUNCTION public\.archive_custom_object_definition_relationships\(\)[\s\S]*PUBLIC, anon, authenticated/);
 });

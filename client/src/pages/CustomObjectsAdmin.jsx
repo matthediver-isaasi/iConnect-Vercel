@@ -66,6 +66,7 @@ import {
   parseArray,
   validateFieldDefinition,
 } from "./customObjects/fieldDefinition";
+import { RelationshipDefinitions } from "./customObjects/RelationshipDefinitions";
 import { CustomObjectPermissionsEditor } from "./CustomObjectRecords";
 const ICONS = [
   { key: "Boxes", Icon: Boxes },
@@ -634,19 +635,10 @@ function Detail() {
             </Card>
           </TabsContent>
           <TabsContent value="relationships" className="mt-5">
-            <Card>
-              <CardContent className="py-14 text-center">
-                <Network className="mx-auto mb-4 h-9 w-9 text-slate-400" />
-                <h2 className="font-semibold text-slate-900">
-                  {relationshipCount} relationship definitions
-                </h2>
-                <p className="mx-auto mt-2 max-w-md text-sm text-slate-600">
-                  Relationship configuration is not available in this release.
-                  This entry point will show connected objects when that work is
-                  ready.
-                </p>
-              </CardContent>
-            </Card>
+            <RelationshipDefinitions
+              objectId={objectId}
+              canManage={canManage && object.status !== "archived"}
+            />
           </TabsContent>
           <TabsContent value="permissions" className="mt-5">
             <CustomObjectPermissionsEditor

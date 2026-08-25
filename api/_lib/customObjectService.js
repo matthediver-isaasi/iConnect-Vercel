@@ -8,6 +8,7 @@ import {
   resolveCustomObjectPermission,
   validateCustomObjectFieldDefinition,
   validateCustomObjectRecordData,
+  validateCustomObjectRelationshipDefinition,
   validateCustomObjectRelationshipEndpoints,
 } from './customObjectDomain.js';
 
@@ -219,8 +220,24 @@ function throwDb(error, fallback = 'Database operation failed') {
       message = 'A Custom Object with this object key already exists';
     } else if (/preference_field.*name|field_object/i.test(constraint)) {
       message = 'A field with this field key already exists on this Custom Object';
+    } else if (/custom_object_relationship_definition.*key/i.test(constraint)) {
+      message = 'A relationship with this relationship key already exists';
+    } else if (/custom_object_relationship_active_pair_unique/i.test(constraint)) {
+      message = 'This relationship already exists';
+    } else if (/custom_object_relationship_(source|target)_cardinality/i.test(constraint)) {
+      message = 'Relationship cardinality would be exceeded';
     }
     throw new CustomObjectHttpError(409, message);
+  }
+  if (error.code === '23503' || error.code === '23514') {
+    const constraint = error.constraint || error.details || error.message || '';
+    if (/custom_object_relationship_required_source/i.test(constraint)) {
+      throw new CustomObjectHttpError(409, 'A required relationship cannot lose its final active edge');
+    }
+    if (/custom_object_relationship_(source|target)_valid|same_tenant|active/i.test(constraint)) {
+      throw new CustomObjectHttpError(400, error.message || 'Relationship endpoint is unavailable');
+    }
+    throw new CustomObjectHttpError(400, error.message || fallback);
   }
   throw new CustomObjectHttpError(500, error.message || fallback);
 }
@@ -269,6 +286,12 @@ export function createCustomObjectService({
 
   async function object(objectId) {
     return one('custom_object_definition', objectId);
+  }
+
+  async function activeObject(objectId, message = 'Custom Object endpoint is unavailable') {
+    const definition = await object(objectId);
+    if (definition.status !== 'active') throw new CustomObjectHttpError(409, message);
+    return definition;
   }
 
   async function fields(objectId, activeOnly = false) {
@@ -339,7 +362,14 @@ export function createCustomObjectService({
   }
 
   async function requireRelationshipCapabilities(definition, capability) {
+    if (
+      !isAdmin
+      && [definition.source_kind, definition.target_kind].some((kind) => kind !== 'custom_object')
+    ) {
+      throw new CustomObjectHttpError(403, 'Tenant administrator access is required for relationships with core entities');
+    }
     for (const relatedObjectId of relationshipObjectIds(definition)) {
+      await activeObject(relatedObjectId);
       await requireCapability(relatedObjectId, capability);
     }
   }
@@ -657,7 +687,17 @@ export function createCustomObjectService({
     const { data, error, count } = await q.range(p.from, p.to);
     throwDb(error);
     let visible = data || [];
+    for (const definition of visible) {
+      if (definition.status === 'archived') continue;
+      for (const relatedObjectId of relationshipObjectIds(definition)) {
+        await activeObject(relatedObjectId);
+      }
+    }
     if (!isAdmin && !canViewSchema && !canManageSchema) {
+      visible = visible.filter((definition) => (
+        definition.source_kind === 'custom_object'
+        && definition.target_kind === 'custom_object'
+      ));
       const checks = await Promise.all(visible.map(async (definition) => {
         for (const relatedObjectId of relationshipObjectIds(definition)) {
           if (!(await hasCapability(relatedObjectId, 'view_records'))) return false;
@@ -676,10 +716,19 @@ export function createCustomObjectService({
 
   async function createRelationshipDefinition(objectId, body) {
     requireSchemaManager();
-    requireMutableObject(await object(objectId));
+    const routedObject = await object(objectId);
+    requireMutableObject(routedObject);
+    if (routedObject.status !== 'active') {
+      throw new CustomObjectHttpError(409, 'Relationships can only be configured for active Custom Objects');
+    }
     const payload = {
       ...pick(body, RELATIONSHIP_DEFINITION_COLUMNS), tenant_id: tenantId,
       status: body?.status || 'draft', configuration: body?.configuration || {},
+      is_required: body?.is_required ?? false,
+      show_on_source: body?.show_on_source ?? true,
+      show_on_target: body?.show_on_target ?? true,
+      edit_from_source: body?.edit_from_source ?? true,
+      edit_from_target: body?.edit_from_target ?? false,
       ...authored('created'), ...authored(),
     };
     if (payload.source_kind === 'custom_object' && !payload.source_custom_object_id) payload.source_custom_object_id = objectId;
@@ -687,6 +736,11 @@ export function createCustomObjectService({
     if (payload.source_custom_object_id !== objectId && payload.target_custom_object_id !== objectId) {
       throw new CustomObjectHttpError(400, 'Relationship must reference the routed Custom Object');
     }
+    for (const relatedObjectId of relationshipObjectIds(payload)) {
+      await activeObject(relatedObjectId);
+    }
+    const validation = validateCustomObjectRelationshipDefinition(payload);
+    if (!validation.ok) throw new CustomObjectHttpError(400, 'Invalid relationship definition', validation.errors);
     if (payload.status !== 'draft') Object.assign(payload, domainGuard(() => resolveCustomObjectLifecycleUpdate({ currentStatus: 'draft', nextStatus: payload.status, hasPrimaryDisplayField: true, now: now() })));
     const { data, error } = await db.from('custom_object_relationship_definition').insert(payload).select('*').single();
     throwDb(error);
@@ -695,11 +749,27 @@ export function createCustomObjectService({
 
   async function updateRelationshipDefinition(objectId, id, body, archive = false) {
     requireSchemaManager();
-    requireMutableObject(await object(objectId));
+    const routedObject = await object(objectId);
+    requireMutableObject(routedObject);
+    if (routedObject.status !== 'active') {
+      throw new CustomObjectHttpError(409, 'Relationships can only be configured for active Custom Objects');
+    }
     const before = await one('custom_object_relationship_definition', id);
     if (before.source_custom_object_id !== objectId && before.target_custom_object_id !== objectId) throw new CustomObjectHttpError(404, 'Resource not found');
     const payload = pick(body, RELATIONSHIP_DEFINITION_COLUMNS);
     if (payload.relationship_key !== undefined) domainGuard(() => assertImmutableInternalKey(before.relationship_key, payload.relationship_key, 'Relationship key'));
+    for (const immutable of [
+      'source_kind', 'source_custom_object_id', 'target_kind',
+      'target_custom_object_id', 'cardinality',
+    ]) {
+      if (payload[immutable] !== undefined && payload[immutable] !== before[immutable]) {
+        throw new CustomObjectHttpError(409, 'Relationship endpoints and cardinality cannot be changed after creation');
+      }
+    }
+    const candidate = { ...before, ...payload, status: archive ? 'archived' : (payload.status || before.status) };
+    for (const relatedObjectId of relationshipObjectIds(candidate)) await activeObject(relatedObjectId);
+    const validation = validateCustomObjectRelationshipDefinition(candidate);
+    if (!validation.ok) throw new CustomObjectHttpError(400, 'Invalid relationship definition', validation.errors);
     if (archive || payload.status !== undefined) Object.assign(payload, domainGuard(() => resolveCustomObjectLifecycleUpdate({
       currentStatus: before.status, nextStatus: archive ? 'archived' : payload.status,
       currentArchivedAt: before.archived_at, hasPrimaryDisplayField: true, now: now(),
@@ -721,31 +791,220 @@ export function createCustomObjectService({
     return { ...(await one(table, id)), kind };
   }
 
-  async function listRelationships(objectId, query) {
-    await object(objectId);
-    await requireCapability(objectId, 'view_records');
-    const definitionsResult = await listRelationshipDefinitions(objectId, { page: 1, pageSize: 100, includeArchived: 'false' });
-    const ids = definitionsResult.data.map((row) => row.id);
+  function endpointLabel(kind, row, definition = null, endpointFields = []) {
+    if (kind === 'member') {
+      return {
+        primary_label: [row.first_name, row.last_name].filter(Boolean).join(' ').trim()
+          || row.full_name || row.email || row.id,
+        secondary_text: isAdmin ? (row.email || null) : null,
+      };
+    }
+    if (kind === 'organization') {
+      return { primary_label: row.name || row.id, secondary_text: isAdmin ? (row.email || null) : null };
+    }
+    if (kind === 'organization_group') {
+      return { primary_label: row.name || row.id, secondary_text: row.description || null };
+    }
+    return {
+      primary_label: resolveCustomObjectDisplayValue({
+        objectDefinition: definition, record: row, fields: endpointFields,
+      }),
+      secondary_text: definition?.singular_label || null,
+    };
+  }
+
+  async function resolveEndpointRows(kind, customObjectId, ids) {
+    const uniqueIds = [...new Set(ids.filter(Boolean))];
+    if (uniqueIds.length === 0) return new Map();
+    const table = {
+      custom_object: 'custom_object_record', member: 'member',
+      organization: 'organization', organization_group: 'organization_group',
+    }[kind];
+    if (!table) throw new CustomObjectHttpError(400, 'Unsupported relationship endpoint kind');
+    let endpointDefinition = null;
+    let endpointFields = [];
+    if (kind === 'custom_object') {
+      endpointDefinition = await activeObject(customObjectId);
+      await requireCapability(customObjectId, 'view_records');
+      endpointFields = await fields(customObjectId, true);
+    }
+    let q = db.from(table).select('*').eq('tenant_id', tenantId).in('id', uniqueIds);
+    if (kind === 'custom_object') {
+      q = q.eq('custom_object_id', customObjectId).is('archived_at', null);
+    }
+    const { data, error } = await q;
+    throwDb(error);
+    return new Map((data || []).map((row) => {
+      const labels = endpointLabel(kind, row, endpointDefinition, endpointFields);
+      return [row.id, {
+        id: row.id,
+        kind,
+        custom_object_id: kind === 'custom_object' ? customObjectId : null,
+        ...labels,
+      }];
+    }));
+  }
+
+  async function entityPicker(objectId, query) {
+    await activeObject(objectId, 'Entity picker is only available for active Custom Objects');
+    if (query?.kind !== undefined || query?.customObjectId !== undefined) {
+      throw new CustomObjectHttpError(400, 'Picker endpoint type is derived from definitionId and side');
+    }
+    const definitionId = query?.definitionId;
+    const recordId = query?.recordId;
+    const side = query?.side;
+    if (!definitionId || !recordId || !['source', 'target'].includes(side)) {
+      throw new CustomObjectHttpError(400, 'definitionId, recordId, and side are required');
+    }
+    const definition = await one('custom_object_relationship_definition', definitionId);
+    if (definition.status !== 'active') throw new CustomObjectHttpError(409, 'Relationship definition is not active');
+    if (
+      definition[`${side}_kind`] !== 'custom_object'
+      || definition[`${side}_custom_object_id`] !== objectId
+    ) {
+      throw new CustomObjectHttpError(400, 'Routed side does not match the routed Custom Object');
+    }
+    if (definition[`show_on_${side}`] === false) {
+      throw new CustomObjectHttpError(403, 'This relationship is hidden on the routed side');
+    }
+    if (definition[`edit_from_${side}`] === false) {
+      throw new CustomObjectHttpError(403, 'This relationship cannot be edited from the routed side');
+    }
+    const routedRecord = await one('custom_object_record', recordId, { custom_object_id: objectId });
+    if (routedRecord.archived_at) throw new CustomObjectHttpError(409, 'Routed record is archived');
+    await requireRelationshipCapabilities(definition, 'edit_records');
+    const oppositeSide = side === 'source' ? 'target' : 'source';
+    const kind = definition[`${oppositeSide}_kind`];
+    const table = {
+      custom_object: 'custom_object_record', member: 'member',
+      organization: 'organization', organization_group: 'organization_group',
+    }[kind];
+    if (!table) throw new CustomObjectHttpError(400, 'kind must be member, organization, organization_group, or custom_object');
+    const customObjectId = kind === 'custom_object'
+      ? definition[`${oppositeSide}_custom_object_id`]
+      : null;
+    let endpointDefinition = null;
+    let endpointFields = [];
+    if (kind === 'custom_object') {
+      endpointDefinition = await activeObject(customObjectId);
+      await requireCapability(customObjectId, 'view_records');
+      endpointFields = await fields(customObjectId, true);
+    }
     const p = pagination(query);
-    if (ids.length === 0) return { data: [], total: 0, page: p.page, pageSize: p.pageSize };
+    let q = db.from(table).select('*', { count: 'exact' }).eq('tenant_id', tenantId);
+    if (kind === 'custom_object') {
+      q = q.eq('custom_object_id', customObjectId).is('archived_at', null);
+    }
+    const search = typeof query?.search === 'string' ? query.search.trim() : '';
+    if (search) {
+      const pattern = quotePostgrestValue(`*${search}*`);
+      if (kind === 'member') {
+        q = q.or(`first_name.ilike.${pattern},last_name.ilike.${pattern},email.ilike.${pattern}`);
+      }
+      else if (kind !== 'custom_object') q = q.ilike('name', `%${search}%`);
+      else {
+        const primary = endpointFields.find((field) => field.id === endpointDefinition.primary_display_field_id);
+        const key = getCustomObjectFieldMetadata(primary).key;
+        if (key) q = q.filter(`data->>${key}`, 'ilike', `*${search}*`);
+      }
+    }
+    q = q.order(kind === 'member' ? 'last_name' : (kind === 'custom_object' ? 'created_at' : 'name'), { ascending: true })
+      .order('id', { ascending: true });
+    const { data, error, count } = await q.range(p.from, p.to);
+    throwDb(error);
+    return {
+      data: (data || []).map((row) => ({
+        id: row.id,
+        kind,
+        custom_object_id: kind === 'custom_object' ? customObjectId : null,
+        ...endpointLabel(kind, row, endpointDefinition, endpointFields),
+      })),
+      page: p.page,
+      pageSize: p.pageSize,
+      total: count || 0,
+    };
+  }
+
+  async function listRelationships(objectId, query) {
+    await activeObject(objectId, 'Relationships are only available for active Custom Objects');
+    await requireCapability(objectId, 'view_records');
+    const recordId = query?.recordId;
+    const definitionId = query?.definitionId;
+    if (!recordId || !definitionId) {
+      throw new CustomObjectHttpError(400, 'recordId and definitionId are required');
+    }
+    const definition = await one('custom_object_relationship_definition', definitionId);
+    if (definition.status !== 'active') throw new CustomObjectHttpError(409, 'Relationship definition is not active');
+    const sourceSide = definition.source_kind === 'custom_object'
+      && definition.source_custom_object_id === objectId;
+    const targetSide = definition.target_kind === 'custom_object'
+      && definition.target_custom_object_id === objectId;
+    const requestedSide = query?.side;
+    let side = requestedSide;
+    if (!side) {
+      if (sourceSide === targetSide) throw new CustomObjectHttpError(400, 'side is required when both endpoints use the routed Custom Object');
+      side = sourceSide ? 'source' : 'target';
+    }
+    if (!['source', 'target'].includes(side)
+      || (side === 'source' && !sourceSide)
+      || (side === 'target' && !targetSide)) {
+      throw new CustomObjectHttpError(400, 'Routed side does not match the relationship definition');
+    }
+    if (definition[`show_on_${side}`] === false) throw new CustomObjectHttpError(403, 'This relationship is hidden on the routed side');
+    const routedRecord = await one('custom_object_record', recordId, { custom_object_id: objectId });
+    if (routedRecord.archived_at) throw new CustomObjectHttpError(409, 'Routed record is archived');
+    await requireRelationshipCapabilities(definition, 'view_records');
+    const p = pagination(query);
     let q = db.from('custom_object_relationship').select('*', { count: 'exact' })
-      .eq('tenant_id', tenantId).in('relationship_definition_id', ids)
+      .eq('tenant_id', tenantId).eq('relationship_definition_id', definition.id)
+      .eq(`${side}_record_id`, recordId)
       .order('created_at', { ascending: false });
     if (query?.includeArchived !== 'true') q = q.is('archived_at', null);
     const { data, error, count } = await q.range(p.from, p.to);
     throwDb(error);
-    return { data: data || [], total: count || 0, page: p.page, pageSize: p.pageSize };
+    const relatedSide = side === 'source' ? 'target' : 'source';
+    const rows = data || [];
+    const resolved = await resolveEndpointRows(
+      definition[`${relatedSide}_kind`],
+      definition[`${relatedSide}_custom_object_id`],
+      rows.map((edge) => edge[`${relatedSide}_record_id`]),
+    );
+    if (resolved.size !== new Set(rows.map((edge) => edge[`${relatedSide}_record_id`])).size) {
+      throw new CustomObjectHttpError(409, 'A related endpoint is missing, archived, or unavailable');
+    }
+    return {
+      data: rows.map((edge) => ({
+        relationship_id: edge.id,
+        relationship_definition_id: edge.relationship_definition_id,
+        source_record_id: edge.source_record_id,
+        target_record_id: edge.target_record_id,
+        related: resolved.get(edge[`${relatedSide}_record_id`]) || null,
+      })),
+      total: count || 0, page: p.page, pageSize: p.pageSize,
+    };
+  }
+
+  function routedRelationshipSide(definition, objectId, suppliedSide) {
+    if (!['source', 'target'].includes(suppliedSide)) {
+      throw new CustomObjectHttpError(400, 'routed_side must be source or target');
+    }
+    if (definition[`${suppliedSide}_kind`] !== 'custom_object'
+      || definition[`${suppliedSide}_custom_object_id`] !== objectId) {
+      throw new CustomObjectHttpError(400, 'Routed side does not match the routed Custom Object');
+    }
+    return suppliedSide;
   }
 
   async function createRelationship(objectId, body) {
-    await object(objectId);
+    await activeObject(objectId, 'Relationships are only available for active Custom Objects');
     const definition = await one('custom_object_relationship_definition', body?.relationship_definition_id);
     if (definition.source_custom_object_id !== objectId && definition.target_custom_object_id !== objectId) throw new CustomObjectHttpError(404, 'Resource not found');
+    const routedSide = routedRelationshipSide(definition, objectId, body?.routed_side);
+    if (!body?.routed_record_id || body.routed_record_id !== body?.[`${routedSide}_record_id`]) {
+      throw new CustomObjectHttpError(400, 'routed_record_id must match the endpoint on routed_side');
+    }
     await requireRelationshipCapabilities(definition, 'edit_records');
-    if (
-      (definition.source_custom_object_id === objectId && definition.edit_from_source === false)
-      || (definition.target_custom_object_id === objectId && definition.edit_from_target === false)
-    ) {
+    if (definition[`edit_from_${routedSide}`] === false) {
       throw new CustomObjectHttpError(403, 'This relationship cannot be edited from the routed Custom Object');
     }
     const source = await endpoint(definition.source_kind, body?.source_record_id);
@@ -760,21 +1019,34 @@ export function createCustomObjectService({
     return data;
   }
 
-  async function archiveRelationship(objectId, id) {
-    await object(objectId);
+  async function archiveRelationship(objectId, id, body = {}) {
+    await activeObject(objectId, 'Relationships are only available for active Custom Objects');
     const before = await one('custom_object_relationship', id);
+    if (before.archived_at) throw new CustomObjectHttpError(409, 'Relationship edge is already archived');
     const definition = await one('custom_object_relationship_definition', before.relationship_definition_id);
     if (definition.source_custom_object_id !== objectId && definition.target_custom_object_id !== objectId) throw new CustomObjectHttpError(404, 'Resource not found');
+    const routedSide = routedRelationshipSide(definition, objectId, body?.routed_side);
+    if (!body?.routed_record_id || body.routed_record_id !== before[`${routedSide}_record_id`]) {
+      throw new CustomObjectHttpError(400, 'routed_record_id does not match this relationship edge');
+    }
     await requireRelationshipCapabilities(definition, 'edit_records');
-    if (
-      (definition.source_custom_object_id === objectId && definition.edit_from_source === false)
-      || (definition.target_custom_object_id === objectId && definition.edit_from_target === false)
-    ) {
+    if (definition[`edit_from_${routedSide}`] === false) {
       throw new CustomObjectHttpError(403, 'This relationship cannot be edited from the routed Custom Object');
     }
-    const { data, error } = await db.from('custom_object_relationship')
-      .update({ archived_at: before.archived_at || now(), archived_by: currentActorReference })
-      .eq('tenant_id', tenantId).eq('id', id).select('*').single();
+    const source = await endpoint(definition.source_kind, before.source_record_id);
+    const target = await endpoint(definition.target_kind, before.target_record_id);
+    domainGuard(() => validateCustomObjectRelationshipEndpoints({
+      tenantId, definition, source, target,
+    }));
+    if (typeof db.rpc !== 'function') {
+      throw new CustomObjectHttpError(503, 'Relationship archive transaction is unavailable');
+    }
+    const { data, error } = await db.rpc('archive_custom_object_relationship', {
+      p_tenant_id: tenantId,
+      p_relationship_id: id,
+      p_archived_by: currentActorReference,
+      p_archived_at: now(),
+    }).single();
     throwDb(error);
     return data;
   }
@@ -867,7 +1139,7 @@ export function createCustomObjectService({
     listObjects, createObject, getObject, updateObject, listFields, createField,
     updateField, listRecords, createRecord, getRecord, updateRecord,
     listRelationshipDefinitions, createRelationshipDefinition,
-    updateRelationshipDefinition, listRelationships, createRelationship,
+    updateRelationshipDefinition, entityPicker, listRelationships, createRelationship,
     archiveRelationship, listPermissions, upsertPermission, listAudit,
   };
 }

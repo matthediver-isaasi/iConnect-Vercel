@@ -7,7 +7,7 @@ const VIEW_SCHEMA_FEATURE = 'data.custom-objects';
 const MANAGE_SCHEMA_FEATURE = 'data.custom-objects.manage-data-model';
 
 function schemaAccessRequired(level, resource, method) {
-  if (['records', 'relationships'].includes(resource)) return null;
+  if (['records', 'relationships', 'entity-picker'].includes(resource)) return null;
   if (
     method === 'GET'
     && (
@@ -93,6 +93,7 @@ export function createCustomObjectRouteHandler(level, dependencies = {}) {
         else if (resource === 'records' && req.method === 'POST') data = await service.createRecord(objectId, req.body);
         else if (resource === 'relationship-definitions' && req.method === 'GET') data = await service.listRelationshipDefinitions(objectId, req.query);
         else if (resource === 'relationship-definitions' && req.method === 'POST') data = await service.createRelationshipDefinition(objectId, req.body);
+        else if (resource === 'entity-picker' && req.method === 'GET') data = await service.entityPicker(objectId, req.query);
         else if (resource === 'relationships' && req.method === 'GET') data = await service.listRelationships(objectId, req.query);
         else if (resource === 'relationships' && req.method === 'POST') data = await service.createRelationship(objectId, req.body);
         else if (resource === 'permissions' && req.method === 'GET') data = await service.listPermissions(objectId, req.query);
@@ -107,7 +108,7 @@ export function createCustomObjectRouteHandler(level, dependencies = {}) {
         else if (resource === 'records' && req.method === 'DELETE') data = await service.updateRecord(objectId, resourceId, req.body, true);
         else if (resource === 'relationship-definitions' && req.method === 'PATCH') data = await service.updateRelationshipDefinition(objectId, resourceId, req.body);
         else if (resource === 'relationship-definitions' && req.method === 'DELETE') data = await service.updateRelationshipDefinition(objectId, resourceId, req.body, true);
-        else if (resource === 'relationships' && req.method === 'DELETE') data = await service.archiveRelationship(objectId, resourceId);
+        else if (resource === 'relationships' && req.method === 'DELETE') data = await service.archiveRelationship(objectId, resourceId, req.body);
         else return methodNotAllowed(res, ['GET', 'PATCH', 'DELETE']);
       }
       return res.status(req.method === 'POST' ? 201 : 200).json(data);

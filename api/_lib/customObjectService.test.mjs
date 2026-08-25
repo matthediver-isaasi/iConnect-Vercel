@@ -55,6 +55,11 @@ function mockDb(seed = {}) {
       calls.push({ table: this.table, type: 'filter', column, operator, value });
       return this;
     }
+    ilike(column, value) {
+      const search = String(value).replaceAll('%', '').toLowerCase();
+      this.filters.push((row) => String(this.value(row, column) ?? '').toLowerCase().includes(search));
+      return this;
+    }
     not(column, operator, value) {
       if (operator === 'cs') {
         const excluded = JSON.parse(value);
@@ -131,6 +136,23 @@ function mockDb(seed = {}) {
 
   return {
     from(table) { calls.push({ table, type: 'from' }); return new Query(table); },
+    rpc(name, args) {
+      calls.push({ type: 'rpc', name, args });
+      return {
+        async single() {
+          if (name !== 'archive_custom_object_relationship') {
+            return { data: null, error: { message: 'Unknown RPC' } };
+          }
+          const row = (tables.custom_object_relationship || []).find((candidate) =>
+            candidate.tenant_id === args.p_tenant_id
+            && candidate.id === args.p_relationship_id);
+          if (!row) return { data: null, error: { code: 'P0002', message: 'Relationship edge not found for tenant' } };
+          row.archived_at = args.p_archived_at;
+          row.archived_by = args.p_archived_by;
+          return { data: structuredClone(row), error: null };
+        },
+      };
+    },
     tables,
     calls,
   };
@@ -330,6 +352,8 @@ test('relationship creation validates endpoint kind/object and authors mutation 
     relationship_definition_id: definitionId,
     source_record_id: 'source-1',
     target_record_id: 'target-1',
+    routed_side: 'source',
+    routed_record_id: 'source-1',
     created_by: 'forged',
   });
   assert.equal(relation.created_by, 'member:member-1');
@@ -338,6 +362,8 @@ test('relationship creation validates endpoint kind/object and authors mutation 
       relationship_definition_id: definitionId,
       source_record_id: 'source-1',
       target_record_id: 'wrong-target',
+      routed_side: 'source',
+      routed_record_id: 'source-1',
     }),
     (error) => error.status === 400 && /different Custom Object/.test(error.message),
   );
@@ -988,4 +1014,479 @@ test('permission upserts require view for every dependent record capability', as
   });
   assert.equal(revoked.can_view_records, false);
   assert.equal(revoked.can_create_records, false);
+});
+
+test('relationship definitions validate endpoint ownership and preserve immutable topology', async () => {
+  const targetObjectId = '44444444-4444-4444-8444-444444444444';
+  const definitionId = '55555555-5555-4555-8555-555555555555';
+  const db = mockDb({
+    custom_object_definition: [
+      object(),
+      object({ id: targetObjectId, object_key: 'locations' }),
+    ],
+    custom_object_relationship_definition: [{
+      id: definitionId,
+      tenant_id: tenantId,
+      relationship_key: 'department_location',
+      source_kind: 'custom_object',
+      source_custom_object_id: objectId,
+      target_kind: 'custom_object',
+      target_custom_object_id: targetObjectId,
+      cardinality: 'many_to_many',
+      source_label: 'Locations',
+      target_label: 'Departments',
+      is_required: false,
+      show_on_source: true,
+      show_on_target: true,
+      edit_from_source: true,
+      edit_from_target: true,
+      status: 'active',
+      configuration: {},
+    }],
+  });
+  const service = createCustomObjectService({
+    db, context: context(), canManageSchema: true,
+  });
+  await assert.rejects(
+    () => service.createRelationshipDefinition(objectId, {
+      relationship_key: 'invalid key',
+      source_kind: 'custom_object',
+      target_kind: 'member',
+      cardinality: 'many_to_many',
+      source_label: 'Members',
+      target_label: 'Departments',
+    }),
+    (error) => error.status === 400 && /Invalid relationship definition/.test(error.message),
+  );
+  await assert.rejects(
+    () => service.updateRelationshipDefinition(objectId, definitionId, {
+      cardinality: 'one_to_one',
+    }),
+    (error) => error.status === 409 && /cannot be changed/.test(error.message),
+  );
+  const updated = await service.updateRelationshipDefinition(objectId, definitionId, {
+    target_label: 'Teams',
+  });
+  assert.equal(updated.target_label, 'Teams');
+});
+
+test('entity picker paginates and projects stable labels for every endpoint shape', async () => {
+  const definitionId = '55555555-5555-4555-8555-555555555555';
+  const db = mockDb({
+    custom_object_definition: [object()],
+    custom_object_record: [{
+      id: 'record-1', tenant_id: tenantId, custom_object_id: objectId, archived_at: null,
+    }, {
+      id: 'wrong-record', tenant_id: tenantId, custom_object_id: 'other-object', archived_at: null,
+    }],
+    custom_object_relationship_definition: [{
+      id: definitionId,
+      tenant_id: tenantId,
+      status: 'active',
+      cardinality: 'many_to_many',
+      source_kind: 'custom_object',
+      source_custom_object_id: objectId,
+      target_kind: 'member',
+      target_custom_object_id: null,
+      show_on_source: true,
+      edit_from_source: true,
+    }],
+    member: [
+      { id: 'member-b', tenant_id: tenantId, first_name: 'Bea', last_name: 'Zulu', email: 'bea@example.com' },
+      { id: 'member-a', tenant_id: tenantId, first_name: 'Ada', last_name: 'Alpha', email: 'ada@example.com' },
+      { id: 'foreign', tenant_id: 'other-tenant', first_name: 'Foreign', last_name: 'Member' },
+    ],
+  });
+  const result = await createCustomObjectService({
+    db, context: context(), isAdmin: true,
+  }).entityPicker(objectId, {
+    definitionId, recordId: 'record-1', side: 'source', page: '1', pageSize: '1',
+  });
+  assert.deepEqual(result, {
+    data: [{
+      id: 'member-a',
+      kind: 'member',
+      custom_object_id: null,
+      primary_label: 'Ada Alpha',
+      secondary_text: 'ada@example.com',
+    }],
+    page: 1,
+    pageSize: 1,
+    total: 2,
+  });
+});
+
+test('record-scoped related query supports reverse display and resolves one level only', async () => {
+  const definitionId = '55555555-5555-4555-8555-555555555555';
+  const db = mockDb({
+    custom_object_definition: [object()],
+    custom_object_record: [{
+      id: 'department-1',
+      tenant_id: tenantId,
+      custom_object_id: objectId,
+      archived_at: null,
+    }],
+    custom_object_relationship_definition: [{
+      id: definitionId,
+      tenant_id: tenantId,
+      status: 'active',
+      cardinality: 'many_to_many',
+      source_kind: 'member',
+      source_custom_object_id: null,
+      target_kind: 'custom_object',
+      target_custom_object_id: objectId,
+      show_on_target: true,
+    }],
+    custom_object_relationship: [{
+      id: 'edge-1',
+      tenant_id: tenantId,
+      relationship_definition_id: definitionId,
+      source_record_id: 'member-1',
+      target_record_id: 'department-1',
+      archived_at: null,
+      created_at: '2026-01-01',
+    }],
+    member: [{
+      id: 'member-1',
+      tenant_id: tenantId,
+      first_name: 'Ada',
+      last_name: 'Lovelace',
+      email: 'ada@example.com',
+    }],
+  });
+  const result = await createCustomObjectService({
+    db, context: context(), isAdmin: true,
+  }).listRelationships(objectId, {
+    definitionId,
+    recordId: 'department-1',
+    side: 'target',
+  });
+  assert.equal(result.total, 1);
+  assert.deepEqual(result.data[0].related, {
+    id: 'member-1',
+    kind: 'member',
+    custom_object_id: null,
+    primary_label: 'Ada Lovelace',
+    secondary_text: 'ada@example.com',
+  });
+  assert.equal(Object.hasOwn(result.data[0].related, 'relationships'), false);
+});
+
+test('edge mutation requires an explicit routed side and matching routed record', async () => {
+  const definitionId = '55555555-5555-4555-8555-555555555555';
+  const db = mockDb({
+    custom_object_definition: [object()],
+    custom_object_relationship_definition: [{
+      id: definitionId,
+      tenant_id: tenantId,
+      status: 'active',
+      cardinality: 'many_to_many',
+      source_kind: 'custom_object',
+      source_custom_object_id: objectId,
+      target_kind: 'member',
+      target_custom_object_id: null,
+      edit_from_source: true,
+    }],
+    custom_object_record: [{
+      id: 'department-1', tenant_id: tenantId, custom_object_id: objectId, archived_at: null,
+    }],
+    member: [{ id: 'member-1', tenant_id: tenantId }],
+  });
+  const service = createCustomObjectService({ db, context: context(), isAdmin: true });
+  await assert.rejects(
+    () => service.createRelationship(objectId, {
+      relationship_definition_id: definitionId,
+      source_record_id: 'department-1',
+      target_record_id: 'member-1',
+    }),
+    (error) => error.status === 400 && /routed_side/.test(error.message),
+  );
+  await assert.rejects(
+    () => service.createRelationship(objectId, {
+      relationship_definition_id: definitionId,
+      source_record_id: 'department-1',
+      target_record_id: 'member-1',
+      routed_side: 'source',
+      routed_record_id: 'another-record',
+    }),
+    (error) => error.status === 400 && /routed_record_id/.test(error.message),
+  );
+});
+
+test('archived definitions remain reviewable after their routed endpoint object archives', async () => {
+  const definitionId = '55555555-5555-4555-8555-555555555555';
+  const db = mockDb({
+    custom_object_definition: [object({
+      status: 'archived',
+      archived_at: '2026-01-01T00:00:00.000Z',
+    })],
+    custom_object_relationship_definition: [{
+      id: definitionId,
+      tenant_id: tenantId,
+      source_kind: 'custom_object',
+      source_custom_object_id: objectId,
+      target_kind: 'member',
+      target_custom_object_id: null,
+      status: 'archived',
+      archived_at: '2026-01-01T00:00:00.000Z',
+      created_at: '2026-01-01T00:00:00.000Z',
+    }],
+  });
+  const result = await createCustomObjectService({
+    db, context: context(), canViewSchema: true,
+  }).listRelationshipDefinitions(objectId, { includeArchived: 'true' });
+  assert.deepEqual(result.data.map((definition) => definition.id), [definitionId]);
+  const activeResult = await createCustomObjectService({
+    db, context: context(), canViewSchema: true,
+  }).listRelationshipDefinitions(objectId, {});
+  assert.deepEqual(activeResult.data, []);
+});
+
+test('active relationship definitions reject archived Custom Object endpoints during listing', async () => {
+  const targetObjectId = '44444444-4444-4444-8444-444444444444';
+  const db = mockDb({
+    custom_object_definition: [
+      object(),
+      object({
+        id: targetObjectId,
+        object_key: 'archived_target',
+        status: 'archived',
+        archived_at: '2026-01-01T00:00:00.000Z',
+      }),
+    ],
+    custom_object_relationship_definition: [{
+      id: 'definition-1',
+      tenant_id: tenantId,
+      source_kind: 'custom_object',
+      source_custom_object_id: objectId,
+      target_kind: 'custom_object',
+      target_custom_object_id: targetObjectId,
+      status: 'active',
+      created_at: '2026-01-01T00:00:00.000Z',
+    }],
+  });
+  await assert.rejects(
+    () => createCustomObjectService({
+      db, context: context(), canViewSchema: true,
+    }).listRelationshipDefinitions(objectId, {}),
+    (error) => error.status === 409 && /endpoint is unavailable/.test(error.message),
+  );
+});
+
+test('database cardinality and required-edge guards map to HTTP 409 conflicts', async () => {
+  const definitionId = '55555555-5555-4555-8555-555555555555';
+  const baseSeed = {
+    custom_object_definition: [object()],
+    custom_object_relationship_definition: [{
+      id: definitionId,
+      tenant_id: tenantId,
+      status: 'active',
+      cardinality: 'one_to_one',
+      is_required: true,
+      source_kind: 'custom_object',
+      source_custom_object_id: objectId,
+      target_kind: 'custom_object',
+      target_custom_object_id: objectId,
+      edit_from_source: true,
+    }],
+    custom_object_record: [
+      { id: 'source-1', tenant_id: tenantId, custom_object_id: objectId, archived_at: null },
+      { id: 'target-1', tenant_id: tenantId, custom_object_id: objectId, archived_at: null },
+    ],
+  };
+  const cardinalityDb = mockDb(baseSeed);
+  const cardinalityFrom = cardinalityDb.from.bind(cardinalityDb);
+  cardinalityDb.from = (table) => {
+    if (table !== 'custom_object_relationship') return cardinalityFrom(table);
+    return {
+      insert() { return this; },
+      select() { return this; },
+      async single() {
+        return {
+          data: null,
+          error: {
+            code: '23505',
+            constraint: 'custom_object_relationship_source_cardinality',
+            message: 'Source record exceeds relationship cardinality',
+          },
+        };
+      },
+    };
+  };
+  await assert.rejects(
+    () => createCustomObjectService({
+      db: cardinalityDb, context: context(), isAdmin: true,
+    }).createRelationship(objectId, {
+      relationship_definition_id: definitionId,
+      source_record_id: 'source-1',
+      target_record_id: 'target-1',
+      routed_side: 'source',
+      routed_record_id: 'source-1',
+    }),
+    (error) => error.status === 409 && /cardinality/.test(error.message),
+  );
+
+  const requiredDb = mockDb({
+    ...baseSeed,
+    custom_object_relationship: [{
+      id: 'edge-1',
+      tenant_id: tenantId,
+      relationship_definition_id: definitionId,
+      source_record_id: 'source-1',
+      target_record_id: 'target-1',
+      archived_at: null,
+    }],
+  });
+  requiredDb.rpc = () => {
+    return {
+      async single() {
+        return {
+          data: null,
+          error: {
+            code: '23514',
+            constraint: 'custom_object_relationship_required_source',
+            message: 'A required relationship cannot lose its final active edge',
+          },
+        };
+      },
+    };
+  };
+  await assert.rejects(
+    () => createCustomObjectService({
+      db: requiredDb, context: context(), isAdmin: true,
+    }).archiveRelationship(objectId, 'edge-1', {
+      routed_side: 'source',
+      routed_record_id: 'source-1',
+    }),
+    (error) => error.status === 409 && /required relationship/.test(error.message),
+  );
+});
+
+test('definition-bound picker rejects arbitrary, hidden, mismatched, and non-admin core access', async () => {
+  const definitionId = '55555555-5555-4555-8555-555555555555';
+  const definition = {
+    id: definitionId,
+    tenant_id: tenantId,
+    status: 'active',
+    source_kind: 'custom_object',
+    source_custom_object_id: objectId,
+    target_kind: 'member',
+    target_custom_object_id: null,
+    show_on_source: true,
+    edit_from_source: true,
+  };
+  const db = mockDb({
+    custom_object_definition: [object()],
+    custom_object_record: [{
+      id: 'record-1', tenant_id: tenantId, custom_object_id: objectId, archived_at: null,
+    }, {
+      id: 'wrong-record', tenant_id: tenantId, custom_object_id: 'other-object', archived_at: null,
+    }],
+    custom_object_relationship_definition: [definition],
+    member: [{ id: 'member-1', tenant_id: tenantId, email: 'private@example.com' }],
+  });
+  const adminService = createCustomObjectService({ db, context: context(), isAdmin: true });
+  await assert.rejects(
+    () => adminService.entityPicker(objectId, { kind: 'member', customObjectId: 'forged' }),
+    (error) => error.status === 400 && /derived/.test(error.message),
+  );
+  await assert.rejects(
+    () => adminService.entityPicker(objectId, {
+      definitionId, recordId: 'record-1', side: 'target',
+    }),
+    (error) => error.status === 400 && /Routed side/.test(error.message),
+  );
+  await assert.rejects(
+    () => adminService.entityPicker(objectId, {
+      definitionId, recordId: 'wrong-record', side: 'source',
+    }),
+    (error) => error.status === 404,
+  );
+  db.tables.custom_object_relationship_definition[0].show_on_source = false;
+  await assert.rejects(
+    () => adminService.entityPicker(objectId, {
+      definitionId, recordId: 'record-1', side: 'source',
+    }),
+    (error) => error.status === 403 && /hidden/.test(error.message),
+  );
+  db.tables.custom_object_relationship_definition[0].show_on_source = true;
+  db.tables.custom_object_relationship_definition[0].edit_from_source = false;
+  await assert.rejects(
+    () => adminService.entityPicker(objectId, {
+      definitionId, recordId: 'record-1', side: 'source',
+    }),
+    (error) => error.status === 403 && /cannot be edited/.test(error.message),
+  );
+  db.tables.custom_object_relationship_definition[0].edit_from_source = true;
+  await assert.rejects(
+    () => createCustomObjectService({
+      db, context: context(), isAdmin: false,
+    }).entityPicker(objectId, {
+      definitionId, recordId: 'record-1', side: 'source',
+    }),
+    (error) => error.status === 403 && /administrator/.test(error.message),
+  );
+});
+
+test('non-admin record APIs cannot enumerate or mutate core-endpoint relationships', async () => {
+  const definitionId = '55555555-5555-4555-8555-555555555555';
+  const db = mockDb({
+    custom_object_definition: [object()],
+    custom_object_record: [{
+      id: 'record-1', tenant_id: tenantId, custom_object_id: objectId, archived_at: null,
+    }],
+    custom_object_relationship_definition: [{
+      id: definitionId,
+      tenant_id: tenantId,
+      status: 'active',
+      cardinality: 'many_to_many',
+      source_kind: 'custom_object',
+      source_custom_object_id: objectId,
+      target_kind: 'member',
+      target_custom_object_id: null,
+      show_on_source: true,
+      edit_from_source: true,
+      created_at: '2026-01-01',
+    }],
+    member: [{ id: 'member-1', tenant_id: tenantId }],
+    custom_object_relationship: [{
+      id: 'edge-1',
+      tenant_id: tenantId,
+      relationship_definition_id: definitionId,
+      source_record_id: 'record-1',
+      target_record_id: 'member-1',
+      archived_at: null,
+    }],
+    custom_object_role_permission: [{
+      tenant_id: tenantId,
+      custom_object_id: objectId,
+      role_id: roleId,
+      can_view_records: true,
+      can_edit_records: true,
+    }],
+  });
+  const service = createCustomObjectService({ db, context: context(), isAdmin: false });
+  assert.deepEqual((await service.listRelationshipDefinitions(objectId, {})).data, []);
+  await assert.rejects(
+    () => service.listRelationships(objectId, {
+      definitionId, recordId: 'record-1', side: 'source',
+    }),
+    (error) => error.status === 403 && /administrator/.test(error.message),
+  );
+  await assert.rejects(
+    () => service.createRelationship(objectId, {
+      relationship_definition_id: definitionId,
+      source_record_id: 'record-1',
+      target_record_id: 'member-1',
+      routed_side: 'source',
+      routed_record_id: 'record-1',
+    }),
+    (error) => error.status === 403 && /administrator/.test(error.message),
+  );
+  await assert.rejects(
+    () => service.archiveRelationship(objectId, 'edge-1', {
+      routed_side: 'source', routed_record_id: 'record-1',
+    }),
+    (error) => error.status === 403 && /administrator/.test(error.message),
+  );
 });

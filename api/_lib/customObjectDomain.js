@@ -545,6 +545,45 @@ export function validateCustomObjectRelationshipEndpoints({
   return true;
 }
 
+export function validateCustomObjectRelationshipDefinition(definition) {
+  const errors = [];
+  if (!INTERNAL_KEY_RE.test(definition?.relationship_key || '')) {
+    errors.push('Relationship key must use lowercase letters, numbers, and underscores');
+  }
+  if (!CUSTOM_OBJECT_RELATIONSHIP_CARDINALITIES.includes(definition?.cardinality)) {
+    errors.push('Relationship cardinality is invalid');
+  }
+  if (!CUSTOM_OBJECT_LIFECYCLE_STATES.includes(definition?.status)) {
+    errors.push('Relationship lifecycle state is invalid');
+  }
+  for (const side of ['source', 'target']) {
+    const kind = definition?.[`${side}_kind`];
+    const customObjectId = definition?.[`${side}_custom_object_id`];
+    if (!CUSTOM_OBJECT_ENDPOINT_KINDS.includes(kind)) {
+      errors.push(`${side} endpoint kind is invalid`);
+    } else if (kind === 'custom_object' && !customObjectId) {
+      errors.push(`${side} Custom Object id is required`);
+    } else if (kind !== 'custom_object' && customObjectId) {
+      errors.push(`${side} Custom Object id must be empty for a core endpoint`);
+    }
+    if (typeof definition?.[`${side}_label`] !== 'string'
+      || !definition[`${side}_label`].trim()) {
+      errors.push(`${side} label is required`);
+    }
+  }
+  for (const key of [
+    'is_required', 'show_on_source', 'show_on_target',
+    'edit_from_source', 'edit_from_target',
+  ]) {
+    if (typeof definition?.[key] !== 'boolean') errors.push(`${key} must be a boolean`);
+  }
+  if (!definition?.configuration || typeof definition.configuration !== 'object'
+    || Array.isArray(definition.configuration)) {
+    errors.push('Relationship configuration must be an object');
+  }
+  return { ok: errors.length === 0, errors };
+}
+
 export function buildCustomObjectAuditEvent({
   tenantId,
   customObjectId = null,
