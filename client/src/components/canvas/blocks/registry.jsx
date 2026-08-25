@@ -8372,7 +8372,7 @@ function buildCardFlipBackBackground(c) {
   return `linear-gradient(${angle}deg, ${from}, ${to})`;
 }
 
-function cardFlipColumnsForBreakpoint(columns, breakpoint) {
+export function cardFlipColumnsForBreakpoint(columns, breakpoint) {
   if (columns && typeof columns === 'object') {
     const bp = breakpoint || 'desktop';
     const raw = columns[bp] ?? columns.desktop;
@@ -8381,10 +8381,25 @@ function cardFlipColumnsForBreakpoint(columns, breakpoint) {
   return Math.max(1, Math.min(6, Number(columns) || 1));
 }
 
-function CardFlipGridRender({ block, asEditor, breakpoint }) {
+export function resolveCardFlipGridBreakpoint(breakpoint, viewportBreakpoint) {
+  if (breakpoint === 'desktop' || breakpoint === 'tablet' || breakpoint === 'mobile') {
+    return breakpoint;
+  }
+  if (viewportBreakpoint === 'desktop' || viewportBreakpoint === 'tablet' || viewportBreakpoint === 'mobile') {
+    return viewportBreakpoint;
+  }
+  return 'desktop';
+}
+
+function CardFlipGridRender({ block, asEditor, breakpoint, viewportBreakpoint }) {
   const c = block.content || {};
   const cards = Array.isArray(c.cards) ? c.cards : [];
-  const columns = cardFlipColumnsForBreakpoint(c.columns, breakpoint);
+  // Forced/editor previews pass `breakpoint`; legacy published v1 pages pass
+  // the actual viewport separately so this block can be responsive without
+  // changing the long-standing undefined-breakpoint contract of every other
+  // public block renderer. Flow pages already pass their resolved breakpoint.
+  const effectiveBreakpoint = resolveCardFlipGridBreakpoint(breakpoint, viewportBreakpoint);
+  const columns = cardFlipColumnsForBreakpoint(c.columns, effectiveBreakpoint);
   const rowsPerPage = Math.max(1, Number(c.rowsPerPage) || 1);
   const gap = Number.isFinite(Number(c.gap)) ? Math.max(0, Number(c.gap)) : 16;
   const shape = c.shape || 'square';
@@ -8428,14 +8443,14 @@ function CardFlipGridRender({ block, asEditor, breakpoint }) {
   const { styles: tenantStyles, resolved: stylesResolved } = useTenantTypographyStylesState();
   const titleStyleObj = resolveTenantStyle(c.titleTypographyStyleId, tenantStyles);
   const awaitingTitleStyle = isAwaitingTypographyStyle(c.titleTypographyStyleId, titleStyleObj, stylesResolved);
-  const titleTypoInline = titleStyleObj ? buildTypographyInlineStyle(titleStyleObj, { breakpoint }) : null;
+  const titleTypoInline = titleStyleObj ? buildTypographyInlineStyle(titleStyleObj, { breakpoint: effectiveBreakpoint }) : null;
 
   // Optional tenant typography style for the back summary. Colour, when the
   // style declares one, wins over the inherited backTextColor; otherwise the
   // summary inherits the back face colour.
   const summaryStyleObj = resolveTenantStyle(c.summaryTypographyStyleId, tenantStyles);
   const awaitingSummaryStyle = isAwaitingTypographyStyle(c.summaryTypographyStyleId, summaryStyleObj, stylesResolved);
-  const summaryTypoInline = summaryStyleObj ? buildTypographyInlineStyle(summaryStyleObj, { breakpoint, omitMarginBottom: true }) : null;
+  const summaryTypoInline = summaryStyleObj ? buildTypographyInlineStyle(summaryStyleObj, { breakpoint: effectiveBreakpoint, omitMarginBottom: true }) : null;
 
   // Per-card "View more" modal showing the full rich-text content. A single
   // dialog is rendered at the block level (outside the 3D-transformed cards)
@@ -8479,10 +8494,22 @@ function CardFlipGridRender({ block, asEditor, breakpoint }) {
     ...extra,
     ...(awaitingTitleStyle ? { visibility: 'hidden' } : null),
   });
+  const reflowRef = useReportReflowHeight(
+    block.id,
+    (block?.style?.paddingTop || 0) + (block?.style?.paddingBottom || 0),
+    { includeExtraHeightPublic: true, allowZero: true },
+  );
 
   return (
-    <div className="absolute inset-0 flex flex-col" data-testid={`card-flip-grid-${block.id}`}>
-      <div className="flex-1 min-h-0">
+    <div
+      ref={reflowRef}
+      className="w-full"
+      data-testid={`card-flip-grid-${block.id}`}
+      data-breakpoint={effectiveBreakpoint}
+      data-columns={columns}
+      data-per-page={perPage}
+    >
+      <div>
         <div
           style={{
             display: 'grid',
@@ -10551,7 +10578,7 @@ const REGISTRY = {
   [BLOCK_TYPES.NEWS_TICKER]:      { label: 'News Ticker',     icon: Megaphone,         category: 'content',  Editor: NewsTickerRender,      Renderer: NewsTickerRender,      Inspector: NewsTickerInspector },
   [BLOCK_TYPES.MEGA_MENU]:        { label: 'Mega Menu',       icon: Menu,              category: 'content',  Editor: MegaMenuRender,        Renderer: MegaMenuRender,        Inspector: MegaMenuInspector, allowOverflow: true },
   [BLOCK_TYPES.COUNTDOWN]:        { label: 'Countdown',       icon: Clock,             category: 'content',  Editor: CountdownRender,       Renderer: CountdownRender,       Inspector: CountdownInspector },
-  [BLOCK_TYPES.CARD_FLIP_GRID]:   { label: 'Card Flip Grid',  icon: Grid2x2,           category: 'content',  Editor: CardFlipGridRender,    Renderer: CardFlipGridRender,    Inspector: CardFlipGridInspector },
+  [BLOCK_TYPES.CARD_FLIP_GRID]:   { label: 'Card Flip Grid',  icon: Grid2x2,           category: 'content',  Editor: CardFlipGridRender,    Renderer: CardFlipGridRender,    Inspector: CardFlipGridInspector, allowOverflow: true, autoHeight: true, renderOnlyAutoHeight: true, signedAutoHeight: true },
   [BLOCK_TYPES.HERO_CAROUSEL]:    { label: 'Hero Carousel',   icon: GalleryHorizontal, category: 'content',  Editor: HeroCarouselRender,    Renderer: HeroCarouselRender,    Inspector: HeroCarouselInspector, absoluteFill: true, allowOverflow: true },
   [BLOCK_TYPES.HERO_CAROUSEL_MOBILE]: { label: 'Hero Carousel (Mobile)', icon: Smartphone, category: 'content', Editor: HeroCarouselMobileRender, Renderer: HeroCarouselMobileRender, Inspector: HeroCarouselMobileInspector, absoluteFill: true, allowOverflow: true },
   [BLOCK_TYPES.BOX]:          { label: 'Box',            icon: Square,         category: 'layout',   Editor: BoxRender,          Renderer: BoxRender,          Inspector: BoxInspector, paletteHidden: false },

@@ -2552,6 +2552,9 @@ export const AUTO_HEIGHT_LEAF_TYPES = new Set([
   // columns settle. Their measurements remain render-only.
   BLOCK_TYPES.MEMBER_GROUP,
   BLOCK_TYPES.MEMBER_GROUP_CARDS,
+  // Card Flip Grid pagination and responsive columns change the visible
+  // footprint at runtime. Keep those measurements viewer-only.
+  BLOCK_TYPES.CARD_FLIP_GRID,
   // AI Compositions size to their generated content (Task #2849): the block
   // reports its rendered height so the parent canvas reflows around it.
   BLOCK_TYPES.AI_COMPOSITION,

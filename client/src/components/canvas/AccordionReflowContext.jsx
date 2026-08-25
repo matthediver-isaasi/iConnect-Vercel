@@ -87,13 +87,16 @@ export function measureReflowHeight(el, zoom = 1) {
  * measured height against the stored geometry — is byte-unchanged on already
  * published pages whose stored height predates this padding-inclusive commit.
  *
+ * `allowZero` lets blocks whose content can legitimately become empty clear a
+ * previously reported height instead of leaving stale reflow space behind.
+ *
  * Safe to use even when there is no surrounding provider (reflow is null): the
  * effects simply no-op.
  */
 export function useReportReflowHeight(
   blockId,
   extraHeight = 0,
-  { includeExtraHeightPublic = false } = {},
+  { includeExtraHeightPublic = false, allowZero = false } = {},
 ) {
   const reflow = useAccordionReflow();
   const containerRef = useRef(null);
@@ -116,7 +119,7 @@ export function useReportReflowHeight(
   useLayoutEffect(() => {
     if (!reflow || !containerRef.current) return;
     const h = measureReflowHeight(containerRef.current, zoomRef.current);
-    if (h > 0) reflow.reportHeight(blockId, Math.round(h + pad));
+    if (h > 0 || (allowZero && h === 0)) reflow.reportHeight(blockId, Math.round(h + pad));
   }, []); // intentionally mount-only; ResizeObserver below handles ongoing changes
 
   useEffect(() => {
@@ -124,7 +127,7 @@ export function useReportReflowHeight(
     const el = containerRef.current;
     const report = () => {
       const h = measureReflowHeight(el, zoomRef.current);
-      if (h > 0) reflow.reportHeight(blockId, Math.round(h + pad));
+      if (h > 0 || (allowZero && h === 0)) reflow.reportHeight(blockId, Math.round(h + pad));
     };
     // Re-running on `pad` change (author edited padding in the inspector, which
     // does not resize the measured inner element) re-observes and re-reports —
@@ -133,7 +136,7 @@ export function useReportReflowHeight(
     const observer = new ResizeObserver(report);
     observer.observe(el);
     return () => observer.disconnect();
-  }, [reflow, blockId, pad]);
+  }, [reflow, blockId, pad, allowZero]);
 
   return containerRef;
 }

@@ -131,6 +131,54 @@ test('measured Member Group content repositions downstream flow leaves and page 
   assert.ok(measured.height < initial.height);
 });
 
+test('Card Flip Grid is content-sized and its measured page reflows downstream flow content', () => {
+  const design = {
+    version: 2,
+    root: {
+      sections: [{
+        id: 'section',
+        type: BLOCK_TYPES.SECTION,
+        flow: { padTop: 10, padBottom: 10, gap: 12 },
+        children: [
+          {
+            id: 'flip-grid',
+            type: BLOCK_TYPES.CARD_FLIP_GRID,
+            bp: {
+              desktop: { x: 0, y: 0, w: 800, h: 520 },
+              mobile: { x: 0, y: 0, w: 375, h: 520 },
+            },
+            flow: { heightMode: 'auto' },
+            content: { columns: { desktop: 3, tablet: 2, mobile: 1 } },
+          },
+          {
+            id: 'after-grid',
+            type: BLOCK_TYPES.IMAGE,
+            flow: { heightMode: 'fixed', height: 100 },
+            content: {},
+          },
+        ],
+      }],
+    },
+  };
+  const css = buildFlowCanvasCss(design, '#cb');
+  assert.match(css.match(/#cb \[data-cb="flip-grid"\]\{([^}]*)\}/)[1], /height:auto;/);
+
+  const grown = resolveFlowLayout(design, {
+    breakpoint: 'mobile',
+    containerWidth: BREAKPOINT_WIDTHS.mobile,
+    measured: { 'flip-grid': { height: 920 } },
+  });
+  assert.equal(grown.boxes['after-grid'].y, grown.boxes['flip-grid'].y + 920 + 12);
+
+  const shrunk = resolveFlowLayout(design, {
+    breakpoint: 'desktop',
+    containerWidth: BREAKPOINT_WIDTHS.desktop,
+    measured: { 'flip-grid': { height: 280 } },
+  });
+  assert.equal(shrunk.boxes['after-grid'].y, shrunk.boxes['flip-grid'].y + 280 + 12);
+  assert.ok(shrunk.height < grown.height);
+});
+
 test('emits tablet and mobile @media breakpoint blocks with stage min-height', () => {
   const css = buildFlowCanvasCss(makeFlowDesign(), '#cb');
   assert.match(css, /@media \(max-width: 1023\.98px\)\{/);

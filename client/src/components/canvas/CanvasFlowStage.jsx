@@ -224,6 +224,14 @@ export default function CanvasFlowStage({ design, forceBreakpoint, lcpBlockId })
         .map(({ node }) => node.id),
     [placed, boxes]
   );
+  const zeroHeightLeafIds = useMemo(
+    () => new Set(
+      placed
+        .filter(({ node }) => node.type === BLOCK_TYPES.CARD_FLIP_GRID)
+        .map(({ node }) => node.id)
+    ),
+    [placed]
+  );
 
   // Measure content-driven leaves and feed their heights back into the engine
   // so siblings below them (and their containers) resolve to the correct Y.
@@ -238,7 +246,10 @@ export default function CanvasFlowStage({ design, forceBreakpoint, lcpBlockId })
           const el = nodeRefs.current[id];
           if (!el) continue;
           const h = el.offsetHeight;
-          if (!Number.isFinite(h) || h <= 0) continue;
+          // An empty Card Flip Grid has a legitimate zero-height footprint.
+          // Preserve that measurement so removing its final card clears any
+          // previously measured height and pulls downstream flow content up.
+          if (!Number.isFinite(h) || h < 0 || (h === 0 && !zeroHeightLeafIds.has(id))) continue;
           if (next[id]?.height == null || Math.abs(next[id].height - h) > 1) {
             next[id] = { height: h };
             changed = true;
@@ -261,7 +272,7 @@ export default function CanvasFlowStage({ design, forceBreakpoint, lcpBlockId })
         if (ro) ro.disconnect();
       } catch {}
     };
-  }, [autoLeafIds.join("|"), containerWidth, breakpoint, design]);
+  }, [autoLeafIds.join("|"), zeroHeightLeafIds, containerWidth, breakpoint, design]);
 
   // Once mounted (after the width + height measurement effects above have run
   // their first pass in this same layout phase), switch from the static

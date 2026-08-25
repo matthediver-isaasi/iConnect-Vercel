@@ -1628,6 +1628,14 @@ test('public reflow provider gives Section and live Box contents their wrapper o
         'data-stage-growth': reflow.getTotalGrowth(),
       });
     }
+    function CardFlipGridProbe() {
+      const reflow = useAccordionReflow();
+      api.reflow = reflow;
+      return createElement('div', {
+        'data-below-grid-top': 520 + reflow.getOffset('below-grid', 520),
+        'data-stage-growth': reflow.getTotalGrowth(),
+      });
+    }
     await act(async () => {
       reactRoot.render(createElement(
         AccordionReflowProvider,
@@ -1655,6 +1663,36 @@ test('public reflow provider gives Section and live Box contents their wrapper o
     assert.equal(rootElement.firstChild.dataset.belowMemberTop, '440');
     assert.equal(rootElement.firstChild.dataset.stageGrowth, '140');
     assert.deepEqual(committed, [], 'later live measurements must also remain render-only');
+
+    const flipGrid = block('flip-grid', BLOCK_TYPES.CARD_FLIP_GRID, 0, 520, 0, 600);
+    const belowGrid = block('below-grid', BLOCK_TYPES.IMAGE, 520, 100, 0, 600);
+    await act(async () => {
+      reactRoot.render(createElement(
+        AccordionReflowProvider,
+        {
+          key: 'card-flip-grid-render-only-provider',
+          blocks: [flipGrid, belowGrid],
+          breakpoint: 'mobile',
+          resolveGeom,
+          editorMode: true,
+          onMeasure: (...args) => committed.push(args),
+        },
+        createElement(CardFlipGridProbe),
+      ));
+    });
+    await act(async () => {
+      api.reflow.reportHeight('flip-grid', 920);
+    });
+    assert.equal(rootElement.firstChild.dataset.belowGridTop, '920');
+    assert.equal(rootElement.firstChild.dataset.stageGrowth, '400');
+    assert.deepEqual(committed, [], 'responsive grid heights must not be baked into saved geometry');
+
+    await act(async () => {
+      api.reflow.reportHeight('flip-grid', 360);
+    });
+    assert.equal(rootElement.firstChild.dataset.belowGridTop, '360');
+    assert.equal(rootElement.firstChild.dataset.stageGrowth, '-160');
+    assert.deepEqual(committed, [], 'signed grid shrinkage must also remain render-only');
   } finally {
     await act(async () => {
       reactRoot.unmount();

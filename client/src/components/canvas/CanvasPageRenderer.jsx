@@ -311,7 +311,14 @@ function CanvasBlockRender({ block, lcpBlockId, forcedBreakpoint, windowBp, pinS
       aria-hidden={a11y?.ariaHidden ? true : undefined}
       lang={a11y?.lang || undefined}
     >
-      {Renderer && <Renderer block={block} priority={isPriority} breakpoint={forcedBreakpoint || undefined} />}
+      {Renderer && (
+        <Renderer
+          block={block}
+          priority={isPriority}
+          breakpoint={forcedBreakpoint || undefined}
+          viewportBreakpoint={windowBp}
+        />
+      )}
     </Tag>
   );
 }
