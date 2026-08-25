@@ -235,6 +235,30 @@ test("payload construction coerces active fields and omits archived fields", () 
   );
 });
 
+test("historic edits omit untouched fields that became required later", () => {
+  const fields = [
+    field("name", "text", { is_required: true }),
+    field("new_required", "text", { is_required: true }),
+  ];
+  const historicValues = { name: "Radiology" };
+  assert.deepEqual(
+    validateRecordValues(fields, historicValues, { partial: true }),
+    {},
+  );
+  assert.deepEqual(
+    buildRecordPayload(fields, historicValues, { partial: true }),
+    { data: { name: "Radiology" } },
+  );
+  assert.match(
+    validateRecordValues(
+      fields,
+      { ...historicValues, new_required: "" },
+      { partial: true },
+    ).new_required,
+    /required/,
+  );
+});
+
 test("array coercion and display formatting cover selections, countries and booleans", () => {
   assert.deepEqual(arrayValue('["a","b"]'), ["a", "b"]);
   assert.deepEqual(arrayValue("single"), ["single"]);

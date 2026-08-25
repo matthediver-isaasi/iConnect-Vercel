@@ -102,6 +102,25 @@ test("core metadata controls side, label count and visibility", () => {
   assert.equal(panels[0].count, 3);
 });
 
+test("archived definitions are shown only in explicit history mode", () => {
+  const payload = {
+    data: [{
+      id: "definition-1",
+      status: "archived",
+      source_kind: "custom_object",
+      source_custom_object_id: "object-1",
+      source_label: "Historic links",
+      show_on_source: true,
+    }],
+  };
+  const context = { kind: "custom_object", objectId: "object-1", recordId: "record-1" };
+  assert.deepEqual(relationshipPanels(payload, context), []);
+  assert.equal(
+    relationshipPanels(payload, context, { includeArchived: true }).length,
+    1,
+  );
+});
+
 test("builds links for core and custom related records", () => {
   assert.equal(relatedRecordPath({ kind: "member", id: "3" }), "/members/3");
   assert.equal(

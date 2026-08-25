@@ -40,20 +40,26 @@ const routesFor = (context, definition, side) => {
   };
 };
 
-export function useRelatedRecordDefinitions({ context, objectId, recordId, enabled = true }) {
+export function useRelatedRecordDefinitions({
+  context,
+  objectId,
+  recordId,
+  enabled = true,
+  includeArchived = false,
+}) {
   const resolved = normalizeContext({ context, objectId, recordId });
   const query = useQuery({
-    queryKey: ["related-record-definitions", resolved.kind, resolved.objectId, resolved.recordId],
+    queryKey: ["related-record-definitions", resolved.kind, resolved.objectId, resolved.recordId, includeArchived],
     queryFn: () => relationshipRequest(
       resolved.kind === "custom_object"
-        ? relationshipRoutes.definitions(resolved.objectId)
+        ? relationshipRoutes.definitions(resolved.objectId, includeArchived)
         : relationshipRoutes.coreDefinitions(resolved),
     ),
     enabled: enabled && Boolean(resolved.recordId) && (resolved.kind !== "custom_object" || Boolean(resolved.objectId)),
   });
   const panels = useMemo(
-    () => relationshipPanels(query.data, resolved),
-    [query.data, resolved.kind, resolved.objectId],
+    () => relationshipPanels(query.data, resolved, { includeArchived }),
+    [query.data, resolved.kind, resolved.objectId, includeArchived],
   );
   return { ...query, panels, context: resolved };
 }
@@ -115,14 +121,24 @@ function EntityPicker({ context, definition, editSide, onPick, disabled }) {
   );
 }
 
-function RelationshipPanel({ context, definition, editSide, canEditRecord }) {
+function RelationshipPanel({
+  context,
+  definition,
+  editSide,
+  canEditRecord,
+  includeArchived = false,
+}) {
   const qc = useQueryClient();
   const [page, setPage] = useState(1);
   const routes = routesFor(context, definition, editSide);
   const queryKey = ["record-relationships", context.kind, context.objectId, context.recordId, definition.id, editSide];
   const query = useQuery({
     queryKey: [...queryKey, page],
-    queryFn: () => relationshipRequest(routes.edges({ page, pageSize: 10 })),
+    queryFn: () => relationshipRequest(routes.edges({
+      page,
+      pageSize: 10,
+      ...(includeArchived ? { includeArchived: "true" } : {}),
+    })),
   });
   const edges = query.data?.data || [];
   const total = query.data?.total || 0;
@@ -130,7 +146,9 @@ function RelationshipPanel({ context, definition, editSide, canEditRecord }) {
   const pages = Math.max(1, Math.ceil(total / pageSize));
   const editPermission = canEditRecord ??
     (context.kind === "custom_object" ? true : definition.can_edit === true);
-  const editable = canEditDefinitionFrom(definition, editSide, editPermission);
+  const editable = !includeArchived
+    && definition.status !== "archived"
+    && canEditDefinitionFrom(definition, editSide, editPermission);
   const constrained = cardinalityLimitReached(definition, editSide, total);
   const create = useMutation({
     mutationFn: (entity) => relationshipRequest(routes.create(), {
@@ -168,7 +186,7 @@ function RelationshipPanel({ context, definition, editSide, canEditRecord }) {
     <Card className="overflow-hidden">
       <CardContent className="p-0">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b bg-slate-50/70 px-5 py-4">
-          <div><div className="flex items-center gap-2"><h3 className="font-semibold text-slate-900">{labelForSide(definition, editSide)}</h3><Badge variant="outline">{total}</Badge></div><p className="mt-1 text-xs text-slate-500">{definition.cardinality?.replaceAll("_", " ")} relationship</p></div>
+          <div><div className="flex items-center gap-2"><h3 className="font-semibold text-slate-900">{labelForSide(definition, editSide)}</h3><Badge variant="outline">{total}</Badge>{definition.status === "archived" && <Badge variant="outline">Archived definition</Badge>}</div><p className="mt-1 text-xs text-slate-500">{definition.cardinality?.replaceAll("_", " ")} relationship{includeArchived ? " history" : ""}</p></div>
           {editable && <EntityPicker context={context} definition={definition} editSide={editSide} disabled={constrained || create.isPending} onPick={(entity) => create.mutate(entity)} />}
         </div>
         {constrained && editable && <div className="border-b bg-amber-50 px-5 py-2 text-xs text-amber-800">This side has reached its configured relationship limit.</div>}
@@ -185,7 +203,7 @@ function RelationshipPanel({ context, definition, editSide, canEditRecord }) {
                 const path = relatedRecordPath(related);
                 const label = related.primary_label || "Untitled record";
                 const text = <><p className="truncate text-sm font-medium text-slate-900">{label}</p>{related.secondary_text && <p className="truncate text-xs text-slate-500">{related.secondary_text}</p>}</>;
-                return <div key={edge.relationship_id} className="group flex items-center justify-between gap-3 border-b px-5 py-3 last:border-0 hover:bg-slate-50">{path ? <Link to={path} className="min-w-0 flex-1 hover:underline">{text}</Link> : <div className="min-w-0">{text}</div>}{editable && <Button variant="ghost" size="icon" className="opacity-0 transition-opacity group-hover:opacity-100 focus:opacity-100" disabled={remove.isPending} aria-label="Remove relationship" onClick={() => { if (window.confirm(`Remove the link to ${label}?`)) remove.mutate(edge.relationship_id); }}><Trash2 className="h-4 w-4 text-rose-600" /></Button>}</div>;
+                return <div key={edge.relationship_id} className="group flex items-center justify-between gap-3 border-b px-5 py-3 last:border-0 hover:bg-slate-50">{path ? <Link to={path} className="min-w-0 flex-1 hover:underline">{text}</Link> : <div className="min-w-0">{text}</div>}{edge.archived_at && <Badge variant="outline">Archived link</Badge>}{editable && <Button variant="ghost" size="icon" className="opacity-0 transition-opacity group-hover:opacity-100 focus:opacity-100" disabled={remove.isPending} aria-label="Remove relationship" onClick={() => { if (window.confirm(`Remove the link to ${label}?`)) remove.mutate(edge.relationship_id); }}><Trash2 className="h-4 w-4 text-rose-600" /></Button>}</div>;
               })}</div>}
         {pages > 1 && <div className="flex items-center justify-between border-t px-5 py-3 text-xs text-slate-500"><span>Page {page} of {pages}</span><div className="flex gap-1"><Button size="icon" variant="ghost" disabled={page === 1} onClick={() => setPage((x) => x - 1)}><ChevronLeft className="h-4 w-4" /></Button><Button size="icon" variant="ghost" disabled={page === pages} onClick={() => setPage((x) => x + 1)}><ChevronRight className="h-4 w-4" /></Button></div></div>}
       </CardContent>
@@ -195,7 +213,13 @@ function RelationshipPanel({ context, definition, editSide, canEditRecord }) {
 
 export function RelatedRecordsPanel({ context, objectId, recordId, object, record, definition, side, showHeading = true }) {
   const resolved = normalizeContext({ context, objectId, recordId });
-  const definitionsQuery = useRelatedRecordDefinitions({ context: resolved, enabled: !definition });
+  const includeArchived = resolved.kind === "custom_object"
+    && Boolean(record?.archived_at || object?.status === "archived");
+  const definitionsQuery = useRelatedRecordDefinitions({
+    context: resolved,
+    enabled: !definition,
+    includeArchived,
+  });
   const panels = definition ? [{ definition, side }] : definitionsQuery.panels;
   const capabilities = record?.capabilities || object?.capabilities || object?.permissions;
   const explicitPermission = capabilities?.edit_records ?? capabilities?.can_edit_records;
@@ -203,5 +227,5 @@ export function RelatedRecordsPanel({ context, objectId, recordId, object, recor
   if (!definition && definitionsQuery.isLoading) return <div className="mt-6 space-y-3"><div className="h-6 w-44 animate-pulse rounded bg-slate-200" /><div className="h-36 animate-pulse rounded-lg bg-slate-100" /></div>;
   if (!definition && definitionsQuery.error) return <Card className="mt-6 border-rose-200"><CardContent className="flex gap-3 p-5 text-sm text-rose-700"><CircleAlert className="h-5 w-5 shrink-0" />Relationship panels could not be loaded. {definitionsQuery.error.message}</CardContent></Card>;
   if (!panels.length) return null;
-  return <section className={showHeading ? "mt-8 border-t pt-7" : ""}>{showHeading && <div className="mb-4 flex items-center gap-2"><Link2 className="h-5 w-5 text-slate-500" /><h2 className="text-lg font-semibold text-slate-950">Related records</h2></div>}<div className="grid gap-4 lg:grid-cols-2">{panels.map((panel) => <RelationshipPanel key={`${panel.definition.id}-${panel.side}`} context={resolved} definition={panel.definition} editSide={panel.side} canEditRecord={canEditRecord} />)}</div></section>;
+  return <section className={showHeading ? "mt-8 border-t pt-7" : ""}>{showHeading && <div className="mb-4 flex items-center gap-2"><Link2 className="h-5 w-5 text-slate-500" /><h2 className="text-lg font-semibold text-slate-950">{includeArchived ? "Relationship history" : "Related records"}</h2></div>}<div className="grid gap-4 lg:grid-cols-2">{panels.map((panel) => <RelationshipPanel key={`${panel.definition.id}-${panel.side}`} context={resolved} definition={panel.definition} editSide={panel.side} canEditRecord={canEditRecord} includeArchived={includeArchived} />)}</div></section>;
 }

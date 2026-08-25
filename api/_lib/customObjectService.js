@@ -1,4 +1,5 @@
 import {
+  CUSTOM_OBJECT_AUDIT_ENTITY_TYPES,
   CustomObjectDomainError,
   assertImmutableInternalKey,
   coerceCustomObjectFieldValue,
@@ -298,7 +299,8 @@ export function createCustomObjectService({
   async function fields(objectId, activeOnly = false) {
     let query = db.from('preference_field').select('*')
       .eq('tenant_id', tenantId).eq('custom_object_id', objectId)
-      .eq('entity_scope', 'custom_object').order('display_order', { ascending: true });
+      .eq('entity_scope', 'custom_object').order('display_order', { ascending: true })
+      .order('id', { ascending: true });
     if (activeOnly) query = query.eq('is_active', true);
     const { data, error } = await query;
     throwDb(error);
@@ -362,7 +364,11 @@ export function createCustomObjectService({
     ].filter(Boolean))];
   }
 
-  async function requireRelationshipCapabilities(definition, capability) {
+  async function requireRelationshipCapabilities(
+    definition,
+    capability,
+    { allowArchivedObjects = false } = {},
+  ) {
     if (
       !isAdmin
       && [definition.source_kind, definition.target_kind].some((kind) => kind !== 'custom_object')
@@ -370,7 +376,8 @@ export function createCustomObjectService({
       throw new CustomObjectHttpError(403, 'Tenant administrator access is required for relationships with core entities');
     }
     for (const relatedObjectId of relationshipObjectIds(definition)) {
-      await activeObject(relatedObjectId);
+      if (allowArchivedObjects) await object(relatedObjectId);
+      else await activeObject(relatedObjectId);
       await requireCapability(relatedObjectId, capability);
     }
   }
@@ -411,6 +418,10 @@ export function createCustomObjectService({
 
   async function listObjects(query) {
     const p = pagination(query);
+    const requestedStatus = typeof query?.status === 'string' ? query.status.trim() : '';
+    if (requestedStatus && !['draft', 'active', 'archived'].includes(requestedStatus)) {
+      throw new CustomObjectHttpError(400, 'status must be draft, active, or archived');
+    }
     let allowedObjectIds = null;
     if (!isAdmin && !canViewSchema && !canManageSchema) {
       if (!context.roleId) {
@@ -426,14 +437,19 @@ export function createCustomObjectService({
       }
     }
     let q = db.from('custom_object_definition').select('*', { count: 'exact' })
-      .eq('tenant_id', tenantId).order('created_at', { ascending: false });
+      .eq('tenant_id', tenantId).order('created_at', { ascending: false })
+      .order('id', { ascending: false });
     if (allowedObjectIds) q = q.in('id', allowedObjectIds);
+    if (requestedStatus) q = q.eq('status', requestedStatus);
     if (!canViewSchema && !canManageSchema) {
+      if (requestedStatus && requestedStatus !== 'active' && query?.includeArchived !== 'true') {
+        return { data: [], total: 0, page: p.page, pageSize: p.pageSize };
+      }
       q = query?.includeArchived === 'true'
         ? q.neq('status', 'draft')
         : q.eq('status', 'active');
     }
-    else if (query?.includeArchived !== 'true') q = q.neq('status', 'archived');
+    else if (query?.includeArchived !== 'true' && requestedStatus !== 'archived') q = q.neq('status', 'archived');
     const { data, error, count } = await q.range(p.from, p.to);
     throwDb(error);
     const rows = data || [];
@@ -446,47 +462,32 @@ export function createCustomObjectService({
         .eq('tenant_id', tenantId).eq('role_id', context.roleId)
         .in('custom_object_id', objectIds)
       : Promise.resolve({ data: [], error: null });
-    const [recordResult, fieldResult, relationshipResult, permissionResult] = await Promise.all([
-      db.from('custom_object_record').select('custom_object_id')
-        .eq('tenant_id', tenantId).in('custom_object_id', objectIds).is('archived_at', null),
-      db.from('preference_field').select('custom_object_id')
-        .eq('tenant_id', tenantId).in('custom_object_id', objectIds)
-        .eq('entity_scope', 'custom_object').eq('is_active', true),
-      db.from('custom_object_relationship_definition')
-        .select('source_custom_object_id,target_custom_object_id,status').eq('tenant_id', tenantId),
+    const [catalogueCountResult, permissionResult] = await Promise.all([
+      db.rpc('custom_object_catalogue_counts', {
+        p_tenant_id: tenantId,
+        p_custom_object_ids: objectIds,
+      }),
       permissionQuery,
     ]);
-    throwDb(recordResult.error);
-    throwDb(fieldResult.error);
-    throwDb(relationshipResult.error);
+    throwDb(catalogueCountResult.error);
     throwDb(permissionResult.error);
-    const countBy = (items, key) => (items || []).reduce((counts, item) => {
-      counts[item[key]] = (counts[item[key]] || 0) + 1;
-      return counts;
-    }, {});
-    const recordCounts = countBy(recordResult.data, 'custom_object_id');
-    const fieldCounts = countBy(fieldResult.data, 'custom_object_id');
-    const relationshipCounts = {};
+    const countsByObjectId = new Map(
+      (catalogueCountResult.data || []).map((item) => [item.custom_object_id, item]),
+    );
     const permissionsByObjectId = new Map(
       (permissionResult.data || []).map((row) => [row.custom_object_id, row]),
     );
-    for (const relationship of relationshipResult.data || []) {
-      if (relationship.status === 'archived') continue;
-      for (const id of new Set([
-        relationship.source_custom_object_id,
-        relationship.target_custom_object_id,
-      ].filter((candidate) => objectIds.includes(candidate)))) {
-        relationshipCounts[id] = (relationshipCounts[id] || 0) + 1;
-      }
-    }
     return {
-      data: rows.map((row) => ({
-        ...row,
-        record_count: recordCounts[row.id] || 0,
-        field_count: fieldCounts[row.id] || 0,
-        relationship_count: relationshipCounts[row.id] || 0,
-        capabilities: projectCapabilities(row, permissionsByObjectId.get(row.id) || null),
-      })),
+      data: rows.map((row) => {
+        const counts = countsByObjectId.get(row.id) || {};
+        return {
+          ...row,
+          record_count: Number(counts.record_count) || 0,
+          field_count: Number(counts.field_count) || 0,
+          relationship_count: Number(counts.relationship_count) || 0,
+          capabilities: projectCapabilities(row, permissionsByObjectId.get(row.id) || null),
+        };
+      }),
       total: count || 0,
       page: p.page,
       pageSize: p.pageSize,
@@ -557,7 +558,8 @@ export function createCustomObjectService({
     const p = pagination(query);
     let q = db.from('preference_field').select('*', { count: 'exact' })
       .eq('tenant_id', tenantId).eq('custom_object_id', objectId)
-      .eq('entity_scope', 'custom_object').order('display_order', { ascending: true });
+      .eq('entity_scope', 'custom_object').order('display_order', { ascending: true })
+      .order('id', { ascending: true });
     if (query?.includeInactive !== 'true') q = q.eq('is_active', true);
     const { data, error, count } = await q.range(p.from, p.to);
     throwDb(error);
@@ -680,36 +682,43 @@ export function createCustomObjectService({
     await object(objectId);
     if (!canViewSchema && !canManageSchema) await requireCapability(objectId, 'view_records');
     const p = pagination(query);
+    let allowedObjectIds = null;
+    if (!isAdmin && !canViewSchema && !canManageSchema) {
+      if (!context.roleId) {
+        return { data: [], total: 0, page: p.page, pageSize: p.pageSize };
+      }
+      const { data: grants, error: grantError } = await db.from('custom_object_role_permission')
+        .select('custom_object_id').eq('tenant_id', tenantId).eq('role_id', context.roleId)
+        .eq('can_view_records', true);
+      throwDb(grantError);
+      allowedObjectIds = (grants || []).map((grant) => grant.custom_object_id);
+      if (!allowedObjectIds.includes(objectId)) {
+        return { data: [], total: 0, page: p.page, pageSize: p.pageSize };
+      }
+    }
     let q = db.from('custom_object_relationship_definition').select('*', { count: 'exact' })
       .eq('tenant_id', tenantId)
       .or(`source_custom_object_id.eq.${objectId},target_custom_object_id.eq.${objectId}`)
-      .order('created_at', { ascending: false });
+      .order('created_at', { ascending: false })
+      .order('id', { ascending: false });
+    if (allowedObjectIds) {
+      q = q.eq('source_kind', 'custom_object').eq('target_kind', 'custom_object')
+        .in('source_custom_object_id', allowedObjectIds)
+        .in('target_custom_object_id', allowedObjectIds);
+    }
     if (query?.includeArchived !== 'true') q = q.neq('status', 'archived');
     const { data, error, count } = await q.range(p.from, p.to);
     throwDb(error);
-    let visible = data || [];
+    const visible = data || [];
     for (const definition of visible) {
       if (definition.status === 'archived') continue;
       for (const relatedObjectId of relationshipObjectIds(definition)) {
         await activeObject(relatedObjectId);
       }
     }
-    if (!isAdmin && !canViewSchema && !canManageSchema) {
-      visible = visible.filter((definition) => (
-        definition.source_kind === 'custom_object'
-        && definition.target_kind === 'custom_object'
-      ));
-      const checks = await Promise.all(visible.map(async (definition) => {
-        for (const relatedObjectId of relationshipObjectIds(definition)) {
-          if (!(await hasCapability(relatedObjectId, 'view_records'))) return false;
-        }
-        return true;
-      }));
-      visible = visible.filter((_, index) => checks[index]);
-    }
     return {
       data: visible,
-      total: isAdmin ? (count || 0) : visible.length,
+      total: count || 0,
       page: p.page,
       pageSize: p.pageSize,
     };
@@ -814,7 +823,7 @@ export function createCustomObjectService({
     };
   }
 
-  async function resolveEndpointRows(kind, customObjectId, ids) {
+  async function resolveEndpointRows(kind, customObjectId, ids, { includeArchived = false } = {}) {
     const uniqueIds = [...new Set(ids.filter(Boolean))];
     if (uniqueIds.length === 0) return new Map();
     const table = {
@@ -825,13 +834,16 @@ export function createCustomObjectService({
     let endpointDefinition = null;
     let endpointFields = [];
     if (kind === 'custom_object') {
-      endpointDefinition = await activeObject(customObjectId);
+      endpointDefinition = includeArchived
+        ? await object(customObjectId)
+        : await activeObject(customObjectId);
       await requireCapability(customObjectId, 'view_records');
       endpointFields = await fields(customObjectId, true);
     }
     let q = db.from(table).select('*').eq('tenant_id', tenantId).in('id', uniqueIds);
     if (kind === 'custom_object') {
-      q = q.eq('custom_object_id', customObjectId).is('archived_at', null);
+      q = q.eq('custom_object_id', customObjectId);
+      if (!includeArchived) q = q.is('archived_at', null);
     }
     const { data, error } = await q;
     throwDb(error);
@@ -841,6 +853,10 @@ export function createCustomObjectService({
         id: row.id,
         kind,
         custom_object_id: kind === 'custom_object' ? customObjectId : null,
+        ...(kind === 'custom_object' && includeArchived ? {
+          archived_at: row.archived_at || null,
+          custom_object_status: endpointDefinition.status,
+        } : {}),
         ...labels,
       }];
     }));
@@ -888,7 +904,8 @@ export function createCustomObjectService({
     await endpoint(kind, recordId);
     const { data, error } = await db.from('custom_object_relationship_definition').select('*')
       .eq('tenant_id', tenantId).eq('status', 'active')
-      .order('created_at', { ascending: true });
+      .order('created_at', { ascending: true })
+      .order('id', { ascending: true });
     throwDb(error);
     const candidates = (data || []).map((definition) => ({
       definition,
@@ -1147,7 +1164,9 @@ export function createCustomObjectService({
   }
 
   async function listRelationships(objectId, query) {
-    await activeObject(objectId, 'Relationships are only available for active Custom Objects');
+    const includeArchived = query?.includeArchived === 'true';
+    if (includeArchived) await object(objectId);
+    else await activeObject(objectId, 'Relationships are only available for active Custom Objects');
     await requireCapability(objectId, 'view_records');
     const recordId = query?.recordId;
     const definitionId = query?.definitionId;
@@ -1155,7 +1174,9 @@ export function createCustomObjectService({
       throw new CustomObjectHttpError(400, 'recordId and definitionId are required');
     }
     const definition = await one('custom_object_relationship_definition', definitionId);
-    if (definition.status !== 'active') throw new CustomObjectHttpError(409, 'Relationship definition is not active');
+    if (definition.status !== 'active' && !(includeArchived && definition.status === 'archived')) {
+      throw new CustomObjectHttpError(409, 'Relationship definition is not active');
+    }
     const sourceSide = definition.source_kind === 'custom_object'
       && definition.source_custom_object_id === objectId;
     const targetSide = definition.target_kind === 'custom_object'
@@ -1173,14 +1194,17 @@ export function createCustomObjectService({
     }
     if (definition[`show_on_${side}`] === false) throw new CustomObjectHttpError(403, 'This relationship is hidden on the routed side');
     const routedRecord = await one('custom_object_record', recordId, { custom_object_id: objectId });
-    if (routedRecord.archived_at) throw new CustomObjectHttpError(409, 'Routed record is archived');
-    await requireRelationshipCapabilities(definition, 'view_records');
+    if (routedRecord.archived_at && !includeArchived) throw new CustomObjectHttpError(409, 'Routed record is archived');
+    await requireRelationshipCapabilities(definition, 'view_records', {
+      allowArchivedObjects: includeArchived,
+    });
     const p = pagination(query);
     let q = db.from('custom_object_relationship').select('*', { count: 'exact' })
       .eq('tenant_id', tenantId).eq('relationship_definition_id', definition.id)
       .eq(`${side}_record_id`, recordId)
-      .order('created_at', { ascending: false });
-    if (query?.includeArchived !== 'true') q = q.is('archived_at', null);
+      .order('created_at', { ascending: false })
+      .order('id', { ascending: false });
+    if (!includeArchived) q = q.is('archived_at', null);
     const { data, error, count } = await q.range(p.from, p.to);
     throwDb(error);
     const relatedSide = side === 'source' ? 'target' : 'source';
@@ -1189,6 +1213,7 @@ export function createCustomObjectService({
       definition[`${relatedSide}_kind`],
       definition[`${relatedSide}_custom_object_id`],
       rows.map((edge) => edge[`${relatedSide}_record_id`]),
+      { includeArchived },
     );
     if (resolved.size !== new Set(rows.map((edge) => edge[`${relatedSide}_record_id`])).size) {
       throw new CustomObjectHttpError(409, 'A related endpoint is missing, archived, or unavailable');
@@ -1199,6 +1224,7 @@ export function createCustomObjectService({
         relationship_definition_id: edge.relationship_definition_id,
         source_record_id: edge.source_record_id,
         target_record_id: edge.target_record_id,
+        ...(includeArchived ? { archived_at: edge.archived_at || null } : {}),
         related: resolved.get(edge[`${relatedSide}_record_id`]) || null,
       })),
       total: count || 0, page: p.page, pageSize: p.pageSize,
@@ -1280,6 +1306,7 @@ export function createCustomObjectService({
       db.from('custom_object_role_permission')
         .select('*', { count: 'exact' }).eq('tenant_id', tenantId)
         .eq('custom_object_id', objectId).order('created_at', { ascending: false })
+        .order('id', { ascending: false })
         .range(p.from, p.to),
       db.from('role').select('id,name,label,is_system')
         .eq('tenant_id', tenantId).order('name', { ascending: true }),
@@ -1349,8 +1376,14 @@ export function createCustomObjectService({
     const p = pagination(query);
     let q = db.from('custom_object_audit_event').select('*', { count: 'exact' })
       .eq('tenant_id', tenantId).eq('custom_object_id', objectId)
-      .order('created_at', { ascending: false });
-    if (query?.entityType) q = q.eq('entity_type', query.entityType);
+      .order('created_at', { ascending: false })
+      .order('id', { ascending: false });
+    if (query?.entityType) {
+      if (!CUSTOM_OBJECT_AUDIT_ENTITY_TYPES.includes(query.entityType)) {
+        throw new CustomObjectHttpError(400, 'Invalid Custom Object audit entity type');
+      }
+      q = q.eq('entity_type', query.entityType);
+    }
     const { data, error, count } = await q.range(p.from, p.to);
     throwDb(error);
     return { data: data || [], total: count || 0, page: p.page, pageSize: p.pageSize };

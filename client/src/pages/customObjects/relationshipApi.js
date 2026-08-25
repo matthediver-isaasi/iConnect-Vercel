@@ -26,7 +26,8 @@ export const relationshipRoutes = {
   definitions: (objectId, includeArchived = false) => `/api/custom-objects/${objectId}/relationship-definitions${includeArchived ? "?includeArchived=true" : ""}`,
   definition: (objectId, definitionId) =>
     `/api/custom-objects/${objectId}/relationship-definitions/${definitionId}`,
-  objects: () => "/api/custom-objects?status=active",
+  objects: (page = 1, pageSize = 100) =>
+    `/api/custom-objects?${new URLSearchParams({ status: "active", page, pageSize })}`,
   picker: (objectId, params) =>
     `/api/custom-objects/${objectId}/entity-picker?${new URLSearchParams(params)}`,
   edges: (objectId, params) =>

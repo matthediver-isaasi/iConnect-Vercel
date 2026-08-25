@@ -37,6 +37,14 @@ export const CUSTOM_OBJECT_CAPABILITIES = Object.freeze([
   'archive_records',
   'export_records',
 ]);
+export const CUSTOM_OBJECT_AUDIT_ENTITY_TYPES = Object.freeze([
+  'custom_object_definition',
+  'preference_field',
+  'custom_object_record',
+  'custom_object_relationship_definition',
+  'custom_object_relationship',
+  'custom_object_role_permission',
+]);
 
 const INTERNAL_KEY_RE = /^[a-z][a-z0-9_]{0,99}$/;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -431,7 +439,10 @@ export function validateCustomObjectRecordData({
 
   if (mode !== 'read') {
     for (const { metadata } of activeFields.map(({ validation }) => validation)) {
-      if (metadata.required && isBlank(output[metadata.key])) {
+      const requiredApplies = mode === 'create'
+        || Object.hasOwn(data, metadata.key)
+        || (isPlainObject(existingData) && Object.hasOwn(existingData, metadata.key));
+      if (metadata.required && requiredApplies && isBlank(output[metadata.key])) {
         errors.push({ field: metadata.key, message: `${metadata.label} is required` });
       }
     }
@@ -603,6 +614,12 @@ export function buildCustomObjectAuditEvent({
     throw new CustomObjectDomainError(
       'INVALID_AUDIT_EVENT',
       'Audit events require tenant, action, entity type, and entity id',
+    );
+  }
+  if (!CUSTOM_OBJECT_AUDIT_ENTITY_TYPES.includes(entityType)) {
+    throw new CustomObjectDomainError(
+      'INVALID_AUDIT_ENTITY_TYPE',
+      `Unsupported Custom Object audit entity type: ${entityType}`,
     );
   }
   return {

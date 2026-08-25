@@ -525,10 +525,10 @@ export function CustomObjectRecordForm() {
   if (object.status !== "active" && !editing) return <Workspace object={object} backToRecords><PageState title="Records cannot be added" message="Only active custom objects accept new records." /></Workspace>;
   const submit = (event) => {
     event.preventDefault();
-    const nextErrors = validateRecordValues(activeFields, values);
+    const nextErrors = validateRecordValues(activeFields, values, { partial: editing });
     setErrors(nextErrors);
     if (Object.keys(nextErrors).length) return;
-    save.mutate(buildRecordPayload(activeFields, values));
+    save.mutate(buildRecordPayload(activeFields, values, { partial: editing }));
   };
   return (
     <Workspace object={object} backToRecords>
@@ -638,9 +638,27 @@ const permissionColumns = [
 
 export function CustomObjectPermissionsEditor({ objectId, canManage, archived = false }) {
   const qc = useQueryClient();
+  const [page, setPage] = useState(1);
+  const pageSize = 25;
+  useEffect(() => setPage(1), [objectId]);
   const permissionsQuery = useQuery({
     queryKey: ["custom-objects", objectId, "permissions"],
-    queryFn: () => request(`/api/custom-objects/${objectId}/permissions?pageSize=100`),
+    queryFn: async () => {
+      const first = await request(`/api/custom-objects/${objectId}/permissions?page=1&pageSize=100`);
+      const total = Number(first.total) || 0;
+      const pageCount = Math.max(1, Math.ceil(total / 100));
+      if (pageCount > 100)
+        throw new Error("There are too many permission rows to load safely. Refine the role set before editing permissions.");
+      const additional = [];
+      for (let nextPage = 2; nextPage <= pageCount; nextPage += 1)
+        additional.push(
+          await request(`/api/custom-objects/${objectId}/permissions?page=${nextPage}&pageSize=100`),
+        );
+      return {
+        ...first,
+        data: [first, ...additional].flatMap((result) => result.data || []),
+      };
+    },
     retry: false,
   });
   const roles = Array.isArray(permissionsQuery.data?.roles)
@@ -652,6 +670,11 @@ export function CustomObjectPermissionsEditor({ objectId, canManage, archived = 
       ? permissionsQuery.data
       : [];
   const byRole = Object.fromEntries(permissions.map((permission) => [permission.role_id, permission]));
+  const pages = Math.max(1, Math.ceil(roles.length / pageSize));
+  const visibleRoles = roles.slice((page - 1) * pageSize, page * pageSize);
+  useEffect(() => {
+    if (!permissionsQuery.isFetching && page > pages) setPage(pages);
+  }, [page, pages, permissionsQuery.isFetching]);
   const save = useMutation({
     mutationFn: ({ role, key, checked }) => {
       const current = byRole[role.id] || {};
@@ -682,12 +705,22 @@ export function CustomObjectPermissionsEditor({ objectId, canManage, archived = 
       <CardContent className="overflow-x-auto">
         <table className="w-full min-w-[680px] text-sm">
           <thead><tr className="border-b text-left text-xs uppercase text-slate-500"><th className="p-3">Role</th>{permissionColumns.map(([key, label]) => <th key={key} className="p-3 text-center">{label}</th>)}</tr></thead>
-          <tbody>{roles.map((role) => {
+           <tbody>{visibleRoles.map((role) => {
             const permission = normalizeRecordPermissions(byRole[role.id]);
-            return <tr key={role.id} className="border-b last:border-0"><td className="p-3 font-medium">{role.name || role.label}</td>{permissionColumns.map(([key]) => <td key={key} className="p-3 text-center"><Checkbox disabled={!canManage || archived || save.isPending} checked={permission[key]} onCheckedChange={(checked) => save.mutate({ role, key, checked: Boolean(checked) })} /></td>)}</tr>;
+            return <tr key={role.id} className="border-b last:border-0"><td className="p-3 font-medium">{role.name || role.label}</td>{permissionColumns.map(([key]) => <td key={key} className="p-3 text-center"><Checkbox disabled={!canManage || archived || save.isPending || key === "can_export_records"} checked={permission[key]} onCheckedChange={(checked) => save.mutate({ role, key, checked: Boolean(checked) })} /></td>)}</tr>;
           })}</tbody>
         </table>
         {!roles.length && <p className="py-8 text-center text-sm text-slate-500">No roles are available.</p>}
+        {!!roles.length && (
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t px-3 py-4 text-sm">
+            <span className="text-slate-500">{roles.length} role{roles.length === 1 ? "" : "s"}</span>
+            <div className="flex items-center gap-2">
+              <Button size="icon" variant="outline" aria-label="Previous permissions page" disabled={page <= 1} onClick={() => setPage((value) => value - 1)}><ChevronLeft className="h-4 w-4" /></Button>
+              <span>Page {page} of {pages}</span>
+              <Button size="icon" variant="outline" aria-label="Next permissions page" disabled={page >= pages} onClick={() => setPage((value) => value + 1)}><ChevronRight className="h-4 w-4" /></Button>
+            </div>
+          </div>
+        )}
       </CardContent>
     </Card>
   );

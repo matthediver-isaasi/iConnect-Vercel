@@ -15,6 +15,9 @@ const schemaAdminMigrationPath = fileURLToPath(
 const relationshipRuntimeMigrationPath = fileURLToPath(
   new URL('../../supabase/migrations/20260826_custom_object_relationship_runtime.sql', import.meta.url),
 );
+const hardeningMigrationPath = fileURLToPath(
+  new URL('../../supabase/migrations/20260827_custom_object_hardening.sql', import.meta.url),
+);
 
 function findExecutable(name) {
   const result = spawnSync('sh', ['-c', `command -v ${name}`], { encoding: 'utf8' });
@@ -165,6 +168,8 @@ test('migration replays and persists every supported Custom Object field type', 
     run(psql, [...connectionArgs, '-f', schemaAdminMigrationPath]);
     run(psql, [...connectionArgs, '-f', relationshipRuntimeMigrationPath]);
     run(psql, [...connectionArgs, '-f', relationshipRuntimeMigrationPath]);
+    run(psql, [...connectionArgs, '-f', hardeningMigrationPath]);
+    run(psql, [...connectionArgs, '-f', hardeningMigrationPath]);
 
     const fieldTypes = [
       'text',

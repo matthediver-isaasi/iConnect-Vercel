@@ -7,6 +7,7 @@ import {
   ArrowLeft,
   Boxes,
   CheckCircle2,
+  ChevronLeft,
   ChevronRight,
   CircleAlert,
   Database,
@@ -67,6 +68,7 @@ import {
   validateFieldDefinition,
 } from "./customObjects/fieldDefinition";
 import { RelationshipDefinitions } from "./customObjects/RelationshipDefinitions";
+import { AuditHistory } from "./customObjects/AuditHistory";
 import { CustomObjectPermissionsEditor } from "./CustomObjectRecords";
 const ICONS = [
   { key: "Boxes", Icon: Boxes },
@@ -283,24 +285,28 @@ export default function CustomObjectsAdmin() {
 }
 function Catalogue() {
   const [status, setStatus] = useState("all");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
   const [newOpen, setNewOpen] = useState(false);
   const { isFeatureExcluded } = useMemberAccess();
   const canManage = !isFeatureExcluded("data.custom-objects.manage-data-model");
   const query = useQuery({
-    queryKey: listKey,
-    queryFn: () => api("/api/custom-objects?includeArchived=true"),
+    queryKey: [...listKey, "catalogue", status, page, pageSize],
+    queryFn: () => {
+      const params = new URLSearchParams({
+        includeArchived: "true",
+        page: String(page),
+        pageSize: String(pageSize),
+      });
+      if (status !== "all") params.set("status", status);
+      return api(`/api/custom-objects?${params}`);
+    },
+    placeholderData: (previous) => previous,
   });
   const objects = query.data?.data || [];
-  const visible =
-    status === "all"
-      ? objects
-      : objects.filter((object) => object.status === status);
-  const counts = {
-    all: query.data?.total ?? objects.length,
-    active: objects.filter((item) => item.status === "active").length,
-    draft: objects.filter((item) => item.status === "draft").length,
-    archived: objects.filter((item) => item.status === "archived").length,
-  };
+  const visible = objects;
+  const total = query.data?.total ?? objects.length;
+  const pages = Math.max(1, Math.ceil(total / pageSize));
   return (
     <main className="min-h-screen bg-slate-50/70 p-4 md:p-8">
       <div className="mx-auto max-w-6xl space-y-6">
@@ -333,12 +339,15 @@ function Catalogue() {
             ["archived", "Archived"],
           ].map(([key, label]) => (
             <button
-              onClick={() => setStatus(key)}
+              onClick={() => {
+                setStatus(key);
+                setPage(1);
+              }}
               key={key}
               className={`rounded-lg border p-3 text-left transition-all ${status === key ? "border-blue-300 bg-blue-50 shadow-sm" : "border-slate-200 bg-white hover:border-slate-300"}`}
             >
               <span className="block text-2xl font-semibold text-slate-900">
-                {counts[key]}
+                {status === key ? total : "—"}
               </span>
               <span className="text-xs font-medium text-slate-500">
                 {label}
@@ -357,7 +366,7 @@ function Catalogue() {
           </div>
         ) : query.error ? (
           <ErrorState error={query.error} retry={query.refetch} />
-        ) : visible.length === 0 ? (
+        ) : total === 0 ? (
           <Card className="border-dashed">
             <CardContent className="py-16 text-center">
               <Boxes className="mx-auto mb-4 h-9 w-9 text-slate-400" />
@@ -433,6 +442,24 @@ function Catalogue() {
                   </Link>
                 );
               })}
+              {visible.length === 0 && (
+                <div className="border-b px-5 py-12 text-center">
+                  <p className="font-medium text-slate-900">No {status} objects</p>
+                  <p className="mt-1 text-sm text-slate-500">Choose another lifecycle filter.</p>
+                </div>
+              )}
+              <div className="flex flex-wrap items-center justify-between gap-3 border-t px-5 py-4 text-sm">
+                <span className="text-slate-500">{total} object{total === 1 ? "" : "s"}</span>
+                <div className="flex items-center gap-2">
+                  <Select value={String(pageSize)} onValueChange={(value) => { setPageSize(Number(value)); setPage(1); }}>
+                    <SelectTrigger className="w-24"><SelectValue /></SelectTrigger>
+                    <SelectContent>{[10, 25, 50, 100].map((size) => <SelectItem key={size} value={String(size)}>{size} / page</SelectItem>)}</SelectContent>
+                  </Select>
+                  <Button size="icon" variant="outline" aria-label="Previous catalogue page" disabled={page <= 1 || query.isFetching} onClick={() => setPage((value) => value - 1)}><ChevronLeft className="h-4 w-4" /></Button>
+                  <span>Page {page} of {pages}</span>
+                  <Button size="icon" variant="outline" aria-label="Next catalogue page" disabled={page >= pages || query.isFetching} onClick={() => setPage((value) => value + 1)}><ChevronRight className="h-4 w-4" /></Button>
+                </div>
+              </div>
             </CardContent>
           </Card>
         )}{" "}
@@ -590,6 +617,7 @@ function Detail() {
               </span>
             </TabsTrigger>
             <TabsTrigger value="permissions">Permissions</TabsTrigger>
+            <TabsTrigger value="audit">Audit history</TabsTrigger>
           </TabsList>
           <TabsContent value="overview" className="mt-5">
             <Overview
@@ -646,6 +674,9 @@ function Detail() {
               canManage={canManage}
               archived={object.status === "archived"}
             />
+          </TabsContent>
+          <TabsContent value="audit" className="mt-5">
+            <AuditHistory objectId={objectId} request={api} />
           </TabsContent>
         </Tabs>
       </div>

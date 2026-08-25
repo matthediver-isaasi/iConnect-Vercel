@@ -15,7 +15,7 @@ export const CARDINALITIES = [
 export const definitionList = (payload) =>
   Array.isArray(payload) ? payload : payload?.data || payload?.definitions || [];
 
-export const relationshipPanels = (payload, context) =>
+export const relationshipPanels = (payload, context, { includeArchived = false } = {}) =>
   definitionList(payload).flatMap((item) => {
     const rawDefinition = item.definition || item;
     const definition = {
@@ -27,7 +27,9 @@ export const relationshipPanels = (payload, context) =>
       ? [suppliedSide]
       : applicableSidesForRecord(definition, context.kind, context.objectId);
     return sides
-      .filter((side) => definition.status !== "archived" && definition.status !== "inactive")
+      .filter((side) =>
+        definition.status !== "inactive"
+        && (includeArchived || definition.status !== "archived"))
       .filter((side) => isDefinitionVisible(definition, side))
       .map((side) => ({
         definition,

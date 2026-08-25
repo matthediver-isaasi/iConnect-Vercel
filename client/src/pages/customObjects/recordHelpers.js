@@ -61,9 +61,10 @@ const fileTypeExtensions = {
   audio: [".mp3", ".wav", ".m4a", ".ogg"],
 };
 
-export function validateRecordValues(fields, values) {
+export function validateRecordValues(fields, values, { partial = false } = {}) {
   const errors = {};
   for (const field of fields.filter((item) => item.is_active !== false)) {
+    if (partial && !Object.hasOwn(values, field.name)) continue;
     const value = coerceRecordValue(field, values[field.name]);
     const label = field.label || field.name;
     if (field.is_required && blank(value)) {
@@ -187,10 +188,12 @@ export function validateRecordValues(fields, values) {
   return errors;
 }
 
-export const buildRecordPayload = (fields, values) => ({
+export const buildRecordPayload = (fields, values, { partial = false } = {}) => ({
   data: Object.fromEntries(
     fields
-      .filter((field) => field.is_active !== false)
+      .filter((field) =>
+        field.is_active !== false
+        && (!partial || Object.hasOwn(values, field.name)))
       .map((field) => [field.name, coerceRecordValue(field, values[field.name])]),
   ),
 });

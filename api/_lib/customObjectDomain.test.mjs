@@ -189,7 +189,7 @@ test('record validation enforces required fields and rejects unknown incoming ke
   assert.equal(unknown.errors.find((error) => error.field === 'surprise')?.message, 'Field is unknown or archived');
 });
 
-test('schema changes preserve historic archived/unknown values but enforce new required fields on edit', () => {
+test('schema changes preserve historic values and do not backfill newly required fields', () => {
   const fields = [
     field({ name: 'department_name', is_required: true }),
     field({ name: 'new_required', label: 'New Required', is_required: true }),
@@ -210,8 +210,17 @@ test('schema changes preserve historic archived/unknown values but enforce new r
     fields,
     mode: 'update',
   });
-  assert.equal(edited.ok, false);
-  assert.match(edited.errors.find((error) => error.field === 'new_required')?.message, /required/);
+  assert.equal(edited.ok, true);
+  assert.equal(Object.hasOwn(edited.data, 'new_required'), false);
+
+  const explicitlyBlank = validateCustomObjectRecordData({
+    data: { new_required: '' },
+    existingData: { department_name: 'Oncology', old_code: 'ONC' },
+    fields,
+    mode: 'update',
+  });
+  assert.equal(explicitlyBlank.ok, false);
+  assert.match(explicitlyBlank.errors.find((error) => error.field === 'new_required')?.message, /required/);
 });
 
 test('display resolution uses option labels and primary field metadata', () => {
@@ -339,6 +348,15 @@ test('audit payload is server-shaped and caller timestamps/ids cannot be supplie
   assert.equal(event.id, undefined);
   assert.equal(event.created_at, undefined);
   assert.equal(event.tenant_id, tenantId);
+  assert.throws(
+    () => buildCustomObjectAuditEvent({
+      tenantId,
+      action: 'record.updated',
+      entityType: 'arbitrary_table',
+      entityId: '44444444-4444-4444-8444-444444444444',
+    }),
+    (error) => error.code === 'INVALID_AUDIT_ENTITY_TYPE',
+  );
 });
 
 test('generic entity boundary reserves Custom Object storage and field writes', () => {

@@ -138,19 +138,45 @@ function mockDb(seed = {}) {
     from(table) { calls.push({ table, type: 'from' }); return new Query(table); },
     rpc(name, args) {
       calls.push({ type: 'rpc', name, args });
+      const execute = () => {
+        if (name === 'custom_object_catalogue_counts') {
+          const requestedIds = new Set(args.p_custom_object_ids);
+          const counts = [...requestedIds].map((id) => ({
+            custom_object_id: id,
+            record_count: (tables.custom_object_record || []).filter((row) =>
+              row.tenant_id === args.p_tenant_id
+              && row.custom_object_id === id
+              && row.archived_at === null).length,
+            field_count: (tables.preference_field || []).filter((row) =>
+              row.tenant_id === args.p_tenant_id
+              && row.custom_object_id === id
+              && row.entity_scope === 'custom_object'
+              && row.is_active === true).length,
+            relationship_count: new Set((tables.custom_object_relationship_definition || [])
+              .filter((row) =>
+                row.tenant_id === args.p_tenant_id
+                && row.status !== 'archived'
+                && (row.source_custom_object_id === id || row.target_custom_object_id === id))
+              .map((row) => row.id)).size,
+          }));
+          return { data: counts, error: null };
+        }
+        if (name !== 'archive_custom_object_relationship') {
+          return { data: null, error: { message: 'Unknown RPC' } };
+        }
+        const row = (tables.custom_object_relationship || []).find((candidate) =>
+          candidate.tenant_id === args.p_tenant_id
+          && candidate.id === args.p_relationship_id);
+        if (!row) return { data: null, error: { code: 'P0002', message: 'Relationship edge not found for tenant' } };
+        row.archived_at = args.p_archived_at;
+        row.archived_by = args.p_archived_by;
+        return { data: structuredClone(row), error: null };
+      };
       return {
         async single() {
-          if (name !== 'archive_custom_object_relationship') {
-            return { data: null, error: { message: 'Unknown RPC' } };
-          }
-          const row = (tables.custom_object_relationship || []).find((candidate) =>
-            candidate.tenant_id === args.p_tenant_id
-            && candidate.id === args.p_relationship_id);
-          if (!row) return { data: null, error: { code: 'P0002', message: 'Relationship edge not found for tenant' } };
-          row.archived_at = args.p_archived_at;
-          row.archived_by = args.p_archived_by;
-          return { data: structuredClone(row), error: null };
+          return execute();
         },
+        then(resolve, reject) { return Promise.resolve(execute()).then(resolve, reject); },
       };
     },
     tables,
@@ -252,6 +278,51 @@ test('record creation coerces typed JSONB, rejects invalid values, and authors m
     () => service.createRecord(objectId, { data: { headcount: '4.2' } }),
     (error) => error.status === 400 && error.details[0].field === 'headcount',
   );
+});
+
+test('newly required fields preserve historical records until that field is supplied', async () => {
+  const db = mockDb({
+    custom_object_definition: [object()],
+    preference_field: [
+      field({ name: 'headcount', is_required: false }),
+      field({
+        id: 'field-required',
+        name: 'cost_centre',
+        label: 'Cost centre',
+        field_type: 'text',
+        is_required: true,
+      }),
+    ],
+    custom_object_record: [{
+      id: 'record-1',
+      tenant_id: tenantId,
+      custom_object_id: objectId,
+      data: { headcount: 10 },
+      archived_at: null,
+    }],
+    custom_object_role_permission: [{
+      tenant_id: tenantId,
+      custom_object_id: objectId,
+      role_id: roleId,
+      can_view_records: true,
+      can_edit_records: true,
+    }],
+  });
+  const service = createCustomObjectService({ db, context: context() });
+  const edited = await service.updateRecord(objectId, 'record-1', {
+    data: { headcount: 11 },
+  });
+  assert.deepEqual(edited.data, { headcount: 11 });
+  await assert.rejects(
+    () => service.updateRecord(objectId, 'record-1', {
+      data: { cost_centre: '' },
+    }),
+    (error) => error.status === 400
+      && error.details.some((detail) => detail.field === 'cost_centre'),
+  );
+  assert.equal((await service.updateRecord(objectId, 'record-1', {
+    data: { cost_centre: 'CC-100' },
+  })).data.cost_centre, 'CC-100');
 });
 
 test('record create and update reject non-canonical country codes even when all countries are enabled', async () => {
@@ -542,6 +613,14 @@ test('audit listing returns only tenant/object events and does not write audit r
   assert.equal(db.calls.filter(
     (call) => call.table === 'custom_object_audit_event' && call.type === 'from',
   ).length, 1);
+  await assert.rejects(
+    () => createCustomObjectService({
+      db,
+      context: context(),
+      canViewSchema: true,
+    }).listAudit(objectId, { entityType: 'arbitrary_table' }),
+    (error) => error.status === 400 && /audit entity type/.test(error.message),
+  );
 });
 
 test('schema service authorization does not treat record admin status as schema access', async () => {
@@ -582,6 +661,33 @@ test('view-only schema catalogue can include draft, active, and archived objects
   assert.deepEqual(
     includingArchived.data.map((row) => row.status).sort(),
     ['active', 'archived', 'draft'],
+  );
+});
+
+test('schema catalogue applies lifecycle status before count and pagination', async () => {
+  const db = mockDb({
+    custom_object_definition: [
+      object({ id: 'draft-1', status: 'draft', created_at: '2026-03-01' }),
+      object({ id: 'active-1', status: 'active', created_at: '2026-02-01' }),
+      object({ id: 'active-2', status: 'active', created_at: '2026-01-01' }),
+    ],
+  });
+  const service = createCustomObjectService({
+    db,
+    context: context(),
+    canViewSchema: true,
+  });
+  const result = await service.listObjects({
+    status: 'active',
+    page: '2',
+    pageSize: '1',
+  });
+  assert.equal(result.total, 2);
+  assert.equal(result.page, 2);
+  assert.deepEqual(result.data.map((row) => row.id), ['active-2']);
+  await assert.rejects(
+    () => service.listObjects({ status: 'deleted' }),
+    (error) => error.status === 400 && /status must be/.test(error.message),
   );
 });
 
@@ -1172,6 +1278,77 @@ test('record-scoped related query supports reverse display and resolves one leve
   assert.equal(Object.hasOwn(result.data[0].related, 'relationships'), false);
 });
 
+test('archived edges remain listable when their related custom record and object are archived', async () => {
+  const targetObjectId = '44444444-4444-4444-8444-444444444444';
+  const definitionId = '55555555-5555-4555-8555-555555555555';
+  const db = mockDb({
+    custom_object_definition: [
+      object(),
+      object({
+        id: targetObjectId,
+        object_key: 'locations',
+        status: 'archived',
+        archived_at: '2026-01-02T00:00:00.000Z',
+      }),
+    ],
+    preference_field: [field({ is_required: false })],
+    custom_object_record: [{
+      id: 'source-1',
+      tenant_id: tenantId,
+      custom_object_id: objectId,
+      data: {},
+      archived_at: null,
+    }, {
+      id: 'target-1',
+      tenant_id: tenantId,
+      custom_object_id: targetObjectId,
+      data: {},
+      archived_at: '2026-01-02T00:00:00.000Z',
+    }],
+    custom_object_relationship_definition: [{
+      id: definitionId,
+      tenant_id: tenantId,
+      status: 'archived',
+      source_kind: 'custom_object',
+      source_custom_object_id: objectId,
+      target_kind: 'custom_object',
+      target_custom_object_id: targetObjectId,
+      show_on_source: true,
+    }],
+    custom_object_relationship: [{
+      id: 'edge-1',
+      tenant_id: tenantId,
+      relationship_definition_id: definitionId,
+      source_record_id: 'source-1',
+      target_record_id: 'target-1',
+      archived_at: '2026-01-02T00:00:00.000Z',
+      created_at: '2026-01-01T00:00:00.000Z',
+    }],
+    custom_object_role_permission: [{
+      tenant_id: tenantId,
+      custom_object_id: objectId,
+      role_id: roleId,
+      can_view_records: true,
+    }, {
+      tenant_id: tenantId,
+      custom_object_id: targetObjectId,
+      role_id: roleId,
+      can_view_records: true,
+    }],
+  });
+  const service = createCustomObjectService({ db, context: context() });
+  const result = await service.listRelationships(objectId, {
+    definitionId,
+    recordId: 'source-1',
+    side: 'source',
+    includeArchived: 'true',
+  });
+  assert.equal(result.total, 1);
+  assert.equal(result.data[0].archived_at, '2026-01-02T00:00:00.000Z');
+  assert.equal(result.data[0].related.archived_at, '2026-01-02T00:00:00.000Z');
+  assert.equal(result.data[0].related.custom_object_status, 'archived');
+});
+
 test('edge mutation requires an explicit routed side and matching routed record', async () => {
   const definitionId = '55555555-5555-4555-8555-555555555555';
   const db = mockDb({
@@ -1489,6 +1666,70 @@ test('non-admin record APIs cannot enumerate or mutate core-endpoint relationshi
     }),
     (error) => error.status === 403 && /administrator/.test(error.message),
   );
+});
+
+test('non-admin relationship definition visibility is filtered before pagination and count', async () => {
+  const targetObjectId = '44444444-4444-4444-8444-444444444444';
+  const hiddenObjectId = '66666666-6666-4666-8666-666666666666';
+  const db = mockDb({
+    custom_object_definition: [
+      object(),
+      object({ id: targetObjectId, object_key: 'locations' }),
+      object({ id: hiddenObjectId, object_key: 'hidden' }),
+    ],
+    custom_object_relationship_definition: [{
+      id: 'newest-core',
+      tenant_id: tenantId,
+      status: 'active',
+      source_kind: 'custom_object',
+      source_custom_object_id: objectId,
+      target_kind: 'member',
+      target_custom_object_id: null,
+      created_at: '2026-03-01',
+    }, {
+      id: 'hidden-custom',
+      tenant_id: tenantId,
+      status: 'active',
+      source_kind: 'custom_object',
+      source_custom_object_id: objectId,
+      target_kind: 'custom_object',
+      target_custom_object_id: hiddenObjectId,
+      created_at: '2026-02-01',
+    }, {
+      id: 'visible-custom',
+      tenant_id: tenantId,
+      status: 'active',
+      source_kind: 'custom_object',
+      source_custom_object_id: objectId,
+      target_kind: 'custom_object',
+      target_custom_object_id: targetObjectId,
+      created_at: '2026-01-01',
+    }],
+    custom_object_role_permission: [{
+      tenant_id: tenantId,
+      custom_object_id: objectId,
+      role_id: roleId,
+      can_view_records: true,
+    }, {
+      tenant_id: tenantId,
+      custom_object_id: targetObjectId,
+      role_id: roleId,
+      can_view_records: true,
+    }],
+  });
+  const result = await createCustomObjectService({
+    db,
+    context: context(),
+  }).listRelationshipDefinitions(objectId, { page: '1', pageSize: '1' });
+  assert.deepEqual(result.data.map((definition) => definition.id), ['visible-custom']);
+  assert.equal(result.total, 1);
+  const rangeIndex = db.calls.findIndex((call) =>
+    call.table === 'custom_object_relationship_definition' && call.type === 'from');
+  assert.ok(db.calls.slice(rangeIndex).some((call) =>
+    call.table === 'custom_object_relationship_definition'
+    && call.type === 'eq'
+    && call.column === 'source_kind'
+    && call.value === 'custom_object'));
 });
 
 test('core relationship discovery is generic across all core kinds and hides inactive or one-sided definitions', async () => {

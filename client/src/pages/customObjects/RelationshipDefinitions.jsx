@@ -21,7 +21,23 @@ function DefinitionDialog({ objectId, definition, open, onOpenChange }) {
   const [form, setForm] = useState(defaultDefinitionForm(objectId));
   const objectsQuery = useQuery({
     queryKey: ["custom-objects", "active-for-relationships"],
-    queryFn: () => relationshipRequest(relationshipRoutes.objects()),
+    queryFn: async () => {
+      const first = await relationshipRequest(relationshipRoutes.objects());
+      const total = Number(first.total) || 0;
+      const pageCount = Math.max(1, Math.ceil(total / 100));
+      if (pageCount > 100)
+        throw new Error("There are too many active Custom Objects to load safely.");
+      const additional = await Promise.all(
+        Array.from(
+          { length: Math.max(0, pageCount - 1) },
+          (_, index) => relationshipRequest(relationshipRoutes.objects(index + 2)),
+        ),
+      );
+      return {
+        ...first,
+        data: [first, ...additional].flatMap((result) => result.data || []),
+      };
+    },
     enabled: open,
   });
   useEffect(() => {
