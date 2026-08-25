@@ -9,6 +9,7 @@ define('ABSPATH', __DIR__ . '/');
 
 $GLOBALS['bc_hooks'] = [];
 $GLOBALS['bc_submenus'] = [];
+$GLOBALS['bc_options_pages'] = [];
 $GLOBALS['bc_options'] = [];
 $GLOBALS['bc_transients'] = [];
 $GLOBALS['bc_posts'] = [];
@@ -18,6 +19,7 @@ $GLOBALS['bc_remote_mode'] = 'success';
 $GLOBALS['bc_remote_status'] = 200;
 $GLOBALS['bc_remote_body'] = null;
 $GLOBALS['bc_remote_error'] = null;
+$GLOBALS['bc_remote_requests'] = [];
 $GLOBALS['bc_deleted'] = [];
 $GLOBALS['bc_uuid'] = 0;
 $GLOBALS['bc_can_manage'] = true;
@@ -142,6 +144,10 @@ function add_submenu_page(...$args)
 {
     $GLOBALS['bc_submenus'][] = $args;
 }
+function add_options_page(...$args)
+{
+    $GLOBALS['bc_options_pages'][] = $args;
+}
 function get_option($key, $default = false)
 {
     return array_key_exists($key, $GLOBALS['bc_options']) ? $GLOBALS['bc_options'][$key] : $default;
@@ -191,6 +197,11 @@ function set_transient($key, $value)
 function get_transient($key)
 {
     return $GLOBALS['bc_transients'][$key] ?? false;
+}
+function delete_transient($key)
+{
+    unset($GLOBALS['bc_transients'][$key]);
+    return true;
 }
 function get_post_stati()
 {
@@ -251,8 +262,9 @@ function wp_delete_post($post_id, $force_delete = false)
     }
     return $post;
 }
-function wp_remote_get()
+function wp_remote_get($url = '', $args = [])
 {
+    $GLOBALS['bc_remote_requests'][] = ['url' => $url, 'args' => $args];
     if ($GLOBALS['bc_remote_mode'] === 'network_error') {
         return new BrowserCleanupWpError($GLOBALS['bc_remote_error'] ?? 'simulated network failure');
     }
@@ -295,6 +307,14 @@ function wp_unslash($value)
 {
     return $value;
 }
+function esc_url_raw($value)
+{
+    return filter_var((string) $value, FILTER_SANITIZE_URL);
+}
+function wp_parse_url($value)
+{
+    return parse_url((string) $value);
+}
 function sanitize_key($value)
 {
     return preg_replace('/[^a-z0-9_\\-]/', '', strtolower((string) $value));
@@ -306,6 +326,10 @@ function get_current_user_id()
 function admin_url($path = '')
 {
     return '/wp-admin/' . $path;
+}
+function add_query_arg($args, $url)
+{
+    return $url . (str_contains($url, '?') ? '&' : '?') . http_build_query($args);
 }
 function esc_html($value)
 {
@@ -368,6 +392,7 @@ function bc_reset_fixture()
     $GLOBALS['bc_remote_status'] = 200;
     $GLOBALS['bc_remote_body'] = null;
     $GLOBALS['bc_remote_error'] = null;
+    $GLOBALS['bc_remote_requests'] = [];
     $GLOBALS['bc_deleted'] = [];
     $GLOBALS['bc_hide_survivor'] = null;
     $GLOBALS['bc_delete_call'] = 0;
@@ -422,13 +447,98 @@ function bc_throws($callback, $fragment, $message)
 require dirname(__DIR__) . '/class-zoho-api.iconnect.php';
 
 bc_assert(isset($GLOBALS['bc_hooks']['admin_menu']), 'admin menu hook is registered');
+bc_assert(isset($GLOBALS['bc_hooks']['admin_post_gsf_iconnect_feed_settings_save']), 'feed settings POST hook is registered');
 bc_assert(isset($GLOBALS['bc_hooks']['admin_post_gsf_reviewed_duplicate_cleanup']), 'cleanup POST hook is registered');
 bc_assert(isset($GLOBALS['bc_hooks']['admin_post_gsf_reviewed_duplicate_cleanup_download']), 'evidence download hook is registered');
+GSF_Iconnect_Feed_Settings_Admin::registerMenu();
+bc_assert(
+    $GLOBALS['bc_options_pages'][0][2] === 'manage_options'
+    && $GLOBALS['bc_options_pages'][0][3] === GSF_Iconnect_Feed_Settings_Admin::PAGE_SLUG,
+    'feed settings page is restricted to administrators'
+);
 GSF_Reviewed_Duplicate_Cleanup_Admin::registerMenu();
 bc_assert(
     $GLOBALS['bc_submenus'][0][0] === 'edit.php?post_type=gsf_member'
     && $GLOBALS['bc_submenus'][0][3] === 'manage_options',
     'cleanup page is an administrator member submenu'
+);
+
+bc_reset_fixture();
+ob_start();
+GSF_Iconnect_Feed_Settings_Admin::renderPage();
+$settings_rendered = ob_get_clean();
+bc_assert(
+    str_contains($settings_rendered, 'GSF iConnect Feed')
+    && str_contains($settings_rendered, 'https://iconnect.example')
+    && str_contains($settings_rendered, 'An API key is configured')
+    && !str_contains($settings_rendered, 'test-key'),
+    'settings page shows the URL and key status without rendering the saved key'
+);
+$GLOBALS['bc_can_manage'] = false;
+bc_throws(
+    fn() => GSF_Iconnect_Feed_Settings_Admin::renderPage(),
+    'Administrator permission',
+    'feed settings page rejects an unauthorized user'
+);
+$GLOBALS['bc_can_manage'] = true;
+
+$settings_source = [
+    '_gsf_iconnect_settings_nonce' => 'nonce:' . GSF_Iconnect_Feed_Settings_Admin::NONCE_ACTION,
+    'gsf_iconnect_base_url' => 'https://gfi.iconn.app/',
+    'gsf_iconnect_api_key' => '',
+    'operation' => 'save',
+];
+bc_throws(
+    fn() => GSF_Iconnect_Feed_Settings_Admin::processSettingsPost($settings_source, 'GET'),
+    'POST',
+    'feed settings reject a non-POST request'
+);
+$bad_settings_nonce = $settings_source;
+$bad_settings_nonce['_gsf_iconnect_settings_nonce'] = 'nonce:wrong-action';
+bc_throws(
+    fn() => GSF_Iconnect_Feed_Settings_Admin::processSettingsPost($bad_settings_nonce, 'POST'),
+    'security token',
+    'feed settings reject an invalid CSRF nonce'
+);
+$settings_saved = GSF_Iconnect_Feed_Settings_Admin::processSettingsPost($settings_source, 'POST');
+bc_assert(
+    $settings_saved['type'] === 'success'
+    && $GLOBALS['bc_options']['gsf_iconnect_base_url'] === 'https://gfi.iconn.app'
+    && $GLOBALS['bc_options']['gsf_iconnect_api_key'] === 'test-key',
+    'saving settings normalizes the URL and preserves a write-only existing key'
+);
+$invalid_settings = $settings_source;
+$invalid_settings['gsf_iconnect_base_url'] = 'http://iconnect.example/path?unsafe=1';
+bc_throws(
+    fn() => GSF_Iconnect_Feed_Settings_Admin::processSettingsPost($invalid_settings, 'POST'),
+    'HTTPS iconn.app origin',
+    'feed settings reject an insecure URL with an endpoint path'
+);
+$external_settings = $settings_source;
+$external_settings['gsf_iconnect_base_url'] = 'https://example.com';
+bc_throws(
+    fn() => GSF_Iconnect_Feed_Settings_Admin::processSettingsPost($external_settings, 'POST'),
+    'HTTPS iconn.app origin',
+    'feed settings reject an external host that could receive the shared key'
+);
+$replacement_settings = $settings_source;
+$replacement_settings['gsf_iconnect_base_url'] = 'https://iconn.app';
+$replacement_settings['gsf_iconnect_api_key'] = 'replacement-key';
+$replacement_settings['operation'] = 'save-and-test';
+$tested_settings = GSF_Iconnect_Feed_Settings_Admin::processSettingsPost($replacement_settings, 'POST');
+$last_remote_request = end($GLOBALS['bc_remote_requests']);
+bc_assert(
+    $tested_settings['type'] === 'success'
+    && str_contains($tested_settings['message'], '232 records')
+    && $last_remote_request['url'] === 'https://iconn.app/api/public/gsf-map/members'
+    && $last_remote_request['args']['headers']['X-Api-Key'] === 'replacement-key',
+    'save-and-test verifies the members endpoint with the newly saved key'
+);
+unset($GLOBALS['bc_options']['gsf_iconnect_api_key']);
+bc_throws(
+    fn() => GSF_Iconnect_Feed_Settings_Admin::processSettingsPost($settings_source, 'POST'),
+    'Enter the API key',
+    'first-time setup cannot save without an API key'
 );
 
 bc_reset_fixture();
@@ -639,6 +749,8 @@ $missing_rendered = ob_get_clean();
 bc_assert(
     str_contains($missing_rendered, 'Configured iConnect feed reconciliation is unavailable')
     && str_contains($missing_rendered, 'gsf_iconnect_base_url')
+    && str_contains($missing_rendered, 'Configure and test the iConnect feed')
+    && str_contains($missing_rendered, GSF_Iconnect_Feed_Settings_Admin::PAGE_SLUG)
     && str_contains($missing_rendered, 'UNAVAILABLE')
     && !str_contains($missing_rendered, '237 stale WordPress records'),
     'admin page prominently explains missing feed configuration without false stale results'

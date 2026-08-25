@@ -36,6 +36,13 @@
 
 Two new WP options — no secrets are hard-coded in the file:
 
+Administrators without WP-CLI can use **Settings → GSF iConnect Feed** in
+WordPress Admin. Enter the live iConnect HTTPS origin, enter the shared secret,
+and choose **Save and test connection**. The stored API key is write-only and is
+never rendered back into the settings page.
+
+The equivalent WP-CLI commands are:
+
 ```
 wp option update gsf_iconnect_base_url 'https://<iconnect-host>'   # no trailing slash
 wp option update gsf_iconnect_api_key  '<shared secret>'

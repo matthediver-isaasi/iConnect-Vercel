@@ -1856,11 +1856,228 @@ class ZohoAPI
 }
 
 /**
+ * [ICONNECT 2026-08-25] Permanent administrator settings for the GSF feed.
+ * The API key is write-only: it is stored for server requests but never
+ * rendered back into the WordPress admin page.
+ */
+if (!class_exists('GSF_Iconnect_Feed_Settings_Admin')) {
+    class GSF_Iconnect_Feed_Settings_Admin
+    {
+        const PAGE_SLUG = 'gsf-iconnect-feed-settings';
+        const POST_ACTION = 'gsf_iconnect_feed_settings_save';
+        const NONCE_ACTION = 'gsf_iconnect_feed_settings_save';
+        const NOTICE_PREFIX = 'gsf_iconnect_feed_settings_notice_';
+        const DEFAULT_BASE_URL = 'https://iconn.app';
+
+        public static function register()
+        {
+            add_action('admin_menu', [__CLASS__, 'registerMenu']);
+            add_action('admin_post_' . self::POST_ACTION, [__CLASS__, 'handlePost']);
+        }
+
+        public static function registerMenu()
+        {
+            add_options_page(
+                'GSF iConnect Feed',
+                'GSF iConnect Feed',
+                'manage_options',
+                self::PAGE_SLUG,
+                [__CLASS__, 'renderPage']
+            );
+        }
+
+        public static function pageUrl()
+        {
+            return add_query_arg(['page' => self::PAGE_SLUG], admin_url('options-general.php'));
+        }
+
+        private static function normaliseBaseUrl($raw_url)
+        {
+            $base_url = rtrim(trim((string) $raw_url), '/');
+            $base_url = esc_url_raw($base_url);
+            $parts = $base_url === '' ? false : wp_parse_url($base_url);
+            $path = is_array($parts) ? (string) ($parts['path'] ?? '') : '';
+            $host = is_array($parts) ? strtolower(trim((string) ($parts['host'] ?? ''))) : '';
+            $iconn_suffix = '.iconn.app';
+            $trusted_host = $host === 'iconn.app'
+                || (
+                    strlen($host) > strlen($iconn_suffix)
+                    && substr($host, -strlen($iconn_suffix)) === $iconn_suffix
+                );
+            if (
+                !is_array($parts)
+                || strtolower((string) ($parts['scheme'] ?? '')) !== 'https'
+                || !$trusted_host
+                || !empty($parts['port'])
+                || !empty($parts['user'])
+                || !empty($parts['pass'])
+                || !empty($parts['query'])
+                || !empty($parts['fragment'])
+                || ($path !== '' && $path !== '/')
+            ) {
+                throw new RuntimeException(
+                    'Enter an HTTPS iconn.app origin only, for example https://iconn.app, with no port, path, query, or credentials.'
+                );
+            }
+            return rtrim($base_url, '/');
+        }
+
+        public static function processSettingsPost($source, $request_method)
+        {
+            if (!current_user_can('manage_options')) {
+                throw new RuntimeException('Administrator permission is required.');
+            }
+            if (strtoupper((string) $request_method) !== 'POST') {
+                throw new RuntimeException('Settings changes require a POST request.');
+            }
+            if (!wp_verify_nonce(
+                (string) ($source['_gsf_iconnect_settings_nonce'] ?? ''),
+                self::NONCE_ACTION
+            )) {
+                throw new RuntimeException('The settings security token is invalid or expired.');
+            }
+
+            $base_url = self::normaliseBaseUrl(
+                wp_unslash($source['gsf_iconnect_base_url'] ?? '')
+            );
+            $submitted_key = trim((string) wp_unslash($source['gsf_iconnect_api_key'] ?? ''));
+            if ($submitted_key !== '' && preg_match('/[\x00-\x1F\x7F]/', $submitted_key)) {
+                throw new RuntimeException('The API key contains unsupported control characters.');
+            }
+            $saved_key = trim((string) get_option('gsf_iconnect_api_key', ''));
+            $api_key = $submitted_key === '' ? $saved_key : $submitted_key;
+            if ($api_key === '') {
+                throw new RuntimeException('Enter the API key before saving these settings.');
+            }
+
+            update_option('gsf_iconnect_base_url', $base_url, false);
+            if ($submitted_key !== '') {
+                update_option('gsf_iconnect_api_key', $submitted_key, false);
+            }
+
+            if (sanitize_key((string) ($source['operation'] ?? 'save')) !== 'save-and-test') {
+                return [
+                    'type' => 'success',
+                    'message' => 'GSF iConnect feed settings saved.',
+                    'connection' => null,
+                ];
+            }
+
+            $connection = GSF_Reviewed_Duplicate_Cleanup_Admin::fetchFeed($base_url, $api_key);
+            if (empty($connection['available'])) {
+                return [
+                    'type' => 'error',
+                    'message' => 'Settings saved, but the connection test failed: '
+                        . ($connection['error'] ?? 'Unknown feed error'),
+                    'connection' => $connection,
+                ];
+            }
+            return [
+                'type' => 'success',
+                'message' => 'Connection successful. The members endpoint returned '
+                    . count($connection['rows']) . ' records.',
+                'connection' => $connection,
+            ];
+        }
+
+        public static function handlePost()
+        {
+            try {
+                $notice = self::processSettingsPost(
+                    $_POST,
+                    $_SERVER['REQUEST_METHOD'] ?? 'GET'
+                );
+            } catch (Throwable $error) {
+                $notice = [
+                    'type' => 'error',
+                    'message' => $error->getMessage(),
+                    'connection' => null,
+                ];
+            }
+            set_transient(
+                self::NOTICE_PREFIX . (int) get_current_user_id(),
+                [
+                    'type' => $notice['type'] ?? 'error',
+                    'message' => $notice['message'] ?? 'Settings could not be saved.',
+                ],
+                120
+            );
+            wp_safe_redirect(self::pageUrl());
+            exit;
+        }
+
+        public static function renderPage()
+        {
+            if (!current_user_can('manage_options')) {
+                wp_die('Administrator permission is required.', '', ['response' => 403]);
+            }
+            $notice_key = self::NOTICE_PREFIX . (int) get_current_user_id();
+            $notice = get_transient($notice_key);
+            if ($notice !== false) {
+                delete_transient($notice_key);
+            }
+            $base_url = rtrim(trim((string) get_option('gsf_iconnect_base_url', '')), '/');
+            $shown_base_url = $base_url === '' ? self::DEFAULT_BASE_URL : $base_url;
+            $api_key_is_set = trim((string) get_option('gsf_iconnect_api_key', '')) !== '';
+            ?>
+            <div class="wrap">
+                <h1>GSF iConnect Feed</h1>
+                <p>Configure the live iConnect origin and shared API key used by the GSF member and country syncs.
+                    The saved key is never displayed on this page.</p>
+                <?php if (is_array($notice)): ?>
+                    <div class="notice notice-<?php echo ($notice['type'] ?? '') === 'success' ? 'success' : 'error'; ?> inline">
+                        <p><?php echo esc_html($notice['message'] ?? 'Settings could not be saved.'); ?></p>
+                    </div>
+                <?php endif; ?>
+                <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
+                    <input type="hidden" name="action" value="<?php echo esc_attr(self::POST_ACTION); ?>">
+                    <?php wp_nonce_field(self::NONCE_ACTION, '_gsf_iconnect_settings_nonce'); ?>
+                    <table class="form-table" role="presentation">
+                        <tr>
+                            <th scope="row"><label for="gsf_iconnect_base_url">iConnect base URL</label></th>
+                            <td>
+                                <input type="url" class="regular-text code" id="gsf_iconnect_base_url"
+                                    name="gsf_iconnect_base_url" value="<?php echo esc_attr($shown_base_url); ?>"
+                                    placeholder="<?php echo esc_attr(self::DEFAULT_BASE_URL); ?>" required>
+                                <p class="description">HTTPS origin only, with no trailing slash or endpoint path.</p>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th scope="row"><label for="gsf_iconnect_api_key">Shared API key</label></th>
+                            <td>
+                                <input type="password" class="regular-text" id="gsf_iconnect_api_key"
+                                    name="gsf_iconnect_api_key" value="" autocomplete="new-password"
+                                    <?php echo $api_key_is_set ? '' : 'required'; ?>>
+                                <p class="description">
+                                    <?php if ($api_key_is_set): ?>
+                                        An API key is configured. Leave blank to keep it, or enter a new value to replace it.
+                                    <?php else: ?>
+                                        Enter the value configured as <code>GSF_MAP_API_SECRET</code> on live iConnect.
+                                    <?php endif; ?>
+                                </p>
+                            </td>
+                        </tr>
+                    </table>
+                    <p class="submit">
+                        <button type="submit" class="button button-secondary" name="operation" value="save">Save settings</button>
+                        <button type="submit" class="button button-primary" name="operation" value="save-and-test">Save and test connection</button>
+                    </p>
+                </form>
+                <h2>Endpoints</h2>
+                <p><code><?php echo esc_html($shown_base_url . '/api/public/gsf-map/members'); ?></code><br>
+                    <code><?php echo esc_html($shown_base_url . '/api/public/gsf-map/countries'); ?></code></p>
+            </div>
+            <?php
+        }
+    }
+}
+
+/**
  * [ICONNECT 2026-08-25] Temporary browser-only cleanup for the five reviewed
  * duplicate member identities. This deliberately lives in the replaceable
  * ZohoAPI distribution so an operator without WP-CLI can install it by replacing
- * the same PHP file. Remove this whole class and the registration block below
- * after the cleanup evidence has been downloaded.
+ * the same PHP file. Remove this cleanup class and its two cleanup action
+ * registrations after the evidence has been downloaded; keep the settings class.
  */
 if (!class_exists('GSF_Reviewed_Duplicate_Cleanup_Admin')) {
     class GSF_Reviewed_Duplicate_Cleanup_Admin
@@ -1962,10 +2179,14 @@ if (!class_exists('GSF_Reviewed_Duplicate_Cleanup_Admin')) {
             ];
         }
 
-        private static function fetchFeed()
+        public static function fetchFeed($base_url = null, $api_key = null)
         {
-            $base_url = rtrim(trim((string) get_option('gsf_iconnect_base_url', '')), '/');
-            $api_key = trim((string) get_option('gsf_iconnect_api_key', ''));
+            $base_url = $base_url === null
+                ? rtrim(trim((string) get_option('gsf_iconnect_base_url', '')), '/')
+                : rtrim(trim((string) $base_url), '/');
+            $api_key = $api_key === null
+                ? trim((string) get_option('gsf_iconnect_api_key', ''))
+                : trim((string) $api_key);
             $source = $base_url === ''
                 ? 'WordPress option gsf_iconnect_base_url (no endpoint configured)'
                 : $base_url . '/api/public/gsf-map/members';
@@ -3325,6 +3546,9 @@ if (!class_exists('GSF_Reviewed_Duplicate_Cleanup_Admin')) {
                                 <strong>Error:</strong> <?php echo esc_html($live_report['feed']['error'] ?? 'Unknown feed error'); ?></p>
                             <p>Stale, orphan, and missing-ID findings are marked unavailable rather than being calculated
                                 against an empty feed. Dry run and apply remain blocked until a trustworthy feed is obtained.</p>
+                            <p><a class="button button-primary" href="<?php echo esc_url(
+                                GSF_Iconnect_Feed_Settings_Admin::pageUrl()
+                            ); ?>">Configure and test the iConnect feed</a></p>
                         </div>
                     <?php else: ?>
                         <div class="notice notice-info inline"><p><strong>Configured feed source:</strong>
@@ -3407,5 +3631,6 @@ if (!class_exists('GSF_Reviewed_Duplicate_Cleanup_Admin')) {
 }
 
 if (function_exists('add_action')) {
+    GSF_Iconnect_Feed_Settings_Admin::register();
     GSF_Reviewed_Duplicate_Cleanup_Admin::register();
 }
