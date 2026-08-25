@@ -29,6 +29,7 @@ import {
 import { postStripeInstalmentInvoice } from '../_lib/membershipInstalmentInvoicing.js';
 import { getTrustedBaseUrlForTenant } from '../_lib/publicBaseUrl.js';
 import { releaseExpiredFormMonthlyCardCheckout } from '../_lib/formMonthlyCardCheckout.js';
+import { createHeartbeatReporter, HEARTBEAT_ENV_VARS } from '../_lib/heartbeat.js';
 
 const CHECKOUT_PENDING_STALE_HOURS = 6;
 const PLAN_STALE_DAYS = 2;
@@ -75,7 +76,13 @@ export default async function handler(req, res) {
     console.log('[cron/reconcile-stripe-card-plans] Unauthorized request');
     return res.status(401).json({ error: 'Unauthorized' });
   }
-  if (!supabase) return res.status(500).json({ error: 'Database not configured' });
+  const reportHeartbeat = createHeartbeatReporter({
+    envVar: HEARTBEAT_ENV_VARS.stripeCardPlanReconciliation,
+  });
+  if (!supabase) {
+    await reportHeartbeat(false);
+    return res.status(500).json({ error: 'Database not configured' });
+  }
   credsCache.clear(); // fresh credentials each run (warm serverless containers)
   baseUrlCache.clear(); // fresh base URLs each run
 
@@ -109,6 +116,7 @@ export default async function handler(req, res) {
   }
 
   console.log(`[cron/reconcile-stripe-card-plans] done in ${duration}ms: repaired=${results.repaired} flagged=${results.flagged} errors=${results.errors}`);
+  await reportHeartbeat(results.errors === 0);
   return res.status(200).json({ ok: true, duration_ms: duration, ...results });
 }
 

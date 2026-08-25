@@ -18,6 +18,7 @@ import { gocardlessForTenant } from '../_lib/gocardless.js';
 import { applyStatusTransition, STATUS } from '../_lib/gocardlessState.js';
 import { postDdInstalmentToAccounting } from '../_lib/gocardlessAccounting.js';
 import { isPerInstalmentAgreement } from '../_lib/membershipInstalmentInvoicing.js';
+import { createHeartbeatReporter, HEARTBEAT_ENV_VARS } from '../_lib/heartbeat.js';
 
 // Credentials are per tenant (tenant_integrations, env fallback) — cache one
 // bound client per tenant_id for the duration of a run.
@@ -45,7 +46,13 @@ export default async function handler(req, res) {
     console.log('[cron/reconcile-gocardless] Unauthorized request');
     return res.status(401).json({ error: 'Unauthorized' });
   }
-  if (!supabase) return res.status(500).json({ error: 'Database not configured' });
+  const reportHeartbeat = createHeartbeatReporter({
+    envVar: HEARTBEAT_ENV_VARS.gocardlessReconciliation,
+  });
+  if (!supabase) {
+    await reportHeartbeat(false);
+    return res.status(500).json({ error: 'Database not configured' });
+  }
   clientCache.clear(); // fresh credentials each run (warm serverless containers)
 
   const startTime = Date.now();
@@ -79,6 +86,7 @@ export default async function handler(req, res) {
   }
 
   console.log(`[cron/reconcile-gocardless] done in ${duration}ms: repaired=${results.repaired} flagged=${results.flagged} errors=${results.errors}`);
+  await reportHeartbeat(results.errors === 0);
   return res.status(200).json({ ok: true, duration_ms: duration, ...results });
 }
 

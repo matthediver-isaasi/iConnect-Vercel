@@ -11,6 +11,7 @@ import { processTenantDdRenewals } from '../_lib/gocardlessDdRenewals.js';
 import { processTenantCardRenewals } from '../_lib/stripeCardRenewals.js';
 import { getPausedMemberIdSet, processPauseAutoRestarts } from '../_lib/memberPause.js';
 import { shouldSuppressAnnualInvoice } from '../_lib/membershipInstalmentInvoicing.js';
+import { createHeartbeatReporter, HEARTBEAT_ENV_VARS } from '../_lib/heartbeat.js';
 
 export default async function handler(req, res) {
   const authHeader = req.headers.authorization;
@@ -21,7 +22,12 @@ export default async function handler(req, res) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
 
+  const reportHeartbeat = createHeartbeatReporter({
+    envVar: HEARTBEAT_ENV_VARS.membershipRenewals,
+  });
+
   if (!supabase) {
+    await reportHeartbeat(false);
     return res.status(500).json({ error: 'Database not configured' });
   }
 
@@ -47,6 +53,7 @@ export default async function handler(req, res) {
 
     if (configError) {
       console.error('[cron/process-membership-renewals] Error fetching configs:', configError);
+      await reportHeartbeat(false);
       return res.status(500).json({ error: 'Failed to fetch tier configs' });
     }
 
@@ -172,6 +179,7 @@ export default async function handler(req, res) {
 
     console.log(`[cron/process-membership-renewals] Completed in ${duration}ms. Processed: ${results.processed}, Skipped: ${results.skipped}, Errors: ${results.errors}`);
 
+    await reportHeartbeat(results.errors === 0);
     return res.json({
       success: true,
       duration_ms: duration,
@@ -194,6 +202,7 @@ export default async function handler(req, res) {
       console.error('[cron/process-membership-renewals] Failed to log error:', logErr);
     }
 
+    await reportHeartbeat(false);
     return res.status(500).json({ error: 'Internal server error' });
   }
 }

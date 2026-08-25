@@ -14,6 +14,7 @@
 
 import { supabase } from '../_lib/database.js';
 import { runScheduledWorkflow, isScheduledWorkflowDue } from '../_lib/workflows.js';
+import { createHeartbeatReporter, HEARTBEAT_ENV_VARS } from '../_lib/heartbeat.js';
 
 export default async function handler(req, res) {
   const authHeader = req.headers.authorization;
@@ -24,7 +25,12 @@ export default async function handler(req, res) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
 
+  const reportHeartbeat = createHeartbeatReporter({
+    envVar: HEARTBEAT_ENV_VARS.scheduledWorkflows,
+  });
+
   if (!supabase) {
+    await reportHeartbeat(false);
     return res.status(500).json({ error: 'Database not configured' });
   }
 
@@ -55,6 +61,7 @@ export default async function handler(req, res) {
 
     if (error) {
       console.error('[cron/run-scheduled-workflows] Failed to load workflows:', error.message);
+      await reportHeartbeat(false);
       return res.status(500).json({ error: 'Failed to load workflows', detail: error.message });
     }
 
@@ -90,9 +97,11 @@ export default async function handler(req, res) {
       duration_ms: results.duration_ms,
     }));
 
+    await reportHeartbeat(results.errors === 0);
     return res.status(200).json(results);
   } catch (err) {
     console.error('[cron/run-scheduled-workflows] Fatal error:', err.message, err.stack);
+    await reportHeartbeat(false);
     return res.status(500).json({ error: err.message });
   }
 }

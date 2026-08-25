@@ -74,11 +74,32 @@ Resolve secrets defensively in scripts — some legacy ones use `DEV_*` / `SUPAB
 | `CAPTCHA_PROVIDER`, `CAPTCHA_SECRET_KEY` (opt) | Self-serve signup captcha (hCaptcha/Turnstile/reCAPTCHA). Bypassed when not production. |
 | `SIGNUP_RATE_IP_PER_HOUR`, `SIGNUP_RATE_EMAIL_PER_DAY` (opt) | Self-serve signup rate limits. |
 | `CRON_SECRET` | Guards all `/api/cron/*` endpoints. |
+| `ICONNECT_HEALTH_CHECK_TOKEN` | Required secret for `/api/health`; Better Stack must send it as the `X-Health-Token` request header. |
+| `BETTERSTACK_HEARTBEAT_MEMBERSHIP_RENEWALS_URL` | Optional Better Stack heartbeat URL for membership renewals. |
+| `BETTERSTACK_HEARTBEAT_MEMBERSHIP_PAYMENT_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for membership-payment reconciliation. |
+| `BETTERSTACK_HEARTBEAT_GOCARDLESS_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for GoCardless reconciliation. |
+| `BETTERSTACK_HEARTBEAT_STRIPE_CARD_PLAN_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for Stripe card-plan reconciliation. |
+| `BETTERSTACK_HEARTBEAT_SCHEDULED_WORKFLOWS_URL` | Optional Better Stack heartbeat URL for scheduled workflows. |
+| `BETTERSTACK_HEARTBEAT_SCHEDULED_CAMPAIGNS_URL` | Optional Better Stack heartbeat URL for scheduled campaigns. |
 | `ENABLE_RESET_DEBUG` (opt, `'true'`) | Temporary diagnostic: `/api/auth/request-admin-password-reset` returns a `debug` field (`no_identity`/`no_owner_membership`/`email_failed`/`sent`). Leave unset in normal operation so account existence is not disclosed. |
 | `R2_ACCOUNT_ID` | Cloudflare account ID — builds the R2 endpoint URL (`https://<id>.r2.cloudflarestorage.com`). Set this **or** `R2_ENDPOINT`. Vercel secret. |
 | `R2_ENDPOINT` (opt) | Full R2 endpoint URL override, instead of `R2_ACCOUNT_ID`. |
 | `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` / `R2_BUCKET` | R2 API token credentials + target bucket for backups. Vercel secrets. |
 | `DB_BACKUP_SCHEMAS` (opt) | Comma-separated Postgres schemas in the nightly DB dump (default: `public`). Supabase internal schemas (`auth`, `storage`, `realtime`, …) are intentionally excluded — Supabase manages them. |
+
+### External health monitoring
+
+Create a Better Stack HTTP monitor for `GET /api/health`. In the monitor's
+request headers, configure `X-Health-Token` to the same secret held in the
+Vercel `ICONNECT_HEALTH_CHECK_TOKEN` environment variable. The endpoint is
+intentionally unauthorised only by that header and returns no dependency detail
+when the header is missing or invalid.
+
+The six `BETTERSTACK_HEARTBEAT_*_URL` variables are independently optional.
+Set each Vercel value to the matching Better Stack heartbeat URL for only the
+scheduled job you wish to monitor. The job sends a success URL after a clean
+run and Better Stack's `/fail` URL for a failed run; delivery failures never
+change the job's response or retry behaviour.
 
 ## Stack & where things live
 -   **Frontend:** React 18 (TypeScript/JSX), Vite, TanStack Query, shadcn/ui (Radix UI), Tailwind CSS

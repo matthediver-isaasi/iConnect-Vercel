@@ -9,6 +9,7 @@
 
 import { supabase } from '../_lib/database.js';
 import { reconcileRow } from '../_lib/membershipPaymentReconciliation.js';
+import { createHeartbeatReporter, HEARTBEAT_ENV_VARS } from '../_lib/heartbeat.js';
 
 const MAX_ROWS_PER_RUN = 500;
 const ORG_TABLE = 'organisation_membership_history';
@@ -36,7 +37,12 @@ export default async function handler(req, res) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
 
+  const reportHeartbeat = createHeartbeatReporter({
+    envVar: HEARTBEAT_ENV_VARS.membershipPaymentReconciliation,
+  });
+
   if (!supabase) {
+    await reportHeartbeat(false);
     return res.status(500).json({ error: 'Database not configured' });
   }
 
@@ -152,6 +158,9 @@ export default async function handler(req, res) {
       }
     }
 
+    await reportHeartbeat(
+      results.errors === 0 && results.stripe_webhook_retries?.errors === 0,
+    );
     return res.status(200).json({
       ok: true,
       durationMs: Date.now() - startTime,
@@ -159,6 +168,7 @@ export default async function handler(req, res) {
     });
   } catch (err) {
     console.error('[cron/reconcile-membership-invoice-payments] fatal:', err);
+    await reportHeartbeat(false);
     return res.status(500).json({ ok: false, error: err.message, ...results });
   }
 }
