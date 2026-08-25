@@ -147,3 +147,4 @@
 - [Tenant feed cron fairness](tenant-feed-cron-fairness.md) — time-bounded tenant feed crons need an ordered durable cursor, or the first page silently starves later tenants.
 - [Simple-event timing invariants](simple-event-timing-invariants.md) — enforce timing rules before event-write admin bypasses; training normalizes timing, while public reads suppress stale schedule data.
 - [Public directory field privacy](public-directory-field-privacy.md) — public projections must enforce both member eligibility and tenant field visibility server-side.
+- [Supabase public Storage misses](supabase-storage-missing-object.md) — a missing public object can be HTTP 400 with an embedded 404/NoSuchKey; inspect the JSON body before treating it as absent.

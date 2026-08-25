@@ -1,0 +1,572 @@
+{
+  "version": 1,
+  "operation": "optimize-regional-group-headers",
+  "status": "complete",
+  "createdAt": "2026-08-25T06:48:57.632Z",
+  "page": {
+    "id": "290d8343-d328-45f3-8677-42b49edbfd20",
+    "tenantId": "ff2df806-b321-4254-b651-3af11fccf1db",
+    "title": "Regional Leads",
+    "slug": "regional-leads",
+    "status": "published",
+    "builderType": "canvas",
+    "canvasDesignSha256": "142073b1841e6c4b19ba6c321073b5130d407313969ff24d95980faae5752f7e"
+  },
+  "block": {
+    "id": "block-mt2ljk53-nkhhwx",
+    "type": "member-group-cards",
+    "source": "selected",
+    "columns": {
+      "mobile": 1,
+      "tablet": 2,
+      "desktop": 3
+    },
+    "selectedGroupIds": [
+      "51dd80d0-657d-4dcd-9a47-5394f5629a23",
+      "b7662a7e-d657-4bf2-a11a-18f64a1c7cb8",
+      "d121930a-bde3-4436-9b92-fcbae7a6546e",
+      "69207290-0cbb-450c-bf8f-0c5cd5d03a6d",
+      "c790289a-82b8-46bd-8341-31cfe01dd41c",
+      "f0486b3b-1d0b-4fdd-9e07-ecbf29dfa2ed",
+      "5c5d76ae-a6e4-466a-86b7-b6091154fcb3",
+      "ea381c04-8732-4540-a38f-2351bcadc97d",
+      "cf8c2a15-68f7-47d5-b101-c39f56138d18",
+      "8c4dc20e-37e2-40a2-8635-de3c7cb527a7",
+      "717561e3-8147-47fc-a982-06e52b7d41d5",
+      "61adf7d4-a062-422f-a630-39ccf4f369af",
+      "08b5cbdb-cfbe-49a4-a587-895da660b99a",
+      "aeba3578-445e-46ae-97b1-758099b1783b",
+      "9d0a7f30-2285-41d0-a39c-2d7273dbcf9d"
+    ]
+  },
+  "transform": {
+    "format": "webp",
+    "width": 1200,
+    "height": 480,
+    "fit": "cover",
+    "position": "centre",
+    "quality": 85
+  },
+  "storage": {
+    "bucket": "public-assets",
+    "immutable": true,
+    "originalsDeleted": false
+  },
+  "summary": {
+    "groupCount": 15,
+    "sourceTotalBytes": 38176568,
+    "targetTotalBytes": 2105510,
+    "reductionPercent": 94.48
+  },
+  "groups": [
+    {
+      "id": "51dd80d0-657d-4dcd-9a47-5394f5629a23",
+      "name": "Scotland",
+      "sourceUrl": "https://vault.iconn.app/storage/v1/object/public/public-assets/ff2df806-b321-4254-b651-3af11fccf1db/uploads/1787295825925-k3qizsb-ChatGPT_Image_Aug_21_2026_09_02_50_AM.png",
+      "source": {
+        "bytes": 2548916,
+        "sha256": "7753a971f98b17aa78bee7d79a0e9995b184cdad6cdfde0b2f4ece2452c68295",
+        "format": "png",
+        "width": 1730,
+        "height": 909,
+        "channels": 3,
+        "hasAlpha": false
+      },
+      "targetPath": "ff2df806-b321-4254-b651-3af11fccf1db/member-group-headers/regional-leads/51dd80d0-657d-4dcd-9a47-5394f5629a23/7753a971f98b17aa78bee7d7-1200x480-q85.webp",
+      "targetUrl": "https://lvmzliemqnieeoruhkik.supabase.co/storage/v1/object/public/public-assets/ff2df806-b321-4254-b651-3af11fccf1db/member-group-headers/regional-leads/51dd80d0-657d-4dcd-9a47-5394f5629a23/7753a971f98b17aa78bee7d7-1200x480-q85.webp",
+      "target": {
+        "bytes": 128330,
+        "sha256": "ac0f9bc981e949e2c3698433dd94ec443adcf121e980ad4288679f92c474f4d6",
+        "format": "webp",
+        "width": 1200,
+        "height": 480,
+        "channels": 3,
+        "hasAlpha": false
+      },
+      "currentHeaderUrl": "https://vault.iconn.app/storage/v1/object/public/public-assets/ff2df806-b321-4254-b651-3af11fccf1db/uploads/1787295825925-k3qizsb-ChatGPT_Image_Aug_21_2026_09_02_50_AM.png",
+      "storageAction": "uploaded"
+    },
+    {
+      "id": "b7662a7e-d657-4bf2-a11a-18f64a1c7cb8",
+      "name": "Northern Ireland",
+      "sourceUrl": "https://vault.iconn.app/storage/v1/object/public/public-assets/ff2df806-b321-4254-b651-3af11fccf1db/uploads/1787296200225-1mv41n3-ChatGPT_Image_Aug_21_2026_09_09_11_AM.png",
+      "source": {
+        "bytes": 2821836,
+        "sha256": "eb32f32787c3eb6afaef2181eb1d69a7044780e479b769d9a3ee128f8670f481",
+        "format": "png",
+        "width": 1731,
+        "height": 909,
+        "channels": 3,
+        "hasAlpha": false
+      },
+      "targetPath": "ff2df806-b321-4254-b651-3af11fccf1db/member-group-headers/regional-leads/b7662a7e-d657-4bf2-a11a-18f64a1c7cb8/eb32f32787c3eb6afaef2181-1200x480-q85.webp",
+      "targetUrl": "https://lvmzliemqnieeoruhkik.supabase.co/storage/v1/object/public/public-assets/ff2df806-b321-4254-b651-3af11fccf1db/member-group-headers/regional-leads/b7662a7e-d657-4bf2-a11a-18f64a1c7cb8/eb32f32787c3eb6afaef2181-1200x480-q85.webp",
+      "target": {
+        "bytes": 161034,
+        "sha256": "2880ef427a0eb53ed92d692e0b82ac1279cfebc0177c481f26916cabe49af926",
+        "format": "webp",
+        "width": 1200,
+        "height": 480,
+        "channels": 3,
+        "hasAlpha": false
+      },
+      "currentHeaderUrl": "https://vault.iconn.app/storage/v1/object/public/public-assets/ff2df806-b321-4254-b651-3af11fccf1db/uploads/1787296200225-1mv41n3-ChatGPT_Image_Aug_21_2026_09_09_11_AM.png",
+      "storageAction": "uploaded"
+    },
+    {
+      "id": "d121930a-bde3-4436-9b92-fcbae7a6546e",
+      "name": "North East England",
+      "sourceUrl": "https://vault.iconn.app/storage/v1/object/public/public-assets/ff2df806-b321-4254-b651-3af11fccf1db/uploads/1787296352310-fo9fk33-ChatGPT_Image_Aug_21_2026_09_11_49_AM.png",
+      "source": {
+        "bytes": 1905383,
+        "sha256": "6693298c42b536ec2e397cbf771dc323bcc1247db7decb641bc3b0fd3948d9c6",
+        "format": "png",
+        "width": 1731,
+        "height": 909,
+        "channels": 3,
+        "hasAlpha": false
+      },
+      "targetPath": "ff2df806-b321-4254-b651-3af11fccf1db/member-group-headers/regional-leads/d121930a-bde3-4436-9b92-fcbae7a6546e/6693298c42b536ec2e397cbf-1200x480-q85.webp",
+      "targetUrl": "https://lvmzliemqnieeoruhkik.supabase.co/storage/v1/object/public/public-assets/ff2df806-b321-4254-b651-3af11fccf1db/member-group-headers/regional-leads/d121930a-bde3-4436-9b92-fcbae7a6546e/6693298c42b536ec2e397cbf-1200x480-q85.webp",
+      "target": {
+        "bytes": 50866,
+        "sha256": "3c3fa2e97e3eb624b37fd995618ccc28a3b8b2361de0cb8978f962a59a0a10de",
+        "format": "webp",
+        "width": 1200,
+        "height": 480,
+        "channels": 3,
+        "hasAlpha": false
+      },
+      "currentHeaderUrl": "https://vault.iconn.app/storage/v1/object/public/public-assets/ff2df806-b321-4254-b651-3af11fccf1db/uploads/1787296352310-fo9fk33-ChatGPT_Image_Aug_21_2026_09_11_49_AM.png",
+      "storageAction": "uploaded"
+    },
+    {
+      "id": "69207290-0cbb-450c-bf8f-0c5cd5d03a6d",
+      "name": "North West England",
+      "sourceUrl": "https://vault.iconn.app/storage/v1/object/public/public-assets/ff2df806-b321-4254-b651-3af11fccf1db/uploads/1787296610266-2nkusx5-ChatGPT_Image_Aug_21_2026_09_16_30_AM.png",
+      "source": {
+        "bytes": 2199861,
+        "sha256": "fab61781039a75104d772152044f70d4676878e46d02d9a0ec9369587f4919ee",
+        "format": "png",
+        "width": 1731,
+        "height": 909,
+        "channels": 3,
+        "hasAlpha": false
+      },
+      "targetPath": "ff2df806-b321-4254-b651-3af11fccf1db/member-group-headers/regional-leads/69207290-0cbb-450c-bf8f-0c5cd5d03a6d/fab61781039a75104d772152-1200x480-q85.webp",
+      "targetUrl": "https://lvmzliemqnieeoruhkik.supabase.co/storage/v1/object/public/public-assets/ff2df806-b321-4254-b651-3af11fccf1db/member-group-headers/regional-leads/69207290-0cbb-450c-bf8f-0c5cd5d03a6d/fab61781039a75104d772152-1200x480-q85.webp",
+      "target": {
+        "bytes": 104360,
+        "sha256": "6cd233ee6e20a99024a3c818e4a3aaf38c08aa72e15b5c31dd1030a8258a8476",
+        "format": "webp",
+        "width": 1200,
+        "height": 480,
+        "channels": 3,
+        "hasAlpha": false
+      },
+      "currentHeaderUrl": "https://vault.iconn.app/storage/v1/object/public/public-assets/ff2df806-b321-4254-b651-3af11fccf1db/uploads/1787296610266-2nkusx5-ChatGPT_Image_Aug_21_2026_09_16_30_AM.png",
+      "storageAction": "uploaded"
+    },
+    {
+      "id": "c790289a-82b8-46bd-8341-31cfe01dd41c",
+      "name": "Yorkshire & the Humber",
+      "sourceUrl": "https://vault.iconn.app/storage/v1/object/public/public-assets/ff2df806-b321-4254-b651-3af11fccf1db/uploads/1787297011906-bb7yi82-ChatGPT_Image_Aug_21_2026_09_20_17_AM.png",
+      "source": {
+        "bytes": 2676933,
+        "sha256": "aefcebb6e915237bbaac4f9fe3738676a06a1094511d4605616d1aad73a70518",
+        "format": "png",
+        "width": 1731,
+        "height": 909,
+        "channels": 3,
+        "hasAlpha": false
+      },
+      "targetPath": "ff2df806-b321-4254-b651-3af11fccf1db/member-group-headers/regional-leads/c790289a-82b8-46bd-8341-31cfe01dd41c/aefcebb6e915237bbaac4f9f-1200x480-q85.webp",
+      "targetUrl": "https://lvmzliemqnieeoruhkik.supabase.co/storage/v1/object/public/public-assets/ff2df806-b321-4254-b651-3af11fccf1db/member-group-headers/regional-leads/c790289a-82b8-46bd-8341-31cfe01dd41c/aefcebb6e915237bbaac4f9f-1200x480-q85.webp",
+      "target": {
+        "bytes": 153494,
+        "sha256": "d5acbf3bd3d6504ccfa3b3175beee2ce47ed2cd0227d49e2b9442870cf1013d2",
+        "format": "webp",
+        "width": 1200,
+        "height": 480,
+        "channels": 3,
+        "hasAlpha": false
+      },
+      "currentHeaderUrl": "https://vault.iconn.app/storage/v1/object/public/public-assets/ff2df806-b321-4254-b651-3af11fccf1db/uploads/1787297011906-bb7yi82-ChatGPT_Image_Aug_21_2026_09_20_17_AM.png",
+      "storageAction": "uploaded"
+    },
+    {
+      "id": "f0486b3b-1d0b-4fdd-9e07-ecbf29dfa2ed",
+      "name": "West Midlands",
+      "sourceUrl": "https://vault.iconn.app/storage/v1/object/public/public-assets/ff2df806-b321-4254-b651-3af11fccf1db/uploads/1787297290480-49w1ta6-ChatGPT_Image_Aug_21_2026_09_26_26_AM.png",
+      "source": {
+        "bytes": 3073949,
+        "sha256": "9025a3e2c579b4bcaeafcb7bd28aa2098092578c87e2a7f9f3572dc72f490228",
+        "format": "png",
+        "width": 1731,
+        "height": 909,
+        "channels": 3,
+        "hasAlpha": false
+      },
+      "targetPath": "ff2df806-b321-4254-b651-3af11fccf1db/member-group-headers/regional-leads/f0486b3b-1d0b-4fdd-9e07-ecbf29dfa2ed/9025a3e2c579b4bcaeafcb7b-1200x480-q85.webp",
+      "targetUrl": "https://lvmzliemqnieeoruhkik.supabase.co/storage/v1/object/public/public-assets/ff2df806-b321-4254-b651-3af11fccf1db/member-group-headers/regional-leads/f0486b3b-1d0b-4fdd-9e07-ecbf29dfa2ed/9025a3e2c579b4bcaeafcb7b-1200x480-q85.webp",
+      "target": {
+        "bytes": 201782,
+        "sha256": "9b5a36b0e0189be6a843a9a43647dcb741c7716f72522dfa36f86076ba548e4c",
+        "format": "webp",
+        "width": 1200,
+        "height": 480,
+        "channels": 3,
+        "hasAlpha": false
+      },
+      "currentHeaderUrl": "https://vault.iconn.app/storage/v1/object/public/public-assets/ff2df806-b321-4254-b651-3af11fccf1db/uploads/1787297290480-49w1ta6-ChatGPT_Image_Aug_21_2026_09_26_26_AM.png",
+      "storageAction": "uploaded"
+    },
+    {
+      "id": "5c5d76ae-a6e4-466a-86b7-b6091154fcb3",
+      "name": "East Midlands",
+      "sourceUrl": "https://vault.iconn.app/storage/v1/object/public/public-assets/ff2df806-b321-4254-b651-3af11fccf1db/uploads/1787297092768-3glgb0s-ChatGPT_Image_Aug_21_2026_09_24_07_AM.png",
+      "source": {
+        "bytes": 2663401,
+        "sha256": "c09050acad2121f2453d77fbc3b0ca6a089b55791b303cced1b9fd6c47fbaed8",
+        "format": "png",
+        "width": 1731,
+        "height": 909,
+        "channels": 3,
+        "hasAlpha": false
+      },
+      "targetPath": "ff2df806-b321-4254-b651-3af11fccf1db/member-group-headers/regional-leads/5c5d76ae-a6e4-466a-86b7-b6091154fcb3/c09050acad2121f2453d77fb-1200x480-q85.webp",
+      "targetUrl": "https://lvmzliemqnieeoruhkik.supabase.co/storage/v1/object/public/public-assets/ff2df806-b321-4254-b651-3af11fccf1db/member-group-headers/regional-leads/5c5d76ae-a6e4-466a-86b7-b6091154fcb3/c09050acad2121f2453d77fb-1200x480-q85.webp",
+      "target": {
+        "bytes": 167060,
+        "sha256": "1c102702bd919d57818ca65f0935deda89747ff556f317af136b0c09b5e34e37",
+        "format": "webp",
+        "width": 1200,
+        "height": 480,
+        "channels": 3,
+        "hasAlpha": false
+      },
+      "currentHeaderUrl": "https://vault.iconn.app/storage/v1/object/public/public-assets/ff2df806-b321-4254-b651-3af11fccf1db/uploads/1787297092768-3glgb0s-ChatGPT_Image_Aug_21_2026_09_24_07_AM.png",
+      "storageAction": "uploaded"
+    },
+    {
+      "id": "ea381c04-8732-4540-a38f-2351bcadc97d",
+      "name": "North Wales",
+      "sourceUrl": "https://vault.iconn.app/storage/v1/object/public/public-assets/ff2df806-b321-4254-b651-3af11fccf1db/uploads/1787297351923-ntfzacc-ChatGPT_Image_Aug_21_2026_09_28_47_AM.png",
+      "source": {
+        "bytes": 2548732,
+        "sha256": "259b95c223c9638f924c99f5a8f5494a366cef3006669acfb9a23aaf77e561f9",
+        "format": "png",
+        "width": 1731,
+        "height": 909,
+        "channels": 3,
+        "hasAlpha": false
+      },
+      "targetPath": "ff2df806-b321-4254-b651-3af11fccf1db/member-group-headers/regional-leads/ea381c04-8732-4540-a38f-2351bcadc97d/259b95c223c9638f924c99f5-1200x480-q85.webp",
+      "targetUrl": "https://lvmzliemqnieeoruhkik.supabase.co/storage/v1/object/public/public-assets/ff2df806-b321-4254-b651-3af11fccf1db/member-group-headers/regional-leads/ea381c04-8732-4540-a38f-2351bcadc97d/259b95c223c9638f924c99f5-1200x480-q85.webp",
+      "target": {
+        "bytes": 146034,
+        "sha256": "9964b5809843f00564d5dd66bdc7affd32525ad610b6fd7dba12932c51814843",
+        "format": "webp",
+        "width": 1200,
+        "height": 480,
+        "channels": 3,
+        "hasAlpha": false
+      },
+      "currentHeaderUrl": "https://vault.iconn.app/storage/v1/object/public/public-assets/ff2df806-b321-4254-b651-3af11fccf1db/uploads/1787297351923-ntfzacc-ChatGPT_Image_Aug_21_2026_09_28_47_AM.png",
+      "storageAction": "uploaded"
+    },
+    {
+      "id": "cf8c2a15-68f7-47d5-b101-c39f56138d18",
+      "name": "South Wales",
+      "sourceUrl": "https://vault.iconn.app/storage/v1/object/public/public-assets/ff2df806-b321-4254-b651-3af11fccf1db/uploads/1787297577557-fh3natf-ChatGPT_Image_Aug_21_2026_09_32_30_AM.png",
+      "source": {
+        "bytes": 2418616,
+        "sha256": "c0bc0da991d1a50e408574a57298ad9bcff14711864c57b3bb92a31e8acca309",
+        "format": "png",
+        "width": 1734,
+        "height": 907,
+        "channels": 3,
+        "hasAlpha": false
+      },
+      "targetPath": "ff2df806-b321-4254-b651-3af11fccf1db/member-group-headers/regional-leads/cf8c2a15-68f7-47d5-b101-c39f56138d18/c0bc0da991d1a50e408574a5-1200x480-q85.webp",
+      "targetUrl": "https://lvmzliemqnieeoruhkik.supabase.co/storage/v1/object/public/public-assets/ff2df806-b321-4254-b651-3af11fccf1db/member-group-headers/regional-leads/cf8c2a15-68f7-47d5-b101-c39f56138d18/c0bc0da991d1a50e408574a5-1200x480-q85.webp",
+      "target": {
+        "bytes": 136444,
+        "sha256": "1e5dc2beac5f18b5d7dc6d445ed5cc628df3707015716f88bab973286bc2a7cd",
+        "format": "webp",
+        "width": 1200,
+        "height": 480,
+        "channels": 3,
+        "hasAlpha": false
+      },
+      "currentHeaderUrl": "https://vault.iconn.app/storage/v1/object/public/public-assets/ff2df806-b321-4254-b651-3af11fccf1db/uploads/1787297577557-fh3natf-ChatGPT_Image_Aug_21_2026_09_32_30_AM.png",
+      "storageAction": "uploaded"
+    },
+    {
+      "id": "8c4dc20e-37e2-40a2-8635-de3c7cb527a7",
+      "name": "East of England (East Anglia)",
+      "sourceUrl": "https://vault.iconn.app/storage/v1/object/public/public-assets/ff2df806-b321-4254-b651-3af11fccf1db/uploads/1787297857377-qjofu80-ChatGPT_Image_Aug_21_2026_09_36_38_AM.png",
+      "source": {
+        "bytes": 2655423,
+        "sha256": "f1f072f04d4ea6d3c4c6dc70694284d3bfdac588af53a240b2b5f8b5f285b57b",
+        "format": "png",
+        "width": 1729,
+        "height": 910,
+        "channels": 3,
+        "hasAlpha": false
+      },
+      "targetPath": "ff2df806-b321-4254-b651-3af11fccf1db/member-group-headers/regional-leads/8c4dc20e-37e2-40a2-8635-de3c7cb527a7/f1f072f04d4ea6d3c4c6dc70-1200x480-q85.webp",
+      "targetUrl": "https://lvmzliemqnieeoruhkik.supabase.co/storage/v1/object/public/public-assets/ff2df806-b321-4254-b651-3af11fccf1db/member-group-headers/regional-leads/8c4dc20e-37e2-40a2-8635-de3c7cb527a7/f1f072f04d4ea6d3c4c6dc70-1200x480-q85.webp",
+      "target": {
+        "bytes": 151054,
+        "sha256": "a87df97811098f21a328b2b0fb0bb7d9bae2c6a82e7df01879edd56a19e5de1c",
+        "format": "webp",
+        "width": 1200,
+        "height": 480,
+        "channels": 3,
+        "hasAlpha": false
+      },
+      "currentHeaderUrl": "https://vault.iconn.app/storage/v1/object/public/public-assets/ff2df806-b321-4254-b651-3af11fccf1db/uploads/1787297857377-qjofu80-ChatGPT_Image_Aug_21_2026_09_36_38_AM.png",
+      "storageAction": "uploaded"
+    },
+    {
+      "id": "717561e3-8147-47fc-a982-06e52b7d41d5",
+      "name": "North Thames (London)",
+      "sourceUrl": "https://vault.iconn.app/storage/v1/object/public/public-assets/ff2df806-b321-4254-b651-3af11fccf1db/uploads/1787298155200-miiy9by-ChatGPT_Image_Aug_21_2026_09_42_20_AM.png",
+      "source": {
+        "bytes": 2337007,
+        "sha256": "d5abce87dd57d5024c429d64b7329bcb775ea014e34bb4f5acd3b875cc7a2ebd",
+        "format": "png",
+        "width": 1729,
+        "height": 910,
+        "channels": 3,
+        "hasAlpha": false
+      },
+      "targetPath": "ff2df806-b321-4254-b651-3af11fccf1db/member-group-headers/regional-leads/717561e3-8147-47fc-a982-06e52b7d41d5/d5abce87dd57d5024c429d64-1200x480-q85.webp",
+      "targetUrl": "https://lvmzliemqnieeoruhkik.supabase.co/storage/v1/object/public/public-assets/ff2df806-b321-4254-b651-3af11fccf1db/member-group-headers/regional-leads/717561e3-8147-47fc-a982-06e52b7d41d5/d5abce87dd57d5024c429d64-1200x480-q85.webp",
+      "target": {
+        "bytes": 111494,
+        "sha256": "90832dfeda0e9ab22945000da128d2a89d7877cfa11ba2383f35444b7ab5d972",
+        "format": "webp",
+        "width": 1200,
+        "height": 480,
+        "channels": 3,
+        "hasAlpha": false
+      },
+      "currentHeaderUrl": "https://vault.iconn.app/storage/v1/object/public/public-assets/ff2df806-b321-4254-b651-3af11fccf1db/uploads/1787298155200-miiy9by-ChatGPT_Image_Aug_21_2026_09_42_20_AM.png",
+      "storageAction": "uploaded"
+    },
+    {
+      "id": "61adf7d4-a062-422f-a630-39ccf4f369af",
+      "name": "South Thames (London)",
+      "sourceUrl": "https://vault.iconn.app/storage/v1/object/public/public-assets/ff2df806-b321-4254-b651-3af11fccf1db/uploads/1787298170025-x6nauce-ChatGPT_Image_Aug_21_2026_09_41_39_AM.png",
+      "source": {
+        "bytes": 2461720,
+        "sha256": "37ddb6b15bc6b542e8511f2ffdcd5846df75706d5b21c8a44ec81232e6e594b0",
+        "format": "png",
+        "width": 1729,
+        "height": 910,
+        "channels": 3,
+        "hasAlpha": false
+      },
+      "targetPath": "ff2df806-b321-4254-b651-3af11fccf1db/member-group-headers/regional-leads/61adf7d4-a062-422f-a630-39ccf4f369af/37ddb6b15bc6b542e8511f2f-1200x480-q85.webp",
+      "targetUrl": "https://lvmzliemqnieeoruhkik.supabase.co/storage/v1/object/public/public-assets/ff2df806-b321-4254-b651-3af11fccf1db/member-group-headers/regional-leads/61adf7d4-a062-422f-a630-39ccf4f369af/37ddb6b15bc6b542e8511f2f-1200x480-q85.webp",
+      "target": {
+        "bytes": 140188,
+        "sha256": "d058ba3828504a556f09c78adadc1f2be19590da811d08ac7c5e7db16627d554",
+        "format": "webp",
+        "width": 1200,
+        "height": 480,
+        "channels": 3,
+        "hasAlpha": false
+      },
+      "currentHeaderUrl": "https://vault.iconn.app/storage/v1/object/public/public-assets/ff2df806-b321-4254-b651-3af11fccf1db/uploads/1787298170025-x6nauce-ChatGPT_Image_Aug_21_2026_09_41_39_AM.png",
+      "storageAction": "uploaded"
+    },
+    {
+      "id": "08b5cbdb-cfbe-49a4-a587-895da660b99a",
+      "name": "South West",
+      "sourceUrl": "https://vault.iconn.app/storage/v1/object/public/public-assets/ff2df806-b321-4254-b651-3af11fccf1db/uploads/1787298424128-1g2z6ti-ChatGPT_Image_Aug_21_2026_09_45_40_AM.png",
+      "source": {
+        "bytes": 2571930,
+        "sha256": "febb70e3f7886ade6f9339ca8a8a43e5955630cad0d36095cf38f9cb9d2ad697",
+        "format": "png",
+        "width": 1731,
+        "height": 909,
+        "channels": 3,
+        "hasAlpha": false
+      },
+      "targetPath": "ff2df806-b321-4254-b651-3af11fccf1db/member-group-headers/regional-leads/08b5cbdb-cfbe-49a4-a587-895da660b99a/febb70e3f7886ade6f9339ca-1200x480-q85.webp",
+      "targetUrl": "https://lvmzliemqnieeoruhkik.supabase.co/storage/v1/object/public/public-assets/ff2df806-b321-4254-b651-3af11fccf1db/member-group-headers/regional-leads/08b5cbdb-cfbe-49a4-a587-895da660b99a/febb70e3f7886ade6f9339ca-1200x480-q85.webp",
+      "target": {
+        "bytes": 151994,
+        "sha256": "7c78e8ed365f487730456546034e24bef6f3a369ace4907cde1fc56199ea876e",
+        "format": "webp",
+        "width": 1200,
+        "height": 480,
+        "channels": 3,
+        "hasAlpha": false
+      },
+      "currentHeaderUrl": "https://vault.iconn.app/storage/v1/object/public/public-assets/ff2df806-b321-4254-b651-3af11fccf1db/uploads/1787298424128-1g2z6ti-ChatGPT_Image_Aug_21_2026_09_45_40_AM.png",
+      "storageAction": "uploaded"
+    },
+    {
+      "id": "aeba3578-445e-46ae-97b1-758099b1783b",
+      "name": "South East & Wessex",
+      "sourceUrl": "https://vault.iconn.app/storage/v1/object/public/public-assets/ff2df806-b321-4254-b651-3af11fccf1db/uploads/1787298498802-zpowzhj-ChatGPT_Image_Aug_21_2026_09_47_50_AM.png",
+      "source": {
+        "bytes": 2771126,
+        "sha256": "50ccb7ed710261aab667dfcc3fe3ceeeb9f424898c438a40ce6f50f94b905a05",
+        "format": "png",
+        "width": 1734,
+        "height": 907,
+        "channels": 3,
+        "hasAlpha": false
+      },
+      "targetPath": "ff2df806-b321-4254-b651-3af11fccf1db/member-group-headers/regional-leads/aeba3578-445e-46ae-97b1-758099b1783b/50ccb7ed710261aab667dfcc-1200x480-q85.webp",
+      "targetUrl": "https://lvmzliemqnieeoruhkik.supabase.co/storage/v1/object/public/public-assets/ff2df806-b321-4254-b651-3af11fccf1db/member-group-headers/regional-leads/aeba3578-445e-46ae-97b1-758099b1783b/50ccb7ed710261aab667dfcc-1200x480-q85.webp",
+      "target": {
+        "bytes": 166694,
+        "sha256": "0931e03b25dce9812f73263533197c8e59ab57c3640f9f268f63cf982c36a813",
+        "format": "webp",
+        "width": 1200,
+        "height": 480,
+        "channels": 3,
+        "hasAlpha": false
+      },
+      "currentHeaderUrl": "https://vault.iconn.app/storage/v1/object/public/public-assets/ff2df806-b321-4254-b651-3af11fccf1db/uploads/1787298498802-zpowzhj-ChatGPT_Image_Aug_21_2026_09_47_50_AM.png",
+      "storageAction": "uploaded"
+    },
+    {
+      "id": "9d0a7f30-2285-41d0-a39c-2d7273dbcf9d",
+      "name": "Oxfordshire, Berkshire & Buckinghamshire",
+      "sourceUrl": "https://vault.iconn.app/storage/v1/object/public/public-assets/ff2df806-b321-4254-b651-3af11fccf1db/uploads/1787298663343-8h14152-ChatGPT_Image_Aug_21_2026_09_50_45_AM.png",
+      "source": {
+        "bytes": 2521735,
+        "sha256": "a5246a7de5cbd28ad47ba998725cea67f5646d54f972ed2266d50f1800c7b347",
+        "format": "png",
+        "width": 1731,
+        "height": 909,
+        "channels": 3,
+        "hasAlpha": false
+      },
+      "targetPath": "ff2df806-b321-4254-b651-3af11fccf1db/member-group-headers/regional-leads/9d0a7f30-2285-41d0-a39c-2d7273dbcf9d/a5246a7de5cbd28ad47ba998-1200x480-q85.webp",
+      "targetUrl": "https://lvmzliemqnieeoruhkik.supabase.co/storage/v1/object/public/public-assets/ff2df806-b321-4254-b651-3af11fccf1db/member-group-headers/regional-leads/9d0a7f30-2285-41d0-a39c-2d7273dbcf9d/a5246a7de5cbd28ad47ba998-1200x480-q85.webp",
+      "target": {
+        "bytes": 134682,
+        "sha256": "c2603a30d6b0383ebdfbb97fc577eeca566926da3332762f8704f28a37b936bb",
+        "format": "webp",
+        "width": 1200,
+        "height": 480,
+        "channels": 3,
+        "hasAlpha": false
+      },
+      "currentHeaderUrl": "https://vault.iconn.app/storage/v1/object/public/public-assets/ff2df806-b321-4254-b651-3af11fccf1db/uploads/1787298663343-8h14152-ChatGPT_Image_Aug_21_2026_09_50_45_AM.png",
+      "storageAction": "uploaded"
+    }
+  ],
+  "assetsReadyAt": "2026-08-25T06:49:36.896Z",
+  "headersSwitchedAt": "2026-08-25T06:49:39.786Z",
+  "changedGroupIds": [
+    "51dd80d0-657d-4dcd-9a47-5394f5629a23",
+    "b7662a7e-d657-4bf2-a11a-18f64a1c7cb8",
+    "d121930a-bde3-4436-9b92-fcbae7a6546e",
+    "69207290-0cbb-450c-bf8f-0c5cd5d03a6d",
+    "c790289a-82b8-46bd-8341-31cfe01dd41c",
+    "f0486b3b-1d0b-4fdd-9e07-ecbf29dfa2ed",
+    "5c5d76ae-a6e4-466a-86b7-b6091154fcb3",
+    "ea381c04-8732-4540-a38f-2351bcadc97d",
+    "cf8c2a15-68f7-47d5-b101-c39f56138d18",
+    "8c4dc20e-37e2-40a2-8635-de3c7cb527a7",
+    "717561e3-8147-47fc-a982-06e52b7d41d5",
+    "61adf7d4-a062-422f-a630-39ccf4f369af",
+    "08b5cbdb-cfbe-49a4-a587-895da660b99a",
+    "aeba3578-445e-46ae-97b1-758099b1783b",
+    "9d0a7f30-2285-41d0-a39c-2d7273dbcf9d"
+  ],
+  "verifiedAt": "2026-08-25T06:49:56.785Z",
+  "verification": {
+    "canvasDesignUnchanged": true,
+    "nonHeaderGroupFieldsUnchanged": true,
+    "sourceObjectsPreserved": true,
+    "publicTargetsReachable": true,
+    "targetTotalBytes": 2105510,
+    "tenantHeaderDiff": [
+      {
+        "id": "08b5cbdb-cfbe-49a4-a587-895da660b99a",
+        "before": "https://vault.iconn.app/storage/v1/object/public/public-assets/ff2df806-b321-4254-b651-3af11fccf1db/uploads/1787298424128-1g2z6ti-ChatGPT_Image_Aug_21_2026_09_45_40_AM.png",
+        "after": "https://lvmzliemqnieeoruhkik.supabase.co/storage/v1/object/public/public-assets/ff2df806-b321-4254-b651-3af11fccf1db/member-group-headers/regional-leads/08b5cbdb-cfbe-49a4-a587-895da660b99a/febb70e3f7886ade6f9339ca-1200x480-q85.webp"
+      },
+      {
+        "id": "51dd80d0-657d-4dcd-9a47-5394f5629a23",
+        "before": "https://vault.iconn.app/storage/v1/object/public/public-assets/ff2df806-b321-4254-b651-3af11fccf1db/uploads/1787295825925-k3qizsb-ChatGPT_Image_Aug_21_2026_09_02_50_AM.png",
+        "after": "https://lvmzliemqnieeoruhkik.supabase.co/storage/v1/object/public/public-assets/ff2df806-b321-4254-b651-3af11fccf1db/member-group-headers/regional-leads/51dd80d0-657d-4dcd-9a47-5394f5629a23/7753a971f98b17aa78bee7d7-1200x480-q85.webp"
+      },
+      {
+        "id": "5c5d76ae-a6e4-466a-86b7-b6091154fcb3",
+        "before": "https://vault.iconn.app/storage/v1/object/public/public-assets/ff2df806-b321-4254-b651-3af11fccf1db/uploads/1787297092768-3glgb0s-ChatGPT_Image_Aug_21_2026_09_24_07_AM.png",
+        "after": "https://lvmzliemqnieeoruhkik.supabase.co/storage/v1/object/public/public-assets/ff2df806-b321-4254-b651-3af11fccf1db/member-group-headers/regional-leads/5c5d76ae-a6e4-466a-86b7-b6091154fcb3/c09050acad2121f2453d77fb-1200x480-q85.webp"
+      },
+      {
+        "id": "61adf7d4-a062-422f-a630-39ccf4f369af",
+        "before": "https://vault.iconn.app/storage/v1/object/public/public-assets/ff2df806-b321-4254-b651-3af11fccf1db/uploads/1787298170025-x6nauce-ChatGPT_Image_Aug_21_2026_09_41_39_AM.png",
+        "after": "https://lvmzliemqnieeoruhkik.supabase.co/storage/v1/object/public/public-assets/ff2df806-b321-4254-b651-3af11fccf1db/member-group-headers/regional-leads/61adf7d4-a062-422f-a630-39ccf4f369af/37ddb6b15bc6b542e8511f2f-1200x480-q85.webp"
+      },
+      {
+        "id": "69207290-0cbb-450c-bf8f-0c5cd5d03a6d",
+        "before": "https://vault.iconn.app/storage/v1/object/public/public-assets/ff2df806-b321-4254-b651-3af11fccf1db/uploads/1787296610266-2nkusx5-ChatGPT_Image_Aug_21_2026_09_16_30_AM.png",
+        "after": "https://lvmzliemqnieeoruhkik.supabase.co/storage/v1/object/public/public-assets/ff2df806-b321-4254-b651-3af11fccf1db/member-group-headers/regional-leads/69207290-0cbb-450c-bf8f-0c5cd5d03a6d/fab61781039a75104d772152-1200x480-q85.webp"
+      },
+      {
+        "id": "717561e3-8147-47fc-a982-06e52b7d41d5",
+        "before": "https://vault.iconn.app/storage/v1/object/public/public-assets/ff2df806-b321-4254-b651-3af11fccf1db/uploads/1787298155200-miiy9by-ChatGPT_Image_Aug_21_2026_09_42_20_AM.png",
+        "after": "https://lvmzliemqnieeoruhkik.supabase.co/storage/v1/object/public/public-assets/ff2df806-b321-4254-b651-3af11fccf1db/member-group-headers/regional-leads/717561e3-8147-47fc-a982-06e52b7d41d5/d5abce87dd57d5024c429d64-1200x480-q85.webp"
+      },
+      {
+        "id": "8c4dc20e-37e2-40a2-8635-de3c7cb527a7",
+        "before": "https://vault.iconn.app/storage/v1/object/public/public-assets/ff2df806-b321-4254-b651-3af11fccf1db/uploads/1787297857377-qjofu80-ChatGPT_Image_Aug_21_2026_09_36_38_AM.png",
+        "after": "https://lvmzliemqnieeoruhkik.supabase.co/storage/v1/object/public/public-assets/ff2df806-b321-4254-b651-3af11fccf1db/member-group-headers/regional-leads/8c4dc20e-37e2-40a2-8635-de3c7cb527a7/f1f072f04d4ea6d3c4c6dc70-1200x480-q85.webp"
+      },
+      {
+        "id": "9d0a7f30-2285-41d0-a39c-2d7273dbcf9d",
+        "before": "https://vault.iconn.app/storage/v1/object/public/public-assets/ff2df806-b321-4254-b651-3af11fccf1db/uploads/1787298663343-8h14152-ChatGPT_Image_Aug_21_2026_09_50_45_AM.png",
+        "after": "https://lvmzliemqnieeoruhkik.supabase.co/storage/v1/object/public/public-assets/ff2df806-b321-4254-b651-3af11fccf1db/member-group-headers/regional-leads/9d0a7f30-2285-41d0-a39c-2d7273dbcf9d/a5246a7de5cbd28ad47ba998-1200x480-q85.webp"
+      },
+      {
+        "id": "aeba3578-445e-46ae-97b1-758099b1783b",
+        "before": "https://vault.iconn.app/storage/v1/object/public/public-assets/ff2df806-b321-4254-b651-3af11fccf1db/uploads/1787298498802-zpowzhj-ChatGPT_Image_Aug_21_2026_09_47_50_AM.png",
+        "after": "https://lvmzliemqnieeoruhkik.supabase.co/storage/v1/object/public/public-assets/ff2df806-b321-4254-b651-3af11fccf1db/member-group-headers/regional-leads/aeba3578-445e-46ae-97b1-758099b1783b/50ccb7ed710261aab667dfcc-1200x480-q85.webp"
+      },
+      {
+        "id": "b7662a7e-d657-4bf2-a11a-18f64a1c7cb8",
+        "before": "https://vault.iconn.app/storage/v1/object/public/public-assets/ff2df806-b321-4254-b651-3af11fccf1db/uploads/1787296200225-1mv41n3-ChatGPT_Image_Aug_21_2026_09_09_11_AM.png",
+        "after": "https://lvmzliemqnieeoruhkik.supabase.co/storage/v1/object/public/public-assets/ff2df806-b321-4254-b651-3af11fccf1db/member-group-headers/regional-leads/b7662a7e-d657-4bf2-a11a-18f64a1c7cb8/eb32f32787c3eb6afaef2181-1200x480-q85.webp"
+      },
+      {
+        "id": "c790289a-82b8-46bd-8341-31cfe01dd41c",
+        "before": "https://vault.iconn.app/storage/v1/object/public/public-assets/ff2df806-b321-4254-b651-3af11fccf1db/uploads/1787297011906-bb7yi82-ChatGPT_Image_Aug_21_2026_09_20_17_AM.png",
+        "after": "https://lvmzliemqnieeoruhkik.supabase.co/storage/v1/object/public/public-assets/ff2df806-b321-4254-b651-3af11fccf1db/member-group-headers/regional-leads/c790289a-82b8-46bd-8341-31cfe01dd41c/aefcebb6e915237bbaac4f9f-1200x480-q85.webp"
+      },
+      {
+        "id": "cf8c2a15-68f7-47d5-b101-c39f56138d18",
+        "before": "https://vault.iconn.app/storage/v1/object/public/public-assets/ff2df806-b321-4254-b651-3af11fccf1db/uploads/1787297577557-fh3natf-ChatGPT_Image_Aug_21_2026_09_32_30_AM.png",
+        "after": "https://lvmzliemqnieeoruhkik.supabase.co/storage/v1/object/public/public-assets/ff2df806-b321-4254-b651-3af11fccf1db/member-group-headers/regional-leads/cf8c2a15-68f7-47d5-b101-c39f56138d18/c0bc0da991d1a50e408574a5-1200x480-q85.webp"
+      },
+      {
+        "id": "d121930a-bde3-4436-9b92-fcbae7a6546e",
+        "before": "https://vault.iconn.app/storage/v1/object/public/public-assets/ff2df806-b321-4254-b651-3af11fccf1db/uploads/1787296352310-fo9fk33-ChatGPT_Image_Aug_21_2026_09_11_49_AM.png",
+        "after": "https://lvmzliemqnieeoruhkik.supabase.co/storage/v1/object/public/public-assets/ff2df806-b321-4254-b651-3af11fccf1db/member-group-headers/regional-leads/d121930a-bde3-4436-9b92-fcbae7a6546e/6693298c42b536ec2e397cbf-1200x480-q85.webp"
+      },
+      {
+        "id": "ea381c04-8732-4540-a38f-2351bcadc97d",
+        "before": "https://vault.iconn.app/storage/v1/object/public/public-assets/ff2df806-b321-4254-b651-3af11fccf1db/uploads/1787297351923-ntfzacc-ChatGPT_Image_Aug_21_2026_09_28_47_AM.png",
+        "after": "https://lvmzliemqnieeoruhkik.supabase.co/storage/v1/object/public/public-assets/ff2df806-b321-4254-b651-3af11fccf1db/member-group-headers/regional-leads/ea381c04-8732-4540-a38f-2351bcadc97d/259b95c223c9638f924c99f5-1200x480-q85.webp"
+      },
+      {
+        "id": "f0486b3b-1d0b-4fdd-9e07-ecbf29dfa2ed",
+        "before": "https://vault.iconn.app/storage/v1/object/public/public-assets/ff2df806-b321-4254-b651-3af11fccf1db/uploads/1787297290480-49w1ta6-ChatGPT_Image_Aug_21_2026_09_26_26_AM.png",
+        "after": "https://lvmzliemqnieeoruhkik.supabase.co/storage/v1/object/public/public-assets/ff2df806-b321-4254-b651-3af11fccf1db/member-group-headers/regional-leads/f0486b3b-1d0b-4fdd-9e07-ecbf29dfa2ed/9025a3e2c579b4bcaeafcb7b-1200x480-q85.webp"
+      }
+    ]
+  }
+}
