@@ -90,7 +90,11 @@ export function measureReflowHeight(el, zoom = 1) {
  * Safe to use even when there is no surrounding provider (reflow is null): the
  * effects simply no-op.
  */
-export function useReportReflowHeight(blockId, extraHeight = 0) {
+export function useReportReflowHeight(
+  blockId,
+  extraHeight = 0,
+  { includeExtraHeightPublic = false } = {},
+) {
   const reflow = useAccordionReflow();
   const containerRef = useRef(null);
 
@@ -103,7 +107,8 @@ export function useReportReflowHeight(blockId, extraHeight = 0) {
 
   // Only the editor bakes measured heights into stored geometry and snaps
   // against them, so the wrapper padding is folded in for the editor only.
-  const pad = (reflow?.editorMode && Number.isFinite(extraHeight) && extraHeight > 0)
+  const includeExtra = reflow?.editorMode || includeExtraHeightPublic;
+  const pad = (includeExtra && Number.isFinite(extraHeight) && extraHeight > 0)
     ? extraHeight
     : 0;
 
@@ -349,6 +354,8 @@ export function AccordionReflowProvider({ children, blocks, resolveGeom, editorM
   // and the measurement effects don't re-bind when onMeasure changes.
   const onMeasureRef = useRef(onMeasure);
   useEffect(() => { onMeasureRef.current = onMeasure; }, [onMeasure]);
+  const blocksRef = useRef(blocks);
+  blocksRef.current = blocks;
 
   // Optional editor hook for auto-SIZE blocks (Button / CTA): forwards the
   // block's measured natural width AND height so the editor can bake them into
@@ -382,7 +389,13 @@ export function AccordionReflowProvider({ children, blocks, resolveGeom, editorM
       next.set(blockId, rounded);
       return next;
     });
-    if (onMeasureRef.current) onMeasureRef.current(blockId, rounded);
+    const measuredBlock = blocksRef.current.find((block) => block?.id === blockId);
+    const definition = measuredBlock ? getBlockDefinition(measuredBlock.type) : null;
+    // Viewer/data-dependent heights affect the current layout but must never
+    // become authored geometry when observed in the editor.
+    if (onMeasureRef.current && !definition?.renderOnlyAutoHeight) {
+      onMeasureRef.current(blockId, rounded);
+    }
   }, []);
 
   /**
@@ -405,6 +418,11 @@ export function AccordionReflowProvider({ children, blocks, resolveGeom, editorM
       if (!block) continue;
       const g = resolveGeom(block);
       if (!g || g.hidden) continue;
+      const def = getBlockDefinition(block.type);
+      // Existing editor auto-height leaves commit their measurements into
+      // geometry. Live-data leaves stay render-only and therefore continue
+      // through the read-time reflow path in editor mode.
+      if (editorMode && !def?.renderOnlyAutoHeight) continue;
       // Effective height a block renders at:
       //   - its natural (measured) content height, floored by
       //   - an author-dragged explicit height (cards flagged manualHeight in
@@ -431,10 +449,14 @@ export function AccordionReflowProvider({ children, blocks, resolveGeom, editorM
       // Cards (autoHeight + cardGrow) are excluded: their stored/manual box
       // height is the author's intended size and must stay the reference, so
       // row equalisation and manual resizes are untouched.
-      const def = getBlockDefinition(block.type);
       const baseline = baselineHeightsRef.current.get(id);
       const isCard = !!def?.autoHeight && !!def?.cardGrow;
-      const useBaseline = !!def?.autoHeight && !def?.cardGrow && Number.isFinite(baseline);
+      const useBaseline = (
+        !!def?.autoHeight &&
+        !def?.cardGrow &&
+        !def?.signedAutoHeight &&
+        Number.isFinite(baseline)
+      );
       // Cards (Task #3468): the editor renders a card at height:auto with the
       // stored/manual height only as a min-height floor, so the builder's
       // VISIBLE bottom — which the author sized the section and blocks below
@@ -444,9 +466,13 @@ export function AccordionReflowProvider({ children, blocks, resolveGeom, editorM
       // and zero push-down, while content that genuinely grows after the first
       // settled paint still pushes down. Row equalization (effectiveH) is
       // untouched.
-      const referenceH = isCard
-        ? computeCardReferenceHeight(g.h, baseline)
-        : (useBaseline ? Math.min(baseline, g.h) : g.h);
+      const referenceH = def?.signedAutoHeight
+        ? g.h
+        : (
+          isCard
+            ? computeCardReferenceHeight(g.h, baseline)
+            : (useBaseline ? Math.min(baseline, g.h) : g.h)
+        );
       // Aspect-height Hero Carousels (Task #2824) reflow SIGNED: their
       // rendered height tracks the slide image's aspect ratio at the live
       // viewport width, so blocks below must be pulled UP when the carousel
@@ -454,7 +480,7 @@ export function AccordionReflowProvider({ children, blocks, resolveGeom, editorM
       // taller. Only rows composed entirely of such blocks get signed growth;
       // every other row keeps the push-down-only clamp so author-intended
       // gaps are never collapsed (see the growth comment below).
-      const signed = isAspectHeightCarousel(block);
+      const signed = isAspectHeightCarousel(block) || !!def?.signedAutoHeight;
       // Task #2840: for aspect carousels the stored box height is only a
       // snapshot — the editor stage renders them at the aspect-derived height
       // (height:auto + aspect-ratio), and authors align blocks below with that
@@ -463,7 +489,7 @@ export function AccordionReflowProvider({ children, blocks, resolveGeom, editorM
       // stored-vs-rendered mismatch is not double-counted as a constant gap
       // (or overlap) below the carousel on every viewport. Legacy blocks with
       // no persisted ratio return null and keep the stored-height reference.
-      const aspectRefH = signed
+      const aspectRefH = isAspectHeightCarousel(block)
         ? resolveAspectReflowReferenceHeight(block, g, breakpoint)
         : null;
       const finalReferenceH = Number.isFinite(aspectRefH) ? aspectRefH : referenceH;
@@ -482,7 +508,7 @@ export function AccordionReflowProvider({ children, blocks, resolveGeom, editorM
       });
     }
     return buildReflowRowGroups(entries);
-  }, [measuredHeights, blocks, resolveGeom, breakpoint]);
+  }, [measuredHeights, blocks, resolveGeom, breakpoint, editorMode]);
 
   // Resolve every visible block once for collision relays and container
   // attachment. Measured auto-height blocks already contribute their live
@@ -558,9 +584,10 @@ export function AccordionReflowProvider({ children, blocks, resolveGeom, editorM
    */
   const getOffset = useCallback(
     (blockId, storedY) => {
-      // Editor mode disables all push-down displacement: blocks render at their
-      // stored positions so dragging/dropping never shifts unrelated blocks.
-      if (editorMode) return 0;
+      // Ordinary editor measurements are committed and filtered from
+      // rowGroups. Render-only live-data rows remain and may displace
+      // downstream blocks without mutating the design.
+      if (editorMode && rowGroups.length === 0) return 0;
       if (rowGroups.length === 0) return 0;
       const resolvedOffset = containerAwareOffsets.offsets.get(blockId);
       if (Number.isFinite(resolvedOffset)) return resolvedOffset;
@@ -630,8 +657,8 @@ export function AccordionReflowProvider({ children, blocks, resolveGeom, editorM
 
   /** Deepest cumulative reflow path across the whole stage. */
   const getTotalGrowth = useCallback(() => {
-    // Editor mode: stage height derives from stored geometry only.
-    if (editorMode) return 0;
+    // In editor mode only render-only live-data measurements survive rowGroups.
+    if (editorMode && rowGroups.length === 0) return 0;
     return offsetForTargetGeom(
       rowGroups,
       { y: Infinity, fullWidth: true },
@@ -658,9 +685,10 @@ export function AccordionReflowProvider({ children, blocks, resolveGeom, editorM
    */
   const getContainerGrowth = useCallback(
     (containerBlock, containerGeom) => {
-      // Editor mode: containers keep their stored height (no auto-grow); the
-      // editor bakes committed heights into stored geometry instead.
-      if (editorMode) return 0;
+      // Committed editor measurements keep containers at their stored height.
+      // Render-only live-data rows remain in rowGroups and may grow a Section
+      // for the current render only.
+      if (editorMode && rowGroups.length === 0) return 0;
       if (!containerGeom || rowGroups.length === 0) return 0;
       const spatialContainerGeom = {
         ...containerGeom,

@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  AUTO_HEIGHT_LEAF_TYPES,
   BLOCK_DEFAULTS,
   BLOCK_TYPES,
   normalizeCanvasDesign,
@@ -22,6 +23,7 @@ test('Member Group Cards has a safe live-data default', () => {
   assert.deepEqual(defaults.content.selectedGroupIds, []);
   assert.deepEqual(defaults.content.selectedGroupRoles, {});
   assert.equal('groupId' in defaults.content, false);
+  assert.equal(AUTO_HEIGHT_LEAF_TYPES.has(BLOCK_TYPES.MEMBER_GROUP_CARDS), true);
 });
 
 test('Member Group Cards resolves legacy and partial column settings to the established layout', () => {

@@ -3,6 +3,7 @@ import { AlertTriangle, Users } from 'lucide-react';
 import MemberGroupCard from '@/components/member-groups/MemberGroupCard';
 import { BREAKPOINT_MAX_PX } from '@/lib/canvasDesign';
 import { resolveMemberGroupCardColumns } from '@/lib/memberGroupCards';
+import { useReportReflowHeight } from '../AccordionReflowContext';
 
 const MEMBER_GROUP_CARD_GAP = 24;
 
@@ -59,6 +60,11 @@ export default function MemberGroupCardsBlockView({
   roleHolderByGroup = {},
 }) {
   const cards = Array.isArray(groups) ? groups : [];
+  const reflowRef = useReportReflowHeight(
+    block?.id,
+    (block?.style?.paddingTop || 0) + (block?.style?.paddingBottom || 0),
+    { includeExtraHeightPublic: true },
+  );
   const columns = resolveMemberGroupCardColumns(block?.content?.columns);
   const editorPreview = isEditorBreakpoint(breakpoint);
   const activeColumns = columns[editorPreview ? breakpoint : 'desktop'];
@@ -80,7 +86,8 @@ export default function MemberGroupCardsBlockView({
 
   return (
     <div
-      className="w-full h-full overflow-auto"
+      ref={reflowRef}
+      className="w-full"
       aria-label={block?.a11y?.ariaLabel || 'Member groups'}
       data-testid="member-group-cards-block"
     >

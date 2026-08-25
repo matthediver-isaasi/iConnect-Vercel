@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  AUTO_HEIGHT_LEAF_TYPES,
   BLOCK_DEFAULTS,
   BLOCK_TYPES,
   validateBlock,
@@ -18,6 +19,7 @@ test('Member Group block has safe live-data defaults', () => {
   assert.deepEqual(defaults.content.columns, { desktop: 3, tablet: 2, mobile: 1 });
   assert.equal('groupName' in defaults.content, false);
   assert.equal('members' in defaults.content, false);
+  assert.equal(AUTO_HEIGHT_LEAF_TYPES.has(BLOCK_TYPES.MEMBER_GROUP), true);
 });
 
 test('Member Group block requires a selected group', () => {

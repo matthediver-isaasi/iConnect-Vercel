@@ -1616,6 +1616,45 @@ test('public reflow provider gives Section and live Box contents their wrapper o
     assert.equal(rootElement.firstChild.dataset.headingTop, '2280');
     assert.equal(rootElement.firstChild.dataset.paragraphTop, '2330');
     assert.equal(rootElement.firstChild.dataset.belowTop, '2620');
+
+    const memberBlock = block('member-group', BLOCK_TYPES.MEMBER_GROUP, 0, 300, 0, 600);
+    const belowMember = block('below-member', BLOCK_TYPES.IMAGE, 300, 100, 0, 600);
+    const committed = [];
+    function EditorProbe() {
+      const reflow = useAccordionReflow();
+      api.reflow = reflow;
+      return createElement('div', {
+        'data-below-member-top': 300 + reflow.getOffset('below-member', 300),
+        'data-stage-growth': reflow.getTotalGrowth(),
+      });
+    }
+    await act(async () => {
+      reactRoot.render(createElement(
+        AccordionReflowProvider,
+        {
+          key: 'render-only-editor-provider',
+          blocks: [memberBlock, belowMember],
+          breakpoint: 'mobile',
+          resolveGeom,
+          editorMode: true,
+          onMeasure: (...args) => committed.push(args),
+        },
+        createElement(EditorProbe),
+      ));
+    });
+    await act(async () => {
+      api.reflow.reportHeight('member-group', 180);
+    });
+    assert.equal(rootElement.firstChild.dataset.belowMemberTop, '180');
+    assert.equal(rootElement.firstChild.dataset.stageGrowth, '-120');
+    assert.deepEqual(committed, [], 'live member heights must not be baked into saved geometry');
+
+    await act(async () => {
+      api.reflow.reportHeight('member-group', 440);
+    });
+    assert.equal(rootElement.firstChild.dataset.belowMemberTop, '440');
+    assert.equal(rootElement.firstChild.dataset.stageGrowth, '140');
+    assert.deepEqual(committed, [], 'later live measurements must also remain render-only');
   } finally {
     await act(async () => {
       reactRoot.unmount();

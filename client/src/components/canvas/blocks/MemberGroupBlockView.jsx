@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { DirectoryMemberCard } from '@/components/directory/DirectoryCards';
 import { sanitizeRichText } from './sanitize';
+import { useReportReflowHeight } from '../AccordionReflowContext';
 
 function clampInteger(value, min, max, fallback) {
   const parsed = Number(value);
@@ -92,17 +93,25 @@ export default function MemberGroupBlockView({
 }) {
   const c = content || {};
   const members = Array.isArray(records) ? records : [];
+  const reflowRef = useReportReflowHeight(
+    block?.id,
+    (block?.style?.paddingTop || 0) + (block?.style?.paddingBottom || 0),
+    { includeExtraHeightPublic: true },
+  );
   const totalPages = Math.max(1, Math.ceil(Number(total || 0) / pageSize));
   const H = `h${Math.max(1, Math.min(6, Number(c.headingLevel) || 2))}`;
   const cardGuard = asEditor ? { onClickCapture: guardEditorCardClick } : {};
   const controlGuard = asEditor
-    ? { onClickCapture: (event) => event.stopPropagation() }
+    // Canvas selection starts on pointer-down. Stopping click during capture
+    // would also prevent the pagination button's own onClick from firing.
+    ? { onPointerDownCapture: (event) => event.stopPropagation() }
     : {};
 
   return (
     <TooltipProvider>
       <div
-        className="w-full h-full overflow-auto"
+        ref={reflowRef}
+        className="w-full"
         aria-label={block?.a11y?.ariaLabel || group?.name || 'Member group'}
         data-testid="member-group-block"
       >

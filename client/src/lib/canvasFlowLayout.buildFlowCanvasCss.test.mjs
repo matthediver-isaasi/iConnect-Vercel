@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildFlowCanvasCss } from './canvasFlowLayout.js';
+import { buildFlowCanvasCss, resolveFlowLayout } from './canvasFlowLayout.js';
 import { BLOCK_TYPES, BREAKPOINT_WIDTHS } from './canvasDesign.js';
 
 // A minimal v2 (flow) design: one section stacking a fixed-height image over an
@@ -57,6 +57,78 @@ test('auto-height leaf gets height:auto; fixed leaf gets a pixel height', () => 
   assert.match(txtRule, /height:auto;/);
   const imgRule = css.match(/#cb \[data-cb="img1"\]\{([^}]*)\}/)[1];
   assert.match(imgRule, /height:200px;/);
+});
+
+test('live Member Group leaves are content-sized in flow layouts', () => {
+  const design = makeFlowDesign();
+  design.root.sections[0].children.push(
+    {
+      id: 'members1',
+      type: BLOCK_TYPES.MEMBER_GROUP,
+      flow: { heightMode: 'auto' },
+      content: {},
+    },
+    {
+      id: 'groups1',
+      type: BLOCK_TYPES.MEMBER_GROUP_CARDS,
+      flow: { heightMode: 'auto' },
+      content: {},
+    },
+  );
+  const css = buildFlowCanvasCss(design, '#cb');
+  assert.match(css.match(/#cb \[data-cb="members1"\]\{([^}]*)\}/)[1], /height:auto;/);
+  assert.match(css.match(/#cb \[data-cb="groups1"\]\{([^}]*)\}/)[1], /height:auto;/);
+});
+
+test('measured Member Group content repositions downstream flow leaves and page height', () => {
+  const design = {
+    version: 2,
+    root: {
+      sections: [{
+        id: 'section',
+        type: BLOCK_TYPES.SECTION,
+        flow: { padTop: 10, padBottom: 10, gap: 12 },
+        children: [
+          {
+            id: 'members',
+            type: BLOCK_TYPES.MEMBER_GROUP,
+            bp: {
+              desktop: { x: 0, y: 0, w: 800, h: 620 },
+              mobile: { x: 0, y: 0, w: 375, h: 620 },
+            },
+            flow: { heightMode: 'auto' },
+            content: {},
+          },
+          {
+            id: 'groups',
+            type: BLOCK_TYPES.MEMBER_GROUP_CARDS,
+            bp: {
+              desktop: { x: 0, y: 0, w: 800, h: 760 },
+              mobile: { x: 0, y: 0, w: 375, h: 760 },
+            },
+            flow: { heightMode: 'auto' },
+            content: {},
+          },
+        ],
+      }],
+    },
+  };
+  const initial = resolveFlowLayout(design, {
+    breakpoint: 'mobile',
+    containerWidth: BREAKPOINT_WIDTHS.mobile,
+  });
+  const measured = resolveFlowLayout(design, {
+    breakpoint: 'mobile',
+    containerWidth: BREAKPOINT_WIDTHS.mobile,
+    measured: {
+      members: { height: 240 },
+      groups: { height: 510 },
+    },
+  });
+
+  assert.ok(measured.boxes.groups.y < initial.boxes.groups.y);
+  assert.equal(measured.boxes.groups.y, measured.boxes.members.y + 240 + 12);
+  assert.ok(measured.height < initial.height);
 });
 
 test('emits tablet and mobile @media breakpoint blocks with stage min-height', () => {

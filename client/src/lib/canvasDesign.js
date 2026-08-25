@@ -2548,6 +2548,10 @@ export const AUTO_HEIGHT_LEAF_TYPES = new Set([
   BLOCK_TYPES.ADVANCED_ACCORDION,
   BLOCK_TYPES.CARD,
   BLOCK_TYPES.DATA_TABLE,
+  // Live member/group grids change height as records, pages, and responsive
+  // columns settle. Their measurements remain render-only.
+  BLOCK_TYPES.MEMBER_GROUP,
+  BLOCK_TYPES.MEMBER_GROUP_CARDS,
   // AI Compositions size to their generated content (Task #2849): the block
   // reports its rendered height so the parent canvas reflows around it.
   BLOCK_TYPES.AI_COMPOSITION,

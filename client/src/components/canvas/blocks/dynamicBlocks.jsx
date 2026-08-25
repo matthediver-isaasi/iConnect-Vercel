@@ -6289,7 +6289,11 @@ function useMemberGroupMembers({ groupId, roles, page, limit }) {
       limit,
     }),
     enabled: !!groupId,
-    keepPreviousData: true,
+    // TanStack Query v5 replaced `keepPreviousData: true` with
+    // `placeholderData`. Retaining the last page keeps its authoritative total
+    // available while an uncached page is fetched, so the page clamp below
+    // cannot immediately undo a visitor's first Next click.
+    placeholderData: (previousData) => previousData,
     staleTime: 60_000,
   });
 }
@@ -6305,7 +6309,14 @@ function MemberGroupRender({ block, breakpoint, asEditor }) {
     setCurrentPage(1);
   }, [c.groupId, pageSize, selectedRoles.join('\u0000')]);
 
-  const { data, isLoading, isError, error, isFetching } = useMemberGroupMembers({
+  const {
+    data,
+    isLoading,
+    isError,
+    error,
+    isFetching,
+    isPlaceholderData,
+  } = useMemberGroupMembers({
     groupId: c.groupId,
     roles: selectedRoles,
     page: currentPage,
@@ -6317,8 +6328,13 @@ function MemberGroupRender({ block, breakpoint, asEditor }) {
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
   useEffect(() => {
-    if (currentPage > totalPages) setCurrentPage(totalPages);
-  }, [currentPage, totalPages]);
+    // Clamp only against a settled response. Placeholder data deliberately
+    // belongs to the preceding page/query and is used to keep navigation
+    // stable while the requested page is in flight.
+    if (!isPlaceholderData && data && currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, data, isPlaceholderData, totalPages]);
 
   if (!c.groupId) return <EmptyState icon={Users} text="Pick a member group in the inspector." />;
 
@@ -7941,6 +7957,10 @@ export const DYNAMIC_BLOCK_DEFINITIONS = {
     Renderer: MemberGroupRender,
     Inspector: MemberGroupInspector,
     allowOverflow: true,
+    autoHeight: true,
+    widthResizeOnly: true,
+    renderOnlyAutoHeight: true,
+    signedAutoHeight: true,
   },
   [BLOCK_TYPES.MEMBER_GROUP_CARDS]: {
     label: 'Member Group Cards',
@@ -7950,6 +7970,10 @@ export const DYNAMIC_BLOCK_DEFINITIONS = {
     Renderer: MemberGroupCardsRender,
     Inspector: MemberGroupCardsInspector,
     allowOverflow: true,
+    autoHeight: true,
+    widthResizeOnly: true,
+    renderOnlyAutoHeight: true,
+    signedAutoHeight: true,
   },
   [BLOCK_TYPES.CARD_DECK]: {
     label: 'Card deck',

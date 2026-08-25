@@ -72,6 +72,8 @@ test('legacy group cards retain the established responsive column treatment', ()
   assert.match(html, /max-width:639\.98px[^]*repeat\(1,minmax\(0,1fr\)\)/);
   assert.match(html, /card-group-a/);
   assert.match(html, /card-group-b/);
+  assert.match(html, /class="w-full"[^>]*data-testid="member-group-cards-block"/);
+  assert.ok(!html.includes('w-full h-full overflow-auto'));
 });
 
 test('editor previews use the active breakpoint column count', () => {
