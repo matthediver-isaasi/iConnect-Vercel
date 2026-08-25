@@ -1966,15 +1966,28 @@ if (!class_exists('GSF_Reviewed_Duplicate_Cleanup_Admin')) {
         {
             $base_url = rtrim(trim((string) get_option('gsf_iconnect_base_url', '')), '/');
             $api_key = trim((string) get_option('gsf_iconnect_api_key', ''));
+            $source = $base_url === ''
+                ? 'WordPress option gsf_iconnect_base_url (no endpoint configured)'
+                : $base_url . '/api/public/gsf-map/members';
             if ($base_url === '' || $api_key === '') {
+                $missing = [];
+                if ($base_url === '') {
+                    $missing[] = 'gsf_iconnect_base_url';
+                }
+                if ($api_key === '') {
+                    $missing[] = 'gsf_iconnect_api_key';
+                }
                 return [
-                    'source' => $base_url === '' ? null : $base_url . '/api/public/gsf-map/members',
-                    'rows' => [],
-                    'error' => 'Missing gsf_iconnect_base_url or gsf_iconnect_api_key option',
+                    'available' => false,
+                    'source' => $source,
+                    'rows' => null,
+                    'failure_kind' => 'missing_configuration',
+                    'http_status' => null,
+                    'error' => 'Missing WordPress option: ' . implode(', ', $missing),
                 ];
             }
 
-            $response = wp_remote_get($base_url . '/api/public/gsf-map/members', [
+            $response = wp_remote_get($source, [
                 'headers' => [
                     'X-Api-Key' => $api_key,
                     'Accept' => 'application/json',
@@ -1983,42 +1996,87 @@ if (!class_exists('GSF_Reviewed_Duplicate_Cleanup_Admin')) {
             ]);
             if (is_wp_error($response)) {
                 return [
-                    'source' => $base_url . '/api/public/gsf-map/members',
-                    'rows' => [],
-                    'error' => $response->get_error_message(),
+                    'available' => false,
+                    'source' => $source,
+                    'rows' => null,
+                    'failure_kind' => 'network_error',
+                    'http_status' => null,
+                    'error' => 'WordPress HTTP request failed: ' . $response->get_error_message(),
                 ];
             }
 
             $status = (int) wp_remote_retrieve_response_code($response);
-            $decoded = json_decode(wp_remote_retrieve_body($response), true);
+            $body = (string) wp_remote_retrieve_body($response);
             if ($status !== 200) {
+                $body_excerpt = trim((string) preg_replace('/\s+/', ' ', $body));
+                if (strlen($body_excerpt) > 500) {
+                    $body_excerpt = substr($body_excerpt, 0, 500) . '...';
+                }
                 return [
-                    'source' => $base_url . '/api/public/gsf-map/members',
-                    'rows' => [],
-                    'error' => 'iConnect member feed returned HTTP ' . $status,
+                    'available' => false,
+                    'source' => $source,
+                    'rows' => null,
+                    'failure_kind' => 'http_error',
+                    'http_status' => $status,
+                    'error' => 'iConnect member feed returned HTTP ' . $status
+                        . ($body_excerpt === '' ? '' : ': ' . $body_excerpt),
                 ];
             }
-            if (!is_array($decoded)) {
+
+            $decoded = json_decode($body, true);
+            if (json_last_error() !== JSON_ERROR_NONE) {
                 return [
-                    'source' => $base_url . '/api/public/gsf-map/members',
-                    'rows' => [],
-                    'error' => 'iConnect member feed did not return a JSON array',
+                    'available' => false,
+                    'source' => $source,
+                    'rows' => null,
+                    'failure_kind' => 'malformed_json',
+                    'http_status' => $status,
+                    'error' => 'iConnect member feed returned malformed JSON: ' . json_last_error_msg(),
+                ];
+            }
+            if (!is_array($decoded) || !self::isListArray($decoded)) {
+                return [
+                    'available' => false,
+                    'source' => $source,
+                    'rows' => null,
+                    'failure_kind' => 'invalid_payload',
+                    'http_status' => $status,
+                    'error' => 'iConnect member feed returned valid JSON, but the top-level value was not a row array',
                 ];
             }
 
             return [
-                'source' => $base_url . '/api/public/gsf-map/members',
+                'available' => true,
+                'source' => $source,
                 'rows' => $decoded,
+                'failure_kind' => null,
+                'http_status' => $status,
                 'error' => null,
             ];
         }
 
-        private static function gate($passed, $detail)
+        private static function isListArray($value)
+        {
+            if (!is_array($value)) {
+                return false;
+            }
+            return array_keys($value) === range(0, count($value) - 1) || $value === [];
+        }
+
+        private static function gate($passed, $detail, $available = true)
         {
             return [
-                'passed' => (bool) $passed,
+                'passed' => $available && (bool) $passed,
+                'available' => (bool) $available,
                 'detail' => (string) $detail,
             ];
+        }
+
+        private static function feedUnavailableMessage($report)
+        {
+            $source = (string) ($report['feed']['source'] ?? 'unknown source');
+            $error = (string) ($report['feed']['error'] ?? 'no trustworthy feed was obtained');
+            return 'Feed reconciliation unavailable from ' . $source . ': ' . $error;
         }
 
         private static function buildIdentitySnapshot($feed_by_id, $records)
@@ -2070,7 +2128,10 @@ if (!class_exists('GSF_Reviewed_Duplicate_Cleanup_Admin')) {
         public static function buildInventoryReport()
         {
             $feed_result = self::fetchFeed();
-            $feed_rows = $feed_result['rows'];
+            $feed_available = !empty($feed_result['available']);
+            $feed_rows = $feed_available && is_array($feed_result['rows'])
+                ? $feed_result['rows']
+                : [];
             $feed_by_id = [];
             $feed_blank = [];
             foreach ($feed_rows as $row) {
@@ -2137,17 +2198,22 @@ if (!class_exists('GSF_Reviewed_Duplicate_Cleanup_Admin')) {
             $blank_wordpress_ids = array_values(array_filter($records, function ($record) {
                 return $record['feed_id'] === '';
             }));
-            $stale_wordpress_ids = array_values(array_filter($records, function ($record) use ($feed_by_id) {
-                return $record['feed_id'] !== '' && !isset($feed_by_id[$record['feed_id']]);
-            }));
-            $missing_from_any_status = [];
-            $missing_from_published = [];
-            foreach ($feed_by_id as $feed_id => $rows) {
-                if (!isset($posts_by_id[$feed_id])) {
-                    $missing_from_any_status[] = $feed_id;
-                }
-                if (!isset($published_by_id[$feed_id])) {
-                    $missing_from_published[] = $feed_id;
+            $stale_wordpress_ids = null;
+            $missing_from_any_status = null;
+            $missing_from_published = null;
+            if ($feed_available) {
+                $stale_wordpress_ids = array_values(array_filter($records, function ($record) use ($feed_by_id) {
+                    return $record['feed_id'] !== '' && !isset($feed_by_id[$record['feed_id']]);
+                }));
+                $missing_from_any_status = [];
+                $missing_from_published = [];
+                foreach ($feed_by_id as $feed_id => $rows) {
+                    if (!isset($posts_by_id[$feed_id])) {
+                        $missing_from_any_status[] = $feed_id;
+                    }
+                    if (!isset($published_by_id[$feed_id])) {
+                        $missing_from_published[] = $feed_id;
+                    }
                 }
             }
 
@@ -2176,7 +2242,7 @@ if (!class_exists('GSF_Reviewed_Duplicate_Cleanup_Admin')) {
                 $reviewed[] = [
                     'expected_name' => $expected_name,
                     'feed_id' => $feed_id,
-                    'feed_rows' => $feed_by_id[$feed_id] ?? [],
+                    'feed_rows' => $feed_available ? ($feed_by_id[$feed_id] ?? []) : null,
                     'records' => $records_for_id,
                     'canonical_record' => $canonical === null ? null : self::describePost($canonical),
                     'noncanonical_records' => $noncanonical,
@@ -2194,7 +2260,8 @@ if (!class_exists('GSF_Reviewed_Duplicate_Cleanup_Admin')) {
                     || count($finding['noncanonical_records']) !== 1
                     || $finding['canonical_record'] === null
                     || $finding['canonical_record']['status'] !== 'publish'
-                    || count($finding['feed_rows']) !== 1
+                    || !$feed_available
+                    || count($finding['feed_rows'] ?? []) !== 1
                 ) {
                     $all_reviewed_are_pairs = false;
                     break;
@@ -2202,19 +2269,18 @@ if (!class_exists('GSF_Reviewed_Duplicate_Cleanup_Admin')) {
             }
 
             $published_count = (int) ($counts_by_status['publish'] ?? 0);
-            $feed_clean = $feed_result['error'] === null
+            $feed_clean = $feed_available
                 && count($feed_rows) === self::EXPECTED_FEED_COUNT
                 && count($feed_by_id) === self::EXPECTED_FEED_COUNT
                 && empty($feed_blank)
                 && empty($feed_duplicates);
             $wordpress_identity_clean = empty($blank_wordpress_ids)
+                && $feed_available
                 && empty($stale_wordpress_ids)
                 && empty($missing_from_any_status)
-                && empty($missing_from_published)
-                && empty($published_duplicates);
+                && empty($missing_from_published);
             $pre_cleanup_safe = $feed_clean
                 && count($records) === self::EXPECTED_PRE_CLEANUP_POST_COUNT
-                && $published_count === self::EXPECTED_FEED_COUNT
                 && count($posts_by_id) === self::EXPECTED_FEED_COUNT
                 && count($published_by_id) === self::EXPECTED_FEED_COUNT
                 && $duplicate_ids === $reviewed_ids
@@ -2234,12 +2300,15 @@ if (!class_exists('GSF_Reviewed_Duplicate_Cleanup_Admin')) {
                 'generated_at' => gmdate('c'),
                 'read_only' => true,
                 'feed' => [
+                    'available' => $feed_available,
                     'source' => $feed_result['source'],
                     'error' => $feed_result['error'],
-                    'raw_records' => count($feed_rows),
-                    'unique_nonblank_ids' => count($feed_by_id),
-                    'blank_ids' => $feed_blank,
-                    'duplicate_ids' => $feed_duplicates,
+                    'failure_kind' => $feed_result['failure_kind'],
+                    'http_status' => $feed_result['http_status'],
+                    'raw_records' => $feed_available ? count($feed_rows) : null,
+                    'unique_nonblank_ids' => $feed_available ? count($feed_by_id) : null,
+                    'blank_ids' => $feed_available ? $feed_blank : null,
+                    'duplicate_ids' => $feed_available ? $feed_duplicates : null,
                 ],
                 'wordpress' => [
                     'registered_post_statuses' => self::allStatuses(),
@@ -2260,14 +2329,23 @@ if (!class_exists('GSF_Reviewed_Duplicate_Cleanup_Admin')) {
                 'acceptance' => [
                     'configured_feed_has_232_unique_nonblank_ids' => self::gate(
                         $feed_clean,
-                        count($feed_rows) . ' feed rows; ' . count($feed_by_id) . ' unique nonblank IDs'
+                        $feed_available
+                            ? count($feed_rows) . ' feed rows; ' . count($feed_by_id) . ' unique nonblank IDs'
+                            : self::feedUnavailableMessage(['feed' => $feed_result]),
+                        $feed_available
                     ),
                     'wordpress_has_232_published_members' => self::gate(
                         $published_count === self::EXPECTED_FEED_COUNT
                             && count($published_by_id) === self::EXPECTED_FEED_COUNT
+                            && $feed_available
                             && empty($missing_from_published)
                             && empty($published_duplicates),
-                        $published_count . ' published posts; ' . count($published_by_id) . ' unique published stable IDs'
+                        $feed_available
+                            ? $published_count . ' raw published posts; ' . count($published_by_id)
+                                . ' unique published stable identities'
+                            : 'WordPress has ' . $published_count . ' raw published posts and '
+                                . count($published_by_id) . ' unique published stable identities, but feed coverage is unavailable',
+                        $feed_available
                     ),
                     'no_duplicate_wordpress_stable_ids' => self::gate(
                         empty($duplicates),
@@ -2278,27 +2356,68 @@ if (!class_exists('GSF_Reviewed_Duplicate_Cleanup_Admin')) {
                         count($blank_wordpress_ids) . ' blank stable IDs'
                     ),
                     'no_stale_wordpress_stable_ids' => self::gate(
-                        empty($stale_wordpress_ids),
-                        count($stale_wordpress_ids) . ' stale WordPress records'
+                        $feed_available && empty($stale_wordpress_ids),
+                        $feed_available
+                            ? count($stale_wordpress_ids) . ' stale WordPress records'
+                            : 'Unavailable because no trustworthy configured feed was obtained',
+                        $feed_available
                     ),
                     'no_orphan_or_missing_stable_ids' => self::gate(
-                        empty($missing_from_any_status) && empty($missing_from_published),
-                        count($missing_from_any_status) . ' missing from all statuses; '
-                            . count($missing_from_published) . ' missing from published'
+                        $feed_available && empty($missing_from_any_status) && empty($missing_from_published),
+                        $feed_available
+                            ? count($missing_from_any_status) . ' missing from all statuses; '
+                                . count($missing_from_published) . ' missing from published'
+                            : 'Unavailable because no trustworthy configured feed was obtained',
+                        $feed_available
                     ),
                     'strict_post_cleanup_reconciliation_passed' => self::gate(
                         $strict_clean,
-                        count($records) . ' all-status posts; ' . $published_count . ' published posts'
+                        $feed_available
+                            ? count($records) . ' all-status posts; ' . $published_count . ' raw published posts'
+                            : 'Unavailable because strict reconciliation requires a trustworthy configured feed',
+                        $feed_available
                     ),
                 ],
                 'pre_cleanup_checks' => [
+                    'configured_feed_is_available_and_trustworthy' => self::gate(
+                        $feed_available,
+                        $feed_available
+                            ? 'Feed obtained from ' . $feed_result['source']
+                            : self::feedUnavailableMessage(['feed' => $feed_result]),
+                        $feed_available
+                    ),
+                    'wordpress_has_237_all_status_posts_and_232_unique_ids' => self::gate(
+                        count($records) === self::EXPECTED_PRE_CLEANUP_POST_COUNT
+                            && count($posts_by_id) === self::EXPECTED_FEED_COUNT,
+                        count($records) . ' all-status posts; ' . count($posts_by_id) . ' unique stable identities'
+                    ),
+                    'wordpress_has_232_unique_published_survivors' => self::gate(
+                        count($published_by_id) === self::EXPECTED_FEED_COUNT,
+                        $published_count . ' raw published posts; ' . count($published_by_id)
+                            . ' unique published stable identities'
+                    ),
                     'all_five_reviewed_identities_are_exact_pairs' => self::gate(
                         $all_reviewed_are_pairs && $duplicate_ids === $reviewed_ids,
-                        count($duplicate_ids) . ' duplicate identities found; expected exactly the five reviewed IDs'
+                        count($duplicate_ids) . ' duplicate identities found; expected exactly the five reviewed IDs',
+                        $feed_available
+                    ),
+                    'feed_reconciliation_has_no_blank_stale_or_missing_ids' => self::gate(
+                        $feed_available
+                            && empty($blank_wordpress_ids)
+                            && empty($stale_wordpress_ids)
+                            && empty($missing_from_any_status)
+                            && empty($missing_from_published),
+                        $feed_available
+                            ? count($blank_wordpress_ids) . ' blank; '
+                                . count($stale_wordpress_ids) . ' stale; '
+                                . count($missing_from_any_status) . ' missing all-status; '
+                                . count($missing_from_published) . ' missing published'
+                            : 'Unavailable because no trustworthy configured feed was obtained',
+                        $feed_available
                     ),
                     'safe_pre_cleanup_state' => self::gate(
                         $pre_cleanup_safe,
-                        'Requires 232 clean feed IDs, 232 published survivors, 237 all-status posts, and only the five reviewed pairs'
+                        'Requires 232 clean feed IDs, 237 all-status posts, 232 unique published survivors, and only the five reviewed pairs; deletion candidates may also be published'
                     ),
                 ],
                 'pre_cleanup_safe' => $pre_cleanup_safe,
@@ -2310,6 +2429,9 @@ if (!class_exists('GSF_Reviewed_Duplicate_Cleanup_Admin')) {
 
         public static function buildDeletionPlan($report)
         {
+            if (empty($report['feed']['available'])) {
+                throw new RuntimeException('Dry run blocked: ' . self::feedUnavailableMessage($report));
+            }
             if (empty($report['pre_cleanup_safe'])) {
                 throw new RuntimeException(
                     'Dry run blocked: live data is not the exact reviewed 232-feed/237-post five-pair state'
@@ -2352,6 +2474,9 @@ if (!class_exists('GSF_Reviewed_Duplicate_Cleanup_Admin')) {
         {
             if (!is_array($plan) || !isset($plan['pairs']) || count($plan['pairs']) !== count(self::REVIEWED_IDENTITIES)) {
                 throw new RuntimeException('Apply requires exactly all five reviewed identity pairs');
+            }
+            if (empty($report['feed']['available'])) {
+                throw new RuntimeException('Apply blocked: ' . self::feedUnavailableMessage($report));
             }
             if (
                 empty($plan['source_identity_signature'])
@@ -2889,6 +3014,12 @@ if (!class_exists('GSF_Reviewed_Duplicate_Cleanup_Admin')) {
                     self::renewLock($lock);
 
                     $stage_report = self::buildInventoryReport();
+                    if (empty($stage_report['feed']['available'])) {
+                        throw new RuntimeException(
+                            'Apply blocked before deleting post ' . $post_id . ': '
+                            . self::feedUnavailableMessage($stage_report)
+                        );
+                    }
                     $expected_snapshot = self::identitySnapshotAfterDeletions(
                         $ticket['identity_snapshot'] ?? [],
                         $deleted_post_ids
@@ -3074,11 +3205,13 @@ if (!class_exists('GSF_Reviewed_Duplicate_Cleanup_Admin')) {
             }
             echo '<table class="widefat striped gsf-cleanup-gates"><thead><tr><th>Gate</th><th>Result</th><th>Detail</th></tr></thead><tbody>';
             foreach ($gates as $key => $gate) {
+                $available = !isset($gate['available']) || !empty($gate['available']);
                 $passed = !empty($gate['passed']);
+                $label = !$available ? 'UNAVAILABLE' : ($passed ? 'PASS' : 'BLOCKED');
+                $colour = !$available ? '#996800' : ($passed ? '#008a20' : '#b32d2e');
                 echo '<tr>';
                 echo '<td><code>' . esc_html($key) . '</code></td>';
-                echo '<td><strong style="color:' . ($passed ? '#008a20' : '#b32d2e') . '">'
-                    . ($passed ? 'PASS' : 'BLOCKED') . '</strong></td>';
+                echo '<td><strong style="color:' . $colour . '">' . $label . '</strong></td>';
                 echo '<td>' . esc_html($gate['detail'] ?? '') . '</td>';
                 echo '</tr>';
             }
@@ -3185,6 +3318,18 @@ if (!class_exists('GSF_Reviewed_Duplicate_Cleanup_Admin')) {
                     <div class="notice notice-error inline"><p><strong>Live inventory failed:</strong>
                         <?php echo esc_html($live_error); ?></p></div>
                 <?php else: ?>
+                    <?php if (empty($live_report['feed']['available'])): ?>
+                        <div class="notice notice-error inline">
+                            <p><strong>Configured iConnect feed reconciliation is unavailable.</strong></p>
+                            <p><strong>Source:</strong> <code><?php echo esc_html($live_report['feed']['source'] ?? 'unknown'); ?></code><br>
+                                <strong>Error:</strong> <?php echo esc_html($live_report['feed']['error'] ?? 'Unknown feed error'); ?></p>
+                            <p>Stale, orphan, and missing-ID findings are marked unavailable rather than being calculated
+                                against an empty feed. Dry run and apply remain blocked until a trustworthy feed is obtained.</p>
+                        </div>
+                    <?php else: ?>
+                        <div class="notice notice-info inline"><p><strong>Configured feed source:</strong>
+                            <code><?php echo esc_html($live_report['feed']['source']); ?></code></p></div>
+                    <?php endif; ?>
                     <?php if (!empty($live_report['strict_clean'])): ?>
                         <div class="notice notice-success inline"><p><strong>Strict cleanup acceptance passed:</strong>
                             232 configured feed records, 232 published WordPress members, and no duplicate, blank,
@@ -3192,6 +3337,11 @@ if (!class_exists('GSF_Reviewed_Duplicate_Cleanup_Admin')) {
                     <?php endif; ?>
 
                     <h2>Live all-status reconciliation</h2>
+                    <p><strong>WordPress counts:</strong>
+                        <?php echo (int) ($live_report['wordpress']['published_posts'] ?? 0); ?> raw published posts;
+                        <?php echo (int) ($live_report['wordpress']['published_unique_nonblank_ids'] ?? 0); ?>
+                        unique published stable identities;
+                        <?php echo (int) ($live_report['wordpress']['raw_posts'] ?? 0); ?> all-status posts.</p>
                     <?php self::renderAcceptance($live_report); ?>
                     <?php self::renderReviewedIdentities($live_report); ?>
 
@@ -3220,13 +3370,15 @@ if (!class_exists('GSF_Reviewed_Duplicate_Cleanup_Admin')) {
                     <div class="notice notice-error inline"><p><strong>This cannot be undone from this screen.</strong>
                         The one-time plan will be consumed even if apply is blocked. Run another dry run to retry.</p></div>
                     <table class="widefat striped">
-                        <thead><tr><th>Stable feed ID</th><th>Published survivor</th><th>Permanent deletion</th></tr></thead>
+                        <thead><tr><th>Stable feed ID</th><th>Published survivor</th><th>Permanent deletion candidate</th></tr></thead>
                         <tbody>
                         <?php foreach ($evidence['dry_run']['plan']['pairs'] as $pair): ?>
                             <tr>
                                 <td><code><?php echo esc_html($pair['feed_id']); ?></code></td>
-                                <td><code><?php echo (int) $pair['survivor_post_id']; ?></code></td>
-                                <td><code><?php echo (int) $pair['noncanonical_post_ids'][0]; ?></code></td>
+                                <td><code><?php echo (int) $pair['survivor_post_id']; ?></code>
+                                    (<?php echo esc_html($pair['survivor']['status'] ?? 'unknown'); ?>)</td>
+                                <td><code><?php echo (int) $pair['noncanonical_post_ids'][0]; ?></code>
+                                    (<?php echo esc_html($pair['noncanonical'][0]['status'] ?? 'unknown'); ?>)</td>
                             </tr>
                         <?php endforeach; ?>
                         </tbody>

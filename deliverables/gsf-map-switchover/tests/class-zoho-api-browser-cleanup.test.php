@@ -14,6 +14,10 @@ $GLOBALS['bc_transients'] = [];
 $GLOBALS['bc_posts'] = [];
 $GLOBALS['bc_meta'] = [];
 $GLOBALS['bc_feed'] = [];
+$GLOBALS['bc_remote_mode'] = 'success';
+$GLOBALS['bc_remote_status'] = 200;
+$GLOBALS['bc_remote_body'] = null;
+$GLOBALS['bc_remote_error'] = null;
 $GLOBALS['bc_deleted'] = [];
 $GLOBALS['bc_uuid'] = 0;
 $GLOBALS['bc_can_manage'] = true;
@@ -112,6 +116,21 @@ class GSF_Logger
     }
     public function log()
     {
+    }
+}
+
+class BrowserCleanupWpError
+{
+    private $message;
+
+    public function __construct($message)
+    {
+        $this->message = $message;
+    }
+
+    public function get_error_message()
+    {
+        return $this->message;
     }
 }
 
@@ -234,7 +253,14 @@ function wp_delete_post($post_id, $force_delete = false)
 }
 function wp_remote_get()
 {
-    return ['response' => ['code' => 200], 'body' => json_encode($GLOBALS['bc_feed'])];
+    if ($GLOBALS['bc_remote_mode'] === 'network_error') {
+        return new BrowserCleanupWpError($GLOBALS['bc_remote_error'] ?? 'simulated network failure');
+    }
+    $body = $GLOBALS['bc_remote_body'];
+    if ($body === null) {
+        $body = json_encode($GLOBALS['bc_feed']);
+    }
+    return ['response' => ['code' => $GLOBALS['bc_remote_status']], 'body' => $body];
 }
 function wp_remote_retrieve_response_code($response)
 {
@@ -246,7 +272,7 @@ function wp_remote_retrieve_body($response)
 }
 function is_wp_error()
 {
-    return false;
+    return func_get_arg(0) instanceof BrowserCleanupWpError;
 }
 function wp_json_encode($value, $flags = 0)
 {
@@ -338,6 +364,10 @@ function bc_reset_fixture()
     $GLOBALS['bc_posts'] = [];
     $GLOBALS['bc_meta'] = [];
     $GLOBALS['bc_feed'] = [];
+    $GLOBALS['bc_remote_mode'] = 'success';
+    $GLOBALS['bc_remote_status'] = 200;
+    $GLOBALS['bc_remote_body'] = null;
+    $GLOBALS['bc_remote_error'] = null;
     $GLOBALS['bc_deleted'] = [];
     $GLOBALS['bc_hide_survivor'] = null;
     $GLOBALS['bc_delete_call'] = 0;
@@ -362,7 +392,7 @@ function bc_reset_fixture()
         $GLOBALS['bc_meta'][$post_id] = ['zoho_id' => $feed_id, 'last_sync' => '2026-08-25 10:30:58'];
         if (isset($reviewed[$feed_id])) {
             $copy_id = $post_id + 10000;
-            $GLOBALS['bc_posts'][$copy_id] = bc_post($copy_id, 'draft', $name . ' reviewed copy');
+            $GLOBALS['bc_posts'][$copy_id] = bc_post($copy_id, 'publish', $name . ' reviewed copy');
             $GLOBALS['bc_meta'][$copy_id] = ['zoho_id' => $feed_id, 'last_sync' => '2026-08-24 09:00:00'];
         }
         $post_id++;
@@ -402,12 +432,31 @@ bc_assert(
 );
 
 bc_reset_fixture();
+$observed_report = GSF_Reviewed_Duplicate_Cleanup_Admin::buildInventoryReport();
+bc_assert(
+    $observed_report['wordpress']['raw_posts'] === 237
+    && $observed_report['wordpress']['published_posts'] === 237
+    && $observed_report['wordpress']['unique_nonblank_ids'] === 232
+    && $observed_report['wordpress']['published_unique_nonblank_ids'] === 232,
+    'observed before-state is 237 published posts representing 232 stable identities'
+);
+bc_assert(
+    count($observed_report['wordpress']['duplicate_ids']) === 5
+    && count($observed_report['wordpress']['published_duplicate_ids']) === 5
+    && $observed_report['pre_cleanup_safe'] === true,
+    'the exact five reviewed all-published pairs pass the pre-cleanup gate'
+);
 $render_before = serialize([$GLOBALS['bc_posts'], $GLOBALS['bc_meta']]);
 ob_start();
 GSF_Reviewed_Duplicate_Cleanup_Admin::renderPage();
 $rendered = ob_get_clean();
 bc_assert(str_contains($rendered, 'Live all-status reconciliation'), 'admin page renders the read-only live report');
 bc_assert(str_contains($rendered, 'Generate fresh dry run'), 'admin page offers an explicit dry run');
+bc_assert(
+    str_contains($rendered, '237 raw published posts')
+    && str_contains($rendered, '232 unique published stable identities'),
+    'admin page distinguishes raw published posts from unique published identities'
+);
 bc_assert($render_before === serialize([$GLOBALS['bc_posts'], $GLOBALS['bc_meta']]), 'rendering the admin page does not mutate posts');
 $GLOBALS['bc_can_manage'] = false;
 bc_throws(
@@ -530,6 +579,203 @@ bc_throws(
 );
 $GLOBALS['bc_feed'][10]['id'] = $report['wordpress']['records'][10]['feed_id'];
 
+bc_reset_fixture();
+$candidate_ids = array_values(array_filter(array_keys($GLOBALS['bc_posts']), fn($post_id) => $post_id >= 10000));
+$candidate_statuses = ['draft', 'publish', 'private', 'future', 'publish'];
+foreach ($candidate_ids as $index => $candidate_id) {
+    $GLOBALS['bc_posts'][$candidate_id]->post_status = $candidate_statuses[$index];
+}
+$mixed_report = GSF_Reviewed_Duplicate_Cleanup_Admin::buildInventoryReport();
+bc_assert(
+    $mixed_report['pre_cleanup_safe'] === true
+    && $mixed_report['wordpress']['published_posts'] === 234
+    && $mixed_report['wordpress']['published_unique_nonblank_ids'] === 232,
+    'mixed candidate statuses pass when every reviewed pair still has one deterministic published survivor'
+);
+$mixed_dry = GSF_Reviewed_Duplicate_Cleanup_Admin::performDryRun(7);
+$planned_candidate_statuses = array_map(
+    fn($pair) => $pair['noncanonical'][0]['status'],
+    $mixed_dry['dry_run']['plan']['pairs']
+);
+sort($planned_candidate_statuses, SORT_STRING);
+$expected_candidate_statuses = $candidate_statuses;
+sort($expected_candidate_statuses, SORT_STRING);
+bc_assert(
+    $planned_candidate_statuses === $expected_candidate_statuses,
+    'dry run captures and fences each mixed-status candidate exactly'
+);
+
+bc_reset_fixture();
+unset($GLOBALS['bc_options']['gsf_iconnect_base_url']);
+$missing_config = GSF_Reviewed_Duplicate_Cleanup_Admin::buildInventoryReport();
+bc_assert(
+    $missing_config['feed']['available'] === false
+    && $missing_config['feed']['failure_kind'] === 'missing_configuration'
+    && str_contains($missing_config['feed']['source'], 'gsf_iconnect_base_url')
+    && str_contains($missing_config['feed']['error'], 'Missing WordPress option: gsf_iconnect_base_url'),
+    'missing feed configuration preserves its concrete source and error'
+);
+bc_assert(
+    $missing_config['feed']['raw_records'] === null
+    && $missing_config['wordpress']['stale_ids'] === null
+    && $missing_config['wordpress']['missing_from_any_status'] === null
+    && $missing_config['wordpress']['missing_from_published'] === null,
+    'missing feed does not classify every WordPress post against an empty comparison set'
+);
+bc_assert(
+    $missing_config['acceptance']['no_stale_wordpress_stable_ids']['available'] === false
+    && $missing_config['acceptance']['no_stale_wordpress_stable_ids']['passed'] === false
+    && $missing_config['pre_cleanup_safe'] === false,
+    'feed-dependent gates are unavailable and cleanup remains blocked'
+);
+bc_throws(
+    fn() => GSF_Reviewed_Duplicate_Cleanup_Admin::buildDeletionPlan($missing_config),
+    'Missing WordPress option: gsf_iconnect_base_url',
+    'dry-run plan reports the actual missing feed option'
+);
+ob_start();
+GSF_Reviewed_Duplicate_Cleanup_Admin::renderPage();
+$missing_rendered = ob_get_clean();
+bc_assert(
+    str_contains($missing_rendered, 'Configured iConnect feed reconciliation is unavailable')
+    && str_contains($missing_rendered, 'gsf_iconnect_base_url')
+    && str_contains($missing_rendered, 'UNAVAILABLE')
+    && !str_contains($missing_rendered, '237 stale WordPress records'),
+    'admin page prominently explains missing feed configuration without false stale results'
+);
+
+bc_reset_fixture();
+$GLOBALS['bc_remote_status'] = 401;
+$GLOBALS['bc_remote_body'] = '{"error":"API key rejected"}';
+$rejected_feed = GSF_Reviewed_Duplicate_Cleanup_Admin::buildInventoryReport();
+bc_assert(
+    $rejected_feed['feed']['failure_kind'] === 'http_error'
+    && $rejected_feed['feed']['http_status'] === 401
+    && str_contains($rejected_feed['feed']['error'], 'API key rejected')
+    && str_contains($rejected_feed['feed']['source'], '/api/public/gsf-map/members'),
+    'rejected feed request preserves HTTP status, endpoint, and response reason'
+);
+
+bc_reset_fixture();
+$GLOBALS['bc_remote_status'] = 503;
+$GLOBALS['bc_remote_body'] = '{"error":"GSF map API not configured"}';
+$unavailable_feed = GSF_Reviewed_Duplicate_Cleanup_Admin::buildInventoryReport();
+bc_assert(
+    $unavailable_feed['feed']['failure_kind'] === 'http_error'
+    && $unavailable_feed['feed']['http_status'] === 503
+    && str_contains($unavailable_feed['feed']['error'], 'GSF map API not configured')
+    && $unavailable_feed['pre_cleanup_safe'] === false,
+    'unavailable endpoint reports its concrete 503 reason and blocks cleanup'
+);
+
+bc_reset_fixture();
+$GLOBALS['bc_remote_mode'] = 'network_error';
+$GLOBALS['bc_remote_error'] = 'Connection timed out after 60 seconds';
+$network_feed = GSF_Reviewed_Duplicate_Cleanup_Admin::buildInventoryReport();
+bc_assert(
+    $network_feed['feed']['failure_kind'] === 'network_error'
+    && str_contains($network_feed['feed']['error'], 'Connection timed out after 60 seconds')
+    && $network_feed['wordpress']['stale_ids'] === null,
+    'network failure is preserved and feed-dependent reconciliation stays unavailable'
+);
+
+bc_reset_fixture();
+$network_dry = GSF_Reviewed_Duplicate_Cleanup_Admin::performDryRun(7);
+$GLOBALS['bc_remote_mode'] = 'network_error';
+$GLOBALS['bc_remote_error'] = 'Connection reset during apply validation';
+$network_apply_report = GSF_Reviewed_Duplicate_Cleanup_Admin::buildInventoryReport();
+bc_throws(
+    fn() => GSF_Reviewed_Duplicate_Cleanup_Admin::validateLivePlan(
+        $network_dry['dry_run']['plan'],
+        $network_apply_report
+    ),
+    'Connection reset during apply validation',
+    'apply validation blocks with the actual feed failure instead of an empty-feed comparison'
+);
+
+bc_reset_fixture();
+$GLOBALS['bc_remote_body'] = '{"not":"a row array"';
+$malformed_feed = GSF_Reviewed_Duplicate_Cleanup_Admin::buildInventoryReport();
+bc_assert(
+    $malformed_feed['feed']['failure_kind'] === 'malformed_json'
+    && str_contains($malformed_feed['feed']['error'], 'malformed JSON')
+    && $malformed_feed['wordpress']['missing_from_published'] === null,
+    'malformed JSON is reported explicitly and does not produce missing-ID findings'
+);
+
+bc_reset_fixture();
+$GLOBALS['bc_remote_body'] = '{"id":"object-not-list"}';
+$invalid_shape_feed = GSF_Reviewed_Duplicate_Cleanup_Admin::buildInventoryReport();
+bc_assert(
+    $invalid_shape_feed['feed']['failure_kind'] === 'invalid_payload'
+    && str_contains($invalid_shape_feed['feed']['error'], 'top-level value was not a row array'),
+    'valid JSON with a malformed feed shape is rejected explicitly'
+);
+
+bc_reset_fixture();
+$extra_post_id = 50000;
+$extra_feed_id = (string) $GLOBALS['bc_meta'][1005]['zoho_id'];
+$GLOBALS['bc_posts'][$extra_post_id] = bc_post($extra_post_id, 'publish', 'Unexpected extra duplicate');
+$GLOBALS['bc_meta'][$extra_post_id] = ['zoho_id' => $extra_feed_id, 'last_sync' => '2026-08-25 11:00:00'];
+$extra_duplicate = GSF_Reviewed_Duplicate_Cleanup_Admin::buildInventoryReport();
+bc_assert(
+    $extra_duplicate['pre_cleanup_safe'] === false
+    && count($extra_duplicate['wordpress']['duplicate_ids']) === 6,
+    'an additional unreviewed duplicate blocks plan generation'
+);
+
+bc_reset_fixture();
+$GLOBALS['bc_meta'][1005]['zoho_id'] = '';
+$blank_identity = GSF_Reviewed_Duplicate_Cleanup_Admin::buildInventoryReport();
+bc_assert(
+    $blank_identity['pre_cleanup_safe'] === false
+    && count($blank_identity['wordpress']['blank_ids']) === 1
+    && count($blank_identity['wordpress']['missing_from_any_status']) === 1,
+    'blank and missing stable identities block plan generation'
+);
+
+bc_reset_fixture();
+$GLOBALS['bc_meta'][1005]['zoho_id'] = 'unexpected-stale-id';
+$stale_identity = GSF_Reviewed_Duplicate_Cleanup_Admin::buildInventoryReport();
+bc_assert(
+    $stale_identity['pre_cleanup_safe'] === false
+    && count($stale_identity['wordpress']['stale_ids']) === 1
+    && count($stale_identity['wordpress']['missing_from_published']) === 1,
+    'stale/orphan and missing feed identities block plan generation'
+);
+
+bc_reset_fixture();
+$first_reviewed = $observed_report['reviewed_identities'][0];
+$ambiguous_post_id = 50001;
+$GLOBALS['bc_posts'][$ambiguous_post_id] = bc_post($ambiguous_post_id, 'draft', 'Third reviewed copy');
+$GLOBALS['bc_meta'][$ambiguous_post_id] = [
+    'zoho_id' => $first_reviewed['feed_id'],
+    'last_sync' => '2026-08-25 11:00:00',
+];
+$ambiguous_pair = GSF_Reviewed_Duplicate_Cleanup_Admin::buildInventoryReport();
+bc_assert(
+    $ambiguous_pair['pre_cleanup_safe'] === false
+    && $ambiguous_pair['pre_cleanup_checks']['all_five_reviewed_identities_are_exact_pairs']['passed'] === false,
+    'a reviewed identity with more than two records is ambiguous and blocked'
+);
+
+bc_reset_fixture();
+$unpublished_pair_ids = array_column(
+    GSF_Reviewed_Duplicate_Cleanup_Admin::buildInventoryReport()['reviewed_identities'][0]['records'],
+    'wp_post_id'
+);
+foreach ($unpublished_pair_ids as $post_id) {
+    $GLOBALS['bc_posts'][$post_id]->post_status = 'draft';
+}
+$unpublished_survivor = GSF_Reviewed_Duplicate_Cleanup_Admin::buildInventoryReport();
+bc_assert(
+    $unpublished_survivor['pre_cleanup_safe'] === false
+    && $unpublished_survivor['wordpress']['published_unique_nonblank_ids'] === 231
+    && $unpublished_survivor['pre_cleanup_checks']['all_five_reviewed_identities_are_exact_pairs']['passed'] === false,
+    'a reviewed pair without a published survivor remains blocked'
+);
+
+bc_reset_fixture();
 $GLOBALS['bc_options'][GSF_Reviewed_Duplicate_Cleanup_Admin::LOCK_OPTION] = [
     'token' => 'other-owner',
     'expires_at' => time() + 900,

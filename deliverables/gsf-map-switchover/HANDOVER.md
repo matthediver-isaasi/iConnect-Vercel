@@ -75,8 +75,10 @@ credentials must still be **rotated / revoked** in the Zoho admin console.
   noncanonical `last_sync`, global sync timestamps, option and MySQL advisory
   lock contention, named findings, cleanup dry-run immutability, staged
   per-deletion mutation fencing, final-survivor snapshot matching, persistent
-  journal fallback, and the temporary browser cleanup's
-  administrator/POST/nonce/confirmation and one-time-plan controls.
+  journal fallback, the observed 237-published/232-identity starting state,
+  mixed candidate statuses, explicit feed-failure handling, and the temporary
+  browser cleanup's administrator/POST/nonce/confirmation and one-time-plan
+  controls.
 
 Run them from this repository:
 
@@ -148,14 +150,19 @@ inventory as evidence and use the explicitly reviewed `delete` action.
    as an administrator and open **Members > Duplicate Cleanup**.
 2. Review the live all-status inventory. Do not continue unless the configured
    feed is exactly 232 raw rows/232 unique nonblank IDs and the pre-cleanup
-   WordPress state is exactly 237 all-status posts, 232 published unique members,
-   and only the five reviewed duplicate pairs. Every displayed pre-cleanup
-   safety gate must pass.
+    WordPress state is exactly 237 all-status posts representing 232 unique
+    stable identities, with 232 unique published identities and only the five
+    reviewed duplicate pairs. The raw published-post count may be 232–237:
+    the reviewed live state has all 237 posts published, because each of the five
+    reviewed candidates is published as well as its deterministic survivor.
+    Candidate status does not weaken the exact post-ID fence. Every displayed
+    pre-cleanup safety gate must pass.
 3. Select **Generate fresh dry run**. This mandatory non-mutating step captures
    the before report and creates a one-time, user-bound exact-ID plan. Download
    or copy both **Before report** and **Dry-run deletion plan** JSON before
-   applying. Review every published survivor and noncanonical deletion ID, and
-   take a verified pre-apply WordPress database backup.
+    applying. Review every published survivor and noncanonical deletion ID,
+    including the captured status of each candidate, and take a verified
+    pre-apply WordPress database backup.
 4. For apply, tick the acknowledgement and type the exact case-sensitive phrase
    `DELETE REVIEWED DUPLICATES`. Apply permanently deletes, one at a time, only
    the five exact noncanonical post IDs in the plan. Before **each** deletion it
@@ -167,9 +174,22 @@ inventory as evidence and use the explicitly reviewed `delete` action.
    one-time plan is consumed on the first apply attempt.
 5. Download or copy the **Apply log** and **After report** JSON immediately.
    Require every after gate to pass: 232 feed rows/232 unique IDs, 232
-   all-status WordPress posts, 232 published/unique WordPress members, and zero
-   duplicate, blank, stale, orphan, or missing stable IDs; the expected final
-   survivor snapshot must match the actual final snapshot.
+    all-status WordPress posts, exactly 232 raw published posts representing 232
+    unique published WordPress identities, and zero duplicate, blank, stale,
+    orphan, or missing stable IDs; the expected final survivor snapshot must
+    match the actual final snapshot.
+
+If the configured feed cannot be trusted, the page now shows a prominent
+**Configured iConnect feed reconciliation is unavailable** notice with the
+endpoint or missing-option source and the concrete error. Missing
+`gsf_iconnect_base_url` / `gsf_iconnect_api_key`, HTTP 401, HTTP 503, other HTTP
+errors, WordPress/network errors, malformed JSON, and non-array payloads all
+block dry run and apply. Feed-dependent stale/orphan/missing results display as
+**UNAVAILABLE**, not as findings calculated from an empty feed. Preserve the
+notice or JSON evidence and correct the named configuration, credential,
+endpoint, deployment-secret, network, or payload problem outside this cleanup
+tool; then reload and generate a fresh dry run. Do not infer that a failed feed
+means zero current members.
 
 The page and normal sync share the connection-owned MySQL advisory lock and the
 token-fenced 15-minute `gsf_iconnect_member_sync_lock` option lease. If the page
@@ -185,8 +205,9 @@ fresh inventory and dry run. If the apply log shows only some deletions, stop:
 do not run a normal sync, recreate posts by hand, or retry a stale plan. Capture
 the apply/after JSON and recover the WordPress database from the pre-apply
 backup so the exact reviewed 237-post state is restored; verify it with a fresh
-inventory, then repeat dry run and apply. Escalate instead of proceeding if that
-state cannot be restored. A crashed request releases its connection-owned MySQL
+inventory: 237 published posts representing 232 stable identities, with only
+the five reviewed pairs. Then repeat dry run and apply. Escalate instead of
+proceeding if that state cannot be restored. A crashed request releases its connection-owned MySQL
 advisory lock, but this is not evidence that no deletion occurred: inspect the
 per-user journal and apply evidence first, then restore the backup for any
 partial cleanup before retrying.

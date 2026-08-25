@@ -141,11 +141,15 @@ inventory. Stop unless its gates show exactly:
 
 - configured feed: 232 raw rows and 232 unique nonblank IDs, with no blanks or
   duplicates;
-- WordPress before cleanup: 237 all-status posts, 232 published posts, and 232
-  unique stable IDs;
+- WordPress before cleanup: 237 all-status posts representing 232 unique stable
+  IDs, and 232 unique published stable identities. The raw published-post count
+  may be 232–237; the reviewed live state is 237 raw published posts because
+  both records in all five reviewed pairs are currently published;
 - exactly the five reviewed IDs above, each with one published canonical
-  survivor and one noncanonical deletion candidate; and
-- no blank, stale, orphan, published-duplicate, or missing feed IDs.
+  survivor and one exact noncanonical deletion candidate. The candidate may be
+  published or non-published, and its status and post ID are captured in the
+  plan; and
+- no blank, stale, orphan, unreviewed duplicate, or missing feed IDs.
 
 Select **Generate fresh dry run**. A dry run is mandatory: it obtains the shared
 sync lease, captures the before inventory, and creates a user-bound one-time
@@ -182,9 +186,26 @@ browser evidence has expired, the Apply/After downloads fall back to that
 journal; save its recovery evidence with the four JSON artifacts.
 Every after acceptance gate must pass, including
 `strict_post_cleanup_reconciliation_passed`: feed 232 raw/232 unique, WordPress
-232 all-status and 232 published/unique, with zero duplicate, blank, stale,
-orphan, or missing IDs, and the expected final survivor identity snapshot must
-equal the actual final snapshot.
+232 all-status and exactly 232 raw published posts representing 232 unique
+published identities, with zero duplicate, blank, stale, orphan, or missing IDs,
+and the expected final survivor identity snapshot must equal the actual final
+snapshot.
+
+#### Feed failure troubleshooting
+
+The browser report must show the configured endpoint (or the missing
+`gsf_iconnect_base_url` option) and the concrete reason when it cannot obtain a
+trustworthy feed. Missing base URL/API-key options, HTTP 401 rejection, HTTP 503
+deployment configuration, other non-200 responses, WordPress/network errors,
+malformed JSON, and a valid JSON value that is not a row array all block dry run
+and apply. In that state, feed-dependent stale/orphan/missing classifications
+are **UNAVAILABLE** rather than being calculated against an empty feed.
+
+Archive the displayed error or JSON evidence. Correct the named option,
+credential, endpoint, iConnect deployment secret, network, or response-shape
+problem outside this cleanup tool, then reload and start again with a fresh dry
+run. Do not treat a failed request as an empty member feed, and do not proceed
+from raw WordPress counts alone.
 
 #### Lock contention and retry
 
@@ -204,8 +225,9 @@ If **Apply log** records some but not all five rows as `deleted`, stop all sync
 and cleanup activity. Save the apply and after evidence; do not recreate posts
 manually or attempt the stale plan. Restore the WordPress database from the
 pre-apply backup to the exact reviewed 237-post state, confirm every pre-cleanup
-gate with a new live inventory, and only then repeat dry run/apply. Escalate if
-that exact state cannot be restored. A crashed request releases its
+gate with a new live inventory—237 published posts representing 232 stable
+identities, with only the five reviewed pairs—and only then repeat dry
+run/apply. Escalate if that exact state cannot be restored. A crashed request releases its
 connection-owned MySQL advisory lock, but that does not establish whether a
 deletion completed: inspect `gsf_cleanup_journal_<user-id>` and the available
 Apply/After evidence first. For any partial cleanup, restore the pre-apply
@@ -300,8 +322,8 @@ jq '.acceptance' /tmp/gsf-wordpress-after-2026-08-25.json
 
 Every acceptance value, including
 `strict_post_cleanup_reconciliation_passed`, must be `true`: feed 232 raw/232
-unique, WordPress 232 published/232 unique, and zero duplicate, blank, stale,
-orphan, or missing IDs.
+unique, WordPress exactly 232 all-status and 232 raw published posts/232 unique
+published identities, and zero duplicate, blank, stale, orphan, or missing IDs.
 
 Then compare the captured configured feed with iConnect/dashboard data:
 
