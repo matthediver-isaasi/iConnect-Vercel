@@ -203,6 +203,9 @@ async function fetchPublishedWordpressPosts() {
       slug: row.slug,
       name: titleText(row.title),
       feed_id: stringId(row.meta?.zoho_id),
+      created_at: row.date || '',
+      modified_at: row.modified || '',
+      last_sync: row.meta?.last_sync || '',
     })));
     const totalPages = Number(response.headers.get('x-wp-totalpages') || 1);
     if (page >= totalPages) break;
@@ -228,12 +231,17 @@ function readWordpressInventory() {
     inventory: {
       source: wordpressInventoryPath,
       coverage: parsed?.wordpress?.coverage || parsed?.coverage || 'registered_statuses',
+      global_last_sync: parsed?.wordpress?.global_last_sync || null,
+      acceptance: parsed?.acceptance || null,
       records: records.map((row) => ({
         wp_post_id: row.wp_post_id ?? row.id,
         status: row.status || 'unknown',
         slug: row.slug || '',
         name: row.name || titleText(row.title),
         feed_id: stringId(row.feed_id ?? row.zoho_id ?? row.meta?.zoho_id),
+        created_at: row.created_at || row.date || '',
+        modified_at: row.modified_at || row.modified || '',
+        last_sync: row.last_sync || row.meta?.last_sync || '',
       })),
     },
     embeddedFeed: Array.isArray(embeddedFeed) ? embeddedFeed : null,
@@ -262,6 +270,9 @@ function reconcileWordpress(inventory, feed) {
     wp_post_id: row.wp_post_id,
     status: row.status,
     name: row.name,
+    created_at: row.created_at || '',
+    modified_at: row.modified_at || '',
+    last_sync: row.last_sync || '',
   });
   const missingFrom = (lookup) => feed
     .filter((row) => stringId(row.id) && !lookup.has(stringId(row.id)))
@@ -272,6 +283,7 @@ function reconcileWordpress(inventory, feed) {
   return {
     source: inventory.source,
     coverage: inventory.coverage,
+    global_last_sync: inventory.global_last_sync || null,
     counts_by_status: statusCounts,
     raw_posts: inventory.records.length,
     unique_nonblank_feed_ids: new Set(
@@ -317,6 +329,23 @@ function reconcileWordpress(inventory, feed) {
     feed_ids_missing_from_any_wordpress_status: missingFrom(wpById),
     feed_ids_missing_from_sync_match: missingFrom(syncMatchById),
     feed_ids_missing_from_published: missingFrom(publishedById),
+    acceptance: {
+      feed_has_232_raw_and_unique_nonblank_ids:
+        feed.length === 232
+        && feedById.size === 232
+        && !feed.some((row) => !stringId(row.id))
+        && duplicateGroups(feed, (row) => row.id, () => ({})).length === 0,
+      one_published_wordpress_post_per_feed_id:
+        inventory.records.length === 232
+        && publishedRecords.length === 232
+        && publishedById.size === 232
+        && missingFrom(publishedById).length === 0,
+      no_duplicate_blank_stale_or_orphan_wordpress_ids:
+        duplicateGroups(inventory.records, (row) => row.feed_id, describePost).length === 0
+        && !inventory.records.some((row) => !row.feed_id)
+        && !inventory.records.some((row) => row.feed_id && !feedById.has(row.feed_id)),
+      no_feed_ids_missing_from_wordpress: missingFrom(wpById).length === 0,
+    },
   };
 }
 
@@ -333,7 +362,7 @@ function markdown(report) {
   if (wp) {
     lines.push(`| WordPress published | ${wp.published_posts} | ${wp.published_unique_nonblank_feed_ids} |`);
     if (wp.coverage !== 'published_only') {
-      lines.push(`| WordPress publish + draft (sync lookup) | ${wp.sync_match_posts} | ${wp.sync_match_unique_nonblank_feed_ids} |`);
+      lines.push(`| WordPress publish + draft (legacy sync lookup) | ${wp.sync_match_posts} | ${wp.sync_match_unique_nonblank_feed_ids} |`);
       lines.push(`| WordPress all registered statuses | ${wp.raw_posts} | ${wp.unique_nonblank_feed_ids} |`);
     }
   }
@@ -361,6 +390,26 @@ function markdown(report) {
       `- Feed IDs missing from published WordPress: **${wp.feed_ids_missing_from_published.length}**`,
       `- Feed IDs absent from sync lookup (publish + draft): **${wp.feed_ids_missing_from_sync_match.length}**`,
     );
+    if (wp.acceptance) {
+      const strict = Object.values(wp.acceptance).every(Boolean);
+      lines.push(`- Strict 232/232 post-cleanup reconciliation: **${strict ? 'PASS' : 'FAIL'}**`);
+    }
+    if (wp.duplicate_feed_ids.length) {
+      lines.push(
+        '',
+        '## Duplicate WordPress stable IDs',
+        '',
+        '| Feed ID | Post | Status | Created | Modified | Last sync | Organisation |',
+        '| --- | ---: | --- | --- | --- | --- | --- |',
+      );
+      for (const duplicate of wp.duplicate_feed_ids) {
+        for (const row of duplicate.records) {
+          lines.push(
+            `| ${duplicate.feed_id} | ${row.wp_post_id} | ${row.status} | ${row.created_at || ''} | ${row.modified_at || ''} | ${row.last_sync || ''} | ${String(row.name).replace(/\|/g, '\\|')} |`,
+          );
+        }
+      }
+    }
     if (wp.feed_ids_missing_from_published.length) {
       lines.push('', '## Feed IDs missing from WordPress', '', '| Feed ID | Organisation |', '| --- | --- |');
       for (const row of wp.feed_ids_missing_from_published) {

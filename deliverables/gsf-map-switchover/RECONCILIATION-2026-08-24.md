@@ -1,4 +1,11 @@
-# GSF map member reconciliation — 24 August 2026
+# GSF map member reconciliation — 24–25 August 2026
+
+> **25 August hardening update:** The 24 August investigation below is retained
+> as the pre-fix finding. The distributable class now matches stable IDs across
+> every registered WordPress status, chooses a published-first/lowest-ID
+> canonical post, reports every extra match, and serializes fetch, cleanup, and
+> upsert with an expiring, renewed, compare-and-swap token lease. The final section contains the
+> required before/dry-run/apply/after procedure for the five reviewed pairs.
 
 ## Finding
 
@@ -85,13 +92,13 @@ WordPress-only IDs and no duplicate published WordPress IDs. The one UUID
 fallback is valid and unique today, but assigning a Zoho ID later will
 intentionally change its feed identity and should be followed by a sync.
 
-## Why WordPress can retain divergent records
+## Why the legacy WordPress sync retained divergent records
 
 The iConnect payload builder emits one row per eligible organisation. Its current
 identity fallback (`zoho_crm_id || organization.id`) yields 232 unique IDs, so no
 API identity collision is present.
 
-The WordPress sync has two independent retention gaps:
+The pre-hardening WordPress sync had two independent retention gaps:
 
 1. Upsert looks up only one post for a `zoho_id`
    (`posts_per_page => 1`). If duplicate posts already exist, one is updated and
@@ -100,12 +107,120 @@ The WordPress sync has two independent retention gaps:
    cleanup query to published posts. Stale drafts are retained. Upsert also
    preserves an existing draft's status.
 
-Those gaps explain how an older WordPress inventory can diverge, but the current
+Those gaps explain how an older WordPress inventory can diverge, but the captured
 public inventory contains neither published duplicates nor published stale
 rows. The all-status WP-CLI report is required to classify any retained drafts
 or trash rows.
 
-## Safe next action
+## Hardened five-pair reconciliation procedure — 25 August 2026
+
+The five reviewed stable identities are:
+
+| Organisation | Stable feed ID |
+| --- | --- |
+| Abaarso Network | `815132000006866401` |
+| Rangeet | `815132000006866292` |
+| Sabre Education | `815132000006866295` |
+| Learning Equality | `815132000006929885` |
+| Plato Cultural | `815132000012585001` |
+
+The cleanup tool is hard-limited to these IDs. Titles are used only to make the
+inventory easy to review; cleanup identity is always the stable feed ID plus
+exact WordPress post IDs.
+
+### 1. Deploy the hardened class and capture the before report
+
+Do not run a sync or cleanup before this inventory:
+
+```bash
+wp eval-file /path/to/wp-gsf-map-reconcile.php \
+  > /tmp/gsf-wordpress-before-2026-08-25.json
+```
+
+For each named finding, review both post IDs, statuses, creation/modification
+times, per-record `last_sync`, canonical selection, and the global
+`wordpress.global_last_sync`. The report labels same-ID rows as confirmed
+evidence and labels status/concurrency explanations as likely causes unless
+request logs prove them.
+
+Stop if any name has multiple stable IDs: matching by title is out of scope and
+must never merge those records.
+
+### 2. Build and review the exact-ID cleanup plan
+
+```bash
+jq '{
+  source_generated_at: .generated_at,
+  pairs: [
+    .wordpress.named_duplicate_findings[]
+    | select(.classification == "confirmed_duplicate")
+    | .cleanup_plan_example
+  ]
+}' /tmp/gsf-wordpress-before-2026-08-25.json \
+  > /tmp/gsf-reviewed-duplicate-plan.json
+
+jq '.pairs | length' /tmp/gsf-reviewed-duplicate-plan.json
+cat /tmp/gsf-reviewed-duplicate-plan.json
+```
+
+The count must be exactly five, each survivor must be the intended published
+post, and every noncanonical ID must be one of the reviewed copies. The generated
+action is `delete` because trash remains an all-status duplicate. Change an
+action to `trash` only when archival retention is required and accept that the
+strict final gate will remain false.
+
+### 3. Run the mandatory dry run
+
+```bash
+wp eval-file /path/to/wp-gsf-map-cleanup.php \
+  dry-run /tmp/gsf-reviewed-duplicate-plan.json \
+  > /tmp/gsf-wordpress-cleanup-dry-run.json
+```
+
+Confirm `"applied": false`, no `error`, and the exact survivor/noncanonical rows
+for all five pairs. The tool refuses changed identity sets, a noncanonical
+survivor, a non-published survivor, unknown IDs, duplicate plan entries, or an
+active sync lock.
+
+### 4. Apply only the reviewed plan
+
+```bash
+wp eval-file /path/to/wp-gsf-map-cleanup.php \
+  apply /tmp/gsf-reviewed-duplicate-plan.json \
+  > /tmp/gsf-wordpress-cleanup-applied.json
+```
+
+This is the explicit destructive step. Keep the before report and dry-run output
+as the archive of removed rows. The tool acquires the same lock as normal sync
+and changes only the listed noncanonical post IDs.
+
+### 5. Capture and verify the after report
+
+```bash
+wp eval-file /path/to/wp-gsf-map-reconcile.php \
+  > /tmp/gsf-wordpress-after-2026-08-25.json
+
+jq '.acceptance' /tmp/gsf-wordpress-after-2026-08-25.json
+```
+
+Every acceptance value, including
+`strict_post_cleanup_reconciliation_passed`, must be `true`: feed 232 raw/232
+unique, WordPress 232 published/232 unique, and zero duplicate, blank, stale,
+orphan, or missing IDs.
+
+Then compare the captured configured feed with iConnect/dashboard data:
+
+```bash
+node scripts/reconcile-gsf-map.mjs \
+  --wordpress-inventory=/tmp/gsf-wordpress-after-2026-08-25.json \
+  --format=markdown
+```
+
+If checking a separately deployed endpoint, also pass `--api-base` with
+`GSF_MAP_API_SECRET` in the environment and require
+`Endpoint exactly matches the WordPress-export feed IDs: YES`.
+
+## Historical safe-action notes from 24 August
 
 Do **not** change GSF eligibility rules and do not delete WordPress rows based on
 the old 237 count.
@@ -142,14 +257,11 @@ the old 237 count.
    builder and authenticated workspace endpoint but could not independently
    authenticate to the externally configured production endpoint.
 
-3. Run a normal WordPress manual sync only if the exact endpoint/export ID-set
-   gate passes **and** the WP-CLI report confirms the expected 22 IDs are absent
-   from both `publish` and `draft`, with no duplicate/conflicting statuses.
-   Wait out the documented five-minute CDN cache first. If an ID already exists
-   as a draft, review that draft rather than expecting the upsert to publish it.
-   If it exists only as trash/private/pending/future, resolve that post
-   deliberately before sync because the current upsert will create another
-   published post.
+3. With the hardened class, a normal sync treats an ID in any registered status
+   as existing and preserves that canonical post's status. Review non-published
+   records deliberately; the sync will not silently publish them. A concurrent
+   request now returns a clear busy result instead of entering the insertion
+   window.
 
 4. Re-run both diagnostics. A clean result is dashboard 232, API 232 raw/232
    unique, WordPress 232 published/232 unique, with zero duplicates, stale,

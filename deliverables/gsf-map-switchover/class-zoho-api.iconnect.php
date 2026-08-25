@@ -22,9 +22,9 @@
  *    (same field names, same "id" values), already filtered to current
  *    members, in a single JSON array (no pagination and no "data"/"info"
  *    envelope).
- *  - Everything downstream is untouched: post creation/update, meta fields,
- *    stale-record deletion, the getMembers() filters, and the
- *    gsf_zoho_countries option shape are all exactly as before.
+ *  - Feed fields, getMembers() filters, and the gsf_zoho_countries option shape
+ *    remain compatible. On 2026-08-25, member identity lookup and orchestration
+ *    were hardened with all-status canonical matching and an expiring sync lock.
  *
  * CONFIGURATION (WordPress options -- set these BEFORE deploying)
  *   gsf_iconnect_base_url   e.g. https://your-iconnect-host  (no trailing /)
@@ -45,28 +45,31 @@
  *    is no token to refresh or clear -- the code now just logs and aborts.
  *
  * SECURITY -- PLEASE ACTION
- *  - The original file contained a hard-coded Zoho client id, client secret
- *    and refresh token (still visible, commented out, just below). Those
- *    credentials were committed in plain text and should be ROTATED / REVOKED
- *    in the Zoho admin console once the switch-over is confirmed.
+ *  - The original file contained hard-coded Zoho OAuth credentials. Their
+ *    literal values have been removed from this distributable, but credentials
+ *    exposed in earlier copies must still be rotated / revoked in Zoho.
  * ============================================================================
  */
+if (!class_exists('GSF_Member_Sync_Lock_Exception')) {
+    class GSF_Member_Sync_Lock_Exception extends RuntimeException
+    {
+    }
+}
+
 /**
  * Zoho API integration class
  */
 class ZohoAPI
 {
-    // [ICONNECT 2026-07-09] The hard-coded Zoho OAuth credentials below are no
-    // longer used anywhere in this class. They are kept (commented out) only so
-    // you can identify WHICH credentials to rotate/revoke in Zoho -- see the
-    // SECURITY note in the header. iConnect connection settings are read from
-    // WP options instead (gsf_iconnect_base_url / gsf_iconnect_api_key).
+    const MEMBER_SYNC_LOCK_OPTION = 'gsf_iconnect_member_sync_lock';
+    const MEMBER_SYNC_LOCK_TTL = 900;
+
+    // [ICONNECT 2026-08-25] Literal legacy Zoho OAuth credentials were removed
+    // from the distributable. iConnect settings are read from WordPress options.
     // ==================== ORIGINAL ZOHO CODE (disabled 2026-07-09) ====================
-    // Kept for review -- safe to delete once the iConnect switch-over is verified.
-    // -------------------------------------------------------------------------------
-    // private $clientId = '1000.7WKGX9DP1FINC0GHFC9S5X4655RVIU';
-    // private $clientSecret = '9cc492e34793e45a782e485538ad9e9c30c409b858';
-    // private $refreshToken = '1000.f5a2d10c3021b24e4ab49ca312828cee.418c6e771618aea44e9d0857e05c59f8';
+    // private $clientId = '[removed]';
+    // private $clientSecret = '[removed]';
+    // private $refreshToken = '[removed]';
     // ==================== END ORIGINAL ZOHO CODE ===================================
     // [ICONNECT 2026-07-09] $tokenExpiry / $accessToken are retained only so the
     // legacy debug helpers at the bottom of the file (getTokenStatus,
@@ -223,6 +226,212 @@ class ZohoAPI
         return $body;
     }
 
+    /**
+     * Return every registered post status so stable feed identity is independent
+     * of whether a member is currently published, drafted, private, pending,
+     * scheduled, trashed, or held in a custom status.
+     */
+    private function getAllMemberPostStatuses()
+    {
+        $statuses = array_values(get_post_stati([], 'names'));
+        return empty($statuses) ? ['publish', 'draft', 'pending', 'private', 'future', 'trash'] : $statuses;
+    }
+
+    /**
+     * Resolve every WordPress post carrying a stable feed ID.
+     */
+    private function findMembersByFeedId($feed_id)
+    {
+        return get_posts([
+            'post_type' => 'gsf_member',
+            'meta_query' => [
+                [
+                    'key' => 'zoho_id',
+                    'value' => $feed_id,
+                    'compare' => '=',
+                ]
+            ],
+            'posts_per_page' => -1,
+            'post_status' => $this->getAllMemberPostStatuses(),
+            'orderby' => 'ID',
+            'order' => 'ASC',
+            'suppress_filters' => false,
+        ]);
+    }
+
+    /**
+     * Pick one canonical post deterministically. Published posts win; ties and
+     * all non-published sets use the oldest (lowest) post ID. The sync preserves
+     * the selected post's status and never publishes it as a side effect.
+     */
+    private function selectCanonicalMember($matches)
+    {
+        if (empty($matches)) {
+            return null;
+        }
+
+        usort($matches, function ($left, $right) {
+            $left_published = $left->post_status === 'publish' ? 0 : 1;
+            $right_published = $right->post_status === 'publish' ? 0 : 1;
+            if ($left_published !== $right_published) {
+                return $left_published <=> $right_published;
+            }
+            return ((int) $left->ID) <=> ((int) $right->ID);
+        });
+
+        return $matches[0];
+    }
+
+    private function describeMemberPost($post)
+    {
+        return [
+            'wp_post_id' => (int) $post->ID,
+            'status' => (string) $post->post_status,
+            'name' => html_entity_decode((string) $post->post_title, ENT_QUOTES, 'UTF-8'),
+            'created_at' => (string) $post->post_date,
+            'modified_at' => (string) $post->post_modified,
+            'last_sync' => (string) get_post_meta($post->ID, 'last_sync', true),
+        ];
+    }
+
+    private function readMemberSyncLockRow()
+    {
+        global $wpdb;
+        $raw = $wpdb->get_var($wpdb->prepare(
+            "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s LIMIT 1",
+            self::MEMBER_SYNC_LOCK_OPTION
+        ));
+        if ($raw === null) {
+            return null;
+        }
+        return [
+            'raw' => (string) $raw,
+            'value' => maybe_unserialize($raw),
+        ];
+    }
+
+    private function clearMemberSyncLockCache()
+    {
+        wp_cache_delete(self::MEMBER_SYNC_LOCK_OPTION, 'options');
+        wp_cache_delete('alloptions', 'options');
+    }
+
+    private function compareAndSwapMemberSyncLock($expected_raw, $replacement)
+    {
+        global $wpdb;
+        $updated = $wpdb->query($wpdb->prepare(
+            "UPDATE {$wpdb->options}
+             SET option_value = %s
+             WHERE option_name = %s AND option_value = %s",
+            maybe_serialize($replacement),
+            self::MEMBER_SYNC_LOCK_OPTION,
+            $expected_raw
+        ));
+        if ($updated === 1) {
+            $this->clearMemberSyncLockCache();
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * Acquire an expiring lease. Initial acquisition uses add_option()'s unique
+     * key; expired takeover is one compare-and-swap UPDATE, never read/delete.
+     */
+    private function acquireMemberSyncLock()
+    {
+        $now = time();
+        $token = function_exists('wp_generate_uuid4')
+            ? wp_generate_uuid4()
+            : uniqid('gsf-member-sync-', true);
+        $lock = [
+            'token' => $token,
+            'acquired_at' => $now,
+            'expires_at' => $now + self::MEMBER_SYNC_LOCK_TTL,
+        ];
+
+        if (add_option(self::MEMBER_SYNC_LOCK_OPTION, $lock, '', false)) {
+            return ['acquired' => true, 'lock' => $lock];
+        }
+
+        $row = $this->readMemberSyncLockRow();
+        if ($row === null) {
+            if (add_option(self::MEMBER_SYNC_LOCK_OPTION, $lock, '', false)) {
+                return ['acquired' => true, 'lock' => $lock];
+            }
+            $row = $this->readMemberSyncLockRow();
+        }
+
+        $current = is_array($row['value'] ?? null) ? $row['value'] : [];
+        if ((int) ($current['expires_at'] ?? 0) <= $now) {
+            if ($this->compareAndSwapMemberSyncLock($row['raw'], $lock)) {
+                return ['acquired' => true, 'lock' => $lock, 'recovered_expired_lock' => true];
+            }
+            $row = $this->readMemberSyncLockRow();
+            $current = is_array($row['value'] ?? null) ? $row['value'] : [];
+        }
+
+        return [
+            'acquired' => false,
+            'busy_until' => is_array($current) ? (int) ($current['expires_at'] ?? 0) : 0,
+            'acquired_at' => is_array($current) ? (int) ($current['acquired_at'] ?? 0) : 0,
+        ];
+    }
+
+    /**
+     * Renew the token-owned lease with compare-and-swap fencing. If another
+     * request won expiry takeover, the stale owner fails before its next write.
+     */
+    private function renewMemberSyncLock(&$lock)
+    {
+        $row = $this->readMemberSyncLockRow();
+        $current = is_array($row['value'] ?? null) ? $row['value'] : [];
+        if (
+            $row === null
+            || !isset($current['token'])
+            || !hash_equals((string) $current['token'], (string) ($lock['token'] ?? ''))
+        ) {
+            throw new GSF_Member_Sync_Lock_Exception('Member sync lease ownership was lost');
+        }
+
+        $replacement = $current;
+        $replacement['expires_at'] = max(
+            time() + self::MEMBER_SYNC_LOCK_TTL,
+            (int) ($current['expires_at'] ?? 0) + 1
+        );
+        if (!$this->compareAndSwapMemberSyncLock($row['raw'], $replacement)) {
+            throw new GSF_Member_Sync_Lock_Exception('Member sync lease renewal lost a concurrent race');
+        }
+        $lock = $replacement;
+    }
+
+    /**
+     * Release with a token check and compare-and-delete. A stale owner cannot
+     * delete a replacement lease acquired after expiry.
+     */
+    private function releaseMemberSyncLock($token)
+    {
+        global $wpdb;
+        $row = $this->readMemberSyncLockRow();
+        $current = is_array($row['value'] ?? null) ? $row['value'] : [];
+        if (
+            $row === null
+            || !isset($current['token'])
+            || !hash_equals((string) $current['token'], (string) $token)
+        ) {
+            return;
+        }
+        $deleted = $wpdb->query($wpdb->prepare(
+            "DELETE FROM {$wpdb->options}
+             WHERE option_name = %s AND option_value = %s",
+            self::MEMBER_SYNC_LOCK_OPTION,
+            $row['raw']
+        ));
+        if ($deleted === 1) {
+            $this->clearMemberSyncLockCache();
+        }
+    }
+
     private function maybeRefreshToken()
     {
         // [ICONNECT 2026-07-09] No-op. iConnect auth is a static X-Api-Key header;
@@ -299,7 +508,7 @@ class ZohoAPI
         // ==================== END ORIGINAL ZOHO CODE ===================================
     }
 
-    private function syncMembersToWordPress($members)
+    private function syncMembersToWordPress($members, &$lock = null)
     {
         $this->logger->log('Starting member sync', 'INFO', [
             'memberCount' => count($members)
@@ -309,26 +518,49 @@ class ZohoAPI
             'created' => 0,
             'updated' => 0,
             'failed' => 0,
+            'last_sync_updated' => 0,
+            'duplicate_feed_ids' => [],
             'total_fetched' => count($members),
         ];
 
         foreach ($members as $member) {
-            $post_updated = false; // Track if the post itself was updated
+            if (is_array($lock)) {
+                $this->renewMemberSyncLock($lock);
+            }
+            $post_updated = false;
+            $post_id = 0;
+            $feed_id = trim((string) ($member['id'] ?? ''));
+            if ($feed_id === '') {
+                $sync_stats['failed']++;
+                $this->logger->log('Member sync skipped because stable feed ID is blank', 'ERROR', [
+                    'member' => $member['Account_Name'] ?? '',
+                ]);
+                continue;
+            }
 
-            $existing_member = get_posts([
-                'post_type' => 'gsf_member',
-                'meta_query' => [
-                    [
-                        'key' => 'zoho_id',
-                        'value' => $member['id'],
-                    ]
-                ],
-                'posts_per_page' => 1,
-                'post_status' => ['publish', 'draft']
-            ]);
+            $existing_member = $this->findMembersByFeedId($feed_id);
+            $existing_post = $this->selectCanonicalMember($existing_member);
+
+            if (count($existing_member) > 1) {
+                $duplicate = [
+                    'feed_id' => $feed_id,
+                    'canonical' => $this->describeMemberPost($existing_post),
+                    'noncanonical' => [],
+                ];
+                foreach ($existing_member as $match) {
+                    if ((int) $match->ID !== (int) $existing_post->ID) {
+                        $duplicate['noncanonical'][] = $this->describeMemberPost($match);
+                    }
+                }
+                $sync_stats['duplicate_feed_ids'][] = $duplicate;
+                $this->logger->log('Duplicate stable feed ID found; only canonical post will be updated', 'WARNING', $duplicate);
+            }
 
             try {
-                if (empty($existing_member)) {
+                if ($existing_post === null) {
+                    if (is_array($lock)) {
+                        $this->renewMemberSyncLock($lock);
+                    }
                     // New member - create as published initially
                     $member_data = [
                         'post_title' => $member['Account_Name'],
@@ -337,15 +569,19 @@ class ZohoAPI
                         'post_date' => current_time('mysql'),
                         'post_modified' => current_time('mysql'),
                     ];
-                    $post_id = wp_insert_post($member_data);
-                    if ($post_id) {
+                    $post_id = wp_insert_post($member_data, true);
+                    if (!is_wp_error($post_id) && $post_id) {
                         $sync_stats['created']++;
                     } else {
                         $sync_stats['failed']++;
+                        $this->logger->log('Member post insert failed', 'ERROR', [
+                            'member_id' => $feed_id,
+                            'error' => is_wp_error($post_id) ? $post_id->get_error_message() : 'wp_insert_post returned no post ID',
+                        ]);
+                        continue;
                     }
                 } else {
                     // Check if existing member needs updating
-                    $existing_post = $existing_member[0];
                     $needs_update = false;
 
                     // Check if post title changed
@@ -354,6 +590,9 @@ class ZohoAPI
                     }
 
                     if ($needs_update) {
+                        if (is_array($lock)) {
+                            $this->renewMemberSyncLock($lock);
+                        }
                         // Update existing member - preserve current status
                         $member_data = [
                             'ID' => $existing_post->ID,
@@ -361,11 +600,17 @@ class ZohoAPI
                             'post_modified' => current_time('mysql'),
                             'post_status' => $existing_post->post_status
                         ];
-                        $post_id = wp_update_post($member_data);
-                        if ($post_id) {
-                            $sync_stats['updated']++;
+                        $post_id = wp_update_post($member_data, true);
+                        if (!is_wp_error($post_id) && $post_id) {
+                            $post_updated = true;
                         } else {
                             $sync_stats['failed']++;
+                            $this->logger->log('Member post update failed', 'ERROR', [
+                                'member_id' => $feed_id,
+                                'wp_post_id' => (int) $existing_post->ID,
+                                'error' => is_wp_error($post_id) ? $post_id->get_error_message() : 'wp_update_post returned no post ID',
+                            ]);
+                            continue;
                         }
                     } else {
                         // No post update needed, but we still need the post ID for meta updates
@@ -421,11 +666,12 @@ class ZohoAPI
 
                     // For existing members, check if meta fields actually changed before updating
                     $meta_updated = false;
-                    if (!empty($existing_member)) {
+                    if ($existing_post !== null) {
                         foreach ($new_meta_fields as $key => $new_value) {
                             // Skip last_sync from change detection (it always changes)
                             if ($key === 'last_sync') {
                                 update_post_meta($post_id, $key, $new_value);
+                                $sync_stats['last_sync_updated']++;
                                 continue;
                             }
 
@@ -474,15 +720,23 @@ class ZohoAPI
                         foreach ($new_meta_fields as $key => $value) {
                             update_post_meta($post_id, $key, $value);
                         }
+                        $sync_stats['last_sync_updated']++;
                     }
                 }
-            } catch (Exception $e) {
+            } catch (Throwable $e) {
+                if ($e instanceof GSF_Member_Sync_Lock_Exception) {
+                    throw $e;
+                }
                 $sync_stats['failed']++;
                 $this->logger->log('Member sync failed', 'ERROR', [
-                    'member' => $member['Organisation_name'],
+                    'member' => $member['Account_Name'] ?? '',
                     'error' => $e->getMessage()
                 ]);
             }
+        }
+
+        if (is_array($lock)) {
+            $this->renewMemberSyncLock($lock);
         }
 
         // Update global sync timestamp
@@ -494,6 +748,8 @@ class ZohoAPI
         update_option('gsf_last_sync_stats', $sync_stats);
 
         $this->logger->log('Member sync completed', 'INFO', $sync_stats);
+
+        return $sync_stats;
     }
 
     public function getMembers($page = 1, $perPage = 200, $filters = [], $forceSync = false)
@@ -507,16 +763,26 @@ class ZohoAPI
 
         // Enhanced rate limiting logic
         $shouldSync = false;
+        $sync_result = [
+            'status' => 'not_required',
+            'reason' => 'interval_not_elapsed',
+            'deleted_count' => 0,
+        ];
         if ($forceSync) {
             // For manual syncs, check if we haven't synced in the last 30 seconds to prevent spam
             $last_manual_sync = get_option('gsf_zoho_last_manual_sync', 0);
             if (time() - $last_manual_sync > 30) {
                 $shouldSync = true;
-                update_option('gsf_zoho_last_manual_sync', time());
                 $this->logger->log('Manual sync allowed', 'INFO', [
                     'seconds_since_last_manual' => time() - $last_manual_sync
                 ]);
             } else {
+                $sync_result = [
+                    'status' => 'skipped',
+                    'reason' => 'manual_rate_limited',
+                    'retry_after_seconds' => 30 - (time() - $last_manual_sync),
+                    'deleted_count' => 0,
+                ];
                 $this->logger->log('Manual sync rate limited', 'WARNING', [
                     'seconds_since_last_manual' => time() - $last_manual_sync,
                     'wait_seconds' => 30 - (time() - $last_manual_sync)
@@ -529,7 +795,11 @@ class ZohoAPI
 
         $deleted_count = 0;
         if ($shouldSync) {
-            $deleted_count = $this->syncWithZoho();
+            $sync_result = $this->syncWithZoho();
+            $deleted_count = (int) ($sync_result['deleted_count'] ?? 0);
+            if ($forceSync && ($sync_result['status'] ?? '') === 'completed') {
+                update_option('gsf_zoho_last_manual_sync', time());
+            }
         } else {
             $this->logger->log('Sync not required', 'DEBUG', [
                 'last_sync_time' => $this->lastSyncTime ? date('Y-m-d H:i:s', $this->lastSyncTime) : 'never',
@@ -640,6 +910,7 @@ class ZohoAPI
             'members' => $members,
             'total' => $query->found_posts,
             'deleted_count' => isset($deleted_count) ? $deleted_count : 0,
+            'sync_result' => $sync_result,
             'sync_stats' => get_option('gsf_last_sync_stats', [
                 'created' => 0,
                 'updated' => 0,
@@ -835,7 +1106,28 @@ class ZohoAPI
 
     private function syncWithZoho()
     {
-        $this->logger->log('Sync required, fetching all members from Zoho', 'INFO');
+        $lock_result = $this->acquireMemberSyncLock();
+        if (!$lock_result['acquired']) {
+            $result = [
+                'status' => 'busy',
+                'reason' => 'member_sync_already_running',
+                'deleted_count' => 0,
+                'busy_until' => $lock_result['busy_until'],
+                'retry_after_seconds' => max(1, $lock_result['busy_until'] - time()),
+            ];
+            update_option('gsf_last_sync_result', $result);
+            $this->logger->log('Member sync skipped because another sync holds the lock', 'WARNING', $result);
+            return $result;
+        }
+
+        $lock = $lock_result['lock'];
+        $started_at = time();
+        $this->logger->log('Sync lock acquired; fetching all members from iConnect', 'INFO', [
+            'lock_expires_at' => $lock['expires_at'],
+            'recovered_expired_lock' => !empty($lock_result['recovered_expired_lock']),
+        ]);
+
+        try {
         // [ICONNECT 2026-07-09] No token refresh needed for iConnect (no-op anyway).
         // ==================== ORIGINAL ZOHO CODE (disabled 2026-07-09) ====================
         // Kept for review -- safe to delete once the iConnect switch-over is verified.
@@ -848,26 +1140,42 @@ class ZohoAPI
         if ($shouldSyncCountries) {
             $this->syncCountriesFromZoho();
         }
+        $this->renewMemberSyncLock($lock);
 
         $fetchResult = $this->fetchAllMembersFromZoho();
         if ($fetchResult === null) {
-            return 0;
+            $result = [
+                'status' => 'failed',
+                'reason' => 'member_fetch_failed',
+                'deleted_count' => 0,
+            ];
+            update_option('gsf_last_sync_result', $result);
+            return $result;
         }
+        $this->renewMemberSyncLock($lock);
 
         $allMembers = $fetchResult['members'];
         $pagesFetched = $fetchResult['pages_fetched'];
 
         if (empty($allMembers)) {
             $this->logger->log('No members to sync from Zoho', 'WARNING');
-            return 0;
+            $result = [
+                'status' => 'failed',
+                'reason' => 'empty_member_feed',
+                'deleted_count' => 0,
+            ];
+            update_option('gsf_last_sync_result', $result);
+            return $result;
         }
 
         $current_zoho_ids = array_map(function ($member) {
             return $member['id'];
         }, $allMembers);
+        $this->renewMemberSyncLock($lock);
 
         $stale_members = get_posts([
             'post_type' => 'gsf_member',
+            'post_status' => 'publish',
             'posts_per_page' => -1,
             'fields' => 'ids',
             'meta_query' => [
@@ -881,6 +1189,7 @@ class ZohoAPI
 
         $orphan_members = get_posts([
             'post_type' => 'gsf_member',
+            'post_status' => 'publish',
             'posts_per_page' => -1,
             'fields' => 'ids',
             'meta_query' => [
@@ -901,6 +1210,7 @@ class ZohoAPI
 
         $deleted_count = 0;
         foreach ($posts_to_delete as $post_id) {
+            $this->renewMemberSyncLock($lock);
             wp_delete_post($post_id, true);
             $deleted_count++;
         }
@@ -913,15 +1223,37 @@ class ZohoAPI
             ]);
         }
 
-        $this->syncMembersToWordPress($allMembers);
+        $sync_stats = $this->syncMembersToWordPress($allMembers, $lock);
 
-        $this->logger->log('Member sync from Zoho completed', 'INFO', [
+        $result = [
+            'status' => 'completed',
+            'reason' => null,
             'total_members_fetched' => count($allMembers),
             'pages_fetched' => $pagesFetched,
-            'deleted_count' => $deleted_count
-        ]);
+            'deleted_count' => $deleted_count,
+            'duplicate_feed_ids' => $sync_stats['duplicate_feed_ids'],
+            'started_at' => $started_at,
+            'completed_at' => time(),
+        ];
+        update_option('gsf_last_sync_result', $result);
+        $this->logger->log('Member sync from iConnect completed', 'INFO', $result);
 
-        return $deleted_count;
+        return $result;
+        } catch (Throwable $e) {
+            $result = [
+                'status' => 'failed',
+                'reason' => $e instanceof GSF_Member_Sync_Lock_Exception
+                    ? 'member_sync_lock_lost'
+                    : 'unexpected_exception',
+                'message' => $e->getMessage(),
+                'deleted_count' => 0,
+            ];
+            update_option('gsf_last_sync_result', $result);
+            $this->logger->log('Member sync failed unexpectedly', 'ERROR', $result);
+            return $result;
+        } finally {
+            $this->releaseMemberSyncLock($lock['token']);
+        }
     }
 
     /**

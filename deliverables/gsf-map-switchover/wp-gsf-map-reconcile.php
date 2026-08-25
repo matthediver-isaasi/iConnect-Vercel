@@ -8,6 +8,10 @@
  * The report includes publish/draft/pending/private/future/trash gsf_member
  * posts and compares their zoho_id values with the currently configured
  * iConnect feed. It never creates, updates, deletes, or changes post status.
+ *
+ * The five named findings distinguish facts present in WordPress from likely
+ * causes. WordPress post rows cannot prove whether a historical duplicate came
+ * from a status-hidden lookup or overlapping requests without matching logs.
  */
 
 if (!defined('ABSPATH')) {
@@ -68,6 +72,10 @@ foreach ($posts as $post) {
         'slug' => (string) $post->post_name,
         'name' => html_entity_decode((string) $post->post_title, ENT_QUOTES, 'UTF-8'),
         'feed_id' => $feed_id,
+        'created_at' => (string) $post->post_date,
+        'created_at_gmt' => (string) $post->post_date_gmt,
+        'modified_at' => (string) $post->post_modified,
+        'modified_at_gmt' => (string) $post->post_modified_gmt,
         'last_sync' => (string) get_post_meta($post->ID, 'last_sync', true),
     ];
     $records[] = $record;
@@ -103,9 +111,32 @@ foreach ($posts_by_feed_id as $feed_id => $matches) {
     if ($feed_id === '') {
         $orphans = $matches;
     } elseif (count($matches) > 1) {
+        $sorted = $matches;
+        usort($sorted, function ($left, $right) {
+            $left_published = $left['status'] === 'publish' ? 0 : 1;
+            $right_published = $right['status'] === 'publish' ? 0 : 1;
+            if ($left_published !== $right_published) {
+                return $left_published <=> $right_published;
+            }
+            return $left['wp_post_id'] <=> $right['wp_post_id'];
+        });
+        $canonical = $sorted[0];
+        $noncanonical = array_values(array_filter($sorted, function ($record) use ($canonical) {
+            return $record['wp_post_id'] !== $canonical['wp_post_id'];
+        }));
         $duplicates[] = [
             'feed_id' => $feed_id,
             'records' => $matches,
+            'canonical_record' => $canonical,
+            'noncanonical_records' => $noncanonical,
+            'cleanup_plan_example' => [
+                'feed_id' => $feed_id,
+                'survivor_post_id' => $canonical['wp_post_id'],
+                'noncanonical_post_ids' => array_values(array_map(function ($record) {
+                    return $record['wp_post_id'];
+                }, $noncanonical)),
+                'action' => 'delete',
+            ],
         ];
     }
 }
@@ -158,6 +189,128 @@ foreach ($feed_by_id as $feed_id => $rows) {
     }
 }
 
+$named_organisations = [
+    'Abaarso Network',
+    'Rangeet',
+    'Sabre Education',
+    'Learning Equality',
+    'Plato Cultural',
+];
+$named_duplicate_findings = [];
+foreach ($named_organisations as $name) {
+    $named_records = array_values(array_filter($records, function ($record) use ($name) {
+        return strcasecmp(trim($record['name']), $name) === 0;
+    }));
+    $named_feed_ids = array_values(array_unique(array_filter(array_map(function ($record) {
+        return $record['feed_id'];
+    }, $named_records), 'strlen')));
+
+    $finding = [
+        'organisation' => $name,
+        'classification' => 'not_found',
+        'feed_id' => count($named_feed_ids) === 1 ? $named_feed_ids[0] : null,
+        'title_matched_records' => $named_records,
+        'confirmed_evidence' => [],
+        'likely_cause' => null,
+        'canonical_record' => null,
+        'noncanonical_records' => [],
+        'cleanup_plan_example' => null,
+    ];
+
+    if (count($named_feed_ids) > 1) {
+        $finding['classification'] = 'same_title_different_feed_ids';
+        $finding['confirmed_evidence'][] = 'Multiple stable feed IDs share this title; they are not treated as duplicates.';
+        $named_duplicate_findings[] = $finding;
+        continue;
+    }
+    if (count($named_feed_ids) !== 1) {
+        $named_duplicate_findings[] = $finding;
+        continue;
+    }
+
+    $matches = $posts_by_feed_id[$named_feed_ids[0]] ?? [];
+    $sorted = $matches;
+    usort($sorted, function ($left, $right) {
+        $left_published = $left['status'] === 'publish' ? 0 : 1;
+        $right_published = $right['status'] === 'publish' ? 0 : 1;
+        if ($left_published !== $right_published) {
+            return $left_published <=> $right_published;
+        }
+        return $left['wp_post_id'] <=> $right['wp_post_id'];
+    });
+    $canonical = $sorted[0] ?? null;
+    $noncanonical = $canonical === null ? [] : array_values(array_filter(
+        $sorted,
+        function ($record) use ($canonical) {
+            return $record['wp_post_id'] !== $canonical['wp_post_id'];
+        }
+    ));
+
+    $finding['canonical_record'] = $canonical;
+    $finding['noncanonical_records'] = $noncanonical;
+    if (count($matches) === 1) {
+        $finding['classification'] = 'single_record';
+        $finding['confirmed_evidence'][] = 'Exactly one WordPress post currently carries this stable feed ID.';
+        $named_duplicate_findings[] = $finding;
+        continue;
+    }
+
+    $finding['classification'] = 'confirmed_duplicate';
+    $finding['confirmed_evidence'][] = count($matches) . ' WordPress posts carry the same nonblank stable feed ID.';
+    $finding['confirmed_evidence'][] = 'Canonical selection is published-first, then lowest WordPress post ID.';
+    $finding['confirmed_evidence'][] = 'Per-record last_sync values are reported verbatim; differing values prove the copies were not updated together.';
+
+    $legacy_hidden = array_values(array_filter($noncanonical, function ($record) {
+        return !in_array($record['status'], ['publish', 'draft'], true);
+    }));
+    if (!empty($legacy_hidden)) {
+        $finding['likely_cause'] = 'A noncanonical copy was hidden from the legacy publish/draft-only lookup. This is strongly consistent with status-hidden duplication, but the row alone does not prove which request inserted the other copy.';
+    } else {
+        $created_times = array_values(array_filter(array_map(function ($record) {
+            $parsed = strtotime($record['created_at_gmt'] ?: $record['created_at']);
+            return $parsed === false ? null : $parsed;
+        }, $matches), function ($value) {
+            return $value !== null;
+        }));
+        if (count($created_times) > 1 && max($created_times) - min($created_times) <= 300) {
+            $finding['likely_cause'] = 'The copies were created within five minutes and all were visible to the legacy lookup. This is consistent with overlapping lookup-before-insert requests, but requires request logs for proof.';
+        } else {
+            $finding['likely_cause'] = 'The legacy one-row lookup updated only one arbitrary match and never reconciled extras. Available post rows do not prove the original insertion path.';
+        }
+    }
+    $finding['cleanup_plan_example'] = [
+        'feed_id' => $named_feed_ids[0],
+        'survivor_post_id' => $canonical['wp_post_id'],
+        'noncanonical_post_ids' => array_values(array_map(function ($record) {
+            return $record['wp_post_id'];
+        }, $noncanonical)),
+        'action' => 'delete',
+    ];
+    $named_duplicate_findings[] = $finding;
+}
+
+$global_last_sync_raw = get_option('gsf_zoho_last_sync', null);
+$global_last_sync = null;
+if (is_numeric($global_last_sync_raw) && (int) $global_last_sync_raw > 0) {
+    $global_last_sync = gmdate('c', (int) $global_last_sync_raw);
+} elseif (is_string($global_last_sync_raw) && trim($global_last_sync_raw) !== '') {
+    $global_last_sync = $global_last_sync_raw;
+}
+
+$strict_clean = $feed_error === null
+    && count($feed) === 232
+    && count($feed_by_id) === 232
+    && empty($blank_feed_records)
+    && empty($feed_duplicates)
+    && count($records) === 232
+    && count(array_filter(array_keys($posts_by_feed_id), 'strlen')) === 232
+    && count($published_by_feed_id) === 232
+    && empty($duplicates)
+    && empty($orphans)
+    && empty($stale)
+    && empty($missing_from_any_status)
+    && empty($missing_from_published);
+
 $report = [
     'generated_at' => gmdate('c'),
     'read_only' => true,
@@ -179,6 +332,8 @@ $report = [
         'coverage' => 'registered_statuses',
         'registered_post_statuses' => $post_statuses,
         'raw_posts' => count($records),
+        'global_last_sync_raw' => $global_last_sync_raw,
+        'global_last_sync' => $global_last_sync,
         'counts_by_status' => $counts_by_status,
         'unique_nonblank_feed_ids' => count(array_filter(array_keys($posts_by_feed_id), 'strlen')),
         'published_posts' => count(array_filter($records, function ($record) {
@@ -190,6 +345,7 @@ $report = [
         })),
         'sync_match_unique_nonblank_feed_ids' => count(array_filter(array_keys($sync_match_by_feed_id), 'strlen')),
         'duplicate_feed_ids' => $duplicates,
+        'named_duplicate_findings' => $named_duplicate_findings,
         'duplicate_sync_match_feed_ids' => $sync_match_duplicates,
         'orphan_posts' => $orphans,
         'stale_posts' => $stale,
@@ -197,6 +353,21 @@ $report = [
         'feed_ids_missing_from_sync_match' => $missing_from_sync_match,
         'feed_ids_missing_from_published' => $missing_from_published,
         'records' => $records,
+    ],
+    'acceptance' => [
+        'expected_feed_records' => 232,
+        'feed_has_232_raw_and_unique_nonblank_ids' => count($feed) === 232
+            && count($feed_by_id) === 232
+            && empty($blank_feed_records)
+            && empty($feed_duplicates),
+        'one_published_wordpress_post_per_feed_id' => count($records) === 232
+            && count($published_by_feed_id) === 232
+            && empty($missing_from_published),
+        'no_duplicate_blank_stale_or_orphan_wordpress_ids' => empty($duplicates)
+            && empty($orphans)
+            && empty($stale),
+        'no_feed_ids_missing_from_wordpress' => empty($missing_from_any_status),
+        'strict_post_cleanup_reconciliation_passed' => $strict_clean,
     ],
 ];
 
