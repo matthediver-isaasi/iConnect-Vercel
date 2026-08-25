@@ -36,6 +36,20 @@ const EMPTY_PAYLOAD = {
   orgCustomValues: []
 };
 
+async function getPublicPreferenceFieldIds(supabase, tenantId) {
+  const { data, error } = await supabase
+    .from('preference_field')
+    .select('id')
+    .eq('tenant_id', tenantId)
+    .or('entity_scope.is.null,entity_scope.neq.custom_object');
+
+  if (error) {
+    throw new Error(`Failed to fetch public preference fields: ${error.message}`);
+  }
+
+  return (data || []).map((field) => field.id);
+}
+
 // Builds the whitelisted booking/member/org prefill payload from a resolved
 // booking row. Shared by the explicit booking_id path and the authenticated
 // viewer-resolution path so both return the exact same shape.
@@ -64,6 +78,13 @@ async function buildPrefillPayload(supabase, tenantId, booking) {
   let memberCustomValues = [];
   let organization = null;
   let orgCustomValues = [];
+  let allowedFieldIds = null;
+  const publicFieldIds = async () => {
+    if (allowedFieldIds === null) {
+      allowedFieldIds = await getPublicPreferenceFieldIds(supabase, tenantId);
+    }
+    return allowedFieldIds;
+  };
 
   if (booking.member_id) {
     const { data: memberData } = await supabase
@@ -81,13 +102,17 @@ async function buildPrefillPayload(supabase, tenantId, booking) {
         }
       }
 
-      const { data: mcv } = await supabase
-        .from('member_preference_value')
-        .select('id, member_id, field_id, value')
-        .eq('member_id', booking.member_id);
+      const memberFieldIds = await publicFieldIds();
+      if (memberFieldIds.length > 0) {
+        const { data: mcv } = await supabase
+          .from('member_preference_value')
+          .select('id, member_id, field_id, value')
+          .eq('member_id', booking.member_id)
+          .in('field_id', memberFieldIds);
 
-      if (mcv) {
-        memberCustomValues = mcv;
+        if (mcv) {
+          memberCustomValues = mcv;
+        }
       }
 
       if (!booking.organization_id && memberData.organization_id) {
@@ -113,13 +138,17 @@ async function buildPrefillPayload(supabase, tenantId, booking) {
         }
       }
 
-      const { data: ocv } = await supabase
-        .from('organization_preference_value')
-        .select('id, organization_id, field_id, value')
-        .eq('organization_id', orgId);
+      const organizationFieldIds = await publicFieldIds();
+      if (organizationFieldIds.length > 0) {
+        const { data: ocv } = await supabase
+          .from('organization_preference_value')
+          .select('id, organization_id, field_id, value')
+          .eq('organization_id', orgId)
+          .in('field_id', organizationFieldIds);
 
-      if (ocv) {
-        orgCustomValues = ocv;
+        if (ocv) {
+          orgCustomValues = ocv;
+        }
       }
     }
   }

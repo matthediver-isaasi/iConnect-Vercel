@@ -71,6 +71,7 @@ export default async function handler(req, res) {
       .eq('id', id)
       .eq('tenant_id', tenantId)
       .eq('is_active', true)
+      .or('entity_scope.is.null,entity_scope.neq.custom_object')
       .single();
 
     if (error) {

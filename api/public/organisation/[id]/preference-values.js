@@ -77,12 +77,32 @@ export default async function handler(req, res) {
       return res.status(404).json({ error: 'Organisation not found' });
     }
 
-    // Fetch all custom field values for this organization
+    // Only preference fields in the public member/organization domain may be
+    // disclosed here. Custom Object fields can use the same value tables, but
+    // their values must never be exposed through this public endpoint.
+    const { data: allowedFields, error: fieldsError } = await supabase
+      .from('preference_field')
+      .select('id')
+      .eq('tenant_id', tenantId)
+      .or('entity_scope.is.null,entity_scope.neq.custom_object');
+
+    if (fieldsError) {
+      console.error('Error fetching public preference fields:', fieldsError);
+      return res.status(500).json({ error: fieldsError.message });
+    }
+
+    const allowedFieldIds = (allowedFields || []).map((field) => field.id);
+    if (allowedFieldIds.length === 0) {
+      return res.json([]);
+    }
+
+    // Fetch all public custom field values for this organization
     console.log('[preference-values API] Fetching values for organization:', id);
     const { data: values, error: valuesError } = await supabase
       .from('organization_preference_value')
       .select('id, organization_id, field_id, value')
-      .eq('organization_id', id);
+      .eq('organization_id', id)
+      .in('field_id', allowedFieldIds);
 
     if (valuesError) {
       console.error('Error fetching organization preference values:', valuesError);

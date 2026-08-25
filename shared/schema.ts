@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, boolean, timestamp, jsonb, integer } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, boolean, timestamp, jsonb, integer, uuid, index, uniqueIndex } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -37,6 +37,178 @@ export const insertTenantSchema = createInsertSchema(tenant).omit({
 
 export type InsertTenant = z.infer<typeof insertTenantSchema>;
 export type Tenant = typeof tenant.$inferSelect;
+
+// Custom Object foundation. These shared generic tables back every
+// tenant-defined object; preference_field remains the field-definition source
+// of truth and is linked by custom_object_id in the SQL migration.
+export const customObjectDefinition = pgTable("custom_object_definition", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenant_id: uuid("tenant_id").notNull(),
+  object_key: varchar("object_key", { length: 100 }).notNull(),
+  singular_label: varchar("singular_label", { length: 255 }).notNull(),
+  plural_label: varchar("plural_label", { length: 255 }).notNull(),
+  description: text("description"),
+  icon: varchar("icon", { length: 100 }),
+  primary_display_field_id: uuid("primary_display_field_id"),
+  status: varchar("status", { length: 20 }).notNull().default("draft"),
+  configuration: jsonb("configuration").notNull().default({}),
+  created_by: text("created_by"),
+  updated_by: text("updated_by"),
+  archived_at: timestamp("archived_at", { withTimezone: true }),
+  archived_by: text("archived_by"),
+  created_at: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updated_at: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  tenantKeyUnique: uniqueIndex("custom_object_definition_tenant_key_unique")
+    .on(table.tenant_id, table.object_key),
+  tenantStatusIdx: index("idx_custom_object_definition_tenant_status")
+    .on(table.tenant_id, table.status, table.object_key),
+}));
+
+export const customObjectRecord = pgTable("custom_object_record", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenant_id: uuid("tenant_id").notNull(),
+  custom_object_id: uuid("custom_object_id").notNull(),
+  data: jsonb("data").notNull().default({}),
+  created_by: text("created_by"),
+  updated_by: text("updated_by"),
+  archived_at: timestamp("archived_at", { withTimezone: true }),
+  archived_by: text("archived_by"),
+  archive_reason: text("archive_reason"),
+  created_at: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updated_at: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  tenantObjectIdx: index("idx_custom_object_record_tenant_object")
+    .on(table.tenant_id, table.custom_object_id, table.id),
+}));
+
+export const customObjectRelationshipDefinition = pgTable("custom_object_relationship_definition", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenant_id: uuid("tenant_id").notNull(),
+  relationship_key: varchar("relationship_key", { length: 100 }).notNull(),
+  source_kind: varchar("source_kind", { length: 30 }).notNull(),
+  source_custom_object_id: uuid("source_custom_object_id"),
+  target_kind: varchar("target_kind", { length: 30 }).notNull(),
+  target_custom_object_id: uuid("target_custom_object_id"),
+  cardinality: varchar("cardinality", { length: 30 }).notNull(),
+  source_label: varchar("source_label", { length: 255 }).notNull(),
+  target_label: varchar("target_label", { length: 255 }).notNull(),
+  is_required: boolean("is_required").notNull().default(false),
+  show_on_source: boolean("show_on_source").notNull().default(true),
+  show_on_target: boolean("show_on_target").notNull().default(true),
+  edit_from_source: boolean("edit_from_source").notNull().default(true),
+  edit_from_target: boolean("edit_from_target").notNull().default(false),
+  status: varchar("status", { length: 20 }).notNull().default("draft"),
+  configuration: jsonb("configuration").notNull().default({}),
+  created_by: text("created_by"),
+  updated_by: text("updated_by"),
+  archived_at: timestamp("archived_at", { withTimezone: true }),
+  archived_by: text("archived_by"),
+  created_at: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updated_at: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  tenantKeyUnique: uniqueIndex("custom_object_relationship_definition_tenant_key_unique")
+    .on(table.tenant_id, table.relationship_key),
+  tenantStatusIdx: index("idx_custom_object_relationship_definition_tenant_status")
+    .on(table.tenant_id, table.status),
+}));
+
+export const customObjectRelationship = pgTable("custom_object_relationship", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenant_id: uuid("tenant_id").notNull(),
+  relationship_definition_id: uuid("relationship_definition_id").notNull(),
+  source_record_id: uuid("source_record_id").notNull(),
+  target_record_id: uuid("target_record_id").notNull(),
+  created_by: text("created_by"),
+  archived_at: timestamp("archived_at", { withTimezone: true }),
+  archived_by: text("archived_by"),
+  created_at: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  tenantDefinitionIdx: index("idx_custom_object_relationship_tenant_definition_all")
+    .on(table.tenant_id, table.relationship_definition_id, table.id),
+  tenantSourceIdx: index("idx_custom_object_relationship_tenant_source_all")
+    .on(table.tenant_id, table.source_record_id, table.relationship_definition_id),
+  tenantTargetIdx: index("idx_custom_object_relationship_tenant_target_all")
+    .on(table.tenant_id, table.target_record_id, table.relationship_definition_id),
+}));
+
+export const customObjectRolePermission = pgTable("custom_object_role_permission", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenant_id: uuid("tenant_id").notNull(),
+  custom_object_id: uuid("custom_object_id").notNull(),
+  role_id: uuid("role_id").notNull(),
+  can_view_records: boolean("can_view_records").notNull().default(false),
+  can_create_records: boolean("can_create_records").notNull().default(false),
+  can_edit_records: boolean("can_edit_records").notNull().default(false),
+  can_archive_records: boolean("can_archive_records").notNull().default(false),
+  can_export_records: boolean("can_export_records").notNull().default(false),
+  created_by: text("created_by"),
+  updated_by: text("updated_by"),
+  created_at: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updated_at: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  objectRoleUnique: uniqueIndex("custom_object_role_permission_unique")
+    .on(table.tenant_id, table.custom_object_id, table.role_id),
+  tenantRoleIdx: index("idx_custom_object_role_permission_tenant_role")
+    .on(table.tenant_id, table.role_id, table.custom_object_id),
+}));
+
+export const customObjectAuditEvent = pgTable("custom_object_audit_event", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenant_id: uuid("tenant_id").notNull(),
+  custom_object_id: uuid("custom_object_id"),
+  record_id: uuid("record_id"),
+  relationship_definition_id: uuid("relationship_definition_id"),
+  relationship_id: uuid("relationship_id"),
+  actor_id: text("actor_id"),
+  actor_type: varchar("actor_type", { length: 30 }).notNull().default("system"),
+  action: varchar("action", { length: 100 }).notNull(),
+  entity_type: varchar("entity_type", { length: 100 }).notNull(),
+  entity_id: uuid("entity_id").notNull(),
+  before_data: jsonb("before_data"),
+  after_data: jsonb("after_data"),
+  metadata: jsonb("metadata").notNull().default({}),
+  created_at: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  tenantCreatedIdx: index("idx_custom_object_audit_event_tenant_created")
+    .on(table.tenant_id, table.created_at),
+  tenantObjectIdx: index("idx_custom_object_audit_event_tenant_object")
+    .on(table.tenant_id, table.custom_object_id, table.created_at),
+}));
+
+export const insertCustomObjectDefinitionSchema = createInsertSchema(customObjectDefinition).omit({
+  id: true,
+  created_at: true,
+  updated_at: true,
+});
+export const insertCustomObjectRecordSchema = createInsertSchema(customObjectRecord).omit({
+  id: true,
+  created_at: true,
+  updated_at: true,
+});
+export const insertCustomObjectRelationshipDefinitionSchema = createInsertSchema(
+  customObjectRelationshipDefinition,
+).omit({
+  id: true,
+  created_at: true,
+  updated_at: true,
+});
+export const insertCustomObjectRelationshipSchema = createInsertSchema(customObjectRelationship).omit({
+  id: true,
+  created_at: true,
+});
+export const insertCustomObjectRolePermissionSchema = createInsertSchema(customObjectRolePermission).omit({
+  id: true,
+  created_at: true,
+  updated_at: true,
+});
+
+export type CustomObjectDefinition = typeof customObjectDefinition.$inferSelect;
+export type CustomObjectRecord = typeof customObjectRecord.$inferSelect;
+export type CustomObjectRelationshipDefinition = typeof customObjectRelationshipDefinition.$inferSelect;
+export type CustomObjectRelationship = typeof customObjectRelationship.$inferSelect;
+export type CustomObjectRolePermission = typeof customObjectRolePermission.$inferSelect;
+export type CustomObjectAuditEvent = typeof customObjectAuditEvent.$inferSelect;
 
 export const users = pgTable("users", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),

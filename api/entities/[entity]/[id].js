@@ -35,6 +35,12 @@ import { isReservedPageSlug, reservedPageSlugMessage } from '../../../shared/mem
 import { validatePortalMenuRecord } from '../../../shared/portalMenuLinks.js';
 import { hasManagedJobProvenance, stripManagedJobProvenance } from '../../_lib/jobFeedOwnership.js';
 import {
+  isCorePreferenceField,
+  isCorePreferenceValueEntity,
+  isCustomObjectFieldWrite,
+  isCustomObjectStorageEntity,
+} from '../../_lib/customObjectApiBoundary.js';
+import {
   validateAutomaticMembershipSettings,
   fetchAllowedCustomFieldIdsByScope,
   buildFieldMeta,
@@ -207,6 +213,11 @@ export default async function handler(req, res) {
   let allowsTenantWideAccess = false;
 
   const entityNorm = entity.replace(/[-_]/g, '').toLowerCase();
+  if (isCustomObjectStorageEntity(entityNorm)) {
+    return res.status(403).json({
+      error: 'Custom Object data must be accessed through the Custom Object service',
+    });
+  }
   if (isAdminOnlyEntity(entityNorm)) {
     if (!tenantCtx.isAuthenticated) {
       return res.status(401).json({ error: 'Authentication required' });
@@ -266,6 +277,29 @@ export default async function handler(req, res) {
     const isAdmin = await hasAdminAccess(tenantCtx);
     if (!isAdmin) {
       return res.status(403).json({ error: 'Admin access required' });
+    }
+    if (req.method === 'PATCH' && isCustomObjectFieldWrite(req.body)) {
+      return res.status(403).json({
+        error: 'Custom Object fields must be managed through the Custom Object service',
+      });
+    }
+
+    let objectFieldQuery = supabase
+      .from('preference_field')
+      .select('entity_scope')
+      .eq('id', id);
+    if (tenantCtx.tenantId) {
+      objectFieldQuery = objectFieldQuery.eq('tenant_id', tenantCtx.tenantId);
+    }
+    const { data: existingField, error: existingFieldError } = await objectFieldQuery.maybeSingle();
+    if (existingFieldError) {
+      console.error('[PreferenceField] Custom Object boundary lookup failed:', existingFieldError.message);
+      return res.status(500).json({ error: 'Failed to validate field ownership' });
+    }
+    if (existingField?.entity_scope === 'custom_object') {
+      return res.status(403).json({
+        error: 'Custom Object fields must be managed through the Custom Object service',
+      });
     }
   }
 
@@ -336,6 +370,10 @@ export default async function handler(req, res) {
         .from(tableName)
         .select(expand || '*')
         .eq('id', id);
+
+      if (entityNorm === 'preferencefield') {
+        query = query.or('entity_scope.is.null,entity_scope.neq.custom_object');
+      }
 
       // Help Center: non-owner by-id reads are restricted to published rows so a
       // draft slug/id returns 404 rather than exposing unpublished content. (Task #2199)
@@ -442,6 +480,20 @@ export default async function handler(req, res) {
       if (error) {
         if (error.code === 'PGRST116') return res.status(404).json({ error: 'Not found' });
         return res.status(500).json({ error: error.message });
+      }
+
+      if (isCorePreferenceValueEntity(entityNorm)) {
+        try {
+          const allowed = await isCorePreferenceField({
+            supabase,
+            tenantId: tenantCtx.effectiveTenantId || tenantCtx.tenantId,
+            fieldId: data?.field_id,
+          });
+          if (!allowed) return res.status(404).json({ error: 'Not found' });
+        } catch (boundaryError) {
+          console.error('[Entity GET by id] Preference value field boundary failed:', boundaryError.message);
+          return res.status(500).json({ error: 'Failed to validate custom field ownership' });
+        }
       }
 
       // SECURITY (Task #1421): group-linked forum categories/threads/posts are
@@ -602,6 +654,7 @@ export default async function handler(req, res) {
       const isPreferenceValueEntity = entityNormalized === 'organizationpreferencevalue' || entityNormalized === 'memberpreferencevalue';
       
       let prefValueBefore = undefined;
+      let prefValueFieldId = undefined;
       if (isPreferenceValueEntity) {
         try {
           const { data: prevRecord } = await supabase
@@ -611,6 +664,7 @@ export default async function handler(req, res) {
             .single();
           if (prevRecord) {
             prefValueBefore = prevRecord.value;
+            prefValueFieldId = prevRecord.field_id;
           }
         } catch (e) {
           console.error('[Entity PATCH] Error fetching preference value before data:', e);
@@ -689,6 +743,24 @@ export default async function handler(req, res) {
       for (const field of uuidFields) {
         if (field in sanitizedBody && sanitizedBody[field] === '') {
           sanitizedBody[field] = null;
+        }
+      }
+
+      if (isCorePreferenceValueEntity(entityNormalized)) {
+        try {
+          const allowed = await isCorePreferenceField({
+            supabase,
+            tenantId: tenantCtx.effectiveTenantId || tenantCtx.tenantId,
+            fieldId: sanitizedBody.field_id || prefValueFieldId,
+          });
+          if (!allowed) {
+            return res.status(400).json({
+              error: 'Core preference values require a core custom field from the same tenant',
+            });
+          }
+        } catch (boundaryError) {
+          console.error('[Entity PATCH] Preference value field boundary failed:', boundaryError.message);
+          return res.status(500).json({ error: 'Failed to validate custom field ownership' });
         }
       }
 

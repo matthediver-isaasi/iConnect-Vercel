@@ -103,18 +103,37 @@ export default async function handler(req, res) {
       }
     }
 
-    const { data: customValues, error: cvError } = await supabase
-      .from('member_preference_value')
-      .select('id, member_id, field_id, value')
-      .eq('member_id', member_id);
+    const { data: allowedFields, error: fieldsError } = await supabase
+      .from('preference_field')
+      .select('id')
+      .eq('tenant_id', tenantId)
+      .or('entity_scope.is.null,entity_scope.neq.custom_object');
 
-    if (cvError) {
-      console.error('[Public Prefill Member] Error fetching custom values:', cvError);
+    if (fieldsError) {
+      console.error('[Public Prefill Member] Error fetching public preference fields:', fieldsError);
+      return res.status(500).json({ error: 'Failed to fetch member data' });
+    }
+
+    const allowedFieldIds = (allowedFields || []).map((field) => field.id);
+    let customValues = [];
+
+    if (allowedFieldIds.length > 0) {
+      const { data, error: cvError } = await supabase
+        .from('member_preference_value')
+        .select('id, member_id, field_id, value')
+        .eq('member_id', member_id)
+        .in('field_id', allowedFieldIds);
+
+      if (cvError) {
+        console.error('[Public Prefill Member] Error fetching custom values:', cvError);
+      } else {
+        customValues = data || [];
+      }
     }
 
     return res.json({
       member: publicMember,
-      customValues: customValues || []
+      customValues
     });
   } catch (error) {
     console.error('[Public Prefill Member] Error:', error);

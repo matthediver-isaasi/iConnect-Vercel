@@ -50,6 +50,13 @@ import {
   validateFormAccessPolicy,
 } from '../../_lib/formAccessPolicy.js';
 import { isFormScheduleAvailable } from '../../_lib/formAvailability.js';
+import {
+  filterCorePreferenceValueRows,
+  isCorePreferenceField,
+  isCorePreferenceValueEntity,
+  isCustomObjectFieldWrite,
+  isCustomObjectStorageEntity,
+} from '../../_lib/customObjectApiBoundary.js';
 
 /**
  * Task #3100: support staff = tenant users (admin dashboard), tenant admins,
@@ -300,6 +307,22 @@ export default async function handler(req, res) {
     return res.status(409).json({
       error: 'Your browser session has switched to a different organisation. Reload this tab to continue.',
       code: 'TENANT_CONTEXT_CHANGED',
+    });
+  }
+
+  // Custom Object storage is deliberately served only by dedicated services
+  // that validate object lifecycle, field schema, role capabilities, and
+  // server-authored audit events. The generic entity fallback would bypass
+  // those controls even though it applies a tenant_id filter.
+  if (isCustomObjectStorageEntity(entityNorm)) {
+    return res.status(403).json({
+      error: 'Custom Object data must be accessed through the Custom Object service',
+    });
+  }
+
+  if (entityNorm === 'preferencefield' && req.method === 'POST' && isCustomObjectFieldWrite(req.body)) {
+    return res.status(403).json({
+      error: 'Custom Object fields must be managed through the Custom Object service',
     });
   }
 
@@ -554,6 +577,12 @@ export default async function handler(req, res) {
       let query = supabase
         .from(tableName)
         .select(expand || '*', wantsCount ? { count: 'exact' } : undefined);
+
+      // Existing core-field callers must not gain an implicit schema-discovery
+      // path for Custom Objects. Dedicated object services apply permissions.
+      if (entityNorm === 'preferencefield') {
+        query = query.or('entity_scope.is.null,entity_scope.neq.custom_object');
+      }
       
       // Apply tenant isolation filter (always applied for non-global entities)
       if (shouldApplyTenantFilter) {
@@ -1062,7 +1091,7 @@ export default async function handler(req, res) {
       if (limit) query = query.limit(parseInt(limit));
       if (offset) query = query.range(parseInt(offset), parseInt(offset) + parseInt(limit || '100') - 1);
 
-      const { data, error, count } = await query;
+      let { data, error, count } = await query;
       if (error) {
         console.error(`Entity list error for ${entity} (table: ${tableName}):`, error);
         return res.status(500).json({ 
@@ -1072,6 +1101,20 @@ export default async function handler(req, res) {
           code: error.code,
           table: tableName
         });
+      }
+
+      if (isCorePreferenceValueEntity(entityNorm)) {
+        try {
+          data = await filterCorePreferenceValueRows({
+            supabase,
+            tenantId: tenantCtx.effectiveTenantId || tenantCtx.tenantId,
+            rows: data,
+          });
+          if (wantsCount) count = data.length;
+        } catch (boundaryError) {
+          console.error('[Entity GET] Preference value field boundary failed:', boundaryError.message);
+          return res.status(500).json({ error: 'Failed to validate custom field ownership' });
+        }
       }
       
       // SECURITY (Task #1421): group-linked forum categories/threads/posts are
@@ -1179,6 +1222,24 @@ export default async function handler(req, res) {
       for (const field of uuidFields) {
         if (field in sanitizedBody && sanitizedBody[field] === '') {
           sanitizedBody[field] = null;
+        }
+      }
+
+      if (isCorePreferenceValueEntity(entityNorm)) {
+        try {
+          const allowed = await isCorePreferenceField({
+            supabase,
+            tenantId: tenantCtx.effectiveTenantId || tenantCtx.tenantId,
+            fieldId: sanitizedBody.field_id,
+          });
+          if (!allowed) {
+            return res.status(400).json({
+              error: 'Core preference values require a core custom field from the same tenant',
+            });
+          }
+        } catch (boundaryError) {
+          console.error('[Entity POST] Preference value field boundary failed:', boundaryError.message);
+          return res.status(500).json({ error: 'Failed to validate custom field ownership' });
         }
       }
 

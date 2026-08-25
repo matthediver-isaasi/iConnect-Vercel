@@ -1,0 +1,70 @@
+import { readFile } from 'node:fs/promises';
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+
+const migrationUrl = new URL(
+  '../../supabase/migrations/20260825_custom_object_foundation.sql',
+  import.meta.url,
+);
+const sql = await readFile(migrationUrl, 'utf8');
+
+test('migration uses shared generic tables instead of tenant-specific tables', () => {
+  for (const table of [
+    'custom_object_definition',
+    'custom_object_record',
+    'custom_object_relationship_definition',
+    'custom_object_relationship',
+    'custom_object_role_permission',
+    'custom_object_audit_event',
+  ]) {
+    assert.match(sql, new RegExp(`CREATE TABLE IF NOT EXISTS public\\.${table}`));
+  }
+  assert.doesNotMatch(sql, /tenant_[0-9a-f]+_/i);
+});
+
+test('preference fields retain core scopes and add separate object ownership uniqueness', () => {
+  assert.match(sql, /'member'::text/);
+  assert.match(sql, /'organization'::text/);
+  assert.match(sql, /'organization_group'::text/);
+  assert.match(sql, /'custom_object'::text/);
+  assert.match(sql, /preference_field_core_tenant_name_unique[\s\S]*WHERE custom_object_id IS NULL/);
+  assert.match(sql, /preference_field_object_tenant_name_unique[\s\S]*WHERE custom_object_id IS NOT NULL/);
+  assert.match(sql, /DROP CONSTRAINT IF EXISTS preference_field_name_key/);
+  assert.match(
+    sql,
+    /preference_field_field_type_check[\s\S]*'textarea'::text[\s\S]*'file'::text/,
+  );
+  assert.match(sql, /'long_text'::text/);
+  assert.doesNotMatch(sql, /ALTER TABLE public\.(member_preference_value|organization_preference_value|organization_group_preference_value)/);
+});
+
+test('tenant-leading indexes, RLS, and explicit service-role-only access are present', () => {
+  assert.match(sql, /idx_custom_object_record_tenant_object_active[\s\S]*\(tenant_id, custom_object_id, id\)/);
+  assert.match(sql, /idx_custom_object_relationship_tenant_source[\s\S]*\(tenant_id, source_record_id, relationship_definition_id\)/);
+  assert.match(sql, /ALTER TABLE public\.custom_object_record ENABLE ROW LEVEL SECURITY/);
+  assert.match(sql, /REVOKE ALL ON TABLE public\.custom_object_record FROM anon, authenticated/);
+  assert.match(sql, /CREATE POLICY custom_object_record_service_role/);
+});
+
+test('database guards cover immutable keys, same-tenant ownership, cardinality, and append-only audit', () => {
+  assert.match(sql, /custom_object_definition_immutable_identity/);
+  assert.match(sql, /preference_field_custom_object_immutable_identity/);
+  assert.match(sql, /preference_field_custom_object_active_primary_required/);
+  assert.match(sql, /custom_object_record_same_tenant/);
+  assert.match(sql, /custom_object_relationship_source_valid/);
+  assert.match(sql, /custom_object_relationship_target_valid/);
+  assert.match(sql, /cod\.status = 'active'/);
+  assert.match(sql, /custom_object_relationship_source_cardinality/);
+  assert.match(sql, /custom_object_relationship_target_cardinality/);
+  assert.match(sql, /custom_object_audit_event_object_same_tenant/);
+  assert.match(sql, /custom_object_audit_event_record_same_tenant/);
+  assert.match(sql, /custom_object_audit_event_definition_same_tenant/);
+  assert.match(sql, /custom_object_audit_event_relationship_same_tenant/);
+  assert.match(sql, /custom_object_audit_event_append_only/);
+  assert.match(sql, /core_preference_value_custom_object_field/);
+  assert.match(sql, /member_preference_value_custom_object_guard/);
+  assert.match(sql, /organization_preference_value_custom_object_guard/);
+  assert.match(sql, /organization_group_preference_value_custom_object_guard/);
+  assert.match(sql, /audit_custom_object_mutation/);
+  assert.match(sql, /custom_object_record_audit_trigger/);
+});
