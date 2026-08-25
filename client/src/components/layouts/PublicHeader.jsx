@@ -16,6 +16,7 @@ import { Dialog, DialogContent } from "@/components/ui/dialog";
 import IEditFormElement from "@/components/iedit/elements/IEditFormElement";
 import { resolveSearchResultsBranding } from "@/lib/searchResultsBranding";
 import { searchResultTypeIconMap, getSearchResultTypeLabel, useArticleDisplayName } from "@/lib/searchResultTypes";
+import { isPageLessParentMenu } from "@/lib/navigationItemDestination";
 
 // Icon mapping for commonly used Lucide icons
 const iconMap = {
@@ -794,7 +795,7 @@ export default function PublicHeader() {
 
   // Check if a navigation item is active
   const isActive = (item) => {
-    if (item.link_type === 'external') return false;
+    if (item.link_type === 'external' || !item.url) return false;
     
     const itemPath = createPageUrl(item.url);
     const currentPath = location.pathname;
@@ -1162,12 +1163,15 @@ export default function PublicHeader() {
       return null;
     }
     const hasChildren = item.children && item.children.length > 0;
+    const isNonNavigatingParent = isPageLessParentMenu(item);
     const Icon = item.icon && iconMap[item.icon] ? iconMap[item.icon] : null;
     const active = isActive(item);
     const isExpanded = mobileExpandedMenus[item.id];
 
     // Determine link props
-    const linkProps = item.link_type === 'external' 
+    const linkProps = isNonNavigatingParent
+      ? {}
+      : item.link_type === 'external'
       ? {
           href: item.url,
           target: item.open_in_new_tab ? '_blank' : '_self',
@@ -1213,7 +1217,7 @@ export default function PublicHeader() {
     }
 
     // Button display type - renders with custom button style from branding
-    if (item.display_type === 'button') {
+    if (item.display_type === 'button' && !isNonNavigatingParent) {
       const styleName = item.button_style || 'primary';
       const styleConfig = buttonStyles[styleName];
       
@@ -1236,7 +1240,7 @@ export default function PublicHeader() {
     }
 
     // Gradient button style (legacy highlight_style support)
-    if (item.highlight_style === 'gradient_button') {
+    if (item.highlight_style === 'gradient_button' && !isNonNavigatingParent) {
       return (
         <LinkComponent 
           key={item.id} 
@@ -1312,11 +1316,14 @@ export default function PublicHeader() {
       return null;
     }
     const hasChildren = item.children && item.children.length > 0;
+    const isNonNavigatingParent = isPageLessParentMenu(item);
     const Icon = item.icon && iconMap[item.icon] ? iconMap[item.icon] : null;
     const active = isActive(item);
 
     // Determine link props
-    const linkProps = item.link_type === 'external' 
+    const linkProps = isNonNavigatingParent
+      ? {}
+      : item.link_type === 'external'
       ? {
           href: item.url,
           target: item.open_in_new_tab ? '_blank' : '_self',
@@ -1409,7 +1416,7 @@ export default function PublicHeader() {
     }
 
     // Button display type - renders with custom button style from branding
-    if (item.display_type === 'button') {
+    if (item.display_type === 'button' && !isNonNavigatingParent) {
       const styleName = item.button_style || 'primary';
       const styleConfig = buttonStyles[styleName];
       
@@ -1425,7 +1432,7 @@ export default function PublicHeader() {
     }
 
     // Gradient button style (legacy highlight_style support)
-    if (item.highlight_style === 'gradient_button') {
+    if (item.highlight_style === 'gradient_button' && !isNonNavigatingParent) {
       return (
         <LinkComponent key={item.id} {...linkProps}>
           <StyledNavButton styleConfig={null}>
@@ -1491,7 +1498,10 @@ export default function PublicHeader() {
                 const ChildIcon = child.icon && iconMap[child.icon] ? iconMap[child.icon] : null;
                 const childActive = isActive(child);
                 const hasGrandchildren = child.children && child.children.length > 0;
-                const childLinkProps = child.link_type === 'external'
+                const isNonNavigatingChildParent = isPageLessParentMenu(child);
+                const childLinkProps = isNonNavigatingChildParent
+                  ? {}
+                  : child.link_type === 'external'
                   ? {
                       href: child.url,
                       target: child.open_in_new_tab ? '_blank' : '_self',
@@ -1502,6 +1512,20 @@ export default function PublicHeader() {
                     };
                 
                 const ChildLinkComponent = child.link_type === 'external' ? 'a' : Link;
+                const childContent = (
+                  <div className="flex items-start gap-3">
+                    {ChildIcon && <ChildIcon className="w-5 h-5 text-slate-600 mt-0.5" />}
+                    <div className="flex-1">
+                      <div className={`text-slate-900 ${childActive ? 'font-bold' : 'font-medium'} flex items-center gap-2`}>
+                        {child.title}
+                        {hasGrandchildren && <ChevronRight className="w-3 h-3" />}
+                      </div>
+                      {child.description && (
+                        <div className="text-xs text-slate-500 mt-0.5">{child.description}</div>
+                      )}
+                    </div>
+                  </div>
+                );
 
                 return (
                   <div 
@@ -1510,23 +1534,23 @@ export default function PublicHeader() {
                     onMouseEnter={() => hasGrandchildren && setHoveredSubmenu(child.id)}
                     onMouseLeave={() => hasGrandchildren && setHoveredSubmenu(null)}
                   >
-                    <ChildLinkComponent
-                      {...childLinkProps}
-                      className="block px-4 py-2 hover:bg-slate-50 transition-colors"
-                    >
-                      <div className="flex items-start gap-3">
-                        {ChildIcon && <ChildIcon className="w-5 h-5 text-slate-600 mt-0.5" />}
-                        <div className="flex-1">
-                          <div className={`text-slate-900 ${childActive ? 'font-bold' : 'font-medium'} flex items-center gap-2`}>
-                            {child.title}
-                            {hasGrandchildren && <ChevronRight className="w-3 h-3" />}
-                          </div>
-                          {child.description && (
-                            <div className="text-xs text-slate-500 mt-0.5">{child.description}</div>
-                          )}
-                        </div>
-                      </div>
-                    </ChildLinkComponent>
+                    {isNonNavigatingChildParent ? (
+                      <button
+                        type="button"
+                        className="block w-full px-4 py-2 text-left hover:bg-slate-50 transition-colors"
+                        aria-haspopup="menu"
+                        aria-expanded={hoveredSubmenu === child.id}
+                      >
+                        {childContent}
+                      </button>
+                    ) : (
+                      <ChildLinkComponent
+                        {...childLinkProps}
+                        className="block px-4 py-2 hover:bg-slate-50 transition-colors"
+                      >
+                        {childContent}
+                      </ChildLinkComponent>
+                    )}
                     
                     {/* Render grandchildren on hover */}
                     {hasGrandchildren && hoveredSubmenu === child.id && (

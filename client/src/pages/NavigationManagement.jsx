@@ -1614,8 +1614,8 @@ export default function NavigationManagementPage() {
                         ? (editingItem.url
                           ? 'Select from available public pages'
                           : canBePageLessParentMenu(editingItem)
-                            ? 'No page selected — this top-level item can act as a parent menu for sub-items'
-                            : 'Sub-menu and footer items require a page before they can be saved')
+                            ? 'No page selected — this header item can act as a parent menu for sub-items at any supported level'
+                            : 'Footer items require a page before they can be saved')
                         : editingItem.content_block_type === 'cta' 
                           ? 'Enter the URL the button should link to'
                           : 'Enter the full URL including https://'}

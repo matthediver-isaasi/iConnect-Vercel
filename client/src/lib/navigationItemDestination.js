@@ -2,8 +2,14 @@ export const NO_NAVIGATION_PAGE_VALUE = '_none';
 
 export function canBePageLessParentMenu(item) {
   return item?.link_type === 'internal' &&
-    !item?.parent_id &&
     item?.location !== 'footer';
+}
+
+export function isPageLessParentMenu(item) {
+  return canBePageLessParentMenu(item) &&
+    !item?.url &&
+    Array.isArray(item?.children) &&
+    item.children.length > 0;
 }
 
 export function getNavigationPageSelectValue(url) {
