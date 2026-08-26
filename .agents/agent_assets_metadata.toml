@@ -82,15 +82,9 @@ logical_id = "760d9b3a-c839-4ec7-bedb-b327c005aa4a"
 id = "Fpuq_XA8DI46uNcZHuKuZ"
 uri = "file://deliverables/gsf-map-switchover/gsf-map-iconnect-switchover.zip"
 type = "unspecified"
-title = "GSF Map iConnect switchover package"
-description = "Updated WordPress cleanup package with corrected feed-failure handling, 237-published/232-identity gates, regression harness, and operator guidance."
+title = "GSF WordPress iConnect switch-over package"
+description = "Updated package with the one-time individual-country refresh, stale-summary guard, retry-safe sync status, regression tests, handover notes, and verified source/archive parity."
 logical_id = "a0ad0d8c-a301-4152-add0-e96ef8b1eecb"
-content_hash = "sha256:b4ad557d98b260ce19365148309bb692699c63082f3ffa2049110731faa9b28f"
-size = 66703
-mtime_ms = 1787656206510
-storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/a0ad0d8c-a301-4152-add0-e96ef8b1eecb/284f9dd1-377e-49fd-8ac1-d8a92d429a56"
-storage_version_token = "1787656313535311"
-content_type = "application/octet-stream"
 
 [[outputs]]
 id = "oifXWZnx3cfDJZsSdPajB"

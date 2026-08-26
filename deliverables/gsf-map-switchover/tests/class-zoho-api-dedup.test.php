@@ -13,6 +13,10 @@ $GLOBALS['test_update_count'] = 0;
 $GLOBALS['test_before_query'] = null;
 $GLOBALS['test_db_connection'] = 1;
 $GLOBALS['test_db_locks'] = [];
+$GLOBALS['test_query_posts'] = [];
+$GLOBALS['test_query_index'] = 0;
+$GLOBALS['test_current_post'] = null;
+$GLOBALS['test_meta_failures'] = [];
 
 class TestWpdb
 {
@@ -188,6 +192,9 @@ function get_post_meta($post_id, $key, $single = false)
 }
 function update_post_meta($post_id, $key, $value)
 {
+    if (!empty($GLOBALS['test_meta_failures'][$post_id][$key])) {
+        return false;
+    }
     $GLOBALS['test_meta'][$post_id][$key] = $value;
     return true;
 }
@@ -226,6 +233,61 @@ function gsf_clear_community_stats_cache()
 function gsf_normalize_country_name($name)
 {
     return $name;
+}
+function get_the_ID()
+{
+    return $GLOBALS['test_current_post']->ID;
+}
+function get_the_title()
+{
+    return $GLOBALS['test_current_post']->post_title;
+}
+function wp_reset_postdata()
+{
+    $GLOBALS['test_current_post'] = null;
+}
+
+class WP_Query
+{
+    public $found_posts = 0;
+    private $posts = [];
+    private $index = 0;
+
+    public function __construct($args)
+    {
+        $this->posts = array_values(array_filter(
+            $GLOBALS['test_posts'],
+            function ($post) use ($args) {
+                if (($args['post_status'] ?? 'publish') !== $post->post_status) {
+                    return false;
+                }
+                foreach (($args['meta_query'] ?? []) as $query) {
+                    if (!is_array($query) || ($query['key'] ?? '') !== 'countries_of_operation') {
+                        continue;
+                    }
+                    $stored = get_post_meta($post->ID, 'countries_of_operation', true);
+                    if (!str_contains(serialize($stored), (string) ($query['value'] ?? ''))) {
+                        return false;
+                    }
+                }
+                return true;
+            }
+        ));
+        usort($this->posts, function ($left, $right) {
+            return strcmp($left->post_title, $right->post_title);
+        });
+        $this->found_posts = count($this->posts);
+    }
+
+    public function have_posts()
+    {
+        return $this->index < count($this->posts);
+    }
+
+    public function the_post()
+    {
+        $GLOBALS['test_current_post'] = $this->posts[$this->index++];
+    }
 }
 
 function test_post($id, $status, $title)
@@ -280,6 +342,10 @@ function member_payload($id, $name)
 require dirname(__DIR__) . '/class-zoho-api.iconnect.php';
 
 $api = new ZohoAPI();
+test_assert(
+    invoke_private($api, 'isCountryDataUpgradeRequired') === true,
+    'an installation without the country-data version requests a one-time refresh'
+);
 
 // A status-hidden post is identity-complete: update it in place and preserve status.
 $GLOBALS['test_posts'] = [41 => test_post(41, 'private', 'Old title')];
@@ -290,21 +356,94 @@ test_assert($GLOBALS['test_posts'][41]->post_status === 'private', 'status-hidde
 test_assert($GLOBALS['test_posts'][41]->post_title === 'New title', 'status-hidden canonical post is updated');
 test_assert($stats['last_sync_updated'] === 1, 'canonical per-row last_sync is refreshed');
 
-// Individual countries survive ingestion; summary sentinels and hidden
-// countries do not become stored member meta.
+// A normal sync replaces stale summary metadata with individual visible
+// countries; hidden countries and summary sentinels are not persisted.
 $GLOBALS['test_options']['gsf_zoho_countries'] = [
     'Kenya' => ['flag' => 'Show'],
     'Uganda' => ['flag' => 'Show'],
     'Rwanda' => ['flag' => 'Hide'],
     'Multiple locations' => ['flag' => 'Show'],
 ];
+$GLOBALS['test_posts'] = [51 => test_post(51, 'publish', 'Multi-country member')];
+$GLOBALS['test_meta'] = [
+    51 => [
+        'zoho_id' => 'countries-1',
+        'countries_of_operation' => ['Multiple locations'],
+    ],
+];
 $country_member = member_payload('countries-1', 'Multi-country member');
 $country_member['Countries_of_Operation'] = ['Kenya', 'Multiple locations', 'Uganda', 'Rwanda'];
 $stats = invoke_private($api, 'syncMembersToWordPress', [$country_member]);
-$country_post = $GLOBALS['test_posts'][max(array_keys($GLOBALS['test_posts']))];
 test_assert(
-    $GLOBALS['test_meta'][$country_post->ID]['countries_of_operation'] === ['Kenya', 'Uganda'],
-    'WordPress stores individual visible countries unchanged and rejects the summary sentinel'
+    $GLOBALS['test_meta'][51]['countries_of_operation'] === ['Kenya', 'Uganda'],
+    'normal sync replaces stale summary meta with individual visible countries'
+);
+$GLOBALS['test_options'][ZohoAPI::COUNTRY_DATA_VERSION_OPTION] = ZohoAPI::COUNTRY_DATA_VERSION;
+test_assert(
+    invoke_private($api, 'isCountryDataUpgradeRequired') === false,
+    'the one-time refresh is satisfied only by the current country-data version'
+);
+$public_members = $api->getMembers(1, 200, [], false);
+test_assert(
+    $public_members['members'][0]['Countries_of_Operation'] === ['Kenya', 'Uganda'],
+    'public member response returns the individual country collection'
+);
+$filtered_members = $api->getMembers(1, 200, ['country' => 'Uganda'], false);
+test_assert(
+    count($filtered_members['members']) === 1,
+    'country filtering continues to match the individual country collection'
+);
+$GLOBALS['test_meta'][51]['countries_of_operation'] = ['Multiple locations', 'Kenya'];
+$guarded_members = $api->getMembers(1, 200, [], false);
+test_assert(
+    $guarded_members['members'][0]['Countries_of_Operation'] === ['Kenya'],
+    'public member response never exposes a stale summary sentinel'
+);
+
+// A failed country-meta write makes the member pass and final sync result fail,
+// leaving the version unset so the next automatic request retries.
+unset($GLOBALS['test_options'][ZohoAPI::COUNTRY_DATA_VERSION_OPTION]);
+$GLOBALS['test_meta'][51]['countries_of_operation'] = ['Multiple locations'];
+$GLOBALS['test_meta_failures'][51]['countries_of_operation'] = true;
+$failed_country_member = member_payload('countries-1', 'Multi-country member');
+$failed_country_member['Countries_of_Operation'] = ['Kenya', 'Uganda'];
+$failed_stats = invoke_private($api, 'syncMembersToWordPress', [$failed_country_member]);
+test_assert(
+    $failed_stats['failed'] === 1,
+    'failed country metadata read-back marks the member pass failed'
+);
+$failed_result = invoke_private(
+    $api,
+    'finalizeMemberSyncResult',
+    $failed_stats,
+    1,
+    1,
+    0,
+    time()
+);
+test_assert(
+    $failed_result['status'] === 'failed'
+        && $failed_result['reason'] === 'member_metadata_refresh_failed',
+    'partial member refresh is reported as failed rather than completed'
+);
+test_assert(
+    !isset($GLOBALS['test_options'][ZohoAPI::COUNTRY_DATA_VERSION_OPTION]),
+    'partial member refresh leaves the country-data version unset for retry'
+);
+unset($GLOBALS['test_meta_failures'][51]['countries_of_operation']);
+$completed_result = invoke_private(
+    $api,
+    'finalizeMemberSyncResult',
+    ['failed' => 0, 'duplicate_feed_ids' => []],
+    1,
+    1,
+    0,
+    time()
+);
+test_assert(
+    $completed_result['status'] === 'completed'
+        && $GLOBALS['test_options'][ZohoAPI::COUNTRY_DATA_VERSION_OPTION] === ZohoAPI::COUNTRY_DATA_VERSION,
+    'only a fully successful member refresh records the country-data version'
 );
 
 // Published wins over a lower-ID non-published duplicate; only canonical sync time changes.

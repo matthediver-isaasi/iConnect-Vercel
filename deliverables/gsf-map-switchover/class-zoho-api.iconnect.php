@@ -64,6 +64,8 @@ class ZohoAPI
     const MEMBER_SYNC_LOCK_OPTION = 'gsf_iconnect_member_sync_lock';
     const MEMBER_SYNC_DB_LOCK_NAME = 'gsf_iconnect_member_sync';
     const MEMBER_SYNC_LOCK_TTL = 900;
+    const COUNTRY_DATA_VERSION_OPTION = 'gsf_iconnect_country_data_version';
+    const COUNTRY_DATA_VERSION = 2;
 
     // [ICONNECT 2026-08-25] Literal legacy Zoho OAuth credentials were removed
     // from the distributable. iConnect settings are read from WordPress options.
@@ -677,26 +679,13 @@ class ZohoAPI
                     // Get stored country data with flags
                     $all_countries = get_option('gsf_zoho_countries', []);
 
-                    // Filter countries of operation to only include those with Flag: Show
-                    $countries_of_operation = [];
-                    if (!empty($member['Countries_of_Operation']) && is_array($member['Countries_of_Operation'])) {
-                        foreach ($member['Countries_of_Operation'] as $country_name) {
-                            $country_name = $this->normaliseCountryName($country_name);
-                            // A location display summary is not a country and
-                            // must never be persisted as legacy member meta.
-                            if (strcasecmp(trim((string) $country_name), 'Multiple locations') === 0) {
-                                continue;
-                            }
-                            // Only include the country if it exists in our country data AND has flag set to Show
-                            if (
-                                isset($all_countries[$country_name]) &&
-                                isset($all_countries[$country_name]['flag']) &&
-                                strtolower($all_countries[$country_name]['flag']) === 'show'
-                            ) {
-                                $countries_of_operation[] = $country_name;
-                            }
-                        }
-                    }
+                    // Filter countries of operation to only include those with
+                    // Flag: Show. A normal sync overwrites legacy summary meta
+                    // (for example "Multiple locations") with this exact list.
+                    $countries_of_operation = $this->sanitizeCountriesOfOperation(
+                        $member['Countries_of_Operation'] ?? [],
+                        $all_countries
+                    );
 
                     $new_meta_fields = [
                         'zoho_id' => $member['id'],
@@ -743,6 +732,12 @@ class ZohoAPI
 
                                 if ($new_value_normalized !== $existing_value_normalized) {
                                     update_post_meta($post_id, $key, $new_value);
+                                    if (
+                                        $key === 'countries_of_operation'
+                                        && get_post_meta($post_id, $key, true) !== $new_value
+                                    ) {
+                                        throw new RuntimeException('Failed to persist countries_of_operation metadata');
+                                    }
                                     $meta_updated = true;
                                     $this->logger->log('Meta field changed', 'DEBUG', [
                                         'member_id' => $member['id'],
@@ -773,6 +768,12 @@ class ZohoAPI
                         // New member - update all meta fields
                         foreach ($new_meta_fields as $key => $value) {
                             update_post_meta($post_id, $key, $value);
+                            if (
+                                $key === 'countries_of_operation'
+                                && get_post_meta($post_id, $key, true) !== $value
+                            ) {
+                                throw new RuntimeException('Failed to persist countries_of_operation metadata');
+                            }
                         }
                         $sync_stats['last_sync_updated']++;
                     }
@@ -843,8 +844,15 @@ class ZohoAPI
                 ]);
             }
         } else {
-            // For automatic syncs, use the normal interval
-            $shouldSync = !$this->lastSyncTime || (time() - $this->lastSyncTime) > $this->syncInterval;
+            // A country-data version bump forces one successful refresh even
+            // when the normal hourly interval has not elapsed.
+            $country_data_upgrade_required = $this->isCountryDataUpgradeRequired();
+            $shouldSync = $country_data_upgrade_required
+                || !$this->lastSyncTime
+                || (time() - $this->lastSyncTime) > $this->syncInterval;
+            if ($country_data_upgrade_required) {
+                $sync_result['reason'] = 'country_data_upgrade_required';
+            }
         }
 
         $deleted_count = 0;
@@ -936,10 +944,11 @@ class ZohoAPI
         if ($query->have_posts()) {
             while ($query->have_posts()) {
                 $query->the_post();
-                $countries_of_operation = get_post_meta(get_the_ID(), 'countries_of_operation', true);
-                if (!is_array($countries_of_operation)) {
-                    $countries_of_operation = [];
-                }
+                // Keep stale summary sentinels out of the public response even
+                // if a request arrives while the one-time refresh is running.
+                $countries_of_operation = $this->sanitizeCountriesOfOperation(
+                    get_post_meta(get_the_ID(), 'countries_of_operation', true)
+                );
 
                 $members[] = [
                     'Organisation_name' => html_entity_decode(get_the_title(), ENT_QUOTES, 'UTF-8'),  // Used by the frontend
@@ -981,6 +990,47 @@ class ZohoAPI
     private function normaliseCountryName($name)
     {
         return gsf_normalize_country_name($name);
+    }
+
+    /**
+     * Return individual country names only.
+     *
+     * When the country option is supplied (during ingestion), retain only
+     * countries enabled for the map. Without it (public response), preserve the
+     * already-filtered stored list while stripping stale summary sentinels.
+     */
+    private function sanitizeCountriesOfOperation($countries, $all_countries = null)
+    {
+        if (!is_array($countries)) {
+            return [];
+        }
+
+        $sanitized = [];
+        foreach ($countries as $country_name) {
+            $country_name = trim((string) $this->normaliseCountryName($country_name));
+            if ($country_name === '' || strcasecmp($country_name, 'Multiple locations') === 0) {
+                continue;
+            }
+            if (
+                is_array($all_countries)
+                && (
+                    !isset($all_countries[$country_name]['flag'])
+                    || strtolower((string) $all_countries[$country_name]['flag']) !== 'show'
+                )
+            ) {
+                continue;
+            }
+            if (!in_array($country_name, $sanitized, true)) {
+                $sanitized[] = $country_name;
+            }
+        }
+
+        return $sanitized;
+    }
+
+    private function isCountryDataUpgradeRequired()
+    {
+        return (int) get_option(self::COUNTRY_DATA_VERSION_OPTION, 0) < self::COUNTRY_DATA_VERSION;
     }
 
     // [ICONNECT 2026-07-09] getMemberSearchCriteria() built the Zoho search
@@ -1190,9 +1240,19 @@ class ZohoAPI
         // ==================== END ORIGINAL ZOHO CODE ===================================
 
         // Check if we need to sync countries
-        $shouldSyncCountries = !$this->lastCountrySyncTime || (time() - $this->lastCountrySyncTime) > $this->countrySyncInterval;
+        $shouldSyncCountries = $this->isCountryDataUpgradeRequired()
+            || !$this->lastCountrySyncTime
+            || (time() - $this->lastCountrySyncTime) > $this->countrySyncInterval;
         if ($shouldSyncCountries) {
-            $this->syncCountriesFromZoho();
+            if (!$this->syncCountriesFromZoho()) {
+                $result = [
+                    'status' => 'failed',
+                    'reason' => 'country_fetch_failed',
+                    'deleted_count' => 0,
+                ];
+                update_option('gsf_last_sync_result', $result);
+                return $result;
+            }
         }
         $this->renewMemberSyncLock($lock);
 
@@ -1278,21 +1338,13 @@ class ZohoAPI
         }
 
         $sync_stats = $this->syncMembersToWordPress($allMembers, $lock);
-
-        $result = [
-            'status' => 'completed',
-            'reason' => null,
-            'total_members_fetched' => count($allMembers),
-            'pages_fetched' => $pagesFetched,
-            'deleted_count' => $deleted_count,
-            'duplicate_feed_ids' => $sync_stats['duplicate_feed_ids'],
-            'started_at' => $started_at,
-            'completed_at' => time(),
-        ];
-        update_option('gsf_last_sync_result', $result);
-        $this->logger->log('Member sync from iConnect completed', 'INFO', $result);
-
-        return $result;
+        return $this->finalizeMemberSyncResult(
+            $sync_stats,
+            count($allMembers),
+            $pagesFetched,
+            $deleted_count,
+            $started_at
+        );
         } catch (Throwable $e) {
             $result = [
                 'status' => 'failed',
@@ -1308,6 +1360,44 @@ class ZohoAPI
         } finally {
             $this->releaseMemberSyncLock($lock['token']);
         }
+    }
+
+    private function finalizeMemberSyncResult($sync_stats, $total_members, $pages_fetched, $deleted_count, $started_at)
+    {
+        $failed = (int) ($sync_stats['failed'] ?? 0);
+        if ($failed > 0) {
+            $result = [
+                'status' => 'failed',
+                'reason' => 'member_metadata_refresh_failed',
+                'failed_members' => $failed,
+                'total_members_fetched' => $total_members,
+                'pages_fetched' => $pages_fetched,
+                'deleted_count' => $deleted_count,
+                'duplicate_feed_ids' => $sync_stats['duplicate_feed_ids'] ?? [],
+                'started_at' => $started_at,
+                'completed_at' => time(),
+            ];
+            update_option('gsf_last_sync_result', $result);
+            $this->logger->log('Member sync from iConnect completed with failed member writes', 'ERROR', $result);
+            return $result;
+        }
+
+        // Mark the migration only after both feeds were read and every member's
+        // country metadata was confirmed. Failed/busy/partial runs retry later.
+        update_option(self::COUNTRY_DATA_VERSION_OPTION, self::COUNTRY_DATA_VERSION);
+        $result = [
+            'status' => 'completed',
+            'reason' => null,
+            'total_members_fetched' => $total_members,
+            'pages_fetched' => $pages_fetched,
+            'deleted_count' => $deleted_count,
+            'duplicate_feed_ids' => $sync_stats['duplicate_feed_ids'] ?? [],
+            'started_at' => $started_at,
+            'completed_at' => time(),
+        ];
+        update_option('gsf_last_sync_result', $result);
+        $this->logger->log('Member sync from iConnect completed', 'INFO', $result);
+        return $result;
     }
 
     /**

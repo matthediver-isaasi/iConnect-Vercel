@@ -1,6 +1,6 @@
 # GSF Map Site — Zoho → iConnect Switch-Over (Handover Note)
 
-**Date:** 25 August 2026
+**Date:** 26 August 2026
 **Deliverable:** `class-zoho-api.iconnect.php` — a modified copy of the WordPress plugin's `ZohoAPI` class, repointed from Zoho CRM to iConnect.
 
 ## How to review the file
@@ -31,6 +31,35 @@
 - Both return a **bare JSON array** in a single response — no pagination, no Zoho-style `data` / `info.more_records` envelope.
 - The members payload is already filtered to **current members** of the two member account types (the old Zoho `criteria` search now happens server-side in iConnect).
 - Country rows have the exact Zoho `Countries1` shape (`Country.name`, `Country.id`, `Income_Group`, `GSF_Region_Classification`, `Flag`), so the plugin's per-row mapping is preserved verbatim.
+
+## Individual countries refresh — 26 August 2026
+
+The iConnect feed now supplies the full `Countries_of_Operation` array rather
+than the display summary “Multiple locations”. This package includes a
+WordPress-side one-time refresh so existing member posts are corrected
+immediately after installation instead of waiting for the normal hourly sync:
+
+1. install this package's `class-zoho-api.iconnect.php`;
+2. load the map once (or use the existing manual sync control);
+3. require the sync result to report `completed`;
+4. confirm Justice Rising returns Congo, Dem. Rep., Iraq, and Syria in
+   `Countries_of_Operation`.
+
+The refresh version is recorded only after a successful country and member
+sync. Failed or busy attempts remain eligible to retry. The public member
+response also strips any stale “Multiple locations” sentinel while the refresh
+is in flight, and country filtering continues to use the individual-country
+metadata.
+
+The ZIP is built from the checked-in files with:
+
+```bash
+./deliverables/gsf-map-switchover/build-package.sh
+```
+
+The build verifies every archived file byte-for-byte against its source before
+replacing the distributable, preventing a reviewed class change from being
+omitted from the installable package.
 
 ## WordPress configuration (set BEFORE deploying)
 
@@ -82,7 +111,9 @@ credentials must still be **rotated / revoked** in the Zoho admin console.
   noncanonical `last_sync`, global sync timestamps, option and MySQL advisory
   lock contention, named findings, cleanup dry-run immutability, staged
   per-deletion mutation fencing, final-survivor snapshot matching, persistent
-  journal fallback, the observed 237-published/232-identity starting state,
+  journal fallback, one-time country-data refresh, stale summary replacement,
+  public individual-country output and filtering, the observed
+  237-published/232-identity starting state,
   mixed candidate statuses, explicit feed-failure handling, and the temporary
   browser cleanup's administrator/POST/nonce/confirmation and one-time-plan
   controls.
