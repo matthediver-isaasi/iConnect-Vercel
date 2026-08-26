@@ -6,6 +6,7 @@ import {
   addSubscriberToList, 
   removeSubscriberFromList 
 } from '../_lib/zohoCampaignsClient.js';
+import { isEligibleCommunicationMember } from '../../shared/communicationCategoryMembership.js';
 
 const BATCH_SIZE = 50;
 const CONCURRENCY_LIMIT = 10;
@@ -102,22 +103,11 @@ async function handleStartJob(req, res, tenantId) {
     });
   }
 
-  const { data: categoryRoles } = await supabase
-    .from('communication_category_role')
-    .select('role_id')
-    .eq('category_id', categoryId);
-
-  const roleIds = categoryRoles?.map(r => r.role_id) || [];
-
-  let countQuery = supabase
+  const countQuery = supabase
     .from('member')
     .select('id', { count: 'exact', head: true })
     .eq('tenant_id', tenantId)
     .not('email', 'ilike', 'deleted_%@deleted.local');
-
-  if (roleIds.length > 0) {
-    countQuery = countQuery.in('role_id', roleIds);
-  }
 
   const { count: totalMembers } = await countQuery;
 
@@ -260,23 +250,13 @@ async function processBatch(tenantId, job) {
       return { status: 'failed', error: 'Category or Zoho list not found' };
     }
 
-    const { data: categoryRoles } = await supabase
-      .from('communication_category_role')
-      .select('role_id')
-      .eq('category_id', job.category_id);
-
-    const roleIds = categoryRoles?.map(r => r.role_id) || [];
-
-    let membersQuery = supabase
+    const membersQuery = supabase
       .from('member')
-      .select('id, email, first_name, last_name, role_id, communications_opted_out_all')
+      .select('id, email, first_name, last_name, role_id, login_enabled, communications_opted_out_all')
       .eq('tenant_id', tenantId)
       .not('email', 'ilike', 'deleted_%@deleted.local')
+      .order('id', { ascending: true })
       .range(job.current_offset, job.current_offset + BATCH_SIZE - 1);
-
-    if (roleIds.length > 0) {
-      membersQuery = membersQuery.in('role_id', roleIds);
-    }
 
     const { data: members, error: membersError } = await membersQuery;
 
@@ -304,15 +284,15 @@ async function processBatch(tenantId, job) {
       .from('member_communication_preference')
       .select('member_id, category_id, is_subscribed')
       .eq('category_id', job.category_id)
-      .eq('tenant_id', tenantId);
+      .eq('tenant_id', tenantId)
+      .in('member_id', members.map(({ id }) => id));
 
     const validMembers = members.filter(m => isValidEmail(m.email));
     const skippedCount = members.length - validMembers.length;
 
     const syncResults = await processWithConcurrency(validMembers, async (member) => {
       const pref = preferences?.find(p => p.member_id === member.id);
-      const isOptedOutAll = member.communications_opted_out_all === true;
-      const isSubscribed = !isOptedOutAll && pref?.is_subscribed !== false;
+      const isSubscribed = isEligibleCommunicationMember(member) && pref?.is_subscribed === true;
 
       try {
         if (isSubscribed) {

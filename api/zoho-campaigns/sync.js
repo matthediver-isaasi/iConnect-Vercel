@@ -7,6 +7,7 @@ import {
   removeSubscriberFromList,
   syncMemberToZohoLists 
 } from '../_lib/zohoCampaignsClient.js';
+import { isEligibleCommunicationMember } from '../../shared/communicationCategoryMembership.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -69,7 +70,7 @@ export default async function handler(req, res) {
 async function syncSingleMember(tenantId, memberId) {
   const { data: member, error: memberError } = await supabase
     .from('member')
-    .select('id, email, first_name, last_name, role_id, communications_opted_out_all')
+    .select('id, email, first_name, last_name, role_id, login_enabled, communications_opted_out_all')
     .eq('id', memberId)
     .eq('tenant_id', tenantId)
     .single();
@@ -138,37 +139,23 @@ async function syncCategory(tenantId, categoryId, offset = 0) {
     return { success: false, error: 'Category not mapped to a Zoho list' };
   }
 
-  const { data: categoryRoles } = await supabase
-    .from('communication_category_role')
-    .select('role_id')
-    .eq('category_id', categoryId);
-
-  const roleIds = categoryRoles?.map(r => r.role_id) || [];
-
   // First get total count (excluding deleted/anonymized members)
-  let countQuery = supabase
+  const countQuery = supabase
     .from('member')
     .select('id', { count: 'exact', head: true })
     .eq('tenant_id', tenantId)
     .not('email', 'ilike', 'deleted_%@deleted.local');
 
-  if (roleIds.length > 0) {
-    countQuery = countQuery.in('role_id', roleIds);
-  }
-
   const { count: totalMembers } = await countQuery;
 
   // Get batch of members (excluding deleted/anonymized members)
-  let membersQuery = supabase
+  const membersQuery = supabase
     .from('member')
-    .select('id, email, first_name, last_name, role_id, communications_opted_out_all')
+    .select('id, email, first_name, last_name, role_id, login_enabled, communications_opted_out_all')
     .eq('tenant_id', tenantId)
     .not('email', 'ilike', 'deleted_%@deleted.local')
+    .order('id', { ascending: true })
     .range(offset, offset + BATCH_SIZE - 1);
-
-  if (roleIds.length > 0) {
-    membersQuery = membersQuery.in('role_id', roleIds);
-  }
 
   const { data: members, error: membersError } = await membersQuery;
 
@@ -180,7 +167,8 @@ async function syncCategory(tenantId, categoryId, offset = 0) {
     .from('member_communication_preference')
     .select('member_id, category_id, is_subscribed')
     .eq('category_id', categoryId)
-    .eq('tenant_id', tenantId);
+    .eq('tenant_id', tenantId)
+    .in('member_id', (members || []).map(({ id }) => id));
 
   const results = {
     category: category.name,
@@ -209,8 +197,7 @@ async function syncCategory(tenantId, categoryId, offset = 0) {
   // Process members concurrently
   const syncResults = await processWithConcurrency(validMembers, async (member) => {
     const pref = preferences?.find(p => p.member_id === member.id);
-    const isOptedOutAll = member.communications_opted_out_all === true;
-    const isSubscribed = !isOptedOutAll && pref?.is_subscribed !== false;
+    const isSubscribed = isEligibleCommunicationMember(member) && pref?.is_subscribed === true;
 
     try {
       if (isSubscribed) {

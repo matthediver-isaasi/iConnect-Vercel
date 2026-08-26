@@ -6,6 +6,7 @@ import {
   optOutExternalAll,
   optOutExternalCategory,
 } from '../_lib/externalSubscriberPreferences.js';
+import { getToggledExplicitSubscriptionValue } from '../../shared/communicationCategoryMembership.js';
 
 const TOKEN_SECRET = process.env.EMAIL_PREFERENCES_TOKEN_SECRET || process.env.SESSION_SECRET || 'default-preferences-secret';
 
@@ -332,18 +333,16 @@ async function handlePreferenceUpdate(req, res, context) {
     }
 
     if (action === 'toggle_category' && categoryId) {
-      const { data: existingPref } = await supabase
+      const { data: existingPref, error: existingPrefError } = await supabase
         .from('member_communication_preference')
         .select('id, is_subscribed')
+        .eq('tenant_id', tenantId)
         .eq('member_id', member.id)
         .eq('category_id', categoryId)
         .limit(1);
+      if (existingPrefError) throw existingPrefError;
 
-      const currentlySubscribed = existingPref && existingPref.length > 0 
-        ? existingPref[0].is_subscribed 
-        : true;
-      
-      const newValue = !currentlySubscribed;
+      const newValue = getToggledExplicitSubscriptionValue(existingPref?.[0]);
 
       await upsertPreference(member.id, categoryId, newValue, tenantId);
 

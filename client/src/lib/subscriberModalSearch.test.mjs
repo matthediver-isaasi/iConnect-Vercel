@@ -10,6 +10,12 @@ import {
   getSubscriberEmptyState,
   paginateSubscriberResults,
 } from './subscriberModalSearch.js';
+import {
+  filterExplicitCategorySubscribers,
+  getExplicitlySubscribedMemberIds,
+  getToggledExplicitSubscriptionValue,
+  mergeExternalCategorySubscribers,
+} from '../../../shared/communicationCategoryMembership.js';
 
 const members = [
   {
@@ -170,4 +176,180 @@ test('external export follows every server page instead of truncating large cate
   assert.deepEqual(requestedPages, [1, 2, 3]);
   assert.equal(subscribers.length, 205);
   assert.equal(subscribers.at(-1).id, 's205');
+});
+
+test('explicit preferences populate roleless categories and include subscribers outside assigned roles', () => {
+  const categoryMembers = [
+    { id: 'inside-role', email: 'inside@example.org', role_id: 'assigned', login_enabled: true },
+    { id: 'outside-role', email: 'outside@example.org', role_id: 'other', login_enabled: true },
+  ];
+  const preferences = categoryMembers.map(({ id }) => ({
+    member_id: id,
+    category_id: 'roleless-newsletter',
+    is_subscribed: true,
+  }));
+
+  assert.deepEqual(
+    filterExplicitCategorySubscribers(
+      categoryMembers,
+      preferences,
+      ['roleless-newsletter']
+    ).map(({ id }) => id),
+    ['inside-role', 'outside-role']
+  );
+});
+
+test('the first toggle on a missing explicit preference subscribes the member', () => {
+  assert.equal(getToggledExplicitSubscriptionValue(undefined), true);
+  assert.equal(getToggledExplicitSubscriptionValue({ is_subscribed: false }), true);
+  assert.equal(getToggledExplicitSubscriptionValue({ is_subscribed: true }), false);
+
+  const preferenceApiSource = readFileSync(
+    new URL('../../../api/email-preferences/index.js', import.meta.url),
+    'utf8'
+  );
+  assert.match(
+    preferenceApiSource,
+    /getToggledExplicitSubscriptionValue\(existingPref\?\.\[0\]\)/
+  );
+  assert.match(
+    preferenceApiSource,
+    /\.eq\('tenant_id', tenantId\)\s*\.eq\('member_id', member\.id\)/
+  );
+});
+
+test('category membership excludes missing and false preferences, global opt-outs, inactive and deleted members', () => {
+  const categoryMembers = [
+    { id: 'subscribed', email: 'yes@example.org', login_enabled: true },
+    { id: 'missing', email: 'missing@example.org', login_enabled: true },
+    { id: 'false', email: 'false@example.org', login_enabled: true },
+    { id: 'global', email: 'global@example.org', login_enabled: true, communications_opted_out_all: true },
+    { id: 'inactive', email: 'inactive@example.org', login_enabled: false },
+    { id: 'deleted', email: 'deleted_123@deleted.local', login_enabled: true },
+  ];
+  const preferences = [
+    { member_id: 'subscribed', category_id: 'news', is_subscribed: true },
+    { member_id: 'false', category_id: 'news', is_subscribed: false },
+    { member_id: 'global', category_id: 'news', is_subscribed: true },
+    { member_id: 'inactive', category_id: 'news', is_subscribed: true },
+    { member_id: 'deleted', category_id: 'news', is_subscribed: true },
+  ];
+
+  assert.deepEqual(
+    filterExplicitCategorySubscribers(categoryMembers, preferences, ['news']).map(({ id }) => id),
+    ['subscribed']
+  );
+});
+
+test('campaign opt-out bypass can retain a globally opted-out subscriber but never an inactive member', () => {
+  const members = [
+    { id: 'global', email: 'global@example.org', login_enabled: true, communications_opted_out_all: true },
+    { id: 'inactive', email: 'inactive@example.org', login_enabled: false },
+  ];
+  const preferences = members.map(({ id }) => ({
+    member_id: id,
+    category_id: 'news',
+    is_subscribed: true,
+  }));
+
+  assert.deepEqual(
+    filterExplicitCategorySubscribers(
+      members,
+      preferences,
+      ['news'],
+      { includeGlobalOptOuts: true }
+    ).map(({ id }) => id),
+    ['global']
+  );
+});
+
+test('explicit category membership deduplicates members across roles, categories, and repeated rows', () => {
+  const preferences = [
+    { member_id: 'member-1', category_id: 'news', is_subscribed: true },
+    { member_id: 'member-1', category_id: 'news', is_subscribed: true },
+    { member_id: 'member-1', category_id: 'events', is_subscribed: true },
+  ];
+  const membersWithDuplicateCandidate = [
+    { id: 'member-1', email: 'member@example.org', login_enabled: true },
+    { id: 'member-1', email: 'member@example.org', login_enabled: true },
+  ];
+
+  assert.deepEqual(
+    [...getExplicitlySubscribedMemberIds(preferences, ['news', 'events'])],
+    ['member-1']
+  );
+  assert.equal(
+    filterExplicitCategorySubscribers(
+      membersWithDuplicateCandidate,
+      preferences,
+      ['news', 'events']
+    ).length,
+    1
+  );
+});
+
+test('external category rows cannot bypass a tenant member preference or duplicate an email', () => {
+  const memberSubscribers = [
+    { id: 'member-true', email: 'true@example.org' },
+  ];
+  const tenantMembers = [
+    { id: 'member-true', email: 'true@example.org' },
+    { id: 'member-false', email: 'FALSE@example.org' },
+    { id: 'member-missing', email: 'missing@example.org' },
+  ];
+  const externalSubscribers = [
+    { id: 'stale-true', email: 'TRUE@example.org' },
+    { id: 'stale-false', email: 'false@example.org' },
+    { id: 'stale-missing', email: 'missing@example.org' },
+    { id: 'external', email: 'external@example.org', first_name: 'External' },
+    { id: 'external-duplicate', email: 'EXTERNAL@example.org' },
+  ];
+
+  assert.deepEqual(
+    mergeExternalCategorySubscribers(
+      memberSubscribers,
+      externalSubscribers,
+      tenantMembers
+    ).map(({ id }) => id),
+    ['member-true', 'external']
+  );
+});
+
+test('campaign, admin, and Zoho paths all use explicit-true subscription semantics', () => {
+  const campaignSource = readFileSync(
+    new URL('../../../api/_lib/campaignService.js', import.meta.url),
+    'utf8'
+  );
+  const zohoSource = readFileSync(
+    new URL('../../../api/zoho-campaigns/sync.js', import.meta.url),
+    'utf8'
+  );
+  const zohoJobSource = readFileSync(
+    new URL('../../../api/zoho-campaigns/sync-job.js', import.meta.url),
+    'utf8'
+  );
+
+  assert.match(campaignSource, /filterExplicitCategorySubscribers/);
+  assert.match(campaignSource, /mergeExternalCategorySubscribers/);
+  assert.match(campaignSource, /if \(filters\.throwOnError\) throw error/);
+  assert.match(campaignSource, /\{ memberIds, throwOnError: true \}/);
+  assert.match(
+    campaignSource,
+    /targetType === 'form'[\s\S]*recipients = await getExplicitCategoryMemberRecipients\(categoryIds, tenantId\)/
+  );
+  assert.match(campaignSource, /\.order\('id', \{ ascending: true \}\)\s*\.range\(extOffset/);
+  assert.match(campaignSource, /\.eq\('is_subscribed', true\)/);
+  assert.match(campaignSource, /\.eq\('tenant_id', tenantId\)\s*\.eq\('category_id', communicationCategoryId\)/);
+  assert.doesNotMatch(zohoSource, /pref\?\.is_subscribed !== false/);
+  assert.doesNotMatch(zohoJobSource, /pref\?\.is_subscribed !== false/);
+  assert.match(zohoSource, /pref\?\.is_subscribed === true/);
+  assert.match(zohoJobSource, /pref\?\.is_subscribed === true/);
+  assert.match(
+    readFileSync(new URL('../pages/CommunicationsManagement.jsx', import.meta.url), 'utf8'),
+    /MemberCommunicationPreference\.listAll\(\{\s*sort: \{ id: 'asc' \}/
+  );
+  assert.match(
+    readFileSync(new URL('../pages/CommunicationsManagement.jsx', import.meta.url), 'utf8'),
+    /Member\.listAll\(\{\s*sort: \{ id: 'asc' \}/
+  );
 });

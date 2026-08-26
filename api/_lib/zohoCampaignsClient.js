@@ -1,6 +1,7 @@
 import { supabase } from './database.js';
 import { getSessionMember, getSessionTenantUser } from './session.js';
 import crypto from 'crypto';
+import { isEligibleCommunicationMember } from '../../shared/communicationCategoryMembership.js';
 
 const ENCRYPTION_KEY = process.env.INTEGRATION_ENCRYPTION_KEY || process.env.SESSION_SECRET;
 
@@ -375,7 +376,9 @@ export async function syncMemberToZohoLists(tenantId, member, preferences) {
 
   for (const category of categories) {
     const preference = preferences.find(p => p.category_id === category.id);
-    const isSubscribed = !isOptedOutAll && (preference?.is_subscribed !== false);
+    const isSubscribed = !isOptedOutAll &&
+      isEligibleCommunicationMember(member) &&
+      preference?.is_subscribed === true;
 
     try {
       if (isSubscribed) {

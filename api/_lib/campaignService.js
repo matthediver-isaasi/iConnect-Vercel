@@ -5,6 +5,11 @@ import { checkEmailQuota } from './planQuota.js';
 import { buildQrImageUrl, ensureBookingToken, ensureComplexSessionTokens } from './checkinService.js';
 import { sanitizeSlotHtml, htmlSlotToPlainText } from './slotHtmlSanitizer.js';
 import { getPublicBaseUrl } from './publicBaseUrl.js';
+import {
+  filterExplicitCategorySubscribers,
+  isActiveCommunicationMember,
+  mergeExternalCategorySubscribers,
+} from '../../shared/communicationCategoryMembership.js';
 import crypto from 'crypto';
 
 const APP_DOMAIN = process.env.APP_DOMAIN || 'iconn.app';
@@ -898,13 +903,19 @@ async function fetchAllMembersPaginated(tenantId, selectFields, filters = {}) {
     if (filters.roleIds && filters.roleIds.length > 0) {
       query = query.in('role_id', filters.roleIds);
     }
+    if (filters.memberIds && filters.memberIds.length > 0) {
+      query = query.in('id', filters.memberIds);
+    }
 
-    query = query.range(offset, offset + batchSize - 1);
+    query = query
+      .order('id', { ascending: true })
+      .range(offset, offset + batchSize - 1);
 
     const { data: batch, error } = await query;
 
     if (error) {
       console.error('[Campaign Service] Pagination error:', error);
+      if (filters.throwOnError) throw error;
       break;
     }
 
@@ -1020,39 +1031,43 @@ async function getAudienceListRecipients(targetIds, tenantId, visitedListIds = n
   return recipients;
 }
 
+async function getExplicitCategoryMemberRecipients(categoryIds, tenantId) {
+  const preferences = await fetchAllRows((offset, pageSize) => supabase
+    .from('member_communication_preference')
+    .select('id, member_id, category_id, is_subscribed')
+    .eq('tenant_id', tenantId)
+    .in('category_id', categoryIds)
+    .eq('is_subscribed', true)
+    .order('id', { ascending: true })
+    .range(offset, offset + pageSize - 1));
+  const subscribedMemberIds = [...new Set(preferences.map(({ member_id }) => member_id).filter(Boolean))];
+  const recipients = [];
+
+  for (let index = 0; index < subscribedMemberIds.length; index += 500) {
+    const memberIds = subscribedMemberIds.slice(index, index + 500);
+    const members = await fetchAllMembersPaginated(
+      tenantId,
+      'id, email, first_name, last_name, role_id, login_enabled, communications_opted_out_all',
+      { memberIds, throwOnError: true }
+    );
+    recipients.push(...filterExplicitCategorySubscribers(
+      members,
+      preferences,
+      categoryIds,
+      { includeGlobalOptOuts: true }
+    ));
+  }
+
+  return recipients;
+}
+
 async function getRecipientsForSegment(targetType, targetIds, tenantId, segmentData = null) {
   let recipients = [];
 
   if (!targetType) return recipients;
 
   if (targetType === 'communication_category' && targetIds.length > 0) {
-    const { data: categoryRoles } = await supabase
-      .from('communication_category_role')
-      .select('role_id')
-      .in('category_id', targetIds);
-
-    const roleIds = [...new Set((categoryRoles || []).map(cr => cr.role_id))];
-
-    if (roleIds.length > 0) {
-      const members = await fetchAllMembersPaginated(
-        tenantId, 
-        'id, email, first_name, last_name, role_id, communications_opted_out_all',
-        { roleIds }
-      );
-
-      const { data: unsubscribes } = await supabase
-        .from('member_communication_preference')
-        .select('member_id')
-        .in('category_id', targetIds)
-        .eq('is_subscribed', false);
-
-      const unsubscribedIds = new Set((unsubscribes || []).map(u => u.member_id));
-
-      recipients = members.filter(m => 
-        m.email && 
-        !unsubscribedIds.has(m.id)
-      );
-    }
+    recipients = await getExplicitCategoryMemberRecipients(targetIds, tenantId);
 
     const allExtSubscribers = [];
     let extOffset = 0;
@@ -1060,13 +1075,15 @@ async function getRecipientsForSegment(targetType, targetIds, tenantId, segmentD
     let hasMoreExt = true;
 
     while (hasMoreExt) {
-      const { data: extBatch } = await supabase
+      const { data: extBatch, error: extError } = await supabase
         .from('email_subscriber')
         .select('id, email, first_name, last_name')
         .eq('tenant_id', tenantId)
         .in('communication_category_id', targetIds)
         .eq('opted_out', false)
+        .order('id', { ascending: true })
         .range(extOffset, extOffset + extBatchSize - 1);
+      if (extError) throw extError;
 
       if (extBatch && extBatch.length > 0) {
         allExtSubscribers.push(...extBatch);
@@ -1078,18 +1095,16 @@ async function getRecipientsForSegment(targetType, targetIds, tenantId, segmentD
     }
 
     if (allExtSubscribers.length > 0) {
-      const memberEmails = new Set(recipients.map(r => r.email.toLowerCase()));
-      for (const sub of allExtSubscribers) {
-        if (sub.email && !memberEmails.has(sub.email.toLowerCase())) {
-          recipients.push({
-            id: sub.id,
-            member_id: null,
-            email: sub.email,
-            first_name: sub.first_name,
-            last_name: sub.last_name
-          });
-        }
-      }
+      const tenantMembers = await fetchAllMembersPaginated(
+        tenantId,
+        'id, email',
+        { throwOnError: true }
+      );
+      recipients = mergeExternalCategorySubscribers(
+        recipients,
+        allExtSubscribers,
+        tenantMembers
+      );
     }
   } else if (targetType === 'member_group' && targetIds.length > 0) {
     // Optional in-group role restriction (used by member-side group emails so
@@ -1244,76 +1259,43 @@ async function getRecipientsForSegment(targetType, targetIds, tenantId, segmentD
       const formIds = forms.map(f => f.id);
 
       if (categoryIds.length > 0) {
-        const memberMap = new Map();
-        const PAGE_SIZE = 1000;
-        let offset = 0;
-        let hasMore = true;
-
-        while (hasMore) {
-          const { data: subscribedPrefs, error: prefError } = await supabase
-            .from('member_communication_preference')
-            .select(`
-              member_id,
-              member!inner (
-                id,
-                email,
-                first_name,
-                last_name,
-                tenant_id,
-                communications_opted_out_all
-              )
-            `)
-            .in('category_id', categoryIds)
-            .eq('is_subscribed', true)
-            .eq('member.tenant_id', tenantId)
-            .not('member.email', 'ilike', 'deleted_%@deleted.local')
-            .range(offset, offset + PAGE_SIZE - 1);
-
-          if (prefError) {
-            console.error('[CampaignService] Error fetching member subscriptions:', prefError);
-            break;
-          }
-
-          if (subscribedPrefs && subscribedPrefs.length > 0) {
-            for (const pref of subscribedPrefs) {
-              const m = pref.member;
-              if (m && m.email && !memberMap.has(m.id)) {
-                memberMap.set(m.id, {
-                  id: m.id,
-                  member_id: m.id,
-                  email: m.email,
-                  first_name: m.first_name,
-                  last_name: m.last_name,
-                  communications_opted_out_all: m.communications_opted_out_all
-                });
-              }
-            }
-          }
-
-          hasMore = subscribedPrefs && subscribedPrefs.length === PAGE_SIZE;
-          offset += PAGE_SIZE;
-        }
-
-        recipients = Array.from(memberMap.values());
+        recipients = await getExplicitCategoryMemberRecipients(categoryIds, tenantId);
       }
 
-      const { data: subscribers } = await supabase
+      const subscribers = await fetchAllRows((offset, pageSize) => supabase
         .from('email_subscriber')
         .select('id, email, first_name, last_name, form_id, communication_category_id')
         .eq('tenant_id', tenantId)
         .eq('opted_out', false)
-        .in('form_id', formIds);
+        .in('form_id', formIds)
+        .order('id', { ascending: true })
+        .range(offset, offset + pageSize - 1));
 
-      if (subscribers && subscribers.length > 0) {
-        for (const sub of subscribers) {
-          recipients.push({
-            id: sub.id,
-            member_id: null,
-            email: sub.email,
-            first_name: sub.first_name,
-            last_name: sub.last_name
-          });
-        }
+      if (subscribers.length > 0) {
+        const categorizedFormIds = new Set(
+          forms
+            .filter(({ communication_category_id }) => Boolean(communication_category_id))
+            .map(({ id }) => id)
+        );
+        const categorySubscribers = subscribers.filter(({ form_id }) => categorizedFormIds.has(form_id));
+        const uncategorizedSubscribers = subscribers.filter(({ form_id }) => !categorizedFormIds.has(form_id));
+        const tenantMembers = categorySubscribers.length > 0
+          ? await fetchAllMembersPaginated(
+            tenantId,
+            'id, email',
+            { throwOnError: true }
+          )
+          : [];
+        recipients = mergeExternalCategorySubscribers(
+          recipients,
+          categorySubscribers,
+          tenantMembers
+        );
+        recipients = mergeExternalCategorySubscribers(
+          recipients,
+          uncategorizedSubscribers,
+          []
+        );
       }
     }
   } else if (targetType === 'fundraisers') {
@@ -2420,23 +2402,36 @@ export async function getTargetRecipients(campaign, tenantId, countOnly = false,
 
       if (memberIds.length > 0) {
         const subscribedMemberIds = new Set();
+        const activeMemberIds = new Set();
         const PAGE_SIZE = 100;
 
         for (let i = 0; i < memberIds.length; i += PAGE_SIZE) {
           const batch = memberIds.slice(i, i + PAGE_SIZE);
-          const { data: prefs, error: prefError } = await supabase
-            .from('member_communication_preference')
-            .select('member_id')
-            .eq('category_id', communicationCategoryId)
-            .eq('is_subscribed', true)
-            .in('member_id', batch);
+          const [{ data: prefs, error: prefError }, { data: members, error: memberError }] = await Promise.all([
+            supabase
+              .from('member_communication_preference')
+              .select('member_id')
+              .eq('tenant_id', tenantId)
+              .eq('category_id', communicationCategoryId)
+              .eq('is_subscribed', true)
+              .in('member_id', batch),
+            supabase
+              .from('member')
+              .select('id, email, login_enabled')
+              .eq('tenant_id', tenantId)
+              .in('id', batch),
+          ]);
 
           if (prefError) throw prefError;
+          if (memberError) throw memberError;
 
           if (prefs && prefs.length > 0) {
             for (const p of prefs) {
               subscribedMemberIds.add(p.member_id);
             }
+          }
+          for (const member of members || []) {
+            if (isActiveCommunicationMember(member)) activeMemberIds.add(member.id);
           }
         }
 
@@ -2445,17 +2440,19 @@ export async function getTargetRecipients(campaign, tenantId, countOnly = false,
 
         if (detailedLists) {
           const catMemberRemoved = allRecipients.filter(r => {
-            if (r.bypass_opt_out === true) return false;
             const memberId = resolveMemberId(r);
-            return memberId && !subscribedMemberIds.has(memberId);
+            if (!memberId) return false;
+            if (!activeMemberIds.has(memberId)) return true;
+            return r.bypass_opt_out !== true && !subscribedMemberIds.has(memberId);
           });
           categoryOptOutList.push(...catMemberRemoved.map(r => ({ email: r.email, first_name: r.first_name, last_name: r.last_name })));
         }
 
         allRecipients = allRecipients.filter(r => {
-          if (r.bypass_opt_out === true) return true;
           const memberId = resolveMemberId(r);
           if (!memberId) return true;
+          if (!activeMemberIds.has(memberId)) return false;
+          if (r.bypass_opt_out === true) return true;
           return subscribedMemberIds.has(memberId);
         });
       }

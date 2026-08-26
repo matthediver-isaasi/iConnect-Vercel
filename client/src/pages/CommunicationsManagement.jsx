@@ -31,6 +31,7 @@ import {
   normalizeSubscriberSearch,
   paginateSubscriberResults,
 } from "@/lib/subscriberModalSearch";
+import { filterExplicitCategorySubscribers } from "@shared/communicationCategoryMembership.js";
 
 const SUBSCRIBERS_PER_PAGE = 10;
 const EXTERNAL_SEARCH_DEBOUNCE_MS = 300;
@@ -209,14 +210,18 @@ export default function CommunicationsManagementPage() {
 
   const { data: preferences = [] } = useQuery({
     queryKey: ['member-communication-preferences'],
-    queryFn: () => base44.entities.MemberCommunicationPreference.list(),
+    queryFn: () => base44.entities.MemberCommunicationPreference.listAll({
+      sort: { id: 'asc' },
+    }),
     staleTime: 0,
     retry: 1,
   });
 
   const { data: allMembers = [], isLoading: membersLoading } = useQuery({
     queryKey: ['all-members-for-export'],
-    queryFn: () => base44.entities.Member.listAll(),
+    queryFn: () => base44.entities.Member.listAll({
+      sort: { id: 'asc' },
+    }),
     staleTime: 60000,
   });
 
@@ -954,24 +959,7 @@ export default function CommunicationsManagementPage() {
   const OPT_OUT_PER_PAGE = 10;
 
   const getSubscribersForCategory = (categoryId) => {
-    const assignedRoleIds = getCategoryRoles(categoryId);
-    if (assignedRoleIds.length === 0) return [];
-    
-    // Filter eligible members by role, exclude inactive logins, and exclude those who opted out of ALL communications
-    const eligibleMembers = allMembers.filter(member => 
-      assignedRoleIds.includes(member.role_id) && 
-      member.login_enabled !== false &&
-      member.communications_opted_out_all !== true
-    );
-    
-    // Find members who have explicitly opted OUT of this specific category (is_subscribed === false)
-    // All eligible members are considered subscribed by default
-    const optedOutMemberIds = preferences
-      .filter(p => p.category_id === categoryId && p.is_subscribed === false)
-      .map(p => p.member_id);
-    
-    // Return eligible members who haven't opted out of this category
-    return eligibleMembers.filter(member => !optedOutMemberIds.includes(member.id));
+    return filterExplicitCategorySubscribers(allMembers, preferences, [categoryId]);
   };
 
   const getSubscriberCount = (categoryId) => {
