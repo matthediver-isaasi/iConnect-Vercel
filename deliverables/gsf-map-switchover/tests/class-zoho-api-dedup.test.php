@@ -290,6 +290,23 @@ test_assert($GLOBALS['test_posts'][41]->post_status === 'private', 'status-hidde
 test_assert($GLOBALS['test_posts'][41]->post_title === 'New title', 'status-hidden canonical post is updated');
 test_assert($stats['last_sync_updated'] === 1, 'canonical per-row last_sync is refreshed');
 
+// Individual countries survive ingestion; summary sentinels and hidden
+// countries do not become stored member meta.
+$GLOBALS['test_options']['gsf_zoho_countries'] = [
+    'Kenya' => ['flag' => 'Show'],
+    'Uganda' => ['flag' => 'Show'],
+    'Rwanda' => ['flag' => 'Hide'],
+    'Multiple locations' => ['flag' => 'Show'],
+];
+$country_member = member_payload('countries-1', 'Multi-country member');
+$country_member['Countries_of_Operation'] = ['Kenya', 'Multiple locations', 'Uganda', 'Rwanda'];
+$stats = invoke_private($api, 'syncMembersToWordPress', [$country_member]);
+$country_post = $GLOBALS['test_posts'][max(array_keys($GLOBALS['test_posts']))];
+test_assert(
+    $GLOBALS['test_meta'][$country_post->ID]['countries_of_operation'] === ['Kenya', 'Uganda'],
+    'WordPress stores individual visible countries unchanged and rejects the summary sentinel'
+);
+
 // Published wins over a lower-ID non-published duplicate; only canonical sync time changes.
 $GLOBALS['test_posts'] = [
     10 => test_post(10, 'draft', 'Duplicate draft'),

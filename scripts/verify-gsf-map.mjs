@@ -124,6 +124,14 @@ function verify(name, ref, live, { idKey = 'id', driftPct = 25, refOnlyRows = 0 
 
 const liveMembers = await fetchJson('/api/public/gsf-map/members');
 verify('Members', refMembers, liveMembers, { driftPct: 25 });
+const memberCountrySentinels = liveMembers.filter(
+  (row) => row.Countries_of_Operation?.includes('Multiple locations')
+);
+if (memberCountrySentinels.length) {
+  fail(`${memberCountrySentinels.length} members collapsed Countries_of_Operation to "Multiple locations"`);
+} else {
+  ok('Countries_of_Operation contains individual countries, never "Multiple locations"');
+}
 
 // Deep spot-check on overlapping member records: compare a handful of
 // high-signal fields for equality with the Zoho snapshot.
@@ -162,6 +170,9 @@ verify('Members', refMembers, liveMembers, { driftPct: 25 });
 }
 
 const liveCountries = await fetchJson('/api/public/gsf-map/countries');
+const countrySentinels = liveCountries.filter((row) => row.Country?.name === 'Multiple locations');
+if (countrySentinels.length) fail(`${countrySentinels.length} country rows use "Multiple locations"`);
+else ok('Countries payload contains no "Multiple locations" rows');
 const refLinked = refCountries.filter((r) => r.Parent_Id);
 verify('Countries', refLinked, liveCountries, { driftPct: 30 });
 

@@ -53,10 +53,24 @@ const FIELD_IDS = GSF_MAP_FIELD_IDS;
 const COUNTRY_NAME_ALIASES = {
   'Congo, Dem. Rep.': 'Democratic Republic of the Congo',
   'Congo (Democratic Republic)': 'Democratic Republic of the Congo',
+  "Côte d'Ivoire": 'C\u00f4te d\u2019Ivoire',
   'Egypt': 'Egypt, Arab Rep.',
   'Gambia': 'Gambia, The',
   'Laos': 'Lao PDR',
   'Ivory Coast': 'C\u00f4te d\u2019Ivoire',
+  'Kyrgyzstan': 'Kyrgyz Republic'
+};
+
+// Zoho Accounts used these labels in its Countries_of_Operation multi-pick.
+// They differ from iConnect's canonical country labels and, for Congo, from
+// the Zoho Countries1 lookup name above.
+const MEMBER_COUNTRY_NAME_ALIASES = {
+  'Congo (Democratic Republic)': 'Congo, Dem. Rep.',
+  'Ivory Coast': 'C\u00f4te d\u2019Ivoire',
+  "Côte d'Ivoire": 'C\u00f4te d\u2019Ivoire',
+  'Egypt': 'Egypt, Arab Rep.',
+  'Gambia': 'Gambia, The',
+  'Laos': 'Lao PDR',
   'Kyrgyzstan': 'Kyrgyz Republic'
 };
 
@@ -139,6 +153,30 @@ export function parseMultiPickValue(raw) {
     return trimmed ? [trimmed] : null;
   }
   return [String(raw)];
+}
+
+const MULTIPLE_LOCATIONS_SENTINEL = 'multiple locations';
+
+/**
+ * Return the canonical individual countries stored by iConnect.
+ *
+ * The countries preference is the source of truth. Do not use a presentation
+ * summary (for example "Multiple locations") as a Zoho multi-pick value:
+ * Zoho Accounts exposed the individual values and Countries1 expanded those
+ * same values into one row per organisation/country pair.
+ */
+export function resolveCountriesOfOperation(prefs = {}) {
+  const values = parseMultiPickValue(prefs[FIELD_IDS.countries_of_operation]) || [];
+  const seen = new Set();
+  return values
+    .map((value) => String(value).trim())
+    .filter((value) => {
+      if (!value || value.toLowerCase() === MULTIPLE_LOCATIONS_SENTINEL || seen.has(value)) {
+        return false;
+      }
+      seen.add(value);
+      return true;
+    });
 }
 
 const NUMERIC_TYPES = new Set(['number', 'decimal', 'percent', 'currency']);
@@ -439,6 +477,19 @@ export function buildMembersPayload(data) {
       record[m.zoho_field] = formatMappedValue(m, raw);
     }
 
+    // Countries_of_Operation must always come from the canonical countries
+    // preference collection, never from a display/location summary.
+    const countriesMapping = fieldMappings.find(
+      (m) => m.zoho_field === 'Countries_of_Operation'
+    );
+    const canonicalCountries = resolveCountriesOfOperation(prefs);
+    record.Countries_of_Operation = canonicalCountries.map((country) => {
+      const mapped = countriesMapping
+        ? applyValueMapOutbound(countriesMapping, country)
+        : country;
+      return MEMBER_COUNTRY_NAME_ALIASES[mapped] || mapped;
+    });
+
     // 2) Derived fields.
     record.id = zohoId;
     record.Org_logo_URL = resolveLogoUrl(org, publishedLogoByOrg, supabaseUrl);
@@ -533,7 +584,7 @@ export function buildCountriesPayload(data) {
       ? org[nameMapping.iconnect_field]
       : org.name) || org.name;
 
-    const countries = parseMultiPickValue(prefs[FIELD_IDS.countries_of_operation]) || [];
+    const countries = resolveCountriesOfOperation(prefs);
     const seen = new Set();
     for (const rawName of countries) {
       const zohoName = COUNTRY_NAME_ALIASES[rawName] || rawName;

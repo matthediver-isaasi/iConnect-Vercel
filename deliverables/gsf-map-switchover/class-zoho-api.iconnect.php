@@ -682,6 +682,11 @@ class ZohoAPI
                     if (!empty($member['Countries_of_Operation']) && is_array($member['Countries_of_Operation'])) {
                         foreach ($member['Countries_of_Operation'] as $country_name) {
                             $country_name = $this->normaliseCountryName($country_name);
+                            // A location display summary is not a country and
+                            // must never be persisted as legacy member meta.
+                            if (strcasecmp(trim((string) $country_name), 'Multiple locations') === 0) {
+                                continue;
+                            }
                             // Only include the country if it exists in our country data AND has flag set to Show
                             if (
                                 isset($all_countries[$country_name]) &&
@@ -1331,6 +1336,9 @@ class ZohoAPI
         foreach ($rows as $country_data) {
             if (isset($country_data['Country']['name'])) {
                 $country_name = $country_data['Country']['name'];
+                if (strcasecmp(trim((string) $country_name), 'Multiple locations') === 0) {
+                    continue;
+                }
                 $countries[$country_name] = [
                     'id' => $country_data['id'],
                     'zoho_country_id' => $country_data['Country']['id'],
