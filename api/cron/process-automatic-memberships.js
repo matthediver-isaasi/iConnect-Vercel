@@ -34,6 +34,7 @@ import {
   roleExistsInGroup,
 } from '../_lib/automaticMembership.js';
 import { runFilterQuery } from '../_lib/automaticMembershipQuery.js';
+import { createHeartbeatReporter, HEARTBEAT_ENV_VARS } from '../_lib/heartbeat.js';
 
 const supabaseUrl        = process.env.SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
@@ -58,6 +59,19 @@ const GROUP_COLS = [
   'automatic_membership_generation',
 ].join(', ');
 
+export function isAutomaticMembershipHeartbeatHealthy(results, setupErrors = 0) {
+  return setupErrors === 0 && (results || []).every((result) => result?.status !== 'error');
+}
+
+async function awaitCronQuery(query, reportHeartbeat) {
+  try {
+    return await query;
+  } catch (error) {
+    await reportHeartbeat(false);
+    throw error;
+  }
+}
+
 export default async function handler(req, res) {
   if (req.method !== 'GET' && req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
@@ -72,24 +86,39 @@ export default async function handler(req, res) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
 
+  const reportHeartbeat = createHeartbeatReporter({
+    envVar: HEARTBEAT_ENV_VARS.automaticMembershipProcessing,
+  });
+
   if (!supabase) {
+    await reportHeartbeat(false);
     return res.status(500).json({ error: 'Database not configured' });
   }
 
   const startMs = Date.now();
   const results = [];
+  let setupErrors = 0;
 
   // ── 1. Queued / running groups ──────────────────────────────────────────
-  const { data: activeGroups, error: activeErr } = await supabase
-    .from('member_group')
-    .select(GROUP_COLS)
-    .eq('automatic_membership_enabled', true)
-    .in('automatic_membership_sync_status', ['queued', 'running'])
-    .order('id')
-    .limit(MAX_GROUPS_PER_RUN);
+  let activeGroups;
+  let activeErr;
+  try {
+    ({ data: activeGroups, error: activeErr } = await supabase
+      .from('member_group')
+      .select(GROUP_COLS)
+      .eq('automatic_membership_enabled', true)
+      .in('automatic_membership_sync_status', ['queued', 'running'])
+      .order('id')
+      .limit(MAX_GROUPS_PER_RUN));
+  } catch (error) {
+    console.error('[AutoMembershipCron] fetch active groups threw:', error.message || error);
+    await reportHeartbeat(false);
+    return res.status(500).json({ error: error.message || String(error) });
+  }
 
   if (activeErr) {
     console.error('[AutoMembershipCron] fetch active groups error:', activeErr.message);
+    await reportHeartbeat(false);
     return res.status(500).json({ error: activeErr.message });
   }
 
@@ -99,25 +128,27 @@ export default async function handler(req, res) {
   let remainingSlots = MAX_GROUPS_PER_RUN - (activeGroups?.length || 0);
   let claimedErrorGroups = [];
   if (remainingSlots > 0) {
-    const { data: errorCandidates, error: errorFindErr } = await supabase
+    const { data: errorCandidates, error: errorFindErr } = await awaitCronQuery(supabase
       .from('member_group')
       .select('id')
       .eq('automatic_membership_enabled', true)
       .eq('automatic_membership_sync_status', 'error')
       .order('id')
-      .limit(Math.min(MAX_ERROR_RETRIES_PER_RUN, remainingSlots));
+      .limit(Math.min(MAX_ERROR_RETRIES_PER_RUN, remainingSlots)), reportHeartbeat);
 
     if (errorFindErr) {
       console.error('[AutoMembershipCron] find error groups error:', errorFindErr.message);
+      setupErrors++;
     } else if (errorCandidates && errorCandidates.length > 0) {
-      const { data: claimed, error: claimErr } = await supabase
+      const { data: claimed, error: claimErr } = await awaitCronQuery(supabase
         .from('member_group')
         .update({ automatic_membership_sync_status: 'queued' })
         .in('id', errorCandidates.map(group => group.id))
         .eq('automatic_membership_sync_status', 'error')
-        .select(GROUP_COLS);
+        .select(GROUP_COLS), reportHeartbeat);
       if (claimErr) {
         console.error('[AutoMembershipCron] claim error groups error:', claimErr.message);
+        setupErrors++;
       } else {
         claimedErrorGroups = claimed || [];
         remainingSlots -= claimedErrorGroups.length;
@@ -133,7 +164,7 @@ export default async function handler(req, res) {
 
   if (remainingSlots > 0) {
     // First: find candidate IDs (SELECT is cheaper than UPDATE for finding rows)
-    const { data: idleCandidates, error: idleFindErr } = await supabase
+    const { data: idleCandidates, error: idleFindErr } = await awaitCronQuery(supabase
       .from('member_group')
       .select('id')
       .eq('automatic_membership_enabled', true)
@@ -141,24 +172,26 @@ export default async function handler(req, res) {
       .or(`automatic_membership_last_synced_at.is.null,automatic_membership_last_synced_at.lt.${idleEligibleBefore}`)
       .order('automatic_membership_last_synced_at', { ascending: true, nullsFirst: true })
       .order('id')
-      .limit(remainingSlots);
+      .limit(remainingSlots), reportHeartbeat);
 
     if (idleFindErr) {
       console.error('[AutoMembershipCron] find idle groups error:', idleFindErr.message);
+      setupErrors++;
       // Non-fatal: continue with active groups only
     } else if (idleCandidates && idleCandidates.length > 0) {
       const candidateIds = idleCandidates.map(g => g.id);
 
       // Atomically flip to queued (conditional on still being idle)
-      const { data: claimed, error: claimErr } = await supabase
+      const { data: claimed, error: claimErr } = await awaitCronQuery(supabase
         .from('member_group')
         .update({ automatic_membership_sync_status: 'queued', automatic_membership_cursor: null })
         .in('id', candidateIds)
         .eq('automatic_membership_sync_status', 'idle')
-        .select(GROUP_COLS);
+        .select(GROUP_COLS), reportHeartbeat);
 
       if (claimErr) {
         console.error('[AutoMembershipCron] claim idle groups error:', claimErr.message);
+        setupErrors++;
         // Non-fatal: continue with active groups only
       } else {
         claimedIdleGroups = claimed || [];
@@ -177,6 +210,7 @@ export default async function handler(req, res) {
     results.push(result);
   }
 
+  await reportHeartbeat(isAutomaticMembershipHeartbeatHealthy(results, setupErrors));
   return res.json({
     processed: results.length,
     results,
@@ -286,17 +320,18 @@ async function processGroup(group) {
       const code   = rpcResult?.code;
       const detail = rpcResult?.detail || 'RPC returned not ok';
       // STALE_GENERATION / CURSOR_MISMATCH: do NOT write error; the newer worker owns state
-      if (code !== 'STALE_GENERATION' && code !== 'CURSOR_MISMATCH') {
-        await supabase
-          .from('member_group')
-          .update({
-            automatic_membership_sync_status: 'error',
-            automatic_membership_sync_error: detail,
-          })
-          .eq('id', groupId)
-          .eq('automatic_membership_generation', expectedGeneration);
+      if (code === 'STALE_GENERATION' || code === 'CURSOR_MISMATCH') {
+        return { groupId, status: 'stale', code, error: detail };
       }
-      return { groupId, status: 'stale', code, error: detail };
+      await supabase
+        .from('member_group')
+        .update({
+          automatic_membership_sync_status: 'error',
+          automatic_membership_sync_error: detail,
+        })
+        .eq('id', groupId)
+        .eq('automatic_membership_generation', expectedGeneration);
+      return { groupId, status: 'error', code, error: detail };
     }
 
     return {

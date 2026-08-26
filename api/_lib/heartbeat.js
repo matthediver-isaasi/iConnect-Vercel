@@ -5,7 +5,29 @@ export const HEARTBEAT_ENV_VARS = Object.freeze({
   stripeCardPlanReconciliation: 'BETTERSTACK_HEARTBEAT_STRIPE_CARD_PLAN_RECONCILIATION_URL',
   scheduledWorkflows: 'BETTERSTACK_HEARTBEAT_SCHEDULED_WORKFLOWS_URL',
   scheduledCampaigns: 'BETTERSTACK_HEARTBEAT_SCHEDULED_CAMPAIGNS_URL',
+  databaseBackup: 'BETTERSTACK_HEARTBEAT_DATABASE_BACKUP_URL',
+  storageBackup: 'BETTERSTACK_HEARTBEAT_STORAGE_BACKUP_URL',
+  formPaymentReconciliation: 'BETTERSTACK_HEARTBEAT_FORM_PAYMENT_RECONCILIATION_URL',
+  automaticMembershipProcessing: 'BETTERSTACK_HEARTBEAT_AUTOMATIC_MEMBERSHIP_PROCESSING_URL',
 });
+
+/**
+ * The ten independently monitored production schedules. Keep this list
+ * intentionally explicit: the remaining Vercel crons are not individually
+ * monitored under the current Better Stack plan.
+ */
+export const HEARTBEAT_MONITOR_REGISTRY = Object.freeze([
+  Object.freeze({ key: 'membershipRenewals', envVar: HEARTBEAT_ENV_VARS.membershipRenewals, path: '/api/cron/process-membership-renewals' }),
+  Object.freeze({ key: 'membershipPaymentReconciliation', envVar: HEARTBEAT_ENV_VARS.membershipPaymentReconciliation, path: '/api/cron/reconcile-membership-invoice-payments' }),
+  Object.freeze({ key: 'gocardlessReconciliation', envVar: HEARTBEAT_ENV_VARS.gocardlessReconciliation, path: '/api/cron/reconcile-gocardless' }),
+  Object.freeze({ key: 'stripeCardPlanReconciliation', envVar: HEARTBEAT_ENV_VARS.stripeCardPlanReconciliation, path: '/api/cron/reconcile-stripe-card-plans' }),
+  Object.freeze({ key: 'scheduledWorkflows', envVar: HEARTBEAT_ENV_VARS.scheduledWorkflows, path: '/api/cron/run-scheduled-workflows' }),
+  Object.freeze({ key: 'scheduledCampaigns', envVar: HEARTBEAT_ENV_VARS.scheduledCampaigns, path: '/api/email-campaigns/process-scheduled' }),
+  Object.freeze({ key: 'databaseBackup', envVar: HEARTBEAT_ENV_VARS.databaseBackup, path: '/api/cron/backup-database-to-r2' }),
+  Object.freeze({ key: 'storageBackup', envVar: HEARTBEAT_ENV_VARS.storageBackup, path: '/api/cron/backup-storage-to-r2' }),
+  Object.freeze({ key: 'formPaymentReconciliation', envVar: HEARTBEAT_ENV_VARS.formPaymentReconciliation, path: '/api/cron/reconcile-form-payments' }),
+  Object.freeze({ key: 'automaticMembershipProcessing', envVar: HEARTBEAT_ENV_VARS.automaticMembershipProcessing, path: '/api/cron/process-automatic-memberships' }),
+]);
 
 export const DEFAULT_HEARTBEAT_TIMEOUT_MS = 2_000;
 

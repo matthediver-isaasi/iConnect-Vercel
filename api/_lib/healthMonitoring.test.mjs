@@ -9,6 +9,7 @@ import {
 import {
   createHeartbeatReporter,
   HEARTBEAT_ENV_VARS,
+  HEARTBEAT_MONITOR_REGISTRY,
   sendHeartbeat,
 } from './heartbeat.js';
 
@@ -207,6 +208,44 @@ test('heartbeat does nothing without a configured URL', async () => {
     },
   });
   assert.deepEqual(result, { sent: false });
+  assert.equal(calls, 0);
+});
+
+test('heartbeat registry contains exactly the ten selected production schedules', () => {
+  const expected = [
+    ['membershipRenewals', 'BETTERSTACK_HEARTBEAT_MEMBERSHIP_RENEWALS_URL', '/api/cron/process-membership-renewals'],
+    ['membershipPaymentReconciliation', 'BETTERSTACK_HEARTBEAT_MEMBERSHIP_PAYMENT_RECONCILIATION_URL', '/api/cron/reconcile-membership-invoice-payments'],
+    ['gocardlessReconciliation', 'BETTERSTACK_HEARTBEAT_GOCARDLESS_RECONCILIATION_URL', '/api/cron/reconcile-gocardless'],
+    ['stripeCardPlanReconciliation', 'BETTERSTACK_HEARTBEAT_STRIPE_CARD_PLAN_RECONCILIATION_URL', '/api/cron/reconcile-stripe-card-plans'],
+    ['scheduledWorkflows', 'BETTERSTACK_HEARTBEAT_SCHEDULED_WORKFLOWS_URL', '/api/cron/run-scheduled-workflows'],
+    ['scheduledCampaigns', 'BETTERSTACK_HEARTBEAT_SCHEDULED_CAMPAIGNS_URL', '/api/email-campaigns/process-scheduled'],
+    ['databaseBackup', 'BETTERSTACK_HEARTBEAT_DATABASE_BACKUP_URL', '/api/cron/backup-database-to-r2'],
+    ['storageBackup', 'BETTERSTACK_HEARTBEAT_STORAGE_BACKUP_URL', '/api/cron/backup-storage-to-r2'],
+    ['formPaymentReconciliation', 'BETTERSTACK_HEARTBEAT_FORM_PAYMENT_RECONCILIATION_URL', '/api/cron/reconcile-form-payments'],
+    ['automaticMembershipProcessing', 'BETTERSTACK_HEARTBEAT_AUTOMATIC_MEMBERSHIP_PROCESSING_URL', '/api/cron/process-automatic-memberships'],
+  ];
+
+  assert.deepEqual(
+    HEARTBEAT_MONITOR_REGISTRY.map(({ key, envVar, path }) => [key, envVar, path]),
+    expected,
+  );
+  assert.deepEqual(Object.keys(HEARTBEAT_ENV_VARS), expected.map(([key]) => key));
+});
+
+test('each newly monitored job is an independent optional heartbeat', async () => {
+  let calls = 0;
+  for (const { envVar } of HEARTBEAT_MONITOR_REGISTRY.slice(6)) {
+    const result = await sendHeartbeat({
+      envVar,
+      success: true,
+      env: {},
+      fetchImpl: async () => {
+        calls++;
+        return { ok: true };
+      },
+    });
+    assert.deepEqual(result, { sent: false });
+  }
   assert.equal(calls, 0);
 });
 

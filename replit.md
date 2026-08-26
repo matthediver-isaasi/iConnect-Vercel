@@ -81,6 +81,10 @@ Resolve secrets defensively in scripts — some legacy ones use `DEV_*` / `SUPAB
 | `BETTERSTACK_HEARTBEAT_STRIPE_CARD_PLAN_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for Stripe card-plan reconciliation. |
 | `BETTERSTACK_HEARTBEAT_SCHEDULED_WORKFLOWS_URL` | Optional Better Stack heartbeat URL for scheduled workflows. |
 | `BETTERSTACK_HEARTBEAT_SCHEDULED_CAMPAIGNS_URL` | Optional Better Stack heartbeat URL for scheduled campaigns. |
+| `BETTERSTACK_HEARTBEAT_DATABASE_BACKUP_URL` | Optional Better Stack heartbeat URL for database backup to R2. |
+| `BETTERSTACK_HEARTBEAT_STORAGE_BACKUP_URL` | Optional Better Stack heartbeat URL for storage backup to R2. |
+| `BETTERSTACK_HEARTBEAT_FORM_PAYMENT_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for form-payment reconciliation. |
+| `BETTERSTACK_HEARTBEAT_AUTOMATIC_MEMBERSHIP_PROCESSING_URL` | Optional Better Stack heartbeat URL for automatic membership processing. |
 | `ENABLE_RESET_DEBUG` (opt, `'true'`) | Temporary diagnostic: `/api/auth/request-admin-password-reset` returns a `debug` field (`no_identity`/`no_owner_membership`/`email_failed`/`sent`). Leave unset in normal operation so account existence is not disclosed. |
 | `R2_ACCOUNT_ID` | Cloudflare account ID — builds the R2 endpoint URL (`https://<id>.r2.cloudflarestorage.com`). Set this **or** `R2_ENDPOINT`. Vercel secret. |
 | `R2_ENDPOINT` (opt) | Full R2 endpoint URL override, instead of `R2_ACCOUNT_ID`. |
@@ -95,7 +99,12 @@ Vercel `ICONNECT_HEALTH_CHECK_TOKEN` environment variable. The endpoint is
 intentionally unauthorised only by that header and returns no dependency detail
 when the header is missing or invalid.
 
-The six `BETTERSTACK_HEARTBEAT_*_URL` variables are independently optional.
+The ten `BETTERSTACK_HEARTBEAT_*_URL` variables are independently optional
+and apply only to the ten selected production schedules. The application
+derives Better Stack's `/fail` target from each configured success URL; store
+only the success URL in Vercel Production. See
+`guides/better-stack-cron-heartbeats.md` for the setup matrix and the complete
+30-schedule coverage inventory.
 Set each Vercel value to the matching Better Stack heartbeat URL for only the
 scheduled job you wish to monitor. The job sends a success URL after a clean
 run and Better Stack's `/fail` URL for a failed run; delivery failures never

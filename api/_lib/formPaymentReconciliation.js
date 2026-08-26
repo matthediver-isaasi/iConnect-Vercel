@@ -27,6 +27,26 @@ const FORM_COLUMNS = 'id, name, tenant_id, access_policy, fields, pages, visibil
 const MIN_AGE_MS = 10 * 60 * 1000;
 const MAX_AGE_DAYS = 14;
 
+/**
+ * Keep monitoring-only partial failures off the public cron response while
+ * still letting the cron handler report them to Better Stack. The reconciler
+ * intentionally returns its normal summary after a recoverable sweep error,
+ * so making this enumerable would needlessly change that response contract.
+ */
+function recordMonitoringFailure(results, scope, error) {
+  if (!Object.prototype.hasOwnProperty.call(results, '__heartbeatFailures')) {
+    Object.defineProperty(results, '__heartbeatFailures', {
+      value: [],
+      enumerable: false,
+      configurable: true,
+    });
+  }
+  results.__heartbeatFailures.push({
+    scope,
+    error: error?.message || String(error),
+  });
+}
+
 export async function reconcileFormPayments(supabase, { baseUrl = null, limit = 50 } = {}) {
   const results = { checked: 0, paid: 0, failed: 0, finalized: 0, errors: [] };
   const now = Date.now();
@@ -49,6 +69,7 @@ export async function reconcileFormPayments(supabase, { baseUrl = null, limit = 
   } catch (err) {
     // Pre-migration DB (42703) or transient failure — nothing to do.
     console.warn('[formPaymentReconciliation] Pending sweep query failed:', err?.message);
+    recordMonitoringFailure(results, 'pending-payment-sweep', err);
     return results;
   }
 
@@ -71,12 +92,13 @@ export async function reconcileFormPayments(supabase, { baseUrl = null, limit = 
   const loadForm = async (formId, tenantId) => {
     const key = `${tenantId}:${formId}`;
     if (!formCache.has(key)) {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('form')
         .select(FORM_COLUMNS)
         .eq('id', formId)
         .eq('tenant_id', tenantId)
         .maybeSingle();
+      if (error) throw error;
       formCache.set(key, data || null);
     }
     return formCache.get(key);
@@ -153,13 +175,14 @@ export async function reconcileFormPayments(supabase, { baseUrl = null, limit = 
 
   // Second sweep: paid rows whose finalisation never completed.
   try {
-    const { data: unfinalized } = await supabase
+    const { data: unfinalized, error } = await supabase
       .from('form_submission')
       .select('*')
       .eq('payment_status', 'paid')
       .gte('created_date', minCreated)
       .filter('payment_meta->finalized', 'is', null)
       .limit(20);
+    if (error) throw error;
     for (const row of unfinalized || []) {
       const form = await loadForm(row.form_id, row.tenant_id);
       if (!hasFormPaymentAccessProof(row, form)) continue;
@@ -168,6 +191,7 @@ export async function reconcileFormPayments(supabase, { baseUrl = null, limit = 
     }
   } catch (err) {
     console.warn('[formPaymentReconciliation] Unfinalized sweep failed:', err?.message);
+    recordMonitoringFailure(results, 'unfinalized-sweep', err);
   }
 
   // Third sweep (Task #3489): paid + finalized rows carrying a conditional
@@ -182,7 +206,7 @@ export async function reconcileFormPayments(supabase, { baseUrl = null, limit = 
   // terminal stamp lands, however old it is. Oldest-first ordering makes
   // eventual service deterministic even when a backlog exceeds the limit.
   try {
-    const { data: pendingMembership } = await supabase
+    const { data: pendingMembership, error } = await supabase
       .from('form_submission')
       .select('*')
       .eq('payment_status', 'paid')
@@ -201,6 +225,7 @@ export async function reconcileFormPayments(supabase, { baseUrl = null, limit = 
       .order('created_date', { ascending: true })
       .order('id', { ascending: true })
       .limit(20);
+    if (error) throw error;
     for (const row of pendingMembership || []) {
       const form = await loadForm(row.form_id, row.tenant_id);
       if (!hasFormPaymentAccessProof(row, form)) continue;
@@ -224,6 +249,7 @@ export async function reconcileFormPayments(supabase, { baseUrl = null, limit = 
           }
         } catch (err) {
           console.warn('[formPaymentReconciliation] Pipeline re-run failed for', row.id, err?.message);
+          recordMonitoringFailure(results, 'membership-pipeline-rerun', err);
         }
       }
       const out = await finalizeFormMembership({ supabase, submission: row, baseUrl: rowBaseUrl });
@@ -231,6 +257,7 @@ export async function reconcileFormPayments(supabase, { baseUrl = null, limit = 
     }
   } catch (err) {
     console.warn('[formPaymentReconciliation] Membership retry sweep failed:', err?.message);
+    recordMonitoringFailure(results, 'membership-retry-sweep', err);
   }
 
   // Fourth sweep (Task #3680): form_submission rows with
@@ -246,7 +273,7 @@ export async function reconcileFormPayments(supabase, { baseUrl = null, limit = 
   // old it is. Oldest-first ordering makes progress deterministic.
   try {
     const staleCutoff = new Date(now - FINALIZE_CLAIM_TTL_MS).toISOString();
-    const { data: setupCompleteRows } = await supabase
+    const { data: setupCompleteRows, error } = await supabase
       .from('form_submission')
       .select('*')
       .eq('payment_provider', 'stripe_monthly_card')
@@ -257,6 +284,7 @@ export async function reconcileFormPayments(supabase, { baseUrl = null, limit = 
       ].join(','))
       .order('created_date', { ascending: true })
       .limit(20);
+    if (error) throw error;
     for (const row of setupCompleteRows || []) {
       try {
         const form = await loadForm(row.form_id, row.tenant_id);
@@ -264,11 +292,12 @@ export async function reconcileFormPayments(supabase, { baseUrl = null, limit = 
         // Load the associated billing agreement via the agreement_id stored in
         // payment_meta.monthly_card.agreement_id (set at checkout creation time).
         const agreementId = row.payment_meta?.monthly_card?.agreement_id || null;
-        const { data: agreement } = await findFormMonthlyCardAgreement(supabase, {
+        const { data: agreement, error: agreementError } = await findFormMonthlyCardAgreement(supabase, {
           tenantId: row.tenant_id,
           submissionId: row.id,
           agreementId,
         });
+        if (agreementError) throw agreementError;
         if (!agreement) continue;
         const rowBaseUrl = await resolveBaseUrl(row.tenant_id);
         await finalizeFormMonthlyCardCheckout({
@@ -279,10 +308,12 @@ export async function reconcileFormPayments(supabase, { baseUrl = null, limit = 
         });
       } catch (err) {
         console.warn('[formPaymentReconciliation] Monthly-card setup_complete retry failed for', row.id, err?.message);
+        recordMonitoringFailure(results, 'monthly-card-retry', err);
       }
     }
   } catch (err) {
     console.warn('[formPaymentReconciliation] Monthly-card setup_complete sweep failed:', err?.message);
+    recordMonitoringFailure(results, 'monthly-card-retry-sweep', err);
   }
 
   return results;
