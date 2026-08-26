@@ -112,6 +112,7 @@ async function persistPolicy(db, tenantId, policy) {
 
 export async function persistAttendanceSyncState(db, {
   tenantId, provider, target, idempotencyKey, status, errorCode = null, errorMessage = null,
+  trackingEnabled = true,
 }) {
   const attemptedAt = new Date().toISOString();
   const policy = await persistPolicy(db, tenantId, target.policy);
@@ -122,7 +123,7 @@ export async function persistAttendanceSyncState(db, {
       provider_target_type: target.providerTargetType,
       effective_threshold_minutes: target.thresholdMinutes,
       policy_id: policy?.id || null,
-      tracking_enabled: true, scheduled_end_at: target.scheduledEndAt || null,
+      tracking_enabled: trackingEnabled, scheduled_end_at: target.scheduledEndAt || null,
       updated_at: new Date().toISOString(),
     }, { onConflict: 'tenant_id,provider,target_type,target_id' }).select('id').single(),
     'Failed to store attendance target',

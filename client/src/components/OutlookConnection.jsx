@@ -13,7 +13,15 @@ function formatSyncFrequency(minutes) {
   return 'daily';
 }
 
-export default function OutlookConnection() {
+const OUTLOOK_ERROR_MESSAGES = {
+  access_denied: 'Microsoft authorization was cancelled or denied.',
+  no_refresh_token: 'Microsoft did not issue an offline token. Reconnect and approve the requested permissions.',
+  token_exchange_failed: 'Microsoft could not complete authorization. Please reconnect.',
+  save_failed: 'Authorization succeeded, but the connection could not be saved.',
+  csrf_error: 'The authorization session expired. Please start again.'
+};
+
+export default function OutlookConnection({ isAdmin = false }) {
   const { toast } = useToast();
   const [loading, setLoading] = useState(true);
   const [connection, setConnection] = useState(null);
@@ -41,7 +49,7 @@ export default function OutlookConnection() {
     if (urlParams.get('outlook_error')) {
       toast({
         title: 'Connection Failed',
-        description: `Failed to connect Outlook: ${urlParams.get('outlook_error')}`,
+         description: OUTLOOK_ERROR_MESSAGES[urlParams.get('outlook_error')] || 'Microsoft authorization failed. Please try again.',
         variant: 'destructive',
       });
       window.history.replaceState({}, '', window.location.pathname);
@@ -73,8 +81,13 @@ export default function OutlookConnection() {
     }
   };
 
-  const handleConnect = () => {
-    window.location.href = '/api/auth/outlook?returnTo=' + encodeURIComponent(window.location.pathname) + '&originHost=' + encodeURIComponent(window.location.host);
+  const handleConnect = (teamsOrganizer = false) => {
+    const params = new URLSearchParams({
+      returnTo: window.location.pathname,
+      originHost: window.location.host
+    });
+    if (teamsOrganizer) params.set('teamsOrganizer', 'true');
+    window.location.href = `/api/auth/outlook?${params.toString()}`;
   };
 
   const handleDisconnect = async () => {
@@ -164,7 +177,7 @@ export default function OutlookConnection() {
           <CardTitle>Outlook Integration</CardTitle>
         </div>
         <CardDescription>
-          Connect your Outlook account to sync and send emails directly from member records
+          Connect Microsoft 365 for Outlook mail, calendar, Teams meetings and attendance reports
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -189,6 +202,51 @@ export default function OutlookConnection() {
               <div className="flex items-center gap-2 p-3 bg-warning/10 border border-warning/30 rounded-lg text-warning">
                 <AlertTriangle className="h-4 w-4" />
                 <span className="text-sm">Last sync had errors</span>
+              </div>
+            )}
+
+            {connection.healthState === 'reconnect_required' && (
+              <div className="space-y-3 p-3 bg-amber-50 border border-amber-200 rounded-lg text-amber-900">
+                <div className="flex items-start gap-2">
+                  <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+                  <div>
+                    <p className="text-sm font-medium">Microsoft authorization needs attention</p>
+                    <p className="text-sm">Reconnect to restore access. Existing mail and calendar data is not removed.</p>
+                  </div>
+                </div>
+                <Button size="sm" variant="outline" onClick={() => handleConnect(false)} data-testid="button-reconnect-outlook">
+                  <RefreshCw className="h-4 w-4 mr-2" />
+                  Reconnect Microsoft 365
+                </Button>
+              </div>
+            )}
+
+            {connection.healthState === 'admin_consent_required' && (
+              <div className="space-y-3 p-3 bg-amber-50 border border-amber-200 rounded-lg text-amber-900">
+                <div className="flex items-start gap-2">
+                  <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+                  <div>
+                    <p className="text-sm font-medium">Teams permissions need administrator consent</p>
+                    <p className="text-sm">
+                      {connection.healthError || 'A Microsoft 365 administrator must approve online meeting and attendance report access.'}
+                    </p>
+                  </div>
+                </div>
+                {(connection.canConfigureTeams || isAdmin) ? (
+                  <Button size="sm" variant="outline" onClick={() => handleConnect(true)} data-testid="button-authorize-teams">
+                    <ExternalLink className="h-4 w-4 mr-2" />
+                    Authorize Teams as administrator
+                  </Button>
+                ) : (
+                  <p className="text-sm font-medium">Ask a tenant administrator to complete Teams organiser setup.</p>
+                )}
+              </div>
+            )}
+
+            {connection.teamsReady && (
+              <div className="flex items-center gap-2 p-3 bg-green-50 border border-green-200 rounded-lg text-green-800">
+                <CheckCircle2 className="h-4 w-4" />
+                <span className="text-sm">Teams meetings and attendance reports are authorized.</span>
               </div>
             )}
 
@@ -247,9 +305,11 @@ export default function OutlookConnection() {
               <li>View email history on member records</li>
               <li>Send emails directly from member profiles</li>
               <li>Track all communication in one place</li>
+               <li>Create Microsoft Teams online meetings</li>
+               <li>Retrieve Teams attendance reports</li>
             </ul>
             <Button
-              onClick={handleConnect}
+              onClick={() => handleConnect(isAdmin)}
               className="gap-2"
               data-testid="button-connect-outlook"
             >

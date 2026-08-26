@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import { parse, serialize } from 'cookie';
 import { supabase } from '../../_lib/database.js';
+import { evaluateMicrosoftScopes } from '../../_lib/microsoftGraph.js';
 
 const MICROSOFT_CLIENT_ID = process.env.MICROSOFT_CLIENT_ID;
 const MICROSOFT_CLIENT_SECRET = process.env.MICROSOFT_CLIENT_SECRET;
@@ -144,6 +145,14 @@ export default async function handler(req, res) {
     console.log('[Outlook OAuth Callback] Microsoft user:', { microsoftUserId, microsoftEmail, displayName });
 
     const tokenExpiresAt = new Date(Date.now() + (expires_in * 1000)).toISOString();
+    const scopeHealth = evaluateMicrosoftScopes(scope);
+    const healthFields = {
+      health_state: scopeHealth.healthState,
+      health_error: scopeHealth.missingScopes.length
+        ? `Missing Microsoft permissions: ${scopeHealth.missingScopes.join(', ')}`
+        : null,
+      health_checked_at: new Date().toISOString()
+    };
 
     let existingConnection = null;
 
@@ -197,6 +206,7 @@ export default async function handler(req, res) {
           refresh_token: refresh_token,
           token_expires_at: tokenExpiresAt,
           scopes: scope,
+           ...healthFields,
           status: 'active',
           sync_error: null,
           updated_at: new Date().toISOString()
@@ -222,6 +232,7 @@ export default async function handler(req, res) {
           refresh_token: refresh_token,
           token_expires_at: tokenExpiresAt,
           scopes: scope,
+           ...healthFields,
           status: 'active'
         })
         .select()

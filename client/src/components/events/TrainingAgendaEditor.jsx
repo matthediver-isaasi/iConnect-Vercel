@@ -19,8 +19,9 @@ import { SpeakerSelectionModal } from "@/components/SpeakerSelectionModal";
 import { inferAgendaTypeBehaviour } from "@/hooks/useAgendaItemTypes";
 import EventSponsorSelector from "@/components/events/EventSponsorSelector";
 import AttendancePolicyEditor from "@/components/events/AttendancePolicyEditor";
+import TeamsMeetingConfig from "@/components/events/TeamsMeetingConfig";
 import {
-  hasSupportedZoomTarget,
+  hasSupportedAttendanceTarget,
   normalizeAttendancePolicy,
   resolveAttendancePolicy,
   validateAttendancePolicy,
@@ -110,6 +111,13 @@ export function emptyAgendaLine(defaultType = 'In person') {
     location: '',
     zoom_webinar_id: null,
     zoom_meeting_id: null,
+    online_provider: 'zoom',
+    teams_online_meeting_id: null,
+    teams_join_web_url: null,
+    teams_organiser_microsoft_user_id: null,
+    teams_organiser_email: null,
+    teams_outlook_connection_id: null,
+    teams_meeting_lifecycle: null,
     lms_url: '',
     speaker_ids: [],
     sponsor_ids: [],
@@ -142,8 +150,11 @@ export function validateAgendaLines(lines, agendaItemTypes, eventAttendancePolic
     if (behaviour === 'location' && !String(line.location || '').trim()) {
       errors.push(`${label}: please enter a location for this in-person day`);
     }
-    if (behaviour === 'zoom' && !line.zoom_webinar_id && !line.zoom_meeting_id) {
+    if (behaviour === 'zoom' && line.online_provider !== 'teams' && !line.zoom_webinar_id && !line.zoom_meeting_id) {
       errors.push(`${label}: please select a webinar or meeting for this online day`);
+    }
+    if (behaviour === 'zoom' && line.online_provider === 'teams' && !line.teams_online_meeting_id) {
+      errors.push(`${label}: please create or link a Teams meeting for this online day`);
     }
     if (behaviour === 'zoom') {
       const effectivePolicy = resolveAttendancePolicy(eventAttendancePolicy, line);
@@ -151,6 +162,10 @@ export function validateAgendaLines(lines, agendaItemTypes, eventAttendancePolic
         isOnline: true,
         zoomMeetingId: line.zoom_meeting_id,
         zoomWebinarId: line.zoom_webinar_id,
+        teamsOnlineMeetingId: line.teams_online_meeting_id,
+        teamsJoinWebUrl: line.teams_join_web_url,
+        teamsOrganiserMicrosoftUserId: line.teams_organiser_microsoft_user_id,
+        teamsOutlookConnectionId: line.teams_outlook_connection_id,
       }, `${label} attendance tracking`));
     }
     if (behaviour === 'lms') {
@@ -183,6 +198,7 @@ export default function TrainingAgendaEditor({
   speakers = [],
   eventAttendancePolicy = {},
   onEventAttendancePolicyChange,
+  timezone = 'UTC',
 }) {
   const anyOnline = (lines || []).some((l) => agendaTypeBehaviour(l.item_type, agendaItemTypes) === 'zoom');
   // Which line's speaker-selection modal is open (null = none).
@@ -262,10 +278,14 @@ export default function TrainingAgendaEditor({
           onChange={onEventAttendancePolicyChange}
           targetSupported={(lines || []).some((line) => (
             agendaTypeBehaviour(line.item_type, agendaItemTypes) === 'zoom'
-            && hasSupportedZoomTarget({
+            && hasSupportedAttendanceTarget(eventAttendancePolicy, {
               isOnline: true,
               zoomMeetingId: line.zoom_meeting_id,
               zoomWebinarId: line.zoom_webinar_id,
+              teamsOnlineMeetingId: line.teams_online_meeting_id,
+              teamsJoinWebUrl: line.teams_join_web_url,
+              teamsOrganiserMicrosoftUserId: line.teams_organiser_microsoft_user_id,
+              teamsOutlookConnectionId: line.teams_outlook_connection_id,
             })
           ))}
           label="Default agenda attendance policy"
@@ -348,7 +368,16 @@ export default function TrainingAgendaEditor({
                     updateLine(index, {
                       item_type: value,
                       ...(agendaTypeBehaviour(value, agendaItemTypes) !== 'location' ? { location: '' } : {}),
-                      ...(agendaTypeBehaviour(value, agendaItemTypes) !== 'zoom' ? { zoom_webinar_id: null, zoom_meeting_id: null } : {}),
+                      ...(agendaTypeBehaviour(value, agendaItemTypes) !== 'zoom' ? {
+                        zoom_webinar_id: null,
+                        zoom_meeting_id: null,
+                        teams_online_meeting_id: null,
+                        teams_join_web_url: null,
+                        teams_organiser_microsoft_user_id: null,
+                        teams_organiser_email: null,
+                        teams_outlook_connection_id: null,
+                        teams_meeting_lifecycle: null,
+                      } : {}),
                       ...(agendaTypeBehaviour(value, agendaItemTypes) !== 'lms' ? { lms_url: '' } : {}),
                     });
                   }}
@@ -383,6 +412,15 @@ export default function TrainingAgendaEditor({
 
             {behaviour === 'zoom' && (
               <>
+              <div className="flex gap-2">
+                <Button type="button" size="sm" variant={(line.online_provider || 'zoom') === 'zoom' ? 'default' : 'outline'}
+                  onClick={() => updateLine(index, { online_provider: 'zoom' })}>Zoom</Button>
+                <Button type="button" size="sm" variant={line.online_provider === 'teams' ? 'default' : 'outline'}
+                  onClick={() => updateLine(index, {
+                    online_provider: 'teams', zoom_webinar_id: null, zoom_meeting_id: null,
+                  })}>Microsoft Teams</Button>
+              </div>
+              {(line.online_provider || 'zoom') === 'zoom' ? (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="space-y-1">
                   <Label className="text-xs flex items-center gap-1">{behaviourIcon(behaviour)} Webinar</Label>
@@ -419,15 +457,31 @@ export default function TrainingAgendaEditor({
                   </Select>
                 </div>
               </div>
+              ) : (
+                <TeamsMeetingConfig
+                  value={line}
+                  onChange={(meeting) => updateLine(index, meeting)}
+                  subject={line.description || `Training agenda item ${index + 1}`}
+                  startDateTime={agendaLineStartDateTime(line)}
+                  endDateTime={agendaLineEndDateTime(line)}
+                  timezone={timezone}
+                  testId={`agenda-teams-meeting-${index}`}
+                />
+              )}
               <AttendancePolicyEditor
                 value={line}
                 onChange={(policy) => updateLine(index, policy)}
                 allowInheritance
                 parentPolicy={eventAttendancePolicy}
-                targetSupported={hasSupportedZoomTarget({
+                targetSupported={hasSupportedAttendanceTarget(
+                  resolveAttendancePolicy(eventAttendancePolicy, line), {
                   isOnline: true,
                   zoomMeetingId: line.zoom_meeting_id,
                   zoomWebinarId: line.zoom_webinar_id,
+                  teamsOnlineMeetingId: line.teams_online_meeting_id,
+                  teamsJoinWebUrl: line.teams_join_web_url,
+                  teamsOrganiserMicrosoftUserId: line.teams_organiser_microsoft_user_id,
+                  teamsOutlookConnectionId: line.teams_outlook_connection_id,
                 })}
                 label="Agenda item attendance policy"
                 testId={`agenda-attendance-policy-${index}`}

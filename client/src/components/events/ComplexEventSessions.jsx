@@ -28,8 +28,9 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import ZoomSessionConfig from "@/components/events/ZoomSessionConfig";
+import TeamsMeetingConfig from "@/components/events/TeamsMeetingConfig";
 import AttendancePolicyEditor from "@/components/events/AttendancePolicyEditor";
-import { hasSupportedZoomTarget, normalizeAttendancePolicy } from "@/lib/attendancePolicy";
+import { hasSupportedAttendanceTarget, normalizeAttendancePolicy, resolveAttendancePolicy } from "@/lib/attendancePolicy";
 
 async function apiRequest(url, options = {}) {
   const response = await fetch(url, {
@@ -70,6 +71,13 @@ const createEmptySession = (sortOrder = 0) => ({
   zoom_registration_required: false,
   zoom_link_mode: 'auto_create',
   auto_create_zoom: true,
+  online_provider: 'zoom',
+  teams_online_meeting_id: null,
+  teams_join_web_url: null,
+  teams_organiser_microsoft_user_id: null,
+  teams_organiser_email: null,
+  teams_outlook_connection_id: null,
+  teams_meeting_lifecycle: null,
   link_existing_zoom_id: '',
   link_existing_zoom_type: '',
   ...normalizeAttendancePolicy({}, { inherit: true }),
@@ -291,6 +299,17 @@ export default function ComplexEventSessions({
 
                   {isVirtual(session) && (
                     <div className="space-y-4">
+                    <div className="flex gap-2">
+                      <Button type="button" size="sm" variant={(session.online_provider || 'zoom') === 'zoom' ? 'default' : 'outline'}
+                        onClick={() => updateSession(session._tempId, 'online_provider', 'zoom')}>Zoom</Button>
+                      <Button type="button" size="sm" variant={session.online_provider === 'teams' ? 'default' : 'outline'}
+                        onClick={() => {
+                          updateSession(session._tempId, 'online_provider', 'teams');
+                          updateSession(session._tempId, 'zoom_meeting_id', null);
+                          updateSession(session._tempId, 'zoom_webinar_id', null);
+                        }}>Microsoft Teams</Button>
+                    </div>
+                    {(session.online_provider || 'zoom') === 'zoom' ? (
                     <ZoomSessionConfig
                       zoomType={session.zoom_type}
                       zoomHostId={session.zoom_host_id}
@@ -311,6 +330,19 @@ export default function ComplexEventSessions({
                       }}
                       testIdSuffix={`-${index}`}
                     />
+                    ) : (
+                      <TeamsMeetingConfig
+                        value={session}
+                        onChange={(updates) => onSessionsChange(sessions.map((item) =>
+                          item._tempId === session._tempId ? { ...item, ...updates } : item
+                        ))}
+                        subject={session.title}
+                        startDateTime={session.start_time}
+                        endDateTime={session.end_time}
+                        timezone={session.timezone}
+                        testId={`session-teams-meeting-${index}`}
+                      />
+                    )}
                     <AttendancePolicyEditor
                       value={session}
                       onChange={(policy) => onSessionsChange(sessions.map((item) =>
@@ -318,11 +350,16 @@ export default function ComplexEventSessions({
                       ))}
                       allowInheritance
                       parentPolicy={eventAttendancePolicy}
-                      targetSupported={hasSupportedZoomTarget({
+                      targetSupported={hasSupportedAttendanceTarget(
+                        resolveAttendancePolicy(eventAttendancePolicy, session), {
                         isOnline: true,
                         zoomMeetingId: session.zoom_meeting_id || (session.zoom_type !== 'webinar' ? session.link_existing_zoom_id : null),
                         zoomWebinarId: session.zoom_webinar_id || (session.zoom_type === 'webinar' ? session.link_existing_zoom_id : null),
                         zoomAutoCreate: session.zoom_link_mode !== 'link_existing' && session.auto_create_zoom,
+                        teamsOnlineMeetingId: session.teams_online_meeting_id,
+                        teamsJoinWebUrl: session.teams_join_web_url,
+                        teamsOrganiserMicrosoftUserId: session.teams_organiser_microsoft_user_id,
+                        teamsOutlookConnectionId: session.teams_outlook_connection_id,
                       })}
                       label="Session attendance policy"
                       testId={`session-attendance-policy-${index}`}

@@ -60,3 +60,23 @@ test('disabled event policies retain a valid threshold and clear the provider', 
     attendance_threshold_minutes: 15,
   });
 });
+
+test('enabled Teams tracking requires stable meeting and organiser identity', () => {
+  const policy = {
+    attendance_tracking_enabled: true,
+    attendance_provider: 'teams',
+    attendance_threshold_minutes: 5,
+  };
+  assert.equal(validateAttendancePolicy(policy, {
+    isOnline: true,
+    teamsOnlineMeetingId: 'meeting-id',
+    teamsJoinWebUrl: 'https://teams.microsoft.com/l/meetup-join/test',
+  }).length, 1);
+  assert.deepEqual(validateAttendancePolicy(policy, {
+    isOnline: true,
+    teamsOnlineMeetingId: 'meeting-id',
+    teamsJoinWebUrl: 'https://teams.microsoft.com/l/meetup-join/test',
+    teamsOrganiserMicrosoftUserId: 'organiser-id',
+    teamsOutlookConnectionId: 'connection-id',
+  }), []);
+});

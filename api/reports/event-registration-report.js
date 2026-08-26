@@ -221,6 +221,7 @@ export default async function handler(req, res) {
           source: ev.source,
           has_zoom: ev.has_zoom,
            has_attendance: ev.has_attendance,
+           has_teams: false,
           start_date: ev.start_date || null,
           end_date: ev.end_date || null,
         };
@@ -359,6 +360,21 @@ export default async function handler(req, res) {
       }
 
       if (allTargetIds.length > 0) {
+        // A Teams identity is useful before its first Graph report creates an
+        // attendance_target. Surface it rather than making first-sync meetings
+        // look like they have no Teams attendance configured.
+        const { data: teamBindings, error: teamBindingsError } = await supabase
+          .from('teams_attendance_binding').select('event_id')
+          .in('event_id', allTargetIds).eq('tenant_id', tenantId).eq('enabled', true);
+        if (teamBindingsError) {
+          console.error('[Event Registration Report] Error fetching Teams attendance bindings:', teamBindingsError);
+        } else {
+          for (const binding of teamBindings || []) {
+            if (eventMap[binding.event_id]) eventMap[binding.event_id].has_teams = true;
+            const eventSummary = allEvents.find(event => event.id === binding.event_id);
+            if (eventSummary) eventSummary.has_teams = true;
+          }
+        }
         const { data: targets, error: targetsError } = await supabase
           .from('attendance_target')
           .select('id, provider, target_type, target_id, event_id, provider_target_type, effective_threshold_minutes, tracking_enabled, scheduled_end_at')
@@ -376,6 +392,11 @@ export default async function handler(req, res) {
             if (!attendanceTargetsByEventId[target.event_id]) attendanceTargetsByEventId[target.event_id] = [];
             attendanceTargetsByEventId[target.event_id].push(target);
             if (eventMap[target.event_id]) eventMap[target.event_id].has_attendance = true;
+            if (eventMap[target.event_id] && target.provider === 'teams') {
+              eventMap[target.event_id].has_teams = true;
+              const eventSummary = allEvents.find((event) => event.id === target.event_id);
+              if (eventSummary) eventSummary.has_teams = true;
+            }
           }
           hasAttendanceForSelectedEvents = activeTargets.length > 0;
 
@@ -747,6 +768,7 @@ export default async function handler(req, res) {
             bookingReference: first.booking_reference,
           },
           hasZoom: eventInfo.has_zoom || false,
+          hasTeams: eventInfo.has_teams || false,
           hasAttendance: eventInfo.has_attendance || false,
           booker: bookerInfo ? {
             email: bookerInfo.email,

@@ -1,59 +1,8 @@
 import { supabase } from '../_lib/database.js';
-
-const MICROSOFT_CLIENT_ID = process.env.MICROSOFT_CLIENT_ID;
-const MICROSOFT_CLIENT_SECRET = process.env.MICROSOFT_CLIENT_SECRET;
-
-async function refreshAccessToken(connection) {
-  const tokenResponse = await fetch('https://login.microsoftonline.com/common/oauth2/v2.0/token', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      client_id: MICROSOFT_CLIENT_ID,
-      client_secret: MICROSOFT_CLIENT_SECRET,
-      refresh_token: connection.refresh_token,
-      grant_type: 'refresh_token'
-    })
-  });
-
-  if (!tokenResponse.ok) {
-    const errorData = await tokenResponse.text();
-    console.error(`[Outlook Calendar] Token refresh failed for connection ${connection.id} (identity ${connection.identity_id}):`, errorData);
-    // Flag the connection so admins/agents can see the calendar is no longer
-    // being honoured (same pattern as api/outlook/send.js)
-    await markConnectionError(connection, 'expired', 'Token refresh failed');
-    throw new Error('Token refresh failed');
-  }
-
-  const tokens = await tokenResponse.json();
-  const tokenExpiresAt = new Date(Date.now() + (tokens.expires_in * 1000)).toISOString();
-
-  await supabase
-    .from('outlook_connection')
-    .update({
-      access_token: tokens.access_token,
-      refresh_token: tokens.refresh_token || connection.refresh_token,
-      token_expires_at: tokenExpiresAt,
-      updated_at: new Date().toISOString()
-    })
-    .eq('id', connection.id);
-
-  return tokens.access_token;
-}
-
-async function getValidAccessToken(connection) {
-  const expiresAt = new Date(connection.token_expires_at);
-  const now = new Date();
-  
-  if (expiresAt <= new Date(now.getTime() + 5 * 60 * 1000)) {
-    console.log('[Outlook Calendar] Token expired or expiring soon, refreshing...');
-    return await refreshAccessToken(connection);
-  }
-  
-  return connection.access_token;
-}
+import { getValidMicrosoftAccessToken } from '../_lib/microsoftGraph.js';
 
 export async function createCalendarEvent(connection, eventData) {
-  const accessToken = await getValidAccessToken(connection);
+  const accessToken = await getValidMicrosoftAccessToken(connection);
   
   const event = {
     subject: eventData.subject,
@@ -127,7 +76,7 @@ export async function markConnectionError(connection, status, message) {
 const MAX_CALENDAR_PAGES = 20;
 
 export async function getBusyTimes(connection, startDateTime, endDateTime, timeZone = 'UTC') {
-  const accessToken = await getValidAccessToken(connection);
+  const accessToken = await getValidMicrosoftAccessToken(connection);
   
   const calendarViewUrl = new URL('https://graph.microsoft.com/v1.0/me/calendarview');
   calendarViewUrl.searchParams.set('startdatetime', startDateTime);
@@ -180,7 +129,7 @@ export async function deleteCalendarEvent(connection, eventId) {
     return false;
   }
 
-  const accessToken = await getValidAccessToken(connection);
+  const accessToken = await getValidMicrosoftAccessToken(connection);
   
   const response = await fetch(`https://graph.microsoft.com/v1.0/me/events/${eventId}`, {
     method: 'DELETE',

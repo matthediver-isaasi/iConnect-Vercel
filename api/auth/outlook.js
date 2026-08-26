@@ -2,20 +2,11 @@ import crypto from 'crypto';
 import { serialize } from 'cookie';
 import { getTenantContext } from '../_lib/tenantContext.js';
 import { getSession } from '../_lib/session.js';
+import { supabase } from '../_lib/database.js';
+import { MICROSOFT_BASE_SCOPES, MICROSOFT_SCOPES } from '../_lib/microsoftGraph.js';
 
 const MICROSOFT_CLIENT_ID = process.env.MICROSOFT_CLIENT_ID;
 const SESSION_SECRET = process.env.SESSION_SECRET || 'iconnect-session-secret-change-in-production';
-
-const MICROSOFT_SCOPES = [
-  'openid',
-  'email',
-  'profile',
-  'offline_access',
-  'https://graph.microsoft.com/Mail.Read',
-  'https://graph.microsoft.com/Mail.Send',
-  'https://graph.microsoft.com/User.Read',
-  'https://graph.microsoft.com/Calendars.ReadWrite'
-].join(' ');
 
 function signState(payload) {
   const data = JSON.stringify(payload);
@@ -58,6 +49,32 @@ export default async function handler(req, res) {
     
     if (!identityId) {
       return res.status(401).json({ error: 'Could not determine user identity' });
+    }
+
+    if (req.query.teamsOrganizer === 'true') {
+      const { data: memberships } = await supabase
+        .from('tenant_membership')
+        .select('role, membership_type')
+        .eq('tenant_id', tenantContext.tenantId)
+        .eq('identity_id', identityId)
+        .eq('status', 'active');
+      const isAdmin = (memberships || []).some(m =>
+        m.role === 'owner' || m.role === 'admin' || m.membership_type === 'owner'
+      );
+      let isLegacyAdmin = false;
+      if (!isAdmin && sessionData?.tenantUserId) {
+        const { data: tenantUser } = await supabase
+          .from('tenant_user')
+          .select('role')
+          .eq('id', sessionData.tenantUserId)
+          .eq('tenant_id', tenantContext.tenantId)
+          .eq('status', 'active')
+          .maybeSingle();
+        isLegacyAdmin = tenantUser?.role === 'owner' || tenantUser?.role === 'admin';
+      }
+      if (!isAdmin && !isLegacyAdmin) {
+        return res.status(403).json({ error: 'Only tenant administrators can configure a Teams organiser connection' });
+      }
     }
 
     const nonce = crypto.randomBytes(32).toString('hex');
@@ -103,10 +120,13 @@ export default async function handler(req, res) {
     authUrl.searchParams.set('client_id', MICROSOFT_CLIENT_ID);
     authUrl.searchParams.set('redirect_uri', redirectUri);
     authUrl.searchParams.set('response_type', 'code');
-    authUrl.searchParams.set('scope', MICROSOFT_SCOPES);
+    const requestedScopes = req.query.teamsOrganizer === 'true'
+      ? MICROSOFT_SCOPES
+      : MICROSOFT_BASE_SCOPES;
+    authUrl.searchParams.set('scope', requestedScopes.join(' '));
     authUrl.searchParams.set('response_mode', 'query');
     authUrl.searchParams.set('state', signedState);
-    authUrl.searchParams.set('prompt', 'select_account');
+    authUrl.searchParams.set('prompt', req.query.teamsOrganizer === 'true' ? 'consent' : 'select_account');
 
     console.log('[Outlook OAuth] Initiating auth for identity:', identityId);
     res.redirect(authUrl.toString());

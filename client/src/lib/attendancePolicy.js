@@ -1,5 +1,6 @@
 export const ATTENDANCE_PROVIDERS = Object.freeze({
   ZOOM: 'zoom',
+  TEAMS: 'teams',
 });
 
 export const DEFAULT_ATTENDANCE_THRESHOLD_MINUTES = 1;
@@ -65,14 +66,32 @@ export function hasSupportedZoomTarget({
   return Boolean(isOnline && (zoomMeetingId || zoomWebinarId || zoomAutoCreate));
 }
 
+export function hasSupportedTeamsTarget({
+  isOnline,
+  teamsOnlineMeetingId,
+  teamsJoinWebUrl,
+  teamsOrganiserMicrosoftUserId,
+  teamsOutlookConnectionId,
+} = {}) {
+  return Boolean(isOnline && teamsOnlineMeetingId && teamsJoinWebUrl
+    && teamsOrganiserMicrosoftUserId && teamsOutlookConnectionId);
+}
+
+export function hasSupportedAttendanceTarget(policy, target = {}) {
+  const provider = normalizeAttendancePolicy(policy).attendance_provider;
+  if (provider === ATTENDANCE_PROVIDERS.ZOOM) return hasSupportedZoomTarget(target);
+  if (provider === ATTENDANCE_PROVIDERS.TEAMS) return hasSupportedTeamsTarget(target);
+  return false;
+}
+
 export function validateAttendancePolicy(policy, target, label = 'Attendance tracking') {
   const normalized = normalizeAttendancePolicy(policy);
   if (!normalized.attendance_tracking_enabled) return [];
-  if (normalized.attendance_provider !== ATTENDANCE_PROVIDERS.ZOOM) {
+  if (![ATTENDANCE_PROVIDERS.ZOOM, ATTENDANCE_PROVIDERS.TEAMS].includes(normalized.attendance_provider)) {
     return [`${label} uses an unsupported online provider`];
   }
-  if (!hasSupportedZoomTarget(target)) {
-    return [`${label} requires a linked Zoom meeting or webinar`];
+  if (!hasSupportedAttendanceTarget(normalized, target)) {
+    return [`${label} requires a linked ${normalized.attendance_provider === ATTENDANCE_PROVIDERS.TEAMS ? 'Teams meeting' : 'Zoom meeting or webinar'}`];
   }
   if (!Number.isInteger(normalized.attendance_threshold_minutes)
       || normalized.attendance_threshold_minutes < 1) {
@@ -84,5 +103,6 @@ export function validateAttendancePolicy(policy, target, label = 'Attendance tra
 export function describeAttendancePolicy(policy) {
   const normalized = normalizeAttendancePolicy(policy);
   if (!normalized.attendance_tracking_enabled) return 'Attendance tracking is off';
-  return `Zoom attendance: ${normalized.attendance_threshold_minutes} minute${normalized.attendance_threshold_minutes === 1 ? '' : 's'} required`;
+  const provider = normalized.attendance_provider === ATTENDANCE_PROVIDERS.TEAMS ? 'Teams' : 'Zoom';
+  return `${provider} attendance: ${normalized.attendance_threshold_minutes} minute${normalized.attendance_threshold_minutes === 1 ? '' : 's'} required`;
 }

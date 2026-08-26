@@ -1,4 +1,4 @@
-export const SUPPORTED_ATTENDANCE_PROVIDERS = new Set(['zoom']);
+export const SUPPORTED_ATTENDANCE_PROVIDERS = new Set(['zoom', 'teams']);
 
 /**
  * Resolve a child override without making persistence decisions.  Keeping this

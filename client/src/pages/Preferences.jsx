@@ -1956,7 +1956,7 @@ export default function PreferencesPage() {
         if (isFeatureExcluded('user.about-me.outlook')) return null;
         return (
           <div key="outlook_integration">
-            <OutlookConnection />
+            <OutlookConnection isAdmin={['owner', 'admin'].includes(memberRecord?.role)} />
           </div>
         );
 

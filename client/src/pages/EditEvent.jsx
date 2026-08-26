@@ -95,8 +95,10 @@ import {
 import UnfurlPreview from "@/components/UnfurlPreview";
 import ZoomPolls from "@/components/events/ZoomPolls";
 import AttendancePolicyEditor from "@/components/events/AttendancePolicyEditor";
+import TeamsMeetingConfig from "@/components/events/TeamsMeetingConfig";
 import {
   attendancePolicyPayload,
+  hasSupportedAttendanceTarget,
   hasSupportedZoomTarget,
   normalizeAttendancePolicy,
   validateAttendancePolicy,
@@ -160,6 +162,7 @@ export default function EditEvent() {
   const [isTraining, setIsTraining] = useState(false);
   const [agendaLines, setAgendaLines] = useState([]);
   const [attendancePolicy, setAttendancePolicy] = useState(() => normalizeAttendancePolicy());
+  const [onlineProvider, setOnlineProvider] = useState('zoom');
   const [initialAgendaIds, setInitialAgendaIds] = useState([]);
   // Snapshot of the agenda rows as loaded (or last saved) — used for
   // compensating rollback if a save fails part-way (Task #3512).
@@ -337,6 +340,12 @@ export default function EditEvent() {
     available_seats: "",
     zoom_webinar_id: null,
     zoom_meeting_id: null,
+    teams_online_meeting_id: null,
+    teams_join_web_url: null,
+    teams_organiser_microsoft_user_id: null,
+    teams_organiser_email: null,
+    teams_outlook_connection_id: null,
+    teams_meeting_lifecycle: null,
     online_meeting_url: "",
     budgeted_costs: "",
     budgeted_income: ""
@@ -934,6 +943,13 @@ export default function EditEvent() {
           location: behaviour === 'location' ? (line.location || null) : null,
           zoom_webinar_id: behaviour === 'zoom' ? (line.zoom_webinar_id || null) : null,
           zoom_meeting_id: behaviour === 'zoom' ? (line.zoom_meeting_id || null) : null,
+          online_provider: behaviour === 'zoom' ? (line.online_provider || 'zoom') : null,
+          teams_online_meeting_id: behaviour === 'zoom' ? (line.teams_online_meeting_id || null) : null,
+          teams_join_web_url: behaviour === 'zoom' ? (line.teams_join_web_url || null) : null,
+          teams_organiser_microsoft_user_id: behaviour === 'zoom' ? (line.teams_organiser_microsoft_user_id || null) : null,
+          teams_organiser_email: behaviour === 'zoom' ? (line.teams_organiser_email || null) : null,
+          teams_outlook_connection_id: behaviour === 'zoom' ? (line.teams_outlook_connection_id || null) : null,
+          teams_meeting_lifecycle: behaviour === 'zoom' ? (line.teams_meeting_lifecycle || null) : null,
           lms_url: behaviour === 'lms' ? (line.lms_url || null) : null,
           speaker_ids: Array.isArray(line.speaker_ids) ? line.speaker_ids.filter(Boolean) : [],
           sponsor_ids: Array.isArray(line.sponsor_ids) ? line.sponsor_ids.filter(Boolean) : [],
@@ -1061,6 +1077,12 @@ export default function EditEvent() {
         // Immediate events strip zoom ids on load
         zoom_webinar_id: isImmediateLoad ? null : (event.zoom_webinar_id || null),
         zoom_meeting_id: isImmediateLoad ? null : (event.zoom_meeting_id || null),
+        teams_online_meeting_id: isImmediateLoad ? null : (event.teams_online_meeting_id || null),
+        teams_join_web_url: isImmediateLoad ? null : (event.teams_join_web_url || null),
+        teams_organiser_microsoft_user_id: isImmediateLoad ? null : (event.teams_organiser_microsoft_user_id || null),
+        teams_organiser_email: isImmediateLoad ? null : (event.teams_organiser_email || null),
+        teams_outlook_connection_id: isImmediateLoad ? null : (event.teams_outlook_connection_id || null),
+        teams_meeting_lifecycle: isImmediateLoad ? null : (event.teams_meeting_lifecycle || null),
         online_meeting_url: event.online_meeting_url || "",
         cta_override_url: event.cta_override_url || "",
         cta_override_mode: event.cta_override_mode || "card",
@@ -1082,6 +1104,7 @@ export default function EditEvent() {
       // agenda is no longer training-only.
       setIsTraining(event.is_training === true);
       setAttendancePolicy(normalizeAttendancePolicy(event));
+      setOnlineProvider(event.online_provider || (event.teams_online_meeting_id ? 'teams' : 'zoom'));
       {
         base44.entities.EventAgendaItem.list({ filter: { event_id: event.id } })
           .then((rows) => {
@@ -1523,6 +1546,10 @@ export default function EditEvent() {
         isOnline: isOnlineEvent,
         zoomMeetingId: selectedMeetingId || formData.zoom_meeting_id,
         zoomWebinarId: formData.zoom_webinar_id,
+        teamsOnlineMeetingId: formData.teams_online_meeting_id,
+        teamsJoinWebUrl: formData.teams_join_web_url,
+        teamsOrganiserMicrosoftUserId: formData.teams_organiser_microsoft_user_id,
+        teamsOutlookConnectionId: formData.teams_outlook_connection_id,
       });
       if (attendanceErrors.length > 0) {
         toast.error(attendanceErrors[0]);
@@ -1733,8 +1760,15 @@ export default function EditEvent() {
       qr_on_confirmation: isOnlineEvent ? false : qrOnConfirmation,
       // Immediate events clear all Zoom ids. TBC events optionally keep them.
       // Group-limited events never use Zoom — they use a manual meeting link.
-      zoom_webinar_id: isImmediateSave ? null : (isGroupLimited ? null : (zoomType === 'webinar' ? (formData.zoom_webinar_id || null) : null)),
-      zoom_meeting_id: isImmediateSave ? null : (isGroupLimited ? null : (zoomType === 'meeting' ? (selectedMeetingId || null) : null)),
+      zoom_webinar_id: isImmediateSave || onlineProvider === 'teams' ? null : (isGroupLimited ? null : (zoomType === 'webinar' ? (formData.zoom_webinar_id || null) : null)),
+      zoom_meeting_id: isImmediateSave || onlineProvider === 'teams' ? null : (isGroupLimited ? null : (zoomType === 'meeting' ? (selectedMeetingId || null) : null)),
+      online_provider: isOnlineEvent && !isTraining && !isGroupLimited ? onlineProvider : null,
+      teams_online_meeting_id: onlineProvider === 'teams' ? formData.teams_online_meeting_id : null,
+      teams_join_web_url: onlineProvider === 'teams' ? formData.teams_join_web_url : null,
+      teams_organiser_microsoft_user_id: onlineProvider === 'teams' ? formData.teams_organiser_microsoft_user_id : null,
+      teams_organiser_email: onlineProvider === 'teams' ? formData.teams_organiser_email : null,
+      teams_outlook_connection_id: onlineProvider === 'teams' ? formData.teams_outlook_connection_id : null,
+      teams_meeting_lifecycle: onlineProvider === 'teams' ? formData.teams_meeting_lifecycle : null,
       speaker_ids: selectedSpeakers.length > 0 ? selectedSpeakers : [],
       speaker_award_config: formStateToConfig(speakerAwards),
       // Convert composite keys back to plain labels for database storage
@@ -2350,6 +2384,7 @@ export default function EditEvent() {
                   speakers={speakers}
                   eventAttendancePolicy={attendancePolicy}
                   onEventAttendancePolicyChange={setAttendancePolicy}
+                  timezone={eventTimezone || 'Europe/London'}
                 />
               </CardContent>
             </Card>
@@ -4402,16 +4437,41 @@ export default function EditEvent() {
                 </div>
               )}
               {isOnlineEvent && !isTraining && (
+                <>
+                {!isGroupLimited && (
+                  <div className="space-y-3">
+                    <div className="flex gap-2">
+                      <Button type="button" size="sm" variant={onlineProvider === 'zoom' ? 'default' : 'outline'} onClick={() => setOnlineProvider('zoom')}>Zoom</Button>
+                      <Button type="button" size="sm" variant={onlineProvider === 'teams' ? 'default' : 'outline'} onClick={() => setOnlineProvider('teams')}>Microsoft Teams</Button>
+                    </div>
+                    {onlineProvider === 'teams' && (
+                      <TeamsMeetingConfig
+                        value={formData}
+                        onChange={(meeting) => setFormData((current) => ({ ...current, ...meeting }))}
+                        subject={formData.title}
+                        startDateTime={formData.start_date}
+                        endDateTime={formData.end_date}
+                        timezone={eventTimezone}
+                        testId="event-teams-meeting"
+                      />
+                    )}
+                  </div>
+                )}
                 <AttendancePolicyEditor
                   value={attendancePolicy}
                   onChange={setAttendancePolicy}
-                  targetSupported={hasSupportedZoomTarget({
+                  targetSupported={hasSupportedAttendanceTarget(attendancePolicy, {
                     isOnline: isOnlineEvent,
                     zoomMeetingId: selectedMeetingId || formData.zoom_meeting_id,
                     zoomWebinarId: formData.zoom_webinar_id,
+                    teamsOnlineMeetingId: formData.teams_online_meeting_id,
+                    teamsJoinWebUrl: formData.teams_join_web_url,
+                    teamsOrganiserMicrosoftUserId: formData.teams_organiser_microsoft_user_id,
+                    teamsOutlookConnectionId: formData.teams_outlook_connection_id,
                   })}
                   testId="event-attendance-policy"
                 />
+                </>
               )}
               {/* Training events define location per agenda item (Task #3436). */}
               {!isTraining && (

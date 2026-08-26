@@ -1,51 +1,6 @@
 import { getSession } from '../_lib/session.js';
 import { supabase } from '../_lib/database.js';
-
-const MICROSOFT_CLIENT_ID = process.env.MICROSOFT_CLIENT_ID;
-const MICROSOFT_CLIENT_SECRET = process.env.MICROSOFT_CLIENT_SECRET;
-
-async function refreshAccessToken(connection) {
-  const tokenResponse = await fetch('https://login.microsoftonline.com/common/oauth2/v2.0/token', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      client_id: MICROSOFT_CLIENT_ID,
-      client_secret: MICROSOFT_CLIENT_SECRET,
-      refresh_token: connection.refresh_token,
-      grant_type: 'refresh_token'
-    })
-  });
-
-  if (!tokenResponse.ok) {
-    throw new Error('Token refresh failed');
-  }
-
-  const tokens = await tokenResponse.json();
-  const tokenExpiresAt = new Date(Date.now() + (tokens.expires_in * 1000)).toISOString();
-
-  await supabase
-    .from('outlook_connection')
-    .update({
-      access_token: tokens.access_token,
-      refresh_token: tokens.refresh_token || connection.refresh_token,
-      token_expires_at: tokenExpiresAt,
-      updated_at: new Date().toISOString()
-    })
-    .eq('id', connection.id);
-
-  return tokens.access_token;
-}
-
-async function getValidAccessToken(connection) {
-  const expiresAt = new Date(connection.token_expires_at);
-  const now = new Date();
-  
-  if (expiresAt <= new Date(now.getTime() + 5 * 60 * 1000)) {
-    return await refreshAccessToken(connection);
-  }
-  
-  return connection.access_token;
-}
+import { getValidMicrosoftAccessToken } from '../_lib/microsoftGraph.js';
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Credentials', 'true');
@@ -101,7 +56,7 @@ export default async function handler(req, res) {
 
     let accessToken;
     try {
-      accessToken = await getValidAccessToken(connection);
+      accessToken = await getValidMicrosoftAccessToken(connection);
     } catch (err) {
       await supabase
         .from('outlook_connection')

@@ -14,6 +14,7 @@ export default function AttendancePolicyEditor({
   allowInheritance = false,
   parentPolicy = null,
   targetSupported = true,
+  providerAvailability = { zoom: true, teams: true },
   label = 'Attendance tracking',
   testId = 'attendance-policy',
 }) {
@@ -51,7 +52,7 @@ export default function AttendancePolicyEditor({
           <div className="flex items-center justify-between gap-4">
             <div>
               <Label>Track online attendance</Label>
-              <p className="text-xs text-slate-500">Currently supported for linked Zoom meetings and webinars.</p>
+          <p className="text-xs text-slate-500">Supported for linked Zoom and Microsoft Teams meetings.</p>
             </div>
             <Switch
               checked={policy.attendance_tracking_enabled}
@@ -72,6 +73,7 @@ export default function AttendancePolicyEditor({
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="zoom">Zoom</SelectItem>
+                    <SelectItem value="teams" disabled={providerAvailability.teams === false}>Microsoft Teams</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -98,7 +100,7 @@ export default function AttendancePolicyEditor({
       </p>
       {effective.attendance_tracking_enabled && !targetSupported && (
         <p className="text-xs text-amber-700" role="alert">
-          Link a Zoom meeting or webinar to use attendance tracking for this target.
+          Link a supported {effective.attendance_provider === 'teams' ? 'Teams meeting' : 'Zoom meeting or webinar'} to use attendance tracking for this target.
         </p>
       )}
     </div>

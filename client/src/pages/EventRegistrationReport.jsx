@@ -14,6 +14,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { Form, FormSubmission } from "@/api/entities";
 import { Search, Download, Calendar, Building2, CreditCard, Receipt, Ticket, Users, Banknote, ChevronLeft, ChevronRight, XCircle, ArrowLeftRight, Loader2, Filter, Hash, Layers, RefreshCw, Check, X, Clock, Star, Pencil, Flag, UserPlus, Tag } from "lucide-react";
 import { format, parseISO } from "date-fns";
+import { attendanceSyncMessage, responseErrors, responseHasPendingSync } from "@/lib/attendanceSyncSummary";
 import { createPageUrl } from "@/utils";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import TransferTicketDialog from "@/components/TransferTicketDialog";
@@ -1156,6 +1157,14 @@ export default function EventRegistrationReport() {
 
   const hasZoomForSelectedEvents = reportData?.hasZoomForSelectedEvents || false;
   const anyGroupHasZoom = bookingGroups.some(g => g.hasZoom);
+  // Backwards-compatible flags: the API now reports Teams bindings even
+  // before an attendance_target exists, so first manual sync is available.
+  const hasTeamsForSelectedEvents = Boolean(
+    reportData?.hasTeamsForSelectedEvents
+    || reportData?.has_teams_for_selected_events
+    || (reportData?.events || []).some((event) => event.has_teams || event.hasTeams || event.has_teams_binding)
+  );
+  const anyGroupHasTeams = bookingGroups.some(g => g.hasTeams || g.has_teams || g.hasTeamsBinding);
   const hasAttendanceForSelectedEvents = reportData?.hasAttendanceForSelectedEvents || false;
   const anyGroupHasAttendance = bookingGroups.some(g => g.hasAttendance);
   const showAttendanceColumn = hasAttendanceForSelectedEvents || anyGroupHasAttendance;
@@ -1164,54 +1173,74 @@ export default function EventRegistrationReport() {
     if (!appliedFilters) return;
     setSyncingAttendance(true);
     try {
-      const zoomEventIds = new Set();
+      const providerByEventId = new Map();
+      const addProvider = (eventId, provider) => {
+        if (!eventId) return;
+        if (!providerByEventId.has(eventId)) providerByEventId.set(eventId, new Set());
+        providerByEventId.get(eventId).add(provider);
+      };
       for (const group of bookingGroups) {
-        if (group.hasZoom && group.eventId) {
-          zoomEventIds.add(group.eventId);
-        }
+        if (group.hasZoom) addProvider(group.eventId, 'zoom');
+        if (group.hasTeams) addProvider(group.eventId, 'teams');
       }
-
-      const eventsWithZoom = (reportData?.events || []).filter(e => zoomEventIds.has(e.id) || e.has_zoom);
-
-      if (eventsWithZoom.length === 0) {
-        toast.error('No events with Zoom integration found in current selection');
+      for (const event of reportData?.events || []) {
+        if (event.has_zoom) addProvider(event.id, 'zoom');
+        if (event.has_teams || event.hasTeams || event.has_teams_binding) addProvider(event.id, 'teams');
+      }
+      for (const eventId of reportData?.teamsEventIds || reportData?.teams_event_ids || []) {
+        addProvider(eventId, 'teams');
+      }
+      if (providerByEventId.size === 0) {
+        toast.error('No Zoom or Teams attendance targets found in current selection');
         return;
       }
 
       let totalParticipants = 0;
       let totalMatched = 0;
       let errors = [];
-      const syncedEventIds = new Set();
-
-      for (const event of eventsWithZoom) {
-        if (syncedEventIds.has(event.id)) continue;
-        syncedEventIds.add(event.id);
+      let pending = 0;
+      for (const [eventId, providers] of providerByEventId) {
+        const event = (reportData?.events || []).find((item) => item.id === eventId) || { id: eventId, title: 'Event' };
+        for (const provider of providers) {
         try {
-          const response = await fetch('/api/zoom/sync-attendance', {
+          const response = await fetch(provider === 'teams' ? '/api/teams/sync-attendance' : '/api/zoom/sync-attendance', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             credentials: 'include',
             body: JSON.stringify({ eventId: event.id }),
           });
           const data = await response.json();
-          if (response.ok && data.success) {
+          const responsePending = responseHasPendingSync(data, response.status);
+          if (responsePending) {
+            pending += Number(data.pendingCount) || Number(data.targetCount) || 1;
+            // A single-target adapter uses `error` to explain report delay;
+            // that is pending work, not a manual-sync failure.
+            errors.push(...responseErrors({ ...data, error: null }));
+          } else if (response.ok && data.success) {
             totalParticipants += data.participantCount || 0;
             totalMatched += data.matchedCount || 0;
+            const aggregateErrors = responseErrors(data);
+            if (aggregateErrors.length > 0) errors.push(...aggregateErrors);
+            else if (Number(data.failedCount) > 0) {
+              errors.push(`${event.title} (${provider === 'teams' ? 'Teams' : 'Zoom'}): ${data.failedCount} target${data.failedCount === 1 ? '' : 's'} failed`);
+            }
           } else {
-            errors.push(`${event.title}: ${data.error || 'Unknown error'}`);
+            const details = responseErrors(data, 'Unknown error');
+            errors.push(...details.map((detail) => `${event.title} (${provider === 'teams' ? 'Teams' : 'Zoom'}): ${detail}`));
           }
         } catch (err) {
-          errors.push(`${event.title}: ${err.message}`);
+          errors.push(`${event.title} (${provider === 'teams' ? 'Teams' : 'Zoom'}): ${err.message}`);
+        }
         }
       }
 
-      if (errors.length > 0 && totalParticipants === 0) {
-        toast.error(`Sync failed: ${errors[0]}`);
-      } else if (errors.length > 0) {
-        toast.info(`Synced ${totalParticipants} participants (${totalMatched} matched). Some events had errors.`);
-      } else {
-        toast.success(`Synced ${totalParticipants} participants (${totalMatched} matched to bookings)`);
-      }
+      const summary = attendanceSyncMessage({
+        participants: totalParticipants,
+        matched: totalMatched,
+        pending,
+        errors,
+      });
+      toast[summary.level](summary.message);
 
       queryClient.invalidateQueries({ queryKey: ['event-registration-report', appliedFilters] });
     } catch (error) {
@@ -1339,7 +1368,7 @@ export default function EventRegistrationReport() {
         </div>
         {reportGenerated && (
           <div className="flex items-center gap-2 flex-wrap">
-            {(hasZoomForSelectedEvents || anyGroupHasZoom) && (
+            {(hasZoomForSelectedEvents || anyGroupHasZoom || hasTeamsForSelectedEvents || anyGroupHasTeams) && (
               <Button
                 variant="outline"
                 className="gap-2"

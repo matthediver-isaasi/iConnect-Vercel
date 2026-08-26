@@ -173,7 +173,7 @@ export default async function handler(req, res) {
   }
   const tenantId = tenantCtx.tenantId;
 
-  const SESSION_FIELDS = 'id, complex_event_id, tenant_id, title, description, image_url, image_focal_point, speaker_names, speaker_ids, start_time, end_time, location, is_online, display_order, created_at, updated_at, zoom_type, zoom_host_id, zoom_host_email, zoom_meeting_id, zoom_webinar_id, zoom_join_url, zoom_start_url, zoom_registration_url, zoom_registration_required, zoom_link_mode, auto_create_zoom, attendance_tracking_enabled, attendance_provider, attendance_threshold_minutes, attendance_policy_override';
+  const SESSION_FIELDS = 'id, complex_event_id, tenant_id, title, description, image_url, image_focal_point, speaker_names, speaker_ids, start_time, end_time, location, is_online, display_order, created_at, updated_at, zoom_type, zoom_host_id, zoom_host_email, zoom_meeting_id, zoom_webinar_id, zoom_join_url, zoom_start_url, zoom_registration_url, zoom_registration_required, zoom_link_mode, auto_create_zoom, online_provider, teams_online_meeting_id, teams_join_web_url, teams_organiser_microsoft_user_id, teams_organiser_email, teams_outlook_connection_id, teams_meeting_lifecycle, attendance_tracking_enabled, attendance_provider, attendance_threshold_minutes, attendance_policy_override';
 
   if (req.method === 'GET') {
     try {
@@ -286,6 +286,13 @@ export default async function handler(req, res) {
         zoom_registration_required,
         zoom_link_mode,
         auto_create_zoom,
+        online_provider,
+        teams_online_meeting_id,
+        teams_join_web_url,
+        teams_organiser_microsoft_user_id,
+        teams_organiser_email,
+        teams_outlook_connection_id,
+        teams_meeting_lifecycle,
         attendance_tracking_enabled,
         attendance_provider,
         attendance_threshold_minutes,
@@ -340,6 +347,13 @@ export default async function handler(req, res) {
       if (zoom_registration_required !== undefined) sessionData.zoom_registration_required = zoom_registration_required;
       if (zoom_link_mode !== undefined) sessionData.zoom_link_mode = zoom_link_mode;
       if (auto_create_zoom !== undefined) sessionData.auto_create_zoom = auto_create_zoom;
+      if (online_provider !== undefined) sessionData.online_provider = online_provider || null;
+      if (teams_online_meeting_id !== undefined) sessionData.teams_online_meeting_id = teams_online_meeting_id || null;
+      if (teams_join_web_url !== undefined) sessionData.teams_join_web_url = teams_join_web_url || null;
+      if (teams_organiser_microsoft_user_id !== undefined) sessionData.teams_organiser_microsoft_user_id = teams_organiser_microsoft_user_id || null;
+      if (teams_organiser_email !== undefined) sessionData.teams_organiser_email = teams_organiser_email || null;
+      if (teams_outlook_connection_id !== undefined) sessionData.teams_outlook_connection_id = teams_outlook_connection_id || null;
+      if (teams_meeting_lifecycle !== undefined) sessionData.teams_meeting_lifecycle = teams_meeting_lifecycle || null;
       if (attendance_tracking_enabled !== undefined) sessionData.attendance_tracking_enabled = attendance_tracking_enabled === true;
       if (attendance_provider !== undefined) sessionData.attendance_provider = attendance_provider || null;
       if (attendance_threshold_minutes !== undefined) sessionData.attendance_threshold_minutes = attendance_threshold_minutes || null;

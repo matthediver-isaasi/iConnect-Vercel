@@ -16,7 +16,7 @@ test('session or agenda inherits its enabled Zoom policy and threshold', () => {
   });
 });
 
-test('an override can disable an inherited policy or select an unsupported provider', () => {
+test('an override can disable an inherited policy or select Teams', () => {
   const parent = {
     attendance_tracking_enabled: true, attendance_provider: 'zoom', attendance_threshold_minutes: 15,
   };
@@ -28,6 +28,6 @@ test('an override can disable an inherited policy or select an unsupported provi
     attendance_policy_override: true, attendance_tracking_enabled: true,
     attendance_provider: 'teams', attendance_threshold_minutes: 5,
   });
-  assert.equal(policy.supported, false);
+  assert.equal(policy.supported, true);
   assert.equal(policy.thresholdMinutes, 5);
 });

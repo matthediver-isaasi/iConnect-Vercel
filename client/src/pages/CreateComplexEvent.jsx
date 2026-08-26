@@ -59,8 +59,10 @@ import EventEmailSettingsEditor, {
   putEventEmails,
 } from "@/components/events/EventEmailSettingsEditor";
 import AttendancePolicyEditor from "@/components/events/AttendancePolicyEditor";
+import TeamsMeetingConfig from "@/components/events/TeamsMeetingConfig";
 import {
   attendancePolicyPayload,
+  hasSupportedAttendanceTarget,
   hasSupportedZoomTarget,
   normalizeAttendancePolicy,
   resolveAttendancePolicy,
@@ -677,6 +679,13 @@ export default function CreateComplexEvent() {
     zoom_meeting_id: null,
     zoom_webinar_id: null,
     zoom_join_url: null,
+    online_provider: 'zoom',
+    teams_online_meeting_id: null,
+    teams_join_web_url: null,
+    teams_organiser_microsoft_user_id: null,
+    teams_organiser_email: null,
+    teams_outlook_connection_id: null,
+    teams_meeting_lifecycle: null,
     ...normalizeAttendancePolicy({}, { inherit: true }),
   });
   const [sessionDuration, setSessionDuration] = useState("custom");
@@ -1483,6 +1492,13 @@ export default function CreateComplexEvent() {
         zoom_meeting_id: session.zoom_meeting_id || null,
         zoom_webinar_id: session.zoom_webinar_id || null,
         zoom_join_url: session.zoom_join_url || null,
+        online_provider: session.online_provider || (session.teams_online_meeting_id ? 'teams' : 'zoom'),
+        teams_online_meeting_id: session.teams_online_meeting_id || null,
+        teams_join_web_url: session.teams_join_web_url || null,
+        teams_organiser_microsoft_user_id: session.teams_organiser_microsoft_user_id || null,
+        teams_organiser_email: session.teams_organiser_email || null,
+        teams_outlook_connection_id: session.teams_outlook_connection_id || null,
+        teams_meeting_lifecycle: session.teams_meeting_lifecycle || null,
         ...normalizeAttendancePolicy(session, { inherit: true }),
       });
       setSessionDuration(detectDurationFromTimes(
@@ -1515,6 +1531,13 @@ export default function CreateComplexEvent() {
         zoom_meeting_id: null,
         zoom_webinar_id: null,
         zoom_join_url: null,
+        online_provider: 'zoom',
+        teams_online_meeting_id: null,
+        teams_join_web_url: null,
+        teams_organiser_microsoft_user_id: null,
+        teams_organiser_email: null,
+        teams_outlook_connection_id: null,
+        teams_meeting_lifecycle: null,
         ...normalizeAttendancePolicy({}, { inherit: true }),
       });
       setSessionDuration("custom");
@@ -1964,6 +1987,13 @@ export default function CreateComplexEvent() {
         };
 
         if (session.is_online && !isGroupLimited) {
+          sessionPayload.online_provider = session.online_provider || 'zoom';
+          sessionPayload.teams_online_meeting_id = session.teams_online_meeting_id || null;
+          sessionPayload.teams_join_web_url = session.teams_join_web_url || null;
+          sessionPayload.teams_organiser_microsoft_user_id = session.teams_organiser_microsoft_user_id || null;
+          sessionPayload.teams_organiser_email = session.teams_organiser_email || null;
+          sessionPayload.teams_outlook_connection_id = session.teams_outlook_connection_id || null;
+          sessionPayload.teams_meeting_lifecycle = session.teams_meeting_lifecycle || null;
           sessionPayload.zoom_type = session.zoom_type || 'meeting';
           sessionPayload.zoom_host_id = session.zoom_host_id || null;
           sessionPayload.zoom_host_email = session.zoom_host_email || null;
@@ -4718,6 +4748,15 @@ export default function CreateComplexEvent() {
 
             {sessionForm.is_online && !isGroupLimited && (
               <div className="space-y-4">
+              <div className="flex gap-2">
+                <Button type="button" size="sm" variant={(sessionForm.online_provider || 'zoom') === 'zoom' ? 'default' : 'outline'}
+                  onClick={() => setSessionForm((prev) => ({ ...prev, online_provider: 'zoom' }))}>Zoom</Button>
+                <Button type="button" size="sm" variant={sessionForm.online_provider === 'teams' ? 'default' : 'outline'}
+                  onClick={() => setSessionForm((prev) => ({
+                    ...prev, online_provider: 'teams', zoom_meeting_id: null, zoom_webinar_id: null, auto_create_zoom: false,
+                  }))}>Microsoft Teams</Button>
+              </div>
+              {(sessionForm.online_provider || 'zoom') === 'zoom' ? (
               <ZoomSessionConfig
                 zoomType={sessionForm.zoom_type}
                 zoomHostId={sessionForm.zoom_host_id}
@@ -4733,18 +4772,33 @@ export default function CreateComplexEvent() {
                 loadingZoomUsers={loadingZoomUsers}
                 onUpdate={(updates) => setSessionForm(prev => ({ ...prev, ...updates }))}
               />
+              ) : (
+                <TeamsMeetingConfig
+                  value={sessionForm}
+                  onChange={(meeting) => setSessionForm((prev) => ({ ...prev, ...meeting }))}
+                  subject={sessionForm.title}
+                  startDateTime={sessionForm.start_time}
+                  endDateTime={sessionForm.end_time}
+                  timezone={formData.timezone}
+                  testId="complex-session-teams-meeting"
+                />
+              )}
               <AttendancePolicyEditor
                 value={sessionForm}
                 onChange={(policy) => setSessionForm((prev) => ({ ...prev, ...policy }))}
                 allowInheritance
                 parentPolicy={formData}
-                targetSupported={hasSupportedZoomTarget({
+                targetSupported={hasSupportedAttendanceTarget(resolveAttendancePolicy(formData, sessionForm), {
                   isOnline: sessionForm.is_online,
                   zoomMeetingId: sessionForm.zoom_meeting_id
                     || (sessionForm.zoom_type !== 'webinar' ? sessionForm.link_existing_zoom_id : null),
                   zoomWebinarId: sessionForm.zoom_webinar_id
                     || (sessionForm.zoom_type === 'webinar' ? sessionForm.link_existing_zoom_id : null),
                   zoomAutoCreate: sessionForm.zoom_link_mode !== 'link_existing' && sessionForm.auto_create_zoom,
+                  teamsOnlineMeetingId: sessionForm.teams_online_meeting_id,
+                  teamsJoinWebUrl: sessionForm.teams_join_web_url,
+                  teamsOrganiserMicrosoftUserId: sessionForm.teams_organiser_microsoft_user_id,
+                  teamsOutlookConnectionId: sessionForm.teams_outlook_connection_id,
                 })}
                 label="Session attendance policy"
                 testId="session-attendance-policy"
