@@ -242,8 +242,55 @@ async function handleCampaignToken(req, res, token, tokenData) {
   }
 }
 
-async function handlePreferenceUpdate(req, res, context) {
+function preferenceUpdateFailure(error, operation) {
+  const message = String(error?.message || '');
+  const expectedValidation = [
+    'invalid email preference global state input',
+    'invalid email preference category state input',
+    'invalid communication category',
+    'member not found',
+    'external subscriber category not found',
+  ].some((value) => message.includes(value));
+
+  console.error('[Preferences] Atomic update failed', {
+    operation,
+    code: error?.code || null,
+    message: error?.message || String(error),
+    details: error?.details || null,
+    hint: error?.hint || null,
+  });
+
+  if (message.includes('global email opt-out is active')) {
+    return {
+      status: 409,
+      payload: {
+        success: false,
+        error: 'Turn off the global email opt-out before changing individual categories.',
+      },
+    };
+  }
+  if (expectedValidation) {
+    return {
+      status: 400,
+      payload: {
+        success: false,
+        error: 'These email preferences could not be updated. Refresh the page and try again.',
+      },
+    };
+  }
+  return {
+    status: 503,
+    payload: {
+      success: false,
+      error: 'Email preferences are temporarily unavailable. Please try again.',
+    },
+  };
+}
+
+export async function handlePreferenceUpdate(req, res, context) {
   const { token, member, recipient, campaign, categories, tenantId } = context;
+  const database = context.database || supabase;
+  let operation = 'unknown';
   
   try {
     let body = req.body;
@@ -254,12 +301,13 @@ async function handlePreferenceUpdate(req, res, context) {
     const { action, categoryId, optOutAll } = body;
 
     if (action === 'toggle_all') {
+      operation = 'set_global_state';
       if (typeof optOutAll !== 'boolean') {
         return res.status(400).json({ success: false, error: 'An opt-out state is required.' });
       }
       let availableCategories = categories || [];
       if (!member) {
-        const currentPreferences = await loadExternalSubscriberPreferences(supabase, {
+        const currentPreferences = await loadExternalSubscriberPreferences(database, {
           tenantId,
           email: recipient.email,
           activeCategories: categories,
@@ -267,7 +315,7 @@ async function handlePreferenceUpdate(req, res, context) {
         availableCategories = currentPreferences.categories;
       }
 
-      const { error: globalUpdateError } = await supabase.rpc(
+      const { error: globalUpdateError } = await database.rpc(
         'set_email_preference_global_state',
         {
           p_tenant_id: tenantId,
@@ -282,7 +330,7 @@ async function handlePreferenceUpdate(req, res, context) {
 
       let responseCategories;
       if (member) {
-        const { data: refreshedPreferences, error: refreshedPreferencesError } = await supabase
+        const { data: refreshedPreferences, error: refreshedPreferencesError } = await database
           .from('member_communication_preference')
           .select('category_id, is_subscribed')
           .eq('tenant_id', tenantId)
@@ -296,7 +344,7 @@ async function handlePreferenceUpdate(req, res, context) {
           };
         });
       } else {
-        const refreshed = await loadExternalSubscriberPreferences(supabase, {
+        const refreshed = await loadExternalSubscriberPreferences(database, {
           tenantId,
           email: recipient.email,
           activeCategories: categories,
@@ -311,6 +359,7 @@ async function handlePreferenceUpdate(req, res, context) {
     }
 
     if (action === 'set_category_subscription' && categoryId) {
+      operation = 'set_category_state';
       const activeCategory = (categories || []).find((category) => category.id === categoryId);
       if (!activeCategory) {
         return res.status(400).json({ success: false, error: 'Communication category not found.' });
@@ -318,7 +367,7 @@ async function handlePreferenceUpdate(req, res, context) {
       if (typeof body.isSubscribed !== 'boolean') {
         return res.status(400).json({ success: false, error: 'A subscription state is required.' });
       }
-      const { error: categoryUpdateError } = await supabase.rpc(
+      const { error: categoryUpdateError } = await database.rpc(
         'set_email_preference_category_state',
         {
           p_tenant_id: tenantId,
@@ -330,12 +379,6 @@ async function handlePreferenceUpdate(req, res, context) {
         }
       );
       if (categoryUpdateError) {
-        if (String(categoryUpdateError.message || '').includes('global email opt-out is active')) {
-          return res.status(409).json({
-            success: false,
-            error: 'Turn off the global email opt-out before changing individual categories.',
-          });
-        }
         throw categoryUpdateError;
       }
       return res.json({ success: true, categoryId, isSubscribed: body.isSubscribed });
@@ -344,8 +387,8 @@ async function handlePreferenceUpdate(req, res, context) {
     return res.status(400).json({ error: 'Invalid action' });
 
   } catch (err) {
-    console.error('[Preferences] Update error:', err);
-    return res.status(500).json({ error: 'Failed to update preferences' });
+    const failure = preferenceUpdateFailure(err, operation);
+    return res.status(failure.status).json(failure.payload);
   }
 }
 

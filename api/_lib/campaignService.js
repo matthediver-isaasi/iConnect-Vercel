@@ -2380,9 +2380,9 @@ export async function getTargetRecipients(campaign, tenantId, countOnly = false,
       globalUnsubscribes = data || [];
     }
 
-    const globalUnsubSet = new Set((globalUnsubscribes || []).map(u => u.email.toLowerCase()));
-    const globalEmailRemoved = detailedLists ? allRecipients.filter(r => r.bypass_opt_out !== true && globalUnsubSet.has(r.email.toLowerCase())) : [];
-    allRecipients = allRecipients.filter(r => r.bypass_opt_out === true || !globalUnsubSet.has(r.email.toLowerCase()));
+    const globalUnsubSet = new Set((globalUnsubscribes || []).map(u => u.email.trim().toLowerCase()));
+    const globalEmailRemoved = detailedLists ? allRecipients.filter(r => r.bypass_opt_out !== true && globalUnsubSet.has(r.email.trim().toLowerCase())) : [];
+    allRecipients = allRecipients.filter(r => r.bypass_opt_out === true || !globalUnsubSet.has(r.email.trim().toLowerCase()));
     const globalOptOuts = beforeGlobal - allRecipients.length;
     const globalOptOutList = detailedLists
       ? [...globalFlagRemoved, ...globalEmailRemoved].map(r => ({ email: r.email, first_name: r.first_name, last_name: r.last_name }))
@@ -2468,12 +2468,12 @@ export async function getTargetRecipients(campaign, tenantId, countOnly = false,
       if (catUnsubError) throw catUnsubError;
 
       if (categoryUnsubscribes && categoryUnsubscribes.length > 0) {
-        const categoryUnsubSet = new Set(categoryUnsubscribes.map(u => u.email.toLowerCase()));
+        const categoryUnsubSet = new Set(categoryUnsubscribes.map(u => u.email.trim().toLowerCase()));
         if (detailedLists) {
-          const catEmailRemoved = allRecipients.filter(r => r.bypass_opt_out !== true && categoryUnsubSet.has(r.email.toLowerCase()));
+          const catEmailRemoved = allRecipients.filter(r => r.bypass_opt_out !== true && categoryUnsubSet.has(r.email.trim().toLowerCase()));
           categoryOptOutList.push(...catEmailRemoved.map(r => ({ email: r.email, first_name: r.first_name, last_name: r.last_name })));
         }
-        allRecipients = allRecipients.filter(r => r.bypass_opt_out === true || !categoryUnsubSet.has(r.email.toLowerCase()));
+        allRecipients = allRecipients.filter(r => r.bypass_opt_out === true || !categoryUnsubSet.has(r.email.trim().toLowerCase()));
       }
       categoryOptOuts = beforeCategory - allRecipients.length;
     }

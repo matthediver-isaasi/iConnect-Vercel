@@ -10,6 +10,7 @@ import {
 
 const source = await readFile(new URL('../pages/EmailPreferences.jsx', import.meta.url), 'utf8');
 const apiSource = await readFile(new URL('../../../api/email-preferences/index.js', import.meta.url), 'utf8');
+const campaignSource = await readFile(new URL('../../../api/_lib/campaignService.js', import.meta.url), 'utf8');
 
 test('external global preference uses explicit opt-out actions', () => {
   assert.match(source, /action: "set_category_subscription"/);
@@ -77,13 +78,18 @@ test('member global updates return categories from refreshed persisted preferenc
 });
 
 test('global preference propagation is one atomic server-only database call', () => {
-  assert.match(apiSource, /supabase\.rpc\(\s*'set_email_preference_global_state'/);
+  assert.match(apiSource, /database\.rpc\(\s*'set_email_preference_global_state'/);
   assert.match(apiSource, /if \(globalUpdateError\) throw globalUpdateError/);
 });
 
 test('campaign member writes use the current member email while external writes use the recipient email', () => {
   const identityUses = apiSource.match(/p_email: member\?\.email \|\| recipient\.email/g) || [];
   assert.equal(identityUses.length, 2);
+});
+
+test('campaign suppression compares canonical trimmed email identities', () => {
+  assert.match(campaignSource, /globalUnsubSet\.has\(r\.email\.trim\(\)\.toLowerCase\(\)\)/);
+  assert.match(campaignSource, /categoryUnsubSet\.has\(r\.email\.trim\(\)\.toLowerCase\(\)\)/);
 });
 
 test('external global control reflects persisted and newly completed opt-outs', () => {
