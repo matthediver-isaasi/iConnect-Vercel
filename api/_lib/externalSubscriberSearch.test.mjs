@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   applyExternalSubscriberFilters,
+  countExternalSubscribersByCategory,
   listExternalSubscribers,
   normalizeExternalSubscriberSearch,
 } from './externalSubscriberSearch.js';
@@ -116,6 +117,74 @@ test('either result or count failure rejects the list request', async () => {
       search: '',
       page: 1,
       perPage: 10,
+    }),
+    error
+  );
+});
+
+test('category counts page through every active subscriber with stable ordering', async () => {
+  const queries = [
+    new Query({
+      data: [
+        { id: '1', communication_category_id: 'category-1' },
+        { id: '2', communication_category_id: 'category-2' },
+      ],
+      error: null,
+    }),
+    new Query({
+      data: [
+        { id: '3', communication_category_id: 'category-1' },
+        { id: '4', communication_category_id: null },
+      ],
+      error: null,
+    }),
+    new Query({
+      data: [{ id: '5', communication_category_id: 'category-2' }],
+      error: null,
+    }),
+  ];
+  const allQueries = [...queries];
+
+  const counts = await countExternalSubscribersByCategory({
+    database: { from: () => queries.shift() },
+    tenantId: 'tenant-1',
+    pageSize: 2,
+  });
+
+  assert.deepEqual(counts, {
+    'category-1': 2,
+    'category-2': 2,
+  });
+  assert.deepEqual(
+    allQueries.map(query => query.operations.find(([operation]) => operation === 'range')),
+    [
+      ['range', 0, 1],
+      ['range', 2, 3],
+      ['range', 4, 5],
+    ]
+  );
+  for (const query of allQueries) {
+    assert.deepEqual(
+      query.operations.find(([operation]) => operation === 'order'),
+      ['order', 'id', { ascending: true }]
+    );
+    assert.deepEqual(
+      query.operations.filter(([operation]) => operation === 'eq'),
+      [
+        ['eq', 'tenant_id', 'tenant-1'],
+        ['eq', 'opted_out', false],
+      ]
+    );
+  }
+});
+
+test('category count query errors reject instead of returning zero counts', async () => {
+  const error = new Error('page failed');
+
+  await assert.rejects(
+    countExternalSubscribersByCategory({
+      database: { from: () => new Query({ data: null, error }) },
+      tenantId: 'tenant-1',
     }),
     error
   );

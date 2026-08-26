@@ -1,5 +1,6 @@
 const MAX_SEARCH_LENGTH = 100;
 const MAX_PAGE_SIZE = 100;
+const COUNT_PAGE_SIZE = 1000;
 
 export function normalizeExternalSubscriberSearch(value) {
   return String(value || '')
@@ -30,6 +31,39 @@ export function applyExternalSubscriberFilters(query, { tenantId, categoryId, se
   }
 
   return filteredQuery;
+}
+
+export async function countExternalSubscribersByCategory({
+  database,
+  tenantId,
+  pageSize = COUNT_PAGE_SIZE,
+}) {
+  const normalizedPageSize = positiveInteger(pageSize, COUNT_PAGE_SIZE);
+  const counts = {};
+
+  for (let offset = 0; ; offset += normalizedPageSize) {
+    const { data, error } = await database
+      .from('email_subscriber')
+      .select('id, communication_category_id')
+      .eq('tenant_id', tenantId)
+      .eq('opted_out', false)
+      .order('id', { ascending: true })
+      .range(offset, offset + normalizedPageSize - 1);
+
+    if (error) throw error;
+
+    const subscribers = data || [];
+    for (const subscriber of subscribers) {
+      const categoryId = subscriber.communication_category_id;
+      if (categoryId) {
+        counts[categoryId] = (counts[categoryId] || 0) + 1;
+      }
+    }
+
+    if (subscribers.length < normalizedPageSize) break;
+  }
+
+  return counts;
 }
 
 export async function listExternalSubscribers({

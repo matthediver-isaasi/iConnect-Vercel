@@ -220,16 +220,26 @@ export default function CommunicationsManagementPage() {
     staleTime: 60000,
   });
 
-  const { data: externalSubscriberCounts = {} } = useQuery({
+  const {
+    data: externalSubscriberCounts = {},
+    error: externalSubscriberCountsError,
+  } = useQuery({
     queryKey: ['external-subscriber-counts'],
     queryFn: async () => {
       const response = await fetch('/api/admin/external-subscribers', { credentials: 'include' });
-      if (!response.ok) return {};
+      if (!response.ok) throw new Error('Failed to fetch external subscriber counts');
       const data = await response.json();
       return data.counts || {};
     },
     staleTime: 30000,
   });
+
+  useEffect(() => {
+    if (externalSubscriberCountsError) {
+      toast.error('External subscriber counts could not be loaded');
+    }
+  }, [externalSubscriberCountsError]);
+  const externalSubscriberCountsUnavailable = Boolean(externalSubscriberCountsError);
 
   const { data: zohoStatus, isLoading: zohoStatusLoading } = useQuery({
     queryKey: ['zoho-campaigns-status'],
@@ -1846,7 +1856,9 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                                 </Badge>
                               )}
                               <span className="text-sm text-muted-foreground">
-                                {totalCount} subscriber{totalCount !== 1 ? 's' : ''}
+                                {externalSubscriberCountsUnavailable
+                                  ? 'Subscriber count unavailable'
+                                  : `${totalCount} subscriber${totalCount !== 1 ? 's' : ''}`}
                               </span>
                             </div>
 
@@ -1891,8 +1903,12 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                                   title={membersLoading ? 'Loading members...' : 'View subscribers'}
                                   data-testid={`button-view-subscribers-${category.id}`}
                                 >
-                                  <span className="font-medium text-slate-900 hover:text-blue-600">{totalCount}</span> subscribers
-                                  {externalCount > 0 && (
+                                  {externalSubscriberCountsUnavailable ? (
+                                    <span className="font-medium text-red-700">Subscriber count unavailable</span>
+                                  ) : (
+                                    <><span className="font-medium text-slate-900 hover:text-blue-600">{totalCount}</span> subscribers</>
+                                  )}
+                                  {!externalSubscriberCountsUnavailable && externalCount > 0 && (
                                     <span className="text-xs text-slate-400 ml-1">({subscriberCount} members, {externalCount} external)</span>
                                   )}
                                 </button>
@@ -2335,6 +2351,9 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                   </DialogTitle>
                   <DialogDescription id="subscribers-dialog-description" className="mt-1">
                     {(() => {
+                      if (externalSubscriberCountsUnavailable) {
+                        return 'External subscriber count unavailable. Please try again.';
+                      }
                       const memberCount = viewingCategory ? getSubscriberCount(viewingCategory.id) : 0;
                       const extCount = viewingCategory ? getExternalSubscriberCount(viewingCategory.id) : 0;
                       const optCount = viewingCategory ? getOptedOutCount(viewingCategory.id) : 0;
@@ -2382,7 +2401,9 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                   </TabsTrigger>
                   <TabsTrigger value="external" data-testid="tab-external">
                     <Globe className="w-4 h-4 mr-1" />
-                    External ({viewingCategory ? getExternalSubscriberCount(viewingCategory.id) : 0})
+                    External ({externalSubscriberCountsUnavailable
+                      ? 'unavailable'
+                      : viewingCategory ? getExternalSubscriberCount(viewingCategory.id) : 0})
                   </TabsTrigger>
                   <TabsTrigger value="opted-out" data-testid="tab-opted-out">
                     <UserX className="w-4 h-4 mr-1" />

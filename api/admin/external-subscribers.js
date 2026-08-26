@@ -1,6 +1,9 @@
 import { supabase } from '../_lib/database.js';
 import { getTenantContext } from '../_lib/tenantContext.js';
-import { listExternalSubscribers } from '../_lib/externalSubscriberSearch.js';
+import {
+  countExternalSubscribersByCategory,
+  listExternalSubscribers,
+} from '../_lib/externalSubscriberSearch.js';
 
 export default async function handler(req, res) {
   if (!supabase) {
@@ -40,24 +43,16 @@ export default async function handler(req, res) {
         }
       }
 
-      const { data: counts, error: countsError } = await supabase
-        .from('email_subscriber')
-        .select('communication_category_id, id')
-        .eq('tenant_id', tenantId)
-        .eq('opted_out', false);
-
-      if (countsError) {
+      let countsByCategory;
+      try {
+        countsByCategory = await countExternalSubscribersByCategory({
+          database: supabase,
+          tenantId,
+        });
+      } catch (countsError) {
         console.error('[External Subscribers] Error fetching counts:', countsError);
         return res.status(500).json({ error: 'Failed to fetch subscriber counts' });
       }
-
-      const countsByCategory = {};
-      (counts || []).forEach(sub => {
-        const catId = sub.communication_category_id;
-        if (catId) {
-          countsByCategory[catId] = (countsByCategory[catId] || 0) + 1;
-        }
-      });
 
       return res.json({ counts: countsByCategory });
 
