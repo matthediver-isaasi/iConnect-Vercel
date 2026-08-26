@@ -61,6 +61,7 @@ import { ChevronsUpDown } from "lucide-react";
 import { Link } from "react-router-dom";
 import { createPageUrl } from "@/utils";
 import { sanitizeRichText } from "@/components/canvas/blocks/sanitize";
+import { mergeLibraryBadges } from "@/lib/aboutMeBadges";
 
 // --- List Field Editor Component ---
 function ListFieldEditor({ fieldId, values = [], onChange, placeholder, disabled = false }) {
@@ -908,6 +909,25 @@ export default function PreferencesPage() {
     },
   });
 
+  const {
+    data: directlyAssignedBadges = [],
+    isLoading: directlyAssignedBadgesLoading,
+  } = useQuery({
+    queryKey: ["my-active-badges", memberRecord?.id],
+    enabled: !!memberRecord?.id,
+    queryFn: async () => {
+      const response = await fetch('/api/my-badges', { credentials: 'include' });
+      if (!response.ok) throw new Error('Failed to load assigned badges');
+      const data = await response.json();
+      return data.badges || [];
+    },
+  });
+
+  const libraryBadges = useMemo(
+    () => mergeLibraryBadges(groupRoleBadges, directlyAssignedBadges),
+    [groupRoleBadges, directlyAssignedBadges],
+  );
+
   // --- Filter categories available to this member based on their role(s) ---
   const availableCategories = useMemo(() => {
     if (!communicationCategories.length) return [];
@@ -1705,7 +1725,8 @@ export default function PreferencesPage() {
     engagementAssignmentsLoading ||
     groupAssignmentsLoading ||
     awardsLoading ||
-    groupsLoading;
+    groupsLoading ||
+    directlyAssignedBadgesLoading;
 
   const canEditBiography = !isFeatureExcluded(
     "edit_professional_biography"
@@ -2324,14 +2345,14 @@ export default function PreferencesPage() {
         );
 
       case 'membership_badges':
-        if (isFeatureExcluded('user.about-me.membership-badges') || (rolesWithBadges.length === 0 && groupRoleBadges.length === 0)) return null;
+        if (isFeatureExcluded('user.about-me.membership-badges') || (rolesWithBadges.length === 0 && libraryBadges.length === 0)) return null;
         return (
           <Card key="membership_badges" className="border-slate-200 shadow-sm">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Award className="w-5 h-5 text-indigo-600" />
                 Membership Badges
-                <Badge variant="secondary">{rolesWithBadges.length + groupRoleBadges.length}</Badge>
+                <Badge variant="secondary">{rolesWithBadges.length + libraryBadges.length}</Badge>
               </CardTitle>
               <CardDescription>
                 Your membership badges that you can download and share.{' '}
@@ -2385,7 +2406,7 @@ export default function PreferencesPage() {
                     </Button>
                   </div>
                 ))}
-                {groupRoleBadges.map((badge) => (
+                {libraryBadges.map((badge) => (
                   <div
                     key={`group-role-badge-${badge.id}`}
                     className="flex flex-col items-center p-4 bg-gradient-to-br from-indigo-50 to-indigo-100 rounded-lg border border-indigo-200 hover:shadow-md transition-shadow"
