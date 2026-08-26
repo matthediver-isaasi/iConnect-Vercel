@@ -1,6 +1,7 @@
 import { supabase } from '../../_lib/database.js';
 import { getDashboardActor, tenantFilter } from '../_lib/permissions.js';
 import { widgetCreateSchema } from '../_lib/validation.js';
+import { getDashboardWidgetPalette } from '../_lib/palette.js';
 
 export default async function handler(req, res) {
   const actor = await getDashboardActor(req);
@@ -64,7 +65,10 @@ async function listWidgets(req, res, actor) {
       personal = data || [];
     }
 
-    const body = { permissions: actor.permissions };
+    const body = {
+      permissions: actor.permissions,
+      palette: await getDashboardWidgetPalette(actor.tenantId),
+    };
     if (wantShared) body.shared = shared;
     if (wantPersonal) body.personal = personal;
     return res.status(200).json(body);

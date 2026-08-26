@@ -52,14 +52,11 @@ import { formatNumber } from "@/components/dashboard/WidgetCard";
 import { Textarea } from "@/components/ui/textarea";
 import { describeWidgetConfig } from "@shared/widgetDescriber.js";
 import { useMemberTerminology } from "@/contexts/MemberTerminologyContext";
-
-const CHART_COLOURS = [
-  "hsl(var(--chart-1))",
-  "hsl(var(--chart-2))",
-  "hsl(var(--chart-3))",
-  "hsl(var(--chart-4))",
-  "hsl(var(--chart-5))",
-];
+import {
+  dashboardWidgetChartColours,
+  normalizeDashboardWidgetPalette,
+  resolveDashboardWidgetColour,
+} from "@shared/dashboardWidgetPalette.js";
 
 const WIDGET_TYPES = [
   { value: "stat", label: "Stat / KPI" },
@@ -133,14 +130,6 @@ function isCountryField(option) {
   const haystack = `${option.field || ""} ${option.label || ""}`.toLowerCase();
   return haystack.includes("country") || haystack.includes("countries");
 }
-
-const COLOUR_OPTIONS = [
-  { value: "default", label: "Default", swatch: "hsl(var(--chart-1))" },
-  { value: "emerald", label: "Emerald", swatch: "hsl(var(--chart-2))" },
-  { value: "amber", label: "Amber", swatch: "hsl(var(--chart-3))" },
-  { value: "violet", label: "Violet", swatch: "hsl(var(--chart-4))" },
-  { value: "rose", label: "Rose", swatch: "hsl(var(--chart-5))" },
-];
 
 const DEFAULT_DRAFT = {
   title: "",
@@ -261,8 +250,18 @@ export default function WidgetBuilderModal({
   canSaveShared = false,
   canSavePersonal = true,
   isSaving = false,
+  palette,
 }) {
   const { memberLabelPlural } = useMemberTerminology();
+  const colourOptions = useMemo(
+    () =>
+      normalizeDashboardWidgetPalette(palette).map(slot => ({
+        value: slot.key,
+        label: slot.label,
+        swatch: slot.color,
+      })),
+    [palette],
+  );
 
   // Resolve the display label for a source descriptor, applying tenant
   // member terminology to the "member" source so the dropdown reflects
@@ -825,7 +824,7 @@ export default function WidgetBuilderModal({
             <div className="space-y-2">
               <Label>Colour</Label>
               <div className="flex flex-wrap gap-2" data-testid="widget-colour-options">
-                {COLOUR_OPTIONS.map(opt => {
+                {colourOptions.map(opt => {
                   const selected = (draft.config.color || "default") === opt.value;
                   return (
                     <button
@@ -2094,7 +2093,7 @@ export default function WidgetBuilderModal({
                 <p className="text-sm text-destructive">{previewError}</p>
               )}
               {!previewError && (
-                <PreviewWidget widget={previewWidget} payload={previewData} />
+                <PreviewWidget widget={previewWidget} payload={previewData} palette={palette} />
               )}
             </div>
           </div>
@@ -2131,7 +2130,7 @@ export default function WidgetBuilderModal({
   );
 }
 
-function PreviewWidget({ widget, payload }) {
+function PreviewWidget({ widget, payload, palette }) {
   // Reuse WidgetCard rendering by injecting fake query data via a thin wrapper.
   // The card component fetches data on its own; in preview we render a minimal
   // version using the same body components inline for instant updates.
@@ -2143,17 +2142,22 @@ function PreviewWidget({ widget, payload }) {
     );
   }
   return (
-    <PreviewBody widget={widget} payload={payload} />
+    <PreviewBody widget={widget} payload={payload} palette={palette} />
   );
 }
 
-function PreviewBody({ widget, payload }) {
+function PreviewBody({ widget, payload, palette }) {
   const rows = payload.rows || [];
+  const chartColours = dashboardWidgetChartColours(palette);
+  const selectedColour = resolveDashboardWidgetColour(palette, widget.config?.color);
   if (payload.type === "conversion") {
     const rate = payload.conversionRate;
     return (
       <div className="space-y-1">
-        <p className="text-3xl font-semibold tracking-tight">
+        <p
+          className="text-3xl font-semibold tracking-tight"
+          style={{ color: selectedColour }}
+        >
           {formatNumber(payload.convertedCount, widget.config.numberFormat)}
           {rate !== null && rate !== undefined && (
             <span className="ml-2 text-base font-normal text-muted-foreground">
@@ -2181,7 +2185,10 @@ function PreviewBody({ widget, payload }) {
       const value = payload.type === "scalar" ? payload.value : rows[0]?.value;
       return (
         <div className="space-y-1">
-          <p className="text-3xl font-semibold tracking-tight">
+          <p
+            className="text-3xl font-semibold tracking-tight"
+            style={{ color: selectedColour }}
+          >
             {widget.config.numberFormat?.mode === "full"
               ? formatNumber(value, widget.config.numberFormat)
               : value === null || value === undefined
@@ -2213,10 +2220,10 @@ function PreviewBody({ widget, payload }) {
               ? Object.fromEntries(
                   seriesCats.map((c, i) => [
                     c,
-                    { label: c, color: CHART_COLOURS[i % CHART_COLOURS.length] },
+                    { label: c, color: chartColours[i % chartColours.length] },
                   ]),
                 )
-              : { value: { label: "Value", color: CHART_COLOURS[0] } }
+              : { value: { label: "Value", color: selectedColour } }
           }
           className={barProps.className}
         >
@@ -2239,12 +2246,12 @@ function PreviewBody({ widget, payload }) {
                   key={c}
                   dataKey={c}
                   stackId="series"
-                  fill={CHART_COLOURS[i % CHART_COLOURS.length]}
+                  fill={chartColours[i % chartColours.length]}
                   radius={i === seriesCats.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]}
                 />
               ))
             ) : (
-              <Bar dataKey="value" fill={CHART_COLOURS[0]} radius={[4, 4, 0, 0]} />
+              <Bar dataKey="value" fill={selectedColour} radius={[4, 4, 0, 0]} />
             )}
           </BarChart>
         </ChartContainer>
@@ -2254,7 +2261,7 @@ function PreviewBody({ widget, payload }) {
       if (rows.length === 0) return <EmptyPreview />;
       return (
         <ChartContainer
-          config={{ value: { label: "Value", color: CHART_COLOURS[0] } }}
+          config={{ value: { label: "Value", color: selectedColour } }}
           className="h-56 w-full"
         >
           <LineChart data={rows} margin={{ top: 10, right: 10, left: 0, bottom: 20 }}>
@@ -2262,7 +2269,7 @@ function PreviewBody({ widget, payload }) {
             <XAxis dataKey="key" tickLine={false} axisLine={false} />
             <YAxis tickLine={false} axisLine={false} width={40} />
             <ChartTooltip content={<ChartTooltipContent />} />
-            <Line type="monotone" dataKey="value" stroke={CHART_COLOURS[0]} strokeWidth={2} dot={false} />
+            <Line type="monotone" dataKey="value" stroke={selectedColour} strokeWidth={2} dot={false} />
           </LineChart>
         </ChartContainer>
       );
@@ -2281,7 +2288,12 @@ function PreviewBody({ widget, payload }) {
                 )}
               >
                 <span className="min-w-0 flex-1 truncate" title={row.key}>{row.key}</span>
-                <span className="shrink-0 tabular-nums font-medium">{formatNumber(row.value)}</span>
+                <span
+                  className="shrink-0 tabular-nums font-medium"
+                  style={{ color: selectedColour }}
+                >
+                  {formatNumber(row.value)}
+                </span>
               </div>
             ))}
           </div>
@@ -2299,7 +2311,7 @@ function PreviewBody({ widget, payload }) {
           config={Object.fromEntries(
             rows.map((r, i) => [
               r.key,
-              { label: r.key, color: CHART_COLOURS[i % CHART_COLOURS.length] },
+              { label: r.key, color: chartColours[i % chartColours.length] },
             ]),
           )}
           className="h-56 w-full"
@@ -2315,7 +2327,7 @@ function PreviewBody({ widget, payload }) {
               paddingAngle={widget.widget_type === "donut" ? 2 : 0}
             >
               {rows.map((row, idx) => (
-                <Cell key={row.key} fill={CHART_COLOURS[idx % CHART_COLOURS.length]} />
+                <Cell key={row.key} fill={chartColours[idx % chartColours.length]} />
               ))}
             </Pie>
           </PieChart>

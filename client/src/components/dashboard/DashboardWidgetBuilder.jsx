@@ -25,6 +25,7 @@ import { useToast } from "@/components/ui/use-toast";
 import WidgetGrid from "@/components/dashboard/WidgetGrid";
 import WidgetBuilderModal from "@/components/dashboard/WidgetBuilderModal";
 import GroupingFieldSettingsModal from "@/components/dashboard/GroupingFieldSettingsModal";
+import { defaultDashboardWidgetPalette } from "@shared/dashboardWidgetPalette.js";
 
 export default function DashboardWidgetBuilder() {
   const { toast } = useToast();
@@ -57,6 +58,7 @@ export default function DashboardWidgetBuilder() {
   };
   const sharedWidgets = widgetsQuery.data?.shared || [];
   const personalWidgets = widgetsQuery.data?.personal || [];
+  const palette = widgetsQuery.data?.palette || defaultDashboardWidgetPalette();
 
   const saveMutation = useMutation({
     mutationFn: async payload => {
@@ -238,6 +240,7 @@ export default function DashboardWidgetBuilder() {
           <WidgetZone
             isLoading={widgetsQuery.isLoading}
             widgets={sharedWidgets}
+            palette={palette}
             canEdit={permissions.manageShared}
             emptyTitle="No shared widgets yet"
             emptyDescription={
@@ -277,6 +280,7 @@ export default function DashboardWidgetBuilder() {
           <WidgetZone
             isLoading={widgetsQuery.isLoading}
             widgets={personalWidgets}
+            palette={palette}
             canEdit={permissions.managePersonal}
             emptyTitle="No personal widgets yet"
             emptyDescription={
@@ -309,6 +313,7 @@ export default function DashboardWidgetBuilder() {
         canSaveShared={permissions.manageShared}
         canSavePersonal={permissions.managePersonal}
         isSaving={saveMutation.isPending}
+        palette={palette}
       />
 
       <GroupingFieldSettingsModal
@@ -385,7 +390,7 @@ function DashboardHeader({
                 </Button>
               </TooltipTrigger>
               <TooltipContent>
-                Choose which fields appear in the widget builder.
+                Configure widget fields and colours.
               </TooltipContent>
             </Tooltip>
           )}
@@ -444,6 +449,7 @@ function Section({ icon, title, subtitle, action, children }) {
 function WidgetZone({
   isLoading,
   widgets,
+  palette,
   canEdit,
   emptyTitle,
   emptyDescription,
@@ -482,6 +488,7 @@ function WidgetZone({
   return (
     <WidgetGrid
       widgets={widgets}
+      palette={palette}
       canEdit={canEdit}
       onReorder={onReorder}
       onEdit={onEdit}

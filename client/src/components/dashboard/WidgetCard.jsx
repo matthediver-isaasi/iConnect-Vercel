@@ -59,26 +59,10 @@ import {
 import { cn } from "@/lib/utils";
 import { useToast } from "@/components/ui/use-toast";
 import { rowsToCsv, slugifyFilename, downloadCsv } from "@/lib/csvExport";
-
-const COLOUR_MAP = {
-  default: "hsl(var(--chart-1))",
-  emerald: "hsl(var(--chart-2))",
-  amber: "hsl(var(--chart-3))",
-  violet: "hsl(var(--chart-4))",
-  rose: "hsl(var(--chart-5))",
-};
-
-function pickColour(widget) {
-  return COLOUR_MAP[widget?.config?.color] || COLOUR_MAP.default;
-}
-
-const CHART_COLOURS = [
-  "hsl(var(--chart-1))",
-  "hsl(var(--chart-2))",
-  "hsl(var(--chart-3))",
-  "hsl(var(--chart-4))",
-  "hsl(var(--chart-5))",
-];
+import {
+  dashboardWidgetChartColours,
+  resolveDashboardWidgetColour,
+} from "@shared/dashboardWidgetPalette.js";
 
 // Note: column-span sizing now lives on the sortable wrapper in
 // WidgetGrid, so the wrapper has a real grid box (required for the
@@ -229,6 +213,7 @@ export default function WidgetCard({
   onDuplicate,
   onResize,
   onResizeHeight,
+  palette,
 }) {
   const { toast } = useToast();
   const navigate = useNavigate();
@@ -487,6 +472,7 @@ export default function WidgetCard({
             widget={widget}
             payload={data.data}
             onDrill={drillEnabled ? handleDrill : null}
+            palette={palette}
           />
         )}
       </CardContent>
@@ -494,24 +480,24 @@ export default function WidgetCard({
   );
 }
 
-function WidgetBody({ widget, payload, onDrill = null }) {
+function WidgetBody({ widget, payload, onDrill = null, palette }) {
   if (!payload) return null;
   if (payload.type === "conversion") {
-    return <ConversionBody widget={widget} payload={payload} />;
+    return <ConversionBody widget={widget} payload={payload} palette={palette} />;
   }
   switch (widget.widget_type) {
     case "stat":
-      return <StatBody widget={widget} payload={payload} />;
+      return <StatBody widget={widget} payload={payload} palette={palette} />;
     case "bar":
-      return <BarBody payload={payload} widget={widget} onDrill={onDrill} />;
+      return <BarBody payload={payload} widget={widget} onDrill={onDrill} palette={palette} />;
     case "pie":
-      return <PieBody payload={payload} donut={false} widget={widget} onDrill={onDrill} />;
+      return <PieBody payload={payload} donut={false} widget={widget} onDrill={onDrill} palette={palette} />;
     case "donut":
-      return <PieBody payload={payload} donut={true} widget={widget} onDrill={onDrill} />;
+      return <PieBody payload={payload} donut={true} widget={widget} onDrill={onDrill} palette={palette} />;
     case "line":
-      return <LineBody payload={payload} widget={widget} />;
+      return <LineBody payload={payload} widget={widget} palette={palette} />;
     case "list":
-      return <ListBody payload={payload} widget={widget} onDrill={onDrill} />;
+      return <ListBody payload={payload} widget={widget} onDrill={onDrill} palette={palette} />;
     default:
       return (
         <p className="text-sm text-muted-foreground">
@@ -521,7 +507,7 @@ function WidgetBody({ widget, payload, onDrill = null }) {
   }
 }
 
-function StatBody({ widget, payload }) {
+function StatBody({ widget, payload, palette }) {
   const value = payload.type === "scalar" ? payload.value : payload.rows?.[0]?.value;
   const aggregator = widget.config?.measure?.aggregator || "count";
   const minH = STAT_HEIGHT_CLASS[widget.height] || STAT_HEIGHT_CLASS.medium;
@@ -529,6 +515,7 @@ function StatBody({ widget, payload }) {
     <div className={cn("flex flex-1 flex-col justify-center gap-1", minH)}>
       <p
         className="text-3xl font-semibold tracking-tight"
+      style={{ color: resolveDashboardWidgetColour(palette, widget.config?.color) }}
         data-testid={`stat-value-${widget.id}`}
       >
         {formatNumber(value, widget.config?.numberFormat)}
@@ -546,7 +533,7 @@ function StatBody({ widget, payload }) {
 // BOTH forms, with the conversion % and the unique entity counts below.
 // Falls back to raw submission counts for cached payloads that predate
 // the entity-count fields.
-function ConversionBody({ widget, payload }) {
+function ConversionBody({ widget, payload, palette }) {
   const rate = payload.conversionRate;
   const entityLabel =
     payload.matchBy === "member" ? "members" : "organisations";
@@ -555,6 +542,7 @@ function ConversionBody({ widget, payload }) {
     <div className={cn("flex flex-1 flex-col justify-center gap-1", minH)}>
       <p
         className="text-3xl font-semibold tracking-tight"
+        style={{ color: resolveDashboardWidgetColour(palette, widget.config?.color) }}
         data-testid={`stat-value-${widget.id}`}
       >
         {formatNumber(payload.convertedCount, widget.config?.numberFormat)}
@@ -582,13 +570,10 @@ function ConversionBody({ widget, payload }) {
   );
 }
 
-function chartConfig() {
-  return { value: { label: "Value", color: CHART_COLOURS[0] } };
-}
-
-function BarBody({ payload, widget, onDrill = null }) {
+function BarBody({ payload, widget, onDrill = null, palette }) {
   const rows = payload.rows || [];
-  const colour = pickColour(widget);
+  const colour = resolveDashboardWidgetColour(palette, widget?.config?.color);
+  const chartColours = dashboardWidgetChartColours(palette);
   // Multi-series payloads (e.g. an "Active in period" split) carry a
   // categories list other than the single default 'value' column; render
   // one stacked <Bar> per category instead of the single-series bar.
@@ -604,11 +589,11 @@ function BarBody({ payload, widget, onDrill = null }) {
         ? Object.fromEntries(
             categories.map((c, i) => [
               c,
-              { label: c, color: CHART_COLOURS[i % CHART_COLOURS.length] },
+              { label: c, color: chartColours[i % chartColours.length] },
             ]),
           )
         : { value: { label: "Value", color: colour } },
-    [categories, colour],
+    [categories, colour, chartColours],
   );
   const total = useMemo(
     () => rows.reduce((acc, r) => acc + (Number(r.value) || 0), 0),
@@ -642,7 +627,7 @@ function BarBody({ payload, widget, onDrill = null }) {
                 key={c}
                 dataKey={c}
                 stackId="series"
-                fill={CHART_COLOURS[i % CHART_COLOURS.length]}
+                fill={chartColours[i % chartColours.length]}
                 radius={i === categories.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]}
                 cursor={onDrill ? "pointer" : undefined}
                 onClick={onDrill ? (entry) => {
@@ -659,7 +644,7 @@ function BarBody({ payload, widget, onDrill = null }) {
               <span key={c} className="flex items-center gap-1 text-xs text-muted-foreground">
                 <span
                   className="inline-block h-2.5 w-2.5 rounded-sm"
-                  style={{ background: CHART_COLOURS[i % CHART_COLOURS.length] }}
+                  style={{ background: chartColours[i % chartColours.length] }}
                 />
                 {c}
               </span>
@@ -721,9 +706,9 @@ function BarBody({ payload, widget, onDrill = null }) {
   );
 }
 
-function LineBody({ payload, widget }) {
+function LineBody({ payload, widget, palette }) {
   const rows = payload.rows || [];
-  const colour = pickColour(widget);
+  const colour = resolveDashboardWidgetColour(palette, widget?.config?.color);
   const config = useMemo(() => ({ value: { label: "Value", color: colour } }), [colour]);
   const lineClass = LINE_HEIGHT_CLASS[widget.height] || LINE_HEIGHT_CLASS.medium;
   if (rows.length === 0) return <EmptyChart heightClass={lineClass} />;
@@ -746,18 +731,19 @@ function LineBody({ payload, widget }) {
   );
 }
 
-function PieBody({ payload, donut, widget, onDrill = null }) {
+function PieBody({ payload, donut, widget, onDrill = null, palette }) {
   const rows = payload.rows || [];
+  const chartColours = dashboardWidgetChartColours(palette);
   const config = useMemo(() => {
     const built = {};
     rows.forEach((row, idx) => {
       built[row.key] = {
         label: row.key,
-        color: CHART_COLOURS[idx % CHART_COLOURS.length],
+        color: chartColours[idx % chartColours.length],
       };
     });
     return built;
-  }, [rows]);
+  }, [rows, chartColours]);
   const total = useMemo(
     () => rows.reduce((acc, r) => acc + (Number(r.value) || 0), 0),
     [rows],
@@ -785,7 +771,7 @@ function PieBody({ payload, donut, widget, onDrill = null }) {
             {rows.map((row, idx) => (
               <Cell
                 key={row.key}
-                fill={CHART_COLOURS[idx % CHART_COLOURS.length]}
+                fill={chartColours[idx % chartColours.length]}
               />
             ))}
           </Pie>
@@ -827,7 +813,7 @@ function PieBody({ payload, donut, widget, onDrill = null }) {
               <span
                 className="h-2.5 w-2.5 shrink-0 rounded-sm"
                 style={{
-                  backgroundColor: CHART_COLOURS[idx % CHART_COLOURS.length],
+                  backgroundColor: chartColours[idx % chartColours.length],
                 }}
               />
               <span className="min-w-0 flex-1 truncate text-muted-foreground">
@@ -851,7 +837,7 @@ function PieBody({ payload, donut, widget, onDrill = null }) {
   );
 }
 
-function ListBody({ payload, widget, onDrill = null }) {
+function ListBody({ payload, widget, onDrill = null, palette }) {
   const rows = payload.rows || [];
   const total = useMemo(
     () => rows.reduce((acc, r) => acc + (Number(r.value) || 0), 0),
@@ -891,7 +877,10 @@ function ListBody({ payload, widget, onDrill = null }) {
             <span className="min-w-0 flex-1 truncate" title={row.key}>
               {row.key}
             </span>
-            <span className="shrink-0 tabular-nums font-medium">
+            <span
+              className="shrink-0 tabular-nums font-medium"
+              style={{ color: resolveDashboardWidgetColour(palette, widget.config?.color) }}
+            >
               {formatNumber(row.value)}
             </span>
           </div>

@@ -6,6 +6,11 @@ import {
   getHiddenGroupFields,
   HIDDEN_GROUP_FIELDS_KEY,
 } from './_lib/sources.js';
+import {
+  getDashboardWidgetPalette,
+  saveDashboardWidgetPalette,
+} from './_lib/palette.js';
+import { validateDashboardWidgetPalette } from '../../shared/dashboardWidgetPalette.js';
 
 /**
  * Admin-only management surface for per-tenant hidden grouping fields.
@@ -48,15 +53,29 @@ export default async function handler(req, res) {
           ],
         });
       }
-      const hidden = await getHiddenGroupFields(tenantId);
-      return res.status(200).json({ sources, hidden });
+      const [hidden, palette] = await Promise.all([
+        getHiddenGroupFields(tenantId),
+        getDashboardWidgetPalette(tenantId),
+      ]);
+      return res.status(200).json({ sources, hidden, palette });
     }
 
     if (req.method === 'PUT') {
       const body = req.body || {};
+      if (body.palette !== undefined) {
+        const parsed = validateDashboardWidgetPalette(body.palette);
+        if (!parsed.success) {
+          return res.status(400).json({ error: parsed.error });
+        }
+        await saveDashboardWidgetPalette(tenantId, parsed.palette);
+        return res.status(200).json({ success: true, palette: parsed.palette });
+      }
+
       const input = body.hidden;
       if (!input || typeof input !== 'object' || Array.isArray(input)) {
-        return res.status(400).json({ error: 'hidden must be an object keyed by source id' });
+        return res.status(400).json({
+          error: 'palette or hidden settings are required',
+        });
       }
       // Validate against the registry: only known sources and well-formed
       // field keys are persisted.

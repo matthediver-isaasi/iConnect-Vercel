@@ -27,7 +27,7 @@ const WIDTH_CLASS = {
   full: "md:col-span-12",
 };
 
-function SortableWidget({ widget, canEdit, onEdit, onDelete, onDuplicate, onResize, onResizeHeight }) {
+function SortableWidget({ widget, palette, canEdit, onEdit, onDelete, onDuplicate, onResize, onResizeHeight }) {
   const {
     attributes,
     listeners,
@@ -50,6 +50,7 @@ function SortableWidget({ widget, canEdit, onEdit, onDelete, onDuplicate, onResi
     >
       <WidgetCard
         widget={widget}
+        palette={palette}
         canEdit={canEdit}
         dragHandleProps={canEdit ? { ...attributes, ...listeners } : null}
         onEdit={onEdit}
@@ -70,6 +71,7 @@ const dropAnimation = {
 
 export default function WidgetGrid({
   widgets,
+  palette,
   canEdit = false,
   onReorder,
   onEdit,
@@ -120,6 +122,7 @@ export default function WidgetGrid({
             <SortableWidget
               key={widget.id}
               widget={widget}
+              palette={palette}
               canEdit={canEdit}
               onEdit={onEdit}
               onDelete={onDelete}
@@ -136,7 +139,7 @@ export default function WidgetGrid({
             className="pointer-events-none flex h-full w-full cursor-grabbing rounded-md shadow-lg ring-2 ring-primary/30"
             data-testid="widget-drag-overlay"
           >
-            <WidgetCard widget={activeWidget} canEdit={false} />
+            <WidgetCard widget={activeWidget} palette={palette} canEdit={false} />
           </div>
         ) : null}
       </DragOverlay>
