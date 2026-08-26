@@ -17,6 +17,13 @@ import { createPageUrl, isDeletedMember } from "@/utils";
 import { useToast } from "@/components/ui/use-toast";
 import CustomFieldFileUpload, { CustomFieldFileDisplay } from "@/components/CustomFieldFileUpload";
 import { resolveCustomFieldsLabel } from "@/utils/directorySettings";
+import {
+  buildOrganisationCustomValueMap,
+  deriveOrganisationSaveChanges,
+  executeOrganisationSavePlan,
+  organisationCustomValuesEqual,
+  serializeOrganisationCustomValue,
+} from "@/lib/myOrganisationSave";
 
 function ListFieldInput({ items, onChange, placeholder, fieldId }) {
   const [newItem, setNewItem] = useState('');
@@ -524,19 +531,7 @@ export default function MyOrganisationPage() {
 
   useEffect(() => {
     if (orgCustomFields && orgCustomFields.length > 0) {
-      const valuesMap = {};
-      orgValues.forEach(pv => {
-        const field = orgCustomFields.find(f => f.id === pv.field_id);
-        if ((field?.field_type === 'picklist' || field?.field_type === 'list') && pv.value) {
-          try {
-            valuesMap[pv.field_id] = JSON.parse(pv.value);
-          } catch {
-            valuesMap[pv.field_id] = pv.value;
-          }
-        } else {
-          valuesMap[pv.field_id] = pv.value;
-        }
-      });
+      const valuesMap = buildOrganisationCustomValueMap(orgCustomFields, orgValues);
       setCustomFieldValues(valuesMap);
       setOriginalCustomFieldValues(valuesMap);
     } else if (!valuesLoading) {
@@ -557,16 +552,16 @@ export default function MyOrganisationPage() {
     
     const customFieldsChanged = Object.keys(customFieldValues).some(fieldId => {
       if (!canEditField(fieldId)) return false;
-      const current = customFieldValues[fieldId];
-      const original = originalCustomFieldValues[fieldId];
-      if (Array.isArray(current) || Array.isArray(original)) {
-        return JSON.stringify(current || []) !== JSON.stringify(original || []);
-      }
-      return current !== original;
+      const field = orgCustomFields?.find(candidate => candidate.id === fieldId);
+      return !organisationCustomValuesEqual(
+        field,
+        customFieldValues[fieldId],
+        originalCustomFieldValues[fieldId],
+      );
     });
     
     return customFieldsChanged;
-  }, [formData, originalFormData, customFieldValues, originalCustomFieldValues, fieldPermissions, dataReady]);
+  }, [formData, originalFormData, customFieldValues, originalCustomFieldValues, orgCustomFields, fieldPermissions, dataReady]);
 
   const updateOrgMutation = useMutation({
     mutationFn: async (updates) => {
@@ -581,20 +576,6 @@ export default function MyOrganisationPage() {
         throw new Error(errorData.error || errorData.message || 'Failed to update organisation');
       }
       return response.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['myOrganization', memberInfo?.organization_id] });
-      toast({
-        title: "Changes saved",
-        description: "Organisation details have been updated successfully."
-      });
-    },
-    onError: (error) => {
-      toast({
-        title: "Error",
-        description: error.message || "Failed to update organisation details.",
-        variant: "destructive"
-      });
     }
   });
 
@@ -603,10 +584,7 @@ export default function MyOrganisationPage() {
       const existingValue = orgValues.find(v => v.field_id === fieldId);
       const field = orgCustomFields?.find(f => f.id === fieldId);
       
-      let storedValue = value;
-      if ((field?.field_type === 'picklist' || field?.field_type === 'list') && Array.isArray(value)) {
-        storedValue = JSON.stringify(value);
-      }
+      const storedValue = serializeOrganisationCustomValue(field, value);
       
       if (existingValue) {
         await base44.entities.OrganizationPreferenceValue.update(existingValue.id, { value: storedValue });
@@ -617,9 +595,6 @@ export default function MyOrganisationPage() {
           value: storedValue
         });
       }
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['organizationPreferenceValues', memberInfo?.organization_id] });
     }
   });
 
@@ -690,38 +665,42 @@ export default function MyOrganisationPage() {
   };
 
   const handleSave = async () => {
-    const changedCoreFields = {};
-    Object.keys(formData).forEach(key => {
-      if (canEditField(key) && formData[key] !== originalFormData[key]) {
-        changedCoreFields[key] = formData[key];
-      }
+    const changes = deriveOrganisationSaveChanges({
+      formData,
+      persistedFormData: originalFormData,
+      customFieldValues,
+      persistedCustomFieldValues: originalCustomFieldValues,
+      customFields: orgCustomFields,
+      canEditField,
     });
-    
-    if (Object.keys(changedCoreFields).length > 0) {
-      await updateOrgMutation.mutateAsync(changedCoreFields);
-    }
-    
-    for (const [fieldId, value] of Object.entries(customFieldValues)) {
-      if (!canEditField(fieldId)) continue;
-      
-      const originalValue = originalCustomFieldValues[fieldId];
-      const field = orgCustomFields?.find(f => f.id === fieldId);
-      
-      let currentVal = value;
-      let origVal = originalValue;
-      
-      if (field?.field_type === 'picklist' || field?.field_type === 'list') {
-        currentVal = Array.isArray(value) ? JSON.stringify(value) : value;
-        origVal = Array.isArray(originalValue) ? JSON.stringify(originalValue) : originalValue;
+
+    try {
+      await executeOrganisationSavePlan({
+        changes,
+        updateCore: updateOrgMutation.mutateAsync,
+        updateCustom: updateCustomFieldMutation.mutateAsync,
+        commitSnapshots: () => {
+          setOriginalFormData({ ...formData });
+          setOriginalCustomFieldValues({ ...customFieldValues });
+        },
+      });
+      if (Object.keys(changes.core).length > 0) {
+        queryClient.invalidateQueries({ queryKey: ['myOrganization', memberInfo?.organization_id] });
       }
-      
-      if (currentVal !== origVal) {
-        await updateCustomFieldMutation.mutateAsync({ fieldId, value });
+      if (changes.custom.length > 0) {
+        queryClient.invalidateQueries({ queryKey: ['organizationPreferenceValues', memberInfo?.organization_id] });
       }
+      toast({
+        title: "Changes saved",
+        description: "Organisation details have been updated successfully."
+      });
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to update organisation details.",
+        variant: "destructive"
+      });
     }
-    
-    setOriginalFormData({ ...formData });
-    setOriginalCustomFieldValues({ ...customFieldValues });
   };
 
   const handleCancel = () => {
