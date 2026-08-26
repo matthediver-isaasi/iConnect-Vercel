@@ -9,7 +9,7 @@ const supabase = supabaseUrl && supabaseServiceKey
   : null;
 
 // Helper to resolve tenant_id from hostname or form
-async function resolveTenantId(req, form_id) {
+async function resolveTenantId(req, form_id, supabaseClient = supabase) {
   // First try: resolve from hostname (subdomain)
   const tenantFromHost = await resolveTenantFromRequest(req);
   if (tenantFromHost?.id) {
@@ -18,8 +18,8 @@ async function resolveTenantId(req, form_id) {
   }
   
   // Fallback: derive from the form's tenant_id
-  if (form_id && supabase) {
-    const { data: form } = await supabase
+  if (form_id && supabaseClient) {
+    const { data: form } = await supabaseClient
       .from('form')
       .select('tenant_id')
       .eq('id', form_id)
@@ -80,12 +80,15 @@ const VALID_UNIQUENESS_TARGETS = {
   organization: ['name', 'invoicing_email', 'phone', 'website_url']
 };
 
-export default async function handler(req, res) {
+export default async function handler(req, res, {
+  supabaseClient = supabase,
+  resolveTenantIdFn = (req, formId) => resolveTenantId(req, formId, supabaseClient),
+} = {}) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  if (!supabase) {
+  if (!supabaseClient) {
     return res.status(503).json({ error: 'Database not configured' });
   }
 
@@ -105,7 +108,7 @@ export default async function handler(req, res) {
     }
 
     // SECURITY: Resolve tenant_id for proper multi-tenant isolation
-    const tenantId = await resolveTenantId(req, form_id);
+    const tenantId = await resolveTenantIdFn(req, form_id);
     if (!tenantId) {
       console.error('[Form Uniqueness] SECURITY: Unable to resolve tenant context');
       return res.status(403).json({ error: 'Unable to determine tenant context for uniqueness check' });
@@ -160,7 +163,7 @@ export default async function handler(req, res) {
       switch (mode) {
         case 'equals':
           // Exact match
-          query = supabase
+          query = supabaseClient
             .from(tableName)
             .select('id')
             .eq(targetColumn, searchValue)
@@ -169,7 +172,7 @@ export default async function handler(req, res) {
           
         case 'equals_lowercase':
           // Case insensitive match
-          query = supabase
+          query = supabaseClient
             .from(tableName)
             .select('id')
             .ilike(targetColumn, searchValue)
@@ -178,7 +181,7 @@ export default async function handler(req, res) {
           
         case 'contains':
           // Contains match
-          query = supabase
+          query = supabaseClient
             .from(tableName)
             .select('id')
             .ilike(targetColumn, `%${searchValue}%`)
@@ -187,7 +190,7 @@ export default async function handler(req, res) {
           
         case 'starts_with':
           // Starts with match
-          query = supabase
+          query = supabaseClient
             .from(tableName)
             .select('id')
             .ilike(targetColumn, `${searchValue}%`)
@@ -196,7 +199,7 @@ export default async function handler(req, res) {
           
         case 'ends_with':
           // Ends with match
-          query = supabase
+          query = supabaseClient
             .from(tableName)
             .select('id')
             .ilike(targetColumn, `%${searchValue}`)
@@ -209,14 +212,14 @@ export default async function handler(req, res) {
           if (extractedDomain) {
             if (urlColumns.includes(targetColumn)) {
               // For URL columns, match the domain anywhere in the stored URL
-              query = supabase
+              query = supabaseClient
                 .from(tableName)
                 .select('id')
                 .ilike(targetColumn, `%${extractedDomain}%`)
                 .limit(1);
             } else {
               // For email columns, match @domain suffix
-              query = supabase
+              query = supabaseClient
                 .from(tableName)
                 .select('id')
                 .ilike(targetColumn, `%@${extractedDomain}`)
@@ -247,14 +250,14 @@ export default async function handler(req, res) {
               `${targetColumn}.ilike.https://www.${normalisedUrl}/`,
               `${targetColumn}.ilike.www.${normalisedUrl}/`,
             ];
-            query = supabase
+            query = supabaseClient
               .from(tableName)
               .select('id')
               .or(patterns.join(','))
               .limit(1);
           } else {
             // Fallback to case-insensitive exact match
-            query = supabase
+            query = supabaseClient
               .from(tableName)
               .select('id')
               .ilike(targetColumn, searchValue)
@@ -265,7 +268,7 @@ export default async function handler(req, res) {
           
         default:
           // Default to case insensitive
-          query = supabase
+          query = supabaseClient
             .from(tableName)
             .select('id')
             .ilike(targetColumn, searchValue)
@@ -294,79 +297,6 @@ export default async function handler(req, res) {
         continue;
       }
 
-      // Also check previous form submissions
-      if (form_id) {
-        const originalValue = String(form_values[field_id]).trim();
-        
-        // SECURITY: Add tenant_id filtering to form_submission query for multi-tenant isolation
-        const { data: submissions, error: subError } = await supabase
-          .from('form_submission')
-          .select('id, submission_data')
-          .eq('form_id', form_id)
-          .eq('tenant_id', tenantId)
-          .not('submission_data', 'is', null)
-          .limit(100);
-
-        if (subError) {
-          console.error(`[Form Uniqueness] Error checking form_submission:`, subError);
-        } else if (submissions && submissions.length > 0) {
-          let foundConflict = false;
-          
-          for (const sub of submissions) {
-            if (foundConflict) break;
-            
-            const subData = sub.submission_data || {};
-            const subValue = subData[field_id];
-            if (!subValue) continue;
-            
-            let subValueStr = String(subValue).trim();
-            let compareValue = originalValue;
-            
-            // Apply comparison logic for submission check
-            let matches = false;
-            switch (mode) {
-              case 'equals':
-                matches = subValueStr === compareValue;
-                break;
-              case 'equals_lowercase':
-                matches = subValueStr.toLowerCase() === compareValue.toLowerCase();
-                break;
-              case 'contains':
-                matches = subValueStr.toLowerCase().includes(compareValue.toLowerCase());
-                break;
-              case 'starts_with':
-                matches = subValueStr.toLowerCase().startsWith(compareValue.toLowerCase());
-                break;
-              case 'ends_with':
-                matches = subValueStr.toLowerCase().endsWith(compareValue.toLowerCase());
-                break;
-              case 'domain_equals':
-                const subDomain = extractDomain(subValueStr);
-                const compareDomain = extractDomain(compareValue);
-                matches = !!(subDomain && compareDomain && subDomain === compareDomain);
-                break;
-              case 'url_equals':
-                const subUrl = extractDomain(subValueStr);
-                const compareUrl = extractDomain(compareValue);
-                matches = !!(subUrl && compareUrl && subUrl === compareUrl);
-                break;
-              default:
-                matches = subValueStr.toLowerCase() === compareValue.toLowerCase();
-            }
-            
-            if (matches) {
-              // Use custom error message if provided, otherwise fall back to default
-              const defaultSubMessage = 'This value has already been submitted in a previous application';
-              conflicts.push({
-                field_id,
-                field_label: field.label || field_id,
-                message: error_message && error_message.trim() ? error_message.trim() : defaultSubMessage
-              });
-              foundConflict = true;
-            }
-          }
-        }
-      }
     }
 
     return res.json({
