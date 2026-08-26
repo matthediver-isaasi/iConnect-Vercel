@@ -106,6 +106,71 @@ test('normalizes subscriber emails and preserves multi-category opt-outs over th
   );
 });
 
+test('merges explicit, preference-field, and mapped selections with mappings taking precedence', () => {
+  assert.deepEqual(
+    [...collectFormCommunicationSelections(form, {
+      prefs: { 'cat-news': false, 'cat-events': true },
+    }, [
+      { category_id: 'cat-news', is_subscribed: true },
+      { category_id: 'cat-events', is_subscribed: false },
+      { category_id: 'cat-training', is_subscribed: true },
+    ])],
+    [['cat-news', true], ['cat-events', false], ['cat-training', true]]
+  );
+});
+
+test('mapping-only reported configuration subscribes the resolved member to event updates', async () => {
+  const mappingOnlyForm = {
+    id: 'form-reported-shape',
+    fields: [{ id: 'email', type: 'email' }],
+  };
+  const { database, state } = createDatabase({
+    categories: ['cat-event-updates'],
+    members: [{ id: 'member-reported', tenant_id: 'tenant-1', email: 'person@example.com' }],
+  });
+
+  const result = await persistFormCommunicationSubscriptions({
+    database,
+    tenantId: 'tenant-1',
+    form: mappingOnlyForm,
+    submissionData: { email: 'person@example.com' },
+    mappedSelections: [{ category_id: 'cat-event-updates', is_subscribed: true }],
+    resolvedMemberId: 'member-reported',
+  });
+
+  assert.equal(result.kind, 'member');
+  assert.deepEqual(state.preferences, [{
+    member_id: 'member-reported',
+    category_id: 'cat-event-updates',
+    is_subscribed: true,
+    tenant_id: 'tenant-1',
+  }]);
+  assert.equal(state.subscribers.length, 0);
+});
+
+test('mapped false opts out and invalid or cross-tenant mapped categories are rejected', async () => {
+  const { database, state } = createDatabase({
+    categories: ['cat-events'],
+    members: [{ id: 'member-1', tenant_id: 'tenant-1', email: 'ada@example.com' }],
+  });
+  const result = await persistFormCommunicationSubscriptions({
+    database,
+    tenantId: 'tenant-1',
+    form: { id: 'form-1', fields: [{ id: 'email', type: 'email' }] },
+    submissionData: { email: 'ada@example.com' },
+    mappedSelections: [
+      { category_id: 'cat-events', is_subscribed: false },
+      { category_id: 'cat-other-tenant', is_subscribed: true },
+    ],
+    resolvedMemberId: 'member-1',
+  });
+
+  assert.equal(result.count, 1);
+  assert.deepEqual(state.preferences.map(({ category_id, is_subscribed }) => [category_id, is_subscribed]), [
+    ['cat-events', false],
+  ]);
+});
+
 test('a newly resolved member receives preferences and stale external rows are removed', async () => {
   const { database, state } = createDatabase({
     categories: ['cat-news', 'cat-events'],
@@ -229,6 +294,8 @@ test('public submission persists subscriptions only after a successful pipeline 
   assert.ok(subscriptionGuard > pipelineFailureReturn);
   assert.ok(persistenceCall > subscriptionGuard);
   assert.match(source, /defer_communication_subscriptions:\s*true/);
+  assert.match(source, /mappedSelections:\s*deferredCommunicationSelections/);
   assert.match(processorSource, /createdMemberId && fields && !defer_communication_subscriptions/);
   assert.match(processorSource, /memberCommunicationPrefsMap\.size > 0 && !defer_communication_subscriptions/);
+  assert.match(processorSource, /deferred_communication_selections:\s*defer_communication_subscriptions/);
 });

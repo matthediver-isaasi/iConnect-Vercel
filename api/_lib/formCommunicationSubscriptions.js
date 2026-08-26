@@ -2,8 +2,11 @@ export function normalizeSubscriberEmail(value) {
   return typeof value === 'string' ? value.trim().toLowerCase() : '';
 }
 
-export function collectFormCommunicationSelections(form, submissionData) {
+export function collectFormCommunicationSelections(form, submissionData, mappedSelections = []) {
   const selections = new Map();
+  // Preserve the application processor's established precedence: the form-level
+  // opt-in is the default, submitted communication_preferences fields override
+  // it, and explicit field-to-category mappings are applied last.
   if (form?.communication_category_id) {
     selections.set(form.communication_category_id, true);
   }
@@ -14,6 +17,17 @@ export function collectFormCommunicationSelections(form, submissionData) {
     for (const [categoryId, isSubscribed] of Object.entries(values)) {
       if (categoryId) selections.set(categoryId, Boolean(isSubscribed));
     }
+  }
+  const entries = mappedSelections instanceof Map
+    ? mappedSelections
+    : Array.isArray(mappedSelections)
+      ? mappedSelections
+      : Object.entries(mappedSelections || {});
+  for (const entry of entries) {
+    const [categoryId, isSubscribed] = Array.isArray(entry)
+      ? entry
+      : [entry?.category_id, entry?.is_subscribed];
+    if (categoryId) selections.set(categoryId, Boolean(isSubscribed));
   }
   return selections;
 }
@@ -45,10 +59,11 @@ export async function persistFormCommunicationSubscriptions({
   tenantId,
   form,
   submissionData,
+  mappedSelections = [],
   resolvedMemberId = null,
   fallbackEmail = '',
 }) {
-  const selections = collectFormCommunicationSelections(form, submissionData);
+  const selections = collectFormCommunicationSelections(form, submissionData, mappedSelections);
   if (selections.size === 0) return { kind: 'none', count: 0 };
 
   const identity = extractSubscriberIdentity(form?.fields, submissionData, fallbackEmail);

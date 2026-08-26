@@ -3312,7 +3312,16 @@ export default async function handler(req, res) {
       created_member_id: createdMemberId,
       created_organization_id: createdOrganizationId,
       organization_id: resolvedOrganizationId, // Canonical org ID (created or existing)
-      additional_member_ids: additionalMemberIds
+      additional_member_ids: additionalMemberIds,
+      // When persistence is deferred, return the processor-derived mapping
+      // choices so the public endpoint can merge and tenant-validate them only
+      // after the final member identity has been resolved.
+      deferred_communication_selections: defer_communication_subscriptions
+        ? [...memberCommunicationPrefsMap].map(([category_id, is_subscribed]) => ({
+            category_id,
+            is_subscribed,
+          }))
+        : []
     });
   } catch (error) {
     console.error('[AppProcessor] Error:', error);

@@ -839,6 +839,7 @@ export default async function handler(req, res) {
     // Process entity pipelines if configured (members/organisations creation)
     let pipelineCreatedMemberId = null;
     let pipelineCreatedOrgId = null;
+    let deferredCommunicationSelections = [];
     const hasEntityPipelines = (form.entity_pipelines?.members?.length > 0) || (form.entity_pipelines?.organisations?.length > 0);
     // Anonymous surveys never run identity-creating pipelines.
     if (hasEntityPipelines && !surveyIsAnonymous) {
@@ -919,6 +920,9 @@ export default async function handler(req, res) {
               const resolvedMemberId = result.created_member_id || result.member_id;
               pipelineCreatedMemberId = resolvedMemberId || null;
               pipelineCreatedOrgId = resolvedOrgId || null;
+              deferredCommunicationSelections = Array.isArray(result.deferred_communication_selections)
+                ? result.deferred_communication_selections
+                : [];
               
               const submissionUpdates = {};
               if (resolvedOrgId && !submissionRecord.organization_id) {
@@ -975,6 +979,7 @@ export default async function handler(req, res) {
             tenantId: tenantData.id,
             form,
             submissionData: submission_data || {},
+            mappedSelections: deferredCommunicationSelections,
             resolvedMemberId: pipelineCreatedMemberId,
             fallbackEmail: canonicalSubmitterEmail || sessionMemberEmail || '',
           });
