@@ -3,10 +3,11 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { base44 } from "@/api/base44Client";
 import { useState, useEffect, useMemo } from "react";
 import { supabase } from "@/api/supabaseClient";
-import { Loader2, ArrowLeft, User, Pencil, Save, X, Building2, Mail, Smartphone, PhoneCall, Briefcase, Shield, CalendarDays, LogIn, Users, Globe, ClipboardList, FolderTree, Trophy, StickyNote, Plus, Search, MessageSquare, Trash2, ChevronLeft, ChevronRight, Key, Copy, Check, UserCheck, LayoutGrid, ChevronDown, ChevronUp, ExternalLink, AlertTriangle, Wallet, Settings2, Tag, Lock, ClipboardCheck, Eye, GitMerge } from "lucide-react";
+import { Loader2, ArrowLeft, User, Pencil, Save, X, Building2, Mail, Smartphone, PhoneCall, Briefcase, Shield, CalendarDays, LogIn, Users, Globe, ClipboardList, FolderTree, Trophy, Award, StickyNote, Plus, Search, MessageSquare, Trash2, ChevronLeft, ChevronRight, Key, Copy, Check, UserCheck, LayoutGrid, ChevronDown, ChevronUp, ExternalLink, AlertTriangle, Wallet, Settings2, Tag, Lock, ClipboardCheck, Eye, GitMerge } from "lucide-react";
 import MemberEmails from "@/components/MemberEmails";
 import MemberActivityTimeline from "@/components/MemberActivityTimeline";
 import MemberMembershipTab from "@/components/MemberMembershipTab";
+import MemberBadgesTab from "@/components/MemberBadgesTab";
 import CrmTagInput from "@/components/crm/CrmTagInput";
 import { Checkbox } from "@/components/ui/checkbox";
 import { format } from "date-fns";
@@ -166,7 +167,7 @@ export default function MemberDetail() {
     handleSkipWorkflow,
     handleSkipAllWorkflows,
   } = useWorkflowConfirmation();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [isEditing, setIsEditing] = useState(false);
   const [activeTab, setActiveTab] = useState(() => searchParams.get('tab') || 'overview');
   const [deleteSubmissionId, setDeleteSubmissionId] = useState(null);
@@ -214,6 +215,11 @@ export default function MemberDetail() {
   // Linked-organisation editing state (mirrors member core/custom state)
   const [orgFormData, setOrgFormData] = useState({});
   const [orgCustomFieldValues, setOrgCustomFieldValues] = useState({});
+
+  // Keep browser back/forward navigation aligned with the route-backed tab.
+  useEffect(() => {
+    setActiveTab(searchParams.get('tab') || 'overview');
+  }, [searchParams]);
 
   // Delete member state
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
@@ -1632,7 +1638,13 @@ export default function MemberDetail() {
       </div>
 
       {/* Tabs */}
-      <Tabs value={activeTab} onValueChange={setActiveTab}>
+      <Tabs value={activeTab} onValueChange={(tab) => {
+        setActiveTab(tab);
+        const next = new URLSearchParams(searchParams);
+        if (tab === 'overview') next.delete('tab');
+        else next.set('tab', tab);
+        setSearchParams(next, { replace: true });
+      }}>
         <TabsList className="mb-6">
           <TabsTrigger value="overview" className="gap-1" data-testid="tab-member-overview">
             <User className="w-4 h-4" />
@@ -1645,6 +1657,10 @@ export default function MemberDetail() {
           <TabsTrigger value="roles" className="gap-1" data-testid="tab-member-roles">
             <Shield className="w-4 h-4" />
             Roles
+          </TabsTrigger>
+          <TabsTrigger value="badges" className="gap-1" data-testid="tab-member-badges">
+            <Award className="w-4 h-4" />
+            Badges
           </TabsTrigger>
           <TabsTrigger value="categories" className="gap-1" data-testid="tab-member-categories">
             <FolderTree className="w-4 h-4" />
@@ -2134,6 +2150,10 @@ export default function MemberDetail() {
               )}
             </CardContent>
           </Card>
+        </TabsContent>
+
+        <TabsContent value="badges" className="space-y-6">
+          <MemberBadgesTab memberId={id} enabled={activeTab === 'badges'} />
         </TabsContent>
 
         {/* Activity Tab */}

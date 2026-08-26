@@ -8,7 +8,7 @@
 //     `admin.badges` (deny-list model — no role row/exclusion means allowed).
 // Reads stay open to authenticated tenant members so future surfaces can
 // display badges.
-import { hasFeatureAccess } from './tenantContext.js';
+import { checkCrossMemberPermissions, hasFeatureAccess } from './tenantContext.js';
 
 export const BADGE_FEATURE_KEY = 'admin.badges';
 
@@ -35,6 +35,28 @@ export async function checkBadgeWriteAccess(tenantCtx, deps = {}) {
   const allowed = await checkFeature(tenantCtx.roleId, BADGE_FEATURE_KEY);
   if (!allowed) {
     return { ok: false, status: 403, error: 'Badge Management access required' };
+  }
+  return { ok: true };
+}
+
+/**
+ * Badge history is part of a member record. Badge-library permission does not
+ * by itself grant access to arbitrary member records.
+ */
+export async function checkMemberBadgeTargetAccess(tenantCtx, targetMemberId, deps = {}) {
+  if (!tenantCtx?.isAuthenticated) {
+    return { ok: false, status: 401, error: 'Authentication required' };
+  }
+  if (!tenantCtx.tenantId) {
+    return { ok: false, status: 403, error: 'Tenant context required' };
+  }
+  if (tenantCtx.tenantUserId || tenantCtx.memberId === targetMemberId) {
+    return { ok: true };
+  }
+  const checkCrossMember = deps.checkCrossMemberPermissions || checkCrossMemberPermissions;
+  const { hasCrossMemberAccess } = await checkCrossMember(tenantCtx.roleId);
+  if (!hasCrossMemberAccess) {
+    return { ok: false, status: 403, error: 'Member management access required' };
   }
   return { ok: true };
 }

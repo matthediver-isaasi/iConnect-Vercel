@@ -4,7 +4,7 @@
 // Role Management can write, and vice versa cannot.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { checkBadgeWriteAccess, BADGE_FEATURE_KEY } from './badgeAccess.js';
+import { checkBadgeWriteAccess, checkMemberBadgeTargetAccess, BADGE_FEATURE_KEY } from './badgeAccess.js';
 
 // hasFeatureAccess stub factory: allowedKeys maps roleId -> Set of allowed keys.
 function featureChecker(allowedByRole) {
@@ -62,4 +62,31 @@ test('gate checks exactly the admin.badges key', async () => {
     { hasFeatureAccess: async (roleId, key) => { seen = [roleId, key]; return true; } }
   );
   assert.deepEqual(seen, ['r1', 'admin.badges']);
+});
+
+test('tenant users and members can access their own badge target', async () => {
+  assert.deepEqual(
+    await checkMemberBadgeTargetAccess({ isAuthenticated: true, tenantId: 't1', tenantUserId: 'tu1' }, 'm2'),
+    { ok: true },
+  );
+  assert.deepEqual(
+    await checkMemberBadgeTargetAccess({ isAuthenticated: true, tenantId: 't1', memberId: 'm1' }, 'm1'),
+    { ok: true },
+  );
+});
+
+test('cross-member badge access requires member-management permission', async () => {
+  const denied = await checkMemberBadgeTargetAccess(
+    { isAuthenticated: true, tenantId: 't1', memberId: 'm1', roleId: 'r1' },
+    'm2',
+    { checkCrossMemberPermissions: async () => ({ hasCrossMemberAccess: false }) },
+  );
+  assert.deepEqual(denied, { ok: false, status: 403, error: 'Member management access required' });
+
+  const allowed = await checkMemberBadgeTargetAccess(
+    { isAuthenticated: true, tenantId: 't1', memberId: 'm1', roleId: 'r2' },
+    'm2',
+    { checkCrossMemberPermissions: async () => ({ hasCrossMemberAccess: true }) },
+  );
+  assert.deepEqual(allowed, { ok: true });
 });

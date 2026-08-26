@@ -357,6 +357,8 @@ async function fulfilGrant(supabase, { tenantId, eventType, event, config, grant
         source: 'speaker_award',
         source_ref: `${eventType}:${event.id}`,
         created_by: 'system:speaker-awards',
+        awarded_by_type: 'system',
+        awarded_by_label: 'Speaker awards automation',
       })
       .select('id')
       .single();
@@ -368,6 +370,7 @@ async function fulfilGrant(supabase, { tenantId, eventType, event, config, grant
           .select('id')
           .eq('badge_id', grant.badge_id)
           .eq('member_id', grant.member_id)
+          .is('revoked_at', null)
           .maybeSingle();
         if (held) {
           updates.member_badge_id = held.id;
