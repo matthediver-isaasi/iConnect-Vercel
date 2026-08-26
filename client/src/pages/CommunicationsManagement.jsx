@@ -1126,7 +1126,7 @@ export default function CommunicationsManagementPage() {
     externalAbortControllerRef.current?.abort();
     setViewingCategory(category);
     setSubscribersPage(1);
-    setOptedOutPage(1);
+    setOptOutPage(1);
     setMemberSearch('');
     setExternalSearch('');
     setSubscriberTab(initialTab);
@@ -1179,7 +1179,7 @@ export default function CommunicationsManagementPage() {
     const allOptedOut = getOptedOutForCategory(viewingCategory.id);
     const total = allOptedOut.length;
     const totalPages = Math.ceil(total / SUBSCRIBERS_PER_PAGE) || 1;
-    const start = (optedOutPage - 1) * SUBSCRIBERS_PER_PAGE;
+    const start = (optOutPage - 1) * SUBSCRIBERS_PER_PAGE;
     const optedOut = allOptedOut.slice(start, start + SUBSCRIBERS_PER_PAGE);
     return { optedOut, totalPages, total };
   };
@@ -2718,27 +2718,27 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                             {totalPages > 1 && (
                               <div className="flex items-center justify-between mt-4 pt-4 border-t">
                                 <div className="text-sm text-slate-600">
-                                  Showing {((optedOutPage - 1) * SUBSCRIBERS_PER_PAGE) + 1} - {Math.min(optedOutPage * SUBSCRIBERS_PER_PAGE, total)} of {total}
+                                  Showing {((optOutPage - 1) * SUBSCRIBERS_PER_PAGE) + 1} - {Math.min(optOutPage * SUBSCRIBERS_PER_PAGE, total)} of {total}
                                 </div>
                                 <div className="flex items-center gap-2">
                                   <Button
                                     variant="outline"
                                     size="sm"
-                                    onClick={() => setOptedOutPage(p => Math.max(1, p - 1))}
-                                    disabled={optedOutPage === 1}
+                                    onClick={() => setOptOutPage(p => Math.max(1, p - 1))}
+                                    disabled={optOutPage === 1}
                                     data-testid="button-opted-out-prev-page"
                                   >
                                     <ChevronLeft className="w-4 h-4" />
                                     Previous
                                   </Button>
                                   <span className="text-sm text-slate-600 px-2">
-                                    Page {optedOutPage} of {totalPages}
+                                    Page {optOutPage} of {totalPages}
                                   </span>
                                   <Button
                                     variant="outline"
                                     size="sm"
-                                    onClick={() => setOptedOutPage(p => Math.min(totalPages, p + 1))}
-                                    disabled={optedOutPage === totalPages}
+                                    onClick={() => setOptOutPage(p => Math.min(totalPages, p + 1))}
+                                    disabled={optOutPage === totalPages}
                                     data-testid="button-opted-out-next-page"
                                   >
                                     Next

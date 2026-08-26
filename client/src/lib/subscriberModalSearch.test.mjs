@@ -134,6 +134,8 @@ test('subscriber modal wiring resets searches and pages, and keeps recoverable n
   assert.match(openHandler, /setExternalSearch\(''\)/);
   assert.match(openHandler, /setSubscribersPage\(1\)/);
   assert.match(openHandler, /setExternalSubscribersPage\(1\)/);
+  assert.match(source, /const \[optOutPage, setOptOutPage\] = useState\(1\)/);
+  assert.doesNotMatch(source, /\b(?:optedOutPage|setOptedOutPage)\b/);
   assert.match(source, /setMemberSearch\(event\.target\.value\);\s*setSubscribersPage\(1\)/);
   assert.match(source, /setExternalSearch\(nextSearch\)/);
   assert.match(source, /setExternalSubscribersPage\(1\)/);
