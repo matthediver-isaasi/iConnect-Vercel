@@ -19,6 +19,10 @@ import { fetchMemberJobTitlesByEmail, resolveStoredJobTitle } from '../_lib/atte
 import { getAllowVoucherUseAfterExpiry, isVoucherUsableForEventDate } from '../_lib/voucherExpiryPolicy.js';
 import { orderVoucherIdsForRedemption } from '../_lib/voucherOrdering.js';
 import {
+  resolveConfiguredJobPostingPrice,
+  resolveStoredJobPostingAmount,
+} from '../_lib/jobPostingPayment.js';
+import {
   ticketHasAccessRestrictions,
   isTicketAccessibleToMember,
   getMemberGroupIdsForMember,
@@ -4063,7 +4067,7 @@ const functionHandlers = {
     if (!supabase) throw new Error('Supabase not configured');
     
     const tenantContext = await getTenantContext(req);
-    const tenantId = tenantContext.tenantId;
+    const tenantId = tenantContext?.tenantId;
     
     if (!tenantId) {
       throw new Error('Unable to determine tenant context');
@@ -4072,44 +4076,101 @@ const functionHandlers = {
     const stripe = await getStripeClient(tenantId, 'jobs');
     if (!stripe) throw new Error('Stripe not configured for this tenant');
     
-    // Frontend sends: amount, currency, metadata: { job_posting_id, contact_email, company_name, job_title }
-    const { amount, currency = 'gbp', metadata = {} } = params;
+    // The browser may identify the posting, but it cannot choose the amount,
+    // currency, customer, or metadata used for this payment.
+    const { metadata = {} } = params;
+    const jobPostingId = metadata.job_posting_id;
+    if (!jobPostingId) {
+      return { success: false, error: 'Job posting ID is required' };
+    }
+
+    const { data: jobPosting, error: jobPostingError } = await supabase
+      .from('job_posting')
+      .select('id, tenant_id, amount_paid, status, is_member_post, contact_email, company_name, title, stripe_payment_intent_id')
+      .eq('id', jobPostingId)
+      .eq('tenant_id', tenantId)
+      .eq('status', 'pending_payment')
+      .eq('is_member_post', false)
+      .maybeSingle();
+
+    if (jobPostingError) {
+      console.error('[createJobPostingPaymentIntent] Job lookup error:', jobPostingError);
+      throw new Error('Failed to load pending job posting');
+    }
+    if (!jobPosting) {
+      return { success: false, error: 'Pending job posting not found' };
+    }
+
+    const amount = resolveStoredJobPostingAmount(jobPosting);
+    const amountInPence = Math.round(amount * 100);
+
+    // Reuse the posting's existing intent when the browser retries or reopens
+    // the modal. Stripe's idempotency key below also collapses concurrent first
+    // requests before either one has persisted the association.
+    if (jobPosting.stripe_payment_intent_id) {
+      const existingIntent = await stripe.paymentIntents.retrieve(jobPosting.stripe_payment_intent_id);
+      if (
+        existingIntent.amount !== amountInPence ||
+        existingIntent.currency !== 'gbp' ||
+        String(existingIntent.metadata?.job_posting_id || '') !== String(jobPosting.id)
+      ) {
+        throw new Error('Existing payment does not match this job posting');
+      }
+      return {
+        success: true,
+        clientSecret: existingIntent.client_secret,
+        paymentIntentId: existingIntent.id,
+        amount,
+        currency: 'gbp',
+      };
+    }
 
     let stripeCustomer = null;
-    if (metadata.contact_email) {
+    if (jobPosting.contact_email) {
       stripeCustomer = await findOrCreateStripeCustomer(stripe, {
-        email: metadata.contact_email,
-        name: metadata.company_name || undefined,
+        email: jobPosting.contact_email,
+        name: jobPosting.company_name || undefined,
         metadata: { tenant_id: tenantId, type: 'job_posting' },
       });
     }
 
     const paymentIntent = await stripe.paymentIntents.create({
-      amount: Math.round(amount * 100),
-      currency: currency,
+      amount: amountInPence,
+      currency: 'gbp',
       customer: stripeCustomer?.id || undefined,
-      receipt_email: metadata.contact_email || undefined,
+      receipt_email: jobPosting.contact_email || undefined,
       metadata: {
         type: 'job_posting',
-        job_posting_id: String(metadata.job_posting_id || ''),
-        job_title: metadata.job_title || '',
-        company_name: metadata.company_name || '',
-        contact_email: metadata.contact_email || ''
+        job_posting_id: String(jobPosting.id),
+        job_title: jobPosting.title || '',
+        company_name: jobPosting.company_name || '',
+        contact_email: jobPosting.contact_email || ''
       }
+    }, {
+      idempotencyKey: `job-posting:${tenantId}:${jobPosting.id}:${amountInPence}`
     });
 
     // Store PaymentIntent ID on job record for confirmation lookup
-    if (metadata.job_posting_id) {
-      await supabase
-        .from('job_posting')
-        .update({ stripe_payment_intent_id: paymentIntent.id })
-        .eq('id', metadata.job_posting_id);
+    const { error: paymentAssociationError } = await supabase
+      .from('job_posting')
+      .update({ stripe_payment_intent_id: paymentIntent.id })
+      .eq('id', jobPosting.id)
+      .eq('tenant_id', tenantId)
+      .eq('status', 'pending_payment')
+      .select('id, stripe_payment_intent_id')
+      .single();
+
+    if (paymentAssociationError) {
+      console.error('[createJobPostingPaymentIntent] Failed to associate PaymentIntent:', paymentAssociationError);
+      throw new Error('Failed to associate payment with job posting');
     }
 
     return { 
       success: true,
       clientSecret: paymentIntent.client_secret,
-      paymentIntentId: paymentIntent.id
+      paymentIntentId: paymentIntent.id,
+      amount,
+      currency: 'gbp'
     };
   },
 
@@ -4451,18 +4512,22 @@ const functionHandlers = {
       attachment_names = []
     } = params;
 
-    // Get pricing from system settings (tenant-scoped, global row as fallback)
+    // Get the tenant price. An absent row intentionally uses the same public
+    // default as PostJob; a failed query is not treated as an absent setting.
     let price = 50; // Default price in GBP
-    const { data: settings } = await supabase
+    const { data: settings, error: settingsError } = await supabase
       .from('system_settings')
       .select('tenant_id, setting_value')
       .eq('setting_key', 'job_posting_price')
-      .or(`tenant_id.eq.${tenantId},tenant_id.is.null`);
+      .eq('tenant_id', tenantId);
+
+    if (settingsError) {
+      console.error('[createJobPostingNonMember] Failed to load job posting price:', settingsError);
+      return { success: false, error: 'Unable to load job posting price' };
+    }
 
     if (settings && settings.length > 0) {
-      const match = settings.find((s) => s.tenant_id === tenantId) || settings.find((s) => !s.tenant_id);
-      const parsed = parseFloat(match?.setting_value);
-      if (Number.isFinite(parsed)) price = parsed;
+      price = resolveConfiguredJobPostingPrice(settings[0]?.setting_value, price);
     }
 
     // Calculate expiry date (90 days from now)
@@ -4509,10 +4574,12 @@ const functionHandlers = {
     if (!supabase) throw new Error('Supabase not configured');
     
     const { jobPostingId, paymentIntentId } = params;
+    const tenantContext = await getTenantContext(req);
+    const tenantId = tenantContext?.tenantId;
     
     console.log('[confirmJobPostingPayment] Confirming payment for job:', jobPostingId, 'paymentIntent:', paymentIntentId);
     
-    if (!jobPostingId || !paymentIntentId) {
+    if (!tenantId || !jobPostingId || !paymentIntentId) {
       return { success: false, error: 'Missing jobPostingId or paymentIntentId' };
     }
     
@@ -4521,6 +4588,7 @@ const functionHandlers = {
       .from('job_posting')
       .select('*')
       .eq('id', jobPostingId)
+      .eq('tenant_id', tenantId)
       .single();
     
     if (!jobPosting) {
@@ -4540,12 +4608,27 @@ const functionHandlers = {
       if (paymentIntent.status !== 'succeeded') {
         return { success: false, error: `Payment not confirmed. Status: ${paymentIntent.status}` };
       }
+
+      const expectedAmount = resolveStoredJobPostingAmount(jobPosting);
+      if (
+        paymentIntent.currency !== 'gbp' ||
+        paymentIntent.amount !== Math.round(expectedAmount * 100)
+      ) {
+        console.error('[confirmJobPostingPayment] Payment amount or currency mismatch:', {
+          paymentIntentCurrency: paymentIntent.currency,
+          paymentIntentAmount: paymentIntent.amount,
+          expectedAmount,
+        });
+        return { success: false, error: 'Payment verification failed - amount mismatch' };
+      }
       
-      // Verify either via metadata or stored PaymentIntent ID on the job record
+      // Confirmation must match both the server-persisted association and the
+      // Stripe metadata. Metadata alone is browser-influenced and is not an
+      // authorization boundary.
       const metadataMatch = String(paymentIntent.metadata.job_posting_id) === String(jobPostingId);
       const storedMatch = jobPosting.stripe_payment_intent_id === paymentIntentId;
       
-      if (!metadataMatch && !storedMatch) {
+      if (!metadataMatch || !storedMatch) {
         console.error('[confirmJobPostingPayment] Payment verification failed:', {
           metadataJobId: paymentIntent.metadata.job_posting_id,
           providedJobId: jobPostingId,
@@ -4571,12 +4654,28 @@ const functionHandlers = {
           payment_date: new Date().toISOString()
         })
         .eq('id', jobPostingId)
+        .eq('tenant_id', tenantId)
+        .eq('status', 'pending_payment')
+        .eq('stripe_payment_intent_id', paymentIntentId)
         .select()
-        .single();
+        .maybeSingle();
       
       if (updateError) {
         console.error('[confirmJobPostingPayment] Update error:', updateError);
         return { success: false, error: updateError.message };
+      }
+      if (!updatedJob) {
+        const { data: alreadyProcessed } = await supabase
+          .from('job_posting')
+          .select('*')
+          .eq('id', jobPostingId)
+          .eq('tenant_id', tenantId)
+          .eq('stripe_payment_intent_id', paymentIntentId)
+          .maybeSingle();
+        if (alreadyProcessed?.status === 'pending_approval' && alreadyProcessed.payment_status === 'paid') {
+          return { success: true, job_posting: alreadyProcessed, message: 'Job already processed' };
+        }
+        return { success: false, error: 'Job posting payment state changed before confirmation' };
       }
       
       console.log('[confirmJobPostingPayment] Successfully updated job to pending_approval');

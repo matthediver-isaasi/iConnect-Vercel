@@ -48,6 +48,7 @@ const PUBLIC_SETTINGS_WHITELIST = [
   'event_cta_button',
   'job_types',
   'job_hours',
+  'job_posting_price',
   'show_event_card_prices',
   'featured_events_background',
   'tbc_events_banner',

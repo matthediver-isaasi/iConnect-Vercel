@@ -306,8 +306,8 @@ export default function JobBoardSettingsPage() {
 
   const handleSavePrice = () => {
     const numPrice = parseFloat(price);
-    if (isNaN(numPrice) || numPrice < 0) {
-      toast.error('Please enter a valid price');
+    if (!Number.isFinite(numPrice) || numPrice <= 0) {
+      toast.error('Please enter a price greater than £0');
       return;
     }
     savePriceMutation.mutate(price);

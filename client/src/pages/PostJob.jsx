@@ -22,6 +22,8 @@ import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useTenantBranding } from "@/contexts/TenantBrandingContext";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { publicClient } from "@/api/publicClient";
+import { resolveJobPostingSettings } from "@/lib/jobPostingSettings";
 
 // Load Stripe outside component to avoid recreating on every render
 let stripePromise = null;
@@ -143,7 +145,7 @@ export default function PostJobPage() {
   const [jobPostingId, setJobPostingId] = useState(null);
   const [stripeClientSecret, setStripeClientSecret] = useState(null);
   const [stripePaymentIntentId, setStripePaymentIntentId] = useState(null);
-  const [paymentAmount, setPaymentAmount] = useState(50.00);
+  const [paymentAmount, setPaymentAmount] = useState(null);
   const [showErrorDialog, setShowErrorDialog] = useState(false);
   const [submissionError, setSubmissionError] = useState({ title: '', message: '', details: [] });
   
@@ -244,69 +246,34 @@ export default function PostJobPage() {
     }
   });
 
-  // Fetch job type options from settings
-  const { data: jobTypeSettings = [] } = useQuery({
-    queryKey: ['job-type-settings'],
-    queryFn: async () => {
-      const allSettings = await base44.entities.SystemSettings.list();
-      const setting = allSettings.find((s) => s.setting_key === 'job_types');
-      if (setting) {
-        try {
-          return JSON.parse(setting.setting_value);
-        } catch (e) {
-          return ['Full-time', 'Part-time', 'Contract', 'Temporary', 'Internship'];
-        }
-      }
-      return ['Full-time', 'Part-time', 'Contract', 'Temporary', 'Internship'];
-    },
+  // Job type, hours, and non-member price are public tenant settings. Keep
+  // these together so a guest either gets one consistent configuration or a
+  // visible error rather than a mix of stale values and defaults.
+  const {
+    data: publicJobSettings = [],
+    isLoading: publicJobSettingsLoading,
+    isError: publicJobSettingsError,
+    error: publicJobSettingsRequestError,
+    refetch: refetchPublicJobSettings,
+  } = useQuery({
+    queryKey: ['public-job-posting-settings', publicClient.getTenantSlug()],
+    queryFn: () => publicClient.listSystemSettings(),
     staleTime: 0,
     refetchOnMount: true,
   });
 
-  // Fetch hours options from settings
-  const { data: hoursSettings = [] } = useQuery({
-    queryKey: ['hours-settings'],
-    queryFn: async () => {
-      const allSettings = await base44.entities.SystemSettings.list();
-      const setting = allSettings.find((s) => s.setting_key === 'job_hours');
-      if (setting) {
-        try {
-          return JSON.parse(setting.setting_value);
-        } catch (e) {
-          return ['Full-time', 'Part-time', 'Flexible'];
-        }
-      }
-      return ['Full-time', 'Part-time', 'Flexible'];
-    },
-    staleTime: 0,
-    refetchOnMount: true,
-  });
-
-  // Fetch job posting price from settings
-  const { data: jobPostingPrice = 50.00 } = useQuery({
-    queryKey: ['job-posting-price'],
-    queryFn: async () => {
-      const allSettings = await base44.entities.SystemSettings.list();
-      const setting = allSettings.find((s) => s.setting_key === 'job_posting_price');
-      if (setting) {
-        try {
-          return parseFloat(setting.setting_value);
-        } catch (e) {
-          return 50.00;
-        }
-      }
-      return 50.00;
-    },
-    staleTime: 0,
-    refetchOnMount: true,
-  });
+  const {
+    jobTypes: jobTypeSettings,
+    hours: hoursSettings,
+    price: jobPostingPrice,
+  } = useMemo(() => resolveJobPostingSettings(publicJobSettings), [publicJobSettings]);
 
   // Update payment amount when jobPostingPrice changes
   useEffect(() => {
-    if (jobPostingPrice) {
+    if (!publicJobSettingsLoading && !publicJobSettingsError && Number.isFinite(jobPostingPrice)) {
       setPaymentAmount(jobPostingPrice);
     }
-  }, [jobPostingPrice]);
+  }, [jobPostingPrice, publicJobSettingsLoading, publicJobSettingsError]);
 
   // Handle organization selection
   const handleOrganizationSelect = (org) => {
@@ -665,6 +632,12 @@ export default function PostJobPage() {
         }
       } else {
         // Non-member posting - requires payment
+        if (publicJobSettingsLoading || publicJobSettingsError || !Number.isFinite(paymentAmount)) {
+          throw new Error(publicJobSettingsError
+            ? 'Job posting settings could not be loaded. Please try again.'
+            : 'Job posting settings are still loading. Please try again.');
+        }
+
         const createResponse = await base44.functions.invoke('createJobPostingNonMember', {
           ...formData,
           contact_email: email
@@ -674,17 +647,17 @@ export default function PostJobPage() {
           setJobPostingId(createResponse.data.job_id);
 
           const paymentResponse = await base44.functions.invoke('createJobPostingPaymentIntent', {
-            amount: paymentAmount,
-            currency: 'gbp',
             metadata: {
               job_posting_id: createResponse.data.job_id,
-              contact_email: email,
-              company_name: formData.company_name,
-              job_title: formData.title
             }
           });
 
           if (paymentResponse.data.success) {
+            const authoritativeAmount = Number(paymentResponse.data.amount);
+            if (!Number.isFinite(authoritativeAmount) || authoritativeAmount < 0) {
+              throw new Error('Payment amount was not returned by the server');
+            }
+            setPaymentAmount(authoritativeAmount);
             setStripeClientSecret(paymentResponse.data.clientSecret);
             setStripePaymentIntentId(paymentResponse.data.paymentIntentId);
             setShowPaymentModal(true);
@@ -792,6 +765,39 @@ export default function PostJobPage() {
               <>
                 <Loader2 className="w-10 h-10 text-blue-600 animate-spin mb-4" />
                 <p className="text-slate-600 text-sm font-medium">Loading job posting...</p>
+              </>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  if (!isLoggedIn && !isEditMode && (publicJobSettingsLoading || publicJobSettingsError)) {
+    return (
+      <div className="bg-gradient-to-br from-slate-50 to-blue-50 flex items-start justify-center pt-12 px-4 pb-12">
+        <Card className="max-w-md w-full border-slate-200 shadow-xl">
+          <CardContent className="flex flex-col items-center justify-center py-12 text-center">
+            {publicJobSettingsLoading ? (
+              <>
+                <Loader2 className="w-10 h-10 text-blue-600 animate-spin mb-4" />
+                <p className="text-slate-700 text-sm font-medium">Loading job posting settings...</p>
+                <p className="text-slate-500 text-sm mt-2">Please wait while we load this tenant's job options.</p>
+              </>
+            ) : (
+              <>
+                <AlertCircle className="w-10 h-10 text-red-500 mb-4" />
+                <p className="text-slate-700 text-sm font-medium">Job posting settings could not be loaded.</p>
+                <p className="text-slate-500 text-sm mt-2">
+                  {publicJobSettingsRequestError?.message || 'Please try again before submitting a job posting.'}
+                </p>
+                <Button
+                  type="button"
+                  onClick={() => refetchPublicJobSettings()}
+                  className="mt-5 bg-blue-600 hover:bg-blue-700"
+                >
+                  Try again
+                </Button>
               </>
             )}
           </CardContent>
