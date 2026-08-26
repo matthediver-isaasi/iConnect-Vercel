@@ -5,7 +5,7 @@
  * iConnect handover replacement for:
  * wp-content/themes/global-schools-forum/core/members/stats.php
  */
-define('GSF_MAP_STATS_VERSION', '1.1.0');
+define('GSF_MAP_STATS_VERSION', '1.2.0');
 
 /**
  * iConnect country name aliases used for map counting and display.
@@ -61,6 +61,32 @@ function gsf_get_map_display_name_overrides()
         'Kyrgyz Republic'  => 'Kyrgyzstan',
         'Lao PDR'          => 'Laos',
     ];
+}
+
+/**
+ * Resolve a front-end map country label back to the canonical country-feed
+ * name stored in member Countries_of_Operation metadata.
+ *
+ * This is the reverse of gsf_get_map_display_name_overrides(), matched
+ * case-insensitively so the display and search paths cannot drift.
+ *
+ * @param string $country_name
+ * @return string
+ */
+function gsf_resolve_map_search_country_name($country_name)
+{
+    $country_name = is_string($country_name) ? trim($country_name) : '';
+    if ($country_name === '') {
+        return '';
+    }
+
+    foreach (gsf_get_map_display_name_overrides() as $canonical_name => $display_name) {
+        if (strcasecmp($country_name, $display_name) === 0) {
+            return $canonical_name;
+        }
+    }
+
+    return gsf_normalize_country_name($country_name);
 }
 
 /**

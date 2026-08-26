@@ -65,7 +65,7 @@ class ZohoAPI
      * Installed handover build. Displayed on Settings > GSF iConnect Feed so
      * operators can confirm that the intended PHP class is active.
      */
-    const INTEGRATION_VERSION = '3.1.0';
+    const INTEGRATION_VERSION = '3.1.1';
     const MEMBER_SYNC_LOCK_OPTION = 'gsf_iconnect_member_sync_lock';
     const MEMBER_SYNC_DB_LOCK_NAME = 'gsf_iconnect_member_sync';
     const MEMBER_SYNC_LOCK_TTL = 900;
@@ -893,10 +893,15 @@ class ZohoAPI
         }
 
         if (!empty($filters['country'])) {
+            // The front-end map uses display aliases such as "Kyrgyzstan",
+            // while member metadata retains the canonical feed name "Kyrgyz
+            // Republic". Resolve the display label back before querying the
+            // serialized countries_of_operation array.
+            $country_filter = gsf_resolve_map_search_country_name($filters['country']);
             // ONLY search in countries_of_operation, not in the primary country field
             $query_args['meta_query'][] = [
                 'key' => 'countries_of_operation',
-                'value' => serialize($filters['country']),
+                'value' => serialize($country_filter),
                 'compare' => 'LIKE'
             ];
         }

@@ -82,8 +82,8 @@ logical_id = "760d9b3a-c839-4ec7-bedb-b327c005aa4a"
 id = "Fpuq_XA8DI46uNcZHuKuZ"
 uri = "file://deliverables/gsf-map-switchover/gsf-map-iconnect-switchover.zip"
 type = "unspecified"
-title = "GSF map iConnect switch-over with map stats fix"
-description = "Verified 12-file WordPress package including stats.iconnect.php v1.1.0, which shades tenant-selected countries using Flag: Show."
+title = "GSF map package with country-search alias fix"
+description = "Verified 12-file WordPress package containing class integration v3.1.1 and map stats v1.2.0. Selecting Kyrgyzstan now searches canonical Kyrgyz Republic metadata."
 logical_id = "a0ad0d8c-a301-4152-add0-e96ef8b1eecb"
 
 [[outputs]]

@@ -27,8 +27,27 @@ function stats_assert($condition, $message)
 require dirname(__DIR__) . '/stats.iconnect.php';
 
 stats_assert(
-    GSF_MAP_STATS_VERSION === '1.1.0',
+    GSF_MAP_STATS_VERSION === '1.2.0',
     'the corrected theme stats file exposes an explicit version'
+);
+
+$display_aliases = [
+    'Czech Republic' => 'Czechia',
+    'Ivory Coast' => 'Côte d’Ivoire',
+    'Egypt' => 'Egypt, Arab Rep.',
+    'Gambia' => 'Gambia, The',
+    'Kyrgyzstan' => 'Kyrgyz Republic',
+    'Laos' => 'Lao PDR',
+];
+foreach ($display_aliases as $display_name => $canonical_name) {
+    stats_assert(
+        gsf_resolve_map_search_country_name(strtoupper($display_name)) === $canonical_name,
+        "{$display_name} resolves case-insensitively to canonical {$canonical_name} for member search"
+    );
+}
+stats_assert(
+    gsf_resolve_map_search_country_name(' Chile ') === 'Chile',
+    'a country without a display alias passes through trimmed and unchanged'
 );
 
 $GLOBALS['stats_test_countries'] = [

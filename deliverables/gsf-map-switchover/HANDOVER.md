@@ -5,8 +5,8 @@
 WordPress plugin's `ZohoAPI` class, repointed from Zoho CRM to iConnect; and
 `stats.iconnect.php` — the companion replacement for the theme's member map
 statistics file.
-**Integration version:** `3.1.0`
-**Map stats version:** `1.1.0`
+**Integration version:** `3.1.1`
+**Map stats version:** `1.2.0`
 
 ## How to review the file
 
@@ -50,7 +50,7 @@ hourly sync:
 
 1. install this package's `class-zoho-api.iconnect.php`;
 2. open **Settings → GSF iConnect Feed** and confirm **Integration version
-   3.1.0** is displayed;
+   3.1.1** is displayed;
 3. select **Refresh country data and members**;
 4. require the page to report that the country cache was refreshed and
    reapplied to the expected number of member records;
@@ -81,7 +81,7 @@ Install `stats.iconnect.php` over:
 wp-content/themes/global-schools-forum/core/members/stats.php
 ```
 
-The installed file declares `GSF_MAP_STATS_VERSION` as `1.1.0`; inspect that
+The installed file declares `GSF_MAP_STATS_VERSION` as `1.2.0`; inspect that
 constant in the deployed theme file to distinguish this correction from the
 original stats implementation.
 
@@ -99,6 +99,22 @@ positive integer. Aptus should still list Dominican Republic, Ecuador, Mexico,
 and Chile, and Chile should be shaded. The AJAX map response itself is not
 transient-cached; the existing member sync already clears the separate
 `gsf_community_stats` text-placeholder transient.
+
+### Map display-name aliases also work in member search
+
+The front-end map library requires several familiar display names that differ
+from the canonical country-feed values retained in member metadata. For
+example, map counting emits `Kyrgyzstan`, while Aga Khan Education Services
+correctly stores and displays `Kyrgyz Republic` in its countries of operation.
+Version 3.1.1 resolves the clicked map label back through the same shared alias
+table before querying WordPress metadata. It does not rename stored member data
+or change tooltip text.
+
+After installing both versioned files, selecting **Kyrgyzstan** on Our
+Community must return **Aga Khan Education Services**. A direct diagnostic
+request using `country=Kyrgyzstan` must produce the same result as
+`country=Kyrgyz Republic`. Regression coverage also checks Czech Republic,
+Ivory Coast, Egypt, Gambia, and Laos.
 
 The ZIP is built from the checked-in files with:
 

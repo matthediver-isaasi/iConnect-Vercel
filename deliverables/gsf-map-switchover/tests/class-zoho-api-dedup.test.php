@@ -250,6 +250,12 @@ function gsf_normalize_country_name($name)
 {
     return $name;
 }
+function gsf_resolve_map_search_country_name($name)
+{
+    return strcasecmp(trim((string) $name), 'Kyrgyzstan') === 0
+        ? 'Kyrgyz Republic'
+        : trim((string) $name);
+}
 function get_the_ID()
 {
     return $GLOBALS['test_current_post']->ID;
@@ -359,7 +365,7 @@ require dirname(__DIR__) . '/class-zoho-api.iconnect.php';
 
 $api = new ZohoAPI();
 test_assert(
-    ZohoAPI::INTEGRATION_VERSION === '3.1.0',
+    ZohoAPI::INTEGRATION_VERSION === '3.1.1',
     'the installed handover exposes an explicit integration version'
 );
 test_assert(
@@ -413,10 +419,15 @@ test_assert(
     count($filtered_members['members']) === 1,
     'country filtering continues to match the individual country collection'
 );
-$GLOBALS['test_meta'][51]['countries_of_operation'] = ['Multiple locations', 'Kenya'];
+$GLOBALS['test_meta'][51]['countries_of_operation'] = ['Multiple locations', 'Kenya', 'Kyrgyz Republic'];
+$aliased_filtered_members = $api->getMembers(1, 200, ['country' => 'Kyrgyzstan'], false);
+test_assert(
+    count($aliased_filtered_members['members']) === 1,
+    'front-end map display aliases resolve to canonical stored country names before filtering'
+);
 $guarded_members = $api->getMembers(1, 200, [], false);
 test_assert(
-    $guarded_members['members'][0]['Countries_of_Operation'] === ['Kenya'],
+    $guarded_members['members'][0]['Countries_of_Operation'] === ['Kenya', 'Kyrgyz Republic'],
     'public member response never exposes a stale summary sentinel'
 );
 
