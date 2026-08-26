@@ -2,6 +2,7 @@
 
 **Date:** 26 August 2026
 **Deliverable:** `class-zoho-api.iconnect.php` — a modified copy of the WordPress plugin's `ZohoAPI` class, repointed from Zoho CRM to iConnect.
+**Integration version:** `3.1.0`
 
 ## How to review the file
 
@@ -44,12 +45,20 @@ corrected immediately after installation instead of waiting for the normal
 hourly sync:
 
 1. install this package's `class-zoho-api.iconnect.php`;
-2. load the map once (or use the existing manual sync control);
-3. require the sync result to report `completed`;
-4. confirm Justice Rising returns Congo, Dem. Rep., Iraq, and Syria in
+2. open **Settings → GSF iConnect Feed** and confirm **Integration version
+   3.1.0** is displayed;
+3. select **Refresh country data and members**;
+4. require the page to report that the country cache was refreshed and
+   reapplied to the expected number of member records;
+5. confirm Justice Rising returns Congo, Dem. Rep., Iraq, and Syria in
    `Countries_of_Operation`;
-5. confirm its card still displays “Multiple Locations” and the existing hover
+6. confirm its card still displays “Multiple Locations” and the existing hover
    tooltip lists those three countries.
+
+For the Aptus staging check, the completed refresh should rewrite its tooltip
+source to Dominican Republic, Ecuador, Mexico, and Chile when those are the
+countries returned by both configured iConnect feeds. Uruguay must not remain
+when it is absent from the GSF tenant's saved LMIC selection.
 
 Both iConnect map endpoints now derive their country data from the same
 tenant-LMIC-filtered collection. Unresolvable and non-selected countries are
@@ -78,6 +87,17 @@ Administrators without WP-CLI can use **Settings → GSF iConnect Feed** in
 WordPress Admin. Enter the live iConnect HTTPS origin, enter the shared secret,
 and choose **Save and test connection**. The stored API key is write-only and is
 never rendered back into the settings page.
+
+The same page displays the installed integration version and provides
+**Refresh country data and members**. This administrator-only, nonce-protected
+action bypasses the normal 24-hour country interval, fetches the configured
+`/api/public/gsf-map/countries` endpoint, and then reapplies that country
+allow-list to all member metadata in the same locked sync. Do not delete
+`gsf_zoho_countries` or the sync-lock option manually. If the page reports
+`member_sync_already_running`, wait for the current run to finish and retry. For
+other failures, inspect the GSF sync log for **Fetching countries from
+iConnect**, correct the named endpoint, API-key, network, or payload issue, and
+retry; failed country loads retain the last-known-good cache.
 
 The equivalent WP-CLI commands are:
 

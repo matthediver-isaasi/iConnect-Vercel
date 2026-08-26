@@ -469,6 +469,9 @@ GSF_Iconnect_Feed_Settings_Admin::renderPage();
 $settings_rendered = ob_get_clean();
 bc_assert(
     str_contains($settings_rendered, 'GSF iConnect Feed')
+    && str_contains($settings_rendered, 'Integration version:')
+    && str_contains($settings_rendered, ZohoAPI::INTEGRATION_VERSION)
+    && str_contains($settings_rendered, 'Refresh country data and members')
     && str_contains($settings_rendered, 'https://iconnect.example')
     && str_contains($settings_rendered, 'An API key is configured')
     && !str_contains($settings_rendered, 'test-key'),

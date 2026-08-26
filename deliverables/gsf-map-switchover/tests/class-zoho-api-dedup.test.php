@@ -359,6 +359,10 @@ require dirname(__DIR__) . '/class-zoho-api.iconnect.php';
 
 $api = new ZohoAPI();
 test_assert(
+    ZohoAPI::INTEGRATION_VERSION === '3.1.0',
+    'the installed handover exposes an explicit integration version'
+);
+test_assert(
     invoke_private($api, 'isCountryDataUpgradeRequired') === true,
     'an installation without the country-data version requests a one-time refresh'
 );
@@ -545,6 +549,55 @@ test_assert($stats['duplicate_feed_ids'][0]['canonical']['wp_post_id'] === 20, '
 test_assert($GLOBALS['test_meta'][10]['last_sync'] === '2024-02-03 04:05:06', 'noncanonical old last_sync remains evidence');
 test_assert($GLOBALS['test_meta'][20]['last_sync'] === '2026-08-25 12:00:00', 'canonical last_sync advances');
 test_assert(isset($GLOBALS['test_options']['gsf_zoho_last_sync']), 'global last_sync advances with the completed member pass');
+
+// The administrator refresh bypasses a fresh timestamp/version, reloads the
+// country allow-list, and reapplies it to member metadata in the same sync.
+$GLOBALS['test_posts'] = [];
+$GLOBALS['test_meta'] = [];
+$GLOBALS['test_insert_count'] = 0;
+$GLOBALS['test_update_count'] = 0;
+$GLOBALS['test_options']['gsf_zoho_countries'] = [
+    'Uruguay' => ['flag' => 'Show'],
+];
+$GLOBALS['test_options']['gsf_zoho_last_country_sync'] = time();
+$GLOBALS['test_options'][ZohoAPI::COUNTRY_DATA_VERSION_OPTION] = ZohoAPI::COUNTRY_DATA_VERSION;
+$GLOBALS['test_remote_responses'] = [
+    [
+        'response_code' => 200,
+        'body' => json_encode([
+            [
+                'id' => 'country-chile',
+                'Country' => ['id' => 'country-chile', 'name' => 'Chile'],
+                'Flag' => 'Show',
+            ],
+        ]),
+    ],
+    [
+        'response_code' => 200,
+        'body' => json_encode([
+            array_merge(member_payload('aptus-id', 'Aptus'), [
+                'Location_of_HQ_Country' => 'Chile',
+                'Countries_of_Operation' => ['Chile', 'Uruguay'],
+            ]),
+        ]),
+    ],
+];
+$refresh_api = new ZohoAPI();
+$refresh_result = $refresh_api->forceSyncCountryDataAndMembers();
+$refreshed_post_id = array_key_first($GLOBALS['test_posts']);
+test_assert(
+    $refresh_result['status'] === 'completed'
+        && $refresh_result['total_members_fetched'] === 1,
+    'administrator refresh completes the guarded country and member sync'
+);
+test_assert(
+    array_keys($GLOBALS['test_options']['gsf_zoho_countries']) === ['Chile'],
+    'administrator refresh bypasses the normal daily country-cache interval'
+);
+test_assert(
+    $GLOBALS['test_meta'][$refreshed_post_id]['countries_of_operation'] === ['Chile'],
+    'administrator refresh immediately reapplies the new country allow-list to member metadata'
+);
 
 // A custom status is included in identity lookup.
 $GLOBALS['test_posts'] = [99 => test_post(99, 'reviewed', 'Custom status')];

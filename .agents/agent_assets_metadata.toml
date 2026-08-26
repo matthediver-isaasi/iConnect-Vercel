@@ -82,8 +82,8 @@ logical_id = "760d9b3a-c839-4ec7-bedb-b327c005aa4a"
 id = "Fpuq_XA8DI46uNcZHuKuZ"
 uri = "file://deliverables/gsf-map-switchover/gsf-map-iconnect-switchover.zip"
 type = "unspecified"
-title = "GSF map iConnect switch-over v3"
-description = "Final rebuilt ten-file WordPress handover package with LMIC-filtered feeds, Zoho-compatible country arrays, safe empty-list refresh behavior, and load-failure protection."
+title = "GSF map iConnect switch-over v3.1.0"
+description = "Verified ten-file WordPress handover package with a visible integration version and guarded country/member refresh control."
 logical_id = "a0ad0d8c-a301-4152-add0-e96ef8b1eecb"
 
 [[outputs]]

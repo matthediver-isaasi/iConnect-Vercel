@@ -61,6 +61,11 @@ if (!class_exists('GSF_Member_Sync_Lock_Exception')) {
  */
 class ZohoAPI
 {
+    /**
+     * Installed handover build. Displayed on Settings > GSF iConnect Feed so
+     * operators can confirm that the intended PHP class is active.
+     */
+    const INTEGRATION_VERSION = '3.1.0';
     const MEMBER_SYNC_LOCK_OPTION = 'gsf_iconnect_member_sync_lock';
     const MEMBER_SYNC_DB_LOCK_NAME = 'gsf_iconnect_member_sync';
     const MEMBER_SYNC_LOCK_TTL = 900;
@@ -106,6 +111,7 @@ class ZohoAPI
         // ==================== END ORIGINAL ZOHO CODE ===================================
 
         $this->logger->log('ZohoAPI initialized', 'INFO', [
+            'integrationVersion' => self::INTEGRATION_VERSION,
             'lastSyncTime' => $this->lastSyncTime,
             'lastCountrySyncTime' => $this->lastCountrySyncTime,
             'tokenExpiry' => $this->tokenExpiry ? date('Y-m-d H:i:s', $this->tokenExpiry) : 'none'
@@ -1208,7 +1214,7 @@ class ZohoAPI
         // ==================== END ORIGINAL ZOHO CODE ===================================
     }
 
-    private function syncWithZoho()
+    private function syncWithZoho($force_countries = false)
     {
         $lock_result = $this->acquireMemberSyncLock();
         if (!$lock_result['acquired']) {
@@ -1240,7 +1246,8 @@ class ZohoAPI
         // ==================== END ORIGINAL ZOHO CODE ===================================
 
         // Check if we need to sync countries
-        $shouldSyncCountries = $this->isCountryDataUpgradeRequired()
+        $shouldSyncCountries = $force_countries
+            || $this->isCountryDataUpgradeRequired()
             || !$this->lastCountrySyncTime
             || (time() - $this->lastCountrySyncTime) > $this->countrySyncInterval;
         if ($shouldSyncCountries) {
@@ -1956,6 +1963,17 @@ class ZohoAPI
     {
         return $this->syncCountriesFromZoho();
     }
+
+    /**
+     * Force a country refresh and immediately reapply the refreshed allow-list
+     * to every member inside the existing guarded full-sync pipeline.
+     *
+     * @return array Structured sync result.
+     */
+    public function forceSyncCountryDataAndMembers()
+    {
+        return $this->syncWithZoho(true);
+    }
 }
 
 /**
@@ -2058,7 +2076,30 @@ if (!class_exists('GSF_Iconnect_Feed_Settings_Admin')) {
                 update_option('gsf_iconnect_api_key', $submitted_key, false);
             }
 
-            if (sanitize_key((string) ($source['operation'] ?? 'save')) !== 'save-and-test') {
+            $operation = sanitize_key((string) ($source['operation'] ?? 'save'));
+            if ($operation === 'refresh-country-data') {
+                $sync_result = (new ZohoAPI())->forceSyncCountryDataAndMembers();
+                $status = (string) ($sync_result['status'] ?? 'failed');
+                if ($status !== 'completed') {
+                    $reason = (string) ($sync_result['reason'] ?? 'unknown_error');
+                    return [
+                        'type' => 'error',
+                        'message' => 'Country and member refresh did not complete: '
+                            . $reason
+                            . '. Check the GSF sync log.',
+                        'connection' => null,
+                    ];
+                }
+                return [
+                    'type' => 'success',
+                    'message' => 'Country cache refreshed from iConnect and reapplied to '
+                        . (int) ($sync_result['total_members_fetched'] ?? 0)
+                        . ' member records.',
+                    'connection' => null,
+                ];
+            }
+
+            if ($operation !== 'save-and-test') {
                 return [
                     'type' => 'success',
                     'message' => 'GSF iConnect feed settings saved.',
@@ -2125,6 +2166,8 @@ if (!class_exists('GSF_Iconnect_Feed_Settings_Admin')) {
             ?>
             <div class="wrap">
                 <h1>GSF iConnect Feed</h1>
+                <p><strong>Integration version:</strong>
+                    <code><?php echo esc_html(ZohoAPI::INTEGRATION_VERSION); ?></code></p>
                 <p>Configure the live iConnect origin and shared API key used by the GSF member and country syncs.
                     The saved key is never displayed on this page.</p>
                 <?php if (is_array($notice)): ?>
@@ -2164,7 +2207,12 @@ if (!class_exists('GSF_Iconnect_Feed_Settings_Admin')) {
                     <p class="submit">
                         <button type="submit" class="button button-secondary" name="operation" value="save">Save settings</button>
                         <button type="submit" class="button button-primary" name="operation" value="save-and-test">Save and test connection</button>
+                        <button type="submit" class="button button-secondary" name="operation" value="refresh-country-data">
+                            Refresh country data and members
+                        </button>
                     </p>
+                    <p class="description">This reloads the country allow-list from iConnect and immediately
+                        rewrites every member's countries of operation. It may take a few minutes.</p>
                 </form>
                 <h2>Endpoints</h2>
                 <p><code><?php echo esc_html($shown_base_url . '/api/public/gsf-map/members'); ?></code><br>
