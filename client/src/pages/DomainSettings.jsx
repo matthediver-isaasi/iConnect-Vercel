@@ -433,6 +433,7 @@ export default function DomainSettings() {
             const status = emailDomain?.status;
             const domain = emailDomain?.domain;
             const fromEmail = emailDomain?.from_email;
+            const trackingReady = emailDomain?.tracking_tls_ready === true;
             
             if (!emailDomain || status === 'pending_setup' || !domain) {
               return (
@@ -467,7 +468,7 @@ export default function DomainSettings() {
                     <span className="font-mono text-sm" data-testid="text-email-domain">{domain}</span>
                   </div>
                   <div className="flex items-center gap-2">
-                    {status === 'verified' ? (
+                    {status === 'verified' && trackingReady ? (
                       <Badge variant="secondary" className="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">
                         <CheckCircle2 className="w-3 h-3 mr-1" /> Verified
                       </Badge>
@@ -485,6 +486,13 @@ export default function DomainSettings() {
                     <span className="font-mono">{fromEmail}</span>
                   </div>
                 )}
+
+                <div className="flex items-center gap-2 text-sm">
+                  <span className="text-muted-foreground">Click tracking:</span>
+                  <Badge variant={trackingReady ? "secondary" : "destructive"} data-testid="badge-tracking-https">
+                    {trackingReady ? 'HTTPS ready' : `${(emailDomain?.tracking_scheme || 'unknown').toUpperCase()} — action required`}
+                  </Badge>
+                </div>
                 
                 <div className="flex flex-wrap gap-2">
                   <Button
@@ -524,13 +532,19 @@ export default function DomainSettings() {
                   </Button>
                 </div>
                 
-                {status !== 'verified' && (
+                {(!trackingReady || status !== 'verified') && (
                   <Alert>
                     <AlertCircle className="h-4 w-4" />
-                    <AlertTitle>Verification In Progress</AlertTitle>
+                    <AlertTitle>{!trackingReady ? 'HTTPS Tracking Not Ready' : 'Verification In Progress'}</AlertTitle>
                     <AlertDescription>
-                      DNS records have been created. Verification typically completes within a few minutes to a few hours.
-                      Click "Verify Status" to check the current state.
+                      {emailDomain?.tracking_tls_action || 'DNS records have been created. Verification typically completes within a few minutes to a few hours. Click "Verify Status" to check the current state.'}
+                      {emailDomain?.tracking_tls_dns_records?.length > 0 && (
+                        <ul className="mt-2 list-disc pl-5 font-mono text-xs">
+                          {emailDomain.tracking_tls_dns_records.map((record, index) => (
+                            <li key={`${record.type}-${record.name}-${index}`}>{record.type} {record.name}</li>
+                          ))}
+                        </ul>
+                      )}
                     </AlertDescription>
                   </Alert>
                 )}

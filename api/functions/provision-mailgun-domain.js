@@ -74,7 +74,8 @@ export default async function handler(req, res) {
     if (!result.success) {
       return res.status(500).json({ 
         error: 'Failed to provision email domain',
-        details: result.error 
+        details: result.error,
+        ...result,
       });
     }
 

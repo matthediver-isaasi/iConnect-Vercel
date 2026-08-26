@@ -286,6 +286,33 @@ export default function AdminDomains() {
     }
   };
 
+  const handleReconcileTrackingHttps = async () => {
+    setActionLoading(prev => ({ ...prev, trackingHttps: true }));
+    try {
+      const data = await apiRequest('/api/functions/backfill-mailgun-tracking-https', {
+        method: 'POST',
+        body: JSON.stringify({}),
+      });
+      const result = data.results?.[0];
+      toast({
+        title: result?.tracking_tls_ready ? "HTTPS tracking ready" : "HTTPS tracking needs attention",
+        description: result?.tracking_tls_ready
+          ? `${result.domain} now uses HTTPS tracking.`
+          : (result?.action_required || result?.error || "Verify the domain's tracking DNS and certificate."),
+        variant: result?.tracking_tls_ready ? undefined : "destructive",
+      });
+      fetchDomainData();
+    } catch (err) {
+      toast({
+        title: "HTTPS tracking reconciliation failed",
+        description: err.message || "Please try again later.",
+        variant: "destructive",
+      });
+    } finally {
+      setActionLoading(prev => ({ ...prev, trackingHttps: false }));
+    }
+  };
+
   const copyToClipboard = (text) => {
     navigator.clipboard.writeText(text);
     toast({ title: "Copied to clipboard" });
@@ -318,6 +345,7 @@ export default function AdminDomains() {
   const emailStatus = emailDomain?.status;
   const emailDomainName = emailDomain?.domain;
   const fromEmail = emailDomain?.from_email;
+  const trackingReady = emailDomain?.tracking_tls_ready === true;
 
   return (
     <div className="min-h-screen bg-slate-900">
@@ -601,7 +629,7 @@ export default function AdminDomains() {
                         )}
                       </div>
                       <div className="flex items-center gap-2">
-                        {emailStatus === 'verified' ? (
+                        {emailStatus === 'verified' && trackingReady ? (
                           <Badge variant="secondary" className="bg-green-900 text-green-200">
                             <CheckCircle2 className="w-3 h-3 mr-1" /> Verified
                           </Badge>
@@ -619,8 +647,29 @@ export default function AdminDomains() {
                         <span className="font-mono">{fromEmail}</span>
                       </div>
                     )}
+
+                    <div className="flex items-center gap-2 text-sm text-slate-400">
+                      <span>Click tracking:</span>
+                      <Badge variant={trackingReady ? "secondary" : "destructive"} data-testid="badge-tracking-https">
+                        {trackingReady ? 'HTTPS ready' : `${(emailDomain?.tracking_scheme || 'unknown').toUpperCase()} — action required`}
+                      </Badge>
+                    </div>
                     
                     <div className="flex gap-2 flex-wrap">
+                      <Button
+                        variant="outline"
+                        onClick={handleReconcileTrackingHttps}
+                        disabled={actionLoading.trackingHttps}
+                        className="border-slate-600 text-slate-300"
+                        data-testid="button-reconcile-tracking-https"
+                      >
+                        {actionLoading.trackingHttps ? (
+                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        ) : (
+                          <RefreshCw className="w-4 h-4 mr-2" />
+                        )}
+                        Reconcile HTTPS Tracking
+                      </Button>
                       <Button
                         variant="outline"
                         onClick={handleVerifyEmailDomain}
@@ -698,13 +747,19 @@ export default function AdminDomains() {
                   </Alert>
                 )}
                 
-                {emailStatus !== 'verified' && !emailDomain?.is_custom && (
+                {(!trackingReady || emailStatus !== 'verified') && !emailDomain?.is_custom && (
                   <Alert className="bg-slate-700/50 border-slate-600">
                     <AlertCircle className="h-4 w-4 text-warning" />
-                    <AlertTitle className="text-white">Verification In Progress</AlertTitle>
+                    <AlertTitle className="text-white">{!trackingReady ? 'HTTPS Tracking Not Ready' : 'Verification In Progress'}</AlertTitle>
                     <AlertDescription className="text-slate-300">
-                      DNS records have been created. Verification typically completes within a few minutes to a few hours.
-                      Click "Verify Status" to check the current state.
+                      {emailDomain?.tracking_tls_action || 'DNS records have been created. Verification typically completes within a few minutes to a few hours. Click "Verify Status" to check the current state.'}
+                      {emailDomain?.tracking_tls_dns_records?.length > 0 && (
+                        <ul className="mt-2 list-disc pl-5 font-mono text-xs">
+                          {emailDomain.tracking_tls_dns_records.map((record, index) => (
+                            <li key={`${record.type}-${record.name}-${index}`}>{record.type} {record.name}</li>
+                          ))}
+                        </ul>
+                      )}
                     </AlertDescription>
                   </Alert>
                 )}
