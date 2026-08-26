@@ -8,6 +8,10 @@ import { Loader2, Mail, CheckCircle, AlertCircle } from "lucide-react";
 import PublicLayout from "@/components/layouts/PublicLayout";
 import { useToast } from "@/components/ui/use-toast";
 import { publicClient } from "@/api/publicClient";
+import {
+  isCategoryPreferenceChecked,
+  isGlobalPreferenceChecked
+} from "@/lib/emailPreferenceControlState";
 
 export default function EmailPreferences() {
   const [searchParams] = useSearchParams();
@@ -18,6 +22,7 @@ export default function EmailPreferences() {
   const [error, setError] = useState(null);
   const [updating, setUpdating] = useState(false);
   const [data, setData] = useState(null);
+  const [externalOptOuts, setExternalOptOuts] = useState({ all: false, categories: {} });
   const [blankPage, setBlankPage] = useState(false);
   const [layoutResolved, setLayoutResolved] = useState(false);
 
@@ -68,6 +73,7 @@ export default function EmailPreferences() {
 
   const handleToggleAll = async () => {
     if (!data) return;
+    if (!data.isMember && (data.optedOutAll || externalOptOuts.all)) return;
     
     setUpdating(true);
     try {
@@ -76,13 +82,19 @@ export default function EmailPreferences() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           action: "toggle_all",
-          optOutAll: !data.optedOutAll
+          optOutAll: data.isMember ? !data.optedOutAll : true
         })
       });
 
       const result = await response.json();
 
       if (result.success) {
+        if (!data.isMember) {
+          setExternalOptOuts({
+            all: true,
+            categories: Object.fromEntries((data.categories || []).map((category) => [category.id, true]))
+          });
+        }
         setData(prev => ({
           ...prev,
           optedOutAll: result.optedOutAll
@@ -114,6 +126,9 @@ export default function EmailPreferences() {
 
   const handleToggleCategory = async (categoryId) => {
     if (!data || data.optedOutAll) return;
+    const isExternal = !data.isMember;
+    const category = data.categories?.find((item) => item.id === categoryId);
+    if (isExternal && (!category?.isSubscribed || externalOptOuts.categories[categoryId])) return;
 
     setUpdating(true);
     try {
@@ -121,7 +136,7 @@ export default function EmailPreferences() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          action: "toggle_category",
+          action: isExternal ? "opt_out_category" : "toggle_category",
           categoryId
         })
       });
@@ -129,6 +144,12 @@ export default function EmailPreferences() {
       const result = await response.json();
 
       if (result.success) {
+        if (isExternal) {
+          setExternalOptOuts(prev => ({
+            ...prev,
+            categories: { ...prev.categories, [categoryId]: true }
+          }));
+        }
         setData(prev => ({
           ...prev,
           categories: prev.categories.map(cat =>
@@ -137,7 +158,9 @@ export default function EmailPreferences() {
         }));
         toast({
           title: result.isSubscribed ? "Subscribed" : "Unsubscribed",
-          description: `Category preference updated successfully.`
+          description: result.isSubscribed
+            ? "Category preference updated successfully."
+            : "You will no longer receive emails in this category."
         });
       } else {
         toast({
@@ -233,26 +256,23 @@ export default function EmailPreferences() {
                   </p>
                 </div>
                 <Switch
-                  checked={data.optedOutAll}
+                  checked={isGlobalPreferenceChecked({
+                    isMember: data.isMember,
+                    persistedOptedOutAll: data.optedOutAll,
+                    externalOptOutCompleted: externalOptOuts.all
+                  })}
                   onCheckedChange={handleToggleAll}
-                  disabled={updating}
+                  disabled={updating || (!data.isMember && (data.optedOutAll || externalOptOuts.all))}
                   data-testid="switch-unsubscribe-all"
                 />
               </div>
             </div>
 
-            {!data.isMember && (
-              <div className="p-4 rounded-lg bg-muted text-center text-sm text-muted-foreground">
-                Individual category preferences are only available for registered members.
-                You can use the option above to unsubscribe from all emails.
-              </div>
-            )}
-
-            {data.isMember && data.categories && data.categories.length > 0 && (
+            {data.categories && data.categories.length > 0 && (
               <div className="space-y-4">
                 <div className="flex items-center gap-2">
                   <h3 className="font-medium">Communication Categories</h3>
-                  {data.optedOutAll && (
+                  {data.isMember && data.optedOutAll && (
                     <span className="text-xs text-muted-foreground">(disabled while unsubscribed from all)</span>
                   )}
                 </div>
@@ -260,7 +280,7 @@ export default function EmailPreferences() {
                   {data.categories.map((category) => (
                     <div
                       key={category.id}
-                      className={`p-4 rounded-lg border ${data.optedOutAll ? "opacity-50" : ""}`}
+                      className={`p-4 rounded-lg border ${data.isMember && data.optedOutAll ? "opacity-50" : ""}`}
                     >
                       <div className="flex items-center justify-between gap-4">
                         <div className="space-y-1">
@@ -270,9 +290,26 @@ export default function EmailPreferences() {
                           )}
                         </div>
                         <Switch
-                          checked={category.isSubscribed && !data.optedOutAll}
+                          checked={data.isMember
+                            ? isCategoryPreferenceChecked({
+                                isMember: true,
+                                categoryIsSubscribed: category.isSubscribed,
+                                optedOutAll: data.optedOutAll,
+                                externalOptOutCompleted: false
+                              })
+                            : isCategoryPreferenceChecked({
+                                isMember: false,
+                                categoryIsSubscribed: category.isSubscribed,
+                                optedOutAll: false,
+                                externalOptOutCompleted: !!externalOptOuts.categories[category.id]
+                              })}
                           onCheckedChange={() => handleToggleCategory(category.id)}
-                          disabled={updating || data.optedOutAll}
+                          disabled={updating
+                            || (data.isMember && data.optedOutAll)
+                            || (!data.isMember && (
+                              !category.isSubscribed
+                              || !!externalOptOuts.categories[category.id]
+                            ))}
                           data-testid={`switch-category-${category.id}`}
                         />
                       </div>
@@ -282,7 +319,7 @@ export default function EmailPreferences() {
               </div>
             )}
 
-            {data.isMember && (!data.categories || data.categories.length === 0) && !data.optedOutAll && (
+            {(!data.categories || data.categories.length === 0) && !data.optedOutAll && (
               <div className="text-center py-8 text-muted-foreground">
                 <CheckCircle className="h-8 w-8 mx-auto mb-2 text-green-500" />
                 <p>No specific categories to configure.</p>

@@ -1,5 +1,11 @@
 import { supabase } from '../_lib/database.js';
 import crypto from 'crypto';
+import {
+  loadExternalSubscriberPreferences,
+  normalizeSubscriberEmail,
+  optOutExternalAll,
+  optOutExternalCategory,
+} from '../_lib/externalSubscriberPreferences.js';
 
 const TOKEN_SECRET = process.env.EMAIL_PREFERENCES_TOKEN_SECRET || process.env.SESSION_SECRET || 'default-preferences-secret';
 
@@ -168,7 +174,7 @@ async function handleCampaignToken(req, res, token, tokenData) {
 
     let memberPreferences = [];
     let member = null;
-    let subscriberOptedOut = false;
+    let externalPreferences = null;
 
     if (recipient.member_id) {
       const { data: memberData } = await supabase
@@ -188,34 +194,11 @@ async function handleCampaignToken(req, res, token, tokenData) {
         memberPreferences = prefs || [];
       }
     } else {
-      const normalizedEmail = recipient.email.trim().toLowerCase();
-      const [
-        { data: subscriberRecords, error: subscriberError },
-        { data: globalUnsubscribes, error: globalUnsubscribeError },
-      ] = await Promise.all([
-        supabase
-          .from('email_subscriber')
-          .select('opted_out')
-          .eq('tenant_id', tenantId)
-          .eq('email', normalizedEmail)
-          .limit(1),
-        supabase
-          .from('email_unsubscribe')
-          .select('id')
-          .eq('tenant_id', tenantId)
-          .ilike('email', normalizedEmail)
-          .eq('unsubscribe_type', 'all')
-          .limit(1),
-      ]);
-      if (subscriberError) throw subscriberError;
-      if (globalUnsubscribeError) throw globalUnsubscribeError;
-      
-      if (subscriberRecords && subscriberRecords.length > 0) {
-        subscriberOptedOut = subscriberRecords[0].opted_out === true;
-      }
-      if (globalUnsubscribes && globalUnsubscribes.length > 0) {
-        subscriberOptedOut = true;
-      }
+      externalPreferences = await loadExternalSubscriberPreferences(supabase, {
+        tenantId,
+        email: recipient.email,
+        activeCategories: categories,
+      });
     }
 
     if (req.method === 'POST') {
@@ -229,13 +212,13 @@ async function handleCampaignToken(req, res, token, tokenData) {
       });
     }
 
-    const categoriesWithStatus = (categories || []).map(cat => {
+    const categoriesWithStatus = member ? (categories || []).map(cat => {
       const pref = memberPreferences.find(p => p.category_id === cat.id);
       return {
         ...cat,
         isSubscribed: pref ? pref.is_subscribed : false
       };
-    });
+    }) : externalPreferences.categories;
 
     const { data: tenant } = await supabase
       .from('tenant')
@@ -249,7 +232,7 @@ async function handleCampaignToken(req, res, token, tokenData) {
       email: recipient.email,
       firstName: member?.first_name || recipient.first_name || '',
       lastName: member?.last_name || recipient.last_name || '',
-      optedOutAll: member ? (member.communications_opted_out_all || false) : subscriberOptedOut,
+      optedOutAll: member ? (member.communications_opted_out_all || false) : externalPreferences.optedOutAll,
       categories: categoriesWithStatus,
       campaignName: campaign.name,
       isMember: !!member,
@@ -274,7 +257,7 @@ async function handlePreferenceUpdate(req, res, context) {
     const { action, categoryId, optOutAll } = body;
 
     if (action === 'toggle_all') {
-      const normalizedEmail = recipient.email.trim().toLowerCase();
+      const normalizedEmail = normalizeSubscriberEmail(recipient.email);
       if (member) {
         // Member: update the communications_opted_out_all flag
         await supabase
@@ -282,18 +265,15 @@ async function handlePreferenceUpdate(req, res, context) {
           .update({ communications_opted_out_all: optOutAll })
           .eq('id', member.id);
       } else {
-        // Non-member: update email_subscriber.opted_out for all their subscriptions
-        await supabase
-          .from('email_subscriber')
-          .update({ 
-            opted_out: optOutAll,
-            opted_out_at: optOutAll ? new Date().toISOString() : null,
-            updated_at: new Date().toISOString()
-          })
-          .eq('tenant_id', tenantId)
-          .eq('email', normalizedEmail);
-        
-        console.log('[Preferences] Updated email_subscriber opted_out to:', optOutAll, 'for:', recipient.email);
+        if (optOutAll !== true) {
+          return res.status(400).json({ success: false, error: 'External subscriber opt-outs cannot be reversed from this link.' });
+        }
+        await optOutExternalAll(supabase, {
+          tenantId,
+          email: recipient.email,
+          campaignId: campaign?.id || null,
+        });
+        return res.json({ success: true, optedOutAll: true });
       }
 
       if (optOutAll) {
@@ -330,8 +310,25 @@ async function handlePreferenceUpdate(req, res, context) {
       return res.json({ success: true, optedOutAll: optOutAll });
     }
 
+    if (!member && action === 'opt_out_category' && categoryId) {
+      const activeCategory = (categories || []).find((category) => category.id === categoryId);
+      if (!activeCategory) {
+        return res.status(400).json({ success: false, error: 'Communication category not found.' });
+      }
+      const result = await optOutExternalCategory(supabase, {
+        tenantId,
+        email: recipient.email,
+        categoryId,
+        campaignId: campaign?.id || null,
+      });
+      if (!result.found) {
+        return res.status(400).json({ success: false, error: 'This email address is not subscribed to that category.' });
+      }
+      return res.json({ success: true, categoryId, isSubscribed: false });
+    }
+
     if (!member) {
-      return res.status(400).json({ error: 'Individual category preferences require a member account. You can still use the "Unsubscribe from all" option above.' });
+      return res.status(400).json({ success: false, error: 'Invalid action' });
     }
 
     if (action === 'toggle_category' && categoryId) {
