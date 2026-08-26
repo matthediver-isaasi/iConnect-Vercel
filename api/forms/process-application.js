@@ -587,7 +587,8 @@ export default async function handler(req, res) {
       role_id,                     // Role ID from form conditional logic (set_role action)
       additional_member_creations, // Legacy: Array of additional members to create
       entity_pipelines,            // New unified structure: {members: [], organisations: []}
-      tenant_id                    // Tenant ID for multi-tenant isolation (from public API)
+      tenant_id,                   // Tenant ID for multi-tenant isolation (from public API)
+      defer_communication_subscriptions = false
     } = req.body;
 
     if (!form_values || typeof form_values !== 'object') {
@@ -2524,7 +2525,7 @@ export default async function handler(req, res) {
     // Do NOT auto-subscribe missing categories - this preserves existing opt-outs
     // Note: Pipeline mappings (memberCommunicationPrefsMap) run AFTER this and will override these values
     console.log(`[AppProcessor] Communication preferences path #1 check: createdMemberId=${createdMemberId}, fields=${fields ? fields.length + ' fields' : 'null/undefined'}, form_values keys=${form_values ? Object.keys(form_values).length : 'null'}`);
-    if (createdMemberId && fields) {
+    if (createdMemberId && fields && !defer_communication_subscriptions) {
       const commPrefFields = fields.filter(f => f.type === 'communication_preferences');
       console.log(`[AppProcessor] Found ${commPrefFields.length} communication_preferences fields in form fields array`);
       if (commPrefFields.length > 0) {
@@ -2600,7 +2601,7 @@ export default async function handler(req, res) {
     }
 
     // Save communication preferences (marketing list subscriptions) for primary member
-    if (createdMemberId && memberCommunicationPrefsMap.size > 0) {
+    if (createdMemberId && memberCommunicationPrefsMap.size > 0 && !defer_communication_subscriptions) {
       console.log(`[AppProcessor] Saving ${memberCommunicationPrefsMap.size} communication preferences for member ${createdMemberId}`);
       
       for (const [categoryId, isSubscribed] of memberCommunicationPrefsMap) {
