@@ -13,6 +13,7 @@ function createDatabase({ categories = ['cat-news'], members = [], failures = {}
     preferences: [],
     subscribers: [],
     operations: [],
+    unsubscribes: [],
   };
 
   class Query {
@@ -83,7 +84,61 @@ function createDatabase({ categories = ['cat-news'], members = [], failures = {}
     }
   }
 
-  return { database: { from: (table) => new Query(table) }, state };
+  const database = {
+    from: (table) => new Query(table),
+    async rpc(name, values) {
+      state.operations.push(['rpc', name, { ...values }]);
+      const failure = failures[`${name}:rpc`];
+      if (failure) return { error: failure };
+      for (let index = 0; index < values.p_category_ids.length; index += 1) {
+        const categoryId = values.p_category_ids[index];
+        const isSubscribed = values.p_is_subscribed[index];
+        if (values.p_member_id) {
+          const preference = {
+            member_id: values.p_member_id,
+            category_id: categoryId,
+            is_subscribed: isSubscribed,
+            tenant_id: values.p_tenant_id,
+          };
+          const preferenceIndex = state.preferences.findIndex((row) =>
+            row.member_id === preference.member_id && row.category_id === categoryId
+          );
+          if (preferenceIndex >= 0) state.preferences[preferenceIndex] = preference;
+          else state.preferences.push(preference);
+          state.subscribers = state.subscribers.filter((row) => !(
+            row.tenant_id === values.p_tenant_id
+              && row.email === values.p_email
+              && row.communication_category_id === categoryId
+          ));
+        } else {
+          const subscriber = {
+            tenant_id: values.p_tenant_id,
+            email: values.p_email,
+            first_name: values.p_first_name,
+            last_name: values.p_last_name,
+            form_id: values.p_form_id,
+            communication_category_id: categoryId,
+            opted_out: !isSubscribed,
+            opted_out_at: isSubscribed ? null : new Date().toISOString(),
+          };
+          const subscriberIndex = state.subscribers.findIndex((row) =>
+            row.tenant_id === subscriber.tenant_id
+              && row.email === subscriber.email
+              && row.communication_category_id === categoryId
+          );
+          if (subscriberIndex >= 0) state.subscribers[subscriberIndex] = subscriber;
+          else state.subscribers.push(subscriber);
+        }
+      }
+      if (values.p_is_subscribed.some(Boolean)) {
+        const member = state.members.find((item) => item.id === values.p_member_id);
+        if (member) member.communications_opted_out_all = false;
+        state.unsubscribes = state.unsubscribes.filter((row) => row.unsubscribe_type !== 'all');
+      }
+      return { error: null };
+    },
+  };
+  return { database, state };
 }
 
 const form = {
@@ -263,7 +318,7 @@ test('member preference failures do not delete the stale external subscriber', a
   const writeError = new Error('preference write failed');
   const { database, state } = createDatabase({
     members: [{ id: 'member-1', tenant_id: 'tenant-1', email: 'ada@example.com' }],
-    failures: { 'member_communication_preference:upsert': writeError },
+    failures: { 'set_form_communication_preference_state:rpc': writeError },
   });
   state.subscribers.push({ tenant_id: 'tenant-1', email: 'ada@example.com', communication_category_id: 'cat-news' });
 
@@ -279,6 +334,53 @@ test('member preference failures do not delete the stale external subscriber', a
   );
   assert.equal(state.subscribers.length, 1);
   assert.equal(state.operations.some(([operation]) => operation === 'delete'), false);
+});
+
+test('form consent is persisted in one locked RPC with explicit desired category states', async () => {
+  const { database, state } = createDatabase({
+    categories: ['cat-news', 'cat-events'],
+    members: [{ id: 'member-1', tenant_id: 'tenant-1', email: 'current@example.com', communications_opted_out_all: true }],
+  });
+  state.unsubscribes.push({
+    tenant_id: 'tenant-1',
+    email: 'current@example.com',
+    unsubscribe_type: 'all',
+  });
+
+  await persistFormCommunicationSubscriptions({
+    database,
+    tenantId: 'tenant-1',
+    form,
+    submissionData: {
+      email: 'old@example.com',
+      prefs: { 'cat-news': false, 'cat-events': true },
+    },
+    resolvedMemberId: 'member-1',
+  });
+
+  const rpcCalls = state.operations.filter(([operation]) => operation === 'rpc');
+  assert.equal(rpcCalls.length, 1);
+  assert.equal(rpcCalls[0][1], 'set_form_communication_preference_state');
+  assert.equal(rpcCalls[0][2].p_email, 'current@example.com');
+  assert.deepEqual(rpcCalls[0][2].p_category_ids, ['cat-news', 'cat-events']);
+  assert.deepEqual(rpcCalls[0][2].p_is_subscribed, [false, true]);
+  assert.equal(state.members[0].communications_opted_out_all, false);
+  assert.equal(state.unsubscribes.length, 0);
+});
+
+test('preference and form RPCs serialize on the same recipient lock and reconcile global suppression', () => {
+  const migration = fs.readFileSync(
+    new URL('../../supabase/migrations/20260826_atomic_email_preference_global_state.sql', import.meta.url),
+    'utf8'
+  );
+  const lockExpression = "hashtextextended(p_tenant_id::text || ':' || v_email, 0)";
+  assert.equal(migration.split(lockExpression).length - 1, 3);
+  const formRpc = migration.slice(migration.indexOf('create or replace function set_form_communication_preference_state'));
+  assert.match(formRpc, /set communications_opted_out_all = false/);
+  assert.match(formRpc, /unsubscribe_type = 'all'/);
+  assert.match(formRpc, /insert into member_communication_preference/);
+  assert.match(formRpc, /insert into email_subscriber/);
+  assert.match(formRpc, /insert into email_unsubscribe/);
 });
 
 test('public submission persists subscriptions only after a successful pipeline and never for anonymous surveys', () => {

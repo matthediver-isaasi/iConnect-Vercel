@@ -2,11 +2,7 @@ import { supabase } from '../_lib/database.js';
 import crypto from 'crypto';
 import {
   loadExternalSubscriberPreferences,
-  normalizeSubscriberEmail,
-  optOutExternalAll,
-  optOutExternalCategory,
 } from '../_lib/externalSubscriberPreferences.js';
-import { getToggledExplicitSubscriptionValue } from '../../shared/communicationCategoryMembership.js';
 
 const TOKEN_SECRET = process.env.EMAIL_PREFERENCES_TOKEN_SECRET || process.env.SESSION_SECRET || 'default-preferences-secret';
 
@@ -258,120 +254,91 @@ async function handlePreferenceUpdate(req, res, context) {
     const { action, categoryId, optOutAll } = body;
 
     if (action === 'toggle_all') {
-      const normalizedEmail = normalizeSubscriberEmail(recipient.email);
-      if (member) {
-        // Member: update the communications_opted_out_all flag
-        await supabase
-          .from('member')
-          .update({ communications_opted_out_all: optOutAll })
-          .eq('id', member.id);
-      } else {
-        if (optOutAll !== true) {
-          return res.status(400).json({ success: false, error: 'External subscriber opt-outs cannot be reversed from this link.' });
-        }
-        await optOutExternalAll(supabase, {
+      if (typeof optOutAll !== 'boolean') {
+        return res.status(400).json({ success: false, error: 'An opt-out state is required.' });
+      }
+      let availableCategories = categories || [];
+      if (!member) {
+        const currentPreferences = await loadExternalSubscriberPreferences(supabase, {
           tenantId,
           email: recipient.email,
-          campaignId: campaign?.id || null,
+          activeCategories: categories,
         });
-        return res.json({ success: true, optedOutAll: true });
+        availableCategories = currentPreferences.categories;
       }
 
-      if (optOutAll) {
-        if (member) {
-          for (const cat of (categories || [])) {
-            await upsertPreference(member.id, cat.id, false, tenantId);
-          }
+      const { error: globalUpdateError } = await supabase.rpc(
+        'set_email_preference_global_state',
+        {
+          p_tenant_id: tenantId,
+          p_email: member?.email || recipient.email,
+          p_member_id: member?.id || null,
+          p_opt_out_all: optOutAll,
+          p_campaign_id: campaign?.id || null,
+          p_category_ids: availableCategories.map((category) => category.id),
         }
+      );
+      if (globalUpdateError) throw globalUpdateError;
 
-        const { error: unsubscribeError } = await supabase
-          .from('email_unsubscribe')
-          .upsert({
-            tenant_id: tenantId,
-            email: normalizedEmail,
-            member_id: member?.id || null,
-            unsubscribe_type: 'all',
-            campaign_id: campaign?.id || null,
-            source: 'user',
-            unsubscribed_at: new Date().toISOString()
-          }, {
-            onConflict: 'tenant_id,email,unsubscribe_type,communication_category_id'
-          });
-        if (unsubscribeError) throw unsubscribeError;
-      } else {
-        const { error: deleteError } = await supabase
-          .from('email_unsubscribe')
-          .delete()
+      let responseCategories;
+      if (member) {
+        const { data: refreshedPreferences, error: refreshedPreferencesError } = await supabase
+          .from('member_communication_preference')
+          .select('category_id, is_subscribed')
           .eq('tenant_id', tenantId)
-          .ilike('email', normalizedEmail)
-          .eq('unsubscribe_type', 'all');
-        if (deleteError) throw deleteError;
+          .eq('member_id', member.id);
+        if (refreshedPreferencesError) throw refreshedPreferencesError;
+        responseCategories = (categories || []).map((category) => {
+          const preference = refreshedPreferences?.find((item) => item.category_id === category.id);
+          return {
+            ...category,
+            isSubscribed: optOutAll ? false : preference?.is_subscribed === true,
+          };
+        });
+      } else {
+        const refreshed = await loadExternalSubscriberPreferences(supabase, {
+          tenantId,
+          email: recipient.email,
+          activeCategories: categories,
+        });
+        responseCategories = refreshed.categories;
       }
-
-      return res.json({ success: true, optedOutAll: optOutAll });
+      return res.json({
+        success: true,
+        optedOutAll: optOutAll,
+        categories: responseCategories,
+      });
     }
 
-    if (!member && action === 'opt_out_category' && categoryId) {
+    if (action === 'set_category_subscription' && categoryId) {
       const activeCategory = (categories || []).find((category) => category.id === categoryId);
       if (!activeCategory) {
         return res.status(400).json({ success: false, error: 'Communication category not found.' });
       }
-      const result = await optOutExternalCategory(supabase, {
-        tenantId,
-        email: recipient.email,
-        categoryId,
-        campaignId: campaign?.id || null,
-      });
-      if (!result.found) {
-        return res.status(400).json({ success: false, error: 'This email address is not subscribed to that category.' });
+      if (typeof body.isSubscribed !== 'boolean') {
+        return res.status(400).json({ success: false, error: 'A subscription state is required.' });
       }
-      return res.json({ success: true, categoryId, isSubscribed: false });
-    }
-
-    if (!member) {
-      return res.status(400).json({ success: false, error: 'Invalid action' });
-    }
-
-    if (action === 'toggle_category' && categoryId) {
-      const { data: existingPref, error: existingPrefError } = await supabase
-        .from('member_communication_preference')
-        .select('id, is_subscribed')
-        .eq('tenant_id', tenantId)
-        .eq('member_id', member.id)
-        .eq('category_id', categoryId)
-        .limit(1);
-      if (existingPrefError) throw existingPrefError;
-
-      const newValue = getToggledExplicitSubscriptionValue(existingPref?.[0]);
-
-      await upsertPreference(member.id, categoryId, newValue, tenantId);
-
-      if (!newValue) {
-        await supabase
-          .from('email_unsubscribe')
-          .upsert({
-            tenant_id: tenantId,
-            email: recipient.email,
-            member_id: member.id,
-            unsubscribe_type: 'category',
-            communication_category_id: categoryId,
-            campaign_id: campaign?.id || null,
-            source: 'user',
-            unsubscribed_at: new Date().toISOString()
-          }, {
-            onConflict: 'tenant_id,email,unsubscribe_type,communication_category_id'
+      const { error: categoryUpdateError } = await supabase.rpc(
+        'set_email_preference_category_state',
+        {
+          p_tenant_id: tenantId,
+          p_email: member?.email || recipient.email,
+          p_member_id: member?.id || null,
+          p_category_id: categoryId,
+          p_is_subscribed: body.isSubscribed,
+          p_campaign_id: campaign?.id || null,
+        }
+      );
+      if (categoryUpdateError) {
+        if (String(categoryUpdateError.message || '').includes('global email opt-out is active')) {
+          return res.status(409).json({
+            success: false,
+            error: 'Turn off the global email opt-out before changing individual categories.',
           });
-      } else {
-        await supabase
-          .from('email_unsubscribe')
-          .delete()
-          .eq('tenant_id', tenantId)
-          .eq('email', recipient.email)
-          .eq('unsubscribe_type', 'category')
-          .eq('communication_category_id', categoryId);
+        }
+        throw categoryUpdateError;
       }
-
-      return res.json({ success: true, categoryId, isSubscribed: newValue });
+      return res.json({ success: true, categoryId, isSubscribed: body.isSubscribed });
     }
 
     return res.status(400).json({ error: 'Invalid action' });
@@ -379,32 +346,6 @@ async function handlePreferenceUpdate(req, res, context) {
   } catch (err) {
     console.error('[Preferences] Update error:', err);
     return res.status(500).json({ error: 'Failed to update preferences' });
-  }
-}
-
-async function upsertPreference(memberId, categoryId, isSubscribed, tenantId) {
-  const { data: existing } = await supabase
-    .from('member_communication_preference')
-    .select('id')
-    .eq('member_id', memberId)
-    .eq('category_id', categoryId)
-    .limit(1);
-
-  if (existing && existing.length > 0) {
-    await supabase
-      .from('member_communication_preference')
-      .update({ is_subscribed: isSubscribed })
-      .eq('id', existing[0].id);
-  } else {
-    const insertData = {
-      member_id: memberId,
-      category_id: categoryId,
-      is_subscribed: isSubscribed
-    };
-    if (tenantId) insertData.tenant_id = tenantId;
-    await supabase
-      .from('member_communication_preference')
-      .insert(insertData);
   }
 }
 
@@ -735,8 +676,9 @@ function renderPage(type, data = {}) {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
-                action: 'toggle_category',
-                categoryId: categoryId
+                action: 'set_category_subscription',
+                categoryId: categoryId,
+                isSubscribed: checkbox.checked
               })
             });
             const result = await response.json();

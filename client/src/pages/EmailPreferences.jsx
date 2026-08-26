@@ -9,8 +9,8 @@ import PublicLayout from "@/components/layouts/PublicLayout";
 import { useToast } from "@/components/ui/use-toast";
 import { publicClient } from "@/api/publicClient";
 import {
-  isCategoryPreferenceChecked,
-  isGlobalPreferenceChecked
+  getEmailPreferenceControlState,
+  getGlobalEmailPreferenceControlState,
 } from "@/lib/emailPreferenceControlState";
 
 export default function EmailPreferences() {
@@ -22,7 +22,6 @@ export default function EmailPreferences() {
   const [error, setError] = useState(null);
   const [updating, setUpdating] = useState(false);
   const [data, setData] = useState(null);
-  const [externalOptOuts, setExternalOptOuts] = useState({ all: false, categories: {} });
   const [blankPage, setBlankPage] = useState(false);
   const [layoutResolved, setLayoutResolved] = useState(false);
 
@@ -73,7 +72,6 @@ export default function EmailPreferences() {
 
   const handleToggleAll = async () => {
     if (!data) return;
-    if (!data.isMember && (data.optedOutAll || externalOptOuts.all)) return;
     
     setUpdating(true);
     try {
@@ -82,22 +80,17 @@ export default function EmailPreferences() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           action: "toggle_all",
-          optOutAll: data.isMember ? !data.optedOutAll : true
+          optOutAll: !data.optedOutAll
         })
       });
 
       const result = await response.json();
 
       if (result.success) {
-        if (!data.isMember) {
-          setExternalOptOuts({
-            all: true,
-            categories: Object.fromEntries((data.categories || []).map((category) => [category.id, true]))
-          });
-        }
         setData(prev => ({
           ...prev,
-          optedOutAll: result.optedOutAll
+          optedOutAll: result.optedOutAll,
+          categories: result.categories || prev.categories
         }));
         toast({
           title: result.optedOutAll ? "Unsubscribed from all emails" : "Re-subscribed to emails",
@@ -126,9 +119,8 @@ export default function EmailPreferences() {
 
   const handleToggleCategory = async (categoryId) => {
     if (!data || data.optedOutAll) return;
-    const isExternal = !data.isMember;
     const category = data.categories?.find((item) => item.id === categoryId);
-    if (isExternal && (!category?.isSubscribed || externalOptOuts.categories[categoryId])) return;
+    if (!category) return;
 
     setUpdating(true);
     try {
@@ -136,20 +128,15 @@ export default function EmailPreferences() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          action: isExternal ? "opt_out_category" : "toggle_category",
-          categoryId
+          action: "set_category_subscription",
+          categoryId,
+          isSubscribed: !category.isSubscribed
         })
       });
 
       const result = await response.json();
 
       if (result.success) {
-        if (isExternal) {
-          setExternalOptOuts(prev => ({
-            ...prev,
-            categories: { ...prev.categories, [categoryId]: true }
-          }));
-        }
         setData(prev => ({
           ...prev,
           categories: prev.categories.map(cat =>
@@ -232,6 +219,11 @@ export default function EmailPreferences() {
     );
   }
 
+  const globalState = getGlobalEmailPreferenceControlState({
+    optedOutAll: data.optedOutAll,
+    updating,
+  });
+
   return (
     <Wrapper>
       <div className="container max-w-2xl mx-auto py-12 px-4">
@@ -247,22 +239,19 @@ export default function EmailPreferences() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
-            <div className="p-4 rounded-lg border bg-muted/50">
+            <div className={`p-4 rounded-lg border ${globalState.cardClassName}`}>
               <div className="flex items-center justify-between gap-4">
                 <div className="space-y-1">
-                  <Label className="text-base font-medium">Unsubscribe from all emails</Label>
-                  <p className="text-sm text-muted-foreground">
-                    Turn this on to stop receiving all marketing emails from us
-                  </p>
+                  <Label htmlFor="unsubscribe-all" className="text-base font-medium">Stop all marketing emails</Label>
+                  <p className="text-sm font-semibold" role="status">{globalState.status}</p>
+                  <p className="text-sm opacity-80">{globalState.guidance}</p>
                 </div>
                 <Switch
-                  checked={isGlobalPreferenceChecked({
-                    isMember: data.isMember,
-                    persistedOptedOutAll: data.optedOutAll,
-                    externalOptOutCompleted: externalOptOuts.all
-                  })}
+                  id="unsubscribe-all"
+                  checked={globalState.checked}
                   onCheckedChange={handleToggleAll}
-                  disabled={updating || (!data.isMember && (data.optedOutAll || externalOptOuts.all))}
+                  disabled={globalState.disabled}
+                  aria-label="Stop all marketing emails"
                   data-testid="switch-unsubscribe-all"
                 />
               </div>
@@ -272,49 +261,42 @@ export default function EmailPreferences() {
               <div className="space-y-4">
                 <div className="flex items-center gap-2">
                   <h3 className="font-medium">Communication Categories</h3>
-                  {data.isMember && data.optedOutAll && (
-                    <span className="text-xs text-muted-foreground">(disabled while unsubscribed from all)</span>
+                  {data.optedOutAll && (
+                    <span className="text-xs text-red-800">(category controls are locked while all emails are stopped)</span>
                   )}
                 </div>
                 <div className="space-y-3">
-                  {data.categories.map((category) => (
+                  {data.categories.map((category) => {
+                    const categoryState = getEmailPreferenceControlState({
+                      optedOutAll: data.optedOutAll,
+                      categoryIsSubscribed: category.isSubscribed,
+                      updating,
+                    });
+                    return (
                     <div
                       key={category.id}
-                      className={`p-4 rounded-lg border ${data.isMember && data.optedOutAll ? "opacity-50" : ""}`}
+                      className={`p-4 rounded-lg border ${categoryState.cardClassName}`}
                     >
                       <div className="flex items-center justify-between gap-4">
                         <div className="space-y-1">
-                          <Label className="text-base">{category.name}</Label>
+                          <Label htmlFor={`category-${category.id}`} className="text-base">{category.name}</Label>
+                          <p className="text-sm font-semibold" role="status">{categoryState.status}</p>
                           {category.description && (
                             <p className="text-sm text-muted-foreground">{category.description}</p>
                           )}
+                          <p className="text-sm opacity-80">{categoryState.guidance}</p>
                         </div>
                         <Switch
-                          checked={data.isMember
-                            ? isCategoryPreferenceChecked({
-                                isMember: true,
-                                categoryIsSubscribed: category.isSubscribed,
-                                optedOutAll: data.optedOutAll,
-                                externalOptOutCompleted: false
-                              })
-                            : isCategoryPreferenceChecked({
-                                isMember: false,
-                                categoryIsSubscribed: category.isSubscribed,
-                                optedOutAll: false,
-                                externalOptOutCompleted: !!externalOptOuts.categories[category.id]
-                              })}
+                          id={`category-${category.id}`}
+                          checked={categoryState.checked}
                           onCheckedChange={() => handleToggleCategory(category.id)}
-                          disabled={updating
-                            || (data.isMember && data.optedOutAll)
-                            || (!data.isMember && (
-                              !category.isSubscribed
-                              || !!externalOptOuts.categories[category.id]
-                            ))}
+                          disabled={categoryState.disabled}
+                          aria-label={`${category.name} emails`}
                           data-testid={`switch-category-${category.id}`}
                         />
                       </div>
                     </div>
-                  ))}
+                  )})}
                 </div>
               </div>
             )}

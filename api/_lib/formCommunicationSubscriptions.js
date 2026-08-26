@@ -103,59 +103,30 @@ export async function persistFormCommunicationSubscriptions({
   }
 
   if (member) {
-    const reconciliationEmail = identity.email || normalizeSubscriberEmail(member.email);
-    if (member.communications_opted_out_all && validSelections.some(([, subscribed]) => subscribed)) {
-      const { error } = await database
-        .from('member')
-        .update({ communications_opted_out_all: false })
-        .eq('tenant_id', tenantId)
-        .eq('id', member.id);
-      if (error) throw error;
-    }
-
-    for (const [categoryId, isSubscribed] of validSelections) {
-      const { error: preferenceError } = await database
-        .from('member_communication_preference')
-        .upsert({
-          member_id: member.id,
-          category_id: categoryId,
-          is_subscribed: isSubscribed,
-          tenant_id: tenantId,
-        }, { onConflict: 'member_id,category_id' });
-      if (preferenceError) throw preferenceError;
-
-      // Reconcile only this submitter/category, and only after the member
-      // preference is safely stored.
-      if (reconciliationEmail) {
-        const { error: deleteError } = await database
-          .from('email_subscriber')
-          .delete()
-          .eq('tenant_id', tenantId)
-          .eq('email', reconciliationEmail)
-          .eq('communication_category_id', categoryId);
-        if (deleteError) throw deleteError;
-      }
-    }
+    const { error } = await database.rpc('set_form_communication_preference_state', {
+      p_tenant_id: tenantId,
+      p_email: normalizeSubscriberEmail(member.email) || identity.email,
+      p_member_id: member.id,
+      p_form_id: form.id,
+      p_first_name: identity.firstName,
+      p_last_name: identity.lastName,
+      p_category_ids: validSelections.map(([categoryId]) => categoryId),
+      p_is_subscribed: validSelections.map(([, isSubscribed]) => isSubscribed),
+    });
+    if (error) throw error;
     return { kind: 'member', memberId: member.id, count: validSelections.length };
   }
 
-  const now = new Date().toISOString();
-  for (const [categoryId, isSubscribed] of validSelections) {
-    const { error } = await database
-      .from('email_subscriber')
-      .upsert({
-        tenant_id: tenantId,
-        email: identity.email,
-        first_name: identity.firstName,
-        last_name: identity.lastName,
-        form_id: form.id,
-        communication_category_id: categoryId,
-        opted_out: !isSubscribed,
-        subscribed_at: now,
-        opted_out_at: isSubscribed ? null : now,
-        updated_at: now,
-      }, { onConflict: 'tenant_id,email,communication_category_id' });
-    if (error) throw error;
-  }
+  const { error } = await database.rpc('set_form_communication_preference_state', {
+    p_tenant_id: tenantId,
+    p_email: identity.email,
+    p_member_id: null,
+    p_form_id: form.id,
+    p_first_name: identity.firstName,
+    p_last_name: identity.lastName,
+    p_category_ids: validSelections.map(([categoryId]) => categoryId),
+    p_is_subscribed: validSelections.map(([, isSubscribed]) => isSubscribed),
+  });
+  if (error) throw error;
   return { kind: 'external', count: validSelections.length };
 }

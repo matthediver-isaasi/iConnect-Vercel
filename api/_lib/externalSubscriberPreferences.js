@@ -53,6 +53,25 @@ async function persistUnsubscribeLedger(db, {
   if (insertError) throw insertError;
 }
 
+async function removeUnsubscribeLedger(db, {
+  tenantId,
+  normalizedEmail,
+  unsubscribeType,
+  categoryId = null,
+}) {
+  let query = db
+    .from('email_unsubscribe')
+    .delete()
+    .eq('tenant_id', tenantId)
+    .ilike('email', escapeLikeLiteral(normalizedEmail))
+    .eq('unsubscribe_type', unsubscribeType);
+  query = categoryId
+    ? query.eq('communication_category_id', categoryId)
+    : query.is('communication_category_id', null);
+  const { error } = await query;
+  if (error) throw error;
+}
+
 export async function loadExternalSubscriberPreferences(db, { tenantId, email, activeCategories }) {
   const normalizedEmail = normalizeSubscriberEmail(email);
   const [{ data: subscriberRows, error: subscriberError }, { data: unsubscribeRows, error: unsubscribeError }] = await Promise.all([
@@ -100,6 +119,22 @@ export async function loadExternalSubscriberPreferences(db, { tenantId, email, a
 }
 
 export async function optOutExternalCategory(db, { tenantId, email, categoryId, campaignId = null }) {
+  return setExternalCategorySubscription(db, {
+    tenantId,
+    email,
+    categoryId,
+    isSubscribed: false,
+    campaignId,
+  });
+}
+
+export async function setExternalCategorySubscription(db, {
+  tenantId,
+  email,
+  categoryId,
+  isSubscribed,
+  campaignId = null,
+}) {
   const normalizedEmail = normalizeSubscriberEmail(email);
   const now = new Date().toISOString();
   const { data: matchingRows, error: matchError } = await db
@@ -112,24 +147,41 @@ export async function optOutExternalCategory(db, { tenantId, email, categoryId, 
   if (!matchingRows?.length) return { found: false };
 
   const ids = matchingRows.map((row) => row.id);
+  const updateValues = isSubscribed
+    ? { opted_out: false, opted_out_at: null, updated_at: now }
+    : { opted_out: true, opted_out_at: now, updated_at: now };
   const { error: updateError } = await db
     .from('email_subscriber')
-    .update({ opted_out: true, opted_out_at: now, updated_at: now })
+    .update(updateValues)
     .in('id', ids);
   if (updateError) throw updateError;
 
-  await persistUnsubscribeLedger(db, {
-    tenantId,
-    normalizedEmail,
-    unsubscribeType: 'category',
-    categoryId,
-    campaignId,
-    now,
-  });
-  return { found: true };
+  if (isSubscribed) {
+    await removeUnsubscribeLedger(db, {
+      tenantId,
+      normalizedEmail,
+      unsubscribeType: 'category',
+      categoryId,
+    });
+  } else {
+    await persistUnsubscribeLedger(db, {
+      tenantId,
+      normalizedEmail,
+      unsubscribeType: 'category',
+      categoryId,
+      campaignId,
+      now,
+    });
+  }
+  return { found: true, isSubscribed };
 }
 
-export async function optOutExternalAll(db, { tenantId, email, campaignId = null }) {
+export async function optOutExternalAll(db, {
+  tenantId,
+  email,
+  campaignId = null,
+  categoryIds = [],
+}) {
   const normalizedEmail = normalizeSubscriberEmail(email);
   const now = new Date().toISOString();
   const { error: updateError } = await db
@@ -145,5 +197,23 @@ export async function optOutExternalAll(db, { tenantId, email, campaignId = null
     unsubscribeType: 'all',
     campaignId,
     now,
+  });
+  for (const categoryId of categoryIds) {
+    await persistUnsubscribeLedger(db, {
+      tenantId,
+      normalizedEmail,
+      unsubscribeType: 'category',
+      categoryId,
+      campaignId,
+      now,
+    });
+  }
+}
+
+export async function removeExternalGlobalOptOut(db, { tenantId, email }) {
+  await removeUnsubscribeLedger(db, {
+    tenantId,
+    normalizedEmail: normalizeSubscriberEmail(email),
+    unsubscribeType: 'all',
   });
 }

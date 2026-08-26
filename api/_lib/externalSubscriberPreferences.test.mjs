@@ -5,6 +5,8 @@ import {
   loadExternalSubscriberPreferences,
   optOutExternalAll,
   optOutExternalCategory,
+  removeExternalGlobalOptOut,
+  setExternalCategorySubscription,
 } from './externalSubscriberPreferences.js';
 
 function matchesIlike(value, pattern) {
@@ -36,6 +38,7 @@ function createDb({ subscribers = [], unsubscribes = [] } = {}) {
     const query = {
       select() { operation = 'select'; return query; },
       update(value) { operation = 'update'; payload = value; return query; },
+      delete() { operation = 'delete'; return query; },
       insert(value) { operation = 'insert'; payload = value; return query; },
       upsert(value) { operation = 'upsert'; payload = value; return query; },
       eq(column, value) { filters.push(['eq', column, value]); return query; },
@@ -160,4 +163,53 @@ test('global opt-out updates all normalized-email subscriber rows and records gl
   assert.equal(ledgerWrite.payload.unsubscribe_type, 'all');
   assert.equal(ledgerWrite.payload.communication_category_id, null);
   assert.equal(ledgerWrite.payload.email, 'person@example.com');
+});
+
+test('category re-subscription clears subscriber opt-out and category ledger', async () => {
+  const { db, writes } = createDb({
+    subscribers: [
+      { id: 's1', tenant_id: 't1', email: 'Person@Example.com', communication_category_id: 'c1', opted_out: true },
+    ],
+    unsubscribes: [
+      { id: 'u1', tenant_id: 't1', email: 'person@example.com', unsubscribe_type: 'category', communication_category_id: 'c1' },
+    ],
+  });
+  const result = await setExternalCategorySubscription(db, {
+    tenantId: 't1',
+    email: 'PERSON@example.com',
+    categoryId: 'c1',
+    isSubscribed: true,
+  });
+
+  assert.deepEqual(result, { found: true, isSubscribed: true });
+  const subscriberWrite = writes.find((write) => write.table === 'email_subscriber');
+  assert.equal(subscriberWrite.payload.opted_out, false);
+  assert.equal(subscriberWrite.payload.opted_out_at, null);
+  const ledgerDelete = writes.find((write) => write.table === 'email_unsubscribe' && write.operation === 'delete');
+  assert.ok(ledgerDelete);
+  assert.ok(ledgerDelete.filters.some((filter) => filter[1] === 'communication_category_id' && filter[2] === 'c1'));
+});
+
+test('global opt-out records every available category and removing it preserves category opt-outs', async () => {
+  const { db, writes } = createDb();
+  await optOutExternalAll(db, {
+    tenantId: 't1',
+    email: 'person@example.com',
+    categoryIds: ['c1', 'c2'],
+  });
+  const categoryLedgers = writes.filter((write) => (
+    write.table === 'email_unsubscribe'
+      && write.payload?.unsubscribe_type === 'category'
+  ));
+  assert.deepEqual(categoryLedgers.map((write) => write.payload.communication_category_id), ['c1', 'c2']);
+
+  await removeExternalGlobalOptOut(db, {
+    tenantId: 't1',
+    email: 'person@example.com',
+  });
+  const globalDelete = writes.find((write) => (
+    write.operation === 'delete'
+      && write.filters.some((filter) => filter[1] === 'unsubscribe_type' && filter[2] === 'all')
+  ));
+  assert.ok(globalDelete);
 });
