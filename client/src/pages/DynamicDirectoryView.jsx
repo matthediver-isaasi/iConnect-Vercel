@@ -21,6 +21,7 @@ import { toast } from "sonner";
 import { isDeletedMember } from "@/utils";
 import { isVisibleOnFront, isVisibleOnBack, isFieldVisibleOnBackFor, getDirectoryOrderedFields, enrichFieldForDirectory, isFieldInDirectory, hasDirectoryFieldValue, getDirectoryFilterOptions, directoryFilterValueMatches, resolveBackFieldOrder, MEMBER_BACK_DEFAULT_ORDER, ORG_BACK_DEFAULT_ORDER, applyCoreFieldVisibility, isOrgCoreItemVisible, resolveCustomFieldsLabel } from "@/utils/directorySettings";
 import { DirectoryMemberCard, DirectoryOrganizationCard } from "@/components/directory/DirectoryCards";
+import { buildOrganisationDirectoryMembersUrl } from "@/lib/organisationDirectoryMemberContext";
 
 export default function DynamicDirectoryView() {
   const { slug } = useParams();
@@ -1251,7 +1252,7 @@ export default function DynamicDirectoryView() {
               <Button variant="outline" onClick={() => setSelectedOrg(null)}>Close</Button>
               {!isGuest && orgMembersListVisible && (
                 <Button
-                  onClick={() => { window.location.href = `/memberdirectory?org=${selectedOrg?.id}`; }}
+                  onClick={() => { window.location.href = buildOrganisationDirectoryMembersUrl(selectedOrg?.id); }}
                   className="bg-blue-600 hover:bg-blue-700 gap-2"
                   data-testid="button-view-members"
                 >

@@ -18,6 +18,7 @@ import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useLayoutContext } from "@/contexts/LayoutContext";
 import { isDeletedMember } from "@/utils";
 import { isVisibleOnFront, isVisibleOnBack, enrichFieldForDirectory, isFieldInDirectory, getDirectoryFilterOptions, directoryFilterValueMatches } from "@/utils/directorySettings";
+import { hasOrganisationDirectoryOrigin, memberMatchesDirectoryScope, resolveDirectoryRoleIds } from "@/lib/organisationDirectoryMemberContext";
 
 export default function MemberDirectoryPage() {
   const { memberInfo, isFeatureExcluded } = useMemberAccess();
@@ -50,6 +51,7 @@ export default function MemberDirectoryPage() {
     return searchParams.get('org') || "";
   });
   const [customFieldFilters, setCustomFieldFilters] = useState({});
+  const hasOrganisationOrigin = hasOrganisationDirectoryOrigin(window.location.search);
 
   const { data: allMembers = [], isLoading: membersLoading } = useQuery({
     queryKey: ['all-members-directory'],
@@ -122,11 +124,23 @@ export default function MemberDirectoryPage() {
     queryFn: async () => {
       const allSettings = await base44.entities.SystemSettings.list();
       const setting = allSettings.find(s => s.setting_key === 'member_directory_display');
+      const organisationRolesSetting = allSettings.find(
+        s => s.setting_key === 'org_directory_reverse_card_role_ids'
+      );
+      let organisationRoleIds = [];
+      if (organisationRolesSetting?.setting_value) {
+        try {
+          const parsed = JSON.parse(organisationRolesSetting.setting_value);
+          organisationRoleIds = Array.isArray(parsed) ? parsed : [];
+        } catch {
+          organisationRoleIds = [];
+        }
+      }
       
       if (setting?.setting_value) {
         try {
           const parsed = JSON.parse(setting.setting_value);
-          return parsed;
+          return { ...parsed, organisation_directory_role_ids: organisationRoleIds };
         } catch (e) {
           console.error('Failed to parse member directory settings:', e);
           return {
@@ -137,7 +151,8 @@ export default function MemberDirectoryPage() {
             show_job_title: true,
             show_linkedin: true,
             show_awards: true,
-            show_bio_in_popup: true
+            show_bio_in_popup: true,
+            organisation_directory_role_ids: organisationRoleIds
           };
         }
       }
@@ -150,7 +165,8 @@ export default function MemberDirectoryPage() {
         show_job_title: true,
         show_linkedin: true,
         show_awards: true,
-        show_bio_in_popup: true
+        show_bio_in_popup: true,
+        organisation_directory_role_ids: organisationRoleIds
       };
     },
     staleTime: 0,
@@ -307,6 +323,12 @@ export default function MemberDirectoryPage() {
 
   const filteredAndSortedMembers = useMemo(() => {
     let filtered = allMembers;
+    const effectiveRoleIds = resolveDirectoryRoleIds({
+      hasOrganisationOrigin,
+      organisationRoleIds: displaySettings?.organisation_directory_role_ids,
+      memberDirectoryRoleIds: displaySettings?.visible_role_ids,
+      availableRoleIds: roles.map(role => role.id),
+    });
     
     // Filter out deleted/anonymized members
     filtered = filtered.filter(member => !isDeletedMember(member));
@@ -314,21 +336,15 @@ export default function MemberDirectoryPage() {
     // Filter out members who opted out of directory
     filtered = filtered.filter(member => member.show_in_directory !== false);
     
-    // Filter by visible roles (configured in Member Directory Settings)
-    if (displaySettings?.visible_role_ids?.length > 0) {
-      filtered = filtered.filter(member => displaySettings.visible_role_ids.includes(member.role_id));
-    }
+    // Organisation-directory links use tenant-configured contact roles. Direct
+    // and legacy links continue to use Member Directory visible roles.
+    filtered = filtered.filter(member => memberMatchesDirectoryScope(member, {
+      organizationId: selectedOrganization,
+      roleIds: effectiveRoleIds,
+    }));
     
     if (!showDisabled) {
       filtered = filtered.filter(member => member.login_enabled !== false);
-    }
-    
-    // Filter by selected organization
-    if (selectedOrganization) {
-      filtered = filtered.filter(member => {
-        const org = organizations.find(o => o.id === member.organization_id);
-        return org?.id === selectedOrganization;
-      });
     }
     
     if (searchQuery) {
@@ -396,7 +412,7 @@ export default function MemberDirectoryPage() {
     });
     
     return sorted;
-  }, [allMembers, searchQuery, showDisabled, sortBy, organizations, memberStats, displaySettings, selectedOrganization, customFieldFilters, memberPreferenceMap]);
+  }, [allMembers, searchQuery, showDisabled, sortBy, organizations, memberStats, displaySettings, selectedOrganization, customFieldFilters, memberPreferenceMap, hasOrganisationOrigin, roles]);
 
   const totalPages = Math.ceil(filteredAndSortedMembers.length / itemsPerPage);
   const paginatedMembers = useMemo(() => {

@@ -15,6 +15,7 @@ import { toast } from "sonner";
 import { showUploadErrorToast } from "@/lib/planQuotaError";
 import { isDeletedMember } from "@/utils";
 import { hasDirectoryFieldValue, enrichFieldForDirectory, isFieldInDirectory, getDirectoryOrderedFields, getDirectoryFilterOptions, directoryFilterValueMatches, resolveBackFieldOrder, ORG_BACK_DEFAULT_ORDER, resolveCustomFieldsLabel } from "@/utils/directorySettings";
+import { buildOrganisationDirectoryMembersUrl } from "@/lib/organisationDirectoryMemberContext";
 
 // Helper to add cache-busting for JPG images which have loading issues
 const getLogoUrl = (url, orgId) => {
@@ -1075,7 +1076,7 @@ export default function OrganisationDirectoryPage() {
             </Button>
             <Button
               onClick={() => {
-                window.location.href = `/memberdirectory?org=${selectedOrg?.id}`;
+                window.location.href = buildOrganisationDirectoryMembersUrl(selectedOrg?.id);
               }}
               className="bg-blue-600 hover:bg-blue-700 gap-2"
               data-testid="button-view-members"

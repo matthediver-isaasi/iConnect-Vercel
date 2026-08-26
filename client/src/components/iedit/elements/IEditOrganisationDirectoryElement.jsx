@@ -15,6 +15,7 @@ import ReactQuill from 'react-quill';
 import 'react-quill/dist/quill.snow.css';
 import DOMPurify from 'dompurify';
 import { isDeletedMember } from "@/utils";
+import { buildOrganisationDirectoryMembersUrl } from "@/lib/organisationDirectoryMemberContext";
 
 const directoryQuillModules = {
   toolbar: [
@@ -624,12 +625,13 @@ export function IEditOrganisationDirectoryElementRenderer({ content, settings })
 
   // Handler for clicking organization card - checks auth and redirects appropriately
   const handleOrgCardClick = (orgId) => {
+    const destination = buildOrganisationDirectoryMembersUrl(orgId);
     if (!memberInfo) {
       // User not logged in - redirect to login with return URL
-      window.location.href = `/login?redirect=${encodeURIComponent(`/memberdirectory?org=${orgId}`)}`;
+      window.location.href = `/login?redirect=${encodeURIComponent(destination)}`;
     } else {
       // User is logged in - navigate to member directory
-      window.location.href = `/memberdirectory?org=${orgId}`;
+      window.location.href = destination;
     }
   };
 
