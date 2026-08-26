@@ -31,7 +31,80 @@ const TRIGGER_TYPES = [
   { value: 'record_create', label: 'Record Created', description: 'Triggers when a new record is created' },
   { value: 'record_update', label: 'Record Updated', description: 'Triggers when any field is updated' },
   { value: 'scheduled', label: 'Scheduled', description: 'Runs on a schedule and checks every record against the conditions below' },
+  { value: 'event_attendance_result', label: 'Event Attendance Result', description: 'Runs when an attendee result is finalised for an event, session, or agenda item' },
 ];
+
+const ATTENDANCE_OUTCOMES = [
+  { value: 'attended', label: 'Attended' },
+  { value: 'below_threshold', label: 'Below threshold' },
+  { value: 'absent', label: 'Absent' },
+];
+
+// These names mirror the attendance result context supplied to the workflow
+// engine. Keeping them in their own field type prevents an attendance value
+// from being mistaken for a member or organisation column.
+const ATTENDANCE_FIELDS = [
+  { id: 'target_type', label: 'Attendance target type', type: 'text', options: [
+    { value: 'event', label: 'Event' },
+    { value: 'complex_event_session', label: 'Session' },
+    { value: 'agenda_item', label: 'Agenda item' },
+  ] },
+  { id: 'target_id', label: 'Attendance target ID', type: 'text' },
+  { id: 'attendance_target_id', label: 'Attendance target ledger ID', type: 'text' },
+  { id: 'event_id', label: 'Parent event ID', type: 'text' },
+  { id: 'event_name', label: 'Parent event name', type: 'text' },
+  { id: 'target_name', label: 'Attendance target name', type: 'text' },
+  { id: 'attendee_id', label: 'Attendee ID', type: 'text' },
+  { id: 'attendee_email', label: 'Attendee email', type: 'email' },
+  { id: 'attendee_name', label: 'Attendee name', type: 'text' },
+  { id: 'member_id', label: 'Member ID', type: 'text' },
+  { id: 'booking_type', label: 'Booking type', type: 'text' },
+  { id: 'booking_id', label: 'Booking ID', type: 'text' },
+  { id: 'booking_reference', label: 'Booking reference', type: 'text' },
+  { id: 'provider', label: 'Attendance provider', type: 'text' },
+  { id: 'duration_seconds', label: 'Attendance duration (seconds)', type: 'number' },
+  { id: 'duration_minutes', label: 'Attendance duration (minutes)', type: 'number' },
+  { id: 'threshold_minutes', label: 'Attendance threshold (minutes)', type: 'number' },
+  { id: 'ticket_id', label: 'Ticket / ticket class ID', type: 'text' },
+  { id: 'ticket_name', label: 'Ticket / ticket class name', type: 'text' },
+  { id: 'ticket_type', label: 'Ticket / booking type', type: 'text' },
+  { id: 'outcome', label: 'Attendance outcome', type: 'text', options: ATTENDANCE_OUTCOMES },
+];
+
+const attendanceTriggerDefaults = {
+  outcomes: ['attended'],
+  event_id: '',
+  event_type: '',
+  session_id: '',
+  agenda_item_id: '',
+};
+
+const attendanceOutcomeLabel = (value) =>
+  ATTENDANCE_OUTCOMES.find((outcome) => outcome.value === value)?.label || value;
+
+const attendanceFieldLabel = (fieldId) =>
+  ATTENDANCE_FIELDS.find((field) => field.id === fieldId)?.label || fieldId;
+
+const getAttendanceLogData = (triggerData) => {
+  if (!triggerData) return null;
+  const nested = triggerData.attendance_result || triggerData.attendance || {};
+  const data = { ...triggerData, ...nested };
+  const outcome = data.outcome || data.status;
+  const isAttendance = triggerData.trigger_type === 'event_attendance_result' ||
+    triggerData.type === 'event_attendance_result' ||
+    Boolean(triggerData.attendance_result) ||
+    Boolean(triggerData.attendance);
+  return isAttendance ? { ...data, outcome } : null;
+};
+
+const formatAttendanceDuration = (seconds) => {
+  const numericSeconds = Number(seconds);
+  if (!Number.isFinite(numericSeconds)) return null;
+  if (numericSeconds < 60) return `${numericSeconds} sec`;
+  const minutes = Math.floor(numericSeconds / 60);
+  const remainder = numericSeconds % 60;
+  return remainder ? `${minutes} min ${remainder} sec` : `${minutes} min`;
+};
 
 const CONDITION_OPERATORS = [
   { value: 'equals', label: 'Equals' },
@@ -44,6 +117,17 @@ const CONDITION_OPERATORS = [
   { value: 'is_not_empty', label: 'Is Not Empty' },
   { value: 'changed_to', label: 'Changed To' },
   { value: 'changed_from', label: 'Changed From' },
+];
+
+const NUMBER_CONDITION_OPERATORS = [
+  { value: 'equals', label: 'Equals' },
+  { value: 'not_equals', label: 'Does Not Equal' },
+  { value: 'greater_than', label: 'Is Greater Than' },
+  { value: 'greater_than_or_equal', label: 'Is Greater Than or Equal To' },
+  { value: 'less_than', label: 'Is Less Than' },
+  { value: 'less_than_or_equal', label: 'Is Less Than or Equal To' },
+  { value: 'is_empty', label: 'Is Empty' },
+  { value: 'is_not_empty', label: 'Is Not Empty' },
 ];
 
 // Date-specific operators, offered only when the selected condition field is a
@@ -70,6 +154,9 @@ const NO_VALUE_OPERATORS = [
 ];
 
 const getOperatorsForField = (field) => {
+  if (field?.type === 'number') {
+    return NUMBER_CONDITION_OPERATORS;
+  }
   if (field?.type === 'date') {
     return [
       ...DATE_CONDITION_OPERATORS,
@@ -315,6 +402,48 @@ export default function WorkflowManagementPage() {
     enabled: accessChecked,
   });
 
+  // Entity requests are tenant-scoped by the authenticated entity API (and
+  // carry the active tenant header). Do not use public event endpoints here:
+  // the workflow author must never see another tenant's unpublished events.
+  const attendanceSelectorEnabled = accessChecked && showDialog &&
+    formData.trigger_type === 'event_attendance_result';
+
+  const { data: attendanceEvents = [] } = useQuery({
+    queryKey: ['workflow-attendance-events'],
+    queryFn: async () => {
+      const [events, complexEvents] = await Promise.all([
+        base44.entities.Event.listAll(),
+        base44.entities.ComplexEvent.listAll(),
+      ]);
+      return [
+        ...(events || []).map((event) => ({ ...event, workflow_event_type: 'event' })),
+        ...(complexEvents || []).map((event) => ({ ...event, workflow_event_type: 'complex_event' })),
+      ].sort((a, b) => (a.title || a.name || '').localeCompare(b.title || b.name || ''));
+    },
+    enabled: attendanceSelectorEnabled,
+  });
+
+  const selectedAttendanceEventId = formData.trigger_config?.event_id || '';
+  const selectedAttendanceEventType = formData.trigger_config?.event_type || '';
+
+  const { data: attendanceSessions = [] } = useQuery({
+    queryKey: ['workflow-attendance-sessions', selectedAttendanceEventId],
+    queryFn: () => base44.entities.ComplexEventSession.list({
+      filter: { complex_event_id: selectedAttendanceEventId },
+    }),
+    enabled: attendanceSelectorEnabled && selectedAttendanceEventType === 'complex_event' &&
+      Boolean(selectedAttendanceEventId),
+  });
+
+  const { data: attendanceAgendaItems = [] } = useQuery({
+    queryKey: ['workflow-attendance-agenda-items', selectedAttendanceEventId],
+    queryFn: () => base44.entities.EventAgendaItem.list({
+      filter: { event_id: selectedAttendanceEventId },
+    }),
+    enabled: attendanceSelectorEnabled && selectedAttendanceEventType === 'event' &&
+      Boolean(selectedAttendanceEventId),
+  });
+
   const { data: members = [] } = useQuery({
     queryKey: ['members-for-dry-run'],
     queryFn: async () => {
@@ -542,13 +671,14 @@ export default function WorkflowManagementPage() {
         options: f.options || null
       })),
       jobPostingCore: JOB_POSTING_CORE_FIELDS.map(f => ({ ...f, field_type: 'job_posting_core', entity: 'job_posting', options: f.options || null })),
+      attendance: ATTENDANCE_FIELDS.map(f => ({ ...f, field_type: 'attendance', entity: 'attendance', options: f.options || null })),
     };
   };
   
   // Flatten all fields for lookups
   const getAllFieldsFlat = () => {
     const fields = getAvailableFields();
-    return [...fields.memberCore, ...fields.memberCustom, ...fields.orgCore, ...fields.orgCustom, ...fields.jobPostingCore];
+    return [...fields.memberCore, ...fields.memberCustom, ...fields.orgCore, ...fields.orgCustom, ...fields.jobPostingCore, ...fields.attendance];
   };
   
   // Get entity-specific fields for triggers and update actions
@@ -580,6 +710,9 @@ export default function WorkflowManagementPage() {
   };
 
   const getSelectedField = (fieldType, fieldId, entityType) => {
+    if (fieldType === 'attendance') {
+      return ATTENDANCE_FIELDS.find(f => f.id === fieldId);
+    }
     if (fieldType === 'core' || fieldType === 'custom') {
       const entityFields = getEntitySpecificFields(entityType || formData.entity_type);
       const pool = fieldType === 'core' ? entityFields.core : entityFields.custom;
@@ -670,7 +803,9 @@ export default function WorkflowManagementPage() {
       description: workflow.description || '',
       entity_type: workflow.entity_type || 'organization',
       trigger_type: workflow.trigger_type || 'field_change',
-      trigger_config: { ...existingTriggerConfig, requires_confirmation: existingTriggerConfig.requires_confirmation || false },
+      trigger_config: workflow.trigger_type === 'event_attendance_result'
+        ? { ...attendanceTriggerDefaults, ...existingTriggerConfig }
+        : { ...existingTriggerConfig, requires_confirmation: existingTriggerConfig.requires_confirmation || false },
       trigger_mode: workflow.trigger_mode || 'every_time',
       conditions: workflow.conditions || [],
       actions: workflow.actions || [],
@@ -689,7 +824,9 @@ export default function WorkflowManagementPage() {
       description: workflow.description || '',
       entity_type: workflow.entity_type || 'organization',
       trigger_type: workflow.trigger_type || 'field_change',
-      trigger_config: { ...existingTriggerConfig, requires_confirmation: existingTriggerConfig.requires_confirmation || false },
+      trigger_config: workflow.trigger_type === 'event_attendance_result'
+        ? { ...attendanceTriggerDefaults, ...existingTriggerConfig }
+        : { ...existingTriggerConfig, requires_confirmation: existingTriggerConfig.requires_confirmation || false },
       trigger_mode: workflow.trigger_mode || 'every_time',
       conditions: workflow.conditions ? JSON.parse(JSON.stringify(workflow.conditions)) : [],
       actions: workflow.actions ? JSON.parse(JSON.stringify(workflow.actions)) : [],
@@ -709,6 +846,17 @@ export default function WorkflowManagementPage() {
       toast.error('Please add at least one action');
       return;
     }
+    if (formData.trigger_type === 'event_attendance_result') {
+      if (!formData.trigger_config?.outcomes?.length) {
+        toast.error('Please select at least one attendance outcome');
+        return;
+      }
+      const hasSpecificChild = formData.trigger_config.session_id || formData.trigger_config.agenda_item_id;
+      if (hasSpecificChild && !formData.trigger_config.event_id) {
+        toast.error('Please select the parent event for this attendance target');
+        return;
+      }
+    }
 
     const payload = {
       ...formData,
@@ -727,7 +875,9 @@ export default function WorkflowManagementPage() {
       ...prev,
       conditions: [
         ...prev.conditions,
-        { field_id: '', field_type: 'core', operator: 'equals', value: '', logic: 'AND' }
+        formData.trigger_type === 'event_attendance_result'
+          ? { field_id: '', field_type: 'attendance', operator: 'equals', value: '', logic: 'AND' }
+          : { field_id: '', field_type: 'core', operator: 'equals', value: '', logic: 'AND' }
       ]
     }));
   };
@@ -898,6 +1048,12 @@ export default function WorkflowManagementPage() {
                                   : `Daily at ${workflow.trigger_config?.run_time || '00:00'} UTC`}
                               </span>
                             )}
+                            {workflow.trigger_type === 'event_attendance_result' && (
+                              <span>
+                                Outcomes: {(workflow.trigger_config?.outcomes || [])
+                                  .map(attendanceOutcomeLabel).join(', ') || 'None selected'}
+                              </span>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -907,15 +1063,17 @@ export default function WorkflowManagementPage() {
                           onCheckedChange={(checked) => toggleActiveMutation.mutate({ id: workflow.id, is_active: checked })}
                           data-testid={`switch-workflow-active-${workflow.id}`}
                         />
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          title="Run against all records"
-                          onClick={() => openBackfillDialog(workflow)}
-                          data-testid={`button-run-all-records-${workflow.id}`}
-                        >
-                          <Play className="h-4 w-4" />
-                        </Button>
+                        {workflow.trigger_type !== 'event_attendance_result' && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            title="Run against all records"
+                            onClick={() => openBackfillDialog(workflow)}
+                            data-testid={`button-run-all-records-${workflow.id}`}
+                          >
+                            <Play className="h-4 w-4" />
+                          </Button>
+                        )}
                         <Button variant="ghost" size="icon" onClick={() => handleEditWorkflow(workflow)} data-testid={`button-edit-workflow-${workflow.id}`}>
                           <Pencil className="h-4 w-4" />
                         </Button>
@@ -957,6 +1115,16 @@ export default function WorkflowManagementPage() {
             <div className="space-y-3">
               {workflowLogs.map((log) => {
                 const workflow = workflows.find(w => w.id === log.workflow_id);
+                const attendance = getAttendanceLogData(log.trigger_data);
+                const attendanceDuration = formatAttendanceDuration(attendance?.duration_seconds);
+                const attendee = attendance?.attendee_name || attendance?.participant_name ||
+                  attendance?.attendee_email || attendance?.participant_email ||
+                  (attendance?.member_id ? `Member ${attendance.member_id}` : null);
+                const target = attendance?.target_name || attendance?.session_title ||
+                  attendance?.agenda_item_title || attendance?.event_title ||
+                  (attendance?.target_type && attendance?.target_id
+                    ? `${String(attendance.target_type).replaceAll('_', ' ')} ${attendance.target_id}`
+                    : null);
                 return (
                   <Card key={log.id} data-testid={`card-log-${log.id}`}>
                     <CardContent className="p-4">
@@ -996,10 +1164,36 @@ export default function WorkflowManagementPage() {
                                     : 'Skipped — conditions not met'}
                                 </Badge>
                               )}
+                              {attendance?.outcome && (
+                                <Badge
+                                  variant={attendance.outcome === 'attended' ? 'default' : 'secondary'}
+                                  data-testid={`badge-attendance-outcome-${log.id}`}
+                                >
+                                  Attendance: {attendanceOutcomeLabel(attendance.outcome)}
+                                </Badge>
+                              )}
                             </div>
-                            <p className="text-sm text-muted-foreground">
-                              {log.entity_type} #{log.entity_id}
-                            </p>
+                            {attendance ? (
+                              <div className="mt-1 space-y-0.5 text-sm text-muted-foreground" data-testid={`attendance-log-details-${log.id}`}>
+                                <p>
+                                  {[attendee, target].filter(Boolean).join(' — ') || `${log.entity_type} #${log.entity_id}`}
+                                </p>
+                                <p className="text-xs">
+                                  {[
+                                    attendanceDuration && `Duration ${attendanceDuration}`,
+                                    attendance.threshold_minutes != null && `Threshold ${attendance.threshold_minutes} min`,
+                                    attendance.provider && `Provider ${attendance.provider}`,
+                                    (attendance.ticket_name || attendance.ticket_label) &&
+                                      `Ticket ${attendance.ticket_name || attendance.ticket_label}`,
+                                    attendance.booking_id && `Booking ${attendance.booking_id}`,
+                                  ].filter(Boolean).join(' · ')}
+                                </p>
+                              </div>
+                            ) : (
+                              <p className="text-sm text-muted-foreground">
+                                {log.entity_type} #{log.entity_id}
+                              </p>
+                            )}
                             {log.error_message && (
                               <p className="text-sm text-red-500 mt-1">{log.error_message}</p>
                             )}
@@ -1016,7 +1210,7 @@ export default function WorkflowManagementPage() {
                               <div className="mt-1 space-y-0.5" data-testid={`skip-conditions-${log.id}`}>
                                 {log.trigger_data.condition_results.map((cr, idx) => (
                                   <p key={idx} className={`text-xs ${cr.met ? 'text-muted-foreground' : 'text-warning'}`}>
-                                    {cr.met ? '✓' : '✗'} {cr.field_id} {cr.operator} “{String(cr.expected ?? '')}” — actual: “{String(cr.actual ?? '')}”
+                                    {cr.met ? '✓' : '✗'} {attendanceFieldLabel(cr.field_id)} {String(cr.operator || '').replaceAll('_', ' ')} “{String(cr.expected ?? '')}” — actual: “{String(cr.actual ?? '')}”
                                   </p>
                                 ))}
                               </div>
@@ -1208,7 +1402,24 @@ export default function WorkflowManagementPage() {
                       <button
                         key={trigger.value}
                         type="button"
-                        onClick={() => setFormData(prev => ({ ...prev, trigger_type: trigger.value }))}
+                        onClick={() => setFormData(prev => ({
+                          ...prev,
+                          entity_type: trigger.value === 'event_attendance_result' ? 'member' : prev.entity_type,
+                          trigger_type: trigger.value,
+                          trigger_config: trigger.value === 'event_attendance_result'
+                            ? { ...attendanceTriggerDefaults }
+                            : trigger.value === 'field_change'
+                              ? {
+                                  field_id: '',
+                                  field_type: 'core',
+                                  operator: 'changed_to',
+                                  value: '',
+                                  requires_confirmation: false,
+                                }
+                              : trigger.value === 'scheduled'
+                                ? { frequency: 'daily', run_time: '00:00' }
+                                : {},
+                        }))}
                         className={`p-4 rounded-lg border-2 text-left transition-colors ${
                           formData.trigger_type === trigger.value 
                             ? 'border-primary bg-primary/5' 
@@ -1346,6 +1557,143 @@ export default function WorkflowManagementPage() {
                   </div>
                 )}
 
+                {formData.trigger_type === 'event_attendance_result' && (
+                  <div className="space-y-5 p-4 bg-muted/50 rounded-lg" data-testid="attendance-trigger-config">
+                    <div className="space-y-2">
+                      <Label>Final attendance outcomes *</Label>
+                      <div className="grid grid-cols-3 gap-2">
+                        {ATTENDANCE_OUTCOMES.map((outcome) => {
+                          const selected = (formData.trigger_config.outcomes || []).includes(outcome.value);
+                          return (
+                            <label
+                              key={outcome.value}
+                              className={`flex items-center gap-2 rounded-md border p-3 cursor-pointer ${
+                                selected ? 'border-primary bg-primary/5' : 'border-border'
+                              }`}
+                            >
+                              <Checkbox
+                                checked={selected}
+                                onCheckedChange={(checked) => setFormData(prev => {
+                                  const current = prev.trigger_config.outcomes || [];
+                                  const outcomes = checked
+                                    ? [...new Set([...current, outcome.value])]
+                                    : current.filter(value => value !== outcome.value);
+                                  return {
+                                    ...prev,
+                                    trigger_config: { ...prev.trigger_config, outcomes },
+                                  };
+                                })}
+                                data-testid={`checkbox-attendance-outcome-${outcome.value}`}
+                              />
+                              <span className="text-sm">{outcome.label}</span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label>Event (optional)</Label>
+                      <Select
+                        value={formData.trigger_config.event_id || '__all__'}
+                        onValueChange={(value) => {
+                          const event = attendanceEvents.find(item => item.id === value);
+                          setFormData(prev => ({
+                            ...prev,
+                            trigger_config: {
+                              ...prev.trigger_config,
+                              event_id: value === '__all__' ? '' : value,
+                              event_type: event?.workflow_event_type || '',
+                              session_id: '',
+                              agenda_item_id: '',
+                            },
+                          }));
+                        }}
+                      >
+                        <SelectTrigger data-testid="select-attendance-event">
+                          <SelectValue placeholder="All events" />
+                        </SelectTrigger>
+                        <SelectContent className="max-h-[300px]">
+                          <SelectItem value="__all__">All events</SelectItem>
+                          {attendanceEvents.map(event => (
+                            <SelectItem key={`${event.workflow_event_type}:${event.id}`} value={event.id}>
+                              {event.title || event.name || `Event ${event.id}`}
+                              {event.workflow_event_type === 'complex_event' ? ' (complex event)' : ''}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <p className="text-xs text-muted-foreground">
+                        Leave this as all events to run for any tenant event with attendance tracking.
+                      </p>
+                    </div>
+
+                    {selectedAttendanceEventType === 'complex_event' && (
+                      <div className="space-y-2">
+                        <Label>Session (optional)</Label>
+                        <Select
+                          value={formData.trigger_config.session_id || '__all__'}
+                          onValueChange={(value) => setFormData(prev => ({
+                            ...prev,
+                            trigger_config: {
+                              ...prev.trigger_config,
+                              session_id: value === '__all__' ? '' : value,
+                              agenda_item_id: '',
+                            },
+                          }))}
+                        >
+                          <SelectTrigger data-testid="select-attendance-session">
+                            <SelectValue placeholder="All sessions" />
+                          </SelectTrigger>
+                          <SelectContent className="max-h-[300px]">
+                            <SelectItem value="__all__">All sessions / event-level result</SelectItem>
+                            {attendanceSessions.map(session => (
+                              <SelectItem key={session.id} value={session.id}>
+                                {session.title || session.name || `Session ${session.id}`}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    )}
+
+                    {selectedAttendanceEventType === 'event' && (
+                      <div className="space-y-2">
+                        <Label>Agenda item (optional)</Label>
+                        <Select
+                          value={formData.trigger_config.agenda_item_id || '__all__'}
+                          onValueChange={(value) => setFormData(prev => ({
+                            ...prev,
+                            trigger_config: {
+                              ...prev.trigger_config,
+                              agenda_item_id: value === '__all__' ? '' : value,
+                              session_id: '',
+                            },
+                          }))}
+                        >
+                          <SelectTrigger data-testid="select-attendance-agenda-item">
+                            <SelectValue placeholder="All agenda items" />
+                          </SelectTrigger>
+                          <SelectContent className="max-h-[300px]">
+                            <SelectItem value="__all__">All agenda items / event-level result</SelectItem>
+                            {attendanceAgendaItems.map(item => (
+                              <SelectItem key={item.id} value={item.id}>
+                                {item.description || item.title || item.name || `Agenda item ${item.id}`}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    )}
+
+                    <div className="rounded-md border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900 dark:border-blue-900 dark:bg-blue-950/30 dark:text-blue-100">
+                      Attendance results are finalised after the provider report has been processed. The
+                      workflow runs from that final result—not from a join, leave, or check-in event—so
+                      duration, threshold, booking matching, and absent attendees are settled first.
+                    </div>
+                  </div>
+                )}
+
                 {formData.trigger_type === 'scheduled' && (
                   <div className="space-y-4 p-4 bg-muted/50 rounded-lg">
                     <p className="text-sm text-muted-foreground">
@@ -1438,13 +1786,30 @@ export default function WorkflowManagementPage() {
                                 value={`${condition.field_type}:${condition.field_id}`}
                                 onValueChange={(val) => {
                                   const [fieldType, fieldId] = val.split(':');
-                                  updateCondition(index, { field_type: fieldType, field_id: fieldId });
+                                  const selected = getSelectedField(fieldType, fieldId);
+                                  const operator = getOperatorsForField(selected)[0]?.value || 'equals';
+                                  updateCondition(index, {
+                                    field_type: fieldType,
+                                    field_id: fieldId,
+                                    operator,
+                                    value: '',
+                                  });
                                 }}
                               >
                                 <SelectTrigger>
                                   <SelectValue placeholder="Select field" />
                                 </SelectTrigger>
                                 <SelectContent className="max-h-[300px] overflow-y-auto">
+                                  {formData.trigger_type === 'event_attendance_result' && (
+                                    <SelectGroup>
+                                      <SelectLabel>Attendance Result Fields</SelectLabel>
+                                      {availableFieldsGrouped.attendance.map((field) => (
+                                        <SelectItem key={`attendance:${field.id}`} value={`attendance:${field.id}`}>
+                                          {field.label}
+                                        </SelectItem>
+                                      ))}
+                                    </SelectGroup>
+                                  )}
                                   <SelectGroup>
                                     <SelectLabel>Member Core Fields</SelectLabel>
                                     {availableFieldsGrouped.memberCore.map((field) => (
@@ -1493,7 +1858,10 @@ export default function WorkflowManagementPage() {
                               </Select>
                               <Select
                                 value={condition.operator}
-                                onValueChange={(val) => updateCondition(index, { operator: val })}
+                                onValueChange={(val) => updateCondition(index, {
+                                  operator: val,
+                                  ...(NO_VALUE_OPERATORS.includes(val) ? { value: '' } : {}),
+                                })}
                               >
                                 <SelectTrigger>
                                   <SelectValue placeholder="Operator" />
@@ -1538,6 +1906,7 @@ export default function WorkflowManagementPage() {
                                   </Select>
                                 ) : (
                                   <Input
+                                    type={conditionField?.type === 'number' ? 'number' : 'text'}
                                     value={condition.value || ''}
                                     onChange={(e) => updateCondition(index, { value: e.target.value })}
                                     placeholder="Value"

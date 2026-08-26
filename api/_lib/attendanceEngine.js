@@ -31,7 +31,15 @@ export function evaluateAttendance({ bookings, intervals, matches, thresholdMinu
     else if (unresolvedBookings.has(booking.id)) status = 'unmatched';
     else if (!participantKey) status = 'absent';
     else status = durationSeconds >= thresholdMinutes * 60 ? 'attended' : 'below_threshold';
-    return { bookingId: booking.id, bookingType: booking.bookingType, status, durationSeconds, thresholdMinutes };
+    return {
+      bookingId: booking.id,
+      bookingType: booking.bookingType,
+      memberId: booking.memberId || null,
+      ticketId: booking.ticketId || null,
+      status,
+      durationSeconds,
+      thresholdMinutes,
+    };
   });
 }
 
@@ -63,7 +71,9 @@ export function buildAttendanceSnapshotIdempotencyKey({ provider, target, interv
         }
         : null,
     },
-    bookings: [...bookings].map(({ id, bookingType }) => ({ id, bookingType }))
+    bookings: [...bookings].map(({ id, bookingType, memberId, ticketId }) => ({
+      id, bookingType, memberId: memberId || null, ticketId: ticketId || null,
+    }))
       .sort((a, b) => `${a.bookingType}:${a.id}`.localeCompare(`${b.bookingType}:${b.id}`)),
     intervals: [...intervals].map((item) => ({
       participantKey: item.participantKey, intervalKey: item.intervalKey,

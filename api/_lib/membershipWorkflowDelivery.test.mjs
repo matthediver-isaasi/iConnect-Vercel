@@ -259,12 +259,14 @@ test('completed is marked only after the workflow loop runs', () => {
   assert.ok(finishIdx > -1, 'finishWorkflowDelivery must be called');
   assert.ok(finishIdx > loopIdx, 'finishWorkflowDelivery must run after the workflow loop');
   // finish is guarded by ownership and emits delivery.status completed
-  assert.match(workflowsSrc, /if \(deliveryClaim\?\.owned\) \{\s*await finishWorkflowDelivery/);
-  assert.match(workflowsSrc, /delivery: \{ status: 'completed' \}/);
+  assert.match(workflowsSrc, /if \(deliveryClaim\?\.owned && !usesPerWorkflowDelivery\) \{\s*await finishWorkflowDelivery/);
+  assert.match(workflowsSrc, /if \(workflowDeliveryClaim\?\.owned\) \{\s*await finishWorkflowDelivery/);
+  assert.match(workflowsSrc, /blockedDeliveries\.length > 0[\s\S]{0,160}: \{ status: 'completed' \}/);
 });
 
 test('delivery errors are marked failed and rethrown when a deliveryKey is present', () => {
-  assert.match(workflowsSrc, /if \(deliveryClaim\?\.owned\) \{\s*await failWorkflowDelivery/);
+  assert.match(workflowsSrc, /if \(deliveryClaim\?\.owned && !usesPerWorkflowDelivery\) \{\s*await failWorkflowDelivery/);
+  assert.match(workflowsSrc, /if \(workflowDeliveryClaim\?\.owned\) \{\s*await failWorkflowDelivery/);
   assert.match(workflowsSrc, /if \(context\.deliveryKey\) throw err;/);
 });
 

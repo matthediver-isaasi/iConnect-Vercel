@@ -69,7 +69,7 @@ async function matchParticipantsToBookings(tenantId, eventId, isComplexEvent, pa
   if (isComplexEvent) {
     const { data: bookings, error } = await supabase
       .from('complex_event_booking')
-      .select('id, member_id, attendee_email')
+      .select('id, member_id, attendee_email, ticket_class_id')
       .eq('event_id', eventId)
       .eq('tenant_id', tenantId)
       .eq('status', 'confirmed');
@@ -87,7 +87,7 @@ async function matchParticipantsToBookings(tenantId, eventId, isComplexEvent, pa
   } else {
     const { data: bookings, error } = await supabase
       .from('booking')
-      .select('id, member_id, attendee_email')
+      .select('id, member_id, attendee_email, ticket_class_id')
       .eq('event_id', eventId)
       .eq('tenant_id', tenantId)
       .eq('status', 'confirmed');
@@ -109,6 +109,8 @@ async function matchParticipantsToBookings(tenantId, eventId, isComplexEvent, pa
     bookings: confirmedBookings.map((booking) => ({
       id: booking.id,
       bookingType: isComplexEvent ? 'complex_event_booking' : 'booking',
+      memberId: booking.member_id || null,
+      ticketId: booking.ticket_class_id || null,
     })),
   };
 }

@@ -151,6 +151,10 @@
     {
       "path": "/api/cron/process-automatic-memberships",
       "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/process-attendance-transitions",
+      "schedule": "* * * * *"
     }
   ],
   "rewrites": [

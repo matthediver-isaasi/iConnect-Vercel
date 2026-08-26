@@ -230,8 +230,8 @@ export const workflow = pgTable("workflow", {
   tenant_id: varchar("tenant_id").notNull(), // Tenant isolation
   name: text("name").notNull(),
   description: text("description"),
-  entity_type: text("entity_type").notNull(), // 'organization' or 'member'
-  trigger_type: text("trigger_type").notNull(), // 'field_change', 'record_create', 'record_update', 'scheduled'
+  entity_type: text("entity_type").notNull(), // 'organization', 'member', or another registered workflow entity
+  trigger_type: text("trigger_type").notNull(), // field/record/scheduled or 'event_attendance_result'
   trigger_config: jsonb("trigger_config"), // field_change: { field_id, field_type, operator, value, requires_confirmation }; scheduled: { frequency: 'daily'|'hourly', run_time: 'HH:MM' (UTC) }
   conditions: jsonb("conditions"), // [{ field_id, field_type, operator, value, logic }]
   actions: jsonb("actions"), // [{ type, config }]
@@ -271,6 +271,57 @@ export const insertWorkflowLogSchema = createInsertSchema(workflowLog).omit({
 
 export type InsertWorkflowLog = z.infer<typeof insertWorkflowLogSchema>;
 export type WorkflowLog = typeof workflowLog.$inferSelect;
+
+// Immutable finalized attendance changes and their recoverable publication
+// queue. Rows are created atomically by replace_attendance_report_snapshot.
+export const attendanceOutcomeTransition = pgTable("attendance_outcome_transition", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenant_id: uuid("tenant_id").notNull(),
+  outcome_revision_id: uuid("outcome_revision_id").notNull(),
+  attendance_target_id: uuid("attendance_target_id").notNull(),
+  event_id: uuid("event_id"),
+  target_type: text("target_type").notNull(),
+  target_id: uuid("target_id").notNull(),
+  booking_type: text("booking_type").notNull(),
+  booking_id: uuid("booking_id").notNull(),
+  member_id: uuid("member_id"),
+  ticket_id: text("ticket_id"),
+  provider: text("provider").notNull(),
+  previous_status: text("previous_status"),
+  status: text("status").notNull(),
+  duration_seconds: integer("duration_seconds").notNull(),
+  threshold_minutes: integer("threshold_minutes").notNull(),
+  revision_number: integer("revision_number").notNull(),
+  payload: jsonb("payload").notNull(),
+  created_at: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  tenantBookingIdx: index("idx_attendance_transition_booking")
+    .on(table.tenant_id, table.booking_type, table.booking_id, table.created_at),
+  revisionUnique: uniqueIndex("attendance_outcome_transition_outcome_revision_key")
+    .on(table.outcome_revision_id),
+}));
+
+export const attendanceTransitionOutbox = pgTable("attendance_transition_outbox", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenant_id: uuid("tenant_id").notNull(),
+  transition_id: uuid("transition_id").notNull(),
+  payload: jsonb("payload").notNull(),
+  status: text("status").notNull().default("pending"),
+  attempts: integer("attempts").notNull().default(0),
+  available_at: timestamp("available_at", { withTimezone: true }).notNull().defaultNow(),
+  locked_at: timestamp("locked_at", { withTimezone: true }),
+  lock_token: uuid("lock_token"),
+  published_at: timestamp("published_at", { withTimezone: true }),
+  last_error: text("last_error"),
+  created_at: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updated_at: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  transitionUnique: uniqueIndex("attendance_transition_outbox_transition_id_key")
+    .on(table.transition_id),
+}));
+
+export type AttendanceOutcomeTransition = typeof attendanceOutcomeTransition.$inferSelect;
+export type AttendanceTransitionOutbox = typeof attendanceTransitionOutbox.$inferSelect;
 
 // Role-based organization field permissions
 export const roleOrganizationFieldPermission = pgTable("role_organization_field_permission", {

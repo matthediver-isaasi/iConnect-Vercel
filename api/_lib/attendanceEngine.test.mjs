@@ -97,16 +97,21 @@ test('snapshot persistence makes one atomic RPC call with deterministic outcomes
     },
     intervals: [{ participantKey: 'person', intervalKey: 'one', durationSeconds: 60 }],
     matches: [{ participantKey: 'person', bookingId: 'booking-1', bookingType: 'booking', matchStatus: 'matched' }],
-    bookings: [{ id: 'booking-1', bookingType: 'booking' }],
+    bookings: [{ id: 'booking-1', bookingType: 'booking', memberId: 'member-1', ticketId: 'ticket-1' }],
   });
   assert.deepEqual(result, {
     targetId: 'target-1', syncRunId: 'run-1',
-    outcomes: [{ bookingId: 'booking-1', bookingType: 'booking', status: 'attended', durationSeconds: 60, thresholdMinutes: 1 }],
+    outcomes: [{
+      bookingId: 'booking-1', bookingType: 'booking', memberId: 'member-1', ticketId: 'ticket-1',
+      status: 'attended', durationSeconds: 60, thresholdMinutes: 1,
+    }],
   });
   assert.equal(calls.length, 1);
   assert.equal(calls[0].name, 'replace_attendance_report_snapshot');
   assert.equal(calls[0].args.p_idempotency_key, 'same-report');
   assert.equal(calls[0].args.p_snapshot.outcomes[0].resultFingerprint.length, 64);
+  assert.equal(calls[0].args.p_snapshot.outcomes[0].memberId, 'member-1');
+  assert.equal(calls[0].args.p_snapshot.outcomes[0].ticketId, 'ticket-1');
 });
 
 test('snapshot idempotency changes for late confirmation, cancellation, and threshold changes', () => {

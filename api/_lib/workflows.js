@@ -136,7 +136,7 @@ function evaluateDateOperator(operator, rawValue, conditionValue) {
 // and the scheduled evaluation path so all three stay consistent. `beforeValue`
 // is only meaningful for change-based operators (changed_to/changed_from); the
 // scheduled path has no "before" so it passes undefined.
-function evaluateConditionOperator(operator, afterValue, conditionValue, beforeValue) {
+export function evaluateConditionOperator(operator, afterValue, conditionValue, beforeValue) {
   if (isDateOperator(operator)) {
     return evaluateDateOperator(operator, afterValue, conditionValue);
   }
@@ -144,6 +144,11 @@ function evaluateConditionOperator(operator, afterValue, conditionValue, beforeV
   const actualValue = String(afterValue ?? '');
   const targetValue = String(conditionValue ?? '');
   const beforeStr = String(beforeValue ?? '');
+  const actualNumber = Number(afterValue);
+  const targetNumber = Number(conditionValue);
+  const hasNumericValues = afterValue !== null && afterValue !== undefined && afterValue !== ''
+    && conditionValue !== null && conditionValue !== undefined && conditionValue !== ''
+    && Number.isFinite(actualNumber) && Number.isFinite(targetNumber);
 
   switch (operator) {
     case 'equals':
@@ -172,6 +177,14 @@ function evaluateConditionOperator(operator, afterValue, conditionValue, beforeV
       return beforeStr !== actualValue && actualValue.toLowerCase() === targetValue.toLowerCase();
     case 'changed_from':
       return beforeStr.toLowerCase() === targetValue.toLowerCase() && beforeStr !== actualValue;
+    case 'greater_than':
+      return hasNumericValues && actualNumber > targetNumber;
+    case 'greater_than_or_equal':
+      return hasNumericValues && actualNumber >= targetNumber;
+    case 'less_than':
+      return hasNumericValues && actualNumber < targetNumber;
+    case 'less_than_or_equal':
+      return hasNumericValues && actualNumber <= targetNumber;
     default:
       return false;
   }
@@ -777,6 +790,182 @@ async function buildConditionSummaries(conditions, tenantId, entityType) {
 // a belt-and-braces backstop for long non-cyclic chains.
 const MAX_WORKFLOW_CHAIN_DEPTH = 5;
 
+const FINAL_ATTENDANCE_RESULTS = new Set(['attended', 'below_threshold', 'absent']);
+
+// Attendance transitions are produced by the attendance outbox, rather than a
+// request body. Keep the condition surface explicit: this prevents unrelated
+// keys in provider metadata from becoming workflow condition values.
+const ATTENDANCE_CONDITION_FIELDS = new Set([
+  'outcome', 'status', 'duration_seconds', 'duration_minutes',
+  'threshold_minutes', 'provider', 'target_type', 'target_id',
+  'attendance_outcome', 'attendance_status', 'attendance_duration_seconds',
+  'attendance_duration_minutes', 'attendance_threshold_minutes',
+  'attendance_provider', 'attendance_revision_id', 'attendance_revision_number',
+  'attendance_target_id', 'attendance_target_type', 'attendance_target_record_id',
+  'event_id', 'booking_id', 'booking_type', 'member_id', 'attendee_id',
+  'attendee_email', 'attendee_name', 'ticket_id', 'ticket_name', 'ticket_type',
+  'booking_reference', 'event_name', 'target_name',
+  'provider_target_id', 'provider_target_type',
+]);
+
+function firstDefined(...values) {
+  return values.find(value => value !== undefined && value !== null);
+}
+
+/**
+ * Convert the provider-neutral attendance outbox contract to the small,
+ * trusted condition context understood by the workflow runtime. Both
+ * snake_case (database rows) and camelCase (service objects) are accepted so
+ * recovery workers can pass their claimed row without reshaping it.
+ */
+export function normalizeAttendanceResultTransition(transition) {
+  const source = transition?.payload && typeof transition.payload === 'object'
+    ? { ...transition.payload, ...transition }
+    : transition;
+  if (!source || typeof source !== 'object') {
+    throw new Error('attendance result transition is required');
+  }
+
+  const outcome = String(firstDefined(
+    source.outcome, source.status?.current, source.status, source.attendance_outcome, source.attendanceStatus,
+  ) || '').toLowerCase();
+  const transitionId = firstDefined(source.transition_id, source.transitionId, source.id);
+  const tenantId = firstDefined(source.tenant_id, source.tenantId);
+  const bookingId = firstDefined(source.booking_id, source.bookingId, source.booking?.id);
+  const targetId = firstDefined(
+    source.attendance_target_id, source.attendanceTargetId,
+    source.target?.attendance_target_id, source.target?.id,
+  );
+  const revisionId = firstDefined(
+    source.outcome_revision_id, source.outcomeRevisionId, source.revision_id,
+    source.revisionId, source.revision?.id,
+  );
+
+  if (!transitionId) throw new Error('attendance result transition id is required');
+  if (!tenantId) throw new Error('attendance result transition tenant_id is required');
+  if (!bookingId) throw new Error('attendance result transition booking_id is required');
+  if (!targetId) throw new Error('attendance result transition attendance_target_id is required');
+  if (!revisionId) throw new Error('attendance result transition outcome_revision_id is required');
+  if (!FINAL_ATTENDANCE_RESULTS.has(outcome)) {
+    throw new Error(`attendance result transition has non-final outcome "${outcome || 'missing'}"`);
+  }
+
+  const durationSeconds = Number(firstDefined(
+    source.duration_seconds, source.durationSeconds, source.attendance_duration_seconds, 0,
+  ));
+  const thresholdMinutes = Number(firstDefined(
+    source.threshold_minutes, source.thresholdMinutes, source.attendance_threshold_minutes, 0,
+  ));
+  const memberId = firstDefined(
+    source.member_id, source.memberId, source.member?.id,
+    source.attendee?.member_id, source.attendee?.memberId,
+  );
+  const attendeeId = firstDefined(
+    source.attendee_id, source.attendeeId, source.attendee?.id, memberId,
+  );
+  const targetType = firstDefined(
+    source.target_type, source.targetType, source.target?.type,
+  );
+  const targetRecordId = firstDefined(
+    source.target_id, source.targetId, source.target?.id,
+  );
+
+  const conditionContext = {
+    outcome,
+    status: outcome,
+    duration_seconds: Number.isFinite(durationSeconds) ? durationSeconds : 0,
+    duration_minutes: Number.isFinite(durationSeconds) ? durationSeconds / 60 : 0,
+    threshold_minutes: Number.isFinite(thresholdMinutes) ? thresholdMinutes : 0,
+    provider: firstDefined(source.provider, source.attendance_provider),
+    target_type: targetType,
+    target_id: targetRecordId,
+    attendance_outcome: outcome,
+    attendance_status: outcome,
+    attendance_duration_seconds: Number.isFinite(durationSeconds) ? durationSeconds : 0,
+    attendance_duration_minutes: Number.isFinite(durationSeconds) ? durationSeconds / 60 : 0,
+    attendance_threshold_minutes: Number.isFinite(thresholdMinutes) ? thresholdMinutes : 0,
+    attendance_provider: firstDefined(source.provider, source.attendance_provider),
+    attendance_revision_id: revisionId,
+    attendance_revision_number: firstDefined(
+      source.revision_number, source.revisionNumber, source.revision?.number,
+      typeof source.revision === 'number' ? source.revision : undefined,
+    ),
+    attendance_target_id: targetId,
+    attendance_target_type: targetType,
+    attendance_target_record_id: targetRecordId,
+    event_id: firstDefined(source.event_id, source.eventId, source.event?.id, source.target?.event_id),
+    booking_id: bookingId,
+    booking_type: firstDefined(source.booking_type, source.bookingType, source.booking?.type),
+    member_id: memberId,
+    attendee_id: attendeeId,
+    attendee_email: firstDefined(source.attendee_email, source.attendeeEmail, source.attendee?.email),
+    attendee_name: firstDefined(source.attendee_name, source.attendeeName, source.attendee?.name),
+    ticket_id: firstDefined(source.ticket_id, source.ticketId, source.ticket?.id),
+    ticket_name: firstDefined(source.ticket_name, source.ticketName, source.ticket?.name),
+    ticket_type: firstDefined(source.ticket_type, source.ticketType, source.ticket?.type),
+    booking_reference: firstDefined(source.booking_reference, source.bookingReference, source.booking?.reference),
+    event_name: firstDefined(source.event_name, source.eventName, source.event?.name, source.event?.title),
+    target_name: firstDefined(source.target_name, source.targetName, source.target?.name, source.target?.title),
+    provider_target_id: firstDefined(
+      source.provider_target_id, source.providerTargetId, source.target?.provider_target_id,
+    ),
+    provider_target_type: firstDefined(
+      source.provider_target_type, source.providerTargetType, source.target?.provider_target_type,
+    ),
+  };
+
+  // Undefined values are deliberately omitted from logs and template data.
+  for (const [key, value] of Object.entries(conditionContext)) {
+    if (value === undefined || value === null) delete conditionContext[key];
+  }
+
+  return {
+    transitionId: String(transitionId),
+    tenantId: String(tenantId),
+    bookingId: String(bookingId),
+    targetId: String(targetId),
+    revisionId: String(revisionId),
+    outcome,
+    memberId: memberId ? String(memberId) : null,
+    conditionContext,
+  };
+}
+
+export function attendanceTriggerMatches(triggerConfig = {}, attendanceContext = {}) {
+  const expectedOutcomes = firstDefined(
+    triggerConfig.outcomes, triggerConfig.statuses, triggerConfig.outcome, triggerConfig.status,
+  );
+  const outcomes = Array.isArray(expectedOutcomes) ? expectedOutcomes : [expectedOutcomes];
+  if (expectedOutcomes !== undefined && expectedOutcomes !== null && outcomes.length > 0) {
+    if (!outcomes.map(value => String(value).toLowerCase()).includes(attendanceContext.attendance_outcome)) {
+      return false;
+    }
+  }
+  const scopedFields = [
+    ['provider', 'provider'],
+    ['event_id', 'event_id'],
+    ['attendance_target_id', 'attendance_target_id'],
+    ['target_type', 'target_type'],
+    ['target_id', 'target_id'],
+    ['session_id', 'target_id'],
+    ['agenda_item_id', 'target_id'],
+  ];
+  return scopedFields.every(([configField, contextField]) => {
+    const expected = triggerConfig[configField];
+    if ((configField === 'session_id' || configField === 'agenda_item_id') && expected) {
+      const requiredType = configField === 'session_id' ? 'complex_event_session' : 'agenda_item';
+      if (attendanceContext.target_type !== requiredType) return false;
+    }
+    return expected === undefined || expected === null || expected === ''
+      || String(expected) === String(attendanceContext[contextField] ?? '');
+  });
+}
+
+export function isAttendanceConditionField(fieldType, fieldId) {
+  return (fieldType === 'attendance' || fieldType === 'attendance_result')
+    && ATTENDANCE_CONDITION_FIELDS.has(fieldId);
+}
+
 export function extendWorkflowChain(context, workflow) {
   const prev = context?.chain || {};
   const visited = new Set(prev.visited || []);
@@ -784,6 +973,29 @@ export function extendWorkflowChain(context, workflow) {
   const depth = (prev.depth || 0) + 1;
   if (depth > MAX_WORKFLOW_CHAIN_DEPTH) return null;
   return { depth, visited: Array.from(visited) };
+}
+
+export function buildChainedWorkflowContext(context, additions = {}) {
+  const {
+    deliveryKey: _deliveryKey,
+    actionEntityId: _actionEntityId,
+    attendance: _attendance,
+    triggerData: _triggerData,
+    ...rest
+  } = context || {};
+  return { ...rest, ...additions };
+}
+
+export function attendanceWorkflowDeliveryKey({
+  tenantId,
+  workflowId,
+  entityId,
+  triggerMode,
+  transitionDeliveryKey,
+}) {
+  return triggerMode === 'once_per_record'
+    ? `attendance-once:${tenantId}:${workflowId}:${entityId}`
+    : `${transitionDeliveryKey}:workflow:${workflowId}`;
 }
 
 // Log a skipped run when the chain guard stops a downstream workflow, so the
@@ -821,6 +1033,18 @@ async function executeWorkflowActions(workflow, entityType, entityId, entityData
   const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
   for (const action of (workflow.actions || [])) {
+    // A guest attendance booking can receive communications, but it has no
+    // member row that record-mutating actions can safely update.
+    if (context?.attendance && !context?.actionEntityId
+      && ['update_field', 'create_contract', 'create_membership'].includes(action.type)) {
+      results.push({
+        action_type: action.type,
+        status: 'skipped',
+        error: 'This attendance booking is not linked to a member record',
+      });
+      continue;
+    }
+
     // Normalize prefixed field types (e.g., job_posting_core -> core)
     let normalizedFieldType = action.config?.field_type?.replace(/^(org_|member_|job_posting_)/, '') || action.config?.field_type;
     
@@ -885,14 +1109,13 @@ async function executeWorkflowActions(workflow, entityType, entityId, entityData
           } else {
             try {
               const afterRow = { ...(beforeRow || {}), id: entityId, [action.config.field_id]: resolvedValue };
-              await triggerWorkflows(entityType, entityId, beforeRow || {}, afterRow, 'field_change', baseUrl, {
-                ...context,
+              await triggerWorkflows(entityType, entityId, beforeRow || {}, afterRow, 'field_change', baseUrl, buildChainedWorkflowContext(context, {
                 systemInitiated: true,
                 // Task #3235: record WHICH workflow started the chained run so
                 // the history badge can name it, not just flag it as chained.
                 triggeredByWorkflow: { id: workflow.id, name: workflow.name },
                 chain,
-              });
+              }));
             } catch (chainErr) {
               console.error(`[Workflows] Downstream evaluation after update_field (core) failed:`, chainErr.message);
             }
@@ -2544,6 +2767,7 @@ export async function triggerWorkflows(entityType, entityId, beforeData, afterDa
   
   const pendingConfirmations = [];
   const reverts = [];
+  const blockedDeliveries = [];
   
   if (!supabase) {
     console.log(`[Workflows] No supabase client available, skipping`);
@@ -2551,6 +2775,7 @@ export async function triggerWorkflows(entityType, entityId, beforeData, afterDa
   }
   
   let deliveryClaim = null;
+  const usesPerWorkflowDelivery = Boolean(context.attendance && context.deliveryKey);
   try {
     // Get tenant_id from entity data (afterData or beforeData)
     let tenantId = afterData?.tenant_id || beforeData?.tenant_id;
@@ -2598,7 +2823,7 @@ export async function triggerWorkflows(entityType, entityId, beforeData, afterDa
         ...(context.deliveryKey ? { delivery: { status: 'completed', noop: true } } : {}),
       };
     }
-    if (context.deliveryKey) {
+    if (context.deliveryKey && !usesPerWorkflowDelivery) {
       deliveryClaim = await claimWorkflowDelivery({
         deliveryKey: context.deliveryKey,
         tenantId,
@@ -2657,6 +2882,12 @@ export async function triggerWorkflows(entityType, entityId, beforeData, afterDa
           
           console.log(`[Workflows] Trigger match for ${workflow.name}: ${triggerMatches}`);
         }
+      } else if (
+        (workflow.trigger_type === 'attendance_result' || workflow.trigger_type === 'event_attendance_result')
+        && (triggerType === 'attendance_result' || triggerType === 'attendance_transition')
+      ) {
+        triggerMatches = attendanceTriggerMatches(workflow.trigger_config || {}, context.attendance || {});
+        console.log(`[Workflows] "${workflow.name}" attendance result match: ${triggerMatches}`);
       }
 
       if (!triggerMatches) {
@@ -2692,11 +2923,20 @@ export async function triggerWorkflows(entityType, entityId, beforeData, afterDa
           const isMemberCustom = fieldType === 'custom' || fieldType === 'member_custom';
           const isOrgCustom = fieldType === 'org_custom';
           const isJobPostingField = fieldType === 'job_posting_core';
+          const isAttendanceField = isAttendanceConditionField(fieldType, condition.field_id);
           
           console.log(`[Workflows] Condition ${i} field_type="${fieldType}", isMemberField=${isMemberField}, isOrgField=${isOrgField}, isMemberCustom=${isMemberCustom}, isOrgCustom=${isOrgCustom}, isJobPostingField=${isJobPostingField}`);
           
+          // Attendance values may only come from the normalized server-side
+          // transition context, never arbitrary provider/outbox metadata.
+          if ((triggerType === 'attendance_result' || triggerType === 'attendance_transition') && isAttendanceField) {
+            beforeValue = undefined;
+            afterValue = ATTENDANCE_CONDITION_FIELDS.has(condition.field_id)
+              ? context.attendance?.[condition.field_id]
+              : undefined;
+            console.log(`[Workflows] Attendance field "${condition.field_id}": afterValue="${afterValue}"`);
           // For job_posting entity type, treat 'core' as job posting core field
-          if ((entityType === 'job_posting' && (fieldType === 'core' || isJobPostingField)) || isJobPostingField) {
+          } else if ((entityType === 'job_posting' && (fieldType === 'core' || isJobPostingField)) || isJobPostingField) {
             // Job posting core field - get from afterData (which is the job_posting record)
             beforeValue = beforeData?.[condition.field_id];
             afterValue = afterData?.[condition.field_id];
@@ -2840,6 +3080,7 @@ export async function triggerWorkflows(entityType, entityId, beforeData, afterDa
               trigger_type: triggerType,
               condition_results: conditionResults,
               reason: 'conditions_not_met',
+              ...(context.triggerData || {}),
             },
             actions_executed: [],
             status: 'skipped',
@@ -2894,26 +3135,234 @@ export async function triggerWorkflows(entityType, entityId, beforeData, afterDa
 
       console.log(`[Workflows] Executing workflow: ${workflow.name} (trigger_mode=${workflow.trigger_mode || 'every_time'})`);
 
-      const results = await executeWorkflowActions(workflow, entityType, entityId, afterData || {}, baseUrl, context);
-      await logWorkflowExecution(workflow, entityType, entityId, { before: beforeData, after: afterData, trigger_type: triggerType, ...(context.systemInitiated ? { system_initiated: true, ...(context.triggeredByWorkflow ? { triggered_by_workflow: context.triggeredByWorkflow } : {}) } : {}) }, results);
+      const actionEntityId = context.attendance && context.actionEntityId
+        ? context.actionEntityId
+        : entityId;
+      const workflowDeliveryKey = usesPerWorkflowDelivery
+        ? attendanceWorkflowDeliveryKey({
+          tenantId,
+          workflowId: workflow.id,
+          entityId,
+          triggerMode: workflow.trigger_mode,
+          transitionDeliveryKey: context.deliveryKey,
+        })
+        : context.deliveryKey;
+      let workflowDeliveryClaim = null;
+      if (usesPerWorkflowDelivery) {
+        workflowDeliveryClaim = await claimWorkflowDelivery({
+          deliveryKey: workflowDeliveryKey,
+          tenantId,
+          entityType,
+          entityId,
+        });
+        if (workflowDeliveryClaim.completed) continue;
+        if (!workflowDeliveryClaim.owned) {
+          blockedDeliveries.push({
+            workflow_id: workflow.id,
+            workflow_name: workflow.name,
+            delivery_key: workflowDeliveryKey,
+            reason: 'delivery_claim_needs_attention',
+          });
+          await supabase.from('workflow_log').insert({
+            tenant_id: workflow.tenant_id,
+            workflow_id: workflow.id,
+            entity_type: entityType,
+            entity_id: entityId,
+            trigger_data: {
+              trigger_type: triggerType,
+              ...(context.triggerData || {}),
+              reason: 'delivery_claim_needs_attention',
+            },
+            actions_executed: [],
+            status: 'failed',
+            error_message: 'A prior attendance workflow action attempt did not complete cleanly and was not replayed.',
+          });
+          continue;
+        }
+      }
+      try {
+        const results = await executeWorkflowActions(
+          workflow,
+          entityType,
+          actionEntityId,
+          afterData || {},
+          baseUrl,
+          context,
+        );
+        await logWorkflowExecution(workflow, entityType, entityId, { before: beforeData, after: afterData, trigger_type: triggerType, ...(context.triggerData || {}), ...(context.systemInitiated ? { system_initiated: true, ...(context.triggeredByWorkflow ? { triggered_by_workflow: context.triggeredByWorkflow } : {}) } : {}) }, results);
+        if (workflowDeliveryClaim?.owned) {
+          await finishWorkflowDelivery(workflowDeliveryKey, workflowDeliveryClaim.ownerToken);
+        }
+      } catch (workflowError) {
+        if (workflowDeliveryClaim?.owned) {
+          await failWorkflowDelivery(workflowDeliveryKey, workflowDeliveryClaim.ownerToken, workflowError);
+          await supabase.from('workflow_log').insert({
+            tenant_id: workflow.tenant_id,
+            workflow_id: workflow.id,
+            entity_type: entityType,
+            entity_id: entityId,
+            trigger_data: {
+              trigger_type: triggerType,
+              ...(context.triggerData || {}),
+              reason: 'workflow_execution_failed',
+            },
+            actions_executed: [],
+            status: 'failed',
+            error_message: workflowError?.message || 'Attendance workflow execution failed',
+          });
+          blockedDeliveries.push({
+            workflow_id: workflow.id,
+            workflow_name: workflow.name,
+            delivery_key: workflowDeliveryKey,
+            reason: 'workflow_execution_failed',
+          });
+          continue;
+        }
+        throw workflowError;
+      }
     }
     
-    if (deliveryClaim?.owned) {
+    if (deliveryClaim?.owned && !usesPerWorkflowDelivery) {
       await finishWorkflowDelivery(context.deliveryKey, deliveryClaim.ownerToken);
     }
     return {
       pendingConfirmations,
       reverts,
-      ...(context.deliveryKey ? { delivery: { status: 'completed' } } : {}),
+      ...(context.deliveryKey ? {
+        delivery: blockedDeliveries.length > 0
+          ? { status: 'blocked', blocked: blockedDeliveries }
+          : { status: 'completed' },
+      } : {}),
     };
   } catch (err) {
     console.error('[Workflows] Error:', err.message, err.stack);
-    if (deliveryClaim?.owned) {
+    if (deliveryClaim?.owned && !usesPerWorkflowDelivery) {
       await failWorkflowDelivery(context.deliveryKey, deliveryClaim.ownerToken, err);
     }
     if (context.deliveryKey) throw err;
     return { pendingConfirmations: [], reverts: [] };
   }
+}
+
+/**
+ * Dispatch one server-loaded durable attendance transition. Immediate
+ * publication and outbox recovery should both call this function.
+ */
+export async function processAttendanceResultTransition(transition, baseUrl = '') {
+  const normalized = normalizeAttendanceResultTransition(transition);
+  const attendance = { ...normalized.conditionContext };
+  let memberData = null;
+
+  // Enrich from tenant-scoped database records rather than trusting denormalized
+  // provider metadata. This also preserves existing member core conditions and
+  // email placeholder/recipient behaviour for attendance-triggered workflows.
+  const bookingTable = attendance.booking_type === 'complex_event_booking'
+    ? 'complex_event_booking'
+    : attendance.booking_type === 'booking' ? 'booking' : null;
+  if (bookingTable) {
+    const { data: booking, error } = await supabase
+      .from(bookingTable)
+      .select('*')
+      .eq('id', normalized.bookingId)
+      .eq('tenant_id', normalized.tenantId)
+      .maybeSingle();
+    if (error) throw new Error(`load trusted attendance booking failed: ${error.message}`);
+    if (!booking) throw new Error(`trusted attendance booking ${normalized.bookingId} was not found`);
+    attendance.attendee_email = booking.attendee_email || booking.email || attendance.attendee_email;
+    attendance.attendee_name = booking.attendee_name
+      || [booking.attendee_first_name, booking.attendee_last_name].filter(Boolean).join(' ')
+      || attendance.attendee_name;
+    attendance.ticket_id = booking.ticket_class_id || attendance.ticket_id;
+    attendance.ticket_name = booking.ticket_class_name || attendance.ticket_name;
+    attendance.ticket_type = booking.ticket_class_name || attendance.ticket_type;
+    attendance.booking_reference = booking.booking_reference || attendance.booking_reference;
+  }
+  if (normalized.memberId) {
+    const { data: member, error } = await supabase
+      .from('member')
+      .select('*')
+      .eq('id', normalized.memberId)
+      .eq('tenant_id', normalized.tenantId)
+      .maybeSingle();
+    if (error) throw new Error(`load trusted attendance member failed: ${error.message}`);
+    memberData = member;
+    attendance.attendee_email = attendance.attendee_email || member?.email;
+    attendance.attendee_name = attendance.attendee_name
+      || [member?.first_name, member?.last_name].filter(Boolean).join(' ');
+  }
+  if (attendance.event_id) {
+    const eventTable = attendance.booking_type === 'complex_event_booking' ? 'complex_event' : 'event';
+    const { data: event, error } = await supabase
+      .from(eventTable)
+      .select('title')
+      .eq('id', attendance.event_id)
+      .eq('tenant_id', normalized.tenantId)
+      .maybeSingle();
+    if (error) throw new Error(`load trusted attendance event failed: ${error.message}`);
+    attendance.event_name = event?.title || attendance.event_name;
+  }
+  if (attendance.target_type === 'event') {
+    attendance.target_name = attendance.event_name || attendance.target_name;
+  } else if (attendance.target_type === 'complex_event_session') {
+    const { data: session, error } = await supabase
+      .from('complex_event_session')
+      .select('title')
+      .eq('id', attendance.target_id)
+      .eq('tenant_id', normalized.tenantId)
+      .maybeSingle();
+    if (error) throw new Error(`load trusted attendance session failed: ${error.message}`);
+    attendance.target_name = session?.title || attendance.target_name;
+  } else if (attendance.target_type === 'agenda_item') {
+    const { data: agenda, error } = await supabase
+      .from('event_agenda_item')
+      .select('description,item_type')
+      .eq('id', attendance.target_id)
+      .eq('tenant_id', normalized.tenantId)
+      .maybeSingle();
+    if (error) throw new Error(`load trusted attendance agenda item failed: ${error.message}`);
+    attendance.target_name = agenda?.description || agenda?.item_type || attendance.target_name;
+  }
+  // Attendance workflows are authored against the member condition/action
+  // surface, but their durable "record" is the booking. Using the booking id
+  // for claims/logs means once-per-record is once per attendee booking (not
+  // once per member across all future events). actionEntityId keeps record
+  // updates pointed at the trusted member when one exists.
+  const entityType = 'member';
+  const entityId = normalized.bookingId;
+  const entityData = {
+    ...(memberData || {}),
+    ...attendance,
+    id: normalized.memberId || normalized.bookingId,
+    tenant_id: normalized.tenantId,
+    email: attendance.attendee_email,
+    name: attendance.attendee_name,
+  };
+
+  return triggerWorkflows(
+    String(entityType),
+    String(entityId),
+    null,
+    entityData,
+    'attendance_result',
+    baseUrl,
+    {
+      systemInitiated: true,
+      attendance,
+      actionEntityId: normalized.memberId || null,
+      triggerData: {
+        attendance_transition_id: normalized.transitionId,
+        attendance_target_id: normalized.targetId,
+        booking_id: normalized.bookingId,
+        outcome_revision_id: normalized.revisionId,
+        outcome_revision_number: attendance.attendance_revision_number,
+        outcome: normalized.outcome,
+        attendance,
+      },
+      // Corrections have a new transition id and can run again. Replaying the
+      // same transition is claimed once across immediate and recovery paths.
+      deliveryKey: `attendance-result:${normalized.transitionId}`,
+    },
+  );
 }
 
 // Task 3197: the admin UI "add member/organization" dialog creates the record
