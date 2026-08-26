@@ -13,15 +13,23 @@
  *
  * Accepts the caller's supabase client so it works with both the shared
  * api/_lib/database.js client and locally-created service clients.
+ *
+ * Callers that would treat [] as an authoritative destructive update must pass
+ * `{ strict: true }`. Strict mode throws unless an empty list is confirmed by
+ * the tenant's seed marker.
  */
 import { WORLD_BANK_LMIC_ISO2 } from '../../shared/lmicCountries.js';
 
-export async function loadTenantLmicCodes(supabase, tenantId) {
+export async function loadTenantLmicCodes(supabase, tenantId, options = {}) {
+  const strict = options?.strict === true;
   let q = supabase.from('tenant_lmic_country').select('country_code');
   q = tenantId ? q.eq('tenant_id', tenantId) : q.is('tenant_id', null);
   const { data, error } = await q;
   if (error) {
     console.error('[LMIC] Failed to load LMIC codes:', error.message);
+    if (strict) {
+      throw new Error(`Failed to load tenant LMIC codes: ${error.message}`, { cause: error });
+    }
     return [];
   }
   const codes = (data || []).map(r => String(r.country_code || '').toUpperCase()).filter(Boolean);
@@ -36,6 +44,9 @@ export async function loadTenantLmicCodes(supabase, tenantId) {
     .maybeSingle();
   if (seedErr) {
     console.warn('[LMIC] seed marker lookup warning:', seedErr.message);
+    if (strict) {
+      throw new Error(`Failed to confirm tenant LMIC seed state: ${seedErr.message}`, { cause: seedErr });
+    }
   }
   if (seedRow) return [];
   try {
@@ -47,11 +58,36 @@ export async function loadTenantLmicCodes(supabase, tenantId) {
       // Most likely a race with another request that just seeded the
       // same tenant — re-read and use whatever is now there.
       console.warn('[LMIC] seed insert warning:', insertErr.message);
-      const { data: after } = await supabase
+      const { data: after, error: afterErr } = await supabase
         .from('tenant_lmic_country')
         .select('country_code')
         .eq('tenant_id', tenantId);
-      return (after || []).map(r => String(r.country_code || '').toUpperCase()).filter(Boolean);
+      if (afterErr) {
+        if (strict) {
+          throw new Error(`Failed to re-read tenant LMIC codes: ${afterErr.message}`, { cause: afterErr });
+        }
+        return [];
+      }
+      const afterCodes = (after || [])
+        .map(r => String(r.country_code || '').toUpperCase())
+        .filter(Boolean);
+      if (afterCodes.length > 0) return afterCodes;
+      if (strict) {
+        const { data: afterSeedRow, error: afterSeedErr } = await supabase
+          .from('tenant_lmic_seed')
+          .select('tenant_id')
+          .eq('tenant_id', tenantId)
+          .maybeSingle();
+        if (afterSeedErr) {
+          throw new Error(
+            `Failed to confirm tenant LMIC seed state after insert failure: ${afterSeedErr.message}`,
+            { cause: afterSeedErr }
+          );
+        }
+        if (afterSeedRow) return [];
+        throw new Error(`Failed to seed tenant LMIC codes: ${insertErr.message}`, { cause: insertErr });
+      }
+      return [];
     }
     const { error: markErr } = await supabase
       .from('tenant_lmic_seed')
@@ -62,6 +98,7 @@ export async function loadTenantLmicCodes(supabase, tenantId) {
     return [...WORLD_BANK_LMIC_ISO2];
   } catch (err) {
     console.error('[LMIC] seed failed:', err.message || err);
+    if (strict) throw err;
     return [];
   }
 }

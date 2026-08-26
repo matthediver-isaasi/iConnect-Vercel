@@ -65,7 +65,7 @@ class ZohoAPI
     const MEMBER_SYNC_DB_LOCK_NAME = 'gsf_iconnect_member_sync';
     const MEMBER_SYNC_LOCK_TTL = 900;
     const COUNTRY_DATA_VERSION_OPTION = 'gsf_iconnect_country_data_version';
-    const COUNTRY_DATA_VERSION = 2;
+    const COUNTRY_DATA_VERSION = 3;
 
     // [ICONNECT 2026-08-25] Literal legacy Zoho OAuth credentials were removed
     // from the distributable. iConnect settings are read from WordPress options.
@@ -1424,27 +1424,32 @@ class ZohoAPI
 
         $countries = [];
         foreach ($rows as $country_data) {
-            if (isset($country_data['Country']['name'])) {
-                $country_name = $country_data['Country']['name'];
-                if (strcasecmp(trim((string) $country_name), 'Multiple locations') === 0) {
-                    continue;
-                }
-                $countries[$country_name] = [
-                    'id' => $country_data['id'],
-                    'zoho_country_id' => $country_data['Country']['id'],
-                    'income_group' => $country_data['Income_Group'] ?? '',
-                    'region' => $country_data['GSF_Region_Classification'] ?? '',
-                    'flag' => $country_data['Flag'] ?? ''
-                ];
+            $country_name = is_array($country_data)
+                ? trim((string) ($country_data['Country']['name'] ?? ''))
+                : '';
+            if (
+                $country_name === ''
+                || strcasecmp($country_name, 'Multiple locations') === 0
+            ) {
+                // Only a literal empty response represents an intentionally
+                // empty LMIC list. A non-empty malformed response must retain
+                // the previous option and retry rather than clearing the map.
+                $this->logger->log('iConnect countries endpoint returned a malformed country row', 'ERROR');
+                return false;
             }
+            $countries[$country_name] = [
+                'id' => $country_data['id'] ?? '',
+                'zoho_country_id' => $country_data['Country']['id'] ?? '',
+                'income_group' => $country_data['Income_Group'] ?? '',
+                'region' => $country_data['GSF_Region_Classification'] ?? '',
+                'flag' => $country_data['Flag'] ?? ''
+            ];
         }
 
-        if (empty($countries)) {
-            $this->logger->log('iConnect countries endpoint returned no usable rows', 'ERROR');
-            return false;
-        }
-
-        // Save countries to an option (same option keys as before)
+        // A successful empty array is authoritative: it represents an
+        // intentionally empty tenant LMIC selection. Persist it so the member
+        // pass can clear stale country metadata and complete this versioned
+        // refresh. Transport/schema failures returned null above.
         update_option('gsf_zoho_countries', $countries);
         update_option('gsf_zoho_last_country_sync', time());
         $this->lastCountrySyncTime = time();

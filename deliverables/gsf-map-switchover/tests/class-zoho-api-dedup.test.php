@@ -17,6 +17,7 @@ $GLOBALS['test_query_posts'] = [];
 $GLOBALS['test_query_index'] = 0;
 $GLOBALS['test_current_post'] = null;
 $GLOBALS['test_meta_failures'] = [];
+$GLOBALS['test_remote_responses'] = [];
 
 class TestWpdb
 {
@@ -218,6 +219,21 @@ function is_wp_error()
 {
     return false;
 }
+function wp_remote_get()
+{
+    if (empty($GLOBALS['test_remote_responses'])) {
+        throw new RuntimeException('No test remote response queued');
+    }
+    return array_shift($GLOBALS['test_remote_responses']);
+}
+function wp_remote_retrieve_response_code($response)
+{
+    return $response['response_code'] ?? 0;
+}
+function wp_remote_retrieve_body($response)
+{
+    return $response['body'] ?? '';
+}
 function current_time($type)
 {
     return $type === 'mysql' ? '2026-08-25 12:00:00' : time();
@@ -386,7 +402,7 @@ test_assert(
 $public_members = $api->getMembers(1, 200, [], false);
 test_assert(
     $public_members['members'][0]['Countries_of_Operation'] === ['Kenya', 'Uganda'],
-    'public member response returns the individual country collection'
+    'public member response preserves the multi-country array used by the existing tooltip'
 );
 $filtered_members = $api->getMembers(1, 200, ['country' => 'Uganda'], false);
 test_assert(
@@ -398,6 +414,74 @@ $guarded_members = $api->getMembers(1, 200, [], false);
 test_assert(
     $guarded_members['members'][0]['Countries_of_Operation'] === ['Kenya'],
     'public member response never exposes a stale summary sentinel'
+);
+
+// A successful empty country feed is authoritative. It must clear the option
+// and stale member metadata rather than leaving the version upgrade retrying.
+$GLOBALS['test_options']['gsf_iconnect_base_url'] = 'https://iconnect.test';
+$GLOBALS['test_options']['gsf_iconnect_api_key'] = 'test-key';
+$GLOBALS['test_options']['gsf_zoho_countries'] = [
+    'Kenya' => ['flag' => 'Show'],
+];
+$GLOBALS['test_remote_responses'][] = [
+    'response_code' => 200,
+    'body' => '[]',
+];
+test_assert(
+    invoke_private($api, 'syncCountriesFromZoho') === true
+        && $GLOBALS['test_options']['gsf_zoho_countries'] === [],
+    'an empty authoritative LMIC country feed replaces stale country options'
+);
+$GLOBALS['test_meta'][51]['countries_of_operation'] = ['Kenya'];
+$empty_country_member = member_payload('countries-1', 'Multi-country member');
+$empty_stats = invoke_private($api, 'syncMembersToWordPress', [$empty_country_member]);
+test_assert(
+    $empty_stats['failed'] === 0
+        && $GLOBALS['test_meta'][51]['countries_of_operation'] === [],
+    'an empty LMIC selection clears stale member country metadata'
+);
+unset($GLOBALS['test_options'][ZohoAPI::COUNTRY_DATA_VERSION_OPTION]);
+$empty_completed_result = invoke_private(
+    $api,
+    'finalizeMemberSyncResult',
+    $empty_stats,
+    1,
+    1,
+    0,
+    time()
+);
+test_assert(
+    $empty_completed_result['status'] === 'completed'
+        && $GLOBALS['test_options'][ZohoAPI::COUNTRY_DATA_VERSION_OPTION] === ZohoAPI::COUNTRY_DATA_VERSION,
+    'an empty LMIC refresh can record the current country-data version'
+);
+
+// A non-empty malformed response is not the same as an intentionally empty
+// LMIC selection and must preserve the last known-good country option.
+$GLOBALS['test_options']['gsf_zoho_countries'] = [
+    'Kenya' => ['flag' => 'Show'],
+];
+$GLOBALS['test_remote_responses'][] = [
+    'response_code' => 200,
+    'body' => '[{}]',
+];
+test_assert(
+    invoke_private($api, 'syncCountriesFromZoho') === false
+        && $GLOBALS['test_options']['gsf_zoho_countries'] === [
+            'Kenya' => ['flag' => 'Show'],
+        ],
+    'a malformed non-empty country feed cannot clear the last known-good option'
+);
+$GLOBALS['test_remote_responses'][] = [
+    'response_code' => 500,
+    'body' => '{"error":"Failed to load tenant LMIC countries"}',
+];
+test_assert(
+    invoke_private($api, 'syncCountriesFromZoho') === false
+        && $GLOBALS['test_options']['gsf_zoho_countries'] === [
+            'Kenya' => ['flag' => 'Show'],
+        ],
+    'an LMIC API failure cannot clear the last known-good country option'
 );
 
 // A failed country-meta write makes the member pass and final sync result fail,

@@ -27,6 +27,8 @@
 
 import crypto from 'node:crypto';
 import { createClient } from '@supabase/supabase-js';
+import { COUNTRIES, resolveCountryToIso2 } from '../../shared/countries.js';
+import { loadTenantLmicCodes } from './tenantLmicCodes.js';
 
 export const GSF_TENANT_ID = '21296ad6-1350-483a-a90c-1b06ece70501';
 
@@ -73,6 +75,10 @@ const MEMBER_COUNTRY_NAME_ALIASES = {
   'Laos': 'Lao PDR',
   'Kyrgyzstan': 'Kyrgyz Republic'
 };
+
+const COUNTRY_NAME_BY_ISO2 = new Map(
+  COUNTRIES.map((country) => [country.code, country.name])
+);
 
 // ---------------------------------------------------------------------------
 // Zoho system constants (copied verbatim from the reference payloads).
@@ -177,6 +183,36 @@ export function resolveCountriesOfOperation(prefs = {}) {
       seen.add(value);
       return true;
     });
+}
+
+/**
+ * Return only countries selected in the tenant's LMIC list.
+ *
+ * Country names are resolved before membership is checked, so aliases and ISO
+ * codes behave consistently. Unresolvable values and an intentionally empty
+ * LMIC list fail closed.
+ */
+export function resolveLmicCountriesOfOperation(prefs = {}, lmicCountryCodes = []) {
+  const lmicCodeSet = lmicCountryCodes instanceof Set
+    ? lmicCountryCodes
+    : new Set((lmicCountryCodes || []).map((code) => String(code).toUpperCase()));
+  const seenCodes = new Set();
+  const countries = [];
+
+  for (const country of resolveCountriesOfOperation(prefs)) {
+    const code = resolveCountryToIso2(country);
+    if (code === null || !lmicCodeSet.has(code) || seenCodes.has(code)) {
+      continue;
+    }
+    const canonicalName = COUNTRY_NAME_BY_ISO2.get(code);
+    if (!canonicalName) {
+      continue;
+    }
+    seenCodes.add(code);
+    countries.push(canonicalName);
+  }
+
+  return countries;
 }
 
 const NUMERIC_TYPES = new Set(['number', 'decimal', 'percent', 'currency']);
@@ -312,7 +348,7 @@ async function loadSeedSetting(supabase, key) {
 export async function loadGsfMapData() {
   const { supabase, supabaseUrl } = getSupabase();
 
-  const [mappingRow, orgs, countryLookup, countryRowIds, orgLegacy] = await Promise.all([
+  const [mappingRow, orgs, countryLookup, countryRowIds, orgLegacy, lmicCountryCodes] = await Promise.all([
     supabase
       .from('zoho_crm_sync_mapping')
       .select('field_mappings')
@@ -332,7 +368,10 @@ export async function loadGsfMapData() {
     ),
     loadSeedSetting(supabase, SETTING_COUNTRY_LOOKUP),
     loadSeedSetting(supabase, SETTING_COUNTRY_ROW_IDS),
-    loadSeedSetting(supabase, SETTING_ORG_LEGACY)
+    loadSeedSetting(supabase, SETTING_ORG_LEGACY),
+    // An empty LMIC list is authoritative to WordPress, so failures must throw
+    // instead of being collapsed into [] by the shared loader.
+    loadTenantLmicCodes(supabase, GSF_TENANT_ID, { strict: true })
   ]);
 
   const fieldMappings = mappingRow?.field_mappings || [];
@@ -438,7 +477,8 @@ export async function loadGsfMapData() {
     publishedLogoByOrg,
     countryLookup,
     countryRowIds,
-    orgLegacy
+    orgLegacy,
+    lmicCountryCodes
   };
 }
 
@@ -482,7 +522,7 @@ export function buildMembersPayload(data) {
     const countriesMapping = fieldMappings.find(
       (m) => m.zoho_field === 'Countries_of_Operation'
     );
-    const canonicalCountries = resolveCountriesOfOperation(prefs);
+    const canonicalCountries = resolveLmicCountriesOfOperation(prefs, data.lmicCountryCodes);
     record.Countries_of_Operation = canonicalCountries.map((country) => {
       const mapped = countriesMapping
         ? applyValueMapOutbound(countriesMapping, country)
@@ -584,7 +624,7 @@ export function buildCountriesPayload(data) {
       ? org[nameMapping.iconnect_field]
       : org.name) || org.name;
 
-    const countries = resolveCountriesOfOperation(prefs);
+    const countries = resolveLmicCountriesOfOperation(prefs, data.lmicCountryCodes);
     const seen = new Set();
     for (const rawName of countries) {
       const zohoName = COUNTRY_NAME_ALIASES[rawName] || rawName;
@@ -599,7 +639,10 @@ export function buildCountriesPayload(data) {
         Country: { name: zohoName, id: meta?.id ?? null },
         Income_Group: meta?.income_group ?? null,
         GSF_Region_Classification: meta?.region ?? null,
-        Flag: meta ? meta.flag : 'Show',
+        // Reaching this point proves the country resolves and is selected in
+        // the tenant's current LMIC list. Non-LMIC and unknown values never
+        // become rows, so the WordPress visibility contract is explicitly Show.
+        Flag: 'Show',
         Created_Time: rowSeed?.created_time || formatZohoTime(org.created_at),
         Layout: COUNTRIES_LAYOUT,
         $layout_id: COUNTRIES_LAYOUT,

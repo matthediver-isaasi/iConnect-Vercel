@@ -155,3 +155,4 @@
 - [Bounded list APIs and exports](bounded-list-api-exports.md) — when an interactive list API caps page size, existing exports must paginate to the exact total or they silently truncate.
 - [Mailgun HTTPS tracking reconciliation](mailgun-https-tracking.md) — trust the final domain GET; readiness requires both HTTPS web_scheme and active domain state.
 - [Attendance snapshot finalization](attendance-snapshot-finalization.md) — provider reports must publish atomically; idempotency includes bookings, policy, target, intervals, and matches.
+- [Authoritative empty feeds](authoritative-empty-feeds.md) — destructive consumers need confirmed-empty vs load-failure states; never collapse backend errors into [].
