@@ -1,8 +1,12 @@
 # GSF Map Site — Zoho → iConnect Switch-Over (Handover Note)
 
 **Date:** 26 August 2026
-**Deliverable:** `class-zoho-api.iconnect.php` — a modified copy of the WordPress plugin's `ZohoAPI` class, repointed from Zoho CRM to iConnect.
+**Deliverables:** `class-zoho-api.iconnect.php` — a modified copy of the
+WordPress plugin's `ZohoAPI` class, repointed from Zoho CRM to iConnect; and
+`stats.iconnect.php` — the companion replacement for the theme's member map
+statistics file.
 **Integration version:** `3.1.0`
+**Map stats version:** `1.1.0`
 
 ## How to review the file
 
@@ -69,6 +73,33 @@ retry. The public member response also strips any stale “Multiple locations”
 sentinel while the refresh is in flight, and country filtering continues to use
 the individual-country metadata.
 
+### Map shading uses the same selected-country list
+
+Install `stats.iconnect.php` over:
+
+```text
+wp-content/themes/global-schools-forum/core/members/stats.php
+```
+
+The installed file declares `GSF_MAP_STATS_VERSION` as `1.1.0`; inspect that
+constant in the deployed theme file to distinguish this correction from the
+original stats implementation.
+
+The previous stats implementation rebuilt LMIC eligibility from three legacy
+`income_group` labels. That excluded Chile from `get_map_data` even though the
+tenant-selected Countries feed marked it `Flag: Show` and the Aptus tooltip
+already included it. The replacement treats the cached country record's
+case-insensitive `Flag: Show` as authoritative, matching member ingestion and
+tooltip filtering. Existing country normalization and map display aliases are
+unchanged.
+
+After replacing the theme file, reload Our Community and inspect
+`admin-ajax.php?action=get_map_data`: `data.countryCounts.Chile` must be a
+positive integer. Aptus should still list Dominican Republic, Ecuador, Mexico,
+and Chile, and Chile should be shaded. The AJAX map response itself is not
+transient-cached; the existing member sync already clears the separate
+`gsf_community_stats` text-placeholder transient.
+
 The ZIP is built from the checked-in files with:
 
 ```bash
@@ -134,7 +165,8 @@ credentials must still be **rotated / revoked** in the Zoho admin console.
 
 ## Validation performed
 
-- `php -l` (PHP 8.2): no syntax errors in the class, inventory, cleanup, or tests.
+- `php -l` (PHP 8.2): no syntax errors in the class, theme stats replacement,
+  inventory, cleanup, or tests.
 - Behavioral PHP checks cover all-status identity matching, published-first
   canonical selection, status preservation, pre-existing duplicates, old
   noncanonical `last_sync`, global sync timestamps, option and MySQL advisory
@@ -145,12 +177,15 @@ credentials must still be **rotated / revoked** in the Zoho admin console.
   237-published/232-identity starting state,
   mixed candidate statuses, explicit feed-failure handling, and the temporary
   browser cleanup's administrator/POST/nonce/confirmation and one-time-plan
-  controls.
+   controls. The stats checks cover authoritative `Flag: Show` eligibility,
+   Chile with a High Income label, hidden legacy-income countries, and existing
+   frontend display aliases.
 
 Run them from this repository:
 
 ```bash
 php deliverables/gsf-map-switchover/tests/class-zoho-api-dedup.test.php
+php deliverables/gsf-map-switchover/tests/stats-iconnect.test.php
 php deliverables/gsf-map-switchover/tests/wp-gsf-map-reconcile.test.php
 php deliverables/gsf-map-switchover/tests/wp-gsf-map-cleanup.test.php
 php deliverables/gsf-map-switchover/tests/wp-gsf-map-cleanup.test.php apply
