@@ -13,7 +13,14 @@ import { loadTenantLmicCodes } from '../_lib/tenantLmicCodes.js';
 import { computeHiddenFieldIds, findPaymentField, derivePaymentAmount } from '../_lib/formFieldVisibility.js';
 import { resolveFormAccess, sendFormAccessDenied } from '../_lib/formAccessPolicy.js';
 import { isFormScheduleAvailable } from '../_lib/formAvailability.js';
-import { persistFormCommunicationSubscriptions } from '../_lib/formCommunicationSubscriptions.js';
+import {
+  createFormCommunicationSnapshot,
+  collectMemberPipelineCommunicationSelections,
+  finalizeFormCommunicationSnapshot,
+  prepareInitialMemberCommunicationSnapshot,
+  promoteAwaitingMemberCommunicationSnapshot,
+  safeSubscriptionDiagnostic,
+} from '../_lib/formCommunicationSubscriptions.js';
 
 export default async function handler(req, res) {
   console.log('[Public Form Submission] === ENDPOINT CALLED ===');
@@ -450,6 +457,56 @@ export default async function handler(req, res) {
       duplicate: true,
     });
 
+    const resumeDuplicateFinalization = async (row) => {
+      let state = row.communication_finalization_state;
+      if (!state || state.status === 'completed') return originalSuccessResponse(row);
+      if (state.status === 'awaiting_member') {
+        if (!row.created_member_id) {
+          return res.status(503).json({
+            error: 'Your form is still being completed. Please retry.',
+            code: 'COMMUNICATION_FINALIZATION_PENDING',
+            submission_id: row.id,
+            retryable: true,
+          });
+        }
+        try {
+          state = await promoteAwaitingMemberCommunicationSnapshot(supabase, row);
+        } catch (error) {
+          console.error('[Public Form Submission] Failed to promote awaiting-member snapshot:', {
+            submission_id: row.id,
+            diagnostic: safeSubscriptionDiagnostic(error),
+          });
+          return res.status(503).json({
+            error: 'Your form was saved, but communication preferences are still being completed. Please retry.',
+            code: 'COMMUNICATION_FINALIZATION_PENDING',
+            submission_id: row.id,
+            retryable: true,
+          });
+        }
+      }
+      try {
+        await finalizeFormCommunicationSnapshot({
+          database: supabase,
+          tenantId: tenantData.id,
+          submissionId: row.id,
+          formId: form.id,
+          snapshot: state,
+        });
+        return originalSuccessResponse(row);
+      } catch (error) {
+        console.error('[Public Form Submission] Duplicate communication finalization replay failed:', {
+          submission_id: row.id,
+          diagnostic: safeSubscriptionDiagnostic(error),
+        });
+        return res.status(503).json({
+          error: 'Your form was saved, but communication preferences are still being completed. Please retry.',
+          code: 'COMMUNICATION_FINALIZATION_PENDING',
+          submission_id: row.id,
+          retryable: true,
+        });
+      }
+    };
+
     // 1) Idempotency key: the public form generates one key per form-filling
     //    session. If a submission with the same (form_id, key) already exists,
     //    short-circuit with its success payload. A unique partial index on
@@ -461,7 +518,7 @@ export default async function handler(req, res) {
     if (idemKey) {
       const { data: existing, error: idemErr } = await supabase
         .from('form_submission')
-        .select('id, created_member_id, organization_id')
+        .select('id, created_member_id, organization_id, communication_finalization_state')
         .eq('form_id', form_id)
         .eq('tenant_id', tenantData.id)
         .eq('idempotency_key', idemKey)
@@ -472,7 +529,7 @@ export default async function handler(req, res) {
       }
       if (existing) {
         console.log('[Public Form Submission] Duplicate idempotency key — returning original submission', existing.id);
-        return originalSuccessResponse(existing);
+        return resumeDuplicateFinalization(existing);
       }
     }
 
@@ -488,7 +545,7 @@ export default async function handler(req, res) {
         const windowStart = new Date(Date.now() - 10 * 1000).toISOString();
         let windowQuery = supabase
           .from('form_submission')
-          .select('id, created_member_id, organization_id, created_date')
+          .select('id, created_member_id, organization_id, created_date, communication_finalization_state')
           .eq('form_id', form_id)
           .eq('tenant_id', tenantData.id)
           .gte('created_date', windowStart)
@@ -509,12 +566,32 @@ export default async function handler(req, res) {
           console.warn('[Public Form Submission] Duplicate-window check failed (continuing):', windowErr.message);
         } else if (recent && recent.length > 0) {
           console.log('[Public Form Submission] Duplicate within 10s window — returning original submission', recent[0].id);
-          return originalSuccessResponse(recent[0]);
+          return resumeDuplicateFinalization(recent[0]);
         }
       } catch (windowCheckErr) {
         console.warn('[Public Form Submission] Duplicate-window check threw (continuing):', windowCheckErr?.message);
       }
     }
+
+    const hasEntityPipelines = (form.entity_pipelines?.members?.length > 0) || (form.entity_pipelines?.organisations?.length > 0);
+    const hasMemberPipelines = form.entity_pipelines?.members?.length > 0;
+    const pipelineCommunicationSelections = collectMemberPipelineCommunicationSelections(
+      form.entity_pipelines,
+      submission_data || {}
+    );
+    let initialCommunicationSnapshot = surveyIsAnonymous
+      ? null
+      : createFormCommunicationSnapshot({
+          form,
+          submissionData: submission_data || {},
+          mappedSelections: pipelineCommunicationSelections,
+          fallbackEmail: canonicalSubmitterEmail || sessionMemberEmail || '',
+        });
+    initialCommunicationSnapshot = prepareInitialMemberCommunicationSnapshot(
+      initialCommunicationSnapshot,
+      hasMemberPipelines
+    );
+    let communicationSnapshot = initialCommunicationSnapshot;
 
     // Create the form submission - match FormView structure exactly
     // SECURITY: Include tenant_id for proper multi-tenant isolation
@@ -570,6 +647,9 @@ export default async function handler(req, res) {
       // Duplicate-submission guard: persist the key so retries/second tabs
       // hit the unique index instead of creating a second row.
       ...(idemKey && { idempotency_key: idemKey }),
+      ...(!surveyIsAnonymous && {
+        communication_finalization_state: initialCommunicationSnapshot,
+      }),
       // Survey scoring (computed server-side against the published version)
       ...(isSurvey && {
         survey_version_id: surveyVersion.id,
@@ -636,13 +716,13 @@ export default async function handler(req, res) {
       console.log('[Public Form Submission] Concurrent duplicate (unique violation) — fetching original row');
       const { data: winner, error: winnerErr } = await supabase
         .from('form_submission')
-        .select('id, created_member_id, organization_id')
+        .select('id, created_member_id, organization_id, communication_finalization_state')
         .eq('form_id', form_id)
         .eq('tenant_id', tenantData.id)
         .eq('idempotency_key', idemKey)
         .maybeSingle();
       if (winner) {
-        return originalSuccessResponse(winner);
+        return resumeDuplicateFinalization(winner);
       }
       console.error('[Public Form Submission] Unique violation but original row not found:', winnerErr);
       return res.status(500).json({ error: 'Failed to save submission' });
@@ -839,8 +919,6 @@ export default async function handler(req, res) {
     // Process entity pipelines if configured (members/organisations creation)
     let pipelineCreatedMemberId = null;
     let pipelineCreatedOrgId = null;
-    let deferredCommunicationSelections = [];
-    const hasEntityPipelines = (form.entity_pipelines?.members?.length > 0) || (form.entity_pipelines?.organisations?.length > 0);
     // Anonymous surveys never run identity-creating pipelines.
     if (hasEntityPipelines && !surveyIsAnonymous) {
       try {
@@ -920,18 +998,17 @@ export default async function handler(req, res) {
               const resolvedMemberId = result.created_member_id || result.member_id;
               pipelineCreatedMemberId = resolvedMemberId || null;
               pipelineCreatedOrgId = resolvedOrgId || null;
-              deferredCommunicationSelections = Array.isArray(result.deferred_communication_selections)
-                ? result.deferred_communication_selections
-                : [];
-              
               const submissionUpdates = {};
               if (resolvedOrgId && !submissionRecord.organization_id) {
                 submissionUpdates.organization_id = resolvedOrgId;
               }
-              if (resolvedMemberId) {
-                submissionUpdates.created_member_id = resolvedMemberId;
-              }
-              
+              communicationSnapshot = createFormCommunicationSnapshot({
+                form,
+                submissionData: submission_data || {},
+                mappedSelections: pipelineCommunicationSelections,
+                resolvedMemberId: pipelineCreatedMemberId,
+                fallbackEmail: canonicalSubmitterEmail || sessionMemberEmail || '',
+              });
               if (Object.keys(submissionUpdates).length > 0) {
                 console.log('[Public Form Submission] Updating submission with:', JSON.stringify(submissionUpdates));
                 const { error: updateError } = await supabase
@@ -943,6 +1020,30 @@ export default async function handler(req, res) {
                   console.error('[Public Form Submission] Failed to update submission:', updateError);
                 } else {
                   console.log('[Public Form Submission] Submission updated successfully');
+                }
+              }
+              if (hasMemberPipelines && resolvedMemberId) {
+                try {
+                  communicationSnapshot = await promoteAwaitingMemberCommunicationSnapshot(
+                    supabase,
+                    {
+                      id: submission.id,
+                      created_member_id: resolvedMemberId || null,
+                      communication_finalization_state: initialCommunicationSnapshot,
+                    },
+                    communicationSnapshot
+                  );
+                } catch (promotionError) {
+                  console.error('[Public Form Submission] Failed to promote final communication snapshot:', {
+                    submission_id: submission.id,
+                    diagnostic: safeSubscriptionDiagnostic(promotionError),
+                  });
+                  return res.status(503).json({
+                    error: 'Your form was saved, but communication preferences could not be prepared. Please retry.',
+                    code: 'COMMUNICATION_FINALIZATION_PENDING',
+                    submission_id: submission.id,
+                    retryable: true,
+                  });
                 }
               }
             } catch (parseErr) {
@@ -972,27 +1073,26 @@ export default async function handler(req, res) {
     // particular, a member created by the pipeline above must never first be
     // persisted as an external subscriber.
     if (!surveyIsAnonymous) {
-      for (let attempt = 1; attempt <= 2; attempt += 1) {
-        try {
-          const result = await persistFormCommunicationSubscriptions({
-            database: supabase,
-            tenantId: tenantData.id,
-            form,
-            submissionData: submission_data || {},
-            mappedSelections: deferredCommunicationSelections,
-            resolvedMemberId: pipelineCreatedMemberId,
-            fallbackEmail: canonicalSubmitterEmail || sessionMemberEmail || '',
-          });
-          if (result.kind !== 'none') {
-            console.log('[Public Form Submission] Persisted communication subscriptions as', result.kind);
-          }
-          break;
-        } catch (subscriptionError) {
-          console.error(`[Public Form Submission] Communication subscription error (attempt ${attempt}):`, subscriptionError.message || subscriptionError);
-          if (attempt === 2) {
-            console.error('[Public Form Submission] Communication subscriptions FAILED after 2 attempts for submission:', submission.id, 'form:', form.id);
-          }
-        }
+      try {
+        await finalizeFormCommunicationSnapshot({
+          database: supabase,
+          tenantId: tenantData.id,
+          submissionId: submission.id,
+          formId: form.id,
+          snapshot: communicationSnapshot,
+        });
+      } catch (subscriptionError) {
+        console.error('[Public Form Submission] Communication finalization incomplete:', {
+          submission_id: submission.id,
+          diagnostic: safeSubscriptionDiagnostic(subscriptionError),
+          state_diagnostic: subscriptionError.finalizationStateError || null,
+        });
+        return res.status(503).json({
+          error: 'Your form was saved, but communication preferences could not be completed. Please retry.',
+          code: 'COMMUNICATION_FINALIZATION_PENDING',
+          submission_id: submission.id,
+          retryable: true,
+        });
       }
     }
 

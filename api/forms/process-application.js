@@ -10,6 +10,7 @@ import { resolveExistingOrganization, applyOrgWriteTenantGuard, runGuardedTenant
 import { resolveSubmitControl } from '../_lib/formSubmitControl.js';
 import { rulesUseLmicOperators } from '../_lib/formLmicConditions.js';
 import { loadTenantLmicCodes } from '../_lib/tenantLmicCodes.js';
+import { collectMemberPipelineCommunicationSelections } from '../_lib/formCommunicationSubscriptions.js';
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
@@ -994,7 +995,10 @@ export default async function handler(req, res) {
     const memberCustomFieldsToClear = new Set();
     const orgCustomFieldsToClear = new Set();
     // Map to collect communication preferences (categoryId -> boolean subscribed value)
-    const memberCommunicationPrefsMap = new Map();
+    const memberCommunicationPrefsMap = new Map(
+      collectMemberPipelineCommunicationSelections(entity_pipelines, form_values)
+        .map(({ category_id, is_subscribed }) => [category_id, is_subscribed])
+    );
 
     // Test whether a form_values key is "present and explicitly cleared" vs
     // "absent from the submission". Only used for custom-field mappings (core
@@ -1440,27 +1444,10 @@ export default async function handler(req, res) {
               console.log(`[AppProcessor] Added custom field value: ${customFieldId} = ${JSON.stringify(value)?.substring(0, 200)}`);
             }
           } else if (mapping.target_type === 'communication' && targetEntity === 'member') {
-            // Communication preference (marketing list subscription)
-            const categoryId = mapping.target_field;
-            // If value is an object (communication_preferences map), extract the specific category boolean
-            if (value && typeof value === 'object' && !Array.isArray(value)) {
-              value = value[categoryId] !== undefined ? value[categoryId] : null;
-              console.log(`[AppProcessor] Extracted category ${categoryId} from communication_preferences object: ${value}`);
-            }
-            // Coerce value to boolean - truthy values mean subscribed
-            let isSubscribed = false;
-            if (typeof value === 'boolean') {
-              isSubscribed = value;
-            } else if (typeof value === 'string') {
-              const lower = value.toLowerCase().trim();
-              isSubscribed = lower === 'true' || lower === '1' || lower === 'yes' || lower === 'on';
-            } else if (typeof value === 'number') {
-              isSubscribed = value !== 0;
-            } else if (value) {
-              isSubscribed = true;
-            }
-            console.log(`[AppProcessor] Communication preference mapping: category=${categoryId}, rawValue=${JSON.stringify(value)}, subscribed=${isSubscribed}`);
-            memberCommunicationPrefsMap.set(categoryId, isSubscribed);
+            // Already resolved centrally before entity writes so the public
+            // endpoint can snapshot the exact same mapping before member
+            // creation and recover it on an idempotent retry.
+            continue;
           }
         }
         
