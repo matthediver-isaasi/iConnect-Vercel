@@ -58,6 +58,14 @@ import EventEmailSettingsEditor, {
   mapEmailSaveFailureDetails,
   putEventEmails,
 } from "@/components/events/EventEmailSettingsEditor";
+import AttendancePolicyEditor from "@/components/events/AttendancePolicyEditor";
+import {
+  attendancePolicyPayload,
+  hasSupportedZoomTarget,
+  normalizeAttendancePolicy,
+  resolveAttendancePolicy,
+  validateAttendancePolicy,
+} from "@/lib/attendancePolicy";
 
 const TIMEZONE_OPTIONS = [
   { value: "Europe/London", label: "London (GMT/BST)" },
@@ -634,6 +642,7 @@ export default function CreateComplexEvent() {
     group_event_public: false,
     budgeted_costs: "",
     budgeted_income: "",
+    ...normalizeAttendancePolicy(),
   });
 
   const [tracks, setTracks] = useState([]);
@@ -668,6 +677,7 @@ export default function CreateComplexEvent() {
     zoom_meeting_id: null,
     zoom_webinar_id: null,
     zoom_join_url: null,
+    ...normalizeAttendancePolicy({}, { inherit: true }),
   });
   const [sessionDuration, setSessionDuration] = useState("custom");
   const [sessionSpeakerModalOpen, setSessionSpeakerModalOpen] = useState(false);
@@ -1149,6 +1159,7 @@ export default function CreateComplexEvent() {
         group_event_public: existingEvent.group_event_public === true,
         budgeted_costs: existingEvent.budgeted_costs != null ? String(existingEvent.budgeted_costs) : "",
         budgeted_income: existingEvent.budgeted_income != null ? String(existingEvent.budgeted_income) : "",
+        ...normalizeAttendancePolicy(existingEvent),
       });
       setSlugManuallyEdited(true);
       setSeoTitle(existingEvent.seo_title || "");
@@ -1242,6 +1253,7 @@ export default function CreateComplexEvent() {
         zoom_link_mode: s.zoom_link_mode || 'auto_create',
         auto_create_zoom: s.auto_create_zoom !== undefined ? s.auto_create_zoom : true,
         link_existing_zoom_id: s.zoom_meeting_id || s.zoom_webinar_id || '',
+        ...normalizeAttendancePolicy(s, { inherit: true }),
       }));
       setSessions(loadedSessions);
     }
@@ -1471,6 +1483,7 @@ export default function CreateComplexEvent() {
         zoom_meeting_id: session.zoom_meeting_id || null,
         zoom_webinar_id: session.zoom_webinar_id || null,
         zoom_join_url: session.zoom_join_url || null,
+        ...normalizeAttendancePolicy(session, { inherit: true }),
       });
       setSessionDuration(detectDurationFromTimes(
         toLocalDatetimeStr(session.start_time),
@@ -1502,6 +1515,7 @@ export default function CreateComplexEvent() {
         zoom_meeting_id: null,
         zoom_webinar_id: null,
         zoom_join_url: null,
+        ...normalizeAttendancePolicy({}, { inherit: true }),
       });
       setSessionDuration("custom");
     }
@@ -1549,6 +1563,22 @@ export default function CreateComplexEvent() {
   const saveSession = () => {
     if (!sessionForm.title.trim()) {
       toast.error("Session title is required");
+      return;
+    }
+    const attendanceErrors = validateAttendancePolicy(
+      resolveAttendancePolicy(formData, sessionForm),
+      {
+        isOnline: sessionForm.is_online,
+        zoomMeetingId: sessionForm.zoom_meeting_id
+          || (sessionForm.zoom_type !== 'webinar' ? sessionForm.link_existing_zoom_id : null),
+        zoomWebinarId: sessionForm.zoom_webinar_id
+          || (sessionForm.zoom_type === 'webinar' ? sessionForm.link_existing_zoom_id : null),
+        zoomAutoCreate: sessionForm.zoom_link_mode !== 'link_existing' && sessionForm.auto_create_zoom,
+      },
+      'Session attendance tracking',
+    );
+    if (attendanceErrors.length > 0) {
+      toast.error(attendanceErrors[0]);
       return;
     }
 
@@ -1733,6 +1763,37 @@ export default function CreateComplexEvent() {
         return;
       }
     }
+    const supportedSession = sessions.find((session) => hasSupportedZoomTarget({
+      isOnline: session.is_online,
+      zoomMeetingId: session.zoom_meeting_id
+        || (session.zoom_type !== 'webinar' ? session.link_existing_zoom_id : null),
+      zoomWebinarId: session.zoom_webinar_id
+        || (session.zoom_type === 'webinar' ? session.link_existing_zoom_id : null),
+      zoomAutoCreate: session.zoom_link_mode !== 'link_existing' && session.auto_create_zoom,
+    }));
+    const defaultPolicyErrors = validateAttendancePolicy(formData, {
+      isOnline: Boolean(supportedSession),
+      zoomMeetingId: supportedSession ? 'configured' : null,
+    }, 'Default session attendance tracking');
+    if (defaultPolicyErrors.length > 0) {
+      toast.error(defaultPolicyErrors[0]);
+      return;
+    }
+    for (let index = 0; index < sessions.length; index++) {
+      const session = sessions[index];
+      const errors = validateAttendancePolicy(resolveAttendancePolicy(formData, session), {
+        isOnline: session.is_online,
+        zoomMeetingId: session.zoom_meeting_id
+          || (session.zoom_type !== 'webinar' ? session.link_existing_zoom_id : null),
+        zoomWebinarId: session.zoom_webinar_id
+          || (session.zoom_type === 'webinar' ? session.link_existing_zoom_id : null),
+        zoomAutoCreate: session.zoom_link_mode !== 'link_existing' && session.auto_create_zoom,
+      }, `Session ${index + 1} attendance tracking`);
+      if (errors.length > 0) {
+        toast.error(errors[0]);
+        return;
+      }
+    }
 
     // Advisory time-clash check (never blocks saving). Compare per session, not
     // the whole multi-day span. Skip for TBC events / sessions without times.
@@ -1804,6 +1865,7 @@ export default function CreateComplexEvent() {
         allergy_options: allergyOptions.map((o) => (o || "").trim()).filter(Boolean),
         accessibility_options: accessibilityOptions.map((o) => (o || "").trim()).filter(Boolean),
         program_tag: formData.program_tag || null,
+        ...attendancePolicyPayload(formData),
         cta_override_url: formData.cta_override_url || null,
         cta_override_mode: formData.cta_override_mode || 'card',
         cta_button_label: (formData.cta_button_label || '').trim() || null,
@@ -1898,6 +1960,7 @@ export default function CreateComplexEvent() {
           display_order: si,
           track_ids: resolvedTrackIds,
           timezone: formData.timezone,
+          ...attendancePolicyPayload(session, { inherit: true }),
         };
 
         if (session.is_online && !isGroupLimited) {
@@ -3402,6 +3465,20 @@ export default function CreateComplexEvent() {
               </div>
             </CardHeader>
             <CardContent className="space-y-4">
+              <AttendancePolicyEditor
+                value={formData}
+                onChange={(policy) => setFormData((prev) => ({ ...prev, ...policy }))}
+                targetSupported={sessions.some((session) => hasSupportedZoomTarget({
+                  isOnline: session.is_online,
+                  zoomMeetingId: session.zoom_meeting_id
+                    || (session.zoom_type !== 'webinar' ? session.link_existing_zoom_id : null),
+                  zoomWebinarId: session.zoom_webinar_id
+                    || (session.zoom_type === 'webinar' ? session.link_existing_zoom_id : null),
+                  zoomAutoCreate: session.zoom_link_mode !== 'link_existing' && session.auto_create_zoom,
+                }))}
+                label="Default session attendance policy"
+                testId="complex-event-attendance-policy"
+              />
 
               {sessions.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-12">
@@ -4640,6 +4717,7 @@ export default function CreateComplexEvent() {
             })()}
 
             {sessionForm.is_online && !isGroupLimited && (
+              <div className="space-y-4">
               <ZoomSessionConfig
                 zoomType={sessionForm.zoom_type}
                 zoomHostId={sessionForm.zoom_host_id}
@@ -4655,6 +4733,23 @@ export default function CreateComplexEvent() {
                 loadingZoomUsers={loadingZoomUsers}
                 onUpdate={(updates) => setSessionForm(prev => ({ ...prev, ...updates }))}
               />
+              <AttendancePolicyEditor
+                value={sessionForm}
+                onChange={(policy) => setSessionForm((prev) => ({ ...prev, ...policy }))}
+                allowInheritance
+                parentPolicy={formData}
+                targetSupported={hasSupportedZoomTarget({
+                  isOnline: sessionForm.is_online,
+                  zoomMeetingId: sessionForm.zoom_meeting_id
+                    || (sessionForm.zoom_type !== 'webinar' ? sessionForm.link_existing_zoom_id : null),
+                  zoomWebinarId: sessionForm.zoom_webinar_id
+                    || (sessionForm.zoom_type === 'webinar' ? sessionForm.link_existing_zoom_id : null),
+                  zoomAutoCreate: sessionForm.zoom_link_mode !== 'link_existing' && sessionForm.auto_create_zoom,
+                })}
+                label="Session attendance policy"
+                testId="session-attendance-policy"
+              />
+              </div>
             )}
 
             {!isGroupLimited && (

@@ -1,5 +1,14 @@
 import { supabase } from './database.js';
 import { getZoomAccessTokenForTenant } from './zoomClient.js';
+import {
+  normalizeParticipantKey,
+  persistAttendanceReport,
+  persistAttendanceSyncState,
+  buildAttendanceSnapshotIdempotencyKey,
+} from './attendanceEngine.js';
+import { eventAttendancePolicy, resolveInheritedPolicy } from './attendancePolicy.js';
+import { agendaScheduledEndAt } from './attendanceSchedule.js';
+import { legacyBookingMatch } from './attendanceMatching.js';
 
 async function fetchZoomParticipants(token, zoomId, zoomType) {
   const isWebinar = zoomType === 'webinar';
@@ -54,45 +63,111 @@ async function matchParticipantsToBookings(tenantId, eventId, isComplexEvent, pa
       .filter(Boolean)
   )];
 
-  if (emails.length === 0) return {};
-
   const bookingsByEmail = {};
+  let confirmedBookings = [];
 
   if (isComplexEvent) {
-    const { data: bookings } = await supabase
+    const { data: bookings, error } = await supabase
       .from('complex_event_booking')
       .select('id, member_id, attendee_email')
       .eq('event_id', eventId)
       .eq('tenant_id', tenantId)
-      .neq('status', 'cancelled');
+      .eq('status', 'confirmed');
+    if (error) throw new Error(`Failed to load complex event bookings: ${error.message}`);
+    confirmedBookings = bookings || [];
 
     if (bookings) {
       for (const b of bookings) {
         const email = (b.attendee_email || '').toLowerCase().trim();
         if (email) {
-          bookingsByEmail[email] = { booking_id: b.id, member_id: b.member_id };
+          (bookingsByEmail[email] ||= []).push({ booking_id: b.id, member_id: b.member_id });
         }
       }
     }
   } else {
-    const { data: bookings } = await supabase
+    const { data: bookings, error } = await supabase
       .from('booking')
       .select('id, member_id, attendee_email')
       .eq('event_id', eventId)
       .eq('tenant_id', tenantId)
-      .neq('status', 'cancelled');
+      .eq('status', 'confirmed');
+    if (error) throw new Error(`Failed to load event bookings: ${error.message}`);
+    confirmedBookings = bookings || [];
 
     if (bookings) {
       for (const b of bookings) {
         const email = (b.attendee_email || '').toLowerCase().trim();
         if (email) {
-          bookingsByEmail[email] = { booking_id: b.id, member_id: b.member_id };
+          (bookingsByEmail[email] ||= []).push({ booking_id: b.id, member_id: b.member_id });
         }
       }
     }
   }
 
-  return bookingsByEmail;
+  return {
+    bookingsByEmail,
+    bookings: confirmedBookings.map((booking) => ({
+      id: booking.id,
+      bookingType: isComplexEvent ? 'complex_event_booking' : 'booking',
+    })),
+  };
+}
+
+async function resolveAttendancePolicy(tenantId, eventId, complexEventSessionId, agendaItemId) {
+  if (complexEventSessionId) {
+    const { data: session, error } = await supabase.from('complex_event_session')
+      .select('attendance_policy_override,attendance_tracking_enabled,attendance_provider,attendance_threshold_minutes')
+      .eq('tenant_id', tenantId).eq('id', complexEventSessionId).single();
+    if (error) throw new Error(`Failed to resolve session attendance policy: ${error.message}`);
+    const { data: parent, error: parentError } = await supabase.from('complex_event')
+      .select('attendance_tracking_enabled,attendance_provider,attendance_threshold_minutes')
+      .eq('tenant_id', tenantId).eq('id', eventId).single();
+    if (parentError) throw new Error(`Failed to resolve event attendance policy: ${parentError.message}`);
+    const effective = resolveInheritedPolicy(parent, session);
+    return {
+      ...effective,
+      policy: {
+        ownerType: 'complex_event_session', ownerId: complexEventSessionId,
+        enabled: effective.enabled, provider: effective.provider, thresholdMinutes: effective.thresholdMinutes,
+        parent: {
+          ownerType: 'complex_event', ownerId: eventId,
+          enabled: Boolean(parent.attendance_tracking_enabled), provider: parent.attendance_provider || null,
+          thresholdMinutes: Math.max(0, parent.attendance_threshold_minutes ?? 1),
+        },
+      },
+    };
+  }
+  const { data: event, error } = await supabase.from('event')
+    .select('attendance_tracking_enabled,attendance_provider,attendance_threshold_minutes')
+    .eq('tenant_id', tenantId).eq('id', eventId).single();
+  if (error) throw new Error(`Failed to resolve event attendance policy: ${error.message}`);
+  if (agendaItemId) {
+    const { data: agenda, error: agendaError } = await supabase.from('event_agenda_item')
+      .select('attendance_policy_override,attendance_tracking_enabled,attendance_provider,attendance_threshold_minutes')
+      .eq('tenant_id', tenantId).eq('id', agendaItemId).eq('event_id', eventId).single();
+    if (agendaError) throw new Error(`Failed to resolve agenda attendance policy: ${agendaError.message}`);
+    const effective = resolveInheritedPolicy(event, agenda);
+    return {
+      ...effective,
+      policy: {
+        ownerType: 'agenda_item', ownerId: agendaItemId,
+        enabled: effective.enabled, provider: effective.provider, thresholdMinutes: effective.thresholdMinutes,
+        parent: {
+          ownerType: 'event', ownerId: eventId, enabled: Boolean(event.attendance_tracking_enabled),
+          provider: event.attendance_provider || null,
+          thresholdMinutes: Math.max(0, event.attendance_threshold_minutes ?? 1),
+        },
+      },
+    };
+  }
+  const effective = eventAttendancePolicy(event);
+  return {
+    ...effective,
+    policy: {
+      ownerType: 'event', ownerId: eventId, enabled: effective.enabled,
+      provider: effective.provider, thresholdMinutes: effective.thresholdMinutes,
+    },
+  };
 }
 
 export async function syncAttendanceForMeeting({
@@ -102,27 +177,86 @@ export async function syncAttendanceForMeeting({
   zoomMeetingId,
   zoomType,
   isComplexEvent,
+  agendaItemId = null,
+  scheduledEndAt = null,
 }) {
   if (!supabase || !tenantId || !zoomMeetingId) {
     throw new Error('Missing required parameters for attendance sync');
   }
 
-  const token = await getZoomAccessTokenForTenant(tenantId);
-  const { participants, error: fetchError } = await fetchZoomParticipants(token, zoomMeetingId, zoomType);
-
-  if (fetchError === 'not_found') {
-    return { success: false, error: 'Meeting data not yet available in Zoom Reports API. Try again in a few minutes after the meeting has ended.', participantCount: 0, matchedCount: 0 };
+  const policy = await resolveAttendancePolicy(tenantId, eventId, complexEventSessionId, agendaItemId);
+  if (!policy.enabled || policy.provider !== 'zoom' || !policy.supported) {
+    return {
+      success: true, skipped: true, participantCount: 0, matchedCount: 0, unmatchedCount: 0,
+      reason: !policy.enabled ? 'Attendance tracking is disabled' : 'Attendance provider is not supported',
+    };
+  }
+  let participants;
+  let fetchError;
+  try {
+    const token = await getZoomAccessTokenForTenant(tenantId);
+    ({ participants, error: fetchError } = await fetchZoomParticipants(token, zoomMeetingId, zoomType));
+  } catch (providerError) {
+    const errorMessage = providerError?.message || 'Zoom attendance provider request failed';
+    await persistAttendanceSyncState(supabase, {
+      tenantId,
+      provider: 'zoom',
+      target: {
+        type: agendaItemId ? 'agenda_item' : (complexEventSessionId ? 'complex_event_session' : 'event'),
+        id: agendaItemId || complexEventSessionId || eventId,
+        eventId,
+        providerTargetId: String(zoomMeetingId),
+        providerTargetType: zoomType || 'meeting',
+        thresholdMinutes: policy.thresholdMinutes,
+        scheduledEndAt,
+        policy: policy.policy,
+      },
+      idempotencyKey: `zoom-provider-error:${zoomMeetingId}`,
+      status: 'error',
+      errorCode: 'provider_error',
+      errorMessage,
+    });
+    return {
+      success: false,
+      pending: false,
+      error: errorMessage,
+      participantCount: 0,
+      matchedCount: 0,
+      unmatchedCount: 0,
+    };
   }
 
-  if (fetchError === 'bad_request') {
-    return { success: false, error: 'Invalid meeting ID or meeting has not ended yet.', participantCount: 0, matchedCount: 0 };
+  if (fetchError) {
+    const thresholdMinutes = policy.thresholdMinutes;
+    const pending = fetchError === 'not_found';
+    const error = pending
+      ? 'Meeting data not yet available in Zoom Reports API. Try again in a few minutes after the meeting has ended.'
+      : 'Invalid meeting ID or meeting has not ended yet.';
+    await persistAttendanceSyncState(supabase, {
+      tenantId,
+      provider: 'zoom',
+      target: {
+        type: agendaItemId ? 'agenda_item' : (complexEventSessionId ? 'complex_event_session' : 'event'),
+        id: agendaItemId || complexEventSessionId || eventId,
+        eventId,
+        providerTargetId: String(zoomMeetingId),
+        providerTargetType: zoomType || 'meeting',
+        thresholdMinutes,
+        scheduledEndAt,
+        policy: policy.policy,
+      },
+      idempotencyKey: `zoom-fetch:${fetchError}:${zoomMeetingId}`,
+      status: pending ? 'pending' : 'error',
+      errorCode: fetchError,
+      errorMessage: error,
+    });
+    return { success: false, pending, error, participantCount: 0, matchedCount: 0, unmatchedCount: 0 };
   }
 
-  if (participants.length === 0) {
-    return { success: true, participantCount: 0, matchedCount: 0, unmatchedCount: 0 };
-  }
-
-  const bookingsByEmail = await matchParticipantsToBookings(tenantId, eventId, isComplexEvent, participants);
+  const { bookingsByEmail, bookings } = await matchParticipantsToBookings(
+    tenantId, eventId, isComplexEvent, participants,
+  );
+  const thresholdMinutes = policy.thresholdMinutes;
 
   const now = new Date().toISOString();
   let matchedCount = 0;
@@ -130,7 +264,10 @@ export async function syncAttendanceForMeeting({
 
   const allRecords = participants.map(p => {
     const email = (p.user_email || p.email || '').toLowerCase().trim();
-    const match = email ? bookingsByEmail[email] : null;
+    const candidates = email ? bookingsByEmail[email] : null;
+    // Keep the legacy ledger's one-to-one booking fields truthful. Ambiguous
+    // email matches are represented in provider-neutral match rows instead.
+    const match = legacyBookingMatch(candidates);
 
     if (match) {
       matchedCount++;
@@ -170,6 +307,83 @@ export async function syncAttendanceForMeeting({
   }
   const records = [...deduped.values(), ...nullKeyRecords];
 
+  const intervals = records.map((record, index) => {
+    const providerParticipantId = null;
+    const intervalKey = `${record.participant_email || 'anonymous'}:${record.join_time || index}`;
+    const participantKey = normalizeParticipantKey({
+      email: record.participant_email, providerParticipantId, intervalKey,
+    });
+    return {
+      participantKey,
+      intervalKey,
+      email: record.participant_email,
+      name: record.participant_name,
+      joinedAt: record.join_time,
+      leftAt: record.leave_time,
+      durationSeconds: Math.max(0, record.duration_minutes * 60),
+      providerParticipantId,
+      metadata: { zoomType: zoomType || 'meeting' },
+    };
+  });
+  const participantFacts = new Map();
+  for (const interval of intervals) {
+    if (!participantFacts.has(interval.participantKey)) participantFacts.set(interval.participantKey, interval);
+  }
+  const matches = [...participantFacts.values()].flatMap((participant) => {
+    const candidates = participant.email ? bookingsByEmail[participant.email] : null;
+    if (!candidates?.length) return [{
+      participantKey: participant.participantKey, matchStatus: 'unmatched', matchedBy: null,
+    }];
+    if (candidates.length > 1) return candidates.map((booking) => ({
+      participantKey: participant.participantKey,
+      bookingType: isComplexEvent ? 'complex_event_booking' : 'booking',
+      bookingId: booking.booking_id, memberId: booking.member_id,
+      matchStatus: 'ambiguous', matchedBy: 'email_duplicate',
+    }));
+    const booking = candidates[0];
+    return [{
+      participantKey: participant.participantKey,
+      bookingType: isComplexEvent ? 'complex_event_booking' : 'booking',
+      bookingId: booking.booking_id, memberId: booking.member_id,
+      matchStatus: 'matched', matchedBy: 'email',
+    }];
+  });
+  matchedCount = matches.filter((match) => match.matchStatus === 'matched').length;
+  unmatchedCount = matches.length - matchedCount;
+
+  const persisted = await persistAttendanceReport(supabase, {
+    tenantId,
+    provider: 'zoom',
+    target: {
+      type: agendaItemId ? 'agenda_item' : (complexEventSessionId ? 'complex_event_session' : 'event'),
+      id: agendaItemId || complexEventSessionId || eventId,
+      eventId,
+      providerTargetId: String(zoomMeetingId),
+      providerTargetType: zoomType || 'meeting',
+      thresholdMinutes,
+      scheduledEndAt,
+      policy: policy.policy,
+    },
+    intervals,
+    matches,
+    bookings,
+    idempotencyKey: buildAttendanceSnapshotIdempotencyKey({
+      provider: 'zoom',
+      target: {
+        type: agendaItemId ? 'agenda_item' : (complexEventSessionId ? 'complex_event_session' : 'event'),
+        id: agendaItemId || complexEventSessionId || eventId,
+        providerTargetId: String(zoomMeetingId),
+        providerTargetType: zoomType || 'meeting',
+        thresholdMinutes,
+        policy: policy.policy,
+      },
+      intervals,
+      matches,
+      bookings,
+    }),
+    metadata: { source: 'zoom_reports_api' },
+  });
+
   const { error: deleteError } = await supabase
     .from('zoom_attendance')
     .delete()
@@ -201,13 +415,16 @@ export async function syncAttendanceForMeeting({
     participantCount: records.length,
     matchedCount,
     unmatchedCount,
+    attendanceTargetId: persisted.targetId,
+    syncRunId: persisted.syncRunId,
+    thresholdMinutes,
   };
 }
 
 export async function syncAttendanceForEvent(tenantId, eventId) {
   const { data: event, error: eventError } = await supabase
     .from('event')
-    .select('id, title, zoom_meeting_id, zoom_webinar_id, is_complex')
+    .select('id, title, zoom_meeting_id, zoom_webinar_id, is_complex, end_date')
     .eq('id', eventId)
     .eq('tenant_id', tenantId)
     .single();
@@ -235,9 +452,7 @@ export async function syncAttendanceForEvent(tenantId, eventId) {
   const zoomRecordId = isWebinar ? event.zoom_webinar_id : event.zoom_meeting_id;
   const zoomType = isWebinar ? 'webinar' : 'meeting';
 
-  if (!zoomRecordId) {
-    throw new Error('Event is not linked to a Zoom meeting or webinar');
-  }
+  if (!zoomRecordId) return syncAttendanceForEventAgendaItems(tenantId, eventId);
 
   const tableName = isWebinar ? 'zoom_webinar' : 'zoom_meeting';
   const zoomIdColumn = isWebinar ? 'zoom_webinar_id' : 'zoom_meeting_id';
@@ -259,20 +474,78 @@ export async function syncAttendanceForEvent(tenantId, eventId) {
     throw new Error('Zoom record exists but has no Zoom API ID');
   }
 
-  return syncAttendanceForMeeting({
+  const eventResult = await syncAttendanceForMeeting({
     tenantId,
     eventId,
     complexEventSessionId: null,
     zoomMeetingId: zoomApiId,
     zoomType,
     isComplexEvent: false,
+    scheduledEndAt: event.end_date || null,
   });
+  const agendaResult = await syncAttendanceForEventAgendaItems(tenantId, eventId, { allowEmpty: true });
+  if (!agendaResult.sessionResults?.length) return eventResult;
+  return {
+    success: eventResult.success || agendaResult.success,
+    participantCount: eventResult.participantCount + agendaResult.participantCount,
+    matchedCount: eventResult.matchedCount + agendaResult.matchedCount,
+    unmatchedCount: eventResult.unmatchedCount + agendaResult.unmatchedCount,
+    sessionResults: [{ targetType: 'event', ...eventResult }, ...agendaResult.sessionResults],
+  };
+}
+
+export async function syncAttendanceForAgendaItem(tenantId, agendaItemId) {
+  const { data: agenda, error } = await supabase.from('event_agenda_item')
+    .select('id,event_id,zoom_meeting_id,zoom_webinar_id,end_date,end_time')
+    .eq('tenant_id', tenantId).eq('id', agendaItemId).single();
+  if (error || !agenda) throw new Error('Agenda item not found');
+  const isWebinar = Boolean(agenda.zoom_webinar_id);
+  const localZoomId = agenda.zoom_webinar_id || agenda.zoom_meeting_id;
+  if (!localZoomId) throw new Error('Agenda item is not linked to a Zoom meeting or webinar');
+  const zoomType = isWebinar ? 'webinar' : 'meeting';
+  const tableName = isWebinar ? 'zoom_webinar' : 'zoom_meeting';
+  const zoomIdColumn = isWebinar ? 'zoom_webinar_id' : 'zoom_meeting_id';
+  const { data: zoom, error: zoomError } = await supabase.from(tableName).select(zoomIdColumn)
+    .eq('tenant_id', tenantId).eq('id', localZoomId).single();
+  if (zoomError || !zoom?.[zoomIdColumn]) throw new Error('Zoom record not found in database');
+  const { data: event, error: eventError } = await supabase.from('event').select('timezone')
+    .eq('tenant_id', tenantId).eq('id', agenda.event_id).single();
+  if (eventError) throw new Error(`Failed to resolve agenda event timezone: ${eventError.message}`);
+  return syncAttendanceForMeeting({
+    tenantId, eventId: agenda.event_id, complexEventSessionId: null, agendaItemId: agenda.id,
+    zoomMeetingId: zoom[zoomIdColumn], zoomType, isComplexEvent: false,
+    scheduledEndAt: agendaScheduledEndAt(agenda.end_date, agenda.end_time, event?.timezone),
+  });
+}
+
+async function syncAttendanceForEventAgendaItems(tenantId, eventId, { allowEmpty = false } = {}) {
+  const { data: items, error } = await supabase.from('event_agenda_item')
+    .select('id,description,zoom_meeting_id,zoom_webinar_id')
+    .eq('tenant_id', tenantId).eq('event_id', eventId);
+  if (error) throw new Error(`Failed to load agenda items: ${error.message}`);
+  const online = (items || []).filter((item) => item.zoom_meeting_id || item.zoom_webinar_id);
+  if (!online.length && !allowEmpty) throw new Error('Event is not linked to a Zoom meeting, webinar, or online agenda item');
+  const sessionResults = [];
+  for (const item of online) {
+    try {
+      sessionResults.push({ agendaItemId: item.id, targetType: 'agenda_item', ...await syncAttendanceForAgendaItem(tenantId, item.id) });
+    } catch (err) {
+      sessionResults.push({ agendaItemId: item.id, targetType: 'agenda_item', success: false, error: err.message });
+    }
+  }
+  return {
+    success: sessionResults.some((result) => result.success),
+    sessionResults,
+    participantCount: sessionResults.reduce((sum, result) => sum + (result.participantCount || 0), 0),
+    matchedCount: sessionResults.reduce((sum, result) => sum + (result.matchedCount || 0), 0),
+    unmatchedCount: sessionResults.reduce((sum, result) => sum + (result.unmatchedCount || 0), 0),
+  };
 }
 
 async function syncAttendanceForComplexEvent(tenantId, eventId) {
   const { data: sessions } = await supabase
     .from('complex_event_session')
-    .select('id, title, zoom_meeting_id, zoom_webinar_id')
+    .select('id, title, zoom_meeting_id, zoom_webinar_id, end_time')
     .eq('complex_event_id', eventId)
     .eq('tenant_id', tenantId);
 
@@ -320,6 +593,7 @@ async function syncAttendanceForComplexEvent(tenantId, eventId) {
         zoomMeetingId: zoomApiId,
         zoomType,
         isComplexEvent: true,
+        scheduledEndAt: session.end_time || null,
       });
       results.push({ sessionId: session.id, sessionTitle: session.title, ...result });
     } catch (err) {

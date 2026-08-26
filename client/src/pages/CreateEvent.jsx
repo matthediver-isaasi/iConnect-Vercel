@@ -69,6 +69,13 @@ import EventEmailSettingsEditor, {
   findInvalidCcAddresses,
   putEventEmails,
 } from "@/components/events/EventEmailSettingsEditor";
+import AttendancePolicyEditor from "@/components/events/AttendancePolicyEditor";
+import {
+  attendancePolicyPayload,
+  hasSupportedZoomTarget,
+  normalizeAttendancePolicy,
+  validateAttendancePolicy,
+} from "@/lib/attendancePolicy";
 import {
   canUseImmediateTiming,
   normalizeSimpleEventTiming,
@@ -174,6 +181,7 @@ export default function CreateEvent() {
   const [isOnline, setIsOnline] = useState(false);
   const [isProgramEvent, setIsProgramEvent] = useState(false);
   const [agendaLines, setAgendaLines] = useState([]);
+  const [attendancePolicy, setAttendancePolicy] = useState(() => normalizeAttendancePolicy());
   const [zoomType, setZoomType] = useState("webinar"); // "webinar" or "meeting"
   const [selectedWebinarId, setSelectedWebinarId] = useState("");
   const [selectedMeetingId, setSelectedMeetingId] = useState("");
@@ -744,6 +752,7 @@ export default function CreateEvent() {
               lms_url: agendaTypeBehaviour(line.item_type, agendaItemTypes) === 'lms' ? (line.lms_url || null) : null,
               speaker_ids: Array.isArray(line.speaker_ids) ? line.speaker_ids.filter(Boolean) : [],
               sponsor_ids: Array.isArray(line.sponsor_ids) ? line.sponsor_ids.filter(Boolean) : [],
+              ...attendancePolicyPayload(line, { inherit: true }),
               sort_order: i,
             });
           }
@@ -886,7 +895,22 @@ export default function CreateEvent() {
     // Non-training events may have an optional agenda (Task #3512) — validate
     // only when lines were added.
     if (isTraining || agendaLines.length > 0) {
-      errors.push(...validateAgendaLines(agendaLines, agendaItemTypes));
+      errors.push(...validateAgendaLines(agendaLines, agendaItemTypes, attendancePolicy));
+    }
+
+    if (isTraining) {
+      const zoomLine = agendaLines.find((line) => line.zoom_meeting_id || line.zoom_webinar_id);
+      errors.push(...validateAttendancePolicy(attendancePolicy, {
+        isOnline: Boolean(zoomLine),
+        zoomMeetingId: zoomLine?.zoom_meeting_id,
+        zoomWebinarId: zoomLine?.zoom_webinar_id,
+      }, 'Default agenda attendance tracking'));
+    } else {
+      errors.push(...validateAttendancePolicy(attendancePolicy, {
+        isOnline,
+        zoomMeetingId: selectedMeetingId,
+        zoomWebinarId: selectedWebinarId,
+      }));
     }
     
     // Group-limited online events use a manual meeting link instead of Zoom.
@@ -1073,6 +1097,7 @@ export default function CreateEvent() {
       is_online: isOnline,
       is_complex: false,
       is_training: isTraining,
+      ...attendancePolicyPayload(attendancePolicy),
       status: resolvedStatus,
       // TBC-only booking-element replacement (persisted regardless of timing;
       // it only applies on the public page when status === 'tbc')
@@ -1521,6 +1546,19 @@ export default function CreateEvent() {
                 </div>
               )}
 
+              {isOnline && !isTraining && (
+                <AttendancePolicyEditor
+                  value={attendancePolicy}
+                  onChange={setAttendancePolicy}
+                  targetSupported={hasSupportedZoomTarget({
+                    isOnline,
+                    zoomMeetingId: selectedMeetingId,
+                    zoomWebinarId: selectedWebinarId,
+                  })}
+                  testId="event-attendance-policy"
+                />
+              )}
+
               {/* Training events set Zoom per agenda item (Task #3436), so no event-level Zoom selection.
                   Immediate events (Task #3691) also skip Zoom — they have no schedule. */}
               {isOnline && !isGroupLimited && !isTraining && !isImmediate && (
@@ -1739,6 +1777,8 @@ export default function CreateEvent() {
                   onChange={setAgendaLines}
                   agendaItemTypes={agendaItemTypes}
                   speakers={speakers}
+                  eventAttendancePolicy={attendancePolicy}
+                  onEventAttendancePolicyChange={setAttendancePolicy}
                 />
               </CardContent>
             </Card>

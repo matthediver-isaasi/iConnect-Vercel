@@ -28,6 +28,8 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import ZoomSessionConfig from "@/components/events/ZoomSessionConfig";
+import AttendancePolicyEditor from "@/components/events/AttendancePolicyEditor";
+import { hasSupportedZoomTarget, normalizeAttendancePolicy } from "@/lib/attendancePolicy";
 
 async function apiRequest(url, options = {}) {
   const response = await fetch(url, {
@@ -70,10 +72,17 @@ const createEmptySession = (sortOrder = 0) => ({
   auto_create_zoom: true,
   link_existing_zoom_id: '',
   link_existing_zoom_type: '',
+  ...normalizeAttendancePolicy({}, { inherit: true }),
   _expanded: true
 });
 
-export default function ComplexEventSessions({ sessions, onSessionsChange, timezoneOptions, eventTimezone }) {
+export default function ComplexEventSessions({
+  sessions,
+  onSessionsChange,
+  timezoneOptions,
+  eventTimezone,
+  eventAttendancePolicy = {},
+}) {
   const [expandedSessions, setExpandedSessions] = useState({});
 
   const { data: zoomUsers = [], isLoading: loadingZoomUsers } = useQuery({
@@ -281,6 +290,7 @@ export default function ComplexEventSessions({ sessions, onSessionsChange, timez
                   </div>
 
                   {isVirtual(session) && (
+                    <div className="space-y-4">
                     <ZoomSessionConfig
                       zoomType={session.zoom_type}
                       zoomHostId={session.zoom_host_id}
@@ -301,6 +311,23 @@ export default function ComplexEventSessions({ sessions, onSessionsChange, timez
                       }}
                       testIdSuffix={`-${index}`}
                     />
+                    <AttendancePolicyEditor
+                      value={session}
+                      onChange={(policy) => onSessionsChange(sessions.map((item) =>
+                        item._tempId === session._tempId ? { ...item, ...policy } : item
+                      ))}
+                      allowInheritance
+                      parentPolicy={eventAttendancePolicy}
+                      targetSupported={hasSupportedZoomTarget({
+                        isOnline: true,
+                        zoomMeetingId: session.zoom_meeting_id || (session.zoom_type !== 'webinar' ? session.link_existing_zoom_id : null),
+                        zoomWebinarId: session.zoom_webinar_id || (session.zoom_type === 'webinar' ? session.link_existing_zoom_id : null),
+                        zoomAutoCreate: session.zoom_link_mode !== 'link_existing' && session.auto_create_zoom,
+                      })}
+                      label="Session attendance policy"
+                      testId={`session-attendance-policy-${index}`}
+                    />
+                    </div>
                   )}
                 </div>
               </CollapsibleContent>

@@ -94,6 +94,13 @@ import {
 } from "@shared/eventTiming.js";
 import UnfurlPreview from "@/components/UnfurlPreview";
 import ZoomPolls from "@/components/events/ZoomPolls";
+import AttendancePolicyEditor from "@/components/events/AttendancePolicyEditor";
+import {
+  attendancePolicyPayload,
+  hasSupportedZoomTarget,
+  normalizeAttendancePolicy,
+  validateAttendancePolicy,
+} from "@/lib/attendancePolicy";
 
 function toLocalDatetimeString(isoOrLocal) {
   if (!isoOrLocal) return '';
@@ -152,6 +159,7 @@ export default function EditEvent() {
   // Training event (Task #3419): simple event + multi-day agenda lines
   const [isTraining, setIsTraining] = useState(false);
   const [agendaLines, setAgendaLines] = useState([]);
+  const [attendancePolicy, setAttendancePolicy] = useState(() => normalizeAttendancePolicy());
   const [initialAgendaIds, setInitialAgendaIds] = useState([]);
   // Snapshot of the agenda rows as loaded (or last saved) — used for
   // compensating rollback if a save fails part-way (Task #3512).
@@ -929,6 +937,7 @@ export default function EditEvent() {
           lms_url: behaviour === 'lms' ? (line.lms_url || null) : null,
           speaker_ids: Array.isArray(line.speaker_ids) ? line.speaker_ids.filter(Boolean) : [],
           sponsor_ids: Array.isArray(line.sponsor_ids) ? line.sponsor_ids.filter(Boolean) : [],
+          ...attendancePolicyPayload(line, { inherit: true }),
           sort_order: sortOrder,
         };
       };
@@ -1072,6 +1081,7 @@ export default function EditEvent() {
       // Load the agenda lines for any regular event (Tasks #3419, #3512) —
       // agenda is no longer training-only.
       setIsTraining(event.is_training === true);
+      setAttendancePolicy(normalizeAttendancePolicy(event));
       {
         base44.entities.EventAgendaItem.list({ filter: { event_id: event.id } })
           .then((rows) => {
@@ -1094,6 +1104,7 @@ export default function EditEvent() {
               lms_url: r.lms_url || '',
               speaker_ids: Array.isArray(r.speaker_ids) ? r.speaker_ids : [],
               sponsor_ids: Array.isArray(r.sponsor_ids) ? r.sponsor_ids : [],
+              ...normalizeAttendancePolicy(r, { inherit: true }),
             })));
             setInitialAgendaIds(sorted.map((r) => r.id));
             initialAgendaRowsRef.current = sorted.map((r) => ({
@@ -1110,6 +1121,7 @@ export default function EditEvent() {
               lms_url: r.lms_url || '',
               speaker_ids: Array.isArray(r.speaker_ids) ? r.speaker_ids : [],
               sponsor_ids: Array.isArray(r.sponsor_ids) ? r.sponsor_ids : [],
+              ...normalizeAttendancePolicy(r, { inherit: true }),
             }));
           })
           .catch((err) => {
@@ -1488,9 +1500,32 @@ export default function EditEvent() {
     // Non-training events may carry an optional agenda (Task #3512) —
     // validate only when lines exist.
     if (isTraining || agendaLines.length > 0) {
-      const agendaErrors = validateAgendaLines(agendaLines, agendaItemTypes);
+      const agendaErrors = validateAgendaLines(agendaLines, agendaItemTypes, attendancePolicy);
       if (agendaErrors.length > 0) {
         toast.error(agendaErrors[0]);
+        return;
+      }
+    }
+
+    if (isTraining) {
+      const zoomLine = agendaLines.find((line) => line.zoom_meeting_id || line.zoom_webinar_id);
+      const attendanceErrors = validateAttendancePolicy(attendancePolicy, {
+        isOnline: Boolean(zoomLine),
+        zoomMeetingId: zoomLine?.zoom_meeting_id,
+        zoomWebinarId: zoomLine?.zoom_webinar_id,
+      }, 'Default agenda attendance tracking');
+      if (attendanceErrors.length > 0) {
+        toast.error(attendanceErrors[0]);
+        return;
+      }
+    } else {
+      const attendanceErrors = validateAttendancePolicy(attendancePolicy, {
+        isOnline: isOnlineEvent,
+        zoomMeetingId: selectedMeetingId || formData.zoom_meeting_id,
+        zoomWebinarId: formData.zoom_webinar_id,
+      });
+      if (attendanceErrors.length > 0) {
+        toast.error(attendanceErrors[0]);
         return;
       }
     }
@@ -1711,6 +1746,7 @@ export default function EditEvent() {
       cta_button_label: (formData.cta_button_label || '').trim() || null,
       // Immediate events are online-capable but have no schedule
       is_online: isOnlineEvent,
+      ...attendancePolicyPayload(attendancePolicy),
       status: resolvedStatus,
       // TBC-only booking-element replacement (persisted regardless of timing;
       // it only applies on the public page when status === 'tbc')
@@ -2312,6 +2348,8 @@ export default function EditEvent() {
                   onChange={setAgendaLines}
                   agendaItemTypes={agendaItemTypes}
                   speakers={speakers}
+                  eventAttendancePolicy={attendancePolicy}
+                  onEventAttendancePolicyChange={setAttendancePolicy}
                 />
               </CardContent>
             </Card>
@@ -4362,6 +4400,18 @@ export default function EditEvent() {
                     Paste the link attendees will use to join (Zoom, Google Meet, Teams, etc.). Set the start and end times above.
                   </p>
                 </div>
+              )}
+              {isOnlineEvent && !isTraining && (
+                <AttendancePolicyEditor
+                  value={attendancePolicy}
+                  onChange={setAttendancePolicy}
+                  targetSupported={hasSupportedZoomTarget({
+                    isOnline: isOnlineEvent,
+                    zoomMeetingId: selectedMeetingId || formData.zoom_meeting_id,
+                    zoomWebinarId: formData.zoom_webinar_id,
+                  })}
+                  testId="event-attendance-policy"
+                />
               )}
               {/* Training events define location per agenda item (Task #3436). */}
               {!isTraining && (

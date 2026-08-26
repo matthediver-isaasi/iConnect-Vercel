@@ -18,6 +18,13 @@ import { Plus, Trash2, ArrowUp, ArrowDown, MapPin, Video, GraduationCap, Mic, X,
 import { SpeakerSelectionModal } from "@/components/SpeakerSelectionModal";
 import { inferAgendaTypeBehaviour } from "@/hooks/useAgendaItemTypes";
 import EventSponsorSelector from "@/components/events/EventSponsorSelector";
+import AttendancePolicyEditor from "@/components/events/AttendancePolicyEditor";
+import {
+  hasSupportedZoomTarget,
+  normalizeAttendancePolicy,
+  resolveAttendancePolicy,
+  validateAttendancePolicy,
+} from "@/lib/attendancePolicy";
 
 async function fetchJson(url) {
   const response = await fetch(url, { credentials: 'include' });
@@ -106,10 +113,11 @@ export function emptyAgendaLine(defaultType = 'In person') {
     lms_url: '',
     speaker_ids: [],
     sponsor_ids: [],
+    ...normalizeAttendancePolicy({}, { inherit: true }),
   };
 }
 
-export function validateAgendaLines(lines, agendaItemTypes) {
+export function validateAgendaLines(lines, agendaItemTypes, eventAttendancePolicy = {}) {
   const errors = [];
   if (!lines || lines.length === 0) {
     errors.push('Please add at least one agenda line for this training event');
@@ -137,6 +145,14 @@ export function validateAgendaLines(lines, agendaItemTypes) {
     if (behaviour === 'zoom' && !line.zoom_webinar_id && !line.zoom_meeting_id) {
       errors.push(`${label}: please select a webinar or meeting for this online day`);
     }
+    if (behaviour === 'zoom') {
+      const effectivePolicy = resolveAttendancePolicy(eventAttendancePolicy, line);
+      errors.push(...validateAttendancePolicy(effectivePolicy, {
+        isOnline: true,
+        zoomMeetingId: line.zoom_meeting_id,
+        zoomWebinarId: line.zoom_webinar_id,
+      }, `${label} attendance tracking`));
+    }
     if (behaviour === 'lms') {
       const url = String(line.lms_url || '').trim();
       if (!url) {
@@ -160,7 +176,14 @@ function SortableAgendaLine({ id, children }) {
   return children({ setNodeRef, style, handleProps: { ...attributes, ...listeners } });
 }
 
-export default function TrainingAgendaEditor({ lines, onChange, agendaItemTypes, speakers = [] }) {
+export default function TrainingAgendaEditor({
+  lines,
+  onChange,
+  agendaItemTypes,
+  speakers = [],
+  eventAttendancePolicy = {},
+  onEventAttendancePolicyChange,
+}) {
   const anyOnline = (lines || []).some((l) => agendaTypeBehaviour(l.item_type, agendaItemTypes) === 'zoom');
   // Which line's speaker-selection modal is open (null = none).
   const [speakerModalIndex, setSpeakerModalIndex] = useState(null);
@@ -233,6 +256,22 @@ export default function TrainingAgendaEditor({ lines, onChange, agendaItemTypes,
 
   return (
     <div className="space-y-4" data-testid="training-agenda-editor">
+      {onEventAttendancePolicyChange && (
+        <AttendancePolicyEditor
+          value={eventAttendancePolicy}
+          onChange={onEventAttendancePolicyChange}
+          targetSupported={(lines || []).some((line) => (
+            agendaTypeBehaviour(line.item_type, agendaItemTypes) === 'zoom'
+            && hasSupportedZoomTarget({
+              isOnline: true,
+              zoomMeetingId: line.zoom_meeting_id,
+              zoomWebinarId: line.zoom_webinar_id,
+            })
+          ))}
+          label="Default agenda attendance policy"
+          testId="agenda-default-attendance-policy"
+        />
+      )}
       {(lines || []).length === 0 ? (
         <p className="text-sm text-slate-500">No agenda lines yet. Add one line per training day (or date range).</p>
       ) : (
@@ -343,6 +382,7 @@ export default function TrainingAgendaEditor({ lines, onChange, agendaItemTypes,
             )}
 
             {behaviour === 'zoom' && (
+              <>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="space-y-1">
                   <Label className="text-xs flex items-center gap-1">{behaviourIcon(behaviour)} Webinar</Label>
@@ -379,6 +419,20 @@ export default function TrainingAgendaEditor({ lines, onChange, agendaItemTypes,
                   </Select>
                 </div>
               </div>
+              <AttendancePolicyEditor
+                value={line}
+                onChange={(policy) => updateLine(index, policy)}
+                allowInheritance
+                parentPolicy={eventAttendancePolicy}
+                targetSupported={hasSupportedZoomTarget({
+                  isOnline: true,
+                  zoomMeetingId: line.zoom_meeting_id,
+                  zoomWebinarId: line.zoom_webinar_id,
+                })}
+                label="Agenda item attendance policy"
+                testId={`agenda-attendance-policy-${index}`}
+              />
+              </>
             )}
 
             {behaviour === 'lms' && (

@@ -154,3 +154,4 @@
 - [External campaign contacts](external-campaign-contacts.md) — non-member recipients may have no subscriber row; resolve them before shared suppression and treat email_unsubscribe as canonical.
 - [Bounded list APIs and exports](bounded-list-api-exports.md) — when an interactive list API caps page size, existing exports must paginate to the exact total or they silently truncate.
 - [Mailgun HTTPS tracking reconciliation](mailgun-https-tracking.md) — trust the final domain GET; readiness requires both HTTPS web_scheme and active domain state.
+- [Attendance snapshot finalization](attendance-snapshot-finalization.md) — provider reports must publish atomically; idempotency includes bookings, policy, target, intervals, and matches.

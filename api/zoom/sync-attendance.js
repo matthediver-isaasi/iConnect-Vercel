@@ -41,7 +41,7 @@ export default async function handler(req, res) {
     if (sessionId) {
       const { data: session, error: sessionError } = await supabase
         .from('complex_event_session')
-        .select('id, title, zoom_meeting_id, zoom_webinar_id, complex_event_id')
+        .select('id, title, zoom_meeting_id, zoom_webinar_id, complex_event_id, end_time')
         .eq('id', sessionId)
         .eq('tenant_id', tenantId)
         .single();
@@ -87,6 +87,7 @@ export default async function handler(req, res) {
         zoomMeetingId: zoomApiId,
         zoomType,
         isComplexEvent: true,
+          scheduledEndAt: session.end_time || null,
       });
 
       return res.json({

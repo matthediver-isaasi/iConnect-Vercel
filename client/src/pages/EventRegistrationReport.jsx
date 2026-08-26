@@ -38,6 +38,41 @@ function formatAccessibilitySelections(value) {
   return value.filter(Boolean).join(', ');
 }
 
+const ATTENDANCE_STATUS_LABELS = {
+  pending: 'Pending',
+  sync_failed: 'Sync failed',
+  unmatched: 'Unmatched',
+  below_threshold: 'Below threshold',
+  absent: 'Absent',
+  attended: 'Attended',
+  mixed: 'Mixed',
+};
+
+function attendanceStatusLabel(status) {
+  return ATTENDANCE_STATUS_LABELS[status] || '';
+}
+
+function formatAttendanceMinutes(value) {
+  if (value == null || Number.isNaN(Number(value))) return '';
+  const minutes = Number(value);
+  return `${Number.isInteger(minutes) ? minutes : minutes.toFixed(2)} min`;
+}
+
+function formatAttendanceDetail(detail) {
+  const target = detail.target_title || (
+    detail.target_type === 'complex_event_session'
+      ? 'Session'
+      : detail.target_type === 'agenda_item' ? 'Agenda item' : 'Event'
+  );
+  const parts = [
+    `${target}: ${attendanceStatusLabel(detail.status) || detail.status || 'Unknown'}`,
+    `${formatAttendanceMinutes(detail.duration_minutes || 0)} / ${formatAttendanceMinutes(detail.threshold_minutes || 0)} threshold`,
+  ];
+  if (detail.provider) parts.push(detail.provider);
+  if (detail.sync_error_message) parts.push(detail.sync_error_message);
+  return parts.join(' | ');
+}
+
 const normEmail = (v) => (typeof v === 'string' ? v.trim().toLowerCase() : '');
 
 function isEmailValue(v) {
@@ -915,7 +950,14 @@ export default function EventRegistrationReport() {
     { key: 'std:date', label: 'Date', get: ({ a }) => (a.created_at ? format(parseISO(a.created_at), 'yyyy-MM-dd HH:mm') : '') },
     { key: 'std:guest', label: 'Guest Booking', get: ({ a }) => (a.is_guest_booking ? 'Yes' : 'No') },
     { key: 'std:consent', label: 'Third-party Consent', get: ({ a }) => (a.third_party_consent === true ? 'Yes' : a.third_party_consent === false ? 'No' : '') },
-    { key: 'std:attended', label: 'Attended', get: ({ a, group }) => (a.attended === true ? 'Yes' : a.attended === false ? 'Partial' : (a.attended === null && group.hasZoom ? 'No' : '')) },
+    { key: 'std:attendanceStatus', label: 'Attendance Status', get: ({ a }) => attendanceStatusLabel(a.attendance_status) },
+    { key: 'std:attendanceDuration', label: 'Attendance Duration (mins)', get: ({ a }) => (a.attendance_duration_minutes != null ? a.attendance_duration_minutes : '') },
+    { key: 'std:attendanceThreshold', label: 'Attendance Threshold (mins)', get: ({ a }) => (a.attendance_threshold_minutes != null ? a.attendance_threshold_minutes : '') },
+    { key: 'std:attendanceTargets', label: 'Attendance Target Detail', get: ({ a }) => (a.attendance_details || []).map(formatAttendanceDetail).join('; ') },
+    { key: 'std:attendanceSessions', label: 'Session Attendance Detail', get: ({ a }) => (a.attendance_details || []).filter((d) => d.target_type === 'complex_event_session').map(formatAttendanceDetail).join('; ') },
+    { key: 'std:attendanceAgenda', label: 'Agenda Attendance Detail', get: ({ a }) => (a.attendance_details || []).filter((d) => d.target_type === 'agenda_item').map(formatAttendanceDetail).join('; ') },
+    { key: 'std:attendanceProviders', label: 'Attendance Provider(s)', get: ({ a }) => [...new Set((a.attendance_details || []).map((d) => d.provider).filter(Boolean))].join(', ') },
+    { key: 'std:attended', label: 'Attended (legacy)', get: ({ a }) => (a.attended === true ? 'Yes' : a.attended === false ? 'No' : '') },
     { key: 'std:zoomJoin', label: 'Zoom Join Time', get: ({ a }) => (a.zoom_join_time ? format(parseISO(a.zoom_join_time), 'yyyy-MM-dd HH:mm:ss') : '') },
     { key: 'std:zoomLeave', label: 'Zoom Leave Time', get: ({ a }) => (a.zoom_leave_time ? format(parseISO(a.zoom_leave_time), 'yyyy-MM-dd HH:mm:ss') : '') },
     { key: 'std:zoomDuration', label: 'Zoom Duration (mins)', get: ({ a }) => (a.zoom_duration_minutes != null ? a.zoom_duration_minutes : '') },
@@ -1114,7 +1156,9 @@ export default function EventRegistrationReport() {
 
   const hasZoomForSelectedEvents = reportData?.hasZoomForSelectedEvents || false;
   const anyGroupHasZoom = bookingGroups.some(g => g.hasZoom);
-  const showAttendanceColumn = hasZoomForSelectedEvents || anyGroupHasZoom;
+  const hasAttendanceForSelectedEvents = reportData?.hasAttendanceForSelectedEvents || false;
+  const anyGroupHasAttendance = bookingGroups.some(g => g.hasAttendance);
+  const showAttendanceColumn = hasAttendanceForSelectedEvents || anyGroupHasAttendance;
 
   const handleSyncAttendance = async () => {
     if (!appliedFilters) return;
@@ -1178,41 +1222,49 @@ export default function EventRegistrationReport() {
   };
 
   const renderAttendanceCell = (attendee) => {
-    if (attendee.attended === true) {
-      const durationLabel = attendee.zoom_duration_minutes != null ? `${attendee.zoom_duration_minutes} min` : '';
-      const sessionCount = attendee.attendance_by_session?.length || 0;
+    const status = attendee.attendance_status;
+    const details = Array.isArray(attendee.attendance_details) ? attendee.attendance_details : [];
+    const duration = formatAttendanceMinutes(attendee.attendance_duration_minutes);
+    const statusStyle = {
+      attended: { icon: Check, className: 'text-green-600' },
+      below_threshold: { icon: Clock, className: 'text-warning' },
+      pending: { icon: Clock, className: 'text-muted-foreground' },
+      sync_failed: { icon: XCircle, className: 'text-destructive' },
+      unmatched: { icon: Users, className: 'text-warning' },
+      absent: { icon: X, className: 'text-muted-foreground' },
+      mixed: { icon: Layers, className: 'text-warning' },
+    }[status];
+
+    if (statusStyle) {
+      const StatusIcon = statusStyle.icon;
       return (
         <Tooltip>
           <TooltipTrigger asChild>
-            <div className="flex items-center gap-1">
-              <Check className="w-4 h-4 text-green-600" />
-              <span className="text-xs text-green-600">
-                {sessionCount > 1 ? `Yes (${sessionCount} sessions)` : 'Yes'}
+            <div className={`flex items-center gap-1 ${statusStyle.className}`}>
+              <StatusIcon className="w-4 h-4" />
+              <span className="text-xs">
+                {attendanceStatusLabel(status)}
+                {duration && status !== 'pending' && status !== 'sync_failed' ? ` (${duration})` : ''}
               </span>
             </div>
           </TooltipTrigger>
-          <TooltipContent>
-            <div className="text-xs space-y-0.5">
-              {attendee.zoom_join_time && <div>Joined: {format(parseISO(attendee.zoom_join_time), 'HH:mm')}</div>}
-              {attendee.zoom_leave_time && <div>Left: {format(parseISO(attendee.zoom_leave_time), 'HH:mm')}</div>}
-              {durationLabel && <div>Total duration: {durationLabel}</div>}
-              {sessionCount > 0 && <div>Sessions attended: {sessionCount}</div>}
+          <TooltipContent className="max-w-sm">
+            <div className="text-xs space-y-1">
+              {details.length ? details.map((detail) => (
+                <div key={detail.attendance_target_id}>
+                  <div className="font-medium">
+                    {detail.target_title || (detail.target_type === 'agenda_item' ? 'Agenda item' : detail.target_type === 'complex_event_session' ? 'Session' : 'Event')}
+                  </div>
+                  <div>
+                    {attendanceStatusLabel(detail.status)}
+                    {' · '}{formatAttendanceMinutes(detail.duration_minutes || 0)}
+                    {' / '}{formatAttendanceMinutes(detail.threshold_minutes || 0)} threshold
+                    {detail.provider ? ` · ${detail.provider}` : ''}
+                  </div>
+                  {detail.sync_error_message && <div className="text-destructive">{detail.sync_error_message}</div>}
+                </div>
+              )) : <div>Attendance outcome has not been created yet.</div>}
             </div>
-          </TooltipContent>
-        </Tooltip>
-      );
-    }
-    if (attendee.attended === false) {
-      return (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <div className="flex items-center gap-1">
-              <Clock className="w-4 h-4 text-warning" />
-              <span className="text-xs text-warning">Partial</span>
-            </div>
-          </TooltipTrigger>
-          <TooltipContent>
-            <div className="text-xs">Joined briefly ({attendee.zoom_duration_minutes || 0} min)</div>
           </TooltipContent>
         </Tooltip>
       );
@@ -1222,11 +1274,11 @@ export default function EventRegistrationReport() {
         <TooltipTrigger asChild>
           <div className="flex items-center gap-1">
             <X className="w-4 h-4 text-muted-foreground" />
-            <span className="text-xs text-muted-foreground">No</span>
+            <span className="text-xs text-muted-foreground">Not tracked</span>
           </div>
         </TooltipTrigger>
         <TooltipContent>
-          <div className="text-xs">Not found in Zoom participant data. Sync attendance to refresh.</div>
+          <div className="text-xs">No provider-neutral attendance target applies to this booking.</div>
         </TooltipContent>
       </Tooltip>
     );
@@ -1287,7 +1339,7 @@ export default function EventRegistrationReport() {
         </div>
         {reportGenerated && (
           <div className="flex items-center gap-2 flex-wrap">
-            {(showAttendanceColumn || hasZoomForSelectedEvents) && (
+            {(hasZoomForSelectedEvents || anyGroupHasZoom) && (
               <Button
                 variant="outline"
                 className="gap-2"
@@ -1653,7 +1705,7 @@ export default function EventRegistrationReport() {
                           <th className="pb-3 pr-3 font-medium text-muted-foreground whitespace-nowrap">Badge</th>
                           <th className="pb-3 pr-3 font-medium text-muted-foreground whitespace-nowrap">Dietary &amp; Access</th>
                           {showAttendanceColumn && (
-                            <th className="pb-3 font-medium text-muted-foreground whitespace-nowrap">Attended</th>
+                            <th className="pb-3 font-medium text-muted-foreground whitespace-nowrap">Attendance</th>
                           )}
                         </tr>
                       </thead>
@@ -1762,7 +1814,7 @@ export default function EventRegistrationReport() {
                                 </td>
                                 {showAttendanceColumn && (
                                   <td className="py-3 whitespace-nowrap" data-testid={`text-attended-${attendee.id}`}>
-                                    {group.hasZoom ? renderAttendanceCell(attendee) : <span className="text-muted-foreground">-</span>}
+                                    {group.hasAttendance ? renderAttendanceCell(attendee) : <span className="text-muted-foreground">-</span>}
                                   </td>
                                 )}
                               </tr>
@@ -1959,7 +2011,7 @@ export default function EventRegistrationReport() {
                                 </td>
                                 {showAttendanceColumn && (
                                   <td className="py-2 whitespace-nowrap" data-testid={`text-attended-${attendee.id}`}>
-                                    {group.hasZoom ? renderAttendanceCell(attendee) : <span className="text-muted-foreground">-</span>}
+                                    {group.hasAttendance ? renderAttendanceCell(attendee) : <span className="text-muted-foreground">-</span>}
                                   </td>
                                 )}
                               </tr>

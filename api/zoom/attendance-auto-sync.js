@@ -1,7 +1,16 @@
 import { supabase } from '../_lib/database.js';
-import { syncAttendanceForMeeting } from '../_lib/zoomAttendanceService.js';
+import { syncAttendanceForMeeting, syncAttendanceForAgendaItem } from '../_lib/zoomAttendanceService.js';
 
 const AUTO_SYNC_SECRET = process.env.ZOOM_AUTO_SYNC_SECRET;
+
+async function resolveZoomApiId(tenantId, localId, type) {
+  const table = type === 'webinar' ? 'zoom_webinar' : 'zoom_meeting';
+  const column = type === 'webinar' ? 'zoom_webinar_id' : 'zoom_meeting_id';
+  const { data, error } = await supabase.from(table).select(column)
+    .eq('tenant_id', tenantId).eq('id', localId).single();
+  if (error || !data?.[column]) throw new Error(`Zoom ${type} record not found`);
+  return data[column];
+}
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -65,32 +74,19 @@ export default async function handler(req, res) {
     }
 
     for (const event of allRegularEvents) {
-      const zoomId = event.zoom_webinar_id || event.zoom_meeting_id;
-
-      const { data: existingSync } = await supabase
-        .from('zoom_attendance')
-        .select('synced_at')
-        .eq('zoom_meeting_id', zoomId)
-        .eq('tenant_id', event.tenant_id)
-        .order('synced_at', { ascending: false })
-        .limit(1);
-
-      if (existingSync && existingSync.length > 0) {
-        const lastSync = new Date(existingSync[0].synced_at);
-        const meetingEnd = new Date(event.end_date);
-        if (lastSync > meetingEnd) {
-          continue;
-        }
-      }
-
       try {
+        const zoomType = event.zoom_webinar_id ? 'webinar' : 'meeting';
+        const zoomId = await resolveZoomApiId(
+          event.tenant_id, event.zoom_webinar_id || event.zoom_meeting_id, zoomType,
+        );
         const result = await syncAttendanceForMeeting({
           tenantId: event.tenant_id,
           eventId: event.id,
           complexEventSessionId: null,
           zoomMeetingId: zoomId,
-          zoomType: event.zoom_webinar_id ? 'webinar' : 'meeting',
+          zoomType,
           isComplexEvent: false,
+          scheduledEndAt: event.end_date || null,
         });
         results.push({ eventId: event.id, title: event.title, ...result });
       } catch (err) {
@@ -108,37 +104,41 @@ export default async function handler(req, res) {
     const zoomSessions = (sessions || []).filter(s => s.zoom_meeting_id || s.zoom_webinar_id);
 
     for (const session of zoomSessions) {
-      const zoomId = session.zoom_webinar_id || session.zoom_meeting_id;
-
-      const { data: existingSync } = await supabase
-        .from('zoom_attendance')
-        .select('synced_at')
-        .eq('zoom_meeting_id', zoomId)
-        .eq('tenant_id', session.tenant_id)
-        .order('synced_at', { ascending: false })
-        .limit(1);
-
-      if (existingSync && existingSync.length > 0) {
-        const lastSync = new Date(existingSync[0].synced_at);
-        const sessionEnd = new Date(session.end_time);
-        if (lastSync > sessionEnd) {
-          continue;
-        }
-      }
-
       try {
+        const zoomType = session.zoom_webinar_id ? 'webinar' : 'meeting';
+        const zoomId = await resolveZoomApiId(
+          session.tenant_id, session.zoom_webinar_id || session.zoom_meeting_id, zoomType,
+        );
         const result = await syncAttendanceForMeeting({
           tenantId: session.tenant_id,
           eventId: session.complex_event_id,
           complexEventSessionId: session.id,
           zoomMeetingId: zoomId,
-          zoomType: session.zoom_webinar_id ? 'webinar' : 'meeting',
+          zoomType,
           isComplexEvent: true,
+          scheduledEndAt: session.end_time || null,
         });
         results.push({ sessionId: session.id, title: session.title, ...result });
       } catch (err) {
         console.error(`[ZoomAttendanceAutoSync] Error syncing session "${session.title}":`, err.message);
         results.push({ sessionId: session.id, title: session.title, success: false, error: err.message });
+      }
+    }
+
+    const { data: agendaItems } = await supabase
+      .from('event_agenda_item')
+      .select('id, event_id, tenant_id, description, zoom_meeting_id, zoom_webinar_id, end_date')
+      .or('zoom_meeting_id.not.is.null,zoom_webinar_id.not.is.null')
+      .lt('end_date', cutoffTime.slice(0, 10))
+      .gt('end_date', maxAge.slice(0, 10));
+
+    for (const item of agendaItems || []) {
+      try {
+        const result = await syncAttendanceForAgendaItem(item.tenant_id, item.id);
+        results.push({ agendaItemId: item.id, eventId: item.event_id, title: item.description, ...result });
+      } catch (err) {
+        console.error(`[ZoomAttendanceAutoSync] Error syncing agenda item "${item.id}":`, err.message);
+        results.push({ agendaItemId: item.id, eventId: item.event_id, success: false, error: err.message });
       }
     }
 

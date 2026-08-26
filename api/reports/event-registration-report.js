@@ -22,7 +22,7 @@ export default async function handler(req, res) {
 
     let { data: regularEvents, error: eventsError } = await supabase
       .from('event')
-      .select('id, title, start_date, end_date, status, internal_reference, is_complex, zoom_meeting_id, zoom_webinar_id')
+      .select('id, title, start_date, end_date, status, internal_reference, is_complex, zoom_meeting_id, zoom_webinar_id, attendance_tracking_enabled, attendance_provider')
       .eq('tenant_id', tenantId)
       .order('start_date', { ascending: false });
 
@@ -30,7 +30,7 @@ export default async function handler(req, res) {
       console.warn('[Event Registration Report] event.end_date column unavailable, retrying without it');
       const fallback = await supabase
         .from('event')
-        .select('id, title, start_date, status, internal_reference, is_complex, zoom_meeting_id, zoom_webinar_id')
+        .select('id, title, start_date, status, internal_reference, is_complex, zoom_meeting_id, zoom_webinar_id, attendance_tracking_enabled, attendance_provider')
         .eq('tenant_id', tenantId)
         .order('start_date', { ascending: false });
       regularEvents = fallback.data;
@@ -44,7 +44,7 @@ export default async function handler(req, res) {
 
     let { data: complexEvents, error: complexEventsError } = await supabase
       .from('complex_event')
-      .select('id, title, start_date, end_date, status')
+      .select('id, title, start_date, end_date, status, attendance_tracking_enabled, attendance_provider')
       .eq('tenant_id', tenantId)
       .order('start_date', { ascending: false });
 
@@ -52,7 +52,7 @@ export default async function handler(req, res) {
       console.warn('[Event Registration Report] complex_event.end_date column unavailable, retrying without it');
       const fallback = await supabase
         .from('complex_event')
-        .select('id, title, start_date, status')
+        .select('id, title, start_date, status, attendance_tracking_enabled, attendance_provider')
         .eq('tenant_id', tenantId)
         .order('start_date', { ascending: false });
       complexEvents = fallback.data;
@@ -69,8 +69,20 @@ export default async function handler(req, res) {
     complexEvents = (complexEvents || []).filter(e => e.status !== 'tbc');
 
     const allEvents = [
-      ...(regularEvents || []).map(e => ({ ...e, source: 'event', has_zoom: !!(e.zoom_meeting_id || e.zoom_webinar_id) })),
-      ...(complexEvents || []).map(e => ({ ...e, is_complex: true, internal_reference: null, source: 'complex_event', has_zoom: false }))
+      ...(regularEvents || []).map(e => ({
+        ...e,
+        source: 'event',
+        has_zoom: !!(e.zoom_meeting_id || e.zoom_webinar_id),
+        has_attendance: !!e.attendance_tracking_enabled,
+      })),
+      ...(complexEvents || []).map(e => ({
+        ...e,
+        is_complex: true,
+        internal_reference: null,
+        source: 'complex_event',
+        has_zoom: false,
+        has_attendance: !!e.attendance_tracking_enabled,
+      }))
     ].sort((a, b) => {
       const aDate = a.start_date ? new Date(a.start_date) : new Date(0);
       const bDate = b.start_date ? new Date(b.start_date) : new Date(0);
@@ -80,6 +92,7 @@ export default async function handler(req, res) {
     let bookingGroups = [];
     let organizations = {};
     let hasZoomForSelectedEvents = false;
+    let hasAttendanceForSelectedEvents = false;
     let summary = {
       totalRevenue: 0,
       totalVoucher: 0,
@@ -207,6 +220,7 @@ export default async function handler(req, res) {
           is_complex: ev.is_complex,
           source: ev.source,
           has_zoom: ev.has_zoom,
+           has_attendance: ev.has_attendance,
           start_date: ev.start_date || null,
           end_date: ev.end_date || null,
         };
@@ -335,8 +349,8 @@ export default async function handler(req, res) {
         }
       }
 
-      let attendanceByBookingId = {};
-      let attendanceByEmail = {};
+      const attendanceByBookingId = {};
+      const attendanceTargetsByEventId = {};
       const allTargetIds = [...targetEventIds, ...targetComplexEventIds];
 
       let flagMap = new Map();
@@ -345,27 +359,191 @@ export default async function handler(req, res) {
       }
 
       if (allTargetIds.length > 0) {
-        const { data: attendanceData } = await supabase
-          .from('zoom_attendance')
-          .select('id, event_id, complex_event_session_id, participant_email, participant_name, join_time, leave_time, duration_minutes, matched_booking_id, synced_at')
+        const { data: targets, error: targetsError } = await supabase
+          .from('attendance_target')
+          .select('id, provider, target_type, target_id, event_id, provider_target_type, effective_threshold_minutes, tracking_enabled, scheduled_end_at')
           .in('event_id', allTargetIds)
           .eq('tenant_id', tenantId);
 
-        if (attendanceData) {
-          for (const a of attendanceData) {
-            if (a.matched_booking_id) {
-              if (!attendanceByBookingId[a.matched_booking_id]) {
-                attendanceByBookingId[a.matched_booking_id] = [];
+        if (targetsError) {
+          throw new Error(`Failed to fetch attendance targets: ${targetsError.message}`);
+        } else if (targets?.length) {
+          const activeTargets = targets.filter(target => target.tracking_enabled !== false);
+          const attendanceTargetIds = activeTargets.map(target => target.id);
+          const targetById = new Map(activeTargets.map(target => [target.id, target]));
+
+          for (const target of activeTargets) {
+            if (!attendanceTargetsByEventId[target.event_id]) attendanceTargetsByEventId[target.event_id] = [];
+            attendanceTargetsByEventId[target.event_id].push(target);
+            if (eventMap[target.event_id]) eventMap[target.event_id].has_attendance = true;
+          }
+          hasAttendanceForSelectedEvents = activeTargets.length > 0;
+
+          const sessionTargetIds = activeTargets
+            .filter(target => target.target_type === 'complex_event_session')
+            .map(target => target.target_id);
+          const agendaTargetIds = activeTargets
+            .filter(target => target.target_type === 'agenda_item')
+            .map(target => target.target_id);
+          const targetLabels = new Map();
+
+          if (sessionTargetIds.length > 0) {
+            const { data: sessions, error } = await supabase
+              .from('complex_event_session')
+              .select('id, title, start_time, end_time')
+              .in('id', sessionTargetIds)
+              .eq('tenant_id', tenantId);
+            if (error) {
+              console.error('[Event Registration Report] Error fetching attendance session labels:', error);
+            } else {
+              for (const session of sessions || []) {
+                targetLabels.set(session.id, {
+                  title: session.title || 'Session',
+                  start_at: session.start_time || null,
+                  end_at: session.end_time || null,
+                });
               }
-              attendanceByBookingId[a.matched_booking_id].push(a);
             }
-            if (a.participant_email) {
-              const email = a.participant_email.toLowerCase().trim();
-              if (!attendanceByEmail[email]) {
-                attendanceByEmail[email] = [];
+          }
+
+          if (agendaTargetIds.length > 0) {
+            const { data: agendaItems, error } = await supabase
+              .from('event_agenda_item')
+              .select('id, description, item_type, start_date, end_date')
+              .in('id', agendaTargetIds)
+              .eq('tenant_id', tenantId);
+            if (error) {
+              console.error('[Event Registration Report] Error fetching attendance agenda labels:', error);
+            } else {
+              for (const item of agendaItems || []) {
+                targetLabels.set(item.id, {
+                  title: item.description || item.item_type || 'Agenda item',
+                  start_at: item.start_date || null,
+                  end_at: item.end_date || null,
+                });
               }
-              attendanceByEmail[email].push(a);
             }
+          }
+
+          const latestRunByTarget = new Map();
+          const { data: syncRuns, error: syncRunsError } = await supabase
+            .from('attendance_sync_run')
+            .select('id, attendance_target_id, status, attempted_at, completed_at, error_code, error_message')
+            .in('attendance_target_id', attendanceTargetIds)
+            .eq('tenant_id', tenantId)
+            .order('attempted_at', { ascending: false });
+          if (syncRunsError) {
+            throw new Error(`Failed to fetch attendance sync state: ${syncRunsError.message}`);
+          } else {
+            for (const run of syncRuns || []) {
+              if (!latestRunByTarget.has(run.attendance_target_id)) {
+                latestRunByTarget.set(run.attendance_target_id, run);
+              }
+            }
+          }
+
+          const bookingIds = allBookings.map(booking => booking.id);
+          let currentOutcomes = [];
+          let participantMatches = [];
+          if (bookingIds.length > 0) {
+            const outcomesResult = await supabase
+              .from('attendance_current_outcome')
+              .select('provider, attendance_target_id, booking_type, booking_id, status, duration_seconds, threshold_minutes, updated_at')
+              .in('attendance_target_id', attendanceTargetIds)
+              .in('booking_id', bookingIds)
+              .eq('tenant_id', tenantId);
+            if (outcomesResult.error) {
+              throw new Error(`Failed to fetch current attendance outcomes: ${outcomesResult.error.message}`);
+            } else {
+              currentOutcomes = outcomesResult.data || [];
+            }
+
+            const matchesResult = await supabase
+              .from('attendance_participant_match')
+              .select('attendance_target_id, participant_key, booking_id, booking_type, match_status, matched_by')
+              .in('attendance_target_id', attendanceTargetIds)
+              .in('booking_id', bookingIds)
+              .eq('tenant_id', tenantId);
+            if (matchesResult.error) {
+              console.error('[Event Registration Report] Error fetching attendance matches:', matchesResult.error);
+            } else {
+              participantMatches = matchesResult.data || [];
+            }
+          }
+
+          const intervalsByTargetAndParticipant = new Map();
+          if (participantMatches.length > 0) {
+            const { data: intervals, error } = await supabase
+              .from('attendance_participant_interval')
+              .select('attendance_target_id, participant_key, joined_at, left_at, duration_seconds')
+              .in('attendance_target_id', attendanceTargetIds)
+              .eq('tenant_id', tenantId);
+            if (error) {
+              console.error('[Event Registration Report] Error fetching attendance intervals:', error);
+            } else {
+              for (const interval of intervals || []) {
+                const key = `${interval.attendance_target_id}::${interval.participant_key}`;
+                if (!intervalsByTargetAndParticipant.has(key)) intervalsByTargetAndParticipant.set(key, []);
+                intervalsByTargetAndParticipant.get(key).push(interval);
+              }
+            }
+          }
+
+          const matchByTargetAndBooking = new Map();
+          for (const match of participantMatches) {
+            matchByTargetAndBooking.set(`${match.attendance_target_id}::${match.booking_id}`, match);
+          }
+          const outcomeByTargetAndBooking = new Map();
+          for (const outcome of currentOutcomes) {
+            outcomeByTargetAndBooking.set(`${outcome.attendance_target_id}::${outcome.booking_id}`, outcome);
+          }
+
+          for (const booking of allBookings) {
+            const bookingType = eventMap[booking.event_id]?.is_complex ? 'complex_event_booking' : 'booking';
+            const applicableTargets = attendanceTargetsByEventId[booking.event_id] || [];
+            const details = applicableTargets.map(target => {
+              const outcome = outcomeByTargetAndBooking.get(`${target.id}::${booking.id}`);
+              const run = latestRunByTarget.get(target.id);
+              const match = matchByTargetAndBooking.get(`${target.id}::${booking.id}`);
+              const intervals = match
+                ? (intervalsByTargetAndParticipant.get(`${target.id}::${match.participant_key}`) || [])
+                : [];
+              const timestamps = intervals
+                .filter(interval => interval.joined_at)
+                .sort((a, b) => new Date(a.joined_at) - new Date(b.joined_at));
+              let status = outcome?.status || null;
+              if (!status && (run?.status === 'pending' || run?.status === 'running')) status = 'pending';
+              if (!status && run?.status === 'error') status = 'sync_failed';
+              if (!status && booking.status === 'confirmed') status = 'pending';
+              if (status === 'error') status = 'sync_failed';
+              const label = targetLabels.get(target.target_id);
+              return {
+                target_id: target.target_id,
+                attendance_target_id: target.id,
+                target_type: target.target_type,
+                target_title: label?.title || (target.target_type === 'event' ? eventMap[booking.event_id]?.title : null),
+                target_start_at: label?.start_at || null,
+                target_end_at: label?.end_at || null,
+                provider: outcome?.provider || target.provider,
+                provider_target_type: target.provider_target_type,
+                booking_type: outcome?.booking_type || bookingType,
+                status,
+                duration_seconds: outcome?.duration_seconds ?? 0,
+                duration_minutes: outcome ? Number((outcome.duration_seconds / 60).toFixed(2)) : 0,
+                threshold_minutes: outcome?.threshold_minutes ?? target.effective_threshold_minutes,
+                joined_at: timestamps[0]?.joined_at || null,
+                left_at: timestamps.length ? timestamps[timestamps.length - 1].left_at : null,
+                interval_count: intervals.length,
+                match_status: match?.match_status || null,
+                matched_by: match?.matched_by || null,
+                outcome_updated_at: outcome?.updated_at || null,
+                sync_status: run?.status || null,
+                sync_attempted_at: run?.attempted_at || null,
+                sync_error_code: run?.error_code || null,
+                sync_error_message: run?.error_message || null,
+              };
+            }).filter(detail => detail.status);
+            if (details.length) attendanceByBookingId[booking.id] = details;
           }
         }
       }
@@ -569,6 +747,7 @@ export default async function handler(req, res) {
             bookingReference: first.booking_reference,
           },
           hasZoom: eventInfo.has_zoom || false,
+          hasAttendance: eventInfo.has_attendance || false,
           booker: bookerInfo ? {
             email: bookerInfo.email,
             first_name: bookerInfo.first_name,
@@ -578,54 +757,50 @@ export default async function handler(req, res) {
           attendees: members.map(b => {
             const tcInfo = b.ticket_class_id ? ticketClassMap[b.ticket_class_id] : null;
 
-            let attendanceRecords = attendanceByBookingId[b.id] || [];
-            if (attendanceRecords.length === 0 && b.attendee_email) {
-              const email = b.attendee_email.toLowerCase().trim();
-              attendanceRecords = (attendanceByEmail[email] || []).filter(a => a.event_id === b.event_id);
-            }
-
+            const attendanceDetails = attendanceByBookingId[b.id] || [];
             let attended = null;
             let zoom_join_time = null;
             let zoom_leave_time = null;
             let zoom_duration_minutes = null;
             let attendance_by_session = null;
+            const attendanceStatuses = [...new Set(attendanceDetails.map(detail => detail.status))];
+            const attendance_status = attendanceStatuses.length === 1
+              ? attendanceStatuses[0]
+              : (attendanceStatuses.length > 1 ? 'mixed' : null);
+            const attendance_duration_seconds = attendanceDetails.reduce(
+              (sum, detail) => sum + (Number(detail.duration_seconds) || 0), 0,
+            );
+            const thresholdSnapshots = [...new Set(attendanceDetails.map(detail => detail.threshold_minutes))];
+            const attendance_threshold_minutes = thresholdSnapshots.length === 1 ? thresholdSnapshots[0] : null;
 
-            if (attendanceRecords.length > 0) {
-              zoom_duration_minutes = attendanceRecords.reduce((sum, r) => sum + (r.duration_minutes || 0), 0);
-              const sorted = [...attendanceRecords].sort((a, b) => new Date(a.join_time) - new Date(b.join_time));
-              zoom_join_time = sorted[0].join_time;
-              zoom_leave_time = sorted[sorted.length - 1].leave_time;
-
-              if (zoom_duration_minutes >= 1) {
-                attended = true;
-              } else {
-                attended = false;
-              }
-
-              if (eventInfo.is_complex) {
-                const sessionMap = {};
-                for (const rec of attendanceRecords) {
-                  const sid = rec.complex_event_session_id || '_overall';
-                  if (!sessionMap[sid]) {
-                    sessionMap[sid] = [];
-                  }
-                  sessionMap[sid].push(rec);
-                }
-                attendance_by_session = Object.entries(sessionMap)
-                  .filter(([sid]) => sid !== '_overall')
-                  .map(([sid, recs]) => {
-                    const totalDur = recs.reduce((s, r) => s + (r.duration_minutes || 0), 0);
-                    const sSorted = [...recs].sort((x, y) => new Date(x.join_time) - new Date(y.join_time));
-                    return {
-                      session_id: sid,
-                      attended: totalDur >= 1,
-                      join_time: sSorted[0].join_time,
-                      leave_time: sSorted[sSorted.length - 1].leave_time,
-                      duration_minutes: totalDur,
-                    };
-                  });
-                if (attendance_by_session.length === 0) attendance_by_session = null;
-              }
+            // Keep the former fields for existing report consumers, but derive
+            // them exclusively from durable provider-neutral outcomes.
+            attended = attendance_status === 'attended'
+              ? true
+              : (attendance_status === 'below_threshold' || attendance_status === 'absent' ? false : null);
+            zoom_duration_minutes = attendanceDetails.length
+              ? Number((attendance_duration_seconds / 60).toFixed(2))
+              : null;
+            const timedDetails = attendanceDetails.filter(detail => detail.joined_at);
+            if (timedDetails.length) {
+              const sorted = [...timedDetails].sort((x, y) => new Date(x.joined_at) - new Date(y.joined_at));
+              zoom_join_time = sorted[0].joined_at;
+              zoom_leave_time = sorted[sorted.length - 1].left_at;
+            }
+            const sessionDetails = attendanceDetails.filter(detail => detail.target_type !== 'event');
+            if (sessionDetails.length) {
+              attendance_by_session = sessionDetails.map(detail => ({
+                session_id: detail.target_id,
+                target_type: detail.target_type,
+                title: detail.target_title,
+                status: detail.status,
+                attended: detail.status === 'attended',
+                join_time: detail.joined_at,
+                leave_time: detail.left_at,
+                duration_minutes: detail.duration_minutes,
+                threshold_minutes: detail.threshold_minutes,
+                provider: detail.provider,
+              }));
             }
 
             const isBooker = bookerInAttendees && bookerEmailNorm
@@ -666,6 +841,13 @@ export default async function handler(req, res) {
               created_at: b.created_at,
               track_access: tcInfo ? (tcInfo.all_tracks ? 'All Tracks' : (tcInfo.linked_track_ids || []).length + ' track(s)') : null,
               attended,
+              attendance_status,
+              attendance_duration_seconds,
+              attendance_duration_minutes: attendanceDetails.length
+                ? Number((attendance_duration_seconds / 60).toFixed(2))
+                : null,
+              attendance_threshold_minutes,
+              attendance_details: attendanceDetails,
               zoom_join_time,
               zoom_leave_time,
               zoom_duration_minutes,
@@ -706,6 +888,7 @@ export default async function handler(req, res) {
       organizations,
       summary,
       hasZoomForSelectedEvents,
+      hasAttendanceForSelectedEvents,
       lastUpdated: new Date().toISOString(),
     });
   } catch (error) {
