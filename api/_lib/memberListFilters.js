@@ -21,6 +21,7 @@ export const MEMBER_CORE_FILTER_COLUMNS = {
 
 // Cap the number of custom filters to avoid pathological query expansion.
 const MAX_CUSTOM_FILTERS = 20;
+const MAX_ORGANIZATION_FILTERS = 20;
 const MAX_ID_LIST = 100;
 
 const parseIdList = (raw) =>
@@ -36,22 +37,26 @@ export function parseMemberListFilters({
   roleId = '',
   status = 'all',
   customFilters = '',
+  organizationFilters = '',
   coreFilters = '',
 } = {}) {
-  let parsedCustomFilters = {};
-  if (customFilters && customFilters.trim()) {
+  const parsePreferenceFilters = (rawFilters, max) => {
+    const parsed = {};
+    if (!rawFilters || !String(rawFilters).trim()) return [];
     try {
-      const obj = JSON.parse(customFilters);
-      if (obj && typeof obj === 'object') {
+      const obj = JSON.parse(rawFilters);
+      if (obj && typeof obj === 'object' && !Array.isArray(obj)) {
         for (const [fieldId, raw] of Object.entries(obj)) {
+          if (typeof fieldId !== 'string' || !fieldId.trim()) continue;
           const entry = normalizeCustomFilterEntry(raw);
-          if (entry !== null) parsedCustomFilters[fieldId] = entry;
+          if (entry !== null) parsed[fieldId] = entry;
         }
       }
     } catch {
-      // Ignore malformed filter param and fall back to no custom filtering
+      return [];
     }
-  }
+    return Object.entries(parsed).slice(0, max);
+  };
   return {
     search: typeof search === 'string' ? search : '',
     // organizationId/roleId accept a single id (legacy) or a comma-separated
@@ -59,25 +64,58 @@ export function parseMemberListFilters({
     organizationIds: parseIdList(organizationId),
     roleIds: parseIdList(roleId),
     status,
-    customFilterEntries: Object.entries(parsedCustomFilters).slice(0, MAX_CUSTOM_FILTERS),
+    customFilterEntries: parsePreferenceFilters(customFilters, MAX_CUSTOM_FILTERS),
+    organizationFilterEntries: parsePreferenceFilters(organizationFilters, MAX_ORGANIZATION_FILTERS),
     coreFilterEntries: parseCoreFilters(coreFilters, MEMBER_CORE_FILTER_COLUMNS),
   };
+}
+
+// Organisation filter ids are client input. Keep only active, tenant-owned
+// organisation fields that are actually enabled for CRM filtering.
+export async function validateOrganizationFilterEntries(supabaseClient, tenantId, ctx) {
+  if (ctx.organizationFilterEntries.length === 0) return ctx;
+  const ids = ctx.organizationFilterEntries.map(([fieldId]) => fieldId);
+  const { data, error } = await supabaseClient
+    .from('preference_field')
+    .select('id, show_in_admin_filter, show_in_admin_list')
+    .eq('tenant_id', tenantId)
+    .eq('entity_scope', 'organization')
+    .eq('is_active', true)
+    .in('id', ids);
+  if (error) throw new Error(`Organisation filter validation failed: ${error.message}`);
+  const allowed = new Set(
+    (data || [])
+      .filter(field => field.show_in_admin_filter === true
+        || (field.show_in_admin_filter !== false && field.show_in_admin_list !== false))
+      .map(field => field.id)
+  );
+  ctx.organizationFilterEntries = ctx.organizationFilterEntries
+    .filter(([fieldId]) => allowed.has(fieldId));
+  return ctx;
 }
 
 // Aliased member_preference_value joins the select clause must include for the
 // active custom filters. Positive ops inner-join; negative ops left-join and
 // are excluded via `.is(alias, null)` in applyMemberListFilters.
 export function memberFilterSelectJoins(ctx) {
-  return ctx.customFilterEntries
+  const memberJoins = ctx.customFilterEntries
     .map(([, entry], idx) => {
       const joinType = prefEntryNeedsAntiJoin(entry) ? '!left' : '!inner';
       return `,\n      cf${idx}:member_preference_value${joinType}(field_id, value)`;
     })
     .join('');
+  const organizationJoins = ctx.organizationFilterEntries
+    .map(([, entry], idx) => {
+      const joinType = prefEntryNeedsAntiJoin(entry) ? '!left' : '!inner';
+      const orgJoinType = prefEntryNeedsAntiJoin(entry) ? '!left' : '!inner';
+      return `,\n      orgf${idx}:organization${orgJoinType}(tenant_id, opv${idx}:organization_preference_value${joinType}(field_id, value))`;
+    })
+    .join('');
+  return memberJoins + organizationJoins;
 }
 
 // Apply the parsed filter context to a supabase query on `member`.
-export function applyMemberListFilters(query, ctx) {
+export function applyMemberListFilters(query, ctx, { tenantId } = {}) {
   ctx.customFilterEntries.forEach(([fieldId, entry], idx) => {
     const alias = `cf${idx}`;
     query = applyPrefFilterEntry(query, alias, fieldId, entry);
@@ -85,6 +123,17 @@ export function applyMemberListFilters(query, ctx) {
       // Anti-join: keep only members with NO matching preference-value row.
       query = query.is(alias, null);
     }
+  });
+
+  ctx.organizationFilterEntries.forEach(([fieldId, entry], idx) => {
+    const orgAlias = `orgf${idx}`;
+    const valueAlias = `${orgAlias}.opv${idx}`;
+    // A member must only filter through an organisation belonging to the same
+    // tenant. For anti-joins, an unlinked/cross-tenant organisation behaves as
+    // no value and therefore satisfies negative/empty operators.
+    if (tenantId) query = query.eq(`${orgAlias}.tenant_id`, tenantId);
+    query = applyPrefFilterEntry(query, valueAlias, fieldId, entry);
+    if (prefEntryNeedsAntiJoin(entry)) query = query.is(valueAlias, null);
   });
 
   for (const coreEntry of ctx.coreFilterEntries) {
@@ -123,5 +172,6 @@ export function applyMemberListFilters(query, ctx) {
 // Strip the join-only cf aliases from a returned member row (in place).
 export function stripFilterJoinAliases(row, ctx) {
   ctx.customFilterEntries.forEach((_, idx) => { delete row[`cf${idx}`]; });
+  ctx.organizationFilterEntries.forEach((_, idx) => { delete row[`orgf${idx}`]; });
   return row;
 }

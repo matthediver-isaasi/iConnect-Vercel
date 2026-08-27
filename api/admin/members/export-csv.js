@@ -3,6 +3,7 @@ import { getTenantContext } from '../../_lib/tenantContext.js';
 import { escapeCsvCell as escapeCSV, CSV_BOM, CSV_ROW_SEPARATOR } from '../../_lib/csvCell.js';
 import {
   parseMemberListFilters,
+  validateOrganizationFilterEntries,
   memberFilterSelectJoins,
   applyMemberListFilters,
   stripFilterJoinAliases,
@@ -87,6 +88,7 @@ export default async function handler(req, res) {
       roleId = '',
       status = 'all',
       customFilters = '',
+      organizationFilters = '',
       coreFilters = ''
     } = req.query;
 
@@ -102,7 +104,8 @@ export default async function handler(req, res) {
     // "export all filtered" always exports exactly the population the list
     // shows — including multi-role selections, operator-driven coreFilters
     // (e.g. role none_of) and custom field filters.
-    const filterCtx = parseMemberListFilters({ search, organizationId, roleId, status, customFilters, coreFilters });
+    const filterCtx = parseMemberListFilters({ search, organizationId, roleId, status, customFilters, organizationFilters, coreFilters });
+    await validateOrganizationFilterEntries(supabase, tenantId, filterCtx);
 
     const buildMemberQuery = (from, pageSize) => {
       let selectClause = `
@@ -125,7 +128,7 @@ export default async function handler(req, res) {
       if (idList) {
         q = q.in('id', idList);
       } else {
-        q = applyMemberListFilters(q, filterCtx);
+        q = applyMemberListFilters(q, filterCtx, { tenantId });
       }
 
       return q.order('last_name', { ascending: true }).range(from, from + pageSize - 1);

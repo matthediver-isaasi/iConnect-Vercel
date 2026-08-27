@@ -49,7 +49,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
-import { isMemberAdminColumnVisible, isMemberAdminFilterVisible } from "@/pages/CustomFieldsAdmin";
+import { isMemberAdminColumnVisible, isMemberAdminFilterVisible, isOrgAdminFilterVisible } from "@/pages/CustomFieldsAdmin";
 import { useRealtimeSubscription } from "@/hooks/useRealtimeSubscription";
 import { createPageUrl, isDeletedMember } from "@/utils";
 import SortableHeader, { getAriaSort } from "@/components/SortableHeader";
@@ -63,6 +63,9 @@ import {
   SELECT_OPERATORS,
   isEmptinessOp,
   buildCustomFilterWireValue,
+  buildOrganizationFilterPayload,
+  ORGANIZATION_FILTER_PREFIX,
+  organizationFilterKey,
   sanitizeFilterOps,
 } from "@/lib/customFilterUtils";
 import FilterOperatorMenu from "@/components/FilterOperatorMenu";
@@ -111,7 +114,6 @@ const getColumnPrefKey = (memberId) => `crm_member_columns_${memberId}`;
 // Stable ids for the reorderable filters in the left pane (core filters first;
 // custom fields are appended by their field id).
 const DEFAULT_MEMBER_FILTER_ORDER = ['status', 'organisation', 'role', 'phone', 'job_title'];
-
 const loadLocalColumns = (tenantSlug) => {
   try {
     const saved = localStorage.getItem(getStorageKey(tenantSlug));
@@ -162,6 +164,7 @@ export default function MembersListPage() {
     job_title: ''
   });
   const [customFieldFilters, setCustomFieldFilters] = useState({});
+  const [organizationFieldFilters, setOrganizationFieldFilters] = useState({});
   // Per-filter condition operators, keyed by filter id (custom field id or
   // core filter id). Absent key = the filter's default operator.
   const [filterOps, setFilterOps] = useState({});
@@ -273,6 +276,26 @@ export default function MembersListPage() {
     }
   });
 
+  const { data: organizationCustomFields = [], isSuccess: organizationCustomFieldsLoaded } = useQuery({
+    queryKey: ['organization-custom-fields-member-crm'],
+    enabled: accessChecked,
+    queryFn: async () => {
+      try {
+        const fields = await base44.entities.PreferenceField.list({
+          filter: { is_active: true, entity_scope: 'organization' },
+          sort: { display_order: 'asc' }
+        });
+        return (fields || []).filter(f => f.entity_scope === 'organization' && isOrgAdminFilterVisible(f));
+      } catch {
+        const allFields = await base44.entities.PreferenceField.list({
+          filter: { is_active: true },
+          sort: { display_order: 'asc' }
+        });
+        return (allFields || []).filter(f => f.entity_scope === 'organization' && isOrgAdminFilterVisible(f));
+      }
+    }
+  });
+
   const memberColumnFields = useMemo(
     () => memberCustomFields.filter(f => isMemberAdminColumnVisible(f)),
     [memberCustomFields]
@@ -281,10 +304,18 @@ export default function MembersListPage() {
     () => memberCustomFields.filter(f => isMemberAdminFilterVisible(f)),
     [memberCustomFields]
   );
+  const organizationFilterFields = useMemo(
+    () => organizationCustomFields.filter(f => isOrgAdminFilterVisible(f)),
+    [organizationCustomFields]
+  );
   // All filter ids currently available, in default display order (core then custom).
   const availableFilterIds = useMemo(
-    () => [...DEFAULT_MEMBER_FILTER_ORDER, ...memberFilterFields.map(f => f.id)],
-    [memberFilterFields]
+    () => [
+      ...DEFAULT_MEMBER_FILTER_ORDER,
+      ...memberFilterFields.map(f => f.id),
+      ...organizationFilterFields.map(f => organizationFilterKey(f.id)),
+    ],
+    [memberFilterFields, organizationFilterFields]
   );
   // Filters to actually render, in the user's chosen order, dropping any id with no
   // matching control (e.g. a custom field not yet loaded or no longer available).
@@ -322,6 +353,14 @@ export default function MembersListPage() {
     return obj;
   }, [customFieldFilters, filterOps, memberFilterFields]);
   const customFiltersParam = useMemo(() => JSON.stringify(activeCustomFilters), [activeCustomFilters]);
+  const activeOrganizationFilters = useMemo(
+    () => buildOrganizationFilterPayload(organizationFieldFilters, filterOps),
+    [organizationFieldFilters, filterOps]
+  );
+  const organizationFiltersParam = useMemo(
+    () => JSON.stringify(activeOrganizationFilters),
+    [activeOrganizationFilters]
+  );
   const customFieldIdsParam = useMemo(
     () => memberCustomFields.map(f => f.id).join(','),
     [memberCustomFields]
@@ -373,7 +412,7 @@ export default function MembersListPage() {
   const { drill: widgetDrill, drillIdsParam, clearDrill } = useWidgetDrill(searchParams, setSearchParams);
 
   const { data: membersData, isLoading: membersLoading, isFetching: membersFetching } = useQuery({
-    queryKey: ['members-paginated', currentPage, itemsPerPage, debouncedSearch, effectiveOrgParam, effectiveRoleParam, statusFilter, sortField, sortDir, customFiltersParam, coreFiltersParam, customFieldIdsParam, drillIdsParam],
+    queryKey: ['members-paginated', currentPage, itemsPerPage, debouncedSearch, effectiveOrgParam, effectiveRoleParam, statusFilter, sortField, sortDir, customFiltersParam, organizationFiltersParam, coreFiltersParam, customFieldIdsParam, drillIdsParam],
     enabled: accessChecked && filtersReady,
     keepPreviousData: true,
     queryFn: async () => {
@@ -389,6 +428,9 @@ export default function MembersListPage() {
       });
       if (customFiltersParam && customFiltersParam !== '{}') {
         params.set('customFilters', customFiltersParam);
+      }
+      if (organizationFiltersParam && organizationFiltersParam !== '{}') {
+        params.set('organizationFilters', organizationFiltersParam);
       }
       if (coreFiltersParam) {
         params.set('coreFilters', coreFiltersParam);
@@ -505,6 +547,11 @@ export default function MembersListPage() {
         ? coerceCustomFilters(filters.customFieldFilters)
         : {}
     );
+    setOrganizationFieldFilters(
+      filters.organizationFieldFilters && typeof filters.organizationFieldFilters === 'object'
+        ? coerceCustomFilters(filters.organizationFieldFilters)
+        : {}
+    );
     setFilterOps(
       filters.filterOps && typeof filters.filterOps === 'object'
         ? sanitizeFilterOps(filters.filterOps)
@@ -514,7 +561,7 @@ export default function MembersListPage() {
     setSortDir(filters.sortDir === 'asc' || filters.sortDir === 'desc' ? filters.sortDir : 'desc');
     if (Array.isArray(filters.filterOrder)) {
       const saved = filters.filterOrder.filter(id => typeof id === 'string');
-      if (memberCustomFieldsLoaded) {
+      if (memberCustomFieldsLoaded && organizationCustomFieldsLoaded) {
         // Custom fields already loaded: reconcile now (drop stale, append new).
         const availSet = new Set(availableFilterIds);
         const kept = saved.filter(id => availSet.has(id));
@@ -534,7 +581,7 @@ export default function MembersListPage() {
     );
     setCurrentPage(1);
     return search;
-  }, [memberCustomFieldsLoaded, availableFilterIds]);
+  }, [memberCustomFieldsLoaded, organizationCustomFieldsLoaded, availableFilterIds]);
 
   // Apply a full saved view: filters plus (when the view carries them) columns.
   const applySavedView = useCallback((view) => {
@@ -575,6 +622,7 @@ export default function MembersListPage() {
       roleFilter,
       coreFieldFilters,
       customFieldFilters,
+      organizationFieldFilters,
       filterOps,
       sortField,
       sortDir,
@@ -662,6 +710,7 @@ export default function MembersListPage() {
         if (effectiveRoleParam !== 'all') params.set('roleId', effectiveRoleParam);
         if (statusFilter && statusFilter !== 'all') params.set('status', statusFilter);
         if (customFiltersParam && customFiltersParam !== '{}') params.set('customFilters', customFiltersParam);
+        if (organizationFiltersParam && organizationFiltersParam !== '{}') params.set('organizationFilters', organizationFiltersParam);
         if (coreFiltersParam) params.set('coreFilters', coreFiltersParam);
       } else {
         params.set('ids', selectedMembers.join(','));
@@ -722,6 +771,7 @@ export default function MembersListPage() {
     setRoleFilter([]);
     setCoreFieldFilters({ job_title: '' });
     setCustomFieldFilters({});
+    setOrganizationFieldFilters({});
     setFilterOps({});
     setFilterOrder(availableFilterIds);
     setHiddenFilterIds([]);
@@ -736,11 +786,15 @@ export default function MembersListPage() {
       case 'phone': return 'Phone';
       case 'job_title': return 'Job Title';
       default: {
+        if (id.startsWith(ORGANIZATION_FILTER_PREFIX)) {
+          const field = organizationFilterFields.find(f => organizationFilterKey(f.id) === id);
+          return field ? `${field.label} (Organisation)` : 'Organisation filter';
+        }
         const field = memberFilterFields.find(f => f.id === id);
         return field?.label || 'Filter';
       }
     }
-  }, [memberFilterFields]);
+  }, [memberFilterFields, organizationFilterFields]);
 
   const clearMemberFilterValue = useCallback((id) => {
     switch (id) {
@@ -749,7 +803,14 @@ export default function MembersListPage() {
       case 'role': setRoleFilter('all'); break;
       case 'phone': setCoreFieldFilters(prev => ({ ...prev, phone: '' })); break;
       case 'job_title': setCoreFieldFilters(prev => ({ ...prev, job_title: '' })); break;
-      default: setCustomFieldFilters(prev => ({ ...prev, [id]: '' })); break;
+      default:
+        if (id.startsWith(ORGANIZATION_FILTER_PREFIX)) {
+          const fieldId = id.slice(ORGANIZATION_FILTER_PREFIX.length);
+          setOrganizationFieldFilters(prev => ({ ...prev, [fieldId]: '' }));
+        } else {
+          setCustomFieldFilters(prev => ({ ...prev, [id]: '' }));
+        }
+        break;
     }
     // Clearing a filter also resets its condition back to the default.
     setFilterOps(prev => {
@@ -1003,31 +1064,46 @@ export default function MembersListPage() {
         );
       }
       default: {
-        const field = memberFilterFields.find(f => f.id === id);
+        const isOrganizationField = id.startsWith(ORGANIZATION_FILTER_PREFIX);
+        const rawFieldId = isOrganizationField ? id.slice(ORGANIZATION_FILTER_PREFIX.length) : id;
+        const field = (isOrganizationField ? organizationFilterFields : memberFilterFields)
+          .find(f => f.id === rawFieldId);
         if (!field) return null;
-        const fieldOp = filterOps[field.id];
+        const fieldOp = filterOps[id];
+        const fieldValues = isOrganizationField ? organizationFieldFilters : customFieldFilters;
+        const setFieldValues = isOrganizationField ? setOrganizationFieldFilters : setCustomFieldFilters;
+        const fieldLabel = (
+          <span className="inline-flex items-center gap-1">
+            <span>{field.label}</span>
+            {isOrganizationField && (
+              <Badge variant="outline" className="h-4 px-1 text-[9px] font-normal text-slate-500">
+                Organisation
+              </Badge>
+            )}
+          </span>
+        );
         if (field.field_type === 'boolean') {
           const op = fieldOp || 'is';
           return (
             <div className="space-y-1.5">
               <div className="flex items-center justify-between gap-1">
-                <Label className="text-[11px] text-slate-600 break-words leading-tight">{field.label}</Label>
+                <Label className="text-[11px] text-slate-600 break-words leading-tight">{fieldLabel}</Label>
                 <FilterOperatorMenu
                   operators={BOOLEAN_OPERATORS}
                   value={op}
-                  onChange={(v) => setMemberFilterOp(field.id, v)}
-                  testId={`op-member-filter-${field.id}`}
+                  onChange={(v) => setMemberFilterOp(id, v)}
+                  testId={`op-member-filter-${id}`}
                 />
               </div>
               {!isEmptinessOp(op) && (
                 <Select
-                  value={customFieldFilters[field.id] || 'all'}
+                  value={fieldValues[field.id] || 'all'}
                   onValueChange={(v) => {
-                    setCustomFieldFilters(prev => ({ ...prev, [field.id]: v === 'all' ? '' : v }));
+                    setFieldValues(prev => ({ ...prev, [field.id]: v === 'all' ? '' : v }));
                     setCurrentPage(1);
                   }}
                 >
-                  <SelectTrigger className="h-8 text-xs" data-testid={`select-member-filter-bool-${field.id}`}>
+                  <SelectTrigger className="h-8 text-xs" data-testid={`select-member-filter-bool-${id}`}>
                     <SelectValue placeholder="All" />
                   </SelectTrigger>
                   <SelectContent>
@@ -1046,7 +1122,7 @@ export default function MembersListPage() {
         const hasOptions = validOptions.length > 0;
         if (hasOptions) {
           const op = fieldOp || 'any_of';
-          const rawVal = customFieldFilters[field.id];
+          const rawVal = fieldValues[field.id];
           const selectedValues = Array.isArray(rawVal)
             ? rawVal
             : (rawVal && rawVal !== 'all' ? [rawVal] : []);
@@ -1055,18 +1131,18 @@ export default function MembersListPage() {
             return opt?.label || val;
           };
           const setSelectedValues = (vals) => {
-            setCustomFieldFilters(prev => ({ ...prev, [field.id]: vals }));
+            setFieldValues(prev => ({ ...prev, [field.id]: vals }));
             setCurrentPage(1);
           };
           return (
             <div className="space-y-1.5">
               <div className="flex items-center justify-between gap-1">
-                <Label className="text-[11px] text-slate-600 break-words leading-tight">{field.label}</Label>
+                <Label className="text-[11px] text-slate-600 break-words leading-tight">{fieldLabel}</Label>
                 <FilterOperatorMenu
                   operators={OPTION_OPERATORS}
                   value={op}
-                  onChange={(v) => setMemberFilterOp(field.id, v)}
-                  testId={`op-member-filter-${field.id}`}
+                  onChange={(v) => setMemberFilterOp(id, v)}
+                  testId={`op-member-filter-${id}`}
                 />
               </div>
               {!isEmptinessOp(op) && (
@@ -1077,7 +1153,7 @@ export default function MembersListPage() {
                     onChange={setSelectedValues}
                     placeholder="All"
                     className="h-8 min-h-8 w-full text-xs"
-                    data-testid={`select-member-filter-${field.id}`}
+                    data-testid={`select-member-filter-${id}`}
                   />
                   {selectedValues.length > 1 && (
                     <div className="flex flex-wrap gap-1">
@@ -1086,7 +1162,7 @@ export default function MembersListPage() {
                           key={val}
                           variant="secondary"
                           className="text-[10px] font-normal max-w-full gap-1"
-                          data-testid={`badge-member-filter-${field.id}-${val}`}
+                            data-testid={`badge-member-filter-${id}-${val}`}
                         >
                           <span className="truncate">{labelForValue(val)}</span>
                           <button
@@ -1094,7 +1170,7 @@ export default function MembersListPage() {
                             className="shrink-0 rounded-full"
                             onClick={() => setSelectedValues(selectedValues.filter(v => v !== val))}
                             aria-label={`Remove ${labelForValue(val)}`}
-                            data-testid={`button-remove-member-filter-${field.id}-${val}`}
+                              data-testid={`button-remove-member-filter-${id}-${val}`}
                           >
                             <X className="h-2.5 w-2.5" />
                           </button>
@@ -1108,18 +1184,18 @@ export default function MembersListPage() {
           );
         }
         const op = fieldOp || 'contains';
-        const textValue = typeof customFieldFilters[field.id] === 'string'
-          ? customFieldFilters[field.id].replace('__text__:', '')
+        const textValue = typeof fieldValues[field.id] === 'string'
+          ? fieldValues[field.id].replace('__text__:', '')
           : '';
         return (
           <div className="space-y-1.5">
             <div className="flex items-center justify-between gap-1">
-              <Label className="text-[11px] text-slate-600 break-words leading-tight">{field.label}</Label>
+              <Label className="text-[11px] text-slate-600 break-words leading-tight">{fieldLabel}</Label>
               <FilterOperatorMenu
                 operators={TEXT_OPERATORS}
                 value={op}
-                onChange={(v) => setMemberFilterOp(field.id, v)}
-                testId={`op-member-filter-${field.id}`}
+                onChange={(v) => setMemberFilterOp(id, v)}
+                testId={`op-member-filter-${id}`}
               />
             </div>
             {!isEmptinessOp(op) && (
@@ -1128,14 +1204,14 @@ export default function MembersListPage() {
                 value={textValue}
                 onChange={(e) => {
                   const val = e.target.value;
-                  setCustomFieldFilters(prev => ({
+                  setFieldValues(prev => ({
                     ...prev,
                     [field.id]: val ? `__text__:${val}` : ''
                   }));
                   setCurrentPage(1);
                 }}
                 className="h-8 text-xs"
-                data-testid={`input-member-filter-cf-${field.id}`}
+                data-testid={`input-member-filter-cf-${id}`}
               />
             )}
           </div>
@@ -1150,6 +1226,7 @@ export default function MembersListPage() {
     roleFilter.length > 0 ||
     Object.values(coreFieldFilters).some(v => v && v.trim() !== '') ||
     Object.values(customFieldFilters).some(isActiveCustomFilterValue) ||
+    Object.values(organizationFieldFilters).some(isActiveCustomFilterValue) ||
     Object.values(filterOps).some(isEmptinessOp);
 
   // Reconcile columns when custom fields load or when their column-visibility changes:
@@ -1185,7 +1262,7 @@ export default function MembersListPage() {
   // longer exist and append any newly available filters not present in the saved
   // order (so new custom fields still show up, after the saved ones).
   useEffect(() => {
-    if (!memberCustomFieldsLoaded) return;
+    if (!memberCustomFieldsLoaded || !organizationCustomFieldsLoaded) return;
     setFilterOrder(prev => {
       const availSet = new Set(availableFilterIds);
       const kept = prev.filter(id => availSet.has(id));
@@ -1193,7 +1270,7 @@ export default function MembersListPage() {
       if (additions.length === 0 && kept.length === prev.length) return prev;
       return [...kept, ...additions];
     });
-  }, [availableFilterIds, memberCustomFieldsLoaded]);
+  }, [availableFilterIds, memberCustomFieldsLoaded, organizationCustomFieldsLoaded]);
 
   const visibleColumns = columns.filter(c => c.visible);
 

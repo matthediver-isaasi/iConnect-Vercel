@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   parseMemberListFilters,
+  validateOrganizationFilterEntries,
   memberFilterSelectJoins,
   applyMemberListFilters,
   stripFilterJoinAliases,
@@ -104,4 +105,94 @@ test('id lists are capped at 100 entries', () => {
   const roleId = Array.from({ length: 150 }, (_, i) => `r${i}`).join(',');
   const ctx = parseMemberListFilters({ roleId });
   assert.equal(ctx.roleIds.length, 100);
+});
+
+test('member and organisation fields with the same id remain separate', () => {
+  const ctx = parseMemberListFilters({
+    customFilters: JSON.stringify({ shared: ['Member value'] }),
+    organizationFilters: JSON.stringify({ shared: ['Organisation value'] }),
+  });
+  assert.equal(ctx.customFilterEntries[0][0], 'shared');
+  assert.equal(ctx.organizationFilterEntries[0][0], 'shared');
+  assert.match(memberFilterSelectJoins(ctx), /cf0:member_preference_value!inner/);
+  assert.match(memberFilterSelectJoins(ctx), /orgf0:organization!inner/);
+  assert.match(memberFilterSelectJoins(ctx), /opv0:organization_preference_value!inner/);
+});
+
+test('organisation filters are tenant-scoped and preserve anti-join semantics', () => {
+  const ctx = parseMemberListFilters({
+    organizationFilters: JSON.stringify({
+      positive: ['A', 'B'],
+      negative: { op: 'none_of', value: ['C'] },
+      empty: { op: 'empty' },
+      present: { op: 'not_empty' },
+    }),
+  });
+  const joins = memberFilterSelectJoins(ctx);
+  assert.match(joins, /orgf0:organization!inner/);
+  assert.match(joins, /orgf1:organization!left/);
+  assert.match(joins, /orgf2:organization!left/);
+  const q = stubQuery();
+  applyMemberListFilters(q, ctx, { tenantId: 'tenant-1' });
+  assert.ok(q.calls.some(c => c[0] === 'eq' && c[1] === 'orgf0.tenant_id' && c[2] === 'tenant-1'));
+  assert.ok(q.calls.some(c => c[0] === 'is' && c[1] === 'orgf1.opv1' && c[2] === null));
+  assert.ok(q.calls.some(c => c[0] === 'is' && c[1] === 'orgf2.opv2' && c[2] === null));
+  assert.ok(!q.calls.some(c => c[0] === 'is' && c[1] === 'orgf3.opv3'));
+  const row = { id: 'm1', orgf0: {}, orgf1: null };
+  stripFilterJoinAliases(row, ctx);
+  assert.deepEqual(row, { id: 'm1' });
+});
+
+test('malformed organisation filters are ignored and accepted filters are capped', () => {
+  assert.deepEqual(parseMemberListFilters({ organizationFilters: '{bad' }).organizationFilterEntries, []);
+  const many = Object.fromEntries(Array.from({ length: 30 }, (_, i) => [`f${i}`, ['x']]));
+  assert.equal(parseMemberListFilters({ organizationFilters: JSON.stringify(many) }).organizationFilterEntries.length, 20);
+});
+
+test('list and export share identical organisation filter calls', () => {
+  const params = {
+    customFilters: JSON.stringify({ memberField: { op: 'not_contains', value: 'x' } }),
+    organizationFilters: JSON.stringify({ orgField: { op: 'empty' } }),
+  };
+  const listQ = stubQuery();
+  const exportQ = stubQuery();
+  applyMemberListFilters(listQ, parseMemberListFilters(params), { tenantId: 't1' });
+  applyMemberListFilters(exportQ, parseMemberListFilters(params), { tenantId: 't1' });
+  assert.deepEqual(listQ.calls, exportQ.calls);
+});
+
+test('organisation filter validation enforces tenant, scope, active and visibility query', async () => {
+  const calls = [];
+  const db = {
+    from(table) {
+      calls.push(['from', table]);
+      return this;
+    },
+    select(cols) { calls.push(['select', cols]); return this; },
+    eq(col, value) { calls.push(['eq', col, value]); return this; },
+    in(col, values) {
+      calls.push(['in', col, values]);
+      return Promise.resolve({
+        data: [
+          { id: 'allowed-new', show_in_admin_filter: true, show_in_admin_list: false },
+          { id: 'allowed-legacy', show_in_admin_filter: null, show_in_admin_list: true },
+          { id: 'hidden', show_in_admin_filter: false, show_in_admin_list: true },
+        ],
+        error: null,
+      });
+    },
+  };
+  const ctx = parseMemberListFilters({
+    organizationFilters: JSON.stringify({
+      'allowed-new': ['A'],
+      'allowed-legacy': { op: 'not_empty' },
+      hidden: ['B'],
+      foreign: ['C'],
+    }),
+  });
+  await validateOrganizationFilterEntries(db, 'tenant-1', ctx);
+  assert.deepEqual(ctx.organizationFilterEntries.map(([id]) => id), ['allowed-new', 'allowed-legacy']);
+  assert.ok(calls.some(c => c[0] === 'eq' && c[1] === 'tenant_id' && c[2] === 'tenant-1'));
+  assert.ok(calls.some(c => c[0] === 'eq' && c[1] === 'entity_scope' && c[2] === 'organization'));
+  assert.ok(calls.some(c => c[0] === 'eq' && c[1] === 'is_active' && c[2] === true));
 });

@@ -4,6 +4,17 @@
 // country filters keep their legacy prefixed-string encodings.
 
 const PREFIXED = ['__text__:', '__bool__:', '__country__:'];
+export const ORGANIZATION_FILTER_PREFIX = 'org:';
+
+export function organizationFilterKey(fieldId) {
+  return `${ORGANIZATION_FILTER_PREFIX}${fieldId}`;
+}
+
+export function organizationFieldIdFromFilterKey(key) {
+  return typeof key === 'string' && key.startsWith(ORGANIZATION_FILTER_PREFIX)
+    ? key.slice(ORGANIZATION_FILTER_PREFIX.length)
+    : null;
+}
 
 // True when a stored filter value should actually filter the list.
 export function isActiveCustomFilterValue(v) {
@@ -91,6 +102,28 @@ export function buildCustomFilterWireValue(value, op) {
     v = v.slice('__text__:'.length);
   }
   return { op, value: v };
+}
+
+// Build the separately transmitted organisation-filter payload. Operator keys
+// are namespaced while values remain keyed by raw field id, so member and
+// organisation fields can safely share the same underlying id. Reading
+// namespaced emptiness ops directly also lets a saved view filter correctly
+// before preference-field definitions finish loading.
+export function buildOrganizationFilterPayload(values, filterOps) {
+  const out = {};
+  const fieldIds = new Set(Object.keys(values || {}));
+  for (const key of Object.keys(filterOps || {})) {
+    const fieldId = organizationFieldIdFromFilterKey(key);
+    if (fieldId) fieldIds.add(fieldId);
+  }
+  for (const fieldId of fieldIds) {
+    const op = filterOps?.[organizationFilterKey(fieldId)];
+    if (isEmptinessOp(op)) out[fieldId] = { op };
+    else if (isActiveCustomFilterValue(values?.[fieldId])) {
+      out[fieldId] = buildCustomFilterWireValue(values[fieldId], op);
+    }
+  }
+  return out;
 }
 
 // True when a filter should be applied given its value AND operator.

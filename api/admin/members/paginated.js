@@ -2,6 +2,7 @@ import { supabase } from '../../_lib/database.js';
 import { getTenantContext } from '../../_lib/tenantContext.js';
 import {
   parseMemberListFilters,
+  validateOrganizationFilterEntries,
   memberFilterSelectJoins,
   applyMemberListFilters,
   stripFilterJoinAliases,
@@ -36,6 +37,7 @@ export default async function handler(req, res) {
       sortField = 'created_on',
       sortDir = 'desc',
       customFilters = '',
+      organizationFilters = '',
       coreFilters = '',
       fields = '',
       // Dashboard widget click-through: comma-separated member ids limiting
@@ -61,7 +63,8 @@ export default async function handler(req, res) {
     // Shared filter contract (search, org/role id lists, status, custom field
     // filters, direct-column coreFilters) — kept in lockstep with the CSV
     // export via api/_lib/memberListFilters.js.
-    const filterCtx = parseMemberListFilters({ search, organizationId, roleId, status, customFilters, coreFilters });
+    const filterCtx = parseMemberListFilters({ search, organizationId, roleId, status, customFilters, organizationFilters, coreFilters });
+    await validateOrganizationFilterEntries(supabase, tenantId, filterCtx);
 
     // Build the core select. For each active custom filter we add an aliased
     // join on member_preference_value. Positive operators use an inner join so
@@ -100,7 +103,7 @@ export default async function handler(req, res) {
 
     query = query.not('email', 'like', 'deleted_%@deleted.local');
 
-    query = applyMemberListFilters(query, filterCtx);
+    query = applyMemberListFilters(query, filterCtx, { tenantId });
 
     const validSortFields = ['first_name', 'last_name', 'email', 'created_on', 'job_title', 'mobile', 'login_enabled', 'organization_name'];
     const actualSortField = validSortFields.includes(sortField) ? sortField : 'created_on';
