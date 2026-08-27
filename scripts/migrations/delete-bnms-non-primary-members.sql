@@ -1,5 +1,6 @@
--- Delete BNMS members who are not attached to BNMS's one marked primary
--- organisation.
+-- Delete BNMS members who are not attached to BNMS's one exact primary
+-- organisation. The preflight creates or activates the tenant-scoped
+-- "British Nuclear Medicine Society" Organisation when it is unambiguous.
 --
 -- SUPABASE SQL EDITOR RUNBOOK
 -- 1. Run this file unchanged. Review every preview result set and NOTICE.
@@ -11,6 +12,8 @@
 --    the ONE explicit switch at the bottom: replace ROLLBACK with COMMIT.
 -- 4. Never run only the DELETE section: the temporary snapshots and assertions
 --    are deliberate safety controls.
+-- 5. Any later dependency-guard error is a separate data-safety blocker. Never
+--    bypass one merely because the primary Organisation preflight succeeded.
 --
 -- This script intentionally does not delete tenant_identity rows. An identity
 -- is shared and may still serve a preserved member or another tenant.
@@ -20,26 +23,42 @@ BEGIN;
 SET LOCAL lock_timeout = '10s';
 SET LOCAL statement_timeout = '15min';
 
--- Freeze tenant identity, primary markers, and member scope. SHARE blocks
--- concurrent INSERT/UPDATE/DELETE while still allowing ordinary reads. The
--- transaction later upgrades its own member lock for the scoped DELETE.
-LOCK TABLE public.tenant, public.organization, public.member IN SHARE MODE;
+-- Freeze tenant identity, primary markers, and member scope. The Organisation
+-- lock also permits this transaction to create or activate the one exact
+-- primary Organisation while blocking concurrent Organisation writes.
+LOCK TABLE public.tenant IN SHARE MODE;
+LOCK TABLE public.organization IN SHARE ROW EXCLUSIVE MODE;
+LOCK TABLE public.member IN SHARE MODE;
 
 CREATE TEMP TABLE _bnms_scope (
   tenant_id uuid PRIMARY KEY,
   tenant_slug text NOT NULL,
   tenant_name text NOT NULL,
-  primary_organization_id uuid NOT NULL
+  primary_organization_id uuid NOT NULL,
+  primary_organization_name text NOT NULL,
+  primary_resolution text NOT NULL
 ) ON COMMIT DROP;
+
+-- Prove that resolving/creating the primary Organisation never reassigns a
+-- Member. Unassigned Members deliberately remain cleanup candidates.
+CREATE TEMP TABLE _bnms_member_organizations_before ON COMMIT DROP AS
+SELECT id, organization_id
+FROM public.member
+WHERE tenant_id = 'ff2df806-b321-4254-b651-3af11fccf1db'::uuid;
+ALTER TABLE _bnms_member_organizations_before ADD PRIMARY KEY (id);
 
 DO $preflight$
 DECLARE
   v_tenant_id constant uuid := 'ff2df806-b321-4254-b651-3af11fccf1db';
   v_expected_slug constant text := 'bnms';
-  v_expected_name constant text := 'British Nuclear Medicine Society';
+  v_expected_tenant_names constant text[] := ARRAY['BNMS', 'British Nuclear Medicine Society'];
+  v_expected_organization_name constant text := 'British Nuclear Medicine Society';
   v_tenant record;
+  v_name_match_count bigint;
+  v_name_match_id uuid;
   v_primary_count bigint;
   v_primary_id uuid;
+  v_primary_resolution text;
 BEGIN
   SELECT id, slug, name
     INTO v_tenant
@@ -49,31 +68,114 @@ BEGIN
 
   IF NOT FOUND
      OR v_tenant.slug IS DISTINCT FROM v_expected_slug
-     OR v_tenant.name IS DISTINCT FROM v_expected_name THEN
+     OR NOT (v_tenant.name = ANY(v_expected_tenant_names)) THEN
     RAISE EXCEPTION
-      'BNMS tenant identity check failed. Expected id=%, slug=%, name=%; found id=%, slug=%, name=%',
-      v_tenant_id, v_expected_slug, v_expected_name,
+      'BNMS tenant identity check failed. Expected id=%, slug=%, name in %; found id=%, slug=%, name=%',
+      v_tenant_id, v_expected_slug, v_expected_tenant_names,
       v_tenant.id, v_tenant.slug, v_tenant.name;
   END IF;
 
-  SELECT count(*), (array_agg(id))[1]
+  SELECT count(*), (array_agg(id ORDER BY id))[1]
+    INTO v_name_match_count, v_name_match_id
+    FROM public.organization
+   WHERE tenant_id = v_tenant_id
+     AND lower(btrim(name)) = lower(v_expected_organization_name);
+
+  IF v_name_match_count > 1 THEN
+    RAISE EXCEPTION
+      'Expected at most one BNMS organisation named "%"; found %. No organisation was guessed.',
+      v_expected_organization_name, v_name_match_count;
+  END IF;
+
+  SELECT count(*), (array_agg(id ORDER BY id))[1]
     INTO v_primary_count, v_primary_id
     FROM public.organization
    WHERE tenant_id = v_tenant_id
      AND is_primary IS TRUE;
 
-  IF v_primary_count <> 1 THEN
+  IF v_primary_count > 1 THEN
     RAISE EXCEPTION
-      'Expected exactly one is_primary=true BNMS organisation; found %. No organisation was guessed.',
+      'Expected at most one is_primary=true BNMS organisation before resolution; found %. No organisation was guessed.',
       v_primary_count;
   END IF;
 
+  IF v_primary_count = 1
+     AND (v_name_match_count = 0 OR v_primary_id IS DISTINCT FROM v_name_match_id) THEN
+    RAISE EXCEPTION
+      'Conflicting BNMS primary organisation % is not the exact "%" organisation. No marker was changed.',
+      v_primary_id, v_expected_organization_name;
+  END IF;
+
+  IF v_name_match_count = 0 THEN
+    INSERT INTO public.organization (tenant_id, name, status, is_primary)
+    VALUES (v_tenant_id, v_expected_organization_name, 'active', true)
+    RETURNING id INTO v_primary_id;
+    v_primary_resolution := 'CREATED';
+  ELSE
+    v_primary_id := v_name_match_id;
+    UPDATE public.organization
+       SET name = v_expected_organization_name,
+           status = 'active',
+           is_primary = true
+     WHERE tenant_id = v_tenant_id
+       AND id = v_primary_id;
+    v_primary_resolution := CASE
+      WHEN v_primary_count = 1 THEN 'REUSED_EXISTING_PRIMARY'
+      ELSE 'REUSED_AND_MARKED_PRIMARY'
+    END;
+  END IF;
+
+  IF (
+    SELECT count(*)
+    FROM public.organization
+    WHERE tenant_id = v_tenant_id
+      AND is_primary IS TRUE
+      AND id = v_primary_id
+      AND name = v_expected_organization_name
+      AND status = 'active'
+  ) <> 1
+  OR (
+    SELECT count(*)
+    FROM public.organization
+    WHERE tenant_id = v_tenant_id
+      AND is_primary IS TRUE
+  ) <> 1 THEN
+    RAISE EXCEPTION
+      'BNMS primary organisation resolution failed its exact-name, active-status, or sole-primary assertion.';
+  END IF;
+
   INSERT INTO _bnms_scope
-    (tenant_id, tenant_slug, tenant_name, primary_organization_id)
+    (tenant_id, tenant_slug, tenant_name, primary_organization_id,
+     primary_organization_name, primary_resolution)
   VALUES
-    (v_tenant_id, v_expected_slug, v_expected_name, v_primary_id);
+    (v_tenant_id, v_expected_slug, v_tenant.name, v_primary_id,
+     v_expected_organization_name, v_primary_resolution);
+
+  RAISE NOTICE
+    'BNMS primary Organisation %: "%" (%)',
+    v_primary_resolution, v_expected_organization_name, v_primary_id;
 END
 $preflight$;
+
+DO $member_assignment_guard$
+BEGIN
+  IF EXISTS (
+    SELECT before.id
+    FROM _bnms_member_organizations_before before
+    FULL JOIN (
+      SELECT id, organization_id
+      FROM public.member
+      WHERE tenant_id = 'ff2df806-b321-4254-b651-3af11fccf1db'::uuid
+    ) current ON current.id = before.id
+    WHERE before.id IS NULL
+       OR current.id IS NULL
+       OR before.organization_id IS DISTINCT FROM current.organization_id
+  ) THEN
+    RAISE EXCEPTION
+      'Primary Organisation resolution changed a BNMS Member organisation assignment; no cleanup was attempted.';
+  END IF;
+END
+$member_assignment_guard$;
 
 -- Freeze the exact sets used by preview, deletion, and postconditions.
 CREATE TEMP TABLE _bnms_candidates ON COMMIT DROP AS
@@ -386,9 +488,14 @@ SELECT
   s.tenant_slug,
   s.tenant_name,
   s.primary_organization_id,
+  s.primary_resolution,
   o.name AS primary_organization_name,
+  o.status AS primary_organization_status,
+  o.is_primary,
   (SELECT count(*) FROM _bnms_preserved) AS preserved_member_count,
-  (SELECT count(*) FROM _bnms_candidates) AS candidate_member_count
+  (SELECT count(*) FROM _bnms_candidates) AS candidate_member_count,
+  (SELECT count(*) FROM _bnms_member_organizations_before WHERE organization_id IS NULL)
+    AS unassigned_member_count_before_cleanup
 FROM _bnms_scope s
 JOIN public.organization o
   ON o.id = s.primary_organization_id
@@ -537,6 +644,8 @@ BEGIN
     WHERE o.tenant_id = s.tenant_id
       AND o.is_primary IS TRUE
       AND o.id = s.primary_organization_id
+      AND o.name = s.primary_organization_name
+      AND o.status = 'active'
   ) <> 1
   OR (
     SELECT count(*)
