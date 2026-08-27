@@ -25,6 +25,17 @@ pollute the SOURCE DB. To test a helper that imports the module-level `supabase`
 against the real schema, run the node process with
 `SUPABASE_URL=$DEST_SUPABASE_URL SUPABASE_SERVICE_KEY=$DEST_SUPABASE_KEY`.
 
+The DEST direct Postgres hostname may resolve only to IPv6, which is not
+reachable from every workspace runner, and a guessed Supabase pooler endpoint
+may reject the stored direct-connection credential. Verify SQL connectivity
+before relying on a transactional runner. The DEST REST service-role path
+remains usable for exact reads/writes, but separate REST requests are not one
+database transaction and need explicit compensation if used for related rows.
+
+**Why:** a destination recovery encountered an IPv6-only direct host, no
+installed arbitrary-SQL RPC, and an unusable pooler credential despite healthy
+service-role REST access.
+
 **Member-auth E2E is impossible in this workspace:** `getSessionMember`
 selects `member` with an embedded `organization:organization_id(tenant_id)`
 join, and the SOURCE DB's `organization` table has no `tenant_id` column —
