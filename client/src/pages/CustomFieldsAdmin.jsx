@@ -16,6 +16,10 @@ import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
 import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
 import { COUNTRIES } from "@/data/countries";
+import {
+  normalizePreferenceFieldOption,
+  preparePreferenceFieldOptions
+} from "@/lib/preferenceFieldOptions.mjs";
 
 const FIELD_TYPES = [
   { value: 'text', label: 'Text' },
@@ -57,15 +61,7 @@ const ENTITY_SCOPES = [
  * {value, label} objects.  Both shapes are supported here so rendering
  * and editing work correctly regardless of what the DB contains.
  */
-function resolveOption(o) {
-  if (typeof o === 'string') return { value: o, label: o };
-  if (o && typeof o === 'object') {
-    const value = o.value != null ? String(o.value) : '';
-    const label = o.label != null ? String(o.label) : value;
-    return { value, label };
-  }
-  return { value: '', label: '' };
-}
+const resolveOption = normalizePreferenceFieldOption;
 
 export default function CustomFieldsAdminPage() {
   const { isFeatureExcluded, isAccessReady } = useMemberAccess();
@@ -503,9 +499,14 @@ function CustomFieldsManager({ queryClient, entityScope, title, description }) {
 
   const handleAddOption = () => {
     if (!newOptionValue.trim()) return;
+    const value = newOptionValue.trim();
+    if (fieldOptions.some(option => resolveOption(option).value === value)) {
+      toast.error('Stored option values must be unique');
+      return;
+    }
     const option = {
-      value: newOptionValue.trim(),
-      label: newOptionLabel.trim() || newOptionValue.trim()
+      value,
+      label: newOptionLabel.trim() || value
     };
     setFieldOptions([...fieldOptions, option]);
     setNewOptionValue('');
@@ -542,6 +543,16 @@ function CustomFieldsManager({ queryClient, entityScope, title, description }) {
       return;
     }
 
+    let normalizedOptions = null;
+    if (fieldType === 'picklist' || fieldType === 'dropdown') {
+      const prepared = preparePreferenceFieldOptions(fieldOptions);
+      if (prepared.error) {
+        toast.error(prepared.error);
+        return;
+      }
+      normalizedOptions = prepared.options;
+    }
+
     // Note: We no longer require options for picklist/dropdown fields
     // This allows creating fields where options are added per-record (e.g., approved domains per organisation)
 
@@ -558,7 +569,7 @@ function CustomFieldsManager({ queryClient, entityScope, title, description }) {
       label: fieldLabel.trim(),
       field_type: fieldType,
       is_required: fieldRequired,
-      options: (fieldType === 'picklist' || fieldType === 'dropdown') ? fieldOptions : null,
+      options: normalizedOptions,
       display_order: editingField ? editingField.display_order : preferenceFields.length,
       is_active: true,
       entity_scope: entityScope,
@@ -1268,8 +1279,30 @@ function CustomFieldsManager({ queryClient, entityScope, title, description }) {
                                   >
                                     <GripVertical className="w-3 h-3 text-slate-400" />
                                   </div>
-                                  <span className="flex-1 text-sm">{option.label}</span>
-                                  <span className="text-xs text-slate-400">({option.value})</span>
+                                  <div className="grid flex-1 grid-cols-1 gap-2 sm:grid-cols-2">
+                                    <div>
+                                      <Label className="text-xs text-slate-500">Visible name</Label>
+                                      <Input
+                                        value={option.label}
+                                        onChange={(event) => setFieldOptions(current =>
+                                          current.map((item, position) => position === index
+                                            ? { ...resolveOption(item), label: event.target.value }
+                                            : item)
+                                        )}
+                                        placeholder="Visible name"
+                                        data-testid={`input-option-visible-name-${index}`}
+                                      />
+                                    </div>
+                                    <div>
+                                      <Label className="text-xs text-slate-500">Stored value (preserved)</Label>
+                                      <Input
+                                        value={option.value}
+                                        readOnly
+                                        className="bg-slate-100 font-mono text-xs"
+                                        data-testid={`input-option-stored-value-${index}`}
+                                      />
+                                    </div>
+                                  </div>
                                   <Button
                                     variant="ghost"
                                     size="icon"
