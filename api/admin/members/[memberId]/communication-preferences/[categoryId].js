@@ -1,57 +1,12 @@
-import { getSessionMember } from '../../../../_lib/session.js';
-import { createClient } from '@supabase/supabase-js';
-import { isResourceExcluded } from '../../../../_lib/roleVisibility.js';
+import { supabase } from '../../../../_lib/database.js';
+import { authorizeCommunicationPreferencesAdmin } from '../../../../_lib/adminCommunicationPreferences.js';
+import { loadMemberCommunicationCategoryEligibility } from '../../../../_lib/communicationCategoryEligibility.js';
 
-const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
-const supabase = supabaseUrl && supabaseServiceKey 
-  ? createClient(supabaseUrl, supabaseServiceKey)
-  : null;
+export async function handleAdminCommunicationPreferenceUpdate(req, res, dependencies = {}) {
+  const database = dependencies.database || supabase;
+  const loadEligibility = dependencies.loadMemberCommunicationCategoryEligibility
+    || loadMemberCommunicationCategoryEligibility;
 
-async function verifyPermission(req, permissionId) {
-  const sessionMember = await getSessionMember(req);
-  
-  if (!sessionMember) {
-    return { hasPermission: false, error: 'Not authenticated' };
-  }
-
-  if (!sessionMember.role_id) {
-    return { hasPermission: false, memberId: sessionMember.id };
-  }
-
-  if (!supabase) {
-    return { hasPermission: false, error: 'Database not configured' };
-  }
-
-  try {
-    const { data: role, error: roleError } = await supabase
-      .from('role')
-      .select('excluded_features')
-      .eq('id', sessionMember.role_id)
-      .single();
-
-    if (roleError || !role) {
-      return { hasPermission: false, memberId: sessionMember.id };
-    }
-
-    const excludedFeatures = role.excluded_features || [];
-    
-    // Derive admin status from whether admin.role-management is NOT excluded
-    const isAdmin = !isResourceExcluded(excludedFeatures, 'admin.role-management');
-    if (isAdmin) {
-      return { hasPermission: true, memberId: sessionMember.id };
-    }
-
-    const hasPermission = !isResourceExcluded(excludedFeatures, permissionId);
-
-    return { hasPermission, memberId: sessionMember.id };
-  } catch (error) {
-    console.error('[Permission Verify] Error:', error);
-    return { hasPermission: false, error: 'Verification failed' };
-  }
-}
-
-export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Credentials', 'true');
   res.setHeader('Access-Control-Allow-Origin', req.headers.origin || '*');
   res.setHeader('Access-Control-Allow-Methods', 'PATCH, OPTIONS');
@@ -65,38 +20,49 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const { hasPermission, error } = await verifyPermission(req, 'admin_can_manage_communications');
-
-  if (error) {
-    return res.status(401).json({ error });
-  }
-
-  if (!hasPermission) {
-    return res.status(403).json({ error: 'Permission denied' });
-  }
-
-  if (!supabase) {
+  if (!database) {
     return res.status(503).json({ error: 'Database not configured' });
   }
 
   const { memberId, categoryId } = req.query;
 
   try {
+    const authorization = await authorizeCommunicationPreferencesAdmin(req, dependencies);
+    if (authorization.error) {
+      return res.status(authorization.status).json({ error: authorization.error });
+    }
+    const tenantId = authorization.context.tenantId;
+    const eligibility = await loadEligibility(database, {
+      tenantId,
+      memberId,
+      activeOnly: false,
+    });
+    if (!eligibility) {
+      return res.status(404).json({ error: 'Member not found' });
+    }
+    if (!eligibility.allCategories.some((category) => category.id === categoryId)) {
+      return res.status(404).json({ error: 'Communication category not found' });
+    }
+
     const { is_subscribed } = req.body;
 
     if (typeof is_subscribed !== 'boolean') {
       return res.status(400).json({ error: 'is_subscribed must be a boolean' });
     }
+    if (is_subscribed && !eligibility.eligibleCategoryIds.has(categoryId)) {
+      return res.status(403).json({ error: 'This communication category is not available for the member role' });
+    }
 
-    const { data: existingPref } = await supabase
+    const { data: existingPref } = await database
       .from('member_communication_preference')
       .select('id')
+      .eq('tenant_id', tenantId)
       .eq('member_id', memberId)
       .eq('category_id', categoryId)
       .single();
 
     if (existingPref) {
-      const { data, error: updateError } = await supabase
+      const { data, error: updateError } = await database
         .from('member_communication_preference')
         .update({ 
           is_subscribed,
@@ -113,24 +79,13 @@ export default async function handler(req, res) {
 
       return res.json(data);
     } else {
-      const { data: memberRecord } = await supabase
-        .from('member')
-        .select('tenant_id')
-        .eq('id', memberId)
-        .single();
-
-      if (!memberRecord?.tenant_id) {
-        console.error('[Admin Create Comm Pref] Could not resolve tenant_id for member:', memberId);
-        return res.status(500).json({ error: 'Could not resolve tenant context for member' });
-      }
-
-      const { data, error: insertError } = await supabase
+      const { data, error: insertError } = await database
         .from('member_communication_preference')
         .insert({
           member_id: memberId,
           category_id: categoryId,
           is_subscribed,
-          tenant_id: memberRecord?.tenant_id
+          tenant_id: tenantId
         })
         .select()
         .single();
@@ -146,4 +101,8 @@ export default async function handler(req, res) {
     console.error('[Admin Comm Pref] Error:', error);
     return res.status(500).json({ error: 'Failed to update communication preference' });
   }
+}
+
+export default function handler(req, res) {
+  return handleAdminCommunicationPreferenceUpdate(req, res);
 }

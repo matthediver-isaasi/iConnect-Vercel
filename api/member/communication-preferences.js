@@ -2,21 +2,26 @@ import { supabase } from '../_lib/database.js';
 import { getSessionMember } from '../_lib/session.js';
 import { loadMemberCommunicationCategoryEligibility } from '../_lib/communicationCategoryEligibility.js';
 
-export default async function handler(req, res) {
+export async function handleMemberCommunicationPreferences(req, res, dependencies = {}) {
+  const database = dependencies.database || supabase;
+  const getMember = dependencies.getSessionMember || getSessionMember;
+  const loadEligibility = dependencies.loadMemberCommunicationCategoryEligibility
+    || loadMemberCommunicationCategoryEligibility;
+
   if (!['GET', 'PATCH'].includes(req.method)) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
-  if (!supabase) {
+  if (!database) {
     return res.status(503).json({ error: 'Service temporarily unavailable' });
   }
 
   try {
-    const sessionMember = await getSessionMember(req);
+    const sessionMember = await getMember(req);
     if (!sessionMember?.id || !sessionMember?.tenant_id) {
       return res.status(401).json({ error: 'Member sign-in required' });
     }
 
-    const eligibility = await loadMemberCommunicationCategoryEligibility(supabase, {
+    const eligibility = await loadEligibility(database, {
       tenantId: sessionMember.tenant_id,
       memberId: sessionMember.id,
     });
@@ -24,7 +29,7 @@ export default async function handler(req, res) {
       return res.status(401).json({ error: 'Member sign-in required' });
     }
 
-    const { data: preferences, error: preferenceError } = await supabase
+    const { data: preferences, error: preferenceError } = await database
       .from('member_communication_preference')
       .select('id, category_id, is_subscribed')
       .eq('tenant_id', sessionMember.tenant_id)
@@ -46,7 +51,7 @@ export default async function handler(req, res) {
       if (typeof optOutAll !== 'boolean') {
         return res.status(400).json({ error: 'An opt-out state is required' });
       }
-      const { error: globalError } = await supabase.rpc('set_email_preference_global_state', {
+      const { error: globalError } = await database.rpc('set_email_preference_global_state', {
         p_tenant_id: sessionMember.tenant_id,
         p_email: eligibility.member.email,
         p_member_id: sessionMember.id,
@@ -75,7 +80,7 @@ export default async function handler(req, res) {
       return res.json({ success: true, categoryId, isSubscribed: false });
     }
 
-    const { error: updateError } = await supabase
+    const { error: updateError } = await database
       .from('member_communication_preference')
       .upsert({
         tenant_id: sessionMember.tenant_id,
@@ -90,4 +95,8 @@ export default async function handler(req, res) {
     console.error('[Member Communication Preferences] Error:', error);
     return res.status(500).json({ error: 'Failed to update communication preferences' });
   }
+}
+
+export default function handler(req, res) {
+  return handleMemberCommunicationPreferences(req, res);
 }

@@ -623,7 +623,7 @@ export default function PreferencesPage() {
 
   // Server-authorized communication categories and persisted preferences.
   const { data: communicationPreferenceData, isLoading: communicationCategoriesLoading } = useQuery({
-    queryKey: ["my-communication-preferences"],
+    queryKey: ["my-communication-preferences", memberRecord?.id],
     enabled: !!memberRecord?.id,
     queryFn: async () => {
       const response = await fetch('/api/member/communication-preferences', { credentials: 'include' });
@@ -632,10 +632,6 @@ export default function PreferencesPage() {
     },
   });
   const communicationCategories = communicationPreferenceData?.categories || [];
-  const communicationPreferences = communicationCategories.map((category) => ({
-    category_id: category.id,
-    is_subscribed: category.isSubscribed,
-  }));
 
   // --- Member's resource category selections (from database via API) ---
   const { data: memberResourceCategories = [], isLoading: memberResourceCategoriesLoading } = useQuery({
@@ -2762,7 +2758,7 @@ export default function PreferencesPage() {
 
       case 'communications':
         if (isFeatureExcluded('user.about-me.communication-preferences')) return null;
-        const isOptedOutAll = memberRecord?.communications_opted_out_all === true;
+        const isOptedOutAll = communicationPreferenceData?.optedOutAll === true;
         return (
           <Card key="communications" className="border-slate-200 shadow-sm">
             <CardHeader>
@@ -2821,9 +2817,7 @@ export default function PreferencesPage() {
               ) : (
                 <div className={`space-y-4 ${isOptedOutAll ? 'opacity-50' : ''}`}>
                   {availableCategories.map((category) => {
-                    const pref = communicationPreferences.find(p => p.category_id === category.id);
-                    // When opted out all, show as unsubscribed; otherwise use preference or default to unsubscribed
-                    const isSubscribed = isOptedOutAll ? false : (pref ? pref.is_subscribed : false);
+                    const isSubscribed = isOptedOutAll ? false : category.isSubscribed === true;
                     
                     return (
                       <div 

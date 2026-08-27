@@ -42,6 +42,7 @@ import { createPageUrl } from "@/utils";
 import MemberEmails from "@/components/MemberEmails";
 import WorkflowConfirmationModal, { DryRunSimulationModal } from "@/components/WorkflowConfirmationModal";
 import { useWorkflowConfirmation } from "@/hooks/useWorkflowConfirmation";
+import { fetchAdminMemberCommunicationPreferences } from "@/lib/memberCommunicationPreferences";
 
 async function uploadImageToSupabase(file, bucket, folderPrefix = "") {
   const fileExt = file.name.split(".").pop();
@@ -273,53 +274,12 @@ export default function AdminMemberEdit() {
     },
   });
 
-  // Communication categories (tenant-scoped via entity API)
-  const { data: communicationCategories = [], isLoading: communicationCategoriesLoading } = useQuery({
-    queryKey: ["communicationCategories"],
-    queryFn: async () => {
-      const categories = await base44.entities.CommunicationCategory.list({
-        filter: { is_active: true },
-        sort: { display_order: 'asc' }
-      });
-      const roleAssignments = await base44.entities.CommunicationCategoryRole.list();
-      return (categories || []).map(cat => ({
-        ...cat,
-        communication_category_role: (roleAssignments || []).filter(r => r.category_id === cat.id)
-      }));
-    },
-  });
-
-  const { data: communicationPreferences = [] } = useQuery({
-    queryKey: ["communicationPreferences", memberRecord?.id],
+  const { data: communicationPreferenceData, isLoading: communicationCategoriesLoading } = useQuery({
+    queryKey: ["admin-member-communication-preferences", memberRecord?.id],
     enabled: !!memberRecord?.id,
-    queryFn: async () => {
-      if (!memberRecord?.id) return [];
-      const { data, error } = await supabase
-        .from("member_communication_preference")
-        .select("*")
-        .eq("member_id", memberRecord.id);
-      if (error) throw error;
-      return data || [];
-    },
+    queryFn: () => fetchAdminMemberCommunicationPreferences(memberRecord.id),
   });
-
-  const memberRoleIds = useMemo(() => {
-    if (!memberRecord?.role_id) return [];
-    if (Array.isArray(memberRecord.role_id)) {
-      return memberRecord.role_id;
-    }
-    return [memberRecord.role_id];
-  }, [memberRecord?.role_id]);
-
-  const availableCategories = useMemo(() => {
-    if (!communicationCategories.length) return [];
-    
-    return communicationCategories.filter(category => {
-      if (!category.communication_category_role?.length) return true;
-      const categoryRoleIds = category.communication_category_role.map(r => r.role_id);
-      return memberRoleIds.some(roleId => categoryRoleIds.includes(roleId));
-    });
-  }, [communicationCategories, memberRoleIds]);
+  const availableCategories = communicationPreferenceData?.categories || [];
 
   const earnedOnlineAwards = useMemo(() => {
     if (!engagementStats || !awards || awards.length === 0) return [];
@@ -521,7 +481,7 @@ export default function AdminMemberEdit() {
         throw new Error(errorData.error || 'Failed to update preference');
       }
       
-      queryClient.invalidateQueries({ queryKey: ["communicationPreferences", memberRecord.id] });
+      queryClient.invalidateQueries({ queryKey: ["admin-member-communication-preferences", memberRecord.id] });
       toast.success(isSubscribed ? "Subscribed to updates" : "Unsubscribed from updates");
     } catch (error) {
       console.error("Failed to update communication preference:", error);
@@ -1098,8 +1058,7 @@ export default function AdminMemberEdit() {
             ) : (
               <div className="space-y-4">
                 {availableCategories.map((category) => {
-                  const pref = communicationPreferences.find(p => p.category_id === category.id);
-                  const isSubscribed = pref ? pref.is_subscribed : false;
+                  const isSubscribed = category.isSubscribed === true;
                   
                   return (
                     <div 

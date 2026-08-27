@@ -64,6 +64,10 @@ import { ChevronsUpDown } from "lucide-react";
 import { listOrganizationsForAdmin } from '@/lib/adminOrgList';
 import { RelatedRecordsPanel, useRelatedRecordDefinitions } from "@/pages/customObjects/RelatedRecordsPanel";
 import { labelForSide, relationshipTabValue } from "@/pages/customObjects/relationshipHelpers";
+import {
+  fetchAdminMemberCommunicationPreferences,
+  setAdminMemberCommunicationGlobalState,
+} from "@/lib/memberCommunicationPreferences";
 
 // Stable empty-array fallback for disabled/unloaded queries. Using an inline
 // `= []` destructure default creates a NEW array identity on every render,
@@ -571,36 +575,12 @@ export default function MemberDetail() {
     }
   });
 
-  // Communication categories and preferences (tenant-scoped via entity API)
-  const { data: communicationCategories = [], isLoading: communicationCategoriesLoading } = useQuery({
-    queryKey: ["communicationCategories"],
-    enabled: activeTab === 'communications' || activeTab === 'overview',
-    queryFn: async () => {
-      const categories = await base44.entities.CommunicationCategory.list({
-        filter: { is_active: true },
-        sort: { display_order: 'asc' }
-      });
-      const roleAssignments = await base44.entities.CommunicationCategoryRole.list();
-      return (categories || []).map(cat => ({
-        ...cat,
-        communication_category_role: (roleAssignments || []).filter(r => r.category_id === cat.id)
-      }));
-    },
-  });
-
-  const { data: communicationPreferences = [] } = useQuery({
-    queryKey: ["communicationPreferences", id],
+  const { data: communicationPreferenceData, isLoading: communicationCategoriesLoading } = useQuery({
+    queryKey: ["admin-member-communication-preferences", id],
     enabled: !!id && (activeTab === 'communications' || activeTab === 'overview'),
-    queryFn: async () => {
-      if (!id) return [];
-      const { data, error } = await supabase
-        .from("member_communication_preference")
-        .select("*")
-        .eq("member_id", id);
-      if (error) throw error;
-      return data || [];
-    },
+    queryFn: () => fetchAdminMemberCommunicationPreferences(id),
   });
+  const availableCommCategories = communicationPreferenceData?.categories || [];
 
   const { data: memberFormSubmissions = [], isLoading: formSubmissionsLoading, isError: formSubmissionsError, refetch: refetchFormSubmissions } = useQuery({
     queryKey: ['member-form-submissions', id, member?.email],
@@ -659,23 +639,6 @@ export default function MemberDetail() {
     }
   });
 
-  const memberRoleIds = useMemo(() => {
-    const roleId = formData.role_id || member?.role_id;
-    if (!roleId) return [];
-    if (Array.isArray(roleId)) return roleId;
-    return [roleId];
-  }, [formData.role_id, member?.role_id]);
-
-  const availableCommCategories = useMemo(() => {
-    if (!communicationCategories.length) return [];
-    
-    return communicationCategories.filter(category => {
-      if (!category.communication_category_role?.length) return true;
-      const categoryRoleIds = category.communication_category_role.map(r => r.role_id);
-      return memberRoleIds.some(roleId => categoryRoleIds.includes(roleId));
-    });
-  }, [communicationCategories, memberRoleIds]);
-
   const handleCommunicationToggle = async (categoryId, isSubscribed) => {
     if (!member?.id) return;
     
@@ -697,7 +660,7 @@ export default function MemberDetail() {
         throw new Error(errorData.error || 'Failed to update preference');
       }
       
-      queryClient.invalidateQueries({ queryKey: ["communicationPreferences", id] });
+      queryClient.invalidateQueries({ queryKey: ["admin-member-communication-preferences", id] });
       toast.success(isSubscribed ? "Subscribed to updates" : "Unsubscribed from updates");
     } catch (error) {
       console.error("Failed to update communication preference:", error);
@@ -715,34 +678,8 @@ export default function MemberDetail() {
     if (!member?.id) return;
     setUpdatingOptOutAll(true);
     try {
-      const { error } = await supabase
-        .from("member")
-        .update({ communications_opted_out_all: optOut })
-        .eq("id", member.id);
-      if (error) throw error;
-
-      if (optOut && availableCommCategories.length > 0) {
-        for (const category of availableCommCategories) {
-          const existingPref = communicationPreferences.find(p => p.category_id === category.id);
-          if (existingPref) {
-            await supabase
-              .from('member_communication_preference')
-              .update({ is_subscribed: false })
-              .eq('id', existingPref.id);
-          } else {
-            await supabase
-              .from('member_communication_preference')
-              .insert({
-                member_id: member.id,
-                category_id: category.id,
-                is_subscribed: false
-              });
-          }
-        }
-      }
-
-      queryClient.invalidateQueries({ queryKey: ['member-detail', id] });
-      queryClient.invalidateQueries({ queryKey: ["communicationPreferences", id] });
+      const nextState = await setAdminMemberCommunicationGlobalState(member.id, optOut);
+      queryClient.setQueryData(["admin-member-communication-preferences", id], nextState);
       toast.success(optOut ? "Opted out of all communications" : "Communications re-enabled");
     } catch (error) {
       console.error("Failed to update opt-out-all:", error);
@@ -867,6 +804,7 @@ export default function MemberDetail() {
       setIsEditing(false);
       queryClient.invalidateQueries({ queryKey: ['members-paginated'] });
       queryClient.invalidateQueries({ queryKey: ['member-detail', id] });
+      queryClient.invalidateQueries({ queryKey: ['admin-member-communication-preferences', id] });
       queryClient.invalidateQueries({ queryKey: ['team-members'] });
     },
     onError: (error) => {
@@ -2006,7 +1944,7 @@ export default function MemberDetail() {
                 </CardHeader>
                 <CardContent className="py-3 space-y-3">
                   {(() => {
-                    const isOptedOutAll = member?.communications_opted_out_all === true;
+                    const isOptedOutAll = communicationPreferenceData?.optedOutAll === true;
                     return (
                       <>
                         <div
@@ -2040,8 +1978,7 @@ export default function MemberDetail() {
                         ) : (
                           <div className={`space-y-2 ${isOptedOutAll ? 'opacity-50' : ''}`}>
                             {availableCommCategories.map((category) => {
-                              const pref = communicationPreferences.find(p => p.category_id === category.id);
-                              const isSubscribed = isOptedOutAll ? false : (pref ? pref.is_subscribed : false);
+                              const isSubscribed = isOptedOutAll ? false : category.isSubscribed === true;
                               return (
                                 <div
                                   key={category.id}
