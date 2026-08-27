@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useRef } from "react";
+import { Fragment, useState, useMemo, useEffect, useRef } from "react";
 import { base44 } from "@/api/base44Client";
 import { safeLogoSrc } from "@/lib/safeLogoSrc";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -977,7 +977,7 @@ export default function OrganisationDirectoryPage() {
                   if (reverseCardContactGroups.length === 0) continue;
                   flushCustoms();
                   sections.push(
-                    <React.Fragment key={key}>
+                    <Fragment key={key}>
               <div className="space-y-3 pt-2 border-t">
                 <div className="flex items-center gap-2">
                   <Mail className="w-4 h-4 text-blue-600" />
@@ -1056,7 +1056,7 @@ export default function OrganisationDirectoryPage() {
                 </div>
               </div>
             
-                    </React.Fragment>
+                    </Fragment>
                   );
                 } else if (key.startsWith('custom:')) {
                   const field = fieldById.get(key.slice(7));

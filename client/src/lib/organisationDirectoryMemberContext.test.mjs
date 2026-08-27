@@ -41,3 +41,14 @@ test('the nested standard route inherits Organisation Directory layout access', 
     /urlParts\[0\]\?\.toLowerCase\(\) === 'organisationdirectory'[\s\S]*return 'OrganisationDirectory'/
   );
 });
+
+test('the organisation contacts section uses an imported Fragment binding', () => {
+  const pageSource = fs.readFileSync(
+    new URL('../pages/OrganisationDirectory.jsx', import.meta.url),
+    'utf8'
+  );
+
+  assert.match(pageSource, /import\s*\{[^}]*\bFragment\b[^}]*\}\s*from\s*["']react["']/);
+  assert.match(pageSource, /<Fragment key=\{key\}>[\s\S]*Contacts[\s\S]*<\/Fragment>/);
+  assert.doesNotMatch(pageSource, /<React\.Fragment\b/);
+});
