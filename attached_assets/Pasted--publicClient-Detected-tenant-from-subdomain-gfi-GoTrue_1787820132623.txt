@@ -1,0 +1,152 @@
+ [publicClient] Detected tenant from subdomain: gfi
+ GoTrueClient@sb-lvmzliemqnieeoruhkik-auth-token:1 (2.93.3) 2026-08-27T08:38:47.608Z Multiple GoTrueClient instances detected in the same browser context. It is not an error, but this should be avoided as it may produce undefined behavior when used concurrently under the same storage key.
+ [usePendingPurchaseOrders] memberInfo: null
+ [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+ [Layout] hasPendingPOs: false count: 0 isLoading: false
+ [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+ [usePendingPurchaseOrders] memberInfo: Object
+ [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+ [Layout] hasPendingPOs: false count: 0 isLoading: true
+ [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+ [usePendingPurchaseOrders] Query running, memberInfo.id: 9ac39222-22b8-457e-a5df-dfca45a99eb6
+ [usePendingPurchaseOrders] memberInfo: Object
+ [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+ [Layout] hasPendingPOs: false count: 0 isLoading: true
+ [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+ [usePendingPurchaseOrders] memberInfo: Object
+ [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+ [Layout] hasPendingPOs: false count: 0 isLoading: true
+ [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+ [usePendingPurchaseOrders] memberInfo: Object
+ [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+ [Layout] hasPendingPOs: false count: 0 isLoading: true
+ [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+ [usePendingPurchaseOrders] memberInfo: Object
+ [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+ [Layout] hasPendingPOs: false count: 0 isLoading: true
+ [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+ [usePendingPurchaseOrders] memberInfo: Object
+ [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+ [Layout] hasPendingPOs: false count: 0 isLoading: true
+ [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+ [usePendingPurchaseOrders] memberInfo: Object
+ [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+ [Layout] hasPendingPOs: false count: 0 isLoading: true
+ [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+ [usePendingPurchaseOrders] memberInfo: Object
+ [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+ [Layout] hasPendingPOs: false count: 0 isLoading: true
+ [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+ [usePendingPurchaseOrders] memberInfo: Object
+ [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+ [Layout] hasPendingPOs: false count: 0 isLoading: true
+ [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+ [usePendingPurchaseOrders] memberInfo: Object
+ [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+ [Layout] hasPendingPOs: false count: 0 isLoading: true
+ [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+ [usePendingPurchaseOrders] memberInfo: Object
+ [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+ [Layout] hasPendingPOs: false count: 0 isLoading: true
+ [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+ [usePendingPurchaseOrders] memberInfo: Object
+ [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-C-75wNBv.js:2094 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-C-75wNBv.js:2094 [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+index-C-75wNBv.js:2083 [usePendingPurchaseOrders] memberInfo: Object
+index-C-75wNBv.js:2083 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-C-75wNBv.js:2094 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-C-75wNBv.js:2094 [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+index-C-75wNBv.js:2083 [usePendingPurchaseOrders] memberInfo: Object
+index-C-75wNBv.js:2083 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-C-75wNBv.js:2094 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-C-75wNBv.js:2094 [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+index-C-75wNBv.js:2083 [usePendingPurchaseOrders] memberInfo: Object
+index-C-75wNBv.js:2083 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-C-75wNBv.js:2094 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-C-75wNBv.js:2094 [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+index-C-75wNBv.js:2083 [usePendingPurchaseOrders] memberInfo: Object
+index-C-75wNBv.js:2083 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-C-75wNBv.js:2094 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-C-75wNBv.js:2094 [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+index-C-75wNBv.js:2094 [Layout] Server session found: sharon@onlinem.co.uk
+index-C-75wNBv.js:2083 [usePendingPurchaseOrders] memberInfo: Object
+index-C-75wNBv.js:2083 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-C-75wNBv.js:2094 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-C-75wNBv.js:2094 [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+index-C-75wNBv.js:2083 [usePendingPurchaseOrders] memberInfo: Object
+index-C-75wNBv.js:2083 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-C-75wNBv.js:2094 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-C-75wNBv.js:2094 [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+index-C-75wNBv.js:2083 [usePendingPurchaseOrders] Fetched bookings count: 14
+index-C-75wNBv.js:2083 [usePendingPurchaseOrders] Pending PO bookings: 2
+index-C-75wNBv.js:2083 [usePendingPurchaseOrders] memberInfo: Object
+index-C-75wNBv.js:2083 [usePendingPurchaseOrders] hasPendingPOs: true count: 2 isLoading: false
+index-C-75wNBv.js:2094 [Layout] hasPendingPOs: true count: 2 isLoading: false
+index-C-75wNBv.js:2094 [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+index-C-75wNBv.js:2083 [usePendingPurchaseOrders] memberInfo: Object
+index-C-75wNBv.js:2083 [usePendingPurchaseOrders] hasPendingPOs: true count: 2 isLoading: false
+index-C-75wNBv.js:2094 [Layout] hasPendingPOs: true count: 2 isLoading: false
+index-C-75wNBv.js:2094 [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+index-C-75wNBv.js:2083 [usePendingPurchaseOrders] memberInfo: Object
+index-C-75wNBv.js:2083 [usePendingPurchaseOrders] hasPendingPOs: true count: 2 isLoading: false
+index-C-75wNBv.js:2094 [Layout] hasPendingPOs: true count: 2 isLoading: false
+index-C-75wNBv.js:2094 [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+index-C-75wNBv.js:2083 [usePendingPurchaseOrders] memberInfo: Object
+index-C-75wNBv.js:2083 [usePendingPurchaseOrders] hasPendingPOs: true count: 2 isLoading: false
+index-C-75wNBv.js:2094 [Layout] hasPendingPOs: true count: 2 isLoading: false
+index-C-75wNBv.js:2094 [Layout] currentPageName: OrganisationDirectory currentPortalPageId: portal_org_directory
+index-C-75wNBv.js:2083 [usePendingPurchaseOrders] memberInfo: Object
+index-C-75wNBv.js:2083 [usePendingPurchaseOrders] hasPendingPOs: true count: 2 isLoading: false
+index-C-75wNBv.js:2094 [Layout] hasPendingPOs: true count: 2 isLoading: false
+index-C-75wNBv.js:2094 [Layout] currentPageName: OrganisationDirectory currentPortalPageId: portal_org_directory
+index-C-75wNBv.js:2094 [Layout] Matched banners for OrganisationDirectory : 1
+index-C-75wNBv.js:2083 [usePendingPurchaseOrders] memberInfo: Object
+index-C-75wNBv.js:2083 [usePendingPurchaseOrders] hasPendingPOs: true count: 2 isLoading: false
+index-C-75wNBv.js:2094 [Layout] hasPendingPOs: true count: 2 isLoading: false
+index-C-75wNBv.js:2094 [Layout] currentPageName: OrganisationDirectory currentPortalPageId: portal_org_directory
+index-C-75wNBv.js:2048 [PortalHeroBanner] Rendering banner: University Directory type: hero hasHeroContent: true hasImageUrl: false
+index-C-75wNBv.js:2048 [PortalHeroBanner] Rendering as hero element: University Directory
+index-C-75wNBv.js:2083 [usePendingPurchaseOrders] memberInfo: Object
+index-C-75wNBv.js:2083 [usePendingPurchaseOrders] hasPendingPOs: true count: 2 isLoading: false
+index-C-75wNBv.js:2094 [Layout] hasPendingPOs: true count: 2 isLoading: false
+index-C-75wNBv.js:2094 [Layout] currentPageName: OrganisationDirectory currentPortalPageId: portal_org_directory
+index-C-75wNBv.js:2048 [PortalHeroBanner] Rendering banner: University Directory type: hero hasHeroContent: true hasImageUrl: false
+index-C-75wNBv.js:2048 [PortalHeroBanner] Rendering as hero element: University Directory
+index-C-75wNBv.js:2094 [Layout] Server session found: sharon@onlinem.co.uk
+index-C-75wNBv.js:2083 [usePendingPurchaseOrders] memberInfo: Object
+index-C-75wNBv.js:2083 [usePendingPurchaseOrders] hasPendingPOs: true count: 2 isLoading: false
+index-C-75wNBv.js:2094 [Layout] hasPendingPOs: true count: 2 isLoading: false
+index-C-75wNBv.js:2094 [Layout] currentPageName: OrganisationDirectory currentPortalPageId: portal_org_directory
+index-C-75wNBv.js:2048 [PortalHeroBanner] Rendering banner: University Directory type: hero hasHeroContent: true hasImageUrl: false
+index-C-75wNBv.js:2048 [PortalHeroBanner] Rendering as hero element: University Directory
+index-C-75wNBv.js:2083 [usePendingPurchaseOrders] memberInfo: Object
+index-C-75wNBv.js:2083 [usePendingPurchaseOrders] hasPendingPOs: true count: 2 isLoading: false
+index-C-75wNBv.js:2094 [Layout] hasPendingPOs: true count: 2 isLoading: false
+index-C-75wNBv.js:2094 [Layout] currentPageName: OrganisationDirectory currentPortalPageId: portal_org_directory
+index-C-75wNBv.js:2048 [PortalHeroBanner] Rendering banner: University Directory type: hero hasHeroContent: true hasImageUrl: false
+index-C-75wNBv.js:2048 [PortalHeroBanner] Rendering as hero element: University Directory
+index-C-75wNBv.js:4459 [OrganisationDirectory] Loaded 5254 total members
+index-C-75wNBv.js:41 ReferenceError: React is not defined
+    at index-C-75wNBv.js:4459:20746
+    at ZJe (index-C-75wNBv.js:4459:22938)
+    at tle (index-C-75wNBv.js:39:17093)
+    at ree (index-C-75wNBv.js:41:3166)
+    at a5e (index-C-75wNBv.js:41:45151)
+    at t5e (index-C-75wNBv.js:41:40057)
+    at Ict (index-C-75wNBv.js:41:39980)
+    at CB (index-C-75wNBv.js:41:39828)
+    at gee (index-C-75wNBv.js:41:36158)
+    at Lge (index-C-75wNBv.js:41:36967)
+aee @ index-C-75wNBv.js:41
+index-C-75wNBv.js:39 Uncaught ReferenceError: React is not defined
+    at index-C-75wNBv.js:4459:20746
+    at ZJe (index-C-75wNBv.js:4459:22938)
+    at tle (index-C-75wNBv.js:39:17093)
+    at ree (index-C-75wNBv.js:41:3166)
+    at a5e (index-C-75wNBv.js:41:45151)
+    at t5e (index-C-75wNBv.js:41:40057)
+    at Ict (index-C-75wNBv.js:41:39980)
+    at CB (index-C-75wNBv.js:41:39828)
+    at gee (index-C-75wNBv.js:41:36158)
+    at Lge (index-C-75wNBv.js:41:36967)
