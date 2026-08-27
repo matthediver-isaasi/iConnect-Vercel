@@ -46,6 +46,7 @@ const publicCategory = {
   name: 'News',
   is_active: true,
   is_public: true,
+  member_enabled: true,
 };
 
 async function subscribe(database, overrides = {}) {
@@ -84,6 +85,25 @@ test('public status does not let a disallowed member subscribe', async () => {
 
   assert.equal(result.status, 403);
   assert.deepEqual(writes, []);
+});
+
+test('public-only category rejects a known member but accepts a genuine external subscriber', async () => {
+  const category = { ...publicCategory, member_enabled: false };
+  const known = createDatabase({
+    category,
+    member: { id: 'member-1', tenant_id: 'tenant-1', email: 'member@example.com', role_id: 'role-1' },
+  });
+  const memberResult = await subscribe(known.database, {
+    eligibilityLoader: async () => ({ eligibleCategoryIds: new Set() }),
+  });
+  assert.equal(memberResult.status, 403);
+  assert.deepEqual(known.writes, []);
+
+  const external = createDatabase({ category });
+  const externalResult = await subscribe(external.database, { email: 'external@example.com' });
+  assert.equal(externalResult.status, 200);
+  assert.equal(externalResult.subscriberType, 'external');
+  assert.deepEqual(external.writes.map(({ table }) => table), ['email_subscriber']);
 });
 
 test('roleless public category accepts a member with no assigned role', async () => {

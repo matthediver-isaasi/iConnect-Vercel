@@ -31,10 +31,20 @@ import {
   normalizeSubscriberSearch,
   paginateSubscriberResults,
 } from "@/lib/subscriberModalSearch";
-import { filterExplicitCategorySubscribers } from "@shared/communicationCategoryMembership.js";
+import {
+  applyCommunicationCategoryAudienceMode,
+  filterExplicitCategorySubscribers,
+  getCommunicationCategoryAudienceMode,
+} from "@shared/communicationCategoryMembership.js";
 
 const SUBSCRIBERS_PER_PAGE = 10;
 const EXTERNAL_SEARCH_DEBOUNCE_MS = 300;
+
+const CATEGORY_AUDIENCE_LABELS = {
+  members_only: 'Members only',
+  public_only: 'Public only',
+  public_and_members: 'Public and members',
+};
 
 export default function CommunicationsManagementPage() {
   const { isFeatureExcluded, isAccessReady } = useMemberAccess();
@@ -1318,7 +1328,7 @@ export default function CommunicationsManagementPage() {
 
   const createCategoryMutation = useMutation({
     mutationFn: async (data) => {
-      const { selectedRoles = [], ...categoryData } = data;
+      const { selectedRoles = [], audienceMode, ...categoryData } = data;
       const category = await base44.entities.CommunicationCategory.create(categoryData);
       
       for (const roleId of selectedRoles) {
@@ -1343,7 +1353,7 @@ export default function CommunicationsManagementPage() {
 
   const updateCategoryMutation = useMutation({
     mutationFn: async ({ id, data }) => {
-      const { selectedRoles = [], ...categoryData } = data;
+      const { selectedRoles = [], audienceMode, ...categoryData } = data;
       await base44.entities.CommunicationCategory.update(id, categoryData);
       
       const existingRoles = categoryRoles.filter(cr => cr.category_id === id);
@@ -1413,6 +1423,8 @@ export default function CommunicationsManagementPage() {
       description: '',
       is_active: true,
       is_public: false,
+      member_enabled: true,
+      audienceMode: 'members_only',
       display_order: categories.length,
       selectedRoles: []
     });
@@ -1422,6 +1434,8 @@ export default function CommunicationsManagementPage() {
   const openEditCategoryDialog = (category) => {
     setEditingCategory({
       ...category,
+      member_enabled: category.member_enabled !== false,
+      audienceMode: getCommunicationCategoryAudienceMode(category),
       selectedRoles: getCategoryRoles(category.id)
     });
     setShowCategoryDialog(true);
@@ -1482,13 +1496,15 @@ CREATE TABLE IF NOT EXISTS communication_category (
   description TEXT,
   is_active BOOLEAN DEFAULT true,
   is_public BOOLEAN DEFAULT false,
+  member_enabled BOOLEAN NOT NULL DEFAULT true,
   display_order INTEGER DEFAULT 0,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- Add is_public column if table already exists
+-- Add audience columns if table already exists
 ALTER TABLE communication_category ADD COLUMN IF NOT EXISTS is_public BOOLEAN DEFAULT false;
+ALTER TABLE communication_category ADD COLUMN IF NOT EXISTS member_enabled BOOLEAN NOT NULL DEFAULT true;
 
 -- Role assignments for each category
 CREATE TABLE IF NOT EXISTS communication_category_role (
@@ -1828,11 +1844,9 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                               <h3 className="text-lg font-semibold text-slate-900">
                                 {category.name}
                               </h3>
-                              {category.is_public && (
-                                <Badge variant="outline" className="text-xs border-pink-200 text-pink-700 bg-pink-50">
-                                  Public
-                                </Badge>
-                              )}
+                              <Badge variant="outline" className="text-xs border-pink-200 text-pink-700 bg-pink-50">
+                                {CATEGORY_AUDIENCE_LABELS[getCommunicationCategoryAudienceMode(category)]}
+                              </Badge>
                               {!category.is_active && (
                                 <Badge variant="secondary" className="text-xs">
                                   Inactive
@@ -2191,23 +2205,29 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                   />
                 </div>
                 
-                <div className="flex items-center justify-between gap-4 p-3 border border-slate-200 rounded-lg">
-                  <div className="space-y-1">
-                    <Label htmlFor="is_public" className="cursor-pointer">
-                      Public List
-                    </Label>
-                    <p className="text-xs text-slate-500">
-                      Allow external non-members (e.g. donors and guests) to subscribe. This never bypasses member role access.
-                    </p>
-                  </div>
-                  <Switch
-                    id="is_public"
-                    checked={editingCategory.is_public || false}
-                    onCheckedChange={(checked) => setEditingCategory({ ...editingCategory, is_public: checked })}
-                    data-testid="switch-category-public"
-                  />
+                <div className="space-y-2">
+                  <Label htmlFor="category-audience">Audience</Label>
+                  <Select
+                    value={editingCategory.audienceMode || getCommunicationCategoryAudienceMode(editingCategory)}
+                    onValueChange={(audienceMode) => setEditingCategory(
+                      applyCommunicationCategoryAudienceMode(editingCategory, audienceMode)
+                    )}
+                  >
+                    <SelectTrigger id="category-audience" data-testid="select-category-audience">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="members_only">Members only</SelectItem>
+                      <SelectItem value="public_only">Public only</SelectItem>
+                      <SelectItem value="public_and_members">Public and members</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-slate-500">
+                    Choose whether this list is available to members, external subscribers, or both.
+                  </p>
                 </div>
 
+                {editingCategory.member_enabled !== false && (
                 <div className="space-y-2">
                   <Label>Applicable Roles</Label>
                   <p className="text-xs text-slate-500 mb-2">
@@ -2235,6 +2255,7 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                     ))}
                   </div>
                 </div>
+                )}
                 
                 <div className="flex items-center gap-3">
                   <Switch

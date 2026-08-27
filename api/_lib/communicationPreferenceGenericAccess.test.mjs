@@ -44,12 +44,27 @@ test('generic communication preference access permits administrators', async () 
   }
 });
 
+test('generic entity API rejects direct member preference writes even for administrators', async () => {
+  for (const method of ['POST', 'PATCH', 'DELETE']) {
+    const result = await authorizeGenericCommunicationPreferenceAccess(
+      'MemberCommunicationPreference',
+      { isAuthenticated: true, tenantId: 'tenant-1' },
+      { hasAdminAccess: async () => true },
+      method,
+    );
+    assert.deepEqual(result, {
+      status: 405,
+      error: 'Communication preference writes must use the guarded preferences API',
+    });
+  }
+});
+
 test('generic entity collection and record routes apply the admin-only boundary', async () => {
   const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
   for (const relativePath of ['entities/[entity]/index.js', 'entities/[entity]/[id].js']) {
     const source = await readFile(path.join(root, relativePath), 'utf8');
     assert.match(source, /authorizeGenericCommunicationPreferenceAccess\(/, relativePath);
-    assert.match(source, /\{\s*hasAdminAccess\s*\},\s*\)/, relativePath);
+    assert.match(source, /\{\s*hasAdminAccess\s*\},\s*req\.method,\s*\)/, relativePath);
     assert.match(source, /genericPreferenceAccessError\.status/, relativePath);
   }
 });

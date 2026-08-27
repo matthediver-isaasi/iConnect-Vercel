@@ -316,6 +316,7 @@ export default async function handler(req, res) {
     entity,
     tenantCtx,
     { hasAdminAccess },
+    req.method,
   );
   if (genericPreferenceAccessError) {
     return res

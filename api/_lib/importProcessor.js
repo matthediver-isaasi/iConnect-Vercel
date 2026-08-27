@@ -11,6 +11,8 @@
 // Phase 1 (the fast bulk DB paths — the process_member_import_batch RPC and the
 // batched JS path) lives here so both entry points share one implementation.
 
+import { filterCommunicationCategoriesForMember } from '../../shared/communicationCategoryMembership.js';
+
 // Parse boolean values (true/false/yes/no) case-insensitively.
 export function parseBoolean(value) {
   if (value === null || value === undefined) return null;
@@ -132,6 +134,61 @@ async function batchInsert(supabase, table, rows) {
   return inserted;
 }
 
+export async function filterImportCommunicationPreferences(supabase, tenantId, rows) {
+  if (!rows.length) return [];
+  const categoryIds = [...new Set(rows.map((row) => row.category_id).filter(Boolean))];
+  const memberIds = [...new Set(rows.map((row) => row.member_id).filter(Boolean))];
+  const [
+    { data: categories, error: categoryError },
+    { data: roleAssignments, error: roleError },
+    { data: members, error: memberError },
+  ] = await Promise.all([
+    supabase
+      .from('communication_category')
+      .select('id, member_enabled')
+      .eq('tenant_id', tenantId)
+      .in('id', categoryIds),
+    supabase
+      .from('communication_category_role')
+      .select('category_id, role_id')
+      .eq('tenant_id', tenantId)
+      .in('category_id', categoryIds),
+    supabase
+      .from('member')
+      .select('id, role_id')
+      .eq('tenant_id', tenantId)
+      .in('id', memberIds),
+  ]);
+
+  if (categoryError || roleError || memberError) {
+    console.log(
+      `[Import] communication eligibility lookup failed: ${
+        categoryError?.message || roleError?.message || memberError?.message
+      }`
+    );
+    return rows.filter((row) => row.is_subscribed === false);
+  }
+
+  const categoryById = new Map((categories || []).map((category) => [category.id, category]));
+  const memberById = new Map((members || []).map((member) => [member.id, member]));
+  const eligibleByMember = new Map();
+  for (const member of members || []) {
+    eligibleByMember.set(
+      member.id,
+      new Set(
+        filterCommunicationCategoriesForMember(categories || [], roleAssignments || [], member)
+          .map(({ id }) => id)
+      )
+    );
+  }
+
+  return rows.filter((row) => {
+    if (!categoryById.has(row.category_id) || !memberById.has(row.member_id)) return false;
+    return row.is_subscribed === false
+      || eligibleByMember.get(row.member_id)?.has(row.category_id);
+  });
+}
+
 // Resolve a mapped cell value (date parsing + clear-on-empty) the same way the
 // core transform does, so auxiliary values stay consistent with core fields.
 function resolveCellValue(row, mapping) {
@@ -212,7 +269,12 @@ async function persistMemberAux({ supabase, records, from, to, mappings, identif
     await batchUpsert(supabase, 'member_preference_value', Array.from(customByKey.values()), 'member_id,field_id');
   }
   if (commByKey.size > 0) {
-    await batchUpsert(supabase, 'member_communication_preference', Array.from(commByKey.values()), 'member_id,category_id');
+    const authorizedPreferences = await filterImportCommunicationPreferences(
+      supabase,
+      tenantId,
+      Array.from(commByKey.values())
+    );
+    await batchUpsert(supabase, 'member_communication_preference', authorizedPreferences, 'member_id,category_id');
   }
   let notesCreated = 0;
   if (notes.length > 0) {
@@ -991,9 +1053,14 @@ export async function processImportSlice({
 
     const commPrefsToUpsert = Array.from(commPrefsByKey.values());
     if (commPrefsToUpsert.length > 0) {
+      const authorizedPreferences = await filterImportCommunicationPreferences(
+        supabase,
+        tenantId,
+        commPrefsToUpsert
+      );
       const COMM_BATCH_SIZE = 500;
-      for (let i = 0; i < commPrefsToUpsert.length; i += COMM_BATCH_SIZE) {
-        const chunk = commPrefsToUpsert.slice(i, i + COMM_BATCH_SIZE);
+      for (let i = 0; i < authorizedPreferences.length; i += COMM_BATCH_SIZE) {
+        const chunk = authorizedPreferences.slice(i, i + COMM_BATCH_SIZE);
         await supabase
           .from('member_communication_preference')
           .upsert(chunk, { onConflict: 'member_id,category_id' });

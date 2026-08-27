@@ -316,7 +316,7 @@ export async function persistFormCommunicationSubscriptions({
   const categoryIds = [...selections.keys()];
   const { data: categories, error: categoryError } = await database
     .from('communication_category')
-    .select('id, is_public')
+    .select('id, is_public, member_enabled')
     .eq('tenant_id', tenantId)
     .eq('is_active', true)
     .in('id', categoryIds);

@@ -43,7 +43,7 @@ export async function applyPublicCommunicationSubscription({
 }) {
   const { data: category, error: categoryError } = await database
     .from('communication_category')
-    .select('id, name, is_public, is_active')
+    .select('id, name, is_public, is_active, member_enabled')
     .eq('id', categoryId)
     .eq('tenant_id', tenantId)
     .maybeSingle();

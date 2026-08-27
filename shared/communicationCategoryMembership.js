@@ -1,11 +1,39 @@
 const DELETED_MEMBER_EMAIL = /^deleted_.*@deleted\.local$/i;
 
+export const COMMUNICATION_CATEGORY_AUDIENCE = Object.freeze({
+  MEMBERS_ONLY: 'members_only',
+  PUBLIC_ONLY: 'public_only',
+  PUBLIC_AND_MEMBERS: 'public_and_members',
+});
+
+export function getCommunicationCategoryAudienceMode(category) {
+  const members = category?.member_enabled !== false;
+  const publicAccess = category?.is_public === true;
+  if (members && publicAccess) return COMMUNICATION_CATEGORY_AUDIENCE.PUBLIC_AND_MEMBERS;
+  if (publicAccess) return COMMUNICATION_CATEGORY_AUDIENCE.PUBLIC_ONLY;
+  return COMMUNICATION_CATEGORY_AUDIENCE.MEMBERS_ONLY;
+}
+
+export function applyCommunicationCategoryAudienceMode(category, audienceMode) {
+  return {
+    ...category,
+    audienceMode,
+    member_enabled: audienceMode !== COMMUNICATION_CATEGORY_AUDIENCE.PUBLIC_ONLY,
+    is_public: audienceMode !== COMMUNICATION_CATEGORY_AUDIENCE.MEMBERS_ONLY,
+  };
+}
+
 export function normalizeCommunicationRoleIds(roleId) {
   if (!roleId) return [];
   return (Array.isArray(roleId) ? roleId : [roleId]).filter(Boolean);
 }
 
-export function isMemberEligibleForCommunicationCategory(member, categoryRoleIds) {
+export function isCommunicationCategoryMemberEnabled(category) {
+  return category?.member_enabled !== false;
+}
+
+export function isMemberEligibleForCommunicationCategory(member, categoryRoleIds, category = null) {
+  if (!isCommunicationCategoryMemberEnabled(category)) return false;
   const applicableRoleIds = normalizeCommunicationRoleIds(categoryRoleIds);
   if (applicableRoleIds.length === 0) return true;
 
@@ -26,6 +54,7 @@ export function filterCommunicationCategoriesForMember(categories, roleAssignmen
     isMemberEligibleForCommunicationCategory(
       member,
       rolesByCategory.get(category.id) || [],
+      category,
     )
   );
 }

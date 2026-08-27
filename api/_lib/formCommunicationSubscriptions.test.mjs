@@ -58,11 +58,12 @@ function createDatabase({
       let result = { data: null, error: null };
       if (this.table === 'communication_category') {
         const categoryRows = categories.map((category) => typeof category === 'string'
-          ? { id: category, tenant_id: 'tenant-1', is_active: true, is_public: true }
+          ? { id: category, tenant_id: 'tenant-1', is_active: true, is_public: true, member_enabled: true }
           : {
               tenant_id: 'tenant-1',
               is_active: true,
               is_public: true,
+              member_enabled: true,
               ...category,
             }
         );
@@ -488,6 +489,38 @@ test('form submissions retain member unsubscribe after role access is removed', 
     resolvedMemberId: 'member-1',
   });
   assert.equal(state.preferences[0].is_subscribed, false);
+});
+
+test('form submissions reject public-only member opt-ins but retain member opt-outs', async () => {
+  const member = { id: 'member-1', tenant_id: 'tenant-1', email: 'ada@example.com' };
+  const blocked = createDatabase({
+    categories: [{ id: 'cat-news', is_public: true, member_enabled: false }],
+    members: [member],
+  });
+  await assert.rejects(
+    persistFormCommunicationSubscriptions({
+      database: blocked.database,
+      tenantId: 'tenant-1',
+      form,
+      submissionData: { email: member.email },
+      resolvedMemberId: member.id,
+    }),
+    (error) => error.code === 'COMMUNICATION_CATEGORY_ROLE_FORBIDDEN',
+  );
+  assert.equal(blocked.state.preferences.length, 0);
+
+  const optOut = createDatabase({
+    categories: [{ id: 'cat-news', is_public: true, member_enabled: false }],
+    members: [member],
+  });
+  await persistFormCommunicationSubscriptions({
+    database: optOut.database,
+    tenantId: 'tenant-1',
+    form: { ...form, communication_category_id: null },
+    submissionData: { email: member.email, prefs: { 'cat-news': false } },
+    resolvedMemberId: member.id,
+  });
+  assert.equal(optOut.state.preferences[0].is_subscribed, false);
 });
 
 test('a newly resolved member receives preferences and stale external rows are removed', async () => {

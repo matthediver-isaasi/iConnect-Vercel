@@ -24,7 +24,7 @@ export default async function handler(req, res) {
 
     const { data, error } = await supabase
       .from('communication_category')
-      .select('id, name, description, is_public')
+      .select('id, name, description, is_public, member_enabled')
       .eq('is_active', true)
       .eq('is_public', true)
       .eq('tenant_id', tenant.id)

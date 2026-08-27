@@ -16,7 +16,7 @@ export async function loadMemberCommunicationCategoryEligibility(
 
   let categoryQuery = database
     .from('communication_category')
-    .select('id, name, description, display_order, is_active, is_public')
+    .select('id, name, description, display_order, is_active, is_public, member_enabled')
     .eq('tenant_id', tenantId);
   if (activeOnly) categoryQuery = categoryQuery.eq('is_active', true);
 
