@@ -1,0 +1,3132 @@
+{
+  "repairKind": "gfi-xero-membership-reference-repair",
+  "reportVersion": 1,
+  "mode": "dry-run",
+  "generatedAt": "2026-08-27T12:20:52.495Z",
+  "target": {
+    "tenantId": "fd82da65-aab7-4a5c-85b8-b2febeb2003d",
+    "tenantSlug": "gfi",
+    "tenantName": "Graduate Futures Institute",
+    "xeroTenantId": "608971fe-5a0d-4031-80bb-3d9d438e90fb"
+  },
+  "mutationCount": 0,
+  "summary": {
+    "scanned": 1955,
+    "selected": 62,
+    "paid": 63,
+    "voided": 0,
+    "deleted": 0,
+    "notUnpaid": 0,
+    "alreadyCorrect": 294,
+    "unrelatedOrGenuinePo": 1536
+  },
+  "selected": [
+    {
+      "invoiceId": "dd96db45-f240-411c-9406-00d28f812f6f",
+      "invoiceNumber": "SI-44603",
+      "type": "ACCREC",
+      "status": "AUTHORISED",
+      "amountDue": 3847.2,
+      "total": 3847.2,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "43e460fb-4fd4-4cc3-9376-58eae5711a42",
+        "name": "University of East Anglia"
+      },
+      "date": "2026-07-29T00:00:00",
+      "dueDate": "2026-08-28T00:00:00",
+      "originalReference": "Membership 2026/2027",
+      "proposedReference": "TBC",
+      "membershipHistory": [
+        {
+          "table": "organisation_membership_history",
+          "id": "0acfec30-cc9f-4989-9bc9-01f51a88c1e6",
+          "tenant_id": "fd82da65-aab7-4a5c-85b8-b2febeb2003d",
+          "membership_year": "2026/2027",
+          "status": "active",
+          "payment_status": null,
+          "xero_invoice_id": "dd96db45-f240-411c-9406-00d28f812f6f",
+          "xero_invoice_number": "SI-44603",
+          "accounting_invoice_id": "dd96db45-f240-411c-9406-00d28f812f6f",
+          "accounting_invoice_number": "SI-44603",
+          "organization_id": "9bb39b0d-5bad-4cf6-abef-dfc1be9c22bc"
+        }
+      ]
+    },
+    {
+      "invoiceId": "3d7090ba-a320-4ac7-8535-076afa610f59",
+      "invoiceNumber": "SI-44657",
+      "type": "ACCREC",
+      "status": "AUTHORISED",
+      "amountDue": 2066.1,
+      "total": 2066.1,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "3e065ee5-ea03-4ff2-b7cf-84d0c8c61c0e",
+        "name": "Liverpool Hope University"
+      },
+      "date": "2026-08-04T00:00:00",
+      "dueDate": "2026-09-03T00:00:00",
+      "originalReference": "Membership 2026/2027",
+      "proposedReference": "TBC",
+      "membershipHistory": [
+        {
+          "table": "organisation_membership_history",
+          "id": "7ef9b267-b25f-4dde-96a6-c84db1e95b22",
+          "tenant_id": "fd82da65-aab7-4a5c-85b8-b2febeb2003d",
+          "membership_year": "2026/2027",
+          "status": "active",
+          "payment_status": null,
+          "xero_invoice_id": "3d7090ba-a320-4ac7-8535-076afa610f59",
+          "xero_invoice_number": "SI-44657",
+          "accounting_invoice_id": "3d7090ba-a320-4ac7-8535-076afa610f59",
+          "accounting_invoice_number": "SI-44657",
+          "organization_id": "8fc4e3b5-9ae0-414f-bba7-7d80f5515a7c"
+        }
+      ]
+    },
+    {
+      "invoiceId": "146838de-d160-4212-ac97-090ed4453942",
+      "invoiceNumber": "SI-44636",
+      "type": "ACCREC",
+      "status": "AUTHORISED",
+      "amountDue": 3847.2,
+      "total": 3847.2,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "65aa0609-4109-4c73-a851-e0e942991940",
+        "name": "Bournemouth University"
+      },
+      "date": "2026-08-04T00:00:00",
+      "dueDate": "2026-09-03T00:00:00",
+      "originalReference": "Membership 2026/2027",
+      "proposedReference": "TBC",
+      "membershipHistory": [
+        {
+          "table": "organisation_membership_history",
+          "id": "88bdd4ee-8b48-4a02-a03d-86498043b6d3",
+          "tenant_id": "fd82da65-aab7-4a5c-85b8-b2febeb2003d",
+          "membership_year": "2026/2027",
+          "status": "active",
+          "payment_status": null,
+          "xero_invoice_id": "146838de-d160-4212-ac97-090ed4453942",
+          "xero_invoice_number": "SI-44636",
+          "accounting_invoice_id": "146838de-d160-4212-ac97-090ed4453942",
+          "accounting_invoice_number": "SI-44636",
+          "organization_id": "a46f0632-e148-4c88-904c-2bb0c172a6d3"
+        }
+      ]
+    },
+    {
+      "invoiceId": "0601887b-ec7f-4e3a-aa5b-0d898b9ee930",
+      "invoiceNumber": "SI-44702",
+      "type": "ACCREC",
+      "status": "AUTHORISED",
+      "amountDue": 3143.1,
+      "total": 3143.1,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "fb6fa074-5874-42f7-ad62-e3f1ed158229",
+        "name": "University of Dundee"
+      },
+      "date": "2026-08-04T00:00:00",
+      "dueDate": "2026-09-03T00:00:00",
+      "originalReference": "Membership 2026/2027",
+      "proposedReference": "TBC",
+      "membershipHistory": [
+        {
+          "table": "organisation_membership_history",
+          "id": "451131e2-ed9b-4b01-bd55-cdffd9123d70",
+          "tenant_id": "fd82da65-aab7-4a5c-85b8-b2febeb2003d",
+          "membership_year": "2026/2027",
+          "status": "active",
+          "payment_status": null,
+          "xero_invoice_id": "0601887b-ec7f-4e3a-aa5b-0d898b9ee930",
+          "xero_invoice_number": "SI-44702",
+          "accounting_invoice_id": "0601887b-ec7f-4e3a-aa5b-0d898b9ee930",
+          "accounting_invoice_number": "SI-44702",
+          "organization_id": "47f370f4-440c-42d2-95d6-3efb2d552ad8"
+        }
+      ]
+    },
+    {
+      "invoiceId": "91a0b4f0-82e7-4e38-a2b5-157356427fc2",
+      "invoiceNumber": "SI-44706",
+      "type": "ACCREC",
+      "status": "AUTHORISED",
+      "amountDue": 3143.1,
+      "total": 3143.1,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "c74f848f-77a3-4818-8ffe-508093b5c12d",
+        "name": "University of Greater Manchester"
+      },
+      "date": "2026-08-04T00:00:00",
+      "dueDate": "2026-09-03T00:00:00",
+      "originalReference": "Membership 2026/2027",
+      "proposedReference": "TBC",
+      "membershipHistory": [
+        {
+          "table": "organisation_membership_history",
+          "id": "523a9879-aaeb-4287-ae63-d212f9fb9dfc",
+          "tenant_id": "fd82da65-aab7-4a5c-85b8-b2febeb2003d",
+          "membership_year": "2026/2027",
+          "status": "active",
+          "payment_status": null,
+          "xero_invoice_id": "91a0b4f0-82e7-4e38-a2b5-157356427fc2",
+          "xero_invoice_number": "SI-44706",
+          "accounting_invoice_id": "91a0b4f0-82e7-4e38-a2b5-157356427fc2",
+          "accounting_invoice_number": "SI-44706",
+          "organization_id": "f931baa6-d5a7-4052-b93a-380aa36a65df"
+        }
+      ]
+    },
+    {
+      "invoiceId": "3d1bceae-8cd7-4f5f-b7c5-176800dfbbac",
+      "invoiceNumber": "SI-44740",
+      "type": "ACCREC",
+      "status": "AUTHORISED",
+      "amountDue": 885.46,
+      "total": 885.46,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "bc31b608-eb33-45ac-907f-37e378b4a586",
+        "name": "Northeastern University London"
+      },
+      "date": "2026-08-06T00:00:00",
+      "dueDate": "2026-09-05T00:00:00",
+      "originalReference": "Membership 2026/2027",
+      "proposedReference": "TBC",
+      "membershipHistory": [
+        {
+          "table": "organisation_membership_history",
+          "id": "e4b9f7a2-ece9-4899-b8d2-63a921fe6e42",
+          "tenant_id": "fd82da65-aab7-4a5c-85b8-b2febeb2003d",
+          "membership_year": "2026/2027",
+          "status": "active",
+          "payment_status": null,
+          "xero_invoice_id": "3d1bceae-8cd7-4f5f-b7c5-176800dfbbac",
+          "xero_invoice_number": "SI-44740",
+          "accounting_invoice_id": "3d1bceae-8cd7-4f5f-b7c5-176800dfbbac",
+          "accounting_invoice_number": "SI-44740",
+          "organization_id": "fc88604e-d3a4-43d8-af84-62038547f319"
+        }
+      ]
+    },
+    {
+      "invoiceId": "6d091246-f366-4434-8f9d-1b2145f31763",
+      "invoiceNumber": "SI-44714",
+      "type": "ACCREC",
+      "status": "AUTHORISED",
+      "amountDue": 5286.3,
+      "total": 5286.3,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "9d3fecbd-c8d5-42f5-ae7d-5bedb40bf1cb",
+        "name": "University of Oxford"
+      },
+      "date": "2026-08-04T00:00:00",
+      "dueDate": "2026-09-03T00:00:00",
+      "originalReference": "Membership 2026/2027",
+      "proposedReference": "TBC",
+      "membershipHistory": [
+        {
+          "table": "organisation_membership_history",
+          "id": "d6133719-631b-4b97-8366-c84eaca753e5",
+          "tenant_id": "fd82da65-aab7-4a5c-85b8-b2febeb2003d",
+          "membership_year": "2026/2027",
+          "status": "active",
+          "payment_status": null,
+          "xero_invoice_id": "6d091246-f366-4434-8f9d-1b2145f31763",
+          "xero_invoice_number": "SI-44714",
+          "accounting_invoice_id": "6d091246-f366-4434-8f9d-1b2145f31763",
+          "accounting_invoice_number": "SI-44714",
+          "organization_id": "b06aa1fb-e2c8-41fb-8f8d-d176342c2e7e"
+        }
+      ]
+    },
+    {
+      "invoiceId": "bc5575f0-b187-460e-91d0-1c8573d45aca",
+      "invoiceNumber": "SI-44738",
+      "type": "ACCREC",
+      "status": "AUTHORISED",
+      "amountDue": 1.2,
+      "total": 1.2,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "4203115c-2626-4941-9b69-705cda065cbe",
+        "name": "Sharon TEst"
+      },
+      "date": "2026-08-06T00:00:00",
+      "dueDate": "2026-09-05T00:00:00",
+      "originalReference": "Membership 2026/2027",
+      "proposedReference": "TBC",
+      "membershipHistory": [
+        {
+          "table": "member_membership_history",
+          "id": "4de67654-6721-4439-be67-b29729c59223",
+          "tenant_id": "fd82da65-aab7-4a5c-85b8-b2febeb2003d",
+          "membership_year": "2026/2027",
+          "status": "active",
+          "payment_status": "unpaid",
+          "xero_invoice_id": "bc5575f0-b187-460e-91d0-1c8573d45aca",
+          "xero_invoice_number": "SI-44738",
+          "accounting_invoice_id": "bc5575f0-b187-460e-91d0-1c8573d45aca",
+          "accounting_invoice_number": "SI-44738",
+          "member_id": "26baa0be-262b-4a12-ac49-28d5d641588b"
+        }
+      ]
+    },
+    {
+      "invoiceId": "5c689160-7e8a-413d-b993-1ca67961d883",
+      "invoiceNumber": "SI-44700",
+      "type": "ACCREC",
+      "status": "AUTHORISED",
+      "amountDue": 2428.8,
+      "total": 2428.8,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "61795167-13f1-4af3-86c9-162498342f4b",
+        "name": "University of Cumbria"
+      },
+      "date": "2026-08-04T00:00:00",
+      "dueDate": "2026-09-03T00:00:00",
+      "originalReference": "Membership 2026/2027",
+      "proposedReference": "TBC",
+      "membershipHistory": [
+        {
+          "table": "organisation_membership_history",
+          "id": "bf6a9540-7e41-455a-a3a4-31431c099e9b",
+          "tenant_id": "fd82da65-aab7-4a5c-85b8-b2febeb2003d",
+          "membership_year": "2026/2027",
+          "status": "active",
+          "payment_status": null,
+          "xero_invoice_id": "5c689160-7e8a-413d-b993-1ca67961d883",
+          "xero_invoice_number": "SI-44700",
+          "accounting_invoice_id": "5c689160-7e8a-413d-b993-1ca67961d883",
+          "accounting_invoice_number": "SI-44700",
+          "organization_id": "c6235493-82a1-4342-af42-45f89fd556a2"
+        }
+      ]
+    },
+    {
+      "invoiceId": "259fd432-82ca-4f44-9ec1-2b1bfb46a571",
+      "invoiceNumber": "SI-44686",
+      "type": "ACCREC",
+      "status": "AUTHORISED",
+      "amountDue": 2659.82,
+      "total": 2659.82,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "d2f05aec-4305-4e8d-ac0b-3a57d261aa84",
+        "name": "Trinity College Dublin"
+      },
+      "date": "2026-08-04T00:00:00",
+      "dueDate": "2026-09-03T00:00:00",
+      "originalReference": "Membership 2026/2027",
+      "proposedReference": "TBC",
+      "membershipHistory": [
+        {
+          "table": "organisation_membership_history",
+          "id": "fc501725-7f36-474d-a797-88bffaee3f95",
+          "tenant_id": "fd82da65-aab7-4a5c-85b8-b2febeb2003d",
+          "membership_year": "2026/2027",
+          "status": "active",
+          "payment_status": null,
+          "xero_invoice_id": "259fd432-82ca-4f44-9ec1-2b1bfb46a571",
+          "xero_invoice_number": "SI-44686",
+          "accounting_invoice_id": "259fd432-82ca-4f44-9ec1-2b1bfb46a571",
+          "accounting_invoice_number": "SI-44686",
+          "organization_id": "1633d72e-6b1f-43ab-ae2a-d8479006c6a2"
+        }
+      ]
+    },
+    {
+      "invoiceId": "f66fec8b-e9b7-4f06-a0e7-3063904aa817",
+      "invoiceNumber": "SI-44656",
+      "type": "ACCREC",
+      "status": "AUTHORISED",
+      "amountDue": 1425,
+      "total": 1425,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "e0b69dfb-b8f3-4b95-9238-bedbfc1cddac",
+        "name": "Lincoln Bishop University"
+      },
+      "date": "2026-08-04T00:00:00",
+      "dueDate": "2026-09-03T00:00:00",
+      "originalReference": "Membership 2026/2027",
+      "proposedReference": "TBC",
+      "membershipHistory": [
+        {
+          "table": "organisation_membership_history",
+          "id": "08a93b5a-aa8f-4d59-85f7-9c0e4e98fb50",
+          "tenant_id": "fd82da65-aab7-4a5c-85b8-b2febeb2003d",
+          "membership_year": "2026/2027",
+          "status": "active",
+          "payment_status": null,
+          "xero_invoice_id": "f66fec8b-e9b7-4f06-a0e7-3063904aa817",
+          "xero_invoice_number": "SI-44656",
+          "accounting_invoice_id": "f66fec8b-e9b7-4f06-a0e7-3063904aa817",
+          "accounting_invoice_number": "SI-44656",
+          "organization_id": "5d2b340a-28ff-46ab-af71-7bde1a40d1bd"
+        }
+      ]
+    },
+    {
+      "invoiceId": "29c61805-48b8-465f-8a53-321b8f480a3c",
+      "invoiceNumber": "SI-44558",
+      "type": "ACCREC",
+      "status": "AUTHORISED",
+      "amountDue": 2693.04,
+      "total": 2693.04,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "bb170802-b212-444e-84b6-94398e7f1bf6",
+        "name": "Middlesex University"
+      },
+      "date": "2026-07-16T00:00:00",
+      "dueDate": "2026-08-15T00:00:00",
+      "originalReference": "Membership 2026/2027",
+      "proposedReference": "TBC",
+      "membershipHistory": [
+        {
+          "table": "organisation_membership_history",
+          "id": "51e3cff9-a483-4fd3-b13a-1e1b2682dad9",
+          "tenant_id": "fd82da65-aab7-4a5c-85b8-b2febeb2003d",
+          "membership_year": "2026/2027",
+          "status": "active",
+          "payment_status": null,
+          "xero_invoice_id": "29c61805-48b8-465f-8a53-321b8f480a3c",
+          "xero_invoice_number": "SI-44558",
+          "accounting_invoice_id": "29c61805-48b8-465f-8a53-321b8f480a3c",
+          "accounting_invoice_number": "SI-44558",
+          "organization_id": "f3b95886-8cc7-40bb-87cb-db38d3a4a8e8"
+        }
+      ]
+    },
+    {
+      "invoiceId": "20e7ab8b-dc7f-4859-85a0-322cd1e94356",
+      "invoiceNumber": "SI-44744",
+      "type": "ACCREC",
+      "status": "AUTHORISED",
+      "amountDue": 2.88,
+      "total": 2.88,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "2fce9135-3e2e-4518-92cb-bd0fd8bc702a",
+        "name": "Graduate Futures Institute"
+      },
+      "date": "2026-08-11T00:00:00",
+      "dueDate": "2026-09-10T00:00:00",
+      "originalReference": "Membership 2026/2027",
+      "proposedReference": "TBC",
+      "membershipHistory": []
+    },
+    {
+      "invoiceId": "940244b1-1812-470a-a506-3b33e083f40a",
+      "invoiceNumber": "SI-44551",
+      "type": "ACCREC",
+      "status": "AUTHORISED",
+      "amountDue": 4559.7,
+      "total": 4559.7,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "9007ed40-d83f-43b9-95bc-7da024bbe894",
+        "name": "Queen Mary, University of London"
+      },
+      "date": "2026-07-16T00:00:00",
+      "dueDate": "2026-08-15T00:00:00",
+      "originalReference": "Membership 2026/2027",
+      "proposedReference": "TBC",
+      "membershipHistory": [
+        {
+          "table": "organisation_membership_history",
+          "id": "f969d9d5-e45c-48f2-a109-591c8ca68355",
+          "tenant_id": "fd82da65-aab7-4a5c-85b8-b2febeb2003d",
+          "membership_year": "2026/2027",
+          "status": "active",
+          "payment_status": null,
+          "xero_invoice_id": "940244b1-1812-470a-a506-3b33e083f40a",
+          "xero_invoice_number": "SI-44551",
+          "accounting_invoice_id": "940244b1-1812-470a-a506-3b33e083f40a",
+          "accounting_invoice_number": "SI-44551",
+          "organization_id": "e7c90ced-699b-48fc-8c08-35d3030da934"
+        }
+      ]
+    },
+    {
+      "invoiceId": "236196dc-d2b3-443d-9e77-425b2a180329",
+      "invoiceNumber": "SI-44697",
+      "type": "ACCREC",
+      "status": "AUTHORISED",
+      "amountDue": 4559.7,
+      "total": 4559.7,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "aa535400-a347-429d-bfee-3056429720cd",
+        "name": "University of Cambridge"
+      },
+      "date": "2026-08-04T00:00:00",
+      "dueDate": "2026-09-03T00:00:00",
+      "originalReference": "Membership 2026/2027",
+      "proposedReference": "TBC",
+      "membershipHistory": [
+        {
+          "table": "organisation_membership_history",
+          "id": "58d73a36-6ce9-4ee7-b3f4-db65a0649623",
+          "tenant_id": "fd82da65-aab7-4a5c-85b8-b2febeb2003d",
+          "membership_year": "2026/2027",
+          "status": "active",
+          "payment_status": null,
+          "xero_invoice_id": "236196dc-d2b3-443d-9e77-425b2a180329",
+          "xero_invoice_number": "SI-44697",
+          "accounting_invoice_id": "236196dc-d2b3-443d-9e77-425b2a180329",
+          "accounting_invoice_number": "SI-44697",
+          "organization_id": "c2dad389-e79f-4776-b601-c2182a860d1e"
+        }
+      ]
+    },
+    {
+      "invoiceId": "98c7a539-9912-4c1f-9ef5-46bb548eb6b4",
+      "invoiceNumber": "SI-44670",
+      "type": "ACCREC",
+      "status": "AUTHORISED",
+      "amountDue": 2428.8,
+      "total": 2428.8,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "599532b3-b89a-472a-96dc-fadd377b9b8c",
+        "name": "Ravensbourne University London"
+      },
+      "date": "2026-08-04T00:00:00",
+      "dueDate": "2026-09-03T00:00:00",
+      "originalReference": "Membership 2026/2027",
+      "proposedReference": "TBC",
+      "membershipHistory": [
+        {
+          "table": "organisation_membership_history",
+          "id": "29e544df-65ba-4450-bc79-342c515a9c3a",
+          "tenant_id": "fd82da65-aab7-4a5c-85b8-b2febeb2003d",
+          "membership_year": "2026/2027",
+          "status": "active",
+          "payment_status": null,
+          "xero_invoice_id": "98c7a539-9912-4c1f-9ef5-46bb548eb6b4",
+          "xero_invoice_number": "SI-44670",
+          "accounting_invoice_id": "98c7a539-9912-4c1f-9ef5-46bb548eb6b4",
+          "accounting_invoice_number": "SI-44670",
+          "organization_id": "be0dca61-9a2b-47d2-b9d9-a44f31f7d369"
+        }
+      ]
+    },
+    {
+      "invoiceId": "b33d2c94-aaca-46ec-987f-47fc640702b7",
+      "invoiceNumber": "SI-44659",
+      "type": "ACCREC",
+      "status": "AUTHORISED",
+      "amountDue": 2066.1,
+      "total": 2066.1,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "b670e4fa-7847-402e-8129-da6fdbe37ac5",
+        "name": "London College of Contemporary Arts"
+      },
+      "date": "2026-08-04T00:00:00",
+      "dueDate": "2026-09-03T00:00:00",
+      "originalReference": "Membership 2026/2027",
+      "proposedReference": "TBC",
+      "membershipHistory": [
+        {
+          "table": "organisation_membership_history",
+          "id": "53d1a7a1-5687-4d7a-a805-13b3344c459f",
+          "tenant_id": "fd82da65-aab7-4a5c-85b8-b2febeb2003d",
+          "membership_year": "2026/2027",
+          "status": "active",
+          "payment_status": null,
+          "xero_invoice_id": "b33d2c94-aaca-46ec-987f-47fc640702b7",
+          "xero_invoice_number": "SI-44659",
+          "accounting_invoice_id": "b33d2c94-aaca-46ec-987f-47fc640702b7",
+          "accounting_invoice_number": "SI-44659",
+          "organization_id": "b091bd6f-05a9-4d68-8fff-13254795bb80"
+        }
+      ]
+    },
+    {
+      "invoiceId": "398c2300-87a9-43ce-b99c-4f06b48108f5",
+      "invoiceNumber": "SI-44716",
+      "type": "ACCREC",
+      "status": "AUTHORISED",
+      "amountDue": 4559.7,
+      "total": 4559.7,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "62f4f805-cc8c-40c5-9f6a-063e27366da1",
+        "name": "University of Portsmouth"
+      },
+      "date": "2026-08-04T00:00:00",
+      "dueDate": "2026-09-03T00:00:00",
+      "originalReference": "Membership 2026/2027",
+      "proposedReference": "TBC",
+      "membershipHistory": [
+        {
+          "table": "organisation_membership_history",
+          "id": "417defe5-d20d-4afb-be45-3e4271d75b2c",
+          "tenant_id": "fd82da65-aab7-4a5c-85b8-b2febeb2003d",
+          "membership_year": "2026/2027",
+          "status": "active",
+          "payment_status": null,
+          "xero_invoice_id": "398c2300-87a9-43ce-b99c-4f06b48108f5",
+          "xero_invoice_number": "SI-44716",
+          "accounting_invoice_id": "398c2300-87a9-43ce-b99c-4f06b48108f5",
+          "accounting_invoice_number": "SI-44716",
+          "organization_id": "c3ddca8c-fcf1-44fe-90d7-112b4c46a44b"
+        }
+      ]
+    },
+    {
+      "invoiceId": "9c9eea5d-6d63-4f9b-b835-55e5bf23f0a6",
+      "invoiceNumber": "SI-44699",
+      "type": "ACCREC",
+      "status": "AUTHORISED",
+      "amountDue": 2066.1,
+      "total": 2066.1,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "8cda2145-c84c-49c7-8238-fdcc32eef9c2",
+        "name": "University of Chichester"
+      },
+      "date": "2026-08-04T00:00:00",
+      "dueDate": "2026-09-03T00:00:00",
+      "originalReference": "Membership 2026/2027",
+      "proposedReference": "TBC",
+      "membershipHistory": [
+        {
+          "table": "organisation_membership_history",
+          "id": "56ed6407-65a4-4018-a6ac-95239bc23877",
+          "tenant_id": "fd82da65-aab7-4a5c-85b8-b2febeb2003d",
+          "membership_year": "2026/2027",
+          "status": "active",
+          "payment_status": null,
+          "xero_invoice_id": "9c9eea5d-6d63-4f9b-b835-55e5bf23f0a6",
+          "xero_invoice_number": "SI-44699",
+          "accounting_invoice_id": "9c9eea5d-6d63-4f9b-b835-55e5bf23f0a6",
+          "accounting_invoice_number": "SI-44699",
+          "organization_id": "607e04e4-519b-4ed3-ac46-0ec90664165e"
+        }
+      ]
+    },
+    {
+      "invoiceId": "e300a6f2-b2c5-4ba6-a6e5-56506e4cdbaf",
+      "invoiceNumber": "SI-44720",
+      "type": "ACCREC",
+      "status": "AUTHORISED",
+      "amountDue": 5286.3,
+      "total": 5286.3,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "fdc2a53e-3c5d-4a34-81a7-02d26d723979",
+        "name": "University of Southampton"
+      },
+      "date": "2026-08-04T00:00:00",
+      "dueDate": "2026-09-03T00:00:00",
+      "originalReference": "Membership 2026/2027",
+      "proposedReference": "TBC",
+      "membershipHistory": [
+        {
+          "table": "organisation_membership_history",
+          "id": "ce459808-9608-48f8-b065-cf6909744d90",
+          "tenant_id": "fd82da65-aab7-4a5c-85b8-b2febeb2003d",
+          "membership_year": "2026/2027",
+          "status": "active",
+          "payment_status": null,
+          "xero_invoice_id": "e300a6f2-b2c5-4ba6-a6e5-56506e4cdbaf",
+          "xero_invoice_number": "SI-44720",
+          "accounting_invoice_id": "e300a6f2-b2c5-4ba6-a6e5-56506e4cdbaf",
+          "accounting_invoice_number": "SI-44720",
+          "organization_id": "baad1d0a-bc00-4f59-9044-d5ec5f02b89e"
+        }
+      ]
+    },
+    {
+      "invoiceId": "aa4b7a12-c794-428e-9049-5cf200c3d89a",
+      "invoiceNumber": "SI-44709",
+      "type": "ACCREC",
+      "status": "AUTHORISED",
+      "amountDue": 3847.2,
+      "total": 3847.2,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "e3a3dd19-2792-4055-9d55-7e716dff8c09",
+        "name": "University of Leicester"
+      },
+      "date": "2026-08-04T00:00:00",
+      "dueDate": "2026-09-03T00:00:00",
+      "originalReference": "Membership 2026/2027",
+      "proposedReference": "TBC",
+      "membershipHistory": [
+        {
+          "table": "organisation_membership_history",
+          "id": "5dc59eee-e950-4ac4-80cf-745c3eabf4dd",
+          "tenant_id": "fd82da65-aab7-4a5c-85b8-b2febeb2003d",
+          "membership_year": "2026/2027",
+          "status": "active",
+          "payment_status": null,
+          "xero_invoice_id": "aa4b7a12-c794-428e-9049-5cf200c3d89a",
+          "xero_invoice_number": "SI-44709",
+          "accounting_invoice_id": "aa4b7a12-c794-428e-9049-5cf200c3d89a",
+          "accounting_invoice_number": "SI-44709",
+          "organization_id": "da860883-2b61-4304-816b-f650722b7655"
+        }
+      ]
+    },
+    {
+      "invoiceId": "57ebd513-7dfe-46b1-82f9-5dac306d08fb",
+      "invoiceNumber": "SI-44598",
+      "type": "ACCREC",
+      "status": "AUTHORISED",
+      "amountDue": 799.88,
+      "total": 799.88,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "747c8f7c-ff8f-4296-b43d-c9c577e8988a",
+        "name": "Richmond American University London"
+      },
+      "date": "2026-07-29T00:00:00",
+      "dueDate": "2026-08-28T00:00:00",
+      "originalReference": "Membership 2026/2027",
+      "proposedReference": "TBC",
+      "membershipHistory": [
+        {
+          "table": "organisation_membership_history",
+          "id": "f2a1a856-5fad-48f4-9bbf-3915543e0368",
+          "tenant_id": "fd82da65-aab7-4a5c-85b8-b2febeb2003d",
+          "membership_year": "2026/2027",
+          "status": "active",
+          "payment_status": null,
+          "xero_invoice_id": "57ebd513-7dfe-46b1-82f9-5dac306d08fb",
+          "xero_invoice_number": "SI-44598",
+          "accounting_invoice_id": "57ebd513-7dfe-46b1-82f9-5dac306d08fb",
+          "accounting_invoice_number": "SI-44598",
+          "organization_id": "6919d341-9639-4325-adba-e88defe7489a"
+        }
+      ]
+    },
+    {
+      "invoiceId": "df5e9ccc-5cb9-4c67-bf0d-650313ebbed7",
+      "invoiceNumber": "SI-44652",
+      "type": "ACCREC",
+      "status": "AUTHORISED",
+      "amountDue": 1282.5,
+      "total": 1282.5,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "fa41c829-1f6f-4d55-876b-691f5a62627a",
+        "name": "Istituto Marangoni"
+      },
+      "date": "2026-08-04T00:00:00",
+      "dueDate": "2026-09-03T00:00:00",
+      "originalReference": "Membership 2026/2027",
+      "proposedReference": "TBC",
+      "membershipHistory": [
+        {
+          "table": "organisation_membership_history",
+          "id": "2884361f-3f03-47a2-9964-18a9d1753d71",
+          "tenant_id": "fd82da65-aab7-4a5c-85b8-b2febeb2003d",
+          "membership_year": "2026/2027",
+          "status": "active",
+          "payment_status": null,
+          "xero_invoice_id": "df5e9ccc-5cb9-4c67-bf0d-650313ebbed7",
+          "xero_invoice_number": "SI-44652",
+          "accounting_invoice_id": "df5e9ccc-5cb9-4c67-bf0d-650313ebbed7",
+          "accounting_invoice_number": "SI-44652",
+          "organization_id": "326acdf6-d7bd-48f4-bd95-d451c6673c64"
+        }
+      ]
+    },
+    {
+      "invoiceId": "1c3c43bd-d339-4f0c-81e1-7cae0d8fb44d",
+      "invoiceNumber": "SI-44577",
+      "type": "ACCREC",
+      "status": "AUTHORISED",
+      "amountDue": 5984.4,
+      "total": 5984.4,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "5375411c-4989-4cfe-8be1-8813481fdd52",
+        "name": "University of Liverpool"
+      },
+      "date": "2026-07-22T00:00:00",
+      "dueDate": "2026-08-21T00:00:00",
+      "originalReference": "Membership 2026/2027",
+      "proposedReference": "TBC",
+      "membershipHistory": [
+        {
+          "table": "organisation_membership_history",
+          "id": "a8e5c89f-bcb1-4cb9-ac03-a822175bda87",
+          "tenant_id": "fd82da65-aab7-4a5c-85b8-b2febeb2003d",
+          "membership_year": "2026/2027",
+          "status": "active",
+          "payment_status": null,
+          "xero_invoice_id": "1c3c43bd-d339-4f0c-81e1-7cae0d8fb44d",
+          "xero_invoice_number": "SI-44577",
+          "accounting_invoice_id": "1c3c43bd-d339-4f0c-81e1-7cae0d8fb44d",
+          "accounting_invoice_number": "SI-44577",
+          "organization_id": "ec4ff78e-fee5-439b-a013-b0c41e72052f"
+        }
+      ]
+    },
+    {
+      "invoiceId": "e5c58e23-47b4-481e-ae1b-7e1055a1a9b5",
+      "invoiceNumber": "SI-44725",
+      "type": "ACCREC",
+      "status": "AUTHORISED",
+      "amountDue": 4559.7,
+      "total": 4559.7,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "23afc0fb-126a-4e40-bdf9-c3dabe0ec033",
+        "name": "University of the Arts London"
+      },
+      "date": "2026-08-04T00:00:00",
+      "dueDate": "2026-09-03T00:00:00",
+      "originalReference": "Membership 2026/2027",
+      "proposedReference": "TBC",
+      "membershipHistory": [
+        {
+          "table": "organisation_membership_history",
+          "id": "ab00d8ab-db7f-480d-855c-abcadbaeeb35",
+          "tenant_id": "fd82da65-aab7-4a5c-85b8-b2febeb2003d",
+          "membership_year": "2026/2027",
+          "status": "active",
+          "payment_status": null,
+          "xero_invoice_id": "e5c58e23-47b4-481e-ae1b-7e1055a1a9b5",
+          "xero_invoice_number": "SI-44725",
+          "accounting_invoice_id": "e5c58e23-47b4-481e-ae1b-7e1055a1a9b5",
+          "accounting_invoice_number": "SI-44725",
+          "organization_id": "4b21edec-24ab-4efd-a80b-c315034ff82a"
+        }
+      ]
+    },
+    {
+      "invoiceId": "dc97734d-a767-427b-893c-7e4fa40014c0",
+      "invoiceNumber": "SI-44681",
+      "type": "ACCREC",
+      "status": "AUTHORISED",
+      "amountDue": 3847.2,
+      "total": 3847.2,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "d3d2e0be-9fe0-4e21-ae3e-dd667e874a2f",
+        "name": "Swansea University"
+      },
+      "date": "2026-08-04T00:00:00",
+      "dueDate": "2026-09-03T00:00:00",
+      "originalReference": "Membership 2026/2027",
+      "proposedReference": "TBC",
+      "membershipHistory": [
+        {
+          "table": "organisation_membership_history",
+          "id": "d0db2a64-19d2-4fc4-b153-749a710268c9",
+          "tenant_id": "fd82da65-aab7-4a5c-85b8-b2febeb2003d",
+          "membership_year": "2026/2027",
+          "status": "active",
+          "payment_status": null,
+          "xero_invoice_id": "dc97734d-a767-427b-893c-7e4fa40014c0",
+          "xero_invoice_number": "SI-44681",
+          "accounting_invoice_id": "dc97734d-a767-427b-893c-7e4fa40014c0",
+          "accounting_invoice_number": "SI-44681",
+          "organization_id": "8789667b-a8da-4da4-850f-2de495139fe1"
+        }
+      ]
+    },
+    {
+      "invoiceId": "37ce6f6b-b75d-45ce-98ca-7f16d3aabad9",
+      "invoiceNumber": "SI-44712",
+      "type": "ACCREC",
+      "status": "AUTHORISED",
+      "amountDue": 3143.1,
+      "total": 3143.1,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "212cd292-cc6b-433f-8271-5e5d4f7f205d",
+        "name": "University of Northampton"
+      },
+      "date": "2026-08-04T00:00:00",
+      "dueDate": "2026-09-03T00:00:00",
+      "originalReference": "Membership 2026/2027",
+      "proposedReference": "TBC",
+      "membershipHistory": [
+        {
+          "table": "organisation_membership_history",
+          "id": "6a009e95-cbba-4b09-a21a-29a7b8b3fa4a",
+          "tenant_id": "fd82da65-aab7-4a5c-85b8-b2febeb2003d",
+          "membership_year": "2026/2027",
+          "status": "active",
+          "payment_status": null,
+          "xero_invoice_id": "37ce6f6b-b75d-45ce-98ca-7f16d3aabad9",
+          "xero_invoice_number": "SI-44712",
+          "accounting_invoice_id": "37ce6f6b-b75d-45ce-98ca-7f16d3aabad9",
+          "accounting_invoice_number": "SI-44712",
+          "organization_id": "539b99f1-d623-47b2-8544-6b14a5297dac"
+        }
+      ]
+    },
+    {
+      "invoiceId": "484b4c25-3da5-476d-b774-818e14d53dff",
+      "invoiceNumber": "SI-44637",
+      "type": "ACCREC",
+      "status": "AUTHORISED",
+      "amountDue": 5984.4,
+      "total": 5984.4,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "ead8568b-8380-4c67-9a04-803985ebf163",
+        "name": "BPP University"
+      },
+      "date": "2026-08-04T00:00:00",
+      "dueDate": "2026-09-03T00:00:00",
+      "originalReference": "Membership 2026/2027",
+      "proposedReference": "TBC",
+      "membershipHistory": [
+        {
+          "table": "organisation_membership_history",
+          "id": "949c51b7-a83c-493d-96b6-ec71249ea51b",
+          "tenant_id": "fd82da65-aab7-4a5c-85b8-b2febeb2003d",
+          "membership_year": "2026/2027",
+          "status": "active",
+          "payment_status": null,
+          "xero_invoice_id": "484b4c25-3da5-476d-b774-818e14d53dff",
+          "xero_invoice_number": "SI-44637",
+          "accounting_invoice_id": "484b4c25-3da5-476d-b774-818e14d53dff",
+          "accounting_invoice_number": "SI-44637",
+          "organization_id": "33d664f2-3ad2-4ccf-9cfc-00cb40654bab"
+        }
+      ]
+    },
+    {
+      "invoiceId": "bc7d5ba9-ab8b-4d5b-88a9-8b54dfef3c86",
+      "invoiceNumber": "SI-44667",
+      "type": "ACCREC",
+      "status": "AUTHORISED",
+      "amountDue": 1710,
+      "total": 1710,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "db531223-a9ea-43e6-90a0-7c5e70010512",
+        "name": "Plymouth Marjon University"
+      },
+      "date": "2026-08-04T00:00:00",
+      "dueDate": "2026-09-03T00:00:00",
+      "originalReference": "Membership 2026/2027",
+      "proposedReference": "TBC",
+      "membershipHistory": [
+        {
+          "table": "organisation_membership_history",
+          "id": "d99fe5ed-a0bb-4413-b669-2c32a8c2f6f3",
+          "tenant_id": "fd82da65-aab7-4a5c-85b8-b2febeb2003d",
+          "membership_year": "2026/2027",
+          "status": "active",
+          "payment_status": null,
+          "xero_invoice_id": "bc7d5ba9-ab8b-4d5b-88a9-8b54dfef3c86",
+          "xero_invoice_number": "SI-44667",
+          "accounting_invoice_id": "bc7d5ba9-ab8b-4d5b-88a9-8b54dfef3c86",
+          "accounting_invoice_number": "SI-44667",
+          "organization_id": "55413e32-a07e-4249-99b8-b21ed4d5bf44"
+        }
+      ]
+    },
+    {
+      "invoiceId": "91cf4373-8099-431c-bb4c-8fe6cee76dfb",
+      "invoiceNumber": "SI-44675",
+      "type": "ACCREC",
+      "status": "AUTHORISED",
+      "amountDue": 1425,
+      "total": 1425,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "79ebc4a3-2f4d-4746-9052-4173b9bf8cb6",
+        "name": "Scotland’s Rural College (SRUC)"
+      },
+      "date": "2026-08-04T00:00:00",
+      "dueDate": "2026-09-03T00:00:00",
+      "originalReference": "Membership 2026/2027",
+      "proposedReference": "TBC",
+      "membershipHistory": [
+        {
+          "table": "organisation_membership_history",
+          "id": "bc5cc7cd-f8d7-4b89-965e-354a533d4bdf",
+          "tenant_id": "fd82da65-aab7-4a5c-85b8-b2febeb2003d",
+          "membership_year": "2026/2027",
+          "status": "active",
+          "payment_status": null,
+          "xero_invoice_id": "91cf4373-8099-431c-bb4c-8fe6cee76dfb",
+          "xero_invoice_number": "SI-44675",
+          "accounting_invoice_id": "91cf4373-8099-431c-bb4c-8fe6cee76dfb",
+          "accounting_invoice_number": "SI-44675",
+          "organization_id": "67dfb718-8fe2-4ddf-bbab-c8591458678d"
+        }
+      ]
+    },
+    {
+      "invoiceId": "6e804d9d-a0b3-4344-aa22-90a96e48e32e",
+      "invoiceNumber": "SI-44632",
+      "type": "ACCREC",
+      "status": "AUTHORISED",
+      "amountDue": 1571.7,
+      "total": 1571.7,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "729ee36c-b4ec-4962-97d8-346c28252152",
+        "name": "Arts University Bournemouth"
+      },
+      "date": "2026-08-04T00:00:00",
+      "dueDate": "2026-09-03T00:00:00",
+      "originalReference": "Membership 2026/2027",
+      "proposedReference": "TBC",
+      "membershipHistory": [
+        {
+          "table": "organisation_membership_history",
+          "id": "f192685f-9fab-47d4-9ab6-53445602cbbf",
+          "tenant_id": "fd82da65-aab7-4a5c-85b8-b2febeb2003d",
+          "membership_year": "2026/2027",
+          "status": "active",
+          "payment_status": null,
+          "xero_invoice_id": "6e804d9d-a0b3-4344-aa22-90a96e48e32e",
+          "xero_invoice_number": "SI-44632",
+          "accounting_invoice_id": "6e804d9d-a0b3-4344-aa22-90a96e48e32e",
+          "accounting_invoice_number": "SI-44632",
+          "organization_id": "efe64f85-34a5-4ccb-98d4-40877d0fc2e5"
+        }
+      ]
+    },
+    {
+      "invoiceId": "34f59b01-288d-428d-ab8f-92756ee50b95",
+      "invoiceNumber": "SI-44629",
+      "type": "ACCREC",
+      "status": "AUTHORISED",
+      "amountDue": 1710,
+      "total": 1710,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "fdf59c6f-dd32-4e48-97d8-d2778ea3c47f",
+        "name": "Abertay University"
+      },
+      "date": "2026-08-04T00:00:00",
+      "dueDate": "2026-09-03T00:00:00",
+      "originalReference": "Membership 2026/2027",
+      "proposedReference": "TBC",
+      "membershipHistory": [
+        {
+          "table": "organisation_membership_history",
+          "id": "ca45e9ff-0711-4309-810f-a582d83024d3",
+          "tenant_id": "fd82da65-aab7-4a5c-85b8-b2febeb2003d",
+          "membership_year": "2026/2027",
+          "status": "active",
+          "payment_status": null,
+          "xero_invoice_id": "34f59b01-288d-428d-ab8f-92756ee50b95",
+          "xero_invoice_number": "SI-44629",
+          "accounting_invoice_id": "34f59b01-288d-428d-ab8f-92756ee50b95",
+          "accounting_invoice_number": "SI-44629",
+          "organization_id": "55a86410-7f60-4451-a45c-5760d93ccf1a"
+        }
+      ]
+    },
+    {
+      "invoiceId": "0b45c0f0-4888-4426-ad75-94c31091c326",
+      "invoiceNumber": "SI-44684",
+      "type": "ACCREC",
+      "status": "AUTHORISED",
+      "amountDue": 8834.4,
+      "total": 8834.4,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "094fbb5f-b621-4745-8511-06606b610c1d",
+        "name": "The University of Manchester"
+      },
+      "date": "2026-08-04T00:00:00",
+      "dueDate": "2026-09-03T00:00:00",
+      "originalReference": "Membership 2026/2027",
+      "proposedReference": "TBC",
+      "membershipHistory": [
+        {
+          "table": "organisation_membership_history",
+          "id": "21afe1ea-2bec-442b-99d4-b6d1dc83ca65",
+          "tenant_id": "fd82da65-aab7-4a5c-85b8-b2febeb2003d",
+          "membership_year": "2026/2027",
+          "status": "active",
+          "payment_status": null,
+          "xero_invoice_id": "0b45c0f0-4888-4426-ad75-94c31091c326",
+          "xero_invoice_number": "SI-44684",
+          "accounting_invoice_id": "0b45c0f0-4888-4426-ad75-94c31091c326",
+          "accounting_invoice_number": "SI-44684",
+          "organization_id": "ff04b64a-3d0b-4670-a506-91bcc7defe82"
+        }
+      ]
+    },
+    {
+      "invoiceId": "d3d615dd-d5ef-4b10-a9d8-97fe12606d9e",
+      "invoiceNumber": "SI-44721",
+      "type": "ACCREC",
+      "status": "AUTHORISED",
+      "amountDue": 3143.1,
+      "total": 3143.1,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "dcc64b9d-8d49-43fe-8c3b-701d18cf2dcb",
+        "name": "University of St Andrews"
+      },
+      "date": "2026-08-04T00:00:00",
+      "dueDate": "2026-09-03T00:00:00",
+      "originalReference": "Membership 2026/2027",
+      "proposedReference": "TBC",
+      "membershipHistory": [
+        {
+          "table": "organisation_membership_history",
+          "id": "b43829db-fdb8-4d83-8495-027dae58d9a4",
+          "tenant_id": "fd82da65-aab7-4a5c-85b8-b2febeb2003d",
+          "membership_year": "2026/2027",
+          "status": "active",
+          "payment_status": null,
+          "xero_invoice_id": "d3d615dd-d5ef-4b10-a9d8-97fe12606d9e",
+          "xero_invoice_number": "SI-44721",
+          "accounting_invoice_id": "d3d615dd-d5ef-4b10-a9d8-97fe12606d9e",
+          "accounting_invoice_number": "SI-44721",
+          "organization_id": "d40cb7d5-c927-4494-b028-182364f499b1"
+        }
+      ]
+    },
+    {
+      "invoiceId": "d67a4ab7-ff1a-40f5-a58e-9db52a501495",
+      "invoiceNumber": "SI-44730",
+      "type": "ACCREC",
+      "status": "AUTHORISED",
+      "amountDue": 3847.2,
+      "total": 3847.2,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "0c1cf1cf-4c93-4cf9-b928-34c6989e66cb",
+        "name": "University of West London"
+      },
+      "date": "2026-08-04T00:00:00",
+      "dueDate": "2026-09-03T00:00:00",
+      "originalReference": "Membership 2026/2027",
+      "proposedReference": "TBC",
+      "membershipHistory": [
+        {
+          "table": "organisation_membership_history",
+          "id": "b45903ce-8a5f-4439-be2e-a26f1e9b158b",
+          "tenant_id": "fd82da65-aab7-4a5c-85b8-b2febeb2003d",
+          "membership_year": "2026/2027",
+          "status": "active",
+          "payment_status": null,
+          "xero_invoice_id": "d67a4ab7-ff1a-40f5-a58e-9db52a501495",
+          "xero_invoice_number": "SI-44730",
+          "accounting_invoice_id": "d67a4ab7-ff1a-40f5-a58e-9db52a501495",
+          "accounting_invoice_number": "SI-44730",
+          "organization_id": "58633124-ce76-4566-9db2-54df00efbade"
+        }
+      ]
+    },
+    {
+      "invoiceId": "08a516a4-d43e-4966-b8a9-9e74ffa31a58",
+      "invoiceNumber": "SI-44679",
+      "type": "ACCREC",
+      "status": "AUTHORISED",
+      "amountDue": 1282.5,
+      "total": 1282.5,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "22703844-2d03-4175-b016-55aee593f5f6",
+        "name": "St Mary's University College Belfast"
+      },
+      "date": "2026-08-04T00:00:00",
+      "dueDate": "2026-09-03T00:00:00",
+      "originalReference": "Membership 2026/2027",
+      "proposedReference": "TBC",
+      "membershipHistory": [
+        {
+          "table": "organisation_membership_history",
+          "id": "4ed5c188-fc67-4793-95dd-20bacdbfb86e",
+          "tenant_id": "fd82da65-aab7-4a5c-85b8-b2febeb2003d",
+          "membership_year": "2026/2027",
+          "status": "active",
+          "payment_status": null,
+          "xero_invoice_id": "08a516a4-d43e-4966-b8a9-9e74ffa31a58",
+          "xero_invoice_number": "SI-44679",
+          "accounting_invoice_id": "08a516a4-d43e-4966-b8a9-9e74ffa31a58",
+          "accounting_invoice_number": "SI-44679",
+          "organization_id": "e266a3c9-cf24-45cb-94de-9b699fc98137"
+        }
+      ]
+    },
+    {
+      "invoiceId": "82695d19-7dd5-43d9-bf37-9f035c42ba41",
+      "invoiceNumber": "SI-44685",
+      "type": "ACCREC",
+      "status": "AUTHORISED",
+      "amountDue": 5286.3,
+      "total": 5286.3,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "f22a405d-5258-464b-a7eb-da90407edd64",
+        "name": "The University of Sheffield"
+      },
+      "date": "2026-08-04T00:00:00",
+      "dueDate": "2026-09-03T00:00:00",
+      "originalReference": "Membership 2026/2027",
+      "proposedReference": "TBC",
+      "membershipHistory": [
+        {
+          "table": "organisation_membership_history",
+          "id": "c17562c6-f309-4a82-aced-54aeb8c46665",
+          "tenant_id": "fd82da65-aab7-4a5c-85b8-b2febeb2003d",
+          "membership_year": "2026/2027",
+          "status": "active",
+          "payment_status": null,
+          "xero_invoice_id": "82695d19-7dd5-43d9-bf37-9f035c42ba41",
+          "xero_invoice_number": "SI-44685",
+          "accounting_invoice_id": "82695d19-7dd5-43d9-bf37-9f035c42ba41",
+          "accounting_invoice_number": "SI-44685",
+          "organization_id": "f5b8c12a-f701-4267-9a2b-7feb7686ba23"
+        }
+      ]
+    },
+    {
+      "invoiceId": "e8dc74d1-95da-49bb-8e77-9fb6ca602819",
+      "invoiceNumber": "SI-44747",
+      "type": "ACCREC",
+      "status": "AUTHORISED",
+      "amountDue": 1710,
+      "total": 1710,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "6fcf098c-4901-44e0-a612-b0280241c454",
+        "name": "Birmingham Newman University"
+      },
+      "date": "2026-08-14T00:00:00",
+      "dueDate": "2026-09-13T00:00:00",
+      "originalReference": "Membership 2026/2027",
+      "proposedReference": "TBC",
+      "membershipHistory": [
+        {
+          "table": "organisation_membership_history",
+          "id": "f7e694d9-bb29-4669-8bfd-19dae0b83566",
+          "tenant_id": "fd82da65-aab7-4a5c-85b8-b2febeb2003d",
+          "membership_year": "2026/2027",
+          "status": "active",
+          "payment_status": null,
+          "xero_invoice_id": "e8dc74d1-95da-49bb-8e77-9fb6ca602819",
+          "xero_invoice_number": "SI-44747",
+          "accounting_invoice_id": "e8dc74d1-95da-49bb-8e77-9fb6ca602819",
+          "accounting_invoice_number": "SI-44747",
+          "organization_id": "adf3d0d5-34b7-4153-b908-a4079e4a81f9"
+        }
+      ]
+    },
+    {
+      "invoiceId": "6196ccba-10b6-4bd9-a822-a16e52102534",
+      "invoiceNumber": "SI-44633",
+      "type": "ACCREC",
+      "status": "AUTHORISED",
+      "amountDue": 1282.5,
+      "total": 1282.5,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "74e3019e-5694-4843-8e36-1db8ee2bae3d",
+        "name": "Arts University Plymouth"
+      },
+      "date": "2026-08-04T00:00:00",
+      "dueDate": "2026-09-03T00:00:00",
+      "originalReference": "Membership 2026/2027",
+      "proposedReference": "TBC",
+      "membershipHistory": [
+        {
+          "table": "organisation_membership_history",
+          "id": "d1fc015e-b5bf-4424-af85-869e4ad0036e",
+          "tenant_id": "fd82da65-aab7-4a5c-85b8-b2febeb2003d",
+          "membership_year": "2026/2027",
+          "status": "active",
+          "payment_status": null,
+          "xero_invoice_id": "6196ccba-10b6-4bd9-a822-a16e52102534",
+          "xero_invoice_number": "SI-44633",
+          "accounting_invoice_id": "6196ccba-10b6-4bd9-a822-a16e52102534",
+          "accounting_invoice_number": "SI-44633",
+          "organization_id": "5a7c3cc9-a1f6-4660-a42c-8e03ce7cf2c4"
+        }
+      ]
+    },
+    {
+      "invoiceId": "9e09d22a-56fe-45fd-b4fc-a4b06b240ef2",
+      "invoiceNumber": "SI-44736",
+      "type": "ACCREC",
+      "status": "AUTHORISED",
+      "amountDue": 1.2,
+      "total": 1.2,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "8f26fb3e-b68c-49d7-a38c-963760965b8c",
+        "name": "Test"
+      },
+      "date": "2026-08-04T00:00:00",
+      "dueDate": "2026-09-03T00:00:00",
+      "originalReference": "Membership 2026/2027",
+      "proposedReference": "TBC",
+      "membershipHistory": [
+        {
+          "table": "organisation_membership_history",
+          "id": "2535125e-6378-472b-9110-e47d5f57aeb6",
+          "tenant_id": "fd82da65-aab7-4a5c-85b8-b2febeb2003d",
+          "membership_year": "2026/2027",
+          "status": "active",
+          "payment_status": null,
+          "xero_invoice_id": "9e09d22a-56fe-45fd-b4fc-a4b06b240ef2",
+          "xero_invoice_number": "SI-44736",
+          "accounting_invoice_id": "9e09d22a-56fe-45fd-b4fc-a4b06b240ef2",
+          "accounting_invoice_number": "SI-44736",
+          "organization_id": "72aef170-3ce3-4fee-b1e3-ae73507fd961"
+        }
+      ]
+    },
+    {
+      "invoiceId": "2ecff2c1-c7e4-49fb-8221-aea7091ebec8",
+      "invoiceNumber": "SI-44548",
+      "type": "ACCREC",
+      "status": "AUTHORISED",
+      "amountDue": 7429.5,
+      "total": 7429.5,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "6303b7d7-7d4e-45e0-b678-7dee7b319b6d",
+        "name": "Nottingham Trent University"
+      },
+      "date": "2026-07-16T00:00:00",
+      "dueDate": "2026-08-15T00:00:00",
+      "originalReference": "Membership 2026/2027",
+      "proposedReference": "TBC",
+      "membershipHistory": [
+        {
+          "table": "organisation_membership_history",
+          "id": "7f724b47-91c0-48d1-b359-3a2ebd8c3ff9",
+          "tenant_id": "fd82da65-aab7-4a5c-85b8-b2febeb2003d",
+          "membership_year": "2026/2027",
+          "status": "active",
+          "payment_status": null,
+          "xero_invoice_id": "2ecff2c1-c7e4-49fb-8221-aea7091ebec8",
+          "xero_invoice_number": "SI-44548",
+          "accounting_invoice_id": "2ecff2c1-c7e4-49fb-8221-aea7091ebec8",
+          "accounting_invoice_number": "SI-44548",
+          "organization_id": "79a602ff-4614-4e8d-b9c6-6772648f69ee"
+        }
+      ]
+    },
+    {
+      "invoiceId": "18b9b1c3-3311-4148-bdd3-b00fbb3ef53c",
+      "invoiceNumber": "SI-44688",
+      "type": "ACCREC",
+      "status": "AUTHORISED",
+      "amountDue": 6184.08,
+      "total": 6184.08,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "f32e3fde-25a6-48da-a9a9-5c7e81624011",
+        "name": "UCL"
+      },
+      "date": "2026-08-04T00:00:00",
+      "dueDate": "2026-09-03T00:00:00",
+      "originalReference": "Membership 2026/2027",
+      "proposedReference": "TBC",
+      "membershipHistory": [
+        {
+          "table": "organisation_membership_history",
+          "id": "1b0a15e5-967c-46dd-abd1-eb31dae8c221",
+          "tenant_id": "fd82da65-aab7-4a5c-85b8-b2febeb2003d",
+          "membership_year": "2026/2027",
+          "status": "active",
+          "payment_status": null,
+          "xero_invoice_id": "18b9b1c3-3311-4148-bdd3-b00fbb3ef53c",
+          "xero_invoice_number": "SI-44688",
+          "accounting_invoice_id": "18b9b1c3-3311-4148-bdd3-b00fbb3ef53c",
+          "accounting_invoice_number": "SI-44688",
+          "organization_id": "b3661d4e-1aa3-415c-a093-8305f0252b89"
+        }
+      ]
+    },
+    {
+      "invoiceId": "3aa9f2db-7bc5-46c4-b1c0-b24c88314bbb",
+      "invoiceNumber": "SI-44727",
+      "type": "ACCREC",
+      "status": "AUTHORISED",
+      "amountDue": 7429.5,
+      "total": 7429.5,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "dea7b6fe-4c8a-411d-96da-1e5dee543987",
+        "name": "University of the West of England, Bristol"
+      },
+      "date": "2026-08-04T00:00:00",
+      "dueDate": "2026-09-03T00:00:00",
+      "originalReference": "Membership 2026/2027",
+      "proposedReference": "TBC",
+      "membershipHistory": [
+        {
+          "table": "organisation_membership_history",
+          "id": "5147e87f-7159-4e5a-bee8-5748a8e0ecac",
+          "tenant_id": "fd82da65-aab7-4a5c-85b8-b2febeb2003d",
+          "membership_year": "2026/2027",
+          "status": "active",
+          "payment_status": null,
+          "xero_invoice_id": "3aa9f2db-7bc5-46c4-b1c0-b24c88314bbb",
+          "xero_invoice_number": "SI-44727",
+          "accounting_invoice_id": "3aa9f2db-7bc5-46c4-b1c0-b24c88314bbb",
+          "accounting_invoice_number": "SI-44727",
+          "organization_id": "9e6c6d52-4848-44b1-bfbf-f0a637a08773"
+        }
+      ]
+    },
+    {
+      "invoiceId": "8ba0dd0f-5268-4e93-bc89-b50e5ca1c686",
+      "invoiceNumber": "SI-44683",
+      "type": "ACCREC",
+      "status": "AUTHORISED",
+      "amountDue": 1425,
+      "total": 1425,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "261571e1-020e-457e-b2c9-1435ed1adb8b",
+        "name": "The Institute of Contemporary Music Performance (ICMP)"
+      },
+      "date": "2026-08-04T00:00:00",
+      "dueDate": "2026-09-03T00:00:00",
+      "originalReference": "Membership 2026/2027",
+      "proposedReference": "TBC",
+      "membershipHistory": [
+        {
+          "table": "organisation_membership_history",
+          "id": "c2030129-f058-4998-8db9-abb249939cea",
+          "tenant_id": "fd82da65-aab7-4a5c-85b8-b2febeb2003d",
+          "membership_year": "2026/2027",
+          "status": "active",
+          "payment_status": null,
+          "xero_invoice_id": "8ba0dd0f-5268-4e93-bc89-b50e5ca1c686",
+          "xero_invoice_number": "SI-44683",
+          "accounting_invoice_id": "8ba0dd0f-5268-4e93-bc89-b50e5ca1c686",
+          "accounting_invoice_number": "SI-44683",
+          "organization_id": "b77d0d35-966a-45e6-8948-785a75f82ecd"
+        }
+      ]
+    },
+    {
+      "invoiceId": "21f563cc-3d13-405c-b1f0-b6f96908a9d8",
+      "invoiceNumber": "SI-44733",
+      "type": "ACCREC",
+      "status": "AUTHORISED",
+      "amountDue": 1142.7,
+      "total": 1142.7,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "f260bc24-48ef-4f4c-9b40-2398a23edc15",
+        "name": "Walbrook Institute London (LIBF)"
+      },
+      "date": "2026-08-04T00:00:00",
+      "dueDate": "2026-09-03T00:00:00",
+      "originalReference": "Membership 2026/2027",
+      "proposedReference": "TBC",
+      "membershipHistory": [
+        {
+          "table": "organisation_membership_history",
+          "id": "8e5c361e-aeca-42b0-bbe1-58c5d4b04c4c",
+          "tenant_id": "fd82da65-aab7-4a5c-85b8-b2febeb2003d",
+          "membership_year": "2026/2027",
+          "status": "active",
+          "payment_status": null,
+          "xero_invoice_id": "21f563cc-3d13-405c-b1f0-b6f96908a9d8",
+          "xero_invoice_number": "SI-44733",
+          "accounting_invoice_id": "21f563cc-3d13-405c-b1f0-b6f96908a9d8",
+          "accounting_invoice_number": "SI-44733",
+          "organization_id": "b0e5a703-500b-4f2f-8f28-6b309bc6a2b2"
+        }
+      ]
+    },
+    {
+      "invoiceId": "54392421-0734-477b-809b-b9f8de8002aa",
+      "invoiceNumber": "SI-44693",
+      "type": "ACCREC",
+      "status": "AUTHORISED",
+      "amountDue": 3847.2,
+      "total": 3847.2,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "741bdb60-b963-4d4b-a8ff-1293fbc45716",
+        "name": "University of Bath"
+      },
+      "date": "2026-08-04T00:00:00",
+      "dueDate": "2026-09-03T00:00:00",
+      "originalReference": "Membership 2026/2027",
+      "proposedReference": "TBC",
+      "membershipHistory": [
+        {
+          "table": "organisation_membership_history",
+          "id": "86dc563f-f307-4c30-817d-f2b3c81f5deb",
+          "tenant_id": "fd82da65-aab7-4a5c-85b8-b2febeb2003d",
+          "membership_year": "2026/2027",
+          "status": "active",
+          "payment_status": null,
+          "xero_invoice_id": "54392421-0734-477b-809b-b9f8de8002aa",
+          "xero_invoice_number": "SI-44693",
+          "accounting_invoice_id": "54392421-0734-477b-809b-b9f8de8002aa",
+          "accounting_invoice_number": "SI-44693",
+          "organization_id": "9301907b-b5d3-4efe-96c5-8c308e0201ef"
+        }
+      ]
+    },
+    {
+      "invoiceId": "32852ca0-0a8d-477a-abb5-bc20b6537fa1",
+      "invoiceNumber": "SI-44674",
+      "type": "ACCREC",
+      "status": "AUTHORISED",
+      "amountDue": 3143.1,
+      "total": 3143.1,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "7a934c70-7879-478a-b154-00157687d522",
+        "name": "Royal Holloway University of London"
+      },
+      "date": "2026-08-04T00:00:00",
+      "dueDate": "2026-09-03T00:00:00",
+      "originalReference": "Membership 2026/2027",
+      "proposedReference": "TBC",
+      "membershipHistory": [
+        {
+          "table": "organisation_membership_history",
+          "id": "f52fef63-089b-404d-a3bf-6edaf2260736",
+          "tenant_id": "fd82da65-aab7-4a5c-85b8-b2febeb2003d",
+          "membership_year": "2026/2027",
+          "status": "active",
+          "payment_status": null,
+          "xero_invoice_id": "32852ca0-0a8d-477a-abb5-bc20b6537fa1",
+          "xero_invoice_number": "SI-44674",
+          "accounting_invoice_id": "32852ca0-0a8d-477a-abb5-bc20b6537fa1",
+          "accounting_invoice_number": "SI-44674",
+          "organization_id": "dbf2af6f-d77f-4065-8689-99d584fecd4e"
+        }
+      ]
+    },
+    {
+      "invoiceId": "28b9ace3-8d3f-41ab-8862-c4e43691347a",
+      "invoiceNumber": "SI-44682",
+      "type": "ACCREC",
+      "status": "AUTHORISED",
+      "amountDue": 4559.7,
+      "total": 4559.7,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "844f9699-e6b9-4a2b-8c45-f9b981693ec2",
+        "name": "Teesside University"
+      },
+      "date": "2026-08-04T00:00:00",
+      "dueDate": "2026-09-03T00:00:00",
+      "originalReference": "Membership 2026/2027",
+      "proposedReference": "TBC",
+      "membershipHistory": [
+        {
+          "table": "organisation_membership_history",
+          "id": "c270516c-0c7d-4fae-81fd-9fb3b64c33ca",
+          "tenant_id": "fd82da65-aab7-4a5c-85b8-b2febeb2003d",
+          "membership_year": "2026/2027",
+          "status": "active",
+          "payment_status": null,
+          "xero_invoice_id": "28b9ace3-8d3f-41ab-8862-c4e43691347a",
+          "xero_invoice_number": "SI-44682",
+          "accounting_invoice_id": "28b9ace3-8d3f-41ab-8862-c4e43691347a",
+          "accounting_invoice_number": "SI-44682",
+          "organization_id": "197874aa-d09d-4b8d-ae9b-15b15c97fa6a"
+        }
+      ]
+    },
+    {
+      "invoiceId": "398fbcc8-603c-4956-807b-c569de84a481",
+      "invoiceNumber": "SI-44568",
+      "type": "ACCREC",
+      "status": "AUTHORISED",
+      "amountDue": 4559.7,
+      "total": 4559.7,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "a5f7eb47-b93a-463d-ae9a-5b371c964404",
+        "name": "University of Westminster"
+      },
+      "date": "2026-07-20T00:00:00",
+      "dueDate": "2026-08-19T00:00:00",
+      "originalReference": "Membership 2026/2027",
+      "proposedReference": "TBC",
+      "membershipHistory": [
+        {
+          "table": "organisation_membership_history",
+          "id": "129ea878-25d7-4331-8ccf-69bf0c6c137a",
+          "tenant_id": "fd82da65-aab7-4a5c-85b8-b2febeb2003d",
+          "membership_year": "2026/2027",
+          "status": "active",
+          "payment_status": null,
+          "xero_invoice_id": "398fbcc8-603c-4956-807b-c569de84a481",
+          "xero_invoice_number": "SI-44568",
+          "accounting_invoice_id": "398fbcc8-603c-4956-807b-c569de84a481",
+          "accounting_invoice_number": "SI-44568",
+          "organization_id": "6dafc123-cddb-4397-8d81-51d7579e61d9"
+        }
+      ]
+    },
+    {
+      "invoiceId": "b593ce82-7644-43ff-919a-c59cf59e6c5d",
+      "invoiceNumber": "SI-44719",
+      "type": "ACCREC",
+      "status": "AUTHORISED",
+      "amountDue": 4559.7,
+      "total": 4559.7,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "9dccdced-a15f-4b5d-b92e-a41bb5cf463b",
+        "name": "University of South Wales"
+      },
+      "date": "2026-08-04T00:00:00",
+      "dueDate": "2026-09-03T00:00:00",
+      "originalReference": "Membership 2026/2027",
+      "proposedReference": "TBC",
+      "membershipHistory": [
+        {
+          "table": "organisation_membership_history",
+          "id": "2a84b381-33ce-42b7-9c4b-0325a3b417e9",
+          "tenant_id": "fd82da65-aab7-4a5c-85b8-b2febeb2003d",
+          "membership_year": "2026/2027",
+          "status": "active",
+          "payment_status": null,
+          "xero_invoice_id": "b593ce82-7644-43ff-919a-c59cf59e6c5d",
+          "xero_invoice_number": "SI-44719",
+          "accounting_invoice_id": "b593ce82-7644-43ff-919a-c59cf59e6c5d",
+          "accounting_invoice_number": "SI-44719",
+          "organization_id": "849f01f9-806e-4803-8d25-ade29786bc02"
+        }
+      ]
+    },
+    {
+      "invoiceId": "210cb89d-77b8-490f-907c-c683c449d8b0",
+      "invoiceNumber": "SI-44638",
+      "type": "ACCREC",
+      "status": "AUTHORISED",
+      "amountDue": 3847.2,
+      "total": 3847.2,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "900d0f06-163e-4140-9cd6-98201492b918",
+        "name": "Buckinghamshire New University"
+      },
+      "date": "2026-08-04T00:00:00",
+      "dueDate": "2026-09-03T00:00:00",
+      "originalReference": "Membership 2026/2027",
+      "proposedReference": "TBC",
+      "membershipHistory": [
+        {
+          "table": "organisation_membership_history",
+          "id": "f127c87b-22e0-48cd-89b5-7955e073ce74",
+          "tenant_id": "fd82da65-aab7-4a5c-85b8-b2febeb2003d",
+          "membership_year": "2026/2027",
+          "status": "active",
+          "payment_status": null,
+          "xero_invoice_id": "210cb89d-77b8-490f-907c-c683c449d8b0",
+          "xero_invoice_number": "SI-44638",
+          "accounting_invoice_id": "210cb89d-77b8-490f-907c-c683c449d8b0",
+          "accounting_invoice_number": "SI-44638",
+          "organization_id": "e97c970a-1803-4831-aeaf-77d7925b1646"
+        }
+      ]
+    },
+    {
+      "invoiceId": "ca1bc8f8-91ba-4205-80ce-d195568e3838",
+      "invoiceNumber": "SI-44671",
+      "type": "ACCREC",
+      "status": "AUTHORISED",
+      "amountDue": 1425,
+      "total": 1425,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "7543d643-0af2-479f-9e7b-1b065e868f81",
+        "name": "Regent's University London"
+      },
+      "date": "2026-08-04T00:00:00",
+      "dueDate": "2026-09-03T00:00:00",
+      "originalReference": "Membership 2026/2027",
+      "proposedReference": "TBC",
+      "membershipHistory": [
+        {
+          "table": "organisation_membership_history",
+          "id": "10a62bba-1123-4d76-8e5b-748df497cc16",
+          "tenant_id": "fd82da65-aab7-4a5c-85b8-b2febeb2003d",
+          "membership_year": "2026/2027",
+          "status": "active",
+          "payment_status": null,
+          "xero_invoice_id": "ca1bc8f8-91ba-4205-80ce-d195568e3838",
+          "xero_invoice_number": "SI-44671",
+          "accounting_invoice_id": "ca1bc8f8-91ba-4205-80ce-d195568e3838",
+          "accounting_invoice_number": "SI-44671",
+          "organization_id": "220ba59b-5091-4cc1-80bf-8a4d7cdb21c7"
+        }
+      ]
+    },
+    {
+      "invoiceId": "9832e181-4eb6-48fc-a277-d46c0137d6a6",
+      "invoiceNumber": "SI-44549",
+      "type": "ACCREC",
+      "status": "AUTHORISED",
+      "amountDue": 3143.1,
+      "total": 3143.1,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "478428b2-7515-4a46-9059-0b0ad2e08033",
+        "name": "University of Essex"
+      },
+      "date": "2026-07-16T00:00:00",
+      "dueDate": "2026-08-15T00:00:00",
+      "originalReference": "Membership 2026/2027",
+      "proposedReference": "TBC",
+      "membershipHistory": [
+        {
+          "table": "organisation_membership_history",
+          "id": "b6c8aaf2-a923-440f-b91f-19eea9e544f2",
+          "tenant_id": "fd82da65-aab7-4a5c-85b8-b2febeb2003d",
+          "membership_year": "2026/2027",
+          "status": "active",
+          "payment_status": null,
+          "xero_invoice_id": "9832e181-4eb6-48fc-a277-d46c0137d6a6",
+          "xero_invoice_number": "SI-44549",
+          "accounting_invoice_id": "9832e181-4eb6-48fc-a277-d46c0137d6a6",
+          "accounting_invoice_number": "SI-44549",
+          "organization_id": "50d928ff-d681-4eb0-aa87-6c8f2db609da"
+        }
+      ]
+    },
+    {
+      "invoiceId": "22753490-0e35-46b1-b1b9-d54cd86bb4f8",
+      "invoiceNumber": "SI-44613",
+      "type": "ACCREC",
+      "status": "AUTHORISED",
+      "amountDue": 2066.1,
+      "total": 2066.1,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "00055253-11c0-4863-9a82-d7556b055159",
+        "name": "British and Irish Modern Music Institute (BIMM)"
+      },
+      "date": "2026-08-01T00:00:00",
+      "dueDate": "2026-08-31T00:00:00",
+      "originalReference": "Membership 2026/2027",
+      "proposedReference": "TBC",
+      "membershipHistory": [
+        {
+          "table": "organisation_membership_history",
+          "id": "b3363cee-950e-43da-b226-075997df70ee",
+          "tenant_id": "fd82da65-aab7-4a5c-85b8-b2febeb2003d",
+          "membership_year": "2026/2027",
+          "status": "active",
+          "payment_status": null,
+          "xero_invoice_id": "22753490-0e35-46b1-b1b9-d54cd86bb4f8",
+          "xero_invoice_number": "SI-44613",
+          "accounting_invoice_id": "22753490-0e35-46b1-b1b9-d54cd86bb4f8",
+          "accounting_invoice_number": "SI-44613",
+          "organization_id": "4888f40e-5558-4e7f-9934-355ea77d94e9"
+        }
+      ]
+    },
+    {
+      "invoiceId": "9ea8dba1-e856-480d-b426-da1d7448189c",
+      "invoiceNumber": "SI-44567",
+      "type": "ACCREC",
+      "status": "AUTHORISED",
+      "amountDue": 1205.22,
+      "total": 1205.22,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "cd23ae52-6041-4250-9d2d-022ba543fee2",
+        "name": "Sultan Qaboos University"
+      },
+      "date": "2026-07-20T00:00:00",
+      "dueDate": "2026-08-19T00:00:00",
+      "originalReference": "Membership 2026/2027",
+      "proposedReference": "TBC",
+      "membershipHistory": [
+        {
+          "table": "organisation_membership_history",
+          "id": "8f71cbac-56ee-45ca-9d7b-29e17bbe1ce0",
+          "tenant_id": "fd82da65-aab7-4a5c-85b8-b2febeb2003d",
+          "membership_year": "2026/2027",
+          "status": "active",
+          "payment_status": null,
+          "xero_invoice_id": "9ea8dba1-e856-480d-b426-da1d7448189c",
+          "xero_invoice_number": "SI-44567",
+          "accounting_invoice_id": "9ea8dba1-e856-480d-b426-da1d7448189c",
+          "accounting_invoice_number": "SI-44567",
+          "organization_id": "8d83feac-1c24-41de-8036-2ec884388e28"
+        }
+      ]
+    },
+    {
+      "invoiceId": "c83b5b6f-051a-4c5e-b0f2-e1944411c65a",
+      "invoiceNumber": "SI-44631",
+      "type": "ACCREC",
+      "status": "AUTHORISED",
+      "amountDue": 5984.4,
+      "total": 5984.4,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "7a0d790a-f3ee-4f70-9795-2c297a544789",
+        "name": "Anglia Ruskin University"
+      },
+      "date": "2026-08-04T00:00:00",
+      "dueDate": "2026-09-03T00:00:00",
+      "originalReference": "Membership 2026/2027",
+      "proposedReference": "TBC",
+      "membershipHistory": [
+        {
+          "table": "organisation_membership_history",
+          "id": "50724661-0d7f-4c0f-ab62-6568943f9e78",
+          "tenant_id": "fd82da65-aab7-4a5c-85b8-b2febeb2003d",
+          "membership_year": "2026/2027",
+          "status": "active",
+          "payment_status": null,
+          "xero_invoice_id": "c83b5b6f-051a-4c5e-b0f2-e1944411c65a",
+          "xero_invoice_number": "SI-44631",
+          "accounting_invoice_id": "c83b5b6f-051a-4c5e-b0f2-e1944411c65a",
+          "accounting_invoice_number": "SI-44631",
+          "organization_id": "21c56316-d459-4cd3-8b8e-7ebfd350c9e5"
+        }
+      ]
+    },
+    {
+      "invoiceId": "903d392e-35b3-48ee-bd81-e3b2aa980096",
+      "invoiceNumber": "SI-44579",
+      "type": "ACCREC",
+      "status": "AUTHORISED",
+      "amountDue": 1425,
+      "total": 1425,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "3ee948f6-983c-4fc4-9844-961f1342e4b2",
+        "name": "Hartpury University"
+      },
+      "date": "2026-07-22T00:00:00",
+      "dueDate": "2026-08-21T00:00:00",
+      "originalReference": "Membership 2026/2027",
+      "proposedReference": "TBC",
+      "membershipHistory": [
+        {
+          "table": "organisation_membership_history",
+          "id": "5faa9e03-c73c-458d-bfb6-c48cf3012786",
+          "tenant_id": "fd82da65-aab7-4a5c-85b8-b2febeb2003d",
+          "membership_year": "2026/2027",
+          "status": "active",
+          "payment_status": null,
+          "xero_invoice_id": "903d392e-35b3-48ee-bd81-e3b2aa980096",
+          "xero_invoice_number": "SI-44579",
+          "accounting_invoice_id": "903d392e-35b3-48ee-bd81-e3b2aa980096",
+          "accounting_invoice_number": "SI-44579",
+          "organization_id": "6ec91ccc-a5b6-4b7b-b77f-0bfe957d5a9a"
+        }
+      ]
+    },
+    {
+      "invoiceId": "2973f68b-a1a9-4013-864b-e547dbf86dcd",
+      "invoiceNumber": "SI-44634",
+      "type": "ACCREC",
+      "status": "AUTHORISED",
+      "amountDue": 2428.8,
+      "total": 2428.8,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "20925a6c-29ae-435e-b192-1935fffd4fb4",
+        "name": "Bangor University"
+      },
+      "date": "2026-08-04T00:00:00",
+      "dueDate": "2026-09-03T00:00:00",
+      "originalReference": "Membership 2026/2027",
+      "proposedReference": "TBC",
+      "membershipHistory": [
+        {
+          "table": "organisation_membership_history",
+          "id": "ee3fc997-fb97-447c-bd9a-9a06744ac540",
+          "tenant_id": "fd82da65-aab7-4a5c-85b8-b2febeb2003d",
+          "membership_year": "2026/2027",
+          "status": "active",
+          "payment_status": null,
+          "xero_invoice_id": "2973f68b-a1a9-4013-864b-e547dbf86dcd",
+          "xero_invoice_number": "SI-44634",
+          "accounting_invoice_id": "2973f68b-a1a9-4013-864b-e547dbf86dcd",
+          "accounting_invoice_number": "SI-44634",
+          "organization_id": "5742b358-e09a-4c08-aa10-3142ef1d4753"
+        }
+      ]
+    },
+    {
+      "invoiceId": "8d061e22-a05e-405b-864b-f4932134d52e",
+      "invoiceNumber": "SI-44647",
+      "type": "ACCREC",
+      "status": "AUTHORISED",
+      "amountDue": 1282.5,
+      "total": 1282.5,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "93d6e88c-0cf9-4f48-b077-bacbe269a4f6",
+        "name": "Global Banking School"
+      },
+      "date": "2026-08-04T00:00:00",
+      "dueDate": "2026-09-03T00:00:00",
+      "originalReference": "Membership 2026/2027",
+      "proposedReference": "TBC",
+      "membershipHistory": [
+        {
+          "table": "organisation_membership_history",
+          "id": "3082863c-195d-47fb-9f0d-8f314c9eb751",
+          "tenant_id": "fd82da65-aab7-4a5c-85b8-b2febeb2003d",
+          "membership_year": "2026/2027",
+          "status": "active",
+          "payment_status": null,
+          "xero_invoice_id": "8d061e22-a05e-405b-864b-f4932134d52e",
+          "xero_invoice_number": "SI-44647",
+          "accounting_invoice_id": "8d061e22-a05e-405b-864b-f4932134d52e",
+          "accounting_invoice_number": "SI-44647",
+          "organization_id": "e0824a7a-70cc-4174-9904-878cd4099527"
+        }
+      ]
+    },
+    {
+      "invoiceId": "0f2f4af2-6305-4b01-b056-f766ec4ba09e",
+      "invoiceNumber": "SI-44648",
+      "type": "ACCREC",
+      "status": "AUTHORISED",
+      "amountDue": 2428.8,
+      "total": 2428.8,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "6f06f291-1bda-4c0f-bcbe-d5ab4f50778f",
+        "name": "Goldsmiths, University of London"
+      },
+      "date": "2026-08-04T00:00:00",
+      "dueDate": "2026-09-03T00:00:00",
+      "originalReference": "Membership 2026/2027",
+      "proposedReference": "TBC",
+      "membershipHistory": [
+        {
+          "table": "organisation_membership_history",
+          "id": "d35b3abf-0d7d-4deb-ab25-6ea95b156d30",
+          "tenant_id": "fd82da65-aab7-4a5c-85b8-b2febeb2003d",
+          "membership_year": "2026/2027",
+          "status": "active",
+          "payment_status": null,
+          "xero_invoice_id": "0f2f4af2-6305-4b01-b056-f766ec4ba09e",
+          "xero_invoice_number": "SI-44648",
+          "accounting_invoice_id": "0f2f4af2-6305-4b01-b056-f766ec4ba09e",
+          "accounting_invoice_number": "SI-44648",
+          "organization_id": "de9e1fa2-e6e7-482d-83c7-971619366788"
+        }
+      ]
+    },
+    {
+      "invoiceId": "b965c5d3-5246-4d5f-92f3-f8114d8bab1f",
+      "invoiceNumber": "SI-44645",
+      "type": "ACCREC",
+      "status": "AUTHORISED",
+      "amountDue": 2428.8,
+      "total": 2428.8,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "96b5657e-e9b1-4630-a7ee-5dc3e96fdda4",
+        "name": "Falmouth University"
+      },
+      "date": "2026-08-04T00:00:00",
+      "dueDate": "2026-09-03T00:00:00",
+      "originalReference": "Membership 2026/2027",
+      "proposedReference": "TBC",
+      "membershipHistory": [
+        {
+          "table": "organisation_membership_history",
+          "id": "de06d52a-5631-43de-8036-43e3476fa727",
+          "tenant_id": "fd82da65-aab7-4a5c-85b8-b2febeb2003d",
+          "membership_year": "2026/2027",
+          "status": "active",
+          "payment_status": null,
+          "xero_invoice_id": "b965c5d3-5246-4d5f-92f3-f8114d8bab1f",
+          "xero_invoice_number": "SI-44645",
+          "accounting_invoice_id": "b965c5d3-5246-4d5f-92f3-f8114d8bab1f",
+          "accounting_invoice_number": "SI-44645",
+          "organization_id": "accad435-2046-4056-ac55-1d52946470fb"
+        }
+      ]
+    },
+    {
+      "invoiceId": "14d4d789-9f0e-4cb9-b0d1-fbc706ed6c78",
+      "invoiceNumber": "SI-44698",
+      "type": "ACCREC",
+      "status": "AUTHORISED",
+      "amountDue": 3143.1,
+      "total": 3143.1,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "d2608d98-8f1a-459a-9c05-1293fac83cdb",
+        "name": "University of Chester"
+      },
+      "date": "2026-08-04T00:00:00",
+      "dueDate": "2026-09-03T00:00:00",
+      "originalReference": "Membership 2026/2027",
+      "proposedReference": "TBC",
+      "membershipHistory": [
+        {
+          "table": "organisation_membership_history",
+          "id": "855b461e-3b89-45c8-bad5-51b9b5051871",
+          "tenant_id": "fd82da65-aab7-4a5c-85b8-b2febeb2003d",
+          "membership_year": "2026/2027",
+          "status": "active",
+          "payment_status": null,
+          "xero_invoice_id": "14d4d789-9f0e-4cb9-b0d1-fbc706ed6c78",
+          "xero_invoice_number": "SI-44698",
+          "accounting_invoice_id": "14d4d789-9f0e-4cb9-b0d1-fbc706ed6c78",
+          "accounting_invoice_number": "SI-44698",
+          "organization_id": "77107f73-5f67-47f4-b95e-d02ac6fdf08e"
+        }
+      ]
+    }
+  ],
+  "skipped": [
+    {
+      "invoiceId": "6a032359-5d58-42d0-9aed-074ebd8accde",
+      "invoiceNumber": "SI-43813",
+      "type": "ACCREC",
+      "status": "VOIDED",
+      "amountDue": 0,
+      "total": 59.18,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "20ce1c34-2691-474a-9a8c-79bf96f8c169",
+        "name": "mat test 9001"
+      },
+      "date": "2026-03-04T00:00:00",
+      "dueDate": "2026-04-03T00:00:00",
+      "originalReference": "Membership 2025/2026",
+      "proposedReference": "TBC",
+      "reason": "paid"
+    },
+    {
+      "invoiceId": "c3d0c9a7-c9a5-4d31-8b25-18bf5e3357c2",
+      "invoiceNumber": "SI-43784",
+      "type": "ACCREC",
+      "status": "VOIDED",
+      "amountDue": 0,
+      "total": 61.55,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "b9ba37fd-ba80-4fc5-b294-85695c5131e2",
+        "name": "mat freelancer test"
+      },
+      "date": "2026-02-26T00:00:00",
+      "dueDate": "2026-03-28T00:00:00",
+      "originalReference": "Membership 2025/2026",
+      "proposedReference": "TBC",
+      "reason": "paid"
+    },
+    {
+      "invoiceId": "861014e1-091b-466e-b12f-1979a1c4b6a1",
+      "invoiceNumber": "SI-44609",
+      "type": "ACCREC",
+      "status": "VOIDED",
+      "amountDue": 0,
+      "total": 1.2,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "31bd89ca-e0f3-4d13-8244-55b387665d1d",
+        "name": "Sharon Testing"
+      },
+      "date": "2026-07-31T00:00:00",
+      "dueDate": "2026-08-30T00:00:00",
+      "originalReference": "Membership 2026/2027",
+      "proposedReference": "TBC",
+      "reason": "paid"
+    },
+    {
+      "invoiceId": "057218d2-def5-48bb-bcd4-1a9e8edb3b5d",
+      "invoiceNumber": "SI-44610",
+      "type": "ACCREC",
+      "status": "VOIDED",
+      "amountDue": 0,
+      "total": 1.2,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "359b948c-15c8-4f9d-b8d1-8fb661398afc",
+        "name": "Test Freelance1"
+      },
+      "date": "2026-07-31T00:00:00",
+      "dueDate": "2026-08-30T00:00:00",
+      "originalReference": "Membership 2026/2027",
+      "proposedReference": "TBC",
+      "reason": "paid"
+    },
+    {
+      "invoiceId": "5e17f395-072d-4fa8-bd3b-1bf25ce5a2cc",
+      "invoiceNumber": "SI-44665",
+      "type": "ACCREC",
+      "status": "PAID",
+      "amountDue": 0,
+      "total": 2244.2,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "ce194e18-55cf-42cf-b451-cc00ef2dcc05",
+        "name": "Munster Technological University"
+      },
+      "date": "2026-08-04T00:00:00",
+      "dueDate": "2026-09-03T00:00:00",
+      "originalReference": "Membership 2026/2027",
+      "proposedReference": "TBC",
+      "reason": "paid"
+    },
+    {
+      "invoiceId": "eb0a19b3-5eae-4442-94e9-1f95de27620d",
+      "invoiceNumber": "SI-44661",
+      "type": "ACCREC",
+      "status": "PAID",
+      "amountDue": 0,
+      "total": 3143.1,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "c6556018-c2cc-451e-8726-c7b24ca51efb",
+        "name": "London School of Economics and Political Science"
+      },
+      "date": "2026-08-04T00:00:00",
+      "dueDate": "2026-09-03T00:00:00",
+      "originalReference": "Membership 2026/2027",
+      "proposedReference": "TBC",
+      "reason": "paid"
+    },
+    {
+      "invoiceId": "56b56d93-7d1a-4b99-b044-2a4660081b4c",
+      "invoiceNumber": "SI-44689",
+      "type": "ACCREC",
+      "status": "PAID",
+      "amountDue": 0,
+      "total": 1142.7,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "21b65498-125e-436e-b671-b4692e048b2b",
+        "name": "University Campus Oldham"
+      },
+      "date": "2026-08-04T00:00:00",
+      "dueDate": "2026-09-03T00:00:00",
+      "originalReference": "Membership 2026/2027",
+      "proposedReference": "TBC",
+      "reason": "paid"
+    },
+    {
+      "invoiceId": "bbb97430-8d2b-4b14-9b0e-2b97f13c45ff",
+      "invoiceNumber": "SI-44612",
+      "type": "ACCREC",
+      "status": "PAID",
+      "amountDue": 0,
+      "total": 0,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "11d0ef2b-9fe2-4d9e-99be-1f5e1b9c55f6",
+        "name": "The Inner Temple"
+      },
+      "date": "2026-08-01T00:00:00",
+      "dueDate": "2026-08-31T00:00:00",
+      "originalReference": "Membership 2026/2027",
+      "proposedReference": "TBC",
+      "reason": "paid"
+    },
+    {
+      "invoiceId": "0089a920-288d-4c78-a016-319205e2625b",
+      "invoiceNumber": "SI-44608",
+      "type": "ACCREC",
+      "status": "PAID",
+      "amountDue": 0,
+      "total": 1.2,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "4203115c-2626-4941-9b69-705cda065cbe",
+        "name": "Sharon TEst"
+      },
+      "date": "2026-07-31T00:00:00",
+      "dueDate": "2026-08-30T00:00:00",
+      "originalReference": "Membership 2026/2027",
+      "proposedReference": "TBC",
+      "reason": "paid"
+    },
+    {
+      "invoiceId": "7b3da660-b8eb-4524-a2cf-343855e099cb",
+      "invoiceNumber": "SI-43792",
+      "type": "ACCREC",
+      "status": "VOIDED",
+      "amountDue": 0,
+      "total": 61.15,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "40c67e07-7284-4e18-a8fc-cf83286f4c49",
+        "name": "Test Freelance 2"
+      },
+      "date": "2026-02-27T00:00:00",
+      "dueDate": "2026-03-29T00:00:00",
+      "originalReference": "Membership 2025/2026",
+      "proposedReference": "TBC",
+      "reason": "paid"
+    },
+    {
+      "invoiceId": "a8650ce6-8b63-45f2-a75f-3505e0c071d0",
+      "invoiceNumber": "SI-43788",
+      "type": "ACCREC",
+      "status": "VOIDED",
+      "amountDue": 0,
+      "total": 61.55,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "b9ba37fd-ba80-4fc5-b294-85695c5131e2",
+        "name": "mat freelancer test"
+      },
+      "date": "2026-02-26T00:00:00",
+      "dueDate": "2026-03-28T00:00:00",
+      "originalReference": "Membership 2025/2026",
+      "proposedReference": "TBC",
+      "reason": "paid"
+    },
+    {
+      "invoiceId": "1d1dabad-2247-4749-ba96-3b46f9a118fc",
+      "invoiceNumber": "SI-44587",
+      "type": "ACCREC",
+      "status": "PAID",
+      "amountDue": 0,
+      "total": 2.36,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "31bd89ca-e0f3-4d13-8244-55b387665d1d",
+        "name": "Sharon Testing"
+      },
+      "date": "2026-07-26T00:00:00",
+      "dueDate": "2026-08-25T00:00:00",
+      "originalReference": "Membership 2025/2026",
+      "proposedReference": "TBC",
+      "reason": "paid"
+    },
+    {
+      "invoiceId": "d4529205-da58-4397-9ec3-4660cf89c399",
+      "invoiceNumber": "SI-44599",
+      "type": "ACCREC",
+      "status": "PAID",
+      "amountDue": 0,
+      "total": 799.88,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "1241a56b-d1fa-4876-b176-cbd2b8533ec4",
+        "name": "MLA College"
+      },
+      "date": "2026-07-29T00:00:00",
+      "dueDate": "2026-08-28T00:00:00",
+      "originalReference": "Membership 2026/2027",
+      "proposedReference": "TBC",
+      "reason": "paid"
+    },
+    {
+      "invoiceId": "b22bb1f0-b600-40c0-ae0e-4ab68ffdd612",
+      "invoiceNumber": "SI-43790",
+      "type": "ACCREC",
+      "status": "VOIDED",
+      "amountDue": 0,
+      "total": 61.15,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "58ca030d-9ba5-450d-8e71-cc3892d2f474",
+        "name": "Sharon Freelancer"
+      },
+      "date": "2026-02-27T00:00:00",
+      "dueDate": "2026-03-29T00:00:00",
+      "originalReference": "Membership 2025/2026",
+      "proposedReference": "TBC",
+      "reason": "paid"
+    },
+    {
+      "invoiceId": "4145ae44-d71c-4935-8562-62d8f74f443c",
+      "invoiceNumber": "SI-43825",
+      "type": "ACCREC",
+      "status": "VOIDED",
+      "amountDue": 0,
+      "total": 58.39,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "8e8e62c4-374e-4614-a3f1-7225d4393e31",
+        "name": "Test Freelance 0603"
+      },
+      "date": "2026-03-06T00:00:00",
+      "dueDate": "2026-04-05T00:00:00",
+      "originalReference": "Membership 2025/2026",
+      "proposedReference": "TBC",
+      "reason": "paid"
+    },
+    {
+      "invoiceId": "f9066771-3134-407c-8e89-67b72b991bbf",
+      "invoiceNumber": "SI-44745",
+      "type": "ACCREC",
+      "status": "PAID",
+      "amountDue": 0,
+      "total": 1.2,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "31bd89ca-e0f3-4d13-8244-55b387665d1d",
+        "name": "Sharon Testing"
+      },
+      "date": "2026-08-11T00:00:00",
+      "dueDate": "2026-09-10T00:00:00",
+      "originalReference": "Membership 2026/2027",
+      "proposedReference": "TBC",
+      "reason": "paid"
+    },
+    {
+      "invoiceId": "95d550c8-01b1-4f1f-b7a9-6901e7688878",
+      "invoiceNumber": "SI-43806",
+      "type": "ACCREC",
+      "status": "VOIDED",
+      "amountDue": 0,
+      "total": 59.18,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "4203115c-2626-4941-9b69-705cda065cbe",
+        "name": "Sharon TEst"
+      },
+      "date": "2026-03-04T00:00:00",
+      "dueDate": "2026-04-03T00:00:00",
+      "originalReference": "Membership 2025/2026",
+      "proposedReference": "TBC",
+      "reason": "paid"
+    },
+    {
+      "invoiceId": "1f3801f8-b1b3-4f7b-ab91-6d4142d6a10c",
+      "invoiceNumber": "SI-44615",
+      "type": "ACCREC",
+      "status": "PAID",
+      "amountDue": 0,
+      "total": 1.2,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "11b751cb-4e82-47ed-9a42-1d1366f4cf36",
+        "name": "sharon tet"
+      },
+      "date": "2026-08-03T00:00:00",
+      "dueDate": "2026-09-02T00:00:00",
+      "originalReference": "Membership 2026/2027",
+      "proposedReference": "TBC",
+      "reason": "paid"
+    },
+    {
+      "invoiceId": "1427937f-d6a3-4934-a8f1-7218c52caefb",
+      "invoiceNumber": "SI-44560",
+      "type": "ACCREC",
+      "status": "PAID",
+      "amountDue": 0,
+      "total": 799.88,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "c8a13054-feb4-4fd8-880d-f02bec4cb7c3",
+        "name": "London Interdisciplinary School"
+      },
+      "date": "2026-07-17T00:00:00",
+      "dueDate": "2026-08-16T00:00:00",
+      "originalReference": "Membership 2026/2027",
+      "proposedReference": "TBC",
+      "reason": "paid"
+    },
+    {
+      "invoiceId": "fa5934d1-77be-4c70-9cbd-7ce38ee9d6a0",
+      "invoiceNumber": "SI-43736",
+      "type": "ACCREC",
+      "status": "VOIDED",
+      "amountDue": 0,
+      "total": 0.36,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "036f7133-413f-4dc5-9ed6-6ed9879b87ca",
+        "name": "HE test 1602.1"
+      },
+      "date": "2026-02-16T00:00:00",
+      "dueDate": "2026-03-18T00:00:00",
+      "originalReference": "Membership 2025/2026",
+      "proposedReference": "TBC",
+      "reason": "paid"
+    },
+    {
+      "invoiceId": "56d9a4fc-5cbd-48ca-9157-7f1b28ddb4ff",
+      "invoiceNumber": "SI-43824",
+      "type": "ACCREC",
+      "status": "VOIDED",
+      "amountDue": 0,
+      "total": 189.2,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "5a765265-188d-46dc-9073-3810e92149db",
+        "name": "Test Org INT 0603"
+      },
+      "date": "2026-03-06T00:00:00",
+      "dueDate": "2026-04-05T00:00:00",
+      "originalReference": "Membership 2025/2026",
+      "proposedReference": "TBC",
+      "reason": "paid"
+    },
+    {
+      "invoiceId": "bdbef511-d3b9-4053-a84e-836fe0d46cc7",
+      "invoiceNumber": "SI-43786",
+      "type": "ACCREC",
+      "status": "VOIDED",
+      "amountDue": 0,
+      "total": 61.55,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "b9ba37fd-ba80-4fc5-b294-85695c5131e2",
+        "name": "mat freelancer test"
+      },
+      "date": "2026-02-26T00:00:00",
+      "dueDate": "2026-03-28T00:00:00",
+      "originalReference": "Membership 2025/2026",
+      "proposedReference": "TBC",
+      "reason": "paid"
+    },
+    {
+      "invoiceId": "c403ff14-11a6-465d-96c2-85fe9c1a1910",
+      "invoiceNumber": "SI-43789",
+      "type": "ACCREC",
+      "status": "VOIDED",
+      "amountDue": 0,
+      "total": 199.42,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "db45c972-c2e1-40ba-8c65-72641b60667c",
+        "name": "Testing Int Org 2602"
+      },
+      "date": "2026-02-26T00:00:00",
+      "dueDate": "2026-03-28T00:00:00",
+      "originalReference": "Membership 2025/2026",
+      "proposedReference": "TBC",
+      "reason": "paid"
+    },
+    {
+      "invoiceId": "9d7a7d05-2c35-42ea-b8cf-866c2ee531f3",
+      "invoiceNumber": "SI-43822",
+      "type": "ACCREC",
+      "status": "VOIDED",
+      "amountDue": 0,
+      "total": 58.79,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "4203115c-2626-4941-9b69-705cda065cbe",
+        "name": "Sharon TEst"
+      },
+      "date": "2026-03-05T00:00:00",
+      "dueDate": "2026-04-04T00:00:00",
+      "originalReference": "Membership 2025/2026",
+      "proposedReference": "TBC",
+      "reason": "paid"
+    },
+    {
+      "invoiceId": "f454714f-fbc3-49b0-8729-8c67326ed4b8",
+      "invoiceNumber": "SI-43737",
+      "type": "ACCREC",
+      "status": "VOIDED",
+      "amountDue": 0,
+      "total": 0.36,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "036f7133-413f-4dc5-9ed6-6ed9879b87ca",
+        "name": "HE test 1602.1"
+      },
+      "date": "2026-02-16T00:00:00",
+      "dueDate": "2026-03-18T00:00:00",
+      "originalReference": "Membership 2025/2026",
+      "proposedReference": "TBC",
+      "reason": "paid"
+    },
+    {
+      "invoiceId": "e16e347a-3e8b-4d97-b24e-8e9cf1016ea6",
+      "invoiceNumber": "SI-43787",
+      "type": "ACCREC",
+      "status": "VOIDED",
+      "amountDue": 0,
+      "total": 61.55,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "b9ba37fd-ba80-4fc5-b294-85695c5131e2",
+        "name": "mat freelancer test"
+      },
+      "date": "2026-02-26T00:00:00",
+      "dueDate": "2026-03-28T00:00:00",
+      "originalReference": "Membership 2025/2026",
+      "proposedReference": "TBC",
+      "reason": "paid"
+    },
+    {
+      "invoiceId": "0ccd6fe0-f2fc-4875-9e09-91cf1223fe43",
+      "invoiceNumber": "SI-44594",
+      "type": "ACCREC",
+      "status": "PAID",
+      "amountDue": 0,
+      "total": 666.57,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "a9a03ce0-ea91-4f04-ab43-f2a95da1d4de",
+        "name": "Mohamed bin Zayed University of Artificial Intelligence"
+      },
+      "date": "2026-07-28T00:00:00",
+      "dueDate": "2026-08-27T00:00:00",
+      "originalReference": "Membership 2026/2027",
+      "proposedReference": "TBC",
+      "reason": "paid"
+    },
+    {
+      "invoiceId": "68ebdda4-42a7-463d-bbf1-9675f14aae91",
+      "invoiceNumber": "SI-43735",
+      "type": "ACCREC",
+      "status": "VOIDED",
+      "amountDue": 0,
+      "total": 0.36,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "036f7133-413f-4dc5-9ed6-6ed9879b87ca",
+        "name": "HE test 1602.1"
+      },
+      "date": "2026-02-16T00:00:00",
+      "dueDate": "2026-03-18T00:00:00",
+      "originalReference": "Membership 2025/2026",
+      "proposedReference": "TBC",
+      "reason": "paid"
+    },
+    {
+      "invoiceId": "d5c2e4f7-5d83-4b9a-8042-980948c3cb0a",
+      "invoiceNumber": "SI-44098",
+      "type": "ACCREC",
+      "status": "PAID",
+      "amountDue": 0,
+      "total": 434.7,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "ce194e18-55cf-42cf-b451-cc00ef2dcc05",
+        "name": "Munster Technological University"
+      },
+      "date": "2026-04-22T00:00:00",
+      "dueDate": "2026-05-22T00:00:00",
+      "originalReference": "Membership 2025/2026",
+      "proposedReference": "TBC",
+      "reason": "paid"
+    },
+    {
+      "invoiceId": "f92af176-711e-4c68-a403-9bfa970c490d",
+      "invoiceNumber": "SI-43753",
+      "type": "ACCREC",
+      "status": "VOIDED",
+      "amountDue": 0,
+      "total": 266.66,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "663ecb73-402a-48a4-b21f-9ecf063a832a",
+        "name": "Test HE org 1702.1"
+      },
+      "date": "2026-02-17T00:00:00",
+      "dueDate": "2026-03-19T00:00:00",
+      "originalReference": "Membership 2025/2026",
+      "proposedReference": "TBC",
+      "reason": "paid"
+    },
+    {
+      "invoiceId": "3a8cb52f-c7c7-4a22-a2e5-a133095b54fb",
+      "invoiceNumber": "SI-44728",
+      "type": "ACCREC",
+      "status": "PAID",
+      "amountDue": 0,
+      "total": 3847.2,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "1c70e179-1d40-4aa3-9cbe-6a40619d8bd3",
+        "name": "University of the West of Scotland"
+      },
+      "date": "2026-08-04T00:00:00",
+      "dueDate": "2026-09-03T00:00:00",
+      "originalReference": "Membership 2026/2027",
+      "proposedReference": "TBC",
+      "reason": "paid"
+    },
+    {
+      "invoiceId": "66faad2b-747f-4c99-adc8-a1a07c96afb8",
+      "invoiceNumber": "SI-43785",
+      "type": "ACCREC",
+      "status": "VOIDED",
+      "amountDue": 0,
+      "total": 199.42,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "13fbf8da-85d0-4e21-ad6a-5c1937033438",
+        "name": "International testing org"
+      },
+      "date": "2026-02-26T00:00:00",
+      "dueDate": "2026-03-28T00:00:00",
+      "originalReference": "Membership 2025/2026",
+      "proposedReference": "TBC",
+      "reason": "paid"
+    },
+    {
+      "invoiceId": "38497acd-8aaa-4795-9fe5-a4e3b2f50b07",
+      "invoiceNumber": "SI-43752",
+      "type": "ACCREC",
+      "status": "VOIDED",
+      "amountDue": 0,
+      "total": 266.66,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "663ecb73-402a-48a4-b21f-9ecf063a832a",
+        "name": "Test HE org 1702.1"
+      },
+      "date": "2026-02-17T00:00:00",
+      "dueDate": "2026-03-19T00:00:00",
+      "originalReference": "Membership 2025/2026",
+      "proposedReference": "TBC",
+      "reason": "paid"
+    },
+    {
+      "invoiceId": "52ff06dd-80ca-4cc9-aeb8-ae32a1c64296",
+      "invoiceNumber": "SI-43820",
+      "type": "ACCREC",
+      "status": "VOIDED",
+      "amountDue": 0,
+      "total": 261.98,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "79b300a3-dc57-4da7-962f-ed2d9ae6020a",
+        "name": "Test Org INT 0503"
+      },
+      "date": "2026-03-05T00:00:00",
+      "dueDate": "2026-04-04T00:00:00",
+      "originalReference": "Membership 2025/2026",
+      "proposedReference": "TBC",
+      "reason": "paid"
+    },
+    {
+      "invoiceId": "eadfcd3f-1f4c-4892-b71d-af523dbb51ea",
+      "invoiceNumber": "SI-43755",
+      "type": "ACCREC",
+      "status": "VOIDED",
+      "amountDue": 0,
+      "total": 768.56,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "54c01727-7a5d-432e-8a0a-6700bffc8a84",
+        "name": "Test Org"
+      },
+      "date": "2026-02-18T00:00:00",
+      "dueDate": "2026-03-20T00:00:00",
+      "originalReference": "Membership 2025/2026",
+      "proposedReference": "TBC",
+      "reason": "paid"
+    },
+    {
+      "invoiceId": "e095f977-3819-451d-94d8-bbdbf4c10654",
+      "invoiceNumber": "SI-44606",
+      "type": "ACCREC",
+      "status": "VOIDED",
+      "amountDue": 0,
+      "total": 144,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "4203115c-2626-4941-9b69-705cda065cbe",
+        "name": "Sharon TEst"
+      },
+      "date": "2026-07-30T00:00:00",
+      "dueDate": "2026-08-29T00:00:00",
+      "originalReference": "Membership 2026/2027",
+      "proposedReference": "TBC",
+      "reason": "paid"
+    },
+    {
+      "invoiceId": "23a2bc8d-fc89-4d46-a574-c1c8357607bf",
+      "invoiceNumber": "SI-43831",
+      "type": "ACCREC",
+      "status": "VOIDED",
+      "amountDue": 0,
+      "total": 57.22,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "086193e5-3a49-4b8f-9507-2f56953ec6e9",
+        "name": "Test Freelance UK 0903"
+      },
+      "date": "2026-03-09T00:00:00",
+      "dueDate": "2026-04-08T00:00:00",
+      "originalReference": "Membership 2025/2026",
+      "proposedReference": "TBC",
+      "reason": "paid"
+    },
+    {
+      "invoiceId": "edc67101-beea-4625-8440-c2df399aba81",
+      "invoiceNumber": "SI-43798",
+      "type": "ACCREC",
+      "status": "VOIDED",
+      "amountDue": 0,
+      "total": 59.98,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "4203115c-2626-4941-9b69-705cda065cbe",
+        "name": "Sharon TEst"
+      },
+      "date": "2026-03-02T00:00:00",
+      "dueDate": "2026-04-01T00:00:00",
+      "originalReference": "Membership 2025/2026",
+      "proposedReference": "TBC",
+      "reason": "paid"
+    },
+    {
+      "invoiceId": "3ae2a690-948e-4e7d-b160-c4bb746102e1",
+      "invoiceNumber": "SI-44607",
+      "type": "ACCREC",
+      "status": "PAID",
+      "amountDue": 0,
+      "total": 1.2,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "4203115c-2626-4941-9b69-705cda065cbe",
+        "name": "Sharon TEst"
+      },
+      "date": "2026-07-31T00:00:00",
+      "dueDate": "2026-08-30T00:00:00",
+      "originalReference": "Membership 2026/2027",
+      "proposedReference": "TBC",
+      "reason": "paid"
+    },
+    {
+      "invoiceId": "64c39ec9-aa54-45c7-84cc-cae6191949e4",
+      "invoiceNumber": "SI-43829",
+      "type": "ACCREC",
+      "status": "VOIDED",
+      "amountDue": 0,
+      "total": 48.66,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "41e1c706-60fb-41b4-9a34-c0eb8a89cd54",
+        "name": "Sharon Freelancer last"
+      },
+      "date": "2026-03-06T00:00:00",
+      "dueDate": "2026-04-05T00:00:00",
+      "originalReference": "Membership 2025/2026",
+      "proposedReference": "TBC",
+      "reason": "paid"
+    },
+    {
+      "invoiceId": "2c44276f-5138-443a-9461-cbbbb254bca0",
+      "invoiceNumber": "SI-43812",
+      "type": "ACCREC",
+      "status": "VOIDED",
+      "amountDue": 0,
+      "total": 59.18,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "6f74dbba-dc1c-4e5c-81da-d0301c59a83a",
+        "name": "Mat Test"
+      },
+      "date": "2026-03-04T00:00:00",
+      "dueDate": "2026-04-03T00:00:00",
+      "originalReference": "Membership 2025/2026",
+      "proposedReference": "TBC",
+      "reason": "paid"
+    },
+    {
+      "invoiceId": "e112cad5-1349-4b47-8f21-cc4e179297a6",
+      "invoiceNumber": "SI-44662",
+      "type": "ACCREC",
+      "status": "PAID",
+      "amountDue": 0,
+      "total": 1142.7,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "2ff2191f-4aea-45af-948c-c9e2aab267da",
+        "name": "London School of Management Education"
+      },
+      "date": "2026-08-04T00:00:00",
+      "dueDate": "2026-09-03T00:00:00",
+      "originalReference": "Membership 2026/2027",
+      "proposedReference": "TBC",
+      "reason": "paid"
+    },
+    {
+      "invoiceId": "46cdf5a8-fc4b-47a8-8c88-cc760c61a004",
+      "invoiceNumber": "SI-44572",
+      "type": "ACCREC",
+      "status": "VOIDED",
+      "amountDue": 0,
+      "total": 64.77,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "2fce9135-3e2e-4518-92cb-bd0fd8bc702a",
+        "name": "Graduate Futures Institute"
+      },
+      "date": "2026-07-21T00:00:00",
+      "dueDate": "2026-08-20T00:00:00",
+      "originalReference": "Membership 2025/2026",
+      "proposedReference": "TBC",
+      "reason": "paid"
+    },
+    {
+      "invoiceId": "bb088caa-2380-43c7-9541-d0d62db3424d",
+      "invoiceNumber": "SI-43738",
+      "type": "ACCREC",
+      "status": "VOIDED",
+      "amountDue": 0,
+      "total": 363.78,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "a9e3c55d-2411-4ef2-9725-df71cd3a7beb",
+        "name": "HE Test org 1602"
+      },
+      "date": "2026-02-17T00:00:00",
+      "dueDate": "2026-03-19T00:00:00",
+      "originalReference": "Membership 2025/2026",
+      "proposedReference": "TBC",
+      "reason": "paid"
+    },
+    {
+      "invoiceId": "525f2738-ff12-4f81-844b-d3e6adc39657",
+      "invoiceNumber": "SI-43828",
+      "type": "ACCREC",
+      "status": "VOIDED",
+      "amountDue": 0,
+      "total": 189.2,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "73ba7818-8912-46a3-ab6c-51800f2e00a1",
+        "name": "Test HE Int 060326"
+      },
+      "date": "2026-03-06T00:00:00",
+      "dueDate": "2026-04-05T00:00:00",
+      "originalReference": "Membership 2025/2026",
+      "proposedReference": "TBC",
+      "reason": "paid"
+    },
+    {
+      "invoiceId": "ed3f5261-479d-4a39-a395-d442ddbfeb97",
+      "invoiceNumber": "SI-43748",
+      "type": "ACCREC",
+      "status": "VOIDED",
+      "amountDue": 0,
+      "total": 266.66,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "663ecb73-402a-48a4-b21f-9ecf063a832a",
+        "name": "Test HE org 1702.1"
+      },
+      "date": "2026-02-17T00:00:00",
+      "dueDate": "2026-03-19T00:00:00",
+      "originalReference": "Membership 2025/2026",
+      "proposedReference": "TBC",
+      "reason": "paid"
+    },
+    {
+      "invoiceId": "74314308-0733-4d6e-95b3-d87688a64a86",
+      "invoiceNumber": "SI-44617",
+      "type": "ACCREC",
+      "status": "PAID",
+      "amountDue": 0,
+      "total": 1.2,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "53bfe990-8c95-4103-acd4-0fbface58a2c",
+        "name": "TEST Chris"
+      },
+      "date": "2026-08-03T00:00:00",
+      "dueDate": "2026-09-02T00:00:00",
+      "originalReference": "Membership 2026/2027",
+      "proposedReference": "TBC",
+      "reason": "paid"
+    },
+    {
+      "invoiceId": "75dee1e8-a85c-45ff-b4db-da8e444ebe63",
+      "invoiceNumber": "SI-44616",
+      "type": "ACCREC",
+      "status": "PAID",
+      "amountDue": 0,
+      "total": 2.88,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "2fce9135-3e2e-4518-92cb-bd0fd8bc702a",
+        "name": "Graduate Futures Institute"
+      },
+      "date": "2026-08-03T00:00:00",
+      "dueDate": "2026-09-02T00:00:00",
+      "originalReference": "Membership 2026/2027",
+      "proposedReference": "TBC",
+      "reason": "paid"
+    },
+    {
+      "invoiceId": "6dc36c54-772b-460c-883a-de3da1a056c0",
+      "invoiceNumber": "SI-43826",
+      "type": "ACCREC",
+      "status": "VOIDED",
+      "amountDue": 0,
+      "total": 48.66,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "8e6e6a4a-ba59-47d9-b5cd-e8e49f1c91f3",
+        "name": "Test Freelance INT 0603"
+      },
+      "date": "2026-03-06T00:00:00",
+      "dueDate": "2026-04-05T00:00:00",
+      "originalReference": "Membership 2025/2026",
+      "proposedReference": "TBC",
+      "reason": "paid"
+    },
+    {
+      "invoiceId": "7de46b9c-1858-4dff-a6c9-e34763ab5f0c",
+      "invoiceNumber": "SI-43814",
+      "type": "ACCREC",
+      "status": "VOIDED",
+      "amountDue": 0,
+      "total": 59.18,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "7135987c-2d6e-45bb-85c1-ca4ea206dd09",
+        "name": "mat test 88888"
+      },
+      "date": "2026-03-04T00:00:00",
+      "dueDate": "2026-04-03T00:00:00",
+      "originalReference": "Membership 2025/2026",
+      "proposedReference": "TBC",
+      "reason": "paid"
+    },
+    {
+      "invoiceId": "595fae8f-aa53-44c2-86a6-e39527554293",
+      "invoiceNumber": "SI-43797",
+      "type": "ACCREC",
+      "status": "VOIDED",
+      "amountDue": 0,
+      "total": 59.98,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "6f74dbba-dc1c-4e5c-81da-d0301c59a83a",
+        "name": "Mat Test"
+      },
+      "date": "2026-03-02T00:00:00",
+      "dueDate": "2026-04-01T00:00:00",
+      "originalReference": "Membership 2025/2026",
+      "proposedReference": "TBC",
+      "reason": "paid"
+    },
+    {
+      "invoiceId": "2b37983a-46dd-45f5-9eef-e916ed025dd6",
+      "invoiceNumber": "SI-44611",
+      "type": "ACCREC",
+      "status": "PAID",
+      "amountDue": 0,
+      "total": 1.2,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "93e379dc-709d-4914-831a-5a004eb86af7",
+        "name": "Et P"
+      },
+      "date": "2026-07-31T00:00:00",
+      "dueDate": "2026-08-30T00:00:00",
+      "originalReference": "Membership 2026/2027",
+      "proposedReference": "TBC",
+      "reason": "paid"
+    },
+    {
+      "invoiceId": "d669463d-9bdd-4842-8769-e97a8c5227c5",
+      "invoiceNumber": "SI-43811",
+      "type": "ACCREC",
+      "status": "VOIDED",
+      "amountDue": 0,
+      "total": 59.18,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "6f5c88a3-446d-4ebd-bf93-cb22c6185616",
+        "name": "Sharon Testing 040326"
+      },
+      "date": "2026-03-04T00:00:00",
+      "dueDate": "2026-04-03T00:00:00",
+      "originalReference": "Membership 2025/2026",
+      "proposedReference": "TBC",
+      "reason": "paid"
+    },
+    {
+      "invoiceId": "96587885-483d-4d4c-bf83-e9fd396dcea4",
+      "invoiceNumber": "SI-44585",
+      "type": "ACCREC",
+      "status": "PAID",
+      "amountDue": 0,
+      "total": 3.55,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "4203115c-2626-4941-9b69-705cda065cbe",
+        "name": "Sharon TEst"
+      },
+      "date": "2026-07-24T00:00:00",
+      "dueDate": "2026-08-23T00:00:00",
+      "originalReference": "Membership 2025/2026",
+      "proposedReference": "TBC",
+      "reason": "paid"
+    },
+    {
+      "invoiceId": "b3b53e53-3d7c-4e94-a5a9-ead7972bb63e",
+      "invoiceNumber": "SI-44586",
+      "type": "ACCREC",
+      "status": "PAID",
+      "amountDue": 0,
+      "total": 2.9,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "2fce9135-3e2e-4518-92cb-bd0fd8bc702a",
+        "name": "Graduate Futures Institute"
+      },
+      "date": "2026-07-26T00:00:00",
+      "dueDate": "2026-08-25T00:00:00",
+      "originalReference": "Membership 2026/2027",
+      "proposedReference": "TBC",
+      "reason": "paid"
+    },
+    {
+      "invoiceId": "af216359-b19c-4a2c-94e9-ec5150ad1a66",
+      "invoiceNumber": "SI-43799",
+      "type": "ACCREC",
+      "status": "VOIDED",
+      "amountDue": 0,
+      "total": 193.03,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "a2b1f355-be68-4b89-9581-1c33c23f88ce",
+        "name": "Test Org INT"
+      },
+      "date": "2026-03-03T00:00:00",
+      "dueDate": "2026-04-02T00:00:00",
+      "originalReference": "Membership 2025/2026",
+      "proposedReference": "TBC",
+      "reason": "paid"
+    },
+    {
+      "invoiceId": "ba902253-70c1-48de-95f9-eded93e0e21a",
+      "invoiceNumber": "SI-43832",
+      "type": "ACCREC",
+      "status": "VOIDED",
+      "amountDue": 0,
+      "total": 335.15,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "1d7f75dc-d995-4f3b-b6b2-b1e73f22595d",
+        "name": "Test Org INT 0903"
+      },
+      "date": "2026-03-09T00:00:00",
+      "dueDate": "2026-04-08T00:00:00",
+      "originalReference": "Membership 2025/2026",
+      "proposedReference": "TBC",
+      "reason": "paid"
+    },
+    {
+      "invoiceId": "811a3cdb-0743-4abc-971a-eeb9fe6564b1",
+      "invoiceNumber": "SI-44742",
+      "type": "ACCREC",
+      "status": "PAID",
+      "amountDue": 0,
+      "total": 1.2,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "4203115c-2626-4941-9b69-705cda065cbe",
+        "name": "Sharon TEst"
+      },
+      "date": "2026-08-07T00:00:00",
+      "dueDate": "2026-09-06T00:00:00",
+      "originalReference": "Membership 2026/2027",
+      "proposedReference": "TBC",
+      "reason": "paid"
+    },
+    {
+      "invoiceId": "f2e691f2-2efc-4233-9722-f0670dd44946",
+      "invoiceNumber": "SI-43810",
+      "type": "ACCREC",
+      "status": "VOIDED",
+      "amountDue": 0,
+      "total": 59.18,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "4203115c-2626-4941-9b69-705cda065cbe",
+        "name": "Sharon TEst"
+      },
+      "date": "2026-03-04T00:00:00",
+      "dueDate": "2026-04-03T00:00:00",
+      "originalReference": "Membership 2025/2026",
+      "proposedReference": "TBC",
+      "reason": "paid"
+    },
+    {
+      "invoiceId": "e3fcde33-9eb5-44db-92e5-f2520e9fc097",
+      "invoiceNumber": "SI-44588",
+      "type": "ACCREC",
+      "status": "PAID",
+      "amountDue": 0,
+      "total": 2.36,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "4203115c-2626-4941-9b69-705cda065cbe",
+        "name": "Sharon TEst"
+      },
+      "date": "2026-07-26T00:00:00",
+      "dueDate": "2026-08-25T00:00:00",
+      "originalReference": "Membership 2025/2026",
+      "proposedReference": "TBC",
+      "reason": "paid"
+    },
+    {
+      "invoiceId": "1192fd6c-e7f2-4f3a-8d40-f32642de60de",
+      "invoiceNumber": "SI-43794",
+      "type": "ACCREC",
+      "status": "VOIDED",
+      "amountDue": 0,
+      "total": 61.15,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "4203115c-2626-4941-9b69-705cda065cbe",
+        "name": "Sharon TEst"
+      },
+      "date": "2026-02-27T00:00:00",
+      "dueDate": "2026-03-29T00:00:00",
+      "originalReference": "Membership 2025/2026",
+      "proposedReference": "TBC",
+      "reason": "paid"
+    },
+    {
+      "invoiceId": "939c682c-9b6f-41af-939a-fa7c73cf2a6f",
+      "invoiceNumber": "SI-43751",
+      "type": "ACCREC",
+      "status": "VOIDED",
+      "amountDue": 0,
+      "total": 266.66,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "663ecb73-402a-48a4-b21f-9ecf063a832a",
+        "name": "Test HE org 1702.1"
+      },
+      "date": "2026-02-17T00:00:00",
+      "dueDate": "2026-03-19T00:00:00",
+      "originalReference": "Membership 2025/2026",
+      "proposedReference": "TBC",
+      "reason": "paid"
+    },
+    {
+      "invoiceId": "3bd0785e-c4e0-4caf-8163-fbefbaef349f",
+      "invoiceNumber": "SI-44708",
+      "type": "ACCREC",
+      "status": "PAID",
+      "amountDue": 0,
+      "total": 3847.2,
+      "currencyCode": "GBP",
+      "contact": {
+        "contactId": "fcf7eb52-7985-4ae1-8ee6-7cbdae423eca",
+        "name": "University of Huddersfield"
+      },
+      "date": "2026-08-04T00:00:00",
+      "dueDate": "2026-09-03T00:00:00",
+      "originalReference": "Membership 2026/2027",
+      "proposedReference": "TBC",
+      "reason": "paid"
+    }
+  ],
+  "signature": "4c865e056d1169267666df13434f0419ef608da05d28376116f7568b45ada8d9"
+}
