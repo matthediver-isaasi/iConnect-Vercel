@@ -286,6 +286,7 @@ test('membership pending-PO eligibility requires unpaid, active, invoice-linked 
     purchase_order_number: null,
   };
   assert.equal(isPendingMembershipPoRow(base), true);
+  assert.equal(isPendingMembershipPoRow({ ...base, payment_status: null }), true);
   assert.equal(isPendingMembershipPoRow({ ...base, purchase_order_number: 'TBC' }), true);
   assert.equal(isPendingMembershipPoRow({ ...base, purchase_order_number: 'PO-123' }), false);
   assert.equal(isPendingMembershipPoRow({ ...base, payment_status: 'paid' }), false);
@@ -302,7 +303,7 @@ test('computePendingPoInvoices includes organisation and member membership-only 
         organization_id: 'org-1',
         membership_year: '2026/2027',
         status: 'active',
-        payment_status: 'unpaid',
+        payment_status: null,
         final_cost: 100,
         total_with_vat: 120,
         created_at: '2026-08-01T00:00:00.000Z',
@@ -322,6 +323,19 @@ test('computePendingPoInvoices includes organisation and member membership-only 
         purchase_order_number: 'PO-EXISTING',
         accounting_invoice_id: 'accounting-org-2',
         accounting_invoice_number: 'QBO-ORG-2',
+      },
+      {
+        id: 'org-history-paid',
+        tenant_id: 'tenant-1',
+        organization_id: 'org-1',
+        membership_year: '2024/2025',
+        status: 'active',
+        payment_status: 'paid',
+        final_cost: 70,
+        created_at: '2026-06-01T00:00:00.000Z',
+        purchase_order_number: null,
+        accounting_invoice_id: 'accounting-org-paid',
+        accounting_invoice_number: 'QBO-ORG-PAID',
       },
     ],
     memberMembershipHistory: [{
@@ -354,6 +368,7 @@ test('computePendingPoInvoices includes organisation and member membership-only 
   assert.equal(memberInvoice.member_email, 'member@example.org');
   assert.equal(memberInvoice.total_cost, 60);
   assert.equal(result.records.some((record) => record.id === 'id:accounting-org-2'), false);
+  assert.equal(result.records.some((record) => record.id === 'id:accounting-org-paid'), false);
 
   const orgHistoryQuery = client.calls.find(
     (call) => call.operation === 'select' && call.table === 'organisation_membership_history',
@@ -362,7 +377,8 @@ test('computePendingPoInvoices includes organisation and member membership-only 
     (filter) => filter.method === 'eq' && filter.column === 'tenant_id' && filter.value === 'tenant-1',
   ));
   assert.ok(orgHistoryQuery.filters.some(
-    (filter) => filter.method === 'eq' && filter.column === 'payment_status' && filter.value === 'unpaid',
+    (filter) => filter.method === 'or'
+      && filter.value === 'payment_status.eq.unpaid,payment_status.is.null',
   ));
 });
 
@@ -374,7 +390,7 @@ test('applyInvoicePoUpdate updates membership history and matching invoicing sta
       organization_id: 'org-1',
       membership_year: '2026/2027',
       status: 'active',
-      payment_status: 'unpaid',
+      payment_status: null,
       purchase_order_number: null,
       accounting_invoice_number: 'QBO-100',
     }],
@@ -400,6 +416,13 @@ test('applyInvoicePoUpdate updates membership history and matching invoicing sta
   assert.ok(historyUpdate.filters.some(
     (filter) => filter.method === 'eq' && filter.column === 'tenant_id' && filter.value === 'tenant-1',
   ));
+  const historySelect = client.calls.find(
+    (call) => call.operation === 'select' && call.table === 'organisation_membership_history',
+  );
+  assert.ok(historySelect.filters.some(
+    (filter) => filter.method === 'or'
+      && filter.value === 'payment_status.eq.unpaid,payment_status.is.null',
+  ));
 
   const invoicingUpdate = client.calls.find(
     (call) => call.operation === 'update' && call.table === 'organisation_membership_invoicing',
@@ -418,7 +441,7 @@ test('membership rows sharing one provider invoice consolidate without losing me
       organization_id: 'org-1',
       membership_year: '2026/2027',
       status: 'active',
-      payment_status: 'unpaid',
+      payment_status: null,
       total_with_vat: 120,
       created_at: '2026-08-01T00:00:00.000Z',
       purchase_order_number: null,
@@ -431,7 +454,7 @@ test('membership rows sharing one provider invoice consolidate without losing me
       member_id: 'member-1',
       membership_year: '2026/2027',
       status: 'active',
-      payment_status: 'unpaid',
+      payment_status: null,
       total_with_vat: 60,
       created_at: '2026-08-02T00:00:00.000Z',
       purchase_order_number: null,
@@ -458,7 +481,7 @@ test('applyInvoicePoUpdate supports member membership history and invoicing rows
       member_id: 'member-1',
       membership_year: '2026/2027',
       status: 'active',
-      payment_status: 'unpaid',
+      payment_status: null,
       purchase_order_number: null,
       accounting_invoice_number: 'QBO-MEMBER-100',
     }],
@@ -479,6 +502,13 @@ test('applyInvoicePoUpdate supports member membership history and invoicing rows
     (call) => call.operation === 'update' && call.table === 'member_membership_history',
   );
   assert.ok(historyUpdate);
+  const historySelect = client.calls.find(
+    (call) => call.operation === 'select' && call.table === 'member_membership_history',
+  );
+  assert.ok(historySelect.filters.some(
+    (filter) => filter.method === 'or'
+      && filter.value === 'payment_status.eq.unpaid,payment_status.is.null',
+  ));
   const invoicingUpdate = client.calls.find(
     (call) => call.operation === 'update' && call.table === 'member_membership_invoicing',
   );
@@ -504,7 +534,7 @@ test('organisation-less tenant member membership invoices remain visible and rem
       member_id: 'individual-member-1',
       membership_year: '2026/2027',
       status: 'active',
-      payment_status: 'unpaid',
+      payment_status: null,
       total_with_vat: 72,
       created_at: '2026-08-03T00:00:00.000Z',
       purchase_order_number: null,
@@ -538,4 +568,12 @@ test('organisation-less tenant member membership invoices remain visible and rem
   assert.ok(tenantMemberQuery.filters.some(
     (filter) => filter.method === 'eq' && filter.column === 'tenant_id' && filter.value === 'tenant-1',
   ));
+  const memberHistoryQueries = client.calls.filter(
+    (call) => call.operation === 'select' && call.table === 'member_membership_history',
+  );
+  assert.ok(memberHistoryQueries.length >= 2);
+  assert.ok(memberHistoryQueries.every((call) => call.filters.some(
+    (filter) => filter.method === 'or'
+      && filter.value === 'payment_status.eq.unpaid,payment_status.is.null',
+  )));
 });

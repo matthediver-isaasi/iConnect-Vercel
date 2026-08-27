@@ -114,8 +114,11 @@ function hasProviderInvoice(row) {
     .some((column) => row?.[column] && String(row[column]).trim());
 }
 
+const UNPAID_MEMBERSHIP_STATUS_OR = 'payment_status.eq.unpaid,payment_status.is.null';
+
 export function isPendingMembershipPoRow(row) {
-  if (!row || row.payment_status !== 'unpaid' || row.status === 'cancelled') return false;
+  const isUnpaid = row?.payment_status == null || row.payment_status === 'unpaid';
+  if (!row || !isUnpaid || row.status === 'cancelled') return false;
   if (!hasProviderInvoice(row)) return false;
   return !looksLikePoReference(row.purchase_order_number);
 }
@@ -344,7 +347,8 @@ export async function findInvoiceRowsForTenant(client, tenantId, invoiceKey) {
   }
 
   // 8. Membership histories are tenant-scoped directly as well as through
-  // their owner. Only unpaid rows are actionable from the pending-PO report.
+  // their owner. Legacy NULL payment statuses mean unpaid, matching membership
+  // reconciliation, so both NULL and explicit unpaid rows are actionable.
   let organisationMembershipHistory = [];
   if (tenantOrgIds.length > 0) {
     try {
@@ -354,7 +358,7 @@ export async function findInvoiceRowsForTenant(client, tenantId, invoiceKey) {
           .select('id, tenant_id, organization_id, membership_year, status, payment_status, final_cost, total_with_vat, created_at, purchase_order_number, xero_invoice_id, xero_invoice_number, accounting_invoice_id, accounting_invoice_number')
           .eq('tenant_id', tenantId)
           .in('organization_id', tenantOrgIds)
-          .eq('payment_status', 'unpaid')
+          .or(UNPAID_MEMBERSHIP_STATUS_OR)
           .neq('status', 'cancelled')
           .order('id', { ascending: true }),
       ));
@@ -373,7 +377,7 @@ export async function findInvoiceRowsForTenant(client, tenantId, invoiceKey) {
           .select('id, tenant_id, member_id, membership_year, status, payment_status, final_cost, total_with_vat, created_at, purchase_order_number, xero_invoice_id, xero_invoice_number, accounting_invoice_id, accounting_invoice_number')
           .eq('tenant_id', tenantId)
           .in('member_id', chunk)
-          .eq('payment_status', 'unpaid')
+          .or(UNPAID_MEMBERSHIP_STATUS_OR)
           .neq('status', 'cancelled')
           .order('id', { ascending: true }),
       ));
@@ -1151,7 +1155,7 @@ export async function computePendingPoInvoices({ client = defaultSupabase, tenan
       .select(`${membershipSelect}, organization_id`)
       .eq('tenant_id', tenantId)
       .in('organization_id', tenantOrgIds)
-      .eq('payment_status', 'unpaid')
+      .or(UNPAID_MEMBERSHIP_STATUS_OR)
       .neq('status', 'cancelled')
       .or(TF_HAS_INVOICE_OR)
       .order('id', { ascending: true }))
@@ -1191,7 +1195,7 @@ export async function computePendingPoInvoices({ client = defaultSupabase, tenan
         .select(`${membershipSelect}, member_id`)
         .eq('tenant_id', tenantId)
         .in('member_id', memberChunk)
-        .eq('payment_status', 'unpaid')
+        .or(UNPAID_MEMBERSHIP_STATUS_OR)
         .neq('status', 'cancelled')
         .or(TF_HAS_INVOICE_OR)
         .order('id', { ascending: true }));
