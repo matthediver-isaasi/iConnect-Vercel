@@ -39,6 +39,7 @@ const apply = args.apply === true;
 const manifestPath = typeof args.manifest === 'string' ? args.manifest : null;
 const OUTPUT_DIR = path.resolve('scripts/output');
 const SIGNING_SECRET = process.env.SESSION_SECRET;
+const APPLY_PACE_MS = 4_000;
 
 function stamp() {
   return new Date().toISOString().replace(/[:.]/g, '-');
@@ -95,6 +96,16 @@ async function xeroRequest(accessToken, xeroTenantId, url, options = {}) {
   try { data = text ? JSON.parse(text) : {}; } catch { data = { raw: text.slice(0, 500) }; }
   if (!response.ok) {
     const error = new Error(`Xero HTTP ${response.status}: ${JSON.stringify(data).slice(0, 800)}`);
+    error.status = response.status;
+    error.xeroStatus = response.status;
+    const retryAfter = response.headers.get('retry-after');
+    if (retryAfter) {
+      const seconds = Number(retryAfter);
+      const dateDelay = Date.parse(retryAfter) - Date.now();
+      error.retryAfterMs = Number.isFinite(seconds)
+        ? Math.max(0, seconds * 1000)
+        : Math.max(0, dateDelay);
+    }
     error.xeroResponse = data;
     throw error;
   }
@@ -165,7 +176,8 @@ async function applyManifest(tenant, auth) {
   };
   await writeJsonAtomic(resultFile, resultReport);
   console.log(`Result journal: ${path.relative(process.cwd(), resultFile)}`);
-  for (const reviewed of manifest.selected) {
+  for (const [reviewedIndex, reviewed] of manifest.selected.entries()) {
+    if (reviewedIndex > 0) await new Promise((resolve) => setTimeout(resolve, APPLY_PACE_MS));
     let currentOutcome;
     const checkpoint = async (outcome) => {
       currentOutcome = structuredClone(outcome);

@@ -266,6 +266,110 @@ test('write-ahead journal marks an invoice updating before provider mutation', a
     },
     checkpoint: async (value) => { states.push(value.state); },
   });
-  assert.deepEqual(states, ['updating', 'complete']);
+  assert.deepEqual(states, ['updating', 'verifying', 'complete']);
   assert.equal(outcome.result, 'success');
+});
+
+function rateLimitError(retryAfterMs = 25) {
+  return Object.assign(new Error('Xero HTTP 429'), {
+    status: 429,
+    retryAfterMs,
+    xeroResponse: { ErrorNumber: 429 },
+  });
+}
+
+const reviewedInvoice = {
+  invoiceId: 'inv-1', invoiceNumber: 'INV-1', amountDue: 100,
+  status: 'AUTHORISED', originalReference: 'Membership 2025/2026',
+};
+
+test('pre-check 429 waits durably and does not mark the invoice attempted', async () => {
+  let fetches = 0;
+  let updates = 0;
+  const checkpoints = [];
+  const sleeps = [];
+  let current = invoice;
+  const outcome = await processReviewedInvoice({
+    reviewed: reviewedInvoice,
+    fetchInvoice: async () => {
+      fetches++;
+      if (fetches === 1) throw rateLimitError(123);
+      return current;
+    },
+    updateInvoice: async () => {
+      updates++;
+      current = { ...invoice, Reference: 'TBC' };
+      return current;
+    },
+    checkpoint: async (value) => checkpoints.push(structuredClone(value)),
+    sleep: async (ms) => sleeps.push(ms),
+  });
+  assert.deepEqual(sleeps, [123]);
+  assert.equal(updates, 1);
+  assert.equal(outcome.result, 'success');
+  const wait = checkpoints.find((item) => item.rateLimit?.phase === 'precheck');
+  assert.equal(wait.attempted, false);
+  assert.equal(wait.state, 'rate-limit-wait');
+  assert.equal(outcome.rateLimitHistory[0].phase, 'precheck');
+});
+
+test('update 429 retries without duplicating a successful invoice mutation', async () => {
+  let updateRequests = 0;
+  let mutations = 0;
+  let current = invoice;
+  const outcome = await processReviewedInvoice({
+    reviewed: reviewedInvoice,
+    fetchInvoice: async () => current,
+    updateInvoice: async () => {
+      updateRequests++;
+      if (updateRequests === 1) throw rateLimitError();
+      mutations++;
+      current = { ...invoice, Reference: 'TBC' };
+      return current;
+    },
+    checkpoint: async () => {},
+    sleep: async () => {},
+  });
+  assert.equal(updateRequests, 2);
+  assert.equal(mutations, 1);
+  assert.equal(outcome.result, 'success');
+});
+
+test('verification 429 retries only the read and never repeats the mutation', async () => {
+  let fetches = 0;
+  let mutations = 0;
+  let current = invoice;
+  const outcome = await processReviewedInvoice({
+    reviewed: reviewedInvoice,
+    fetchInvoice: async () => {
+      fetches++;
+      if (fetches === 2) throw rateLimitError();
+      return current;
+    },
+    updateInvoice: async () => {
+      mutations++;
+      current = { ...invoice, Reference: 'TBC' };
+      return current;
+    },
+    checkpoint: async () => {},
+    sleep: async () => {},
+  });
+  assert.equal(mutations, 1);
+  assert.equal(fetches, 3);
+  assert.equal(outcome.result, 'success');
+  assert.equal(outcome.rateLimitHistory[0].phase, 'verification');
+});
+
+test('reusing a signed manifest records an already repaired invoice as complete', async () => {
+  let mutations = 0;
+  const outcome = await processReviewedInvoice({
+    reviewed: reviewedInvoice,
+    fetchInvoice: async () => ({ ...invoice, Reference: 'TBC' }),
+    updateInvoice: async () => { mutations++; },
+    checkpoint: async () => {},
+  });
+  assert.equal(mutations, 0);
+  assert.equal(outcome.result, 'skipped');
+  assert.equal(outcome.reason, 'already-complete');
+  assert.equal(outcome.attempted, false);
 });

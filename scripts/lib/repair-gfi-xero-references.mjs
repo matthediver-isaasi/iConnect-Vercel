@@ -5,6 +5,60 @@ export const REPORT_VERSION = 1;
 export const TARGET_TENANT_SLUG = 'gfi';
 export const TARGET_TENANT_NAME = 'Graduate Futures Institute';
 export const PROPOSED_REFERENCE = 'TBC';
+export const DEFAULT_RATE_LIMIT_RETRIES = 5;
+export const MAX_RATE_LIMIT_DELAY_MS = 60_000;
+
+export function isXeroRateLimitError(error) {
+  return error?.status === 429 || error?.xeroStatus === 429;
+}
+
+export function xeroRetryDelayMs(error, {
+  attempt,
+  maxDelayMs = MAX_RATE_LIMIT_DELAY_MS,
+}) {
+  const retryAfterMs = Number(error?.retryAfterMs);
+  if (Number.isFinite(retryAfterMs) && retryAfterMs >= 0) {
+    return Math.min(retryAfterMs, maxDelayMs);
+  }
+  return Math.min(2_000 * (2 ** Math.max(0, attempt - 1)), maxDelayMs);
+}
+
+async function runXeroPhase({
+  phase,
+  operation,
+  outcome,
+  checkpoint,
+  sleep,
+  maxRateLimitRetries,
+  now,
+}) {
+  let rateLimitCount = 0;
+  for (;;) {
+    try {
+      return await operation();
+    } catch (error) {
+      if (!isXeroRateLimitError(error) || rateLimitCount >= maxRateLimitRetries) throw error;
+      rateLimitCount++;
+      const delayMs = xeroRetryDelayMs(error, { attempt: rateLimitCount });
+      const rateLimit = {
+        phase,
+        retry: rateLimitCount,
+        delayMs,
+        retryAt: new Date(now().getTime() + delayMs).toISOString(),
+      };
+      outcome.state = 'rate-limit-wait';
+      outcome.rateLimit = rateLimit;
+      outcome.rateLimitHistory = [...(outcome.rateLimitHistory || []), rateLimit];
+      await checkpoint(outcome);
+      await sleep(delayMs);
+      outcome.state = phase === 'precheck' ? 'preflight'
+        : phase === 'update' ? 'updating'
+          : 'verifying';
+      delete outcome.rateLimit;
+      await checkpoint(outcome);
+    }
+  }
+}
 
 export async function authenticateRepairConnection({
   tenantId,
@@ -198,6 +252,8 @@ export async function processReviewedInvoice({
   updateInvoice,
   checkpoint,
   now = () => new Date(),
+  sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+  maxRateLimitRetries = DEFAULT_RATE_LIMIT_RETRIES,
 }) {
   const outcome = {
     invoiceId: reviewed.invoiceId,
@@ -207,8 +263,23 @@ export async function processReviewedInvoice({
   };
   let before;
   try {
-    before = await fetchInvoice(reviewed.invoiceId);
+    before = await runXeroPhase({
+      phase: 'precheck',
+      operation: () => fetchInvoice(reviewed.invoiceId),
+      outcome,
+      checkpoint,
+      sleep,
+      maxRateLimitRetries,
+      now,
+    });
     outcome.rechecked = before ? invoiceSnapshot(before) : null;
+    if (before?.Reference === PROPOSED_REFERENCE) {
+      outcome.state = 'complete';
+      outcome.result = 'skipped';
+      outcome.reason = 'already-complete';
+      await checkpoint(outcome);
+      return outcome;
+    }
     const skipReason = changeSinceDryRunReason(reviewed, before);
     if (skipReason) {
       outcome.state = 'complete';
@@ -233,8 +304,26 @@ export async function processReviewedInvoice({
   await checkpoint(outcome);
 
   try {
-    outcome.xeroResponse = await updateInvoice(reviewed.invoiceId);
-    const verified = await fetchInvoice(reviewed.invoiceId);
+    outcome.xeroResponse = await runXeroPhase({
+      phase: 'update',
+      operation: () => updateInvoice(reviewed.invoiceId),
+      outcome,
+      checkpoint,
+      sleep,
+      maxRateLimitRetries,
+      now,
+    });
+    outcome.state = 'verifying';
+    await checkpoint(outcome);
+    const verified = await runXeroPhase({
+      phase: 'verification',
+      operation: () => fetchInvoice(reviewed.invoiceId),
+      outcome,
+      checkpoint,
+      sleep,
+      maxRateLimitRetries,
+      now,
+    });
     outcome.verified = verified ? invoiceSnapshot(verified) : null;
     outcome.state = 'complete';
     if (verified?.Reference === PROPOSED_REFERENCE) {
