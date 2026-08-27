@@ -79,7 +79,6 @@
 - [Canvas media = File Repository](canvas-media-file-repository.md) — canvas Media Library removed; file_repository is the source of truth (media_asset deprecated); picker is window-event bridged; file_repository has no alt_text col, uploaded_by is email not uuid.
 - [Canvas Auto-order recursion](canvas-auto-order-recursion.md) — recurse into nested children but only REORDER free-position groups (layoutMode!=='flow'); flow SECTION/ROW keep doc order; pass rootIsFlow for v2.
 - [Canvas dynamic-list new-tab](canvas-newtab-dynamic-lists.md) — data-driven list links (sponsor/article/resource) use a block-level newTab ToggleField (not LinkField); resource list extends shared ResourceCard with a defaulted openInNewTab prop.
-- [Card-as-button needs w-full](button-card-width.md) — <button> cards shrink to content width (squashed on phones) unlike div/a cards; also verify the deployed bundle before re-debugging a "fix didn't work" report.
 - [TipTap Link per-link new-tab](tiptap-link-target-default.md) — extension default target='_blank' survives .configure() deep-merge + renderHTML always merges global HTMLAttributes; must explicitly null global target to get same-tab default.
 - [Canvas engine mobile stacking](canvas-engine-mobile-stacking.md) — engine emits desktop-only frames (2-up cards overlap on phones); card bodies strip <table>; add stacked bp frames in source order + verify arithmetically.
 - [Canvas responsive typography selectors](canvas-responsive-typography-selector.md) — tenant @media typography overrides must target the element with the inline style (data-tg-r marker), never the bare data-cb wrapper.
@@ -95,7 +94,6 @@
 - [AI V2 design-first workflow](ai-design-first.md) — approved visual is layout intent only (sanitized blueprint, never content); similarity gate = bounded repairs then WARNING, never reject on similarity alone.
 - [Quality gates belong in the prompt too](ai-quality-gate-prompt-pairing.md) — post-hoc gates + terse retry feedback don't converge; state floors up front and feed back measured deltas.
 - [Unchecked supabase inserts hide schema drift](unchecked-supabase-inserts.md) — supabase-js returns {error}, never throws; unchecked side-effect inserts fail silently forever on column drift.
-- [jsdom pinned to v26 for Vercel](jsdom-vercel-esm-pin.md) — jsdom 27+ pulls an ESM-only encoding dep that crashes Vercel functions with ERR_REQUIRE_ESM; keep ^26.
 - [AI V2 retry carry-forward](ai-code-v2-retry-carry.md) — carry a passing HTML/CSS side between retries only when ALL real gate errors sit on the other side; heuristics alone trap loops.
 - [Complex event reminders per-day](complex-reminders-per-day.md) — relative reminders schedule once per calendar day via shared helper; dedupe reuses session_id as the deterministic day-anchor session.
 - [Session Zoom ID conventions](session-zoom-id-conventions.md) — session cols hold EXTERNAL Zoom IDs (event table holds local PKs); saved-session Zoom changes must route through change-zoom, the PATCH strips them.
@@ -113,10 +111,8 @@
 - [Membership-paid workflow paths](membership-paid-workflow-paths.md) — any path settling a membership invoice as paid must insert the row paid AND fire the shared fireWorkflowForPaidRow helper (on payment success, exactly once).
 - [Stripe monthly card plans](stripe-monthly-card-plans.md) — card plans twin GC DD plans: shared dd_* config, metadata.card snapshot, exactly-once settle, replay-through-one-processor reconcile, both-ways year guards.
 - [GoCardless DD membership plans](gocardless-dd-membership-plans.md) — DD offer derives from the sim result (band amount never falls back to config); terms snapshot at consent drives webhooks/activation, not tier config.
-- [Dashboard registry column drift](dashboard-country-column-drift.md) — sources registry declares organization.country but the column doesn't exist in DEST; select it with a 42703 drop-and-retry.
 - [GoCardless arrears & DD console](gocardless-arrears-phase4.md) — grace is a non-rolling snapshot; retry guard must throw fail-closed; arrears policy applies once; money-moving admin actions need server-side finance RBAC.
 - [v2 flow sections never run SectionRender](canvas-flow-section-backgrounds.md) — flow containers paint style-only; all content.bgType section features (image/gradient/overlay/fixed-crop) are v1-only.
-- [Merge verifier flags equals-ruler comments](merge-verifier-equals-comments.md) — resolution check substring-matches 7+ '='; long `// ===` comment rulers cause false "markers remain"; rewrite as `-`.
 - [RBAC map-driven parent resolution](rbac-parent-resolution.md) — parent lookups via map nesting, never dot-prefix; enforcement is a UNION of hardcoded map + role_access_item DB overlay; legacy mapping is generated, never hand-copied.
 - [Form submission emails](form-submission-emails.md) — exactly-once via atomic claim on form_submission.submission_email_state; all send paths must use the shared guarded sender.
 - [Widget click-through drilldown](widget-drilldown-clickthrough.md) — big id lists POST in a body (never URL); toggle enforced server-side; Recharts click key via entry.key ?? payload.key ?? name.
@@ -157,3 +153,4 @@
 - [Attendance snapshot finalization](attendance-snapshot-finalization.md) — provider reports must publish atomically; idempotency includes bookings, policy, target, intervals, and matches.
 - [Authoritative empty feeds](authoritative-empty-feeds.md) — destructive consumers need confirmed-empty vs load-failure states; never collapse backend errors into [].
 - [Email preference consent serialization](email-preference-consent-serialization.md) — global and category consent writes must share one recipient lock and commit subscription+ledger changes atomically.
+- [Directory-owned member scope](directory-owned-member-scope.md) — organisation contact views must stay inside the source directory; never let Member Directory query params switch authorization scope.

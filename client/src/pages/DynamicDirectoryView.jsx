@@ -24,7 +24,7 @@ import { DirectoryMemberCard, DirectoryOrganizationCard } from "@/components/dir
 import { buildOrganisationDirectoryMembersUrl } from "@/lib/organisationDirectoryMemberContext";
 
 export default function DynamicDirectoryView() {
-  const { slug } = useParams();
+  const { slug, organizationId: scopedOrganizationId } = useParams();
   const { isAdmin, isFeatureExcluded, memberInfo, authResolved } = useMemberAccess();
   const queryClient = useQueryClient();
 
@@ -1252,7 +1252,7 @@ export default function DynamicDirectoryView() {
               <Button variant="outline" onClick={() => setSelectedOrg(null)}>Close</Button>
               {!isGuest && orgMembersListVisible && (
                 <Button
-                  onClick={() => { window.location.href = buildOrganisationDirectoryMembersUrl(selectedOrg?.id); }}
+                  onClick={() => { window.location.href = buildOrganisationDirectoryMembersUrl(selectedOrg?.id, slug); }}
                   className="bg-blue-600 hover:bg-blue-700 gap-2"
                   data-testid="button-view-members"
                 >

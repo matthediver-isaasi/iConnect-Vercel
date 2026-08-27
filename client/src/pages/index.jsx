@@ -166,6 +166,7 @@ import ParamTest from "./ParamTest";
 import TeamInviteSettings from "./TeamInviteSettings";
 
 import OrganisationDirectory from "./OrganisationDirectory";
+import OrganisationDirectoryMembers from "./OrganisationDirectoryMembers";
 
 import OrganisationsList from "./OrganisationsList";
 
@@ -815,6 +816,13 @@ function _getCurrentPage(url) {
     if (urlParts[0]?.toLowerCase() === 'customobjectsadmin') {
         return 'CustomObjectsAdmin';
     }
+    if (
+        urlParts.length >= 3 &&
+        urlParts[0]?.toLowerCase() === 'organisationdirectory' &&
+        urlParts[1]?.toLowerCase() === 'members'
+    ) {
+        return 'OrganisationDirectory';
+    }
     if (urlParts.length >= 2 && BUILTIN_MEMBER_ALIASES.includes(urlParts[0].toLowerCase())) {
         return 'MemberDetail';
     }
@@ -1077,6 +1085,7 @@ function PagesContent() {
                 <Route path="/TeamInviteSettings" element={<TeamInviteSettings />} />
                 
                 <Route path="/OrganisationDirectory" element={<OrganisationDirectory />} />
+                <Route path="/OrganisationDirectory/members/:organizationId" element={<OrganisationDirectoryMembers />} />
                 
                 <Route path="/organisations/:id" element={<OrganisationsList />} />
                 <Route path="/organisations" element={<OrganisationsList />} />
@@ -1235,6 +1244,7 @@ function PagesContent() {
                 <Route path="/DynamicDirectoryManagement" element={<DynamicDirectoryManagement />} />
                 
                 <Route path="/directory/:slug" element={<DynamicDirectoryView />} />
+                <Route path="/directory/:slug/members/:organizationId" element={<OrganisationDirectoryMembers dynamic />} />
                 
                 <Route path="/RedirectManagement" element={<RedirectManagement />} />
                 

@@ -1,49 +1,24 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 
 import {
   buildOrganisationDirectoryMembersUrl,
-  hasOrganisationDirectoryOrigin,
   memberMatchesDirectoryScope,
-  resolveDirectoryRoleIds,
 } from './organisationDirectoryMemberContext.js';
 
-test('organisation links carry the organization and trusted origin marker', () => {
-  const url = buildOrganisationDirectoryMembersUrl('org 1');
-  assert.equal(url, '/memberdirectory?org=org+1&origin=organisation-directory');
-  assert.equal(hasOrganisationDirectoryOrigin(url.split('?')[1]), true);
+test('standard organisation links stay in the standard directory', () => {
+  assert.equal(
+    buildOrganisationDirectoryMembersUrl('org 1'),
+    '/OrganisationDirectory/members/org%201'
+  );
 });
 
-test('organisation origin uses configured contact roles instead of member-directory roles', () => {
-  assert.deepEqual(resolveDirectoryRoleIds({
-    hasOrganisationOrigin: true,
-    organisationRoleIds: ['partner-contact'],
-    memberDirectoryRoleIds: ['ordinary-member'],
-    availableRoleIds: ['partner-contact', 'ordinary-member'],
-  }), ['partner-contact']);
-});
-
-test('direct, legacy, and invalid origin URLs retain member-directory role behavior', () => {
-  for (const search of ['', '?org=one', '?org=one&origin=untrusted']) {
-    assert.equal(hasOrganisationDirectoryOrigin(search), false);
-    assert.deepEqual(resolveDirectoryRoleIds({
-      hasOrganisationOrigin: hasOrganisationDirectoryOrigin(search),
-      organisationRoleIds: ['partner-contact'],
-      memberDirectoryRoleIds: ['ordinary-member'],
-      availableRoleIds: ['partner-contact', 'ordinary-member'],
-    }), ['ordinary-member']);
-  }
-});
-
-test('empty or stale organisation role settings safely fall back', () => {
-  for (const organisationRoleIds of [[], ['deleted-role']]) {
-    assert.deepEqual(resolveDirectoryRoleIds({
-      hasOrganisationOrigin: true,
-      organisationRoleIds,
-      memberDirectoryRoleIds: ['ordinary-member'],
-      availableRoleIds: ['ordinary-member'],
-    }), ['ordinary-member']);
-  }
+test('dynamic organisation links stay in their source directory', () => {
+  assert.equal(
+    buildOrganisationDirectoryMembersUrl('org/1', 'partner directory'),
+    '/directory/partner%20directory/members/org%2F1'
+  );
 });
 
 test('organization and role scope must both match', () => {
@@ -57,4 +32,12 @@ test('organization and role scope must both match', () => {
   assert.equal(memberMatchesDirectoryScope(
     { organization_id: 'org-a', role_id: 'ordinary-member' }, scope
   ), false);
+});
+
+test('the nested standard route inherits Organisation Directory layout access', () => {
+  const routerSource = fs.readFileSync(new URL('../pages/index.jsx', import.meta.url), 'utf8');
+  assert.match(
+    routerSource,
+    /urlParts\[0\]\?\.toLowerCase\(\) === 'organisationdirectory'[\s\S]*return 'OrganisationDirectory'/
+  );
 });

@@ -231,6 +231,26 @@ export async function fetchRoles(supabase, tenantId) {
   return roleRows || [];
 }
 
+export function buildOrganisationMembersResponse({
+  members = [],
+  total = 0,
+  page = 1,
+  pageSize = 12,
+  organization,
+  roles = [],
+  displaySettings = {},
+}) {
+  return {
+    members,
+    total,
+    page,
+    pageSize,
+    organization,
+    roles,
+    displaySettings,
+  };
+}
+
 // --- member display settings ------------------------------------------------
 
 export async function fetchMemberDisplaySettings(supabase, tenantId) {

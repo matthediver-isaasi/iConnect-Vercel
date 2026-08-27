@@ -1,5 +1,10 @@
-import { getTenantContext } from '../_lib/tenantContext.js';
+import { getTenantContext, hasFeatureAccess } from '../_lib/tenantContext.js';
 import { supabase } from '../_lib/database.js';
+import {
+  buildOrganisationMembersResponse,
+  fetchMemberDisplaySettings,
+  fetchRoles,
+} from '../_lib/directoryConfig.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
@@ -21,38 +26,96 @@ export default async function handler(req, res) {
     show_disabled = 'false',
     filters
   } = req.query;
+  const organizationId = req.query.organization_id;
+  const isStandardOrgDirectory = req.query.source === 'standard';
+  if (organizationId && !tenantContext.isAuthenticated) {
+    return res.status(401).json({ error: 'Authentication required' });
+  }
 
-  if (!slug) {
+  if (!slug && !isStandardOrgDirectory) {
     return res.status(400).json({ error: 'slug is required' });
+  }
+  if (isStandardOrgDirectory && !organizationId) {
+    return res.status(400).json({ error: 'organization_id is required for the standard directory' });
   }
 
   try {
-    const { data: directories, error: dirError } = await supabase
-      .from('dynamic_directory')
-      .select('*')
-      .eq('tenant_id', tenantId)
-      .eq('slug', slug)
-      .eq('is_active', true)
-      .limit(1);
+    let directory = null;
+    let contactRoleIds = [];
+    if (isStandardOrgDirectory) {
+      const isTenantAdmin = !!tenantContext.tenantUserId;
+      const canAccess = isTenantAdmin || await hasFeatureAccess(
+        tenantContext.roleId,
+        'membership.organisation-directory'
+      );
+      if (!canAccess) return res.status(403).json({ error: 'Directory access denied' });
+      directory = { entity_type: organizationId ? 'organization' : 'member', id: 'main' };
+      contactRoleIds = await fetchSettingArray(tenantId, 'org_directory_reverse_card_role_ids');
+    } else {
+      const { data: directories, error: dirError } = await supabase
+        .from('dynamic_directory')
+        .select('*')
+        .eq('tenant_id', tenantId)
+        .eq('slug', slug)
+        .eq('is_active', true)
+        .limit(1);
 
-    if (dirError) {
-      console.error('[DynamicDirectory Members] Directory lookup error:', dirError);
-      return res.status(500).json({ error: 'Failed to look up directory' });
+      if (dirError) {
+        console.error('[DynamicDirectory Members] Directory lookup error:', dirError);
+        return res.status(500).json({ error: 'Failed to look up directory' });
+      }
+
+      directory = directories?.[0];
+      if (!directory) return res.status(404).json({ error: 'Directory not found' });
+      const allowedRoles = parseArray(directory.allowed_role_ids);
+      const isTenantAdmin = !!tenantContext.tenantUserId;
+      if (
+        organizationId &&
+        !isTenantAdmin &&
+        allowedRoles.length > 0 &&
+        !allowedRoles.includes(tenantContext.roleId)
+      ) {
+        return res.status(403).json({ error: 'Directory access denied' });
+      }
+      contactRoleIds = await fetchSettingArray(tenantId, 'org_directory_reverse_card_role_ids');
     }
 
-    const directory = directories?.[0];
-    if (!directory) {
-      return res.status(404).json({ error: 'Directory not found' });
+    if (organizationId && directory.entity_type !== 'organization') {
+      return res.status(400).json({ error: 'Organisation scope requires an organisation directory' });
     }
-
-    if (directory.entity_type !== 'member') {
+    if (!organizationId && directory.entity_type !== 'member') {
       return res.status(400).json({ error: 'This endpoint only supports member directories' });
+    }
+
+    let selectedOrganization = null;
+    if (organizationId) {
+      selectedOrganization = await getEligibleOrganization({
+        tenantId,
+        organizationId,
+        directory,
+        requesterOrganizationId: tenantContext.organizationId,
+      });
+      if (!selectedOrganization) return res.status(404).json({ error: 'Organisation not found in this directory' });
+      // Organisation contact roles are entirely server-resolved. An empty
+      // configuration intentionally returns no contacts rather than broadening.
+      if (contactRoleIds.length === 0) {
+        return res.json(buildOrganisationMembersResponse({
+          organization: selectedOrganization,
+          roles: await fetchRoles(supabase, tenantId),
+          displaySettings: await fetchMemberDisplaySettings(supabase, tenantId),
+        }));
+      }
     }
 
     const pageNum = Math.max(1, parseInt(page, 10) || 1);
     const pageSize = Math.min(100, Math.max(1, parseInt(limit, 10) || 12));
     const offset = (pageNum - 1) * pageSize;
-    const showDisabled = show_disabled === 'true';
+    const canShowDisabled = !!tenantContext.tenantUserId || (
+      tenantContext.roleId
+        ? await hasFeatureAccess(tenantContext.roleId, 'element_ShowDisabledAccounts')
+        : false
+    );
+    const showDisabled = show_disabled === 'true' && canShowDisabled;
 
     let customFilters = {};
     if (filters) {
@@ -62,16 +125,18 @@ export default async function handler(req, res) {
     }
 
     const allFilterFields = [];
-    if (directory.filter_field_id && directory.filter_value) {
-      allFilterFields.push({ fieldId: directory.filter_field_id, value: directory.filter_value });
-    }
-    for (const [fieldId, value] of Object.entries(customFilters)) {
-      if (Array.isArray(value)) {
-        if (value.length > 0) {
+    if (directory.entity_type === 'member') {
+      if (directory.filter_field_id && directory.filter_value) {
+        allFilterFields.push({ fieldId: directory.filter_field_id, value: directory.filter_value });
+      }
+      for (const [fieldId, value] of Object.entries(customFilters)) {
+        if (Array.isArray(value)) {
+          if (value.length > 0) {
+            allFilterFields.push({ fieldId, value });
+          }
+        } else if (value && value !== 'all') {
           allFilterFields.push({ fieldId, value });
         }
-      } else if (value && value !== 'all') {
-        allFilterFields.push({ fieldId, value });
       }
     }
 
@@ -90,6 +155,10 @@ export default async function handler(req, res) {
       .eq('tenant_id', tenantId)
       .or('show_in_directory.is.null,show_in_directory.neq.false')
       .not('email', 'ilike', 'deleted_%@deleted.local');
+
+    if (organizationId) {
+      countQuery = countQuery.eq('organization_id', organizationId).in('role_id', contactRoleIds);
+    }
 
     if (!showDisabled) {
       countQuery = countQuery.or('login_enabled.is.null,login_enabled.neq.false');
@@ -117,6 +186,10 @@ export default async function handler(req, res) {
       .eq('tenant_id', tenantId)
       .or('show_in_directory.is.null,show_in_directory.neq.false')
       .not('email', 'ilike', 'deleted_%@deleted.local');
+
+    if (organizationId) {
+      dataQuery = dataQuery.eq('organization_id', organizationId).in('role_id', contactRoleIds);
+    }
 
     if (!showDisabled) {
       dataQuery = dataQuery.or('login_enabled.is.null,login_enabled.neq.false');
@@ -150,16 +223,132 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: 'Failed to fetch members' });
     }
 
-    return res.json({
+    const response = {
       members: members || [],
       total: totalCount || 0,
       page: pageNum,
       pageSize
-    });
+    };
+    if (organizationId) {
+      return res.json(buildOrganisationMembersResponse({
+        ...response,
+        organization: selectedOrganization,
+        roles: await fetchRoles(supabase, tenantId),
+        displaySettings: await fetchMemberDisplaySettings(supabase, tenantId),
+      }));
+    }
+    return res.json(response);
   } catch (err) {
     console.error('[DynamicDirectory Members] Error:', err);
     return res.status(500).json({ error: 'Failed to fetch directory members' });
   }
+}
+
+async function fetchSettingArray(tenantId, key) {
+  const { data, error } = await supabase
+    .from('system_settings')
+    .select('setting_value')
+    .eq('tenant_id', tenantId)
+    .eq('setting_key', key)
+    .limit(1);
+  if (error || !data?.[0]?.setting_value) return [];
+  try {
+    return parseArray(data[0].setting_value);
+  } catch {
+    return [];
+  }
+}
+
+function parseArray(value) {
+  if (Array.isArray(value)) return value.filter((id) => typeof id === 'string' && id);
+  if (typeof value !== 'string' || !value) return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed.filter((id) => typeof id === 'string' && id) : [];
+  } catch {
+    return [];
+  }
+}
+
+async function getEligibleOrganization({
+  tenantId,
+  organizationId,
+  directory,
+  requesterOrganizationId,
+}) {
+  const { data, error } = await supabase
+    .from('organization')
+    .select('id, name')
+    .eq('tenant_id', tenantId)
+    .eq('id', organizationId)
+    .limit(1);
+  if (error || !data?.[0]) return null;
+
+  const isRequesterOrganization = requesterOrganizationId === organizationId;
+  const excludedIds = await fetchSettingArray(tenantId, 'org_directory_excluded_orgs');
+  if (!isRequesterOrganization && excludedIds.includes(organizationId)) return null;
+
+  if (directory.id === 'main' && !isRequesterOrganization) {
+    const allowedStatuses = await fetchSettingArray(
+      tenantId,
+      'org_directory_allowed_application_statuses'
+    );
+    if (allowedStatuses.length > 0) {
+      const matchesStatus = await organizationMatchesNamedField({
+        tenantId,
+        organizationId,
+        fieldNames: ['application_status'],
+        allowedValues: allowedStatuses,
+      });
+      if (!matchesStatus) return null;
+    }
+
+    const visibleTypes = await fetchSettingArray(tenantId, 'org_directory_visible_org_types');
+    if (visibleTypes.length > 0) {
+      const matchesType = await organizationMatchesNamedField({
+        tenantId,
+        organizationId,
+        fieldNames: ['org_type', 'organisation_type', 'organization_type'],
+        allowedValues: visibleTypes,
+      });
+      if (!matchesType) return null;
+    }
+  }
+
+  if (directory.id !== 'main' && directory.filter_field_id && directory.filter_value) {
+    const { data: values, error: valuesError } = await supabase
+      .from('organization_preference_value')
+      .select('value')
+      .eq('organization_id', organizationId)
+      .eq('field_id', directory.filter_field_id);
+    if (valuesError || !(values || []).some((row) => matchesValue(row.value, directory.filter_value))) {
+      return null;
+    }
+  }
+  return data[0];
+}
+
+async function organizationMatchesNamedField({
+  tenantId,
+  organizationId,
+  fieldNames,
+  allowedValues,
+}) {
+  const { data: fields, error: fieldError } = await supabase
+    .from('preference_field')
+    .select('id')
+    .eq('tenant_id', tenantId)
+    .eq('entity_scope', 'organization')
+    .in('name', fieldNames);
+  if (fieldError || !fields?.length) return false;
+  const fieldIds = fields.map((field) => field.id);
+  const { data: values, error: valueError } = await supabase
+    .from('organization_preference_value')
+    .select('value')
+    .eq('organization_id', organizationId)
+    .in('field_id', fieldIds);
+  if (valueError) return false;
+  return (values || []).some((row) => matchesValue(row.value, allowedValues));
 }
 
 async function getFilteredMemberIds(tenantId, filterFields) {
