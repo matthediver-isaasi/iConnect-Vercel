@@ -13,6 +13,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 
 const src = fs.readFileSync(new URL('./workflows.js', import.meta.url), 'utf8');
+const providerSrc = fs.readFileSync(new URL('./accountingProvider.js', import.meta.url), 'utf8');
 
 const orgFnAt = src.indexOf('async function executeCreateMembershipAction');
 assert.ok(orgFnAt > -1, 'executeCreateMembershipAction must exist');
@@ -46,8 +47,9 @@ test('org invoice carries fee-approval add-on lines and runs training-fund proce
   const tfAt = invoiceBlock.indexOf('processTrainingFundAddons({');
   const invAt = invoiceBlock.indexOf('provider.createMembershipInvoice');
   assert.ok(tfAt > invAt, 'training fund processing must follow invoice creation');
-  // The PO number rides on the invoice reference, like manual/cron paths.
+  // The provider facade normalizes this legacy caller shape to a raw PO or TBC.
   assert.match(invoiceBlock, /Membership \$\{targetYearLabel\} - PO: \$\{poNumber\}/);
+  assert.match(providerSrc, /resolveMembershipInvoiceReference\(args\?\.reference\)/);
 });
 
 test('manual and scheduled invoicing modes still skip BEFORE any record is inserted', () => {
@@ -117,4 +119,10 @@ test('member-driven path is untouched: still invoices and links member history',
   const memberScope = memberFn.slice(0, memberFn.indexOf('async function', 100) > -1 ? memberFn.indexOf('\nasync function ', 100) : memberFn.length);
   assert.match(memberScope, /provider\.createMembershipInvoice/);
   assert.match(memberScope, /member_membership_history/);
+});
+
+test('member workflow invoice is protected by the centralized membership reference contract', () => {
+  const memberFn = src.slice(orgFnEnd);
+  assert.match(memberFn, /provider\.createMembershipInvoice/);
+  assert.match(providerSrc, /resolveMembershipInvoiceReference\(args\?\.reference\)/);
 });

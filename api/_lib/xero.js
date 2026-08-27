@@ -1,5 +1,10 @@
 import { supabase } from './database.js';
 import { getXeroCredentials } from './xeroCredentials.js';
+import { resolveMembershipInvoiceReference } from './membershipInvoiceReference.js';
+
+export function buildXeroMembershipReference(reference) {
+  return resolveMembershipInvoiceReference(reference);
+}
 
 async function safeXeroJson(response, context) {
   const contentType = response.headers.get('content-type') || '';
@@ -284,7 +289,7 @@ export async function createXeroMembershipInvoice({ appTenantId, organizationNam
     Invoices: [{
       Type: 'ACCREC',
       Contact: { ContactID: contactId },
-      Reference: reference || `Membership ${membershipYear}`,
+      Reference: buildXeroMembershipReference(reference),
       Status: xeroInvoiceStatus,
       DueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
       LineItems: lineItems

@@ -1,5 +1,10 @@
 import { supabase } from './database.js';
 import { getQuickBooksCredentials, getIntuitEndpoints } from './quickbooksCredentials.js';
+import { resolveMembershipInvoiceReference } from './membershipInvoiceReference.js';
+
+export function buildQuickBooksMembershipCustomerMemo(reference) {
+  return { value: resolveMembershipInvoiceReference(reference) };
+}
 
 // ---------------------------------------------------------------------------
 // HTTP helpers + error normalization
@@ -529,7 +534,7 @@ export async function createQuickBooksMembershipInvoice({
     CustomerRef: { value: customerId },
     Line: invoiceLines,
     DueDate: dueDate,
-    CustomerMemo: { value: reference || `Membership ${membershipYear}` },
+    CustomerMemo: buildQuickBooksMembershipCustomerMemo(reference),
     // Required by QBO when the company file has VAT/Sales-Tax enabled. Without
     // this flag QBO returns error 6000 "Make sure all your transactions have a
     // VAT rate before you save". Membership line amounts are net of VAT, so

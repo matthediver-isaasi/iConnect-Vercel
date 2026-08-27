@@ -22,6 +22,7 @@
 import { supabase } from './database.js';
 import * as xero from './xero.js';
 import * as qbo from './quickbooks.js';
+import { resolveMembershipInvoiceReference } from './membershipInvoiceReference.js';
 
 export const PROVIDER_XERO = 'xero';
 export const PROVIDER_QUICKBOOKS = 'quickbooks';
@@ -346,7 +347,10 @@ function makeXeroProvider() {
     },
 
     async createMembershipInvoice(args) {
-      const result = await xero.createXeroMembershipInvoice(args);
+      const result = await xero.createXeroMembershipInvoice({
+        ...args,
+        reference: resolveMembershipInvoiceReference(args?.reference),
+      });
       if (!result) return null;
       return {
         provider: PROVIDER_XERO,
@@ -441,7 +445,10 @@ function makeQuickBooksProvider() {
     },
 
     async createMembershipInvoice(args) {
-      const result = await qbo.createQuickBooksMembershipInvoice(args);
+      const result = await qbo.createQuickBooksMembershipInvoice({
+        ...args,
+        reference: resolveMembershipInvoiceReference(args?.reference),
+      });
       if (!result) return null;
       return {
         provider: PROVIDER_QUICKBOOKS,
