@@ -6,8 +6,9 @@
 -- 1. Run this file unchanged. Review every preview result set and NOTICE.
 --    The supplied final statement is ROLLBACK, so this makes no lasting change.
 -- 2. Save/export the preview. Confirm the tenant, primary organisation,
---    preserved members, candidate IDs, authentication links, and dependency
---    counts are exactly what is expected.
+--    two approved legacy GFI bookings and their three dependents, preserved
+--    members, candidate IDs, authentication links, and dependency counts are
+--    exactly what is expected.
 -- 3. Run the entire file again in one SQL Editor invocation. To apply, make
 --    the ONE explicit switch at the bottom: replace ROLLBACK with COMMIT.
 -- 4. Never run only the DELETE section: the temporary snapshots and assertions
@@ -183,7 +184,7 @@ SELECT m.id
   FROM public.member m
   CROSS JOIN _bnms_scope s
  WHERE m.tenant_id = s.tenant_id
-   AND m.organization_id IS DISTINCT FROM s.primary_organization_id;
+   AND m.organization_id IS NULL;
 ALTER TABLE _bnms_candidates ADD PRIMARY KEY (id);
 
 CREATE TEMP TABLE _bnms_preserved ON COMMIT DROP AS
@@ -193,6 +194,412 @@ SELECT m.id
  WHERE m.tenant_id = s.tenant_id
    AND m.organization_id = s.primary_organization_id;
 ALTER TABLE _bnms_preserved ADD PRIMARY KEY (id);
+
+DO $approved_member_scope_guard$
+BEGIN
+  IF (SELECT count(*) FROM _bnms_candidates) <> 4192
+  OR (SELECT count(*) FROM _bnms_preserved) <> 0
+  OR (
+    SELECT count(*)
+    FROM public.member m
+    CROSS JOIN _bnms_scope s
+    WHERE m.tenant_id = s.tenant_id
+  ) <> 4192
+  OR EXISTS (
+    SELECT 1
+    FROM public.member m
+    CROSS JOIN _bnms_scope s
+    WHERE m.tenant_id = s.tenant_id
+      AND m.organization_id IS NOT NULL
+  ) THEN
+    RAISE EXCEPTION
+      'Approved BNMS scope changed: expected exactly 4,192 total Members, all unassigned, with 0 preserved; no cleanup was attempted';
+  END IF;
+END
+$approved_member_scope_guard$;
+
+-- Two explicitly approved legacy GFI bookings point at BNMS candidate Members.
+-- Keep this exception row-specific: validate every identifying attribute,
+-- inventory every booking reference, and delete only the allowlisted rows.
+LOCK TABLE public.event IN SHARE MODE;
+LOCK TABLE public.event_email IN SHARE MODE;
+LOCK TABLE public.booking IN SHARE ROW EXCLUSIVE MODE;
+LOCK TABLE public.booking_cancellation_request IN SHARE ROW EXCLUSIVE MODE;
+LOCK TABLE public.scheduled_email IN SHARE ROW EXCLUSIVE MODE;
+
+CREATE TEMP TABLE _approved_legacy_gfi_bookings (
+  booking_id uuid PRIMARY KEY,
+  expected_member_id uuid NOT NULL,
+  expected_status text NOT NULL,
+  expected_event_id uuid
+) ON COMMIT DROP;
+
+INSERT INTO _approved_legacy_gfi_bookings
+  (booking_id, expected_member_id, expected_status, expected_event_id)
+VALUES
+  (
+    '2d81e61f-ab8e-43ef-b811-53ba464457f1',
+    'd0fcefde-e82c-48a5-b925-9075a026ddc4',
+    'cancelled',
+    NULL
+  ),
+  (
+    '3c65d99c-b681-4c9e-a7e2-977dd943a9c9',
+    '133db61a-e502-42cf-aa64-9ba287ea85ac',
+    'confirmed',
+    '5f2c04d1-75a0-4cdc-869e-badadba9da7a'
+  );
+
+CREATE TEMP TABLE _approved_legacy_gfi_booking_dependencies (
+  table_name text NOT NULL,
+  row_id uuid PRIMARY KEY,
+  booking_id uuid NOT NULL REFERENCES _approved_legacy_gfi_bookings(booking_id)
+) ON COMMIT DROP;
+
+INSERT INTO _approved_legacy_gfi_booking_dependencies
+  (table_name, row_id, booking_id)
+VALUES
+  (
+    'booking_cancellation_request',
+    '28d6c538-b1f7-4c82-b988-87e8ceb293a5',
+    '2d81e61f-ab8e-43ef-b811-53ba464457f1'
+  ),
+  (
+    'booking_cancellation_request',
+    '62f50f3b-94d2-423d-8c89-015a23b19830',
+    '2d81e61f-ab8e-43ef-b811-53ba464457f1'
+  ),
+  (
+    'scheduled_email',
+    'b1483d08-a159-4ab3-9b05-18cb1fafef49',
+    '3c65d99c-b681-4c9e-a7e2-977dd943a9c9'
+  );
+
+CREATE TEMP TABLE _other_gfi_bookings ON COMMIT DROP AS
+SELECT b.id
+FROM public.booking b
+WHERE b.tenant_id = 'fd82da65-aab7-4a5c-85b8-b2febeb2003d'::uuid
+  AND NOT EXISTS (
+    SELECT 1
+    FROM _approved_legacy_gfi_bookings approved
+    WHERE approved.booking_id = b.id
+  );
+ALTER TABLE _other_gfi_bookings ADD PRIMARY KEY (id);
+
+DO $approved_booking_preflight$
+DECLARE
+  v_gfi_tenant_id constant uuid := 'fd82da65-aab7-4a5c-85b8-b2febeb2003d';
+  v_bnms_tenant_id constant uuid := 'ff2df806-b321-4254-b651-3af11fccf1db';
+BEGIN
+  IF (
+    SELECT count(*)
+    FROM public.tenant
+    WHERE id = v_gfi_tenant_id
+      AND slug = 'gfi'
+  ) <> 1 THEN
+    RAISE EXCEPTION 'Approved booking cleanup could not verify the pinned GFI tenant';
+  END IF;
+
+  IF (
+    SELECT count(*)
+    FROM _approved_legacy_gfi_bookings approved
+    JOIN public.booking b
+      ON b.id = approved.booking_id
+     AND b.tenant_id = v_gfi_tenant_id
+     AND b.member_id = approved.expected_member_id
+     AND b.status = approved.expected_status
+     AND b.event_id IS NOT DISTINCT FROM approved.expected_event_id
+     AND b.created_at IS NULL
+    JOIN public.member m
+      ON m.id = b.member_id
+     AND m.tenant_id = v_bnms_tenant_id
+    JOIN _bnms_candidates candidate
+      ON candidate.id = m.id
+    LEFT JOIN public.event e
+      ON e.id = b.event_id
+     AND e.tenant_id = v_gfi_tenant_id
+    WHERE approved.expected_event_id IS NULL OR e.id IS NOT NULL
+  ) <> 2 THEN
+    RAISE EXCEPTION
+      'One or both approved legacy GFI booking signatures changed; no booking was deleted';
+  END IF;
+
+  IF (
+    SELECT count(*)
+    FROM public.booking b
+    JOIN _approved_legacy_gfi_bookings approved ON approved.booking_id = b.id
+  ) <> 2 THEN
+    RAISE EXCEPTION
+      'Expected exactly two approved legacy GFI bookings; no booking was deleted';
+  END IF;
+
+  IF (
+    SELECT count(*)
+    FROM public.booking_cancellation_request request
+    JOIN _approved_legacy_gfi_booking_dependencies approved
+      ON approved.table_name = 'booking_cancellation_request'
+     AND approved.row_id = request.id
+     AND approved.booking_id = request.booking_id
+    JOIN _approved_legacy_gfi_bookings booking
+      ON booking.booking_id = request.booking_id
+     AND booking.expected_member_id = request.member_id
+    WHERE request.tenant_id = v_gfi_tenant_id
+      AND request.request_type = 'individual'
+      AND request.status = 'approved'
+      AND request.booking_source = 'booking'
+  ) <> 2
+  OR (
+    SELECT count(*)
+    FROM public.booking_cancellation_request request
+    JOIN _approved_legacy_gfi_bookings approved
+      ON approved.booking_id = request.booking_id
+  ) <> 2 THEN
+    RAISE EXCEPTION
+      'Approved legacy booking cancellation-request signatures changed; no booking was deleted';
+  END IF;
+
+  IF (
+    SELECT count(*)
+    FROM public.scheduled_email email
+    JOIN _approved_legacy_gfi_booking_dependencies approved
+      ON approved.table_name = 'scheduled_email'
+     AND approved.row_id = email.id
+     AND approved.booking_id = email.booking_id
+    JOIN public.event_email event_email
+      ON event_email.id = email.event_email_id
+     AND event_email.id = '59e3d8e0-34f5-4faf-8154-cd0a8ba25f00'::uuid
+     AND event_email.event_id = '5f2c04d1-75a0-4cdc-869e-badadba9da7a'::uuid
+    JOIN public.event event
+      ON event.id = event_email.event_id
+     AND event.tenant_id = v_gfi_tenant_id
+    WHERE email.status = 'sent'
+      AND email.sent_at IS NOT NULL
+      AND email.session_id IS NULL
+  ) <> 1
+  OR (
+    SELECT count(*)
+    FROM public.scheduled_email email
+    JOIN _approved_legacy_gfi_bookings approved
+      ON approved.booking_id = email.booking_id
+  ) <> 1 THEN
+    RAISE EXCEPTION
+      'Approved legacy booking scheduled-email signature changed; no booking was deleted';
+  END IF;
+END
+$approved_booking_preflight$;
+
+CREATE TEMP TABLE _approved_booking_references (
+  schema_name text NOT NULL,
+  table_name text NOT NULL,
+  column_name text NOT NULL,
+  matching_row_count bigint NOT NULL DEFAULT 0,
+  PRIMARY KEY (schema_name, table_name, column_name)
+) ON COMMIT DROP;
+
+INSERT INTO _approved_booking_references (schema_name, table_name, column_name)
+SELECT
+  ns.nspname,
+  child.relname,
+  child_col.attname
+FROM pg_constraint fk
+JOIN pg_class child ON child.oid = fk.conrelid
+JOIN pg_namespace ns ON ns.oid = child.relnamespace
+JOIN pg_class parent ON parent.oid = fk.confrelid
+JOIN pg_namespace parent_ns ON parent_ns.oid = parent.relnamespace
+JOIN LATERAL unnest(fk.conkey, fk.confkey) AS keys(child_attnum, parent_attnum)
+  ON true
+JOIN pg_attribute child_col
+  ON child_col.attrelid = child.oid AND child_col.attnum = keys.child_attnum
+JOIN pg_attribute parent_col
+  ON parent_col.attrelid = parent.oid AND parent_col.attnum = keys.parent_attnum
+WHERE fk.contype = 'f'
+  AND ns.nspname = 'public'
+  AND parent_ns.nspname = 'public'
+  AND parent.relname = 'booking'
+  AND parent_col.attname = 'id';
+
+INSERT INTO _approved_booking_references (schema_name, table_name, column_name)
+SELECT
+  ns.nspname,
+  tbl.relname,
+  col.attname
+FROM pg_attribute col
+JOIN pg_class tbl ON tbl.oid = col.attrelid
+JOIN pg_namespace ns ON ns.oid = tbl.relnamespace
+WHERE ns.nspname = 'public'
+  AND tbl.relkind IN ('r', 'p')
+  AND tbl.relname <> 'booking'
+  AND col.attnum > 0
+  AND NOT col.attisdropped
+  AND col.attname ~ '(^booking_id$|_booking_id$)'
+ON CONFLICT (schema_name, table_name, column_name) DO NOTHING;
+
+DO $approved_booking_reference_inventory$
+DECLARE
+  r record;
+  v_count bigint;
+BEGIN
+  FOR r IN
+    SELECT DISTINCT schema_name, table_name
+    FROM _approved_booking_references
+    ORDER BY schema_name, table_name
+  LOOP
+    EXECUTE format('LOCK TABLE %I.%I IN SHARE MODE', r.schema_name, r.table_name);
+  END LOOP;
+
+  FOR r IN SELECT * FROM _approved_booking_references ORDER BY table_name, column_name
+  LOOP
+    EXECUTE format(
+      'SELECT count(*) FROM %I.%I x '
+      || 'JOIN _approved_legacy_gfi_bookings approved '
+      || 'ON x.%I::text = approved.booking_id::text',
+      r.schema_name, r.table_name, r.column_name
+    ) INTO v_count;
+
+    UPDATE _approved_booking_references
+       SET matching_row_count = v_count
+     WHERE schema_name = r.schema_name
+       AND table_name = r.table_name
+       AND column_name = r.column_name;
+
+    IF v_count > 0
+       AND NOT (
+         r.schema_name = 'public'
+         AND r.column_name = 'booking_id'
+         AND r.table_name IN ('booking_cancellation_request', 'scheduled_email')
+       ) THEN
+      RAISE EXCEPTION
+        'Unexpected reference to an approved legacy booking in %.%.% (% row(s)); no booking was deleted',
+        r.schema_name, r.table_name, r.column_name, v_count;
+    END IF;
+  END LOOP;
+
+  IF COALESCE((
+    SELECT matching_row_count
+    FROM _approved_booking_references
+    WHERE schema_name = 'public'
+      AND table_name = 'booking_cancellation_request'
+      AND column_name = 'booking_id'
+  ), 0) <> 2
+  OR COALESCE((
+    SELECT matching_row_count
+    FROM _approved_booking_references
+    WHERE schema_name = 'public'
+      AND table_name = 'scheduled_email'
+      AND column_name = 'booking_id'
+  ), 0) <> 1 THEN
+    RAISE EXCEPTION
+      'Approved legacy booking dependency counts changed; no booking was deleted';
+  END IF;
+END
+$approved_booking_reference_inventory$;
+
+-- PREVIEW 0: the exact cross-tenant exception and all of its dependencies.
+SELECT
+  'DELETE LEGACY GFI BOOKING' AS disposition,
+  b.id,
+  b.tenant_id,
+  b.member_id,
+  b.event_id,
+  b.status
+FROM public.booking b
+JOIN _approved_legacy_gfi_bookings approved ON approved.booking_id = b.id
+ORDER BY b.id;
+
+SELECT
+  'DELETE LEGACY GFI BOOKING DEPENDENCY' AS disposition,
+  approved.table_name,
+  approved.row_id,
+  approved.booking_id
+FROM _approved_legacy_gfi_booking_dependencies approved
+ORDER BY approved.table_name, approved.row_id;
+
+SELECT *
+FROM _approved_booking_references
+WHERE matching_row_count > 0
+ORDER BY table_name, column_name;
+
+DO $delete_approved_legacy_gfi_bookings$
+DECLARE
+  v_deleted bigint;
+BEGIN
+  DELETE FROM public.booking_cancellation_request request
+  USING _approved_legacy_gfi_booking_dependencies approved
+  WHERE approved.table_name = 'booking_cancellation_request'
+    AND approved.row_id = request.id
+    AND approved.booking_id = request.booking_id;
+  GET DIAGNOSTICS v_deleted = ROW_COUNT;
+  IF v_deleted <> 2 THEN
+    RAISE EXCEPTION
+      'Expected to delete two approved booking cancellation requests; deleted %',
+      v_deleted;
+  END IF;
+
+  DELETE FROM public.scheduled_email email
+  USING _approved_legacy_gfi_booking_dependencies approved
+  WHERE approved.table_name = 'scheduled_email'
+    AND approved.row_id = email.id
+    AND approved.booking_id = email.booking_id;
+  GET DIAGNOSTICS v_deleted = ROW_COUNT;
+  IF v_deleted <> 1 THEN
+    RAISE EXCEPTION
+      'Expected to delete one approved scheduled email; deleted %',
+      v_deleted;
+  END IF;
+
+  DELETE FROM public.booking b
+  USING _approved_legacy_gfi_bookings approved
+  WHERE b.id = approved.booking_id
+    AND b.tenant_id = 'fd82da65-aab7-4a5c-85b8-b2febeb2003d'::uuid
+    AND b.member_id = approved.expected_member_id
+    AND b.status = approved.expected_status
+    AND b.event_id IS NOT DISTINCT FROM approved.expected_event_id;
+  GET DIAGNOSTICS v_deleted = ROW_COUNT;
+  IF v_deleted <> 2 THEN
+    RAISE EXCEPTION
+      'Expected to delete two approved legacy GFI bookings; deleted %',
+      v_deleted;
+  END IF;
+END
+$delete_approved_legacy_gfi_bookings$;
+
+DO $approved_booking_delete_guard$
+DECLARE
+  r record;
+  v_count bigint;
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM public.booking b
+    JOIN _approved_legacy_gfi_bookings approved ON approved.booking_id = b.id
+  )
+  OR EXISTS (
+    SELECT snapshot.id
+    FROM _other_gfi_bookings snapshot
+    EXCEPT
+    SELECT id
+    FROM public.booking
+  ) THEN
+    RAISE EXCEPTION
+      'Approved legacy booking deletion removed the wrong GFI booking set';
+  END IF;
+
+  FOR r IN SELECT * FROM _approved_booking_references ORDER BY table_name, column_name
+  LOOP
+    EXECUTE format(
+      'SELECT count(*) FROM %I.%I x '
+      || 'JOIN _approved_legacy_gfi_bookings approved '
+      || 'ON x.%I::text = approved.booking_id::text',
+      r.schema_name, r.table_name, r.column_name
+    ) INTO v_count;
+    IF v_count <> 0 THEN
+      RAISE EXCEPTION
+        'Approved legacy booking reference remains in %.%.% (% row(s))',
+        r.schema_name, r.table_name, r.column_name, v_count;
+    END IF;
+  END LOOP;
+END
+$approved_booking_delete_guard$;
 
 DO $shared_bnms_identity_guard$
 BEGIN
@@ -229,6 +636,7 @@ CREATE TEMP TABLE _bnms_member_references (
   is_nullable boolean NOT NULL,
   has_tenant_id boolean NOT NULL,
   candidate_row_count bigint NOT NULL DEFAULT 0,
+  unscoped_candidate_row_count bigint NOT NULL DEFAULT 0,
   planned_action text,
   PRIMARY KEY (schema_name, table_name, column_name)
 ) ON COMMIT DROP;
@@ -299,6 +707,7 @@ DECLARE
   r record;
   v_count bigint;
   v_foreign_count bigint;
+  v_unscoped_count bigint;
 BEGIN
   -- Freeze every discovered dependency table before inventorying it. This
   -- keeps preview counts, cleanup, and dangling-reference checks consistent.
@@ -320,7 +729,9 @@ BEGIN
     IF r.has_tenant_id THEN
       EXECUTE format(
         'SELECT count(*) FROM %I.%I x JOIN _bnms_candidates c ON x.%I::text = c.id::text '
-        || 'CROSS JOIN _bnms_scope s WHERE x.tenant_id::text IS DISTINCT FROM s.tenant_id::text',
+        || 'CROSS JOIN _bnms_scope s '
+        || 'WHERE x.tenant_id IS NOT NULL '
+        || 'AND x.tenant_id::text IS DISTINCT FROM s.tenant_id::text',
         r.schema_name, r.table_name, r.column_name
       ) INTO v_foreign_count;
       IF v_foreign_count <> 0 THEN
@@ -328,10 +739,36 @@ BEGIN
           'Cross-tenant guard: %.%.% has % non-BNMS row(s) referencing deletion candidates',
           r.schema_name, r.table_name, r.column_name, v_foreign_count;
       END IF;
+
+      EXECUTE format(
+        'SELECT count(*) FROM %I.%I x JOIN _bnms_candidates c ON x.%I::text = c.id::text '
+        || 'WHERE x.tenant_id IS NULL',
+        r.schema_name, r.table_name, r.column_name
+      ) INTO v_unscoped_count;
+
+      IF r.schema_name = 'public'
+         AND r.table_name = 'member_credentials'
+         AND r.column_name = 'member_id' THEN
+        IF v_unscoped_count <> 14 OR v_count <> 14 THEN
+          RAISE EXCEPTION
+            'Approved legacy member_credentials scope changed: expected exactly 14 candidate rows, all with NULL tenant_id; found % total and % unscoped',
+            v_count, v_unscoped_count;
+        END IF;
+        RAISE NOTICE
+          'Approved legacy unscoped dependency: %.%.% has % candidate-owned row(s)',
+          r.schema_name, r.table_name, r.column_name, v_unscoped_count;
+      ELSIF v_unscoped_count <> 0 THEN
+        RAISE EXCEPTION
+          'Unscoped-row guard: %.%.% has % NULL-tenant row(s) referencing deletion candidates',
+          r.schema_name, r.table_name, r.column_name, v_unscoped_count;
+      END IF;
+    ELSE
+      v_unscoped_count := 0;
     END IF;
 
     UPDATE _bnms_member_references
        SET candidate_row_count = v_count,
+           unscoped_candidate_row_count = v_unscoped_count,
            planned_action = CASE
              WHEN r.delete_rule = 'c' THEN 'FK CASCADE on member delete'
              WHEN r.delete_rule = 'n' THEN 'FK SET NULL on member delete'
@@ -531,6 +968,7 @@ SELECT
   table_name,
   column_name,
   candidate_row_count,
+  unscoped_candidate_row_count,
   planned_action,
   has_tenant_id
 FROM _bnms_member_references
@@ -595,6 +1033,92 @@ FROM public.portal_sso_token pst
 JOIN _bnms_candidates c ON pst.member_id::text = c.id::text
 ORDER BY link_table, link_id;
 
+-- PostgreSQL checks restrictive FKs once per deleted Member. DEST has three
+-- large child tables without a leading index on member_id, which otherwise
+-- turns this cleanup into thousands of full-table scans. Build transaction-
+-- local helper indexes only when needed, retain them through postconditions,
+-- then drop them before the final ROLLBACK/COMMIT switch.
+CREATE TEMP TABLE _bnms_cleanup_helper_indexes (
+  schema_name text NOT NULL,
+  table_name text NOT NULL,
+  column_name text NOT NULL,
+  index_name text PRIMARY KEY
+) ON COMMIT DROP;
+
+DO $create_cleanup_helper_indexes$
+DECLARE
+  r record;
+  v_table_oid oid;
+  v_column_number smallint;
+BEGIN
+  FOR r IN
+    SELECT *
+    FROM (VALUES
+      (
+        'public',
+        'email_event',
+        'member_id',
+        '_bnms_cleanup_email_event_member_id_idx'
+      ),
+      (
+        'public',
+        'email_link_click',
+        'member_id',
+        '_bnms_cleanup_email_link_click_member_id_idx'
+      ),
+      (
+        'public',
+        'email_campaign_recipient',
+        'member_id',
+        '_bnms_cleanup_email_campaign_recipient_member_id_idx'
+      )
+    ) AS expected(schema_name, table_name, column_name, index_name)
+  LOOP
+    SELECT tbl.oid, col.attnum
+      INTO v_table_oid, v_column_number
+    FROM pg_class tbl
+    JOIN pg_namespace ns ON ns.oid = tbl.relnamespace
+    JOIN pg_attribute col
+      ON col.attrelid = tbl.oid
+     AND col.attname = r.column_name
+     AND col.attnum > 0
+     AND NOT col.attisdropped
+    WHERE ns.nspname = r.schema_name
+      AND tbl.relname = r.table_name
+      AND tbl.relkind IN ('r', 'p');
+
+    IF NOT FOUND THEN
+      RAISE EXCEPTION
+        'Required cleanup index target %.%.% is missing',
+        r.schema_name, r.table_name, r.column_name;
+    END IF;
+
+    IF NOT EXISTS (
+      SELECT 1
+      FROM pg_index idx
+      WHERE idx.indrelid = v_table_oid
+        AND idx.indisvalid
+        AND idx.indisready
+        AND idx.indkey[0] = v_column_number
+    ) THEN
+      EXECUTE format(
+        'CREATE INDEX %I ON %I.%I (%I)',
+        r.index_name, r.schema_name, r.table_name, r.column_name
+      );
+
+      INSERT INTO _bnms_cleanup_helper_indexes
+        (schema_name, table_name, column_name, index_name)
+      VALUES
+        (r.schema_name, r.table_name, r.column_name, r.index_name);
+
+      RAISE NOTICE
+        'Created transaction-local cleanup helper index % on %.%.%',
+        r.index_name, r.schema_name, r.table_name, r.column_name;
+    END IF;
+  END LOOP;
+END
+$create_cleanup_helper_indexes$;
+
 -- Detach NO ACTION/RESTRICT and soft references when nullable. Delete only
 -- candidate-owned dependent records whose member reference cannot be null.
 -- CASCADE and SET NULL constraints are intentionally left to PostgreSQL.
@@ -630,7 +1154,7 @@ DELETE FROM public.member m
 USING _bnms_candidates c, _bnms_scope s
 WHERE m.id = c.id
   AND m.tenant_id = s.tenant_id
-  AND m.organization_id IS DISTINCT FROM s.primary_organization_id;
+  AND m.organization_id IS NULL;
 
 DO $postconditions$
 DECLARE
@@ -684,9 +1208,8 @@ BEGIN
     FROM public.member m
     CROSS JOIN _bnms_scope s
     WHERE m.tenant_id = s.tenant_id
-      AND m.organization_id IS DISTINCT FROM s.primary_organization_id
   ) THEN
-    RAISE EXCEPTION 'Postcondition failed: a live BNMS non-primary member remains';
+    RAISE EXCEPTION 'Postcondition failed: a live BNMS member remains';
   END IF;
 
   FOR r IN SELECT * FROM _bnms_member_references ORDER BY table_name, column_name
@@ -706,6 +1229,26 @@ BEGIN
     'All postconditions passed: candidates gone, preserved members present, other tenants unchanged, no dangling member references.';
 END
 $postconditions$;
+
+DO $drop_cleanup_helper_indexes$
+DECLARE
+  r record;
+BEGIN
+  FOR r IN
+    SELECT *
+    FROM _bnms_cleanup_helper_indexes
+    ORDER BY schema_name, index_name
+  LOOP
+    EXECUTE format(
+      'DROP INDEX %I.%I',
+      r.schema_name, r.index_name
+    );
+    RAISE NOTICE
+      'Dropped transaction-local cleanup helper index %',
+      r.index_name;
+  END LOOP;
+END
+$drop_cleanup_helper_indexes$;
 
 SELECT
   (SELECT count(*) FROM _bnms_candidates) AS members_deleted_in_transaction,

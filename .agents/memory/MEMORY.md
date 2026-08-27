@@ -139,3 +139,4 @@
 - [Advisory locks through transaction poolers](transaction-pool-advisory-locks.md) — hold an explicit transaction and use xact locks; session locks can leak across pooled backends.
 - [Nullable JSONB migration merges](nullable-jsonb-migration-merges.md) — idempotent config migrations must coalesce nullable JSONB before key checks and object merges.
 - [Cross-tenant member cleanup references](cross-tenant-member-cleanup-references.md) — tenant-scoped member deletion must fail closed when another tenant's rows reference candidate UUIDs.
+- [Bulk Member deletion FK indexes](bulk-member-delete-fk-indexes.md) — missing child FK indexes can turn bulk Member deletion into thousands of full-table scans.
