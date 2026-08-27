@@ -4,6 +4,12 @@ import { getConfigForOrganisation, resolveBasisFieldLabel } from '../_lib/member
 import { simulateMembershipForOrg } from '../_lib/membershipSimulation.js';
 import { matchBand } from '../_lib/tierBandMatcher.js';
 import { calculateMembershipYearWindow, calculateNextMembershipYearWindow } from '../_lib/membershipYear.js';
+import { computeAddonTotals, loadAddonLines } from '../_lib/membershipAddons.js';
+import {
+  fireNewZeroDueMembershipPaidWorkflow,
+  isZeroDueMembership,
+  zeroDuePaymentFields,
+} from '../_lib/zeroDueMembership.js';
 
 export default async function handler(req, res) {
   if (!supabase) {
@@ -659,7 +665,65 @@ async function handlePost(req, res, tenantId) {
     return res.status(400).json({ error: simResult.error || 'Simulation failed' });
   }
 
+  // Stored, approved add-ons are part of the membership amount due. Keep the
+  // history totals aligned with the renewal cron, which also persists the
+  // add-on-inclusive figures so a later invoice can split the lines correctly.
+  const addonLines = await loadAddonLines(tenantId, organizationId, simResult.membershipYear.label);
+  const addonTotals = computeAddonTotals(addonLines);
+  const zeroDue = isZeroDueMembership(simResult, addonTotals);
+
   if (simResult.existingRecord) {
+    const { data: existingRecord, error: existingError } = await supabase
+      .from('organisation_membership_history')
+      .select('id, payment_status, paid_at, final_cost, total_with_vat')
+      .eq('tenant_id', tenantId)
+      .eq('organization_id', organizationId)
+      .eq('membership_year', simResult.membershipYear.label)
+      .maybeSingle();
+
+    if (existingError || !existingRecord) {
+      console.error('[Org Membership] Error reloading existing history record:', existingError);
+      return res.status(500).json({ error: 'Failed to confirm existing membership record' });
+    }
+
+    // A previous request may have committed the paid zero-due row but failed
+    // while delivering its workflow. Re-fire with the row's original paid_at;
+    // fireWorkflowForPaidRow uses a stable delivery key, making this safe to
+    // retry without duplicating downstream work.
+    if (
+      existingRecord.payment_status === 'paid'
+      && isZeroDueMembership({
+        finalCost: existingRecord.final_cost,
+        totalWithVat: existingRecord.total_with_vat,
+      })
+    ) {
+      try {
+        await fireNewZeroDueMembershipPaidWorkflow({
+          table: 'organisation_membership_history',
+          row: existingRecord,
+          paidAt: existingRecord.paid_at,
+          baseUrl: req.headers.host
+            ? `${req.headers['x-forwarded-proto'] || 'https'}://${req.headers.host}`
+            : '',
+          source: 'record_fee_org_membership_zero_due',
+        });
+      } catch (workflowErr) {
+        console.error('[Org Membership] Retried zero-due paid workflow failed:', workflowErr.message);
+        return res.status(500).json({
+          error: 'Membership is already activated, but its paid workflow could not be completed. Retry this request.',
+          retryable: true,
+        });
+      }
+
+      return res.json({
+        success: true,
+        zeroDue: true,
+        already_processed: true,
+        record: existingRecord,
+        message: 'Membership was already activated with no payment required',
+      });
+    }
+
     return res.status(400).json({ error: `A membership record for ${simResult.membershipYear.label} already exists` });
   }
 
@@ -667,6 +731,7 @@ async function handlePost(req, res, tenantId) {
     ? parseFloat(simResult.matchedBand.vat_rate)
     : null;
 
+  const paidAt = zeroDue ? new Date().toISOString() : null;
   const insertData = {
     tenant_id: tenantId,
     organization_id: organizationId,
@@ -681,12 +746,12 @@ async function handlePost(req, res, tenantId) {
     rollover_discount: simResult.rolloverDiscount || 0,
     custom_discount_total: simResult.customDiscountTotal || 0,
     custom_discount_details: simResult.customDiscountDetails?.length > 0 ? simResult.customDiscountDetails : null,
-    final_cost: simResult.finalCost,
+    final_cost: Math.round(((Number(simResult.finalCost) || 0) + addonTotals.subtotal) * 100) / 100,
     currency: simResult.currency,
     billing_period: simResult.billingPeriod || 'annual',
     vat_rate_percent: simResult.vatRatePercent || null,
-    vat_amount: simResult.vatAmount || 0,
-    total_with_vat: simResult.totalWithVat || simResult.finalCost,
+    vat_amount: Math.round(((Number(simResult.vatAmount) || 0) + addonTotals.vat) * 100) / 100,
+    total_with_vat: Math.round(((Number(simResult.totalWithVat ?? simResult.finalCost) || 0) + addonTotals.total) * 100) / 100,
     year_number: simResult.yearNumber || null,
     prorata_days: simResult.prorataDays || null,
     free_period_days_applied: simResult.freePeriodDaysApplied || 0,
@@ -694,6 +759,7 @@ async function handlePost(req, res, tenantId) {
     override_type: simResult.overrideType || null,
     status: 'active',
     notes: notes || null,
+    ...(zeroDue ? zeroDuePaymentFields(paidAt) : {}),
   };
 
   if (vatRate !== null) {
@@ -708,10 +774,73 @@ async function handlePost(req, res, tenantId) {
 
   if (error) {
     if (error.code === '23505') {
+      const { data: existingRecord, error: existingError } = await supabase
+        .from('organisation_membership_history')
+        .select('id, payment_status, paid_at, final_cost, total_with_vat')
+        .eq('tenant_id', tenantId)
+        .eq('organization_id', organizationId)
+        .eq('membership_year', simResult.membershipYear.label)
+        .maybeSingle();
+      if (
+        !existingError
+        && existingRecord?.payment_status === 'paid'
+        && isZeroDueMembership({
+          finalCost: existingRecord.final_cost,
+          totalWithVat: existingRecord.total_with_vat,
+        })
+      ) {
+        try {
+          await fireNewZeroDueMembershipPaidWorkflow({
+            table: 'organisation_membership_history',
+            row: existingRecord,
+            paidAt: existingRecord.paid_at,
+            baseUrl: req.headers.host
+              ? `${req.headers['x-forwarded-proto'] || 'https'}://${req.headers.host}`
+              : '',
+            source: 'record_fee_org_membership_zero_due',
+          });
+          return res.json({
+            success: true,
+            zeroDue: true,
+            already_processed: true,
+            record: existingRecord,
+            message: 'Membership was already activated with no payment required',
+          });
+        } catch (workflowErr) {
+          console.error('[Org Membership] Retried zero-due paid workflow failed:', workflowErr.message);
+          return res.status(500).json({
+            error: 'Membership is already activated, but its paid workflow could not be completed. Retry this request.',
+            retryable: true,
+          });
+        }
+      }
       return res.status(400).json({ error: `A membership record for ${simResult.membershipYear.label} already exists (duplicate prevented)` });
     }
     console.error('[Org Membership] Error creating history record:', error);
     return res.status(500).json({ error: 'Failed to create membership record' });
+  }
+
+  if (zeroDue) {
+    try {
+      await fireNewZeroDueMembershipPaidWorkflow({
+        table: 'organisation_membership_history',
+        row: record,
+        paidAt,
+        baseUrl: req.headers.host
+          ? `${req.headers['x-forwarded-proto'] || 'https'}://${req.headers.host}`
+          : '',
+        source: 'record_fee_org_membership_zero_due',
+      });
+    } catch (workflowErr) {
+      // The durable paid row is intentionally retained. A retry reaches the
+      // existing-record branch above and safely attempts this workflow again.
+      console.error('[Org Membership] Zero-due paid workflow failed:', workflowErr.message);
+      return res.status(500).json({
+        error: 'Membership was activated, but its paid workflow could not be completed. Retry this request.',
+        retryable: true,
+        record,
+      });
+    }
   }
 
   return res.json(record);

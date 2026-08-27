@@ -170,7 +170,7 @@ export async function loadAddonLines(tenantId, organizationId, membershipYear) {
       .eq('organization_id', organizationId)
       .eq('membership_year', membershipYear)
       .maybeSingle();
-    if (!data || !Array.isArray(data.addon_lines)) return [];
+    if (!data?.fees_approved || !Array.isArray(data.addon_lines)) return [];
     return data.addon_lines;
   } catch (err) {
     console.error('[membershipAddons] Failed to load addon lines (non-fatal):', err.message);

@@ -9,9 +9,16 @@ import {
   getMembershipAddonSettings,
   validateAddonLines,
   loadAddonLines,
+  computeAddonTotals,
   buildExtraLineItems,
   processTrainingFundAddons,
 } from '../_lib/membershipAddons.js';
+import {
+  isZeroDueExistingMembership,
+  isZeroDueMembership,
+  zeroDuePaymentFields,
+  fireNewZeroDueMembershipPaidWorkflow,
+} from '../_lib/zeroDueMembership.js';
 
 export default async function handler(req, res) {
   if (!supabase) {
@@ -42,7 +49,7 @@ export default async function handler(req, res) {
     }
   } catch (error) {
     console.error('[Org Membership Invoicing] Error:', error);
-    return res.status(500).json({ error: 'Internal server error' });
+    return res.status(500).json({ error: 'Internal server error', retryable: true });
   }
 }
 
@@ -256,6 +263,22 @@ async function handleManualRenewal(req, res, tenantId, tenantContext) {
   }
 
   if (simResult.existingRecord) {
+    const { data: existingRow, error: existingRowError } = await supabase
+      .from('organisation_membership_history')
+      .select('*')
+      .eq('id', simResult.existingRecord.id)
+      .maybeSingle();
+    if (existingRowError) throw existingRowError;
+    if (isZeroDueExistingMembership(existingRow) && existingRow?.payment_status === 'paid') {
+      await fireNewZeroDueMembershipPaidWorkflow({
+        table: 'organisation_membership_history',
+        row: existingRow,
+        paidAt: existingRow.paid_at,
+        baseUrl: req.headers.host ? `${req.headers['x-forwarded-proto'] || 'https'}://${req.headers.host}` : '',
+        source: 'manual_org_membership_zero_due',
+      });
+      return res.json({ success: true, record: existingRow, xeroInvoice: null, message: `Membership renewed for ${simResult.membershipYear.label}. Nothing is due.` });
+    }
     return res.status(400).json({ error: `A membership record for ${simResult.membershipYear.label} already exists` });
   }
 
@@ -272,16 +295,25 @@ async function handleManualRenewal(req, res, tenantId, tenantContext) {
   const currency = simResult.currency;
   const bandVatRate = simResult.taxType || simResult.matchedBand?.vat_rate || null;
 
+  // The zero-due decision includes VAT and all approved add-ons and must be
+  // made before reading invoice-only data such as the PO number.
+  const addonLines = await loadAddonLines(tenantId, organizationId, membershipYear.label);
+  const addonTotals = computeAddonTotals(addonLines);
+  const zeroDue = isZeroDueMembership(simResult, addonTotals);
+  const paidAt = zeroDue ? new Date().toISOString() : null;
+
   let poNumber = null;
   try {
-    const { data: invoicingSetting } = await supabase
-      .from('organisation_membership_invoicing')
-      .select('purchase_order_number')
-      .eq('tenant_id', tenantId)
-      .eq('organization_id', organizationId)
-      .eq('membership_year', membershipYear.label)
-      .maybeSingle();
-    poNumber = invoicingSetting?.purchase_order_number || null;
+    if (!zeroDue) {
+      const { data: invoicingSetting } = await supabase
+        .from('organisation_membership_invoicing')
+        .select('purchase_order_number')
+        .eq('tenant_id', tenantId)
+        .eq('organization_id', organizationId)
+        .eq('membership_year', membershipYear.label)
+        .maybeSingle();
+      poNumber = invoicingSetting?.purchase_order_number || null;
+    }
   } catch (poErr) {
     console.log('[Invoicing] Could not fetch PO number (non-fatal):', poErr.message);
   }
@@ -290,8 +322,6 @@ async function handleManualRenewal(req, res, tenantId, tenantContext) {
   // extra line items only. They are intentionally NOT added to the stored
   // membership cost fields (final_cost / vat_amount / total_with_vat), which
   // record the pure membership fee.
-  const addonLines = await loadAddonLines(tenantId, organizationId, membershipYear.label);
-
   const { data: record, error: insertError } = await supabase
     .from('organisation_membership_history')
     .insert({
@@ -322,6 +352,7 @@ async function handleManualRenewal(req, res, tenantId, tenantContext) {
       override_type: simResult.overrideType || null,
       status: 'active',
       notes: `Manual renewal via admin action (year ${simResult.yearNumber}, go-live: ${simResult.goLiveDate})${addonLines.length > 0 ? `. ${addonLines.length} add-on line(s) invoiced.` : ''}`,
+      ...(zeroDue ? zeroDuePaymentFields(paidAt) : {}),
     })
     .select()
     .single();
@@ -332,6 +363,25 @@ async function handleManualRenewal(req, res, tenantId, tenantContext) {
     }
     console.error('[Invoicing] Error creating history record:', insertError);
     return res.status(500).json({ error: 'Failed to create membership record' });
+  }
+
+  if (zeroDue) {
+    await fireNewZeroDueMembershipPaidWorkflow({
+      table: 'organisation_membership_history',
+      row: record,
+      paidAt,
+      baseUrl: req.headers.host
+        ? `${req.headers['x-forwarded-proto'] || 'https'}://${req.headers.host}`
+        : '',
+      source: 'manual_org_membership_zero_due',
+    });
+
+    return res.json({
+      success: true,
+      record,
+      xeroInvoice: null,
+      message: `Membership renewed for ${membershipYear.label}. Nothing is due.`,
+    });
   }
 
   let xeroInvoice = null;
@@ -463,6 +513,22 @@ async function handleAdvanceInvoice(req, res, tenantId, tenantContext) {
 
   // Idempotency: never create a second record (or invoice) for this year.
   if (simResult.existingRecord) {
+    const { data: existingRow, error: existingRowError } = await supabase
+      .from('organisation_membership_history')
+      .select('*')
+      .eq('id', simResult.existingRecord.id)
+      .maybeSingle();
+    if (existingRowError) throw existingRowError;
+    if (isZeroDueExistingMembership(existingRow) && existingRow?.payment_status === 'paid') {
+      await fireNewZeroDueMembershipPaidWorkflow({
+        table: 'organisation_membership_history',
+        row: existingRow,
+        paidAt: existingRow.paid_at,
+        baseUrl: req.headers.host ? `${req.headers['x-forwarded-proto'] || 'https'}://${req.headers.host}` : '',
+        source: 'advance_org_membership_zero_due',
+      });
+      return res.json({ success: true, record: existingRow, xeroInvoice: null, message: `Membership scheduled for ${membershipYear.label}. Nothing is due.` });
+    }
     return res.status(400).json({ error: `A membership record for ${membershipYear.label} already exists` });
   }
 
@@ -483,16 +549,25 @@ async function handleAdvanceInvoice(req, res, tenantId, tenantContext) {
   // date WITHOUT generating another invoice.
   const activationDate = new Date(membershipYear.start).toISOString().split('T')[0];
 
+  // Approved add-ons participate in the grand-total decision. Do this before
+  // reading the PO because a zero-due membership has no invoicing path.
+  const addonLines = await loadAddonLines(tenantId, organizationId, membershipYear.label);
+  const addonTotals = computeAddonTotals(addonLines);
+  const zeroDue = isZeroDueMembership(simResult, addonTotals);
+  const paidAt = zeroDue ? new Date().toISOString() : null;
+
   let poNumber = null;
   try {
-    const { data: invoicingSetting } = await supabase
-      .from('organisation_membership_invoicing')
-      .select('purchase_order_number')
-      .eq('tenant_id', tenantId)
-      .eq('organization_id', organizationId)
-      .eq('membership_year', membershipYear.label)
-      .maybeSingle();
-    poNumber = invoicingSetting?.purchase_order_number || null;
+    if (!zeroDue) {
+      const { data: invoicingSetting } = await supabase
+        .from('organisation_membership_invoicing')
+        .select('purchase_order_number')
+        .eq('tenant_id', tenantId)
+        .eq('organization_id', organizationId)
+        .eq('membership_year', membershipYear.label)
+        .maybeSingle();
+      poNumber = invoicingSetting?.purchase_order_number || null;
+    }
   } catch (poErr) {
     console.log('[Invoicing] Could not fetch PO number (non-fatal):', poErr.message);
   }
@@ -501,8 +576,6 @@ async function handleAdvanceInvoice(req, res, tenantId, tenantContext) {
   // extra line items only. They are intentionally NOT added to the stored
   // membership cost fields (final_cost / vat_amount / total_with_vat), which
   // record the pure membership fee.
-  const addonLines = await loadAddonLines(tenantId, organizationId, membershipYear.label);
-
   const { data: record, error: insertError } = await supabase
     .from('organisation_membership_history')
     .insert({
@@ -534,6 +607,7 @@ async function handleAdvanceInvoice(req, res, tenantId, tenantContext) {
       status: 'scheduled',
       scheduled_activation_date: activationDate,
       notes: `Advance invoice (Invoice Now) via admin action (year ${simResult.yearNumber}, go-live: ${simResult.goLiveDate}). Membership activates on ${activationDate}.${addonLines.length > 0 ? ` ${addonLines.length} add-on line(s) invoiced.` : ''}`,
+      ...(zeroDue ? zeroDuePaymentFields(paidAt) : {}),
     })
     .select()
     .single();
@@ -544,6 +618,25 @@ async function handleAdvanceInvoice(req, res, tenantId, tenantContext) {
     }
     console.error('[Invoicing] Error creating advance history record:', insertError);
     return res.status(500).json({ error: 'Failed to create membership record' });
+  }
+
+  if (zeroDue) {
+    await fireNewZeroDueMembershipPaidWorkflow({
+      table: 'organisation_membership_history',
+      row: record,
+      paidAt,
+      baseUrl: req.headers.host
+        ? `${req.headers['x-forwarded-proto'] || 'https'}://${req.headers.host}`
+        : '',
+      source: 'advance_org_membership_zero_due',
+    });
+
+    return res.json({
+      success: true,
+      record,
+      xeroInvoice: null,
+      message: `Membership scheduled for ${membershipYear.label}. Nothing is due; it will activate on ${activationDate}.`,
+    });
   }
 
   let xeroInvoice = null;

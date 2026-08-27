@@ -12,6 +12,13 @@ import { processTenantCardRenewals } from '../_lib/stripeCardRenewals.js';
 import { getPausedMemberIdSet, processPauseAutoRestarts } from '../_lib/memberPause.js';
 import { shouldSuppressAnnualInvoice } from '../_lib/membershipInstalmentInvoicing.js';
 import { createHeartbeatReporter, HEARTBEAT_ENV_VARS } from '../_lib/heartbeat.js';
+import {
+  canActivateScheduledMembershipWithoutInvoice,
+  isZeroDueExistingMembership,
+  isZeroDueMembership,
+  zeroDuePaymentFields,
+  fireNewZeroDueMembershipPaidWorkflow,
+} from '../_lib/zeroDueMembership.js';
 
 export default async function handler(req, res) {
   const authHeader = req.headers.authorization;
@@ -217,7 +224,7 @@ async function activateScheduledRecords(tenantId, results) {
 
   const { data: rows, error } = await supabase
     .from('organisation_membership_history')
-    .select('id, organization_id, membership_year, scheduled_activation_date, xero_invoice_id, accounting_invoice_id')
+    .select('id, organization_id, membership_year, scheduled_activation_date, xero_invoice_id, accounting_invoice_id, payment_status, paid_at, final_cost, total_with_vat')
     .eq('tenant_id', tenantId)
     .eq('status', 'scheduled')
     .lte('scheduled_activation_date', todayStr);
@@ -231,12 +238,28 @@ async function activateScheduledRecords(tenantId, results) {
   if (!rows || rows.length === 0) return;
 
   for (const row of rows) {
+    const invoiceLessZeroDue = !row.xero_invoice_id
+      && !row.accounting_invoice_id
+      && canActivateScheduledMembershipWithoutInvoice(row);
+
+    // Advance zero-due rows have no accounting invoice by design. Their
+    // durable delivery may have failed after the original insert, so retry it
+    // before activation; a failure bubbles to the cron retry path.
+    if (invoiceLessZeroDue) {
+      await fireNewZeroDueMembershipPaidWorkflow({
+        table: 'organisation_membership_history',
+        row,
+        paidAt: row.paid_at,
+        source: 'cron_org_membership_zero_due',
+      });
+    }
+
     // Defense in depth: an advance-invoiced row must have a linked invoice
     // before we activate it. Activating a 'scheduled' row with no invoice would
     // create a membership year that is active but never billed. The advance
     // handler is strict (it rolls back when no invoice is produced), so this
     // should not normally happen — but never silently activate an unbilled row.
-    if (!row.xero_invoice_id && !row.accounting_invoice_id) {
+    if (!row.xero_invoice_id && !row.accounting_invoice_id && !invoiceLessZeroDue) {
       results.skipped++;
       results.details.push({
         tenantId,
@@ -295,7 +318,7 @@ async function processTenantRenewals(tenantId, results) {
 
   const { data: invoicingRows, error: invError } = await supabase
     .from('organisation_membership_invoicing')
-    .select('*')
+    .select('organization_id, invoicing_mode, membership_year, invoice_date')
     .eq('tenant_id', tenantId)
     .in('invoicing_mode', ['automatic', 'scheduled']);
 
@@ -372,11 +395,7 @@ async function processTenantRenewals(tenantId, results) {
           await processOrgRenewal(tenantId, orgId, simResult, mode, invoiceDue, results);
         } else if (simResult.existingRecord && !simResult.existingRecord.xero_invoice_id && !simResult.existingRecord.accounting_invoice_id) {
           const invoiceDue = isInvoiceDateReached(invoicingSetting, today);
-          if (invoiceDue) {
-            await invoiceExistingRecord(tenantId, orgId, simResult, results);
-          } else {
-            results.skipped++;
-          }
+          await invoiceExistingRecord(tenantId, orgId, simResult, results, invoiceDue);
         } else {
           results.skipped++;
           results.details.push({ tenantId, orgId, mode, status: 'skipped', reason: `Record for ${membershipYear.label} already exists with invoice` });
@@ -397,7 +416,7 @@ function isInvoiceDateReached(invoicingSetting, today) {
   return today >= scheduledDate;
 }
 
-async function invoiceExistingRecord(tenantId, orgId, simResult, results) {
+async function invoiceExistingRecord(tenantId, orgId, simResult, results, invoiceDue = true) {
   const existingRecord = simResult.existingRecord;
   if (!existingRecord) return;
 
@@ -411,6 +430,24 @@ async function invoiceExistingRecord(tenantId, orgId, simResult, results) {
     .single();
 
   if (!record) return;
+
+  const existingAddonLines = await loadAddonLines(tenantId, orgId, record.membership_year);
+  if (record.payment_status === 'paid' && !record.xero_invoice_id && !record.accounting_invoice_id
+    && isZeroDueExistingMembership(record)) {
+    await fireNewZeroDueMembershipPaidWorkflow({
+      table: 'organisation_membership_history',
+      row: record,
+      paidAt: record.paid_at,
+      source: 'cron_org_membership_zero_due',
+    });
+    results.processed++;
+    results.details.push({ tenantId, orgId, status: 'processed', action: 'zero_due_workflow_delivery_retried', membershipYear: record.membership_year });
+    return;
+  }
+  if (!invoiceDue) {
+    results.skipped++;
+    return;
+  }
 
   // Task #3633: a row linked to a per-instalment monthly plan is invoiced
   // one small invoice per collection — never raise an annual invoice for it.
@@ -461,7 +498,7 @@ async function invoiceExistingRecord(tenantId, orgId, simResult, results) {
   // line (the add-ons go on the invoice as their own extra line items).
   // Records created without that marker keep their full final_cost so we
   // never underbill.
-  const addonLines = await loadAddonLines(tenantId, orgId, record.membership_year);
+  const addonLines = existingAddonLines;
   const addonTotals = computeAddonTotals(addonLines);
   const addonsBaked = /add-on line\(s\) included/.test(record.notes || '');
   const membershipFeeCost = addonsBaked
@@ -671,16 +708,25 @@ async function processOrgRenewal(tenantId, orgId, simResult, mode, createInvoice
   const customDiscountTotal = simResult.customDiscountTotal || 0;
   const customDiscountDetails = simResult.customDiscountDetails || [];
 
+  // Add-ons and VAT are part of the amount due. Decide before touching PO or
+  // any other invoice-only data.
+  const addonLines = await loadAddonLines(tenantId, orgId, membershipYear.label);
+  const addonTotals = computeAddonTotals(addonLines);
+  const zeroDue = isZeroDueMembership(simResult, addonTotals);
+  const paidAt = zeroDue ? new Date().toISOString() : null;
+
   let poNumber = null;
   try {
-    const { data: invoicingSetting } = await supabase
-      .from('organisation_membership_invoicing')
-      .select('purchase_order_number')
-      .eq('tenant_id', tenantId)
-      .eq('organization_id', orgId)
-      .eq('membership_year', membershipYear.label)
-      .maybeSingle();
-    poNumber = invoicingSetting?.purchase_order_number || null;
+    if (!zeroDue) {
+      const { data: invoicingSetting } = await supabase
+        .from('organisation_membership_invoicing')
+        .select('purchase_order_number')
+        .eq('tenant_id', tenantId)
+        .eq('organization_id', orgId)
+        .eq('membership_year', membershipYear.label)
+        .maybeSingle();
+      poNumber = invoicingSetting?.purchase_order_number || null;
+    }
   } catch (poErr) {
     console.log(`[cron/process-membership-renewals] Could not fetch PO for org ${orgId} (non-fatal):`, poErr.message);
   }
@@ -690,9 +736,6 @@ async function processOrgRenewal(tenantId, orgId, simResult, mode, createInvoice
   // mode) — because invoiceExistingRecord later derives the membership fee
   // line by subtracting the addon subtotal from record.final_cost. If the
   // record were stored without add-ons, that subtraction would underbill.
-  const addonLines = await loadAddonLines(tenantId, orgId, membershipYear.label);
-  const addonTotals = computeAddonTotals(addonLines);
-
   const { data: record, error: insertError } = await supabase
     .from('organisation_membership_history')
     .insert({
@@ -723,6 +766,7 @@ async function processOrgRenewal(tenantId, orgId, simResult, mode, createInvoice
       override_type: simResult.overrideType || null,
       status: 'active',
       notes: `${mode === 'automatic' ? 'Automatic' : 'Scheduled'} renewal via cron job (year ${yearNumber}, go-live: ${goLiveDate})${addonLines.length > 0 ? `. ${addonLines.length} add-on line(s) included.` : ''}`,
+      ...(zeroDue ? zeroDuePaymentFields(paidAt) : {}),
     })
     .select()
     .single();
@@ -742,6 +786,31 @@ async function processOrgRenewal(tenantId, orgId, simResult, mode, createInvoice
       return;
     }
     throw new Error(`Failed to create history record: ${insertError.message}`);
+  }
+
+  if (zeroDue) {
+    await fireNewZeroDueMembershipPaidWorkflow({
+      table: 'organisation_membership_history',
+      row: record,
+      paidAt,
+      source: 'cron_org_membership_zero_due',
+    });
+
+    results.processed++;
+    results.details.push({
+      tenantId,
+      orgId,
+      orgName: org.name,
+      mode,
+      action: 'renewed_zero_due',
+      status: 'processed',
+      membershipYear: membershipYear.label,
+      yearNumber,
+      goLiveDate: goLiveDate || null,
+      finalCost,
+      xeroInvoice: null,
+    });
+    return;
   }
 
   let xeroInvoice = null;
@@ -947,7 +1016,7 @@ async function processTenantMemberRenewals(tenantId, results) {
 
   const { data: invoicingRows, error: invError } = await supabase
     .from('member_membership_invoicing')
-    .select('*')
+    .select('member_id, invoicing_mode, membership_year, invoice_date')
     .eq('tenant_id', tenantId)
     .in('invoicing_mode', ['automatic', 'scheduled']);
 
@@ -1020,11 +1089,7 @@ async function processTenantMemberRenewals(tenantId, results) {
           await processMemberRenewal(tenantId, memberId, simResult, mode, invoiceDue, results);
         } else if (simResult.existingRecord && !simResult.existingRecord.xero_invoice_id) {
           const invoiceDue = isInvoiceDateReached(invoicingSetting, today);
-          if (invoiceDue) {
-            await invoiceExistingMemberRecord(tenantId, memberId, simResult, results);
-          } else {
-            results.skipped++;
-          }
+          await invoiceExistingMemberRecord(tenantId, memberId, simResult, results, invoiceDue);
         } else {
           results.skipped++;
           results.details.push({ tenantId, memberId, mode, type: 'member', status: 'skipped', reason: `Record for ${membershipYear.label} already exists with invoice` });
@@ -1116,16 +1181,21 @@ async function processMemberRenewal(tenantId, memberId, simResult, mode, createI
   const customDiscountTotal = simResult.customDiscountTotal || 0;
   const customDiscountDetails = simResult.customDiscountDetails || [];
 
+  const zeroDue = isZeroDueMembership(simResult);
+  const paidAt = zeroDue ? new Date().toISOString() : null;
+
   let poNumber = null;
   try {
-    const { data: invoicingSetting } = await supabase
-      .from('member_membership_invoicing')
-      .select('purchase_order_number')
-      .eq('tenant_id', tenantId)
-      .eq('member_id', memberId)
-      .eq('membership_year', membershipYear.label)
-      .maybeSingle();
-    poNumber = invoicingSetting?.purchase_order_number || null;
+    if (!zeroDue) {
+      const { data: invoicingSetting } = await supabase
+        .from('member_membership_invoicing')
+        .select('purchase_order_number')
+        .eq('tenant_id', tenantId)
+        .eq('member_id', memberId)
+        .eq('membership_year', membershipYear.label)
+        .maybeSingle();
+      poNumber = invoicingSetting?.purchase_order_number || null;
+    }
   } catch (poErr) {
     console.log(`[cron/process-membership-renewals] Could not fetch PO for member ${memberId} (non-fatal):`, poErr.message);
   }
@@ -1160,6 +1230,7 @@ async function processMemberRenewal(tenantId, memberId, simResult, mode, createI
       override_type: simResult.overrideType || null,
       status: 'active',
       notes: `${mode === 'automatic' ? 'Automatic' : 'Scheduled'} renewal via cron job (year ${yearNumber}, member: ${memberName})`,
+      ...(zeroDue ? zeroDuePaymentFields(paidAt) : {}),
     })
     .select()
     .single();
@@ -1180,6 +1251,32 @@ async function processMemberRenewal(tenantId, memberId, simResult, mode, createI
       return;
     }
     throw new Error(`Failed to create member history record: ${insertError.message}`);
+  }
+
+  if (zeroDue) {
+    await fireNewZeroDueMembershipPaidWorkflow({
+      table: 'member_membership_history',
+      row: record,
+      paidAt,
+      source: 'cron_member_membership_zero_due',
+    });
+
+    results.processed++;
+    results.details.push({
+      tenantId,
+      memberId,
+      memberName,
+      mode,
+      type: 'member',
+      action: 'renewed_zero_due',
+      status: 'processed',
+      membershipYear: membershipYear.label,
+      yearNumber,
+      goLiveDate: goLiveDate || null,
+      finalCost,
+      xeroInvoice: null,
+    });
+    return;
   }
 
   let xeroInvoice = null;
@@ -1288,7 +1385,7 @@ async function processMemberRenewal(tenantId, memberId, simResult, mode, createI
   console.log(`[cron/process-membership-renewals] Renewed member: ${memberName} for ${membershipYear.label} (year ${yearNumber}), cost: ${finalCost.toFixed(2)}, free: ${freeDiscount.toFixed(2)}, rollover: ${rolloverDiscount.toFixed(2)}, invoice: ${createInvoice ? (xeroInvoice?.invoice_number || 'failed') : 'deferred'}`);
 }
 
-async function invoiceExistingMemberRecord(tenantId, memberId, simResult, results) {
+async function invoiceExistingMemberRecord(tenantId, memberId, simResult, results, invoiceDue = true) {
   const existingRecord = simResult.existingRecord;
   if (!existingRecord) return;
 
@@ -1304,6 +1401,23 @@ async function invoiceExistingMemberRecord(tenantId, memberId, simResult, result
     .single();
 
   if (!record) return;
+
+  if (record.payment_status === 'paid' && !record.xero_invoice_id && !record.accounting_invoice_id
+    && isZeroDueExistingMembership(record)) {
+    await fireNewZeroDueMembershipPaidWorkflow({
+      table: 'member_membership_history',
+      row: record,
+      paidAt: record.paid_at,
+      source: 'cron_member_membership_zero_due',
+    });
+    results.processed++;
+    results.details.push({ tenantId, memberId, type: 'member', status: 'processed', action: 'zero_due_workflow_delivery_retried', membershipYear: record.membership_year });
+    return;
+  }
+  if (!invoiceDue) {
+    results.skipped++;
+    return;
+  }
 
   // Task #3633: per-instalment monthly plan rows never get an annual invoice.
   try {

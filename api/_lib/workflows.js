@@ -11,6 +11,12 @@ import { coerceBooleanPreferenceValue } from './booleanCoercion.js';
 import { getTenantBaseUrl } from './campaignService.js';
 import { hasSetPasswordToken } from './passwordSetupUrl.js';
 import { isProtectedOrgBalanceField } from './protectedOrgFields.js';
+import {
+  fireNewZeroDueMembershipPaidWorkflow,
+  isZeroDueExistingMembership,
+  isZeroDueMembership,
+  zeroDuePaymentFields,
+} from './zeroDueMembership.js';
 
 // Task #3253 — when a workflow fires from a background/webhook path with no
 // request context (empty baseUrl) but the email template contains special
@@ -1402,8 +1408,19 @@ async function executeWorkflowActions(workflow, entityType, entityId, entityData
       const contractResult = await executeCreateContractAction(action, workflow, entityType, entityId, entityData, baseUrl, context);
       results.push(contractResult);
     } else if (action.type === 'create_membership') {
-      const membershipResult = await executeCreateMembershipAction(action, workflow, entityType, entityId, entityData);
-      results.push(membershipResult);
+      // A zero-due membership fires the paid transition immediately after its
+      // durable insert. Do not let that nested paid event invoke another
+      // create-membership action; other actions on the paid workflow still run.
+      if (typeof context?.source === 'string' && context.source.endsWith('_zero_due')) {
+        results.push({
+          action_type: 'create_membership',
+          status: 'skipped',
+          message: 'Membership creation skipped for the zero-due paid transition',
+        });
+      } else {
+        const membershipResult = await executeCreateMembershipAction(action, workflow, entityType, entityId, entityData);
+        results.push(membershipResult);
+      }
     }
   }
   
@@ -1715,7 +1732,7 @@ async function executeCreateMembershipAction(action, workflow, entityType, entit
     const targetYearLabel = simResult.membershipYear.label;
     const { data: invoicingSetting } = await supabase
       .from('organisation_membership_invoicing')
-      .select('invoicing_mode, invoice_date, purchase_order_number')
+      .select('id, invoicing_mode, invoice_date')
       .eq('tenant_id', tenantId)
       .eq('organization_id', organizationId)
       .eq('membership_year', targetYearLabel)
@@ -1725,7 +1742,7 @@ async function executeCreateMembershipAction(action, workflow, entityType, entit
     if (!invoicingSetting) {
       const { data: legacySetting } = await supabase
         .from('organisation_membership_invoicing')
-        .select('invoicing_mode, invoice_date, purchase_order_number')
+        .select('id, invoicing_mode, invoice_date')
         .eq('tenant_id', tenantId)
         .eq('organization_id', organizationId)
         .is('membership_year', null)
@@ -1796,14 +1813,51 @@ async function executeCreateMembershipAction(action, workflow, entityType, entit
       console.error(`[Workflows] Fee approval check failed for org ${organizationId}:`, approvalErr.message);
     }
 
-    if (simResult.existingRecord) {
-      console.log(`[Workflows] Membership record for ${targetYearLabel} already exists for org ${organizationId}`);
-      return { action_type: 'create_membership', status: 'skipped', message: `Membership record for ${targetYearLabel} already exists` };
-    }
-
     const vatRate = simResult.matchedBand?.vat_rate !== null && simResult.matchedBand?.vat_rate !== undefined
       ? parseFloat(simResult.matchedBand.vat_rate)
       : null;
+
+    // Add-on lines stored at fee-approval time are part of the amount due.
+    // Load them before deciding that an otherwise-free membership is settled.
+    let addonLines = [];
+    let addonTotals = null;
+    try {
+      const { loadAddonLines, computeAddonTotals } = await import('./membershipAddons.js');
+      addonLines = await loadAddonLines(tenantId, organizationId, targetYearLabel);
+      addonTotals = computeAddonTotals(addonLines);
+    } catch (addonErr) {
+      console.error(`[Workflows] Failed to load add-on lines for org ${organizationId} (non-fatal):`, addonErr.message);
+    }
+
+    const zeroDue = isZeroDueMembership(simResult, addonTotals);
+    const paidAt = zeroDue ? new Date().toISOString() : null;
+
+    if (simResult.existingRecord) {
+      const { data: existingRow, error: existingRowError } = await supabase
+        .from('organisation_membership_history')
+        .select('*')
+        .eq('id', simResult.existingRecord.id)
+        .maybeSingle();
+      if (existingRowError) throw existingRowError;
+      if (existingRow?.payment_status === 'paid' && isZeroDueExistingMembership(existingRow)) {
+        const paidWorkflow = await fireNewZeroDueMembershipPaidWorkflow({
+          table: 'organisation_membership_history',
+          row: existingRow,
+          paidAt: existingRow.paid_at,
+          source: 'workflow_org_membership_zero_due',
+        });
+        return {
+          action_type: 'create_membership',
+          status: 'success',
+          settled: true,
+          already_processed: true,
+          paid_workflow_fired: paidWorkflow?.fired === true,
+          membership_id: existingRow.id,
+        };
+      }
+      console.log(`[Workflows] Membership record for ${targetYearLabel} already exists for org ${organizationId}`);
+      return { action_type: 'create_membership', status: 'skipped', message: `Membership record for ${targetYearLabel} already exists` };
+    }
 
     const record = {
       tenant_id: tenantId,
@@ -1832,29 +1886,25 @@ async function executeCreateMembershipAction(action, workflow, entityType, entit
       override_type: simResult.overrideType || null,
       status: 'active',
       notes: `Created by workflow "${workflow.name}" (year ${simResult.yearNumber})`,
+      ...(zeroDue ? zeroDuePaymentFields(paidAt) : {}),
     };
 
     if (vatRate !== null) {
       record.vat_rate = vatRate;
     }
 
-    // PO number stored at fee-approval time — echoed on the invoice
-    // reference and the history row, matching the manual/cron paths.
-    const poNumber = invoicingSetting?.purchase_order_number
-      || fallbackSetting?.purchase_order_number || null;
-    record.purchase_order_number = poNumber;
-
-    // Add-on lines stored at fee-approval time — appended to the invoice as
-    // extra line items only (same as the manual "Renew & Invoice Now" path:
-    // the invoice is created immediately, so nothing is deferred to
-    // invoiceExistingRecord and the stored membership cost fields keep the
-    // pure membership fee).
-    let addonLines = [];
-    try {
-      const { loadAddonLines } = await import('./membershipAddons.js');
-      addonLines = await loadAddonLines(tenantId, organizationId, targetYearLabel);
-    } catch (addonErr) {
-      console.error(`[Workflows] Failed to load add-on lines for org ${organizationId} (non-fatal):`, addonErr.message);
+    // A PO is provider metadata, so avoid reading it entirely for zero-due
+    // rows. Positive paths retain the same stored reference behaviour.
+    let poNumber = null;
+    const effectiveInvoicingSetting = invoicingSetting || fallbackSetting;
+    if (!zeroDue && effectiveInvoicingSetting?.id) {
+      const { data: poSetting } = await supabase
+        .from('organisation_membership_invoicing')
+        .select('purchase_order_number')
+        .eq('id', effectiveInvoicingSetting.id)
+        .maybeSingle();
+      poNumber = poSetting?.purchase_order_number || null;
+      record.purchase_order_number = poNumber;
     }
     if (addonLines.length > 0) {
       record.notes += `. ${addonLines.length} add-on line(s) invoiced.`;
@@ -1872,6 +1922,38 @@ async function executeCreateMembershipAction(action, workflow, entityType, entit
     }
 
     console.log(`[Workflows] Created membership record ${inserted.id} for org ${simResult.org.name} - tier: ${simResult.tierLabel}, final cost: ${simResult.finalCost}, year: ${simResult.membershipYear.label} (year number ${simResult.yearNumber})`);
+
+    if (zeroDue) {
+      // Reloading in the helper proves the paid state is durable. This call is
+      // only reachable after a successful new insert, so the paid event fires
+      // once and never for duplicate/failed inserts.
+      const paidWorkflow = await fireNewZeroDueMembershipPaidWorkflow({
+        table: 'organisation_membership_history',
+        row: inserted,
+        paidAt,
+        source: 'workflow_org_membership_zero_due',
+      });
+      return {
+        action_type: 'create_membership',
+        status: 'success',
+        settled: true,
+        payment_status: 'paid',
+        paid_at: paidAt,
+        paid_workflow_fired: paidWorkflow?.fired === true,
+        membership_id: inserted.id,
+        organization_id: organizationId,
+        organization_name: simResult.org.name,
+        tier_label: simResult.tierLabel,
+        annual_cost: simResult.annualCost,
+        final_cost: simResult.finalCost,
+        membership_year: targetYearLabel,
+        year_number: simResult.yearNumber,
+        free_period_discount: simResult.freeDiscount,
+        rollover_discount: simResult.rolloverDiscount,
+        custom_discount_total: simResult.customDiscountTotal,
+        prorata_cost: simResult.prorataCost,
+      };
+    }
 
     // Accounting invoice — same shared pieces as the manual "Renew &
     // Invoice Now" and cron org paths: provider facade, invoice address,
@@ -2135,8 +2217,37 @@ async function executeCreateMemberMembership(action, workflow, memberId) {
       console.error(`[Workflows] Member fee approval check failed for ${memberId}:`, approvalErr.message);
     }
 
-    // Duplicate-year guard.
+    const zeroDue = isZeroDueMembership(simResult);
+    // Generate once and use the exact same timestamp in both the durable row
+    // and paid-transition payload.
+    const paidAt = zeroDue ? new Date().toISOString() : null;
+
+    // Duplicate-year guard. A prior zero-due insert may be retrying only its
+    // deterministic paid-workflow delivery.
     if (simResult.existingRecord) {
+      const { data: existingRow, error: existingRowError } = await supabase
+        .from('member_membership_history')
+        .select('*')
+        .eq('id', simResult.existingRecord.id)
+        .maybeSingle();
+      if (existingRowError) throw existingRowError;
+      if (existingRow?.payment_status === 'paid' && isZeroDueExistingMembership(existingRow)) {
+        const paidWorkflow = await fireNewZeroDueMembershipPaidWorkflow({
+          table: 'member_membership_history',
+          row: existingRow,
+          paidAt: existingRow.paid_at,
+          source: 'workflow_member_membership_zero_due',
+        });
+        return {
+          action_type: 'create_membership',
+          status: 'success',
+          settled: true,
+          already_processed: true,
+          paid_workflow_fired: paidWorkflow?.fired === true,
+          target: 'member',
+          membership_id: existingRow.id,
+        };
+      }
       return {
         action_type: 'create_membership',
         status: 'skipped',
@@ -2175,6 +2286,7 @@ async function executeCreateMemberMembership(action, workflow, memberId) {
         override_type: simResult.overrideType || null,
         status: 'active',
         notes: `Created by workflow "${workflow.name}" (year ${simResult.yearNumber})`,
+        ...(zeroDue ? zeroDuePaymentFields(paidAt) : {}),
       })
       .select()
       .single();
@@ -2190,6 +2302,39 @@ async function executeCreateMemberMembership(action, workflow, memberId) {
       }
       console.error('[Workflows] Error creating member membership record:', insertError);
       return { action_type: 'create_membership', status: 'failed', target: 'member', error: insertError.message };
+    }
+
+    if (zeroDue) {
+      // Zero rows need no accounting invoice, fee token/email, retry flag, or
+      // provider metadata. Fire the paid workflow only for this successful new
+      // durable insert.
+      const paidWorkflow = await fireNewZeroDueMembershipPaidWorkflow({
+        table: 'member_membership_history',
+        row: record,
+        paidAt,
+        source: 'workflow_member_membership_zero_due',
+      });
+      return {
+        action_type: 'create_membership',
+        status: 'success',
+        settled: true,
+        payment_status: 'paid',
+        paid_at: paidAt,
+        paid_workflow_fired: paidWorkflow?.fired === true,
+        target: 'member',
+        membership_id: record.id,
+        member_id: memberId,
+        member_name: memberName,
+        tier_label: simResult.tierLabel,
+        annual_cost: simResult.annualCost,
+        final_cost: simResult.finalCost,
+        membership_year: targetYearLabel,
+        year_number: simResult.yearNumber,
+        invoice_number: null,
+        invoice_error: null,
+        payment_link_sent_to: null,
+        payment_link_error: null,
+      };
     }
 
     // Accounting invoice — shared provider facade, renewal-cron member

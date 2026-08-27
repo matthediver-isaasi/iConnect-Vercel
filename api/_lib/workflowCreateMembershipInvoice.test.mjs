@@ -39,6 +39,31 @@ test('org path raises the accounting invoice after inserting the record', () => 
   assert.match(linkScope, /organisation_membership_history/);
 });
 
+test('zero-due org memberships include approved add-ons and settle before provider work', () => {
+  const zeroAt = orgFn.indexOf('const zeroDue = isZeroDueMembership(simResult, addonTotals)');
+  const paidFieldsAt = orgFn.indexOf('zeroDuePaymentFields(paidAt)');
+  const fireAt = orgFn.indexOf('fireNewZeroDueMembershipPaidWorkflow({', insertAt);
+  const providerAt = orgFn.indexOf('provider.createMembershipInvoice');
+  assert.ok(zeroAt > -1, 'org zero decision must use add-on totals');
+  assert.match(orgFn.slice(0, zeroAt), /computeAddonTotals\(addonLines\)/);
+  assert.ok(paidFieldsAt > zeroAt && paidFieldsAt < insertAt,
+    'paid fields must be included in the initial durable insert');
+  assert.ok(fireAt > insertAt && fireAt < providerAt,
+    'paid workflow fires after insert and zero return bypasses provider work');
+  assert.match(orgFn.slice(fireAt, providerAt), /settled: true/);
+  assert.match(orgFn.slice(fireAt, providerAt), /payment_status: 'paid'/);
+});
+
+test('zero-due org path bypasses PO metadata reads and invoice side effects', () => {
+  assert.doesNotMatch(orgFn.slice(0, orgFn.indexOf('if (!zeroDue')),
+    /\.select\('purchase_order_number'\)/);
+  const zeroBranch = orgFn.slice(
+    orgFn.indexOf('if (zeroDue)'),
+    orgFn.indexOf('// Accounting invoice'),
+  );
+  assert.doesNotMatch(zeroBranch, /createMembershipInvoice|processTrainingFundAddons|sendMembershipInvoiceEmail|accounting_sync_status/);
+});
+
 test('org invoice carries fee-approval add-on lines and runs training-fund processing', () => {
   const invoiceBlock = orgFn.slice(insertAt);
   assert.match(orgFn, /loadAddonLines\(tenantId, organizationId, targetYearLabel\)/);
@@ -119,6 +144,25 @@ test('member-driven path is untouched: still invoices and links member history',
   const memberScope = memberFn.slice(0, memberFn.indexOf('async function', 100) > -1 ? memberFn.indexOf('\nasync function ', 100) : memberFn.length);
   assert.match(memberScope, /provider\.createMembershipInvoice/);
   assert.match(memberScope, /member_membership_history/);
+});
+
+test('zero-due member memberships settle durably and bypass invoice/token/email work', () => {
+  const memberFn = src.slice(orgFnEnd);
+  const insertAt = memberFn.indexOf(".from('member_membership_history')\n      .insert({");
+  const fireAt = memberFn.indexOf('fireNewZeroDueMembershipPaidWorkflow({', insertAt);
+  const providerAt = memberFn.indexOf('provider.createMembershipInvoice');
+  const tokenAt = memberFn.indexOf('sendMembershipFeeTokenEmail');
+  assert.match(memberFn.slice(0, insertAt), /const paidAt = zeroDue \? new Date\(\)\.toISOString\(\) : null/);
+  assert.match(memberFn.slice(insertAt, fireAt), /zeroDuePaymentFields\(paidAt\)/);
+  assert.ok(fireAt > insertAt && fireAt < providerAt && fireAt < tokenAt);
+  assert.match(memberFn.slice(fireAt, providerAt), /settled: true/);
+});
+
+test('all zero-due paid transition sources cannot recursively create a membership', () => {
+  const dispatchAt = src.indexOf("} else if (action.type === 'create_membership') {");
+  const dispatch = src.slice(dispatchAt, src.indexOf('\n    }', dispatchAt) + 6);
+  assert.match(dispatch, /context\.source\.endsWith\('_zero_due'\)/);
+  assert.match(dispatch, /status: 'skipped'/);
 });
 
 test('member workflow invoice is protected by the centralized membership reference contract', () => {

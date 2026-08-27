@@ -6,6 +6,14 @@ import { resolveMembershipNominalCode } from '../_lib/membershipNominalCode.js';
 import { buildInvoiceColumnUpdate } from '../_lib/accountingProvider.js';
 import { resolveDdOffer } from '../_lib/gocardlessDirectDebit.js';
 import { getGocardlessCredentials } from '../_lib/gocardlessCredentials.js';
+import { buildExtraLineItems, computeAddonTotals, loadAddonLines } from '../_lib/membershipAddons.js';
+import {
+  fireNewZeroDueMembershipPaidWorkflow,
+  getMembershipGrandTotal,
+  isZeroDueExistingMembership,
+  isZeroDueMembership,
+  zeroDuePaymentFields,
+} from '../_lib/zeroDueMembership.js';
 
 export default async function handler(req, res) {
   if (!supabase) {
@@ -111,8 +119,12 @@ function buildCostResponse(existingRecord, simResult) {
     tierLabel = existingRecord.tier_label || simResult.tierLabel;
 
     vatRatePercent = simResult.vatRatePercent || null;
-    vatAmount = vatRatePercent ? parseFloat((finalCost * vatRatePercent / 100).toFixed(2)) : 0;
-    totalWithVat = parseFloat((finalCost + vatAmount).toFixed(2));
+    vatAmount = existingRecord.vat_amount != null
+      ? parseFloat(existingRecord.vat_amount)
+      : vatRatePercent ? parseFloat((finalCost * vatRatePercent / 100).toFixed(2)) : 0;
+    totalWithVat = existingRecord.total_with_vat != null
+      ? parseFloat(existingRecord.total_with_vat)
+      : parseFloat((finalCost + vatAmount).toFixed(2));
 
     costBreakdown = {
       annualCostBeforeDiscounts: recCustomTotal > 0 ? parseFloat((recAnnual + recCustomTotal).toFixed(2)) : recAnnual,
@@ -195,6 +207,8 @@ async function handleGet(req, res, resolvedTenantId) {
   if (!simResult.success) {
     return res.status(400).json({ error: simResult.error || 'Could not calculate membership fees' });
   }
+  const addonLines = isMemberScoped ? [] : await loadAddonLines(tenantId, organizationId, simResult.membershipYear?.label);
+  const addonTotals = computeAddonTotals(addonLines);
 
   const historyTable = isMemberScoped ? 'member_membership_history' : 'organisation_membership_history';
   const historyIdCol = isMemberScoped ? 'member_id' : 'organization_id';
@@ -202,16 +216,21 @@ async function handleGet(req, res, resolvedTenantId) {
 
   const { data: existingRecord } = await supabase
     .from(historyTable)
-    .select('id, status, payment_method, stripe_payment_intent_id, annual_cost, prorata_cost, free_period_discount, rollover_discount, custom_discount_total, custom_discount_details, final_cost, tier_label, field_value, currency, billing_period')
+    .select('id, status, payment_method, stripe_payment_intent_id, annual_cost, prorata_cost, free_period_discount, rollover_discount, custom_discount_total, custom_discount_details, final_cost, vat_amount, total_with_vat, tier_label, field_value, currency, billing_period')
     .eq('tenant_id', tenantId)
     .eq(historyIdCol, historyIdVal)
     .eq('membership_year', simResult.membershipYear?.label)
     .maybeSingle();
 
-  const tierHasOnlineCardPayment = !!simResult.config?.online_card_payment;
-  const stripePublishableKey = tierHasOnlineCardPayment ? await getStripePublishableKey(tenantId) : null;
   const approvalInfo = await checkApproval(tenantId, member.id, organizationId, simResult.membershipYear?.label);
-  const { finalCost, currency, tierLabel, costBreakdown, vatRatePercent, vatAmount, totalWithVat } = buildCostResponse(existingRecord, simResult);
+  const costs = buildCostResponse(existingRecord, simResult);
+  const payableCosts = !isMemberScoped && !existingRecord ? withAddonTotals(costs, addonTotals) : costs;
+  const { finalCost, currency, tierLabel, costBreakdown, vatRatePercent, vatAmount, totalWithVat } = payableCosts;
+  const zeroDue = existingRecord
+    ? isZeroDueExistingMembership(existingRecord)
+    : isZeroDueMembership(simResult, addonTotals);
+  const tierHasOnlineCardPayment = !!simResult.config?.online_card_payment;
+  const stripePublishableKey = !zeroDue && tierHasOnlineCardPayment ? await getStripePublishableKey(tenantId) : null;
 
   let entityName;
   if (isMemberScoped) {
@@ -238,8 +257,8 @@ async function handleGet(req, res, resolvedTenantId) {
     costBreakdown,
     stripeEnabled: !!stripePublishableKey,
     stripePublishableKey,
-    directDebit: await resolveDirectDebitOption(isMemberScoped, tenantId, simResult),
-    cardMonthly: await resolveCardMonthlyOption(isMemberScoped, tenantId, simResult),
+    directDebit: zeroDue ? null : await resolveDirectDebitOption(isMemberScoped, tenantId, simResult),
+    cardMonthly: zeroDue ? null : await resolveCardMonthlyOption(isMemberScoped, tenantId, simResult),
     existingRecord: existingRecord ? {
       id: existingRecord.id,
       status: existingRecord.status,
@@ -327,14 +346,32 @@ async function handlePost(req, res, resolvedTenantId) {
     if (!simResult.success) {
       return res.status(400).json({ error: simResult.error || 'Could not calculate fees' });
     }
+    const addonLines = isMemberScoped ? [] : await loadAddonLines(tenantId, organizationId, simResult.membershipYear?.label);
+    const addonTotals = computeAddonTotals(addonLines);
 
     if (simResult.existingRecord) {
-      return res.status(400).json({ error: 'A membership record already exists for this period' });
+      return settleExistingFormZeroDueMembership({
+        req, res, tenantId, member, organizationId, isMemberScoped,
+        membershipYear: simResult.membershipYear?.label,
+      });
     }
 
     const approvalStatus = await checkApproval(tenantId, member.id, organizationId, simResult.membershipYear?.label);
     if (approvalStatus.blocked) {
       return res.status(400).json({ error: approvalStatus.message });
+    }
+
+    if (isZeroDueMembership(simResult, addonTotals)) {
+      return settleFormZeroDueMembership({
+        req,
+        res,
+        simResult,
+        tenantId,
+        member,
+        organizationId,
+        isMemberScoped,
+        addonTotals,
+      });
     }
 
     // Double-payment guard (provider-independent): an open monthly plan
@@ -365,7 +402,9 @@ async function handlePost(req, res, resolvedTenantId) {
     }
 
     const stripe = new Stripe(stripeCredentials.secret_key);
-    const chargeAmount = simResult.totalWithVat || simResult.finalCost;
+    const chargeAmount = isMemberScoped
+      ? (simResult.totalWithVat || simResult.finalCost)
+      : getMembershipGrandTotal(simResult, addonTotals);
     const amount = Math.round(chargeAmount * 100);
     const currency = (simResult.currency || 'GBP').toLowerCase();
     const minCents = STRIPE_MIN_CENTS[currency] || 50;
@@ -407,8 +446,8 @@ async function handlePost(req, res, resolvedTenantId) {
       clientSecret: paymentIntent.client_secret,
       paymentIntentId: paymentIntent.id,
       amount: chargeAmount,
-      netAmount: simResult.finalCost,
-      vatAmount: simResult.vatAmount || 0,
+      netAmount: isMemberScoped ? simResult.finalCost : Math.round(((Number(simResult.finalCost) || 0) + addonTotals.subtotal) * 100) / 100,
+      vatAmount: isMemberScoped ? (simResult.vatAmount || 0) : Math.round(((Number(simResult.vatAmount) || 0) + addonTotals.vat) * 100) / 100,
       vatRatePercent: simResult.vatRatePercent || null,
       currency: simResult.currency || 'GBP',
       membershipYear: simResult.membershipYear?.label,
@@ -493,8 +532,12 @@ async function handlePost(req, res, resolvedTenantId) {
     if (!simResult.success) {
       return confirmFailure(`simulation failed during confirm: ${simResult.error || 'unknown'}`, { simSteps: simResult.steps });
     }
+    const addonLines = isMemberScoped ? [] : await loadAddonLines(tenantId, organizationId, simResult.membershipYear?.label);
+    const addonTotals = computeAddonTotals(addonLines);
 
-    const confirmChargeTotal = simResult.totalWithVat || simResult.finalCost;
+    const confirmChargeTotal = isMemberScoped
+      ? (simResult.totalWithVat || simResult.finalCost)
+      : getMembershipGrandTotal(simResult, addonTotals);
     const expectedAmount = Math.round(confirmChargeTotal * 100);
     if (paymentIntent.amount !== expectedAmount) {
       return confirmFailure(`amount mismatch: expected ${expectedAmount}, PI charged ${paymentIntent.amount}`);
@@ -531,13 +574,13 @@ async function handlePost(req, res, resolvedTenantId) {
         rollover_discount: simResult.rolloverDiscount || 0,
         custom_discount_total: simResult.customDiscountTotal || 0,
         custom_discount_details: simResult.customDiscountDetails?.length > 0 ? simResult.customDiscountDetails : null,
-        final_cost: simResult.finalCost,
+        final_cost: !isMemberScoped ? Math.round(((Number(simResult.finalCost) || 0) + addonTotals.subtotal) * 100) / 100 : simResult.finalCost,
         currency: simResult.currency || 'GBP',
         billing_period: simResult.billingPeriod || 'annual',
         purchase_order_number: invoicingSetting?.purchase_order_number || null,
         vat_rate_percent: simResult.vatRatePercent || null,
-        vat_amount: simResult.vatAmount || 0,
-        total_with_vat: simResult.totalWithVat || simResult.finalCost,
+        vat_amount: !isMemberScoped ? Math.round(((Number(simResult.vatAmount) || 0) + addonTotals.vat) * 100) / 100 : simResult.vatAmount || 0,
+        total_with_vat: !isMemberScoped ? confirmChargeTotal : simResult.totalWithVat || simResult.finalCost,
         year_number: simResult.yearNumber || null,
         prorata_days: simResult.prorataDays || null,
         free_period_days_applied: simResult.freePeriodDaysApplied || 0,
@@ -618,6 +661,7 @@ async function handlePost(req, res, resolvedTenantId) {
           markAsPaid: true,
           stripePaymentIntentId: paymentIntentId,
           invoiceDescription: simResult.config?.invoice_description || null,
+          ...(isMemberScoped ? {} : { extraLineItems: buildExtraLineItems(addonLines) }),
         });
         if (xeroInvoice && xeroInvoice.invoice_id) {
           try {
@@ -719,4 +763,141 @@ async function handlePost(req, res, resolvedTenantId) {
   }
 
   return res.status(400).json({ error: 'Unknown action' });
+}
+
+async function settleFormZeroDueMembership({
+  req,
+  res,
+  simResult,
+  tenantId,
+  member,
+  organizationId,
+  isMemberScoped,
+  addonTotals,
+}) {
+  const table = isMemberScoped ? 'member_membership_history' : 'organisation_membership_history';
+  const idColumn = isMemberScoped ? 'member_id' : 'organization_id';
+  const idValue = isMemberScoped ? member.id : organizationId;
+  const membershipYear = simResult.membershipYear?.label;
+  const paidAt = new Date().toISOString();
+  const insertData = {
+    tenant_id: tenantId,
+    [idColumn]: idValue,
+    membership_year: membershipYear,
+    config_id: simResult.config?.id || null,
+    band_id: simResult.matchedBand?.id || null,
+    tier_label: simResult.tierLabel,
+    field_value: simResult.fieldValue,
+    annual_cost: simResult.annualCost,
+    prorata_cost: simResult.prorataCost,
+    free_period_discount: simResult.freeDiscount || 0,
+    rollover_discount: simResult.rolloverDiscount || 0,
+    custom_discount_total: simResult.customDiscountTotal || 0,
+    custom_discount_details: simResult.customDiscountDetails?.length > 0 ? simResult.customDiscountDetails : null,
+    final_cost: !isMemberScoped ? Math.round(((Number(simResult.finalCost) || 0) + addonTotals.subtotal) * 100) / 100 : simResult.finalCost,
+    currency: simResult.currency || 'GBP',
+    billing_period: simResult.billingPeriod || 'annual',
+    purchase_order_number: null,
+    vat_rate_percent: simResult.vatRatePercent || null,
+    vat_amount: !isMemberScoped ? Math.round(((Number(simResult.vatAmount) || 0) + addonTotals.vat) * 100) / 100 : simResult.vatAmount || 0,
+    total_with_vat: !isMemberScoped ? getMembershipGrandTotal(simResult, addonTotals) : simResult.totalWithVat ?? simResult.finalCost,
+    year_number: simResult.yearNumber || null,
+    prorata_days: simResult.prorataDays || null,
+    free_period_days_applied: simResult.freePeriodDaysApplied || 0,
+    override_applied: simResult.overrideApplied || false,
+    override_type: simResult.overrideType || null,
+    status: 'active',
+    notes: 'Membership activated with no payment due.',
+    ...zeroDuePaymentFields(paidAt),
+  };
+
+  const { data: insertedRow, error: insertError } = await supabase
+    .from(table)
+    .insert(insertData)
+    .select('*')
+    .single();
+
+  if (insertError) {
+    if (insertError.code === '23505') {
+      return settleExistingFormZeroDueMembership({
+        req, res, tenantId, member, organizationId, isMemberScoped, membershipYear,
+      });
+    }
+    console.error('[FormPayment] Could not create zero-due membership history:', insertError.message);
+    return res.status(500).json({ error: 'Could not activate the zero-due membership' });
+  }
+
+  if (!await deliverFormZeroDueWorkflow(req, res, table, insertedRow, paidAt)) {
+    return;
+  }
+
+  return res.json({
+    success: true,
+    zeroDue: true,
+    recordCreated: true,
+    historyRecordId: insertedRow.id,
+    amount: 0,
+    membershipYear,
+    message: 'Membership activated successfully; no payment was required',
+  });
+}
+
+async function settleExistingFormZeroDueMembership({
+  req, res, tenantId, member, organizationId, isMemberScoped, membershipYear,
+}) {
+  const table = isMemberScoped ? 'member_membership_history' : 'organisation_membership_history';
+  const idColumn = isMemberScoped ? 'member_id' : 'organization_id';
+  const idValue = isMemberScoped ? member.id : organizationId;
+  const { data: existingRow, error } = await supabase
+    .from(table)
+    .select('id, payment_status, paid_at, total_with_vat, member_id, organization_id')
+    .eq('tenant_id', tenantId)
+    .eq(idColumn, idValue)
+    .eq('membership_year', membershipYear)
+    .maybeSingle();
+  if (error) {
+    console.error('[FormPayment] Could not reload existing zero-due membership:', error.message);
+    return res.status(500).json({ error: 'Could not confirm the existing zero-due membership record', retryable: true });
+  }
+  if (
+    !existingRow
+    || existingRow.payment_status !== 'paid'
+    || !isZeroDueExistingMembership(existingRow)
+  ) {
+    return res.status(400).json({ error: 'A membership record already exists for this period' });
+  }
+  if (!await deliverFormZeroDueWorkflow(req, res, table, existingRow, existingRow.paid_at)) return;
+  return res.json({
+    success: true, zeroDue: true, already_processed: true, recordCreated: true,
+    historyRecordId: existingRow.id, amount: 0, membershipYear,
+    message: 'Membership was already activated with no payment required',
+  });
+}
+
+async function deliverFormZeroDueWorkflow(req, res, table, row, paidAt) {
+  try {
+    const baseUrl = req.headers.host
+      ? `${req.headers['x-forwarded-proto'] || 'https'}://${req.headers.host}`
+      : '';
+    await fireNewZeroDueMembershipPaidWorkflow({
+      table, row, paidAt, baseUrl, source: 'form_membership_zero_due',
+    });
+    return true;
+  } catch (workflowError) {
+    console.error('[FormPayment] Zero-due paid workflow delivery failed:', workflowError.message);
+    res.status(500).json({
+      error: 'Membership was activated, but payment confirmation delivery is pending. Please retry.',
+      retryable: true,
+    });
+    return false;
+  }
+}
+
+function withAddonTotals(costs, addonTotals) {
+  return {
+    ...costs,
+    finalCost: Math.round(((Number(costs.finalCost) || 0) + addonTotals.subtotal) * 100) / 100,
+    vatAmount: Math.round(((Number(costs.vatAmount) || 0) + addonTotals.vat) * 100) / 100,
+    totalWithVat: Math.round(((Number(costs.totalWithVat) || 0) + addonTotals.total) * 100) / 100,
+  };
 }
