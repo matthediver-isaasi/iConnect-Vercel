@@ -6,6 +6,7 @@ import {
   changeSinceDryRunReason,
   isLegacyMembershipReference,
   isUnpaidInvoice,
+  loadMembershipHistory,
   validateManifest,
   signManifest,
   processReviewedInvoice,
@@ -67,6 +68,93 @@ test('repair authentication gives reconnect guidance only when refresh fails', a
       getAccessToken: async () => { throw new Error('database unavailable'); },
     }),
     (error) => error.message === 'database unavailable',
+  );
+});
+
+test('membership history lookup uses each table owner column and keeps tenant scope', async () => {
+  const calls = [];
+  const tableRows = {
+    organisation_membership_history: [{
+      id: 'org-history',
+      tenant_id: target.id,
+      organization_id: 'org-1',
+    }],
+    member_membership_history: [{
+      id: 'member-history',
+      tenant_id: target.id,
+      member_id: 'member-1',
+    }],
+  };
+  const supabase = {
+    from(table) {
+      calls.push({ table });
+      const call = calls.at(-1);
+      const query = {
+        select(columns) {
+          call.columns = columns;
+          return query;
+        },
+        eq(column, value) {
+          call.eq = [column, value];
+          return query;
+        },
+        or(filter) {
+          call.or = filter;
+          return Promise.resolve({ data: tableRows[table], error: null });
+        },
+      };
+      return query;
+    },
+  };
+
+  const rows = await loadMembershipHistory({
+    supabase,
+    tenantId: target.id,
+    invoice,
+  });
+
+  assert.equal(calls.length, 2);
+  assert.match(calls[0].columns, /organization_id/);
+  assert.doesNotMatch(calls[0].columns, /member_id/);
+  assert.match(calls[1].columns, /member_id/);
+  assert.doesNotMatch(calls[1].columns, /organization_id/);
+  for (const call of calls) {
+    assert.deepEqual(call.eq, ['tenant_id', target.id]);
+    assert.match(call.or, /xero_invoice_id\.eq\.inv-1/);
+    assert.match(call.or, /accounting_invoice_id\.eq\.inv-1/);
+    assert.match(call.or, /xero_invoice_number\.eq\.INV-1/);
+    assert.match(call.or, /accounting_invoice_number\.eq\.INV-1/);
+  }
+  assert.deepEqual(rows, [
+    { table: 'organisation_membership_history', ...tableRows.organisation_membership_history[0] },
+    { table: 'member_membership_history', ...tableRows.member_membership_history[0] },
+  ]);
+});
+
+test('membership history lookup fails explicitly on a returned database error', async () => {
+  const supabase = {
+    from() {
+      const query = {
+        select() { return query; },
+        eq() { return query; },
+        or() {
+          return Promise.resolve({
+            data: null,
+            error: { message: 'schema unavailable' },
+          });
+        },
+      };
+      return query;
+    },
+  };
+
+  await assert.rejects(
+    loadMembershipHistory({
+      supabase,
+      tenantId: target.id,
+      invoice,
+    }),
+    /Could not link organisation_membership_history: schema unavailable/,
   );
 });
 

@@ -24,6 +24,7 @@ const {
   PROPOSED_REFERENCE,
   authenticateRepairConnection,
   buildDryRunManifest,
+  loadMembershipHistory,
   processReviewedInvoice,
   validateManifest,
 } = await import('./lib/repair-gfi-xero-references.mjs');
@@ -122,26 +123,6 @@ async function fetchInvoice(auth, invoiceId) {
   return data.Invoices?.[0] || null;
 }
 
-async function loadHistory(tenantId, invoice) {
-  const columns = 'id, tenant_id, organization_id, membership_year, status, payment_status, xero_invoice_id, xero_invoice_number, accounting_invoice_id, accounting_invoice_number';
-  const rows = [];
-  for (const table of ['organisation_membership_history', 'member_membership_history']) {
-    const filters = [
-      `xero_invoice_id.eq.${invoice.InvoiceID}`,
-      `accounting_invoice_id.eq.${invoice.InvoiceID}`,
-    ];
-    if (invoice.InvoiceNumber) {
-      filters.push(`xero_invoice_number.eq.${invoice.InvoiceNumber}`);
-      filters.push(`accounting_invoice_number.eq.${invoice.InvoiceNumber}`);
-    }
-    const { data, error } = await supabase.from(table).select(columns)
-      .eq('tenant_id', tenantId).or(filters.join(','));
-    if (error) throw new Error(`Could not link ${table}: ${error.message}`);
-    rows.push(...(data || []).map((row) => ({ table, ...row })));
-  }
-  return rows;
-}
-
 async function dryRun(tenant, auth) {
   if (manifestPath) throw new Error('--manifest is only valid with --apply');
   const invoices = await fetchAllInvoices(auth);
@@ -149,7 +130,11 @@ async function dryRun(tenant, auth) {
     tenant,
     xeroTenantId: auth.tenantId,
     invoices,
-    loadHistory: (invoice) => loadHistory(tenant.id, invoice),
+    loadHistory: (invoice) => loadMembershipHistory({
+      supabase,
+      tenantId: tenant.id,
+      invoice,
+    }),
     writeReport: (report) => writeJson('gfi-xero-reference-dry-run', report),
     signingSecret: SIGNING_SECRET,
   });

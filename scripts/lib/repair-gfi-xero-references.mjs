@@ -30,6 +30,48 @@ export async function authenticateRepairConnection({
   }
 }
 
+export async function loadMembershipHistory({
+  supabase,
+  tenantId,
+  invoice,
+}) {
+  const sharedColumns = [
+    'id',
+    'tenant_id',
+    'membership_year',
+    'status',
+    'payment_status',
+    'xero_invoice_id',
+    'xero_invoice_number',
+    'accounting_invoice_id',
+    'accounting_invoice_number',
+  ];
+  const sources = [
+    { table: 'organisation_membership_history', ownerColumn: 'organization_id' },
+    { table: 'member_membership_history', ownerColumn: 'member_id' },
+  ];
+  const filters = [
+    `xero_invoice_id.eq.${invoice.InvoiceID}`,
+    `accounting_invoice_id.eq.${invoice.InvoiceID}`,
+  ];
+  if (invoice.InvoiceNumber) {
+    filters.push(`xero_invoice_number.eq.${invoice.InvoiceNumber}`);
+    filters.push(`accounting_invoice_number.eq.${invoice.InvoiceNumber}`);
+  }
+
+  const rows = [];
+  for (const { table, ownerColumn } of sources) {
+    const { data, error } = await supabase
+      .from(table)
+      .select([...sharedColumns, ownerColumn].join(', '))
+      .eq('tenant_id', tenantId)
+      .or(filters.join(','));
+    if (error) throw new Error(`Could not link ${table}: ${error.message}`);
+    rows.push(...(data || []).map((row) => ({ table, ...row })));
+  }
+  return rows;
+}
+
 export function isLegacyMembershipReference(value) {
   if (typeof value !== 'string') return false;
   const match = value.match(/^Membership (\d{4})(?:\/(\d{2}|\d{4}))?$/);
