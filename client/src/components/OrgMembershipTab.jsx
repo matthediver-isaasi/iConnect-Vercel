@@ -36,6 +36,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
 import MemberJoinLinkSection from "@/components/MemberJoinLinkSection";
 import { useMemberTerminology } from "@/contexts/MemberTerminologyContext";
+import { getMembershipHistoryLifecycle } from "@/lib/membershipHistoryLifecycle";
 
 function PaymentStatusBadge({ paymentStatus }) {
   const status = paymentStatus || 'unpaid';
@@ -1702,6 +1703,7 @@ export default function OrgMembershipTab({ organizationId, invoicingEmail }) {
                     const hasAdjustments = (record.free_period_discount > 0) || (record.prorata_cost !== null) || (record.rollover_discount > 0);
                     const invoiceId = record.accounting_invoice_id || record.xero_invoice_id;
                     const invoiceNumber = record.accounting_invoice_number || record.xero_invoice_number;
+                    const lifecycle = getMembershipHistoryLifecycle(record, currentYear?.label);
                     return (
                     <tr key={record.id} className="border-b last:border-0" data-testid={`row-history-${record.id}`}>
                       <td className="p-3 font-medium">{record.membership_year}</td>
@@ -1728,8 +1730,8 @@ export default function OrgMembershipTab({ organizationId, invoicingEmail }) {
                       <td className="p-3 text-right font-semibold">{formatCost(record.final_cost, record.currency)}</td>
                       <td className="p-3">
                         <div className="flex items-center gap-1 flex-wrap">
-                          <Badge variant={record.status === 'active' ? 'secondary' : 'outline'}>
-                            {record.status || 'active'}
+                          <Badge variant={lifecycle.variant} data-testid={`badge-lifecycle-${lifecycle.key}`}>
+                            {lifecycle.label}
                           </Badge>
                           <PaymentStatusBadge paymentStatus={record.payment_status} />
                         </div>
