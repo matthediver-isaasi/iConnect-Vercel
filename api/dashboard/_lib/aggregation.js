@@ -61,6 +61,7 @@ export async function runWidgetConfig(config, tenantId, options = {}) {
   if (!source) {
     throw new Error(`Unknown source: ${config.source}`);
   }
+  const client = options.client || supabase;
 
   // DD Submissions has a bespoke shape (canonicalised workflow_status,
   // joined organisation org_type preference) so it routes through its
@@ -223,7 +224,7 @@ export async function runWidgetConfig(config, tenantId, options = {}) {
   let workingRows = [];
   for (let from = 0; from < MAX_TOTAL_ROWS; from += PAGE_SIZE) {
     const to = Math.min(from + PAGE_SIZE - 1, MAX_TOTAL_ROWS - 1);
-    let q = supabase.from(source.table).select(selectColumns);
+    let q = client.from(source.table).select(selectColumns);
     q = tenantFilter(q, tenantId);
     q = applySystemFilters(q, systemFilters, lmicCodes);
     // Stable ordering is required for .range() pagination — without it
@@ -581,6 +582,7 @@ export async function runWidgetConfig(config, tenantId, options = {}) {
       referenceFieldDef.referenceTable,
       workingRows.map(r => r[groupBy.field]),
       tenantId,
+      client,
     );
   }
   const groupKeysOf = groupBy
@@ -1221,7 +1223,7 @@ export function referenceGroupKey(rawId, nameById) {
  * to stay under PostgREST's IN-list limits. A lookup failure returns an
  * empty map (keys fall back to "Unknown") rather than failing the widget.
  */
-async function loadReferenceNames(table, rawIds, tenantId) {
+async function loadReferenceNames(table, rawIds, tenantId, client = supabase) {
   const ids = Array.from(
     new Set(rawIds.filter(v => v !== null && v !== undefined && v !== '').map(String)),
   );
@@ -1230,7 +1232,7 @@ async function loadReferenceNames(table, rawIds, tenantId) {
   const CHUNK = 200;
   for (let i = 0; i < ids.length; i += CHUNK) {
     const chunk = ids.slice(i, i + CHUNK);
-    let q = supabase.from(table).select('id, name').in('id', chunk);
+    let q = client.from(table).select('id, name').in('id', chunk);
     q = tenantFilter(q, tenantId);
     const { data, error } = await q;
     if (error) {
