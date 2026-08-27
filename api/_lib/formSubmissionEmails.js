@@ -20,6 +20,13 @@
 import { sendEmail } from './emailService.js';
 import { getAccountingProvider } from './accountingProvider.js';
 import { generatePasswordSetupUrl } from './passwordSetupUrl.js';
+import {
+  collectRelationshipRecordIds,
+  formatRelationshipDisplayValue,
+  getSubmissionRelationshipValue,
+  isRelationshipDropdownField,
+  loadTenantRelationshipDisplayLabels,
+} from './relationshipDisplayLabels.js';
 
 const isMissingColumnError = (err) =>
   err && (err.code === '42703' || /submission_email_state/.test(err.message || ''));
@@ -166,6 +173,32 @@ export function resolveConfiguredEmails(form) {
   return [];
 }
 
+function flattenFormFields(form) {
+  const result = Array.isArray(form?.fields) ? [...form.fields] : [];
+  for (const page of (Array.isArray(form?.pages) ? form.pages : [])) {
+    if (Array.isArray(page?.fields)) result.push(...page.fields);
+  }
+  return result.filter((field) => field && (field.id != null || field.name != null));
+}
+
+export function resolveSubmissionEmailFieldDisplayValue({
+  fields,
+  fieldKey,
+  rawValue,
+  persistedSubmissionData,
+  relationshipLabelsByRecordId,
+}) {
+  const field = (fields || []).find((candidate) => candidate?.id === fieldKey)
+    || (fields || []).find((candidate) => candidate?.name === fieldKey);
+  if (isRelationshipDropdownField(field)) {
+    return formatRelationshipDisplayValue(
+      getSubmissionRelationshipValue(persistedSubmissionData, field),
+      relationshipLabelsByRecordId,
+    );
+  }
+  return Array.isArray(rawValue) ? rawValue.join(', ') : (rawValue || '');
+}
+
 /**
  * Send the configured submission emails for a form submission.
  * This is the full extraction of the logic that previously lived only in
@@ -186,7 +219,11 @@ export async function sendSubmissionEmails({
   baseUrl = '',
 }) {
   const form_values = formValues || {};
-  const effectiveFields = (Array.isArray(fields) && fields.length > 0) ? fields : (form.fields || []);
+  // The form is loaded server-side by every sender. Do not let the legacy
+  // endpoint's caller-provided `fields` array redefine relationship fields.
+  const authoritativeFields = flattenFormFields(form);
+  const effectiveFields = authoritativeFields;
+  const relationshipFields = authoritativeFields.filter(isRelationshipDropdownField);
   const tenantId = form.tenant_id;
 
   const emailsToSend = resolveConfiguredEmails(form);
@@ -198,18 +235,34 @@ export async function sendSubmissionEmails({
   // the caller, then the submission row's own columns.
   let memberIdToUse = createdMemberId;
   let organizationIdToUse = createdOrganizationId;
+  let persistedSubmissionData = null;
 
-  if (!memberIdToUse && !organizationIdToUse && submissionId) {
+  if (submissionId) {
     const { data: submission } = await supabase
       .from('form_submission')
-      .select('created_member_id, created_organization_id, member_id, organization_id')
+      .select('created_member_id, created_organization_id, member_id, organization_id, submission_data')
       .eq('id', submissionId)
+      .eq('tenant_id', tenantId)
+      .eq('form_id', form.id)
       .single();
     if (submission) {
-      memberIdToUse = submission.created_member_id || submission.member_id;
-      organizationIdToUse = submission.created_organization_id || submission.organization_id;
+      persistedSubmissionData = submission.submission_data || {};
+      if (!memberIdToUse) {
+        memberIdToUse = submission.created_member_id || submission.member_id;
+      }
+      if (!organizationIdToUse) {
+        organizationIdToUse = submission.created_organization_id || submission.organization_id;
+      }
     }
   }
+
+  const relationshipLabelsByRecordId = relationshipFields.length > 0 && persistedSubmissionData
+    ? await loadTenantRelationshipDisplayLabels(
+      supabase,
+      tenantId,
+      collectRelationshipRecordIds(relationshipFields, persistedSubmissionData),
+    )
+    : {};
 
   let memberData = null;
   let organizationData = null;
@@ -291,7 +344,13 @@ export async function sendSubmissionEmails({
         return await resolveOrgName(rawValue);
       }
     }
-    return Array.isArray(rawValue) ? rawValue.join(', ') : (rawValue || '');
+    return resolveSubmissionEmailFieldDisplayValue({
+      fields: relationshipFields,
+      fieldKey: fieldId,
+      rawValue,
+      persistedSubmissionData,
+      relationshipLabelsByRecordId,
+    });
   };
 
   const replacePlaceholders = async (text, emailConfig) => {

@@ -1,5 +1,6 @@
 import { getSessionMember } from '../_lib/session.js';
 import { createClient } from '@supabase/supabase-js';
+import { createFormRelationshipService, FormRelationshipError } from '../_lib/formRelationshipOptions.js';
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
@@ -59,13 +60,26 @@ export default async function handler(req, res) {
 
     const { data: form, error: formError } = await supabase
       .from('form')
-      .select('id, name, tenant_id, due_diligence_required')
+      .select('id, name, tenant_id, due_diligence_required, fields')
       .eq('id', form_id)
       .eq('tenant_id', tenantId)
       .single();
 
     if (formError || !form) {
       return res.status(404).json({ error: 'Form not found or not accessible' });
+    }
+
+    try {
+      await createFormRelationshipService({ db: supabase, tenantId }).validateSubmission({
+        form,
+        submissionData: submission_data || {},
+      });
+    } catch (error) {
+      if (error instanceof FormRelationshipError && error.status < 500) {
+        return res.status(400).json({ error: 'Invalid relationship selection' });
+      }
+      console.error('[Manual Form Submission] Relationship selection validation failed:', error);
+      return res.status(500).json({ error: 'Failed to validate submission' });
     }
 
     const submissionRecord = {

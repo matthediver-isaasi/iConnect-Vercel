@@ -519,6 +519,43 @@ class PublicClient {
       body: JSON.stringify(submissionData)
     });
   }
+
+  async listEligibleFormRelationships(formId) {
+    if (!formId) return [];
+    return this._fetch(`/api/forms/${encodeURIComponent(formId)}/relationship-definitions`, {
+      credentials: 'include'
+    });
+  }
+
+  async listFormRelationshipOptions(formSlug, fieldId, organizationId) {
+    if (!formSlug || !fieldId || !organizationId) return [];
+    const params = new URLSearchParams({
+      fieldId,
+      organizationId,
+      page: '1',
+      pageSize: '100',
+    });
+    const path = `/api/public/form/${encodeURIComponent(formSlug)}/relationship-options`;
+    const requestOptions = {
+      credentials: 'include'
+    };
+    const first = await this._fetch(`${path}?${params.toString()}`, requestOptions);
+    const firstItems = Array.isArray(first) ? first : first?.data || [];
+    const total = Number(first?.total) || firstItems.length;
+    const pages = Math.ceil(total / 100);
+    if (pages > 100) throw new Error('Too many related records are available to display.');
+    const remaining = [];
+    for (let page = 2; page <= pages; page += 1) {
+      params.set('page', String(page));
+      remaining.push(await this._fetch(`${path}?${params.toString()}`, requestOptions));
+    }
+    return {
+      ...first,
+      data: [first, ...remaining].flatMap((result) => (
+        Array.isArray(result) ? result : result?.data || []
+      )),
+    };
+  }
   
   // Public Booking
   async getBookingInfo(slug) {

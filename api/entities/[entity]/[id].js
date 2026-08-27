@@ -57,6 +57,7 @@ import { validateFormAccessPolicy } from '../../_lib/formAccessPolicy.js';
 import { authorizeAndCheckTeamRoleAssignment, validateAssignableRoleIds } from '../../_lib/teamRoleAssignment.js';
 import { checkRoleMutationAccess } from '../../_lib/roleMutationAccess.js';
 import { remapGroupRolePolicy } from '../../../client/src/lib/memberGroupRoleNames.js';
+import { createFormRelationshipService, FormRelationshipError } from '../../_lib/formRelationshipOptions.js';
 const entityToTable = {
   'Gallery': 'gallery',
   'GalleryPhoto': 'gallery_photo',
@@ -683,22 +684,64 @@ export default async function handler(req, res) {
             error: 'Form payment state can only be changed by the payment service',
           });
         }
-        const { data: subRow } = await supabase
+        const { data: subRow, error: subRowError } = await supabase
           .from('form_submission')
-          .select('form_id')
+          .select('form_id, submission_data')
           .eq('id', id)
           .eq('tenant_id', tenantCtx.tenantId)
           .maybeSingle();
+        if (subRowError) {
+          console.error('[Entity PATCH] FormSubmission lookup failed:', subRowError);
+          return res.status(500).json({ error: 'Failed to validate submission' });
+        }
+        if (!subRow) {
+          return res.status(400).json({ error: 'Invalid form submission' });
+        }
         if (subRow?.form_id) {
-          const { data: subForm } = await supabase
+          const { data: subForm, error: subFormError } = await supabase
             .from('form')
-            .select('form_type')
+            .select('id, tenant_id, form_type, fields')
             .eq('id', subRow.form_id)
             .eq('tenant_id', tenantCtx.tenantId)
             .maybeSingle();
+          if (subFormError) {
+            console.error('[Entity PATCH] FormSubmission form lookup failed:', subFormError);
+            return res.status(500).json({ error: 'Failed to validate submission' });
+          }
+          if (!subForm) {
+            return res.status(400).json({ error: 'Invalid form submission' });
+          }
           if (subForm?.form_type === 'survey') {
             return res.status(403).json({ error: 'Survey responses are immutable and cannot be edited' });
           }
+          if (Object.prototype.hasOwnProperty.call(req.body || {}, 'submission_data')) {
+            // Supabase updates replace a JSONB column rather than deep-merging
+            // it. Merge the row and PATCH at the column level, then validate
+            // exactly the submission_data replacement that will be stored.
+            const effectiveSubmission = { ...subRow, ...req.body };
+            const effectiveSubmissionData = effectiveSubmission.submission_data;
+            if (!effectiveSubmissionData || typeof effectiveSubmissionData !== 'object'
+                || Array.isArray(effectiveSubmissionData)) {
+              return res.status(400).json({ error: 'Invalid relationship selection' });
+            }
+            try {
+              await createFormRelationshipService({
+                db: supabase,
+                tenantId: subForm.tenant_id,
+              }).validateSubmission({
+                form: subForm,
+                submissionData: effectiveSubmissionData,
+              });
+            } catch (error) {
+              if (error instanceof FormRelationshipError && error.status < 500) {
+                return res.status(400).json({ error: 'Invalid relationship selection' });
+              }
+              console.error('[Entity PATCH] FormSubmission relationship validation failed:', error);
+              return res.status(500).json({ error: 'Failed to validate submission' });
+            }
+          }
+        } else {
+          return res.status(400).json({ error: 'Invalid form submission' });
         }
       }
 

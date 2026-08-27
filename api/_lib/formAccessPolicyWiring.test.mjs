@@ -66,6 +66,34 @@ test('payment quote and create actions require live access while proven return l
   assertOrdered(source, 'if (!row.payment_meta?.access_authorized_at)', 'if (row.payment_status === \'paid\')', 'payment confirm');
 });
 
+test('payment creates validate saved relationship selections before submission reads and writes', () => {
+  const source = read('../public/form-payment.js');
+  assert.match(source, /import \{ createFormRelationshipService, FormRelationshipError \} from '\.\.\/_lib\/formRelationshipOptions\.js'/);
+  assert.match(source, /tenantId: tenantData\.id/);
+  assert.match(source, /service\.validateSubmission\(\{ form, submissionData: values \}\)/);
+  assert.match(source, /error instanceof FormRelationshipError && error\.status < 500/);
+  assert.equal(
+    (source.match(/await validatePaymentRelationships\(res, supabase, tenantData, form, values\)/g) || []).length,
+    2,
+  );
+
+  const monthly = source.slice(
+    source.indexOf('async function handleCreateMonthlyCard'),
+    source.indexOf('async function handleCreate('),
+  );
+  assertOrdered(monthly, 'const access = await authorizePaymentStart', 'await validatePaymentRelationships', 'monthly payment');
+  assertOrdered(monthly, 'await validatePaymentRelationships', ".from('form_submission')", 'monthly payment');
+  assertOrdered(monthly, 'await validatePaymentRelationships', 'submission_data: values', 'monthly payment persistence');
+
+  const normal = source.slice(
+    source.indexOf('async function handleCreate('),
+    source.indexOf('async function handleConfirm'),
+  );
+  assertOrdered(normal, 'const access = await authorizePaymentStart', 'await validatePaymentRelationships', 'normal payment');
+  assertOrdered(normal, 'await validatePaymentRelationships', ".from('form_submission')", 'normal payment');
+  assertOrdered(normal, 'await validatePaymentRelationships', 'submission_data: values', 'normal payment persistence');
+});
+
 test('generic FormSubmission writes cannot bypass access or forge payment proof', () => {
   const source = read('../entities/[entity]/index.js');
   const block = source.slice(
@@ -74,11 +102,17 @@ test('generic FormSubmission writes cannot bypass access or forge payment proof'
   );
   assert.match(block, /resolveFormAccess\(\{/);
   assert.match(block, /sendFormAccessDenied\(res, formAccess\)/);
+  assert.match(block, /fields/);
+  assert.match(block, /createFormRelationshipService\(\{/);
+  assert.match(block, /tenantId: accessForm\.tenant_id/);
+  assert.match(block, /submissionData: sanitizedBody\.submission_data \|\| \{\}/);
+  assert.match(block, /error instanceof FormRelationshipError && error\.status < 500/);
   assert.match(block, /\.eq\('tenant_id', sanitizedBody\.tenant_id\)/);
   assert.match(block, /\.eq\('is_active', true\)/);
   assert.match(block, /isFormScheduleAvailable\(accessForm\)/);
   assert.match(block, /'payment_meta'/);
   assertOrdered(source, 'const formAccess = await resolveFormAccess', 'let formSubmissionIdemKey = null', 'generic submission');
+  assertOrdered(source, 'createFormRelationshipService({', 'let formSubmissionIdemKey = null', 'generic relationship validation');
 });
 
 test('generic FormSubmission PATCH cannot alter server-owned payment authorization', () => {
@@ -99,6 +133,28 @@ test('generic FormSubmission PATCH cannot alter server-owned payment authorizati
     assert.match(block, new RegExp(`'${field}'`));
   }
   assert.match(block, /Form payment state can only be changed by the payment service/);
+});
+
+test('generic FormSubmission PATCH validates the stored JSON replacement before update', () => {
+  const source = read('../entities/[entity]/[id].js');
+  const block = source.slice(
+    source.indexOf("if (entityNormalized === 'formsubmission') {"),
+    source.indexOf('// For Organization/Member/JobPosting'),
+  );
+  assert.match(block, /\.select\('form_id, submission_data'\)/);
+  assert.match(block, /\.eq\('tenant_id', tenantCtx\.tenantId\)/);
+  assert.match(block, /\.select\('id, tenant_id, form_type, fields'\)/);
+  assert.match(block, /const effectiveSubmission = \{ \.\.\.subRow, \.\.\.req\.body \}/);
+  assert.match(block, /const effectiveSubmissionData = effectiveSubmission\.submission_data/);
+  assert.match(block, /createFormRelationshipService\(\{/);
+  assert.match(block, /submissionData: effectiveSubmissionData/);
+  assert.match(block, /error instanceof FormRelationshipError && error\.status < 500/);
+  assertOrdered(
+    source,
+    'submissionData: effectiveSubmissionData',
+    '.update(sanitizedBody)',
+    'generic FormSubmission PATCH relationship validation',
+  );
 });
 
 test('all asynchronous payment sweeps require trusted proof for restricted forms', () => {

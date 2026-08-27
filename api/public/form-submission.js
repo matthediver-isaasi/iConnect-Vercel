@@ -13,6 +13,7 @@ import { loadTenantLmicCodes } from '../_lib/tenantLmicCodes.js';
 import { computeHiddenFieldIds, findPaymentField, derivePaymentAmount } from '../_lib/formFieldVisibility.js';
 import { resolveFormAccess, sendFormAccessDenied } from '../_lib/formAccessPolicy.js';
 import { isFormScheduleAvailable } from '../_lib/formAvailability.js';
+import { createFormRelationshipService, FormRelationshipError } from '../_lib/formRelationshipOptions.js';
 import {
   createFormCommunicationSnapshot,
   collectMemberPipelineCommunicationSelections,
@@ -305,6 +306,22 @@ export default async function handler(req, res) {
           }
         }
       }
+    }
+
+    // Relationship dropdowns store record IDs. Validate those IDs against the
+    // saved field, its submitted organisation parent, active relationship edge,
+    // and active related record before any duplicate handling or side effects.
+    try {
+      await createFormRelationshipService({
+        db: supabase,
+        tenantId: tenantData.id,
+      }).validateSubmission({ form, submissionData: submission_data || {} });
+    } catch (error) {
+      if (error instanceof FormRelationshipError && error.status < 500) {
+        return res.status(400).json({ error: 'Invalid relationship selection' });
+      }
+      console.error('[Public Form Submission] Relationship selection validation failed:', error);
+      return res.status(500).json({ error: 'Failed to validate submission' });
     }
 
     // Extract the submitter's email from the submission_data by walking the

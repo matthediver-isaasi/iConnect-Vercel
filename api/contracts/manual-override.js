@@ -1,5 +1,19 @@
 import { supabase } from '../_lib/database.js';
-import { getTenantContext } from '../_lib/tenantContext.js';
+import { getTenantContext, hasAdminAccess } from '../_lib/tenantContext.js';
+import { createFormRelationshipService, FormRelationshipError } from '../_lib/formRelationshipOptions.js';
+
+export async function authorizeManualContractOverride(
+  tenantContext,
+  { hasAdminAccessFn = hasAdminAccess } = {},
+) {
+  if (!tenantContext?.isAuthenticated) {
+    return { status: 401, error: 'Unauthorized' };
+  }
+  if (!await hasAdminAccessFn(tenantContext)) {
+    return { status: 403, error: 'Admin access required' };
+  }
+  return null;
+}
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -7,8 +21,9 @@ export default async function handler(req, res) {
   }
 
   const tenantContext = await getTenantContext(req);
-  if (!tenantContext || !tenantContext.isAuthenticated) {
-    return res.status(401).json({ error: 'Unauthorized' });
+  const authorizationError = await authorizeManualContractOverride(tenantContext);
+  if (authorizationError) {
+    return res.status(authorizationError.status).json({ error: authorizationError.error });
   }
 
   const { 
@@ -130,7 +145,7 @@ export default async function handler(req, res) {
 
     const { data: contractForm, error: formError } = await supabase
       .from('form')
-      .select('id, name, description, slug, contract_settings')
+      .select('id, name, description, slug, contract_settings, fields')
       .eq('id', contractFormId)
       .eq('tenant_id', tenantContext.tenantId)
       .single();
@@ -144,6 +159,28 @@ export default async function handler(req, res) {
 
     const effectiveDate = overrideDate ? new Date(overrideDate) : new Date();
     const effectiveDateISO = effectiveDate.toISOString();
+
+    const fullSubmissionData = {
+      ...submissionData,
+      signer_email: signer.email,
+      signer_first_name: signer.firstName || signer.first_name || '',
+      signer_last_name: signer.lastName || signer.last_name || '',
+      manual_override: true,
+      override_date: effectiveDateISO
+    };
+
+    try {
+      await createFormRelationshipService({
+        db: supabase,
+        tenantId: tenantContext.tenantId,
+      }).validateSubmission({ form: contractForm, submissionData: fullSubmissionData });
+    } catch (error) {
+      if (error instanceof FormRelationshipError && error.status < 500) {
+        return res.status(400).json({ error: 'Invalid relationship selection' });
+      }
+      console.error('[contracts/manual-override] Relationship selection validation failed:', error);
+      return res.status(500).json({ error: 'Failed to validate submission' });
+    }
 
     const signerData = {
       first_name: signer.firstName || signer.first_name || '',
@@ -219,15 +256,6 @@ export default async function handler(req, res) {
         return res.status(500).json({ error: 'Failed to update contract instance' });
       }
     }
-
-    const fullSubmissionData = {
-      ...submissionData,
-      signer_email: signer.email,
-      signer_first_name: signer.firstName || signer.first_name || '',
-      signer_last_name: signer.lastName || signer.last_name || '',
-      manual_override: true,
-      override_date: effectiveDateISO
-    };
 
     const { data: newSubmission, error: submissionError } = await supabase
       .from('form_submission')

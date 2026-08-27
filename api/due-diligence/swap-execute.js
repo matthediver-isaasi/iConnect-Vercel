@@ -1,6 +1,7 @@
 import { supabase } from '../_lib/database.js';
 import { getSessionMember } from '../_lib/session.js';
 import { getTenantContext } from '../_lib/tenantContext.js';
+import { createFormRelationshipService, FormRelationshipError } from '../_lib/formRelationshipOptions.js';
 import { executeStageActions } from './_stageActions.js';
 
 export default async function handler(req, res) {
@@ -115,6 +116,19 @@ export default async function handler(req, res) {
         }
       }
     });
+
+    try {
+      await createFormRelationshipService({
+        db: supabase,
+        tenantId: tenantCtx.tenantId,
+      }).validateSubmission({ form: targetForm, submissionData: newFormValues });
+    } catch (error) {
+      if (error instanceof FormRelationshipError && error.status < 500) {
+        return res.status(400).json({ error: 'Invalid relationship selection' });
+      }
+      console.error('[DD Swap Execute] Relationship selection validation failed:', error);
+      return res.status(500).json({ error: 'Failed to validate submission' });
+    }
 
     const newFormSubmission = {
       form_id: targetFormId,

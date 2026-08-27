@@ -1167,7 +1167,9 @@ export default function EmbedFormPage() {
                 disabled={false}
                 autoFocus={cardSwipeAutoFocusFor(currentField.type)}
                 formId={form?.id}
+                formSlug={form?.slug}
                 allFormValues={formValues}
+                allFields={form?.fields || []}
                 membershipFeeQuote={membershipFeeQuote}
               />
             )}
@@ -1303,7 +1305,9 @@ export default function EmbedFormPage() {
                 onValidityChange={handleValidityChange}
                 disabled={false}
                 formId={form?.id}
+                formSlug={form?.slug}
                 allFormValues={formValues}
+                allFields={form?.fields || []}
                 membershipFeeQuote={membershipFeeQuote}
               />
             ))}

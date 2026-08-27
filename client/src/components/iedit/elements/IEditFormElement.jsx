@@ -1903,7 +1903,10 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
                   disabled={disabledFieldIds.has(currentField.id)}
                   onValidityChange={handleValidityChange}
                   autoFocus={cardSwipeAutoFocusFor(currentField.type)}
+                  formId={form?.id}
+                  formSlug={form?.slug}
                   allFormValues={formValues}
+                  allFields={form?.fields || []}
                 />
               )}
               {!canProceed && !isFormatValid && (
@@ -2049,6 +2052,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
                     disabled={disabledFieldIds.has(field.id)}
                     onValidityChange={handleValidityChange}
                     formId={form?.id}
+                    formSlug={form?.slug}
                     formMemberRoleId={prefillMember?.role_id || memberInfo?.role_id || null}
                     allFormValues={formValues}
                     allFields={form?.fields || []}
@@ -2076,6 +2080,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
                           disabled={disabledFieldIds.has(field.id)}
                           onValidityChange={handleValidityChange}
                           formId={form?.id}
+                          formSlug={form?.slug}
                           formMemberRoleId={prefillMember?.role_id || memberInfo?.role_id || null}
                           allFormValues={formValues}
                           allFields={form?.fields || []}
@@ -2103,6 +2108,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
                               disabled={disabledFieldIds.has(field.id)}
                               onValidityChange={handleValidityChange}
                               formId={form?.id}
+                              formSlug={form?.slug}
                               formMemberRoleId={prefillMember?.role_id || memberInfo?.role_id || null}
                               allFormValues={formValues}
                               allFields={form?.fields || []}

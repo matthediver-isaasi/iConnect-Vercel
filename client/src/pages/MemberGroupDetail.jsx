@@ -110,6 +110,12 @@ import {
   useVacancyInterest,
   VacancyInterestDialog,
 } from "@/components/vacancies/useVacancyInterest";
+import {
+  collectRelationshipRecordIdsFromSubmissions,
+  formatRelationshipDisplayValue,
+  getSubmissionFieldValue,
+  resolveSubmissionField,
+} from "@/lib/relationshipDisplayLabels";
 
 const parseFocalPoint = (fp) => {
   if (!fp) return null;
@@ -842,7 +848,7 @@ export default function MemberGroupDetailPage() {
 
   // Job-posting forms (admin only) populate the vacancy form picker and provide
   // field labels for the submissions review modal.
-  const { data: jobPostingForms = [] } = useQuery({
+  const { data: jobPostingForms = [], isLoading: loadingJobPostingForms } = useQuery({
     queryKey: ["job-posting-forms"],
     queryFn: async () => {
       const all = await base44.entities.Form.list();
@@ -885,7 +891,7 @@ export default function MemberGroupDetailPage() {
     [vacancies]
   );
 
-  const { data: submissionsByVacancy = {} } = useQuery({
+  const { data: submissionsByVacancy = {}, isLoading: loadingVacancySubmissions } = useQuery({
     queryKey: ["vacancy-submissions", groupId, formLinkedVacancyIds.join(",")],
     queryFn: async () => {
       const entries = await Promise.all(
@@ -916,23 +922,75 @@ export default function MemberGroupDetailPage() {
     [jobPostingForms, submissionsVacancy]
   );
 
-  const fieldLabelById = useMemo(() => {
-    const map = new Map();
-    const fields = submissionsForm?.fields || [];
-    for (const f of fields) {
-      if (f && f.id) map.set(f.id, f.label || f.id);
-    }
-    return map;
-  }, [submissionsForm]);
+  const vacancyFormsById = useMemo(
+    () => Object.fromEntries(jobPostingForms.filter((form) => form?.id).map((form) => [form.id, form])),
+    [jobPostingForms]
+  );
 
-  const fieldById = useMemo(() => {
-    const map = new Map();
-    const fields = submissionsForm?.fields || [];
-    for (const f of fields) {
-      if (f && f.id) map.set(f.id, f);
-    }
-    return map;
-  }, [submissionsForm]);
+  // Only use submissions returned by the authorized vacancy query and forms
+  // returned by the saved-form query. This prevents unrelated values from
+  // broadening the submission-bound relationship-label lookup.
+  const relationshipSubmissionBatch = useMemo(
+    () => Object.values(submissionsByVacancy)
+      .flatMap((submissions) => Array.isArray(submissions) ? submissions : [])
+      .filter((submission) => (
+        submission?.id
+        && submission.form_id
+        && vacancyFormsById[submission.form_id]
+      )),
+    [submissionsByVacancy, vacancyFormsById]
+  );
+  const relationshipSubmissionIds = useMemo(
+    () => relationshipSubmissionBatch.map((submission) => submission.id),
+    [relationshipSubmissionBatch]
+  );
+  const relationshipRecordIds = useMemo(
+    () => collectRelationshipRecordIdsFromSubmissions(
+      vacancyFormsById,
+      relationshipSubmissionBatch
+    ),
+    [vacancyFormsById, relationshipSubmissionBatch]
+  );
+  const {
+    data: relationshipLabelsByRecordId = {},
+    isFetching: relationshipLabelsLoading,
+  } = useQuery({
+    queryKey: [
+      "vacancy-submission-relationship-labels",
+      relationshipSubmissionIds.join(","),
+      relationshipRecordIds.join(","),
+    ],
+    enabled: relationshipSubmissionIds.length > 0 && relationshipRecordIds.length > 0,
+    staleTime: 5 * 60 * 1000,
+    queryFn: async () => {
+      const labels = {};
+      for (let submissionOffset = 0; submissionOffset < relationshipSubmissionBatch.length; submissionOffset += 2000) {
+        const submissionBatch = relationshipSubmissionBatch.slice(
+          submissionOffset,
+          submissionOffset + 2000
+        );
+        const recordIds = collectRelationshipRecordIdsFromSubmissions(
+          vacancyFormsById,
+          submissionBatch
+        );
+        for (let recordOffset = 0; recordOffset < recordIds.length; recordOffset += 2000) {
+          const response = await fetch("/api/admin/relationship-display-labels", {
+            method: "POST",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              recordIds: recordIds.slice(recordOffset, recordOffset + 2000),
+              submissionIds: submissionBatch.map((submission) => submission.id),
+              context: "form-submissions",
+            }),
+          });
+          if (!response.ok) throw new Error("Failed to resolve relationship labels");
+          Object.assign(labels, (await response.json()).labels || {});
+        }
+      }
+      return labels;
+    },
+  });
 
   const sortedVacancies = useMemo(() => {
     return [...vacancies].sort((a, b) => {
@@ -4059,6 +4117,14 @@ export default function MemberGroupDetailPage() {
               const subs = submissionsVacancy
                 ? submissionsByVacancy[submissionsVacancy.id] || []
                 : [];
+              if (loadingJobPostingForms || loadingVacancySubmissions) {
+                return (
+                  <div className="flex items-center justify-center py-8 text-slate-500">
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Loading applications…
+                  </div>
+                );
+              }
               if (subs.length === 0) {
                 return (
                   <div
@@ -4090,9 +4156,17 @@ export default function MemberGroupDetailPage() {
                       ? new Date(sub.created_date).toLocaleString()
                       : "";
                     const data = sub.submission_data || {};
-                    const entries = Object.entries(data).filter(
-                      ([, v]) => v !== "" && v != null
-                    );
+                    const entries = Object.entries(data).filter(([key, value]) => {
+                      if (value === "" || value == null) return false;
+                      const field = resolveSubmissionField(submissionsForm?.fields, key);
+                      // A current ID-keyed answer takes precedence over a
+                      // duplicated legacy field-name value.
+                      return !(
+                        field?.id
+                        && key === field.name
+                        && Object.prototype.hasOwnProperty.call(data, field.id)
+                      );
+                    });
                     const isAwarded = awardedSourceIds.has(sub.id);
                     const isDeclined = declinedSourceIds.has(sub.id);
                     const sentEmail = decisionEmailBySource.get(sub.id) || null;
@@ -4238,15 +4312,28 @@ export default function MemberGroupDetailPage() {
                               </p>
                             ) : (
                               entries.map(([fieldId, value]) => {
-                                const field = fieldById.get(fieldId);
+                                const field = resolveSubmissionField(
+                                  submissionsForm?.fields,
+                                  fieldId
+                                );
+                                const savedValue = field
+                                  ? getSubmissionFieldValue(data, field)
+                                  : value;
                                 const groupedContent =
                                   field?.type === "grouped_question"
-                                    ? renderGroupedQuestionAnswer(field, value)
+                                    ? renderGroupedQuestionAnswer(field, savedValue)
                                     : null;
+                                const displayValue =
+                                  field?.type === "relationship_dropdown"
+                                    ? formatRelationshipDisplayValue(
+                                        savedValue,
+                                        relationshipLabelsByRecordId
+                                      )
+                                    : renderAnswerValue(savedValue);
                                 return (
                                   <div key={fieldId} className="flex flex-col">
                                     <span className="text-xs font-medium text-slate-500">
-                                      {fieldLabelById.get(fieldId) || fieldId}
+                                      {field?.label || fieldId}
                                     </span>
                                     {groupedContent ? (
                                       <div className="mt-1 pl-3 border-l-2 border-slate-200">
@@ -4254,7 +4341,10 @@ export default function MemberGroupDetailPage() {
                                       </div>
                                     ) : (
                                       <span className="text-sm text-slate-800 whitespace-pre-wrap">
-                                        {renderAnswerValue(value)}
+                                        {field?.type === "relationship_dropdown"
+                                          && relationshipLabelsLoading
+                                          ? "Loading related record…"
+                                          : displayValue}
                                       </span>
                                     )}
                                   </div>

@@ -60,6 +60,7 @@ import {
 import { authorizeGenericCommunicationPreferenceAccess } from '../../_lib/communicationPreferenceGenericAccess.js';
 import { authorizeAndCheckTeamRoleAssignment, validateAssignableRoleIds } from '../../_lib/teamRoleAssignment.js';
 import { checkRoleMutationAccess } from '../../_lib/roleMutationAccess.js';
+import { createFormRelationshipService, FormRelationshipError } from '../../_lib/formRelationshipOptions.js';
 
 /**
  * Task #3100: support staff = tenant users (admin dashboard), tenant admins,
@@ -1809,7 +1810,7 @@ export default async function handler(req, res) {
         // public endpoint before idempotency reads, inserts, or side effects.
         const { data: accessForm, error: accessFormError } = await supabase
           .from('form')
-          .select('id, tenant_id, is_active, deactivate_at, access_policy, visibility_rules')
+          .select('id, tenant_id, is_active, deactivate_at, access_policy, visibility_rules, fields')
           .eq('id', sanitizedBody.form_id)
           .eq('tenant_id', sanitizedBody.tenant_id)
           .eq('is_active', true)
@@ -1832,6 +1833,25 @@ export default async function handler(req, res) {
         });
         if (!formAccess.allowed) return sendFormAccessDenied(res, formAccess);
         formSubmissionForm = accessForm;
+
+        // Authenticated Canvas/iEdit submissions use this generic route rather
+        // than the dedicated public handler. Revalidate dependent relationship
+        // IDs here before idempotency reads, insertion, or any side effects.
+        try {
+          await createFormRelationshipService({
+            db: supabase,
+            tenantId: accessForm.tenant_id,
+          }).validateSubmission({
+            form: accessForm,
+            submissionData: sanitizedBody.submission_data || {},
+          });
+        } catch (error) {
+          if (error instanceof FormRelationshipError && error.status < 500) {
+            return res.status(400).json({ error: 'Invalid relationship selection' });
+          }
+          console.error('[Entity POST] FormSubmission relationship validation failed:', error);
+          return res.status(500).json({ error: 'Failed to validate submission' });
+        }
 
         // Payment lifecycle fields are server-owned. Public/generic form
         // submissions must never be able to forge the authorization proof

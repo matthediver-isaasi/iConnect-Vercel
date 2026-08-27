@@ -45,6 +45,9 @@ Administrators configure draft schemas, select a primary display field, activate
 | `api/_lib/customObjectDomain.js` | Field coercion, schema/record/relationship validation, lifecycle, permissions, display labels, and audit payloads |
 | `api/_lib/customObjectService.js` | Tenant-scoped schema, record, relationship, picker, permission, and audit operations |
 | `api/_lib/customObjectRoute.js` | Authentication, feature authorization, generic dispatch, and HTTP errors |
+| `api/_lib/formRelationshipOptions.js` | Form-scoped relationship discovery, dependent-option resolution, and submitted-value validation |
+| `api/_lib/organizationEligibility.js` | Shared organisation-dropdown filter eligibility used by list and relationship option APIs |
+| `api/_lib/relationshipDisplayLabels.js` | Tenant-scoped active-record label lookup for submission output |
 | `api/custom-objects/index.js` | Object collection route |
 | `api/custom-objects/[objectId].js` | Object item route |
 | `api/custom-objects/[objectId]/[resource].js` | Generic nested collection route |
@@ -53,6 +56,10 @@ Administrators configure draft schemas, select a primary display field, activate
 | `client/src/pages/CustomObjectRecords.jsx` | Generated record list, detail, form, and permission editor |
 | `client/src/pages/customObjects/RelationshipDefinitions.jsx` | Generic relationship-definition editor |
 | `client/src/pages/customObjects/RelatedRecordsPanel.jsx` | Definition-driven related-record UI |
+| `client/src/pages/FormBuilder.jsx` | Relationship-dropdown configuration against earlier organisation fields |
+| `client/src/components/forms/FormRenderer.jsx` | Shared dependent relationship dropdown used by public, embedded, preview, and manual forms |
+| `client/src/lib/formRelationshipDropdown.js` | Pure builder and stale-selection rules |
+| `client/src/lib/relationshipDisplayLabels.js` | Safe relationship-value formatting for review and export surfaces |
 | `supabase/migrations/20260825_custom_object_foundation.sql` | Generic storage, constraints, RLS, audit triggers, and cardinality guard |
 | `supabase/migrations/20260826_custom_object_relationship_runtime.sql` | Required-edge and archive propagation guarantees |
 
@@ -113,6 +120,9 @@ Required fields are enforced on create. On edit, a required field is enforced wh
 | `GET/POST/PUT .../permissions` | List or upsert role grants |
 | `GET .../audit` | List scoped audit events |
 | `GET/POST /api/custom-objects/core/...` | Generic Core Object relationship adapters |
+| `GET /api/forms/{formId}/relationship-definitions` | Admin discovery of active Organisation-to-Custom-Object relationships eligible for a form field |
+| `GET /api/public/form/{slug}/relationship-options` | Form-scoped active related-record options for one saved field and selected organisation |
+| `POST /api/admin/relationship-display-labels` | Authorized, submission-scoped batch labels for stored relationship record IDs |
 
 There are no `/api/departments` or `/api/regions` families. IDs in paths identify metadata; keys and labels never select code.
 
@@ -175,6 +185,28 @@ Region "North West"
 
 Cardinality is enforced atomically in the database under an advisory transaction lock. Active pair uniqueness rejects duplicate edges. `one_to_one` limits both source and target; `one_to_many` limits reuse of a target; `many_to_one` limits reuse of a source; `many_to_many` limits only duplicate pairs. All endpoint rows must exist, be active, match the declared kind/object, and belong to the tenant.
 
+### Form relationship dropdowns
+
+A `relationship_dropdown` form field binds one earlier `organisation_dropdown` directly to one active relationship definition. Its saved configuration contains stable metadata IDs rather than labels:
+
+```json
+{
+  "type": "relationship_dropdown",
+  "parent_field_id": "field_organisation",
+  "relationship_definition_id": "relationship-uuid",
+  "custom_object_id": "object-uuid",
+  "custom_object_primary_display_field_id": "field-uuid"
+}
+```
+
+The builder discovers only active relationships where one endpoint is `organization`, the other is an active Custom Object, and the relationship is visible from the organisation side. Multiple relationship fields may use the same parent organisation field. Multi-level and multi-select relationships are not supported.
+
+At render time, the field is disabled until its parent has a value. Loaded draft, prefill, and manual-edit values are resolved by the saved field definition: the stable field ID is authoritative, with the legacy field name used only when the ID key is absent or `undefined`. A retained legacy relationship value is normalized through the canonical field ID. The client then requests the saved field's options through the form-scoped endpoint. Changing or clearing the canonical parent still clears the dependent value; a loaded option set also clears a stored value that is no longer valid. The select presents explicit loading, empty, and failure states.
+
+The option endpoint re-loads the active form and validates the exact saved parent field, relationship definition, object, and primary display field. It also enforces the parent organisation field's configured filter, the tenant, organisation-side visibility, active edge, active object, active primary field, and active related record. Every answer-data write path repeats relationship validation before persistence—including public, paid, authenticated Canvas/iEdit, manual, review, due-diligence initialization, and administrative amendment routes—so bypassing a browser control cannot submit an unrelated UUID.
+
+Submission data stores the related record UUID. Review, CSV/Word export, background export, and submitter-copy paths resolve the current active primary display label in the submission tenant. Interactive label reads require the relevant submission/review feature and derive their allowed record IDs from tenant-scoped persisted submissions; caller-supplied IDs are only an intersection filter. Missing, archived, inactive, or cross-tenant records use `Unavailable record`; they never expose the raw UUID as a display fallback.
+
 ---
 
 ## Security and Tenant Boundaries
@@ -189,6 +221,8 @@ Cardinality is enforced atomically in the database under an advisory transaction
 8. Member feature exclusions override broad role/admin access. Trusted tenant users and tenant administrators follow the documented bypass rules.
 9. Public custom-field and form-prefill routes exclude `entity_scope = custom_object`; Custom Object APIs are authenticated, non-public routes.
 10. Picker endpoint types are definition-derived, preventing arbitrary table selection.
+11. Public form relationship options are constrained by the persisted form field, parent organisation, definition, object, lifecycle, visibility, and active edge; callers cannot turn the route into a general record browser.
+12. Form submission handlers revalidate relationship UUIDs before writes or side effects, and output label lookups omit unavailable records rather than exposing identifiers.
 
 Cross-tenant resources are deliberately indistinguishable from missing resources where appropriate. RLS and grants restrict direct table access; the service remains responsible for application-level permission and object checks.
 
@@ -223,6 +257,30 @@ Cross-tenant resources are deliberately indistinguishable from missing resources
 4. Validate endpoint kind, object ownership, active state, and tenant.
 5. Insert/archive the canonical edge; database guards enforce concurrency-safe cardinality.
 
+### Form dependent-option read
+
+**Files:** `api/_lib/formRelationshipOptions.js`, `api/public/form/[slug]/relationship-options.js`
+**Trigger:** A rendered relationship dropdown has a selected parent organisation.
+
+1. Resolve the tenant and active form from the request host and form slug.
+2. Enforce form schedule and access policy.
+3. Find the saved relationship field and confirm its parent is an earlier organisation dropdown.
+4. Validate the selected organisation against the parent field's saved filter.
+5. Re-resolve the active relationship definition, Custom Object, and primary display field.
+6. Read active edges for that organisation and active related records in the same tenant.
+7. Return paginated `{ id, label }` options sorted by display label and stable ID.
+
+### Form submission validation
+
+**Files:** `api/public/form-submission.js`, `api/admin/manual-form-submission.js`
+**Trigger:** Public, embedded, iEdit, or manual form submission.
+
+1. Inspect only saved `relationship_dropdown` fields.
+2. Require a submitted parent organisation when a relationship value is present.
+3. Resolve the currently valid option set using the same form-scoped service.
+4. Reject any submitted record ID that is not an active option for that exact field and parent.
+5. Persist the UUID unchanged after validation.
+
 ---
 
 ## Safeguards and Error Handling
@@ -248,6 +306,8 @@ Public preference-value routes first build a tenant-scoped allowlist excluding C
 ## Frontend UI
 
 `CustomObjectsAdmin.jsx` shows the tenant catalogue and generated schema controls. `CustomObjectRecords.jsx` renders lists, add/edit forms, details, archive actions, and permissions from object and field metadata. Relationship panels and pickers derive labels, endpoint kinds, visibility, and edit controls from definitions.
+
+FormBuilder offers a **Relationship Dropdown** field type. The field settings show an earlier organisation-field picker and an eligible active-relationship picker. The shared `FormRenderer` supplies the respondent experience across normal public forms, embedded forms, builder/iEdit previews, and manual submissions.
 
 | Mutation | Endpoint | Purpose |
 |----------|----------|---------|
@@ -302,7 +362,7 @@ Open Region "North West"
 
 ## MVP Limitations and Phase 2 Handoff Contracts
 
-The MVP provides generic schema/record CRUD, generated forms, search, typed field filters, sorting, pagination, permissions, archive/audit behavior, generic pickers, and Core/Custom Object relationships. It does **not** provide CSV import/export workflows, persisted saved views, cross-relationship query composition, FormBuilder controls, reporting datasets, or communications segmentation.
+The MVP provides generic schema/record CRUD, generated forms, search, typed field filters, sorting, pagination, permissions, archive/audit behavior, generic pickers, Core/Custom Object relationships, and direct Organisation-to-Custom-Object dependent FormBuilder dropdowns. It does **not** provide CSV import/export workflows for Custom Object records, persisted saved views, cross-relationship query composition, multi-level form dependencies, reporting datasets, or communications segmentation.
 
 Phase 2 must consume stable generic contracts rather than inspect JSON or add example-specific code:
 
@@ -312,7 +372,7 @@ Phase 2 must consume stable generic contracts rather than inspect JSON or add ex
 | CSV export | Require `export_records`; preserve tenant/object scope; consume the same filter/sort/view specification; emit labels for headers while retaining stable metadata mapping |
 | Saved views | Persist object UUID, visible field UUIDs/order, sort, and the existing field-ID-keyed filter grammar; tolerate archived fields without rewriting record data |
 | Advanced relationship filtering | Express predicates with relationship-definition UUID, routed side, endpoint field UUID/operator/value, and bounded traversal depth; preserve tenant and capability checks at every hop |
-| FormBuilder | Use object/field/relationship UUIDs and metadata snapshots; lookup uses the generic picker envelope; create/update submits to generic record services and never writes JSONB directly |
+| FormBuilder | Existing dependent dropdowns use saved object/field/relationship UUIDs and metadata snapshots; later create/update actions must submit to generic record services and never write JSONB directly |
 | Reporting | Discover schemas by object UUID; expose typed field metadata and relationship-definition IDs; apply tenant/permission scope and server-side pagination/aggregation |
 | Communications | Store segmentation predicates by object/relationship/field IDs; resolve recipients through permission-aware relationship traversal; never copy Department/Region assumptions into campaign code |
 
@@ -331,6 +391,8 @@ Phase 2 must consume stable generic contracts rather than inspect JSON or add ex
 | Pagination | query | page ≥ 1, pageSize 1–100 | 1 / 25 | Server-side range |
 | Include archived | query | `"true"` or omitted | omitted | Include archived resources |
 | Record capabilities | role permission | five booleans | false | Per-object authorization |
+| Form relationship parent | form field | earlier `organisation_dropdown` field UUID | none | Direct dependency source |
+| Form relationship definition | form field | eligible active relationship UUID | none | Constrains related options |
 
 ---
 
@@ -355,3 +417,13 @@ Phase 2 must consume stable generic contracts rather than inspect JSON or add ex
 **Symptom:** Read retains a key that write rejects.  
 **Cause:** The field was archived or removed from active metadata; historic data is intentionally preserved.  
 **Fix:** Reactivate/configure the field or omit the historic key while satisfying current required fields.
+
+### Problem: Relationship dropdown stays disabled
+**Symptom:** The respondent cannot select a related record.
+**Cause:** No parent organisation is selected, the field configuration is incomplete, options are loading, the endpoint failed, or there are no active related records.
+**Fix:** Select the parent organisation, confirm the saved parent/relationship metadata, and verify the active definition, object, primary field, edge, and record.
+
+### Problem: A saved relationship displays “Unavailable record”
+**Symptom:** Review or export output does not show the historic UUID or label.
+**Cause:** The record, object, or primary field is archived/inactive, missing, cross-tenant, or otherwise unavailable.
+**Fix:** Treat the submission UUID as retained history. Restore valid active metadata only if appropriate; output deliberately avoids exposing raw identifiers.

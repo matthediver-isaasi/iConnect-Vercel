@@ -10,6 +10,11 @@ import {
   sanitizeFileName,
   resolveAwardType,
 } from '../../client/src/lib/formSubmissionWordExport.js';
+import {
+  collectRelationshipRecordIdsFromSubmissions,
+  resolveRelationshipDisplayLabel,
+} from '../../client/src/lib/relationshipDisplayLabels.js';
+import { loadTenantRelationshipDisplayLabels } from '../_lib/relationshipDisplayLabels.js';
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
@@ -70,6 +75,7 @@ function buildServerResolvers(maps, origin) {
     resourceCategoryNamesById,
     communicationCategoryNamesById,
     customFieldDefById,
+    relationshipLabelsByRecordId,
   } = maps;
 
   const resolveOrgName = (orgId) => {
@@ -126,6 +132,8 @@ function buildServerResolvers(maps, origin) {
     if (options.length === 0) return String(val);
     return lookupLabel(val);
   };
+  const resolveRelationshipLabel = (value) =>
+    resolveRelationshipDisplayLabel(value, relationshipLabelsByRecordId);
   const resolveFile = (raw) => {
     if (raw == null || raw === '') return null;
     let parsed = raw;
@@ -178,6 +186,7 @@ function buildServerResolvers(maps, origin) {
     resolveCommunicationPreferences,
     resolveImageButtonLabel,
     resolveCustomFieldValue,
+    resolveRelationshipLabel,
     resolveFile,
   };
 }
@@ -304,9 +313,17 @@ export default async function handler(req, res) {
       referencedCustomFieldIds.size > 0
         ? supabase.from('preference_field').select('id, options').in('id', Array.from(referencedCustomFieldIds))
         : Promise.resolve({ data: [] }),
+      referencedFieldTypes.has('relationship_dropdown')
+        ? loadTenantRelationshipDisplayLabels(
+          supabase,
+          tenantId,
+          collectRelationshipRecordIdsFromSubmissions(formsById, submissions),
+        ).then(data => ({ data }))
+        : Promise.resolve({ data: {} }),
     ]);
 
-    const [orgs, members, roles, resourceCats, commCats, prefFields] = lookups.map(r => r.data || []);
+    const [orgs, members, roles, resourceCats, commCats, prefFields, relationshipLabelsByRecordId] =
+      lookups.map(r => r.data || []);
 
     const organisationNamesById = {};
     orgs.forEach(o => { if (o?.id) organisationNamesById[o.id] = o.name || ''; });
@@ -333,6 +350,7 @@ export default async function handler(req, res) {
       resourceCategoryNamesById,
       communicationCategoryNamesById,
       customFieldDefById,
+      relationshipLabelsByRecordId,
     }, origin);
 
     const subById = new Map(submissions.map(s => [String(s.id), s]));

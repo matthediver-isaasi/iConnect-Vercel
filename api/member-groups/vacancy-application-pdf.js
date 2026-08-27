@@ -17,7 +17,10 @@ import {
   getCallerGroupManageAccess,
   canManageGroup,
 } from '../_lib/memberGroupAdminAccess.js';
-import { buildFormSubmissionPdf } from '../_lib/formSubmissionPdf.js';
+import {
+  buildFormSubmissionPdf,
+  loadFormSubmissionRelationshipLabels,
+} from '../_lib/formSubmissionPdf.js';
 import { addTenantStorageBytes } from '../_lib/tenantStorageUsage.js';
 
 const supabaseUrl = process.env.SUPABASE_URL;
@@ -73,6 +76,7 @@ export default async function handler(req, res) {
     let dateLabel = '';
     let fields = [];
     let submissionData = {};
+    let relationshipLabelsByRecordId = {};
     let applicantPart = 'applicant';
 
     if (sourceType === 'submission') {
@@ -120,6 +124,12 @@ export default async function handler(req, res) {
       ].filter(Boolean).join('  |  ');
       fields = Array.isArray(submission.form?.fields) ? submission.form.fields : [];
       submissionData = submission.submission_data || {};
+      relationshipLabelsByRecordId = await loadFormSubmissionRelationshipLabels({
+        db: supabase,
+        tenantId,
+        fields,
+        submissionData,
+      });
       applicantPart = sanitizeFilePart(who, 'applicant');
     } else {
       // Legacy "express interest" application.
@@ -193,6 +203,7 @@ export default async function handler(req, res) {
       dateLabel,
       fields,
       submissionData,
+      relationshipLabelsByRecordId,
       logPrefix: '[vacancy-application-pdf]',
     });
 

@@ -25,6 +25,12 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { cn } from "@/lib/utils";
 import DOMPurify from 'dompurify';
+import {
+  normalizeRelationshipOptions,
+  resolveFormRendererFieldValue,
+  resolveRelationshipDropdownValues,
+  shouldClearRelationshipValue,
+} from "@/lib/formRelationshipDropdown";
 
 function CountryCombobox({ countries, value, onChange, disabled, placeholder, fieldId }) {
   const [open, setOpen] = useState(false);
@@ -307,13 +313,26 @@ function CommunicationPreferencesField({ field, value, onChange, disabled, membe
   );
 }
 
-export default function FormRenderer({ field, value, onChange, memberInfo, organizationInfo, selectedOrgGuestAccess = null, disabled = false, onValidityChange, autoFocus = false, hideLabel = false, formId = null, formMemberRoleId = null, allFormValues = {}, prefillData = null, allFields = [], membershipFeeQuote = null }) {
+export default function FormRenderer({ field, value: suppliedValue, onChange, memberInfo, organizationInfo, selectedOrgGuestAccess = null, disabled = false, onValidityChange, autoFocus = false, hideLabel = false, formId = null, formSlug = null, formMemberRoleId = null, allFormValues = {}, prefillData = null, allFields = [], membershipFeeQuote = null }) {
+  const resolvedFieldValue = resolveFormRendererFieldValue({
+    field,
+    fields: allFields,
+    values: allFormValues,
+    value: suppliedValue,
+  });
+  const value = resolvedFieldValue.value;
   const [showOtherInput, setShowOtherInput] = useState(false);
   const [otherValue, setOtherValue] = useState('');
   const [domainError, setDomainError] = useState('');
   const [domainInfoMessage, setDomainInfoMessage] = useState('');
   const [emailFormatError, setEmailFormatError] = useState('');
   const [urlFormatError, setUrlFormatError] = useState('');
+
+  useEffect(() => {
+    if (resolvedFieldValue.needsCanonicalValue) {
+      onChange(value);
+    }
+  }, [resolvedFieldValue.needsCanonicalValue, onChange, value]);
   
   // Combine field.locked with disabled prop - either makes the field non-editable
   const isFieldDisabled = field.locked || disabled;
@@ -470,6 +489,59 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
     enabled: field.type === 'organisation_dropdown',
     staleTime: 5 * 60 * 1000
   });
+
+  const relationshipValues = field.type === 'relationship_dropdown'
+    ? resolveRelationshipDropdownValues({
+      field,
+      fields: allFields,
+      values: allFormValues,
+      value,
+    })
+    : {};
+  const relationshipParentValue = relationshipValues.parentValue;
+  const relationshipCurrentValue = relationshipValues.currentValue;
+  const {
+    data: relationshipOptionPayload,
+    isLoading: relationshipOptionsLoading,
+    isError: relationshipOptionsError,
+    isSuccess: relationshipOptionsLoaded,
+  } = useQuery({
+    queryKey: ['public-form-relationship-options', formSlug, field.id, relationshipParentValue],
+    queryFn: () => publicClient.listFormRelationshipOptions(formSlug, field.id, relationshipParentValue),
+    enabled: field.type === 'relationship_dropdown' && !!formSlug && !!field.parent_field_id && !!relationshipParentValue,
+    staleTime: 60 * 1000,
+  });
+  const relationshipOptions = useMemo(
+    () => normalizeRelationshipOptions(relationshipOptionPayload),
+    [relationshipOptionPayload],
+  );
+  const previousRelationshipParent = useRef();
+
+  useEffect(() => {
+    if (field.type !== 'relationship_dropdown') return;
+    const previousParentValue = previousRelationshipParent.current;
+    const shouldClear = shouldClearRelationshipValue({
+      value: relationshipCurrentValue,
+      parentValue: relationshipParentValue,
+      previousParentValue,
+      options: relationshipOptions,
+      optionsLoaded: relationshipOptionsLoaded,
+    });
+    if (shouldClear) {
+      onChange('');
+    } else if (relationshipValues.needsCanonicalValue) {
+      onChange(relationshipCurrentValue);
+    }
+    previousRelationshipParent.current = relationshipParentValue;
+  }, [
+    field.type,
+    relationshipParentValue,
+    relationshipOptions,
+    relationshipOptionsLoaded,
+    relationshipCurrentValue,
+    relationshipValues.needsCanonicalValue,
+    onChange,
+  ]);
 
   // Fetch resource categories for category_multiselect and category_dropdown field types (uses public endpoint)
   const { data: categories = [], isLoading: categoriesLoading } = useQuery({
@@ -1011,6 +1083,48 @@ export default function FormRenderer({ field, value, onChange, memberInfo, organ
             </SelectContent>
           </Select>
         );
+
+      case 'relationship_dropdown': {
+        const selectedOption = relationshipOptions.find((option) => option.id === relationshipCurrentValue);
+        const missingConfiguration = !formSlug || !field.parent_field_id || !field.relationship_definition_id;
+        const relationshipDisabled = isFieldDisabled || missingConfiguration || !relationshipParentValue
+          || relationshipOptionsLoading || relationshipOptionsError || relationshipOptions.length === 0;
+        let placeholder = field.placeholder || 'Select an option';
+        if (missingConfiguration) placeholder = 'This field is not configured';
+        else if (!relationshipParentValue) placeholder = 'Select an organisation first';
+        else if (relationshipOptionsLoading) placeholder = 'Loading options…';
+        else if (relationshipOptionsError) placeholder = 'Options could not be loaded';
+        else if (relationshipOptions.length === 0) placeholder = 'No related records available';
+        return (
+          <div className="space-y-1">
+            <Select
+              value={relationshipCurrentValue || ''}
+              onValueChange={relationshipDisabled ? undefined : onChange}
+              disabled={relationshipDisabled}
+            >
+              <SelectTrigger
+                id={field.id}
+                data-testid={`select-relationship-${field.id}`}
+                className={relationshipDisabled ? 'bg-slate-100 cursor-not-allowed opacity-60' : ''}
+              >
+                <SelectValue placeholder={placeholder}>{selectedOption?.label}</SelectValue>
+              </SelectTrigger>
+              <SelectContent side="bottom">
+                {relationshipOptions.map((option) => (
+                  <SelectItem key={option.id} value={option.id} data-testid={`option-relationship-${field.id}-${option.id}`}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {relationshipOptionsLoading && <p className="text-xs text-slate-500">Loading related records…</p>}
+            {relationshipOptionsError && <p className="text-xs text-red-600">Related records could not be loaded. Please try again.</p>}
+            {relationshipOptionsLoaded && relationshipParentValue && relationshipOptions.length === 0 && (
+              <p className="text-xs text-slate-500">No active related records are available for this organisation.</p>
+            )}
+          </div>
+        );
+      }
 
       case 'category_multiselect':
         if (categoriesLoading) {

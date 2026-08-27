@@ -106,6 +106,12 @@ import { listAllOrganizationsForAdmin } from '@/lib/adminOrgList';
 import InviteMemberDialog from "@/components/InviteMemberDialog";
 import { RelatedRecordsPanel, useRelatedRecordDefinitions } from "@/pages/customObjects/RelatedRecordsPanel";
 import { labelForSide, relationshipTabValue } from "@/pages/customObjects/relationshipHelpers";
+import {
+  collectRelationshipRecordIdsFromSubmissions,
+  formatRelationshipDisplayValue,
+  getSubmissionFieldValue,
+  isRelationshipDropdownField,
+} from "@/lib/relationshipDisplayLabels";
 
 const getMemberName = (m) => {
   return [m?.first_name, m?.last_name].filter(Boolean).join(' ') || m?.full_name || '';
@@ -683,7 +689,7 @@ export default function OrganisationDetailView({
   });
 
   // Fetch form details for the submissions
-  const { data: formsMap = {} } = useQuery({
+  const { data: formsMap = {}, isFetching: formsMapLoading } = useQuery({
     queryKey: ['forms-for-submissions', orgFormSubmissions.map(s => s.form_id).join(',')],
     enabled: orgFormSubmissions.length > 0,
     queryFn: async () => {
@@ -699,6 +705,55 @@ export default function OrganisationDetailView({
         return {};
       }
     }
+  });
+
+  const relationshipSubmissionIds = useMemo(
+    () => orgFormSubmissions.filter((submission) => submission?.id).map((submission) => submission.id),
+    [orgFormSubmissions],
+  );
+  const relationshipRecordIds = useMemo(
+    () => collectRelationshipRecordIdsFromSubmissions(formsMap, orgFormSubmissions),
+    [formsMap, orgFormSubmissions],
+  );
+  const {
+    data: relationshipLabelsByRecordId = {},
+    isFetching: relationshipLabelsLoading,
+  } = useQuery({
+    queryKey: [
+      'org-form-submission-relationship-labels',
+      relationshipSubmissionIds.join(','),
+      relationshipRecordIds.join(','),
+    ],
+    enabled: relationshipSubmissionIds.length > 0 && relationshipRecordIds.length > 0,
+    staleTime: 5 * 60 * 1000,
+    queryFn: async () => {
+      const labels = {};
+      // Keep each label lookup scoped to the submissions that supplied its
+      // record IDs, while respecting the endpoint's 2,000-ID limits.
+      for (let submissionOffset = 0; submissionOffset < orgFormSubmissions.length; submissionOffset += 2000) {
+        const submissionBatch = orgFormSubmissions
+          .slice(submissionOffset, submissionOffset + 2000)
+          .filter((submission) => submission?.id);
+        if (submissionBatch.length === 0) continue;
+
+        const recordIds = collectRelationshipRecordIdsFromSubmissions(formsMap, submissionBatch);
+        for (let recordOffset = 0; recordOffset < recordIds.length; recordOffset += 2000) {
+          const response = await fetch('/api/admin/relationship-display-labels', {
+            method: 'POST',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              recordIds: recordIds.slice(recordOffset, recordOffset + 2000),
+              submissionIds: submissionBatch.map((submission) => submission.id),
+              context: 'form-submissions',
+            }),
+          });
+          if (!response.ok) throw new Error('Failed to resolve relationship labels');
+          Object.assign(labels, (await response.json()).labels || {});
+        }
+      }
+      return labels;
+    },
   });
 
   // Form submission preview state
@@ -2816,22 +2871,37 @@ export default function OrganisationDetailView({
                     const form = formsMap[previewSubmission.form_id];
                     const fields = form?.fields || [];
                     const values = previewSubmission.submission_data;
+
+                    if (!form && formsMapLoading) {
+                      return (
+                        <div className="flex items-center gap-2 text-sm text-slate-500">
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                          Loading submission fields…
+                        </div>
+                      );
+                    }
                     
                     const displayFields = fields.length > 0 
                       ? fields.map(field => ({
-                          key: field.id,
-                          label: field.label || field.id,
-                          value: values[field.id]
+                          key: field.id ?? field.name,
+                          label: field.label || field.name || field.id,
+                          field,
+                          value: getSubmissionFieldValue(values, field),
                         })).filter(f => f.value !== undefined && f.value !== null && f.value !== '')
                       : Object.entries(values).map(([key, value]) => ({
                           key,
                           label: key.replace(/_/g, ' ').replace(/([A-Z])/g, ' $1').trim(),
+                          field: null,
                           value
                         }));
 
-                    return displayFields.map(({ key, label, value }) => {
+                    return displayFields.map(({ key, label, field, value }) => {
                       let displayValue;
-                      if (typeof value === 'boolean') {
+                      if (isRelationshipDropdownField(field)) {
+                        displayValue = relationshipLabelsLoading
+                          ? 'Loading related record…'
+                          : formatRelationshipDisplayValue(value, relationshipLabelsByRecordId);
+                      } else if (typeof value === 'boolean') {
                         displayValue = value ? 'Yes' : 'No';
                       } else if (Array.isArray(value)) {
                         displayValue = value.join(', ');

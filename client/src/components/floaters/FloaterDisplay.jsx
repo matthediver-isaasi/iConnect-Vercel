@@ -203,28 +203,16 @@ export default function FloaterDisplay({
     },
   });
 
-  // Submit form (was base44.entities.FormSubmission.create)
+  // Submit through the same tenant-scoped public submission contract used by
+  // embedded forms. Direct table inserts bypass its server-side validation,
+  // including relationship dropdown validation.
   const submitFormMutation = useMutation({
     mutationFn: async ({ formId, formName, data }) => {
-      const submissionData = {
+      return publicClient.submitForm({
         form_id: formId,
         form_name: formName,
         submission_data: data,
-        submitted_by_email: memberInfo?.email,
-        submitted_by_name: memberInfo
-          ? `${memberInfo.first_name} ${memberInfo.last_name}`
-          : undefined,
-        created_date: new Date().toISOString(),
-      };
-
-      const { error } = await supabase
-        .from("form_submission")
-        .insert([submissionData]);
-
-      if (error) {
-        console.error("Error creating form submission:", error);
-        throw error;
-      }
+      });
     },
     onSuccess: () => {
       setSubmissionSuccess(true);
@@ -547,6 +535,9 @@ export default function FloaterDisplay({
                       }
                       memberInfo={memberData}
                       organizationInfo={organizationInfo}
+                      formSlug={selectedForm.slug}
+                      allFormValues={formValues}
+                      allFields={selectedForm.fields}
                     />
                   </div>
 
@@ -610,6 +601,9 @@ export default function FloaterDisplay({
                         }
                         memberInfo={memberData}
                         organizationInfo={organizationInfo}
+                        formSlug={selectedForm.slug}
+                        allFormValues={formValues}
+                        allFields={selectedForm.fields}
                       />
                     ))}
                   </div>

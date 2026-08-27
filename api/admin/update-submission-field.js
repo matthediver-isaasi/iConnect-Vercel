@@ -1,5 +1,8 @@
 import { createClient } from '@supabase/supabase-js';
 import { getTenantContext } from '../_lib/tenantContext.js';
+import { createFormRelationshipService, FormRelationshipError } from '../_lib/formRelationshipOptions.js';
+import { isResourceExcluded } from '../_lib/roleVisibility.js';
+import { validateSubmissionFieldEditCandidates } from './submissionFieldEdit.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -34,11 +37,37 @@ export default async function handler(req, res) {
 
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
+    // Service-role access must be preceded by a server-side entitlement check.
+    // Tenant dashboard users may edit; member sessions require the same Form
+    // Submissions capability that gates the administrative page.
+    if (!context.tenantUserId) {
+      if (!context.roleId) {
+        return res.status(403).json({ error: 'Access denied' });
+      }
+      const { data: role, error: roleError } = await supabase
+        .from('role')
+        .select('excluded_features')
+        .eq('id', context.roleId)
+        .eq('tenant_id', context.tenantId)
+        .single();
+      if (roleError || !role) {
+        return res.status(403).json({ error: 'Access denied' });
+      }
+      const exclusions = [
+        ...(Array.isArray(role.excluded_features) ? role.excluded_features : []),
+        ...(Array.isArray(context.memberExcludedFeatures) ? context.memberExcludedFeatures : []),
+      ];
+      if (isResourceExcluded(exclusions, 'page_FormSubmissions')) {
+        return res.status(403).json({ error: 'Access denied' });
+      }
+    }
+
     // Get the submission to verify tenant ownership
     const { data: submission, error: fetchError } = await supabase
       .from('form_submission')
       .select('id, form_id, submission_data')
       .eq('id', submission_id)
+      .eq('tenant_id', session.tenant_id)
       .single();
 
     if (fetchError || !submission) {
@@ -51,6 +80,7 @@ export default async function handler(req, res) {
       .from('form')
       .select('id, tenant_id, fields')
       .eq('id', submission.form_id)
+      .eq('tenant_id', session.tenant_id)
       .single();
 
     if (formError || !form) {
@@ -77,37 +107,62 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: `Field type "${field.type}" cannot be edited` });
     }
 
-    // Update submission_data with the new field value
-    const updatedSubmissionData = {
-      ...submission.submission_data,
-      [field_id]: value
-    };
+    // Read the due-diligence original before any mutation so both independently
+    // stored versions can be validated before either one is changed.
+    const { data: ddRecord, error: ddError } = await supabase
+      .from('form_submission_due_diligence')
+      .select('id, original_form_values, history_log')
+      .eq('form_submission_id', submission_id)
+      .eq('tenant_id', session.tenant_id)
+      .maybeSingle();
+
+    if (ddError) {
+      console.error('Failed to fetch DD record:', ddError);
+      return res.status(500).json({ error: 'Failed to validate submission' });
+    }
+
+    // Validate complete effective candidates for both stores. Validation uses
+    // saved field IDs (including legacy field-name fallbacks), while the
+    // returned persistence candidates retain unrelated stored keys.
+    let updatedSubmissionData;
+    let updatedOriginalValues;
+    try {
+      ({
+        updatedSubmissionData,
+        updatedOriginalValues,
+      } = await validateSubmissionFieldEditCandidates({
+        relationshipService: createFormRelationshipService({
+          db: supabase,
+          tenantId: session.tenant_id,
+        }),
+        form,
+        submissionData: submission.submission_data,
+        originalFormValues: ddRecord?.original_form_values,
+        hasDueDiligenceRecord: Boolean(ddRecord),
+        fieldId: field_id,
+        value,
+      }));
+    } catch (error) {
+      if (error instanceof FormRelationshipError && error.status < 500) {
+        return res.status(400).json({ error: 'Invalid relationship selection' });
+      }
+      console.error('[Update Submission Field] Relationship selection validation failed:', error);
+      return res.status(500).json({ error: 'Failed to validate submission' });
+    }
 
     // Update the form_submission table
     const { error: updateError } = await supabase
       .from('form_submission')
       .update({ submission_data: updatedSubmissionData })
-      .eq('id', submission_id);
+      .eq('id', submission_id)
+      .eq('tenant_id', session.tenant_id);
 
     if (updateError) {
       console.error('Failed to update submission:', updateError);
       return res.status(500).json({ error: 'Failed to update submission' });
     }
 
-    // Check if there's a due diligence record for this submission
-    const { data: ddRecord, error: ddError } = await supabase
-      .from('form_submission_due_diligence')
-      .select('id, original_form_values, history_log')
-      .eq('form_submission_id', submission_id)
-      .single();
-
-    if (ddRecord && !ddError) {
-      // Update the original_form_values in the DD record
-      const updatedOriginalValues = {
-        ...ddRecord.original_form_values,
-        [field_id]: value
-      };
-
+    if (ddRecord) {
       // Add history entry
       const historyLog = ddRecord.history_log || [];
       historyLog.push({

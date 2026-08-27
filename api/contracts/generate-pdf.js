@@ -1,7 +1,10 @@
 import { createClient } from '@supabase/supabase-js';
 import { getSessionTenantUser } from '../_lib/session.js';
 import { addTenantStorageBytes } from '../_lib/tenantStorageUsage.js';
-import { buildFormSubmissionPdf } from '../_lib/formSubmissionPdf.js';
+import {
+  buildFormSubmissionPdf,
+  loadFormSubmissionRelationshipLabels,
+} from '../_lib/formSubmissionPdf.js';
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -53,6 +56,13 @@ export default async function handler(req, res) {
 
     const form = submission.form;
     const submissionData = submission.submission_data || {};
+    const fields = Array.isArray(form?.fields) ? form.fields : [];
+    const relationshipLabelsByRecordId = await loadFormSubmissionRelationshipLabels({
+      db: supabase,
+      tenantId,
+      fields,
+      submissionData,
+    });
 
     const signedDate = new Date(submission.created_date).toLocaleDateString('en-GB', {
       day: 'numeric',
@@ -63,8 +73,9 @@ export default async function handler(req, res) {
     const pdfBuffer = buildFormSubmissionPdf({
       title: form.name || 'Contract',
       dateLabel: `Signed: ${signedDate}`,
-      fields: Array.isArray(form.fields) ? form.fields : [],
+      fields,
       submissionData,
+      relationshipLabelsByRecordId,
       logPrefix: '[contracts/generate-pdf]'
     });
 

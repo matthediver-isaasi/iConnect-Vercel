@@ -29,6 +29,7 @@ import { COUNTRIES } from "@/data/countries";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { cn } from "@/lib/utils";
+import FormRenderer from "@/components/forms/FormRenderer";
 
 function MultiCountrySelect({ value = [], onChange, fieldId }) {
   const [open, setOpen] = useState(false);
@@ -189,6 +190,21 @@ export default function ManualSubmissionDialog({ open, onOpenChange, form }) {
 
     if (field.type === 'instructions' || field.type === 'page_break') {
       return null;
+    }
+
+    if (!['file', 'signature'].includes(field.type)) {
+      return (
+        <FormRenderer
+          field={field}
+          value={value}
+          onChange={(nextValue) => updateValue(field.id, nextValue)}
+          hideLabel
+          formId={form?.id}
+          formSlug={form?.slug}
+          allFormValues={formValues}
+          allFields={form?.fields || []}
+        />
+      );
     }
 
     switch (field.type) {

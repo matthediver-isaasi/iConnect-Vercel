@@ -54,6 +54,13 @@ import { useTenantBranding } from "@/contexts/TenantBrandingContext";
 import { downloadSubmissionsDocx, resolveAwardType, sanitizeFileName } from "@/lib/formSubmissionWordExport";
 import SubmissionReplies from "@/components/forms/SubmissionReplies";
 import { listAllOrganizationsForAdmin } from '@/lib/adminOrgList';
+import {
+  collectRelationshipRecordIdsFromSubmissions,
+  formatRelationshipDisplayValue,
+  getSubmissionFieldValue,
+  resolveSubmissionField,
+  resolveRelationshipDisplayLabel,
+} from '@/lib/relationshipDisplayLabels';
 
 const ALLOWED_PAGE_SIZES = [10, 20, 50, 100];
 const DEFAULT_PAGE_SIZE = 20;
@@ -84,7 +91,7 @@ function extractSubmissionEmail(submission, fields) {
       idLower.includes('email') || idLower.includes('e-mail') ||
       labelLower.includes('email') || labelLower.includes('e-mail');
     if (!looksLikeEmail) continue;
-    const val = data[field.id];
+    const val = getSubmissionFieldValue(data, field);
     if (isEmailValue(val)) return val.trim();
   }
   for (const value of Object.values(data)) {
@@ -180,6 +187,38 @@ export default function FormSubmissionsPage() {
     forms.forEach(f => { map[f.id] = f; });
     return map;
   }, [forms]);
+
+  const relationshipSubmissions = useMemo(
+    () => submissions.filter((submission) => submission?.id).slice(0, 2000),
+    [submissions],
+  );
+  const relationshipRecordIds = useMemo(
+    () => collectRelationshipRecordIdsFromSubmissions(formsById, relationshipSubmissions).slice(0, 2000),
+    [formsById, relationshipSubmissions],
+  );
+  const relationshipSubmissionIds = useMemo(
+    () => relationshipSubmissions.map((submission) => submission.id),
+    [relationshipSubmissions],
+  );
+  const { data: relationshipLabelsByRecordId = {} } = useQuery({
+    queryKey: ['form-submission-relationship-labels', relationshipSubmissionIds.join(','), relationshipRecordIds.join(',')],
+    enabled: relationshipRecordIds.length > 0 && relationshipSubmissionIds.length > 0,
+    staleTime: 5 * 60 * 1000,
+    queryFn: async () => {
+      const response = await fetch('/api/admin/relationship-display-labels', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          recordIds: relationshipRecordIds,
+          submissionIds: relationshipSubmissionIds,
+          context: 'form-submissions',
+        }),
+      });
+      if (!response.ok) throw new Error('Failed to resolve relationship labels');
+      return (await response.json()).labels || {};
+    },
+  });
 
   // Task #1414: personal saved filter views (per member, per tenant).
   // Task #1415: rename and overwrite existing saved views.
@@ -1024,7 +1063,7 @@ export default function FormSubmissionsPage() {
 
   const getFieldLabel = (fieldId) => {
     if (!viewingForm?.fields) return fieldId;
-    const field = viewingForm.fields.find(f => f.id === fieldId);
+    const field = resolveSubmissionField(viewingForm.fields, fieldId);
     return field?.label || fieldId;
   };
 
@@ -1076,7 +1115,7 @@ export default function FormSubmissionsPage() {
         if (dynamicFieldKeys.has(key)) return;
         let label = key;
         if (form?.fields) {
-          const field = form.fields.find(f => f.id === key);
+          const field = resolveSubmissionField(form.fields, key);
           if (field?.label) label = field.label;
         }
         dynamicFieldKeys.set(key, label);
@@ -1171,6 +1210,8 @@ export default function FormSubmissionsPage() {
       if (options.length === 0) return String(val);
       return lookupLabel(val);
     };
+    const resolveRelationshipLabel = (value) =>
+      resolveRelationshipDisplayLabel(value, relationshipLabelsByRecordId);
     const resolveFile = (raw) => {
       if (raw == null || raw === '') return null;
       let parsed = raw;
@@ -1206,6 +1247,7 @@ export default function FormSubmissionsPage() {
       resolveCommunicationPreferences,
       resolveImageButtonLabel,
       resolveCustomFieldValue,
+      resolveRelationshipLabel,
       resolveFile,
     };
   };
@@ -1213,7 +1255,7 @@ export default function FormSubmissionsPage() {
   const buildAvailableFieldOptionsForSubmission = (submission) => {
     const form = formsById[submission.form_id];
     const dynamicEntries = Object.keys(submission.submission_data || {}).map(key => {
-      const field = form?.fields?.find(f => f.id === key);
+      const field = resolveSubmissionField(form?.fields, key);
       return { key, label: field?.label || key };
     });
     return [...METADATA_FIELDS, ...dynamicEntries];
@@ -1507,9 +1549,6 @@ export default function FormSubmissionsPage() {
 
     const rows = filteredSubmissions.map(submission => {
       const form = formsById[submission.form_id];
-      const fieldDefsById = {};
-      (form?.fields || []).forEach(f => { if (f && f.id) fieldDefsById[f.id] = f; });
-
       return selectedOptions.map(field => {
         switch (field.key) {
           case '__form_name':
@@ -1523,14 +1562,20 @@ export default function FormSubmissionsPage() {
           case '__submission_date':
             return moment(submission.created_date).format('YYYY-MM-DD HH:mm');
           default: {
-            const val = submission.submission_data?.[field.key];
+            const fieldDef = resolveSubmissionField(form?.fields, field.key);
+            const val = fieldDef
+              ? getSubmissionFieldValue(submission.submission_data, fieldDef)
+              : submission.submission_data?.[field.key];
             if (val == null) return '';
-            const fieldDef = fieldDefsById[field.key];
             const fieldType = fieldDef?.type;
 
             if (fieldType === 'organisation_dropdown') {
               if (Array.isArray(val)) return val.map(resolveOrgName).join(', ');
               return resolveOrgName(val);
+            }
+
+            if (fieldType === 'relationship_dropdown') {
+              return formatRelationshipDisplayValue(val, relationshipLabelsByRecordId);
             }
 
             if (fieldType === 'member_dropdown') {
@@ -2653,16 +2698,22 @@ export default function FormSubmissionsPage() {
               <div>
                 <h3 className="font-semibold text-slate-900 mb-3">Submission Data</h3>
                 <div className="space-y-3">
-                  {Object.entries(viewingSubmission.submission_data || {}).map(([key, value]) => (
+                  {Object.entries(viewingSubmission.submission_data || {}).map(([key, value]) => {
+                    const field = resolveSubmissionField(viewingForm?.fields, key);
+                    const displayValue = field?.type === 'relationship_dropdown'
+                      ? formatRelationshipDisplayValue(value, relationshipLabelsByRecordId)
+                      : Array.isArray(value) ? value.join(', ') : String(value);
+                    return (
                     <div key={key} className="bg-white rounded-lg p-3 border border-slate-200">
                       <Label className="text-slate-600 text-xs uppercase tracking-wide mb-1 block">
                         {getFieldLabel(key)}
                       </Label>
                       <p className="text-slate-900 whitespace-pre-wrap">
-                        {Array.isArray(value) ? value.join(', ') : String(value)}
+                        {displayValue}
                       </p>
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             </div>

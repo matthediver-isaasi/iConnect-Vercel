@@ -2647,6 +2647,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
                 onValidityChange={handleValidityChange}
                 autoFocus={cardSwipeAutoFocusFor(currentField.type)}
                 formId={form?.id}
+                formSlug={form?.slug}
                 formMemberRoleId={prefillMember?.role_id || memberData?.role_id || null}
                 allFormValues={formValues}
                 prefillData={prefillData}
@@ -2928,6 +2929,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
                   disabled={disabledFieldIds.has(field.id)}
                   onValidityChange={handleValidityChange}
                   formId={form?.id}
+                  formSlug={form?.slug}
                   formMemberRoleId={prefillMember?.role_id || memberData?.role_id || null}
                   allFormValues={formValues}
                   prefillData={prefillData}

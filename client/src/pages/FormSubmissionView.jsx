@@ -11,6 +11,12 @@ import FormRenderer from "../components/forms/FormRenderer";
 import SingleFieldEditModal from "@/components/SingleFieldEditModal";
 import SubmissionReplies from "@/components/forms/SubmissionReplies";
 import { format } from "date-fns";
+import {
+  collectRelationshipRecordIds,
+  formatRelationshipDisplayValue,
+  getSubmissionFieldValue,
+  resolveSubmissionField,
+} from "@/lib/relationshipDisplayLabels";
 
 const SUBMISSION_STATUSES = [
   { value: 'new', label: 'New', className: 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300' },
@@ -55,6 +61,30 @@ export default function FormSubmissionView() {
       return await base44.entities.Form.get(submission.form_id);
     },
     enabled: !!submission?.form_id
+  });
+
+  const relationshipRecordIds = collectRelationshipRecordIds(
+    form?.fields || [],
+    submission?.submission_data,
+  ).slice(0, 2000);
+  const { data: relationshipLabelsByRecordId = {} } = useQuery({
+    queryKey: ['form-submission-relationship-labels', relationshipRecordIds.join(',')],
+    enabled: relationshipRecordIds.length > 0,
+    staleTime: 5 * 60 * 1000,
+    queryFn: async () => {
+      const response = await fetch('/api/admin/relationship-display-labels', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          recordIds: relationshipRecordIds,
+          submissionIds: [submissionId],
+          context: 'form-submissions',
+        }),
+      });
+      if (!response.ok) throw new Error('Failed to resolve relationship labels');
+      return (await response.json()).labels || {};
+    },
   });
 
   const { data: organization } = useQuery({
@@ -171,7 +201,7 @@ export default function FormSubmissionView() {
       );
     }
     
-    const value = submissionData[field.id];
+    const value = getSubmissionFieldValue(submissionData, field);
     const isEditable = field.type !== 'page_break';
     
     if (value === undefined || value === null || value === '') {
@@ -202,12 +232,23 @@ export default function FormSubmissionView() {
       <div key={field.id} className="p-4 bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700">
         <div className="flex items-start justify-between gap-2">
           <div className="flex-1 min-w-0">
-            <FormRenderer
-              field={field}
-              value={value}
-              onChange={() => {}}
-              disabled={true}
-            />
+            {field.type === 'relationship_dropdown' ? (
+              <div>
+                <p className="text-sm font-medium text-slate-600 dark:text-slate-400 mb-1">
+                  {field.label || field.id}
+                </p>
+                <p className="text-slate-900 dark:text-slate-100">
+                  {formatRelationshipDisplayValue(value, relationshipLabelsByRecordId)}
+                </p>
+              </div>
+            ) : (
+              <FormRenderer
+                field={field}
+                value={value}
+                onChange={() => {}}
+                disabled={true}
+              />
+            )}
           </div>
           {isEditable && (
             <Button
@@ -469,20 +510,26 @@ export default function FormSubmissionView() {
               </div>
             ) : (
               <div className="space-y-4">
-                {Object.entries(submissionData).map(([key, value]) => (
+                {Object.entries(submissionData).map(([key, value]) => {
+                  const field = resolveSubmissionField(fields, key);
+                  const displayValue = field?.type === 'relationship_dropdown'
+                    ? formatRelationshipDisplayValue(value, relationshipLabelsByRecordId)
+                    : Array.isArray(value)
+                      ? value.join(', ')
+                      : typeof value === 'object'
+                        ? JSON.stringify(value, null, 2)
+                        : String(value);
+                  return (
                   <div key={key} className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-lg border border-slate-200 dark:border-slate-700">
                     <p className="text-sm font-medium text-slate-600 dark:text-slate-400 mb-1">
-                      {key.replace(/_/g, ' ').replace(/([A-Z])/g, ' $1').trim()}
+                      {field?.label || key.replace(/_/g, ' ').replace(/([A-Z])/g, ' $1').trim()}
                     </p>
                     <p className="text-slate-900 dark:text-slate-100 whitespace-pre-wrap">
-                      {Array.isArray(value) 
-                        ? value.join(', ') 
-                        : typeof value === 'object' 
-                          ? JSON.stringify(value, null, 2)
-                          : String(value)}
+                      {displayValue}
                     </p>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </CardContent>

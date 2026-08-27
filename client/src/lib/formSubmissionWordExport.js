@@ -15,6 +15,11 @@ import {
   ExternalHyperlink,
 } from 'docx';
 import moment from 'moment';
+import {
+  getSubmissionFieldValue,
+  resolveRelationshipDisplayLabel,
+  resolveSubmissionField,
+} from './relationshipDisplayLabels.js';
 
 const MOJIBAKE_MAP = [
   ['â€¯', '\u202F'],
@@ -135,7 +140,7 @@ export function resolveAwardType(submission, form) {
     if (!field || !field.label) continue;
     const labelLower = String(field.label).toLowerCase();
     if (candidateLabels.some(c => labelLower.includes(c))) {
-      const v = data[field.id];
+      const v = getSubmissionFieldValue(data, field);
       const str = Array.isArray(v) ? v.join(' ').toLowerCase() : String(v || '').toLowerCase();
       if (str.includes('team') || str.includes('organisation') || str.includes('organization')) return 'team';
       if (str.includes('individual') || str.includes('member')) return 'individual';
@@ -159,7 +164,7 @@ function getApplicantName(submission, form) {
     if (!field || !field.label) continue;
     const lower = String(field.label).toLowerCase();
     if (lower.includes('name') || lower.includes('applicant') || lower.includes('organisation') || lower.includes('organization')) {
-      const v = data[field.id];
+      const v = getSubmissionFieldValue(data, field);
       if (typeof v === 'string' && v.trim()) return v.trim();
     }
   }
@@ -173,7 +178,7 @@ function getAwardCategory(submission, form) {
     if (!field || !field.label) continue;
     const lower = String(field.label).toLowerCase();
     if (lower.includes('award') && (lower.includes('category') || lower.includes('classification') || lower.includes('class'))) {
-      const v = data[field.id];
+      const v = getSubmissionFieldValue(data, field);
       if (typeof v === 'string' && v.trim()) return v.trim();
       if (Array.isArray(v) && v.length) return v.join(', ');
     }
@@ -202,6 +207,15 @@ function formatResponseValueToJson(value, fieldDef, resolvers) {
 
   if (fieldType === 'organisation_dropdown') {
     const v = Array.isArray(value) ? value.map(r.resolveOrgName).join(', ') : r.resolveOrgName(value);
+    return { lines: makeLinesFromText(v), files: [] };
+  }
+  if (fieldType === 'relationship_dropdown') {
+    const resolveLabel = typeof r.resolveRelationshipLabel === 'function'
+      ? r.resolveRelationshipLabel
+      : (entry) => resolveRelationshipDisplayLabel(entry, {});
+    const v = Array.isArray(value)
+      ? value.map(resolveLabel).join(', ')
+      : resolveLabel(value);
     return { lines: makeLinesFromText(v), files: [] };
   }
   if (fieldType === 'member_dropdown') {
@@ -270,9 +284,6 @@ export function resolveSubmissionToPrepared({ submission, form, selectedOptions,
   const applicantName = cleanMojibake(getApplicantName(submission, form));
   const awardCategory = cleanMojibake(getAwardCategory(submission, form));
   const formMissing = !form;
-  const fieldDefsById = {};
-  (form?.fields || []).forEach(f => { if (f && f.id) fieldDefsById[f.id] = f; });
-
   const rows = [];
   const supportingDocs = [];
 
@@ -300,8 +311,10 @@ export function resolveSubmissionToPrepared({ submission, form, selectedOptions,
         lines = makeLinesFromText(moment(submission.created_date).format('YYYY-MM-DD HH:mm'));
         break;
       default: {
-        const val = submission.submission_data?.[opt.key];
-        const fieldDef = fieldDefsById[opt.key];
+        const fieldDef = resolveSubmissionField(form?.fields, opt.key);
+        const val = fieldDef
+          ? getSubmissionFieldValue(submission.submission_data, fieldDef)
+          : submission.submission_data?.[opt.key];
         const result = formatResponseValueToJson(val, fieldDef, resolvers);
         lines = result.lines;
         files = result.files || [];

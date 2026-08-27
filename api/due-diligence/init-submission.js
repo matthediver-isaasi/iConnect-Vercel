@@ -1,6 +1,7 @@
 import { supabase } from '../_lib/database.js';
 import { getSessionMember } from '../_lib/session.js';
 import { getTenantContext } from '../_lib/tenantContext.js';
+import { createFormRelationshipService, FormRelationshipError } from '../_lib/formRelationshipOptions.js';
 import { executeStageActions } from './_stageActions.js';
 
 export default async function handler(req, res) {
@@ -48,13 +49,37 @@ export default async function handler(req, res) {
     // Get the form submission with tenant isolation
     const { data: formSubmission, error: subError } = await supabase
       .from('form_submission')
-      .select('*, form:form_id(id, due_diligence_required)')
+      .select('id, form_id, tenant_id, submission_data')
       .eq('id', formSubmissionId)
       .eq('tenant_id', tenantCtx.tenantId)
       .single();
 
     if (subError || !formSubmission) {
       return res.status(404).json({ error: 'Form submission not found' });
+    }
+
+    const { data: form, error: formError } = await supabase
+      .from('form')
+      .select('id, tenant_id, fields, due_diligence_required')
+      .eq('id', formSubmission.form_id)
+      .eq('tenant_id', tenantCtx.tenantId)
+      .single();
+    if (formError || !form) {
+      return res.status(404).json({ error: 'Form not found' });
+    }
+
+    const submissionValues = formSubmission.submission_data || {};
+    try {
+      await createFormRelationshipService({
+        db: supabase,
+        tenantId: tenantCtx.tenantId,
+      }).validateSubmission({ form, submissionData: submissionValues });
+    } catch (error) {
+      if (error instanceof FormRelationshipError && error.status < 500) {
+        return res.status(400).json({ error: 'Invalid relationship selection' });
+      }
+      console.error('[DD Init] Relationship selection validation failed:', error);
+      return res.status(500).json({ error: 'Failed to validate submission' });
     }
 
     // Get the form's DD config with tenant isolation
@@ -75,8 +100,8 @@ export default async function handler(req, res) {
       form_submission_id: formSubmissionId,
       tenant_id: tenantCtx.tenantId,
       application_uid: `DD-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-      original_form_values: formSubmission.form_values || {},
-      reviewed_form_values: formSubmission.form_values || {},
+      original_form_values: submissionValues,
+      reviewed_form_values: submissionValues,
       field_review_status: {},
       workflow_status: initialStatus,
       history_log: [{

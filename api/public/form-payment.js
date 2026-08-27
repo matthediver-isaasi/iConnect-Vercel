@@ -48,6 +48,7 @@ import {
 import { resolveFormAccess, sendFormAccessDenied } from '../_lib/formAccessPolicy.js';
 import { withFormPaymentAccessProof } from '../_lib/formPaymentAccess.js';
 import { isFormScheduleAvailable } from '../_lib/formAvailability.js';
+import { createFormRelationshipService, FormRelationshipError } from '../_lib/formRelationshipOptions.js';
 
 const STRIPE_MINIMUMS = { GBP: 0.30, USD: 0.50, EUR: 0.50, AUD: 0.50, NZD: 0.50 };
 
@@ -150,6 +151,25 @@ async function authorizePaymentStart(req, res, supabase, tenantData, form) {
     return null;
   }
   return access;
+}
+
+async function validatePaymentRelationships(res, supabase, tenantData, form, values) {
+  try {
+    const service = createFormRelationshipService({
+      db: supabase,
+      tenantId: tenantData.id,
+    });
+    await service.validateSubmission({ form, submissionData: values });
+    return true;
+  } catch (error) {
+    if (error instanceof FormRelationshipError && error.status < 500) {
+      res.status(400).json({ error: 'Invalid relationship selection' });
+      return false;
+    }
+    console.error('[form-payment] Relationship validation failed:', error);
+    res.status(500).json({ error: 'Failed to validate relationship selections' });
+    return false;
+  }
 }
 
 /**
@@ -353,6 +373,7 @@ async function handleCreateMonthlyCard(req, res, supabase, tenantData) {
     ? { lmicCodes: await loadTenantLmicCodes(supabase, tenantData.id) } : {};
   const submitControl = resolveSubmitControl(form.visibility_rules, values, evalOptions);
   if (submitControl.disabled) return res.status(400).json({ error: submitControl.message || 'This form cannot be submitted with the current answers.' });
+  if (!await validatePaymentRelationships(res, supabase, tenantData, form, values)) return;
   const resolved = await resolvePayableCharge({ supabase, tenantData, form, paymentField, values, prefill_organization_id, evalOptions });
   if (resolved.error) return res.status(resolved.error.status).json(resolved.error.body);
   const quote = resolved.membershipMeta?.quote;
@@ -673,7 +694,6 @@ async function handleCreate(req, res, supabase, tenantData) {
   if (!enabledProviders.includes(provider)) {
     return res.status(400).json({ error: 'This payment method is not enabled for this form' });
   }
-
   const values = submission_data || {};
 
   // Conditional-logic submit control FIRST (pre-existing ordering): a
@@ -690,6 +710,7 @@ async function handleCreate(req, res, supabase, tenantData) {
       code: 'SUBMIT_DISABLED_BY_RULE',
     });
   }
+  if (!await validatePaymentRelationships(res, supabase, tenantData, form, values)) return;
 
   const resolved = await resolvePayableCharge({
     supabase, tenantData, form, paymentField, values,

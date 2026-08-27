@@ -153,9 +153,13 @@ export default function ManualContractOverrideForm({
                 <FormRenderer
                   key={field.id}
                   field={field}
-                  value={formValues[field.id] || formValues[field.name] || ''}
+                  value={formValues[field.id] ?? formValues[field.name] ?? ''}
                   onChange={(value) => handleFieldChange(field.id || field.name, value)}
                   disabled={false}
+                  formId={formSchema?.id || contractFormId}
+                  formSlug={formSchema?.slug}
+                  allFormValues={formValues}
+                  allFields={fields}
                 />
               ))
             ) : (

@@ -19,6 +19,12 @@ import { createPageUrl } from "@/utils";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import TransferTicketDialog from "@/components/TransferTicketDialog";
 import { getFlagColorClasses } from "@/lib/flagColors";
+import {
+  collectRelationshipRecordIdsFromSubmissions,
+  formatRelationshipDisplayValue,
+  getSubmissionFieldValue,
+  isRelationshipDropdownField,
+} from "@/lib/relationshipDisplayLabels";
 import { toast } from "sonner";
 
 function formatDietarySelections(value) {
@@ -97,7 +103,7 @@ function extractSubmissionEmail(submission, fields) {
       idLower.includes('email') || idLower.includes('e-mail') ||
       labelLower.includes('email') || labelLower.includes('e-mail');
     if (!looksLikeEmail) continue;
-    const val = data[field.id];
+    const val = getSubmissionFieldValue(data, field);
     if (isEmailValue(val)) return val.trim();
   }
   for (const value of Object.values(data)) {
@@ -875,6 +881,11 @@ export default function EventRegistrationReport() {
   }, [allForms, scopeEventIds]);
 
   const linkedFormIds = useMemo(() => linkedForms.map((f) => f.id).sort(), [linkedForms]);
+  const linkedFormsById = useMemo(() => {
+    const map = {};
+    for (const form of linkedForms) map[form.id] = form;
+    return map;
+  }, [linkedForms]);
 
   const { data: linkedSubmissions = [] } = useQuery({
     queryKey: ['event-report-linked-submissions', linkedFormIds],
@@ -889,16 +900,62 @@ export default function EventRegistrationReport() {
     staleTime: 60 * 1000,
   });
 
+  const relationshipSubmissionIds = useMemo(
+    () => linkedSubmissions.filter((submission) => submission?.id).map((submission) => submission.id),
+    [linkedSubmissions],
+  );
+  const relationshipRecordIds = useMemo(
+    () => collectRelationshipRecordIdsFromSubmissions(linkedFormsById, linkedSubmissions),
+    [linkedFormsById, linkedSubmissions],
+  );
+  const {
+    data: relationshipLabelsByRecordId = {},
+    isFetching: relationshipLabelsLoading,
+  } = useQuery({
+    queryKey: [
+      'event-report-relationship-labels',
+      relationshipSubmissionIds,
+      relationshipRecordIds,
+    ],
+    enabled: relationshipSubmissionIds.length > 0 && relationshipRecordIds.length > 0,
+    staleTime: 5 * 60 * 1000,
+    queryFn: async () => {
+      const labels = {};
+      // The authorized endpoint caps both arrays at 2,000. Keep every request
+      // submission-scoped by collecting IDs from the same submission batch.
+      for (let submissionOffset = 0; submissionOffset < linkedSubmissions.length; submissionOffset += 2000) {
+        const submissionBatch = linkedSubmissions
+          .slice(submissionOffset, submissionOffset + 2000)
+          .filter((submission) => submission?.id);
+        if (submissionBatch.length === 0) continue;
+        const recordIds = collectRelationshipRecordIdsFromSubmissions(linkedFormsById, submissionBatch);
+        for (let recordOffset = 0; recordOffset < recordIds.length; recordOffset += 2000) {
+          const response = await fetch('/api/admin/relationship-display-labels', {
+            method: 'POST',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              recordIds: recordIds.slice(recordOffset, recordOffset + 2000),
+              submissionIds: submissionBatch.map((submission) => submission.id),
+              context: 'form-submissions',
+            }),
+          });
+          if (!response.ok) throw new Error('Failed to resolve relationship labels');
+          Object.assign(labels, (await response.json()).labels || {});
+        }
+      }
+      return labels;
+    },
+  });
+
   // email -> { [formId]: { [fieldId]: formattedAnswer } }; newest submission wins per form.
   const linkedAnswerLookup = useMemo(() => {
-    const formsById = {};
-    for (const f of linkedForms) formsById[f.id] = f;
     const sorted = [...linkedSubmissions].sort(
       (a, b) => new Date(b.created_date || 0) - new Date(a.created_date || 0)
     );
     const map = new Map();
     for (const sub of sorted) {
-      const form = formsById[sub.form_id];
+      const form = linkedFormsById[sub.form_id];
       if (!form) continue;
       const email = normEmail(extractSubmissionEmail(sub, form.fields));
       if (!email) continue;
@@ -909,12 +966,15 @@ export default function EventRegistrationReport() {
       const answers = {};
       for (const field of (form.fields || [])) {
         if (!field || !field.id) continue;
-        answers[field.id] = formatLinkedAnswer(data[field.id]);
+        const value = getSubmissionFieldValue(data, field);
+        answers[field.id] = isRelationshipDropdownField(field)
+          ? formatRelationshipDisplayValue(value, relationshipLabelsByRecordId)
+          : formatLinkedAnswer(value);
       }
       byForm[sub.form_id] = answers;
     }
     return map;
-  }, [linkedForms, linkedSubmissions]);
+  }, [linkedFormsById, linkedSubmissions, relationshipLabelsByRecordId]);
 
   const standardColumns = useMemo(() => ([
     { key: 'std:event', label: 'Event', get: ({ group }) => group.eventTitle || '' },
@@ -1385,9 +1445,10 @@ export default function EventRegistrationReport() {
                 variant="outline"
                 className="gap-2"
                 onClick={handleExportCSV}
+                disabled={relationshipLabelsLoading}
                 data-testid="button-export-csv"
               >
-                <Download className="w-4 h-4" />
+                {relationshipLabelsLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
                 Export CSV
               </Button>
             )}

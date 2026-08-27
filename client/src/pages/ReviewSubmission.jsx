@@ -25,6 +25,11 @@ import { format } from 'date-fns';
 import FormRenderer from "@/components/forms/FormRenderer";
 import DocumentsCard from "@/components/due-diligence/DocumentsCard";
 import SignatoriesCard from "@/components/due-diligence/SignatoriesCard";
+import {
+  collectRelationshipRecordIds,
+  formatRelationshipDisplayValue,
+  getSubmissionFieldValue,
+} from "@/lib/relationshipDisplayLabels";
 import MeetingRequestsCard from "@/components/due-diligence/MeetingRequestsCard";
 import DocumentDetailModal from "@/components/due-diligence/DocumentDetailModal";
 async function apiRequest(method, url, body = null) {
@@ -116,7 +121,11 @@ function ReviewFieldEditor({
   note,
   onNoteChange,
   organisations = [],
-  linkedOrganisationId = null
+  linkedOrganisationId = null,
+  relationshipLabelsByRecordId = {},
+  formSlug = null,
+  allFormValues = {},
+  allFields = []
 }) {
   const [showNote, setShowNote] = useState(!!note);
   const isApproved = reviewStatus === 'approved';
@@ -138,6 +147,9 @@ function ReviewFieldEditor({
   
   // For organisation dropdown fields, look up the display name
   const getDisplayValue = (value) => {
+    if (field.type === 'relationship_dropdown') {
+      return formatRelationshipDisplayValue(value, relationshipLabelsByRecordId);
+    }
     if (isOrganisationField && value && organisations.length > 0) {
       const org = organisations.find(o => o.id === value);
       return org?.name || value;
@@ -187,6 +199,9 @@ function ReviewFieldEditor({
             onChange={(value) => onChange(stateKey, value)}
             disabled={false}
             hideLabel={true}
+            formSlug={formSlug}
+            allFormValues={allFormValues}
+            allFields={allFields}
           />
           <div className="flex items-center gap-2">
             <Button
@@ -287,6 +302,9 @@ function ReviewFieldEditor({
             onChange={(value) => onChange(stateKey, value)}
             disabled={false}
             hideLabel={true}
+            formSlug={formSlug}
+            allFormValues={allFormValues}
+            allFields={allFields}
           />
         ) : (
           <div className="p-2 bg-white rounded border text-sm min-h-[40px] flex items-center">
@@ -1163,6 +1181,24 @@ export default function ReviewSubmissionPage() {
   const form = ddSubmissionData?.form;
   const organization = ddSubmissionData?.organization;
 
+  const relationshipRecordIds = collectRelationshipRecordIds(
+    form?.fields || [],
+    ddSubmission?.original_form_values,
+  ).slice(0, 2000);
+  const { data: relationshipLabelsByRecordId = {} } = useQuery({
+    queryKey: ['dd-submission-relationship-labels', ddSubmission?.form_submission_id, relationshipRecordIds.join(',')],
+    enabled: accessChecked && !!ddSubmission?.form_submission_id && relationshipRecordIds.length > 0,
+    staleTime: 5 * 60 * 1000,
+    queryFn: async () => {
+      const result = await apiRequest('POST', '/api/admin/relationship-display-labels', {
+        recordIds: relationshipRecordIds,
+        submissionIds: [ddSubmission.form_submission_id],
+        context: 'review-submission',
+      });
+      return result.labels || {};
+    },
+  });
+
   // Query for documents status (for condition checking)
   const { data: documentsData } = useQuery({
     queryKey: ['submission-documents', ddSubmission?.form_submission_id],
@@ -1278,7 +1314,7 @@ export default function ReviewSubmissionPage() {
       fields.forEach(field => {
         const fieldKey = field.id || field.name;
         if (mergedStatus[fieldKey]) return;
-        const originalValue = originalValues[fieldKey] ?? originalValues[field.name];
+        const originalValue = getSubmissionFieldValue(originalValues, field);
         const locked = field.locked === true
           || (field.type === 'organisation_dropdown' && originalValue === linkedOrgId);
         mergedStatus[fieldKey] = locked ? 'approved' : defaultState;
@@ -1322,7 +1358,7 @@ export default function ReviewSubmissionPage() {
     const linkedOrgId = organization?.id;
     fields.forEach(field => {
       const fieldKey = field.id || field.name;
-      const originalValue = originalValues[fieldKey] ?? originalValues[field.name];
+      const originalValue = getSubmissionFieldValue(originalValues, field);
       if (
         field.locked === true ||
         (field.type === 'organisation_dropdown' && originalValue === linkedOrgId)
@@ -1332,6 +1368,27 @@ export default function ReviewSubmissionPage() {
     });
     return keys;
   }, [form, ddSubmission, organization]);
+
+  // Relationship dropdowns require the effective value of their parent field.
+  // During review, an amended parent lives in reviewedFormValues while an
+  // approved parent remains in the original submission, so provide renderers a
+  // single field-id keyed view of both.
+  const reviewFormValues = useMemo(() => {
+    const values = {};
+    const fields = form?.fields || [];
+    const originalValues = ddSubmission?.original_form_values || {};
+
+    fields.forEach(field => {
+      const fieldKey = field.id || field.name;
+      const hasReviewedValue = Object.prototype.hasOwnProperty.call(reviewedFormValues, fieldKey)
+        && reviewedFormValues[fieldKey] !== undefined;
+      values[fieldKey] = hasReviewedValue
+        ? reviewedFormValues[fieldKey]
+        : getSubmissionFieldValue(originalValues, field);
+    });
+
+    return values;
+  }, [form, ddSubmission, reviewedFormValues]);
 
   const handleFieldStatusChange = useCallback((fieldKey, status) => {
     setFieldReviewStatus(prev => ({ ...prev, [fieldKey]: status }));
@@ -1822,8 +1879,7 @@ export default function ReviewSubmissionPage() {
     // Check if custom field submission data contains file upload content
     if (field.type === 'custom_field') {
       const submissionData = ddSubmission?.original_form_values || {};
-      const fieldKey = field.name || field.id;
-      const rawValue = submissionData?.[fieldKey] || submissionData?.[field.id];
+      const rawValue = getSubmissionFieldValue(submissionData, field);
       if (isFileUploadValue(rawValue)) return true;
     }
     return false;
@@ -2302,7 +2358,7 @@ export default function ReviewSubmissionPage() {
                         key={fieldKey || `field-${index}`}
                         field={field}
                         fieldKey={fieldKey}
-                        originalValue={originalFormValues[fieldKey] ?? originalFormValues[field.name]}
+                        originalValue={getSubmissionFieldValue(originalFormValues, field)}
                         reviewedValue={reviewedFormValues[fieldKey]}
                         reviewStatus={fieldReviewStatus[fieldKey]}
                         onChange={handleFieldChange}
@@ -2311,6 +2367,10 @@ export default function ReviewSubmissionPage() {
                         onNoteChange={handleFieldNoteChange}
                         organisations={organisations}
                         linkedOrganisationId={organization?.id}
+                        relationshipLabelsByRecordId={relationshipLabelsByRecordId}
+                        formSlug={form?.slug}
+                        allFormValues={reviewFormValues}
+                        allFields={form?.fields || []}
                       />
                     );
                   })}

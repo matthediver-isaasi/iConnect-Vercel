@@ -1,28 +1,9 @@
 import { createClient } from '@supabase/supabase-js';
 import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
-
-const VALID_CORE_FIELDS = [
-  'name', 'slug', 'description', 'website_url', 'email', 'invoicing_email', 'phone',
-  'address', 'city', 'country', 'postcode', 'external_id', 'is_active',
-  'status', 'twitter_url', 'linkedin_url', 'facebook_url', 'instagram_url'
-];
-
-const normalizePreferenceValue = (rawValue) => {
-  if (rawValue === null || rawValue === undefined) return null;
-
-  let val = rawValue;
-  if (typeof val === 'string') {
-    try { val = JSON.parse(val); } catch (e) { return val; }
-  }
-  if (val && typeof val === 'object') {
-    if (val.value !== undefined) return String(val.value);
-    if (Array.isArray(val) && val.length > 0) {
-      const first = val[0];
-      return typeof first === 'object' && first.value !== undefined ? String(first.value) : String(first);
-    }
-  }
-  return String(val);
-};
+import {
+  normalizeOrganizationPreferenceValue,
+  VALID_ORGANIZATION_CORE_FIELDS,
+} from '../_lib/organizationEligibility.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
@@ -94,7 +75,7 @@ export default async function handler(req, res) {
     }
 
     if (orgFilter && orgFilter.type === 'core') {
-      if (!VALID_CORE_FIELDS.includes(orgFilter.field)) {
+      if (!VALID_ORGANIZATION_CORE_FIELDS.includes(orgFilter.field)) {
         return res.status(400).json({ error: 'Invalid core field for filtering' });
       }
 
@@ -199,7 +180,7 @@ async function filterByCustomField(supabase, tenantId, fieldName, allowedValues,
 
   const orgValueMap = {};
   (prefValues || []).forEach(pv => {
-    orgValueMap[pv.organization_id] = normalizePreferenceValue(pv.value);
+    orgValueMap[pv.organization_id] = normalizeOrganizationPreferenceValue(pv.value);
   });
 
   const normalizedAllowed = allowedValues.map(s => String(s));

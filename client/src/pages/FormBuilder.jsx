@@ -48,6 +48,7 @@ import ScoreField from "@/components/forms/ScoreField";
 import { validateScoreFieldConfig, validateSurveyForPublish, getScoreRange, getScoreWeight } from "../../../api/_lib/surveyScoring.js";
 import { listOrganizationsForAdmin } from '@/lib/adminOrgList';
 import SurveyEventAssignmentsPanel from "@/components/surveys/SurveyEventAssignmentsPanel";
+import { getEligibleRelationshipParents, normalizeEligibleRelationships, relationshipFieldConfig } from "@/lib/formRelationshipDropdown";
 
 const BADGE_STYLE_DEFAULTS = {
   background_color: '#ffffff',
@@ -87,6 +88,7 @@ const STANDARD_FIELD_TYPES = [
 
 const PREPOPULATE_FIELD_TYPES = [
   { value: 'organisation_dropdown', label: 'Organisation Dropdown' },
+  { value: 'relationship_dropdown', label: 'Relationship Dropdown' },
   { value: 'category_multiselect', label: 'Category Multi-Select' },
   { value: 'category_dropdown', label: 'Category Dropdown' },
   { value: 'communication_preferences', label: 'Communication Preferences' },
@@ -3592,7 +3594,8 @@ function FieldCard({
   contractForms = [],
   allFields = [],
   formType = 'standard',
-  scoringLocked = false
+  scoringLocked = false,
+  formId = null
 }) {
   const isEmailType = field.type === 'email' || field.type === 'user_email';
   const isSurveyForm = formType === 'survey';
@@ -3603,6 +3606,18 @@ function FieldCard({
   const isUniquenessEnabled = !!uniquenessCheck;
   const targetField = uniquenessCheck?.target_field || '';
   const comparisonMode = uniquenessCheck?.comparison_mode || 'equals_lowercase';
+  const relationshipParents = getEligibleRelationshipParents(allFields, field.id);
+  const {
+    data: relationshipDiscovery,
+    isLoading: relationshipsLoading,
+    isError: relationshipsError,
+  } = useQuery({
+    queryKey: ['eligible-form-relationships'],
+    queryFn: () => publicClient.listEligibleFormRelationships(formId),
+    enabled: field.type === 'relationship_dropdown' && !!formId,
+    staleTime: 5 * 60 * 1000,
+  });
+  const eligibleRelationships = normalizeEligibleRelationships(relationshipDiscovery);
 
   // Get available target fields based on application level
   const availableTargets = [
@@ -4648,6 +4663,60 @@ function FieldCard({
                   </div>
                 );
               })()}
+
+              {field.type === 'relationship_dropdown' && (
+                <div className="space-y-4 rounded-lg border border-slate-200 bg-slate-50 p-3" data-testid={`relationship-dropdown-config-${field.id}`}>
+                  <div>
+                    <Label className="text-xs font-medium">Organisation field</Label>
+                    <p className="mt-1 text-xs text-slate-500">Only organisation dropdowns earlier in the form can drive this field.</p>
+                    <Select
+                      value={field.parent_field_id || ''}
+                      onValueChange={(parent_field_id) => updateField(originalIndex, { parent_field_id })}
+                    >
+                      <SelectTrigger className="mt-2" data-testid={`select-relationship-parent-${field.id}`}>
+                        <SelectValue placeholder="Choose an earlier organisation field…" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {relationshipParents.map((parent) => (
+                          <SelectItem key={parent.id} value={parent.id}>{parent.label || 'Organisation'}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {relationshipParents.length === 0 && (
+                      <p className="mt-2 text-xs text-amber-700">Add an organisation dropdown before this field first.</p>
+                    )}
+                  </div>
+
+                  <div>
+                    <Label className="text-xs font-medium">Relationship</Label>
+                    <Select
+                      value={field.relationship_definition_id || ''}
+                      disabled={!formId || relationshipsLoading || relationshipsError}
+                      onValueChange={(id) => {
+                        const relationship = eligibleRelationships.find((item) => item.id === id);
+                        if (relationship) updateField(originalIndex, relationshipFieldConfig(relationship));
+                      }}
+                    >
+                      <SelectTrigger className="mt-2" data-testid={`select-relationship-definition-${field.id}`}>
+                        <SelectValue placeholder={relationshipsLoading ? 'Loading relationships…' : 'Choose an active relationship…'} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {eligibleRelationships.map((relationship) => (
+                          <SelectItem key={relationship.id} value={relationship.id}>
+                            {relationship.label || relationship.name || relationship.related_custom_object_name || relationship.relationship_key}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {relationshipsError && <p className="mt-2 text-xs text-red-600">Relationships could not be loaded. Please try again.</p>}
+                    {!relationshipsLoading && !relationshipsError && eligibleRelationships.length === 0 && (
+                      <p className="mt-2 text-xs text-slate-500">
+                        {formId ? 'No eligible active Organisation relationships are available.' : 'Save the form before choosing a relationship.'}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              )}
 
               {field.type === 'category_multiselect' && (
                 <div className="space-y-2">
@@ -9034,6 +9103,7 @@ export default function FormBuilderPage() {
                                       allFields={formData.fields}
                                       formType={formData.form_type}
                                       scoringLocked={hasResponses && formData.form_type === 'survey'}
+                                      formId={formId}
                                     />
                                   ))}
                                 {provided.placeholder}
@@ -9178,6 +9248,7 @@ export default function FormBuilderPage() {
                                                   allFields={formData.fields}
                                       formType={formData.form_type}
                                       scoringLocked={hasResponses && formData.form_type === 'survey'}
+                                      formId={formId}
                                                 />
                                               ))
                                             )}
@@ -9239,6 +9310,7 @@ export default function FormBuilderPage() {
                               allFields={formData.fields}
                                       formType={formData.form_type}
                                       scoringLocked={hasResponses && formData.form_type === 'survey'}
+                                      formId={formId}
                             />
                           ))}
                           {provided.placeholder}

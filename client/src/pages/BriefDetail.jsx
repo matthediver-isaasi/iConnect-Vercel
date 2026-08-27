@@ -63,6 +63,11 @@ import SimpleRichTextEditor from "@/components/SimpleRichTextEditor";
 import MemberCombobox from "@/components/MemberCombobox";
 import ExternalWriterCombobox from "@/components/ExternalWriterCombobox";
 import DOMPurify from "dompurify";
+import {
+  collectRelationshipRecordIds,
+  formatRelationshipDisplayValue,
+  resolveSubmissionField,
+} from "@/lib/relationshipDisplayLabels";
 
 const DEFAULT_STATUS_CONFIG = {
   new: { label: "New", color: "#6b7280", icon: Clock },
@@ -155,14 +160,23 @@ function summarizeSubmittedObject(value) {
   return 'Submitted';
 }
 
-function processSubmissionData(data, fields) {
-  const fieldMap = {};
-  (fields || []).forEach((f) => { fieldMap[f.id] = f; });
+function processSubmissionData(data, fields, relationshipLabelsByRecordId = {}) {
+  const savedFields = fields || [];
   const imageEntries = [];
   const docEntries = [];
   const fieldEntries = [];
   Object.entries(data || {}).forEach(([key, value]) => {
-    const field = fieldMap[key];
+    const field = resolveSubmissionField(savedFields, key);
+    // Some older submissions persisted answers under field.name. If both
+    // representations exist, the current field ID is authoritative.
+    if (
+      field
+      && key === field.name
+      && field.id != null
+      && Object.prototype.hasOwnProperty.call(data, field.id)
+    ) {
+      return;
+    }
     if (value === null || value === undefined || value === '') return;
     if (field && (field.type === 'instructions' || field.type === 'image')) return;
     const label = field?.label || key.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
@@ -182,6 +196,14 @@ function processSubmissionData(data, fields) {
         const isImage = /\.(jpg|jpeg|png|gif|webp|svg)$/i.test(url);
         if (isImage) imageEntries.push({ url, name });
         else docEntries.push({ url, name });
+      });
+      return;
+    }
+    if (field?.type === 'relationship_dropdown') {
+      fieldEntries.push({
+        kind: 'text',
+        label,
+        text: formatRelationshipDisplayValue(value, relationshipLabelsByRecordId),
       });
       return;
     }
@@ -394,6 +416,57 @@ export default function BriefDetailPage() {
       return await base44.entities.Form.get(copyrightFormId);
     },
     enabled: isAccessReady && !!copyrightFormId,
+  });
+
+  const relationshipRecordIds = useMemo(() => {
+    const ids = new Set();
+    const submissionPairs = [
+      [caseStudySubmission, caseStudyForm],
+      [copyrightSubmission, copyrightForm],
+    ];
+    for (const [submission, form] of submissionPairs) {
+      for (const id of collectRelationshipRecordIds(
+        form?.fields || [],
+        submission?.submission_data,
+      )) {
+        ids.add(id);
+      }
+    }
+    return [...ids].slice(0, 2000);
+  }, [caseStudySubmission, caseStudyForm, copyrightSubmission, copyrightForm]);
+
+  const relationshipSubmissionIds = useMemo(
+    () => [caseStudySubmission?.id, copyrightSubmission?.id].filter(Boolean),
+    [caseStudySubmission?.id, copyrightSubmission?.id],
+  );
+
+  const {
+    data: relationshipLabelsByRecordId = {},
+    isLoading: relationshipLabelsLoading,
+  } = useQuery({
+    queryKey: [
+      "brief-submission-relationship-labels",
+      relationshipSubmissionIds.join(","),
+      relationshipRecordIds.join(","),
+    ],
+    enabled: isAccessReady
+      && relationshipRecordIds.length > 0
+      && relationshipSubmissionIds.length > 0,
+    staleTime: 5 * 60 * 1000,
+    queryFn: async () => {
+      const response = await fetch("/api/admin/relationship-display-labels", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          recordIds: relationshipRecordIds,
+          submissionIds: relationshipSubmissionIds,
+          context: "form-submissions",
+        }),
+      });
+      if (!response.ok) throw new Error("Failed to resolve relationship labels");
+      return (await response.json()).labels || {};
+    },
   });
 
   const { data: caseStudyUploads = [], isLoading: caseStudyUploadsLoading } = useQuery({
@@ -1375,11 +1448,20 @@ export default function BriefDetailPage() {
 
               const renderCopyrightSubmissionData = () => {
                 if (!hasCopyrightSubmitted) return null;
+                if (relationshipLabelsLoading) {
+                  return (
+                    <div className="flex items-center gap-2 mt-3 text-sm text-muted-foreground">
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Loading submitted answers…
+                    </div>
+                  );
+                }
                 const submission = copyrightSubmission;
                 const formMeta = copyrightForm;
                 const { imageEntries, docEntries, fieldEntries } = processSubmissionData(
                   submission?.submission_data || {},
-                  formMeta?.fields || []
+                  formMeta?.fields || [],
+                  relationshipLabelsByRecordId
                 );
                 return (
                   <div className="space-y-3 mt-3" data-testid="section-copyright-submission">
@@ -1849,9 +1931,18 @@ export default function BriefDetailPage() {
 
               const renderSubmissionDataFor = (submission, formMeta) => {
                 if (!submission?.submission_data) return null;
+                if (relationshipLabelsLoading) {
+                  return (
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Loading submitted answers…
+                    </div>
+                  );
+                }
                 const { imageEntries, docEntries, fieldEntries } = processSubmissionData(
                   submission.submission_data,
-                  formMeta?.fields || []
+                  formMeta?.fields || [],
+                  relationshipLabelsByRecordId
                 );
 
                 return (

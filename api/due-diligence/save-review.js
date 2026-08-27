@@ -3,6 +3,8 @@ import { getSessionMember } from '../_lib/session.js';
 import { getTenantContext } from '../_lib/tenantContext.js';
 import { executeStageActions } from './_stageActions.js';
 import { calculateTrafficLightScore, calculateDynamicScore, determineRiskLevel } from './_scoring.js';
+import { createFormRelationshipService, FormRelationshipError } from '../_lib/formRelationshipOptions.js';
+import { effectiveReviewSubmissionValues } from './reviewSubmissionValues.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -43,13 +45,48 @@ export default async function handler(req, res) {
     // Get current submission state with tenant isolation
     const { data: ddSubmission, error: ddError } = await supabase
       .from('form_submission_due_diligence')
-      .select('*, form_submission:form_submission_id(id, form_id)')
+      .select('*, form_submission:form_submission_id(id, form_id, submission_data)')
       .eq('id', submissionId)
       .eq('tenant_id', tenantCtx.tenantId)
       .single();
 
     if (ddError || !ddSubmission) {
       return res.status(404).json({ error: 'Due diligence submission not found' });
+    }
+
+    // Amendments can change a relationship dropdown or its organisation
+    // parent. Validate the UI's effective field values before writing any
+    // review data, exactly as public and manual form submissions do.
+    if (reviewedFormValues !== undefined) {
+      const { data: form, error: formError } = await supabase
+        .from('form')
+        .select('id, fields')
+        .eq('id', ddSubmission.form_submission?.form_id)
+        .eq('tenant_id', tenantCtx.tenantId)
+        .single();
+      if (formError || !form) {
+        return res.status(404).json({ error: 'Form not found' });
+      }
+      const originalSubmissionValues = ddSubmission.original_form_values
+        ?? ddSubmission.form_submission?.submission_data
+        ?? {};
+      const submissionData = effectiveReviewSubmissionValues(
+        form,
+        originalSubmissionValues,
+        reviewedFormValues,
+      );
+      try {
+        await createFormRelationshipService({
+          db: supabase,
+          tenantId: tenantCtx.tenantId,
+        }).validateSubmission({ form, submissionData });
+      } catch (error) {
+        if (error instanceof FormRelationshipError && error.status < 500) {
+          return res.status(400).json({ error: 'Invalid relationship selection' });
+        }
+        console.error('[DD Review] Relationship selection validation failed:', error);
+        return res.status(500).json({ error: 'Failed to validate submission' });
+      }
     }
 
     // Check if this is the first edit (reviewed_by was previously null)

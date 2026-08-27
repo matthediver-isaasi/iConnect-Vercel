@@ -32,6 +32,12 @@ import { Search, Filter, RefreshCw, FileText, TrendingUp, AlertTriangle, CheckCi
 import { format } from 'date-fns';
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { base44 } from "@/api/base44Client";
+import {
+  formatRelationshipDisplayValue,
+  getSubmissionFieldValue,
+  isRelationshipDropdownField,
+  resolveSubmissionField,
+} from "@/lib/relationshipDisplayLabels";
 
 const DEFAULT_COLUMN_WIDTHS = {
   reference: 200,
@@ -154,23 +160,12 @@ function RiskLevelsCard({ breakdown, avgRiskLevel, avgScore }) {
   );
 }
 
-function SubmissionRow({ submission, workflowStages, riskLevels, onClick, onDelete, onSwap, cardReferenceField, columnWidths, eligibleForms }) {
+function SubmissionRow({ submission, workflowStages, riskLevels, onClick, onDelete, onSwap, displayReference, columnWidths, eligibleForms }) {
   const stage = workflowStages.find(s => s.id === submission.workflow_status) || { label: submission.workflow_status, color: '#6b7280' };
   // Match risk config using normalized value (which matches stored risk_level format)
   const riskConfig = riskLevels.find(r => r.value === submission.risk_level) || { color: '#6b7280' };
   
-  const formValues = submission.form_submission?.submission_data || {};
-  const linkedOrgName = submission.form_submission?.organization?.name;
   const currentFormId = submission.form_submission?.form_id;
-  
-  let displayReference = submission.application_uid;
-  if (cardReferenceField === '__organization_name__' && linkedOrgName) {
-    displayReference = linkedOrgName;
-  } else if (cardReferenceField && formValues[cardReferenceField]) {
-    displayReference = formValues[cardReferenceField];
-  } else {
-    displayReference = linkedOrgName || formValues.organization_name || formValues.company_name || formValues.name || formValues.email || submission.application_uid;
-  }
 
   const ownerDisplay = submission.owner_name || '--';
 
@@ -458,6 +453,11 @@ export default function DueDiligenceDashboardPage() {
     return lookup;
   }, [ddConfigs]);
 
+  const formsById = useMemo(
+    () => Object.fromEntries(ddForms.filter((form) => form?.id).map((form) => [String(form.id), form])),
+    [ddForms],
+  );
+
   const workflowStagesByFormId = useMemo(() => {
     const lookup = {};
     ddConfigs.forEach(config => {
@@ -477,22 +477,6 @@ export default function DueDiligenceDashboardPage() {
     });
     return lookup;
   }, [ddConfigs]);
-
-  const getDisplayReference = useCallback((submission) => {
-    if (!submission) return '';
-    const formId = submission.form_submission?.form_id;
-    const cardReferenceField = formId ? cardReferenceFieldByFormId[formId] : null;
-    const formValues = submission.form_submission?.submission_data || {};
-    const linkedOrgName = submission.form_submission?.organization?.name;
-    
-    if (cardReferenceField === '__organization_name__' && linkedOrgName) {
-      return linkedOrgName;
-    } else if (cardReferenceField && formValues[cardReferenceField]) {
-      return formValues[cardReferenceField];
-    } else {
-      return linkedOrgName || formValues.organization_name || formValues.company_name || formValues.name || formValues.email || submission.application_uid;
-    }
-  }, [cardReferenceFieldByFormId]);
 
   const { data: submissionsData, isLoading: submissionsLoading, isFetching: submissionsFetching, refetch } = useQuery({
     queryKey: ['dd-submissions', statusFilter, riskFilter, selectedFormId, appliedStartIso, appliedEndIso],
@@ -534,6 +518,93 @@ export default function DueDiligenceDashboardPage() {
   });
 
   const submissions = submissionsData?.submissions || [];
+
+  const relationshipLabelBatches = useMemo(() => {
+    const batches = [];
+    for (let offset = 0; offset < submissions.length; offset += 2000) {
+      const submissionBatch = submissions.slice(offset, offset + 2000);
+      const submissionIds = [];
+      const ddSubmissionIds = [];
+      const recordIds = new Set();
+
+      submissionBatch.forEach((submission) => {
+        const formSubmissionId = submission?.form_submission?.id || submission?.form_submission_id;
+        if (!formSubmissionId) return;
+        submissionIds.push(String(formSubmissionId));
+        if (submission?.id) ddSubmissionIds.push(String(submission.id));
+
+        const formId = submission.form_submission?.form_id;
+        const configuredKey = formId ? cardReferenceFieldByFormId[formId] : null;
+        const field = resolveSubmissionField(formsById[formId]?.fields, configuredKey);
+        if (!isRelationshipDropdownField(field)) return;
+
+        const value = getSubmissionFieldValue(
+          submission.form_submission?.submission_data,
+          field,
+        );
+        for (const entry of (Array.isArray(value) ? value : [value])) {
+          if (entry != null && entry !== '') recordIds.add(String(entry));
+        }
+      });
+
+      if (submissionIds.length && recordIds.size) {
+        batches.push({
+          submissionIds: [...new Set(submissionIds)],
+          ddSubmissionIds,
+          recordIds: [...recordIds],
+        });
+      }
+    }
+    return batches;
+  }, [submissions, formsById, cardReferenceFieldByFormId]);
+
+  const {
+    data: relationshipLabelsByRecordId = {},
+    isFetching: relationshipLabelsLoading,
+  } = useQuery({
+    queryKey: ['dd-dashboard-relationship-labels', relationshipLabelBatches],
+    enabled: isAccessReady && relationshipLabelBatches.length > 0,
+    staleTime: 5 * 60 * 1000,
+    queryFn: async () => {
+      const labels = {};
+      for (const batch of relationshipLabelBatches) {
+        for (let offset = 0; offset < batch.recordIds.length; offset += 2000) {
+          const result = await apiRequest('POST', '/api/admin/relationship-display-labels', {
+            recordIds: batch.recordIds.slice(offset, offset + 2000),
+            submissionIds: batch.submissionIds,
+            context: 'review-submission',
+          });
+          Object.assign(labels, result.labels || {});
+        }
+      }
+      return labels;
+    },
+  });
+
+  const getDisplayReference = useCallback((submission) => {
+    if (!submission) return '';
+    const formId = submission.form_submission?.form_id;
+    const cardReferenceField = formId ? cardReferenceFieldByFormId[formId] : null;
+    const formValues = submission.form_submission?.submission_data || {};
+    const linkedOrgName = submission.form_submission?.organization?.name;
+    const configuredField = resolveSubmissionField(formsById[formId]?.fields, cardReferenceField);
+    const configuredValue = configuredField
+      ? getSubmissionFieldValue(formValues, configuredField)
+      : undefined;
+    const hasConfiguredValue = configuredValue !== undefined
+      && configuredValue !== null
+      && configuredValue !== '';
+
+    if (cardReferenceField === '__organization_name__' && linkedOrgName) {
+      return linkedOrgName;
+    } else if (cardReferenceField && hasConfiguredValue) {
+      return isRelationshipDropdownField(configuredField)
+        ? formatRelationshipDisplayValue(configuredValue, relationshipLabelsByRecordId)
+        : configuredValue;
+    } else {
+      return linkedOrgName || formValues.organization_name || formValues.company_name || formValues.name || formValues.email || submission.application_uid;
+    }
+  }, [cardReferenceFieldByFormId, formsById, relationshipLabelsByRecordId]);
   
   const stats = useMemo(() => {
     const total = submissions.length;
@@ -657,26 +728,14 @@ export default function DueDiligenceDashboardPage() {
       const query = searchQuery.toLowerCase();
       filtered = filtered.filter(sub => {
         const uid = sub.application_uid?.toLowerCase() || '';
-        const formValues = sub.form_submission?.submission_data || {};
-        const linkedOrgName = sub.form_submission?.organization?.name || '';
-        const formId = sub.form_submission?.form_id;
-        const refField = formId ? cardReferenceFieldByFormId[formId] : null;
-        
-        let displayRef = '';
-        if (refField === '__organization_name__' && linkedOrgName) {
-          displayRef = linkedOrgName.toLowerCase();
-        } else if (refField && formValues[refField]) {
-          displayRef = String(formValues[refField]).toLowerCase();
-        } else {
-          displayRef = (linkedOrgName || formValues.organization_name || formValues.company_name || formValues.name || formValues.email || '').toLowerCase();
-        }
+        const displayRef = String(getDisplayReference(sub) || '').toLowerCase();
         
         return uid.includes(query) || displayRef.includes(query);
       });
     }
 
     return filtered;
-  }, [submissions, searchQuery, ownerFilter, cardReferenceFieldByFormId, outstandingDaysFilter, reviewerUrlFilter]);
+  }, [submissions, searchQuery, ownerFilter, outstandingDaysFilter, reviewerUrlFilter, getDisplayReference]);
 
   // Display pagination (applied AFTER filtering so search/filters cover the
   // whole dataset). Any filter change snaps back to page 1.
@@ -1117,7 +1176,7 @@ export default function DueDiligenceDashboardPage() {
           )}
         </CardHeader>
         <CardContent>
-          {submissionsLoading ? (
+          {submissionsLoading || formsLoading || relationshipLabelsLoading ? (
             <div className="flex items-center justify-center py-12">
               <Loader2 className="w-8 h-8 animate-spin text-primary" />
             </div>
@@ -1140,7 +1199,6 @@ export default function DueDiligenceDashboardPage() {
                 <TableBody>
                   {paginatedSubmissions.map((submission) => {
                     const formId = submission.form_submission?.form_id;
-                    const refField = formId ? cardReferenceFieldByFormId[formId] : null;
                     const formWorkflowStages = (formId && workflowStagesByFormId[formId]) || DEFAULT_WORKFLOW_STAGES;
                     const formRiskLevels = getRiskLevelsForForm(formId);
                     return (
@@ -1152,7 +1210,7 @@ export default function DueDiligenceDashboardPage() {
                         onClick={handleRowClick}
                         onDelete={handleDeleteClick}
                         onSwap={handleSwapClick}
-                        cardReferenceField={refField}
+                        displayReference={getDisplayReference(submission)}
                         columnWidths={columnWidths}
                         eligibleForms={ddForms}
                       />
@@ -1291,7 +1349,9 @@ export default function DueDiligenceDashboardPage() {
               {submissionToDelete && (
                 <p className="mt-3 p-2 bg-muted rounded text-sm">
                   <span className="font-medium">Submission Reference:</span>{' '}
-                  {getDisplayReference(submissionToDelete)}
+                  {relationshipLabelsLoading
+                    ? 'Loading related record…'
+                    : getDisplayReference(submissionToDelete)}
                 </p>
               )}
             </AlertDialogDescription>

@@ -37,6 +37,13 @@
 
 import { supabase } from '../_lib/database.js';
 import { getTenantContext, hasAdminAccess } from '../_lib/tenantContext.js';
+import {
+  collectRelationshipRecordIds,
+  formatRelationshipDisplayValue,
+  getSubmissionRelationshipValue,
+  isRelationshipDropdownField,
+  loadTenantRelationshipDisplayLabels,
+} from '../_lib/relationshipDisplayLabels.js';
 
 const SEARCH_LIMIT = 25;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -97,6 +104,29 @@ function stringifyFieldValue(value) {
     }
   }
   return String(value);
+}
+
+export function buildDdSubmissionFieldValues(fields, submissionData, relationshipLabelsByRecordId) {
+  const byId = {};
+  const byLabel = {};
+  for (const field of fields || []) {
+    const raw = isRelationshipDropdownField(field)
+      ? getSubmissionRelationshipValue(submissionData, field)
+      : (
+        submissionData?.[field.id]
+        ?? (field.label ? submissionData?.[field.label] : undefined)
+        ?? (field.name ? submissionData?.[field.name] : undefined)
+      );
+    const display = isRelationshipDropdownField(field)
+      ? formatRelationshipDisplayValue(raw, relationshipLabelsByRecordId)
+      : stringifyFieldValue(raw);
+    if (display !== '') {
+      byId[field.id] = display;
+      const label = field.label || field.name;
+      if (label) byLabel[label] = display;
+    }
+  }
+  return { byId, byLabel };
 }
 
 function memberToBundle(m) {
@@ -247,26 +277,24 @@ async function loadDdBundle(tenantId, ddRow) {
     form = data || null;
   }
 
-  const formFields = flattenFields(form).map((f) => ({
+  const fieldDefinitions = flattenFields(form);
+  const formFields = fieldDefinitions.map((f) => ({
     id: f.id,
     label: f.label || f.name || '',
     type: f.type || '',
   }));
 
   const submissionData = formSubmission?.submission_data || {};
-  const byId = {};
-  const byLabel = {};
-  for (const f of formFields) {
-    const raw =
-      submissionData[f.id] ??
-      (f.label ? submissionData[f.label] : undefined) ??
-      undefined;
-    const display = stringifyFieldValue(raw);
-    if (display !== '') {
-      byId[f.id] = display;
-      if (f.label) byLabel[f.label] = display;
-    }
-  }
+  const relationshipLabelsByRecordId = await loadTenantRelationshipDisplayLabels(
+    supabase,
+    tenantId,
+    collectRelationshipRecordIds(fieldDefinitions, submissionData),
+  );
+  const { byId, byLabel } = buildDdSubmissionFieldValues(
+    fieldDefinitions,
+    submissionData,
+    relationshipLabelsByRecordId,
+  );
 
   // Organisation
   let organization = null;

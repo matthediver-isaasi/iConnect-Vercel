@@ -7,6 +7,40 @@
 
 import { jsPDF } from 'jspdf';
 import { toWinAnsi } from './pdfWinAnsi.js';
+import { loadTenantRelationshipDisplayLabels } from './relationshipDisplayLabels.js';
+import {
+  collectRelationshipRecordIds,
+  formatRelationshipDisplayValue,
+  getSubmissionFieldValue,
+  isRelationshipDropdownField,
+} from '../../client/src/lib/relationshipDisplayLabels.js';
+
+/**
+ * Resolve only relationship IDs which occur in the persisted answers under
+ * relationship fields from the saved form definition. The underlying loader
+ * additionally limits records, definitions and display fields to the tenant
+ * and to active/non-archived rows.
+ */
+export async function loadFormSubmissionRelationshipLabels({
+  db,
+  tenantId,
+  fields,
+  submissionData,
+}) {
+  const savedFields = Array.isArray(fields) ? fields : [];
+  const recordIds = collectRelationshipRecordIds(savedFields, submissionData);
+  return loadTenantRelationshipDisplayLabels(db, tenantId, recordIds);
+}
+
+/**
+ * Pure field formatter exported for direct regression tests.
+ */
+export function formatFormSubmissionFieldValue(field, value, relationshipLabelsByRecordId = {}) {
+  if (isRelationshipDropdownField(field)) {
+    return formatRelationshipDisplayValue(value, relationshipLabelsByRecordId);
+  }
+  return value;
+}
 
 /**
  * Build a PDF document from form fields + submission data.
@@ -16,10 +50,18 @@ import { toWinAnsi } from './pdfWinAnsi.js';
  * @param {string} [opts.dateLabel] Grey sub-heading line (e.g. "Signed: 1 May 2026")
  * @param {Array}  opts.fields      Form field definitions ({ id, label, type })
  * @param {object} opts.submissionData  Answers keyed by field id
+ * @param {object|Map} [opts.relationshipLabelsByRecordId] Trusted, tenant-scoped relationship labels
  * @param {string} [opts.logPrefix] Prefix for console errors
  * @returns {Buffer} PDF file contents
  */
-export function buildFormSubmissionPdf({ title, dateLabel, fields, submissionData, logPrefix = '[formSubmissionPdf]' }) {
+export function buildFormSubmissionPdf({
+  title,
+  dateLabel,
+  fields,
+  submissionData,
+  relationshipLabelsByRecordId = {},
+  logPrefix = '[formSubmissionPdf]',
+}) {
   const doc = new jsPDF({
     orientation: 'portrait',
     unit: 'mm',
@@ -61,7 +103,8 @@ export function buildFormSubmissionPdf({ title, dateLabel, fields, submissionDat
       yPos = margin;
     }
 
-    const value = data[field.id];
+    const rawValue = getSubmissionFieldValue(data, field);
+    const value = formatFormSubmissionFieldValue(field, rawValue, relationshipLabelsByRecordId);
 
     doc.setFontSize(10);
     doc.setFont('helvetica', 'bold');
