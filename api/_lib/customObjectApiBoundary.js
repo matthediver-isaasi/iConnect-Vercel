@@ -28,6 +28,34 @@ export function isCustomObjectFieldWrite(body) {
     || (body?.custom_object_id !== undefined && body?.custom_object_id !== null);
 }
 
+export async function loadCorePreferenceValueBeforeUpdate({
+  supabase,
+  tableName,
+  id,
+}) {
+  if (!supabase || !tableName || !id) {
+    throw new Error('Preference value lookup requires a database, table, and id');
+  }
+
+  const { data, error } = await supabase
+    .from(tableName)
+    .select('value, field_id')
+    .eq('id', id)
+    .single();
+
+  if (error) throw error;
+  if (!data?.field_id) {
+    const missingFieldError = new Error('Preference value row has no field_id');
+    missingFieldError.code = 'PREFERENCE_VALUE_FIELD_MISSING';
+    throw missingFieldError;
+  }
+
+  return {
+    value: data.value,
+    fieldId: data.field_id,
+  };
+}
+
 export async function isCorePreferenceField({ supabase, tenantId, fieldId }) {
   if (!supabase || !tenantId || !fieldId) return false;
   const { data, error } = await supabase

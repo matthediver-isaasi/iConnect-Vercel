@@ -39,6 +39,7 @@ import {
   isCorePreferenceValueEntity,
   isCustomObjectFieldWrite,
   isCustomObjectStorageEntity,
+  loadCorePreferenceValueBeforeUpdate,
 } from '../../_lib/customObjectApiBoundary.js';
 import {
   validateAutomaticMembershipSettings,
@@ -657,17 +658,19 @@ export default async function handler(req, res) {
       let prefValueFieldId = undefined;
       if (isPreferenceValueEntity) {
         try {
-          const { data: prevRecord } = await supabase
-            .from(tableName)
-            .select('value, field_id, organization_id, member_id')
-            .eq('id', id)
-            .single();
-          if (prevRecord) {
-            prefValueBefore = prevRecord.value;
-            prefValueFieldId = prevRecord.field_id;
-          }
+          const previousPreferenceValue = await loadCorePreferenceValueBeforeUpdate({
+            supabase,
+            tableName,
+            id,
+          });
+          prefValueBefore = previousPreferenceValue.value;
+          prefValueFieldId = previousPreferenceValue.fieldId;
         } catch (e) {
           console.error('[Entity PATCH] Error fetching preference value before data:', e);
+          if (e?.code === 'PGRST116') {
+            return res.status(404).json({ error: 'Preference value not found' });
+          }
+          return res.status(500).json({ error: 'Failed to load preference value for update' });
         }
       }
 
