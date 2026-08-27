@@ -241,6 +241,40 @@ export default async function handler(req, res) {
     }
   }
 
+  // Protect the server-owned organisation member disclosure policy on update.
+  if (req.method === 'PATCH' || req.method === 'PUT') {
+    let writesViewMembersPolicy = entityNorm === 'dynamicdirectory'
+      && Object.prototype.hasOwnProperty.call(req.body || {}, 'view_members_role_ids');
+    if (entityNorm === 'systemsettings') {
+      writesViewMembersPolicy = req.body?.setting_key === 'org_directory_view_members_role_ids';
+      if (!writesViewMembersPolicy) {
+        const { data: existingSetting } = await supabase
+          .from('system_settings')
+          .select('setting_key')
+          .eq('id', id)
+          .eq('tenant_id', tenantCtx.tenantId)
+          .limit(1);
+        writesViewMembersPolicy =
+          existingSetting?.[0]?.setting_key === 'org_directory_view_members_role_ids';
+      }
+    }
+    if (writesViewMembersPolicy) {
+      const canManage = await hasAdminAccess(tenantCtx)
+        || (
+          tenantCtx.roleId
+          && await hasFeatureAccess(
+            tenantCtx.roleId,
+            entityNorm === 'systemsettings'
+              ? 'membership.organisation-directory-settings'
+              : 'page_DynamicDirectoryManagement'
+          )
+        );
+      if (!canManage) {
+        return res.status(403).json({ error: 'Directory settings access required' });
+      }
+    }
+  }
+
   // SECURITY (Task #3330): survey version snapshots and normalised survey
   // answers are server-authoritative records. Writes go ONLY through the
   // publish endpoint / public submission endpoint (service role); reads are

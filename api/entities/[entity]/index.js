@@ -359,6 +359,30 @@ export default async function handler(req, res) {
     }
   }
 
+  // Organisation View Members role policies control member disclosure and
+  // must never be writable merely because an entity is tenant-scoped.
+  if (
+    req.method === 'POST'
+    && (
+      (entityNorm === 'systemsettings' && req.body?.setting_key === 'org_directory_view_members_role_ids')
+      || (entityNorm === 'dynamicdirectory' && Object.prototype.hasOwnProperty.call(req.body || {}, 'view_members_role_ids'))
+    )
+  ) {
+    const canManage = await hasAdminAccess(tenantCtx)
+      || (
+        tenantCtx.roleId
+        && await hasFeatureAccess(
+          tenantCtx.roleId,
+          entityNorm === 'systemsettings'
+            ? 'membership.organisation-directory-settings'
+            : 'page_DynamicDirectoryManagement'
+        )
+      );
+    if (!canManage) {
+      return res.status(403).json({ error: 'Directory settings access required' });
+    }
+  }
+
   // SECURITY (Task #3330): survey version snapshots and normalised survey
   // answers are server-authoritative records. Writes go ONLY through the
   // publish endpoint / public submission endpoint (service role); reads are

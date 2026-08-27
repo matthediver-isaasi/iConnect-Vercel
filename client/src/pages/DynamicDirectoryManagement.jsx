@@ -55,6 +55,8 @@ export default function DynamicDirectoryManagementPage() {
   const [seoDescription, setSeoDescription] = useState('');
   const [ogImageUrl, setOgImageUrl] = useState('');
   const [showMembersOnCardBack, setShowMembersOnCardBack] = useState(true);
+  // null = inherit tenant View Members roles; [] = explicit deny-all.
+  const [viewMembersRoleIds, setViewMembersRoleIds] = useState(null);
   // null = use tenant default order; array = per-directory override
   const [backFieldOrder, setBackFieldOrder] = useState(null);
   // '' = inherit the tenant-global label; non-blank = per-directory override
@@ -355,6 +357,7 @@ export default function DynamicDirectoryManagementPage() {
     setSeoDescription('');
     setOgImageUrl('');
     setShowMembersOnCardBack(true);
+    setViewMembersRoleIds(null);
     setBackFieldOrder(null);
     setCoreFieldVisibility(null);
     setCustomFieldsLabel('');
@@ -382,6 +385,9 @@ export default function DynamicDirectoryManagementPage() {
     setSeoDescription(directory.seo_description || '');
     setOgImageUrl(directory.og_image_url || '');
     setShowMembersOnCardBack(directory.show_members_on_card_back !== false);
+    setViewMembersRoleIds(
+      Array.isArray(directory.view_members_role_ids) ? directory.view_members_role_ids : null
+    );
     setCustomFieldsLabel(directory.custom_fields_label || '');
     setBackFieldOrder(Array.isArray(directory.back_field_order) && directory.back_field_order.length > 0
       ? directory.back_field_order
@@ -470,6 +476,7 @@ export default function DynamicDirectoryManagementPage() {
       seo_description: seoDescription || null,
       og_image_url: ogImageUrl || null,
       show_members_on_card_back: entityType === 'organization' ? showMembersOnCardBack : true,
+      view_members_role_ids: entityType === 'organization' ? viewMembersRoleIds : null,
       back_field_order: (Array.isArray(backFieldOrder) && backFieldOrder.length > 0) ? backFieldOrder : null,
       core_field_visibility: (coreFieldVisibility && Object.keys(coreFieldVisibility).length > 0) ? coreFieldVisibility : null,
       custom_fields_label: customFieldsLabel.trim() || null
@@ -817,20 +824,63 @@ export default function DynamicDirectoryManagementPage() {
             )}
 
             {entityType === 'organization' && (
-              <div className="flex items-center justify-between p-3 bg-slate-50 rounded-lg border">
-                <div>
-                  <Label htmlFor="showMembersOnCardBack" className="cursor-pointer">Show members on card back</Label>
-                  <p className="text-xs text-slate-500 mt-0.5">
-                    When on, the back of each organisation card lists its members grouped by role. Turn off to hide the members section for this directory.
-                  </p>
+              <>
+                <div className="flex items-center justify-between p-3 bg-slate-50 rounded-lg border">
+                  <div>
+                    <Label htmlFor="showMembersOnCardBack" className="cursor-pointer">Show members on card back</Label>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      When on, the organisation card detail popup shows contacts selected by the tenant Reverse card member roles setting.
+                    </p>
+                  </div>
+                  <Switch
+                    id="showMembersOnCardBack"
+                    checked={showMembersOnCardBack}
+                    onCheckedChange={setShowMembersOnCardBack}
+                    data-testid="switch-show-members-on-card-back"
+                  />
                 </div>
-                <Switch
-                  id="showMembersOnCardBack"
-                  checked={showMembersOnCardBack}
-                  onCheckedChange={setShowMembersOnCardBack}
-                  data-testid="switch-show-members-on-card-back"
-                />
-              </div>
+                <div className="space-y-3 p-3 bg-slate-50 rounded-lg border">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <Label htmlFor="overrideViewMembersRoles">Override View Members roles</Label>
+                      <p className="text-xs text-slate-500 mt-0.5">
+                        {viewMembersRoleIds === null
+                          ? 'Inheriting the tenant-wide View Members roles.'
+                          : 'Using this directory’s own View Members role selection.'}
+                      </p>
+                    </div>
+                    <Switch
+                      id="overrideViewMembersRoles"
+                      checked={viewMembersRoleIds !== null}
+                      onCheckedChange={(checked) => setViewMembersRoleIds(checked ? [] : null)}
+                      data-testid="switch-override-view-members-roles"
+                    />
+                  </div>
+                  {viewMembersRoleIds !== null && (
+                    <>
+                      <p className="text-xs text-slate-500">
+                        Select roles whose members appear after clicking View Members. Leaving every role unchecked intentionally shows no members.
+                      </p>
+                      <div className="space-y-2">
+                        {roles.map((role) => (
+                          <label key={role.id} className="flex items-center gap-3 p-2 bg-white rounded cursor-pointer">
+                            <Checkbox
+                              checked={viewMembersRoleIds.includes(role.id)}
+                              onCheckedChange={() => setViewMembersRoleIds((current) =>
+                                current.includes(role.id)
+                                  ? current.filter((id) => id !== role.id)
+                                  : [...current, role.id]
+                              )}
+                              data-testid={`checkbox-view-members-role-${role.id}`}
+                            />
+                            <span className="text-sm">{role.name}</span>
+                          </label>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </div>
+              </>
             )}
 
             <div className="space-y-3 p-3 bg-slate-50 rounded-lg border">

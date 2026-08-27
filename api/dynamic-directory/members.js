@@ -4,6 +4,7 @@ import {
   buildOrganisationMembersResponse,
   fetchMemberDisplaySettings,
   fetchRoles,
+  resolveOrgViewMembersRoleIds,
 } from '../_lib/directoryConfig.js';
 
 export default async function handler(req, res) {
@@ -41,7 +42,7 @@ export default async function handler(req, res) {
 
   try {
     let directory = null;
-    let contactRoleIds = [];
+    let viewMembersRoleIds = [];
     if (isStandardOrgDirectory) {
       const isTenantAdmin = !!tenantContext.tenantUserId;
       const canAccess = isTenantAdmin || await hasFeatureAccess(
@@ -50,7 +51,7 @@ export default async function handler(req, res) {
       );
       if (!canAccess) return res.status(403).json({ error: 'Directory access denied' });
       directory = { entity_type: organizationId ? 'organization' : 'member', id: 'main' };
-      contactRoleIds = await fetchSettingArray(tenantId, 'org_directory_reverse_card_role_ids');
+      viewMembersRoleIds = await resolveOrgViewMembersRoleIds(supabase, tenantId, directory);
     } else {
       const { data: directories, error: dirError } = await supabase
         .from('dynamic_directory')
@@ -77,7 +78,7 @@ export default async function handler(req, res) {
       ) {
         return res.status(403).json({ error: 'Directory access denied' });
       }
-      contactRoleIds = await fetchSettingArray(tenantId, 'org_directory_reverse_card_role_ids');
+      viewMembersRoleIds = await resolveOrgViewMembersRoleIds(supabase, tenantId, directory);
     }
 
     if (organizationId && directory.entity_type !== 'organization') {
@@ -96,9 +97,9 @@ export default async function handler(req, res) {
         requesterOrganizationId: tenantContext.organizationId,
       });
       if (!selectedOrganization) return res.status(404).json({ error: 'Organisation not found in this directory' });
-      // Organisation contact roles are entirely server-resolved. An empty
-      // configuration intentionally returns no contacts rather than broadening.
-      if (contactRoleIds.length === 0) {
+      // View Members eligibility is entirely server-resolved. Empty, missing,
+      // or malformed configuration intentionally returns no members.
+      if (viewMembersRoleIds.length === 0) {
         return res.json(buildOrganisationMembersResponse({
           organization: selectedOrganization,
           roles: await fetchRoles(supabase, tenantId),
@@ -157,7 +158,7 @@ export default async function handler(req, res) {
       .not('email', 'ilike', 'deleted_%@deleted.local');
 
     if (organizationId) {
-      countQuery = countQuery.eq('organization_id', organizationId).in('role_id', contactRoleIds);
+      countQuery = countQuery.eq('organization_id', organizationId).in('role_id', viewMembersRoleIds);
     }
 
     if (!showDisabled) {
@@ -188,7 +189,7 @@ export default async function handler(req, res) {
       .not('email', 'ilike', 'deleted_%@deleted.local');
 
     if (organizationId) {
-      dataQuery = dataQuery.eq('organization_id', organizationId).in('role_id', contactRoleIds);
+      dataQuery = dataQuery.eq('organization_id', organizationId).in('role_id', viewMembersRoleIds);
     }
 
     if (!showDisabled) {

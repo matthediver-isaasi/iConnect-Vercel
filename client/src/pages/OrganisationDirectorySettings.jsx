@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Save, Settings, Search, Building, Filter, Shield } from "lucide-react";
+import { Save, Settings, Search, Building, Filter, Shield, Users } from "lucide-react";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
@@ -31,6 +31,7 @@ export default function OrganisationDirectorySettingsPage() {
   const [allowedApplicationStatuses, setAllowedApplicationStatuses] = useState([]);
   const [visibleOrgTypes, setVisibleOrgTypes] = useState([]);
   const [reverseCardRoleIds, setReverseCardRoleIds] = useState([]);
+  const [viewMembersRoleIds, setViewMembersRoleIds] = useState([]);
   const [backFieldOrder, setBackFieldOrder] = useState([]);
   const [customFieldsLabel, setCustomFieldsLabel] = useState("");
 
@@ -132,6 +133,7 @@ export default function OrganisationDirectorySettingsPage() {
       const allowedStatusesSetting = allSettings.find((s) => s.setting_key === 'org_directory_allowed_application_statuses');
       const visibleOrgTypesSetting = allSettings.find((s) => s.setting_key === 'org_directory_visible_org_types');
       const reverseCardRolesSetting = allSettings.find((s) => s.setting_key === 'org_directory_reverse_card_role_ids');
+      const viewMembersRolesSetting = allSettings.find((s) => s.setting_key === 'org_directory_view_members_role_ids');
       const backOrderSetting = allSettings.find((s) => s.setting_key === 'org_directory_back_field_order');
       const customFieldsLabelSetting = allSettings.find((s) => s.setting_key === 'org_directory_custom_fields_label');
       return {
@@ -146,6 +148,7 @@ export default function OrganisationDirectorySettingsPage() {
         allowedStatuses: allowedStatusesSetting,
         visibleOrgTypes: visibleOrgTypesSetting,
         reverseCardRoles: reverseCardRolesSetting,
+        viewMembersRoles: viewMembersRolesSetting,
         backOrder: backOrderSetting,
         customFieldsLabel: customFieldsLabelSetting
       };
@@ -205,6 +208,14 @@ export default function OrganisationDirectorySettingsPage() {
         setReverseCardRoleIds(Array.isArray(ids) ? ids : []);
       } catch {
         setReverseCardRoleIds([]);
+      }
+    }
+    if (settings?.viewMembersRoles) {
+      try {
+        const ids = JSON.parse(settings.viewMembersRoles.setting_value);
+        setViewMembersRoleIds(Array.isArray(ids) ? ids : []);
+      } catch {
+        setViewMembersRoleIds([]);
       }
     }
     if (settings?.backOrder) {
@@ -388,6 +399,19 @@ export default function OrganisationDirectorySettingsPage() {
         });
       }
 
+      // Save the independent View Members role policy.
+      if (settings?.viewMembersRoles) {
+        await base44.entities.SystemSettings.update(settings.viewMembersRoles.id, {
+          setting_value: JSON.stringify(viewMembersRoleIds)
+        });
+      } else {
+        await base44.entities.SystemSettings.create({
+          setting_key: 'org_directory_view_members_role_ids',
+          setting_value: JSON.stringify(viewMembersRoleIds),
+          description: 'Role IDs eligible for organisation directory View Members pages'
+        });
+      }
+
       // Save custom fields section label setting
       if (settings?.customFieldsLabel) {
         await base44.entities.SystemSettings.update(settings.customFieldsLabel.id, {
@@ -453,6 +477,12 @@ export default function OrganisationDirectorySettingsPage() {
       prev.includes(roleId)
         ? prev.filter((id) => id !== roleId)
         : [...prev, roleId]
+    );
+  };
+
+  const toggleViewMembersRole = (roleId) => {
+    setViewMembersRoleIds((prev) =>
+      prev.includes(roleId) ? prev.filter((id) => id !== roleId) : [...prev, roleId]
     );
   };
 
@@ -788,7 +818,7 @@ export default function OrganisationDirectorySettingsPage() {
               Reverse card member roles
             </CardTitle>
             <p className="text-sm text-slate-600 mt-2">
-              Members holding any of the selected roles will be listed as contacts on the reverse of each organisation's card.
+              Members holding any of the selected roles will be listed in the contacts section inside each organisation card's detail popup.
               If no roles are selected, the contacts section will not appear.
             </p>
           </CardHeader>
@@ -832,6 +862,39 @@ export default function OrganisationDirectorySettingsPage() {
                 className="bg-blue-600 hover:bg-blue-700"
                 data-testid="button-save-reverse-card-roles"
               >
+                <Save className="w-4 h-4 mr-2" />
+                {saveMutation.isPending ? 'Saving...' : 'Save Settings'}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="border-slate-200 shadow-sm mt-6">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Users className="w-5 h-5" />
+              View Members roles
+            </CardTitle>
+            <p className="text-sm text-slate-600 mt-2">
+              Selected roles determine which people appear after a user clicks View Members for an organisation.
+              If no roles are selected, the View Members page safely shows no members.
+            </p>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3" data-testid="select-view-members-roles">
+              {roles.map((role) => (
+                <label key={role.id} className="flex items-center gap-2.5 p-2.5 rounded-lg border border-slate-200 bg-slate-50 cursor-pointer">
+                  <Checkbox
+                    checked={viewMembersRoleIds.includes(role.id)}
+                    onCheckedChange={() => toggleViewMembersRole(role.id)}
+                    data-testid={`checkbox-view-members-role-${role.id}`}
+                  />
+                  <span className="text-sm font-medium text-slate-700 truncate">{role.name}</span>
+                </label>
+              ))}
+            </div>
+            <div className="pt-4 border-t">
+              <Button onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending} className="bg-blue-600 hover:bg-blue-700" data-testid="button-save-view-members-roles">
                 <Save className="w-4 h-4 mr-2" />
                 {saveMutation.isPending ? 'Saving...' : 'Save Settings'}
               </Button>

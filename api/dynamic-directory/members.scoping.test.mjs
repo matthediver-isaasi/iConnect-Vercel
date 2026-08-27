@@ -6,8 +6,10 @@ import { buildOrganisationMembersResponse } from '../_lib/directoryConfig.js';
 const source = fs.readFileSync(new URL('./members.js', import.meta.url), 'utf8');
 
 test('organisation member scope is server derived and fail closed', () => {
-  assert.match(source, /organization_id', organizationId\)\.in\('role_id', contactRoleIds\)/);
-  assert.match(source, /contactRoleIds\.length === 0/);
+  assert.match(source, /resolveOrgViewMembersRoleIds\(supabase, tenantId, directory\)/);
+  assert.match(source, /organization_id', organizationId\)\.in\('role_id', viewMembersRoleIds\)/);
+  assert.match(source, /viewMembersRoleIds\.length === 0/);
+  assert.doesNotMatch(source, /org_directory_reverse_card_role_ids/);
   assert.doesNotMatch(source, /req\.query\.(role|role_id|role_ids)/);
 });
 

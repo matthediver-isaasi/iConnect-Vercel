@@ -223,6 +223,40 @@ export function resolveCustomFieldsLabel(...labels) {
 
 // --- roles ------------------------------------------------------------------
 
+export const ORG_VIEW_MEMBERS_ROLE_SETTING = 'org_directory_view_members_role_ids';
+
+export function parseRoleIdArray(value) {
+  let parsed = value;
+  if (typeof parsed === 'string') {
+    try { parsed = JSON.parse(parsed); } catch { return []; }
+  }
+  return Array.isArray(parsed)
+    ? parsed.filter((id) => typeof id === 'string' && id.trim())
+    : [];
+}
+
+export async function fetchOrgViewMembersRoleIds(supabase, tenantId) {
+  const { data, error } = await supabase
+    .from('system_settings')
+    .select('setting_value')
+    .eq('tenant_id', tenantId)
+    .eq('setting_key', ORG_VIEW_MEMBERS_ROLE_SETTING)
+    .limit(1);
+  if (error || !data?.[0]) return [];
+  return parseRoleIdArray(data[0].setting_value);
+}
+
+export async function resolveOrgViewMembersRoleIds(supabase, tenantId, directory) {
+  if (
+    directory?.id !== 'main'
+    && directory?.view_members_role_ids !== null
+    && directory?.view_members_role_ids !== undefined
+  ) {
+    return parseRoleIdArray(directory.view_members_role_ids);
+  }
+  return fetchOrgViewMembersRoleIds(supabase, tenantId);
+}
+
 export async function fetchRoles(supabase, tenantId) {
   const { data: roleRows } = await supabase
     .from('role')
