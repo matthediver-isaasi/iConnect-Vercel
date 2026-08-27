@@ -1,6 +1,8 @@
 import bcrypt from 'bcryptjs';
 import { supabase } from '../_lib/database.js';
 import { createSession } from '../_lib/session.js';
+import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
+import { selectAdminMembership } from './_lib/adminPasswordMembership.js';
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Credentials', 'true');
@@ -72,22 +74,28 @@ export default async function handler(req, res) {
       }
     }
 
-    const passwordHash = await bcrypt.hash(password, 10);
+    // A tenant credential token is authoritative for its tenant. Legacy
+    // identity-level tokens use the validated request tenant when available,
+    // then preserve the historical ordered fallback on the platform host.
+    const requestTenant = tenantId ? null : await resolveTenantFromRequest(req);
+    const targetTenantId = tenantId || requestTenant?.id || null;
 
-    // Get membership to determine tenant_id if not already set
-    const { data: membership } = await supabase
+    const { data: memberships } = await supabase
       .from('tenant_membership')
       .select('*, tenant:tenant_id(*)')
       .eq('identity_id', identity.id)
       .or('membership_type.eq.owner,role.in.(owner,admin)')
       .eq('status', 'active')
       .order('is_default', { ascending: false })
-      .limit(1)
-      .single();
+      .order('last_accessed', { ascending: false, nullsFirst: false });
 
-    if (!tenantId && membership) {
-      tenantId = membership.tenant_id;
+    const membership = selectAdminMembership(memberships, targetTenantId);
+    if (!membership) {
+      return res.status(400).json({ success: false, error: 'Invalid or expired setup link' });
     }
+    tenantId = membership.tenant_id;
+
+    const passwordHash = await bcrypt.hash(password, 10);
 
     // Save password to tenant_membership_credentials (per-tenant password isolation)
     if (tenantId) {
@@ -180,7 +188,7 @@ export default async function handler(req, res) {
         userType: 'tenant_user'
       };
 
-      await createSession(res, sessionData);
+      await createSession(res, sessionData, { req });
 
       return res.json({
         success: true,

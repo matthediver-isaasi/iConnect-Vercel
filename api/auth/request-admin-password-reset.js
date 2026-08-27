@@ -1,6 +1,11 @@
 import crypto from 'crypto';
 import { supabase } from '../_lib/database.js';
 import { sendEmail } from '../_lib/emailService.js';
+import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
+import {
+  getAdminResetBaseUrl,
+  selectAdminMembership,
+} from './_lib/adminPasswordMembership.js';
 
 const PUBLIC_RESPONSE = {
   success: true,
@@ -67,16 +72,20 @@ export default async function handler(req, res) {
       return res.json(buildResponse('no_identity'));
     }
 
+    const requestTenant = await resolveTenantFromRequest(req);
+
     const { data: memberships } = await supabase
       .from('tenant_membership')
-      .select('id, tenant_id, membership_type, role, tenant:tenant_id(name, slug)')
+      .select('id, tenant_id, membership_type, role, status, tenant:tenant_id(id, name, slug, domain)')
       .eq('identity_id', identity.id)
       .or('membership_type.eq.owner,role.in.(owner,admin)')
       .eq('status', 'active')
       .order('is_default', { ascending: false })
-      .limit(1);
+      .order('last_accessed', { ascending: false, nullsFirst: false });
 
-    if (!memberships || memberships.length === 0) {
+    const membership = selectAdminMembership(memberships, requestTenant?.id);
+
+    if (!membership) {
       console.log('[Admin Password Reset] No admin (owner type) memberships for:', normalizedEmail);
       return res.json(buildResponse('no_owner_membership'));
     }
@@ -85,7 +94,7 @@ export default async function handler(req, res) {
     const resetExpires = new Date(Date.now() + 60 * 60 * 1000);
 
     // Get tenant_id from the owner membership for tenant-specific credentials
-    const tenantId = memberships[0]?.tenant_id;
+    const tenantId = membership.tenant_id;
     
     if (!tenantId) {
       console.error('[Admin Password Reset] No tenant_id found for owner membership');
@@ -154,14 +163,10 @@ export default async function handler(req, res) {
       console.error('[Admin Password Reset] Identity update error (non-critical):', updateError);
     }
 
-    // System (platform→tenant-owner) reset: link must point at the platform
-    // host (iconn.app), NOT the tenant subdomain. The email itself comes from
-    // mail.iconn.app via systemEmail=true, so the link domain has to match
-    // that platform identity. Tenant subdomains are for tenant→member flows.
-    const host = req.headers.host || 'iconn.app';
-    const protocol = host.includes('localhost') ? 'http' : 'https';
-    const platformHost = process.env.APP_DOMAIN || 'iconn.app';
-    const resetUrl = `${protocol}://${platformHost}/admin/login?setup=${resetToken}&email=${encodeURIComponent(normalizedEmail)}`;
+    // Keep tenant-scoped resets on the validated tenant host. This matters for
+    // identities that administer several tenants with isolated passwords.
+    const resetBaseUrl = getAdminResetBaseUrl(req, membership.tenant);
+    const resetUrl = `${resetBaseUrl}/admin/login?setup=${resetToken}&email=${encodeURIComponent(normalizedEmail)}`;
 
     let emailSent = false;
     try {
