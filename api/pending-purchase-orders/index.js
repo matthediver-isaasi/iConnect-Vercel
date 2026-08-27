@@ -563,6 +563,10 @@ export default async function handler(req, res) {
           purchase_order_number: result.purchase_order_number,
           bookingsUpdated: result.bookingsUpdated,
           transactionsUpdated: result.transactionsUpdated,
+          trainingFundPurchasesUpdated: result.trainingFundPurchasesUpdated,
+          organisationMembershipHistoryUpdated: result.organisationMembershipHistoryUpdated,
+          memberMembershipHistoryUpdated: result.memberMembershipHistoryUpdated,
+          membershipInvoicingUpdated: result.membershipInvoicingUpdated,
           xeroUpdated: result.xeroUpdated,
           xeroError: result.xeroError,
         });

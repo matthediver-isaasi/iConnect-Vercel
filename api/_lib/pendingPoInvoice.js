@@ -109,6 +109,40 @@ export function findMembershipPoForRecord(record, { idToPo, numToPo }) {
   return null;
 }
 
+function hasProviderInvoice(row) {
+  return ['xero_invoice_id', 'xero_invoice_number', 'accounting_invoice_id', 'accounting_invoice_number']
+    .some((column) => row?.[column] && String(row[column]).trim());
+}
+
+export function isPendingMembershipPoRow(row) {
+  if (!row || row.payment_status !== 'unpaid' || row.status === 'cancelled') return false;
+  if (!hasProviderInvoice(row)) return false;
+  return !looksLikePoReference(row.purchase_order_number);
+}
+
+function membershipHistoryRecord(row, entityType, member = null) {
+  const isMember = entityType === 'member_membership_history';
+  return {
+    id: row.id,
+    entityType,
+    organization_id: isMember ? (member?.organization_id || null) : row.organization_id,
+    member_id: isMember ? row.member_id : null,
+    membership_year: row.membership_year || null,
+    source_name: row.membership_year ? `Membership ${row.membership_year}` : 'Membership',
+    source_type: 'Membership',
+    xero_invoice_id: row.xero_invoice_id || null,
+    xero_invoice_number: row.xero_invoice_number || row.accounting_invoice_number || null,
+    accounting_invoice_id: row.accounting_invoice_id || null,
+    accounting_invoice_number: row.accounting_invoice_number || null,
+    purchase_order_number: row.purchase_order_number || null,
+    xero_invoice_pdf_uri: null,
+    created_date: row.created_at || null,
+    quantity: 1,
+    total_cost: row.total_with_vat ?? row.final_cost ?? 0,
+    member_email: isMember ? (member?.email || null) : null,
+  };
+}
+
 export function parseInvoiceKey(key) {
   if (typeof key !== 'string') return null;
   if (key.startsWith('id:')) return { xeroInvoiceId: key.slice(3) };
@@ -161,25 +195,23 @@ export async function findInvoiceRowsForTenant(client, tenantId, invoiceKey) {
   }
   const tenantOrgIds = tenantOrgs.map((o) => o.id);
   const orgNameById = new Map(tenantOrgs.map((o) => [o.id, o.name]));
-  if (tenantOrgIds.length === 0) {
-    return { bookings: [], transactions: [], trainingFundPurchases: [], xeroInvoiceId: null, xeroInvoiceNumber: null, orgNameById };
-  }
 
-  // 2. All members of those organisations (paginated). Required for the
-  // null-org booking fallback that the report uses, and now also for the
-  // transactions fallback so the helper can resolve any row the report shows.
+  // 2. All tenant-owned members (paginated). This deliberately includes
+  // individual members with no organisation so member-membership invoices can
+  // be listed, updated and reminded through their own email address.
   let tenantMembers;
   try {
     tenantMembers = await fetchAllPages('member', invoiceKey, () => client
       .from('member')
-      .select('id, email')
-      .in('organization_id', tenantOrgIds)
+      .select('id, email, organization_id, tenant_id')
+      .eq('tenant_id', tenantId)
       .order('id', { ascending: true }));
   } catch (err) {
     console.error(`[PendingPO] member lookup failed for tenant ${tenantId} invoiceKey=${invoiceKey}: ${err.message}`);
     throw err;
   }
   const tenantMemberIds = tenantMembers.map((m) => m.id);
+  const tenantMemberById = new Map(tenantMembers.map((m) => [m.id, m]));
   const tenantMemberEmails = tenantMembers
     .map((m) => (m.email ? String(m.email).trim().toLowerCase() : ''))
     .filter((e) => e.length > 0);
@@ -199,20 +231,23 @@ export async function findInvoiceRowsForTenant(client, tenantId, invoiceKey) {
     }
     return q.or(`xero_invoice_number.eq.${parsed.xeroInvoiceNumber},accounting_invoice_number.eq.${parsed.xeroInvoiceNumber}`);
   };
+  const matchMembershipInvoice = matchTrainingFundInvoice;
 
   // 3. Bookings whose own organization_id is in the tenant.
-  let bookingsOrgRows;
-  try {
-    bookingsOrgRows = await fetchAllPages('booking (org-bound)', invoiceKey, () => matchInvoice(
-      client
-        .from('booking')
-        .select('id, organization_id, member_id, xero_invoice_id, xero_invoice_number, attendee_email, event_id, total_cost, created_at, purchase_order_number')
-        .in('organization_id', tenantOrgIds)
-        .neq('status', 'cancelled')
-        .order('id', { ascending: true }),
-    ));
-  } catch (err) {
-    throw err;
+  let bookingsOrgRows = [];
+  if (tenantOrgIds.length > 0) {
+    try {
+      bookingsOrgRows = await fetchAllPages('booking (org-bound)', invoiceKey, () => matchInvoice(
+        client
+          .from('booking')
+          .select('id, organization_id, member_id, xero_invoice_id, xero_invoice_number, attendee_email, event_id, total_cost, created_at, purchase_order_number')
+          .in('organization_id', tenantOrgIds)
+          .neq('status', 'cancelled')
+          .order('id', { ascending: true }),
+      ));
+    } catch (err) {
+      throw err;
+    }
   }
 
   // 4. Bookings with org_id IS NULL whose member belongs to a tenant org.
@@ -244,19 +279,21 @@ export async function findInvoiceRowsForTenant(client, tenantId, invoiceKey) {
   });
 
   // 5. Transactions whose own organization_id is in the tenant.
-  let transactionsByOrg;
-  try {
-    transactionsByOrg = await fetchAllPages('transaction (org-bound)', invoiceKey, () => matchInvoice(
-      client
-        .from('program_ticket_transaction')
-        .select('id, organization_id, xero_invoice_id, xero_invoice_number, member_email, program_name, total_cost_before_discount, quantity, created_date, purchase_order_number')
-        .in('organization_id', tenantOrgIds)
-        .eq('transaction_type', 'purchase')
-        .neq('status', 'cancelled')
-        .order('id', { ascending: true }),
-    ));
-  } catch (err) {
-    throw err;
+  let transactionsByOrg = [];
+  if (tenantOrgIds.length > 0) {
+    try {
+      transactionsByOrg = await fetchAllPages('transaction (org-bound)', invoiceKey, () => matchInvoice(
+        client
+          .from('program_ticket_transaction')
+          .select('id, organization_id, xero_invoice_id, xero_invoice_number, member_email, program_name, total_cost_before_discount, quantity, created_date, purchase_order_number')
+          .in('organization_id', tenantOrgIds)
+          .eq('transaction_type', 'purchase')
+          .neq('status', 'cancelled')
+          .order('id', { ascending: true }),
+      ));
+    } catch (err) {
+      throw err;
+    }
   }
 
   // 6. Transactions with org_id IS NULL whose member belongs to a tenant org.
@@ -289,29 +326,73 @@ export async function findInvoiceRowsForTenant(client, tenantId, invoiceKey) {
   });
 
   // 7. Training Fund purchases (invoice payment method) for tenant orgs.
-  let trainingFundPurchases;
-  try {
-    trainingFundPurchases = await fetchAllPages('training_fund_purchase', invoiceKey, () => matchTrainingFundInvoice(
-      client
-        .from('training_fund_purchase')
-        .select('id, organization_id, created_by, amount, status, payment_method, xero_invoice_id, xero_invoice_number, accounting_invoice_id, accounting_invoice_number, created_date, purchase_order_number, po_to_follow')
-        .in('organization_id', tenantOrgIds)
-        .eq('payment_method', 'invoice')
-        .neq('status', 'cancelled')
-        .order('id', { ascending: true }),
-    ));
-  } catch (err) {
-    throw err;
+  let trainingFundPurchases = [];
+  if (tenantOrgIds.length > 0) {
+    try {
+      trainingFundPurchases = await fetchAllPages('training_fund_purchase', invoiceKey, () => matchTrainingFundInvoice(
+        client
+          .from('training_fund_purchase')
+          .select('id, organization_id, created_by, amount, status, payment_method, xero_invoice_id, xero_invoice_number, accounting_invoice_id, accounting_invoice_number, created_date, purchase_order_number, po_to_follow')
+          .in('organization_id', tenantOrgIds)
+          .eq('payment_method', 'invoice')
+          .neq('status', 'cancelled')
+          .order('id', { ascending: true }),
+      ));
+    } catch (err) {
+      throw err;
+    }
+  }
+
+  // 8. Membership histories are tenant-scoped directly as well as through
+  // their owner. Only unpaid rows are actionable from the pending-PO report.
+  let organisationMembershipHistory = [];
+  if (tenantOrgIds.length > 0) {
+    try {
+      organisationMembershipHistory = await fetchAllPages('organisation_membership_history', invoiceKey, () => matchMembershipInvoice(
+        client
+          .from('organisation_membership_history')
+          .select('id, tenant_id, organization_id, membership_year, status, payment_status, final_cost, total_with_vat, created_at, purchase_order_number, xero_invoice_id, xero_invoice_number, accounting_invoice_id, accounting_invoice_number')
+          .eq('tenant_id', tenantId)
+          .in('organization_id', tenantOrgIds)
+          .eq('payment_status', 'unpaid')
+          .neq('status', 'cancelled')
+          .order('id', { ascending: true }),
+      ));
+    } catch (err) {
+      throw err;
+    }
+  }
+
+  let memberMembershipHistory = [];
+  if (tenantMemberIds.length > 0) {
+    for (let i = 0; i < tenantMemberIds.length; i += MEMBER_CHUNK) {
+      const chunk = tenantMemberIds.slice(i, i + MEMBER_CHUNK);
+      const rows = await fetchAllPages(`member_membership_history (member chunk ${i / MEMBER_CHUNK})`, invoiceKey, () => matchMembershipInvoice(
+        client
+          .from('member_membership_history')
+          .select('id, tenant_id, member_id, membership_year, status, payment_status, final_cost, total_with_vat, created_at, purchase_order_number, xero_invoice_id, xero_invoice_number, accounting_invoice_id, accounting_invoice_number')
+          .eq('tenant_id', tenantId)
+          .in('member_id', chunk)
+          .eq('payment_status', 'unpaid')
+          .neq('status', 'cancelled')
+          .order('id', { ascending: true }),
+      ));
+      memberMembershipHistory.push(...rows);
+    }
   }
 
   const firstWithId = bookings.find((b) => b.xero_invoice_id)
     || transactions.find((t) => t.xero_invoice_id)
-    || trainingFundPurchases.find((p) => p.xero_invoice_id);
+    || trainingFundPurchases.find((p) => p.xero_invoice_id)
+    || organisationMembershipHistory.find((h) => h.xero_invoice_id)
+    || memberMembershipHistory.find((h) => h.xero_invoice_id);
   // Keep xeroInvoiceId strictly Xero-only when the rows themselves carry a
   // xero_invoice_id — QBO-billed training fund purchases have none, and their
   // id must not be sent to the Xero API. When the caller passed an `id:` key
   // that only matched accounting_invoice_id, surface it separately.
   const tfWithAccountingId = trainingFundPurchases.find((p) => p.accounting_invoice_id);
+  const membershipWithAccountingId = organisationMembershipHistory.find((h) => h.accounting_invoice_id)
+    || memberMembershipHistory.find((h) => h.accounting_invoice_id);
   const rowsAreXero = Boolean(firstWithId);
   const xeroInvoiceId = rowsAreXero
     ? (parsed.xeroInvoiceId || firstWithId.xero_invoice_id)
@@ -319,11 +400,14 @@ export async function findInvoiceRowsForTenant(client, tenantId, invoiceKey) {
   const accountingInvoiceId = parsed.xeroInvoiceId
     || firstWithId?.xero_invoice_id
     || tfWithAccountingId?.accounting_invoice_id
+    || membershipWithAccountingId?.accounting_invoice_id
     || null;
   const firstWithNum = bookings.find((b) => b.xero_invoice_number)
     || transactions.find((t) => t.xero_invoice_number)
     || trainingFundPurchases.find((p) => p.xero_invoice_number)
-    || trainingFundPurchases.find((p) => p.accounting_invoice_number);
+    || trainingFundPurchases.find((p) => p.accounting_invoice_number)
+    || organisationMembershipHistory.find((h) => h.xero_invoice_number || h.accounting_invoice_number)
+    || memberMembershipHistory.find((h) => h.xero_invoice_number || h.accounting_invoice_number);
   const xeroInvoiceNumber = parsed.xeroInvoiceNumber
     || firstWithNum?.xero_invoice_number
     || firstWithNum?.accounting_invoice_number
@@ -333,10 +417,13 @@ export async function findInvoiceRowsForTenant(client, tenantId, invoiceKey) {
     bookings,
     transactions,
     trainingFundPurchases,
+    organisationMembershipHistory,
+    memberMembershipHistory,
     xeroInvoiceId,
     accountingInvoiceId,
     xeroInvoiceNumber,
     orgNameById,
+    tenantMemberById,
   };
 }
 
@@ -362,14 +449,24 @@ export async function applyInvoicePoUpdate({
     return { ok: false, status: 400, error: 'Invalid invoice key' };
   }
   const foundPurchases = found.trainingFundPurchases || [];
-  if (found.bookings.length === 0 && found.transactions.length === 0 && foundPurchases.length === 0) {
+  const foundOrgMemberships = found.organisationMembershipHistory || [];
+  const foundMemberMemberships = found.memberMembershipHistory || [];
+  if (
+    found.bookings.length === 0
+    && found.transactions.length === 0
+    && foundPurchases.length === 0
+    && foundOrgMemberships.length === 0
+    && foundMemberMemberships.length === 0
+  ) {
     return { ok: false, status: 404, error: 'Invoice not found for this tenant' };
   }
 
   const alreadyHasPo =
     found.bookings.some((b) => b.purchase_order_number && b.purchase_order_number.trim()) ||
     found.transactions.some((t) => t.purchase_order_number && t.purchase_order_number.trim()) ||
-    foundPurchases.some((p) => p.purchase_order_number && p.purchase_order_number.trim());
+    foundPurchases.some((p) => p.purchase_order_number && p.purchase_order_number.trim()) ||
+    foundOrgMemberships.some((h) => looksLikePoReference(h.purchase_order_number)) ||
+    foundMemberMemberships.some((h) => looksLikePoReference(h.purchase_order_number));
 
   let bookingsUpdated = 0;
   const bookingIdsToUpdate = found.bookings
@@ -455,6 +552,72 @@ export async function applyInvoicePoUpdate({
     trainingFundPurchasesUpdated = updated?.length || 0;
   }
 
+  const updateMembershipRows = async ({
+    historyTable,
+    invoicingTable,
+    ownerColumn,
+    rows,
+  }) => {
+    const rowsToUpdate = rows.filter((row) => !looksLikePoReference(row.purchase_order_number));
+    if (rowsToUpdate.length === 0) return { historyUpdated: 0, invoicingUpdated: 0 };
+
+    const ids = rowsToUpdate.map((row) => row.id);
+    const { data: updated, error: historyError } = await client
+      .from(historyTable)
+      .update({ purchase_order_number: trimmedPO })
+      .eq('tenant_id', tenantId)
+      .in('id', ids)
+      .select('id');
+    if (historyError) {
+      const detail = [historyError.message, historyError.code ? `code ${historyError.code}` : null]
+        .filter(Boolean)
+        .join(' — ');
+      return { error: `Failed to update membership history: ${detail || 'unknown database error'}` };
+    }
+
+    let invoicingUpdated = 0;
+    for (const row of rowsToUpdate) {
+      const ownerId = row[ownerColumn];
+      if (!ownerId || !row.membership_year) continue;
+      const { data: invoicingRows, error: invoicingError } = await client
+        .from(invoicingTable)
+        .update({ purchase_order_number: trimmedPO })
+        .eq('tenant_id', tenantId)
+        .eq(ownerColumn, ownerId)
+        .eq('membership_year', row.membership_year)
+        .select('id');
+      if (invoicingError) {
+        const detail = [invoicingError.message, invoicingError.code ? `code ${invoicingError.code}` : null]
+          .filter(Boolean)
+          .join(' — ');
+        return { error: `Failed to update membership invoicing: ${detail || 'unknown database error'}` };
+      }
+      invoicingUpdated += invoicingRows?.length || 0;
+    }
+
+    return { historyUpdated: updated?.length || 0, invoicingUpdated };
+  };
+
+  const orgMembershipUpdate = await updateMembershipRows({
+    historyTable: 'organisation_membership_history',
+    invoicingTable: 'organisation_membership_invoicing',
+    ownerColumn: 'organization_id',
+    rows: foundOrgMemberships,
+  });
+  if (orgMembershipUpdate.error) {
+    return { ok: false, status: 500, error: orgMembershipUpdate.error };
+  }
+
+  const memberMembershipUpdate = await updateMembershipRows({
+    historyTable: 'member_membership_history',
+    invoicingTable: 'member_membership_invoicing',
+    ownerColumn: 'member_id',
+    rows: foundMemberMemberships,
+  });
+  if (memberMembershipUpdate.error) {
+    return { ok: false, status: 500, error: memberMembershipUpdate.error };
+  }
+
   let xeroUpdated = false;
   let xeroError = null;
   // Push the PO to the tenant's accounting provider. QuickBooks-billed
@@ -486,6 +649,9 @@ export async function applyInvoicePoUpdate({
     bookingsUpdated,
     transactionsUpdated,
     trainingFundPurchasesUpdated,
+    organisationMembershipHistoryUpdated: orgMembershipUpdate.historyUpdated,
+    memberMembershipHistoryUpdated: memberMembershipUpdate.historyUpdated,
+    membershipInvoicingUpdated: orgMembershipUpdate.invoicingUpdated + memberMembershipUpdate.invoicingUpdated,
     xeroUpdated,
     xeroError,
     alreadyHasPo,
@@ -502,7 +668,18 @@ export async function summariseInvoice(client, tenantId, invoiceKey) {
     throw err;
   }
   const summaryPurchases = found?.trainingFundPurchases || [];
-  if (!found || (found.bookings.length === 0 && found.transactions.length === 0 && summaryPurchases.length === 0)) {
+  const summaryOrgMemberships = found?.organisationMembershipHistory || [];
+  const summaryMemberMemberships = found?.memberMembershipHistory || [];
+  if (
+    !found
+    || (
+      found.bookings.length === 0
+      && found.transactions.length === 0
+      && summaryPurchases.length === 0
+      && summaryOrgMemberships.length === 0
+      && summaryMemberMemberships.length === 0
+    )
+  ) {
     return null;
   }
 
@@ -577,6 +754,37 @@ export async function summariseInvoice(client, tenantId, invoiceKey) {
     if (p.created_by) bookerMemberIds.add(p.created_by);
     if (!existingPoNumber && p.purchase_order_number && p.purchase_order_number.trim()) {
       existingPoNumber = p.purchase_order_number.trim();
+    }
+  }
+
+  for (const h of summaryOrgMemberships) {
+    totalCost += Number(h.total_with_vat ?? h.final_cost) || 0;
+    quantity += 1;
+    if (h.created_at && (!earliestDate || new Date(h.created_at) < new Date(earliestDate))) {
+      earliestDate = h.created_at;
+    }
+    if (h.organization_id) orgIds.add(h.organization_id);
+    sourceNames.add(h.membership_year ? `Membership ${h.membership_year}` : 'Membership');
+    sourceTypes.add('Membership');
+    if (!existingPoNumber && looksLikePoReference(h.purchase_order_number)) {
+      existingPoNumber = String(h.purchase_order_number).trim();
+    }
+  }
+
+  for (const h of summaryMemberMemberships) {
+    totalCost += Number(h.total_with_vat ?? h.final_cost) || 0;
+    quantity += 1;
+    if (h.created_at && (!earliestDate || new Date(h.created_at) < new Date(earliestDate))) {
+      earliestDate = h.created_at;
+    }
+    const member = found.tenantMemberById?.get?.(h.member_id);
+    if (member?.organization_id) orgIds.add(member.organization_id);
+    if (h.member_id) bookerMemberIds.add(h.member_id);
+    addBookerEmail(member?.email);
+    sourceNames.add(h.membership_year ? `Membership ${h.membership_year}` : 'Membership');
+    sourceTypes.add('Membership');
+    if (!existingPoNumber && looksLikePoReference(h.purchase_order_number)) {
+      existingPoNumber = String(h.purchase_order_number).trim();
     }
   }
 
@@ -687,7 +895,12 @@ export async function summariseInvoice(client, tenantId, invoiceKey) {
     bookerEmails,
     bookerNames,
     bookerNameDisplay,
-    rowCount: found.bookings.length + found.transactions.length + summaryPurchases.length,
+    rowCount:
+      found.bookings.length
+      + found.transactions.length
+      + summaryPurchases.length
+      + summaryOrgMemberships.length
+      + summaryMemberMemberships.length,
   };
 }
 
@@ -875,10 +1088,6 @@ export async function computePendingPoInvoices({ client = defaultSupabase, tenan
     return o.id;
   });
 
-  if (tenantOrgIds.length === 0) {
-    return empty;
-  }
-
   const PAGE_SIZE = 1000;
   const paginationStats = {};
   const fetchAllPages = async (label, buildQuery) => {
@@ -911,48 +1120,84 @@ export async function computePendingPoInvoices({ client = defaultSupabase, tenan
   const TF_HAS_INVOICE_OR = `${HAS_INVOICE_OR},accounting_invoice_id.not.is.null,accounting_invoice_number.not.is.null`;
   const MISSING_PO_OR = 'purchase_order_number.is.null,purchase_order_number.eq.';
 
-  const transactions = await fetchAllPages('program_ticket_transaction', () => client
-    .from('program_ticket_transaction')
-    .select('id, organization_id, program_name, xero_invoice_id, xero_invoice_number, xero_invoice_pdf_uri, created_date, quantity, total_cost_before_discount, member_email, transaction_type, status, purchase_order_number')
-    .in('organization_id', tenantOrgIds)
-    .eq('transaction_type', 'purchase')
-    .neq('status', 'cancelled')
-    .or(HAS_INVOICE_OR)
-    .or(MISSING_PO_OR)
-    .order('id', { ascending: true }));
+  const transactions = tenantOrgIds.length > 0
+    ? await fetchAllPages('program_ticket_transaction', () => client
+      .from('program_ticket_transaction')
+      .select('id, organization_id, program_name, xero_invoice_id, xero_invoice_number, xero_invoice_pdf_uri, created_date, quantity, total_cost_before_discount, member_email, transaction_type, status, purchase_order_number')
+      .in('organization_id', tenantOrgIds)
+      .eq('transaction_type', 'purchase')
+      .neq('status', 'cancelled')
+      .or(HAS_INVOICE_OR)
+      .or(MISSING_PO_OR)
+      .order('id', { ascending: true }))
+    : [];
 
-  const trainingFundPurchases = await fetchAllPages('training_fund_purchase', () => client
-    .from('training_fund_purchase')
-    .select('id, organization_id, created_by, amount, status, payment_method, xero_invoice_id, xero_invoice_number, accounting_invoice_id, accounting_invoice_number, created_date, purchase_order_number, po_to_follow')
-    .in('organization_id', tenantOrgIds)
-    .eq('payment_method', 'invoice')
-    .neq('status', 'cancelled')
-    .or(TF_HAS_INVOICE_OR)
-    .or(MISSING_PO_OR)
-    .order('id', { ascending: true }));
+  const trainingFundPurchases = tenantOrgIds.length > 0
+    ? await fetchAllPages('training_fund_purchase', () => client
+      .from('training_fund_purchase')
+      .select('id, organization_id, created_by, amount, status, payment_method, xero_invoice_id, xero_invoice_number, accounting_invoice_id, accounting_invoice_number, created_date, purchase_order_number, po_to_follow')
+      .in('organization_id', tenantOrgIds)
+      .eq('payment_method', 'invoice')
+      .neq('status', 'cancelled')
+      .or(TF_HAS_INVOICE_OR)
+      .or(MISSING_PO_OR)
+      .order('id', { ascending: true }))
+    : [];
 
-  const bookingsWithOrg = await fetchAllPages('booking (with org)', () => client
-    .from('booking')
-    .select('id, organization_id, member_id, event_id, xero_invoice_id, xero_invoice_number, created_at, ticket_price, attendee_email, payment_method, status, purchase_order_number, po_to_follow, booking_group_reference')
-    .in('organization_id', tenantOrgIds)
-    .neq('status', 'cancelled')
-    .or('payment_method.eq.account,po_to_follow.eq.true')
-    .or(HAS_INVOICE_OR)
-    .or(MISSING_PO_OR)
-    .order('id', { ascending: true }));
+  const membershipSelect = 'id, tenant_id, membership_year, status, payment_status, final_cost, total_with_vat, created_at, purchase_order_number, xero_invoice_id, xero_invoice_number, accounting_invoice_id, accounting_invoice_number';
+  const organisationMembershipHistory = tenantOrgIds.length > 0
+    ? await fetchAllPages('organisation_membership_history (pending PO)', () => client
+      .from('organisation_membership_history')
+      .select(`${membershipSelect}, organization_id`)
+      .eq('tenant_id', tenantId)
+      .in('organization_id', tenantOrgIds)
+      .eq('payment_status', 'unpaid')
+      .neq('status', 'cancelled')
+      .or(TF_HAS_INVOICE_OR)
+      .order('id', { ascending: true }))
+    : [];
+
+  const bookingsWithOrg = tenantOrgIds.length > 0
+    ? await fetchAllPages('booking (with org)', () => client
+      .from('booking')
+      .select('id, organization_id, member_id, event_id, xero_invoice_id, xero_invoice_number, created_at, ticket_price, attendee_email, payment_method, status, purchase_order_number, po_to_follow, booking_group_reference')
+      .in('organization_id', tenantOrgIds)
+      .neq('status', 'cancelled')
+      .or('payment_method.eq.account,po_to_follow.eq.true')
+      .or(HAS_INVOICE_OR)
+      .or(MISSING_PO_OR)
+      .order('id', { ascending: true }))
+    : [];
 
   let membersInTenant = [];
   try {
     membersInTenant = await fetchAllPages('member (tenant org members)', () => client
       .from('member')
       .select('id, organization_id')
-      .in('organization_id', tenantOrgIds)
+      .eq('tenant_id', tenantId)
       .order('id', { ascending: true }));
   } catch (memberError) {
     membersInTenant = [];
   }
 
   const memberIdsInTenant = membersInTenant.map((m) => m.id);
+  const memberMembershipHistory = [];
+  if (memberIdsInTenant.length > 0) {
+    const MEMBER_CHUNK = 500;
+    for (let i = 0; i < memberIdsInTenant.length; i += MEMBER_CHUNK) {
+      const memberChunk = memberIdsInTenant.slice(i, i + MEMBER_CHUNK);
+      const chunkRows = await fetchAllPages(`member_membership_history (pending PO, member chunk ${i / MEMBER_CHUNK})`, () => client
+        .from('member_membership_history')
+        .select(`${membershipSelect}, member_id`)
+        .eq('tenant_id', tenantId)
+        .in('member_id', memberChunk)
+        .eq('payment_status', 'unpaid')
+        .neq('status', 'cancelled')
+        .or(TF_HAS_INVOICE_OR)
+        .order('id', { ascending: true }));
+      memberMembershipHistory.push(...chunkRows);
+    }
+  }
 
   const bookingsWithNullOrg = [];
   if (memberIdsInTenant.length > 0) {
@@ -999,6 +1244,7 @@ export async function computePendingPoInvoices({ client = defaultSupabase, tenan
   const memberIds = [...new Set([
     ...(bookings || []).map((b) => b.member_id),
     ...(trainingFundPurchases || []).map((p) => p.created_by),
+    ...(memberMembershipHistory || []).map((h) => h.member_id),
   ].filter(Boolean))];
   let memberMap = {};
   if (memberIds.length > 0) {
@@ -1102,6 +1348,18 @@ export async function computePendingPoInvoices({ client = defaultSupabase, tenan
     }
   });
 
+  (organisationMembershipHistory || [])
+    .filter(isPendingMembershipPoRow)
+    .forEach((row) => {
+      records.push(membershipHistoryRecord(row, 'organisation_membership_history'));
+    });
+
+  (memberMembershipHistory || [])
+    .filter(isPendingMembershipPoRow)
+    .forEach((row) => {
+      records.push(membershipHistoryRecord(row, 'member_membership_history', memberMap[row.member_id]));
+    });
+
   let xeroCheckPerformed = false;
   let xeroError = null;
   let paidCount = 0;
@@ -1117,21 +1375,36 @@ export async function computePendingPoInvoices({ client = defaultSupabase, tenan
   const runGuardedPoBackfill = async (table, rows, extraUpdate = {}) => {
     let updatedCount = 0;
     const byPo = new Map();
-    rows.forEach(({ id, po }) => {
+    rows.forEach(({ id, po, existingPurchaseOrder = null }) => {
       if (!byPo.has(po)) byPo.set(po, []);
-      byPo.get(po).push(id);
+      byPo.get(po).push({ id, existingPurchaseOrder });
     });
-    for (const [po, ids] of byPo) {
+    for (const [po, candidates] of byPo) {
+      const ids = candidates.map(({ id }) => id);
       const guards = [
-        (q) => q.is('purchase_order_number', null),
-        (q) => q.eq('purchase_order_number', ''),
+        { ids, apply: (q) => q.is('purchase_order_number', null) },
+        { ids, apply: (q) => q.eq('purchase_order_number', '') },
       ];
-      for (const applyGuard of guards) {
-        const { data: updated, error } = await applyGuard(
+      const placeholderGroups = new Map();
+      candidates.forEach(({ id, existingPurchaseOrder }) => {
+        const current = existingPurchaseOrder && String(existingPurchaseOrder).trim();
+        if (!current || looksLikePoReference(current)) return;
+        if (!placeholderGroups.has(current)) placeholderGroups.set(current, []);
+        placeholderGroups.get(current).push(id);
+      });
+      placeholderGroups.forEach((placeholderIds, current) => {
+        guards.push({
+          ids: placeholderIds,
+          apply: (q) => q.eq('purchase_order_number', current),
+        });
+      });
+
+      for (const guard of guards) {
+        const { data: updated, error } = await guard.apply(
           client
             .from(table)
             .update({ purchase_order_number: po, ...extraUpdate })
-            .in('id', ids),
+            .in('id', guard.ids),
         ).select('id');
         if (error) {
           console.error(`[PendingPO] Backfill ${table} failed for ${ids.length} row(s):`, error.message);
@@ -1197,6 +1470,8 @@ export async function computePendingPoInvoices({ client = defaultSupabase, tenan
         booking: [],
         program_ticket_transaction: [],
         training_fund_purchase: [],
+        organisation_membership_history: [],
+        member_membership_history: [],
       };
       for (let i = records.length - 1; i >= 0; i--) {
         const rec = records[i];
@@ -1208,6 +1483,18 @@ export async function computePendingPoInvoices({ client = defaultSupabase, tenan
           membershipBackfills.program_ticket_transaction.push({ id: rec.id, po });
         } else if (rec.entityType === 'training_fund_purchase') {
           membershipBackfills.training_fund_purchase.push({ id: rec.id, po });
+        } else if (rec.entityType === 'organisation_membership_history') {
+          membershipBackfills.organisation_membership_history.push({
+            id: rec.id,
+            po,
+            existingPurchaseOrder: rec.purchase_order_number,
+          });
+        } else if (rec.entityType === 'member_membership_history') {
+          membershipBackfills.member_membership_history.push({
+            id: rec.id,
+            po,
+            existingPurchaseOrder: rec.purchase_order_number,
+          });
         } else {
           continue;
         }
@@ -1222,6 +1509,12 @@ export async function computePendingPoInvoices({ client = defaultSupabase, tenan
       }
       if (membershipBackfills.training_fund_purchase.length > 0) {
         membershipPoBackfilled += await runGuardedPoBackfill('training_fund_purchase', membershipBackfills.training_fund_purchase, { po_to_follow: false });
+      }
+      if (membershipBackfills.organisation_membership_history.length > 0) {
+        membershipPoBackfilled += await runGuardedPoBackfill('organisation_membership_history', membershipBackfills.organisation_membership_history);
+      }
+      if (membershipBackfills.member_membership_history.length > 0) {
+        membershipPoBackfilled += await runGuardedPoBackfill('member_membership_history', membershipBackfills.member_membership_history);
       }
     }
   } catch (membershipErr) {
@@ -1291,6 +1584,8 @@ export async function computePendingPoInvoices({ client = defaultSupabase, tenan
       const bookingBackfills = [];
       const transactionBackfills = [];
       const trainingFundBackfills = [];
+      const orgMembershipBackfills = [];
+      const memberMembershipBackfills = [];
       for (let i = records.length - 1; i >= 0; i--) {
         const rec = records[i];
         if (!rec.xero_invoice_id) continue;
@@ -1302,6 +1597,18 @@ export async function computePendingPoInvoices({ client = defaultSupabase, tenan
           transactionBackfills.push({ id: rec.id, po: poFromXero });
         } else if (rec.entityType === 'training_fund_purchase') {
           trainingFundBackfills.push({ id: rec.id, po: poFromXero });
+        } else if (rec.entityType === 'organisation_membership_history') {
+          orgMembershipBackfills.push({
+            id: rec.id,
+            po: poFromXero,
+            existingPurchaseOrder: rec.purchase_order_number,
+          });
+        } else if (rec.entityType === 'member_membership_history') {
+          memberMembershipBackfills.push({
+            id: rec.id,
+            po: poFromXero,
+            existingPurchaseOrder: rec.purchase_order_number,
+          });
         }
         records.splice(i, 1);
         xeroPoExcluded += 1;
@@ -1315,6 +1622,12 @@ export async function computePendingPoInvoices({ client = defaultSupabase, tenan
       }
       if (trainingFundBackfills.length > 0) {
         xeroPoBackfilled += await runGuardedPoBackfill('training_fund_purchase', trainingFundBackfills, { po_to_follow: false });
+      }
+      if (orgMembershipBackfills.length > 0) {
+        xeroPoBackfilled += await runGuardedPoBackfill('organisation_membership_history', orgMembershipBackfills);
+      }
+      if (memberMembershipBackfills.length > 0) {
+        xeroPoBackfilled += await runGuardedPoBackfill('member_membership_history', memberMembershipBackfills);
       }
 
       records.forEach((r) => {
