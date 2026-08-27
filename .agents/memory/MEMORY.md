@@ -155,3 +155,4 @@
 - [Email preference consent serialization](email-preference-consent-serialization.md) — global and category consent writes must share one recipient lock and commit subscription+ledger changes atomically.
 - [Directory-owned member scope](directory-owned-member-scope.md) — organisation contact views must stay inside the source directory; never let Member Directory query params switch authorization scope.
 - [Organisation preference tenant scope](organisation-preference-tenant-scope.md) — DEST custom-value rows have no tenant_id; scope writes through tenant-owned organisations and fields.
+- [Communication category member RBAC](communication-category-member-rbac.md) — enforce applicable roles on every member opt-in path; public affects externals only, while role-loss unsubscribe stays allowed.

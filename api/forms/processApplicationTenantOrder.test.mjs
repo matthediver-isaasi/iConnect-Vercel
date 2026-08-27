@@ -69,3 +69,13 @@ test('no tenant-scoped query trusts the raw body tenant after resolution', () =>
   assert.ok(!src.includes(".eq('tenant_id', tenant_id)"), "found .eq('tenant_id', tenant_id) using the raw body value");
   assert.ok(!/tenant_id:\s*tenant_id\s*[,}]\s*\n\s*\}?\)?\s*\.select/.test(src));
 });
+
+test('non-deferred member communication writes use the shared RBAC persistence boundary', () => {
+  assert.match(src, /await persistFormCommunicationSubscriptions\(\{/);
+  assert.match(src, /tenantId: effectiveEntityTenantId/);
+  assert.match(src, /resolvedMemberId: createdMemberId/);
+  assert.ok(
+    !src.includes(".from('member_communication_preference')"),
+    'process-application must not bypass the shared communication eligibility guard',
+  );
+});

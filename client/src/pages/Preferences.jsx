@@ -621,36 +621,21 @@ export default function PreferencesPage() {
     },
   });
 
-  // --- Communication categories with role assignments (tenant-scoped via entity API) ---
-  const { data: communicationCategories = [], isLoading: communicationCategoriesLoading } = useQuery({
-    queryKey: ["communicationCategories"],
-    queryFn: async () => {
-      const categories = await base44.entities.CommunicationCategory.list({
-        filter: { is_active: true },
-        sort: { display_order: 'asc' }
-      });
-      const roleAssignments = await base44.entities.CommunicationCategoryRole.list();
-      return (categories || []).map(cat => ({
-        ...cat,
-        communication_category_role: (roleAssignments || []).filter(r => r.category_id === cat.id)
-      }));
-    },
-  });
-
-  // --- Member's communication preferences ---
-  const { data: communicationPreferences = [] } = useQuery({
-    queryKey: ["communicationPreferences", memberRecord?.id],
+  // Server-authorized communication categories and persisted preferences.
+  const { data: communicationPreferenceData, isLoading: communicationCategoriesLoading } = useQuery({
+    queryKey: ["my-communication-preferences"],
     enabled: !!memberRecord?.id,
     queryFn: async () => {
-      if (!memberRecord?.id) return [];
-      const { data, error } = await supabase
-        .from("member_communication_preference")
-        .select("*")
-        .eq("member_id", memberRecord.id);
-      if (error) throw error;
-      return data || [];
+      const response = await fetch('/api/member/communication-preferences', { credentials: 'include' });
+      if (!response.ok) throw new Error('Failed to load communication preferences');
+      return response.json();
     },
   });
+  const communicationCategories = communicationPreferenceData?.categories || [];
+  const communicationPreferences = communicationCategories.map((category) => ({
+    category_id: category.id,
+    is_subscribed: category.isSubscribed,
+  }));
 
   // --- Member's resource category selections (from database via API) ---
   const { data: memberResourceCategories = [], isLoading: memberResourceCategoriesLoading } = useQuery({
@@ -928,19 +913,7 @@ export default function PreferencesPage() {
     [groupRoleBadges, directlyAssignedBadges],
   );
 
-  // --- Filter categories available to this member based on their role(s) ---
-  const availableCategories = useMemo(() => {
-    if (!communicationCategories.length) return [];
-    
-    return communicationCategories.filter(category => {
-      // If no roles assigned to category, it's available to everyone
-      if (!category.communication_category_role?.length) return true;
-      
-      // Check if member has any of the required roles
-      const categoryRoleIds = category.communication_category_role.map(r => r.role_id);
-      return memberRoleIds.some(roleId => categoryRoleIds.includes(roleId));
-    });
-  }, [communicationCategories, memberRoleIds]);
+  const availableCategories = communicationCategories;
 
   // --- Section order and visibility for Preferences page layout ---
   const DEFAULT_SECTION_CONFIG = [
@@ -1436,33 +1409,19 @@ export default function PreferencesPage() {
     setUpdatingCommPrefs(prev => new Set(prev).add(categoryId));
     
     try {
-      const existingPref = communicationPreferences.find(p => p.category_id === categoryId);
-      
-      if (existingPref) {
-        // Update existing preference
-        const { error } = await supabase
-          .from("member_communication_preference")
-          .update({ 
-            is_subscribed: isSubscribed
-          })
-          .eq("id", existingPref.id);
-        
-        if (error) throw error;
-      } else {
-        // Create new preference
-        const { error } = await supabase
-          .from("member_communication_preference")
-          .insert({
-            member_id: memberRecord.id,
-            category_id: categoryId,
-            is_subscribed: isSubscribed
-          });
-        
-        if (error) throw error;
+      const response = await fetch('/api/member/communication-preferences', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ categoryId, isSubscribed }),
+      });
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || 'Failed to update preference');
       }
       
       // Invalidate query to refresh data
-      queryClient.invalidateQueries({ queryKey: ["communicationPreferences", memberRecord.id] });
+      queryClient.invalidateQueries({ queryKey: ["my-communication-preferences"] });
       toast.success(isSubscribed ? "Subscribed to updates" : "Unsubscribed from updates");
       
       // Sync to Zoho Campaigns in background (don't await)
@@ -1486,38 +1445,15 @@ export default function PreferencesPage() {
     setUpdatingOptOutAll(true);
     
     try {
-      // Update member record with opt-out-all flag
-      const { error } = await supabase
-        .from("member")
-        .update({ 
-          communications_opted_out_all: optOut
-        })
-        .eq("id", memberRecord.id);
-      
-      if (error) throw error;
-      
-      // If opting out, also set all individual preferences to false
-      if (optOut && availableCategories.length > 0) {
-        for (const category of availableCategories) {
-          const existingPref = communicationPreferences.find(p => p.category_id === category.id);
-          
-          if (existingPref) {
-            await supabase
-              .from("member_communication_preference")
-              .update({ 
-                is_subscribed: false
-              })
-              .eq("id", existingPref.id);
-          } else {
-            await supabase
-              .from("member_communication_preference")
-              .insert({
-                member_id: memberRecord.id,
-                category_id: category.id,
-                is_subscribed: false
-              });
-          }
-        }
+      const response = await fetch('/api/member/communication-preferences', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ action: 'toggle_all', optOutAll: optOut }),
+      });
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || 'Failed to update preference');
       }
       
       // Update sessionMember state immediately for UI update
@@ -1525,7 +1461,7 @@ export default function PreferencesPage() {
       
       // Invalidate queries to refresh data
       queryClient.invalidateQueries({ queryKey: ["fresh-member-data", memberRecord.id] });
-      queryClient.invalidateQueries({ queryKey: ["communicationPreferences", memberRecord.id] });
+      queryClient.invalidateQueries({ queryKey: ["my-communication-preferences"] });
       
       // Update localStorage session data
       const storedMember = localStorage.getItem('agcas_member');

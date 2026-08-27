@@ -26,6 +26,7 @@ export default async function handler(req, res) {
       .from('communication_category')
       .select('id, name, description, is_public')
       .eq('is_active', true)
+      .eq('is_public', true)
       .eq('tenant_id', tenant.id)
       .order('display_order', { ascending: true });
 
@@ -34,29 +35,7 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: error.message });
     }
 
-    const categories = data || [];
-
-    const { data: roleAssignments, error: roleError } = await supabase
-      .from('communication_category_role')
-      .select('category_id, role_id')
-      .eq('tenant_id', tenant.id);
-
-    if (roleError) {
-      console.error('Error fetching category role assignments:', roleError);
-    }
-
-    const roleMap = {};
-    (roleAssignments || []).forEach(r => {
-      if (!roleMap[r.category_id]) roleMap[r.category_id] = [];
-      roleMap[r.category_id].push(r.role_id);
-    });
-
-    const enriched = categories.map(cat => ({
-      ...cat,
-      role_ids: roleMap[cat.id] || [],
-    }));
-
-    return res.json(enriched);
+    return res.json(data || []);
   } catch (error) {
     console.error('Public communication categories fetch error:', error);
     return res.status(500).json({ error: 'Failed to fetch communication categories' });

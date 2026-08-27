@@ -57,6 +57,7 @@ import {
   isCustomObjectFieldWrite,
   isCustomObjectStorageEntity,
 } from '../../_lib/customObjectApiBoundary.js';
+import { authorizeGenericCommunicationPreferenceAccess } from '../../_lib/communicationPreferenceGenericAccess.js';
 
 /**
  * Task #3100: support staff = tenant users (admin dashboard), tenant admins,
@@ -301,6 +302,17 @@ export default async function handler(req, res) {
 
   // Get tenant context from session
   const tenantCtx = await getTenantContext(req);
+
+  const genericPreferenceAccessError = await authorizeGenericCommunicationPreferenceAccess(
+    entity,
+    tenantCtx,
+    { hasAdminAccess },
+  );
+  if (genericPreferenceAccessError) {
+    return res
+      .status(genericPreferenceAccessError.status)
+      .json({ error: genericPreferenceAccessError.error });
+  }
 
   // Stale-tab guard: session tenant differs from the intended tenant for this request
   if (tenantCtx.tenantMismatch) {

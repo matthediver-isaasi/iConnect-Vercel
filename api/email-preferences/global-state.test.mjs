@@ -160,3 +160,71 @@ test('database failures are logged with diagnostics but return a safe retry resp
   assert.equal(logs[0][1].code, '42P10');
   assert.equal(logs[0][1].details, 'database-only detail');
 });
+
+test('member cannot subscribe to a category outside the server-authorized set', async () => {
+  const database = createDatabase();
+  const res = responseRecorder();
+
+  await handlePreferenceUpdate(
+    { body: { action: 'set_category_subscription', categoryId: 'restricted', isSubscribed: true } },
+    res,
+    {
+      database,
+      member: { id: 'member-1', email: 'member@example.com' },
+      recipient: { email: 'member@example.com' },
+      campaign: null,
+      categories: [category],
+      allCategories: [category, { id: 'restricted', name: 'Restricted' }],
+      eligibleCategoryIds: new Set([category.id]),
+      tenantId: 'tenant-1',
+    },
+  );
+
+  assert.equal(res.statusCode, 403);
+  assert.equal(database.calls.length, 0);
+});
+
+test('member can unsubscribe from an existing category after role access is removed', async () => {
+  const database = createDatabase();
+  const res = responseRecorder();
+
+  await handlePreferenceUpdate(
+    { body: { action: 'set_category_subscription', categoryId: 'restricted', isSubscribed: false } },
+    res,
+    {
+      database,
+      member: { id: 'member-1', email: 'member@example.com' },
+      recipient: { email: 'member@example.com' },
+      campaign: null,
+      categories: [category],
+      allCategories: [category, { id: 'restricted', name: 'Restricted' }],
+      eligibleCategoryIds: new Set([category.id]),
+      tenantId: 'tenant-1',
+    },
+  );
+
+  assert.equal(res.statusCode, 200);
+  assert.equal(database.calls[0].name, 'set_email_preference_category_state');
+  assert.equal(database.calls[0].args.p_is_subscribed, false);
+});
+
+test('external subscriber category updates are not subjected to member role eligibility', async () => {
+  const database = createDatabase();
+  const res = responseRecorder();
+
+  await handlePreferenceUpdate(
+    { body: { action: 'set_category_subscription', categoryId: 'category-1', isSubscribed: true } },
+    res,
+    {
+      database,
+      member: null,
+      recipient: { email: 'external@example.com' },
+      campaign: null,
+      categories: [category],
+      tenantId: 'tenant-1',
+    },
+  );
+
+  assert.equal(res.statusCode, 200);
+  assert.equal(database.calls[0].args.p_member_id, null);
+});

@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { filterCommunicationCategoriesForMember } from '../../shared/communicationCategoryMembership.js';
 
 export function normalizeSubscriberEmail(value) {
   return typeof value === 'string' ? value.trim().toLowerCase() : '';
@@ -315,12 +316,13 @@ export async function persistFormCommunicationSubscriptions({
   const categoryIds = [...selections.keys()];
   const { data: categories, error: categoryError } = await database
     .from('communication_category')
-    .select('id')
+    .select('id, is_public')
     .eq('tenant_id', tenantId)
     .eq('is_active', true)
     .in('id', categoryIds);
   if (categoryError) throw categoryError;
   const validIds = new Set((categories || []).map(({ id }) => id));
+  const categoryById = new Map((categories || []).map((category) => [category.id, category]));
   const validSelections = [...selections].filter(([categoryId]) => validIds.has(categoryId));
   const appliedSelections = validSelections.map(([category_id, is_subscribed]) => ({
     category_id,
@@ -332,7 +334,7 @@ export async function persistFormCommunicationSubscriptions({
   if (resolvedMemberId) {
     const result = await database
       .from('member')
-      .select('id, email, communications_opted_out_all')
+      .select('id, email, role_id, communications_opted_out_all')
       .eq('tenant_id', tenantId)
       .eq('id', resolvedMemberId)
       .maybeSingle();
@@ -342,7 +344,7 @@ export async function persistFormCommunicationSubscriptions({
   } else {
     const result = await database
       .from('member')
-      .select('id, communications_opted_out_all')
+      .select('id, email, role_id, communications_opted_out_all')
       .eq('tenant_id', tenantId)
       .eq('email', identity.email)
       .maybeSingle();
@@ -351,6 +353,26 @@ export async function persistFormCommunicationSubscriptions({
   }
 
   if (member) {
+    const { data: roleAssignments, error: roleError } = await database
+      .from('communication_category_role')
+      .select('category_id, role_id')
+      .eq('tenant_id', tenantId)
+      .in('category_id', validSelections.map(([categoryId]) => categoryId));
+    if (roleError) throw roleError;
+
+    const eligibleCategoryIds = new Set(
+      filterCommunicationCategoriesForMember(categories || [], roleAssignments || [], member)
+        .map(({ id }) => id)
+    );
+    const unauthorizedOptIn = validSelections.find(
+      ([categoryId, isSubscribed]) => isSubscribed && !eligibleCategoryIds.has(categoryId)
+    );
+    if (unauthorizedOptIn) {
+      const error = new Error('Member is not eligible for a selected communication category');
+      error.code = 'COMMUNICATION_CATEGORY_ROLE_FORBIDDEN';
+      throw error;
+    }
+
     const { error } = await database.rpc('set_form_communication_preference_state', {
       p_tenant_id: tenantId,
       p_email: normalizeSubscriberEmail(member.email) || identity.email,
@@ -365,6 +387,18 @@ export async function persistFormCommunicationSubscriptions({
     return { kind: 'member', memberId: member.id, count: validSelections.length, selections: appliedSelections };
   }
 
+  const externalSelections = validSelections.filter(
+    ([categoryId, isSubscribed]) =>
+      !isSubscribed || categoryById.get(categoryId)?.is_public === true
+  );
+  if (externalSelections.length === 0) {
+    return { kind: 'none', count: 0, reason: 'no_public_categories', selections: [] };
+  }
+  const externalAppliedSelections = externalSelections.map(([category_id, is_subscribed]) => ({
+    category_id,
+    is_subscribed,
+  }));
+
   const { error } = await database.rpc('set_form_communication_preference_state', {
     p_tenant_id: tenantId,
     p_email: identity.email,
@@ -372,9 +406,13 @@ export async function persistFormCommunicationSubscriptions({
     p_form_id: form.id,
     p_first_name: identity.firstName,
     p_last_name: identity.lastName,
-    p_category_ids: validSelections.map(([categoryId]) => categoryId),
-    p_is_subscribed: validSelections.map(([, isSubscribed]) => isSubscribed),
+    p_category_ids: externalSelections.map(([categoryId]) => categoryId),
+    p_is_subscribed: externalSelections.map(([, isSubscribed]) => isSubscribed),
   });
   if (error) throw error;
-  return { kind: 'external', count: validSelections.length, selections: appliedSelections };
+  return {
+    kind: 'external',
+    count: externalSelections.length,
+    selections: externalAppliedSelections,
+  };
 }

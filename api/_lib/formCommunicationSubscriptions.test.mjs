@@ -12,7 +12,13 @@ import {
   promoteAwaitingMemberCommunicationSnapshot,
 } from './formCommunicationSubscriptions.js';
 
-function createDatabase({ categories = ['cat-news'], members = [], submissions = [], failures = {} } = {}) {
+function createDatabase({
+  categories = ['cat-news'],
+  categoryRoles = [],
+  members = [],
+  submissions = [],
+  failures = {},
+} = {}) {
   const state = {
     members: members.map((member) => ({ ...member })),
     submissions: submissions.map((submission) => ({ ...submission })),
@@ -51,7 +57,32 @@ function createDatabase({ categories = ['cat-news'], members = [], submissions =
     then(resolve, reject) {
       let result = { data: null, error: null };
       if (this.table === 'communication_category') {
-        result = { data: categories.filter((id) => this.filters.id.includes(id)).map((id) => ({ id })), error: failures.categories || null };
+        const categoryRows = categories.map((category) => typeof category === 'string'
+          ? { id: category, tenant_id: 'tenant-1', is_active: true, is_public: true }
+          : {
+              tenant_id: 'tenant-1',
+              is_active: true,
+              is_public: true,
+              ...category,
+            }
+        );
+        result = {
+          data: categoryRows.filter((row) =>
+            Object.entries(this.filters).every(([key, value]) =>
+              Array.isArray(value) ? value.includes(row[key]) : row[key] === value
+            )
+          ),
+          error: failures.categories || null,
+        };
+      } else if (this.table === 'communication_category_role') {
+        result = {
+          data: categoryRoles.filter((row) =>
+            Object.entries(this.filters).every(([key, value]) =>
+              Array.isArray(value) ? value.includes(row[key]) : row[key] === value
+            )
+          ),
+          error: failures['communication_category_role:lookup'] || null,
+        };
       } else if (this.table === 'member_communication_preference') {
         result = {
           data: state.preferences.filter((row) =>
@@ -366,6 +397,99 @@ test('mapped false opts out and invalid or cross-tenant mapped categories are re
   ]);
 });
 
+test('form submissions reject member opt-ins outside the member role allowlist', async () => {
+  const { database, state } = createDatabase({
+    categories: ['cat-news'],
+    categoryRoles: [{ tenant_id: 'tenant-1', category_id: 'cat-news', role_id: 'role-allowed' }],
+    members: [{
+      id: 'member-1',
+      tenant_id: 'tenant-1',
+      email: 'ada@example.com',
+      role_id: 'role-other',
+    }],
+  });
+
+  await assert.rejects(
+    persistFormCommunicationSubscriptions({
+      database,
+      tenantId: 'tenant-1',
+      form,
+      submissionData: { email: 'ada@example.com' },
+      resolvedMemberId: 'member-1',
+    }),
+    (error) => error.code === 'COMMUNICATION_CATEGORY_ROLE_FORBIDDEN',
+  );
+  assert.equal(state.preferences.length, 0);
+});
+
+test('form submissions allow matching roles and roleless categories', async () => {
+  const matching = createDatabase({
+    categories: ['cat-news'],
+    categoryRoles: [{ tenant_id: 'tenant-1', category_id: 'cat-news', role_id: 'role-allowed' }],
+    members: [{
+      id: 'member-1',
+      tenant_id: 'tenant-1',
+      email: 'ada@example.com',
+      role_id: 'role-allowed',
+    }],
+  });
+  await persistFormCommunicationSubscriptions({
+    database: matching.database,
+    tenantId: 'tenant-1',
+    form,
+    submissionData: { email: 'ada@example.com' },
+    resolvedMemberId: 'member-1',
+  });
+  assert.equal(matching.state.preferences[0].is_subscribed, true);
+
+  const roleless = createDatabase({
+    categories: ['cat-news'],
+    members: [{
+      id: 'member-2',
+      tenant_id: 'tenant-1',
+      email: 'grace@example.com',
+      role_id: null,
+    }],
+  });
+  await persistFormCommunicationSubscriptions({
+    database: roleless.database,
+    tenantId: 'tenant-1',
+    form,
+    submissionData: { email: 'grace@example.com' },
+    resolvedMemberId: 'member-2',
+  });
+  assert.equal(roleless.state.preferences[0].is_subscribed, true);
+});
+
+test('form submissions retain member unsubscribe after role access is removed', async () => {
+  const { database, state } = createDatabase({
+    categories: ['cat-news'],
+    categoryRoles: [{ tenant_id: 'tenant-1', category_id: 'cat-news', role_id: 'role-allowed' }],
+    members: [{
+      id: 'member-1',
+      tenant_id: 'tenant-1',
+      email: 'ada@example.com',
+      role_id: 'role-other',
+    }],
+  });
+  const optOutForm = {
+    ...form,
+    communication_category_id: null,
+  };
+
+  await persistFormCommunicationSubscriptions({
+    database,
+    tenantId: 'tenant-1',
+    form: optOutForm,
+    submissionData: {
+      email: 'ada@example.com',
+      prefs: { 'cat-news': false },
+    },
+    resolvedMemberId: 'member-1',
+  });
+  assert.equal(state.preferences[0].is_subscribed, false);
+});
+
 test('a newly resolved member receives preferences and stale external rows are removed', async () => {
   const { database, state } = createDatabase({
     categories: ['cat-news', 'cat-events'],
@@ -454,6 +578,38 @@ test('a genuinely external submitter gets subscribed and opted-out category rows
   );
   assert.ok(state.subscribers.find((row) => row.opted_out).opted_out_at);
   assert.ok(state.subscribers.every((row) => row.email === 'ada@example.com'));
+});
+
+test('external form opt-ins require a public active category but legacy opt-outs remain allowed', async () => {
+  const { database, state } = createDatabase({
+    categories: [
+      { id: 'cat-public', is_public: true },
+      { id: 'cat-private-optin', is_public: false },
+      { id: 'cat-private-optout', is_public: false },
+      { id: 'cat-inactive', is_public: true, is_active: false },
+    ],
+  });
+  const result = await persistFormCommunicationSubscriptions({
+    database,
+    tenantId: 'tenant-1',
+    form: { id: 'form-1', fields: [{ id: 'email', type: 'email' }] },
+    submissionData: { email: 'external@example.com' },
+    mappedSelections: [
+      { category_id: 'cat-public', is_subscribed: true },
+      { category_id: 'cat-private-optin', is_subscribed: true },
+      { category_id: 'cat-private-optout', is_subscribed: false },
+      { category_id: 'cat-inactive', is_subscribed: true },
+    ],
+  });
+
+  assert.equal(result.kind, 'external');
+  assert.deepEqual(
+    state.subscribers.map(({ communication_category_id, opted_out }) => [
+      communication_category_id,
+      opted_out,
+    ]),
+    [['cat-public', false], ['cat-private-optout', true]],
+  );
 });
 
 test('durable external finalization preserves snapshotted subscriber names', async () => {

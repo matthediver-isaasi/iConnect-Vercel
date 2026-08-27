@@ -18,6 +18,7 @@ import { sanitizeOptionSelections, isAttendeeOptionsCollectionEnabled, EMPTY_OPT
 import { fetchMemberJobTitlesByEmail, resolveStoredJobTitle } from '../_lib/attendeeJobTitleEnrichment.js';
 import { getAllowVoucherUseAfterExpiry, isVoucherUsableForEventDate } from '../_lib/voucherExpiryPolicy.js';
 import { orderVoucherIdsForRedemption } from '../_lib/voucherOrdering.js';
+import { loadMemberCommunicationCategoryEligibility } from '../_lib/communicationCategoryEligibility.js';
 import {
   resolveConfiguredJobPostingPrice,
   resolveStoredJobPostingAmount,
@@ -3544,33 +3545,41 @@ const functionHandlers = {
         if (!category || catError) {
           console.warn(`[createOneOffEventBooking] Communication category ${emailListCategoryId} not found for tenant ${event.tenant_id} - skipping subscription`);
         } else {
-          // Check if preference already exists
-          const { data: existingPref } = await supabase
-            .from('member_communication_preference')
-            .select('id, is_subscribed')
-            .eq('member_id', member.id)
-            .eq('category_id', emailListCategoryId)
-            .maybeSingle();
+          const communicationEligibility = await loadMemberCommunicationCategoryEligibility(supabase, {
+            tenantId: event.tenant_id,
+            memberId: member.id,
+          });
+          if (!communicationEligibility.eligibleCategoryIds.has(emailListCategoryId)) {
+            console.warn(`[createOneOffEventBooking] Member ${member.id} is not eligible for communication category ${emailListCategoryId} - skipping subscription`);
+          } else {
+            // Check if preference already exists
+            const { data: existingPref } = await supabase
+                .from('member_communication_preference')
+                .select('id, is_subscribed')
+                .eq('member_id', member.id)
+                .eq('category_id', emailListCategoryId)
+                .maybeSingle();
 
-          if (existingPref) {
-            if (!existingPref.is_subscribed) {
+            if (existingPref) {
+              if (!existingPref.is_subscribed) {
+                await supabase
+                  .from('member_communication_preference')
+                  .update({ is_subscribed: true })
+                  .eq('id', existingPref.id);
+                console.log(`[createOneOffEventBooking] Updated existing preference to subscribed for member ${member.id}`);
+              } else {
+                console.log(`[createOneOffEventBooking] Member ${member.id} already subscribed to list ${emailListCategoryId}`);
+              }
+            } else {
               await supabase
                 .from('member_communication_preference')
-                .update({ is_subscribed: true })
-                .eq('id', existingPref.id);
-              console.log(`[createOneOffEventBooking] Updated existing preference to subscribed for member ${member.id}`);
-            } else {
-              console.log(`[createOneOffEventBooking] Member ${member.id} already subscribed to list ${emailListCategoryId}`);
+                .insert({
+                  member_id: member.id,
+                  category_id: emailListCategoryId,
+                  is_subscribed: true
+                });
+              console.log(`[createOneOffEventBooking] Created new subscription for member ${member.id} to list ${emailListCategoryId}`);
             }
-          } else {
-            await supabase
-              .from('member_communication_preference')
-              .insert({
-                member_id: member.id,
-                category_id: emailListCategoryId,
-                is_subscribed: true
-              });
-            console.log(`[createOneOffEventBooking] Created new subscription for member ${member.id} to list ${emailListCategoryId}`);
           }
         }
       } catch (commPrefError) {
@@ -3591,6 +3600,8 @@ const functionHandlers = {
             .select('id')
             .eq('id', emailListCategoryId)
             .eq('tenant_id', event.tenant_id)
+            .eq('is_active', true)
+            .eq('is_public', true)
             .maybeSingle();
 
           if (category) {

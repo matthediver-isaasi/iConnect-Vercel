@@ -10,7 +10,10 @@ import { resolveExistingOrganization, applyOrgWriteTenantGuard, runGuardedTenant
 import { resolveSubmitControl } from '../_lib/formSubmitControl.js';
 import { rulesUseLmicOperators } from '../_lib/formLmicConditions.js';
 import { loadTenantLmicCodes } from '../_lib/tenantLmicCodes.js';
-import { collectMemberPipelineCommunicationSelections } from '../_lib/formCommunicationSubscriptions.js';
+import {
+  collectMemberPipelineCommunicationSelections,
+  persistFormCommunicationSubscriptions,
+} from '../_lib/formCommunicationSubscriptions.js';
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
@@ -2507,126 +2510,39 @@ export default async function handler(req, res) {
       }
     }
 
-    // Handle communication_preferences field values - save to member_communication_preference table
-    // Only update categories that are explicitly included in the form submission
-    // Do NOT auto-subscribe missing categories - this preserves existing opt-outs
-    // Note: Pipeline mappings (memberCommunicationPrefsMap) run AFTER this and will override these values
+    // Handle non-deferred communication preferences through the shared,
+    // role-authorized persistence boundary. Form-field choices are collected
+    // first and pipeline mappings override them, preserving the established
+    // precedence without any direct preference-table writes.
     console.log(`[AppProcessor] Communication preferences path #1 check: createdMemberId=${createdMemberId}, fields=${fields ? fields.length + ' fields' : 'null/undefined'}, form_values keys=${form_values ? Object.keys(form_values).length : 'null'}`);
-    if (createdMemberId && fields && !defer_communication_subscriptions) {
-      const commPrefFields = fields.filter(f => f.type === 'communication_preferences');
-      console.log(`[AppProcessor] Found ${commPrefFields.length} communication_preferences fields in form fields array`);
-      if (commPrefFields.length > 0) {
-        console.log(`[AppProcessor] Processing ${commPrefFields.length} communication preference fields`);
-        
-        const commPrefSelections = [];
-        const processedCategoryIds = new Set();
-        
-        for (const field of commPrefFields) {
-          const prefValues = form_values[field.id];
-          console.log(`[AppProcessor] Communication preferences field ${field.id} raw value type: ${typeof prefValues}, value:`, JSON.stringify(prefValues));
-          if (prefValues && typeof prefValues === 'object') {
-            for (const [categoryId, isSubscribed] of Object.entries(prefValues)) {
-              if (!processedCategoryIds.has(categoryId)) {
-                commPrefSelections.push({
-                  category_id: categoryId,
-                  is_subscribed: Boolean(isSubscribed)
-                });
-                processedCategoryIds.add(categoryId);
-                console.log(`[AppProcessor] Queued comm pref: category=${categoryId}, subscribed=${Boolean(isSubscribed)}`);
-              }
-            }
-          } else {
-            console.warn(`[AppProcessor] Communication preferences field ${field.id} has no valid object value - skipping. Value was: ${JSON.stringify(prefValues)}`);
+    if (createdMemberId && !defer_communication_subscriptions) {
+      const combinedCommunicationSelections = new Map();
+      const commPrefFields = (fields || []).filter((field) => field.type === 'communication_preferences');
+      for (const field of commPrefFields) {
+        const prefValues = form_values[field.id];
+        if (!prefValues || typeof prefValues !== 'object' || Array.isArray(prefValues)) continue;
+        for (const [categoryId, isSubscribed] of Object.entries(prefValues)) {
+          if (categoryId && !combinedCommunicationSelections.has(categoryId)) {
+            combinedCommunicationSelections.set(categoryId, Boolean(isSubscribed));
           }
-        }
-        
-        if (commPrefSelections.length > 0) {
-          console.log(`[AppProcessor] Saving ${commPrefSelections.length} communication preferences for member:`, createdMemberId);
-          
-          for (const pref of commPrefSelections) {
-            const { data: existingPref } = await supabase
-              .from('member_communication_preference')
-              .select('id')
-              .eq('member_id', createdMemberId)
-              .eq('category_id', pref.category_id)
-              .single();
-            
-            if (existingPref) {
-              const { error: updateErr } = await supabase
-                .from('member_communication_preference')
-                .update({ is_subscribed: pref.is_subscribed })
-                .eq('id', existingPref.id);
-              if (updateErr) {
-                console.error(`[AppProcessor] Failed to update communication preference ${pref.category_id}:`, updateErr);
-              } else {
-                console.log(`[AppProcessor] Updated comm pref: category=${pref.category_id}, subscribed=${pref.is_subscribed}`);
-              }
-            } else {
-              const { data: insertedPref, error: insertErr } = await supabase
-                .from('member_communication_preference')
-                .insert({
-                  member_id: createdMemberId,
-                  category_id: pref.category_id,
-                  is_subscribed: pref.is_subscribed,
-                  tenant_id: effectiveEntityTenantId
-                })
-                .select('id');
-              if (insertErr) {
-                console.error(`[AppProcessor] Failed to insert communication preference ${pref.category_id}:`, JSON.stringify(insertErr));
-              } else {
-                console.log(`[AppProcessor] Inserted comm pref: id=${insertedPref?.[0]?.id}, category=${pref.category_id}, subscribed=${pref.is_subscribed}`);
-              }
-            }
-          }
-          console.log(`[AppProcessor] Completed saving communication preferences for member:`, createdMemberId);
-        } else {
-          console.log(`[AppProcessor] No communication preference selections extracted from form values`);
         }
       }
-    } else {
-      console.log(`[AppProcessor] Skipping communication preferences path #1: createdMemberId=${createdMemberId || 'not set'}, fields=${fields ? 'present' : 'missing'}`);
-    }
-
-    // Save communication preferences (marketing list subscriptions) for primary member
-    if (createdMemberId && memberCommunicationPrefsMap.size > 0 && !defer_communication_subscriptions) {
-      console.log(`[AppProcessor] Saving ${memberCommunicationPrefsMap.size} communication preferences for member ${createdMemberId}`);
-      
       for (const [categoryId, isSubscribed] of memberCommunicationPrefsMap) {
-        // Check if preference already exists
-        const { data: existingPref } = await supabase
-          .from('member_communication_preference')
-          .select('id, is_subscribed')
-          .eq('member_id', createdMemberId)
-          .eq('category_id', categoryId)
-          .single();
-        
-        if (existingPref) {
-          // Update existing preference only if different
-          if (existingPref.is_subscribed !== isSubscribed) {
-            await supabase
-              .from('member_communication_preference')
-              .update({ is_subscribed: isSubscribed, updated_at: new Date().toISOString() })
-              .eq('id', existingPref.id);
-            console.log(`[AppProcessor] Updated communication preference: category=${categoryId}, subscribed=${isSubscribed}`);
-          } else {
-            console.log(`[AppProcessor] Communication preference unchanged: category=${categoryId}, subscribed=${isSubscribed}`);
-          }
-        } else {
-          // Create new preference
-          const { error: commInsertErr } = await supabase
-            .from('member_communication_preference')
-            .insert({
-              member_id: createdMemberId,
-              category_id: categoryId,
-              is_subscribed: isSubscribed,
-              tenant_id: effectiveEntityTenantId
-            });
-          if (commInsertErr) {
-            console.error(`[AppProcessor] Failed to insert communication preference ${categoryId}:`, JSON.stringify(commInsertErr));
-          } else {
-            console.log(`[AppProcessor] Created communication preference: category=${categoryId}, subscribed=${isSubscribed}`);
-          }
-        }
+        combinedCommunicationSelections.set(categoryId, Boolean(isSubscribed));
+      }
+
+      if (combinedCommunicationSelections.size > 0) {
+        await persistFormCommunicationSubscriptions({
+          database: supabase,
+          tenantId: effectiveEntityTenantId,
+          form: { id: form_id, fields: [] },
+          submissionData: {},
+          mappedSelections: [...combinedCommunicationSelections].map(
+            ([category_id, is_subscribed]) => ({ category_id, is_subscribed })
+          ),
+          resolvedMemberId: createdMemberId,
+        });
+        console.log(`[AppProcessor] Saved ${combinedCommunicationSelections.size} role-authorized communication preferences for member ${createdMemberId}`);
       }
     }
 

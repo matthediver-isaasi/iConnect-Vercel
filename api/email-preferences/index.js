@@ -3,6 +3,7 @@ import crypto from 'crypto';
 import {
   loadExternalSubscriberPreferences,
 } from '../_lib/externalSubscriberPreferences.js';
+import { loadMemberCommunicationCategoryEligibility } from '../_lib/communicationCategoryEligibility.js';
 
 const TOKEN_SECRET = process.env.EMAIL_PREFERENCES_TOKEN_SECRET || process.env.SESSION_SECRET || 'default-preferences-secret';
 
@@ -74,12 +75,11 @@ async function handleMemberToken(req, res, token, tokenData) {
       return res.status(400).json({ success: false, error: 'Invalid or expired link' });
     }
 
-    const { data: categories } = await supabase
-      .from('communication_category')
-      .select('id, name, description, display_order')
-      .eq('tenant_id', tenantId)
-      .eq('is_active', true)
-      .order('display_order', { ascending: true });
+    const eligibility = await loadMemberCommunicationCategoryEligibility(supabase, {
+      tenantId,
+      memberId: member.id,
+    });
+    const categories = eligibility?.eligibleCategories || [];
 
     const { data: prefs } = await supabase
       .from('member_communication_preference')
@@ -95,6 +95,8 @@ async function handleMemberToken(req, res, token, tokenData) {
         recipient: { email: member.email, member_id: member.id },
         campaign: null,
         categories,
+        allCategories: eligibility?.allCategories || [],
+        eligibleCategoryIds: eligibility?.eligibleCategoryIds || new Set(),
         tenantId
       });
     }
@@ -162,7 +164,7 @@ async function handleCampaignToken(req, res, token, tokenData) {
 
     const tenantId = campaign.tenant_id;
 
-    const { data: categories } = await supabase
+    let { data: categories } = await supabase
       .from('communication_category')
       .select('id, name, description, display_order')
       .eq('tenant_id', tenantId)
@@ -176,13 +178,20 @@ async function handleCampaignToken(req, res, token, tokenData) {
     if (recipient.member_id) {
       const { data: memberData } = await supabase
         .from('member')
-        .select('id, first_name, last_name, email, communications_opted_out_all')
+        .select('id, first_name, last_name, email, communications_opted_out_all, tenant_id, role_id')
         .eq('id', recipient.member_id)
+        .eq('tenant_id', tenantId)
         .single();
       
       member = memberData;
 
       if (member) {
+        const eligibility = await loadMemberCommunicationCategoryEligibility(supabase, {
+          tenantId,
+          memberId: member.id,
+        });
+        categories = eligibility?.eligibleCategories || [];
+        member._communicationEligibility = eligibility;
         const { data: prefs } = await supabase
           .from('member_communication_preference')
           .select('id, category_id, is_subscribed')
@@ -205,6 +214,8 @@ async function handleCampaignToken(req, res, token, tokenData) {
         recipient,
         campaign,
         categories,
+        allCategories: member?._communicationEligibility?.allCategories || categories,
+        eligibleCategoryIds: member?._communicationEligibility?.eligibleCategoryIds || new Set(),
         tenantId
       });
     }
@@ -360,12 +371,22 @@ export async function handlePreferenceUpdate(req, res, context) {
 
     if (action === 'set_category_subscription' && categoryId) {
       operation = 'set_category_state';
-      const activeCategory = (categories || []).find((category) => category.id === categoryId);
+      const activeCategory = (context.allCategories || categories || []).find((category) => category.id === categoryId);
       if (!activeCategory) {
         return res.status(400).json({ success: false, error: 'Communication category not found.' });
       }
       if (typeof body.isSubscribed !== 'boolean') {
         return res.status(400).json({ success: false, error: 'A subscription state is required.' });
+      }
+      if (
+        member &&
+        body.isSubscribed &&
+        !(context.eligibleCategoryIds || new Set((categories || []).map((category) => category.id))).has(categoryId)
+      ) {
+        return res.status(403).json({
+          success: false,
+          error: 'This communication category is not available for your role.',
+        });
       }
       const { error: categoryUpdateError } = await database.rpc(
         'set_email_preference_category_state',

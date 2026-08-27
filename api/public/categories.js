@@ -26,6 +26,7 @@ export default async function handler(req, res) {
       .from('communication_category')
       .select('id, name, description')
       .eq('is_active', true)
+      .eq('is_public', true)
       .eq('tenant_id', tenant.id)
       .order('display_order', { ascending: true });
 

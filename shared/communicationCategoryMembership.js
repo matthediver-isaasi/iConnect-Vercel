@@ -1,5 +1,35 @@
 const DELETED_MEMBER_EMAIL = /^deleted_.*@deleted\.local$/i;
 
+export function normalizeCommunicationRoleIds(roleId) {
+  if (!roleId) return [];
+  return (Array.isArray(roleId) ? roleId : [roleId]).filter(Boolean);
+}
+
+export function isMemberEligibleForCommunicationCategory(member, categoryRoleIds) {
+  const applicableRoleIds = normalizeCommunicationRoleIds(categoryRoleIds);
+  if (applicableRoleIds.length === 0) return true;
+
+  const memberRoleIds = normalizeCommunicationRoleIds(member?.role_id);
+  return memberRoleIds.some((roleId) => applicableRoleIds.includes(roleId));
+}
+
+export function filterCommunicationCategoriesForMember(categories, roleAssignments, member) {
+  const rolesByCategory = new Map();
+  for (const assignment of roleAssignments || []) {
+    if (!assignment?.category_id || !assignment?.role_id) continue;
+    const roleIds = rolesByCategory.get(assignment.category_id) || [];
+    roleIds.push(assignment.role_id);
+    rolesByCategory.set(assignment.category_id, roleIds);
+  }
+
+  return (categories || []).filter((category) =>
+    isMemberEligibleForCommunicationCategory(
+      member,
+      rolesByCategory.get(category.id) || [],
+    )
+  );
+}
+
 export function getToggledExplicitSubscriptionValue(existingPreference) {
   return existingPreference?.is_subscribed !== true;
 }

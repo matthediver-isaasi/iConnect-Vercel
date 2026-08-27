@@ -1400,11 +1400,6 @@ export default function CommunicationsManagementPage() {
       toast.error('Please enter a category name');
       return;
     }
-    if (!editingCategory.is_public && (!editingCategory.selectedRoles || editingCategory.selectedRoles.length === 0)) {
-      toast.error('Please select at least one role or mark the list as public');
-      return;
-    }
-
     if (editingCategory.id) {
       updateCategoryMutation.mutate({ id: editingCategory.id, data: editingCategory });
     } else {
@@ -2202,7 +2197,7 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                       Public List
                     </Label>
                     <p className="text-xs text-slate-500">
-                      Allow non-members (e.g. donors, guests) to be added to this list
+                      Allow external non-members (e.g. donors and guests) to subscribe. This never bypasses member role access.
                     </p>
                   </div>
                   <Switch
@@ -2214,9 +2209,9 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                 </div>
 
                 <div className="space-y-2">
-                  <Label>Applicable Roles {!editingCategory.is_public && '*'}</Label>
+                  <Label>Applicable Roles</Label>
                   <p className="text-xs text-slate-500 mb-2">
-                    Select which member roles can subscribe to this category
+                    Members can see and subscribe only when their role is selected. If no roles are selected, all member roles can access the category.
                   </p>
                   <div className="border border-slate-200 rounded-lg p-3 max-h-48 overflow-y-auto space-y-2">
                     {roles.filter(r => r.is_active !== false).map(role => (

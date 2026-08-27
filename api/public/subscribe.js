@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
+import { loadMemberCommunicationCategoryEligibility } from '../_lib/communicationCategoryEligibility.js';
 
 const rateLimitMap = new Map();
 const RATE_LIMIT_WINDOW_MS = 60 * 1000;
@@ -21,7 +22,7 @@ function isRateLimited(ip) {
   return false;
 }
 
-setInterval(() => {
+const rateLimitCleanupTimer = setInterval(() => {
   const now = Date.now();
   for (const [ip, entry] of rateLimitMap.entries()) {
     if (now - entry.windowStart > RATE_LIMIT_WINDOW_MS * 2) {
@@ -29,6 +30,96 @@ setInterval(() => {
     }
   }
 }, RATE_LIMIT_WINDOW_MS * 5);
+rateLimitCleanupTimer.unref?.();
+
+export async function applyPublicCommunicationSubscription({
+  database,
+  tenantId,
+  email,
+  firstName = null,
+  lastName = null,
+  categoryId,
+  eligibilityLoader = loadMemberCommunicationCategoryEligibility,
+}) {
+  const { data: category, error: categoryError } = await database
+    .from('communication_category')
+    .select('id, name, is_public, is_active')
+    .eq('id', categoryId)
+    .eq('tenant_id', tenantId)
+    .maybeSingle();
+
+  if (!category || categoryError) {
+    return { status: 404, payload: { error: 'Communication category not found' } };
+  }
+  if (!category.is_active) {
+    return { status: 400, payload: { error: 'This communication list is no longer active' } };
+  }
+  if (!category.is_public) {
+    return {
+      status: 403,
+      payload: { error: 'This communication list is not available for public subscription' },
+    };
+  }
+
+  const normalizedEmail = email.toLowerCase().trim();
+  const { data: existingMember, error: memberError } = await database
+    .from('member')
+    .select('id, tenant_id, role_id')
+    .eq('tenant_id', tenantId)
+    .eq('email', normalizedEmail)
+    .maybeSingle();
+  if (memberError) throw memberError;
+
+  if (existingMember) {
+    const eligibility = await eligibilityLoader(database, {
+      tenantId,
+      memberId: existingMember.id,
+    });
+    if (!eligibility?.eligibleCategoryIds.has(categoryId)) {
+      return {
+        status: 403,
+        payload: { error: 'This communication list is not available for your member role' },
+      };
+    }
+
+    const { error: preferenceError } = await database
+      .from('member_communication_preference')
+      .upsert({
+        tenant_id: tenantId,
+        member_id: existingMember.id,
+        category_id: categoryId,
+        is_subscribed: true,
+      }, {
+        onConflict: 'member_id,category_id',
+      });
+    if (preferenceError) throw preferenceError;
+  } else {
+    const { error: externalSubscriberError } = await database
+      .from('email_subscriber')
+      .upsert({
+        tenant_id: tenantId,
+        email: normalizedEmail,
+        first_name: firstName || null,
+        last_name: lastName || null,
+        communication_category_id: categoryId,
+        opted_out: false,
+        subscribed_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      }, {
+        onConflict: 'tenant_id,email,communication_category_id',
+      });
+    if (externalSubscriberError) throw externalSubscriberError;
+  }
+
+  return {
+    status: 200,
+    payload: {
+      success: true,
+      message: `Successfully subscribed to ${category.name}`,
+    },
+    subscriberType: existingMember ? 'member' : 'external',
+  };
+}
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -103,69 +194,15 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'Unable to determine tenant context' });
     }
 
-    const { data: category, error: catError } = await supabase
-      .from('communication_category')
-      .select('id, name, is_public, is_active')
-      .eq('id', category_id)
-      .eq('tenant_id', tenantId)
-      .maybeSingle();
-
-    if (!category || catError) {
-      return res.status(404).json({ error: 'Communication category not found' });
-    }
-
-    if (!category.is_active) {
-      return res.status(400).json({ error: 'This communication list is no longer active' });
-    }
-
-    if (!category.is_public) {
-      return res.status(403).json({ error: 'This communication list is not available for public subscription' });
-    }
-
-    const normalizedEmail = email.toLowerCase().trim();
-
-    const { data: existingMember } = await supabase
-      .from('member')
-      .select('id')
-      .eq('tenant_id', tenantId)
-      .eq('email', normalizedEmail)
-      .maybeSingle();
-
-    if (existingMember) {
-      await supabase
-        .from('member_communication_preference')
-        .upsert({
-          member_id: existingMember.id,
-          category_id: category_id,
-          is_subscribed: true
-        }, {
-          onConflict: 'member_id,category_id'
-        });
-
-      console.log(`[Public Subscribe] Member ${existingMember.id} subscribed to category ${category_id}`);
-    } else {
-      await supabase
-        .from('email_subscriber')
-        .upsert({
-          tenant_id: tenantId,
-          email: normalizedEmail,
-          first_name: first_name || null,
-          last_name: last_name || null,
-          communication_category_id: category_id,
-          opted_out: false,
-          subscribed_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
-        }, {
-          onConflict: 'tenant_id,email,communication_category_id'
-        });
-
-      console.log(`[Public Subscribe] External subscriber ${normalizedEmail} subscribed to category ${category_id}`);
-    }
-
-    return res.json({
-      success: true,
-      message: `Successfully subscribed to ${category.name}`
+    const result = await applyPublicCommunicationSubscription({
+      database: supabase,
+      tenantId,
+      email,
+      firstName: first_name,
+      lastName: last_name,
+      categoryId: category_id,
     });
+    return res.status(result.status).json(result.payload);
 
   } catch (error) {
     console.error('[Public Subscribe] Error:', error);
