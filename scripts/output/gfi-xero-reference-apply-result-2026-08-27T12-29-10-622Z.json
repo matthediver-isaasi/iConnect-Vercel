@@ -1,0 +1,3189 @@
+{
+  "repairKind": "gfi-xero-membership-reference-repair",
+  "mode": "apply-result",
+  "generatedAt": "2026-08-27T12:29:10.622Z",
+  "sourceManifest": "/home/runner/workspace/scripts/output/gfi-xero-reference-dry-run-2026-08-27T12-20-52-500Z.json",
+  "sourceManifestSignature": "4c865e056d1169267666df13434f0419ef608da05d28376116f7568b45ada8d9",
+  "target": {
+    "tenantId": "fd82da65-aab7-4a5c-85b8-b2febeb2003d",
+    "tenantSlug": "gfi",
+    "tenantName": "Graduate Futures Institute",
+    "xeroTenantId": "608971fe-5a0d-4031-80bb-3d9d438e90fb"
+  },
+  "state": "complete",
+  "summary": {
+    "reviewed": 62,
+    "attempted": 20,
+    "succeeded": 20,
+    "skipped": 0,
+    "errors": 42
+  },
+  "outcomes": [
+    {
+      "invoiceId": "dd96db45-f240-411c-9406-00d28f812f6f",
+      "invoiceNumber": "SI-44603",
+      "attempted": true,
+      "state": "complete",
+      "rechecked": {
+        "invoiceId": "dd96db45-f240-411c-9406-00d28f812f6f",
+        "invoiceNumber": "SI-44603",
+        "type": "ACCREC",
+        "status": "AUTHORISED",
+        "amountDue": 3847.2,
+        "total": 3847.2,
+        "currencyCode": "GBP",
+        "contact": {
+          "contactId": "43e460fb-4fd4-4cc3-9376-58eae5711a42",
+          "name": "University of East Anglia"
+        },
+        "date": "2026-07-29T00:00:00",
+        "dueDate": "2026-08-28T00:00:00",
+        "originalReference": "Membership 2026/2027",
+        "proposedReference": "TBC"
+      },
+      "updateStartedAt": "2026-08-27T12:29:10.967Z",
+      "xeroResponse": {
+        "Type": "ACCREC",
+        "InvoiceID": "dd96db45-f240-411c-9406-00d28f812f6f",
+        "InvoiceNumber": "SI-44603",
+        "Reference": "TBC",
+        "Prepayments": [],
+        "Overpayments": [],
+        "AmountDue": 3847.2,
+        "AmountPaid": 0,
+        "SentToContact": true,
+        "SentToEmailAddress": "accounts.payable@uea.ac.uk",
+        "CurrencyRate": 1,
+        "IsDiscounted": false,
+        "HasErrors": false,
+        "InvoicePaymentServices": [],
+        "UpdatedDateUTCString": "2026-08-27T12:29:11Z",
+        "Contact": {
+          "ContactID": "43e460fb-4fd4-4cc3-9376-58eae5711a42",
+          "ContactStatus": "ACTIVE",
+          "Name": "University of East Anglia",
+          "FirstName": "Jenny",
+          "LastName": "Turner",
+          "EmailAddress": "accounts.payable@uea.ac.uk",
+          "BankAccountDetails": "",
+          "Addresses": [
+            {
+              "AddressType": "STREET",
+              "City": "",
+              "Region": "",
+              "PostalCode": "",
+              "Country": ""
+            },
+            {
+              "AddressType": "POBOX",
+              "AddressLine1": "UEA Careers Service at CareerCentral",
+              "AddressLine2": "The Street",
+              "AddressLine3": "Norwich Research Park",
+              "City": "University of East Anglia",
+              "Region": "",
+              "PostalCode": "Norwich",
+              "Country": "NR4 7TJ"
+            }
+          ],
+          "Phones": [
+            {
+              "PhoneType": "DEFAULT",
+              "PhoneNumber": "592681",
+              "PhoneAreaCode": "01603",
+              "PhoneCountryCode": ""
+            },
+            {
+              "PhoneType": "DDI",
+              "PhoneNumber": "",
+              "PhoneAreaCode": "",
+              "PhoneCountryCode": ""
+            },
+            {
+              "PhoneType": "FAX",
+              "PhoneNumber": "",
+              "PhoneAreaCode": "",
+              "PhoneCountryCode": ""
+            },
+            {
+              "PhoneType": "MOBILE",
+              "PhoneNumber": "",
+              "PhoneAreaCode": "",
+              "PhoneCountryCode": ""
+            }
+          ],
+          "UpdatedDateUTC": "/Date(1785338473487+0000)/",
+          "ContactGroups": [],
+          "IsSupplier": false,
+          "IsCustomer": true,
+          "SalesTrackingCategories": [],
+          "PurchasesTrackingCategories": [],
+          "ContactPersons": [],
+          "HasValidationErrors": false
+        },
+        "DateString": "2026-07-29T00:00:00",
+        "Date": "/Date(1785283200000+0000)/",
+        "DueDateString": "2026-08-28T00:00:00",
+        "DueDate": "/Date(1787875200000+0000)/",
+        "BrandingThemeID": "09152af3-790c-4efc-8b11-e4a8dd1ccdff",
+        "Status": "AUTHORISED",
+        "LineAmountTypes": "Exclusive",
+        "LineItems": [
+          {
+            "Description": "HE Membership subscription for 1 August 2026 - 31 July 2027.\nTier: Tier 9\nFee: GBP 3206.00",
+            "UnitAmount": 3206,
+            "TaxType": "OUTPUT2",
+            "TaxAmount": 641.2,
+            "LineAmount": 3206,
+            "AccountCode": "4000",
+            "Tracking": [],
+            "Quantity": 1,
+            "LineItemID": "617d5d06-5318-452a-956a-51a4a09e8eb5",
+            "AccountID": "b57cfa17-1cd0-4984-ac1a-340c7a83bd06",
+            "ValidationErrors": []
+          }
+        ],
+        "SubTotal": 3206,
+        "TotalTax": 641.2,
+        "Total": 3847.2,
+        "UpdatedDateUTC": "/Date(1787833751277+0000)/",
+        "CurrencyCode": "GBP"
+      },
+      "verified": {
+        "invoiceId": "dd96db45-f240-411c-9406-00d28f812f6f",
+        "invoiceNumber": "SI-44603",
+        "type": "ACCREC",
+        "status": "AUTHORISED",
+        "amountDue": 3847.2,
+        "total": 3847.2,
+        "currencyCode": "GBP",
+        "contact": {
+          "contactId": "43e460fb-4fd4-4cc3-9376-58eae5711a42",
+          "name": "University of East Anglia"
+        },
+        "date": "2026-07-29T00:00:00",
+        "dueDate": "2026-08-28T00:00:00",
+        "originalReference": "TBC",
+        "proposedReference": "TBC"
+      },
+      "result": "success"
+    },
+    {
+      "invoiceId": "3d7090ba-a320-4ac7-8535-076afa610f59",
+      "invoiceNumber": "SI-44657",
+      "attempted": true,
+      "state": "complete",
+      "rechecked": {
+        "invoiceId": "3d7090ba-a320-4ac7-8535-076afa610f59",
+        "invoiceNumber": "SI-44657",
+        "type": "ACCREC",
+        "status": "AUTHORISED",
+        "amountDue": 2066.1,
+        "total": 2066.1,
+        "currencyCode": "GBP",
+        "contact": {
+          "contactId": "3e065ee5-ea03-4ff2-b7cf-84d0c8c61c0e",
+          "name": "Liverpool Hope University"
+        },
+        "date": "2026-08-04T00:00:00",
+        "dueDate": "2026-09-03T00:00:00",
+        "originalReference": "Membership 2026/2027",
+        "proposedReference": "TBC"
+      },
+      "updateStartedAt": "2026-08-27T12:29:11.924Z",
+      "xeroResponse": {
+        "Type": "ACCREC",
+        "InvoiceID": "3d7090ba-a320-4ac7-8535-076afa610f59",
+        "InvoiceNumber": "SI-44657",
+        "Reference": "TBC",
+        "Prepayments": [],
+        "Overpayments": [],
+        "AmountDue": 2066.1,
+        "AmountPaid": 0,
+        "SentToContact": true,
+        "SentToEmailAddress": "purchaseledger@hope.ac.uk",
+        "CurrencyRate": 1,
+        "IsDiscounted": false,
+        "HasErrors": false,
+        "InvoicePaymentServices": [],
+        "UpdatedDateUTCString": "2026-08-27T12:29:12Z",
+        "Contact": {
+          "ContactID": "3e065ee5-ea03-4ff2-b7cf-84d0c8c61c0e",
+          "ContactStatus": "ACTIVE",
+          "Name": "Liverpool Hope University",
+          "FirstName": "Liverpool Hope University",
+          "EmailAddress": "purchaseledger@hope.ac.uk",
+          "BankAccountDetails": "",
+          "Addresses": [
+            {
+              "AddressType": "STREET",
+              "City": "",
+              "Region": "",
+              "PostalCode": "",
+              "Country": ""
+            },
+            {
+              "AddressType": "POBOX",
+              "AddressLine1": "Student Futures",
+              "AddressLine2": "Eden 205",
+              "City": "Hope Park",
+              "Region": "",
+              "PostalCode": "Liverpool",
+              "Country": "L16 9JD"
+            }
+          ],
+          "Phones": [
+            {
+              "PhoneType": "DEFAULT",
+              "PhoneNumber": "",
+              "PhoneAreaCode": "",
+              "PhoneCountryCode": ""
+            },
+            {
+              "PhoneType": "DDI",
+              "PhoneNumber": "",
+              "PhoneAreaCode": "",
+              "PhoneCountryCode": ""
+            },
+            {
+              "PhoneType": "FAX",
+              "PhoneNumber": "",
+              "PhoneAreaCode": "",
+              "PhoneCountryCode": ""
+            },
+            {
+              "PhoneType": "MOBILE",
+              "PhoneNumber": "",
+              "PhoneAreaCode": "",
+              "PhoneCountryCode": ""
+            }
+          ],
+          "UpdatedDateUTC": "/Date(1785857272970+0000)/",
+          "ContactGroups": [],
+          "IsSupplier": false,
+          "IsCustomer": true,
+          "SalesTrackingCategories": [],
+          "PurchasesTrackingCategories": [],
+          "ContactPersons": [],
+          "HasValidationErrors": false
+        },
+        "DateString": "2026-08-04T00:00:00",
+        "Date": "/Date(1785801600000+0000)/",
+        "DueDateString": "2026-09-03T00:00:00",
+        "DueDate": "/Date(1788393600000+0000)/",
+        "BrandingThemeID": "09152af3-790c-4efc-8b11-e4a8dd1ccdff",
+        "Status": "AUTHORISED",
+        "LineAmountTypes": "Exclusive",
+        "LineItems": [
+          {
+            "Description": "HE Membership subscription for 1 August 2026 - 31 July 2027.\nTier: Tier 6\nFee: GBP 1721.75",
+            "UnitAmount": 1721.75,
+            "TaxType": "OUTPUT2",
+            "TaxAmount": 344.35,
+            "LineAmount": 1721.75,
+            "AccountCode": "4000",
+            "Tracking": [],
+            "Quantity": 1,
+            "LineItemID": "81b2ac45-2fab-4455-b9bd-7c376819445b",
+            "AccountID": "b57cfa17-1cd0-4984-ac1a-340c7a83bd06",
+            "ValidationErrors": []
+          }
+        ],
+        "SubTotal": 1721.75,
+        "TotalTax": 344.35,
+        "Total": 2066.1,
+        "UpdatedDateUTC": "/Date(1787833752243+0000)/",
+        "CurrencyCode": "GBP"
+      },
+      "verified": {
+        "invoiceId": "3d7090ba-a320-4ac7-8535-076afa610f59",
+        "invoiceNumber": "SI-44657",
+        "type": "ACCREC",
+        "status": "AUTHORISED",
+        "amountDue": 2066.1,
+        "total": 2066.1,
+        "currencyCode": "GBP",
+        "contact": {
+          "contactId": "3e065ee5-ea03-4ff2-b7cf-84d0c8c61c0e",
+          "name": "Liverpool Hope University"
+        },
+        "date": "2026-08-04T00:00:00",
+        "dueDate": "2026-09-03T00:00:00",
+        "originalReference": "TBC",
+        "proposedReference": "TBC"
+      },
+      "result": "success"
+    },
+    {
+      "invoiceId": "146838de-d160-4212-ac97-090ed4453942",
+      "invoiceNumber": "SI-44636",
+      "attempted": true,
+      "state": "complete",
+      "rechecked": {
+        "invoiceId": "146838de-d160-4212-ac97-090ed4453942",
+        "invoiceNumber": "SI-44636",
+        "type": "ACCREC",
+        "status": "AUTHORISED",
+        "amountDue": 3847.2,
+        "total": 3847.2,
+        "currencyCode": "GBP",
+        "contact": {
+          "contactId": "65aa0609-4109-4c73-a851-e0e942991940",
+          "name": "Bournemouth University"
+        },
+        "date": "2026-08-04T00:00:00",
+        "dueDate": "2026-09-03T00:00:00",
+        "originalReference": "Membership 2026/2027",
+        "proposedReference": "TBC"
+      },
+      "updateStartedAt": "2026-08-27T12:29:12.898Z",
+      "xeroResponse": {
+        "Type": "ACCREC",
+        "InvoiceID": "146838de-d160-4212-ac97-090ed4453942",
+        "InvoiceNumber": "SI-44636",
+        "Reference": "TBC",
+        "Prepayments": [],
+        "Overpayments": [],
+        "AmountDue": 3847.2,
+        "AmountPaid": 0,
+        "SentToContact": true,
+        "SentToEmailAddress": "ssops@bournemouth.ac.uk,invoice-capture@bournemouth.ac.uk",
+        "CurrencyRate": 1,
+        "IsDiscounted": false,
+        "HasErrors": false,
+        "InvoicePaymentServices": [],
+        "UpdatedDateUTCString": "2026-08-27T12:29:13Z",
+        "Contact": {
+          "ContactID": "65aa0609-4109-4c73-a851-e0e942991940",
+          "ContactStatus": "ACTIVE",
+          "Name": "Bournemouth University",
+          "FirstName": "Jo",
+          "LastName": "Summers",
+          "EmailAddress": "ssops@bournemouth.ac.uk",
+          "Addresses": [
+            {
+              "AddressType": "POBOX",
+              "AddressLine1": "Careers & Employability Service",
+              "AddressLine2": "The Careers Centre",
+              "AddressLine3": "12 Christchurch Road",
+              "City": "Talbot Campus",
+              "PostalCode": "Fern Barrow",
+              "Country": "Poole"
+            },
+            {
+              "AddressType": "STREET"
+            }
+          ],
+          "Phones": [
+            {
+              "PhoneType": "DEFAULT",
+              "PhoneNumber": "965725",
+              "PhoneAreaCode": "01202"
+            },
+            {
+              "PhoneType": "DDI"
+            },
+            {
+              "PhoneType": "FAX"
+            },
+            {
+              "PhoneType": "MOBILE"
+            }
+          ],
+          "UpdatedDateUTC": "/Date(1785855150123+0000)/",
+          "ContactGroups": [],
+          "IsSupplier": false,
+          "IsCustomer": true,
+          "SalesTrackingCategories": [],
+          "PurchasesTrackingCategories": [],
+          "ContactPersons": [
+            {
+              "EmailAddress": "invoice-capture@bournemouth.ac.uk",
+              "IncludeInEmails": true
+            }
+          ],
+          "HasValidationErrors": false
+        },
+        "DateString": "2026-08-04T00:00:00",
+        "Date": "/Date(1785801600000+0000)/",
+        "DueDateString": "2026-09-03T00:00:00",
+        "DueDate": "/Date(1788393600000+0000)/",
+        "BrandingThemeID": "09152af3-790c-4efc-8b11-e4a8dd1ccdff",
+        "Status": "AUTHORISED",
+        "LineAmountTypes": "Exclusive",
+        "LineItems": [
+          {
+            "Description": "HE Membership subscription for 1 August 2026 - 31 July 2027.\nTier: Tier 9\nFee: GBP 3206.00",
+            "UnitAmount": 3206,
+            "TaxType": "OUTPUT2",
+            "TaxAmount": 641.2,
+            "LineAmount": 3206,
+            "AccountCode": "4000",
+            "Tracking": [],
+            "Quantity": 1,
+            "LineItemID": "ec5e61a8-8d7e-4690-843a-3859450518a2",
+            "AccountID": "b57cfa17-1cd0-4984-ac1a-340c7a83bd06",
+            "ValidationErrors": []
+          }
+        ],
+        "SubTotal": 3206,
+        "TotalTax": 641.2,
+        "Total": 3847.2,
+        "UpdatedDateUTC": "/Date(1787833753203+0000)/",
+        "CurrencyCode": "GBP"
+      },
+      "verified": {
+        "invoiceId": "146838de-d160-4212-ac97-090ed4453942",
+        "invoiceNumber": "SI-44636",
+        "type": "ACCREC",
+        "status": "AUTHORISED",
+        "amountDue": 3847.2,
+        "total": 3847.2,
+        "currencyCode": "GBP",
+        "contact": {
+          "contactId": "65aa0609-4109-4c73-a851-e0e942991940",
+          "name": "Bournemouth University"
+        },
+        "date": "2026-08-04T00:00:00",
+        "dueDate": "2026-09-03T00:00:00",
+        "originalReference": "TBC",
+        "proposedReference": "TBC"
+      },
+      "result": "success"
+    },
+    {
+      "invoiceId": "0601887b-ec7f-4e3a-aa5b-0d898b9ee930",
+      "invoiceNumber": "SI-44702",
+      "attempted": true,
+      "state": "complete",
+      "rechecked": {
+        "invoiceId": "0601887b-ec7f-4e3a-aa5b-0d898b9ee930",
+        "invoiceNumber": "SI-44702",
+        "type": "ACCREC",
+        "status": "AUTHORISED",
+        "amountDue": 3143.1,
+        "total": 3143.1,
+        "currencyCode": "GBP",
+        "contact": {
+          "contactId": "fb6fa074-5874-42f7-ad62-e3f1ed158229",
+          "name": "University of Dundee"
+        },
+        "date": "2026-08-04T00:00:00",
+        "dueDate": "2026-09-03T00:00:00",
+        "originalReference": "Membership 2026/2027",
+        "proposedReference": "TBC"
+      },
+      "updateStartedAt": "2026-08-27T12:29:13.904Z",
+      "xeroResponse": {
+        "Type": "ACCREC",
+        "InvoiceID": "0601887b-ec7f-4e3a-aa5b-0d898b9ee930",
+        "InvoiceNumber": "SI-44702",
+        "Reference": "TBC",
+        "Prepayments": [],
+        "Overpayments": [],
+        "AmountDue": 3143.1,
+        "AmountPaid": 0,
+        "SentToContact": true,
+        "SentToEmailAddress": "accountspayable@dundee.ac.uk",
+        "CurrencyRate": 1,
+        "IsDiscounted": false,
+        "HasErrors": false,
+        "InvoicePaymentServices": [],
+        "UpdatedDateUTCString": "2026-08-27T12:29:14Z",
+        "Contact": {
+          "ContactID": "fb6fa074-5874-42f7-ad62-e3f1ed158229",
+          "ContactStatus": "ACTIVE",
+          "Name": "University of Dundee",
+          "FirstName": "University of Dundee",
+          "EmailAddress": "accountspayable@dundee.ac.uk",
+          "BankAccountDetails": "",
+          "Addresses": [
+            {
+              "AddressType": "STREET",
+              "City": "",
+              "Region": "",
+              "PostalCode": "",
+              "Country": ""
+            },
+            {
+              "AddressType": "POBOX",
+              "AddressLine1": "Careers Service",
+              "AddressLine2": "1 Airlie Place",
+              "City": "Dundee",
+              "Region": "",
+              "PostalCode": "DD1 4HN",
+              "Country": ""
+            }
+          ],
+          "Phones": [
+            {
+              "PhoneType": "DEFAULT",
+              "PhoneNumber": "017",
+              "PhoneAreaCode": "384",
+              "PhoneCountryCode": "01382"
+            },
+            {
+              "PhoneType": "DDI",
+              "PhoneNumber": "",
+              "PhoneAreaCode": "",
+              "PhoneCountryCode": ""
+            },
+            {
+              "PhoneType": "FAX",
+              "PhoneNumber": "",
+              "PhoneAreaCode": "",
+              "PhoneCountryCode": ""
+            },
+            {
+              "PhoneType": "MOBILE",
+              "PhoneNumber": "",
+              "PhoneAreaCode": "",
+              "PhoneCountryCode": ""
+            }
+          ],
+          "UpdatedDateUTC": "/Date(1785860353520+0000)/",
+          "ContactGroups": [],
+          "IsSupplier": false,
+          "IsCustomer": true,
+          "SalesTrackingCategories": [],
+          "PurchasesTrackingCategories": [],
+          "ContactPersons": [],
+          "HasValidationErrors": false
+        },
+        "DateString": "2026-08-04T00:00:00",
+        "Date": "/Date(1785801600000+0000)/",
+        "DueDateString": "2026-09-03T00:00:00",
+        "DueDate": "/Date(1788393600000+0000)/",
+        "BrandingThemeID": "09152af3-790c-4efc-8b11-e4a8dd1ccdff",
+        "Status": "AUTHORISED",
+        "LineAmountTypes": "Exclusive",
+        "LineItems": [
+          {
+            "Description": "HE Membership subscription for 1 August 2026 - 31 July 2027.\nTier: Tier 8\nFee: GBP 2619.25",
+            "UnitAmount": 2619.25,
+            "TaxType": "OUTPUT2",
+            "TaxAmount": 523.85,
+            "LineAmount": 2619.25,
+            "AccountCode": "4000",
+            "Tracking": [],
+            "Quantity": 1,
+            "LineItemID": "a78d44bd-1e08-48e5-8b84-a8afc1a7fac1",
+            "AccountID": "b57cfa17-1cd0-4984-ac1a-340c7a83bd06",
+            "ValidationErrors": []
+          }
+        ],
+        "SubTotal": 2619.25,
+        "TotalTax": 523.85,
+        "Total": 3143.1,
+        "UpdatedDateUTC": "/Date(1787833754297+0000)/",
+        "CurrencyCode": "GBP"
+      },
+      "verified": {
+        "invoiceId": "0601887b-ec7f-4e3a-aa5b-0d898b9ee930",
+        "invoiceNumber": "SI-44702",
+        "type": "ACCREC",
+        "status": "AUTHORISED",
+        "amountDue": 3143.1,
+        "total": 3143.1,
+        "currencyCode": "GBP",
+        "contact": {
+          "contactId": "fb6fa074-5874-42f7-ad62-e3f1ed158229",
+          "name": "University of Dundee"
+        },
+        "date": "2026-08-04T00:00:00",
+        "dueDate": "2026-09-03T00:00:00",
+        "originalReference": "TBC",
+        "proposedReference": "TBC"
+      },
+      "result": "success"
+    },
+    {
+      "invoiceId": "91a0b4f0-82e7-4e38-a2b5-157356427fc2",
+      "invoiceNumber": "SI-44706",
+      "attempted": true,
+      "state": "complete",
+      "rechecked": {
+        "invoiceId": "91a0b4f0-82e7-4e38-a2b5-157356427fc2",
+        "invoiceNumber": "SI-44706",
+        "type": "ACCREC",
+        "status": "AUTHORISED",
+        "amountDue": 3143.1,
+        "total": 3143.1,
+        "currencyCode": "GBP",
+        "contact": {
+          "contactId": "c74f848f-77a3-4818-8ffe-508093b5c12d",
+          "name": "University of Greater Manchester"
+        },
+        "date": "2026-08-04T00:00:00",
+        "dueDate": "2026-09-03T00:00:00",
+        "originalReference": "Membership 2026/2027",
+        "proposedReference": "TBC"
+      },
+      "updateStartedAt": "2026-08-27T12:29:14.930Z",
+      "xeroResponse": {
+        "Type": "ACCREC",
+        "InvoiceID": "91a0b4f0-82e7-4e38-a2b5-157356427fc2",
+        "InvoiceNumber": "SI-44706",
+        "Reference": "TBC",
+        "Prepayments": [],
+        "Overpayments": [],
+        "AmountDue": 3143.1,
+        "AmountPaid": 0,
+        "SentToContact": true,
+        "SentToEmailAddress": "accountspayable@bolton.ac.uk",
+        "CurrencyRate": 1,
+        "IsDiscounted": false,
+        "HasErrors": false,
+        "InvoicePaymentServices": [],
+        "UpdatedDateUTCString": "2026-08-27T12:29:15Z",
+        "Contact": {
+          "ContactID": "c74f848f-77a3-4818-8ffe-508093b5c12d",
+          "ContactStatus": "ACTIVE",
+          "Name": "University of Greater Manchester",
+          "FirstName": "Barbara, finance",
+          "EmailAddress": "accountspayable@bolton.ac.uk",
+          "Addresses": [
+            {
+              "AddressType": "POBOX",
+              "AddressLine1": "Careers Service",
+              "AddressLine2": "Deane Road",
+              "City": "Bolton",
+              "PostalCode": "BL3 5AB"
+            },
+            {
+              "AddressType": "STREET"
+            }
+          ],
+          "Phones": [
+            {
+              "PhoneType": "DEFAULT",
+              "PhoneNumber": "903933",
+              "PhoneAreaCode": "01204"
+            },
+            {
+              "PhoneType": "DDI"
+            },
+            {
+              "PhoneType": "FAX"
+            },
+            {
+              "PhoneType": "MOBILE"
+            }
+          ],
+          "UpdatedDateUTC": "/Date(1785860749817+0000)/",
+          "ContactGroups": [],
+          "IsSupplier": false,
+          "IsCustomer": true,
+          "SalesTrackingCategories": [],
+          "PurchasesTrackingCategories": [],
+          "ContactPersons": [],
+          "HasValidationErrors": false
+        },
+        "DateString": "2026-08-04T00:00:00",
+        "Date": "/Date(1785801600000+0000)/",
+        "DueDateString": "2026-09-03T00:00:00",
+        "DueDate": "/Date(1788393600000+0000)/",
+        "BrandingThemeID": "09152af3-790c-4efc-8b11-e4a8dd1ccdff",
+        "Status": "AUTHORISED",
+        "LineAmountTypes": "Exclusive",
+        "LineItems": [
+          {
+            "Description": "HE Membership subscription for 1 August 2026 - 31 July 2027.\nTier: Tier 8\nFee: GBP 2619.25",
+            "UnitAmount": 2619.25,
+            "TaxType": "OUTPUT2",
+            "TaxAmount": 523.85,
+            "LineAmount": 2619.25,
+            "AccountCode": "4000",
+            "Tracking": [],
+            "Quantity": 1,
+            "LineItemID": "5475c27a-a56b-431d-8480-e447da96cd3d",
+            "AccountID": "b57cfa17-1cd0-4984-ac1a-340c7a83bd06",
+            "ValidationErrors": []
+          }
+        ],
+        "SubTotal": 2619.25,
+        "TotalTax": 523.85,
+        "Total": 3143.1,
+        "UpdatedDateUTC": "/Date(1787833755283+0000)/",
+        "CurrencyCode": "GBP"
+      },
+      "verified": {
+        "invoiceId": "91a0b4f0-82e7-4e38-a2b5-157356427fc2",
+        "invoiceNumber": "SI-44706",
+        "type": "ACCREC",
+        "status": "AUTHORISED",
+        "amountDue": 3143.1,
+        "total": 3143.1,
+        "currencyCode": "GBP",
+        "contact": {
+          "contactId": "c74f848f-77a3-4818-8ffe-508093b5c12d",
+          "name": "University of Greater Manchester"
+        },
+        "date": "2026-08-04T00:00:00",
+        "dueDate": "2026-09-03T00:00:00",
+        "originalReference": "TBC",
+        "proposedReference": "TBC"
+      },
+      "result": "success"
+    },
+    {
+      "invoiceId": "3d1bceae-8cd7-4f5f-b7c5-176800dfbbac",
+      "invoiceNumber": "SI-44740",
+      "attempted": true,
+      "state": "complete",
+      "rechecked": {
+        "invoiceId": "3d1bceae-8cd7-4f5f-b7c5-176800dfbbac",
+        "invoiceNumber": "SI-44740",
+        "type": "ACCREC",
+        "status": "AUTHORISED",
+        "amountDue": 885.46,
+        "total": 885.46,
+        "currencyCode": "GBP",
+        "contact": {
+          "contactId": "bc31b608-eb33-45ac-907f-37e378b4a586",
+          "name": "Northeastern University London"
+        },
+        "date": "2026-08-06T00:00:00",
+        "dueDate": "2026-09-05T00:00:00",
+        "originalReference": "Membership 2026/2027",
+        "proposedReference": "TBC"
+      },
+      "updateStartedAt": "2026-08-27T12:29:15.948Z",
+      "xeroResponse": {
+        "Type": "ACCREC",
+        "InvoiceID": "3d1bceae-8cd7-4f5f-b7c5-176800dfbbac",
+        "InvoiceNumber": "SI-44740",
+        "Reference": "TBC",
+        "Prepayments": [],
+        "Overpayments": [],
+        "AmountDue": 885.46,
+        "AmountPaid": 0,
+        "SentToContact": true,
+        "SentToEmailAddress": "busayo.abidakun@nulondon.ac.uk",
+        "CurrencyRate": 1,
+        "IsDiscounted": false,
+        "HasErrors": false,
+        "InvoicePaymentServices": [],
+        "UpdatedDateUTCString": "2026-08-27T12:29:16Z",
+        "Contact": {
+          "ContactID": "bc31b608-eb33-45ac-907f-37e378b4a586",
+          "ContactStatus": "ACTIVE",
+          "Name": "Northeastern University London",
+          "EmailAddress": "busayo.abidakun@nulondon.ac.uk",
+          "BankAccountDetails": "",
+          "Addresses": [
+            {
+              "AddressType": "STREET",
+              "City": "",
+              "Region": "",
+              "PostalCode": "",
+              "Country": ""
+            },
+            {
+              "AddressType": "POBOX",
+              "AddressLine1": "Devon House, 58 Saint Katharine's Way, London E1W 1LP",
+              "City": "",
+              "Region": "",
+              "PostalCode": "",
+              "Country": ""
+            }
+          ],
+          "Phones": [
+            {
+              "PhoneType": "DEFAULT",
+              "PhoneNumber": "",
+              "PhoneAreaCode": "",
+              "PhoneCountryCode": ""
+            },
+            {
+              "PhoneType": "DDI",
+              "PhoneNumber": "",
+              "PhoneAreaCode": "",
+              "PhoneCountryCode": ""
+            },
+            {
+              "PhoneType": "FAX",
+              "PhoneNumber": "",
+              "PhoneAreaCode": "",
+              "PhoneCountryCode": ""
+            },
+            {
+              "PhoneType": "MOBILE",
+              "PhoneNumber": "",
+              "PhoneAreaCode": "",
+              "PhoneCountryCode": ""
+            }
+          ],
+          "UpdatedDateUTC": "/Date(1786029276460+0000)/",
+          "ContactGroups": [],
+          "IsSupplier": false,
+          "IsCustomer": true,
+          "SalesTrackingCategories": [],
+          "PurchasesTrackingCategories": [],
+          "ContactPersons": [],
+          "HasValidationErrors": false
+        },
+        "DateString": "2026-08-06T00:00:00",
+        "Date": "/Date(1785974400000+0000)/",
+        "DueDateString": "2026-09-05T00:00:00",
+        "DueDate": "/Date(1788566400000+0000)/",
+        "BrandingThemeID": "09152af3-790c-4efc-8b11-e4a8dd1ccdff",
+        "Status": "AUTHORISED",
+        "LineAmountTypes": "Exclusive",
+        "LineItems": [
+          {
+            "Description": "HE Membership subscription for 1 August 2026 - 31 July 2027.\nTier: Tier 2\nFee: GBP 737.88",
+            "UnitAmount": 737.88,
+            "TaxType": "OUTPUT2",
+            "TaxAmount": 147.58,
+            "LineAmount": 737.88,
+            "AccountCode": "4000",
+            "Tracking": [],
+            "Quantity": 1,
+            "LineItemID": "1668d3a2-5ad4-4751-9c10-e228f029aa5d",
+            "AccountID": "b57cfa17-1cd0-4984-ac1a-340c7a83bd06",
+            "ValidationErrors": []
+          }
+        ],
+        "SubTotal": 737.88,
+        "TotalTax": 147.58,
+        "Total": 885.46,
+        "UpdatedDateUTC": "/Date(1787833756270+0000)/",
+        "CurrencyCode": "GBP"
+      },
+      "verified": {
+        "invoiceId": "3d1bceae-8cd7-4f5f-b7c5-176800dfbbac",
+        "invoiceNumber": "SI-44740",
+        "type": "ACCREC",
+        "status": "AUTHORISED",
+        "amountDue": 885.46,
+        "total": 885.46,
+        "currencyCode": "GBP",
+        "contact": {
+          "contactId": "bc31b608-eb33-45ac-907f-37e378b4a586",
+          "name": "Northeastern University London"
+        },
+        "date": "2026-08-06T00:00:00",
+        "dueDate": "2026-09-05T00:00:00",
+        "originalReference": "TBC",
+        "proposedReference": "TBC"
+      },
+      "result": "success"
+    },
+    {
+      "invoiceId": "6d091246-f366-4434-8f9d-1b2145f31763",
+      "invoiceNumber": "SI-44714",
+      "attempted": true,
+      "state": "complete",
+      "rechecked": {
+        "invoiceId": "6d091246-f366-4434-8f9d-1b2145f31763",
+        "invoiceNumber": "SI-44714",
+        "type": "ACCREC",
+        "status": "AUTHORISED",
+        "amountDue": 5286.3,
+        "total": 5286.3,
+        "currencyCode": "GBP",
+        "contact": {
+          "contactId": "9d3fecbd-c8d5-42f5-ae7d-5bedb40bf1cb",
+          "name": "University of Oxford"
+        },
+        "date": "2026-08-04T00:00:00",
+        "dueDate": "2026-09-03T00:00:00",
+        "originalReference": "Membership 2026/2027",
+        "proposedReference": "TBC"
+      },
+      "updateStartedAt": "2026-08-27T12:29:16.904Z",
+      "xeroResponse": {
+        "Type": "ACCREC",
+        "InvoiceID": "6d091246-f366-4434-8f9d-1b2145f31763",
+        "InvoiceNumber": "SI-44714",
+        "Reference": "TBC",
+        "Prepayments": [],
+        "Overpayments": [],
+        "AmountDue": 5286.3,
+        "AmountPaid": 0,
+        "SentToContact": true,
+        "SentToEmailAddress": "gbpurchase@careers.ox.ac.uk",
+        "CurrencyRate": 1,
+        "IsDiscounted": false,
+        "HasErrors": false,
+        "InvoicePaymentServices": [],
+        "UpdatedDateUTCString": "2026-08-27T12:29:17Z",
+        "Contact": {
+          "ContactID": "9d3fecbd-c8d5-42f5-ae7d-5bedb40bf1cb",
+          "ContactStatus": "ACTIVE",
+          "Name": "University of Oxford",
+          "EmailAddress": "gbpurchase@careers.ox.ac.uk",
+          "Addresses": [
+            {
+              "AddressType": "POBOX",
+              "AddressLine1": "Careers Service",
+              "AddressLine2": "56 Banbury Road",
+              "City": "Oxford",
+              "PostalCode": "OX2 6PA"
+            },
+            {
+              "AddressType": "STREET"
+            }
+          ],
+          "Phones": [
+            {
+              "PhoneType": "DEFAULT"
+            },
+            {
+              "PhoneType": "DDI"
+            },
+            {
+              "PhoneType": "FAX"
+            },
+            {
+              "PhoneType": "MOBILE"
+            }
+          ],
+          "UpdatedDateUTC": "/Date(1762429779053+0000)/",
+          "ContactGroups": [],
+          "IsSupplier": false,
+          "IsCustomer": true,
+          "SalesTrackingCategories": [],
+          "PurchasesTrackingCategories": [],
+          "ContactPersons": [],
+          "HasValidationErrors": false
+        },
+        "DateString": "2026-08-04T00:00:00",
+        "Date": "/Date(1785801600000+0000)/",
+        "DueDateString": "2026-09-03T00:00:00",
+        "DueDate": "/Date(1788393600000+0000)/",
+        "BrandingThemeID": "09152af3-790c-4efc-8b11-e4a8dd1ccdff",
+        "Status": "AUTHORISED",
+        "LineAmountTypes": "Exclusive",
+        "LineItems": [
+          {
+            "Description": "HE Membership subscription for 1 August 2026 - 31 July 2027.\nTier: Tier 11\nFee: GBP 4405.25",
+            "UnitAmount": 4405.25,
+            "TaxType": "OUTPUT2",
+            "TaxAmount": 881.05,
+            "LineAmount": 4405.25,
+            "AccountCode": "4000",
+            "Tracking": [],
+            "Quantity": 1,
+            "LineItemID": "ad5a19b2-f084-470b-812f-1529712135ba",
+            "AccountID": "b57cfa17-1cd0-4984-ac1a-340c7a83bd06",
+            "ValidationErrors": []
+          }
+        ],
+        "SubTotal": 4405.25,
+        "TotalTax": 881.05,
+        "Total": 5286.3,
+        "UpdatedDateUTC": "/Date(1787833757220+0000)/",
+        "CurrencyCode": "GBP"
+      },
+      "verified": {
+        "invoiceId": "6d091246-f366-4434-8f9d-1b2145f31763",
+        "invoiceNumber": "SI-44714",
+        "type": "ACCREC",
+        "status": "AUTHORISED",
+        "amountDue": 5286.3,
+        "total": 5286.3,
+        "currencyCode": "GBP",
+        "contact": {
+          "contactId": "9d3fecbd-c8d5-42f5-ae7d-5bedb40bf1cb",
+          "name": "University of Oxford"
+        },
+        "date": "2026-08-04T00:00:00",
+        "dueDate": "2026-09-03T00:00:00",
+        "originalReference": "TBC",
+        "proposedReference": "TBC"
+      },
+      "result": "success"
+    },
+    {
+      "invoiceId": "bc5575f0-b187-460e-91d0-1c8573d45aca",
+      "invoiceNumber": "SI-44738",
+      "attempted": true,
+      "state": "complete",
+      "rechecked": {
+        "invoiceId": "bc5575f0-b187-460e-91d0-1c8573d45aca",
+        "invoiceNumber": "SI-44738",
+        "type": "ACCREC",
+        "status": "AUTHORISED",
+        "amountDue": 1.2,
+        "total": 1.2,
+        "currencyCode": "GBP",
+        "contact": {
+          "contactId": "4203115c-2626-4941-9b69-705cda065cbe",
+          "name": "Sharon TEst"
+        },
+        "date": "2026-08-06T00:00:00",
+        "dueDate": "2026-09-05T00:00:00",
+        "originalReference": "Membership 2026/2027",
+        "proposedReference": "TBC"
+      },
+      "updateStartedAt": "2026-08-27T12:29:17.966Z",
+      "xeroResponse": {
+        "Type": "ACCREC",
+        "InvoiceID": "bc5575f0-b187-460e-91d0-1c8573d45aca",
+        "InvoiceNumber": "SI-44738",
+        "Reference": "TBC",
+        "Prepayments": [],
+        "Overpayments": [],
+        "AmountDue": 1.2,
+        "AmountPaid": 0,
+        "SentToContact": false,
+        "CurrencyRate": 1,
+        "IsDiscounted": false,
+        "HasErrors": false,
+        "InvoicePaymentServices": [],
+        "UpdatedDateUTCString": "2026-08-27T12:29:18Z",
+        "Contact": {
+          "ContactID": "4203115c-2626-4941-9b69-705cda065cbe",
+          "ContactStatus": "ACTIVE",
+          "Name": "Sharon TEst",
+          "EmailAddress": "isaasitesting4@outlook.com",
+          "BankAccountDetails": "",
+          "Addresses": [
+            {
+              "AddressType": "STREET",
+              "City": "",
+              "Region": "",
+              "PostalCode": "",
+              "Country": ""
+            },
+            {
+              "AddressType": "POBOX",
+              "AddressLine1": "dfsa",
+              "AddressLine2": "fdsa",
+              "City": "fdsa",
+              "Region": "",
+              "PostalCode": "dsa",
+              "Country": "fds"
+            }
+          ],
+          "Phones": [
+            {
+              "PhoneType": "DEFAULT",
+              "PhoneNumber": "",
+              "PhoneAreaCode": "",
+              "PhoneCountryCode": ""
+            },
+            {
+              "PhoneType": "DDI",
+              "PhoneNumber": "",
+              "PhoneAreaCode": "",
+              "PhoneCountryCode": ""
+            },
+            {
+              "PhoneType": "FAX",
+              "PhoneNumber": "",
+              "PhoneAreaCode": "",
+              "PhoneCountryCode": ""
+            },
+            {
+              "PhoneType": "MOBILE",
+              "PhoneNumber": "",
+              "PhoneAreaCode": "",
+              "PhoneCountryCode": ""
+            }
+          ],
+          "UpdatedDateUTC": "/Date(1786113123723+0000)/",
+          "ContactGroups": [],
+          "IsSupplier": false,
+          "IsCustomer": true,
+          "SalesTrackingCategories": [],
+          "PurchasesTrackingCategories": [],
+          "ContactPersons": [],
+          "HasValidationErrors": false
+        },
+        "DateString": "2026-08-06T00:00:00",
+        "Date": "/Date(1785974400000+0000)/",
+        "DueDateString": "2026-09-05T00:00:00",
+        "DueDate": "/Date(1788566400000+0000)/",
+        "BrandingThemeID": "09152af3-790c-4efc-8b11-e4a8dd1ccdff",
+        "Status": "AUTHORISED",
+        "LineAmountTypes": "Exclusive",
+        "LineItems": [
+          {
+            "Description": "Freelancer Membership subscription for 1 August 2026 - 31 July 2027.\nTier: Flat Rate\nFee: GBP 1.00",
+            "UnitAmount": 1,
+            "TaxType": "OUTPUT2",
+            "TaxAmount": 0.2,
+            "LineAmount": 1,
+            "AccountCode": "4010",
+            "Tracking": [],
+            "Quantity": 1,
+            "LineItemID": "48cf6858-cf05-49d6-a648-b5ff6a110960",
+            "AccountID": "14cf282b-a800-4384-a2e4-72f2c532a0dc",
+            "ValidationErrors": []
+          }
+        ],
+        "SubTotal": 1,
+        "TotalTax": 0.2,
+        "Total": 1.2,
+        "UpdatedDateUTC": "/Date(1787833758263+0000)/",
+        "CurrencyCode": "GBP"
+      },
+      "verified": {
+        "invoiceId": "bc5575f0-b187-460e-91d0-1c8573d45aca",
+        "invoiceNumber": "SI-44738",
+        "type": "ACCREC",
+        "status": "AUTHORISED",
+        "amountDue": 1.2,
+        "total": 1.2,
+        "currencyCode": "GBP",
+        "contact": {
+          "contactId": "4203115c-2626-4941-9b69-705cda065cbe",
+          "name": "Sharon TEst"
+        },
+        "date": "2026-08-06T00:00:00",
+        "dueDate": "2026-09-05T00:00:00",
+        "originalReference": "TBC",
+        "proposedReference": "TBC"
+      },
+      "result": "success"
+    },
+    {
+      "invoiceId": "5c689160-7e8a-413d-b993-1ca67961d883",
+      "invoiceNumber": "SI-44700",
+      "attempted": true,
+      "state": "complete",
+      "rechecked": {
+        "invoiceId": "5c689160-7e8a-413d-b993-1ca67961d883",
+        "invoiceNumber": "SI-44700",
+        "type": "ACCREC",
+        "status": "AUTHORISED",
+        "amountDue": 2428.8,
+        "total": 2428.8,
+        "currencyCode": "GBP",
+        "contact": {
+          "contactId": "61795167-13f1-4af3-86c9-162498342f4b",
+          "name": "University of Cumbria"
+        },
+        "date": "2026-08-04T00:00:00",
+        "dueDate": "2026-09-03T00:00:00",
+        "originalReference": "Membership 2026/2027",
+        "proposedReference": "TBC"
+      },
+      "updateStartedAt": "2026-08-27T12:29:18.940Z",
+      "xeroResponse": {
+        "Type": "ACCREC",
+        "InvoiceID": "5c689160-7e8a-413d-b993-1ca67961d883",
+        "InvoiceNumber": "SI-44700",
+        "Reference": "TBC",
+        "Prepayments": [],
+        "Overpayments": [],
+        "AmountDue": 2428.8,
+        "AmountPaid": 0,
+        "SentToContact": true,
+        "SentToEmailAddress": "accountspayableteam@cumbria.ac.uk",
+        "CurrencyRate": 1,
+        "IsDiscounted": false,
+        "HasErrors": false,
+        "InvoicePaymentServices": [],
+        "UpdatedDateUTCString": "2026-08-27T12:29:19Z",
+        "Contact": {
+          "ContactID": "61795167-13f1-4af3-86c9-162498342f4b",
+          "ContactStatus": "ACTIVE",
+          "Name": "University of Cumbria",
+          "FirstName": "University of Cumbria",
+          "EmailAddress": "accountspayableteam@cumbria.ac.uk",
+          "Addresses": [
+            {
+              "AddressType": "POBOX",
+              "AddressLine1": "Careers and Employability Service",
+              "AddressLine2": "Fusehill Street",
+              "City": "Carlisle",
+              "PostalCode": "CA1 2HH"
+            },
+            {
+              "AddressType": "STREET"
+            }
+          ],
+          "Phones": [
+            {
+              "PhoneType": "DEFAULT"
+            },
+            {
+              "PhoneType": "DDI"
+            },
+            {
+              "PhoneType": "FAX"
+            },
+            {
+              "PhoneType": "MOBILE"
+            }
+          ],
+          "UpdatedDateUTC": "/Date(1786022001430+0000)/",
+          "ContactGroups": [],
+          "IsSupplier": false,
+          "IsCustomer": true,
+          "SalesTrackingCategories": [],
+          "PurchasesTrackingCategories": [],
+          "ContactPersons": [
+            {
+              "FirstName": "Bethany",
+              "LastName": "McGrath",
+              "EmailAddress": "bethany.mcgrath@cumbria.ac.uk",
+              "IncludeInEmails": true
+            }
+          ],
+          "HasValidationErrors": false
+        },
+        "DateString": "2026-08-04T00:00:00",
+        "Date": "/Date(1785801600000+0000)/",
+        "DueDateString": "2026-09-03T00:00:00",
+        "DueDate": "/Date(1788393600000+0000)/",
+        "BrandingThemeID": "09152af3-790c-4efc-8b11-e4a8dd1ccdff",
+        "Status": "AUTHORISED",
+        "LineAmountTypes": "Exclusive",
+        "LineItems": [
+          {
+            "Description": "HE Membership subscription for 1 August 2026 - 31 July 2027.\nTier: Tier 7\nFee: GBP 2024.00",
+            "UnitAmount": 2024,
+            "TaxType": "OUTPUT2",
+            "TaxAmount": 404.8,
+            "LineAmount": 2024,
+            "AccountCode": "4000",
+            "Tracking": [],
+            "Quantity": 1,
+            "LineItemID": "47c1f476-f4d6-4a28-9e16-1e05489351a8",
+            "AccountID": "b57cfa17-1cd0-4984-ac1a-340c7a83bd06",
+            "ValidationErrors": []
+          }
+        ],
+        "SubTotal": 2024,
+        "TotalTax": 404.8,
+        "Total": 2428.8,
+        "UpdatedDateUTC": "/Date(1787833759200+0000)/",
+        "CurrencyCode": "GBP"
+      },
+      "verified": {
+        "invoiceId": "5c689160-7e8a-413d-b993-1ca67961d883",
+        "invoiceNumber": "SI-44700",
+        "type": "ACCREC",
+        "status": "AUTHORISED",
+        "amountDue": 2428.8,
+        "total": 2428.8,
+        "currencyCode": "GBP",
+        "contact": {
+          "contactId": "61795167-13f1-4af3-86c9-162498342f4b",
+          "name": "University of Cumbria"
+        },
+        "date": "2026-08-04T00:00:00",
+        "dueDate": "2026-09-03T00:00:00",
+        "originalReference": "TBC",
+        "proposedReference": "TBC"
+      },
+      "result": "success"
+    },
+    {
+      "invoiceId": "259fd432-82ca-4f44-9ec1-2b1bfb46a571",
+      "invoiceNumber": "SI-44686",
+      "attempted": true,
+      "state": "complete",
+      "rechecked": {
+        "invoiceId": "259fd432-82ca-4f44-9ec1-2b1bfb46a571",
+        "invoiceNumber": "SI-44686",
+        "type": "ACCREC",
+        "status": "AUTHORISED",
+        "amountDue": 2659.82,
+        "total": 2659.82,
+        "currencyCode": "GBP",
+        "contact": {
+          "contactId": "d2f05aec-4305-4e8d-ac0b-3a57d261aa84",
+          "name": "Trinity College Dublin"
+        },
+        "date": "2026-08-04T00:00:00",
+        "dueDate": "2026-09-03T00:00:00",
+        "originalReference": "Membership 2026/2027",
+        "proposedReference": "TBC"
+      },
+      "updateStartedAt": "2026-08-27T12:29:19.816Z",
+      "xeroResponse": {
+        "Type": "ACCREC",
+        "InvoiceID": "259fd432-82ca-4f44-9ec1-2b1bfb46a571",
+        "InvoiceNumber": "SI-44686",
+        "Reference": "TBC",
+        "Prepayments": [],
+        "Overpayments": [],
+        "AmountDue": 2659.82,
+        "AmountPaid": 0,
+        "SentToContact": true,
+        "SentToEmailAddress": "payables@tcd.ie",
+        "CurrencyRate": 1,
+        "IsDiscounted": false,
+        "HasErrors": false,
+        "InvoicePaymentServices": [],
+        "UpdatedDateUTCString": "2026-08-27T12:29:20Z",
+        "Contact": {
+          "ContactID": "d2f05aec-4305-4e8d-ac0b-3a57d261aa84",
+          "ContactStatus": "ACTIVE",
+          "Name": "Trinity College Dublin",
+          "EmailAddress": "payables@tcd.ie",
+          "Addresses": [
+            {
+              "AddressType": "POBOX",
+              "AddressLine1": "Trinity Careers Service",
+              "AddressLine2": "2nd Floor",
+              "AddressLine3": "5 College Green",
+              "City": "7-9 South Leinster Street",
+              "PostalCode": "Dublin 2",
+              "Country": "D02 PN40"
+            },
+            {
+              "AddressType": "STREET"
+            }
+          ],
+          "Phones": [
+            {
+              "PhoneType": "DEFAULT",
+              "PhoneNumber": "896 2657",
+              "PhoneAreaCode": "1",
+              "PhoneCountryCode": "00353"
+            },
+            {
+              "PhoneType": "DDI"
+            },
+            {
+              "PhoneType": "FAX"
+            },
+            {
+              "PhoneType": "MOBILE"
+            }
+          ],
+          "UpdatedDateUTC": "/Date(1785859351263+0000)/",
+          "ContactGroups": [],
+          "IsSupplier": false,
+          "IsCustomer": true,
+          "SalesTrackingCategories": [],
+          "PurchasesTrackingCategories": [],
+          "ContactPersons": [],
+          "HasValidationErrors": false
+        },
+        "DateString": "2026-08-04T00:00:00",
+        "Date": "/Date(1785801600000+0000)/",
+        "DueDateString": "2026-09-03T00:00:00",
+        "DueDate": "/Date(1788393600000+0000)/",
+        "BrandingThemeID": "09152af3-790c-4efc-8b11-e4a8dd1ccdff",
+        "Status": "AUTHORISED",
+        "LineAmountTypes": "Exclusive",
+        "LineItems": [
+          {
+            "Description": "HE Membership subscription for 1 August 2026 - 31 July 2027.\nTier: Tier 10\nFee: GBP 2659.82",
+            "UnitAmount": 2659.82,
+            "TaxType": "ZERORATEDOUTPUT",
+            "TaxAmount": 0,
+            "LineAmount": 2659.82,
+            "AccountCode": "4000",
+            "Tracking": [],
+            "Quantity": 1,
+            "LineItemID": "7044b9b5-51a6-4e73-a95d-1b57e7567731",
+            "AccountID": "b57cfa17-1cd0-4984-ac1a-340c7a83bd06",
+            "ValidationErrors": []
+          }
+        ],
+        "SubTotal": 2659.82,
+        "TotalTax": 0,
+        "Total": 2659.82,
+        "UpdatedDateUTC": "/Date(1787833760123+0000)/",
+        "CurrencyCode": "GBP"
+      },
+      "verified": {
+        "invoiceId": "259fd432-82ca-4f44-9ec1-2b1bfb46a571",
+        "invoiceNumber": "SI-44686",
+        "type": "ACCREC",
+        "status": "AUTHORISED",
+        "amountDue": 2659.82,
+        "total": 2659.82,
+        "currencyCode": "GBP",
+        "contact": {
+          "contactId": "d2f05aec-4305-4e8d-ac0b-3a57d261aa84",
+          "name": "Trinity College Dublin"
+        },
+        "date": "2026-08-04T00:00:00",
+        "dueDate": "2026-09-03T00:00:00",
+        "originalReference": "TBC",
+        "proposedReference": "TBC"
+      },
+      "result": "success"
+    },
+    {
+      "invoiceId": "f66fec8b-e9b7-4f06-a0e7-3063904aa817",
+      "invoiceNumber": "SI-44656",
+      "attempted": true,
+      "state": "complete",
+      "rechecked": {
+        "invoiceId": "f66fec8b-e9b7-4f06-a0e7-3063904aa817",
+        "invoiceNumber": "SI-44656",
+        "type": "ACCREC",
+        "status": "AUTHORISED",
+        "amountDue": 1425,
+        "total": 1425,
+        "currencyCode": "GBP",
+        "contact": {
+          "contactId": "e0b69dfb-b8f3-4b95-9238-bedbfc1cddac",
+          "name": "Lincoln Bishop University"
+        },
+        "date": "2026-08-04T00:00:00",
+        "dueDate": "2026-09-03T00:00:00",
+        "originalReference": "Membership 2026/2027",
+        "proposedReference": "TBC"
+      },
+      "updateStartedAt": "2026-08-27T12:29:20.732Z",
+      "xeroResponse": {
+        "Type": "ACCREC",
+        "InvoiceID": "f66fec8b-e9b7-4f06-a0e7-3063904aa817",
+        "InvoiceNumber": "SI-44656",
+        "Reference": "TBC",
+        "Prepayments": [],
+        "Overpayments": [],
+        "AmountDue": 1425,
+        "AmountPaid": 0,
+        "SentToContact": true,
+        "SentToEmailAddress": "bgfutures@bishopg.ac.uk",
+        "CurrencyRate": 1,
+        "IsDiscounted": false,
+        "HasErrors": false,
+        "InvoicePaymentServices": [],
+        "UpdatedDateUTCString": "2026-08-27T12:29:20Z",
+        "Contact": {
+          "ContactID": "e0b69dfb-b8f3-4b95-9238-bedbfc1cddac",
+          "ContactStatus": "ACTIVE",
+          "Name": "Lincoln Bishop University",
+          "FirstName": "Allison",
+          "LastName": "Webb",
+          "EmailAddress": "bgfutures@bishopg.ac.uk",
+          "Addresses": [
+            {
+              "AddressType": "POBOX",
+              "AddressLine1": "BG Futures",
+              "AddressLine2": "Longdales Rd",
+              "City": "Lincoln",
+              "Region": "Lincolnshire",
+              "PostalCode": "LN1 3DY",
+              "Country": "GBR"
+            },
+            {
+              "AddressType": "STREET",
+              "AddressLine1": "Bishop Grosseteste University",
+              "AddressLine2": "Longdales Road",
+              "City": "Lincoln",
+              "Region": "Lincolnshire",
+              "PostalCode": "LN1 3DY",
+              "Country": "GBR"
+            }
+          ],
+          "Phones": [
+            {
+              "PhoneType": "DEFAULT"
+            },
+            {
+              "PhoneType": "DDI"
+            },
+            {
+              "PhoneType": "FAX"
+            },
+            {
+              "PhoneType": "MOBILE"
+            }
+          ],
+          "UpdatedDateUTC": "/Date(1785857215070+0000)/",
+          "ContactGroups": [],
+          "IsSupplier": false,
+          "IsCustomer": true,
+          "SalesTrackingCategories": [],
+          "PurchasesTrackingCategories": [],
+          "ContactPersons": [],
+          "HasValidationErrors": false
+        },
+        "DateString": "2026-08-04T00:00:00",
+        "Date": "/Date(1785801600000+0000)/",
+        "DueDateString": "2026-09-03T00:00:00",
+        "DueDate": "/Date(1788393600000+0000)/",
+        "BrandingThemeID": "09152af3-790c-4efc-8b11-e4a8dd1ccdff",
+        "Status": "AUTHORISED",
+        "LineAmountTypes": "Exclusive",
+        "LineItems": [
+          {
+            "Description": "HE Membership subscription for 1 August 2026 - 31 July 2027.\nTier: Tier 3\nFee: GBP 1187.50",
+            "UnitAmount": 1187.5,
+            "TaxType": "OUTPUT2",
+            "TaxAmount": 237.5,
+            "LineAmount": 1187.5,
+            "AccountCode": "4000",
+            "Tracking": [],
+            "Quantity": 1,
+            "LineItemID": "238336a2-e422-4573-8f8b-ced41c6ac1ce",
+            "AccountID": "b57cfa17-1cd0-4984-ac1a-340c7a83bd06",
+            "ValidationErrors": []
+          }
+        ],
+        "SubTotal": 1187.5,
+        "TotalTax": 237.5,
+        "Total": 1425,
+        "UpdatedDateUTC": "/Date(1787833760940+0000)/",
+        "CurrencyCode": "GBP"
+      },
+      "verified": {
+        "invoiceId": "f66fec8b-e9b7-4f06-a0e7-3063904aa817",
+        "invoiceNumber": "SI-44656",
+        "type": "ACCREC",
+        "status": "AUTHORISED",
+        "amountDue": 1425,
+        "total": 1425,
+        "currencyCode": "GBP",
+        "contact": {
+          "contactId": "e0b69dfb-b8f3-4b95-9238-bedbfc1cddac",
+          "name": "Lincoln Bishop University"
+        },
+        "date": "2026-08-04T00:00:00",
+        "dueDate": "2026-09-03T00:00:00",
+        "originalReference": "TBC",
+        "proposedReference": "TBC"
+      },
+      "result": "success"
+    },
+    {
+      "invoiceId": "29c61805-48b8-465f-8a53-321b8f480a3c",
+      "invoiceNumber": "SI-44558",
+      "attempted": true,
+      "state": "complete",
+      "rechecked": {
+        "invoiceId": "29c61805-48b8-465f-8a53-321b8f480a3c",
+        "invoiceNumber": "SI-44558",
+        "type": "ACCREC",
+        "status": "AUTHORISED",
+        "amountDue": 2693.04,
+        "total": 2693.04,
+        "currencyCode": "GBP",
+        "contact": {
+          "contactId": "bb170802-b212-444e-84b6-94398e7f1bf6",
+          "name": "Middlesex University"
+        },
+        "date": "2026-07-16T00:00:00",
+        "dueDate": "2026-08-15T00:00:00",
+        "originalReference": "Membership 2026/2027",
+        "proposedReference": "TBC"
+      },
+      "updateStartedAt": "2026-08-27T12:29:21.523Z",
+      "xeroResponse": {
+        "Type": "ACCREC",
+        "InvoiceID": "29c61805-48b8-465f-8a53-321b8f480a3c",
+        "InvoiceNumber": "SI-44558",
+        "Reference": "TBC",
+        "Prepayments": [],
+        "Overpayments": [],
+        "AmountDue": 2693.04,
+        "AmountPaid": 0,
+        "SentToContact": true,
+        "SentToEmailAddress": "paymentsteam@mdx.ac.uk",
+        "CurrencyRate": 1,
+        "IsDiscounted": false,
+        "HasErrors": false,
+        "InvoicePaymentServices": [],
+        "UpdatedDateUTCString": "2026-08-27T12:29:21Z",
+        "Contact": {
+          "ContactID": "bb170802-b212-444e-84b6-94398e7f1bf6",
+          "ContactStatus": "ACTIVE",
+          "Name": "Middlesex University",
+          "FirstName": "Middlesex University",
+          "EmailAddress": "paymentsteam@mdx.ac.uk",
+          "BankAccountDetails": "",
+          "Addresses": [
+            {
+              "AddressType": "STREET",
+              "City": "",
+              "Region": "",
+              "PostalCode": "",
+              "Country": ""
+            },
+            {
+              "AddressType": "POBOX",
+              "AddressLine1": "Employability Careers Centre",
+              "AddressLine2": "CG08 College Building",
+              "AddressLine3": "The Burroughs",
+              "City": "Hendon",
+              "Region": "",
+              "PostalCode": "NW4 4BT",
+              "Country": ""
+            }
+          ],
+          "Phones": [
+            {
+              "PhoneType": "DEFAULT",
+              "PhoneNumber": "",
+              "PhoneAreaCode": "",
+              "PhoneCountryCode": ""
+            },
+            {
+              "PhoneType": "DDI",
+              "PhoneNumber": "",
+              "PhoneAreaCode": "",
+              "PhoneCountryCode": ""
+            },
+            {
+              "PhoneType": "FAX",
+              "PhoneNumber": "",
+              "PhoneAreaCode": "",
+              "PhoneCountryCode": ""
+            },
+            {
+              "PhoneType": "MOBILE",
+              "PhoneNumber": "",
+              "PhoneAreaCode": "",
+              "PhoneCountryCode": ""
+            }
+          ],
+          "UpdatedDateUTC": "/Date(1754377980233+0000)/",
+          "ContactGroups": [],
+          "IsSupplier": false,
+          "IsCustomer": true,
+          "SalesTrackingCategories": [],
+          "PurchasesTrackingCategories": [],
+          "ContactPersons": [],
+          "HasValidationErrors": false
+        },
+        "DateString": "2026-07-16T00:00:00",
+        "Date": "/Date(1784160000000+0000)/",
+        "DueDateString": "2026-08-15T00:00:00",
+        "DueDate": "/Date(1786752000000+0000)/",
+        "BrandingThemeID": "09152af3-790c-4efc-8b11-e4a8dd1ccdff",
+        "Status": "AUTHORISED",
+        "LineAmountTypes": "Exclusive",
+        "LineItems": [
+          {
+            "Description": "HE Membership subscription for 1 August 2026 - 31 July 2027.\nTier: Tier 9\nFee: GBP 2244.20",
+            "UnitAmount": 2244.2,
+            "TaxType": "OUTPUT2",
+            "TaxAmount": 448.84,
+            "LineAmount": 2244.2,
+            "AccountCode": "4000",
+            "Tracking": [],
+            "Quantity": 1,
+            "LineItemID": "405880a6-47c2-4c85-ae3c-ca875a830fbd",
+            "AccountID": "b57cfa17-1cd0-4984-ac1a-340c7a83bd06",
+            "ValidationErrors": []
+          }
+        ],
+        "SubTotal": 2244.2,
+        "TotalTax": 448.84,
+        "Total": 2693.04,
+        "UpdatedDateUTC": "/Date(1787833761873+0000)/",
+        "CurrencyCode": "GBP"
+      },
+      "verified": {
+        "invoiceId": "29c61805-48b8-465f-8a53-321b8f480a3c",
+        "invoiceNumber": "SI-44558",
+        "type": "ACCREC",
+        "status": "AUTHORISED",
+        "amountDue": 2693.04,
+        "total": 2693.04,
+        "currencyCode": "GBP",
+        "contact": {
+          "contactId": "bb170802-b212-444e-84b6-94398e7f1bf6",
+          "name": "Middlesex University"
+        },
+        "date": "2026-07-16T00:00:00",
+        "dueDate": "2026-08-15T00:00:00",
+        "originalReference": "TBC",
+        "proposedReference": "TBC"
+      },
+      "result": "success"
+    },
+    {
+      "invoiceId": "20e7ab8b-dc7f-4859-85a0-322cd1e94356",
+      "invoiceNumber": "SI-44744",
+      "attempted": true,
+      "state": "complete",
+      "rechecked": {
+        "invoiceId": "20e7ab8b-dc7f-4859-85a0-322cd1e94356",
+        "invoiceNumber": "SI-44744",
+        "type": "ACCREC",
+        "status": "AUTHORISED",
+        "amountDue": 2.88,
+        "total": 2.88,
+        "currencyCode": "GBP",
+        "contact": {
+          "contactId": "2fce9135-3e2e-4518-92cb-bd0fd8bc702a",
+          "name": "Graduate Futures Institute"
+        },
+        "date": "2026-08-11T00:00:00",
+        "dueDate": "2026-09-10T00:00:00",
+        "originalReference": "Membership 2026/2027",
+        "proposedReference": "TBC"
+      },
+      "updateStartedAt": "2026-08-27T12:29:22.612Z",
+      "xeroResponse": {
+        "Type": "ACCREC",
+        "InvoiceID": "20e7ab8b-dc7f-4859-85a0-322cd1e94356",
+        "InvoiceNumber": "SI-44744",
+        "Reference": "TBC",
+        "Prepayments": [],
+        "Overpayments": [],
+        "AmountDue": 2.88,
+        "AmountPaid": 0,
+        "SentToContact": false,
+        "CurrencyRate": 1,
+        "IsDiscounted": false,
+        "HasErrors": false,
+        "InvoicePaymentServices": [],
+        "UpdatedDateUTCString": "2026-08-27T12:29:22Z",
+        "Contact": {
+          "ContactID": "2fce9135-3e2e-4518-92cb-bd0fd8bc702a",
+          "ContactStatus": "ACTIVE",
+          "Name": "Graduate Futures Institute",
+          "EmailAddress": "Finance@graduatefutures.org",
+          "BankAccountDetails": "",
+          "Addresses": [
+            {
+              "AddressType": "STREET",
+              "City": "",
+              "Region": "",
+              "PostalCode": "",
+              "Country": ""
+            },
+            {
+              "AddressType": "POBOX",
+              "AddressLine1": "Graduate Futures Institute",
+              "AddressLine2": "c/o Hawsons Chartered Accountants",
+              "City": "Pegasus House",
+              "Region": "",
+              "PostalCode": "Sheffield",
+              "Country": "South Yorkshire"
+            }
+          ],
+          "Phones": [
+            {
+              "PhoneType": "DEFAULT",
+              "PhoneNumber": "",
+              "PhoneAreaCode": "",
+              "PhoneCountryCode": ""
+            },
+            {
+              "PhoneType": "DDI",
+              "PhoneNumber": "",
+              "PhoneAreaCode": "",
+              "PhoneCountryCode": ""
+            },
+            {
+              "PhoneType": "FAX",
+              "PhoneNumber": "",
+              "PhoneAreaCode": "",
+              "PhoneCountryCode": ""
+            },
+            {
+              "PhoneType": "MOBILE",
+              "PhoneNumber": "",
+              "PhoneAreaCode": "",
+              "PhoneCountryCode": ""
+            }
+          ],
+          "UpdatedDateUTC": "/Date(1781264177150+0000)/",
+          "ContactGroups": [],
+          "IsSupplier": false,
+          "IsCustomer": true,
+          "SalesTrackingCategories": [],
+          "PurchasesTrackingCategories": [],
+          "ContactPersons": [],
+          "HasValidationErrors": false
+        },
+        "DateString": "2026-08-11T00:00:00",
+        "Date": "/Date(1786406400000+0000)/",
+        "DueDateString": "2026-09-10T00:00:00",
+        "DueDate": "/Date(1788998400000+0000)/",
+        "BrandingThemeID": "09152af3-790c-4efc-8b11-e4a8dd1ccdff",
+        "Status": "AUTHORISED",
+        "LineAmountTypes": "Exclusive",
+        "LineItems": [
+          {
+            "Description": "HE Membership subscription for 1 August 2026 - 31 July 2027.\nTier: Tier 1\nFee: GBP 1.57",
+            "UnitAmount": 1.57,
+            "TaxType": "OUTPUT2",
+            "TaxAmount": 0.31,
+            "LineAmount": 1.57,
+            "AccountCode": "4000",
+            "Tracking": [],
+            "Quantity": 1,
+            "LineItemID": "55fa7b05-f5c3-4840-9411-8d50568830dc",
+            "AccountID": "b57cfa17-1cd0-4984-ac1a-340c7a83bd06",
+            "ValidationErrors": []
+          },
+          {
+            "Description": "Training Fund top-up",
+            "UnitAmount": 1,
+            "TaxType": "EXEMPTOUTPUT",
+            "TaxAmount": 0,
+            "LineAmount": 1,
+            "AccountCode": "2120",
+            "Tracking": [],
+            "Quantity": 1,
+            "LineItemID": "04bcef9c-b1a8-4e3e-97d2-54f8c76f7608",
+            "AccountID": "00373607-08c4-446d-8e38-755c2f06db12",
+            "ValidationErrors": []
+          }
+        ],
+        "SubTotal": 2.57,
+        "TotalTax": 0.31,
+        "Total": 2.88,
+        "UpdatedDateUTC": "/Date(1787833762977+0000)/",
+        "CurrencyCode": "GBP"
+      },
+      "verified": {
+        "invoiceId": "20e7ab8b-dc7f-4859-85a0-322cd1e94356",
+        "invoiceNumber": "SI-44744",
+        "type": "ACCREC",
+        "status": "AUTHORISED",
+        "amountDue": 2.88,
+        "total": 2.88,
+        "currencyCode": "GBP",
+        "contact": {
+          "contactId": "2fce9135-3e2e-4518-92cb-bd0fd8bc702a",
+          "name": "Graduate Futures Institute"
+        },
+        "date": "2026-08-11T00:00:00",
+        "dueDate": "2026-09-10T00:00:00",
+        "originalReference": "TBC",
+        "proposedReference": "TBC"
+      },
+      "result": "success"
+    },
+    {
+      "invoiceId": "940244b1-1812-470a-a506-3b33e083f40a",
+      "invoiceNumber": "SI-44551",
+      "attempted": true,
+      "state": "complete",
+      "rechecked": {
+        "invoiceId": "940244b1-1812-470a-a506-3b33e083f40a",
+        "invoiceNumber": "SI-44551",
+        "type": "ACCREC",
+        "status": "AUTHORISED",
+        "amountDue": 4559.7,
+        "total": 4559.7,
+        "currencyCode": "GBP",
+        "contact": {
+          "contactId": "9007ed40-d83f-43b9-95bc-7da024bbe894",
+          "name": "Queen Mary, University of London"
+        },
+        "date": "2026-07-16T00:00:00",
+        "dueDate": "2026-08-15T00:00:00",
+        "originalReference": "Membership 2026/2027",
+        "proposedReference": "TBC"
+      },
+      "updateStartedAt": "2026-08-27T12:29:23.784Z",
+      "xeroResponse": {
+        "Type": "ACCREC",
+        "InvoiceID": "940244b1-1812-470a-a506-3b33e083f40a",
+        "InvoiceNumber": "SI-44551",
+        "Reference": "TBC",
+        "Prepayments": [],
+        "Overpayments": [],
+        "AmountDue": 4559.7,
+        "AmountPaid": 0,
+        "SentToContact": true,
+        "SentToEmailAddress": "apinvoices@qmul.ac.uk,accountspayable@qmul.ac.uk",
+        "CurrencyRate": 1,
+        "IsDiscounted": false,
+        "HasErrors": false,
+        "InvoicePaymentServices": [],
+        "UpdatedDateUTCString": "2026-08-27T12:29:24Z",
+        "Contact": {
+          "ContactID": "9007ed40-d83f-43b9-95bc-7da024bbe894",
+          "ContactStatus": "ACTIVE",
+          "Name": "Queen Mary, University of London",
+          "FirstName": "Queen Mary, University of London",
+          "LastName": "Luscombe",
+          "EmailAddress": "apinvoices@qmul.ac.uk",
+          "Addresses": [
+            {
+              "AddressType": "POBOX",
+              "AddressLine1": "Careers and Enterprise",
+              "AddressLine2": "iQ East Court",
+              "City": "Mile End Road",
+              "PostalCode": "London",
+              "Country": "E1 4GG"
+            },
+            {
+              "AddressType": "STREET"
+            }
+          ],
+          "Phones": [
+            {
+              "PhoneType": "DEFAULT",
+              "PhoneNumber": "02078827527"
+            },
+            {
+              "PhoneType": "DDI"
+            },
+            {
+              "PhoneType": "FAX"
+            },
+            {
+              "PhoneType": "MOBILE"
+            }
+          ],
+          "UpdatedDateUTC": "/Date(1784201559113+0000)/",
+          "ContactGroups": [],
+          "IsSupplier": false,
+          "IsCustomer": true,
+          "SalesTrackingCategories": [],
+          "PurchasesTrackingCategories": [],
+          "ContactPersons": [
+            {
+              "EmailAddress": "accountspayable@qmul.ac.uk",
+              "IncludeInEmails": true
+            }
+          ],
+          "HasValidationErrors": false
+        },
+        "DateString": "2026-07-16T00:00:00",
+        "Date": "/Date(1784160000000+0000)/",
+        "DueDateString": "2026-08-15T00:00:00",
+        "DueDate": "/Date(1786752000000+0000)/",
+        "BrandingThemeID": "09152af3-790c-4efc-8b11-e4a8dd1ccdff",
+        "Status": "AUTHORISED",
+        "LineAmountTypes": "Exclusive",
+        "LineItems": [
+          {
+            "Description": "HE Membership subscription for 1 August 2026 - 31 July 2027.\nTier: Tier 10\nFee: GBP 3799.75",
+            "UnitAmount": 3799.75,
+            "TaxType": "OUTPUT2",
+            "TaxAmount": 759.95,
+            "LineAmount": 3799.75,
+            "AccountCode": "4000",
+            "Tracking": [],
+            "Quantity": 1,
+            "LineItemID": "9a55ff89-1b9d-443a-9d0b-0b27b4664efb",
+            "AccountID": "b57cfa17-1cd0-4984-ac1a-340c7a83bd06",
+            "ValidationErrors": []
+          }
+        ],
+        "SubTotal": 3799.75,
+        "TotalTax": 759.95,
+        "Total": 4559.7,
+        "UpdatedDateUTC": "/Date(1787833764063+0000)/",
+        "CurrencyCode": "GBP"
+      },
+      "verified": {
+        "invoiceId": "940244b1-1812-470a-a506-3b33e083f40a",
+        "invoiceNumber": "SI-44551",
+        "type": "ACCREC",
+        "status": "AUTHORISED",
+        "amountDue": 4559.7,
+        "total": 4559.7,
+        "currencyCode": "GBP",
+        "contact": {
+          "contactId": "9007ed40-d83f-43b9-95bc-7da024bbe894",
+          "name": "Queen Mary, University of London"
+        },
+        "date": "2026-07-16T00:00:00",
+        "dueDate": "2026-08-15T00:00:00",
+        "originalReference": "TBC",
+        "proposedReference": "TBC"
+      },
+      "result": "success"
+    },
+    {
+      "invoiceId": "236196dc-d2b3-443d-9e77-425b2a180329",
+      "invoiceNumber": "SI-44697",
+      "attempted": true,
+      "state": "complete",
+      "rechecked": {
+        "invoiceId": "236196dc-d2b3-443d-9e77-425b2a180329",
+        "invoiceNumber": "SI-44697",
+        "type": "ACCREC",
+        "status": "AUTHORISED",
+        "amountDue": 4559.7,
+        "total": 4559.7,
+        "currencyCode": "GBP",
+        "contact": {
+          "contactId": "aa535400-a347-429d-bfee-3056429720cd",
+          "name": "University of Cambridge"
+        },
+        "date": "2026-08-04T00:00:00",
+        "dueDate": "2026-09-03T00:00:00",
+        "originalReference": "Membership 2026/2027",
+        "proposedReference": "TBC"
+      },
+      "updateStartedAt": "2026-08-27T12:29:24.770Z",
+      "xeroResponse": {
+        "Type": "ACCREC",
+        "InvoiceID": "236196dc-d2b3-443d-9e77-425b2a180329",
+        "InvoiceNumber": "SI-44697",
+        "Reference": "TBC",
+        "Prepayments": [],
+        "Overpayments": [],
+        "AmountDue": 4559.7,
+        "AmountPaid": 0,
+        "SentToContact": true,
+        "SentToEmailAddress": "enquiries@careers.cam.ac.uk",
+        "CurrencyRate": 1,
+        "IsDiscounted": false,
+        "HasErrors": false,
+        "InvoicePaymentServices": [],
+        "UpdatedDateUTCString": "2026-08-27T12:29:25Z",
+        "Contact": {
+          "ContactID": "aa535400-a347-429d-bfee-3056429720cd",
+          "ContactStatus": "ACTIVE",
+          "Name": "University of Cambridge",
+          "FirstName": "University of Cambridge",
+          "EmailAddress": "enquiries@careers.cam.ac.uk",
+          "BankAccountDetails": "",
+          "Addresses": [
+            {
+              "AddressType": "STREET",
+              "City": "",
+              "Region": "",
+              "PostalCode": "",
+              "Country": ""
+            },
+            {
+              "AddressType": "POBOX",
+              "AddressLine1": "Careers Service",
+              "AddressLine2": "Student Services Centre",
+              "AddressLine3": "Mill Lane",
+              "City": "Bene't Street",
+              "Region": "",
+              "PostalCode": "Cambridge",
+              "Country": "CB2 3PT"
+            }
+          ],
+          "Phones": [
+            {
+              "PhoneType": "DEFAULT",
+              "PhoneNumber": "097",
+              "PhoneAreaCode": "765",
+              "PhoneCountryCode": "01223"
+            },
+            {
+              "PhoneType": "DDI",
+              "PhoneNumber": "",
+              "PhoneAreaCode": "",
+              "PhoneCountryCode": ""
+            },
+            {
+              "PhoneType": "FAX",
+              "PhoneNumber": "",
+              "PhoneAreaCode": "",
+              "PhoneCountryCode": ""
+            },
+            {
+              "PhoneType": "MOBILE",
+              "PhoneNumber": "",
+              "PhoneAreaCode": "",
+              "PhoneCountryCode": ""
+            }
+          ],
+          "UpdatedDateUTC": "/Date(1785860122903+0000)/",
+          "ContactGroups": [],
+          "IsSupplier": false,
+          "IsCustomer": true,
+          "SalesTrackingCategories": [],
+          "PurchasesTrackingCategories": [],
+          "ContactPersons": [],
+          "HasValidationErrors": false
+        },
+        "DateString": "2026-08-04T00:00:00",
+        "Date": "/Date(1785801600000+0000)/",
+        "DueDateString": "2026-09-03T00:00:00",
+        "DueDate": "/Date(1788393600000+0000)/",
+        "BrandingThemeID": "09152af3-790c-4efc-8b11-e4a8dd1ccdff",
+        "Status": "AUTHORISED",
+        "LineAmountTypes": "Exclusive",
+        "LineItems": [
+          {
+            "Description": "HE Membership subscription for 1 August 2026 - 31 July 2027.\nTier: Tier 10\nFee: GBP 3799.75",
+            "UnitAmount": 3799.75,
+            "TaxType": "OUTPUT2",
+            "TaxAmount": 759.95,
+            "LineAmount": 3799.75,
+            "AccountCode": "4000",
+            "Tracking": [],
+            "Quantity": 1,
+            "LineItemID": "7bef5be9-892c-4282-ad2a-81db5f5e1b94",
+            "AccountID": "b57cfa17-1cd0-4984-ac1a-340c7a83bd06",
+            "ValidationErrors": []
+          }
+        ],
+        "SubTotal": 3799.75,
+        "TotalTax": 759.95,
+        "Total": 4559.7,
+        "UpdatedDateUTC": "/Date(1787833765073+0000)/",
+        "CurrencyCode": "GBP"
+      },
+      "verified": {
+        "invoiceId": "236196dc-d2b3-443d-9e77-425b2a180329",
+        "invoiceNumber": "SI-44697",
+        "type": "ACCREC",
+        "status": "AUTHORISED",
+        "amountDue": 4559.7,
+        "total": 4559.7,
+        "currencyCode": "GBP",
+        "contact": {
+          "contactId": "aa535400-a347-429d-bfee-3056429720cd",
+          "name": "University of Cambridge"
+        },
+        "date": "2026-08-04T00:00:00",
+        "dueDate": "2026-09-03T00:00:00",
+        "originalReference": "TBC",
+        "proposedReference": "TBC"
+      },
+      "result": "success"
+    },
+    {
+      "invoiceId": "98c7a539-9912-4c1f-9ef5-46bb548eb6b4",
+      "invoiceNumber": "SI-44670",
+      "attempted": true,
+      "state": "complete",
+      "rechecked": {
+        "invoiceId": "98c7a539-9912-4c1f-9ef5-46bb548eb6b4",
+        "invoiceNumber": "SI-44670",
+        "type": "ACCREC",
+        "status": "AUTHORISED",
+        "amountDue": 2428.8,
+        "total": 2428.8,
+        "currencyCode": "GBP",
+        "contact": {
+          "contactId": "599532b3-b89a-472a-96dc-fadd377b9b8c",
+          "name": "Ravensbourne University London"
+        },
+        "date": "2026-08-04T00:00:00",
+        "dueDate": "2026-09-03T00:00:00",
+        "originalReference": "Membership 2026/2027",
+        "proposedReference": "TBC"
+      },
+      "updateStartedAt": "2026-08-27T12:29:25.764Z",
+      "xeroResponse": {
+        "Type": "ACCREC",
+        "InvoiceID": "98c7a539-9912-4c1f-9ef5-46bb548eb6b4",
+        "InvoiceNumber": "SI-44670",
+        "Reference": "TBC",
+        "Prepayments": [],
+        "Overpayments": [],
+        "AmountDue": 2428.8,
+        "AmountPaid": 0,
+        "SentToContact": true,
+        "SentToEmailAddress": "s.ellis@rave.ac.uk,accounts@rave.ac.uk",
+        "CurrencyRate": 1,
+        "IsDiscounted": false,
+        "HasErrors": false,
+        "InvoicePaymentServices": [],
+        "UpdatedDateUTCString": "2026-08-27T12:29:26Z",
+        "Contact": {
+          "ContactID": "599532b3-b89a-472a-96dc-fadd377b9b8c",
+          "ContactStatus": "ACTIVE",
+          "Name": "Ravensbourne University London",
+          "FirstName": "Sherri",
+          "LastName": "Ellis",
+          "EmailAddress": "s.ellis@rave.ac.uk",
+          "Addresses": [
+            {
+              "AddressType": "POBOX",
+              "AddressLine1": "6 Penrose Way",
+              "AddressLine2": "Greenwich Peninsula",
+              "City": "London",
+              "PostalCode": "SE10 0EW"
+            },
+            {
+              "AddressType": "STREET"
+            }
+          ],
+          "Phones": [
+            {
+              "PhoneType": "DEFAULT"
+            },
+            {
+              "PhoneType": "DDI"
+            },
+            {
+              "PhoneType": "FAX"
+            },
+            {
+              "PhoneType": "MOBILE"
+            }
+          ],
+          "UpdatedDateUTC": "/Date(1774517309773+0000)/",
+          "ContactGroups": [],
+          "IsSupplier": false,
+          "IsCustomer": true,
+          "SalesTrackingCategories": [],
+          "PurchasesTrackingCategories": [],
+          "ContactPersons": [
+            {
+              "FirstName": "Accounts",
+              "EmailAddress": "accounts@rave.ac.uk",
+              "IncludeInEmails": true
+            }
+          ],
+          "HasValidationErrors": false
+        },
+        "DateString": "2026-08-04T00:00:00",
+        "Date": "/Date(1785801600000+0000)/",
+        "DueDateString": "2026-09-03T00:00:00",
+        "DueDate": "/Date(1788393600000+0000)/",
+        "BrandingThemeID": "09152af3-790c-4efc-8b11-e4a8dd1ccdff",
+        "Status": "AUTHORISED",
+        "LineAmountTypes": "Exclusive",
+        "LineItems": [
+          {
+            "Description": "HE Membership subscription for 1 August 2026 - 31 July 2027.\nTier: Tier 7\nFee: GBP 2024.00",
+            "UnitAmount": 2024,
+            "TaxType": "OUTPUT2",
+            "TaxAmount": 404.8,
+            "LineAmount": 2024,
+            "AccountCode": "4000",
+            "Tracking": [],
+            "Quantity": 1,
+            "LineItemID": "6b43858b-72b3-414a-af62-728f19f33923",
+            "AccountID": "b57cfa17-1cd0-4984-ac1a-340c7a83bd06",
+            "ValidationErrors": []
+          }
+        ],
+        "SubTotal": 2024,
+        "TotalTax": 404.8,
+        "Total": 2428.8,
+        "UpdatedDateUTC": "/Date(1787833766113+0000)/",
+        "CurrencyCode": "GBP"
+      },
+      "verified": {
+        "invoiceId": "98c7a539-9912-4c1f-9ef5-46bb548eb6b4",
+        "invoiceNumber": "SI-44670",
+        "type": "ACCREC",
+        "status": "AUTHORISED",
+        "amountDue": 2428.8,
+        "total": 2428.8,
+        "currencyCode": "GBP",
+        "contact": {
+          "contactId": "599532b3-b89a-472a-96dc-fadd377b9b8c",
+          "name": "Ravensbourne University London"
+        },
+        "date": "2026-08-04T00:00:00",
+        "dueDate": "2026-09-03T00:00:00",
+        "originalReference": "TBC",
+        "proposedReference": "TBC"
+      },
+      "result": "success"
+    },
+    {
+      "invoiceId": "b33d2c94-aaca-46ec-987f-47fc640702b7",
+      "invoiceNumber": "SI-44659",
+      "attempted": true,
+      "state": "complete",
+      "rechecked": {
+        "invoiceId": "b33d2c94-aaca-46ec-987f-47fc640702b7",
+        "invoiceNumber": "SI-44659",
+        "type": "ACCREC",
+        "status": "AUTHORISED",
+        "amountDue": 2066.1,
+        "total": 2066.1,
+        "currencyCode": "GBP",
+        "contact": {
+          "contactId": "b670e4fa-7847-402e-8129-da6fdbe37ac5",
+          "name": "London College of Contemporary Arts"
+        },
+        "date": "2026-08-04T00:00:00",
+        "dueDate": "2026-09-03T00:00:00",
+        "originalReference": "Membership 2026/2027",
+        "proposedReference": "TBC"
+      },
+      "updateStartedAt": "2026-08-27T12:29:26.784Z",
+      "xeroResponse": {
+        "Type": "ACCREC",
+        "InvoiceID": "b33d2c94-aaca-46ec-987f-47fc640702b7",
+        "InvoiceNumber": "SI-44659",
+        "Reference": "TBC",
+        "Prepayments": [],
+        "Overpayments": [],
+        "AmountDue": 2066.1,
+        "AmountPaid": 0,
+        "SentToContact": true,
+        "SentToEmailAddress": "nadim.choudhury@lcca.org.uk",
+        "CurrencyRate": 1,
+        "IsDiscounted": false,
+        "HasErrors": false,
+        "InvoicePaymentServices": [],
+        "UpdatedDateUTCString": "2026-08-27T12:29:26Z",
+        "Contact": {
+          "ContactID": "b670e4fa-7847-402e-8129-da6fdbe37ac5",
+          "ContactStatus": "ACTIVE",
+          "Name": "London College of Contemporary Arts",
+          "FirstName": "Nadim",
+          "LastName": "Choudhury",
+          "EmailAddress": "nadim.choudhury@lcca.org.uk",
+          "BankAccountDetails": "",
+          "Addresses": [
+            {
+              "AddressType": "STREET",
+              "City": "",
+              "Region": "",
+              "PostalCode": "",
+              "Country": ""
+            },
+            {
+              "AddressType": "POBOX",
+              "AddressLine1": "Careers",
+              "AddressLine2": "Sceptre Court",
+              "City": "40 Tower Hill",
+              "Region": "",
+              "PostalCode": "London",
+              "Country": "EC3N 4DX"
+            }
+          ],
+          "Phones": [
+            {
+              "PhoneType": "DEFAULT",
+              "PhoneNumber": "",
+              "PhoneAreaCode": "",
+              "PhoneCountryCode": ""
+            },
+            {
+              "PhoneType": "DDI",
+              "PhoneNumber": "",
+              "PhoneAreaCode": "",
+              "PhoneCountryCode": ""
+            },
+            {
+              "PhoneType": "FAX",
+              "PhoneNumber": "",
+              "PhoneAreaCode": "",
+              "PhoneCountryCode": ""
+            },
+            {
+              "PhoneType": "MOBILE",
+              "PhoneNumber": "",
+              "PhoneAreaCode": "",
+              "PhoneCountryCode": ""
+            }
+          ],
+          "UpdatedDateUTC": "/Date(1785857370037+0000)/",
+          "ContactGroups": [],
+          "IsSupplier": false,
+          "IsCustomer": true,
+          "SalesTrackingCategories": [],
+          "PurchasesTrackingCategories": [],
+          "ContactPersons": [],
+          "HasValidationErrors": false
+        },
+        "DateString": "2026-08-04T00:00:00",
+        "Date": "/Date(1785801600000+0000)/",
+        "DueDateString": "2026-09-03T00:00:00",
+        "DueDate": "/Date(1788393600000+0000)/",
+        "BrandingThemeID": "09152af3-790c-4efc-8b11-e4a8dd1ccdff",
+        "Status": "AUTHORISED",
+        "LineAmountTypes": "Exclusive",
+        "LineItems": [
+          {
+            "Description": "HE Membership subscription for 1 August 2026 - 31 July 2027.\nTier: Tier 6\nFee: GBP 1721.75",
+            "UnitAmount": 1721.75,
+            "TaxType": "OUTPUT2",
+            "TaxAmount": 344.35,
+            "LineAmount": 1721.75,
+            "AccountCode": "4000",
+            "Tracking": [],
+            "Quantity": 1,
+            "LineItemID": "63198d58-2432-408b-b8d2-df9485e8836e",
+            "AccountID": "b57cfa17-1cd0-4984-ac1a-340c7a83bd06",
+            "ValidationErrors": []
+          }
+        ],
+        "SubTotal": 1721.75,
+        "TotalTax": 344.35,
+        "Total": 2066.1,
+        "UpdatedDateUTC": "/Date(1787833766990+0000)/",
+        "CurrencyCode": "GBP"
+      },
+      "verified": {
+        "invoiceId": "b33d2c94-aaca-46ec-987f-47fc640702b7",
+        "invoiceNumber": "SI-44659",
+        "type": "ACCREC",
+        "status": "AUTHORISED",
+        "amountDue": 2066.1,
+        "total": 2066.1,
+        "currencyCode": "GBP",
+        "contact": {
+          "contactId": "b670e4fa-7847-402e-8129-da6fdbe37ac5",
+          "name": "London College of Contemporary Arts"
+        },
+        "date": "2026-08-04T00:00:00",
+        "dueDate": "2026-09-03T00:00:00",
+        "originalReference": "TBC",
+        "proposedReference": "TBC"
+      },
+      "result": "success"
+    },
+    {
+      "invoiceId": "398c2300-87a9-43ce-b99c-4f06b48108f5",
+      "invoiceNumber": "SI-44716",
+      "attempted": true,
+      "state": "complete",
+      "rechecked": {
+        "invoiceId": "398c2300-87a9-43ce-b99c-4f06b48108f5",
+        "invoiceNumber": "SI-44716",
+        "type": "ACCREC",
+        "status": "AUTHORISED",
+        "amountDue": 4559.7,
+        "total": 4559.7,
+        "currencyCode": "GBP",
+        "contact": {
+          "contactId": "62f4f805-cc8c-40c5-9f6a-063e27366da1",
+          "name": "University of Portsmouth"
+        },
+        "date": "2026-08-04T00:00:00",
+        "dueDate": "2026-09-03T00:00:00",
+        "originalReference": "Membership 2026/2027",
+        "proposedReference": "TBC"
+      },
+      "updateStartedAt": "2026-08-27T12:29:27.710Z",
+      "xeroResponse": {
+        "Type": "ACCREC",
+        "InvoiceID": "398c2300-87a9-43ce-b99c-4f06b48108f5",
+        "InvoiceNumber": "SI-44716",
+        "Reference": "TBC",
+        "Prepayments": [],
+        "Overpayments": [],
+        "AmountDue": 4559.7,
+        "AmountPaid": 0,
+        "SentToContact": true,
+        "SentToEmailAddress": "payments.finance@port.ac.uk",
+        "CurrencyRate": 1,
+        "IsDiscounted": false,
+        "HasErrors": false,
+        "InvoicePaymentServices": [],
+        "UpdatedDateUTCString": "2026-08-27T12:29:27Z",
+        "Contact": {
+          "ContactID": "62f4f805-cc8c-40c5-9f6a-063e27366da1",
+          "ContactStatus": "ACTIVE",
+          "Name": "University of Portsmouth",
+          "FirstName": "University of Portsmouth",
+          "EmailAddress": "payments.finance@port.ac.uk",
+          "BankAccountDetails": "",
+          "Addresses": [
+            {
+              "AddressType": "STREET",
+              "City": "",
+              "Region": "",
+              "PostalCode": "",
+              "Country": ""
+            },
+            {
+              "AddressType": "POBOX",
+              "AddressLine1": "Careers and Employability Service",
+              "AddressLine2": "Rosalind Franklin East",
+              "AddressLine3": "28 Guildhall Walk",
+              "City": "28 Guildhall Walk",
+              "Region": "",
+              "PostalCode": "Portsmouth",
+              "Country": "PO1 2DD"
+            }
+          ],
+          "Phones": [
+            {
+              "PhoneType": "DEFAULT",
+              "PhoneNumber": "",
+              "PhoneAreaCode": "",
+              "PhoneCountryCode": ""
+            },
+            {
+              "PhoneType": "DDI",
+              "PhoneNumber": "",
+              "PhoneAreaCode": "",
+              "PhoneCountryCode": ""
+            },
+            {
+              "PhoneType": "FAX",
+              "PhoneNumber": "",
+              "PhoneAreaCode": "",
+              "PhoneCountryCode": ""
+            },
+            {
+              "PhoneType": "MOBILE",
+              "PhoneNumber": "",
+              "PhoneAreaCode": "",
+              "PhoneCountryCode": ""
+            }
+          ],
+          "UpdatedDateUTC": "/Date(1785861258883+0000)/",
+          "ContactGroups": [],
+          "IsSupplier": false,
+          "IsCustomer": true,
+          "SalesTrackingCategories": [],
+          "PurchasesTrackingCategories": [],
+          "ContactPersons": [],
+          "HasValidationErrors": false
+        },
+        "DateString": "2026-08-04T00:00:00",
+        "Date": "/Date(1785801600000+0000)/",
+        "DueDateString": "2026-09-03T00:00:00",
+        "DueDate": "/Date(1788393600000+0000)/",
+        "BrandingThemeID": "09152af3-790c-4efc-8b11-e4a8dd1ccdff",
+        "Status": "AUTHORISED",
+        "LineAmountTypes": "Exclusive",
+        "LineItems": [
+          {
+            "Description": "HE Membership subscription for 1 August 2026 - 31 July 2027.\nTier: Tier 10\nFee: GBP 3799.75",
+            "UnitAmount": 3799.75,
+            "TaxType": "OUTPUT2",
+            "TaxAmount": 759.95,
+            "LineAmount": 3799.75,
+            "AccountCode": "4000",
+            "Tracking": [],
+            "Quantity": 1,
+            "LineItemID": "53d93c7d-f04e-41ff-8e40-57f705b0d2c3",
+            "AccountID": "b57cfa17-1cd0-4984-ac1a-340c7a83bd06",
+            "ValidationErrors": []
+          }
+        ],
+        "SubTotal": 3799.75,
+        "TotalTax": 759.95,
+        "Total": 4559.7,
+        "UpdatedDateUTC": "/Date(1787833767950+0000)/",
+        "CurrencyCode": "GBP"
+      },
+      "verified": {
+        "invoiceId": "398c2300-87a9-43ce-b99c-4f06b48108f5",
+        "invoiceNumber": "SI-44716",
+        "type": "ACCREC",
+        "status": "AUTHORISED",
+        "amountDue": 4559.7,
+        "total": 4559.7,
+        "currencyCode": "GBP",
+        "contact": {
+          "contactId": "62f4f805-cc8c-40c5-9f6a-063e27366da1",
+          "name": "University of Portsmouth"
+        },
+        "date": "2026-08-04T00:00:00",
+        "dueDate": "2026-09-03T00:00:00",
+        "originalReference": "TBC",
+        "proposedReference": "TBC"
+      },
+      "result": "success"
+    },
+    {
+      "invoiceId": "9c9eea5d-6d63-4f9b-b835-55e5bf23f0a6",
+      "invoiceNumber": "SI-44699",
+      "attempted": true,
+      "state": "complete",
+      "rechecked": {
+        "invoiceId": "9c9eea5d-6d63-4f9b-b835-55e5bf23f0a6",
+        "invoiceNumber": "SI-44699",
+        "type": "ACCREC",
+        "status": "AUTHORISED",
+        "amountDue": 2066.1,
+        "total": 2066.1,
+        "currencyCode": "GBP",
+        "contact": {
+          "contactId": "8cda2145-c84c-49c7-8238-fdcc32eef9c2",
+          "name": "University of Chichester"
+        },
+        "date": "2026-08-04T00:00:00",
+        "dueDate": "2026-09-03T00:00:00",
+        "originalReference": "Membership 2026/2027",
+        "proposedReference": "TBC"
+      },
+      "updateStartedAt": "2026-08-27T12:29:28.603Z",
+      "xeroResponse": {
+        "Type": "ACCREC",
+        "InvoiceID": "9c9eea5d-6d63-4f9b-b835-55e5bf23f0a6",
+        "InvoiceNumber": "SI-44699",
+        "Reference": "TBC",
+        "Prepayments": [],
+        "Overpayments": [],
+        "AmountDue": 2066.1,
+        "AmountPaid": 0,
+        "SentToContact": true,
+        "SentToEmailAddress": "f.bocciarelli@chi.ac.uk",
+        "CurrencyRate": 1,
+        "IsDiscounted": false,
+        "HasErrors": false,
+        "InvoicePaymentServices": [],
+        "UpdatedDateUTCString": "2026-08-27T12:29:28Z",
+        "Contact": {
+          "ContactID": "8cda2145-c84c-49c7-8238-fdcc32eef9c2",
+          "ContactStatus": "ACTIVE",
+          "Name": "University of Chichester",
+          "FirstName": "Supplier reference AGC002",
+          "EmailAddress": "f.bocciarelli@chi.ac.uk",
+          "BankAccountDetails": "",
+          "Addresses": [
+            {
+              "AddressType": "STREET",
+              "City": "",
+              "Region": "",
+              "PostalCode": "",
+              "Country": ""
+            },
+            {
+              "AddressType": "POBOX",
+              "AddressLine1": "Careers and Employability",
+              "AddressLine2": "Bishop Otter Campus",
+              "AddressLine3": "College Lane",
+              "City": "College Lane",
+              "Region": "",
+              "PostalCode": "Chichester",
+              "Country": "PO19 6PE"
+            }
+          ],
+          "Phones": [
+            {
+              "PhoneType": "DEFAULT",
+              "PhoneNumber": "816105",
+              "PhoneAreaCode": "01243",
+              "PhoneCountryCode": ""
+            },
+            {
+              "PhoneType": "DDI",
+              "PhoneNumber": "",
+              "PhoneAreaCode": "",
+              "PhoneCountryCode": ""
+            },
+            {
+              "PhoneType": "FAX",
+              "PhoneNumber": "",
+              "PhoneAreaCode": "",
+              "PhoneCountryCode": ""
+            },
+            {
+              "PhoneType": "MOBILE",
+              "PhoneNumber": "",
+              "PhoneAreaCode": "",
+              "PhoneCountryCode": ""
+            }
+          ],
+          "UpdatedDateUTC": "/Date(1785860213160+0000)/",
+          "ContactGroups": [],
+          "IsSupplier": false,
+          "IsCustomer": true,
+          "SalesTrackingCategories": [],
+          "PurchasesTrackingCategories": [],
+          "ContactPersons": [],
+          "HasValidationErrors": false
+        },
+        "DateString": "2026-08-04T00:00:00",
+        "Date": "/Date(1785801600000+0000)/",
+        "DueDateString": "2026-09-03T00:00:00",
+        "DueDate": "/Date(1788393600000+0000)/",
+        "BrandingThemeID": "09152af3-790c-4efc-8b11-e4a8dd1ccdff",
+        "Status": "AUTHORISED",
+        "LineAmountTypes": "Exclusive",
+        "LineItems": [
+          {
+            "Description": "HE Membership subscription for 1 August 2026 - 31 July 2027.\nTier: Tier 6\nFee: GBP 1721.75",
+            "UnitAmount": 1721.75,
+            "TaxType": "OUTPUT2",
+            "TaxAmount": 344.35,
+            "LineAmount": 1721.75,
+            "AccountCode": "4000",
+            "Tracking": [],
+            "Quantity": 1,
+            "LineItemID": "63238ad8-07d5-4d2d-b9b4-dde792013e54",
+            "AccountID": "b57cfa17-1cd0-4984-ac1a-340c7a83bd06",
+            "ValidationErrors": []
+          }
+        ],
+        "SubTotal": 1721.75,
+        "TotalTax": 344.35,
+        "Total": 2066.1,
+        "UpdatedDateUTC": "/Date(1787833768933+0000)/",
+        "CurrencyCode": "GBP"
+      },
+      "verified": {
+        "invoiceId": "9c9eea5d-6d63-4f9b-b835-55e5bf23f0a6",
+        "invoiceNumber": "SI-44699",
+        "type": "ACCREC",
+        "status": "AUTHORISED",
+        "amountDue": 2066.1,
+        "total": 2066.1,
+        "currencyCode": "GBP",
+        "contact": {
+          "contactId": "8cda2145-c84c-49c7-8238-fdcc32eef9c2",
+          "name": "University of Chichester"
+        },
+        "date": "2026-08-04T00:00:00",
+        "dueDate": "2026-09-03T00:00:00",
+        "originalReference": "TBC",
+        "proposedReference": "TBC"
+      },
+      "result": "success"
+    },
+    {
+      "invoiceId": "e300a6f2-b2c5-4ba6-a6e5-56506e4cdbaf",
+      "invoiceNumber": "SI-44720",
+      "attempted": true,
+      "state": "complete",
+      "rechecked": {
+        "invoiceId": "e300a6f2-b2c5-4ba6-a6e5-56506e4cdbaf",
+        "invoiceNumber": "SI-44720",
+        "type": "ACCREC",
+        "status": "AUTHORISED",
+        "amountDue": 5286.3,
+        "total": 5286.3,
+        "currencyCode": "GBP",
+        "contact": {
+          "contactId": "fdc2a53e-3c5d-4a34-81a7-02d26d723979",
+          "name": "University of Southampton"
+        },
+        "date": "2026-08-04T00:00:00",
+        "dueDate": "2026-09-03T00:00:00",
+        "originalReference": "Membership 2026/2027",
+        "proposedReference": "TBC"
+      },
+      "updateStartedAt": "2026-08-27T12:29:29.702Z",
+      "xeroResponse": {
+        "Type": "ACCREC",
+        "InvoiceID": "e300a6f2-b2c5-4ba6-a6e5-56506e4cdbaf",
+        "InvoiceNumber": "SI-44720",
+        "Reference": "TBC",
+        "Prepayments": [],
+        "Overpayments": [],
+        "AmountDue": 5286.3,
+        "AmountPaid": 0,
+        "SentToContact": true,
+        "SentToEmailAddress": "invoices@soton.ac.uk",
+        "CurrencyRate": 1,
+        "IsDiscounted": false,
+        "HasErrors": false,
+        "InvoicePaymentServices": [],
+        "UpdatedDateUTCString": "2026-08-27T12:29:29Z",
+        "Contact": {
+          "ContactID": "fdc2a53e-3c5d-4a34-81a7-02d26d723979",
+          "ContactStatus": "ACTIVE",
+          "Name": "University of Southampton",
+          "FirstName": "University of Southampton",
+          "EmailAddress": "invoices@soton.ac.uk",
+          "BankAccountDetails": "",
+          "Addresses": [
+            {
+              "AddressType": "STREET",
+              "City": "",
+              "Region": "",
+              "PostalCode": "",
+              "Country": ""
+            },
+            {
+              "AddressType": "POBOX",
+              "AddressLine1": "Careers, Employability and Student Enterprise (CESE)",
+              "AddressLine2": "Building 37",
+              "AddressLine4": "Highfield",
+              "City": "Southampton",
+              "Region": "",
+              "PostalCode": "SO17 1BJ",
+              "Country": ""
+            }
+          ],
+          "Phones": [
+            {
+              "PhoneType": "DEFAULT",
+              "PhoneNumber": "",
+              "PhoneAreaCode": "",
+              "PhoneCountryCode": ""
+            },
+            {
+              "PhoneType": "DDI",
+              "PhoneNumber": "",
+              "PhoneAreaCode": "",
+              "PhoneCountryCode": ""
+            },
+            {
+              "PhoneType": "FAX",
+              "PhoneNumber": "",
+              "PhoneAreaCode": "",
+              "PhoneCountryCode": ""
+            },
+            {
+              "PhoneType": "MOBILE",
+              "PhoneNumber": "",
+              "PhoneAreaCode": "",
+              "PhoneCountryCode": ""
+            }
+          ],
+          "UpdatedDateUTC": "/Date(1785863202690+0000)/",
+          "ContactGroups": [],
+          "IsSupplier": false,
+          "IsCustomer": true,
+          "SalesTrackingCategories": [],
+          "PurchasesTrackingCategories": [],
+          "ContactPersons": [],
+          "HasValidationErrors": false
+        },
+        "DateString": "2026-08-04T00:00:00",
+        "Date": "/Date(1785801600000+0000)/",
+        "DueDateString": "2026-09-03T00:00:00",
+        "DueDate": "/Date(1788393600000+0000)/",
+        "BrandingThemeID": "09152af3-790c-4efc-8b11-e4a8dd1ccdff",
+        "Status": "AUTHORISED",
+        "LineAmountTypes": "Exclusive",
+        "LineItems": [
+          {
+            "Description": "HE Membership subscription for 1 August 2026 - 31 July 2027.\nTier: Tier 11\nFee: GBP 4405.25",
+            "UnitAmount": 4405.25,
+            "TaxType": "OUTPUT2",
+            "TaxAmount": 881.05,
+            "LineAmount": 4405.25,
+            "AccountCode": "4000",
+            "Tracking": [],
+            "Quantity": 1,
+            "LineItemID": "55c2d787-dd7e-408f-b905-bda48500f70c",
+            "AccountID": "b57cfa17-1cd0-4984-ac1a-340c7a83bd06",
+            "ValidationErrors": []
+          }
+        ],
+        "SubTotal": 4405.25,
+        "TotalTax": 881.05,
+        "Total": 5286.3,
+        "UpdatedDateUTC": "/Date(1787833769910+0000)/",
+        "CurrencyCode": "GBP"
+      },
+      "verified": {
+        "invoiceId": "e300a6f2-b2c5-4ba6-a6e5-56506e4cdbaf",
+        "invoiceNumber": "SI-44720",
+        "type": "ACCREC",
+        "status": "AUTHORISED",
+        "amountDue": 5286.3,
+        "total": 5286.3,
+        "currencyCode": "GBP",
+        "contact": {
+          "contactId": "fdc2a53e-3c5d-4a34-81a7-02d26d723979",
+          "name": "University of Southampton"
+        },
+        "date": "2026-08-04T00:00:00",
+        "dueDate": "2026-09-03T00:00:00",
+        "originalReference": "TBC",
+        "proposedReference": "TBC"
+      },
+      "result": "success"
+    },
+    {
+      "invoiceId": "aa4b7a12-c794-428e-9049-5cf200c3d89a",
+      "invoiceNumber": "SI-44709",
+      "attempted": false,
+      "state": "complete",
+      "result": "error",
+      "reason": "Xero HTTP 429: {}"
+    },
+    {
+      "invoiceId": "57ebd513-7dfe-46b1-82f9-5dac306d08fb",
+      "invoiceNumber": "SI-44598",
+      "attempted": false,
+      "state": "complete",
+      "result": "error",
+      "reason": "Xero HTTP 429: {}"
+    },
+    {
+      "invoiceId": "df5e9ccc-5cb9-4c67-bf0d-650313ebbed7",
+      "invoiceNumber": "SI-44652",
+      "attempted": false,
+      "state": "complete",
+      "result": "error",
+      "reason": "Xero HTTP 429: {}"
+    },
+    {
+      "invoiceId": "1c3c43bd-d339-4f0c-81e1-7cae0d8fb44d",
+      "invoiceNumber": "SI-44577",
+      "attempted": false,
+      "state": "complete",
+      "result": "error",
+      "reason": "Xero HTTP 429: {}"
+    },
+    {
+      "invoiceId": "e5c58e23-47b4-481e-ae1b-7e1055a1a9b5",
+      "invoiceNumber": "SI-44725",
+      "attempted": false,
+      "state": "complete",
+      "result": "error",
+      "reason": "Xero HTTP 429: {}"
+    },
+    {
+      "invoiceId": "dc97734d-a767-427b-893c-7e4fa40014c0",
+      "invoiceNumber": "SI-44681",
+      "attempted": false,
+      "state": "complete",
+      "result": "error",
+      "reason": "Xero HTTP 429: {}"
+    },
+    {
+      "invoiceId": "37ce6f6b-b75d-45ce-98ca-7f16d3aabad9",
+      "invoiceNumber": "SI-44712",
+      "attempted": false,
+      "state": "complete",
+      "result": "error",
+      "reason": "Xero HTTP 429: {}"
+    },
+    {
+      "invoiceId": "484b4c25-3da5-476d-b774-818e14d53dff",
+      "invoiceNumber": "SI-44637",
+      "attempted": false,
+      "state": "complete",
+      "result": "error",
+      "reason": "Xero HTTP 429: {}"
+    },
+    {
+      "invoiceId": "bc7d5ba9-ab8b-4d5b-88a9-8b54dfef3c86",
+      "invoiceNumber": "SI-44667",
+      "attempted": false,
+      "state": "complete",
+      "result": "error",
+      "reason": "Xero HTTP 429: {}"
+    },
+    {
+      "invoiceId": "91cf4373-8099-431c-bb4c-8fe6cee76dfb",
+      "invoiceNumber": "SI-44675",
+      "attempted": false,
+      "state": "complete",
+      "result": "error",
+      "reason": "Xero HTTP 429: {}"
+    },
+    {
+      "invoiceId": "6e804d9d-a0b3-4344-aa22-90a96e48e32e",
+      "invoiceNumber": "SI-44632",
+      "attempted": false,
+      "state": "complete",
+      "result": "error",
+      "reason": "Xero HTTP 429: {}"
+    },
+    {
+      "invoiceId": "34f59b01-288d-428d-ab8f-92756ee50b95",
+      "invoiceNumber": "SI-44629",
+      "attempted": false,
+      "state": "complete",
+      "result": "error",
+      "reason": "Xero HTTP 429: {}"
+    },
+    {
+      "invoiceId": "0b45c0f0-4888-4426-ad75-94c31091c326",
+      "invoiceNumber": "SI-44684",
+      "attempted": false,
+      "state": "complete",
+      "result": "error",
+      "reason": "Xero HTTP 429: {}"
+    },
+    {
+      "invoiceId": "d3d615dd-d5ef-4b10-a9d8-97fe12606d9e",
+      "invoiceNumber": "SI-44721",
+      "attempted": false,
+      "state": "complete",
+      "result": "error",
+      "reason": "Xero HTTP 429: {}"
+    },
+    {
+      "invoiceId": "d67a4ab7-ff1a-40f5-a58e-9db52a501495",
+      "invoiceNumber": "SI-44730",
+      "attempted": false,
+      "state": "complete",
+      "result": "error",
+      "reason": "Xero HTTP 429: {}"
+    },
+    {
+      "invoiceId": "08a516a4-d43e-4966-b8a9-9e74ffa31a58",
+      "invoiceNumber": "SI-44679",
+      "attempted": false,
+      "state": "complete",
+      "result": "error",
+      "reason": "Xero HTTP 429: {}"
+    },
+    {
+      "invoiceId": "82695d19-7dd5-43d9-bf37-9f035c42ba41",
+      "invoiceNumber": "SI-44685",
+      "attempted": false,
+      "state": "complete",
+      "result": "error",
+      "reason": "Xero HTTP 429: {}"
+    },
+    {
+      "invoiceId": "e8dc74d1-95da-49bb-8e77-9fb6ca602819",
+      "invoiceNumber": "SI-44747",
+      "attempted": false,
+      "state": "complete",
+      "result": "error",
+      "reason": "Xero HTTP 429: {}"
+    },
+    {
+      "invoiceId": "6196ccba-10b6-4bd9-a822-a16e52102534",
+      "invoiceNumber": "SI-44633",
+      "attempted": false,
+      "state": "complete",
+      "result": "error",
+      "reason": "Xero HTTP 429: {}"
+    },
+    {
+      "invoiceId": "9e09d22a-56fe-45fd-b4fc-a4b06b240ef2",
+      "invoiceNumber": "SI-44736",
+      "attempted": false,
+      "state": "complete",
+      "result": "error",
+      "reason": "Xero HTTP 429: {}"
+    },
+    {
+      "invoiceId": "2ecff2c1-c7e4-49fb-8221-aea7091ebec8",
+      "invoiceNumber": "SI-44548",
+      "attempted": false,
+      "state": "complete",
+      "result": "error",
+      "reason": "Xero HTTP 429: {}"
+    },
+    {
+      "invoiceId": "18b9b1c3-3311-4148-bdd3-b00fbb3ef53c",
+      "invoiceNumber": "SI-44688",
+      "attempted": false,
+      "state": "complete",
+      "result": "error",
+      "reason": "Xero HTTP 429: {}"
+    },
+    {
+      "invoiceId": "3aa9f2db-7bc5-46c4-b1c0-b24c88314bbb",
+      "invoiceNumber": "SI-44727",
+      "attempted": false,
+      "state": "complete",
+      "result": "error",
+      "reason": "Xero HTTP 429: {}"
+    },
+    {
+      "invoiceId": "8ba0dd0f-5268-4e93-bc89-b50e5ca1c686",
+      "invoiceNumber": "SI-44683",
+      "attempted": false,
+      "state": "complete",
+      "result": "error",
+      "reason": "Xero HTTP 429: {}"
+    },
+    {
+      "invoiceId": "21f563cc-3d13-405c-b1f0-b6f96908a9d8",
+      "invoiceNumber": "SI-44733",
+      "attempted": false,
+      "state": "complete",
+      "result": "error",
+      "reason": "Xero HTTP 429: {}"
+    },
+    {
+      "invoiceId": "54392421-0734-477b-809b-b9f8de8002aa",
+      "invoiceNumber": "SI-44693",
+      "attempted": false,
+      "state": "complete",
+      "result": "error",
+      "reason": "Xero HTTP 429: {}"
+    },
+    {
+      "invoiceId": "32852ca0-0a8d-477a-abb5-bc20b6537fa1",
+      "invoiceNumber": "SI-44674",
+      "attempted": false,
+      "state": "complete",
+      "result": "error",
+      "reason": "Xero HTTP 429: {}"
+    },
+    {
+      "invoiceId": "28b9ace3-8d3f-41ab-8862-c4e43691347a",
+      "invoiceNumber": "SI-44682",
+      "attempted": false,
+      "state": "complete",
+      "result": "error",
+      "reason": "Xero HTTP 429: {}"
+    },
+    {
+      "invoiceId": "398fbcc8-603c-4956-807b-c569de84a481",
+      "invoiceNumber": "SI-44568",
+      "attempted": false,
+      "state": "complete",
+      "result": "error",
+      "reason": "Xero HTTP 429: {}"
+    },
+    {
+      "invoiceId": "b593ce82-7644-43ff-919a-c59cf59e6c5d",
+      "invoiceNumber": "SI-44719",
+      "attempted": false,
+      "state": "complete",
+      "result": "error",
+      "reason": "Xero HTTP 429: {}"
+    },
+    {
+      "invoiceId": "210cb89d-77b8-490f-907c-c683c449d8b0",
+      "invoiceNumber": "SI-44638",
+      "attempted": false,
+      "state": "complete",
+      "result": "error",
+      "reason": "Xero HTTP 429: {}"
+    },
+    {
+      "invoiceId": "ca1bc8f8-91ba-4205-80ce-d195568e3838",
+      "invoiceNumber": "SI-44671",
+      "attempted": false,
+      "state": "complete",
+      "result": "error",
+      "reason": "Xero HTTP 429: {}"
+    },
+    {
+      "invoiceId": "9832e181-4eb6-48fc-a277-d46c0137d6a6",
+      "invoiceNumber": "SI-44549",
+      "attempted": false,
+      "state": "complete",
+      "result": "error",
+      "reason": "Xero HTTP 429: {}"
+    },
+    {
+      "invoiceId": "22753490-0e35-46b1-b1b9-d54cd86bb4f8",
+      "invoiceNumber": "SI-44613",
+      "attempted": false,
+      "state": "complete",
+      "result": "error",
+      "reason": "Xero HTTP 429: {}"
+    },
+    {
+      "invoiceId": "9ea8dba1-e856-480d-b426-da1d7448189c",
+      "invoiceNumber": "SI-44567",
+      "attempted": false,
+      "state": "complete",
+      "result": "error",
+      "reason": "Xero HTTP 429: {}"
+    },
+    {
+      "invoiceId": "c83b5b6f-051a-4c5e-b0f2-e1944411c65a",
+      "invoiceNumber": "SI-44631",
+      "attempted": false,
+      "state": "complete",
+      "result": "error",
+      "reason": "Xero HTTP 429: {}"
+    },
+    {
+      "invoiceId": "903d392e-35b3-48ee-bd81-e3b2aa980096",
+      "invoiceNumber": "SI-44579",
+      "attempted": false,
+      "state": "complete",
+      "result": "error",
+      "reason": "Xero HTTP 429: {}"
+    },
+    {
+      "invoiceId": "2973f68b-a1a9-4013-864b-e547dbf86dcd",
+      "invoiceNumber": "SI-44634",
+      "attempted": false,
+      "state": "complete",
+      "result": "error",
+      "reason": "Xero HTTP 429: {}"
+    },
+    {
+      "invoiceId": "8d061e22-a05e-405b-864b-f4932134d52e",
+      "invoiceNumber": "SI-44647",
+      "attempted": false,
+      "state": "complete",
+      "result": "error",
+      "reason": "Xero HTTP 429: {}"
+    },
+    {
+      "invoiceId": "0f2f4af2-6305-4b01-b056-f766ec4ba09e",
+      "invoiceNumber": "SI-44648",
+      "attempted": false,
+      "state": "complete",
+      "result": "error",
+      "reason": "Xero HTTP 429: {}"
+    },
+    {
+      "invoiceId": "b965c5d3-5246-4d5f-92f3-f8114d8bab1f",
+      "invoiceNumber": "SI-44645",
+      "attempted": false,
+      "state": "complete",
+      "result": "error",
+      "reason": "Xero HTTP 429: {}"
+    },
+    {
+      "invoiceId": "14d4d789-9f0e-4cb9-b0d1-fbc706ed6c78",
+      "invoiceNumber": "SI-44698",
+      "attempted": false,
+      "state": "complete",
+      "result": "error",
+      "reason": "Xero HTTP 429: {}"
+    }
+  ],
+  "completedAt": "2026-08-27T12:29:37.382Z"
+}
