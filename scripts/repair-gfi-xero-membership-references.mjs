@@ -8,7 +8,8 @@
  *   node scripts/repair-gfi-xero-membership-references.mjs \
  *     --apply --manifest=scripts/output/gfi-xero-reference-dry-run-....json
  *
- * This script never changes application membership records.
+ * This script never changes application membership records. Dry-run never
+ * changes Xero invoices, but may rotate and persist Xero OAuth credentials.
  */
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -21,6 +22,7 @@ const {
   TARGET_TENANT_NAME,
   TARGET_TENANT_SLUG,
   PROPOSED_REFERENCE,
+  authenticateRepairConnection,
   buildDryRunManifest,
   processReviewedInvoice,
   validateManifest,
@@ -63,6 +65,17 @@ async function resolveTenant() {
     throw new Error(`Refusing to proceed: expected exactly ${TARGET_TENANT_NAME} with slug ${TARGET_TENANT_SLUG}.`);
   }
   return data[0];
+}
+
+async function authenticate(tenantId) {
+  const { data: connections, error } = await supabase.from('xero_token')
+    .select('tenant_id, expires_at').eq('app_tenant_id', tenantId);
+  if (error) throw new Error(`Could not read GFI Xero connection: ${error.message}`);
+  return authenticateRepairConnection({
+    tenantId,
+    connections,
+    getAccessToken: getValidXeroAccessToken,
+  });
 }
 
 async function xeroRequest(accessToken, xeroTenantId, url, options = {}) {
@@ -141,7 +154,8 @@ async function dryRun(tenant, auth) {
     signingSecret: SIGNING_SECRET,
   });
   console.log(JSON.stringify(manifest.summary, null, 2));
-  console.log('DRY RUN ONLY: no Xero or application-database records were changed.');
+  console.log('DRY RUN ONLY: no Xero invoices or application membership/business records were changed.');
+  console.log('Authentication may have rotated and persisted the saved Xero OAuth credentials.');
 }
 
 async function applyManifest(tenant, auth) {
@@ -209,20 +223,6 @@ async function applyManifest(tenant, auth) {
 if (!supabase) throw new Error('Production database is not configured');
 if (!SIGNING_SECRET) throw new Error('SESSION_SECRET is required to sign and validate repair manifests');
 const tenant = await resolveTenant();
-let auth;
-if (apply) {
-  auth = await getValidXeroAccessToken(tenant.id);
-} else {
-  const { data: tokens, error } = await supabase.from('xero_token')
-    .select('access_token, tenant_id, expires_at').eq('app_tenant_id', tenant.id);
-  if (error) throw new Error(`Could not read GFI Xero token: ${error.message}`);
-  if (tokens?.length !== 1 || tokens[0].tenant_id === 'PENDING_SELECTION') {
-    throw new Error('Refusing dry-run: expected exactly one completed GFI Xero connection');
-  }
-  if (new Date(tokens[0].expires_at).getTime() <= Date.now() + 5 * 60 * 1000) {
-    throw new Error('Refusing dry-run: Xero token is expired or near expiry; authenticate separately, then rerun');
-  }
-  auth = { accessToken: tokens[0].access_token, tenantId: tokens[0].tenant_id };
-}
+const auth = await authenticate(tenant.id);
 if (apply) await applyManifest(tenant, auth);
 else await dryRun(tenant, auth);

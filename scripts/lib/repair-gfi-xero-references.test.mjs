@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   buildDryRunManifest,
+  authenticateRepairConnection,
   changeSinceDryRunReason,
   isLegacyMembershipReference,
   isUnpaidInvoice,
@@ -17,6 +18,57 @@ const invoice = {
 };
 const target = { id: 'tenant-1', slug: 'gfi', name: 'Graduate Futures Institute' };
 const secret = 'test-only-secret';
+
+test('repair authentication reuses a fresh token through the shared helper', async () => {
+  let calls = 0;
+  const auth = await authenticateRepairConnection({
+    tenantId: target.id,
+    connections: [{ tenant_id: 'xero-1', expires_at: '2099-01-01T00:00:00.000Z' }],
+    getAccessToken: async (tenantId) => {
+      calls++;
+      assert.equal(tenantId, target.id);
+      return { accessToken: 'fresh-access', tenantId: 'xero-1' };
+    },
+  });
+  assert.equal(calls, 1);
+  assert.deepEqual(auth, { accessToken: 'fresh-access', tenantId: 'xero-1' });
+});
+
+test('repair authentication delegates near-expiry refresh to the shared helper', async () => {
+  const auth = await authenticateRepairConnection({
+    tenantId: target.id,
+    connections: [{ tenant_id: 'xero-1', expires_at: '2000-01-01T00:00:00.000Z' }],
+    getAccessToken: async () => ({ accessToken: 'rotated-access', tenantId: 'xero-1' }),
+  });
+  assert.equal(auth.accessToken, 'rotated-access');
+});
+
+test('repair authentication gives reconnect guidance only when refresh fails', async () => {
+  await assert.rejects(
+    authenticateRepairConnection({
+      tenantId: target.id,
+      connections: [{ tenant_id: 'xero-1', expires_at: '2000-01-01T00:00:00.000Z' }],
+      getAccessToken: async () => { throw new Error('[Xero token-refresh] HTTP 400: invalid_grant'); },
+    }),
+    /could not be refreshed.*Reconnect Xero.*invalid_grant/,
+  );
+  await assert.rejects(
+    authenticateRepairConnection({
+      tenantId: target.id,
+      connections: [{ tenant_id: 'PENDING_SELECTION' }],
+      getAccessToken: async () => assert.fail('helper must not run'),
+    }),
+    /connection is incomplete.*Select a Xero organisation/,
+  );
+  await assert.rejects(
+    authenticateRepairConnection({
+      tenantId: target.id,
+      connections: [{ tenant_id: 'xero-1', expires_at: '2099-01-01T00:00:00.000Z' }],
+      getAccessToken: async () => { throw new Error('database unavailable'); },
+    }),
+    (error) => error.message === 'database unavailable',
+  );
+});
 
 test('legacy matcher accepts only the exact historical shape', () => {
   assert.equal(isLegacyMembershipReference('Membership 2025'), true);

@@ -63,6 +63,9 @@ export async function getValidXeroAccessToken(appTenantId) {
   if (!xeroCredentials || !xeroCredentials.client_id || !xeroCredentials.client_secret) {
     throw new Error('Xero credentials not configured for this tenant');
   }
+  if (!token.refresh_token) {
+    throw new Error('Xero connection cannot be refreshed because its refresh token is missing. Please reconnect Xero.');
+  }
 
   const tokenResponse = await fetch('https://identity.xero.com/connect/token', {
     method: 'POST',
@@ -84,7 +87,7 @@ export async function getValidXeroAccessToken(appTenantId) {
 
   const newExpiresAt = new Date(Date.now() + (tokenData.expires_in * 1000)).toISOString();
 
-  await supabase
+  const { error: updateError } = await supabase
     .from('xero_token')
     .update({
       access_token: tokenData.access_token,
@@ -92,6 +95,9 @@ export async function getValidXeroAccessToken(appTenantId) {
       expires_at: newExpiresAt,
     })
     .eq('id', token.id);
+  if (updateError) {
+    throw new Error(`Xero token refreshed but rotated credentials could not be saved: ${updateError.message}`);
+  }
 
   return { accessToken: tokenData.access_token, tenantId: token.tenant_id };
 }

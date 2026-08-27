@@ -6,6 +6,30 @@ export const TARGET_TENANT_SLUG = 'gfi';
 export const TARGET_TENANT_NAME = 'Graduate Futures Institute';
 export const PROPOSED_REFERENCE = 'TBC';
 
+export async function authenticateRepairConnection({
+  tenantId,
+  connections,
+  getAccessToken,
+}) {
+  if (!Array.isArray(connections) || connections.length !== 1) {
+    throw new Error('Expected exactly one saved GFI Xero connection. Reconnect Xero before rerunning the repair.');
+  }
+  if (connections[0]?.tenant_id === 'PENDING_SELECTION') {
+    throw new Error('The GFI Xero connection is incomplete. Select a Xero organisation before rerunning the repair.');
+  }
+  const expiresAt = new Date(connections[0]?.expires_at).getTime();
+  const refreshRequired = !Number.isFinite(expiresAt) || expiresAt <= Date.now() + 5 * 60 * 1000;
+  try {
+    return await getAccessToken(tenantId);
+  } catch (error) {
+    if (!refreshRequired) throw error;
+    throw new Error(
+      `The saved GFI Xero connection could not be refreshed. Reconnect Xero before rerunning the repair. ${error.message}`,
+      { cause: error },
+    );
+  }
+}
+
 export function isLegacyMembershipReference(value) {
   if (typeof value !== 'string') return false;
   const match = value.match(/^Membership (\d{4})(?:\/(\d{2}|\d{4}))?$/);
