@@ -137,3 +137,4 @@
 - [Communication category member RBAC](communication-category-member-rbac.md) — enforce applicable roles on every member opt-in path; public affects externals only, while role-loss unsubscribe stays allowed.
 - [Membership invoice PO contract](membership-invoice-po-contract.md) — provider PO/reference fields must contain a genuine PO alone, or exactly TBC; never a membership-year description.
 - [Advisory locks through transaction poolers](transaction-pool-advisory-locks.md) — hold an explicit transaction and use xact locks; session locks can leak across pooled backends.
+- [Nullable JSONB migration merges](nullable-jsonb-migration-merges.md) — idempotent config migrations must coalesce nullable JSONB before key checks and object merges.

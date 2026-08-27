@@ -1924,3 +1924,66 @@ test('core relationship rows use primary labels, paginate, enforce edit flags, p
     (error) => error.status === 403 && /administrator/.test(error.message),
   );
 });
+
+test('Department-member pickers are constrained to the Department organisation only', async () => {
+  const departmentObjectId = objectId;
+  const memberDefinitionId = 'department-members';
+  const parentDefinitionId = 'department-organisation';
+  const seed = {
+    custom_object_definition: [object({ id: departmentObjectId, object_key: 'org_department' })],
+    preference_field: [field({ custom_object_id: departmentObjectId, name: 'name', field_type: 'text' })],
+    custom_object_relationship_definition: [{
+      id: memberDefinitionId, tenant_id: tenantId, relationship_key: 'members', status: 'active',
+      source_kind: 'custom_object', source_custom_object_id: departmentObjectId,
+      target_kind: 'member', target_custom_object_id: null, cardinality: 'one_to_many',
+      configuration: { picker_scope: { via_relationship_key: 'organisation', routed_core_field: 'organization_id' } },
+      show_on_source: true, show_on_target: true, edit_from_source: true, edit_from_target: true,
+    }, {
+      id: parentDefinitionId, tenant_id: tenantId, relationship_key: 'organisation', status: 'active',
+      is_required: true, source_kind: 'custom_object', source_custom_object_id: departmentObjectId,
+      target_kind: 'organization', target_custom_object_id: null, cardinality: 'many_to_one',
+    }],
+    custom_object_record: [
+      { id: 'dept-a', tenant_id: tenantId, custom_object_id: departmentObjectId, archived_at: null, data: { name: 'A' } },
+      { id: 'dept-b', tenant_id: tenantId, custom_object_id: departmentObjectId, archived_at: null, data: { name: 'B' } },
+    ],
+    member: [
+      { id: 'member-a', tenant_id: tenantId, organization_id: 'org-a', first_name: 'A', last_name: 'Member' },
+      { id: 'member-b', tenant_id: tenantId, organization_id: 'org-b', first_name: 'B', last_name: 'Member' },
+    ],
+    custom_object_relationship: [
+      { id: 'parent-a', tenant_id: tenantId, relationship_definition_id: parentDefinitionId, source_record_id: 'dept-a', target_record_id: 'org-a', archived_at: null },
+      { id: 'parent-b', tenant_id: tenantId, relationship_definition_id: parentDefinitionId, source_record_id: 'dept-b', target_record_id: 'org-b', archived_at: null },
+    ],
+  };
+  const service = createCustomObjectService({ db: mockDb(seed), context: context(), isAdmin: true });
+  const fromMember = await service.coreEntityPicker('member', 'member-a', { definitionId: memberDefinitionId });
+  assert.deepEqual(fromMember.data.map(row => row.id), ['dept-a']);
+  const fromDepartment = await service.entityPicker(departmentObjectId, {
+    definitionId: memberDefinitionId, recordId: 'dept-a', side: 'source',
+  });
+  assert.deepEqual(fromDepartment.data.map(row => row.id), ['member-a']);
+});
+
+test('unrelated relationship pickers retain generic candidates, including a non-Department members key', async () => {
+  const definitionId = 'generic-members';
+  const db = mockDb({
+    custom_object_definition: [object()],
+    preference_field: [field({ field_type: 'text' })],
+    custom_object_relationship_definition: [{
+      id: definitionId, tenant_id: tenantId, relationship_key: 'members', status: 'active',
+      source_kind: 'custom_object', source_custom_object_id: objectId,
+      target_kind: 'member', target_custom_object_id: null, cardinality: 'one_to_many',
+      show_on_source: true, edit_from_source: true,
+    }],
+    custom_object_record: [{ id: 'record-a', tenant_id: tenantId, custom_object_id: objectId, archived_at: null }],
+    member: [
+      { id: 'member-a', tenant_id: tenantId, organization_id: 'org-a', first_name: 'A' },
+      { id: 'member-b', tenant_id: tenantId, organization_id: 'org-b', first_name: 'B' },
+    ],
+  });
+  const picker = await createCustomObjectService({ db, context: context(), isAdmin: true }).entityPicker(objectId, {
+    definitionId, recordId: 'record-a', side: 'source',
+  });
+  assert.deepEqual(picker.data.map(row => row.id).sort(), ['member-a', 'member-b']);
+});

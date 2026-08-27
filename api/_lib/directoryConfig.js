@@ -271,6 +271,7 @@ export function buildOrganisationMembersResponse({
   page = 1,
   pageSize = 12,
   organization,
+  departments = [],
   roles = [],
   displaySettings = {},
 }) {
@@ -280,6 +281,7 @@ export function buildOrganisationMembersResponse({
     page,
     pageSize,
     organization,
+    departments,
     roles,
     displaySettings,
   };

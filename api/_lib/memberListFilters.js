@@ -34,6 +34,7 @@ const parseIdList = (raw) =>
 export function parseMemberListFilters({
   search = '',
   organizationId = '',
+  departmentId = '',
   roleId = '',
   status = 'all',
   customFilters = '',
@@ -62,6 +63,7 @@ export function parseMemberListFilters({
     // organizationId/roleId accept a single id (legacy) or a comma-separated
     // list (multi-select filters); matches ANY of the ids.
     organizationIds: parseIdList(organizationId),
+    departmentIds: parseIdList(departmentId),
     roleIds: parseIdList(roleId),
     status,
     customFilterEntries: parsePreferenceFilters(customFilters, MAX_CUSTOM_FILTERS),

@@ -6,6 +6,7 @@ import {
   fetchRoles,
   resolveOrgViewMembersRoleIds,
 } from '../_lib/directoryConfig.js';
+import { resolveDepartmentMemberIds, enrichMembersWithDepartments, listDepartmentOptions, MemberDepartmentError } from '../_lib/memberDepartments.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
@@ -28,7 +29,11 @@ export default async function handler(req, res) {
     filters
   } = req.query;
   const organizationId = req.query.organization_id;
+  const departmentId = req.query.department_id;
   const isStandardOrgDirectory = req.query.source === 'standard';
+  if (departmentId && !organizationId) {
+    return res.status(400).json({ error: 'department_id requires an organisation-scoped directory' });
+  }
   if (organizationId && !tenantContext.isAuthenticated) {
     return res.status(401).json({ error: 'Authentication required' });
   }
@@ -102,6 +107,7 @@ export default async function handler(req, res) {
       if (viewMembersRoleIds.length === 0) {
         return res.json(buildOrganisationMembersResponse({
           organization: selectedOrganization,
+          departments: await listDepartmentOptions(supabase, tenantId, [organizationId]),
           roles: await fetchRoles(supabase, tenantId),
           displaySettings: await fetchMemberDisplaySettings(supabase, tenantId),
         }));
@@ -142,11 +148,43 @@ export default async function handler(req, res) {
     }
 
     let memberIds = null;
+    if (departmentId) {
+      const requestedDepartmentIds = String(departmentId).split(',').map(id => id.trim()).filter(Boolean).slice(0, 100);
+      if (!requestedDepartmentIds.length) return res.status(400).json({ error: 'department_id is invalid' });
+      if (organizationId) {
+        const departmentOptions = await listDepartmentOptions(supabase, tenantId, [organizationId]);
+        const eligibleDepartmentIds = new Set(departmentOptions.map(option => option.id));
+        if (requestedDepartmentIds.some(id => !eligibleDepartmentIds.has(id))) {
+          return res.status(400).json({ error: 'department_id is not available for this organisation' });
+        }
+      }
+      memberIds = await resolveDepartmentMemberIds(supabase, tenantId, requestedDepartmentIds);
+      if (!memberIds.length) {
+        const empty = { members: [], total: 0, page: pageNum, pageSize };
+        if (organizationId) return res.json(buildOrganisationMembersResponse({
+          ...empty, organization: selectedOrganization,
+          departments: await listDepartmentOptions(supabase, tenantId, [organizationId]),
+          roles: await fetchRoles(supabase, tenantId),
+          displaySettings: await fetchMemberDisplaySettings(supabase, tenantId),
+        }));
+        return res.json(empty);
+      }
+    }
 
     if (allFilterFields.length > 0) {
-      memberIds = await getFilteredMemberIds(tenantId, allFilterFields);
+      const customFilterMemberIds = await getFilteredMemberIds(tenantId, allFilterFields);
+      const customFilterSet = new Set(customFilterMemberIds);
+      memberIds = memberIds === null ? customFilterMemberIds
+        : memberIds.filter(id => customFilterSet.has(id));
       if (memberIds.length === 0) {
-        return res.json({ members: [], total: 0, page: pageNum, pageSize });
+        const empty = { members: [], total: 0, page: pageNum, pageSize };
+        if (organizationId) return res.json(buildOrganisationMembersResponse({
+          ...empty, organization: selectedOrganization,
+          departments: await listDepartmentOptions(supabase, tenantId, [organizationId]),
+          roles: await fetchRoles(supabase, tenantId),
+          displaySettings: await fetchMemberDisplaySettings(supabase, tenantId),
+        }));
+        return res.json(empty);
       }
     }
 
@@ -225,7 +263,11 @@ export default async function handler(req, res) {
     }
 
     const response = {
-      members: members || [],
+      // Department membership is private organisation-directory metadata.
+      // Public, unscoped member directories must not query or expose it.
+      members: organizationId
+        ? await enrichMembersWithDepartments(supabase, tenantId, members || [])
+        : (members || []),
       total: totalCount || 0,
       page: pageNum,
       pageSize
@@ -234,12 +276,14 @@ export default async function handler(req, res) {
       return res.json(buildOrganisationMembersResponse({
         ...response,
         organization: selectedOrganization,
+        departments: await listDepartmentOptions(supabase, tenantId, [organizationId]),
         roles: await fetchRoles(supabase, tenantId),
         displaySettings: await fetchMemberDisplaySettings(supabase, tenantId),
       }));
     }
     return res.json(response);
   } catch (err) {
+    if (err instanceof MemberDepartmentError) return res.status(err.status).json({ error: err.message });
     console.error('[DynamicDirectory Members] Error:', err);
     return res.status(500).json({ error: 'Failed to fetch directory members' });
   }

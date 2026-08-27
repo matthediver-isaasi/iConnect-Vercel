@@ -8,6 +8,7 @@ import {
   applyMemberListFilters,
   stripFilterJoinAliases,
 } from '../../_lib/memberListFilters.js';
+import { resolveDepartmentMemberIds, enrichMembersWithDepartments, MemberDepartmentError } from '../../_lib/memberDepartments.js';
 
 function formatDate(dateStr) {
   if (!dateStr) return '';
@@ -85,6 +86,7 @@ export default async function handler(req, res) {
       ids,
       search = '',
       organizationId = '',
+       departmentId = '',
       roleId = '',
       status = 'all',
       customFilters = '',
@@ -104,8 +106,11 @@ export default async function handler(req, res) {
     // "export all filtered" always exports exactly the population the list
     // shows — including multi-role selections, operator-driven coreFilters
     // (e.g. role none_of) and custom field filters.
-    const filterCtx = parseMemberListFilters({ search, organizationId, roleId, status, customFilters, organizationFilters, coreFilters });
+    const filterCtx = parseMemberListFilters({ search, organizationId, departmentId, roleId, status, customFilters, organizationFilters, coreFilters });
     await validateOrganizationFilterEntries(supabase, tenantId, filterCtx);
+    const departmentMemberIds = !idList && filterCtx.departmentIds.length
+      ? await resolveDepartmentMemberIds(supabase, tenantId, filterCtx.departmentIds) : null;
+    const hasNoDepartmentMatches = departmentMemberIds !== null && departmentMemberIds.length === 0;
 
     const buildMemberQuery = (from, pageSize) => {
       let selectClause = `
@@ -129,6 +134,11 @@ export default async function handler(req, res) {
         q = q.in('id', idList);
       } else {
         q = applyMemberListFilters(q, filterCtx, { tenantId });
+        // Do not send `in.()` to PostgREST for an empty resolved edge set.
+        // A nil UUID is an impossible member ID and keeps normal CSV header/
+        // streaming behavior for an empty filtered export.
+        if (hasNoDepartmentMatches) q = q.eq('id', '00000000-0000-0000-0000-000000000000');
+        else if (departmentMemberIds) q = q.in('id', departmentMemberIds);
       }
 
       return q.order('last_name', { ascending: true }).range(from, from + pageSize - 1);
@@ -149,7 +159,7 @@ export default async function handler(req, res) {
     const coreHeaders = [
       'first_name', 'last_name', 'email', 'handle', 'job_title',
       'biography', 'mobile', 'landline',
-      'organisation_name', 'role_name',
+      'organisation_name', 'department_name', 'role_name',
       'login_enabled', 'show_in_directory', 'status',
       'created_on', 'last_activity', 'role_effective_from'
     ];
@@ -202,6 +212,7 @@ export default async function handler(req, res) {
         if (field === 'role_name') {
           return member.role?.name || '';
         }
+        if (field === 'department_name') return member.department?.name || '';
         if (field === 'created_on' || field === 'last_activity' || field === 'role_effective_from') {
           return formatDate(member[field]);
         }
@@ -258,6 +269,7 @@ export default async function handler(req, res) {
         if (pageData.length > 0) {
           const memberIds = pageData.map(m => m.id);
           const pagePrefMap = await loadPrefValuesForMembers(memberIds);
+          pageData = await enrichMembersWithDepartments(supabase, tenantId, pageData);
           let chunk = '';
           for (const member of pageData) {
             chunk += CSV_ROW_SEPARATOR + buildMemberRow(member, pagePrefMap);
@@ -284,6 +296,7 @@ export default async function handler(req, res) {
       return;
     }
   } catch (err) {
+    if (err instanceof MemberDepartmentError) return res.status(err.status).json({ error: err.message });
     console.error('[MemberExportCSV] Error:', err);
     if (res.headersSent) {
       try { res.destroy(err); } catch { /* ignore */ }

@@ -97,11 +97,13 @@ import { useMemberTerminology } from "@/contexts/MemberTerminologyContext";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useWidgetDrill, WidgetDrillChip } from "@/components/dashboard/widgetDrill";
 import { listAllOrganizationsForAdmin } from '@/lib/adminOrgList';
+import { appendMissingColumns } from '@/lib/memberListColumnUtils.mjs';
 
 const DEFAULT_COLUMNS = [
   { id: 'name', label: 'Member', visible: true, locked: true },
   { id: 'email', label: 'Email', visible: true, locked: false },
   { id: 'organization', label: 'Organisation', visible: true, locked: false },
+  { id: 'department', label: 'Department', visible: false, locked: false },
   { id: 'job_title', label: 'Job Title', visible: true, locked: false },
   { id: 'mobile', label: 'Mobile', visible: false, locked: false },
   { id: 'status', label: 'Status', visible: true, locked: false },
@@ -113,7 +115,7 @@ const getColumnPrefKey = (memberId) => `crm_member_columns_${memberId}`;
 
 // Stable ids for the reorderable filters in the left pane (core filters first;
 // custom fields are appended by their field id).
-const DEFAULT_MEMBER_FILTER_ORDER = ['status', 'organisation', 'role', 'phone', 'job_title'];
+const DEFAULT_MEMBER_FILTER_ORDER = ['status', 'organisation', 'department', 'role', 'phone', 'job_title'];
 const loadLocalColumns = (tenantSlug) => {
   try {
     const saved = localStorage.getItem(getStorageKey(tenantSlug));
@@ -158,6 +160,7 @@ export default function MembersListPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [orgFilter, setOrgFilter] = useState('all');
+  const [departmentFilter, setDepartmentFilter] = useState([]);
   // Multi-select: array of selected role ids; empty array = all roles.
   const [roleFilter, setRoleFilter] = useState([]);
   const [coreFieldFilters, setCoreFieldFilters] = useState({
@@ -251,6 +254,43 @@ export default function MembersListPage() {
       return await base44.entities.Role.list();
     }
   });
+
+  const departmentOrganizationParam = orgFilter && orgFilter !== 'all' ? orgFilter : 'all';
+  const { data: departmentsData, isSuccess: departmentsLoaded } = useQuery({
+    queryKey: ['member-departments', tenantSlug || 'default', departmentOrganizationParam],
+    enabled: accessChecked,
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (departmentOrganizationParam !== 'all') params.set('organizationId', departmentOrganizationParam);
+      const query = params.toString();
+      const response = await fetch(`/api/admin/members/departments${query ? `?${query}` : ''}`, { credentials: 'include' });
+      if (!response.ok) throw new Error('Failed to fetch departments');
+      return response.json();
+    },
+  });
+  const departments = departmentsData?.departments || [];
+  const departmentOptions = useMemo(() => {
+    const nameCounts = departments.reduce((counts, department) => {
+      const name = department.name || '';
+      counts[name] = (counts[name] || 0) + 1;
+      return counts;
+    }, {});
+    return departments.map((department) => ({
+      value: department.id,
+      label: nameCounts[department.name || ''] > 1 && department.organization_name
+        ? `${department.name} (${department.organization_name})`
+        : department.name,
+    }));
+  }, [departments]);
+
+  // Keep the department selection within the current organisation scope.
+  useEffect(() => {
+    if (!departmentsLoaded) return;
+    const available = new Set(departments.map((department) => department.id));
+    setDepartmentFilter((selected) => {
+      return selected.every((id) => available.has(id)) ? selected : [];
+    });
+  }, [departments, departmentsLoaded]);
 
   const { data: memberCustomFields = [], isSuccess: memberCustomFieldsLoaded } = useQuery({
     queryKey: ['member-custom-fields-crm'],
@@ -405,6 +445,7 @@ export default function MembersListPage() {
   const effectiveRoleParam = (filterOps['role'] || 'any_of') === 'any_of' && roleFilter.length > 0
     ? roleFilter.join(',')
     : 'all';
+  const effectiveDepartmentParam = departmentFilter.length > 0 ? departmentFilter.join(',') : 'all';
 
   // Dashboard widget click-through: restrict the list to the ids stored
   // by the clicked widget bucket (see components/dashboard/widgetDrill.jsx).
@@ -412,7 +453,7 @@ export default function MembersListPage() {
   const { drill: widgetDrill, drillIdsParam, clearDrill } = useWidgetDrill(searchParams, setSearchParams);
 
   const { data: membersData, isLoading: membersLoading, isFetching: membersFetching } = useQuery({
-    queryKey: ['members-paginated', currentPage, itemsPerPage, debouncedSearch, effectiveOrgParam, effectiveRoleParam, statusFilter, sortField, sortDir, customFiltersParam, organizationFiltersParam, coreFiltersParam, customFieldIdsParam, drillIdsParam],
+    queryKey: ['members-paginated', currentPage, itemsPerPage, debouncedSearch, effectiveOrgParam, effectiveRoleParam, effectiveDepartmentParam, statusFilter, sortField, sortDir, customFiltersParam, organizationFiltersParam, coreFiltersParam, customFieldIdsParam, drillIdsParam],
     enabled: accessChecked && filtersReady,
     keepPreviousData: true,
     queryFn: async () => {
@@ -421,6 +462,7 @@ export default function MembersListPage() {
         limit: itemsPerPage.toString(),
         search: debouncedSearch,
         organizationId: effectiveOrgParam,
+        departmentId: effectiveDepartmentParam,
         roleId: effectiveRoleParam,
         status: statusFilter,
         sortField,
@@ -504,6 +546,17 @@ export default function MembersListPage() {
     }
   }, [savedDbColumns, tenantSlug]);
 
+  // Upgrade older local preferences, DB preferences, and named saved views
+  // without changing any column that was already configured by the user.
+  useEffect(() => {
+    setColumns((previous) => {
+      const updated = appendMissingColumns(previous, DEFAULT_COLUMNS);
+      if (updated === previous) return previous;
+      saveLocalColumns(updated, tenantSlug);
+      return updated;
+    });
+  }, [columns, tenantSlug]);
+
   // Named personal saved views (filters + columns + sort), persisted per user in
   // SystemSettings. The legacy single saved view is surfaced as "My view".
   const restoredSearchRef = useRef(undefined);
@@ -529,6 +582,13 @@ export default function MembersListPage() {
     setSearchQuery(search);
     setStatusFilter(typeof filters.statusFilter === 'string' ? filters.statusFilter : 'all');
     setOrgFilter(typeof filters.orgFilter === 'string' ? filters.orgFilter : 'all');
+    setDepartmentFilter(
+      Array.isArray(filters.departmentFilter)
+        ? filters.departmentFilter.filter(id => typeof id === 'string' && id)
+        : (typeof filters.departmentFilter === 'string' && filters.departmentFilter && filters.departmentFilter !== 'all'
+            ? filters.departmentFilter.split(',').filter(Boolean)
+            : [])
+    );
     // Coerce a legacy single-value role filter (plain string) to an array.
     setRoleFilter(
       Array.isArray(filters.roleFilter)
@@ -619,6 +679,7 @@ export default function MembersListPage() {
       searchQuery,
       statusFilter,
       orgFilter,
+      departmentFilter,
       roleFilter,
       coreFieldFilters,
       customFieldFilters,
@@ -707,6 +768,7 @@ export default function MembersListPage() {
         // (e.g. role "none_of") and custom field filters.
         if (debouncedSearch.trim()) params.set('search', debouncedSearch.trim());
         if (effectiveOrgParam !== 'all') params.set('organizationId', effectiveOrgParam);
+        if (effectiveDepartmentParam !== 'all') params.set('departmentId', effectiveDepartmentParam);
         if (effectiveRoleParam !== 'all') params.set('roleId', effectiveRoleParam);
         if (statusFilter && statusFilter !== 'all') params.set('status', statusFilter);
         if (customFiltersParam && customFiltersParam !== '{}') params.set('customFilters', customFiltersParam);
@@ -768,6 +830,7 @@ export default function MembersListPage() {
     setSearchQuery('');
     setStatusFilter('all');
     setOrgFilter('all');
+    setDepartmentFilter([]);
     setRoleFilter([]);
     setCoreFieldFilters({ job_title: '' });
     setCustomFieldFilters({});
@@ -782,6 +845,7 @@ export default function MembersListPage() {
     switch (id) {
       case 'status': return 'Status';
       case 'organisation': return 'Organisation';
+      case 'department': return 'Department';
       case 'role': return 'Role';
       case 'phone': return 'Phone';
       case 'job_title': return 'Job Title';
@@ -800,7 +864,8 @@ export default function MembersListPage() {
     switch (id) {
       case 'status': setStatusFilter('all'); break;
       case 'organisation': setOrgFilter('all'); break;
-      case 'role': setRoleFilter('all'); break;
+      case 'department': setDepartmentFilter([]); break;
+      case 'role': setRoleFilter([]); break;
       case 'phone': setCoreFieldFilters(prev => ({ ...prev, phone: '' })); break;
       case 'job_title': setCoreFieldFilters(prev => ({ ...prev, job_title: '' })); break;
       default:
@@ -953,6 +1018,20 @@ export default function MembersListPage() {
           </div>
         );
       }
+      case 'department':
+        return (
+          <div className="space-y-1.5">
+            <Label className="text-[10px] font-medium text-slate-500 uppercase tracking-wide">Department</Label>
+            <MultiSelectFilter
+              options={departmentOptions}
+              selected={departmentFilter}
+              onChange={(values) => { setDepartmentFilter(values); setCurrentPage(1); }}
+              placeholder="All Departments"
+              className="h-8 min-h-8 w-full text-xs"
+              data-testid="select-member-department-filter"
+            />
+          </div>
+        );
       case 'role': {
         const op = filterOps['role'] || 'any_of';
         return (
@@ -1223,6 +1302,7 @@ export default function MembersListPage() {
   const hasActiveFilters = searchQuery || 
     statusFilter !== 'all' || 
     orgFilter !== 'all' ||
+    departmentFilter.length > 0 ||
     roleFilter.length > 0 ||
     Object.values(coreFieldFilters).some(v => v && v.trim() !== '') ||
     Object.values(customFieldFilters).some(isActiveCustomFilterValue) ||
@@ -1354,6 +1434,8 @@ export default function MembersListPage() {
       case 'organization':
         const org = orgMap[member.organization_id];
         return org?.name || '-';
+      case 'department':
+        return member.department?.name || '-';
       case 'job_title':
         return member.job_title || '-';
       case 'mobile':
@@ -1918,6 +2000,11 @@ export default function MembersListPage() {
                               <p className="text-sm text-slate-500 truncate flex items-center gap-1">
                                 <Building2 className="w-3 h-3" />
                                 {org.name}
+                              </p>
+                            )}
+                            {member.department?.name && (
+                              <p className="text-sm text-slate-500 truncate">
+                                {member.department.name}
                               </p>
                             )}
                           </div>

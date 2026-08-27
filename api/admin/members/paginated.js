@@ -7,6 +7,7 @@ import {
   applyMemberListFilters,
   stripFilterJoinAliases,
 } from '../../_lib/memberListFilters.js';
+import { resolveDepartmentMemberIds, enrichMembersWithDepartments, MemberDepartmentError } from '../../_lib/memberDepartments.js';
 
 export default async function handler(req, res) {
   // POST is accepted only so a widget click-through can send a large ids
@@ -32,6 +33,7 @@ export default async function handler(req, res) {
       limit = '50',
       search = '',
       organizationId = '',
+       departmentId = '',
       roleId = '',
       status = 'all',
       sortField = 'created_on',
@@ -63,8 +65,13 @@ export default async function handler(req, res) {
     // Shared filter contract (search, org/role id lists, status, custom field
     // filters, direct-column coreFilters) — kept in lockstep with the CSV
     // export via api/_lib/memberListFilters.js.
-    const filterCtx = parseMemberListFilters({ search, organizationId, roleId, status, customFilters, organizationFilters, coreFilters });
+    const filterCtx = parseMemberListFilters({ search, organizationId, departmentId, roleId, status, customFilters, organizationFilters, coreFilters });
     await validateOrganizationFilterEntries(supabase, tenantId, filterCtx);
+    const departmentMemberIds = filterCtx.departmentIds.length
+      ? await resolveDepartmentMemberIds(supabase, tenantId, filterCtx.departmentIds) : null;
+    if (departmentMemberIds && departmentMemberIds.length === 0) {
+      return res.json({ members: [], pagination: { page: pageNum, limit: limitNum, total: 0, totalPages: 0 } });
+    }
 
     // Build the core select. For each active custom filter we add an aliased
     // join on member_preference_value. Positive operators use an inner join so
@@ -100,6 +107,7 @@ export default async function handler(req, res) {
     if (drillIds.length > 0) {
       query = query.in('id', drillIds);
     }
+    if (departmentMemberIds) query = query.in('id', departmentMemberIds);
 
     query = query.not('email', 'like', 'deleted_%@deleted.local');
 
@@ -156,7 +164,8 @@ export default async function handler(req, res) {
       }
     }
 
-    const filteredMembers = memberRows.map(m => {
+    const enrichedMemberRows = await enrichMembersWithDepartments(supabase, tenantId, memberRows);
+    const filteredMembers = enrichedMemberRows.map(m => {
       const { ...rest } = m;
       // Strip the join-only aliases from the response
       stripFilterJoinAliases(rest, filterCtx);
@@ -180,6 +189,7 @@ export default async function handler(req, res) {
       }
     });
   } catch (err) {
+    if (err instanceof MemberDepartmentError) return res.status(err.status).json({ error: err.message });
     console.error('[MembersPaginated] Error:', err);
     return res.status(500).json({ error: 'Internal server error' });
   }

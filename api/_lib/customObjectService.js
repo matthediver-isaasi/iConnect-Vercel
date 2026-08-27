@@ -236,7 +236,7 @@ function throwDb(error, fallback = 'Database operation failed') {
     if (/custom_object_relationship_required_source/i.test(constraint)) {
       throw new CustomObjectHttpError(409, 'A required relationship cannot lose its final active edge');
     }
-    if (/custom_object_relationship_(source|target)_valid|same_tenant|active/i.test(constraint)) {
+    if (/custom_object_relationship_(source|target)_valid|same_tenant|active|bnms_.*_organization_(required|match)/i.test(constraint)) {
       throw new CustomObjectHttpError(400, error.message || 'Relationship endpoint is unavailable');
     }
     throw new CustomObjectHttpError(400, error.message || fallback);
@@ -895,6 +895,83 @@ export function createCustomObjectService({
     return { definition, side, relatedSide: side === 'source' ? 'target' : 'source' };
   }
 
+  // Optional definition configuration can constrain a core endpoint picker to
+  // records whose configured core field matches an active parent edge target.
+  // It is deliberately schema-driven, so domain-specific definitions never
+  // require branches in this generic service.
+  async function configuredPickerScope(definition, sourceRecordId = null, routedCoreRecordId = null) {
+    const scope = definition.configuration?.picker_scope;
+    if (!scope) return null;
+    if (!scope || typeof scope !== 'object' || Array.isArray(scope)
+      || typeof scope.via_relationship_key !== 'string'
+      || !/^[a-z][a-z0-9_]{0,99}$/.test(scope.via_relationship_key)
+      || typeof scope.routed_core_field !== 'string'
+      || !/^[a-z][a-z0-9_]{0,99}$/.test(scope.routed_core_field)
+      || definition.source_kind !== 'custom_object' || !definition.source_custom_object_id
+      || definition.target_kind !== 'member' || definition.target_custom_object_id !== null
+      || definition.cardinality !== 'one_to_many') {
+      throw new CustomObjectHttpError(409, 'Configured picker scope schema is malformed');
+    }
+    const sourceObject = await one('custom_object_definition', definition.source_custom_object_id);
+    if (sourceObject.status !== 'active') {
+      throw new CustomObjectHttpError(409, 'Configured picker scope schema is malformed');
+    }
+    const { data: parentDefinitions, error: parentError } = await db
+      .from('custom_object_relationship_definition').select('*')
+      .eq('tenant_id', tenantId).eq('relationship_key', scope.via_relationship_key).eq('status', 'active')
+      .eq('is_required', true).eq('source_kind', 'custom_object')
+      .eq('source_custom_object_id', sourceObject.id).eq('target_kind', 'organization');
+    throwDb(parentError);
+    if ((parentDefinitions || []).length !== 1
+      || parentDefinitions[0].cardinality !== 'many_to_one'
+      || parentDefinitions[0].target_custom_object_id !== null) {
+      throw new CustomObjectHttpError(409, 'Configured picker parent relationship schema is malformed');
+    }
+    const parentDefinition = parentDefinitions[0];
+    const readEdges = async (configure) => {
+      const result = [];
+      for (let from = 0;; from += 1000) {
+        const { data, error } = await configure(
+          db.from('custom_object_relationship').select('source_record_id, target_record_id')
+            .eq('tenant_id', tenantId).eq('relationship_definition_id', parentDefinition.id)
+            .is('archived_at', null),
+        ).range(from, from + 999);
+        throwDb(error);
+        result.push(...(data || []));
+        if (!data || data.length < 1000) return result;
+      }
+    };
+    if (routedCoreRecordId) {
+      const member = await one('member', routedCoreRecordId);
+      const routedValue = member[scope.routed_core_field];
+      if (!routedValue) return { sourceRecordIds: [] };
+      // Read every parent edge (paged) so a corrupt source with multiple
+      // organisations is excluded rather than accidentally accepted because
+      // one of its edges happens to match this member.
+      const edges = await readEdges(q => q);
+      const bySource = new Map();
+      for (const edge of edges) {
+        const organisations = bySource.get(edge.source_record_id) || [];
+        organisations.push(edge.target_record_id);
+        bySource.set(edge.source_record_id, organisations);
+      }
+      return {
+        sourceRecordIds: [...bySource.entries()]
+          .filter(([, organisations]) => organisations.length === 1
+            && organisations[0] === routedValue)
+          .map(([id]) => id),
+      };
+    }
+    if (sourceRecordId) {
+      const edges = await readEdges(q => q.eq('source_record_id', sourceRecordId));
+      if (edges.length !== 1 || !edges[0].target_record_id) {
+        throw new CustomObjectHttpError(409, 'Configured source record must have exactly one active parent');
+      }
+      return { organizationId: edges[0].target_record_id };
+    }
+    return null;
+  }
+
   async function listCoreRelationshipDefinitions(kind, recordId) {
     requireCoreKind(kind);
     if (!recordId) throw new CustomObjectHttpError(400, 'kind and recordId are required');
@@ -1011,10 +1088,17 @@ export function createCustomObjectService({
     }
     const objectDefinition = await activeObject(customObjectId);
     const endpointFields = await fields(customObjectId, true);
+    const pickerScope = kind === 'member' && relatedSide === 'source'
+      ? await configuredPickerScope(definition, null, recordId) : null;
+    if (pickerScope && pickerScope.sourceRecordIds.length === 0) {
+      const p = pagination(query);
+      return { data: [], total: 0, page: p.page, pageSize: p.pageSize };
+    }
     const p = pagination(query);
     let q = db.from('custom_object_record').select('*', { count: 'exact' })
       .eq('tenant_id', tenantId).eq('custom_object_id', customObjectId)
       .is('archived_at', null);
+    if (pickerScope) q = q.in('id', pickerScope.sourceRecordIds);
     const search = typeof query?.search === 'string' ? query.search.trim() : '';
     if (search) {
       const primary = endpointFields.find((field) => field.id === objectDefinition.primary_display_field_id);
@@ -1112,6 +1196,8 @@ export function createCustomObjectService({
     if (routedRecord.archived_at) throw new CustomObjectHttpError(409, 'Routed record is archived');
     await requireRelationshipCapabilities(definition, 'edit_records');
     const oppositeSide = side === 'source' ? 'target' : 'source';
+    const pickerScope = side === 'source' && definition.target_kind === 'member'
+      ? await configuredPickerScope(definition, recordId, null) : null;
     const kind = definition[`${oppositeSide}_kind`];
     const table = {
       custom_object: 'custom_object_record', member: 'member',
@@ -1130,6 +1216,7 @@ export function createCustomObjectService({
     }
     const p = pagination(query);
     let q = db.from(table).select('*', { count: 'exact' }).eq('tenant_id', tenantId);
+    if (pickerScope) q = q.eq(definition.configuration.picker_scope.routed_core_field, pickerScope.organizationId);
     if (kind === 'custom_object') {
       q = q.eq('custom_object_id', customObjectId).is('archived_at', null);
     }
