@@ -103,6 +103,7 @@ test('role copy payload retains configurable settings but resets protected/defau
     badge_text_colour: '#ffffff',
     segment_values: ['Gold'],
     max_members: 10,
+    assignable_role_ids: ['member-role'],
     is_default: true,
     is_system: true,
     is_admin: true,
@@ -112,6 +113,7 @@ test('role copy payload retains configurable settings but resets protected/defau
   assert.deepEqual(copied.excluded_features, ['content.resources']);
   assert.deepEqual(copied.segment_values, ['Gold']);
   assert.equal(copied.max_members, 10);
+  assert.deepEqual(copied.assignable_role_ids, ['member-role']);
   assert.equal(copied.badge_image_url, 'https://example.test/badge.png');
   assert.equal(copied.is_tenant_admin, true);
   assert.equal(copied.is_default, false);

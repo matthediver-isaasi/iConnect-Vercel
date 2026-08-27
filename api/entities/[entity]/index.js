@@ -58,6 +58,8 @@ import {
   isCustomObjectStorageEntity,
 } from '../../_lib/customObjectApiBoundary.js';
 import { authorizeGenericCommunicationPreferenceAccess } from '../../_lib/communicationPreferenceGenericAccess.js';
+import { authorizeAndCheckTeamRoleAssignment, validateAssignableRoleIds } from '../../_lib/teamRoleAssignment.js';
+import { checkRoleMutationAccess } from '../../_lib/roleMutationAccess.js';
 
 /**
  * Task #3100: support staff = tenant users (admin dashboard), tenant admins,
@@ -302,6 +304,13 @@ export default async function handler(req, res) {
 
   // Get tenant context from session
   const tenantCtx = await getTenantContext(req);
+
+  if (entityNorm === 'role' && req.method !== 'GET') {
+    const roleAccess = await checkRoleMutationAccess(tenantCtx, hasAdminAccess);
+    if (!roleAccess.ok) {
+      return res.status(roleAccess.status).json({ error: roleAccess.error });
+    }
+  }
 
   const genericPreferenceAccessError = await authorizeGenericCommunicationPreferenceAccess(
     entity,
@@ -1252,6 +1261,20 @@ export default async function handler(req, res) {
       const sanitizedBody = entityNorm === 'jobposting'
         ? stripManagedJobProvenance(req.body)
         : { ...req.body };
+
+      if (entityNorm === 'role'
+        && Object.prototype.hasOwnProperty.call(sanitizedBody, 'assignable_role_ids')) {
+        const assignable = await validateAssignableRoleIds({
+          supabase,
+          tenantId: tenantCtx.tenantId,
+          roleIds: sanitizedBody.assignable_role_ids,
+        });
+        if (!assignable.ok) {
+          return res.status(assignable.status).json({ error: assignable.error });
+        }
+        sanitizedBody.assignable_role_ids = assignable.roleIds;
+      }
+
       const uuidFields = ['role_id', 'organization_id', 'organization_group_id', 'member_id', 'parent_id', 'form_id', 'event_id', 'related_event_id',
                           'category_id', 'template_id', 'workflow_id', 'speaker_id', 'created_by', 'updated_by',
                           'organisation_award_id', 'offline_award_id', 'engagement_award_id', 'award_id'];
@@ -2112,6 +2135,27 @@ export default async function handler(req, res) {
         sanitizedBody.assignment_source = isAdminForSource ? 'manual' : 'self_join';
       }
 
+      if (entityNorm === 'member' && sanitizedBody.role_id) {
+        const assignment = await authorizeAndCheckTeamRoleAssignment({
+          supabase,
+          tenantCtx,
+          memberId: sanitizedBody.id || '__new_member__',
+          targetMember: {
+            id: sanitizedBody.id || '__new_member__',
+            tenant_id: sanitizedBody.tenant_id,
+            organization_id: sanitizedBody.organization_id || null,
+            role_id: null,
+          },
+          destinationRoleId: sanitizedBody.role_id,
+          effectiveFrom: sanitizedBody.role_effective_from,
+          hasAdminAccess,
+          hasFeatureAccess,
+        });
+        if (!assignment.ok) {
+          return res.status(assignment.status).json({ error: assignment.error });
+        }
+      }
+
       const { data, error } = await supabase
         .from(tableName)
         .insert(sanitizedBody)
@@ -2120,6 +2164,12 @@ export default async function handler(req, res) {
 
       if (error) {
         console.error(`Error inserting into ${tableName}:`, error);
+
+        if (error.code === '23514' && String(error.message || '').startsWith('ROLE_CAPACITY_EXCEEDED:')) {
+          return res.status(409).json({
+            error: String(error.message).replace(/^ROLE_CAPACITY_EXCEEDED:\s*/, ''),
+          });
+        }
         
         // Handle unique constraint violations with user-friendly messages
         if (error.code === '23505') {

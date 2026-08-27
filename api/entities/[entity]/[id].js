@@ -54,6 +54,8 @@ import {
   validateSpeakerMemberLink,
 } from '../../_lib/speakerMemberLink.js';
 import { validateFormAccessPolicy } from '../../_lib/formAccessPolicy.js';
+import { authorizeAndCheckTeamRoleAssignment, validateAssignableRoleIds } from '../../_lib/teamRoleAssignment.js';
+import { checkRoleMutationAccess } from '../../_lib/roleMutationAccess.js';
 import { remapGroupRolePolicy } from '../../../client/src/lib/memberGroupRoleNames.js';
 const entityToTable = {
   'Gallery': 'gallery',
@@ -226,6 +228,12 @@ export default async function handler(req, res) {
   let allowsTenantWideAccess = false;
 
   const entityNorm = entity.replace(/[-_]/g, '').toLowerCase();
+  if (entityNorm === 'role' && req.method !== 'GET') {
+    const roleAccess = await checkRoleMutationAccess(tenantCtx, hasAdminAccess);
+    if (!roleAccess.ok) {
+      return res.status(roleAccess.status).json({ error: roleAccess.error });
+    }
+  }
   if (isCustomObjectStorageEntity(entityNorm)) {
     return res.status(403).json({
       error: 'Custom Object data must be accessed through the Custom Object service',
@@ -1235,43 +1243,35 @@ export default async function handler(req, res) {
         }
       }
 
-      // Enforce per-organisation role capacity (role.max_members) when a member's
-      // role is changed. Mirrors the form-application capacity logic so the limit
-      // cannot be bypassed via this update path. Uses beforeData (fetched above for
-      // member entities) for the member's organisation and previous role.
-      if (entityNormalized === 'member' && 'role_id' in sanitizedBody && sanitizedBody.role_id) {
-        const newRoleId = sanitizedBody.role_id;
-        const previousRoleId = beforeData?.role_id || null;
-        if (newRoleId !== previousRoleId) {
-          const { data: roleRow, error: roleFetchError } = await supabase
-            .from('role')
-            .select('id, name, max_members')
-            .eq('id', newRoleId)
-            .single();
+      if (entityNormalized === 'role'
+        && Object.prototype.hasOwnProperty.call(sanitizedBody, 'assignable_role_ids')) {
+        const assignable = await validateAssignableRoleIds({
+          supabase,
+          tenantId: tenantCtx.tenantId,
+          roleIds: sanitizedBody.assignable_role_ids,
+        });
+        if (!assignable.ok) {
+          return res.status(assignable.status).json({ error: assignable.error });
+        }
+        sanitizedBody.assignable_role_ids = assignable.roleIds;
+      }
 
-          if (!roleFetchError && roleRow && roleRow.max_members !== null && roleRow.max_members !== undefined) {
-            const organizationId = beforeData?.organization_id || null;
-            if (!organizationId) {
-              return res.status(400).json({ error: 'Organization context required to assign a capacity-limited role' });
-            }
-
-            const { count, error: countError } = await supabase
-              .from('member')
-              .select('id', { count: 'exact', head: true })
-              .eq('role_id', newRoleId)
-              .eq('organization_id', organizationId)
-              .eq('login_enabled', true)
-              .neq('id', id);
-
-            if (!countError) {
-              const currentCount = count || 0;
-              if (currentCount >= roleRow.max_members) {
-                return res.status(409).json({
-                  error: `The "${roleRow.name}" role is full (${currentCount}/${roleRow.max_members}) for this organisation.`
-                });
-              }
-            }
-          }
+      if (entityNormalized === 'member'
+        && (Object.prototype.hasOwnProperty.call(sanitizedBody, 'role_id')
+          || Object.prototype.hasOwnProperty.call(sanitizedBody, 'role_effective_from'))) {
+        const assignment = await authorizeAndCheckTeamRoleAssignment({
+          supabase,
+          tenantCtx,
+          memberId: id,
+          destinationRoleId: Object.prototype.hasOwnProperty.call(sanitizedBody, 'role_id')
+            ? sanitizedBody.role_id
+            : beforeData?.role_id,
+          effectiveFrom: sanitizedBody.role_effective_from,
+          hasAdminAccess,
+          hasFeatureAccess,
+        });
+        if (!assignment.ok) {
+          return res.status(assignment.status).json({ error: assignment.error });
         }
       }
 
@@ -1623,6 +1623,11 @@ export default async function handler(req, res) {
           return res.status(409).json({
             error: 'This member is already linked to another speaker',
             code: 'DUPLICATE_SPEAKER_MEMBER',
+          });
+        }
+        if (error.code === '23514' && String(error.message || '').startsWith('ROLE_CAPACITY_EXCEEDED:')) {
+          return res.status(409).json({
+            error: String(error.message).replace(/^ROLE_CAPACITY_EXCEEDED:\s*/, ''),
           });
         }
         return res.status(500).json({ error: error.message });

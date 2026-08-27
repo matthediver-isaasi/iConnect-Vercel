@@ -17,6 +17,7 @@ const COPYABLE_ROLE_FIELDS = [
   'badge_text_colour',
   'segment_values',
   'max_members',
+  'assignable_role_ids',
 ];
 
 function stringArray(value) {
@@ -41,7 +42,7 @@ export function getCopyName(sourceName, existingNames = []) {
 export function buildRoleCopyPayload(sourceRole, existingNames = []) {
   const payload = {};
   for (const field of COPYABLE_ROLE_FIELDS) {
-    if (field === 'excluded_features' || field === 'segment_values') {
+    if (field === 'excluded_features' || field === 'segment_values' || field === 'assignable_role_ids') {
       payload[field] = stringArray(sourceRole?.[field]);
     } else if (sourceRole?.[field] !== undefined) {
       payload[field] = sourceRole[field];

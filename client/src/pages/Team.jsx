@@ -22,11 +22,12 @@ import { sendTeamMemberInvite } from "@/api/functions";
 import InviteMemberDialog from "@/components/InviteMemberDialog";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import GuestAccessControl, { getGuestStatus } from "@/components/GuestAccessControl";
+import { canClearTeamRole, canShowTeamRoleControl, getAssignableTeamRoles } from "@/lib/teamRoleAssignment";
 import ReactQuill from 'react-quill';
 import 'react-quill/dist/quill.snow.css';
 
 export default function TeamPage({ hasBanner }) {
-  const { memberInfo, organizationInfo, isFeatureExcluded } = useMemberAccess();
+  const { memberInfo, organizationInfo, memberRole, isAdmin, isFeatureExcluded } = useMemberAccess();
 
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedRoleId, setSelectedRoleId] = useState("all");
@@ -40,6 +41,8 @@ export default function TeamPage({ hasBanner }) {
   const [inviteBody, setInviteBody] = useState("");
   const [editForm, setEditForm] = useState({ first_name: "", last_name: "", job_title: "", email: "", profile_photo_url: "", linkedin_url: "", role_id: "none", role_effective_from: null });
   const [signupLinkCopied, setSignupLinkCopied] = useState(false);
+  const [pendingRoleAssignment, setPendingRoleAssignment] = useState(null);
+  const [roleEffectiveFrom, setRoleEffectiveFrom] = useState(null);
   // Local edit state for the per-org Guest Access card. Mirrors the
   // organisation row but lets the admin tweak the period without saving on
   // every keystroke.
@@ -96,11 +99,6 @@ export default function TeamPage({ hasBanner }) {
       return await base44.entities.Role.list();
     }
   });
-
-  const memberRole = useMemo(() => {
-    if (!memberInfo?.role_id || !roles.length) return null;
-    return roles.find(r => r.id === memberInfo.role_id) || null;
-  }, [memberInfo?.role_id, roles]);
 
   const signupLink = useMemo(() => {
     if (!memberInfo?.organization_id) return null;
@@ -386,6 +384,33 @@ export default function TeamPage({ hasBanner }) {
       toast.error(serverMsg || 'Failed to update member');
     }
   });
+
+  const assignRoleMutation = useMutation({
+    mutationFn: async ({ memberId, roleId, effectiveFrom }) => base44.entities.Member.update(memberId, {
+      role_id: roleId,
+      role_effective_from: effectiveFrom || null,
+    }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['team-members'] });
+      toast.success('Team member role updated');
+      setPendingRoleAssignment(null);
+      setRoleEffectiveFrom(null);
+    },
+    onError: (error) => {
+      toast.error(error?.response?.data?.error || error?.message || 'Failed to update team member role');
+    },
+  });
+
+  const selectInlineRole = (member, roleId) => {
+    if (roleId === member.role_id) return;
+    const nextRole = roles.find((role) => role.id === roleId);
+    if (nextRole?.requires_effective_from_date) {
+      setPendingRoleAssignment({ member, role: nextRole });
+      setRoleEffectiveFrom(null);
+      return;
+    }
+    assignRoleMutation.mutate({ memberId: member.id, roleId, effectiveFrom: null });
+  };
 
   // Send invite mutation
   const sendInviteMutation = useMutation({
@@ -881,6 +906,8 @@ export default function TeamPage({ hasBanner }) {
                   // permission (same as login-access management), not by
                   // the tenant's display preference for the login toggle.
                   const canManageGuestAccess = !isFeatureExcluded('element_TeamLoginAccessToggle');
+                  const canAssignRoles = canShowTeamRoleControl(isFeatureExcluded);
+                  const assignableRoles = getAssignableTeamRoles(roles, memberRole, member.role_id);
 
                   const canEditMember = !isFeatureExcluded('element_TeamEditMember');
                   
@@ -952,6 +979,27 @@ export default function TeamPage({ hasBanner }) {
                             canManage={canManageGuestAccess}
                             layout="inline-row"
                           />
+                        )}
+                        {canAssignRoles && assignableRoles.length > 0 && (
+                          <div className="space-y-1">
+                            <Label className="text-xs text-slate-600">Role</Label>
+                            <Select
+                              value={member.role_id || undefined}
+                              onValueChange={(roleId) => selectInlineRole(member, roleId)}
+                              disabled={assignRoleMutation.isPending}
+                            >
+                              <SelectTrigger data-testid={`select-team-role-${member.id}`}>
+                                <SelectValue placeholder="Select role" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {assignableRoles.map((candidate) => (
+                                  <SelectItem key={candidate.id} value={candidate.id}>
+                                    {candidate.name}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
                         )}
                         {/* Render content sections in configured order */}
                         {orderedSections.filter(s => !['profile_photo', 'name_role'].includes(s)).map(sectionId => {
@@ -1140,6 +1188,41 @@ export default function TeamPage({ hasBanner }) {
         </div>
       </div>
 
+      <Dialog open={!!pendingRoleAssignment} onOpenChange={(open) => {
+        if (!open) {
+          setPendingRoleAssignment(null);
+          setRoleEffectiveFrom(null);
+        }
+      }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Effective From date required</DialogTitle>
+            <DialogDescription>
+              Choose when {pendingRoleAssignment?.role?.name || 'this role'} takes effect.
+            </DialogDescription>
+          </DialogHeader>
+          <CalendarPicker
+            mode="single"
+            selected={roleEffectiveFrom ? new Date(`${roleEffectiveFrom}T00:00:00`) : undefined}
+            onSelect={(date) => setRoleEffectiveFrom(date ? format(date, 'yyyy-MM-dd') : null)}
+          />
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPendingRoleAssignment(null)}>Cancel</Button>
+            <Button
+              disabled={!roleEffectiveFrom || assignRoleMutation.isPending}
+              onClick={() => assignRoleMutation.mutate({
+                memberId: pendingRoleAssignment.member.id,
+                roleId: pendingRoleAssignment.role.id,
+                effectiveFrom: roleEffectiveFrom,
+              })}
+            >
+              {assignRoleMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+              Update role
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Edit Member Dialog */}
       <Dialog open={!!editingMember} onOpenChange={(open) => !open && setEditingMember(null)}>
         <DialogContent>
@@ -1228,7 +1311,8 @@ export default function TeamPage({ hasBanner }) {
               />
             </div>
 
-            {!isFeatureExcluded('element_TeamEditMember') && (
+            {!isFeatureExcluded('element_TeamEditMember')
+              && (isAdmin || canShowTeamRoleControl(isFeatureExcluded)) && (
               <div className="space-y-2">
                 <Label htmlFor="role_id">Role</Label>
                 <Select
@@ -1248,11 +1332,14 @@ export default function TeamPage({ hasBanner }) {
                     <SelectValue placeholder="Select role" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="none">
-                      <span className="text-slate-500">No Role</span>
-                    </SelectItem>
-                    {roles
-                      .filter((role) => !role.is_tenant_admin || role.id === editForm.role_id)
+                    {canClearTeamRole(isAdmin) && (
+                      <SelectItem value="none">
+                        <span className="text-slate-500">No Role</span>
+                      </SelectItem>
+                    )}
+                    {(isAdmin
+                      ? roles.filter((role) => !role.is_tenant_admin || role.id === editForm.role_id)
+                      : getAssignableTeamRoles(roles, memberRole, editForm.role_id))
                       .map((role) => (
                       <SelectItem key={role.id} value={role.id} data-testid={`option-role-${role.id}`}>
                         <div className="flex items-center gap-2">

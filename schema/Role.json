@@ -33,6 +33,14 @@
         "default": false,
         "description": "Whether this is a tenant-level admin role. When true, the role is hidden from the Role selector in the Edit Member modal on /Team."
       },
+      "assignable_role_ids": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "default": [],
+        "description": "Tenant role IDs that members with this role may assign to colleagues in their organisation"
+      },
       "show_tours": {
         "type": "boolean",
         "default": true,

@@ -414,7 +414,11 @@ export default function RoleManagementPage() {
       queryClient.invalidateQueries({ queryKey: ['role-member-counts'] });
       // Keep dialog open for continued editing - update editingRole with fresh data
       if (updatedRole) {
-        setEditingRole({ ...updatedRole, segment_values: updatedRole.segment_values || [] });
+        setEditingRole({
+          ...updatedRole,
+          segment_values: updatedRole.segment_values || [],
+          assignable_role_ids: updatedRole.assignable_role_ids || [],
+        });
       }
       toast.success('Role saved successfully');
     },
@@ -459,7 +463,11 @@ export default function RoleManagementPage() {
       queryClient.invalidateQueries({ queryKey: ['role-member-counts'] });
       queryClient.invalidateQueries({ queryKey: ['resource-categories-for-roles'] });
       queryClient.invalidateQueries({ queryKey: ['authenticated-resource-categories'] });
-      setEditingRole({ ...result.role, segment_values: result.role.segment_values || [] });
+      setEditingRole({
+        ...result.role,
+        segment_values: result.role.segment_values || [],
+        assignable_role_ids: result.role.assignable_role_ids || [],
+      });
       // Seed the editor with the restrictions the server just applied. This
       // avoids a stale-cache window where the copied role could briefly appear
       // unrestricted before the invalidated categories finish refetching.
@@ -499,7 +507,8 @@ export default function RoleManagementPage() {
       default_landing_page: "about-me",
       layout_theme: "default",
       segment_values: [],  // Initialize empty for new roles
-      max_members: null    // null = unlimited
+      max_members: null,   // null = unlimited
+      assignable_role_ids: []
     });
     setCategoryAccessOverrides({});
     setSubcategoryAccessOverrides({});
@@ -510,7 +519,8 @@ export default function RoleManagementPage() {
   const handleEdit = (role) => {
     setEditingRole({ 
       ...role,
-      segment_values: role.segment_values || []  // Ensure array for editing
+      segment_values: role.segment_values || [],  // Ensure array for editing
+      assignable_role_ids: role.assignable_role_ids || []
     });
     setCategoryAccessOverrides({});
     setSubcategoryAccessOverrides({});
@@ -605,7 +615,8 @@ export default function RoleManagementPage() {
       badge_background_colour: editingRole.badge_background_colour || null,
       badge_text_colour: editingRole.badge_text_colour || null,
       segment_values: segmentationFieldId ? (editingRole.segment_values || []) : null,
-      max_members: editingRole.max_members === '' || editingRole.max_members === null ? null : parseInt(editingRole.max_members, 10) || null
+      max_members: editingRole.max_members === '' || editingRole.max_members === null ? null : parseInt(editingRole.max_members, 10) || null,
+      assignable_role_ids: Array.isArray(editingRole.assignable_role_ids) ? editingRole.assignable_role_ids : []
     };
 
     if (editingRole.id) {
@@ -1256,6 +1267,41 @@ export default function RoleManagementPage() {
                       <p className="text-xs text-blue-700 mt-1">
                         Require an "Effective From" date when assigning this role (e.g., for Alumni)
                       </p>
+                    </div>
+                  </div>
+
+                  <div className="p-4 bg-slate-50 rounded-lg border border-slate-200">
+                    <Label className="font-medium">Roles this role can assign</Label>
+                    <p className="text-xs text-slate-500 mt-1 mb-3">
+                      Members with this role may assign the selected roles to colleagues in their own organisation.
+                    </p>
+                    <div className="space-y-2 max-h-48 overflow-y-auto">
+                      {roles
+                        .filter((role) => role.is_tenant_admin !== true)
+                        .map((role) => {
+                          const selected = (editingRole.assignable_role_ids || []).includes(role.id);
+                          return (
+                            <label key={role.id} className="flex items-center gap-2 text-sm cursor-pointer">
+                              <Checkbox
+                                checked={selected}
+                                onCheckedChange={(checked) => {
+                                  const current = editingRole.assignable_role_ids || [];
+                                  setEditingRole({
+                                    ...editingRole,
+                                    assignable_role_ids: checked
+                                      ? [...new Set([...current, role.id])]
+                                      : current.filter((id) => id !== role.id),
+                                  });
+                                }}
+                                data-testid={`checkbox-assignable-role-${role.id}`}
+                              />
+                              <span>{role.name}</span>
+                            </label>
+                          );
+                        })}
+                      {roles.filter((role) => role.is_tenant_admin !== true).length === 0 && (
+                        <p className="text-xs text-slate-500">No eligible destination roles are available.</p>
+                      )}
                     </div>
                   </div>
 
