@@ -3,8 +3,10 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
   applyOrganizationFilter,
+  configuredOrganizationFilterOptions,
   conditionalRuleMatches,
   intersectConditionalOptions,
+  mergeOrganizationFilterOptions,
   normalizeConditionalValue,
   projectConditionalSourceValues,
   removeInvalidConditionalValue,
@@ -200,4 +202,58 @@ test('organization filtering supports standard and custom trusted shapes', () =>
     applyOrganizationFilter(organizations, { type: 'custom', field: 'sector', values: ['tech'] }),
     [organizations[1]],
   );
+});
+
+test('organization filter options use configured custom-field choices', () => {
+  assert.deepEqual(configuredOrganizationFilterOptions('custom', 'sector', [
+    {
+      name: 'sector',
+      entity_scope: 'member',
+      options: ['Wrong scope'],
+    },
+    {
+      name: 'sector',
+      entity_scope: 'organization',
+      options: ['Arts', { value: 'tech', label: 'Technology' }, 'Arts'],
+    },
+  ]), [
+    { value: 'Arts', label: 'Arts' },
+    { value: 'tech', label: 'Technology' },
+  ]);
+  assert.deepEqual(configuredOrganizationFilterOptions('core', 'status', []), []);
+});
+
+test('organization field-value endpoint is admin-only and flattens custom arrays', async () => {
+  const endpoint = await import('../../../api/public/organisation-field-values.js');
+  assert.deepEqual(endpoint.normalizePreferenceValues(
+    JSON.stringify(['first', { value: 'second' }, ['third']]),
+  ), ['first', 'second', 'third']);
+  const source = readFileSync(
+    new URL('../../../api/public/organisation-field-values.js', import.meta.url),
+    'utf8',
+  );
+  assert.match(source, /getTenantContext\(req\)/);
+  assert.match(source, /hasAdminAccess\(tenantContext\)/);
+  assert.doesNotMatch(source, /tenantParam/);
+  assert.match(source, /\.order\('id', \{ ascending: true \}\)[\s\S]*?\.range\(/);
+});
+
+test('organization filter options preserve unavailable saved values', () => {
+  assert.deepEqual(mergeOrganizationFilterOptions(
+    ['Active', { value: 'pending', label: 'Pending approval' }, 'Active'],
+    ['pending', 'Legacy'],
+  ), [
+    { value: 'Active', label: 'Active' },
+    { value: 'pending', label: 'Pending approval' },
+    { value: 'Legacy', label: 'Legacy (unavailable)', unavailable: true },
+  ]);
+});
+
+test('organization result filter builder uses a multi-select instead of comma input', () => {
+  const source = readFileSync(new URL('../pages/FormBuilder.jsx', import.meta.url), 'utf8');
+  const editor = source.match(/function ConditionalOrgFilterValues[\s\S]*?function ConditionalFilterRuleEditor/)?.[0] || '';
+  assert.match(editor, /PolicyMultiSelect/);
+  assert.match(editor, /listOrganizationFieldValues/);
+  assert.doesNotMatch(editor, /Allowed values, separated by commas/);
+  assert.doesNotMatch(editor, /\.split\(','\)/);
 });

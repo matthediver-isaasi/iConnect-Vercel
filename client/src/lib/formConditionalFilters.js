@@ -216,3 +216,56 @@ export function applyOrganizationFilter(organizations, filter) {
     return normalizeConditionalValue(raw).some((item) => allowed.includes(comparable(item)));
   });
 }
+
+function organizationFilterValue(value) {
+  const raw = value && typeof value === 'object'
+    ? value.value ?? value.id ?? value.name ?? value.label
+    : value;
+  if (raw === undefined || raw === null || String(raw).trim() === '') return null;
+  return String(raw).trim();
+}
+
+export function configuredOrganizationFilterOptions(fieldType, fieldName, customFields = []) {
+  if (fieldType !== 'custom' || !fieldName) return [];
+  const field = customFields.find((candidate) => (
+    candidate?.name === fieldName && candidate?.entity_scope === 'organization'
+  ));
+  if (!field) return [];
+  const configured = Array.isArray(field.options) ? field.options
+    : (Array.isArray(field.choices) ? field.choices : []);
+  const seen = new Set();
+  return configured.flatMap((option) => {
+    const value = organizationFilterValue(option);
+    if (value === null || seen.has(value)) return [];
+    seen.add(value);
+    return [{
+      value,
+      label: option && typeof option === 'object'
+        ? String(option.label ?? option.name ?? value)
+        : value,
+    }];
+  });
+}
+
+export function mergeOrganizationFilterOptions(availableValues = [], selectedValues = []) {
+  const options = [];
+  const seen = new Set();
+  for (const item of availableValues) {
+    const value = organizationFilterValue(item);
+    if (value === null || seen.has(value)) continue;
+    seen.add(value);
+    options.push({
+      value,
+      label: item && typeof item === 'object'
+        ? String(item.label ?? item.name ?? value)
+        : value,
+    });
+  }
+  for (const item of selectedValues) {
+    const value = organizationFilterValue(item);
+    if (value === null || seen.has(value)) continue;
+    seen.add(value);
+    options.push({ value, label: `${value} (unavailable)`, unavailable: true });
+  }
+  return options;
+}

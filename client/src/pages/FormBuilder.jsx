@@ -49,6 +49,10 @@ import { validateScoreFieldConfig, validateSurveyForPublish, getScoreRange, getS
 import { listOrganizationsForAdmin } from '@/lib/adminOrgList';
 import SurveyEventAssignmentsPanel from "@/components/surveys/SurveyEventAssignmentsPanel";
 import { getEligibleRelationshipParents, normalizeEligibleRelationships, relationshipFieldConfig } from "@/lib/formRelationshipDropdown";
+import {
+  configuredOrganizationFilterOptions,
+  mergeOrganizationFilterOptions,
+} from "@/lib/formConditionalFilters";
 
 const BADGE_STYLE_DEFAULTS = {
   background_color: '#ffffff',
@@ -3683,6 +3687,58 @@ function getConditionalOperatorGroup(field) {
   return 'text';
 }
 
+function ConditionalOrgFilterValues({ type, fieldName, values, onChange, customFields, ruleId }) {
+  const configuredOptions = useMemo(
+    () => configuredOrganizationFilterOptions(type, fieldName, customFields),
+    [type, fieldName, customFields],
+  );
+  const usesConfiguredOptions = configuredOptions.length > 0;
+  const { data: distinctValues = [], isLoading, isError } = useQuery({
+    queryKey: ['org-field-values', type, fieldName],
+    queryFn: async () => await publicClient.listOrganizationFieldValues(type, fieldName) || [],
+    enabled: !!type && !!fieldName && !usesConfiguredOptions,
+    staleTime: 2 * 60 * 1000,
+  });
+  const options = useMemo(
+    () => mergeOrganizationFilterOptions(
+      usesConfiguredOptions ? configuredOptions : distinctValues,
+      values,
+    ),
+    [configuredOptions, distinctValues, usesConfiguredOptions, values],
+  );
+
+  if (!usesConfiguredOptions && isLoading) {
+    return (
+      <div className="flex items-center gap-2 rounded border border-slate-200 p-2 text-xs text-slate-500">
+        <Loader2 className="h-3 w-3 animate-spin" /> Loading values…
+      </div>
+    );
+  }
+  if (!usesConfiguredOptions && isError) {
+    return (
+      <div className="rounded border border-red-200 bg-red-50 p-2 text-xs text-red-700">
+        Failed to load values. Existing selections have not been changed.
+      </div>
+    );
+  }
+  if (options.length === 0) {
+    return (
+      <div className="rounded border border-amber-200 bg-amber-50 p-2 text-xs text-amber-700">
+        No values are available for this field.
+      </div>
+    );
+  }
+  return (
+    <PolicyMultiSelect
+      options={options}
+      value={values.map(item => String(item))}
+      onChange={onChange}
+      placeholder="Choose allowed values…"
+      testId={`select-conditional-org-filter-values-${ruleId}`}
+    />
+  );
+}
+
 function ConditionalOrgFilterEditor({ value, onChange, customFields, ruleId }) {
   const coreFields = [
     ['name', 'Name'],
@@ -3744,14 +3800,13 @@ function ConditionalOrgFilterEditor({ value, onChange, customFields, ruleId }) {
             </SelectContent>
           </Select>
           {fieldName && (
-            <Input
-              className="h-8 text-xs"
-              value={values.join(', ')}
-              onChange={event => setFilter({
-                values: event.target.value.split(',').map(item => item.trim()).filter(Boolean),
-              })}
-              placeholder="Allowed values, separated by commas"
-              data-testid={`input-conditional-org-filter-values-${ruleId}`}
+            <ConditionalOrgFilterValues
+              type={type}
+              fieldName={fieldName}
+              values={values}
+              onChange={nextValues => setFilter({ values: nextValues })}
+              customFields={customFields}
+              ruleId={ruleId}
             />
           )}
         </>
