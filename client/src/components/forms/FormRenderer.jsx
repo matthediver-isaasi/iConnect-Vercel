@@ -132,16 +132,24 @@ function RepeatableRowsField({
     if (needsCanonicalValue) onChange(rows);
   }, [value, rows, targetInitialRows, config.children, onChange]);
 
-  useEffect(() => {
-    const result = validateRepeatableRows(field, rows, {
+  const validation = useMemo(() => validateRepeatableRows(field, rows, {
       rootFields: rootAllFields || [],
       validateChild: ({ child, row }) => childValidity[row._row_id]?.[child.id] !== false,
-    });
-    if (lastReportedValidity.current !== result.valid) {
-      lastReportedValidity.current = result.valid;
-      onValidityChange?.(field.id, result.valid);
+    }), [field, rows, childValidity, rootAllFields]);
+  const duplicateErrors = useMemo(() => {
+    const byCell = new Map();
+    validation.errors
+      .filter(error => error.code === 'duplicate_child_value')
+      .forEach(error => byCell.set(`${error.row}:${error.child_id}`, error.message));
+    return byCell;
+  }, [validation.errors]);
+
+  useEffect(() => {
+    if (lastReportedValidity.current !== validation.valid) {
+      lastReportedValidity.current = validation.valid;
+      onValidityChange?.(field.id, validation.valid);
     }
-  }, [field, rows, childValidity, onValidityChange, rootAllFields]);
+  }, [field.id, validation.valid, onValidityChange]);
 
   const updateRow = (rowId, childId, nextValue) => {
     onChange(rows.map(row => row._row_id === rowId
@@ -209,6 +217,15 @@ function RepeatableRowsField({
         membershipFeeQuote={membershipFeeQuote}
         notListedDisplayLabel={notListedDisplayLabel}
       />
+      {duplicateErrors.has(`${rowIndex}:${child.id}`) && (
+        <p
+          className="text-xs text-red-600"
+          role="alert"
+          data-testid={`repeatable-duplicate-error-${field.id}-${rowIndex}-${child.id}`}
+        >
+          {duplicateErrors.get(`${rowIndex}:${child.id}`)}
+        </p>
+      )}
       </>
     );
     return spreadsheet ? (

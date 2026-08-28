@@ -85,3 +85,33 @@ test('rejects missing required values and excessive rows', async () => {
       && error.details.some((detail) => detail.code === 'required_child'),
   );
 });
+
+test('rejects duplicate values in a server-trusted unique repeatable column', async () => {
+  const uniqueForm = {
+    ...form,
+    fields: [{
+      ...form.fields[0],
+      children: form.fields[0].children.map(child => (
+        child.id === 'org' ? { ...child, label: 'Organisation', unique_across_rows: true } : child
+      )),
+    }],
+  };
+  let calls = 0;
+  await assert.rejects(
+    validateRepeatableRowSubmission({
+      tenantId: 'tenant-1',
+      form: uniqueForm,
+      submissionData: {
+        rows: [
+          { org: 'org-1', unit: 'unit-1' },
+          { org: 'org-1', unit: 'unit-2' },
+        ],
+      },
+      relationshipService: { async validateSubmission() { calls += 1; } },
+    }),
+    error => error.status === 400
+      && error.code === 'duplicate_child_value'
+      && error.details.every(detail => detail.code === 'duplicate_child_value'),
+  );
+  assert.equal(calls, 0);
+});

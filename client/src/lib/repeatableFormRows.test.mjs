@@ -59,3 +59,18 @@ test('enforces row limits and child renderer validity', () => {
   assert.equal(invalid.valid, false);
   assert.match(invalid.errors[0].message, /Department is invalid/);
 });
+
+test('marks repeatable values invalid when a unique column repeats', () => {
+  const uniqueField = {
+    ...field,
+    child_fields: field.child_fields.map(child => (
+      child.id === 'org' ? { ...child, unique_across_rows: true } : child
+    )),
+  };
+  const result = validateRepeatableRows(uniqueField, [
+    { _row_id: 'one', org: 'org-1', department: 'unit-1' },
+    { _row_id: 'two', org: 'org-1', department: 'unit-2' },
+  ]);
+  assert.equal(result.valid, false);
+  assert.equal(result.errors[0].code, 'duplicate_child_value');
+});

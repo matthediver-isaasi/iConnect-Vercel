@@ -4334,9 +4334,22 @@ function RepeatableRowsSettings({ field, originalIndex, updateField, eligibleRel
                 </Select>
               </div>
             </div>
-            <div className="flex items-center gap-2">
-              <Switch id={`repeatable-child-required-${child.id}`} checked={child.required === true} onCheckedChange={required => updateChild(childIndex, { required })} />
-              <Label htmlFor={`repeatable-child-required-${child.id}`} className="text-xs">Required in active rows</Label>
+            <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
+              <div className="flex items-center gap-2">
+                <Switch id={`repeatable-child-required-${child.id}`} checked={child.required === true} onCheckedChange={required => updateChild(childIndex, { required })} />
+                <Label htmlFor={`repeatable-child-required-${child.id}`} className="text-xs">Required in active rows</Label>
+              </div>
+              <div className="flex items-center gap-2">
+                <Switch
+                  id={`repeatable-child-unique-${child.id}`}
+                  checked={child.unique_across_rows === true}
+                  onCheckedChange={unique_across_rows => updateChild(childIndex, { unique_across_rows })}
+                  data-testid={`switch-repeatable-child-unique-${child.id}`}
+                />
+                <Label htmlFor={`repeatable-child-unique-${child.id}`} className="text-xs">
+                  Unique across rows
+                </Label>
+              </div>
             </div>
             {optionsType && (
               <div className="space-y-1">

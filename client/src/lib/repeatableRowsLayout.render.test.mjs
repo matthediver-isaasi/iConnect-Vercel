@@ -30,6 +30,22 @@ test('builder treats repeatable aliases as existing repeatable fields without re
   );
 });
 
+test('builder exposes per-column uniqueness and renderer shows duplicate feedback', () => {
+  assert.match(
+    builder,
+    /data-testid=\{`switch-repeatable-child-unique-\$\{child\.id\}`\}/,
+  );
+  assert.match(builder, /Unique across rows/);
+  assert.match(
+    renderer,
+    /error\.code === 'duplicate_child_value'/,
+  );
+  assert.match(
+    renderer,
+    /data-testid=\{`repeatable-duplicate-error-\$\{field\.id\}-\$\{rowIndex\}-\$\{child\.id\}`\}/,
+  );
+});
+
 test('spreadsheet repeatable rows render one header, aligned rows, and icon-only removal', () => {
   assert.match(renderer, /data-testid=\{`repeatable-spreadsheet-header-\$\{field\.id\}`\}/);
   assert.match(renderer, /gridTemplateColumns: `repeat\(\$\{config\.children\.length\}, minmax\(12rem, 1fr\)\) 2\.75rem`/);

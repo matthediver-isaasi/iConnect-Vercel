@@ -78,6 +78,7 @@ export function normalizeRepeatableRowField(field = {}) {
     ...child,
     id: child.id == null ? '' : String(child.id),
     required: child.required === true || child.is_required === true,
+    unique_across_rows: child.unique_across_rows === true,
   }));
   const minimum = integer(source.min_rows ?? source.minimum_rows, 0, 0, HARD_MAX_ROWS);
   const firstRequired = source.first_row_required === true || source.initial_row_required === true;
@@ -139,6 +140,31 @@ function optionValue(option) {
 
 function selectedValues(value) {
   return Array.isArray(value) ? value : [value];
+}
+
+function stableUniqueValue(value, child) {
+  if (Array.isArray(value)) {
+    return `array:${JSON.stringify(value
+      .map(item => stableUniqueValue(item, child))
+      .sort())}`;
+  }
+  if (value && typeof value === 'object') {
+    return `object:${JSON.stringify(Object.keys(value).sort().map(key => [
+      key,
+      stableUniqueValue(value[key], child),
+    ]))}`;
+  }
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (['number', 'percentage', 'currency'].includes(child?.type)
+        && trimmed !== '' && Number.isFinite(Number(trimmed))) {
+      return `number:${Number(trimmed)}`;
+    }
+    return `string:${child?.type === 'email' ? trimmed.toLowerCase() : trimmed}`;
+  }
+  if (typeof value === 'number') return `number:${Number(value)}`;
+  if (typeof value === 'boolean') return `boolean:${value}`;
+  return `${typeof value}:${String(value)}`;
 }
 
 export function validateRepeatableRowConfiguration(field, options = {}) {
@@ -311,6 +337,32 @@ export function validateRepeatableRows(field, value, options = {}) {
       }
     }
   });
+  for (const child of config.children) {
+    if (!child.unique_across_rows) continue;
+    const rowsByValue = new Map();
+    value.forEach((row, rowIndex) => {
+      const selected = row?.[child.id];
+      if (isRepeatableValueEmpty(selected)) return;
+      const key = stableUniqueValue(selected, child);
+      const matchingRows = rowsByValue.get(key) || [];
+      matchingRows.push(rowIndex);
+      rowsByValue.set(key, matchingRows);
+    });
+    for (const matchingRows of rowsByValue.values()) {
+      if (matchingRows.length < 2) continue;
+      const rowLabels = matchingRows.map(index => index + 1);
+      const message = `${child.label || child.id} must be unique; rows ${rowLabels.join(', ')} have the same value`;
+      matchingRows.forEach(rowIndex => {
+        errors.push({
+          code: 'duplicate_child_value',
+          row: rowIndex,
+          child_id: child.id,
+          conflicting_rows: rowLabels,
+          message,
+        });
+      });
+    }
+  }
   return { valid: errors.length === 0, errors, rows: value, config };
 }
 

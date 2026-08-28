@@ -62,6 +62,21 @@ test('repeatable rows default to cards and accept only the spreadsheet layout', 
   }).layout, REPEATABLE_ROW_LAYOUT_CARDS);
 });
 
+test('repeatable child uniqueness is opt-in and normalized strictly', () => {
+  const config = normalizeRepeatableRowField({
+    type: 'repeatable_rows',
+    child_fields: [
+      { id: 'enabled', type: 'text', unique_across_rows: true },
+      { id: 'disabled', type: 'text', unique_across_rows: 'true' },
+      { id: 'missing', type: 'text' },
+    ],
+  });
+  assert.deepEqual(
+    config.children.map(child => child.unique_across_rows),
+    [true, false, false],
+  );
+});
+
 test('repeatable config updates preserve the active top-level or nested storage shape', () => {
   assert.deepEqual(repeatableRowFieldConfigUpdate({
     type: 'repeatable_rows',
@@ -139,6 +154,55 @@ test('optional untouched rows are empty and do not trigger required-child errors
   };
   assert.equal(isRepeatableRowEmpty({ _row_id: 'row-1' }, optional), true);
   assert.equal(validateRepeatableRows(optional, [{ _row_id: 'row-1' }]).valid, true);
+});
+
+test('unique repeatable columns reject populated duplicates and identify every conflicting row', () => {
+  const uniqueField = {
+    type: 'repeatable_rows',
+    child_fields: [
+      { id: 'org', type: 'organisation_dropdown', label: 'Organisation', unique_across_rows: true },
+      { id: 'note', type: 'text' },
+    ],
+  };
+  const result = validateRepeatableRows(uniqueField, [
+    { _row_id: 'one', org: 'org-1' },
+    { _row_id: 'two', org: 'org-2' },
+    { _row_id: 'three', org: 'org-1' },
+  ]);
+  const duplicateErrors = result.errors.filter(error => error.code === 'duplicate_child_value');
+  assert.equal(result.valid, false);
+  assert.deepEqual(duplicateErrors.map(error => error.row), [0, 2]);
+  assert.deepEqual(duplicateErrors[0].conflicting_rows, [1, 3]);
+  assert.match(duplicateErrors[0].message, /Organisation must be unique; rows 1, 3/);
+});
+
+test('unique repeatable columns ignore empty values and normalize supported cell values', () => {
+  const uniqueField = {
+    type: 'repeatable_rows',
+    child_fields: [
+      { id: 'email', type: 'email', unique_across_rows: true },
+      { id: 'choices', type: 'checkbox', unique_across_rows: true },
+      { id: 'number', type: 'number', unique_across_rows: true },
+    ],
+  };
+  const result = validateRepeatableRows(uniqueField, [
+    { email: '', choices: [], number: '' },
+    { email: ' Person@Example.com ', choices: ['B', 'A'], number: '01' },
+    { email: 'person@example.com', choices: ['A', 'B'], number: 1 },
+  ]);
+  assert.equal(result.errors.filter(error => error.code === 'duplicate_child_value').length, 6);
+  assert.equal(result.errors.some(error => error.row === 0), false);
+});
+
+test('columns without the uniqueness flag still allow repeated values', () => {
+  const ordinaryField = {
+    type: 'repeatable_rows',
+    child_fields: [{ id: 'org', type: 'organisation_dropdown' }],
+  };
+  assert.equal(validateRepeatableRows(ordinaryField, [
+    { org: 'org-1' },
+    { org: 'org-1' },
+  ]).valid, true);
 });
 
 test('rejects unsupported children, invalid dependency direction and static selections', () => {
