@@ -477,13 +477,21 @@ test('submission validation accepts configured not-listed choices and rejects fo
       org: '__form_not_listed__',
       department: '__form_not_listed__',
       countries: ['__form_not_listed__'],
+      __not_listed_choice_text: {
+        org: 'Acme Ltd',
+        department: 'Operations',
+        countries: 'Atlantis',
+      },
     },
   });
 
   await assert.rejects(
     () => service.validateSubmission({
       form: form(),
-      submissionData: { org: '__form_not_listed__' },
+      submissionData: {
+        org: '__form_not_listed__',
+        __not_listed_choice_text: { org: 'Acme Ltd' },
+      },
     }),
     (error) => error.status === 400 && /Invalid not-listed selection/.test(error.message),
   );
@@ -491,10 +499,67 @@ test('submission validation accepts configured not-listed choices and rejects fo
   await assert.rejects(
     () => service.validateSubmission({
       form: configuredForm,
-      submissionData: { countries: ['__form_not_listed__', 'France'] },
+      submissionData: {
+        countries: ['__form_not_listed__', 'France'],
+        __not_listed_choice_text: { countries: 'Atlantis' },
+      },
     }),
     (error) => error.status === 400 && /exclusive/.test(error.message),
   );
+});
+
+test('submission validation requires valid, authoritative not-listed text before entity lookups', async () => {
+  const configuredForm = form({
+    fields: [{
+      id: 'org',
+      type: 'organisation_dropdown',
+      not_listed_choice: { enabled: true, label: 'My organisation is not listed' },
+    }],
+  });
+  let lookups = 0;
+  const noLookupDb = {
+    from() {
+      lookups += 1;
+      throw new Error('not-listed validation must precede database lookups');
+    },
+  };
+  const service = createFormRelationshipService({ tenantId, db: noLookupDb });
+
+  await service.validateSubmission({
+    form: configuredForm,
+    submissionData: {
+      org: '__form_not_listed__',
+      __not_listed_choice_text: { org: 'Acme Ltd' },
+    },
+  });
+  assert.equal(lookups, 0);
+
+  for (const [submissionData, message] of [
+    [{ org: '__form_not_listed__' }, 'Please specify the not-listed value'],
+    [{
+      org: '__form_not_listed__',
+      __not_listed_choice_text: { org: 'x'.repeat(501) },
+    }, '500 characters or fewer'],
+    [{
+      org: 'ordinary-org',
+      __not_listed_choice_text: { org: 'Acme Ltd' },
+    }, 'must match a not-listed selection'],
+    [{
+      org: '__form_not_listed__',
+      __not_listed_choice_text: { forged: 'Acme Ltd' },
+    }, 'Invalid not-listed text'],
+    [{
+      org: '__form_not_listed__',
+      __not_listed_choice_text: ['Acme Ltd'],
+    }, 'Invalid not-listed text'],
+  ]) {
+    await assert.rejects(
+      service.validateSubmission({ form: configuredForm, submissionData }),
+      error => error instanceof FormRelationshipError
+        && error.status === 400 && error.message.includes(message),
+    );
+  }
+  assert.equal(lookups, 0);
 });
 
 test('submission validation rejects forged legacy name keys and mismatched name-keyed parents', async () => {

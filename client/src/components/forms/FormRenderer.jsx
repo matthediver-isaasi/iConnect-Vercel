@@ -43,9 +43,17 @@ import {
 import { labelSpreadsheetControls } from "@/lib/repeatableRowsLayout";
 import {
   FORM_NOT_LISTED_VALUE,
+  FORM_NOT_LISTED_TEXT_MAX_LENGTH,
+  FORM_NOT_LISTED_TEXT_KEY,
   applyExclusiveFormNotListedSelection,
+  containsFormNotListedValue,
   formNotListedChoiceLabel,
+  hasEnabledFormNotListedChoice,
+  isFormNotListedValue,
   prependFormNotListedOption,
+  resolveFormNotListedText,
+  setRepeatableRowNotListedText,
+  supportsFormNotListedChoice,
 } from "../../../../shared/formNotListedChoice.js";
 import { formNoRelationshipLabel } from "../../../../shared/formNoRelationshipChoice.js";
 import {
@@ -108,6 +116,9 @@ function RepeatableRowsField({
       child.id,
       row[child.id] ?? (Array.isArray(child.default_value) ? [...child.default_value] : (child.default_value ?? '')),
     ]),
+    ...(row[FORM_NOT_LISTED_TEXT_KEY] && typeof row[FORM_NOT_LISTED_TEXT_KEY] === 'object'
+      ? [[FORM_NOT_LISTED_TEXT_KEY, row[FORM_NOT_LISTED_TEXT_KEY]]]
+      : []),
   ])), [value, config.children]);
   const targetInitialRows = Math.max(config.min_rows, 1);
   const createRow = () => Object.fromEntries([
@@ -138,6 +149,9 @@ function RepeatableRowsField({
   const validation = useMemo(() => validateRepeatableRows(field, rows, {
       rootFields: rootAllFields || [],
       validateChild: ({ child, row }) => childValidity[row._row_id]?.[child.id] !== false,
+      isAllowedSpecialSelection: ({ child, value: selected }) => (
+        isFormNotListedValue(selected) && hasEnabledFormNotListedChoice(child)
+      ),
     }), [field, rows, childValidity, rootAllFields]);
   const duplicateErrors = useMemo(() => {
     const byCell = new Map();
@@ -155,9 +169,14 @@ function RepeatableRowsField({
   }, [field.id, validation.valid, onValidityChange]);
 
   const updateRow = (rowId, childId, nextValue) => {
-    onChange(rows.map(row => row._row_id === rowId
-      ? { ...row, [childId]: nextValue }
-      : row));
+    const child = config.children.find(candidate => candidate.id === childId);
+    onChange(rows.map((row) => {
+      if (row._row_id !== rowId) return row;
+      const updated = { ...row, [childId]: nextValue };
+      return supportsFormNotListedChoice(child) && !containsFormNotListedValue(nextValue)
+        ? setRepeatableRowNotListedText(updated, childId, '')
+        : updated;
+    }));
   };
   const addRow = () => {
     if (rows.length >= config.max_rows) return;
@@ -200,6 +219,11 @@ function RepeatableRowsField({
         field={{ ...child, repeatable_container_field_id: field.id }}
         value={row[child.id]}
         onChange={nextValue => updateRow(rowId, child.id, nextValue)}
+        onFormNotListedTextChange={text => onChange(rows.map(current => (
+          current._row_id === rowId
+            ? setRepeatableRowNotListedText(current, child.id, text)
+            : current
+        )))}
         onValidityChange={(childId, valid) => setChildValidity(current => (
           current[rowId]?.[childId] === valid
             ? current
@@ -684,7 +708,7 @@ function CommunicationPreferencesField({ field, value, onChange, disabled, membe
   );
 }
 
-export default function FormRenderer({ field, value: suppliedValue, onChange, memberInfo, organizationInfo, selectedOrgGuestAccess = null, disabled = false, onValidityChange, onRelationshipEmptyStateChange, autoFocus = false, hideLabel = false, formId = null, formSlug = null, formMemberRoleId = null, allFormValues = {}, prefillData = null, allFields = [], membershipFeeQuote = null, notListedDisplayLabel = '', rootAllFields = null, rootAllFormValues = null, repeatableSiblingUniqueValues: siblingUniqueValues = [] }) {
+export default function FormRenderer({ field, value: suppliedValue, onChange, onFormNotListedTextChange, memberInfo, organizationInfo, selectedOrgGuestAccess = null, disabled = false, onValidityChange, onRelationshipEmptyStateChange, autoFocus = false, hideLabel = false, formId = null, formSlug = null, formMemberRoleId = null, allFormValues = {}, prefillData = null, allFields = [], membershipFeeQuote = null, notListedDisplayLabel = '', rootAllFields = null, rootAllFormValues = null, repeatableSiblingUniqueValues: siblingUniqueValues = [] }) {
   const resolvedFieldValue = resolveFormRendererFieldValue({
     field,
     fields: allFields,
@@ -692,12 +716,17 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, me
     value: suppliedValue,
   });
   const value = resolvedFieldValue.value;
+  const hasNotListedSelection = supportsFormNotListedChoice(field)
+    && containsFormNotListedValue(value);
+  const notListedText = resolveFormNotListedText(field, allFormValues);
+  const hasStoredNotListedText = allFormValues?.[FORM_NOT_LISTED_TEXT_KEY]?.[field.id] !== undefined;
   const [showOtherInput, setShowOtherInput] = useState(false);
   const [otherValue, setOtherValue] = useState('');
   const [domainError, setDomainError] = useState('');
   const [domainInfoMessage, setDomainInfoMessage] = useState('');
   const [emailFormatError, setEmailFormatError] = useState('');
   const [urlFormatError, setUrlFormatError] = useState('');
+  const lastNotListedValidity = useRef();
   const conditionalResolution = useMemo(
     () => resolveConditionalFilters({ field, fields: allFields, values: allFormValues }),
     [field, allFields, allFormValues],
@@ -708,6 +737,22 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, me
       onChange(value);
     }
   }, [resolvedFieldValue.needsCanonicalValue, onChange, value]);
+
+  useEffect(() => {
+    if (!supportsFormNotListedChoice(field) || hasNotListedSelection) return;
+    if (hasStoredNotListedText) onFormNotListedTextChange?.('');
+  }, [field, hasNotListedSelection, hasStoredNotListedText, onFormNotListedTextChange]);
+
+  useEffect(() => {
+    if (!supportsFormNotListedChoice(field)) return;
+    const valid = !hasNotListedSelection || (
+      Boolean(notListedText.trim())
+        && notListedText.trim().length <= FORM_NOT_LISTED_TEXT_MAX_LENGTH
+    );
+    if (lastNotListedValidity.current === valid) return;
+    lastNotListedValidity.current = valid;
+    onValidityChange?.(field.id, valid);
+  }, [field, hasNotListedSelection, notListedText, onValidityChange]);
   
   // Combine field.locked with disabled prop - either makes the field non-editable
   const isFieldDisabled = field.locked || disabled;
@@ -2797,6 +2842,35 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, me
     }
   };
 
+  const renderNotListedText = () => {
+    if (!hasNotListedSelection) return null;
+    const invalid = !notListedText.trim()
+      || notListedText.trim().length > FORM_NOT_LISTED_TEXT_MAX_LENGTH;
+    return (
+      <div className="space-y-1">
+        <Label htmlFor={`${field.id}-not-listed-text`}>Please specify</Label>
+        <Input
+          id={`${field.id}-not-listed-text`}
+          type="text"
+          value={notListedText}
+          onChange={event => onFormNotListedTextChange?.(event.target.value)}
+          required
+          maxLength={FORM_NOT_LISTED_TEXT_MAX_LENGTH}
+          disabled={isFieldDisabled}
+          aria-invalid={invalid}
+          data-testid={`input-not-listed-text-${field.id}`}
+        />
+      </div>
+    );
+  };
+
+  const renderFieldWithNotListedText = () => (
+    <>
+      {renderField()}
+      {renderNotListedText()}
+    </>
+  );
+
   if (field.type === 'image_buttons') {
     const imageOptions = imageButtonOptions;
     return (
@@ -2918,7 +2992,7 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, me
   }
 
   if (hideLabel) {
-    return renderField();
+    return renderFieldWithNotListedText();
   }
 
   return (
@@ -2932,7 +3006,7 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, me
           <p className="text-sm text-slate-500 mt-1">{field.description}</p>
         )}
       </div>
-      {renderField()}
+      {renderFieldWithNotListedText()}
     </div>
   );
 }

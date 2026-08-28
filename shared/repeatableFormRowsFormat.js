@@ -85,7 +85,7 @@ export function formatRepeatableRows(field, value, options = {}) {
     cells: columns.map(({ id, child }) => {
       const rawValue = row[id];
       const displayValue = containsFormNotListedValue(rawValue)
-        ? resolveFormNotListedDisplayValue(child, rawValue, options.submissionData, { parentField: field })
+        ? resolveFormNotListedDisplayValue(child, rawValue, options.submissionData, { parentField: field, row })
         : rawValue;
       const formatted = containsFormNotListedValue(rawValue)
         ? formatRepeatableCellValue(displayValue, child)

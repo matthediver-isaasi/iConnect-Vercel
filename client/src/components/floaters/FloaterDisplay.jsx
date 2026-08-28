@@ -8,6 +8,10 @@ import { toast } from "sonner";
 import { supabase } from "@/api/supabaseClient";
 import { publicClient, getTenantSlugFromLocation } from "@/api/publicClient";
 import { resolveDisplayedFloaters } from "@/lib/floaterSiteTargets";
+import {
+  pruneFormNotListedText,
+  setFormNotListedText,
+} from "../../../../shared/formNotListedChoice.js";
 
 export default function FloaterDisplay({
   location = "portal",
@@ -332,7 +336,7 @@ export default function FloaterDisplay({
       await submitFormMutation.mutateAsync({
         formId: selectedForm.id,
         formName: selectedForm.name,
-        data: formValues,
+        data: pruneFormNotListedText(selectedForm.fields, formValues),
       });
     } finally {
       setIsSubmitting(false);
@@ -528,11 +532,14 @@ export default function FloaterDisplay({
                       field={selectedForm.fields[currentStep]}
                       value={formValues[selectedForm.fields[currentStep].id]}
                       onChange={(value) =>
-                        setFormValues((prev) => ({
+                        setFormValues((prev) => pruneFormNotListedText(selectedForm.fields, {
                           ...prev,
                           [selectedForm.fields[currentStep].id]: value,
                         }))
                       }
+                      onFormNotListedTextChange={(text) => setFormValues(prev => (
+                        setFormNotListedText(prev, selectedForm.fields[currentStep].id, text)
+                      ))}
                       memberInfo={memberData}
                       organizationInfo={organizationInfo}
                       formSlug={selectedForm.slug}
@@ -597,8 +604,14 @@ export default function FloaterDisplay({
                         field={field}
                         value={formValues[field.id]}
                         onChange={(value) =>
-                          setFormValues((prev) => ({ ...prev, [field.id]: value }))
+                          setFormValues((prev) => pruneFormNotListedText(selectedForm.fields, {
+                            ...prev,
+                            [field.id]: value,
+                          }))
                         }
+                        onFormNotListedTextChange={(text) => setFormValues(prev => (
+                          setFormNotListedText(prev, field.id, text)
+                        ))}
                         memberInfo={memberData}
                         organizationInfo={organizationInfo}
                         formSlug={selectedForm.slug}

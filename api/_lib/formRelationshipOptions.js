@@ -1,7 +1,7 @@
 import { getCustomObjectFieldMetadata, resolveCustomObjectDisplayValue } from './customObjectDomain.js';
 import { isOrganizationEligibleForField } from './organizationEligibility.js';
 import { conditionalSelectionAllowed, resolveConditionalFilter } from './formConditionalFilters.js';
-import { containsFormNotListedValue, hasEnabledFormNotListedChoice, isFormNotListedValue } from '../../shared/formNotListedChoice.js';
+import { containsFormNotListedValue, hasEnabledFormNotListedChoice, isFormNotListedValue, validateFormNotListedText } from '../../shared/formNotListedChoice.js';
 import { isFormNoRelationshipValue } from '../../shared/formNoRelationshipChoice.js';
 import { isRepeatableRowField, repeatableRowChildren } from '../../shared/formRepeatableRows.js';
 
@@ -142,8 +142,14 @@ export function createFormRelationshipService({ db, tenantId }) {
     const options = rows.map(row => ({ id: row.id, label: state.saved.related.kind === 'organization' ? row.name || row.id : state.saved.related.kind === 'organization_group' ? row.name || row.id : resolveCustomObjectDisplayValue({ objectDefinition: state.relatedObject, record: row, fields: [state.primaryField] }) })).sort((a, b) => String(a.label).localeCompare(String(b.label)) || String(a.id).localeCompare(String(b.id)));
     const p = pagination(query); return { data: options.slice((p.page - 1) * p.pageSize, p.page * p.pageSize), total: options.length, page: p.page, pageSize: p.pageSize };
   }
-  async function validateSubmission({ form, submissionData = {}, cache = new Map(), rootForm, rootSubmissionData, containerFieldId }) {
+  async function validateSubmission({ form, submissionData = {}, cache = new Map(), rootForm, rootSubmissionData, containerFieldId, allowMissingNotListedText }) {
     const fields = form?.fields || [];
+    const notListedTextValidation = validateFormNotListedText(fields, submissionData, {
+      allowMissingText: allowMissingNotListedText,
+    });
+    if (!notListedTextValidation.valid) {
+      throw new FormRelationshipError(400, notListedTextValidation.error);
+    }
     for (const field of fields) { const selected = fieldValue(submissionData, field); if (containsFormNotListedValue(selected) && !hasEnabledFormNotListedChoice(field)) throw new FormRelationshipError(400, 'Invalid not-listed selection'); if (Array.isArray(selected) && containsFormNotListedValue(selected) && selected.length !== 1) throw new FormRelationshipError(400, 'Not-listed selection must be exclusive'); if ((field?.type === 'countries' || field?.type === 'category_multiselect') && isFormNotListedValue(selected)) throw new FormRelationshipError(400, 'Invalid multi-select not-listed selection'); if (!conditionalSelectionAllowed(selected, resolveConditionalFilter(field, submissionData, fields))) throw new FormRelationshipError(400, 'Invalid conditional field selection'); }
     for (const field of fields.filter(x => x?.type === 'organisation_dropdown')) {
       const id = fieldValue(submissionData, field);

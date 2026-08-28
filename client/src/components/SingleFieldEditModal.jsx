@@ -29,6 +29,13 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { cn } from "@/lib/utils";
 import { uploadFormSubmissionFile } from "@/lib/tenantUpload";
+import {
+  FORM_NOT_LISTED_TEXT_MAX_LENGTH,
+  FORM_NOT_LISTED_VALUE,
+  containsFormNotListedValue,
+  formNotListedChoiceLabel,
+  hasEnabledFormNotListedChoice,
+} from "../../../shared/formNotListedChoice.js";
 
 function MultiCountrySelect({ value = [], onChange, fieldId }) {
   const [open, setOpen] = useState(false);
@@ -117,10 +124,12 @@ export default function SingleFieldEditModal({
   onOpenChange, 
   field, 
   currentValue, 
+  currentNotListedText = '',
   submissionId,
   formId 
 }) {
   const [value, setValue] = useState(currentValue);
+  const [notListedText, setNotListedText] = useState(currentNotListedText);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [isUploading, setIsUploading] = useState(false);
   const [resolvedFileUrl, setResolvedFileUrl] = useState(null);
@@ -143,8 +152,9 @@ export default function SingleFieldEditModal({
 
   useEffect(() => {
     setValue(currentValue);
+    setNotListedText(currentNotListedText);
     setResolvedFileUrl(null);
-  }, [currentValue, field?.id, open]);
+  }, [currentValue, currentNotListedText, field?.id, open]);
 
   useEffect(() => {
     const resolveUrl = async () => {
@@ -195,6 +205,17 @@ export default function SingleFieldEditModal({
       toast.error('No field selected');
       return;
     }
+    if (containsFormNotListedValue(value)) {
+      const trimmed = notListedText.trim();
+      if (!trimmed) {
+        toast.error('Please specify the not-listed value');
+        return;
+      }
+      if (trimmed.length > FORM_NOT_LISTED_TEXT_MAX_LENGTH) {
+        toast.error(`Not-listed text must be ${FORM_NOT_LISTED_TEXT_MAX_LENGTH} characters or fewer`);
+        return;
+      }
+    }
     if (field.type === 'custom_field' && (customFieldDef?.field_type === 'textarea' || customFieldDef?.field_type === 'long_text')) {
       const len = (typeof value === 'string' ? value : '').length;
       if (customFieldDef.min_length && len > 0 && len < customFieldDef.min_length) {
@@ -210,6 +231,7 @@ export default function SingleFieldEditModal({
       submission_id: submissionId,
       field_id: field.id,
       value: value,
+      ...(containsFormNotListedValue(value) ? { not_listed_text: notListedText } : {}),
     });
   };
 
@@ -685,6 +707,13 @@ export default function SingleFieldEditModal({
     }
   };
 
+  const notListedEnabled = hasEnabledFormNotListedChoice(field);
+  const notListedSelected = containsFormNotListedValue(value);
+  const notListedLabel = formNotListedChoiceLabel(field);
+  const notListedIsMulti = Array.isArray(value)
+    || field?.type === 'countries'
+    || field?.type === 'category_multiselect';
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
@@ -692,8 +721,46 @@ export default function SingleFieldEditModal({
           <DialogTitle>Edit: {field?.label}</DialogTitle>
         </DialogHeader>
 
-        <div className="py-4">
-          {renderInput()}
+        <div className="py-4 space-y-3">
+          {!notListedSelected && renderInput()}
+          {notListedSelected && (
+            <div className="rounded-md border bg-muted/40 px-3 py-2 text-sm">
+              {notListedLabel}
+            </div>
+          )}
+          {notListedEnabled && (
+            <div className="flex items-center space-x-2">
+              <Checkbox
+                id={`${field.id}-edit-not-listed`}
+                checked={notListedSelected}
+                onCheckedChange={(checked) => {
+                  if (checked) {
+                    setValue(notListedIsMulti ? [FORM_NOT_LISTED_VALUE] : FORM_NOT_LISTED_VALUE);
+                  } else {
+                    setValue(notListedIsMulti ? [] : '');
+                    setNotListedText('');
+                  }
+                }}
+              />
+              <Label htmlFor={`${field.id}-edit-not-listed`} className="font-normal">
+                {notListedLabel}
+              </Label>
+            </div>
+          )}
+          {notListedEnabled && notListedSelected && (
+            <div className="space-y-1">
+              <Label htmlFor={`${field.id}-edit-not-listed-text`}>Please specify</Label>
+              <Input
+                id={`${field.id}-edit-not-listed-text`}
+                value={notListedText}
+                onChange={(event) => setNotListedText(event.target.value)}
+                required
+                maxLength={FORM_NOT_LISTED_TEXT_MAX_LENGTH}
+                aria-required="true"
+                data-testid="input-edit-not-listed-text"
+              />
+            </div>
+          )}
         </div>
 
         <DialogFooter>

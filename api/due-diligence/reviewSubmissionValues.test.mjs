@@ -25,6 +25,35 @@ test('effective review values use amended field IDs and preserve original ID/nam
   );
 });
 
+test('effective review values preserve not-listed text and clear it when the answer is amended away', () => {
+  const form = {
+    fields: [{
+      id: 'organisation',
+      type: 'organisation_dropdown',
+      not_listed_choice: { enabled: true, label: 'Other organisation' },
+    }],
+  };
+  assert.deepEqual(effectiveReviewSubmissionValues(
+    form,
+    {
+      organisation: '__form_not_listed__',
+      __not_listed_choice_text: { organisation: 'Independent organisation' },
+    },
+    {},
+  ), {
+    organisation: '__form_not_listed__',
+    __not_listed_choice_text: { organisation: 'Independent organisation' },
+  });
+  assert.deepEqual(effectiveReviewSubmissionValues(
+    form,
+    {
+      organisation: '__form_not_listed__',
+      __not_listed_choice_text: { organisation: 'Independent organisation' },
+    },
+    { organisation: 'org-1' },
+  ), { organisation: 'org-1' });
+});
+
 test('review saves validate effective relationship amendments before persistence', () => {
   const source = read('save-review.js');
   assert.match(source, /createFormRelationshipService/);

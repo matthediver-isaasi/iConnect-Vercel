@@ -54,9 +54,10 @@ test('configured form-email placeholders render snapshotted not-listed labels', 
     persistedSubmissionData: {
       org: '__form_not_listed__',
       __not_listed_choice_labels: { org: 'Original label' },
+      __not_listed_choice_text: { org: 'Independent organisation' },
     },
     relationshipLabelsByRecordId: {},
-  }), 'Original label');
+  }), 'Original label — Independent organisation');
 });
 
 test('configured form-email placeholders render repeatable rows and nested relationship labels', () => {
@@ -103,10 +104,13 @@ test('configured form-email placeholders retain repeatable not-listed labels', (
     fieldKey: 'contacts',
     rawValue: [],
     persistedSubmissionData: {
-      contacts: [{ employer: '__form_not_listed__' }],
+      contacts: [{
+        employer: '__form_not_listed__',
+        __not_listed_choice_text: { employer: 'Independent organisation' },
+      }],
       __not_listed_choice_labels: { contacts: { employer: 'Original employer label' } },
     },
     relationshipLabelsByRecordId: {},
     organisationNamesById: {},
-  }), 'Row 1\nEmployer: Original employer label');
+  }), 'Row 1\nEmployer: Original employer label — Independent organisation');
 });

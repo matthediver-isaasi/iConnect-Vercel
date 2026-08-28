@@ -24,6 +24,10 @@ import { COUNTRIES } from "@/data/countries";
 import FormAccessRestriction, { resolveFormAccess } from "@/components/forms/FormAccessRestriction";
 import { evaluateFormLogicCondition } from "@/lib/formLogicConditions";
 import { FORM_NO_RELATIONSHIP_VALUE } from "../../../shared/formNoRelationshipChoice.js";
+import {
+  pruneFormNotListedText,
+  setFormNotListedText,
+} from "../../../shared/formNotListedChoice.js";
 
 // A `redirect_url` beginning with this prefix means the redirect target is driven
 // by the value the respondent submitted for the field whose id follows the prefix.
@@ -1549,9 +1553,9 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
     
     if (!isTriggerField) {
       // Not a trigger field - just update the value
-      setFormValues(prev => ({
+      setFormValues(prev => pruneFormNotListedText(form?.fields, {
         ...prev,
-        [fieldId]: newValue
+        [fieldId]: newValue,
       }));
       return;
     }
@@ -1570,16 +1574,20 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
     }
     
     // Set the new value and clear dependent fields in one update
-    setFormValues(prev => ({
+    setFormValues(prev => pruneFormNotListedText(form?.fields, {
       ...prev,
       ...clearedValues,
-      [fieldId]: newValue
+      [fieldId]: newValue,
     }));
     
     if (Object.keys(clearedValues).length > 0) {
       console.log('[FormView] Trigger field changed, cleared dependent fields:', 
         Object.keys(clearedValues));
     }
+  };
+
+  const handleFormNotListedTextChange = (fieldId, text) => {
+    setFormValues(prev => setFormNotListedText(prev, fieldId, text));
   };
 
   const handleImageButtonAutoAdvance = (field) => {
@@ -2499,9 +2507,9 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
     const displayOnlyFieldIds = new Set(
       (form.fields || []).filter(f => f.type === 'instructions' || f.type === 'image').map(f => f.id)
     );
-    const filteredFormValues = Object.fromEntries(
+    const filteredFormValues = pruneFormNotListedText(form.fields, Object.fromEntries(
       Object.entries(formValues).filter(([key]) => !displayOnlyFieldIds.has(key))
-    );
+    ));
 
     // Determine organization ID to include with submission.
     // Task #3498: shared memo — MUST stay identical to what the membership
@@ -2633,6 +2641,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
                   handleFieldChange(currentField.id, value);
                   handleImageButtonAutoAdvance(currentField);
                 }}
+                onFormNotListedTextChange={(text) => handleFormNotListedTextChange(currentField.id, text)}
                 memberInfo={memberData}
                 organizationInfo={effectiveOrganizationInfo}
                 selectedOrgGuestAccess={selectedOrgGuestAccess}
@@ -2917,6 +2926,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
                     handleFieldChange(field.id, value);
                     handleImageButtonAutoAdvance(field);
                   }}
+                  onFormNotListedTextChange={(text) => handleFormNotListedTextChange(field.id, text)}
                   memberInfo={memberData}
                   organizationInfo={effectiveOrganizationInfo}
                   selectedOrgGuestAccess={selectedOrgGuestAccess}

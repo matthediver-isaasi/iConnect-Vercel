@@ -3,6 +3,11 @@ import {
   validateRepeatableRows,
 } from '../../shared/formRepeatableRows.js';
 import {
+  FORM_NOT_LISTED_TEXT_KEY,
+  hasEnabledFormNotListedChoice,
+  isFormNotListedValue,
+} from '../../shared/formNotListedChoice.js';
+import {
   createFormRelationshipService,
   FormRelationshipError,
 } from './formRelationshipOptions.js';
@@ -37,7 +42,22 @@ export async function validateRepeatableRowSubmission({
 
   for (const field of repeatableFields) {
     const value = submittedValue(submissionData, field);
-    const validation = validateRepeatableRows(field, value, { rootFields: fields });
+    // Text metadata is validated by the relationship service with its child
+    // field definitions; omit only that reserved key from row shape validation.
+    const structuralValue = Array.isArray(value)
+      ? value.map(row => (
+        row && typeof row === 'object' && !Array.isArray(row)
+          ? Object.fromEntries(Object.entries(row)
+            .filter(([key]) => key !== FORM_NOT_LISTED_TEXT_KEY))
+          : row
+      ))
+      : value;
+    const validation = validateRepeatableRows(field, structuralValue, {
+      rootFields: fields,
+      isAllowedSpecialSelection: ({ child, value: selected }) => (
+        isFormNotListedValue(selected) && hasEnabledFormNotListedChoice(child)
+      ),
+    });
     if (!validation.valid) {
       const error = new FormRelationshipError(400, validation.errors[0]?.message || 'Invalid repeatable row answer');
       error.code = validation.errors[0]?.code || 'INVALID_REPEATABLE_ROW';
@@ -46,7 +66,7 @@ export async function validateRepeatableRowSubmission({
     }
     const virtualForm = { ...form, fields: validation.config.children };
     for (let index = 0; index < validation.rows.length; index += 1) {
-      const row = validation.rows[index];
+      const row = value[index];
       // Empty optional rows are intentionally ignored by both client and server.
       const hasValue = validation.config.children.some((child) => {
         const selected = row?.[child.id];

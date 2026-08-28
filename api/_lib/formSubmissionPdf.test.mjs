@@ -96,9 +96,12 @@ test('PDF formatter uses the snapshotted not-listed label after the field is ren
       field,
       '__form_not_listed__',
       {},
-      { __not_listed_choice_labels: { org: 'Original label' } },
+      {
+        __not_listed_choice_labels: { org: 'Original label' },
+        __not_listed_choice_text: { org: 'Independent organisation' },
+      },
     ),
-    'Original label',
+    'Original label — Independent organisation',
   );
 });
 
@@ -204,7 +207,9 @@ test('scoped label loader uses only saved relationship fields and ID-first value
           return query;
         },
         then(resolve, reject) {
-          const data = table === 'custom_object_record'
+          const data = table === 'organization' || table === 'organization_group'
+            ? []
+            : table === 'custom_object_record'
             ? selectedIds.map((id) => ({ id, custom_object_id: 'object-1', data: { primary: 'Safe label' } }))
             : table === 'custom_object_definition'
               ? [{ id: 'object-1', primary_display_field_id: 'primary' }]

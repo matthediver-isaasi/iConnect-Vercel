@@ -59,7 +59,10 @@ test('Word export retains the submitted repeatable not-listed label', () => {
   const prepared = resolveSubmissionToPrepared({
     submission: {
       submission_data: {
-        contacts: [{ organisation: '__form_not_listed__' }],
+        contacts: [{
+          organisation: '__form_not_listed__',
+          __not_listed_choice_text: { organisation: 'Independent organisation' },
+        }],
         __not_listed_choice_labels: {
           contacts: { organisation: 'Original organisation label' },
         },
@@ -71,6 +74,6 @@ test('Word export retains the submitted repeatable not-listed label', () => {
   });
   assert.deepEqual(
     prepared.rows[0].lines.map(line => line.text),
-    ['Row 1', 'Organisation: Original organisation label'],
+    ['Row 1', 'Organisation: Original organisation label — Independent organisation'],
   );
 });

@@ -74,3 +74,20 @@ test('marks repeatable values invalid when a unique column repeats', () => {
   assert.equal(result.valid, false);
   assert.equal(result.errors[0].code, 'duplicate_child_value');
 });
+
+test('allows a caller-authorized synthetic selection outside persisted static options', () => {
+  const staticField = {
+    type: 'repeatable_rows',
+    min_rows: 1,
+    child_fields: [{
+      id: 'category',
+      type: 'category_dropdown',
+      required: true,
+      options: ['one', 'two'],
+    }],
+  };
+  const result = validateRepeatableRows(staticField, [{ category: '__form_not_listed__' }], {
+    isAllowedSpecialSelection: ({ value }) => value === '__form_not_listed__',
+  });
+  assert.equal(result.valid, true);
+});

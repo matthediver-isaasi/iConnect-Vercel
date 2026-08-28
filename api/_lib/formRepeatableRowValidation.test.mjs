@@ -140,7 +140,12 @@ test('accepts the reserved value only when the persisted repeatable child enable
     db: noQueryDb,
     tenantId: 'tenant-1',
     form: repeatableForm,
-    submissionData: { rows: [{ org: '__form_not_listed__' }] },
+    submissionData: {
+      rows: [{
+        org: '__form_not_listed__',
+        __not_listed_choice_text: { org: 'Acme Ltd' },
+      }],
+    },
     relationshipService: service,
   });
 
@@ -155,9 +160,91 @@ test('accepts the reserved value only when the persisted repeatable child enable
           children: [{ ...enabledChild, not_listed_choice: { enabled: false, label: 'Disabled' } }],
         }],
       },
-      submissionData: { rows: [{ org: '__form_not_listed__' }] },
+      submissionData: {
+        rows: [{
+          org: '__form_not_listed__',
+          __not_listed_choice_text: { org: 'Acme Ltd' },
+        }],
+      },
       relationshipService: service,
     }),
     error => error.status === 400 && /Invalid not-listed selection/.test(error.message),
   );
+});
+
+test('requires valid not-listed text for each repeatable child row', async () => {
+  const repeatableForm = {
+    id: 'form-not-listed-text',
+    fields: [{
+      id: 'rows',
+      type: 'repeatable_row',
+      min_rows: 1,
+      children: [{
+        id: 'org',
+        type: 'organisation_dropdown',
+        required: true,
+        not_listed_choice: { enabled: true, label: 'My organisation is not listed' },
+      }],
+    }],
+  };
+  const noQueryDb = { from() { throw new Error('invalid text must not query entity tables'); } };
+  const service = createFormRelationshipService({ tenantId: 'tenant-1', db: noQueryDb });
+
+  await assert.rejects(
+    validateRepeatableRowSubmission({
+      db: noQueryDb,
+      tenantId: 'tenant-1',
+      form: repeatableForm,
+      submissionData: { rows: [{ org: '__form_not_listed__' }] },
+      relationshipService: service,
+    }),
+    error => error.status === 400 && /Please specify the not-listed value/.test(error.message),
+  );
+  await assert.rejects(
+    validateRepeatableRowSubmission({
+      db: noQueryDb,
+      tenantId: 'tenant-1',
+      form: repeatableForm,
+      submissionData: {
+        rows: [{
+          org: 'ordinary-org',
+          __not_listed_choice_text: { org: 'Acme Ltd' },
+        }],
+      },
+      relationshipService: service,
+    }),
+    error => error.status === 400 && /must match a not-listed selection/.test(error.message),
+  );
+});
+
+test('accepts an enabled not-listed sentinel outside persisted static category options', async () => {
+  const staticForm = {
+    fields: [{
+      id: 'rows',
+      type: 'repeatable_row',
+      min_rows: 1,
+      children: [{
+        id: 'category',
+        type: 'category_multiselect',
+        required: true,
+        options: ['category-1', 'category-2'],
+        not_listed_choice: { enabled: true, label: 'Another category' },
+      }],
+    }],
+  };
+  const service = createFormRelationshipService({
+    tenantId: 'tenant-1',
+    db: { from() { throw new Error('sentinel must not query static option tables'); } },
+  });
+  await validateRepeatableRowSubmission({
+    tenantId: 'tenant-1',
+    form: staticForm,
+    submissionData: {
+      rows: [{
+        category: ['__form_not_listed__'],
+        __not_listed_choice_text: { category: 'Specialist category' },
+      }],
+    },
+    relationshipService: service,
+  });
 });

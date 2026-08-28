@@ -86,7 +86,10 @@ test('repeatable formatting uses the nested snapshotted not-listed label', () =>
   };
   const text = formatRepeatableRowsText(
     historicalField,
-    [{ organisation: '__form_not_listed__' }],
+    [{
+      organisation: '__form_not_listed__',
+      __not_listed_choice_text: { organisation: 'Independent organisation' },
+    }],
     {
       submissionData: {
         __not_listed_choice_labels: {
@@ -96,5 +99,5 @@ test('repeatable formatting uses the nested snapshotted not-listed label', () =>
       organisationNamesById: {},
     },
   );
-  assert.equal(text, 'Row 1\nOrganisation: Original organisation label');
+  assert.equal(text, 'Row 1\nOrganisation: Original organisation label — Independent organisation');
 });

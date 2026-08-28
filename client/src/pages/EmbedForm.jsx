@@ -22,6 +22,10 @@ import { useFormPaymentReturn, FormPaymentReturnScreen } from "../components/for
 import FormAccessRestriction, { resolveFormAccess } from "@/components/forms/FormAccessRestriction";
 import { evaluateFormLogicCondition } from "@/lib/formLogicConditions";
 import { FORM_NO_RELATIONSHIP_VALUE } from "../../../shared/formNoRelationshipChoice.js";
+import {
+  pruneFormNotListedText,
+  setFormNotListedText,
+} from "../../../shared/formNotListedChoice.js";
 
 // Stable empty array so disabled custom-value queries don't create a fresh
 // default identity every render (which would re-trigger dependent effects).
@@ -55,6 +59,19 @@ export default function EmbedFormPage() {
 
   const handleValidityChange = (fieldId, isValid) => {
     setFieldValidity(prev => ({ ...prev, [fieldId]: isValid }));
+  };
+
+  const handleFormNotListedTextChange = (fieldId, text) => {
+    setFormValues(prev => setFormNotListedText(prev, fieldId, text));
+    notifyParentResize();
+  };
+
+  const handleFieldChange = (fieldId, value) => {
+    setFormValues(prev => pruneFormNotListedText(form?.fields, {
+      ...prev,
+      [fieldId]: value,
+    }));
+    notifyParentResize();
   };
 
   const handleRelationshipEmptyStateChange = useCallback((fieldId, parentValue) => {
@@ -935,9 +952,9 @@ export default function EmbedFormPage() {
     const displayOnlyFieldIds = new Set(
       (form.fields || []).filter(f => f.type === 'instructions' || f.type === 'image').map(f => f.id)
     );
-    const filteredFormValues = Object.fromEntries(
+    const filteredFormValues = pruneFormNotListedText(form.fields, Object.fromEntries(
       Object.entries(formValues).filter(([key]) => !displayOnlyFieldIds.has(key))
-    );
+    ));
 
     // Match FormView submission structure exactly
     return {
@@ -1169,9 +1186,9 @@ export default function EmbedFormPage() {
                 field={currentField}
                 value={formValues[currentField.id]}
                 onChange={(value) => {
-                  setFormValues(prev => ({ ...prev, [currentField.id]: value }));
-                  notifyParentResize();
+                  handleFieldChange(currentField.id, value);
                 }}
+                onFormNotListedTextChange={(text) => handleFormNotListedTextChange(currentField.id, text)}
                 onValidityChange={handleValidityChange}
                 onRelationshipEmptyStateChange={handleRelationshipEmptyStateChange}
                 disabled={false}
@@ -1308,10 +1325,8 @@ export default function EmbedFormPage() {
                 key={field.id}
                 field={field}
                 value={formValues[field.id]}
-                onChange={(value) => {
-                  setFormValues(prev => ({ ...prev, [field.id]: value }));
-                  notifyParentResize();
-                }}
+                onChange={(value) => handleFieldChange(field.id, value)}
+                onFormNotListedTextChange={(text) => handleFormNotListedTextChange(field.id, text)}
                 onValidityChange={handleValidityChange}
                 onRelationshipEmptyStateChange={handleRelationshipEmptyStateChange}
                 disabled={false}

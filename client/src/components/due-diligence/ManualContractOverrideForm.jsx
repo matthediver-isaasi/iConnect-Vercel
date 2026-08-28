@@ -8,6 +8,10 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Loader2, FileEdit, Calendar, AlertCircle, ArrowLeft, Check } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import FormRenderer from "@/components/forms/FormRenderer";
+import {
+  pruneFormNotListedText,
+  setFormNotListedText,
+} from "../../../../shared/formNotListedChoice.js";
 
 export default function ManualContractOverrideForm({
   contractFormId,
@@ -49,9 +53,9 @@ export default function ManualContractOverrideForm({
   }, [signer]);
 
   const handleFieldChange = (fieldId, value) => {
-    setFormValues(prev => ({
+    setFormValues(prev => pruneFormNotListedText(fields, {
       ...prev,
-      [fieldId]: value
+      [fieldId]: value,
     }));
   };
 
@@ -155,6 +159,9 @@ export default function ManualContractOverrideForm({
                   field={field}
                   value={formValues[field.id] ?? formValues[field.name] ?? ''}
                   onChange={(value) => handleFieldChange(field.id || field.name, value)}
+                  onFormNotListedTextChange={(text) => setFormValues(prev => (
+                    setFormNotListedText(prev, field.id, text)
+                  ))}
                   disabled={false}
                   formId={formSchema?.id || contractFormId}
                   formSlug={formSchema?.slug}

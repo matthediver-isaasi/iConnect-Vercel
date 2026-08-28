@@ -23,6 +23,7 @@ import {
 import {
   containsFormNotListedValue,
   FORM_NOT_LISTED_LABELS_KEY,
+  FORM_NOT_LISTED_TEXT_KEY,
   resolveFormNotListedDisplayValue,
 } from '../../../shared/formNotListedChoice.js';
 import {
@@ -334,7 +335,7 @@ export function resolveSubmissionToPrepared({ submission, form, selectedOptions,
   const supportingDocs = [];
 
   for (const opt of selectedOptions) {
-    if (opt.key === FORM_NOT_LISTED_LABELS_KEY) continue;
+    if (opt.key === FORM_NOT_LISTED_LABELS_KEY || opt.key === FORM_NOT_LISTED_TEXT_KEY) continue;
     const label = cleanMojibake(opt.label || '');
     let lines = null;
     let files = [];

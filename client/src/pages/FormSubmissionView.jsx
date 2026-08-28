@@ -20,7 +20,9 @@ import {
 import {
   containsFormNotListedValue,
   FORM_NOT_LISTED_LABELS_KEY,
+  FORM_NOT_LISTED_TEXT_KEY,
   resolveFormNotListedDisplayValue,
+  resolveFormNotListedText,
 } from "../../../shared/formNotListedChoice.js";
 import {
   collectRepeatableRelationshipRecordIds,
@@ -30,8 +32,9 @@ import {
 } from "../../../shared/repeatableFormRowsFormat.js";
 import { isRepeatableRowField } from "../../../shared/formRepeatableRows.js";
 
-function RepeatableRowsTable({ field, value, relationshipLabelsByRecordId, organisationNamesById }) {
+function RepeatableRowsTable({ field, value, submissionData, relationshipLabelsByRecordId, organisationNamesById }) {
   const model = formatRepeatableRows(field, value, {
+    submissionData,
     formatCell: (cellValue, child) => child?.type === 'relationship_dropdown'
       ? formatRelationshipDisplayValue(cellValue, relationshipLabelsByRecordId)
       : child?.type === 'organisation_dropdown'
@@ -308,6 +311,7 @@ export default function FormSubmissionView() {
                 <RepeatableRowsTable
                   field={field}
                   value={value}
+                  submissionData={submissionData}
                   relationshipLabelsByRecordId={relationshipLabelsByRecordId}
                   organisationNamesById={organisationNamesById}
                 />
@@ -591,10 +595,12 @@ export default function FormSubmissionView() {
             ) : (
               <div className="space-y-4">
                 {Object.entries(submissionData)
-                  .filter(([key]) => key !== FORM_NOT_LISTED_LABELS_KEY)
+                  .filter(([key]) => key !== FORM_NOT_LISTED_LABELS_KEY && key !== FORM_NOT_LISTED_TEXT_KEY)
                   .map(([key, value]) => {
                   const field = resolveSubmissionField(fields, key);
-                  const displayValue = field?.type === 'relationship_dropdown'
+                  const displayValue = containsFormNotListedValue(value)
+                    ? resolveFormNotListedDisplayValue(field, value, submissionData)
+                    : field?.type === 'relationship_dropdown'
                     ? formatRelationshipDisplayValue(value, relationshipLabelsByRecordId)
                     : Array.isArray(value)
                       ? value.join(', ')
@@ -607,7 +613,7 @@ export default function FormSubmissionView() {
                       {field?.label || key.replace(/_/g, ' ').replace(/([A-Z])/g, ' $1').trim()}
                     </p>
                     {isRepeatableRowField(field) ? (
-                      <RepeatableRowsTable field={field} value={value} relationshipLabelsByRecordId={relationshipLabelsByRecordId} organisationNamesById={organisationNamesById} />
+                      <RepeatableRowsTable field={field} value={value} submissionData={submissionData} relationshipLabelsByRecordId={relationshipLabelsByRecordId} organisationNamesById={organisationNamesById} />
                     ) : (
                       <p className="text-slate-900 dark:text-slate-100 whitespace-pre-wrap">
                         {displayValue}
@@ -646,6 +652,7 @@ export default function FormSubmissionView() {
         }}
         field={editField?.field}
         currentValue={editField?.value}
+        currentNotListedText={resolveFormNotListedText(editField?.field, submissionData)}
         submissionId={submissionId}
         formId={form?.id}
       />

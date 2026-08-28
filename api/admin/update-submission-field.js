@@ -21,7 +21,8 @@ export default async function handler(req, res) {
       email: context.email || (context.memberId ? 'Member' : 'Admin')
     };
 
-    const { submission_id, field_id, value } = req.body;
+    const { submission_id, field_id, value, not_listed_text } = req.body;
+    const hasNotListedText = Object.prototype.hasOwnProperty.call(req.body, 'not_listed_text');
 
     if (!submission_id || !field_id) {
       return res.status(400).json({ error: 'Missing required fields: submission_id, field_id' });
@@ -141,10 +142,12 @@ export default async function handler(req, res) {
         hasDueDiligenceRecord: Boolean(ddRecord),
         fieldId: field_id,
         value,
+        hasNotListedText,
+        notListedText: not_listed_text,
       }));
     } catch (error) {
       if (error instanceof FormRelationshipError && error.status < 500) {
-        return res.status(400).json({ error: 'Invalid relationship selection' });
+        return res.status(400).json({ error: error.message || 'Invalid form field value' });
       }
       console.error('[Update Submission Field] Relationship selection validation failed:', error);
       return res.status(500).json({ error: 'Failed to validate submission' });

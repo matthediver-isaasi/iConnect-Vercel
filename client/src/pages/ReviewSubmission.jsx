@@ -23,6 +23,13 @@ import { cn } from "@/lib/utils";
 import { getContactFieldFulfillment } from "@/lib/signatories";
 import { format } from 'date-fns';
 import FormRenderer from "@/components/forms/FormRenderer";
+import {
+  FORM_NOT_LISTED_TEXT_KEY,
+  containsFormNotListedValue,
+  pruneFormNotListedText,
+  resolveFormNotListedDisplayValue,
+  setFormNotListedText,
+} from "../../../shared/formNotListedChoice.js";
 import DocumentsCard from "@/components/due-diligence/DocumentsCard";
 import SignatoriesCard from "@/components/due-diligence/SignatoriesCard";
 import {
@@ -117,6 +124,7 @@ function ReviewFieldEditor({
   reviewedValue, 
   reviewStatus, 
   onChange, 
+  onFormNotListedTextChange,
   onStatusChange,
   note,
   onNoteChange,
@@ -124,6 +132,7 @@ function ReviewFieldEditor({
   linkedOrganisationId = null,
   relationshipLabelsByRecordId = {},
   formSlug = null,
+  originalFormValues = {},
   allFormValues = {},
   allFields = []
 }) {
@@ -146,7 +155,11 @@ function ReviewFieldEditor({
   const isLinkedOrganisation = isOrganisationField && originalValue === linkedOrganisationId;
   
   // For organisation dropdown fields, look up the display name
-  const getDisplayValue = (value) => {
+  const getDisplayValue = (value, submissionData) => {
+    if (containsFormNotListedValue(value)) {
+      const displayValue = resolveFormNotListedDisplayValue(field, value, submissionData);
+      return Array.isArray(displayValue) ? displayValue.join(', ') : displayValue;
+    }
     if (field.type === 'relationship_dropdown') {
       return formatRelationshipDisplayValue(value, relationshipLabelsByRecordId);
     }
@@ -159,7 +172,7 @@ function ReviewFieldEditor({
     return value || '';
   };
   
-  const displayOriginal = getDisplayValue(originalValue);
+  const displayOriginal = getDisplayValue(originalValue, originalFormValues);
 
   // Instructions/description-only fields: display formatted content, no interaction
   if (isInstructionsField) {
@@ -197,6 +210,7 @@ function ReviewFieldEditor({
             field={field}
             value={reviewedValue}
             onChange={(value) => onChange(stateKey, value)}
+            onFormNotListedTextChange={(text) => onFormNotListedTextChange?.(field.id, text)}
             disabled={false}
             hideLabel={true}
             formSlug={formSlug}
@@ -300,6 +314,7 @@ function ReviewFieldEditor({
             field={field}
             value={reviewedValue}
             onChange={(value) => onChange(stateKey, value)}
+            onFormNotListedTextChange={(text) => onFormNotListedTextChange?.(field.id, text)}
             disabled={false}
             hideLabel={true}
             formSlug={formSlug}
@@ -1332,7 +1347,15 @@ export default function ReviewSubmissionPage() {
   }, [ddSubmission, form, ddConfig, hasInitialized]);
 
   const handleFieldChange = useCallback((fieldName, value) => {
-    setReviewedFormValues(prev => ({ ...prev, [fieldName]: value }));
+    setReviewedFormValues(prev => pruneFormNotListedText(form?.fields, {
+      ...prev,
+      [fieldName]: value,
+    }));
+    setHasUnsavedChanges(true);
+  }, [form?.fields]);
+
+  const handleFormNotListedTextChange = useCallback((fieldId, text) => {
+    setReviewedFormValues(prev => setFormNotListedText(prev, fieldId, text));
     setHasUnsavedChanges(true);
   }, []);
 
@@ -1387,7 +1410,17 @@ export default function ReviewSubmissionPage() {
         : getSubmissionFieldValue(originalValues, field);
     });
 
-    return values;
+    const originalText = originalValues[FORM_NOT_LISTED_TEXT_KEY];
+    const reviewedText = reviewedFormValues[FORM_NOT_LISTED_TEXT_KEY];
+    if ((originalText && typeof originalText === 'object' && !Array.isArray(originalText))
+        || (reviewedText && typeof reviewedText === 'object' && !Array.isArray(reviewedText))) {
+      values[FORM_NOT_LISTED_TEXT_KEY] = {
+        ...(originalText && typeof originalText === 'object' && !Array.isArray(originalText) ? originalText : {}),
+        ...(reviewedText && typeof reviewedText === 'object' && !Array.isArray(reviewedText) ? reviewedText : {}),
+      };
+    }
+
+    return pruneFormNotListedText(fields, values);
   }, [form, ddSubmission, reviewedFormValues]);
 
   const handleFieldStatusChange = useCallback((fieldKey, status) => {
@@ -2362,6 +2395,7 @@ export default function ReviewSubmissionPage() {
                         reviewedValue={reviewedFormValues[fieldKey]}
                         reviewStatus={fieldReviewStatus[fieldKey]}
                         onChange={handleFieldChange}
+                        onFormNotListedTextChange={handleFormNotListedTextChange}
                         onStatusChange={handleFieldStatusChange}
                         note={fieldNotes[fieldKey]}
                         onNoteChange={handleFieldNoteChange}
@@ -2369,6 +2403,7 @@ export default function ReviewSubmissionPage() {
                         linkedOrganisationId={organization?.id}
                         relationshipLabelsByRecordId={relationshipLabelsByRecordId}
                         formSlug={form?.slug}
+                        originalFormValues={originalFormValues}
                         allFormValues={reviewFormValues}
                         allFields={form?.fields || []}
                       />

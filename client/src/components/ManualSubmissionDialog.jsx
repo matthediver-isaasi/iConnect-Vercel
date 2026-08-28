@@ -34,6 +34,12 @@ import {
   isRepeatableRowField,
   validateRepeatableRows,
 } from "../../../shared/formRepeatableRows.js";
+import {
+  hasEnabledFormNotListedChoice,
+  isFormNotListedValue,
+  pruneFormNotListedText,
+  setFormNotListedText,
+} from "../../../shared/formNotListedChoice.js";
 
 function MultiCountrySelect({ value = [], onChange, fieldId }) {
   const [open, setOpen] = useState(false);
@@ -180,7 +186,11 @@ export default function ManualSubmissionDialog({ open, onOpenChange, form }) {
 
     const repeatableError = fields
       .filter(isRepeatableRowField)
-      .map(field => validateRepeatableRows(field, formValues[field.id]))
+      .map(field => validateRepeatableRows(field, formValues[field.id], {
+        isAllowedSpecialSelection: ({ child, value }) => (
+          isFormNotListedValue(value) && hasEnabledFormNotListedChoice(child)
+        ),
+      }))
       .find(result => !result.valid);
     if (repeatableError) {
       toast.error(repeatableError.errors[0]?.message || 'Please correct the repeatable rows.');
@@ -202,7 +212,10 @@ export default function ManualSubmissionDialog({ open, onOpenChange, form }) {
   };
 
   const updateValue = (fieldId, value) => {
-    setFormValues(prev => ({ ...prev, [fieldId]: value }));
+    setFormValues(prev => pruneFormNotListedText(form?.fields, {
+      ...prev,
+      [fieldId]: value,
+    }));
   };
 
   const renderField = (field) => {
@@ -218,6 +231,9 @@ export default function ManualSubmissionDialog({ open, onOpenChange, form }) {
           field={field}
           value={value}
           onChange={(nextValue) => updateValue(field.id, nextValue)}
+          onFormNotListedTextChange={(text) => setFormValues(prev => (
+            setFormNotListedText(prev, field.id, text)
+          ))}
           hideLabel
           formId={form?.id}
           formSlug={form?.slug}

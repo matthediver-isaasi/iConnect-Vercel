@@ -8,6 +8,7 @@ import {
   normalizeSubmissionFieldIds,
   validateSubmissionFieldEditCandidates,
 } from './submissionFieldEdit.js';
+import { validateFormNotListedText } from '../../shared/formNotListedChoice.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -190,6 +191,124 @@ test('candidate persistence preserves unrelated main and DD stored keys', async 
   assert.equal(result.updatedOriginalValues.ddOnly, 'keep-dd');
 });
 
+test('single-field validation preserves reserved not-listed metadata and clears only edited-away text', async () => {
+  const notListedForm = {
+    fields: [
+      {
+        id: 'organisation',
+        type: 'organisation_dropdown',
+        not_listed_choice: { enabled: true, label: 'Other organisation' },
+      },
+      { id: 'notes', type: 'text' },
+    ],
+  };
+  const saved = {
+    organisation: '__form_not_listed__',
+    notes: 'before',
+    __not_listed_choice_labels: { organisation: 'Original label' },
+    __not_listed_choice_text: { organisation: 'Independent organisation' },
+  };
+  const validated = [];
+  const result = await validateSubmissionFieldEditCandidates({
+    relationshipService: {
+      async validateSubmission({ submissionData }) {
+        validated.push(submissionData);
+      },
+    },
+    form: notListedForm,
+    submissionData: saved,
+    hasDueDiligenceRecord: false,
+    fieldId: 'notes',
+    value: 'after',
+  });
+  assert.deepEqual(validated[0].__not_listed_choice_text, {
+    organisation: 'Independent organisation',
+  });
+  assert.deepEqual(validated[0].__not_listed_choice_labels, {
+    organisation: 'Original label',
+  });
+  assert.equal(result.updatedSubmissionData.notes, 'after');
+
+  const listed = effectiveSubmissionFieldEdit(saved, 'organisation', 'org-1');
+  assert.equal(listed.__not_listed_choice_text, undefined);
+  assert.deepEqual(listed.__not_listed_choice_labels, { organisation: 'Original label' });
+});
+
+test('unrelated admin edits tolerate trusted legacy missing text while correction requires and stores text', async () => {
+  const legacyForm = {
+    fields: [
+      {
+        id: 'organisation',
+        type: 'organisation_dropdown',
+        not_listed_choice: { enabled: true, label: 'Other organisation' },
+      },
+      { id: 'notes', type: 'text' },
+    ],
+  };
+  const relationshipService = {
+    async validateSubmission({ form, submissionData, allowMissingNotListedText }) {
+      const result = validateFormNotListedText(form.fields, submissionData, {
+        allowMissingText: allowMissingNotListedText,
+      });
+      if (!result.valid) throw new Error(result.error);
+    },
+  };
+  const legacy = {
+    organisation: '__form_not_listed__',
+    notes: 'before',
+  };
+  const unrelated = await validateSubmissionFieldEditCandidates({
+    relationshipService,
+    form: legacyForm,
+    submissionData: legacy,
+    hasDueDiligenceRecord: false,
+    fieldId: 'notes',
+    value: 'after',
+  });
+  assert.equal(unrelated.updatedSubmissionData.notes, 'after');
+
+  await assert.rejects(
+    validateSubmissionFieldEditCandidates({
+      relationshipService,
+      form: legacyForm,
+      submissionData: {
+        ...legacy,
+        __not_listed_choice_text: { organisation: '   ' },
+      },
+      hasDueDiligenceRecord: false,
+      fieldId: 'notes',
+      value: 'after',
+    }),
+    /Please specify the not-listed value/,
+  );
+
+  await assert.rejects(
+    validateSubmissionFieldEditCandidates({
+      relationshipService,
+      form: legacyForm,
+      submissionData: legacy,
+      hasDueDiligenceRecord: false,
+      fieldId: 'organisation',
+      value: '__form_not_listed__',
+    }),
+    /Please specify the not-listed value/,
+  );
+
+  const corrected = await validateSubmissionFieldEditCandidates({
+    relationshipService,
+    form: legacyForm,
+    submissionData: legacy,
+    hasDueDiligenceRecord: false,
+    fieldId: 'organisation',
+    value: '__form_not_listed__',
+    hasNotListedText: true,
+    notListedText: 'Independent organisation',
+  });
+  assert.deepEqual(corrected.updatedSubmissionData.__not_listed_choice_text, {
+    organisation: 'Independent organisation',
+  });
+});
+
 test('update endpoint fetches DD and validates both candidates before any write', () => {
   const source = readFileSync(path.join(here, 'update-submission-field.js'), 'utf8');
   const accessCheck = source.indexOf("isResourceExcluded(exclusions, 'page_FormSubmissions')");
@@ -209,6 +328,7 @@ test('update endpoint fetches DD and validates both candidates before any write'
   assert.match(source, /\.from\('form'\)[\s\S]*?\.eq\('tenant_id', session\.tenant_id\)/);
   assert.match(source, /createFormRelationshipService\(\{[\s\S]*?tenantId: session\.tenant_id/);
   assert.match(source, /validateSubmissionFieldEditCandidates\(/);
+  assert.match(source, /notListedText: not_listed_text/);
   const ddFetch = source.indexOf(".from('form_submission_due_diligence')");
   const validation = source.indexOf('validateSubmissionFieldEditCandidates({');
   const firstUpdate = source.indexOf('.update({ submission_data:');
@@ -218,7 +338,7 @@ test('update endpoint fetches DD and validates both candidates before any write'
     'both candidate validations must complete before the first write',
   );
   assert.match(source, /error instanceof FormRelationshipError && error\.status < 500/);
-  assert.match(source, /status\(400\)\.json\(\{ error: 'Invalid relationship selection' \}\)/);
+  assert.match(source, /status\(400\)\.json\(\{ error: error\.message \|\| 'Invalid form field value' \}\)/);
   assert.match(source, /status\(500\)\.json\(\{ error: 'Failed to validate submission' \}\)/);
   assert.match(
     source,

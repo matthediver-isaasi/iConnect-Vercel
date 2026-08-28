@@ -356,7 +356,11 @@ export function validateRepeatableRows(field, value, options = {}) {
       if (isRepeatableValueEmpty(selected)) continue;
       if (Array.isArray(child.options) && child.options.length) {
         const allowed = new Set(child.options.map(optionValue).filter((item) => item != null).map(String));
-        if (selectedValues(selected).some((item) => !allowed.has(String(item)))) {
+        if (selectedValues(selected).some((item) => (
+          !allowed.has(String(item))
+          && !(typeof options.isAllowedSpecialSelection === 'function'
+            && options.isAllowedSpecialSelection({ child, value: item, row, rowIndex, field }))
+        ))) {
           errors.push({ code: 'invalid_selection', row: rowIndex, child_id: child.id, message: `${child.label || child.id} has an invalid selection` });
         }
       }

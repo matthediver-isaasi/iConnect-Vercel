@@ -2,13 +2,19 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   FORM_NOT_LISTED_LABELS_KEY,
+  FORM_NOT_LISTED_TEXT_KEY,
   FORM_NOT_LISTED_VALUE,
   applyExclusiveFormNotListedSelection,
   hasEnabledFormNotListedChoice,
   prependFormNotListedOption,
   preserveFormNotListedLabelSnapshots,
   resolveFormNotListedDisplayValue,
+  resolveFormNotListedText,
+  pruneFormNotListedText,
+  setFormNotListedText,
+  setRepeatableRowNotListedText,
   snapshotFormNotListedLabels,
+  validateFormNotListedText,
 } from './formNotListedChoice.js';
 
 const field = {
@@ -94,5 +100,111 @@ test('trusted historical labels survive a later submission edit while new labels
       old_child: 'Original child label',
     },
     top_level: 'Original top-level label',
+  });
+});
+
+test('stores and resolves normal and repeatable not-listed text without changing the sentinel', () => {
+  const normal = setFormNotListedText({ org: FORM_NOT_LISTED_VALUE }, 'org', '  Acme Other  ');
+  assert.equal(normal.org, FORM_NOT_LISTED_VALUE);
+  assert.equal(normal[FORM_NOT_LISTED_TEXT_KEY].org, '  Acme Other  ');
+  assert.equal(resolveFormNotListedText(field, normal), 'Acme Other');
+  assert.equal(
+    resolveFormNotListedDisplayValue(field, normal.org, normal),
+    'My organisation is not listed — Acme Other',
+  );
+
+  const child = {
+    id: 'country',
+    type: 'country',
+    not_listed_choice: { enabled: true, label: 'Other country' },
+  };
+  const row = setRepeatableRowNotListedText(
+    { _row_id: 'r1', country: FORM_NOT_LISTED_VALUE },
+    child.id,
+    'Atlantis',
+  );
+  const data = { rows: [row] };
+  assert.equal(resolveFormNotListedText(child, data, { row }), 'Atlantis');
+  assert.equal(
+    resolveFormNotListedDisplayValue(child, row.country, data, { row }),
+    'Other country — Atlantis',
+  );
+});
+
+test('validates required and non-orphaned normal and repeatable text', () => {
+  const repeatable = {
+    id: 'rows',
+    type: 'repeatable_rows',
+    repeatable_row: {
+      child_fields: [{
+        id: 'country',
+        type: 'country',
+        not_listed_choice: { enabled: true, label: 'Other country' },
+      }],
+    },
+  };
+  assert.equal(validateFormNotListedText([field], {
+    org: FORM_NOT_LISTED_VALUE,
+  }).valid, false);
+  assert.equal(validateFormNotListedText([field], {
+    org: FORM_NOT_LISTED_VALUE,
+    [FORM_NOT_LISTED_TEXT_KEY]: { org: 'Acme Other' },
+  }).valid, true);
+  assert.equal(validateFormNotListedText([field], {
+    org: 'real-id',
+    [FORM_NOT_LISTED_TEXT_KEY]: { org: 'orphaned' },
+  }).valid, false);
+  assert.equal(validateFormNotListedText([repeatable], {
+    rows: [{
+      _row_id: 'r1',
+      country: FORM_NOT_LISTED_VALUE,
+      [FORM_NOT_LISTED_TEXT_KEY]: { country: 'Atlantis' },
+    }],
+  }).valid, true);
+  assert.equal(validateFormNotListedText([repeatable], {
+    rows: [{
+      _row_id: 'r1',
+      country: FORM_NOT_LISTED_VALUE,
+      [FORM_NOT_LISTED_TEXT_KEY]: { unknown: 'forged' },
+    }],
+  }).valid, false);
+});
+
+test('prunes orphaned root and row text without disturbing selected sentinel text', () => {
+  const repeatable = {
+    id: 'rows',
+    type: 'repeatable_rows',
+    child_fields: [{
+      id: 'country',
+      type: 'country',
+      not_listed_choice: { enabled: true, label: 'Other country' },
+    }],
+  };
+  const data = {
+    org: 'real-org',
+    [FORM_NOT_LISTED_TEXT_KEY]: { org: 'stale root text' },
+    rows: [
+      {
+        _row_id: 'one',
+        country: 'Spain',
+        [FORM_NOT_LISTED_TEXT_KEY]: { country: 'stale row text' },
+      },
+      {
+        _row_id: 'two',
+        country: FORM_NOT_LISTED_VALUE,
+        [FORM_NOT_LISTED_TEXT_KEY]: { country: 'Atlantis' },
+      },
+    ],
+  };
+  assert.deepEqual(pruneFormNotListedText([field, repeatable], data), {
+    org: 'real-org',
+    rows: [
+      { _row_id: 'one', country: 'Spain' },
+      {
+        _row_id: 'two',
+        country: FORM_NOT_LISTED_VALUE,
+        [FORM_NOT_LISTED_TEXT_KEY]: { country: 'Atlantis' },
+      },
+    ],
   });
 });

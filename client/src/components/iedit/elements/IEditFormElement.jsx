@@ -26,6 +26,10 @@ import { resolveSubmitControl } from "../../../../../api/_lib/formSubmitControl.
 import { evaluateLmicCondition } from "../../../../../api/_lib/formLmicConditions.js";
 import { applySurveyPresentation, surveyIntroText, surveySuccessMessage } from "@/lib/surveyPresentation";
 import FormAccessRestriction, { resolveFormAccess } from "@/components/forms/FormAccessRestriction";
+import {
+  pruneFormNotListedText,
+  setFormNotListedText,
+} from "../../../../../shared/formNotListedChoice.js";
 
 const formQuillModules = {
   toolbar: [
@@ -1285,7 +1289,14 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
   }, []);
 
   const handleFieldChange = useCallback((fieldId, newValue) => {
-    setFormValues(prev => ({ ...prev, [fieldId]: newValue }));
+    setFormValues(prev => pruneFormNotListedText(form?.fields, {
+      ...prev,
+      [fieldId]: newValue,
+    }));
+  }, [form?.fields]);
+
+  const handleFormNotListedTextChange = useCallback((fieldId, text) => {
+    setFormValues(prev => setFormNotListedText(prev, fieldId, text));
   }, []);
 
   const { getIdempotencyKey, rotateIdempotencyKey } = useSubmissionIdempotencyKey();
@@ -1617,9 +1628,9 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
     const displayOnlyFieldIds = new Set(
       (form.fields || []).filter(f => f.type === 'instructions' || f.type === 'image').map(f => f.id)
     );
-    const filteredFormValues = Object.fromEntries(
+    const filteredFormValues = pruneFormNotListedText(form.fields, Object.fromEntries(
       Object.entries(formValues).filter(([key]) => !displayOnlyFieldIds.has(key))
-    );
+    ));
 
     const submissionData = {
       form_id: form.id,
@@ -1897,6 +1908,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
                   field={currentField}
                   value={formValues[currentField.id]}
                   onChange={(value) => handleFieldChange(currentField.id, value)}
+                  onFormNotListedTextChange={(text) => handleFormNotListedTextChange(currentField.id, text)}
                   memberInfo={memberInfo}
                   organizationInfo={effectiveOrganizationInfo}
                   selectedOrgGuestAccess={selectedOrgGuestAccess}
@@ -2046,6 +2058,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
                     field={field}
                     value={formValues[field.id]}
                     onChange={(value) => handleFieldChange(field.id, value)}
+                    onFormNotListedTextChange={(text) => handleFormNotListedTextChange(field.id, text)}
                     memberInfo={memberInfo}
                     organizationInfo={effectiveOrganizationInfo}
                     selectedOrgGuestAccess={selectedOrgGuestAccess}
@@ -2074,6 +2087,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
                           field={field}
                           value={formValues[field.id]}
                           onChange={(value) => handleFieldChange(field.id, value)}
+                          onFormNotListedTextChange={(text) => handleFormNotListedTextChange(field.id, text)}
                           memberInfo={memberInfo}
                           organizationInfo={effectiveOrganizationInfo}
                           selectedOrgGuestAccess={selectedOrgGuestAccess}
@@ -2102,6 +2116,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
                               field={field}
                               value={formValues[field.id]}
                               onChange={(value) => handleFieldChange(field.id, value)}
+                              onFormNotListedTextChange={(text) => handleFormNotListedTextChange(field.id, text)}
                               memberInfo={memberInfo}
                               organizationInfo={effectiveOrganizationInfo}
                               selectedOrgGuestAccess={selectedOrgGuestAccess}

@@ -64,6 +64,7 @@ import {
 import {
   containsFormNotListedValue,
   FORM_NOT_LISTED_LABELS_KEY,
+  FORM_NOT_LISTED_TEXT_KEY,
   resolveFormNotListedDisplayValue,
 } from '../../../shared/formNotListedChoice.js';
 import {
@@ -1182,7 +1183,7 @@ export default function FormSubmissionsPage() {
       if (!submission.submission_data) return;
       const form = formsById[submission.form_id];
       Object.keys(submission.submission_data).forEach(key => {
-        if (key === FORM_NOT_LISTED_LABELS_KEY) return;
+        if (key === FORM_NOT_LISTED_LABELS_KEY || key === FORM_NOT_LISTED_TEXT_KEY) return;
         if (dynamicFieldKeys.has(key)) return;
         let label = key;
         if (form?.fields) {
@@ -1332,7 +1333,7 @@ export default function FormSubmissionsPage() {
   const buildAvailableFieldOptionsForSubmission = (submission) => {
     const form = formsById[submission.form_id];
     const dynamicEntries = Object.keys(submission.submission_data || {})
-      .filter(key => key !== FORM_NOT_LISTED_LABELS_KEY)
+      .filter(key => key !== FORM_NOT_LISTED_LABELS_KEY && key !== FORM_NOT_LISTED_TEXT_KEY)
       .map(key => {
       const field = resolveSubmissionField(form?.fields, key);
       return { key, label: field?.label || key };
@@ -1645,7 +1646,7 @@ export default function FormSubmissionsPage() {
           case '__submission_date':
             return moment(submission.created_date).format('YYYY-MM-DD HH:mm');
           default: {
-            if (field.key === FORM_NOT_LISTED_LABELS_KEY) return '';
+            if (field.key === FORM_NOT_LISTED_LABELS_KEY || field.key === FORM_NOT_LISTED_TEXT_KEY) return '';
             const fieldDef = resolveSubmissionField(form?.fields, field.key);
             const val = fieldDef
               ? getSubmissionFieldValue(submission.submission_data, fieldDef)
@@ -2806,7 +2807,7 @@ export default function FormSubmissionsPage() {
                 <h3 className="font-semibold text-slate-900 mb-3">Submission Data</h3>
                 <div className="space-y-3">
                   {Object.entries(viewingSubmission.submission_data || {})
-                    .filter(([key]) => key !== FORM_NOT_LISTED_LABELS_KEY)
+                    .filter(([key]) => key !== FORM_NOT_LISTED_LABELS_KEY && key !== FORM_NOT_LISTED_TEXT_KEY)
                     .map(([key, value]) => {
                     const field = resolveSubmissionField(viewingForm?.fields, key);
                     const displayValue = containsFormNotListedValue(value)
