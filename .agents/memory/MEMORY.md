@@ -143,3 +143,4 @@
 - [Form relationship value security](form-relationship-value-security.md) — dependent option reads do not secure writes; revalidate every submit/amend path and scope label reads to persisted submissions.
 - [Conditional form-filter authority](conditional-form-filter-authority.md) — resolve saved rules server-side; send only dependency answers, preserve base restrictions, and fail closed on drift.
 - [Tenant-scoped admin password resets](tenant-admin-password-reset-scope.md) — multi-tenant admins must reset the request tenant, not their default; reset links must never trust Origin.
+- [Relationship empty-result rules](relationship-empty-result-rules.md) — confirmed zero options is transient rule state, never a saved relationship answer; loading/error/no-parent must not match.

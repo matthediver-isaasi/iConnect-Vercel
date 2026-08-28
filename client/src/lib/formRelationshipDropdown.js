@@ -95,6 +95,22 @@ export function normalizeRelationshipOptions(payload) {
     });
 }
 
+export function isConfirmedEmptyRelationshipResult({
+  fieldType,
+  parentValue,
+  options,
+  optionsLoaded = false,
+  optionsError = false,
+}) {
+  return fieldType === 'relationship_dropdown'
+    && optionsLoaded
+    && !optionsError
+    && !!parentValue
+    && parentValue !== '__form_not_listed__'
+    && Array.isArray(options)
+    && options.length === 0;
+}
+
 export function shouldClearRelationshipValue({
   value,
   parentValue,

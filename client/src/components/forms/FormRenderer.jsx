@@ -26,6 +26,7 @@ import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, Command
 import { cn } from "@/lib/utils";
 import DOMPurify from 'dompurify';
 import {
+  isConfirmedEmptyRelationshipResult,
   normalizeRelationshipOptions,
   resolveFormRendererFieldValue,
   resolveRelationshipDropdownValues,
@@ -43,6 +44,7 @@ import {
   formNotListedChoiceLabel,
   prependFormNotListedOption,
 } from "../../../../shared/formNotListedChoice.js";
+import { formNoRelationshipLabel } from "../../../../shared/formNoRelationshipChoice.js";
 
 let organizationQueryInstanceSequence = 0;
 
@@ -358,7 +360,7 @@ function CommunicationPreferencesField({ field, value, onChange, disabled, membe
   );
 }
 
-export default function FormRenderer({ field, value: suppliedValue, onChange, memberInfo, organizationInfo, selectedOrgGuestAccess = null, disabled = false, onValidityChange, autoFocus = false, hideLabel = false, formId = null, formSlug = null, formMemberRoleId = null, allFormValues = {}, prefillData = null, allFields = [], membershipFeeQuote = null, notListedDisplayLabel = '' }) {
+export default function FormRenderer({ field, value: suppliedValue, onChange, memberInfo, organizationInfo, selectedOrgGuestAccess = null, disabled = false, onValidityChange, onRelationshipEmptyStateChange, autoFocus = false, hideLabel = false, formId = null, formSlug = null, formMemberRoleId = null, allFormValues = {}, prefillData = null, allFields = [], membershipFeeQuote = null, notListedDisplayLabel = '' }) {
   const resolvedFieldValue = resolveFormRendererFieldValue({
     field,
     fields: allFields,
@@ -579,19 +581,44 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, me
       && !!relationshipParentValue && relationshipParentValue !== FORM_NOT_LISTED_VALUE,
     staleTime: 60 * 1000,
   });
+  const rawRelationshipOptions = useMemo(
+    () => normalizeRelationshipOptions(relationshipOptionPayload),
+    [relationshipOptionPayload],
+  );
   const relationshipOptions = useMemo(
     () => intersectConditionalOptions(
       prependFormNotListedOption(
         field,
-        normalizeRelationshipOptions(relationshipOptionPayload),
+        rawRelationshipOptions,
         (id, label) => ({ id, label }),
       ),
       conditionalResolution,
       option => option.id,
     ),
-    [field, relationshipOptionPayload, conditionalResolution],
+    [field, rawRelationshipOptions, conditionalResolution],
   );
+  const relationshipResultIsEmpty = isConfirmedEmptyRelationshipResult({
+    fieldType: field.type,
+    parentValue: relationshipParentValue,
+    options: rawRelationshipOptions,
+    optionsLoaded: relationshipOptionsLoaded,
+    optionsError: relationshipOptionsError,
+  });
   const previousRelationshipParent = useRef();
+
+  useEffect(() => {
+    if (field.type !== 'relationship_dropdown' || !onRelationshipEmptyStateChange) return;
+    onRelationshipEmptyStateChange(
+      field.id,
+      relationshipResultIsEmpty ? relationshipParentValue : null,
+    );
+  }, [
+    field.id,
+    field.type,
+    onRelationshipEmptyStateChange,
+    relationshipParentValue,
+    relationshipResultIsEmpty,
+  ]);
 
   useEffect(() => {
     if (field.type !== 'relationship_dropdown') return;
@@ -1310,6 +1337,7 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, me
         else if (!relationshipParentValue && !canChooseNotListed) placeholder = 'Select an organisation first';
         else if (relationshipOptionsLoading) placeholder = 'Loading options…';
         else if (relationshipOptionsError) placeholder = 'Options could not be loaded';
+        else if (relationshipResultIsEmpty) placeholder = formNoRelationshipLabel(field);
         else if (relationshipOptions.length === 0) placeholder = 'No related records available';
         return (
           <div className="space-y-1">
@@ -1335,8 +1363,10 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, me
             </Select>
             {relationshipOptionsLoading && <p className="text-xs text-slate-500">Loading related records…</p>}
             {relationshipOptionsError && <p className="text-xs text-red-600">Related records could not be loaded. Please try again.</p>}
-            {relationshipOptionsLoaded && relationshipParentValue && relationshipOptions.length === 0 && (
-              <p className="text-xs text-slate-500">No active related records are available for this organisation.</p>
+            {relationshipResultIsEmpty && (
+              <p className="text-xs text-slate-500" data-testid={`relationship-empty-message-${field.id}`}>
+                {formNoRelationshipLabel(field)}
+              </p>
             )}
           </div>
         );

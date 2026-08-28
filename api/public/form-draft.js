@@ -3,6 +3,7 @@ import crypto from 'crypto';
 import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
 import { resolveFormAccess, sendFormAccessDenied } from '../_lib/formAccessPolicy.js';
 import { isFormScheduleAvailable } from '../_lib/formAvailability.js';
+import { stripFormNoRelationshipValues } from '../../shared/formNoRelationshipChoice.js';
 
 // Generate a secure random token
 function generateResumeToken() {
@@ -71,7 +72,7 @@ export default async function handler(req, res) {
       // Get form to verify it exists
       let formQuery = supabase
         .from('form')
-        .select('id, tenant_id, access_policy, deactivate_at')
+        .select('id, tenant_id, access_policy, deactivate_at, fields')
         .eq('tenant_id', tenantData.id)
         .eq('is_active', true);
 
@@ -108,6 +109,7 @@ export default async function handler(req, res) {
         supabase, req, tenantId: tenantData.id, policy: form.access_policy,
       });
       if (!access.allowed) return sendFormAccessDenied(res, access);
+      const safeDraftData = stripFormNoRelationshipValues(draft_data, form.fields);
 
       // Calculate expiry date (always use default since settings column doesn't exist)
       const expiryDays = DEFAULT_EXPIRY_DAYS;
@@ -133,7 +135,7 @@ export default async function handler(req, res) {
         const { error: updateError } = await supabase
           .from('form_draft_submission')
           .update({
-            draft_data,
+            draft_data: safeDraftData,
             current_page_index: current_page_index || 0,
             contact_email: contact_email || null,
             form_updated_at: form_updated_at || null,
@@ -165,7 +167,7 @@ export default async function handler(req, res) {
           tenant_id: tenantData.id,
           form_id: form.id,
           resume_token_hash: tokenHash,
-          draft_data,
+          draft_data: safeDraftData,
           current_page_index: current_page_index || 0,
           contact_email: contact_email || null,
           form_updated_at: form_updated_at || null,
@@ -227,7 +229,7 @@ export default async function handler(req, res) {
       // Must include tenant_id filter for Supabase RLS policies
       const { data: form, error: formError } = await supabase
         .from('form')
-        .select('id, slug, name, access_policy, deactivate_at')
+        .select('id, slug, name, access_policy, deactivate_at, fields')
         .eq('id', draft.form_id)
         .eq('tenant_id', tenantData.id)
         .eq('is_active', true)
@@ -251,7 +253,7 @@ export default async function handler(req, res) {
       return res.status(200).json({
         success: true,
         draft: {
-          draft_data: draft.draft_data,
+          draft_data: stripFormNoRelationshipValues(draft.draft_data, form.fields),
           current_page_index: draft.current_page_index,
           contact_email: draft.contact_email,
           last_saved_at: draft.last_saved_at,

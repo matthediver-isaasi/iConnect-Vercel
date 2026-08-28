@@ -63,6 +63,10 @@ import {
   getFormLogicConditionOptions,
   isOnlyFormNotListedConditionOption,
 } from "@/lib/formLogicConditions";
+import {
+  FORM_NO_RELATIONSHIP_VALUE,
+  formNoRelationshipLabel,
+} from "../../../shared/formNoRelationshipChoice.js";
 
 const BADGE_STYLE_DEFAULTS = {
   background_color: '#ffffff',
@@ -1953,7 +1957,20 @@ function LogicRulesSection({
                     const isCountryRef = isCountryReferenceField(condition.field_id);
                     const conditionOptions = getConditionFieldOptions(condition.field_id);
                     const notListedLabel = formNotListedChoiceLabel(conditionField);
-                    const useManualNotListedPicker = isOnlyFormNotListedConditionOption(conditionOptions);
+                    const syntheticRelationshipValues = new Set([
+                      FORM_NOT_LISTED_VALUE,
+                      FORM_NO_RELATIONSHIP_VALUE,
+                    ]);
+                    const useManualNotListedPicker = isOnlyFormNotListedConditionOption(conditionOptions)
+                      || (
+                        conditionField?.type === 'relationship_dropdown'
+                        && conditionOptions.length > 0
+                        && conditionOptions.every(option => syntheticRelationshipValues.has(option?.value))
+                      );
+                    const selectedSyntheticOption = conditionOptions.find(option => (
+                      syntheticRelationshipValues.has(option?.value)
+                      && option.value === condition.value
+                    ));
                     const operatorOptions = isBooleanRef
                       ? BOOLEAN_OPERATORS
                       : (isScoreRef
@@ -2039,21 +2056,28 @@ function LogicRulesSection({
                             {useManualNotListedPicker ? (
                               <div className="flex gap-2">
                                 <Input
-                                  value={condition.value === FORM_NOT_LISTED_VALUE ? '' : (condition.value || '')}
+                                  value={selectedSyntheticOption ? '' : (condition.value || '')}
                                   onChange={(event) => updateCondition(rule.id, condition.id, { value: event.target.value })}
-                                  placeholder={condition.value === FORM_NOT_LISTED_VALUE ? notListedLabel : 'Enter value...'}
+                                  placeholder={selectedSyntheticOption?.label || 'Enter value...'}
                                   className="h-9 min-w-0 flex-1"
                                   data-testid={`input-condition-value-${index}-${condIndex}`}
                                 />
-                                <Button
-                                  type="button"
-                                  variant={condition.value === FORM_NOT_LISTED_VALUE ? 'secondary' : 'outline'}
-                                  className="h-9 shrink-0"
-                                  onClick={() => updateCondition(rule.id, condition.id, { value: FORM_NOT_LISTED_VALUE })}
-                                  data-testid={`button-condition-not-listed-${index}-${condIndex}`}
-                                >
-                                  {notListedLabel}
-                                </Button>
+                                {conditionOptions
+                                  .filter(option => syntheticRelationshipValues.has(option?.value))
+                                  .map(option => (
+                                    <Button
+                                      key={option.value}
+                                      type="button"
+                                      variant={condition.value === option.value ? 'secondary' : 'outline'}
+                                      className="h-9 shrink-0"
+                                      onClick={() => updateCondition(rule.id, condition.id, { value: option.value })}
+                                      data-testid={option.value === FORM_NOT_LISTED_VALUE
+                                        ? `button-condition-not-listed-${index}-${condIndex}`
+                                        : `button-condition-no-relationship-${index}-${condIndex}`}
+                                    >
+                                      {option.label}
+                                    </Button>
+                                  ))}
                               </div>
                             ) : conditionOptions.length > 0 ? (
                               <Select
@@ -5221,6 +5245,24 @@ function FieldCard({
 
               {field.type === 'relationship_dropdown' && (
                 <div className="space-y-4 rounded-lg border border-slate-200 bg-slate-50 p-3" data-testid={`relationship-dropdown-config-${field.id}`}>
+                  <div>
+                    <Label htmlFor={`no-relationship-label-${field.id}`} className="text-xs font-medium">
+                      No relationship found label
+                    </Label>
+                    <Input
+                      id={`no-relationship-label-${field.id}`}
+                      value={field.no_relationship_found_label || ''}
+                      onChange={(event) => updateField(originalIndex, {
+                        no_relationship_found_label: event.target.value,
+                      })}
+                      placeholder={formNoRelationshipLabel({ ...field, no_relationship_found_label: '' })}
+                      className="mt-2 h-9"
+                      data-testid={`input-no-relationship-label-${field.id}`}
+                    />
+                    <p className="mt-1 text-xs text-slate-500">
+                      Shown inside and below this field when the selected organisation has no related records.
+                    </p>
+                  </div>
                   <div>
                     <Label className="text-xs font-medium">Organisation field</Label>
                     <p className="mt-1 text-xs text-slate-500">Only organisation dropdowns earlier in the form can drive this field.</p>

@@ -1,6 +1,6 @@
 import { applySurveyPresentation, surveySuccessMessage, surveyIntroText, showSurveyProgress, surveyProgress } from '@/lib/surveyPresentation';
 import { evaluateScoreCondition } from '@/lib/surveyConditions';
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useParams, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
@@ -21,6 +21,7 @@ import FormPaymentSubmit from "../components/forms/FormPaymentSubmit";
 import { useFormPaymentReturn, FormPaymentReturnScreen } from "../components/forms/FormPaymentReturn";
 import FormAccessRestriction, { resolveFormAccess } from "@/components/forms/FormAccessRestriction";
 import { evaluateFormLogicCondition } from "@/lib/formLogicConditions";
+import { FORM_NO_RELATIONSHIP_VALUE } from "../../../shared/formNoRelationshipChoice.js";
 
 // Stable empty array so disabled custom-value queries don't create a fresh
 // default identity every render (which would re-trigger dependent effects).
@@ -37,6 +38,7 @@ export default function EmbedFormPage() {
   const cardSwipeAutoFocusFor = useCardSwipeAutoFocus(currentStep);
   const [currentPageIndex, setCurrentPageIndex] = useState(0);
   const [formValues, setFormValues] = useState({});
+  const [emptyRelationshipParentValues, setEmptyRelationshipParentValues] = useState({});
   const [submitted, setSubmitted] = useState(false);
 
   // Task #3501: page-level payment return-leg handling (see FormView) —
@@ -54,6 +56,19 @@ export default function EmbedFormPage() {
   const handleValidityChange = (fieldId, isValid) => {
     setFieldValidity(prev => ({ ...prev, [fieldId]: isValid }));
   };
+
+  const handleRelationshipEmptyStateChange = useCallback((fieldId, parentValue) => {
+    setEmptyRelationshipParentValues((previous) => {
+      if (parentValue == null) {
+        if (!(fieldId in previous)) return previous;
+        const next = { ...previous };
+        delete next[fieldId];
+        return next;
+      }
+      if (previous[fieldId] === parentValue) return previous;
+      return { ...previous, [fieldId]: parentValue };
+    });
+  }, []);
 
   const urlPrefillMemberId = searchParams.get('member_id');
   const urlPrefillOrgId = searchParams.get('organization_id');
@@ -118,6 +133,19 @@ export default function EmbedFormPage() {
 
   // Survey presentation (question numbering) — no-op for standard forms
   const form = useMemo(() => applySurveyPresentation(rawForm), [rawForm]);
+  useEffect(() => {
+    setEmptyRelationshipParentValues({});
+  }, [form?.id]);
+  const conditionFormValues = useMemo(() => {
+    const next = { ...formValues };
+    for (const [fieldId, parentValue] of Object.entries(emptyRelationshipParentValues)) {
+      const field = form?.fields?.find(candidate => candidate.id === fieldId);
+      if (field?.parent_field_id && formValues[field.parent_field_id] === parentValue) {
+        next[fieldId] = FORM_NO_RELATIONSHIP_VALUE;
+      }
+    }
+    return next;
+  }, [emptyRelationshipParentValues, form?.fields, formValues]);
   const accessPayload = rawForm || (error?.errorData?.access
     ? { __access: error.errorData.access }
     : null);
@@ -354,7 +382,7 @@ export default function EmbedFormPage() {
     activeSetValueActionsRef.current = new Set();
   }, [form?.id]);
 
-  const evaluateSingleCondition = (triggerValue, operator, value) => {
+  const evaluateSingleCondition = (triggerValue, operator, value, fieldId = null) => {
     // LMIC operators on country fields (Task #3477) — compared against the
     // tenant LMIC list delivered with the form payload.
     const lmicResult = evaluateLmicCondition(triggerValue, operator, form?.lmic_country_codes);
@@ -369,13 +397,19 @@ export default function EmbedFormPage() {
     // Survey Score answers ({score}/{na}) + numeric operators (Task #3330)
     const scoreResult = evaluateScoreCondition(triggerValue, operator, value);
     if (scoreResult !== undefined) return scoreResult;
-    return evaluateFormLogicCondition(triggerValue, operator, value);
+    const conditionField = form?.fields?.find(field => field.id === fieldId);
+    const parentFieldId = conditionField?.type === 'relationship_dropdown'
+      ? conditionField.parent_field_id
+      : null;
+    const relationshipEmpty = !!parentFieldId
+      && emptyRelationshipParentValues[conditionField.id] === formValues[parentFieldId];
+    return evaluateFormLogicCondition(triggerValue, operator, value, { relationshipEmpty });
   };
 
   const evaluateRuleConditions = (rule, currentFormValues) => {
     if (rule.trigger_field_id && (!rule.conditions || !Array.isArray(rule.conditions) || rule.conditions.length === 0)) {
       const triggerValue = currentFormValues[rule.trigger_field_id];
-      return evaluateSingleCondition(triggerValue, rule.operator, rule.value);
+      return evaluateSingleCondition(triggerValue, rule.operator, rule.value, rule.trigger_field_id);
     }
 
     if (rule.conditions && Array.isArray(rule.conditions) && rule.conditions.length > 0) {
@@ -383,7 +417,7 @@ export default function EmbedFormPage() {
       const results = rule.conditions.map((condition) => {
         if (!condition.field_id) return false;
         const triggerValue = currentFormValues[condition.field_id];
-        return evaluateSingleCondition(triggerValue, condition.operator, condition.value);
+        return evaluateSingleCondition(triggerValue, condition.operator, condition.value, condition.field_id);
       });
 
       if (logic === 'and') {
@@ -546,7 +580,7 @@ export default function EmbedFormPage() {
     }
     
     return hidden;
-  }, [form?.visibility_rules, formValues, initialHiddenFieldIds]);
+  }, [form?.visibility_rules, formValues, emptyRelationshipParentValues, initialHiddenFieldIds]);
 
   // Filter visible fields
   const filterVisibleFields = (fields) => {
@@ -683,7 +717,7 @@ export default function EmbedFormPage() {
     if (Object.keys(updates).length > 0) {
       setFormValues(prev => ({ ...prev, ...updates }));
     }
-  }, [form?.visibility_rules, formValues]);
+  }, [form?.visibility_rules, formValues, emptyRelationshipParentValues]);
 
   const { getIdempotencyKey, rotateIdempotencyKey } = useSubmissionIdempotencyKey();
 
@@ -726,8 +760,8 @@ export default function EmbedFormPage() {
   // Conditional-logic submit control (Task #3474/#3483): shared evaluator
   // with FormView and the server-side enforcement.
   const submitControl = useMemo(
-    () => resolveSubmitControl(form?.visibility_rules, formValues, { lmicCodes: form?.lmic_country_codes }),
-    [form?.visibility_rules, formValues, form?.lmic_country_codes]
+    () => resolveSubmitControl(form?.visibility_rules, conditionFormValues, { lmicCodes: form?.lmic_country_codes }),
+    [form?.visibility_rules, conditionFormValues, form?.lmic_country_codes]
   );
 
   // Task #3483: generic Payment field — when visible, the payment step
@@ -1139,6 +1173,7 @@ export default function EmbedFormPage() {
                   notifyParentResize();
                 }}
                 onValidityChange={handleValidityChange}
+                onRelationshipEmptyStateChange={handleRelationshipEmptyStateChange}
                 disabled={false}
                 autoFocus={cardSwipeAutoFocusFor(currentField.type)}
                 formId={form?.id}
@@ -1278,6 +1313,7 @@ export default function EmbedFormPage() {
                   notifyParentResize();
                 }}
                 onValidityChange={handleValidityChange}
+                onRelationshipEmptyStateChange={handleRelationshipEmptyStateChange}
                 disabled={false}
                 formId={form?.id}
                 formSlug={form?.slug}

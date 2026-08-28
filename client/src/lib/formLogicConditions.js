@@ -3,6 +3,10 @@ import {
   FORM_NOT_LISTED_VALUE,
   prependFormNotListedOption,
 } from '../../../shared/formNotListedChoice.js';
+import {
+  FORM_NO_RELATIONSHIP_VALUE,
+  formNoRelationshipLabel,
+} from '../../../shared/formNoRelationshipChoice.js';
 
 function option(value, label = value) {
   return { value, label: String(label ?? value ?? '') };
@@ -47,7 +51,10 @@ export function getFormLogicConditionOptions({
       organization.name || organization.id,
     ));
   } else if (field.type === 'relationship_dropdown') {
-    options = configuredOptions(field);
+    options = [
+      option(FORM_NO_RELATIONSHIP_VALUE, formNoRelationshipLabel(field)),
+      ...configuredOptions(field),
+    ];
   } else if (field.type === 'country' || field.type === 'countries') {
     const allowed = field.all_countries === false
       ? new Set(field.selected_countries || [])
@@ -102,20 +109,26 @@ function normalizeBooleanCompareValue(value) {
   return value;
 }
 
-export function evaluateFormLogicCondition(triggerValue, operator, expectedValue) {
-  const booleanTrigger = typeof triggerValue === 'boolean';
+export function evaluateFormLogicCondition(triggerValue, operator, expectedValue, {
+  relationshipEmpty = false,
+} = {}) {
+  if (expectedValue === FORM_NO_RELATIONSHIP_VALUE && !relationshipEmpty) return false;
+  const effectiveTriggerValue = expectedValue === FORM_NO_RELATIONSHIP_VALUE
+    ? FORM_NO_RELATIONSHIP_VALUE
+    : triggerValue;
+  const booleanTrigger = typeof effectiveTriggerValue === 'boolean';
   switch (operator) {
     case 'equals':
-      if (booleanTrigger) return triggerValue === normalizeBooleanCompareValue(expectedValue);
-      if (Array.isArray(triggerValue)) return triggerValue.includes(expectedValue);
-      return triggerValue === expectedValue;
+      if (booleanTrigger) return effectiveTriggerValue === normalizeBooleanCompareValue(expectedValue);
+      if (Array.isArray(effectiveTriggerValue)) return effectiveTriggerValue.includes(expectedValue);
+      return effectiveTriggerValue === expectedValue;
     case 'not_equals':
-      if (booleanTrigger) return triggerValue !== normalizeBooleanCompareValue(expectedValue);
-      if (Array.isArray(triggerValue)) return !triggerValue.includes(expectedValue);
-      return triggerValue !== expectedValue;
+      if (booleanTrigger) return effectiveTriggerValue !== normalizeBooleanCompareValue(expectedValue);
+      if (Array.isArray(effectiveTriggerValue)) return !effectiveTriggerValue.includes(expectedValue);
+      return effectiveTriggerValue !== expectedValue;
     case 'contains':
-      if (Array.isArray(triggerValue)) return triggerValue.includes(expectedValue);
-      if (typeof triggerValue === 'string') return triggerValue.includes(expectedValue);
+      if (Array.isArray(effectiveTriggerValue)) return effectiveTriggerValue.includes(expectedValue);
+      if (typeof effectiveTriggerValue === 'string') return effectiveTriggerValue.includes(expectedValue);
       return false;
     case 'not_empty':
       return triggerValue !== undefined

@@ -7,6 +7,11 @@ import {
   isOnlyFormNotListedConditionOption,
 } from './formLogicConditions.js';
 import { FORM_NOT_LISTED_VALUE } from '../../../shared/formNotListedChoice.js';
+import {
+  FORM_NO_RELATIONSHIP_VALUE,
+  DEFAULT_FORM_NO_RELATIONSHIP_LABEL,
+  stripFormNoRelationshipValues,
+} from '../../../shared/formNoRelationshipChoice.js';
 
 const enabledNotListed = {
   not_listed_choice: { enabled: true, label: 'My organisation is not listed' },
@@ -86,13 +91,88 @@ test('renaming the label cannot break a saved sentinel rule', () => {
   assert.equal(before[0].value, FORM_NOT_LISTED_VALUE);
   assert.equal(after[0].value, FORM_NOT_LISTED_VALUE);
   assert.equal(evaluateFormLogicCondition(after[0].value, 'equals', before[0].value), true);
-  assert.equal(isOnlyFormNotListedConditionOption(after), true);
+  assert.equal(isOnlyFormNotListedConditionOption(after), false);
+});
+
+test('relationship fields expose a separately labelled confirmed-empty condition', () => {
+  const options = getFormLogicConditionOptions({
+    field: {
+      type: 'relationship_dropdown',
+      no_relationship_found_label: 'No branch found',
+    },
+  });
+  assert.deepEqual(options, [
+    { value: FORM_NO_RELATIONSHIP_VALUE, label: 'No branch found' },
+  ]);
+  assert.equal(getFormLogicConditionOptions({
+    field: { type: 'relationship_dropdown' },
+  })[0].label, DEFAULT_FORM_NO_RELATIONSHIP_LABEL);
+});
+
+test('no-relationship rules match only a confirmed empty lookup, never a stored field value', () => {
+  assert.equal(evaluateFormLogicCondition(
+    '',
+    'equals',
+    FORM_NO_RELATIONSHIP_VALUE,
+    { relationshipEmpty: true },
+  ), true);
+  assert.equal(evaluateFormLogicCondition(
+    FORM_NO_RELATIONSHIP_VALUE,
+    'equals',
+    FORM_NO_RELATIONSHIP_VALUE,
+    { relationshipEmpty: false },
+  ), false);
+  assert.equal(evaluateFormLogicCondition(
+    'record-1',
+    'not_equals',
+    FORM_NO_RELATIONSHIP_VALUE,
+    { relationshipEmpty: false },
+  ), false);
+  assert.equal(evaluateFormLogicCondition(
+    '',
+    'is_empty',
+    FORM_NO_RELATIONSHIP_VALUE,
+    { relationshipEmpty: false },
+  ), false);
+  assert.equal(evaluateFormLogicCondition(
+    '',
+    'not_equals',
+    FORM_NO_RELATIONSHIP_VALUE,
+    { relationshipEmpty: true },
+  ), false);
+  assert.equal(evaluateFormLogicCondition('', 'is_empty', '', { relationshipEmpty: true }), true);
+});
+
+test('the runtime sentinel is stripped only from relationship draft values', () => {
+  assert.deepEqual(stripFormNoRelationshipValues({
+    relationship: FORM_NO_RELATIONSHIP_VALUE,
+    legacyRelationship: FORM_NO_RELATIONSHIP_VALUE,
+    arrayRelationship: [FORM_NO_RELATIONSHIP_VALUE],
+    objectRelationship: { value: FORM_NO_RELATIONSHIP_VALUE },
+    text: FORM_NO_RELATIONSHIP_VALUE,
+  }, [
+    { id: 'relationship', name: 'legacyRelationship', type: 'relationship_dropdown' },
+    { id: 'arrayRelationship', type: 'relationship_dropdown' },
+    { id: 'objectRelationship', type: 'relationship_dropdown' },
+    { id: 'text', type: 'text' },
+  ]), {
+    text: FORM_NO_RELATIONSHIP_VALUE,
+  });
+});
+
+test('draft endpoint sanitizes synthetic relationship values before writes and reads', () => {
+  const source = readFileSync(new URL('../../../api/public/form-draft.js', import.meta.url), 'utf8');
+  assert.match(source, /\.select\('id, tenant_id, access_policy, deactivate_at, fields'\)/);
+  assert.match(source, /const safeDraftData = stripFormNoRelationshipValues\(draft_data, form\.fields\)/);
+  assert.match(source, /draft_data: safeDraftData/g);
+  assert.match(source, /draft_data: stripFormNoRelationshipValues\(draft\.draft_data, form\.fields\)/);
 });
 
 test('normal and embedded public forms use the shared ordinary-rule evaluator', () => {
   for (const path of ['../pages/FormView.jsx', '../pages/EmbedForm.jsx']) {
     const source = readFileSync(new URL(path, import.meta.url), 'utf8');
     assert.match(source, /import \{ evaluateFormLogicCondition \} from ["']@\/lib\/formLogicConditions["']/);
-    assert.match(source, /evaluateFormLogicCondition\(triggerValue, operator, value\)/);
+    assert.match(source, /evaluateFormLogicCondition\(triggerValue, operator, value, \{ relationshipEmpty \}\)/);
+    assert.match(source, /onRelationshipEmptyStateChange=\{handleRelationshipEmptyStateChange\}/);
   }
 });

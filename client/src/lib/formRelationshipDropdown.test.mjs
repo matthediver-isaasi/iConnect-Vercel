@@ -1,7 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { FORM_NOT_LISTED_VALUE } from '../../../shared/formNotListedChoice.js';
 import {
+  isConfirmedEmptyRelationshipResult,
   getSavedFormFieldValue,
   getEligibleRelationshipParents,
   normalizeEligibleRelationships,
@@ -184,6 +186,25 @@ test('relationship option normalization removes duplicate record keys', () => {
     { id: 'department-record', label: 'Department' },
     { value: 'department-record', name: 'Duplicate' },
   ]), [{ id: 'department-record', label: 'Department' }]);
+});
+
+test('empty relationship state requires a successful zero-result lookup', () => {
+  const base = {
+    fieldType: 'relationship_dropdown',
+    parentValue: 'org-1',
+    options: [],
+    optionsLoaded: true,
+    optionsError: false,
+  };
+  assert.equal(isConfirmedEmptyRelationshipResult(base), true);
+  assert.equal(isConfirmedEmptyRelationshipResult({ ...base, parentValue: '' }), false);
+  assert.equal(isConfirmedEmptyRelationshipResult({ ...base, optionsLoaded: false }), false);
+  assert.equal(isConfirmedEmptyRelationshipResult({ ...base, optionsError: true }), false);
+  assert.equal(isConfirmedEmptyRelationshipResult({ ...base, options: [{ id: 'record-1' }] }), false);
+  assert.equal(isConfirmedEmptyRelationshipResult({
+    ...base,
+    parentValue: FORM_NOT_LISTED_VALUE,
+  }), false);
 });
 
 test('renderer uses resolved parent and dependent values for loading and retention', () => {

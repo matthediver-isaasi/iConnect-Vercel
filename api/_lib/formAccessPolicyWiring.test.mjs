@@ -46,12 +46,12 @@ test('all draft operations resolve policy before reading or mutating draft conte
   assert.equal((source.match(/resolveFormAccess\(\{/g) || []).length, 3);
   assert.equal((source.match(/sendFormAccessDenied\(res, access\)/g) || []).length, 3);
   assert.equal((source.match(/if \(!isFormScheduleAvailable\(form\)\)/g) || []).length, 3);
-  assert.match(source, /\.select\('id, tenant_id, access_policy, deactivate_at'\)/);
-  assert.match(source, /\.select\('id, slug, name, access_policy, deactivate_at'\)/);
+  assert.match(source, /\.select\('id, tenant_id, access_policy, deactivate_at, fields'\)/);
+  assert.match(source, /\.select\('id, slug, name, access_policy, deactivate_at, fields'\)/);
   assert.match(source, /\.select\('access_policy, deactivate_at'\)/);
   assertOrdered(source, 'if (!isFormScheduleAvailable(form))', 'const access = await resolveFormAccess', 'draft create/update');
   assertOrdered(source, 'const access = await resolveFormAccess', '// Calculate expiry date', 'draft create/update');
-  assertOrdered(source, '.select(\'id, slug, name, access_policy, deactivate_at\')', 'draft_data: draft.draft_data', 'draft read');
+  assertOrdered(source, '.select(\'id, slug, name, access_policy, deactivate_at, fields\')', 'draft_data: stripFormNoRelationshipValues', 'draft read');
   const deleteSection = source.slice(source.indexOf('// DELETE: Abandon/delete a draft'));
   assertOrdered(deleteSection, '.select(\'access_policy, deactivate_at\')', '.delete()', 'draft delete');
 });

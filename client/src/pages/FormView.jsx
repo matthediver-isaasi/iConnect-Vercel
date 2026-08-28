@@ -1,6 +1,6 @@
 import { applySurveyPresentation, surveySuccessMessage, surveyIntroText, showSurveyProgress, surveyProgress } from '@/lib/surveyPresentation';
 import { evaluateScoreCondition } from '@/lib/surveyConditions';
-import React, { useState, useEffect, useMemo, useRef } from "react";
+import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { base44 } from "@/api/base44Client";
 import { publicClient } from "@/api/publicClient";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -23,6 +23,7 @@ import { useMembershipFeeQuote } from "@/lib/useMembershipFeeQuote";
 import { COUNTRIES } from "@/data/countries";
 import FormAccessRestriction, { resolveFormAccess } from "@/components/forms/FormAccessRestriction";
 import { evaluateFormLogicCondition } from "@/lib/formLogicConditions";
+import { FORM_NO_RELATIONSHIP_VALUE } from "../../../shared/formNoRelationshipChoice.js";
 
 // A `redirect_url` beginning with this prefix means the redirect target is driven
 // by the value the respondent submitted for the field whose id follows the prefix.
@@ -80,6 +81,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
   const cardSwipeAutoFocusFor = useCardSwipeAutoFocus(currentStep);
   const [currentPageIndex, setCurrentPageIndex] = useState(0);
   const [formValues, setFormValues] = useState({});
+  const [emptyRelationshipParentValues, setEmptyRelationshipParentValues] = useState({});
   const [submitted, setSubmitted] = useState(false);
   const [fieldValidity, setFieldValidity] = useState({}); // Track format validity for each field
   const [submissionError, setSubmissionError] = useState(null); // Inline error display for validation failures
@@ -99,6 +101,19 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
   const handleValidityChange = (fieldId, isValid) => {
     setFieldValidity(prev => ({ ...prev, [fieldId]: isValid }));
   };
+
+  const handleRelationshipEmptyStateChange = useCallback((fieldId, parentValue) => {
+    setEmptyRelationshipParentValues((previous) => {
+      if (parentValue == null) {
+        if (!(fieldId in previous)) return previous;
+        const next = { ...previous };
+        delete next[fieldId];
+        return next;
+      }
+      if (previous[fieldId] === parentValue) return previous;
+      return { ...previous, [fieldId]: parentValue };
+    });
+  }, []);
 
   const queryClient = useQueryClient();
   const urlParams = new URLSearchParams(window.location.search);
@@ -191,6 +206,19 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
 
   // Survey presentation (question numbering) — no-op for standard forms
   const form = useMemo(() => applySurveyPresentation(rawForm), [rawForm]);
+  useEffect(() => {
+    setEmptyRelationshipParentValues({});
+  }, [form?.id]);
+  const conditionFormValues = useMemo(() => {
+    const next = { ...formValues };
+    for (const [fieldId, parentValue] of Object.entries(emptyRelationshipParentValues)) {
+      const field = form?.fields?.find(candidate => candidate.id === fieldId);
+      if (field?.parent_field_id && formValues[field.parent_field_id] === parentValue) {
+        next[fieldId] = FORM_NO_RELATIONSHIP_VALUE;
+      }
+    }
+    return next;
+  }, [emptyRelationshipParentValues, form?.fields, formValues]);
 
   // Task #3336: authenticated fallback — when the form uses member/organisation
   // prefill and no explicit URL param is supplied, prefill from the logged-in
@@ -1113,7 +1141,13 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
     // Survey Score answers ({score}/{na}) + numeric operators (Task #3330)
     const scoreResult = evaluateScoreCondition(triggerValue, operator, value);
     if (scoreResult !== undefined) return scoreResult;
-    const result = evaluateFormLogicCondition(triggerValue, operator, value);
+    const conditionField = form?.fields?.find(field => field.id === debugInfo.fieldId);
+    const parentFieldId = conditionField?.type === 'relationship_dropdown'
+      ? conditionField.parent_field_id
+      : null;
+    const relationshipEmpty = !!parentFieldId
+      && emptyRelationshipParentValues[conditionField.id] === formValues[parentFieldId];
+    const result = evaluateFormLogicCondition(triggerValue, operator, value, { relationshipEmpty });
     console.log(`[SetValue Debug] Condition: triggerValue="${triggerValue}" (type: ${typeof triggerValue}) ${operator} "${value}" (type: ${typeof value}) => ${result}`, debugInfo);
     return result;
   };
@@ -1126,7 +1160,11 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
     // This handles forms saved before the conditions array was introduced
     if (rule.trigger_field_id && (!rule.conditions || !Array.isArray(rule.conditions) || rule.conditions.length === 0)) {
       const triggerValue = formValues[rule.trigger_field_id];
-      const result = evaluateSingleCondition(triggerValue, rule.operator, rule.value, { ruleId: rule.id, format: 'legacy' });
+      const result = evaluateSingleCondition(triggerValue, rule.operator, rule.value, {
+        ruleId: rule.id,
+        fieldId: rule.trigger_field_id,
+        format: 'legacy',
+      });
       console.log(`[SetValue Debug] Rule ${rule.id} (legacy format) => ${result}`);
       return result;
     }
@@ -1345,7 +1383,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
     }
     
     return { hiddenFieldIds: hiddenFields, hiddenPageIds: hiddenPages };
-  }, [form?.visibility_rules, form?.fields, formValues, initialHiddenFieldIds, initialHiddenPageIds, pageIdSet]);
+  }, [form?.visibility_rules, form?.fields, formValues, emptyRelationshipParentValues, initialHiddenFieldIds, initialHiddenPageIds, pageIdSet]);
 
   const visiblePagesForClamp = useMemo(() => {
     return (form?.pages || []).filter(p => !hiddenPageIds.has(p.id));
@@ -1582,8 +1620,8 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
   // the Submit button. Shared evaluator with the server-side enforcement in
   // process-application.js — keep using the shared module, never fork it.
   const submitControl = useMemo(
-    () => resolveSubmitControl(form?.visibility_rules, formValues, { lmicCodes: form?.lmic_country_codes }),
-    [form?.visibility_rules, formValues, form?.lmic_country_codes]
+    () => resolveSubmitControl(form?.visibility_rules, conditionFormValues, { lmicCodes: form?.lmic_country_codes }),
+    [form?.visibility_rules, conditionFormValues, form?.lmic_country_codes]
   );
 
   // Task #3483: generic Payment field. When a payment field is VISIBLE (not
@@ -1675,7 +1713,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
     }
     
     return disabled;
-  }, [form?.visibility_rules, formValues, initialDisabledFieldIds]);
+  }, [form?.visibility_rules, formValues, emptyRelationshipParentValues, initialDisabledFieldIds]);
 
   // Process Set Value rules - when conditions are met, update target field values
   // When conditions become false, revert to original values (undo the action)
@@ -2058,7 +2096,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
     
     // Update previous state for next render
     previousRoleActionsRef.current = nowActiveRoleActions;
-  }, [form?.visibility_rules, formValues, prefillMember, prefillOrg, prefillMemberCustomValues, prefillOrgCustomValues, form?.prefill_source]);
+  }, [form?.visibility_rules, formValues, emptyRelationshipParentValues, prefillMember, prefillOrg, prefillMemberCustomValues, prefillOrgCustomValues, form?.prefill_source]);
 
   if (isLoading) {
     return (
@@ -2592,6 +2630,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
                 selectedOrgGuestAccess={selectedOrgGuestAccess}
                 disabled={disabledFieldIds.has(currentField.id)}
                 onValidityChange={handleValidityChange}
+                onRelationshipEmptyStateChange={handleRelationshipEmptyStateChange}
                 autoFocus={cardSwipeAutoFocusFor(currentField.type)}
                 formId={form?.id}
                 formSlug={form?.slug}
@@ -2875,6 +2914,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
                   selectedOrgGuestAccess={selectedOrgGuestAccess}
                   disabled={disabledFieldIds.has(field.id)}
                   onValidityChange={handleValidityChange}
+                  onRelationshipEmptyStateChange={handleRelationshipEmptyStateChange}
                   formId={form?.id}
                   formSlug={form?.slug}
                   formMemberRoleId={prefillMember?.role_id || memberData?.role_id || null}

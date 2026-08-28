@@ -9,6 +9,7 @@ import {
   hasEnabledFormNotListedChoice,
   isFormNotListedValue,
 } from '../../shared/formNotListedChoice.js';
+import { isFormNoRelationshipValue } from '../../shared/formNoRelationshipChoice.js';
 
 export class FormRelationshipError extends Error {
   constructor(status, message) {
@@ -309,6 +310,9 @@ export function createFormRelationshipService({ db, tenantId }) {
       const recordId = submittedFieldValue(submissionData, field);
       if (recordId === undefined || recordId === null || recordId === '') continue;
       if (isFormNotListedValue(recordId)) continue;
+      if (isFormNoRelationshipValue(recordId)) {
+        throw new FormRelationshipError(400, 'Invalid relationship selection');
+      }
       if (typeof recordId !== 'string' && typeof recordId !== 'number') {
         throw new FormRelationshipError(400, 'Invalid relationship selection');
       }
