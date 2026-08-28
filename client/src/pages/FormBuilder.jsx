@@ -73,9 +73,14 @@ import {
   formNoRelationshipLabel,
 } from "../../../shared/formNoRelationshipChoice.js";
 import {
+  isRepeatableRowField,
+  normalizeRepeatableRowField,
   REPEATABLE_ROW_CHILD_TYPES,
   REPEATABLE_ROW_DEPENDENCY_TYPES,
+  REPEATABLE_ROW_LAYOUT_CARDS,
+  REPEATABLE_ROW_LAYOUT_SPREADSHEET,
   REPEATABLE_ROW_SCHEMA_VERSION,
+  repeatableRowFieldConfigUpdate,
 } from "../../../shared/formRepeatableRows.js";
 
 const BADGE_STYLE_DEFAULTS = {
@@ -4163,10 +4168,16 @@ function ConditionalFilterRuleEditor({
 }
 
 function RepeatableRowsSettings({ field, originalIndex, updateField, eligibleRelationships = [], allFields = [] }) {
-  const children = Array.isArray(field.child_fields) ? field.child_fields : [];
-  const updateChildren = child_fields => updateField(originalIndex, {
+  const config = normalizeRepeatableRowField(field);
+  const children = config.children;
+  const updateConfig = updates => updateField(
+    originalIndex,
+    repeatableRowFieldConfigUpdate(field, updates),
+  );
+  const updateChildren = children => updateConfig({
     repeatable_rows_version: REPEATABLE_ROW_SCHEMA_VERSION,
-    child_fields,
+    version: REPEATABLE_ROW_SCHEMA_VERSION,
+    children,
   });
   const updateChild = (childIndex, updates) => updateChildren(children.map((child, index) => (
     index === childIndex ? { ...child, ...updates } : child
@@ -4199,9 +4210,9 @@ function RepeatableRowsSettings({ field, originalIndex, updateField, eligibleRel
           <Input
             type="number"
             min="0"
-            max={field.max_rows || 10}
-            value={field.min_rows ?? 0}
-            onChange={event => updateField(originalIndex, { min_rows: Math.max(0, Number(event.target.value) || 0) })}
+            max={config.max_rows}
+            value={config.min_rows}
+            onChange={event => updateConfig({ min_rows: Math.max(0, Number(event.target.value) || 0) })}
             className="h-9"
             data-testid={`input-repeatable-min-${field.id}`}
           />
@@ -4210,9 +4221,9 @@ function RepeatableRowsSettings({ field, originalIndex, updateField, eligibleRel
           <Label className="text-xs">Maximum rows</Label>
           <Input
             type="number"
-            min={Math.max(1, field.min_rows || 0)}
-            value={field.max_rows ?? 10}
-            onChange={event => updateField(originalIndex, { max_rows: Math.max(1, Number(event.target.value) || 1) })}
+            min={Math.max(1, config.min_rows)}
+            value={config.max_rows}
+            onChange={event => updateConfig({ max_rows: Math.max(1, Number(event.target.value) || 1) })}
             className="h-9"
             data-testid={`input-repeatable-max-${field.id}`}
           />
@@ -4220,19 +4231,43 @@ function RepeatableRowsSettings({ field, originalIndex, updateField, eligibleRel
         <div className="space-y-1">
           <Label className="text-xs">Add button label</Label>
           <Input
-            value={field.add_row_label || ''}
-            onChange={event => updateField(originalIndex, { add_row_label: event.target.value })}
+            value={config.add_row_label}
+            onChange={event => updateConfig({ add_row_label: event.target.value })}
             placeholder="Add row"
             className="h-9"
             data-testid={`input-repeatable-add-label-${field.id}`}
           />
         </div>
       </div>
+      <div className="space-y-1">
+        <Label className="text-xs">Row layout</Label>
+        <Select
+          value={config.layout}
+          onValueChange={layout => updateConfig({ layout })}
+        >
+          <SelectTrigger
+            className="h-9 md:w-64"
+            data-testid={`select-repeatable-layout-${field.id}`}
+          >
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={REPEATABLE_ROW_LAYOUT_CARDS}>Cards</SelectItem>
+            <SelectItem value={REPEATABLE_ROW_LAYOUT_SPREADSHEET}>Spreadsheet</SelectItem>
+          </SelectContent>
+        </Select>
+        <p className="text-xs text-slate-500">
+          Spreadsheet shows column headings once and keeps repeated entries in aligned rows.
+        </p>
+      </div>
       <div className="flex items-center gap-2">
         <Switch
           id={`repeatable-initial-required-${field.id}`}
-          checked={field.initial_row_required === true}
-          onCheckedChange={initial_row_required => updateField(originalIndex, { initial_row_required })}
+          checked={config.first_row_required}
+          onCheckedChange={initial_row_required => updateConfig({
+            initial_row_required,
+            first_row_required: initial_row_required,
+          })}
         />
         <Label htmlFor={`repeatable-initial-required-${field.id}`} className="text-xs">Validate required fields in the initial row even when untouched</Label>
       </div>
@@ -4504,7 +4539,7 @@ function FieldCard({
   } = useQuery({
     queryKey: ['eligible-form-relationships'],
     queryFn: () => publicClient.listEligibleFormRelationships(formId),
-    enabled: ['relationship_dropdown', 'repeatable_rows'].includes(field.type) && !!formId,
+    enabled: (field.type === 'relationship_dropdown' || isRepeatableRowField(field)) && !!formId,
     staleTime: 5 * 60 * 1000,
   });
   const eligibleRelationships = normalizeEligibleRelationships(relationshipDiscovery);
@@ -4697,7 +4732,9 @@ function FieldCard({
                   <div className="space-y-1">
                     <Label className="text-xs">Standard Fields</Label>
                     <Select
-                      value={getFieldTypeCategory(field.type) === 'standard' ? field.type : ''}
+                      value={getFieldTypeCategory(field.type) === 'standard'
+                        ? (isRepeatableRowField(field) ? 'repeatable_rows' : field.type)
+                        : ''}
                       onValueChange={(value) => {
                         if (value) {
                           const updates = { type: value };
@@ -4709,13 +4746,14 @@ function FieldCard({
                             updates.auto_advance = true;
                             updates.hide_next_button = false;
                           }
-                          if (value === 'repeatable_rows' && field.type !== 'repeatable_rows') {
+                          if (value === 'repeatable_rows' && !isRepeatableRowField(field)) {
                             updates.repeatable_rows_version = REPEATABLE_ROW_SCHEMA_VERSION;
                             updates.child_fields = [];
                             updates.min_rows = 0;
                             updates.max_rows = 10;
                             updates.initial_row_required = false;
                             updates.add_row_label = 'Add row';
+                            updates.layout = REPEATABLE_ROW_LAYOUT_CARDS;
                           }
                           updateField(originalIndex, updates);
                         }
@@ -4903,7 +4941,7 @@ function FieldCard({
                 updateField={updateField}
               />
 
-              {field.type === 'repeatable_rows' && (
+              {isRepeatableRowField(field) && (
                 <RepeatableRowsSettings
                   field={field}
                   originalIndex={originalIndex}

@@ -6,6 +6,9 @@ import {
   formatRepeatableRows,
   isRepeatableRowEmpty,
   normalizeRepeatableRowField,
+  repeatableRowFieldConfigUpdate,
+  REPEATABLE_ROW_LAYOUT_CARDS,
+  REPEATABLE_ROW_LAYOUT_SPREADSHEET,
   validateRepeatableRows,
 } from './formRepeatableRows.js';
 
@@ -41,6 +44,67 @@ test('normalizes the versioned schema while retaining legacy top-level propertie
     maximum_rows: 4,
     child_fields: [{ id: 'name', type: 'text' }],
   }).min_rows, 2);
+});
+
+test('repeatable rows default to cards and accept only the spreadsheet layout', () => {
+  assert.equal(normalizeRepeatableRowField(field).layout, REPEATABLE_ROW_LAYOUT_CARDS);
+  assert.equal(normalizeRepeatableRowField({
+    type: 'repeatable_rows',
+    layout: 'spreadsheet',
+  }).layout, REPEATABLE_ROW_LAYOUT_SPREADSHEET);
+  assert.equal(normalizeRepeatableRowField({
+    type: 'repeatable_rows',
+    display_style: 'spreadsheet',
+  }).layout, REPEATABLE_ROW_LAYOUT_SPREADSHEET);
+  assert.equal(normalizeRepeatableRowField({
+    type: 'repeatable_rows',
+    layout: 'forged',
+  }).layout, REPEATABLE_ROW_LAYOUT_CARDS);
+});
+
+test('repeatable config updates preserve the active top-level or nested storage shape', () => {
+  assert.deepEqual(repeatableRowFieldConfigUpdate({
+    type: 'repeatable_rows',
+    child_fields: [{ id: 'old' }],
+  }, {
+    layout: 'spreadsheet',
+    children: [{ id: 'new' }],
+  }), {
+    layout: 'spreadsheet',
+    child_fields: [{ id: 'new' }],
+  });
+  assert.deepEqual(repeatableRowFieldConfigUpdate({
+    type: 'repeatable_grid',
+    repeatable_row: {
+      version: 1,
+      layout: 'cards',
+      children: [{ id: 'old' }],
+    },
+  }, {
+    layout: 'spreadsheet',
+    children: [{ id: 'new' }],
+  }), {
+    repeatable_row: {
+      version: 1,
+      layout: 'spreadsheet',
+      children: [{ id: 'new' }],
+    },
+  });
+});
+
+test('repeatable child updates preserve every supported legacy top-level child key', () => {
+  for (const childKey of ['children', 'child_fields', 'fields']) {
+    const fieldWithLegacyChildren = {
+      type: childKey === 'fields' ? 'repeatable_grid' : 'repeatable_rows',
+      [childKey]: [{ id: 'old', type: 'text' }],
+    };
+    const update = repeatableRowFieldConfigUpdate(fieldWithLegacyChildren, {
+      children: [{ id: 'new', type: 'text' }],
+    });
+    const saved = { ...fieldWithLegacyChildren, ...update };
+    assert.deepEqual(normalizeRepeatableRowField(saved).children.map(child => child.id), ['new']);
+    assert.deepEqual(update[childKey].map(child => child.id), ['new']);
+  }
 });
 
 test('stable row IDs are retained and duplicate or absent IDs are replaced', () => {

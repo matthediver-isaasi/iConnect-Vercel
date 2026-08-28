@@ -5,6 +5,8 @@ export const REPEATABLE_ROW_FIELD_TYPES = Object.freeze([
   'repeatable_rows',
   'repeatable_grid',
 ]);
+export const REPEATABLE_ROW_LAYOUT_CARDS = 'cards';
+export const REPEATABLE_ROW_LAYOUT_SPREADSHEET = 'spreadsheet';
 
 export const REPEATABLE_ROW_CHILD_TYPES = Object.freeze([
   'text', 'textarea', 'email', 'phone', 'tel', 'url', 'number', 'percentage',
@@ -45,6 +47,30 @@ export function repeatableRowChildren(field) {
   return Array.isArray(children) ? children.filter((child) => child && typeof child === 'object') : [];
 }
 
+export function repeatableRowFieldConfigUpdate(field, updates = {}) {
+  if (field?.repeatable_row && typeof field.repeatable_row === 'object') {
+    return {
+      repeatable_row: {
+        ...field.repeatable_row,
+        ...updates,
+      },
+    };
+  }
+  const topLevelUpdates = { ...updates };
+  if (Object.prototype.hasOwnProperty.call(topLevelUpdates, 'children')) {
+    const childKey = Array.isArray(field?.children)
+      ? 'children'
+      : Array.isArray(field?.child_fields)
+        ? 'child_fields'
+        : Array.isArray(field?.fields)
+          ? 'fields'
+          : 'child_fields';
+    topLevelUpdates[childKey] = topLevelUpdates.children;
+    if (childKey !== 'children') delete topLevelUpdates.children;
+  }
+  return topLevelUpdates;
+}
+
 export function normalizeRepeatableRowField(field = {}) {
   const source = field.repeatable_row && typeof field.repeatable_row === 'object'
     ? field.repeatable_row : field;
@@ -68,6 +94,8 @@ export function normalizeRepeatableRowField(field = {}) {
     first_row_required: firstRequired,
     add_row_label: typeof source.add_row_label === 'string' && source.add_row_label.trim()
       ? source.add_row_label.trim() : 'Add another',
+    layout: (source.layout ?? source.display_style) === REPEATABLE_ROW_LAYOUT_SPREADSHEET
+      ? REPEATABLE_ROW_LAYOUT_SPREADSHEET : REPEATABLE_ROW_LAYOUT_CARDS,
   };
 }
 

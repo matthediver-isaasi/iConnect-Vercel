@@ -7,7 +7,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
-import { Loader2, Plus, X, Check, ChevronsUpDown } from "lucide-react";
+import { Loader2, Plus, X, Trash2, Check, ChevronsUpDown } from "lucide-react";
 import CustomFieldFileUpload from "@/components/CustomFieldFileUpload";
 import SignatureField from "@/components/forms/SignatureField";
 import ScoreField from "@/components/forms/ScoreField";
@@ -40,6 +40,7 @@ import {
   removeInvalidConditionalValue,
   resolveConditionalFilters,
 } from "@/lib/formConditionalFilters";
+import { labelSpreadsheetControls } from "@/lib/repeatableRowsLayout";
 import {
   FORM_NOT_LISTED_VALUE,
   applyExclusiveFormNotListedSelection,
@@ -52,10 +53,29 @@ import {
   ensureRepeatableRowIds,
   isRepeatableRowField,
   normalizeRepeatableRowField,
+  REPEATABLE_ROW_LAYOUT_SPREADSHEET,
   validateRepeatableRows,
 } from "../../../../shared/formRepeatableRows.js";
 
 let organizationQueryInstanceSequence = 0;
+
+function SpreadsheetCell({ headingId, contextId, testId, children }) {
+  const cellRef = useRef(null);
+  useEffect(() => {
+    labelSpreadsheetControls(cellRef.current, headingId, contextId);
+  });
+  return (
+    <div
+      ref={cellRef}
+      className="min-w-0"
+      role="group"
+      aria-labelledby={headingId}
+      data-testid={testId}
+    >
+      {children}
+    </div>
+  );
+}
 
 function RepeatableRowsField({
   field,
@@ -150,9 +170,125 @@ function RepeatableRowsField({
     );
   }
 
+  const renderChild = (child, row, rowId, rowIndex, spreadsheet = false) => {
+    const content = (
+      <>
+      {spreadsheet
+        ? <span className="sr-only">{child.label || 'Untitled field'}{child.required ? ' (required)' : ''}</span>
+        : (
+          <>
+            <Label>
+              {child.label || 'Untitled field'}
+              {child.required && <span className="ml-1 text-red-500">*</span>}
+            </Label>
+            {child.description && <p className="text-xs text-slate-500">{child.description}</p>}
+          </>
+        )}
+      <FormRenderer
+        field={{ ...child, repeatable_container_field_id: field.id }}
+        value={row[child.id]}
+        onChange={nextValue => updateRow(rowId, child.id, nextValue)}
+        onValidityChange={(childId, valid) => setChildValidity(current => (
+          current[rowId]?.[childId] === valid
+            ? current
+            : { ...current, [rowId]: { ...(current[rowId] || {}), [childId]: valid } }
+        ))}
+        memberInfo={memberInfo}
+        organizationInfo={organizationInfo}
+        selectedOrgGuestAccess={selectedOrgGuestAccess}
+        disabled={disabled}
+        hideLabel
+        formId={formId}
+        formSlug={formSlug}
+        formMemberRoleId={formMemberRoleId}
+        allFormValues={row}
+        allFields={config.children}
+        rootAllFields={rootAllFields}
+        rootAllFormValues={rootAllFormValues}
+        prefillData={prefillData}
+        membershipFeeQuote={membershipFeeQuote}
+        notListedDisplayLabel={notListedDisplayLabel}
+      />
+      </>
+    );
+    return spreadsheet ? (
+      <SpreadsheetCell
+        key={child.id}
+        headingId={`repeatable-heading-${field.id}-${child.id}`}
+        contextId={`repeatable-cell-${field.id}-${rowId}-${child.id}`}
+        testId={`repeatable-spreadsheet-cell-${field.id}-${rowIndex}-${child.id}`}
+      >
+        {content}
+      </SpreadsheetCell>
+    ) : (
+      <div key={child.id} className="space-y-2">{content}</div>
+    );
+  };
+
+  const spreadsheet = config.layout === REPEATABLE_ROW_LAYOUT_SPREADSHEET;
+  const spreadsheetGridStyle = {
+    gridTemplateColumns: `repeat(${config.children.length}, minmax(12rem, 1fr)) 2.75rem`,
+  };
+  const spreadsheetMinWidth = `${Math.max(28, (config.children.length * 12) + 2.75)}rem`;
+
   return (
     <div className="space-y-3" data-testid={`repeatable-rows-${field.id}`}>
-      {rows.map((row, rowIndex) => {
+      {spreadsheet ? (
+        <div
+          className="overflow-x-auto rounded-lg border border-slate-200"
+          data-testid={`repeatable-spreadsheet-${field.id}`}
+        >
+          <div style={{ minWidth: spreadsheetMinWidth }}>
+            <div
+              className="grid items-end gap-3 border-b border-slate-200 bg-slate-50 px-3 py-2"
+              style={spreadsheetGridStyle}
+              data-testid={`repeatable-spreadsheet-header-${field.id}`}
+            >
+              {config.children.map(child => (
+                <div
+                  key={child.id}
+                  id={`repeatable-heading-${field.id}-${child.id}`}
+                  className="text-xs font-medium text-slate-700"
+                >
+                  {child.label || 'Untitled field'}
+                  {child.required && <span className="ml-1 text-red-500">*</span>}
+                  {child.description && (
+                    <p className="mt-0.5 font-normal text-slate-500">{child.description}</p>
+                  )}
+                </div>
+              ))}
+              <span className="sr-only">Actions</span>
+            </div>
+            {rows.map((row, rowIndex) => {
+              const rowId = row._row_id;
+              return (
+                <fieldset
+                  key={rowId}
+                  className="grid items-start gap-3 border-b border-slate-100 px-3 py-3 last:border-b-0"
+                  style={spreadsheetGridStyle}
+                  data-testid={`repeatable-row-${field.id}-${rowIndex}`}
+                >
+                  <legend className="sr-only">{field.label || 'Repeated row'} {rowIndex + 1}</legend>
+                  {config.children.map(child => renderChild(child, row, rowId, rowIndex, true))}
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="mt-0.5 text-slate-500 hover:text-red-600"
+                    disabled={disabled || rows.length <= config.min_rows}
+                    onClick={() => removeRow(rowId)}
+                    aria-label={`Remove row ${rowIndex + 1}`}
+                    title={`Remove row ${rowIndex + 1}`}
+                    data-testid={`button-remove-repeatable-row-${field.id}-${rowIndex}`}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </fieldset>
+              );
+            })}
+          </div>
+        </div>
+      ) : rows.map((row, rowIndex) => {
         const rowId = row._row_id;
         return (
           <fieldset
@@ -176,40 +312,7 @@ function RepeatableRowsField({
               </Button>
             </div>
             <div className="grid gap-4 md:grid-cols-2">
-              {config.children.map(child => (
-                <div key={child.id} className="space-y-2">
-                  <Label>
-                    {child.label || 'Untitled field'}
-                    {child.required && <span className="ml-1 text-red-500">*</span>}
-                  </Label>
-                  {child.description && <p className="text-xs text-slate-500">{child.description}</p>}
-                  <FormRenderer
-                    field={{ ...child, repeatable_container_field_id: field.id }}
-                    value={row[child.id]}
-                    onChange={nextValue => updateRow(rowId, child.id, nextValue)}
-                    onValidityChange={(childId, valid) => setChildValidity(current => (
-                      current[rowId]?.[childId] === valid
-                        ? current
-                        : { ...current, [rowId]: { ...(current[rowId] || {}), [childId]: valid } }
-                    ))}
-                    memberInfo={memberInfo}
-                    organizationInfo={organizationInfo}
-                    selectedOrgGuestAccess={selectedOrgGuestAccess}
-                    disabled={disabled}
-                    hideLabel
-                    formId={formId}
-                    formSlug={formSlug}
-                    formMemberRoleId={formMemberRoleId}
-                    allFormValues={row}
-                    allFields={config.children}
-                    rootAllFields={rootAllFields}
-                    rootAllFormValues={rootAllFormValues}
-                    prefillData={prefillData}
-                    membershipFeeQuote={membershipFeeQuote}
-                    notListedDisplayLabel={notListedDisplayLabel}
-                  />
-                </div>
-              ))}
+              {config.children.map(child => renderChild(child, row, rowId, rowIndex))}
             </div>
           </fieldset>
         );
