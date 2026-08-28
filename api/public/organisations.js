@@ -1,7 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
 import {
-  isOrganizationEligibleForField,
+  filterOrganizationsEligibleForFields,
   normalizeOrganizationPreferenceValue,
   VALID_ORGANIZATION_CORE_FIELDS,
 } from '../_lib/organizationEligibility.js';
@@ -45,18 +45,22 @@ export async function loadConditionalOrganizationOptions({
 
     const allowedIds = resolution.configured && Array.isArray(resolution.allowedValues)
       ? new Set(resolution.allowedValues.map((value) => String(value))) : null;
-    const visible = [];
-    for (const organization of organizations || []) {
-      // null means the matched rule supplied no ID restriction; an empty Set
-      // means a configured ID list intersected the saved base choices to none.
-      if (allowedIds && !allowedIds.has(String(organization.id))) continue;
-      if (!await isOrganizationEligibleForField({ db, tenantId, organization, field })) continue;
-      if (resolution.orgFilter && !await isOrganizationEligibleForField({
-        db, tenantId, organization, field: { org_filter: resolution.orgFilter },
-      })) continue;
-      visible.push({ id: organization.id, name: organization.name, logo_url: organization.logo_url });
-    }
-    return visible;
+    // null means the matched rule supplied no ID restriction; an empty Set
+    // means a configured ID list intersected the saved base choices to none.
+    const idEligible = allowedIds
+      ? (organizations || []).filter((organization) => allowedIds.has(String(organization.id)))
+      : (organizations || []);
+    const eligible = await filterOrganizationsEligibleForFields({
+      db,
+      tenantId,
+      organizations: idEligible,
+      fields: resolution.orgFilter ? [field, { org_filter: resolution.orgFilter }] : [field],
+    });
+    return eligible.map((organization) => ({
+      id: organization.id,
+      name: organization.name,
+      logo_url: organization.logo_url,
+    }));
   } catch {
     return [];
   }

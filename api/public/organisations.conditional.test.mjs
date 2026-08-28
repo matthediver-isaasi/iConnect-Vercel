@@ -4,11 +4,15 @@ import { loadConditionalOrganizationOptions, organizationsHandler } from './orga
 
 const tenantId = 'tenant-1';
 
-function db(seed) {
+function db(seed, stats = null) {
   class Query {
-    constructor(table) { this.table = table; this.filters = []; this.sort = null; }
+    constructor(table) {
+      this.table = table; this.filters = []; this.sort = null;
+      if (stats) stats[table] = (stats[table] || 0) + 1;
+    }
     select() { return this; }
     eq(column, value) { this.filters.push((row) => row[column] === value); return this; }
+    in(column, values) { this.filters.push((row) => values.includes(row[column])); return this; }
     order(column) { this.sort = column; return this; }
     async maybeSingle() {
       const result = this.rows();
@@ -163,4 +167,51 @@ test('POST handler accepts targetFieldId as a compatibility alias', async () => 
     resolveTenant: async () => ({ id: tenantId }),
   });
   assert.deepEqual(response.payload.map((org) => org.id), ['yes']);
+});
+
+test('custom filters use bounded chunked reads instead of querying once per organisation', async () => {
+  const stats = {};
+  const organizations = Array.from({ length: 501 }, (_, index) => ({
+    id: `org-${index}`,
+    tenant_id: tenantId,
+    name: `Organisation ${index}`,
+  }));
+  const customForm = savedForm([rule({
+    org_filter: { type: 'custom', field: 'country', values: ['Wales'] },
+  })]);
+  customForm.fields[1].org_filter = {
+    type: 'custom',
+    field: 'application_status',
+    values: ['approved'],
+  };
+  const database = db({
+    form: [customForm],
+    organization: organizations,
+    preference_field: [
+      {
+        id: 'status-field', tenant_id: tenantId, name: 'application_status',
+        entity_scope: 'organization', is_active: true,
+      },
+      {
+        id: 'country-field', tenant_id: tenantId, name: 'country',
+        entity_scope: 'organization', is_active: true,
+      },
+    ],
+    organization_preference_value: organizations.flatMap((organization, index) => [
+      { organization_id: organization.id, field_id: 'status-field', value: 'approved' },
+      { organization_id: organization.id, field_id: 'country-field', value: index === 0 ? 'Wales' : 'England' },
+    ]),
+  }, stats);
+
+  const result = await loadConditionalOrganizationOptions({
+    db: database,
+    tenantId,
+    formId: 'form-1',
+    fieldId: 'org',
+    sourceAnswers: { country: 'GB' },
+  });
+
+  assert.deepEqual(result.map((organization) => organization.id), ['org-0']);
+  assert.equal(stats.preference_field, 2);
+  assert.equal(stats.organization_preference_value, 4);
 });

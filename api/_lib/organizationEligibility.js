@@ -31,21 +31,85 @@ function configuredFilter(field) {
     : null;
 }
 
+function sanitizedFilterValues(filter) {
+  return filter.values
+    .map((value) => String(value).trim())
+    .filter((value) => value.length > 0 && value.length <= 200);
+}
+
+function coreFilterMatches(organization, filter, values) {
+  if (!VALID_ORGANIZATION_CORE_FIELDS.includes(filter.field)) return false;
+  if (filter.field === 'is_active') return organization.is_active === (values[0] === 'true');
+  return values.includes(String(organization[filter.field] ?? ''));
+}
+
+export async function filterOrganizationsEligibleForFields({
+  db, tenantId, organizations, fields = [],
+}) {
+  let eligible = Array.isArray(organizations) ? organizations : [];
+  const customValuesByField = new Map();
+
+  for (const field of fields) {
+    const filter = configuredFilter(field);
+    if (!filter) continue;
+    const values = sanitizedFilterValues(filter);
+    if (values.length === 0) return [];
+
+    if (filter.type === 'core') {
+      eligible = eligible.filter((organization) => coreFilterMatches(organization, filter, values));
+      continue;
+    }
+    if (filter.type !== 'custom') return [];
+
+    let customValues = customValuesByField.get(filter.field);
+    if (!customValues) {
+      const { data: preferenceField, error: fieldError } = await db.from('preference_field')
+        .select('id')
+        .eq('tenant_id', tenantId)
+        .eq('name', filter.field)
+        .eq('entity_scope', 'organization')
+        .eq('is_active', true)
+        .maybeSingle();
+      if (fieldError) throw fieldError;
+      // Preserve the established behavior for stale custom field definitions.
+      if (!preferenceField) continue;
+
+      customValues = new Map();
+      const organizationIds = eligible.map((organization) => organization.id).filter(Boolean);
+      for (let offset = 0; offset < organizationIds.length; offset += 500) {
+        const ids = organizationIds.slice(offset, offset + 500);
+        const { data, error } = await db.from('organization_preference_value')
+          .select('organization_id, value')
+          .eq('field_id', preferenceField.id)
+          .in('organization_id', ids);
+        if (error) throw error;
+        for (const row of data || []) {
+          customValues.set(String(row.organization_id), normalizeOrganizationPreferenceValue(row.value));
+        }
+      }
+      customValuesByField.set(filter.field, customValues);
+    }
+    const allowed = new Set(values);
+    eligible = eligible.filter((organization) => {
+      const value = customValues.get(String(organization.id));
+      return value !== null && value !== undefined && allowed.has(value);
+    });
+  }
+
+  return eligible;
+}
+
 // Mirrors the public organisations endpoint's saved-field semantics, while
 // checking a single organisation without exposing the tenant's organisation list.
 export async function isOrganizationEligibleForField({ db, tenantId, organization, field }) {
   const filter = configuredFilter(field);
   if (!filter) return true;
 
-  const values = filter.values
-    .map((value) => String(value).trim())
-    .filter((value) => value.length > 0 && value.length <= 200);
+  const values = sanitizedFilterValues(filter);
   if (values.length === 0) return false;
 
   if (filter.type === 'core') {
-    if (!VALID_ORGANIZATION_CORE_FIELDS.includes(filter.field)) return false;
-    if (filter.field === 'is_active') return organization.is_active === (values[0] === 'true');
-    return values.includes(String(organization[filter.field] ?? ''));
+    return coreFilterMatches(organization, filter, values);
   }
   if (filter.type !== 'custom') return false;
 
