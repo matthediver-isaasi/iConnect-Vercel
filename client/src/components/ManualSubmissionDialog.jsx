@@ -30,6 +30,10 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { cn } from "@/lib/utils";
 import FormRenderer from "@/components/forms/FormRenderer";
+import {
+  isRepeatableRowField,
+  validateRepeatableRows,
+} from "../../../shared/formRepeatableRows.js";
 
 function MultiCountrySelect({ value = [], onChange, fieldId }) {
   const [open, setOpen] = useState(false);
@@ -117,6 +121,7 @@ export default function ManualSubmissionDialog({ open, onOpenChange, form }) {
   const [formValues, setFormValues] = useState({});
   const [submitterName, setSubmitterName] = useState("");
   const [submitterEmail, setSubmitterEmail] = useState("");
+  const [fieldValidity, setFieldValidity] = useState({});
   const queryClient = useQueryClient();
 
   useEffect(() => {
@@ -124,6 +129,7 @@ export default function ManualSubmissionDialog({ open, onOpenChange, form }) {
       setFormValues({});
       setSubmitterName("");
       setSubmitterEmail("");
+      setFieldValidity({});
     }
   }, [open, form]);
 
@@ -171,6 +177,20 @@ export default function ManualSubmissionDialog({ open, onOpenChange, form }) {
       toast.error(`Please fill in required fields: ${missingFields.slice(0, 3).join(', ')}${missingFields.length > 3 ? '...' : ''}`);
       return;
     }
+
+    const repeatableError = fields
+      .filter(isRepeatableRowField)
+      .map(field => validateRepeatableRows(field, formValues[field.id]))
+      .find(result => !result.valid);
+    if (repeatableError) {
+      toast.error(repeatableError.errors[0]?.message || 'Please correct the repeatable rows.');
+      return;
+    }
+    const invalidField = fields.find(field => fieldValidity[field.id] === false);
+    if (invalidField) {
+      toast.error(`Please correct ${invalidField.label || 'the invalid field'}.`);
+      return;
+    }
     
     submitMutation.mutate({
       form_id: form.id,
@@ -203,6 +223,10 @@ export default function ManualSubmissionDialog({ open, onOpenChange, form }) {
           formSlug={form?.slug}
           allFormValues={formValues}
           allFields={form?.fields || []}
+          onValidityChange={(fieldId, valid) => setFieldValidity(current => ({
+            ...current,
+            [fieldId]: valid,
+          }))}
         />
       );
     }

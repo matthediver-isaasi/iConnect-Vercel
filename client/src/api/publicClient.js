@@ -324,7 +324,7 @@ class PublicClient {
 
   // The server resolves persisted conditional rules from the form definition;
   // callers must never send those trusted rules back from the browser.
-  async listFormOrganizationOptions(formSlug, formId, fieldId, answers = {}) {
+  async listFormOrganizationOptions(formSlug, formId, fieldId, answers = {}, containerFieldId = null) {
     if ((!formSlug && !formId) || !fieldId) return [];
     return this._fetch('/api/public/organisations', {
       method: 'POST',
@@ -333,6 +333,7 @@ class PublicClient {
         formSlug: formSlug || null,
         formId: formId || null,
         fieldId,
+        containerFieldId: containerFieldId || null,
         sourceAnswers: answers || {},
       }),
     });
@@ -556,7 +557,7 @@ class PublicClient {
     });
   }
 
-  async listFormRelationshipOptions(formSlug, fieldId, organizationId) {
+  async listFormRelationshipOptions(formSlug, fieldId, organizationId, containerFieldId = null) {
     if (!formSlug || !fieldId || !organizationId) return [];
     const params = new URLSearchParams({
       fieldId,
@@ -564,6 +565,7 @@ class PublicClient {
       page: '1',
       pageSize: '100',
     });
+    if (containerFieldId) params.set('containerFieldId', containerFieldId);
     const path = `/api/public/form/${encodeURIComponent(formSlug)}/relationship-options`;
     const requestOptions = {
       credentials: 'include'

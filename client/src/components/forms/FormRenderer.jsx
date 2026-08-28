@@ -45,8 +45,184 @@ import {
   prependFormNotListedOption,
 } from "../../../../shared/formNotListedChoice.js";
 import { formNoRelationshipLabel } from "../../../../shared/formNoRelationshipChoice.js";
+import {
+  createRepeatableRowId,
+  ensureRepeatableRowIds,
+  isRepeatableRowField,
+  normalizeRepeatableRowField,
+  validateRepeatableRows,
+} from "../../../../shared/formRepeatableRows.js";
 
 let organizationQueryInstanceSequence = 0;
+
+function RepeatableRowsField({
+  field,
+  value,
+  onChange,
+  disabled,
+  onValidityChange,
+  memberInfo,
+  organizationInfo,
+  selectedOrgGuestAccess,
+  formId,
+  formSlug,
+  formMemberRoleId,
+  prefillData,
+  membershipFeeQuote,
+  notListedDisplayLabel,
+}) {
+  const config = useMemo(() => normalizeRepeatableRowField(field), [field]);
+  const [childValidity, setChildValidity] = useState({});
+  const lastReportedValidity = useRef();
+  const initializedRows = useRef(false);
+  const rows = useMemo(() => ensureRepeatableRowIds(value).map(row => Object.fromEntries([
+    ['_row_id', row._row_id],
+    ...config.children.map(child => [
+      child.id,
+      row[child.id] ?? (Array.isArray(child.default_value) ? [...child.default_value] : (child.default_value ?? '')),
+    ]),
+  ])), [value, config.children]);
+  const targetInitialRows = Math.max(config.min_rows, 1);
+  const createRow = () => Object.fromEntries([
+    ['_row_id', createRepeatableRowId()],
+    ...config.children.map(child => [
+      child.id,
+      Array.isArray(child.default_value) ? [...child.default_value] : (child.default_value ?? ''),
+    ]),
+  ]);
+
+  useEffect(() => {
+    if (!initializedRows.current && (!Array.isArray(value) || rows.length === 0)) {
+      initializedRows.current = true;
+      onChange(Array.from(
+        { length: targetInitialRows },
+        createRow,
+      ));
+      return;
+    }
+    initializedRows.current = true;
+    const needsCanonicalValue = rows.length !== value.length || rows.some((row, index) => (
+      row._row_id !== value[index]?._row_id
+      || config.children.some(child => !Object.prototype.hasOwnProperty.call(value[index] || {}, child.id))
+    ));
+    if (needsCanonicalValue) onChange(rows);
+  }, [value, rows, targetInitialRows, config.children, onChange]);
+
+  useEffect(() => {
+    const result = validateRepeatableRows(field, rows, {
+      validateChild: ({ child, row }) => childValidity[row._row_id]?.[child.id] !== false,
+    });
+    if (lastReportedValidity.current !== result.valid) {
+      lastReportedValidity.current = result.valid;
+      onValidityChange?.(field.id, result.valid);
+    }
+  }, [field, rows, childValidity, onValidityChange]);
+
+  const updateRow = (rowId, childId, nextValue) => {
+    onChange(rows.map(row => row._row_id === rowId
+      ? { ...row, [childId]: nextValue }
+      : row));
+  };
+  const addRow = () => {
+    if (rows.length >= config.max_rows) return;
+    onChange([...rows, createRow()]);
+  };
+  const removeRow = (rowId) => {
+    if (rows.length <= config.min_rows) return;
+    onChange(rows.filter(row => row._row_id !== rowId));
+    setChildValidity(current => {
+      const next = { ...current };
+      delete next[rowId];
+      return next;
+    });
+  };
+
+  if (config.children.length === 0) {
+    return (
+      <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">
+        No row fields have been configured.
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3" data-testid={`repeatable-rows-${field.id}`}>
+      {rows.map((row, rowIndex) => {
+        const rowId = row._row_id;
+        return (
+          <fieldset
+            key={rowId}
+            className="space-y-4 rounded-lg border border-slate-200 bg-slate-50/60 p-4"
+            data-testid={`repeatable-row-${field.id}-${rowIndex}`}
+          >
+            <legend className="sr-only">{field.label || 'Repeated row'} {rowIndex + 1}</legend>
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-sm font-medium text-slate-700" aria-hidden="true">Row {rowIndex + 1}</p>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                disabled={disabled || rows.length <= config.min_rows}
+                onClick={() => removeRow(rowId)}
+                aria-label={`Remove row ${rowIndex + 1}`}
+                data-testid={`button-remove-repeatable-row-${field.id}-${rowIndex}`}
+              >
+                <X className="mr-1 h-4 w-4" /> Remove
+              </Button>
+            </div>
+            <div className="grid gap-4 md:grid-cols-2">
+              {config.children.map(child => (
+                <div key={child.id} className="space-y-2">
+                  <Label>
+                    {child.label || 'Untitled field'}
+                    {child.required && <span className="ml-1 text-red-500">*</span>}
+                  </Label>
+                  {child.description && <p className="text-xs text-slate-500">{child.description}</p>}
+                  <FormRenderer
+                    field={{ ...child, repeatable_container_field_id: field.id }}
+                    value={row[child.id]}
+                    onChange={nextValue => updateRow(rowId, child.id, nextValue)}
+                    onValidityChange={(childId, valid) => setChildValidity(current => (
+                      current[rowId]?.[childId] === valid
+                        ? current
+                        : { ...current, [rowId]: { ...(current[rowId] || {}), [childId]: valid } }
+                    ))}
+                    memberInfo={memberInfo}
+                    organizationInfo={organizationInfo}
+                    selectedOrgGuestAccess={selectedOrgGuestAccess}
+                    disabled={disabled}
+                    hideLabel
+                    formId={formId}
+                    formSlug={formSlug}
+                    formMemberRoleId={formMemberRoleId}
+                    allFormValues={row}
+                    allFields={config.children}
+                    prefillData={prefillData}
+                    membershipFeeQuote={membershipFeeQuote}
+                    notListedDisplayLabel={notListedDisplayLabel}
+                  />
+                </div>
+              ))}
+            </div>
+          </fieldset>
+        );
+      })}
+      <Button
+        type="button"
+        variant="outline"
+        disabled={disabled || rows.length >= config.max_rows}
+        onClick={addRow}
+        aria-label={`${config.add_row_label}; ${rows.length} of ${config.max_rows} rows`}
+        data-testid={`button-add-repeatable-row-${field.id}`}
+      >
+        <Plus className="mr-2 h-4 w-4" /> {config.add_row_label}
+      </Button>
+      <p className="text-xs text-slate-500" aria-live="polite">
+        {rows.length} of {config.max_rows} rows
+      </p>
+    </div>
+  );
+}
 
 function CountryCombobox({ countries, value, onChange, disabled, placeholder, fieldId, notListedLabel = '' }) {
   const [open, setOpen] = useState(false);
@@ -546,6 +722,7 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, me
       formSlug,
       formId,
       field.id,
+      field.repeatable_container_field_id,
       organizationQueryInstance,
       organizationAnswersRevision.current,
     ],
@@ -554,6 +731,7 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, me
       formId,
       field.id,
       organizationSourceAnswers,
+      field.repeatable_container_field_id,
     ),
     enabled: field.type === 'organisation_dropdown' && !!(formSlug || formId),
     staleTime: 5 * 60 * 1000
@@ -582,8 +760,13 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, me
     isError: relationshipOptionsError,
     isSuccess: relationshipOptionsLoaded,
   } = useQuery({
-    queryKey: ['public-form-relationship-options', formSlug, field.id, relationshipParentValue],
-    queryFn: () => publicClient.listFormRelationshipOptions(formSlug, field.id, relationshipParentValue),
+    queryKey: ['public-form-relationship-options', formSlug, field.id, relationshipParentValue, field.repeatable_container_field_id],
+    queryFn: () => publicClient.listFormRelationshipOptions(
+      formSlug,
+      field.id,
+      relationshipParentValue,
+      field.repeatable_container_field_id,
+    ),
     enabled: field.type === 'relationship_dropdown' && !!formSlug && !!field.parent_field_id
       && !!relationshipParentValue && relationshipParentValue !== FORM_NOT_LISTED_VALUE,
     staleTime: 60 * 1000,
@@ -855,6 +1038,25 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, me
     }
   }, [field.validate_org_domain, organizationInfo?.verified_domains, organizationInfo?.name, value, field.type, selectedOrgGuestAccess?.accepts_guests, selectedOrgGuestAccess?.unlimited, selectedOrgGuestAccess?.default_period_days]);
 
+  const renderRepeatableRows = () => (
+    <RepeatableRowsField
+      field={field}
+      value={value}
+      onChange={onChange}
+      disabled={isFieldDisabled}
+      onValidityChange={onValidityChange}
+      memberInfo={memberInfo}
+      organizationInfo={organizationInfo}
+      selectedOrgGuestAccess={selectedOrgGuestAccess}
+      formId={formId}
+      formSlug={formSlug}
+      formMemberRoleId={formMemberRoleId}
+      prefillData={prefillData}
+      membershipFeeQuote={membershipFeeQuote}
+      notListedDisplayLabel={notListedDisplayLabel}
+    />
+  );
+
   const renderField = () => {
     // Handle auto-populated user fields
     if (['user_name', 'user_email', 'user_organization', 'user_job_title'].includes(field.type)) {
@@ -889,6 +1091,12 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, me
           className={isFieldDisabled ? 'bg-slate-100 cursor-not-allowed opacity-60' : ''}
         />
       );
+    }
+
+    // The canonical field type remains in the switch below. Older saved forms
+    // can use either shared alias and must receive the same row renderer.
+    if (field.type !== 'repeatable_rows' && isRepeatableRowField(field)) {
+      return renderRepeatableRows();
     }
 
     switch (field.type) {
@@ -2237,6 +2445,9 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, me
           </div>
         );
       }
+
+      case 'repeatable_rows':
+        return renderRepeatableRows();
 
       case 'instructions':
         return null;

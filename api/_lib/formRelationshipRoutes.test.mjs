@@ -72,3 +72,48 @@ test('public options handler checks saved active form access before option dispa
   assert.deepEqual(calls[0], ['form', 'tenant-1', { slug: 'application', activeOnly: true }]);
   assert.equal(calls[2][0], 'options');
 });
+
+test('public options handler scopes a relationship child to its persisted repeatable container', async () => {
+  let optionInput = null;
+  const handler = createPublicFormRelationshipOptionsHandler({
+    db: {},
+    resolveTenantFromRequest: async () => ({ id: 'tenant-1' }),
+    resolveFormAccess: async () => ({ allowed: true }),
+    createService: () => ({
+      loadForm: async () => ({
+        id: 'form-1', is_active: true, access_policy: { mode: 'public' },
+        fields: [{
+          id: 'workplaces', type: 'repeatable_rows',
+          child_fields: [
+            { id: 'org', type: 'organisation_dropdown' },
+            { id: 'department', type: 'relationship_dropdown', parent_field_id: 'org' },
+          ],
+        }],
+      }),
+      relationshipOptions: async (input) => {
+        optionInput = input;
+        return { data: [], total: 0, page: 1, pageSize: 25 };
+      },
+    }),
+  });
+  const res = response();
+  await handler({
+    method: 'GET',
+    query: {
+      slug: 'application', containerFieldId: 'workplaces',
+      fieldId: 'department', organizationId: 'org-1',
+    },
+  }, res);
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(optionInput.form.fields.map((field) => field.id), ['org', 'department']);
+
+  const forged = response();
+  await handler({
+    method: 'GET',
+    query: {
+      slug: 'application', containerFieldId: 'workplaces',
+      fieldId: 'forged', organizationId: 'org-1',
+    },
+  }, forged);
+  assert.equal(forged.statusCode, 404);
+});

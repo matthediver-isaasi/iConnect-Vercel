@@ -154,11 +154,11 @@ export function createFormRelationshipService({ db, tenantId }) {
     };
   }
 
-  async function relationshipOptions({ formId, slug, fieldId, organizationId, query = {}, activeOnly = true }) {
+  async function relationshipOptions({ formId, slug, form: suppliedForm, fieldId, organizationId, query = {}, activeOnly = true }) {
     if (!fieldId || !organizationId) {
       throw new FormRelationshipError(400, 'fieldId and organizationId are required');
     }
-    const form = await loadForm({ formId, slug, activeOnly });
+    const form = suppliedForm || await loadForm({ formId, slug, activeOnly });
     const saved = savedRelationshipField(form, fieldId);
     const { data: organization, error: organizationError } = await db.from('organization')
       .select('*')
@@ -256,7 +256,7 @@ export function createFormRelationshipService({ db, tenantId }) {
     };
   }
 
-  async function validateSubmission({ form, submissionData = {} }) {
+  async function validateSubmission({ form, submissionData = {}, cache = new Map() }) {
     const fields = Array.isArray(form?.fields) ? form.fields : [];
     for (const field of fields) {
       const selected = submittedFieldValue(submissionData, field);
@@ -282,12 +282,18 @@ export function createFormRelationshipService({ db, tenantId }) {
       if (typeof selected !== 'string' && typeof selected !== 'number') {
         throw new FormRelationshipError(400, 'Invalid organization selection');
       }
-      const { data: organization, error } = await db.from('organization')
-        .select('*')
-        .eq('tenant_id', tenantId)
-        .eq('id', selected)
-        .maybeSingle();
-      throwDb(error);
+      const organizationKey = `organization:${selected}`;
+      let organization = cache.get(organizationKey);
+      if (organization === undefined) {
+        const result = await db.from('organization')
+          .select('*')
+          .eq('tenant_id', tenantId)
+          .eq('id', selected)
+          .maybeSingle();
+        throwDb(result.error);
+        organization = result.data || null;
+        cache.set(organizationKey, organization);
+      }
       if (!organization) throw new FormRelationshipError(400, 'Invalid organization selection');
       try {
         const staticallyEligible = await isOrganizationEligibleForField({
@@ -324,15 +330,21 @@ export function createFormRelationshipService({ db, tenantId }) {
       if (!organizationId || (typeof organizationId !== 'string' && typeof organizationId !== 'number')) {
         throw new FormRelationshipError(400, 'Invalid relationship selection');
       }
+      const validatedSelectionKey = `relationship-selection:${field.id}:${saved.relationshipDefinitionId}:${saved.customObjectId}:${organizationId}:${recordId}`;
+      if (cache.get(validatedSelectionKey) === true) continue;
       // This is deliberately unpaginated in effect: a selected ID must be
       // checked directly, not merely against the first page of options.
-      const options = await relationshipOptions({
+      const relationshipKey = `relationship:${field.id}:${saved.relationshipDefinitionId}:${saved.customObjectId}:${organizationId}`;
+      let options = cache.get(relationshipKey);
+      if (!options) options = await relationshipOptions({
         formId: form.id,
+        form,
         fieldId: field.id,
         organizationId,
         query: { page: 1, pageSize: 100 },
         activeOnly: false,
       });
+      cache.set(relationshipKey, options);
       if (!options.data.some((option) => String(option.id) === String(recordId))) {
         // There can be more than 100 options. Query the exact row through the
         // same tenant-scoped relationship and record lifecycle constraints.
@@ -359,6 +371,7 @@ export function createFormRelationshipService({ db, tenantId }) {
         throwDb(recordError);
         if (!edge || !record) throw new FormRelationshipError(400, 'Invalid relationship selection');
       }
+      cache.set(validatedSelectionKey, true);
     }
   }
 

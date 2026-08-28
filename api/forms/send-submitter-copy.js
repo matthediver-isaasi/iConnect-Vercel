@@ -27,6 +27,10 @@ import {
   collectRelationshipRecordIds,
   resolveRelationshipDisplayLabel,
 } from '../../client/src/lib/relationshipDisplayLabels.js';
+import {
+  collectRepeatableRelationshipRecordIds,
+  getRepeatableRowChildren,
+} from '../../shared/repeatableFormRowsFormat.js';
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
@@ -179,6 +183,7 @@ function buildServerResolvers(maps, origin) {
     resolveFormName,
     getSubmitterEmail,
     resolveOrgName,
+    organisationNamesById,
     resolveOrgGroupName,
     resolveMemberName,
     resolveRoleName,
@@ -252,7 +257,11 @@ export async function sendSubmitterCopyEmail({ form, submission, recipientEmail,
   // Build per-field-type lookup tables, scoped to this tenant only.
   const referencedFieldTypes = new Set();
   const referencedCustomFieldIds = new Set();
-  for (const f of form.fields || []) {
+  const lookupFields = (form.fields || []).flatMap((field) => [
+    field,
+    ...getRepeatableRowChildren(field),
+  ]);
+  for (const f of lookupFields) {
     if (f?.type) referencedFieldTypes.add(f.type);
     if (f?.type === 'custom_field' && f.custom_field_id) {
       referencedCustomFieldIds.add(f.custom_field_id);
@@ -261,7 +270,7 @@ export async function sendSubmitterCopyEmail({ form, submission, recipientEmail,
 
   const lookups = await Promise.all([
     referencedFieldTypes.has('organisation_dropdown')
-      ? supabase.from('organisation').select('id, name').eq('tenant_id', tenantId)
+      ? supabase.from('organization').select('id, name').eq('tenant_id', tenantId)
       : Promise.resolve({ data: [] }),
     referencedFieldTypes.has('organisation_group_dropdown')
       ? supabase.from('organization_group').select('id, name').eq('tenant_id', tenantId)
@@ -285,7 +294,10 @@ export async function sendSubmitterCopyEmail({ form, submission, recipientEmail,
       ? loadTenantRelationshipDisplayLabels(
         supabase,
         tenantId,
-        collectRelationshipRecordIds(form.fields || [], submission.submission_data),
+        [
+          ...collectRelationshipRecordIds(form.fields || [], submission.submission_data),
+          ...collectRepeatableRelationshipRecordIds(form.fields || [], submission.submission_data),
+        ],
       ).then(data => ({ data }))
       : Promise.resolve({ data: {} }),
   ]);

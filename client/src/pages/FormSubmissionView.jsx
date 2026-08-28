@@ -22,6 +22,51 @@ import {
   FORM_NOT_LISTED_LABELS_KEY,
   resolveFormNotListedDisplayValue,
 } from "../../../shared/formNotListedChoice.js";
+import {
+  collectRepeatableRelationshipRecordIds,
+  formatRepeatableCellValue,
+  formatRepeatableRows,
+  resolveRepeatableOrganisationLabel,
+} from "../../../shared/repeatableFormRowsFormat.js";
+import { isRepeatableRowField } from "../../../shared/formRepeatableRows.js";
+
+function RepeatableRowsTable({ field, value, relationshipLabelsByRecordId, organisationNamesById }) {
+  const model = formatRepeatableRows(field, value, {
+    formatCell: (cellValue, child) => child?.type === 'relationship_dropdown'
+      ? formatRelationshipDisplayValue(cellValue, relationshipLabelsByRecordId)
+      : child?.type === 'organisation_dropdown'
+        ? resolveRepeatableOrganisationLabel(cellValue, organisationNamesById)
+      : formatRepeatableCellValue(cellValue, child),
+  });
+  if (!model.rows.length) return <p className="text-slate-400 italic">Not provided</p>;
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-sm border-collapse">
+        <thead>
+          <tr>
+            {model.columns.map((column) => (
+              <th key={column.id} className="text-left font-medium p-2 border bg-slate-50 dark:bg-slate-900">
+                {column.label}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {model.rows.map((row, rowIndex) => (
+            <tr key={row.rowId}>
+              {row.cells.map((cell, columnIndex) => (
+                <td key={model.columns[columnIndex]?.id || columnIndex} className="p-2 border align-top whitespace-pre-wrap">
+                  {cell || <span className="text-slate-400">-</span>}
+                  <span className="sr-only"> Row {rowIndex + 1}</span>
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
 
 const SUBMISSION_STATUSES = [
   { value: 'new', label: 'New', className: 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300' },
@@ -68,10 +113,10 @@ export default function FormSubmissionView() {
     enabled: !!submission?.form_id
   });
 
-  const relationshipRecordIds = collectRelationshipRecordIds(
-    form?.fields || [],
-    submission?.submission_data,
-  ).slice(0, 2000);
+  const relationshipRecordIds = [
+    ...collectRelationshipRecordIds(form?.fields || [], submission?.submission_data),
+    ...collectRepeatableRelationshipRecordIds(form?.fields || [], submission?.submission_data),
+  ].filter((id, index, all) => all.indexOf(id) === index).slice(0, 2000);
   const { data: relationshipLabelsByRecordId = {} } = useQuery({
     queryKey: ['form-submission-relationship-labels', relationshipRecordIds.join(',')],
     enabled: relationshipRecordIds.length > 0,
@@ -99,6 +144,14 @@ export default function FormSubmissionView() {
     },
     enabled: !!submission?.organization_id
   });
+  const { data: organisationsForRepeatableRows = [] } = useQuery({
+    queryKey: ['organizations-for-repeatable-submission-display'],
+    queryFn: async () => base44.entities.Organization.listAll(),
+    staleTime: 5 * 60 * 1000,
+  });
+  const organisationNamesById = Object.fromEntries(
+    organisationsForRepeatableRows.filter((item) => item?.id).map((item) => [item.id, item.name || '']),
+  );
 
   const { data: submittedByMember } = useQuery({
     queryKey: ['member-for-submission', submission?.submitted_by_email],
@@ -246,6 +299,18 @@ export default function FormSubmissionView() {
                 <p className="text-slate-900 dark:text-slate-100">
                   {Array.isArray(notListedDisplayValue) ? notListedDisplayValue.join(', ') : notListedDisplayValue}
                 </p>
+              </div>
+            ) : isRepeatableRowField(field) ? (
+              <div>
+                <p className="text-sm font-medium text-slate-600 dark:text-slate-400 mb-2">
+                  {field.label || field.id}
+                </p>
+                <RepeatableRowsTable
+                  field={field}
+                  value={value}
+                  relationshipLabelsByRecordId={relationshipLabelsByRecordId}
+                  organisationNamesById={organisationNamesById}
+                />
               </div>
             ) : field.type === 'relationship_dropdown' ? (
               <div>
@@ -541,9 +606,13 @@ export default function FormSubmissionView() {
                     <p className="text-sm font-medium text-slate-600 dark:text-slate-400 mb-1">
                       {field?.label || key.replace(/_/g, ' ').replace(/([A-Z])/g, ' $1').trim()}
                     </p>
-                    <p className="text-slate-900 dark:text-slate-100 whitespace-pre-wrap">
-                      {displayValue}
-                    </p>
+                    {isRepeatableRowField(field) ? (
+                      <RepeatableRowsTable field={field} value={value} relationshipLabelsByRecordId={relationshipLabelsByRecordId} organisationNamesById={organisationNamesById} />
+                    ) : (
+                      <p className="text-slate-900 dark:text-slate-100 whitespace-pre-wrap">
+                        {displayValue}
+                      </p>
+                    )}
                   </div>
                   );
                 })}

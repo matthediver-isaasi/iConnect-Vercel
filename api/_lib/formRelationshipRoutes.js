@@ -7,6 +7,10 @@ import {
   FormRelationshipError,
   createFormRelationshipService,
 } from './formRelationshipOptions.js';
+import {
+  isRepeatableRowField,
+  repeatableRowChildren,
+} from '../../shared/formRepeatableRows.js';
 
 function failure(res, error) {
   const status = error instanceof FormRelationshipError ? error.status : 500;
@@ -57,8 +61,25 @@ export function createPublicFormRelationshipOptionsHandler(dependencies = {}) {
         policy: form.access_policy,
       });
       if (!access.allowed) return sendFormAccessDenied(res, access);
+      let optionForm = form;
+      const containerFieldId = req.query.containerFieldId;
+      if (containerFieldId !== undefined && containerFieldId !== null && containerFieldId !== '') {
+        const container = (form.fields || []).find(
+          (field) => String(field?.id) === String(containerFieldId),
+        );
+        if (!container || !isRepeatableRowField(container)) {
+          throw new FormRelationshipError(404, 'Repeatable row field not found');
+        }
+        const children = repeatableRowChildren(container);
+        const child = children.find((field) => String(field?.id) === String(req.query.fieldId));
+        if (!child || child.type !== 'relationship_dropdown') {
+          throw new FormRelationshipError(404, 'Relationship field not found');
+        }
+        optionForm = { ...form, fields: children };
+      }
       return res.status(200).json(await service.relationshipOptions({
         slug: req.query.slug,
+        form: optionForm,
         fieldId: req.query.fieldId,
         organizationId: req.query.organizationId,
         query: req.query,

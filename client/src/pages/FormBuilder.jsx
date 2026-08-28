@@ -67,6 +67,11 @@ import {
   FORM_NO_RELATIONSHIP_VALUE,
   formNoRelationshipLabel,
 } from "../../../shared/formNoRelationshipChoice.js";
+import {
+  REPEATABLE_ROW_CHILD_TYPES,
+  REPEATABLE_ROW_DEPENDENCY_TYPES,
+  REPEATABLE_ROW_SCHEMA_VERSION,
+} from "../../../shared/formRepeatableRows.js";
 
 const BADGE_STYLE_DEFAULTS = {
   background_color: '#ffffff',
@@ -98,6 +103,7 @@ const STANDARD_FIELD_TYPES = [
   { value: 'currency', label: 'Currency' },
   { value: 'contact', label: 'Contact (Composite)' },
   { value: 'grouped_question', label: 'Grouped Question' },
+  { value: 'repeatable_rows', label: 'Repeatable Rows' },
   { value: 'instructions', label: 'Instructions (Display Only)' },
   { value: 'image', label: 'Image (Display Only)' },
   { value: 'image_buttons', label: 'Image Buttons' },
@@ -4122,6 +4128,224 @@ function ConditionalFilterRuleEditor({
   );
 }
 
+function RepeatableRowsSettings({ field, originalIndex, updateField, eligibleRelationships = [] }) {
+  const children = Array.isArray(field.child_fields) ? field.child_fields : [];
+  const updateChildren = child_fields => updateField(originalIndex, {
+    repeatable_rows_version: REPEATABLE_ROW_SCHEMA_VERSION,
+    child_fields,
+  });
+  const updateChild = (childIndex, updates) => updateChildren(children.map((child, index) => (
+    index === childIndex ? { ...child, ...updates } : child
+  )));
+  const addChild = () => updateChildren([...children, {
+    id: `row_field_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+    type: 'text',
+    label: 'New row field',
+    required: false,
+    options: [],
+  }]);
+  const moveChild = (childIndex, direction) => {
+    const target = childIndex + direction;
+    if (target < 0 || target >= children.length) return;
+    const next = [...children];
+    [next[childIndex], next[target]] = [next[target], next[childIndex]];
+    updateChildren(next);
+  };
+  const safeTypes = FIELD_TYPES.filter(option => REPEATABLE_ROW_CHILD_TYPES.includes(option.value));
+
+  return (
+    <div className="space-y-4 rounded-lg border border-blue-200 bg-blue-50/30 p-4" data-testid={`repeatable-rows-config-${field.id}`}>
+      <div>
+        <Label className="text-sm font-medium">Repeatable row settings</Label>
+        <p className="mt-1 text-xs text-slate-500">Respondents can add ordered rows. Dependencies only read earlier fields in the same row.</p>
+      </div>
+      <div className="grid gap-3 md:grid-cols-3">
+        <div className="space-y-1">
+          <Label className="text-xs">Minimum rows</Label>
+          <Input
+            type="number"
+            min="0"
+            max={field.max_rows || 10}
+            value={field.min_rows ?? 0}
+            onChange={event => updateField(originalIndex, { min_rows: Math.max(0, Number(event.target.value) || 0) })}
+            className="h-9"
+            data-testid={`input-repeatable-min-${field.id}`}
+          />
+        </div>
+        <div className="space-y-1">
+          <Label className="text-xs">Maximum rows</Label>
+          <Input
+            type="number"
+            min={Math.max(1, field.min_rows || 0)}
+            value={field.max_rows ?? 10}
+            onChange={event => updateField(originalIndex, { max_rows: Math.max(1, Number(event.target.value) || 1) })}
+            className="h-9"
+            data-testid={`input-repeatable-max-${field.id}`}
+          />
+        </div>
+        <div className="space-y-1">
+          <Label className="text-xs">Add button label</Label>
+          <Input
+            value={field.add_row_label || ''}
+            onChange={event => updateField(originalIndex, { add_row_label: event.target.value })}
+            placeholder="Add row"
+            className="h-9"
+            data-testid={`input-repeatable-add-label-${field.id}`}
+          />
+        </div>
+      </div>
+      <div className="flex items-center gap-2">
+        <Switch
+          id={`repeatable-initial-required-${field.id}`}
+          checked={field.initial_row_required === true}
+          onCheckedChange={initial_row_required => updateField(originalIndex, { initial_row_required })}
+        />
+        <Label htmlFor={`repeatable-initial-required-${field.id}`} className="text-xs">Validate required fields in the initial row even when untouched</Label>
+      </div>
+
+      <div className="flex items-center justify-between">
+        <Label className="text-sm font-medium">Row fields</Label>
+        <Button type="button" size="sm" variant="outline" onClick={addChild}>
+          <Plus className="mr-1 h-4 w-4" /> Add field
+        </Button>
+      </div>
+      {children.length === 0 && <p className="text-xs text-amber-700">Add at least one field to make this row usable.</p>}
+      {children.map((child, childIndex) => {
+        const preceding = children.slice(0, childIndex);
+        const relationshipParents = preceding.filter(candidate => candidate.type === 'organisation_dropdown');
+        const dependency = child.conditional_filters?.rules?.find(rule => !rule.is_fallback);
+        const optionsType = ['select', 'radio', 'checkbox'].includes(child.type);
+        return (
+          <div key={child.id} className="space-y-3 rounded-md border border-slate-200 bg-white p-3" data-testid={`repeatable-child-${field.id}-${childIndex}`}>
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-medium text-slate-500">Column {childIndex + 1}</span>
+              <div className="flex">
+                <Button type="button" variant="ghost" size="icon" className="h-7 w-7" disabled={childIndex === 0} onClick={() => moveChild(childIndex, -1)} aria-label="Move row field left">
+                  <ChevronUp className="h-3.5 w-3.5" />
+                </Button>
+                <Button type="button" variant="ghost" size="icon" className="h-7 w-7" disabled={childIndex === children.length - 1} onClick={() => moveChild(childIndex, 1)} aria-label="Move row field right">
+                  <ChevronDown className="h-3.5 w-3.5" />
+                </Button>
+                <Button type="button" variant="ghost" size="icon" className="h-7 w-7 text-red-500" onClick={() => updateChildren(children.filter((_, index) => index !== childIndex))} aria-label="Remove row field">
+                  <Trash2 className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+            </div>
+            <div className="grid gap-3 md:grid-cols-2">
+              <div className="space-y-1">
+                <Label className="text-xs">Label</Label>
+                <Input className="h-9" value={child.label || ''} onChange={event => updateChild(childIndex, { label: event.target.value })} />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Type</Label>
+                <Select value={child.type} onValueChange={type => updateChild(childIndex, {
+                  type,
+                  parent_field_id: type === 'relationship_dropdown' ? child.parent_field_id : undefined,
+                  conditional_filters: undefined,
+                })}>
+                  <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+                  <SelectContent className="max-h-64">
+                    {safeTypes.map(option => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <Switch id={`repeatable-child-required-${child.id}`} checked={child.required === true} onCheckedChange={required => updateChild(childIndex, { required })} />
+              <Label htmlFor={`repeatable-child-required-${child.id}`} className="text-xs">Required in active rows</Label>
+            </div>
+            {optionsType && (
+              <div className="space-y-1">
+                <Label className="text-xs">Options (one per line)</Label>
+                <Textarea
+                  rows={3}
+                  value={(child.options || []).join('\n')}
+                  onChange={event => updateChild(childIndex, { options: event.target.value.split('\n').map(item => item.trim()).filter(Boolean) })}
+                />
+              </div>
+            )}
+            {child.type === 'relationship_dropdown' && (
+              <div className="grid gap-3 rounded border border-slate-200 bg-slate-50 p-3 md:grid-cols-2">
+                <div className="space-y-1">
+                  <Label className="text-xs">Organisation field in this row</Label>
+                  <Select value={child.parent_field_id || ''} onValueChange={parent_field_id => updateChild(childIndex, { parent_field_id })}>
+                    <SelectTrigger className="h-9"><SelectValue placeholder="Choose earlier field…" /></SelectTrigger>
+                    <SelectContent>
+                      {relationshipParents.map(parent => <SelectItem key={parent.id} value={parent.id}>{parent.label}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Relationship</Label>
+                  <Select value={child.relationship_definition_id || ''} onValueChange={id => {
+                    const relationship = eligibleRelationships.find(item => item.id === id);
+                    if (relationship) updateChild(childIndex, relationshipFieldConfig(relationship));
+                  }}>
+                    <SelectTrigger className="h-9"><SelectValue placeholder="Choose relationship…" /></SelectTrigger>
+                    <SelectContent>
+                      {eligibleRelationships.map(item => <SelectItem key={item.id} value={item.id}>{item.name || item.label || item.relationship_key || 'Relationship'}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            )}
+            {preceding.length > 0 && REPEATABLE_ROW_DEPENDENCY_TYPES.includes(child.type) && (
+              <div className="space-y-2 rounded border border-slate-200 bg-slate-50 p-3">
+                <Label className="text-xs font-medium">Dependent options (optional)</Label>
+                <Select value={dependency?.source_field_id || '__none__'} onValueChange={source_field_id => updateChild(childIndex, {
+                  conditional_filters: source_field_id === '__none__' ? undefined : {
+                    version: 1,
+                    rules: [{
+                      id: `row_dependency_${child.id}`,
+                      source_field_id,
+                      source_field_type: preceding.find(item => item.id === source_field_id)?.type || null,
+                      operator: 'equals',
+                      value: '',
+                      is_fallback: false,
+                      allowed_values: [],
+                      org_filter: null,
+                    }],
+                  },
+                })}>
+                  <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">No dependency</SelectItem>
+                    {preceding.map(source => <SelectItem key={source.id} value={source.id}>{source.label || 'Untitled field'}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+                {dependency && (
+                  <div className="grid gap-2 md:grid-cols-2">
+                    <Input
+                      className="h-9"
+                      value={Array.isArray(dependency.value) ? dependency.value.join(', ') : (dependency.value ?? '')}
+                      onChange={event => updateChild(childIndex, { conditional_filters: {
+                        version: 1,
+                        rules: [{ ...dependency, value: event.target.value }],
+                      } })}
+                      placeholder="When source equals…"
+                      aria-label="Dependency source value"
+                    />
+                    <Input
+                      className="h-9"
+                      value={(dependency.allowed_values || []).join(', ')}
+                      onChange={event => updateChild(childIndex, { conditional_filters: {
+                        version: 1,
+                        rules: [{ ...dependency, allowed_values: event.target.value.split(',').map(item => item.trim()).filter(Boolean) }],
+                      } })}
+                      placeholder="Allowed options, comma separated"
+                      aria-label="Allowed dependent options"
+                    />
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function FieldCard({ 
   field, 
   index, 
@@ -4163,7 +4387,7 @@ function FieldCard({
   } = useQuery({
     queryKey: ['eligible-form-relationships'],
     queryFn: () => publicClient.listEligibleFormRelationships(formId),
-    enabled: field.type === 'relationship_dropdown' && !!formId,
+    enabled: ['relationship_dropdown', 'repeatable_rows'].includes(field.type) && !!formId,
     staleTime: 5 * 60 * 1000,
   });
   const eligibleRelationships = normalizeEligibleRelationships(relationshipDiscovery);
@@ -4364,6 +4588,14 @@ function FieldCard({
                             updates.auto_advance = true;
                             updates.hide_next_button = false;
                           }
+                          if (value === 'repeatable_rows' && field.type !== 'repeatable_rows') {
+                            updates.repeatable_rows_version = REPEATABLE_ROW_SCHEMA_VERSION;
+                            updates.child_fields = [];
+                            updates.min_rows = 0;
+                            updates.max_rows = 10;
+                            updates.initial_row_required = false;
+                            updates.add_row_label = 'Add row';
+                          }
                           updateField(originalIndex, updates);
                         }
                       }}
@@ -4549,6 +4781,15 @@ function FieldCard({
                 organizationGroups={organizationGroups}
                 updateField={updateField}
               />
+
+              {field.type === 'repeatable_rows' && (
+                <RepeatableRowsSettings
+                  field={field}
+                  originalIndex={originalIndex}
+                  updateField={updateField}
+                  eligibleRelationships={eligibleRelationships}
+                />
+              )}
 
               {/* Currency configuration (Task #3480) */}
               {field.type === 'currency' && (() => {

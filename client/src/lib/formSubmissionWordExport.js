@@ -25,6 +25,12 @@ import {
   FORM_NOT_LISTED_LABELS_KEY,
   resolveFormNotListedDisplayValue,
 } from '../../../shared/formNotListedChoice.js';
+import {
+  formatRepeatableCellValue,
+  formatRepeatableRowsText,
+  isRepeatableRowsField,
+  resolveRepeatableOrganisationLabel,
+} from '../../../shared/repeatableFormRowsFormat.js';
 
 const MOJIBAKE_MAP = [
   ['â€¯', '\u202F'],
@@ -201,6 +207,27 @@ function formatResponseValueToJson(value, fieldDef, resolvers, submissionData = 
   }
   const fieldType = fieldDef?.type;
   const r = resolvers || {};
+
+  if (isRepeatableRowsField(fieldDef)) {
+    const text = formatRepeatableRowsText(fieldDef, value, {
+      formatCell: (cellValue, child) => {
+        if (child?.type === 'relationship_dropdown') {
+          return typeof r.resolveRelationshipLabel === 'function'
+            ? (Array.isArray(cellValue)
+              ? cellValue.map(r.resolveRelationshipLabel).join(', ')
+              : r.resolveRelationshipLabel(cellValue))
+            : (Array.isArray(cellValue)
+              ? cellValue.map((entry) => resolveRelationshipDisplayLabel(entry, {})).join(', ')
+              : resolveRelationshipDisplayLabel(cellValue, {}));
+        }
+        if (child?.type === 'organisation_dropdown') {
+          return resolveRepeatableOrganisationLabel(cellValue, r.organisationNamesById);
+        }
+        return formatRepeatableCellValue(cellValue, child);
+      },
+    });
+    return { lines: makeLinesFromText(text), files: [] };
+  }
 
   if (fieldType === 'file') {
     let rawList = value;

@@ -16,7 +16,14 @@ import {
 } from '../../client/src/lib/relationshipDisplayLabels.js';
 import { resolveFormNotListedDisplayValue } from '../../shared/formNotListedChoice.js';
 import { loadOrganisationGroupNamesForSubmission } from './formOrganisationGroups.js';
-
+import {
+  collectRepeatableRelationshipRecordIds,
+  collectRepeatableOrganisationIds,
+  formatRepeatableCellValue,
+  formatRepeatableRowsText,
+  isRepeatableRowsField,
+  resolveRepeatableOrganisationLabel,
+} from '../../shared/repeatableFormRowsFormat.js';
 /**
  * Resolve only relationship IDs which occur in the persisted answers under
  * relationship fields from the saved form definition. The underlying loader
@@ -30,8 +37,19 @@ export async function loadFormSubmissionRelationshipLabels({
   submissionData,
 }) {
   const savedFields = Array.isArray(fields) ? fields : [];
-  const recordIds = collectRelationshipRecordIds(savedFields, submissionData);
+  const recordIds = [
+    ...collectRelationshipRecordIds(savedFields, submissionData),
+    ...collectRepeatableRelationshipRecordIds(savedFields, submissionData),
+  ];
   return loadTenantRelationshipDisplayLabels(db, tenantId, recordIds);
+}
+
+export async function loadFormSubmissionOrganisationLabels({ db, tenantId, fields, submissionData }) {
+  const ids = collectRepeatableOrganisationIds(fields, submissionData);
+  if (!db || !tenantId || !ids.length) return {};
+  const { data, error } = await db.from('organization').select('id, name').eq('tenant_id', tenantId).in('id', ids);
+  if (error) throw error;
+  return Object.fromEntries((data || []).filter((row) => row?.id).map((row) => [row.id, row.name]));
 }
 
 export async function loadFormSubmissionOrganisationGroupLabels({
@@ -46,8 +64,24 @@ export async function loadFormSubmissionOrganisationGroupLabels({
 /**
  * Pure field formatter exported for direct regression tests.
  */
-export function formatFormSubmissionFieldValue(field, value, relationshipLabelsByRecordId = {}, submissionData = {}, organisationGroupNamesById = {}) {
+export function formatFormSubmissionFieldValue(
+  field,
+  value,
+  relationshipLabelsByRecordId = {},
+  submissionData = {},
+  organisationNamesById = {},
+  organisationGroupNamesById = {},
+) {
   const displayValue = resolveFormNotListedDisplayValue(field, value, submissionData);
+  if (isRepeatableRowsField(field)) {
+    return formatRepeatableRowsText(field, value, {
+      formatCell: (cellValue, child) => child?.type === 'relationship_dropdown'
+        ? formatRelationshipDisplayValue(cellValue, relationshipLabelsByRecordId)
+        : child?.type === 'organisation_dropdown'
+          ? resolveRepeatableOrganisationLabel(cellValue, organisationNamesById)
+          : formatRepeatableCellValue(cellValue, child),
+    });
+  }
   if (isRelationshipDropdownField(field)) {
     if (displayValue !== value) return displayValue;
     return formatRelationshipDisplayValue(value, relationshipLabelsByRecordId);
@@ -78,6 +112,7 @@ export function buildFormSubmissionPdf({
   fields,
   submissionData,
   relationshipLabelsByRecordId = {},
+  organisationNamesById = {},
   organisationGroupNamesById = {},
   logPrefix = '[formSubmissionPdf]',
 }) {
@@ -128,6 +163,7 @@ export function buildFormSubmissionPdf({
       rawValue,
       relationshipLabelsByRecordId,
       data,
+      organisationNamesById,
       organisationGroupNamesById,
     );
 

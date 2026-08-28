@@ -6,6 +6,10 @@ import {
   VALID_ORGANIZATION_CORE_FIELDS,
 } from '../_lib/organizationEligibility.js';
 import { resolveConditionalFilter } from '../_lib/formConditionalFilters.js';
+import {
+  isRepeatableRowField,
+  repeatableRowChildren,
+} from '../../shared/formRepeatableRows.js';
 
 /**
  * Resolves a dynamic organisation dropdown exclusively from the saved form.
@@ -14,7 +18,7 @@ import { resolveConditionalFilter } from '../_lib/formConditionalFilters.js';
  * loaded or interpreted.
  */
 export async function loadConditionalOrganizationOptions({
-  db, tenantId, formId, formSlug, fieldId, sourceAnswers,
+  db, tenantId, formId, formSlug, fieldId, containerFieldId, sourceAnswers,
 }) {
   if (!db || !tenantId || !fieldId || !sourceAnswers
       || typeof sourceAnswers !== 'object' || Array.isArray(sourceAnswers)
@@ -27,10 +31,23 @@ export async function loadConditionalOrganizationOptions({
     formQuery = formId ? formQuery.eq('id', formId) : formQuery.eq('slug', formSlug);
     const { data: form, error: formError } = await formQuery.maybeSingle();
     if (formError || !form || !Array.isArray(form.fields)) return [];
-    const field = form.fields.find((candidate) => String(candidate?.id) === String(fieldId));
+    let fields = form.fields;
+    let field = fields.find((candidate) => String(candidate?.id) === String(fieldId));
+    // A row child is never addressable as a top-level field. The container ID
+    // selects a saved repeatable field first, then the child is resolved only
+    // from that field's persisted children. This prevents callers from using a
+    // child ID to obtain options from another container or form scope.
+    if (containerFieldId !== undefined && containerFieldId !== null && containerFieldId !== '') {
+      const container = form.fields.find(
+        (candidate) => String(candidate?.id) === String(containerFieldId),
+      );
+      if (!container || !isRepeatableRowField(container)) return [];
+      fields = repeatableRowChildren(container);
+      field = fields.find((candidate) => String(candidate?.id) === String(fieldId));
+    }
     if (!field || field.type !== 'organisation_dropdown') return [];
 
-    const resolution = resolveConditionalFilter(field, sourceAnswers, form.fields);
+    const resolution = resolveConditionalFilter(field, sourceAnswers, fields);
     // Absent/empty rules retain the historical static-filter behavior. A
     // configured set with no matched rule (or invalid persisted shape) has an
     // empty allowed set and is therefore closed by the filter below.
@@ -142,6 +159,7 @@ export async function organizationsHandler(req, res, dependencies = {}) {
         formSlug: dynamicFormSlug,
         fieldId,
         targetFieldId,
+        containerFieldId,
         sourceAnswers,
       } = req.body || {};
       const dynamicFieldId = fieldId || targetFieldId;
@@ -151,6 +169,7 @@ export async function organizationsHandler(req, res, dependencies = {}) {
         formId: dynamicFormId,
         formSlug: dynamicFormSlug,
         fieldId: dynamicFieldId,
+        containerFieldId,
         sourceAnswers,
       });
       return res.json(data);

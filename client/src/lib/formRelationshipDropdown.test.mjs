@@ -207,13 +207,21 @@ test('empty relationship state requires a successful zero-result lookup', () => 
   }), false);
 });
 
-test('renderer uses resolved parent and dependent values for loading and retention', () => {
+test('renderer scopes repeatable relationship option queries by container', () => {
   const source = readFileSync(
     new URL('../components/forms/FormRenderer.jsx', import.meta.url),
     'utf8',
   );
   assert.match(source, /resolveRelationshipDropdownValues\(\{[\s\S]*?fields: allFields,[\s\S]*?values: allFormValues/);
-  assert.match(source, /queryKey: \['public-form-relationship-options', formSlug, field\.id, relationshipParentValue\]/);
+  assert.match(source, /queryKey: \['public-form-relationship-options', formSlug, field\.id, relationshipParentValue, field\.repeatable_container_field_id\]/);
+  assert.match(source, /listFormRelationshipOptions\([\s\S]*?field\.repeatable_container_field_id/);
   assert.match(source, /value: relationshipCurrentValue,[\s\S]*?parentValue: relationshipParentValue/);
   assert.match(source, /else if \(relationshipValues\.needsCanonicalValue\) \{\s*onChange\(relationshipCurrentValue\)/);
+});
+
+test('relationship option client serializes the optional repeatable container scope', () => {
+  const source = readFileSync(new URL('../api/publicClient.js', import.meta.url), 'utf8');
+  const method = source.match(/async listFormRelationshipOptions[\s\S]*?\n  \}/)?.[0] || '';
+  assert.match(method, /containerFieldId = null/);
+  assert.match(method, /params\.set\('containerFieldId', containerFieldId\)/);
 });

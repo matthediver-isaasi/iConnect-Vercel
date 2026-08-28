@@ -105,13 +105,38 @@ test('PDF formatter uses the snapshotted not-listed label after the field is ren
 test('PDF formatter resolves organisation group IDs without exposing unavailable UUIDs', () => {
   const field = { id: 'group', type: 'organisation_group_dropdown' };
   assert.equal(
-    formatFormSubmissionFieldValue(field, 'group-1', {}, {}, { 'group-1': 'Northern Group' }),
+    formatFormSubmissionFieldValue(field, 'group-1', {}, {}, {}, { 'group-1': 'Northern Group' }),
     'Northern Group',
   );
   assert.equal(
     formatFormSubmissionFieldValue(field, 'forged-group', {}, {}, {}),
     'Unavailable organisation group',
   );
+});
+
+test('PDF formatter renders repeatable rows with child labels and relationship display labels', () => {
+  const field = {
+    id: 'teams',
+    type: 'repeatable_row',
+    repeatable_row: {
+      child_fields: [
+        { id: 'name', label: 'Team name', type: 'text' },
+        { id: 'organisation', label: 'Organisation', type: 'organisation_dropdown' },
+        { id: 'lead', label: 'Team lead', type: 'relationship_dropdown' },
+      ],
+    },
+  };
+  const output = formatFormSubmissionFieldValue(
+    field,
+    [{ _row_id: 'row-secret', name: 'Platform', organisation: 'org-1', lead: 'record-1' }],
+    { 'record-1': 'Ada Lovelace' },
+    {},
+    { 'org-1': 'Babbage Ltd' },
+  );
+  assert.equal(output, 'Row 1\nTeam name: Platform\nOrganisation: Babbage Ltd\nTeam lead: Ada Lovelace');
+  assert.equal(output.includes('row-secret'), false);
+  assert.equal(output.includes('record-1'), false);
+  assert.equal(output.includes('org-1'), false);
 });
 
 test('PDF builder uses ID-first/name fallback and renders no relationship UUIDs', () => {

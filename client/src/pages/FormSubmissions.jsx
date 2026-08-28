@@ -66,6 +66,45 @@ import {
   FORM_NOT_LISTED_LABELS_KEY,
   resolveFormNotListedDisplayValue,
 } from '../../../shared/formNotListedChoice.js';
+import {
+  collectRepeatableRelationshipRecordIds,
+  formatRepeatableCellValue,
+  formatRepeatableRows,
+  formatRepeatableRowsText,
+  resolveRepeatableOrganisationLabel,
+} from '../../../shared/repeatableFormRowsFormat.js';
+import { isRepeatableRowField } from '../../../shared/formRepeatableRows.js';
+
+function RepeatableRowsTable({ field, value, relationshipLabelsByRecordId, organisationNamesById }) {
+  const model = formatRepeatableRows(field, value, {
+    formatCell: (cellValue, child) => child?.type === 'relationship_dropdown'
+      ? formatRelationshipDisplayValue(cellValue, relationshipLabelsByRecordId)
+      : child?.type === 'organisation_dropdown'
+        ? resolveRepeatableOrganisationLabel(cellValue, organisationNamesById)
+      : formatRepeatableCellValue(cellValue, child),
+  });
+  if (!model.rows.length) return <span className="text-slate-400 italic">Not provided</span>;
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-sm border-collapse">
+        <thead>
+          <tr>{model.columns.map((column) => (
+            <th key={column.id} className="text-left font-medium p-2 border bg-slate-50">{column.label}</th>
+          ))}</tr>
+        </thead>
+        <tbody>
+          {model.rows.map((row) => (
+            <tr key={row.rowId}>{row.cells.map((cell, index) => (
+              <td key={model.columns[index]?.id || index} className="p-2 border align-top whitespace-pre-wrap">
+                {cell || <span className="text-slate-400">-</span>}
+              </td>
+            ))}</tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
 
 const ALLOWED_PAGE_SIZES = [10, 20, 50, 100];
 const DEFAULT_PAGE_SIZE = 20;
@@ -198,7 +237,14 @@ export default function FormSubmissionsPage() {
     [submissions],
   );
   const relationshipRecordIds = useMemo(
-    () => collectRelationshipRecordIdsFromSubmissions(formsById, relationshipSubmissions).slice(0, 2000),
+    () => {
+      const ids = new Set(collectRelationshipRecordIdsFromSubmissions(formsById, relationshipSubmissions));
+      relationshipSubmissions.forEach((submission) => {
+        const fields = formsById[submission?.form_id]?.fields || [];
+        collectRepeatableRelationshipRecordIds(fields, submission?.submission_data).forEach((id) => ids.add(id));
+      });
+      return [...ids].slice(0, 2000);
+    },
     [formsById, relationshipSubmissions],
   );
   const relationshipSubmissionIds = useMemo(
@@ -1269,6 +1315,7 @@ export default function FormSubmissionsPage() {
       resolveFormName,
       getSubmitterEmail,
       resolveOrgName,
+      organisationNamesById,
       resolveOrgGroupName,
       resolveMemberName,
       resolveRoleName,
@@ -1602,6 +1649,7 @@ export default function FormSubmissionsPage() {
             const val = fieldDef
               ? getSubmissionFieldValue(submission.submission_data, fieldDef)
               : submission.submission_data?.[field.key];
+            const fieldType = fieldDef?.type;
             if (val == null) return '';
             if (containsFormNotListedValue(val)) {
               const displayValue = resolveFormNotListedDisplayValue(
@@ -1611,7 +1659,15 @@ export default function FormSubmissionsPage() {
               );
               return Array.isArray(displayValue) ? displayValue.join(', ') : displayValue;
             }
-            const fieldType = fieldDef?.type;
+            if (isRepeatableRowField(fieldDef)) {
+              return formatRepeatableRowsText(fieldDef, val, {
+                formatCell: (cellValue, child) => child?.type === 'relationship_dropdown'
+                  ? formatRelationshipDisplayValue(cellValue, relationshipLabelsByRecordId)
+                  : child?.type === 'organisation_dropdown'
+                    ? resolveRepeatableOrganisationLabel(cellValue, organisationNamesById)
+                  : formatRepeatableCellValue(cellValue, child),
+              });
+            }
 
             if (fieldType === 'organisation_dropdown') {
               if (Array.isArray(val)) return val.map(resolveOrgName).join(', ');
@@ -2765,9 +2821,18 @@ export default function FormSubmissionsPage() {
                       <Label className="text-slate-600 text-xs uppercase tracking-wide mb-1 block">
                         {getFieldLabel(key)}
                       </Label>
-                      <p className="text-slate-900 whitespace-pre-wrap">
-                        {displayValue}
-                      </p>
+                      {isRepeatableRowField(field) ? (
+                        <RepeatableRowsTable
+                          field={field}
+                          value={value}
+                          relationshipLabelsByRecordId={relationshipLabelsByRecordId}
+                          organisationNamesById={organisationNamesById}
+                        />
+                      ) : (
+                        <p className="text-slate-900 whitespace-pre-wrap">
+                          {displayValue}
+                        </p>
+                      )}
                     </div>
                     );
                   })}

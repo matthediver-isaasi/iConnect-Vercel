@@ -169,6 +169,46 @@ test('POST handler accepts targetFieldId as a compatibility alias', async () => 
   assert.deepEqual(response.payload.map((org) => org.id), ['yes']);
 });
 
+test('nested organisation options resolve only a persisted child of the requested repeatable container', async () => {
+  const nested = {
+    id: 'form-rows', tenant_id: tenantId, slug: 'rows', is_active: true,
+    fields: [{
+      id: 'employment', type: 'repeatable_rows',
+      child_fields: [
+        { id: 'country', type: 'select' },
+        {
+          id: 'org', type: 'organisation_dropdown',
+          conditional_filters: { version: 1, rules: [rule()] },
+        },
+      ],
+    }, {
+      // Same child ID outside the container must never be selected.
+      id: 'org', type: 'organisation_dropdown',
+      conditional_filters: { version: 1, rules: [] },
+    }],
+  };
+  const database = db({
+    form: [nested],
+    organization: [
+      { id: 'approved', tenant_id: tenantId, name: 'Approved', status: 'approved' },
+      { id: 'pending', tenant_id: tenantId, name: 'Pending', status: 'pending' },
+    ],
+  });
+  const result = await loadConditionalOrganizationOptions({
+    db: database, tenantId, formSlug: 'rows', containerFieldId: 'employment',
+    fieldId: 'org', sourceAnswers: { country: 'GB' },
+  });
+  assert.deepEqual(result.map((item) => item.id), ['approved']);
+  assert.deepEqual(await loadConditionalOrganizationOptions({
+    db: database, tenantId, formSlug: 'rows', containerFieldId: 'forged',
+    fieldId: 'org', sourceAnswers: { country: 'GB' },
+  }), []);
+  assert.deepEqual(await loadConditionalOrganizationOptions({
+    db: database, tenantId, formSlug: 'rows', containerFieldId: 'employment',
+    fieldId: 'not-a-child', sourceAnswers: { country: 'GB' },
+  }), []);
+});
+
 test('custom filters use bounded chunked reads instead of querying once per organisation', async () => {
   const stats = {};
   const organizations = Array.from({ length: 501 }, (_, index) => ({

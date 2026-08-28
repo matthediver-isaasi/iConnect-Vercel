@@ -180,12 +180,13 @@ test('builder persists country target choices using submitted names', () => {
   assert.match(source, /includes\(customField\?\.field_type\)[\s\S]*?value: country\.name/);
 });
 
-test('organization option client posts fieldId to the real handler', () => {
+test('organization option client sends repeatable container scope to the real handler', () => {
   const source = readFileSync(new URL('../api/publicClient.js', import.meta.url), 'utf8');
   const method = source.match(/async listFormOrganizationOptions[\s\S]*?\n  \}/)?.[0] || '';
   assert.match(method, /this\._fetch\('\/api\/public\/organisations'/);
   assert.match(method, /method: 'POST'/);
   assert.match(method, /\n\s*fieldId,/);
+  assert.match(method, /containerFieldId: containerFieldId \|\| null/);
   assert.doesNotMatch(method, /targetFieldId/);
 });
 

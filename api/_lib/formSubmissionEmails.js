@@ -28,6 +28,14 @@ import {
   loadTenantRelationshipDisplayLabels,
 } from './relationshipDisplayLabels.js';
 import { resolveFormNotListedDisplayValue } from '../../shared/formNotListedChoice.js';
+import {
+  collectRepeatableRelationshipRecordIds,
+  collectRepeatableOrganisationIds,
+  formatRepeatableCellValue,
+  formatRepeatableRowsText,
+  isRepeatableRowsField,
+  resolveRepeatableOrganisationLabel,
+} from '../../shared/repeatableFormRowsFormat.js';
 
 const isMissingColumnError = (err) =>
   err && (err.code === '42703' || /submission_email_state/.test(err.message || ''));
@@ -188,11 +196,21 @@ export function resolveSubmissionEmailFieldDisplayValue({
   rawValue,
   persistedSubmissionData,
   relationshipLabelsByRecordId,
+  organisationNamesById,
 }) {
   const field = (fields || []).find((candidate) => candidate?.id === fieldKey)
     || (fields || []).find((candidate) => candidate?.name === fieldKey);
   const persistedValue = field ? getSubmissionRelationshipValue(persistedSubmissionData, field) : rawValue;
   const displayValue = resolveFormNotListedDisplayValue(field, persistedValue ?? rawValue, persistedSubmissionData);
+  if (isRepeatableRowsField(field)) {
+    return formatRepeatableRowsText(field, persistedValue ?? rawValue, {
+      formatCell: (cellValue, child) => child?.type === 'relationship_dropdown'
+        ? formatRelationshipDisplayValue(cellValue, relationshipLabelsByRecordId)
+        : child?.type === 'organisation_dropdown'
+          ? resolveRepeatableOrganisationLabel(cellValue, organisationNamesById)
+        : formatRepeatableCellValue(cellValue, child),
+    });
+  }
   if (displayValue !== (persistedValue ?? rawValue)) {
     return Array.isArray(displayValue) ? displayValue.join(', ') : displayValue;
   }
@@ -262,13 +280,25 @@ export async function sendSubmissionEmails({
     }
   }
 
-  const relationshipLabelsByRecordId = relationshipFields.length > 0 && persistedSubmissionData
-    ? await loadTenantRelationshipDisplayLabels(
-      supabase,
-      tenantId,
-      collectRelationshipRecordIds(relationshipFields, persistedSubmissionData),
-    )
+  const relationshipRecordIds = persistedSubmissionData
+    ? [
+      ...collectRelationshipRecordIds(relationshipFields, persistedSubmissionData),
+      ...collectRepeatableRelationshipRecordIds(authoritativeFields, persistedSubmissionData),
+    ]
+    : [];
+  const relationshipLabelsByRecordId = relationshipRecordIds.length > 0
+    ? await loadTenantRelationshipDisplayLabels(supabase, tenantId, relationshipRecordIds)
     : {};
+  const repeatableOrganisationIds = persistedSubmissionData
+    ? collectRepeatableOrganisationIds(authoritativeFields, persistedSubmissionData) : [];
+  const organisationNamesById = {};
+  if (repeatableOrganisationIds.length) {
+    const { data: organisations } = await supabase.from('organization').select('id, name')
+      .eq('tenant_id', tenantId).in('id', repeatableOrganisationIds);
+    (organisations || []).forEach((organisation) => {
+      if (organisation?.id) organisationNamesById[organisation.id] = organisation.name;
+    });
+  }
 
   let memberData = null;
   let organizationData = null;
@@ -371,6 +401,7 @@ export async function sendSubmissionEmails({
       rawValue,
       persistedSubmissionData,
       relationshipLabelsByRecordId,
+      organisationNamesById,
     });
     if (syntheticDisplayValue !== rawValue) return syntheticDisplayValue;
     if (orgDropdownFieldIds.has(fieldId) && rawValue) {
@@ -387,6 +418,7 @@ export async function sendSubmissionEmails({
       rawValue,
       persistedSubmissionData,
       relationshipLabelsByRecordId,
+      organisationNamesById,
     });
   };
 

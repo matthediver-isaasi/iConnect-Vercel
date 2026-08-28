@@ -15,6 +15,10 @@ import {
   resolveRelationshipDisplayLabel,
 } from '../../client/src/lib/relationshipDisplayLabels.js';
 import { loadTenantRelationshipDisplayLabels } from '../_lib/relationshipDisplayLabels.js';
+import {
+  collectRepeatableRelationshipRecordIds,
+  getRepeatableRowChildren,
+} from '../../shared/repeatableFormRowsFormat.js';
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
@@ -185,6 +189,7 @@ function buildServerResolvers(maps, origin) {
     resolveFormName,
     getSubmitterEmail,
     resolveOrgName,
+    organisationNamesById,
     resolveOrgGroupName,
     resolveMemberName,
     resolveRoleName,
@@ -292,17 +297,20 @@ export default async function handler(req, res) {
     const referencedFieldTypes = new Set();
     const referencedCustomFieldIds = new Set();
     for (const form of Object.values(formsById)) {
-      for (const f of form.fields || []) {
+      for (const parentField of form.fields || []) {
+        const fieldsToInspect = [parentField, ...getRepeatableRowChildren(parentField)];
+        for (const f of fieldsToInspect) {
         if (f?.type) referencedFieldTypes.add(f.type);
         if (f?.type === 'custom_field' && f.custom_field_id) {
           referencedCustomFieldIds.add(f.custom_field_id);
+        }
         }
       }
     }
 
     const lookups = await Promise.all([
       referencedFieldTypes.has('organisation_dropdown')
-        ? supabase.from('organisation').select('id, name').eq('tenant_id', tenantId)
+        ? supabase.from('organization').select('id, name').eq('tenant_id', tenantId)
         : Promise.resolve({ data: [] }),
       referencedFieldTypes.has('organisation_group_dropdown')
         ? supabase.from('organization_group').select('id, name').eq('tenant_id', tenantId)
@@ -326,7 +334,12 @@ export default async function handler(req, res) {
         ? loadTenantRelationshipDisplayLabels(
           supabase,
           tenantId,
-          collectRelationshipRecordIdsFromSubmissions(formsById, submissions),
+          [
+            ...collectRelationshipRecordIdsFromSubmissions(formsById, submissions),
+            ...submissions.flatMap((submission) => collectRepeatableRelationshipRecordIds(
+              formsById[submission.form_id]?.fields || [], submission.submission_data,
+            )),
+          ],
         ).then(data => ({ data }))
         : Promise.resolve({ data: {} }),
     ]);

@@ -58,3 +58,31 @@ test('configured form-email placeholders render snapshotted not-listed labels', 
     relationshipLabelsByRecordId: {},
   }), 'Original label');
 });
+
+test('configured form-email placeholders render repeatable rows and nested relationship labels', () => {
+  const repeatable = {
+    id: 'contacts',
+    type: 'repeatable_row',
+    repeatable_row: {
+      child_fields: [
+        { id: 'name', label: 'Name', type: 'text' },
+        { id: 'employer', label: 'Employer', type: 'organisation_dropdown' },
+        { id: 'organisation', label: 'Organisation', type: 'relationship_dropdown' },
+      ],
+    },
+  };
+  const output = resolveSubmissionEmailFieldDisplayValue({
+    fields: [repeatable],
+    fieldKey: 'contacts',
+    rawValue: [],
+    persistedSubmissionData: {
+      contacts: [{ _row_id: 'private-row-id', name: 'Grace', employer: 'org-1', organisation: currentId }],
+    },
+    relationshipLabelsByRecordId: { [currentId]: 'Computing Society' },
+    organisationNamesById: { 'org-1': 'Ada Systems' },
+  });
+  assert.equal(output, 'Row 1\nName: Grace\nEmployer: Ada Systems\nOrganisation: Computing Society');
+  assert.equal(output.includes(currentId), false);
+  assert.equal(output.includes('private-row-id'), false);
+  assert.equal(output.includes('org-1'), false);
+});

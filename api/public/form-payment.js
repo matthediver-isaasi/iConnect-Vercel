@@ -54,7 +54,7 @@ import { withFormPaymentAccessProof } from '../_lib/formPaymentAccess.js';
 import { isFormScheduleAvailable } from '../_lib/formAvailability.js';
 import { createFormRelationshipService, FormRelationshipError } from '../_lib/formRelationshipOptions.js';
 import { validateFormOrganisationGroupAnswers } from '../_lib/formOrganisationGroups.js';
-
+import { validateRepeatableRowSubmission } from '../_lib/formRepeatableRowValidation.js';
 const STRIPE_MINIMUMS = { GBP: 0.30, USD: 0.50, EUR: 0.50, AUD: 0.50, NZD: 0.50 };
 
 const FORM_COLUMNS = 'id, name, tenant_id, require_authentication, access_policy, fields, pages, visibility_rules, entity_pipelines, field_mappings, application_level, deactivate_at, submission_emails, submission_email_template_id, submission_email_recipient, submission_email_cc, submission_email_bcc, submission_email_field_mapping, form_type';
@@ -158,8 +158,14 @@ async function authorizePaymentStart(req, res, supabase, tenantData, form) {
   return access;
 }
 
-async function validatePaymentRelationships(res, supabase, tenantData, form, values) {
+export async function validatePaymentRelationships(res, supabase, tenantData, form, values) {
   try {
+    await validateRepeatableRowSubmission({
+      db: supabase,
+      tenantId: tenantData.id,
+      form,
+      submissionData: values,
+    });
     const service = createFormRelationshipService({
       db: supabase,
       tenantId: tenantData.id,
@@ -174,7 +180,9 @@ async function validatePaymentRelationships(res, supabase, tenantData, form, val
     return true;
   } catch (error) {
     if (error instanceof FormRelationshipError && error.status < 500) {
-      res.status(400).json({ error: 'Invalid relationship selection' });
+      res.status(400).json(error.details
+        ? { error: 'Invalid repeatable row submission', code: error.code, details: error.details }
+        : { error: 'Invalid relationship selection' });
       return false;
     }
     if (error?.code === 'INVALID_ORGANISATION_GROUP') {
@@ -326,6 +334,7 @@ async function handleQuote(req, res, supabase, tenantData) {
   }
   const paymentField = findPaymentField(form);
   if (!paymentField) return res.status(400).json({ error: 'This form has no payment field' });
+  if (!await validatePaymentRelationships(res, supabase, tenantData, form, submission_data || {})) return;
 
   const resolved = await resolvePayableCharge({
     supabase, tenantData, form, paymentField,

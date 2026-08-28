@@ -24,6 +24,7 @@ import {
 } from '../_lib/formCommunicationSubscriptions.js';
 import { snapshotFormNotListedLabels } from '../../shared/formNotListedChoice.js';
 import { validateFormOrganisationGroupAnswers } from '../_lib/formOrganisationGroups.js';
+import { validateRepeatableRowSubmission } from '../_lib/formRepeatableRowValidation.js';
 
 export default async function handler(req, res) {
   console.log('[Public Form Submission] === ENDPOINT CALLED ===');
@@ -314,6 +315,12 @@ export default async function handler(req, res) {
     // saved field, its submitted organisation parent, active relationship edge,
     // and active related record before any duplicate handling or side effects.
     try {
+      await validateRepeatableRowSubmission({
+        db: supabase,
+        tenantId: tenantData.id,
+        form: isSurvey ? { ...form, fields: surveyVersion?.fields || [] } : form,
+        submissionData: submission_data || {},
+      });
       await createFormRelationshipService({
         db: supabase,
         tenantId: tenantData.id,
@@ -323,6 +330,13 @@ export default async function handler(req, res) {
       });
     } catch (error) {
       if (error instanceof FormRelationshipError && error.status < 500) {
+        if (error.details) {
+          return res.status(400).json({
+            error: 'Invalid repeatable row submission',
+            code: error.code,
+            details: error.details,
+          });
+        }
         return res.status(400).json({ error: 'Invalid relationship selection' });
       }
       console.error('[Public Form Submission] Relationship selection validation failed:', error);

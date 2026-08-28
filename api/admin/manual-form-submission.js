@@ -1,6 +1,7 @@
 import { getSessionMember } from '../_lib/session.js';
 import { createClient } from '@supabase/supabase-js';
 import { createFormRelationshipService, FormRelationshipError } from '../_lib/formRelationshipOptions.js';
+import { validateRepeatableRowSubmission } from '../_lib/formRepeatableRowValidation.js';
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
@@ -70,12 +71,25 @@ export default async function handler(req, res) {
     }
 
     try {
+      await validateRepeatableRowSubmission({
+        db: supabase,
+        tenantId,
+        form,
+        submissionData: submission_data || {},
+      });
       await createFormRelationshipService({ db: supabase, tenantId }).validateSubmission({
         form,
         submissionData: submission_data || {},
       });
     } catch (error) {
       if (error instanceof FormRelationshipError && error.status < 500) {
+        if (error.details) {
+          return res.status(400).json({
+            error: 'Invalid repeatable row submission',
+            code: error.code,
+            details: error.details,
+          });
+        }
         return res.status(400).json({ error: 'Invalid relationship selection' });
       }
       console.error('[Manual Form Submission] Relationship selection validation failed:', error);
