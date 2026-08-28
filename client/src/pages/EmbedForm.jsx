@@ -20,6 +20,7 @@ import { resolveSubmitControl } from "../../../api/_lib/formSubmitControl.js";
 import FormPaymentSubmit from "../components/forms/FormPaymentSubmit";
 import { useFormPaymentReturn, FormPaymentReturnScreen } from "../components/forms/FormPaymentReturn";
 import FormAccessRestriction, { resolveFormAccess } from "@/components/forms/FormAccessRestriction";
+import { evaluateFormLogicCondition } from "@/lib/formLogicConditions";
 
 // Stable empty array so disabled custom-value queries don't create a fresh
 // default identity every render (which would re-trigger dependent effects).
@@ -368,33 +369,7 @@ export default function EmbedFormPage() {
     // Survey Score answers ({score}/{na}) + numeric operators (Task #3330)
     const scoreResult = evaluateScoreCondition(triggerValue, operator, value);
     if (scoreResult !== undefined) return scoreResult;
-    switch (operator) {
-      case 'equals':
-        if (Array.isArray(triggerValue)) {
-          return triggerValue.includes(value);
-        }
-        return triggerValue === value;
-      case 'not_equals':
-        if (Array.isArray(triggerValue)) {
-          return !triggerValue.includes(value);
-        }
-        return triggerValue !== value;
-      case 'contains':
-        if (Array.isArray(triggerValue)) {
-          return triggerValue.includes(value);
-        } else if (typeof triggerValue === 'string') {
-          return triggerValue.includes(value);
-        }
-        return false;
-      case 'not_empty':
-        return triggerValue !== undefined && triggerValue !== null && triggerValue !== '' && 
-          (Array.isArray(triggerValue) ? triggerValue.length > 0 : true);
-      case 'is_empty':
-        return triggerValue === undefined || triggerValue === null || triggerValue === '' ||
-          (Array.isArray(triggerValue) && triggerValue.length === 0);
-      default:
-        return false;
-    }
+    return evaluateFormLogicCondition(triggerValue, operator, value);
   };
 
   const evaluateRuleConditions = (rule, currentFormValues) => {

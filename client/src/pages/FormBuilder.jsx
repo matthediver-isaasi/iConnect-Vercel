@@ -54,9 +54,15 @@ import {
   mergeOrganizationFilterOptions,
 } from "@/lib/formConditionalFilters";
 import {
+  FORM_NOT_LISTED_VALUE,
+  formNotListedChoiceLabel,
   prependFormNotListedOption,
   supportsFormNotListedChoice,
 } from "../../../shared/formNotListedChoice.js";
+import {
+  getFormLogicConditionOptions,
+  isOnlyFormNotListedConditionOption,
+} from "@/lib/formLogicConditions";
 
 const BADGE_STYLE_DEFAULTS = {
   background_color: '#ffffff',
@@ -934,6 +940,9 @@ function LogicRulesSection({
   onRulesChange,
   prefillSource = 'none',
   customFields = [],
+  categories = [],
+  communicationCategories = [],
+  organizations = [],
   roles = [],
   pages = [],
   entityPipelines = null
@@ -1220,21 +1229,13 @@ function LogicRulesSection({
 
   const getConditionFieldOptions = (fieldId) => {
     const field = fields.find(f => f.id === fieldId);
-    if (!field) return [];
-    
-    if (field.type === 'select' || field.type === 'radio') {
-      return field.options || [];
-    }
-    if (field.type === 'checkbox') {
-      return field.options || [];
-    }
-    if (field.type === 'image_buttons') {
-      return (field.image_options || []).map(opt => ({ value: opt.value, label: opt.label || opt.value }));
-    }
-    if (field.type === 'boolean') {
-      return BOOLEAN_VALUE_OPTIONS;
-    }
-    return [];
+    return getFormLogicConditionOptions({
+      field,
+      categories,
+      communicationCategories,
+      customFields,
+      organizations,
+    });
   };
 
   const isBooleanReferenceField = (fieldId) => {
@@ -1946,10 +1947,13 @@ function LogicRulesSection({
                 {/* Conditions */}
                 <div className="space-y-2">
                   {conditions.map((condition, condIndex) => {
+                    const conditionField = fields.find(f => f.id === condition.field_id);
                     const isBooleanRef = isBooleanReferenceField(condition.field_id);
                     const isScoreRef = fields.find(f => f.id === condition.field_id)?.type === 'score';
                     const isCountryRef = isCountryReferenceField(condition.field_id);
                     const conditionOptions = getConditionFieldOptions(condition.field_id);
+                    const notListedLabel = formNotListedChoiceLabel(conditionField);
+                    const useManualNotListedPicker = isOnlyFormNotListedConditionOption(conditionOptions);
                     const operatorOptions = isBooleanRef
                       ? BOOLEAN_OPERATORS
                       : (isScoreRef
@@ -2032,9 +2036,28 @@ function LogicRulesSection({
                         {/* Value input */}
                         {needsValueInput && (
                           <div className="space-y-1 min-w-[120px] flex-1">
-                            {conditionOptions.length > 0 ? (
+                            {useManualNotListedPicker ? (
+                              <div className="flex gap-2">
+                                <Input
+                                  value={condition.value === FORM_NOT_LISTED_VALUE ? '' : (condition.value || '')}
+                                  onChange={(event) => updateCondition(rule.id, condition.id, { value: event.target.value })}
+                                  placeholder={condition.value === FORM_NOT_LISTED_VALUE ? notListedLabel : 'Enter value...'}
+                                  className="h-9 min-w-0 flex-1"
+                                  data-testid={`input-condition-value-${index}-${condIndex}`}
+                                />
+                                <Button
+                                  type="button"
+                                  variant={condition.value === FORM_NOT_LISTED_VALUE ? 'secondary' : 'outline'}
+                                  className="h-9 shrink-0"
+                                  onClick={() => updateCondition(rule.id, condition.id, { value: FORM_NOT_LISTED_VALUE })}
+                                  data-testid={`button-condition-not-listed-${index}-${condIndex}`}
+                                >
+                                  {notListedLabel}
+                                </Button>
+                              </div>
+                            ) : conditionOptions.length > 0 ? (
                               <Select
-                                value={condition.value || undefined}
+                                value={condition.value === '' || condition.value == null ? undefined : String(condition.value)}
                                 onValueChange={(value) => updateCondition(rule.id, condition.id, { value })}
                               >
                                 <SelectTrigger className="h-9" data-testid={`select-condition-value-${index}-${condIndex}`}>
@@ -2042,8 +2065,8 @@ function LogicRulesSection({
                                 </SelectTrigger>
                                 <SelectContent>
                                   {conditionOptions.map((opt, optIdx) => (
-                                    <SelectItem key={optIdx} value={typeof opt === 'string' ? opt : opt.value || opt}>
-                                      {typeof opt === 'string' ? opt : opt.label || opt.value || opt}
+                                    <SelectItem key={optIdx} value={String(typeof opt === 'string' ? opt : opt.value ?? opt)}>
+                                      {typeof opt === 'string' ? opt : opt.label ?? opt.value ?? opt}
                                     </SelectItem>
                                   ))}
                                 </SelectContent>
@@ -9340,6 +9363,9 @@ export default function FormBuilderPage() {
                   visibilityRules={formData.visibility_rules}
                   prefillSource={formData.prefill_source || 'none'}
                   customFields={customFields}
+                  categories={categories}
+                  communicationCategories={communicationCategories}
+                  organizations={organizations}
                   roles={roles}
                   pages={formData.pages || []}
                   entityPipelines={formData.entity_pipelines}

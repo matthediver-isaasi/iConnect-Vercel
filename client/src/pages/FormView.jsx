@@ -22,6 +22,7 @@ import { useCardSwipeAutoFocus } from "@/lib/cardSwipeAutoFocus";
 import { useMembershipFeeQuote } from "@/lib/useMembershipFeeQuote";
 import { COUNTRIES } from "@/data/countries";
 import FormAccessRestriction, { resolveFormAccess } from "@/components/forms/FormAccessRestriction";
+import { evaluateFormLogicCondition } from "@/lib/formLogicConditions";
 
 // A `redirect_url` beginning with this prefix means the redirect target is driven
 // by the value the respondent submitted for the field whose id follows the prefix.
@@ -1112,61 +1113,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
     // Survey Score answers ({score}/{na}) + numeric operators (Task #3330)
     const scoreResult = evaluateScoreCondition(triggerValue, operator, value);
     if (scoreResult !== undefined) return scoreResult;
-    // Normalize boolean trigger values so saved string comparison values like
-    // "true"/"false" (used by the FormBuilder boolean value picker) match the
-    // actual JS booleans stored in formValues. Only applied to equality
-    // operators; other field types are unaffected.
-    const isBooleanTrigger = typeof triggerValue === 'boolean';
-    const normalizeBooleanCompareValue = (v) => {
-      if (typeof v === 'boolean') return v;
-      if (typeof v === 'string') {
-        const lower = v.trim().toLowerCase();
-        if (lower === 'true') return true;
-        if (lower === 'false') return false;
-      }
-      return v;
-    };
-
-    let result;
-    switch (operator) {
-      case 'equals':
-        if (isBooleanTrigger) {
-          result = triggerValue === normalizeBooleanCompareValue(value);
-        } else if (Array.isArray(triggerValue)) {
-          result = triggerValue.includes(value);
-        } else {
-          result = triggerValue === value;
-        }
-        break;
-      case 'not_equals':
-        if (isBooleanTrigger) {
-          result = triggerValue !== normalizeBooleanCompareValue(value);
-        } else if (Array.isArray(triggerValue)) {
-          result = !triggerValue.includes(value);
-        } else {
-          result = triggerValue !== value;
-        }
-        break;
-      case 'contains':
-        if (Array.isArray(triggerValue)) {
-          result = triggerValue.includes(value);
-        } else if (typeof triggerValue === 'string') {
-          result = triggerValue.includes(value);
-        } else {
-          result = false;
-        }
-        break;
-      case 'not_empty':
-        result = triggerValue !== undefined && triggerValue !== null && triggerValue !== '' && 
-          (Array.isArray(triggerValue) ? triggerValue.length > 0 : true);
-        break;
-      case 'is_empty':
-        result = triggerValue === undefined || triggerValue === null || triggerValue === '' ||
-          (Array.isArray(triggerValue) && triggerValue.length === 0);
-        break;
-      default:
-        result = false;
-    }
+    const result = evaluateFormLogicCondition(triggerValue, operator, value);
     console.log(`[SetValue Debug] Condition: triggerValue="${triggerValue}" (type: ${typeof triggerValue}) ${operator} "${value}" (type: ${typeof value}) => ${result}`, debugInfo);
     return result;
   };
