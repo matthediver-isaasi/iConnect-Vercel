@@ -48,7 +48,12 @@ import ScoreField from "@/components/forms/ScoreField";
 import { validateScoreFieldConfig, validateSurveyForPublish, getScoreRange, getScoreWeight } from "../../../api/_lib/surveyScoring.js";
 import { listOrganizationsForAdmin } from '@/lib/adminOrgList';
 import SurveyEventAssignmentsPanel from "@/components/surveys/SurveyEventAssignmentsPanel";
-import { getEligibleRelationshipParents, normalizeEligibleRelationships, relationshipFieldConfig } from "@/lib/formRelationshipDropdown";
+import {
+  getEligibleRelationshipParents,
+  isRelationshipCompatibleWithParent,
+  normalizeEligibleRelationships,
+  relationshipFieldConfig,
+} from "@/lib/formRelationshipDropdown";
 import {
   configuredOrganizationFilterOptions,
   mergeOrganizationFilterOptions,
@@ -382,6 +387,7 @@ const SCORE_STYLE_OPTIONS = [
 ];
 
 const FIELD_TYPES = [...STANDARD_FIELD_TYPES, ...PREPOPULATE_FIELD_TYPES, ...AUTO_FIELD_TYPES, ...PAYMENT_FIELD_TYPES, ...SURVEY_FIELD_TYPES];
+const relationshipSelectionKey = (relationship) => `${relationship.id}:${relationship.relationship_parent_side || relationship.organization_side || relationship.side || 'default'}`;
 
 const getFieldTypeCategory = (fieldType) => {
   if (STANDARD_FIELD_TYPES.find(f => f.value === fieldType)) return 'standard';
@@ -4156,7 +4162,7 @@ function ConditionalFilterRuleEditor({
   );
 }
 
-function RepeatableRowsSettings({ field, originalIndex, updateField, eligibleRelationships = [] }) {
+function RepeatableRowsSettings({ field, originalIndex, updateField, eligibleRelationships = [], allFields = [] }) {
   const children = Array.isArray(field.child_fields) ? field.child_fields : [];
   const updateChildren = child_fields => updateField(originalIndex, {
     repeatable_rows_version: REPEATABLE_ROW_SCHEMA_VERSION,
@@ -4240,8 +4246,19 @@ function RepeatableRowsSettings({ field, originalIndex, updateField, eligibleRel
       {children.length === 0 && <p className="text-xs text-amber-700">Add at least one field to make this row usable.</p>}
       {children.map((child, childIndex) => {
         const preceding = children.slice(0, childIndex);
-        const relationshipParents = preceding.filter(candidate => candidate.type === 'organisation_dropdown');
-        const organisationGroupParents = preceding.filter(candidate => candidate.type === 'organisation_group_dropdown');
+        const containerIndex = allFields.findIndex(candidate => candidate?.id === field.id);
+        const formPreceding = (containerIndex < 0 ? allFields : allFields.slice(0, containerIndex));
+        const parentScope = child.parent_field_scope || 'row';
+        const groupParentScope = child.organisation_group_parent_scope || 'row';
+        const relationshipParents = parentScope === 'form'
+          ? getEligibleRelationshipParents(formPreceding)
+          : getEligibleRelationshipParents(preceding);
+        const organisationGroupParents = (groupParentScope === 'form' ? formPreceding : preceding)
+          .filter(candidate => candidate?.type === 'organisation_group_dropdown' && candidate.id);
+        const selectedRelationshipParent = relationshipParents.find(parent => parent.id === child.parent_field_id);
+        const compatibleRelationships = selectedRelationshipParent
+          ? eligibleRelationships.filter(item => isRelationshipCompatibleWithParent(item, selectedRelationshipParent))
+          : [];
         const dependency = child.conditional_filters?.rules?.find(rule => !rule.is_fallback);
         const optionsType = ['select', 'radio', 'checkbox'].includes(child.type);
         return (
@@ -4299,7 +4316,21 @@ function RepeatableRowsSettings({ field, originalIndex, updateField, eligibleRel
             {child.type === 'relationship_dropdown' && (
               <div className="grid gap-3 rounded border border-slate-200 bg-slate-50 p-3 md:grid-cols-2">
                 <div className="space-y-1">
-                  <Label className="text-xs">Organisation field in this row</Label>
+                  <Label className="text-xs">Parent field scope</Label>
+                  <Select value={parentScope} onValueChange={parent_field_scope => updateChild(childIndex, {
+                    parent_field_scope,
+                    parent_field_id: undefined,
+                    relationship_definition_id: undefined,
+                  })}>
+                    <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="row">Same row</SelectItem>
+                      <SelectItem value="form">Earlier form field</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Parent field</Label>
                   <Select value={child.parent_field_id || ''} onValueChange={parent_field_id => updateChild(childIndex, { parent_field_id })}>
                     <SelectTrigger className="h-9"><SelectValue placeholder="Choose earlier field…" /></SelectTrigger>
                     <SelectContent>
@@ -4309,13 +4340,13 @@ function RepeatableRowsSettings({ field, originalIndex, updateField, eligibleRel
                 </div>
                 <div className="space-y-1">
                   <Label className="text-xs">Relationship</Label>
-                  <Select value={child.relationship_definition_id || ''} onValueChange={id => {
-                    const relationship = eligibleRelationships.find(item => item.id === id);
-                    if (relationship) updateChild(childIndex, relationshipFieldConfig(relationship));
+                  <Select value={child.relationship_definition_id ? `${child.relationship_definition_id}:${child.relationship_parent_side || child.organization_side || 'default'}` : ''} onValueChange={selectionKey => {
+                    const relationship = compatibleRelationships.find(item => relationshipSelectionKey(item) === selectionKey);
+                    if (relationship) updateChild(childIndex, relationshipFieldConfig(relationship, selectedRelationshipParent));
                   }}>
                     <SelectTrigger className="h-9"><SelectValue placeholder="Choose relationship…" /></SelectTrigger>
                     <SelectContent>
-                      {eligibleRelationships.map(item => <SelectItem key={item.id} value={item.id}>{item.name || item.label || item.relationship_key || 'Relationship'}</SelectItem>)}
+                      {compatibleRelationships.map(item => <SelectItem key={relationshipSelectionKey(item)} value={relationshipSelectionKey(item)}>{item.name || item.label || item.relationship_key || 'Related records'}</SelectItem>)}
                     </SelectContent>
                   </Select>
                 </div>
@@ -4323,6 +4354,17 @@ function RepeatableRowsSettings({ field, originalIndex, updateField, eligibleRel
             )}
             {child.type === 'organisation_dropdown' && (
               <div className="space-y-1 rounded border border-slate-200 bg-slate-50 p-3">
+                <Label className="text-xs">Organisation Group parent scope</Label>
+                <Select value={groupParentScope} onValueChange={organisation_group_parent_scope => updateChild(childIndex, {
+                  organisation_group_parent_scope,
+                  organisation_group_parent_field_id: undefined,
+                })}>
+                  <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="row">Same row</SelectItem>
+                    <SelectItem value="form">Earlier form field</SelectItem>
+                  </SelectContent>
+                </Select>
                 <Label className="text-xs">Filter by Organisation Group field (optional)</Label>
                 <Select
                   value={child.organisation_group_parent_field_id || '__none__'}
@@ -4466,6 +4508,10 @@ function FieldCard({
     staleTime: 5 * 60 * 1000,
   });
   const eligibleRelationships = normalizeEligibleRelationships(relationshipDiscovery);
+  const selectedRelationshipParent = relationshipParents.find(parent => parent.id === field.parent_field_id);
+  const compatibleRelationships = selectedRelationshipParent
+    ? eligibleRelationships.filter(item => isRelationshipCompatibleWithParent(item, selectedRelationshipParent))
+    : [];
 
   // Get available target fields based on application level
   const availableTargets = [
@@ -4863,6 +4909,7 @@ function FieldCard({
                   originalIndex={originalIndex}
                   updateField={updateField}
                   eligibleRelationships={eligibleRelationships}
+                  allFields={allFields}
                 />
               )}
 
@@ -5645,7 +5692,7 @@ function FieldCard({
                 <div className="space-y-4 rounded-lg border border-slate-200 bg-slate-50 p-3" data-testid={`relationship-dropdown-config-${field.id}`}>
                   <div>
                     <Label htmlFor={`no-relationship-label-${field.id}`} className="text-xs font-medium">
-                      No relationship found label
+                      No related records label
                     </Label>
                     <Input
                       id={`no-relationship-label-${field.id}`}
@@ -5658,47 +5705,51 @@ function FieldCard({
                       data-testid={`input-no-relationship-label-${field.id}`}
                     />
                     <p className="mt-1 text-xs text-slate-500">
-                      Shown inside and below this field when the selected organisation has no related records.
+                      Shown inside and below this field when the selected parent record has no related records.
                     </p>
                   </div>
                   <div>
-                    <Label className="text-xs font-medium">Organisation field</Label>
-                    <p className="mt-1 text-xs text-slate-500">Only organisation dropdowns earlier in the form can drive this field.</p>
+                    <Label className="text-xs font-medium">Parent field</Label>
+                    <p className="mt-1 text-xs text-slate-500">Choose an earlier organisation, organisation group, or relationship field.</p>
                     <Select
                       value={field.parent_field_id || ''}
-                      onValueChange={(parent_field_id) => updateField(originalIndex, { parent_field_id })}
+                      onValueChange={(parent_field_id) => updateField(originalIndex, {
+                        parent_field_id,
+                        parent_field_scope: 'form',
+                        relationship_definition_id: undefined,
+                      })}
                     >
                       <SelectTrigger className="mt-2" data-testid={`select-relationship-parent-${field.id}`}>
-                        <SelectValue placeholder="Choose an earlier organisation field…" />
+                        <SelectValue placeholder="Choose an earlier field…" />
                       </SelectTrigger>
                       <SelectContent>
                         {relationshipParents.map((parent) => (
-                          <SelectItem key={parent.id} value={parent.id}>{parent.label || 'Organisation'}</SelectItem>
+                          <SelectItem key={parent.id} value={parent.id}>{parent.label || parent.type}</SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
                     {relationshipParents.length === 0 && (
-                      <p className="mt-2 text-xs text-amber-700">Add an organisation dropdown before this field first.</p>
+                      <p className="mt-2 text-xs text-amber-700">Add a compatible field before this field first.</p>
                     )}
                   </div>
 
                   <div>
                     <Label className="text-xs font-medium">Relationship</Label>
                     <Select
-                      value={field.relationship_definition_id || ''}
+                      value={field.relationship_definition_id ? `${field.relationship_definition_id}:${field.relationship_parent_side || field.organization_side || 'default'}` : ''}
                       disabled={!formId || relationshipsLoading || relationshipsError}
-                      onValueChange={(id) => {
-                        const relationship = eligibleRelationships.find((item) => item.id === id);
-                        if (relationship) updateField(originalIndex, relationshipFieldConfig(relationship));
+                      onValueChange={(selectionKey) => {
+                        const relationship = compatibleRelationships.find((item) => relationshipSelectionKey(item) === selectionKey);
+                        if (relationship) updateField(originalIndex, relationshipFieldConfig(relationship, selectedRelationshipParent));
                       }}
                     >
                       <SelectTrigger className="mt-2" data-testid={`select-relationship-definition-${field.id}`}>
                         <SelectValue placeholder={relationshipsLoading ? 'Loading relationships…' : 'Choose an active relationship…'} />
                       </SelectTrigger>
                       <SelectContent>
-                        {eligibleRelationships.map((relationship) => (
-                          <SelectItem key={relationship.id} value={relationship.id}>
-                            {relationship.label || relationship.name || relationship.related_custom_object_name || relationship.relationship_key}
+                        {compatibleRelationships.map((relationship) => (
+                          <SelectItem key={relationshipSelectionKey(relationship)} value={relationshipSelectionKey(relationship)}>
+                            {relationship.label || relationship.name || relationship.related_custom_object_name || relationship.relationship_key || 'Related records'}
                           </SelectItem>
                         ))}
                       </SelectContent>

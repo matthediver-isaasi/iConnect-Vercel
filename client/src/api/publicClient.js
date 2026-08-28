@@ -324,7 +324,9 @@ class PublicClient {
 
   // The server resolves persisted conditional rules from the form definition;
   // callers must never send those trusted rules back from the browser.
-  async listFormOrganizationOptions(formSlug, formId, fieldId, answers = {}, containerFieldId = null) {
+  async listFormOrganizationOptions(
+    formSlug, formId, fieldId, answers = {}, containerFieldId = null, rootSourceAnswers = null,
+  ) {
     if ((!formSlug && !formId) || !fieldId) return [];
     return this._fetch('/api/public/organisations', {
       method: 'POST',
@@ -334,7 +336,10 @@ class PublicClient {
         formId: formId || null,
         fieldId,
         containerFieldId: containerFieldId || null,
-        sourceAnswers: answers || {},
+        // Callers of a repeatable child may project just the root values
+        // needed by a form-scoped parent. Existing callers retain the
+        // historical answer payload when no projection is supplied.
+        sourceAnswers: rootSourceAnswers || answers || {},
       }),
     });
   }
@@ -558,11 +563,14 @@ class PublicClient {
     });
   }
 
-  async listFormRelationshipOptions(formSlug, fieldId, organizationId, containerFieldId = null) {
-    if (!formSlug || !fieldId || !organizationId) return [];
+  async listFormRelationshipOptions(formSlug, fieldId, parentRecordId, containerFieldId = null) {
+    if (!formSlug || !fieldId || !parentRecordId) return [];
     const params = new URLSearchParams({
       fieldId,
-      organizationId,
+      // organizationId is retained for older servers; parentRecordId names
+      // the scoped relationship parent used by newer endpoints.
+      organizationId: parentRecordId,
+      parentRecordId,
       page: '1',
       pageSize: '100',
     });

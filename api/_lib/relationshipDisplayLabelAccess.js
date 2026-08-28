@@ -1,4 +1,8 @@
 import { loadTenantRelationshipDisplayLabels } from './relationshipDisplayLabels.js';
+import {
+  isRepeatableRowField,
+  repeatableRowChildren,
+} from '../../shared/formRepeatableRows.js';
 
 const MAX_IDS = 2000;
 
@@ -11,14 +15,24 @@ function uniqueIds(values) {
 
 function relationshipIdsFromSubmission(fields, submissionData) {
   const ids = new Set();
-  for (const field of fields || []) {
-    if (field?.type !== 'relationship_dropdown' || !field.id) continue;
-    const value = submissionData?.[field.id]
-      ?? (field.name ? submissionData?.[field.name] : undefined);
-    for (const id of (Array.isArray(value) ? value : [value])) {
-      if (id != null && id !== '') ids.add(String(id));
+  const collect = (scopeFields, scopeData) => {
+    if (!scopeData || typeof scopeData !== 'object' || Array.isArray(scopeData)) return;
+    for (const field of scopeFields || []) {
+      const value = field?.id != null
+        ? (scopeData[field.id] ?? (field.name ? scopeData[field.name] : undefined))
+        : (field?.name ? scopeData[field.name] : undefined);
+      if (field?.type === 'relationship_dropdown' && field.id) {
+        for (const id of (Array.isArray(value) ? value : [value])) {
+          if (id != null && id !== '') ids.add(String(id));
+        }
+      }
+      if (isRepeatableRowField(field) && Array.isArray(value)) {
+        const children = repeatableRowChildren(field);
+        for (const row of value) collect(children, row);
+      }
     }
-  }
+  };
+  collect(fields, submissionData);
   return ids;
 }
 

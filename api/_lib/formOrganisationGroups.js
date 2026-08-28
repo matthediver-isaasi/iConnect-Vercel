@@ -141,17 +141,27 @@ function submittedValue(data, field) {
   return field.name != null ? data[field.name] : undefined;
 }
 
-async function validateDependentSet({ db, tenantId, fields, submissionData }) {
+async function validateDependentSet({
+  db, tenantId, fields, submissionData, rootFields = [], rootSubmissionData = {}, containerIndex = -1,
+}) {
   for (let index = 0; index < fields.length; index += 1) {
     const field = fields[index];
     if (field?.type !== 'organisation_dropdown' || !field.organisation_group_parent_field_id) continue;
-    const parentIndex = fields.findIndex(
+    const scope = field.organisation_group_parent_scope
+      ?? field.organisation_group_parent_field_scope ?? 'row';
+    const parentFields = scope === 'form' ? rootFields : fields;
+    const parentData = scope === 'form' ? rootSubmissionData : submissionData;
+    const parentIndex = parentFields.findIndex(
       candidate => String(candidate?.id) === String(field.organisation_group_parent_field_id),
     );
-    const parent = fields[parentIndex];
+    const parent = parentFields[parentIndex];
     const organizationId = submittedValue(submissionData, field);
-    const groupId = submittedValue(submissionData, parent);
-    if (parentIndex < 0 || parentIndex >= index || parent?.type !== ORGANISATION_GROUP_DROPDOWN_TYPE
+    const groupId = submittedValue(parentData, parent);
+    const validScope = scope === 'row' || scope === 'form';
+    const precedesParent = scope === 'form'
+      ? containerIndex >= 0 && parentIndex >= 0 && parentIndex < containerIndex
+      : parentIndex >= 0 && parentIndex < index;
+    if (!validScope || !precedesParent || parent?.type !== ORGANISATION_GROUP_DROPDOWN_TYPE
         || !groupId || groupId === '__form_not_listed__') {
       if (organizationId) {
         const error = new Error('Invalid organisation group dependency');
@@ -184,12 +194,17 @@ export async function validateOrganisationGroupDependentOrganizationAnswers({
 }) {
   const list = Array.isArray(fields) ? fields : [];
   await validateDependentSet({ db, tenantId, fields: list, submissionData });
-  for (const container of list.filter(isRepeatableRowField)) {
+  for (let containerIndex = 0; containerIndex < list.length; containerIndex += 1) {
+    const container = list[containerIndex];
+    if (!isRepeatableRowField(container)) continue;
     const children = repeatableRowChildren(container);
     const rows = submittedValue(submissionData, container);
     if (!Array.isArray(rows)) continue;
     for (const row of rows) {
-      await validateDependentSet({ db, tenantId, fields: children, submissionData: row });
+      await validateDependentSet({
+        db, tenantId, fields: children, submissionData: row,
+        rootFields: list, rootSubmissionData: submissionData, containerIndex,
+      });
     }
   }
   return true;

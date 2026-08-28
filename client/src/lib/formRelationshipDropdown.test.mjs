@@ -6,6 +6,7 @@ import {
   isConfirmedEmptyRelationshipResult,
   getSavedFormFieldValue,
   getEligibleRelationshipParents,
+  isRelationshipCompatibleWithParent,
   normalizeEligibleRelationships,
   normalizeRelationshipOptions,
   resolveFormRendererFieldValue,
@@ -15,7 +16,7 @@ import {
   shouldClearRelationshipValue,
 } from './formRelationshipDropdown.js';
 
-test('relationship parents only include earlier organisation dropdowns', () => {
+test('relationship parents include compatible earlier record selectors', () => {
   const fields = [
     { id: 'name', type: 'text' },
     { id: 'org-1', type: 'organisation_dropdown' },
@@ -52,12 +53,69 @@ test('relationship config retains definition and object metadata', () => {
   assert.deepEqual(relationshipFieldConfig(relationship), {
     relationship_definition_id: 'definition-1',
     relationship_key: 'organisation_departments',
+    relationship_parent_side: 'source',
+    relationship_parent_kind: undefined,
+    relationship_parent_custom_object_id: undefined,
+    related_kind: 'custom_object',
+    related_custom_object_id: 'departments',
+    related_primary_display_field_id: 'department-name',
     organization_side: 'source',
     custom_object_id: 'departments',
     custom_object_name: 'Departments',
     custom_object_primary_display_field_id: 'department-name',
     relationship_definition: relationship,
     custom_object: relationship.custom_object,
+  });
+});
+
+test('relationship definitions are filtered to the selected parent descriptor', () => {
+  const relationship = {
+    id: 'department-to-team',
+    source_kind: 'custom_object',
+    source_custom_object_id: 'departments',
+    target_kind: 'custom_object',
+    target_custom_object_id: 'teams',
+  };
+  assert.equal(isRelationshipCompatibleWithParent(relationship, {
+    type: 'relationship_dropdown',
+    related_kind: 'custom_object',
+    related_custom_object_id: 'departments',
+  }), true);
+  assert.equal(isRelationshipCompatibleWithParent(relationship, {
+    type: 'relationship_dropdown',
+    related_kind: 'custom_object',
+    related_custom_object_id: 'projects',
+  }), false);
+});
+
+test('normalized side-specific discovery supports non-custom related records', () => {
+  const normalized = {
+    id: 'org-to-group',
+    relationship_parent_side: 'source',
+    relationship_parent_kind: 'organization',
+    related_kind: 'organization_group',
+    parent_object: { id: 'organisation' },
+    related_object: { id: 'group-1', name: 'Regional group' },
+  };
+  assert.deepEqual(normalizeEligibleRelationships([normalized]), [normalized]);
+  assert.equal(isRelationshipCompatibleWithParent(normalized, {
+    type: 'organisation_dropdown',
+  }), true);
+  assert.deepEqual(relationshipFieldConfig(normalized), {
+    relationship_definition_id: 'org-to-group',
+    relationship_key: null,
+    relationship_parent_side: 'source',
+    relationship_parent_kind: 'organization',
+    relationship_parent_custom_object_id: null,
+    related_kind: 'organization_group',
+    related_custom_object_id: null,
+    related_primary_display_field_id: null,
+    organization_side: 'source',
+    custom_object_id: null,
+    custom_object_name: 'Regional group',
+    custom_object_primary_display_field_id: null,
+    relationship_definition: normalized,
+    custom_object: normalized.related_object,
   });
 });
 
@@ -95,6 +153,26 @@ test('legacy name-key values resolve through saved fields and request dependent 
     currentValue: 'department-record',
     needsCanonicalValue: true,
   });
+});
+
+test('repeatable relationship fields default to row scope and can read an explicit form parent', () => {
+  const rootParent = { id: 'root-org', type: 'organisation_dropdown' };
+  const rowParent = { id: 'row-org', type: 'organisation_dropdown' };
+  const field = {
+    id: 'row-relationship',
+    type: 'relationship_dropdown',
+    parent_field_id: 'root-org',
+    repeatable_container_field_id: 'rows',
+    parent_field_scope: 'form',
+  };
+  const resolved = resolveRelationshipDropdownValues({
+    field,
+    fields: [rowParent, field],
+    values: { 'row-org': 'row-value' },
+    rootFields: [rootParent],
+    rootValues: { 'root-org': 'form-value' },
+  });
+  assert.equal(resolved.parentValue, 'form-value');
 });
 
 test('valid legacy dependent value is retained after options load', () => {
@@ -217,6 +295,8 @@ test('renderer scopes repeatable relationship option queries by container', () =
   assert.match(source, /listFormRelationshipOptions\([\s\S]*?field\.repeatable_container_field_id/);
   assert.match(source, /value: relationshipCurrentValue,[\s\S]*?parentValue: relationshipParentValue/);
   assert.match(source, /else if \(relationshipValues\.needsCanonicalValue\) \{\s*onChange\(relationshipCurrentValue\)/);
+  assert.match(source, /rootAllFields = null, rootAllFormValues = null/);
+  assert.match(source, /organisation_group_parent_scope !== 'form'/);
 });
 
 test('relationship option client serializes the optional repeatable container scope', () => {

@@ -31,15 +31,18 @@ export async function loadConditionalOrganizationOptions({
     const { data: form, error: formError } = await formQuery.maybeSingle();
     if (formError || !form || !Array.isArray(form.fields)) return [];
     let fields = form.fields;
+    let container = null;
+    let containerIndex = -1;
     let field = fields.find((candidate) => String(candidate?.id) === String(fieldId));
     // A row child is never addressable as a top-level field. The container ID
     // selects a saved repeatable field first, then the child is resolved only
     // from that field's persisted children. This prevents callers from using a
     // child ID to obtain options from another container or form scope.
     if (containerFieldId !== undefined && containerFieldId !== null && containerFieldId !== '') {
-      const container = form.fields.find(
+      containerIndex = form.fields.findIndex(
         (candidate) => String(candidate?.id) === String(containerFieldId),
       );
+      container = form.fields[containerIndex];
       if (!container || !isRepeatableRowField(container)) return [];
       fields = repeatableRowChildren(container);
       field = fields.find((candidate) => String(candidate?.id) === String(fieldId));
@@ -48,10 +51,17 @@ export async function loadConditionalOrganizationOptions({
     const groupParentId = field.organisation_group_parent_field_id;
     let selectedGroupId = null;
     if (groupParentId) {
+      const scope = field.organisation_group_parent_scope
+        ?? field.organisation_group_parent_field_scope ?? 'row';
+      const parentFields = scope === 'form' ? form.fields : fields;
       const fieldIndex = fields.findIndex(candidate => String(candidate?.id) === String(field.id));
-      const parentIndex = fields.findIndex(candidate => String(candidate?.id) === String(groupParentId));
-      const parent = fields[parentIndex];
-      if (parentIndex < 0 || parentIndex >= fieldIndex
+      const parentIndex = parentFields.findIndex(candidate => String(candidate?.id) === String(groupParentId));
+      const parent = parentFields[parentIndex];
+      const validScope = scope === 'row' || scope === 'form';
+      const precedesParent = scope === 'form'
+        ? container && parentIndex >= 0 && parentIndex < containerIndex
+        : parentIndex >= 0 && parentIndex < fieldIndex;
+      if (!validScope || !precedesParent
           || parent?.type !== 'organisation_group_dropdown') return [];
       const rawGroupId = sourceAnswers[groupParentId];
       if (!rawGroupId || rawGroupId === '__form_not_listed__' || typeof rawGroupId !== 'string') return [];

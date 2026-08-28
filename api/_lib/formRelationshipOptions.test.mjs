@@ -127,7 +127,7 @@ test('saved relationship configuration requires an earlier organization field an
   );
 });
 
-test('eligible discovery returns only active, organization-visible relationships to active objects', async () => {
+test('eligible discovery returns every active visible side with endpoint descriptors', async () => {
   const service = createFormRelationshipService({
     tenantId,
     db: mockDb({
@@ -150,8 +150,55 @@ test('eligible discovery returns only active, organization-visible relationships
     }),
   });
   const result = await service.eligibleDefinitions('form-1');
-  assert.deepEqual(result.data.map((item) => item.id), ['definition-1']);
-  assert.equal(result.data[0].custom_object.object_key, 'units');
+  assert.deepEqual(result.data.map((item) => item.discovery_key), [
+    'hidden:target', 'definition-1:source', 'definition-1:target',
+  ]);
+  assert.deepEqual(result.data.map((item) => ({
+    parent: item.parent.kind, related: item.related.kind,
+  })), [
+    { parent: 'custom_object', related: 'organization' },
+    { parent: 'organization', related: 'custom_object' },
+    { parent: 'custom_object', related: 'organization' },
+  ]);
+  assert.equal(result.data[1].relationship_definition_id, 'definition-1');
+  assert.equal(result.data[1].related_custom_object_id, 'object-1');
+  assert.equal(result.data[1].custom_object.object_key, 'units');
+});
+
+test('saved relationship custom-object parents must match their persisted related descriptor', () => {
+  const chained = form({
+    fields: [
+      { id: 'org', type: 'organisation_dropdown' },
+      {
+        id: 'department',
+        type: 'relationship_dropdown',
+        parent_field_id: 'org',
+        relationship_definition_id: 'organization-department',
+        relationship_parent_kind: 'organization',
+        related_kind: 'custom_object',
+        related_custom_object_id: 'department-object',
+        related_primary_display_field_id: 'department-name',
+      },
+      {
+        id: 'team',
+        type: 'relationship_dropdown',
+        parent_field_id: 'department',
+        relationship_definition_id: 'department-team',
+        relationship_parent_kind: 'custom_object',
+        relationship_parent_custom_object_id: 'forged-object',
+        related_kind: 'custom_object',
+        related_custom_object_id: 'team-object',
+        related_primary_display_field_id: 'team-name',
+      },
+    ],
+  });
+  assert.throws(
+    () => savedRelationshipField(chained, 'team'),
+    (error) => error instanceof FormRelationshipError
+      && error.status === 409 && /parent is invalid/.test(error.message),
+  );
+  chained.fields[2].relationship_parent_custom_object_id = 'department-object';
+  assert.equal(savedRelationshipField(chained, 'team').parent.custom_object_id, 'department-object');
 });
 
 test('options enforce saved definition and filter inactive edges, objects, records, and tenants', async () => {
@@ -336,6 +383,66 @@ test('submission validation accepts only the active record related to its submit
       // the previously valid dependent record must still be checked.
       submissionData: { org: 'org-2', department: 'record-1' },
     }),
+    (error) => error.status === 400 && /Invalid relationship selection/.test(error.message),
+  );
+});
+
+test('submission validation cache is isolated by saved relationship definition', async () => {
+  const secondForm = form({
+    id: 'form-2',
+    fields: [
+      form().fields[0],
+      {
+        ...form().fields[1],
+        relationship_definition_id: 'definition-2',
+      },
+    ],
+  });
+  const service = createFormRelationshipService({
+    tenantId,
+    db: mockDb({
+      organization: [{ id: 'org-1', tenant_id: tenantId }],
+      custom_object_relationship_definition: [
+        definition(),
+        definition({ id: 'definition-2', relationship_key: 'other_units' }),
+      ],
+      custom_object_definition: [{
+        id: 'object-1',
+        tenant_id: tenantId,
+        status: 'active',
+        primary_display_field_id: 'name-field',
+      }],
+      preference_field: [{
+        id: 'name-field',
+        tenant_id: tenantId,
+        custom_object_id: 'object-1',
+        entity_scope: 'custom_object',
+        is_active: true,
+        name: 'unit_name',
+        field_type: 'text',
+      }],
+      custom_object_relationship: [{
+        id: 'edge-1',
+        tenant_id: tenantId,
+        relationship_definition_id: 'definition-1',
+        source_record_id: 'org-1',
+        target_record_id: 'record-1',
+        archived_at: null,
+      }],
+      custom_object_record: [{
+        id: 'record-1',
+        tenant_id: tenantId,
+        custom_object_id: 'object-1',
+        archived_at: null,
+        data: { unit_name: 'A unit' },
+      }],
+    }),
+  });
+  const cache = new Map();
+  const submissionData = { org: 'org-1', department: 'record-1' };
+  await service.validateSubmission({ form: form(), submissionData, cache });
+  await assert.rejects(
+    () => service.validateSubmission({ form: secondForm, submissionData, cache }),
     (error) => error.status === 400 && /Invalid relationship selection/.test(error.message),
   );
 });

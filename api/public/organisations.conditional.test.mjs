@@ -392,6 +392,37 @@ test('repeatable organisation group filtering uses only the same row answers', a
   assert.deepEqual(result.map(item => item.id), ['one']);
 });
 
+test('repeatable organisations can share a preceding form-scoped Organisation Group', async () => {
+  const nested = {
+    id: 'form-shared-group', tenant_id: tenantId, slug: 'shared-group', is_active: true,
+    fields: [{
+      id: 'group', type: 'organisation_group_dropdown',
+    }, {
+      id: 'employment', type: 'repeatable_rows',
+      child_fields: [{
+        id: 'org',
+        type: 'organisation_dropdown',
+        organisation_group_parent_field_id: 'group',
+        organisation_group_parent_scope: 'form',
+      }],
+    }],
+  };
+  const database = db({
+    form: [nested],
+    organization_group: [{ id: 'group-1', tenant_id: tenantId, name: 'One' }],
+    organization: [
+      { id: 'one', tenant_id: tenantId, organization_group_id: 'group-1', name: 'One' },
+      { id: 'two', tenant_id: tenantId, organization_group_id: 'group-2', name: 'Two' },
+    ],
+  });
+  const result = await loadConditionalOrganizationOptions({
+    db: database, tenantId, formId: 'form-shared-group',
+    containerFieldId: 'employment', fieldId: 'org',
+    sourceAnswers: { group: 'group-1' },
+  });
+  assert.deepEqual(result.map(item => item.id), ['one']);
+});
+
 test('custom filters use bounded chunked reads instead of querying once per organisation', async () => {
   const stats = {};
   const organizations = Array.from({ length: 501 }, (_, index) => ({

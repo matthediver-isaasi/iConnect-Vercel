@@ -2,6 +2,10 @@ import { getSessionMember } from '../_lib/session.js';
 import { createClient } from '@supabase/supabase-js';
 import { createFormRelationshipService, FormRelationshipError } from '../_lib/formRelationshipOptions.js';
 import { validateRepeatableRowSubmission } from '../_lib/formRepeatableRowValidation.js';
+import {
+  validateFormOrganisationGroupAnswers,
+  validateOrganisationGroupDependentOrganizationAnswers,
+} from '../_lib/formOrganisationGroups.js';
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
@@ -93,6 +97,30 @@ export default async function handler(req, res) {
         return res.status(400).json({ error: 'Invalid relationship selection' });
       }
       console.error('[Manual Form Submission] Relationship selection validation failed:', error);
+      return res.status(500).json({ error: 'Failed to validate submission' });
+    }
+
+    try {
+      await validateFormOrganisationGroupAnswers({
+        db: supabase,
+        tenantId,
+        fields: form.fields || [],
+        submissionData: submission_data || {},
+      });
+      await validateOrganisationGroupDependentOrganizationAnswers({
+        db: supabase,
+        tenantId,
+        fields: form.fields || [],
+        submissionData: submission_data || {},
+      });
+    } catch (error) {
+      if (error?.code === 'INVALID_ORGANISATION_GROUP') {
+        return res.status(400).json({ error: 'Invalid organisation group selection' });
+      }
+      if (error?.code === 'INVALID_ORGANISATION_GROUP_ORGANISATION') {
+        return res.status(400).json({ error: 'Invalid organisation selection for the selected group' });
+      }
+      console.error('[Manual Form Submission] Organisation group validation failed:', error);
       return res.status(500).json({ error: 'Failed to validate submission' });
     }
 

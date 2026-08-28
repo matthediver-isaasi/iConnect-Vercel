@@ -37,7 +37,7 @@ export async function validateRepeatableRowSubmission({
 
   for (const field of repeatableFields) {
     const value = submittedValue(submissionData, field);
-    const validation = validateRepeatableRows(field, value);
+    const validation = validateRepeatableRows(field, value, { rootFields: fields });
     if (!validation.valid) {
       const error = new FormRelationshipError(400, validation.errors[0]?.message || 'Invalid repeatable row answer');
       error.code = validation.errors[0]?.code || 'INVALID_REPEATABLE_ROW';
@@ -59,6 +59,14 @@ export async function validateRepeatableRowSubmission({
         form: virtualForm,
         submissionData: row,
         cache,
+        // Root values remain separate from a row answer. Services which
+        // understand scoped parents can resolve them without making root
+        // values appear to be submitted child fields.
+        rootForm: form,
+        rootFields: fields,
+        rootSubmissionData: submissionData,
+        containerField: field,
+        containerFieldId: field.id,
       });
     }
   }

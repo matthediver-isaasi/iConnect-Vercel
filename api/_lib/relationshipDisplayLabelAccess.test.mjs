@@ -6,6 +6,7 @@ import {
   resolveReviewSubmissionIds,
   resolveSubmissionBoundRelationshipRecordIds,
 } from './relationshipDisplayLabelAccess.js';
+import { loadTenantRelationshipDisplayLabels } from './relationshipDisplayLabels.js';
 
 function fakeSupabase(rowsByTable) {
   return {
@@ -15,6 +16,10 @@ function fakeSupabase(rowsByTable) {
         select() { return query; },
         eq(column, value) {
           rows = rows.filter((row) => String(row[column]) === String(value));
+          return query;
+        },
+        is(column, value) {
+          rows = rows.filter((row) => row[column] === value);
           return query;
         },
         in(column, values) {
@@ -65,6 +70,74 @@ test('a submission ID from another tenant cannot authorize a relationship label'
   );
 
   assert.deepEqual(ids, []);
+});
+
+test('relationship values in persisted repeatable rows authorize requested labels', async () => {
+  const repeatableDb = fakeSupabase({
+    form_submission: [{
+      id: 'submission-repeatable', tenant_id: 'tenant-a', form_id: 'form-repeatable',
+      submission_data: {
+        rows: [
+          { relationship: 'repeatable-record' },
+          { relationship: ['repeatable-record-two', 'not-requested'] },
+        ],
+      },
+    }],
+    form: [{
+      id: 'form-repeatable', tenant_id: 'tenant-a',
+      fields: [{
+        id: 'rows', type: 'repeatable_row',
+        repeatable_row: { children: [{ id: 'relationship', type: 'relationship_dropdown' }] },
+      }],
+    }],
+  });
+
+  assert.deepEqual(
+    await resolveSubmissionBoundRelationshipRecordIds(
+      repeatableDb,
+      'tenant-a',
+      ['submission-repeatable'],
+      ['repeatable-record', 'repeatable-record-two', 'arbitrary-record'],
+    ),
+    ['repeatable-record', 'repeatable-record-two'],
+  );
+});
+
+test('tenant label loader resolves core names and preserves custom-object collision precedence', async () => {
+  const labels = await loadTenantRelationshipDisplayLabels(fakeSupabase({
+    organization: [
+      { id: 'organization-id', tenant_id: 'tenant-a', name: 'Organization name' },
+      { id: 'other-organization', tenant_id: 'tenant-b', name: 'Other tenant organization' },
+      { id: 'shared-id', tenant_id: 'tenant-a', name: 'Organization collision' },
+    ],
+    organization_group: [
+      { id: 'group-id', tenant_id: 'tenant-a', name: 'Group name' },
+      { id: 'other-group', tenant_id: 'tenant-b', name: 'Other tenant group' },
+      { id: 'shared-id', tenant_id: 'tenant-a', name: 'Group collision' },
+    ],
+    custom_object_record: [
+      { id: 'shared-id', tenant_id: 'tenant-a', custom_object_id: 'object-id', archived_at: null, data: { title: 'Custom collision' } },
+      { id: 'archived-record', tenant_id: 'tenant-a', custom_object_id: 'object-id', archived_at: '2026-01-01', data: { title: 'Archived' } },
+      { id: 'other-record', tenant_id: 'tenant-b', custom_object_id: 'object-id', archived_at: null, data: { title: 'Other tenant' } },
+    ],
+    custom_object_definition: [{
+      id: 'object-id', tenant_id: 'tenant-a', status: 'active', archived_at: null,
+      primary_display_field_id: 'title-field',
+    }],
+    preference_field: [{
+      id: 'title-field', tenant_id: 'tenant-a', custom_object_id: 'object-id',
+      entity_scope: 'custom_object', is_active: true, name: 'title', field_type: 'text',
+    }],
+  }), 'tenant-a', [
+    'organization-id', 'group-id', 'shared-id', 'archived-record',
+    'other-organization', 'other-group', 'other-record',
+  ]);
+
+  assert.deepEqual(labels, {
+    'organization-id': 'Organization name',
+    'group-id': 'Group name',
+    'shared-id': 'Custom collision',
+  });
 });
 
 test('only submission-bound IDs are passed to the label resolver', async () => {

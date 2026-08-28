@@ -75,15 +75,22 @@ export function createPublicFormRelationshipOptionsHandler(dependencies = {}) {
         if (!child || child.type !== 'relationship_dropdown') {
           throw new FormRelationshipError(404, 'Relationship field not found');
         }
+        // Keep the persisted root topology available to the service.  A child
+        // can deliberately depend on a root field (form scope), rather than a
+        // preceding field in its own row.
         optionForm = { ...form, fields: children };
       }
       return res.status(200).json(await service.relationshipOptions({
         slug: req.query.slug,
         form: optionForm,
         fieldId: req.query.fieldId,
+        parentRecordId: req.query.parentRecordId || req.query.organizationId,
+        // organizationId remains a backwards-compatible public alias.
         organizationId: req.query.organizationId,
         query: req.query,
         activeOnly: true,
+        rootForm: form,
+        containerFieldId,
       }));
     } catch (error) {
       return failure(res, error);

@@ -113,6 +113,125 @@ test('accepts a row-local Organisation Group to Organisation dependency and reje
     .some(error => error.code === 'invalid_dependency'));
 });
 
+test('supports a preceding form-scoped Organisation Group shared by every row', () => {
+  const rows = {
+    id: 'employment',
+    type: 'repeatable_rows',
+    child_fields: [{
+      id: 'org',
+      type: 'organisation_dropdown',
+      organisation_group_parent_field_id: 'group',
+      organisation_group_parent_scope: 'form',
+    }],
+  };
+  const rootFields = [
+    { id: 'group', type: 'organisation_group_dropdown' },
+    rows,
+  ];
+  assert.equal(validateRepeatableRows(rows, [{ org: 'org-1' }, { org: 'org-2' }], {
+    rootFields,
+  }).valid, true);
+});
+
+test('supports a preceding form-scoped relationship organisation parent', () => {
+  const rows = {
+    id: 'employment',
+    type: 'repeatable_rows',
+    child_fields: [{
+      id: 'department',
+      type: 'relationship_dropdown',
+      parent_field_id: 'organisation',
+      parent_field_scope: 'form',
+    }],
+  };
+  assert.equal(validateRepeatableRows(rows, [{ department: 'department-1' }], {
+    rootFields: [
+      { id: 'organisation', type: 'organisation_dropdown' },
+      rows,
+    ],
+  }).valid, true);
+});
+
+test('supports row and form scoped custom-object relationship chaining', () => {
+  const rowChain = {
+    id: 'rows',
+    type: 'repeatable_rows',
+    child_fields: [
+      { id: 'org', type: 'organisation_dropdown' },
+      {
+        id: 'account', type: 'relationship_dropdown', parent_field_id: 'org',
+        related_kind: 'custom_object', related_custom_object_id: 'account-object',
+      },
+      {
+        id: 'contact', type: 'relationship_dropdown', parent_field_id: 'account',
+        relationship_parent_kind: 'custom_object',
+        relationship_parent_custom_object_id: 'account-object',
+      },
+    ],
+  };
+  assert.equal(validateRepeatableRows(rowChain, [{ account: 'account-1', contact: 'contact-1' }]).valid, true);
+
+  const formChain = {
+    id: 'rows',
+    type: 'repeatable_rows',
+    child_fields: [{
+      id: 'contact', type: 'relationship_dropdown', parent_field_id: 'account',
+      parent_field_scope: 'form', relationship_parent_kind: 'custom_object',
+      relationship_parent_custom_object_id: 'account-object',
+    }],
+  };
+  assert.equal(validateRepeatableRows(formChain, [{ contact: 'contact-1' }], {
+    rootFields: [
+      { id: 'account', type: 'relationship_dropdown', related_custom_object_id: 'account-object' },
+      formChain,
+    ],
+  }).valid, true);
+});
+
+test('rejects a relationship parent whose persisted descriptor does not match', () => {
+  const rows = {
+    type: 'repeatable_rows',
+    child_fields: [
+      { id: 'org', type: 'organisation_dropdown' },
+      {
+        id: 'account', type: 'relationship_dropdown', parent_field_id: 'org',
+        related_custom_object_id: 'account-object',
+      },
+      {
+        id: 'contact', type: 'relationship_dropdown', parent_field_id: 'account',
+        relationship_parent_kind: 'custom_object',
+        relationship_parent_custom_object_id: 'forged-object',
+      },
+    ],
+  };
+  assert.ok(validateRepeatableRows(rows, [{ account: 'account-1', contact: 'contact-1' }]).errors
+    .some(error => error.code === 'invalid_dependency'));
+});
+
+test('rejects missing, later, and malformed form parent scopes', () => {
+  const rows = {
+    id: 'employment',
+    type: 'repeatable_rows',
+    child_fields: [{
+      id: 'related',
+      type: 'relationship_dropdown',
+      parent_field_id: 'org',
+      parent_field_scope: 'form',
+    }, {
+      id: 'org', type: 'organisation_dropdown',
+    }],
+  };
+  assert.ok(validateRepeatableRows(rows, [{ related: 'record-1' }], {
+    rootFields: [rows, { id: 'org', type: 'organisation_dropdown' }],
+  }).errors.some(error => error.code === 'invalid_dependency'));
+  assert.ok(validateRepeatableRows({
+    ...rows,
+    child_fields: [{ ...rows.child_fields[0], parent_field_scope: 'forged' }],
+  }, [{ related: 'record-1' }], {
+    rootFields: [{ id: 'org', type: 'organisation_dropdown' }, rows],
+  }).errors.some(error => error.code === 'invalid_dependency'));
+});
+
 test('formats non-empty rows readably in child order', () => {
   assert.equal(formatRepeatableRows(field, [
     { org: 'Acme', department: 'Finance', title: 'Manager' },

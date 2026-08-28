@@ -28,6 +28,8 @@ import DOMPurify from 'dompurify';
 import {
   isConfirmedEmptyRelationshipResult,
   normalizeRelationshipOptions,
+  getSavedFormFieldValue,
+  resolveSavedFormField,
   resolveFormRendererFieldValue,
   resolveRelationshipDropdownValues,
   shouldClearRelationshipValue,
@@ -70,6 +72,8 @@ function RepeatableRowsField({
   prefillData,
   membershipFeeQuote,
   notListedDisplayLabel,
+  rootAllFields,
+  rootAllFormValues,
 }) {
   const config = useMemo(() => normalizeRepeatableRowField(field), [field]);
   const [childValidity, setChildValidity] = useState({});
@@ -110,13 +114,14 @@ function RepeatableRowsField({
 
   useEffect(() => {
     const result = validateRepeatableRows(field, rows, {
+      rootFields: rootAllFields || [],
       validateChild: ({ child, row }) => childValidity[row._row_id]?.[child.id] !== false,
     });
     if (lastReportedValidity.current !== result.valid) {
       lastReportedValidity.current = result.valid;
       onValidityChange?.(field.id, result.valid);
     }
-  }, [field, rows, childValidity, onValidityChange]);
+  }, [field, rows, childValidity, onValidityChange, rootAllFields]);
 
   const updateRow = (rowId, childId, nextValue) => {
     onChange(rows.map(row => row._row_id === rowId
@@ -197,6 +202,8 @@ function RepeatableRowsField({
                     formMemberRoleId={formMemberRoleId}
                     allFormValues={row}
                     allFields={config.children}
+                    rootAllFields={rootAllFields}
+                    rootAllFormValues={rootAllFormValues}
                     prefillData={prefillData}
                     membershipFeeQuote={membershipFeeQuote}
                     notListedDisplayLabel={notListedDisplayLabel}
@@ -536,7 +543,7 @@ function CommunicationPreferencesField({ field, value, onChange, disabled, membe
   );
 }
 
-export default function FormRenderer({ field, value: suppliedValue, onChange, memberInfo, organizationInfo, selectedOrgGuestAccess = null, disabled = false, onValidityChange, onRelationshipEmptyStateChange, autoFocus = false, hideLabel = false, formId = null, formSlug = null, formMemberRoleId = null, allFormValues = {}, prefillData = null, allFields = [], membershipFeeQuote = null, notListedDisplayLabel = '' }) {
+export default function FormRenderer({ field, value: suppliedValue, onChange, memberInfo, organizationInfo, selectedOrgGuestAccess = null, disabled = false, onValidityChange, onRelationshipEmptyStateChange, autoFocus = false, hideLabel = false, formId = null, formSlug = null, formMemberRoleId = null, allFormValues = {}, prefillData = null, allFields = [], membershipFeeQuote = null, notListedDisplayLabel = '', rootAllFields = null, rootAllFormValues = null }) {
   const resolvedFieldValue = resolveFormRendererFieldValue({
     field,
     fields: allFields,
@@ -705,11 +712,26 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, me
     () => projectConditionalSourceValues({ field, fields: allFields, values: allFormValues }),
     [field, allFields, allFormValues],
   );
+  // A repeatable organisation field may explicitly depend on an earlier
+  // form-level group. Add only that persisted dependency to the request; row
+  // values must not be populated with unrelated root answers.
+  const scopedOrganizationSourceAnswers = useMemo(() => {
+    if (
+      field.type !== 'organisation_dropdown'
+      || field.organisation_group_parent_scope !== 'form'
+      || !field.organisation_group_parent_field_id
+    ) return organizationSourceAnswers;
+    const parent = resolveSavedFormField(rootAllFields || allFields, field.organisation_group_parent_field_id);
+    return {
+      ...organizationSourceAnswers,
+      [field.organisation_group_parent_field_id]: getSavedFormFieldValue(rootAllFormValues || allFormValues, parent) ?? null,
+    };
+  }, [field, organizationSourceAnswers, rootAllFields, rootAllFormValues]);
   const [organizationQueryInstance] = useState(() => {
     organizationQueryInstanceSequence += 1;
     return organizationQueryInstanceSequence;
   });
-  const organizationAnswersSignature = JSON.stringify(organizationSourceAnswers);
+  const organizationAnswersSignature = JSON.stringify(scopedOrganizationSourceAnswers);
   const previousOrganizationAnswersSignature = useRef(organizationAnswersSignature);
   const organizationAnswersRevision = useRef(0);
   if (previousOrganizationAnswersSignature.current !== organizationAnswersSignature) {
@@ -730,7 +752,7 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, me
       formSlug,
       formId,
       field.id,
-      organizationSourceAnswers,
+      scopedOrganizationSourceAnswers,
       field.repeatable_container_field_id,
     ),
     enabled: field.type === 'organisation_dropdown' && !!(formSlug || formId),
@@ -771,6 +793,8 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, me
       fields: allFields,
       values: allFormValues,
       value,
+      rootFields: rootAllFields,
+      rootValues: rootAllFormValues,
     })
     : {};
   const relationshipParentValue = relationshipValues.parentValue;
@@ -1075,6 +1099,8 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, me
       prefillData={prefillData}
       membershipFeeQuote={membershipFeeQuote}
       notListedDisplayLabel={notListedDisplayLabel}
+      rootAllFields={allFields}
+      rootAllFormValues={allFormValues}
     />
   );
 
@@ -1621,7 +1647,7 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, me
           || relationshipOptionsLoading || relationshipOptionsError || effectiveRelationshipOptions.length === 0;
         let placeholder = field.placeholder || 'Select an option';
         if (missingConfiguration) placeholder = 'This field is not configured';
-        else if (!relationshipParentValue && !canChooseNotListed) placeholder = 'Select an organisation first';
+        else if (!relationshipParentValue && !canChooseNotListed) placeholder = 'Select a parent record first';
         else if (relationshipOptionsLoading) placeholder = 'Loading options…';
         else if (relationshipOptionsError) placeholder = 'Options could not be loaded';
         else if (relationshipResultIsEmpty) placeholder = formNoRelationshipLabel(field);

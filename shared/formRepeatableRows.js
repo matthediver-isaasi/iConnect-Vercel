@@ -113,8 +113,12 @@ function selectedValues(value) {
   return Array.isArray(value) ? value : [value];
 }
 
-export function validateRepeatableRowConfiguration(field) {
+export function validateRepeatableRowConfiguration(field, options = {}) {
   const config = normalizeRepeatableRowField(field);
+  const rootFields = Array.isArray(options.rootFields) ? options.rootFields : [];
+  const containerIndex = rootFields.findIndex(
+    (candidate) => String(candidate?.id) === String(field?.id),
+  );
   const errors = [];
   if (config.version !== REPEATABLE_ROW_SCHEMA_VERSION) {
     errors.push({ code: 'unsupported_version', message: 'Unsupported repeatable row schema version' });
@@ -157,19 +161,52 @@ export function validateRepeatableRowConfiguration(field) {
     }
     if (child.type === 'relationship_dropdown') {
       const parentId = child.parent_field_id;
-      const parentIndex = config.children.findIndex((candidate) => candidate.id === String(parentId));
-      if (parentIndex < 0 || parentIndex >= index
-          || config.children[parentIndex]?.type !== 'organisation_dropdown') {
-        errors.push({ code: 'invalid_dependency', child_id: child.id, message: 'A relationship child must reference a preceding organisation child' });
+      const scope = child.parent_field_scope ?? 'row';
+      const parentFields = scope === 'form' ? rootFields : config.children;
+      const parentIndex = parentFields.findIndex(
+        (candidate) => String(candidate?.id) === String(parentId),
+      );
+      const isValidScope = scope === 'row' || scope === 'form';
+      const precedesChild = scope === 'form'
+        ? containerIndex >= 0 && parentIndex >= 0 && parentIndex < containerIndex
+        : parentIndex >= 0 && parentIndex < index;
+      const parent = parentFields[parentIndex];
+      const parentDescriptor = parent?.type === 'organisation_dropdown'
+        ? { kind: 'organization', customObjectId: null }
+        : parent?.type === 'organisation_group_dropdown'
+          ? { kind: 'organization_group', customObjectId: null }
+          : parent?.type === 'relationship_dropdown'
+            ? {
+              kind: parent.related_kind || 'custom_object',
+              customObjectId: parent.related_custom_object_id || parent.custom_object_id || null,
+            }
+            : null;
+      const expectedKind = child.relationship_parent_kind || null;
+      const expectedObjectId = child.relationship_parent_custom_object_id
+        || child.parent_custom_object_id || null;
+      const descriptorMatches = parentDescriptor
+        && (!expectedKind || parentDescriptor.kind === expectedKind)
+        && (!expectedObjectId || (parentDescriptor.kind === 'custom_object'
+          && String(parentDescriptor.customObjectId) === String(expectedObjectId)));
+      if (!isValidScope || !precedesChild
+          || !descriptorMatches) {
+        errors.push({ code: 'invalid_dependency', child_id: child.id, message: 'A relationship child must reference a compatible preceding parent' });
       }
     }
     if (child.type === 'organisation_dropdown' && child.organisation_group_parent_field_id) {
-      const parentIndex = config.children.findIndex(
-        candidate => candidate.id === String(child.organisation_group_parent_field_id),
+      const scope = child.organisation_group_parent_scope
+        ?? child.organisation_group_parent_field_scope ?? 'row';
+      const parentFields = scope === 'form' ? rootFields : config.children;
+      const parentIndex = parentFields.findIndex(
+        candidate => String(candidate?.id) === String(child.organisation_group_parent_field_id),
       );
-      if (parentIndex < 0 || parentIndex >= index
-          || config.children[parentIndex]?.type !== 'organisation_group_dropdown') {
-        errors.push({ code: 'invalid_dependency', child_id: child.id, message: 'An organisation child group filter must reference a preceding Organisation Group child' });
+      const isValidScope = scope === 'row' || scope === 'form';
+      const precedesChild = scope === 'form'
+        ? containerIndex >= 0 && parentIndex >= 0 && parentIndex < containerIndex
+        : parentIndex >= 0 && parentIndex < index;
+      if (!isValidScope || !precedesChild
+          || parentFields[parentIndex]?.type !== 'organisation_group_dropdown') {
+        errors.push({ code: 'invalid_dependency', child_id: child.id, message: 'An organisation child group filter must reference a compatible preceding Organisation Group parent' });
       }
     }
   });
@@ -177,7 +214,7 @@ export function validateRepeatableRowConfiguration(field) {
 }
 
 export function validateRepeatableRows(field, value, options = {}) {
-  const configuration = validateRepeatableRowConfiguration(field);
+  const configuration = validateRepeatableRowConfiguration(field, options);
   const errors = [...configuration.errors];
   if (!Array.isArray(value)) {
     if (value !== undefined && value !== null) {

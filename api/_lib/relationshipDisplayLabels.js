@@ -78,30 +78,62 @@ export async function loadTenantRelationshipDisplayLabels(db, tenantId, recordId
   const ids = uniqueIds(recordIds);
   if (!db || !tenantId || ids.length === 0) return {};
 
-  const records = await fetchChunks(
-    (part) => db.from('custom_object_record')
-      .select('id, custom_object_id, data')
-      .eq('tenant_id', tenantId)
-      .is('archived_at', null)
-      .in('id', part),
-    ids,
-  );
-  if (records.length === 0) return {};
+  // IDs are ordinarily globally unique, but retain a stable precedence for
+  // legacy/corrupt collisions: core records are added first and an active
+  // custom-object record replaces them below.
+  const [organizations, groups, records] = await Promise.all([
+    fetchChunks(
+      (part) => db.from('organization')
+        .select('id, name')
+        .eq('tenant_id', tenantId)
+        .in('id', part),
+      ids,
+    ),
+    fetchChunks(
+      (part) => db.from('organization_group')
+        .select('id, name')
+        .eq('tenant_id', tenantId)
+        .in('id', part),
+      ids,
+    ),
+    fetchChunks(
+      (part) => db.from('custom_object_record')
+        .select('id, custom_object_id, data')
+        .eq('tenant_id', tenantId)
+        .is('archived_at', null)
+        .in('id', part),
+      ids,
+    ),
+  ]);
+  const labels = {};
+  for (const group of groups) {
+    if (typeof group.name === 'string' && group.name.trim()) {
+      labels[String(group.id)] = group.name.trim();
+    }
+  }
+  for (const organization of organizations) {
+    if (typeof organization.name === 'string' && organization.name.trim()) {
+      labels[String(organization.id)] = organization.name.trim();
+    }
+  }
+  if (records.length === 0) return labels;
 
   const objectIds = [...new Set(records.map((record) => record.custom_object_id).filter(Boolean))];
-  const { data: objects, error: objectError } = await db.from('custom_object_definition')
-    .select('id, primary_display_field_id')
-    .eq('tenant_id', tenantId)
-    .eq('status', 'active')
-    .is('archived_at', null)
-    .in('id', objectIds);
-  if (objectError) throw objectError;
+  const objects = await fetchChunks(
+    (part) => db.from('custom_object_definition')
+      .select('id, primary_display_field_id')
+      .eq('tenant_id', tenantId)
+      .eq('status', 'active')
+      .is('archived_at', null)
+      .in('id', part),
+    objectIds,
+  );
 
-  const activeObjects = new Map((objects || []).map((object) => [String(object.id), object]));
-  const primaryFieldIds = [...new Set((objects || [])
+  const activeObjects = new Map(objects.map((object) => [String(object.id), object]));
+  const primaryFieldIds = [...new Set(objects
     .map((object) => object.primary_display_field_id)
     .filter(Boolean))];
-  if (primaryFieldIds.length === 0) return {};
+  if (primaryFieldIds.length === 0) return labels;
 
   const fields = await fetchChunks(
     (part) => db.from('preference_field')
@@ -113,7 +145,6 @@ export async function loadTenantRelationshipDisplayLabels(db, tenantId, recordId
     primaryFieldIds,
   );
   const fieldsById = new Map(fields.map((field) => [String(field.id), field]));
-  const labels = {};
 
   for (const record of records) {
     const object = activeObjects.get(String(record.custom_object_id));
