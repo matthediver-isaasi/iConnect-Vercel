@@ -160,6 +160,18 @@ test('projects only referenced sources under canonical IDs with legacy-name look
   });
 });
 
+test('projects an Organisation Group parent even without conditional rules', () => {
+  assert.deepEqual(projectConditionalSourceValues({
+    field: {
+      id: 'org',
+      type: 'organisation_dropdown',
+      organisation_group_parent_field_id: 'group',
+    },
+    fields: [{ id: 'group', name: 'legacyGroup', type: 'organisation_group_dropdown' }],
+    values: { legacyGroup: 'group-1', unrelated: 'private' },
+  }), { group: 'group-1' });
+});
+
 test('malformed and non-v1 conditional configs fail closed', () => {
   for (const conditional_filters of [
     'invalid',

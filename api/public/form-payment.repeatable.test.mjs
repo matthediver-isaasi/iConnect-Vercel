@@ -9,8 +9,12 @@ test('paid create, monthly-card, and quote paths validate repeatable rows before
   const quoteStart = source.indexOf('async function handleQuote');
   const monthlyStart = source.indexOf('async function handleCreateMonthlyCard');
   const createStart = source.indexOf('async function handleCreate(');
+  const nextFunctionStart = (start) => {
+    const next = source.indexOf('\nasync function ', start + 1);
+    return next < 0 ? source.length : next;
+  };
   for (const start of [quoteStart, monthlyStart, createStart]) {
-    const section = source.slice(start, start + 5000);
+    const section = source.slice(start, nextFunctionStart(start));
     const validation = section.indexOf('validatePaymentRelationships(');
     const charge = section.indexOf('resolvePayableCharge(');
     assert.ok(validation >= 0, 'payment path validates selections');
@@ -43,4 +47,66 @@ test('paid validation rejects repeatable tampering before ordinary relationship 
   assert.equal(response.statusCode, 400);
   assert.equal(response.payload.code, 'unknown_child');
   assert.equal(queries, 0);
+});
+
+function selectionDb(seed) {
+  return {
+    from(table) {
+      const filters = [];
+      const rows = seed[table] || [];
+      const query = {
+        select() { return query; },
+        eq(column, value) { filters.push([column, value]); return query; },
+        in(column, values) { filters.push([column, values.map(String)]); return query; },
+        order() {
+          return Promise.resolve({
+            data: rows.filter(row => filters.every(([column, value]) => (
+              Array.isArray(value) ? value.includes(String(row[column])) : row[column] === value
+            ))),
+            error: null,
+          });
+        },
+        maybeSingle() {
+          return Promise.resolve({
+            data: rows.find(row => filters.every(([column, value]) => row[column] === value)) || null,
+            error: null,
+          });
+        },
+      };
+      return query;
+    },
+  };
+}
+
+test('paid validation rejects a tenant-valid organisation from a different selected group', async () => {
+  const response = {
+    statusCode: null,
+    status(code) { this.statusCode = code; return this; },
+    json(payload) { this.payload = payload; return this; },
+  };
+  const form = {
+    id: 'paid-form',
+    fields: [
+      { id: 'group', type: 'organisation_group_dropdown' },
+      { id: 'org', type: 'organisation_dropdown', organisation_group_parent_field_id: 'group' },
+    ],
+  };
+  const valid = await validatePaymentRelationships(
+    response,
+    selectionDb({
+      organization_group: [
+        { id: 'group-1', tenant_id: 'tenant-1', name: 'One' },
+        { id: 'group-2', tenant_id: 'tenant-1', name: 'Two' },
+      ],
+      organization: [
+        { id: 'org-2', tenant_id: 'tenant-1', organization_group_id: 'group-2', name: 'Wrong group' },
+      ],
+    }),
+    { id: 'tenant-1' },
+    form,
+    { group: 'group-1', org: 'org-2' },
+  );
+  assert.equal(valid, false);
+  assert.equal(response.statusCode, 400);
+  assert.match(response.payload.error, /selected group/i);
 });

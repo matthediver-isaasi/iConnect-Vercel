@@ -23,7 +23,10 @@ import {
   safeSubscriptionDiagnostic,
 } from '../_lib/formCommunicationSubscriptions.js';
 import { snapshotFormNotListedLabels } from '../../shared/formNotListedChoice.js';
-import { validateFormOrganisationGroupAnswers } from '../_lib/formOrganisationGroups.js';
+import {
+  validateFormOrganisationGroupAnswers,
+  validateOrganisationGroupDependentOrganizationAnswers,
+} from '../_lib/formOrganisationGroups.js';
 import { validateRepeatableRowSubmission } from '../_lib/formRepeatableRowValidation.js';
 
 export default async function handler(req, res) {
@@ -350,9 +353,18 @@ export default async function handler(req, res) {
         fields: isSurvey ? (surveyVersion?.fields || []) : (form.fields || []),
         submissionData: submission_data || {},
       });
+      await validateOrganisationGroupDependentOrganizationAnswers({
+        db: supabase,
+        tenantId: tenantData.id,
+        fields: isSurvey ? (surveyVersion?.fields || []) : (form.fields || []),
+        submissionData: submission_data || {},
+      });
     } catch (error) {
       if (error?.code === 'INVALID_ORGANISATION_GROUP') {
         return res.status(400).json({ error: 'Invalid organisation group selection' });
+      }
+      if (error?.code === 'INVALID_ORGANISATION_GROUP_ORGANISATION') {
+        return res.status(400).json({ error: 'Invalid organisation selection for the selected group' });
       }
       console.error('[Public Form Submission] Organisation group validation failed:', error);
       return res.status(500).json({ error: 'Failed to validate submission' });

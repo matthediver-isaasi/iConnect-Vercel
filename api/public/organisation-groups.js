@@ -14,7 +14,7 @@ export async function organisationGroupsHandler(req, res, dependencies = {}) {
   const tenant = await (dependencies.resolveTenant || resolveTenantFromRequest)(req);
   if (!tenant?.id) return res.status(400).json({ error: 'Invalid tenant context' });
 
-  const { formId, formSlug, fieldId } = req.body || {};
+  const { formId, formSlug, fieldId, containerFieldId } = req.body || {};
   if ((!formId && !formSlug) || !fieldId) return res.status(400).json({ error: 'Form and field are required' });
 
   const groups = await loadFormOrganisationGroupOptions({
@@ -23,6 +23,7 @@ export async function organisationGroupsHandler(req, res, dependencies = {}) {
     formId,
     formSlug,
     fieldId,
+    containerFieldId,
   });
   return res.json(groups);
 }

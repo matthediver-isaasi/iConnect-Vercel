@@ -339,7 +339,7 @@ class PublicClient {
     });
   }
 
-  async listFormOrganisationGroupOptions(formSlug, formId, fieldId) {
+  async listFormOrganisationGroupOptions(formSlug, formId, fieldId, containerFieldId = null) {
     if ((!formSlug && !formId) || !fieldId) return [];
     return this._fetch('/api/public/organisation-groups', {
       method: 'POST',
@@ -348,6 +348,7 @@ class PublicClient {
         formSlug: formSlug || null,
         formId: formId || null,
         fieldId,
+        containerFieldId: containerFieldId || null,
       }),
     });
   }

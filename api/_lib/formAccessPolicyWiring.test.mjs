@@ -83,7 +83,12 @@ test('payment creates validate saved relationship selections before submission r
   );
   assertOrdered(monthly, 'const access = await authorizePaymentStart', 'await validatePaymentRelationships', 'monthly payment');
   assertOrdered(monthly, 'await validatePaymentRelationships', ".from('form_submission')", 'monthly payment');
-  assertOrdered(monthly, 'await validatePaymentRelationships', 'submission_data: values', 'monthly payment persistence');
+  assertOrdered(
+    monthly,
+    'await validatePaymentRelationships',
+    'submission_data: snapshotFormNotListedLabels(form.fields || [], values)',
+    'monthly payment persistence',
+  );
 
   const normal = source.slice(
     source.indexOf('async function handleCreate('),
@@ -91,7 +96,12 @@ test('payment creates validate saved relationship selections before submission r
   );
   assertOrdered(normal, 'const access = await authorizePaymentStart', 'await validatePaymentRelationships', 'normal payment');
   assertOrdered(normal, 'await validatePaymentRelationships', ".from('form_submission')", 'normal payment');
-  assertOrdered(normal, 'await validatePaymentRelationships', 'submission_data: values', 'normal payment persistence');
+  assertOrdered(
+    normal,
+    'await validatePaymentRelationships',
+    'submission_data: snapshotFormNotListedLabels(form.fields || [], values)',
+    'normal payment persistence',
+  );
 });
 
 test('generic FormSubmission writes cannot bypass access or forge payment proof', () => {

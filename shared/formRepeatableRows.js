@@ -11,7 +11,7 @@ export const REPEATABLE_ROW_CHILD_TYPES = Object.freeze([
   'currency', 'date', 'time', 'boolean', 'dropdown', 'select', 'radio',
   'checkbox', 'checkboxes', 'list', 'multiselect', 'country', 'countries',
   'category_dropdown', 'category_multiselect', 'custom_field',
-  'organisation_dropdown', 'relationship_dropdown',
+  'organisation_dropdown', 'organisation_group_dropdown', 'relationship_dropdown',
 ]);
 
 export const REPEATABLE_ROW_DEPENDENCY_TYPES = Object.freeze([
@@ -161,6 +161,15 @@ export function validateRepeatableRowConfiguration(field) {
       if (parentIndex < 0 || parentIndex >= index
           || config.children[parentIndex]?.type !== 'organisation_dropdown') {
         errors.push({ code: 'invalid_dependency', child_id: child.id, message: 'A relationship child must reference a preceding organisation child' });
+      }
+    }
+    if (child.type === 'organisation_dropdown' && child.organisation_group_parent_field_id) {
+      const parentIndex = config.children.findIndex(
+        candidate => candidate.id === String(child.organisation_group_parent_field_id),
+      );
+      if (parentIndex < 0 || parentIndex >= index
+          || config.children[parentIndex]?.type !== 'organisation_group_dropdown') {
+        errors.push({ code: 'invalid_dependency', child_id: child.id, message: 'An organisation child group filter must reference a preceding Organisation Group child' });
       }
     }
   });

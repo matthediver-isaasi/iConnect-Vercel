@@ -736,10 +736,31 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, me
     enabled: field.type === 'organisation_dropdown' && !!(formSlug || formId),
     staleTime: 5 * 60 * 1000
   });
+  useEffect(() => {
+    if (field.type !== 'organisation_dropdown'
+        || !field.organisation_group_parent_field_id
+        || orgsLoading
+        || !value) return;
+    if (!organisations.some(organization => String(organization.id) === String(value))) {
+      onChange('');
+    }
+  }, [
+    field.type,
+    field.organisation_group_parent_field_id,
+    organisations,
+    orgsLoading,
+    value,
+    onChange,
+  ]);
 
   const { data: organisationGroups = [], isLoading: organisationGroupsLoading } = useQuery({
-    queryKey: ['public-form-organisation-group-options', formSlug, formId, field.id],
-    queryFn: () => publicClient.listFormOrganisationGroupOptions(formSlug, formId, field.id),
+    queryKey: ['public-form-organisation-group-options', formSlug, formId, field.id, field.repeatable_container_field_id],
+    queryFn: () => publicClient.listFormOrganisationGroupOptions(
+      formSlug,
+      formId,
+      field.id,
+      field.repeatable_container_field_id,
+    ),
     enabled: field.type === 'organisation_group_dropdown' && !!(formSlug || formId),
     staleTime: 5 * 60 * 1000,
   });

@@ -4213,6 +4213,7 @@ function RepeatableRowsSettings({ field, originalIndex, updateField, eligibleRel
       {children.map((child, childIndex) => {
         const preceding = children.slice(0, childIndex);
         const relationshipParents = preceding.filter(candidate => candidate.type === 'organisation_dropdown');
+        const organisationGroupParents = preceding.filter(candidate => candidate.type === 'organisation_group_dropdown');
         const dependency = child.conditional_filters?.rules?.find(rule => !rule.is_fallback);
         const optionsType = ['select', 'radio', 'checkbox'].includes(child.type);
         return (
@@ -4241,6 +4242,9 @@ function RepeatableRowsSettings({ field, originalIndex, updateField, eligibleRel
                 <Select value={child.type} onValueChange={type => updateChild(childIndex, {
                   type,
                   parent_field_id: type === 'relationship_dropdown' ? child.parent_field_id : undefined,
+                  organisation_group_parent_field_id: type === 'organisation_dropdown'
+                    ? child.organisation_group_parent_field_id
+                    : undefined,
                   conditional_filters: undefined,
                 })}>
                   <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
@@ -4287,6 +4291,30 @@ function RepeatableRowsSettings({ field, originalIndex, updateField, eligibleRel
                     </SelectContent>
                   </Select>
                 </div>
+              </div>
+            )}
+            {child.type === 'organisation_dropdown' && (
+              <div className="space-y-1 rounded border border-slate-200 bg-slate-50 p-3">
+                <Label className="text-xs">Filter by Organisation Group field (optional)</Label>
+                <Select
+                  value={child.organisation_group_parent_field_id || '__none__'}
+                  onValueChange={organisation_group_parent_field_id => updateChild(childIndex, {
+                    organisation_group_parent_field_id: organisation_group_parent_field_id === '__none__'
+                      ? undefined
+                      : organisation_group_parent_field_id,
+                  })}
+                >
+                  <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">No group dependency</SelectItem>
+                    {organisationGroupParents.map(parent => (
+                      <SelectItem key={parent.id} value={parent.id}>{parent.label || 'Organisation Group'}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {organisationGroupParents.length === 0 && (
+                  <p className="text-xs text-slate-500">Add an Organisation Group field earlier in this row first.</p>
+                )}
               </div>
             )}
             {preceding.length > 0 && REPEATABLE_ROW_DEPENDENCY_TYPES.includes(child.type) && (
@@ -4380,6 +4408,9 @@ function FieldCard({
   const targetField = uniquenessCheck?.target_field || '';
   const comparisonMode = uniquenessCheck?.comparison_mode || 'equals_lowercase';
   const relationshipParents = getEligibleRelationshipParents(allFields, field.id);
+  const fieldIndex = allFields.findIndex(candidate => candidate?.id === field.id);
+  const organisationGroupParents = (fieldIndex < 0 ? allFields : allFields.slice(0, fieldIndex))
+    .filter(candidate => candidate?.type === 'organisation_group_dropdown' && candidate.id);
   const {
     data: relationshipDiscovery,
     isLoading: relationshipsLoading,
@@ -5368,6 +5399,47 @@ function FieldCard({
 
                 return (
                   <div className="space-y-3 p-3 bg-slate-50 border border-slate-200 rounded-lg">
+                    <div className="space-y-2 border-b border-slate-200 pb-3">
+                      <Label className="text-xs font-medium">Filter by Organisation Group field</Label>
+                      <p className="text-xs text-slate-500">
+                        Optionally show only organisations belonging to the group selected in an earlier field.
+                      </p>
+                      <Select
+                        value={field.organisation_group_parent_field_id || '__none__'}
+                        onValueChange={(value) => updateField(originalIndex, {
+                          organisation_group_parent_field_id: value === '__none__' ? undefined : value,
+                        })}
+                      >
+                        <SelectTrigger data-testid={`select-org-group-parent-${field.id}`}>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__none__">No group dependency</SelectItem>
+                          {organisationGroupParents.map(parent => (
+                            <SelectItem key={parent.id} value={parent.id}>{parent.label || 'Organisation Group'}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      {organisationGroupParents.length === 0 && (
+                        <p className="text-xs text-amber-700">Add an Organisation Group dropdown before this field first.</p>
+                      )}
+                      {field.organisation_group_parent_field_id
+                        && !organisationGroupParents.some(parent => parent.id === field.organisation_group_parent_field_id) && (
+                        <div className="flex items-center justify-between gap-2 rounded border border-amber-300 bg-amber-50 p-2">
+                          <p className="text-xs text-amber-800">
+                            The saved group field is no longer before this Organisation field. Choose another field or clear the dependency.
+                          </p>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            onClick={() => updateField(originalIndex, { organisation_group_parent_field_id: undefined })}
+                          >
+                            Clear
+                          </Button>
+                        </div>
+                      )}
+                    </div>
                     <Label className="text-xs font-medium">Filter Organisations</Label>
                     <p className="text-xs text-slate-500">
                       Restrict which organisations appear in this dropdown. If set to "No filter", all organisations will appear.

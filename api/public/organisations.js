@@ -46,6 +46,25 @@ export async function loadConditionalOrganizationOptions({
       field = fields.find((candidate) => String(candidate?.id) === String(fieldId));
     }
     if (!field || field.type !== 'organisation_dropdown') return [];
+    const groupParentId = field.organisation_group_parent_field_id;
+    let selectedGroupId = null;
+    if (groupParentId) {
+      const fieldIndex = fields.findIndex(candidate => String(candidate?.id) === String(field.id));
+      const parentIndex = fields.findIndex(candidate => String(candidate?.id) === String(groupParentId));
+      const parent = fields[parentIndex];
+      if (parentIndex < 0 || parentIndex >= fieldIndex
+          || parent?.type !== 'organisation_group_dropdown') return [];
+      const rawGroupId = sourceAnswers[groupParentId];
+      if (!rawGroupId || rawGroupId === '__form_not_listed__' || typeof rawGroupId !== 'string') return [];
+      const { data: group, error: groupError } = await db
+        .from('organization_group')
+        .select('id')
+        .eq('id', rawGroupId)
+        .eq('tenant_id', tenantId)
+        .maybeSingle();
+      if (groupError || !group) return [];
+      selectedGroupId = String(group.id);
+    }
 
     const resolution = resolveConditionalFilter(field, sourceAnswers, fields);
     // Absent/empty rules retain the historical static-filter behavior. A
@@ -53,10 +72,12 @@ export async function loadConditionalOrganizationOptions({
     // empty allowed set and is therefore closed by the filter below.
     if (resolution.configured && (!resolution.valid || !resolution.rule)) return [];
 
-    const { data: organizations, error: organizationsError } = await db
+    let organizationsQuery = db
       .from('organization')
       .select('*')
       .eq('tenant_id', tenantId)
+    if (selectedGroupId) organizationsQuery = organizationsQuery.eq('organization_group_id', selectedGroupId);
+    const { data: organizations, error: organizationsError } = await organizationsQuery
       .order('name', { ascending: true });
     if (organizationsError) return [];
 

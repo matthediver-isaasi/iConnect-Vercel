@@ -126,11 +126,18 @@ function validRule(rule) {
 
 export function projectConditionalSourceValues({ field, fields = [], values = {} }) {
   const config = field?.conditional_filters;
-  if (config?.version !== 1 || !Array.isArray(config.rules) || !config.rules.every(validRule)) return {};
   const projection = {};
-  for (const rule of config.rules) {
-    if (rule.is_fallback || !rule.source_field_id) continue;
-    projection[rule.source_field_id] = sourceValue(values, fields, rule.source_field_id) ?? null;
+  const groupParentId = field?.type === 'organisation_dropdown'
+    ? field.organisation_group_parent_field_id
+    : null;
+  if (groupParentId) {
+    projection[groupParentId] = sourceValue(values, fields, groupParentId) ?? null;
+  }
+  if (config?.version === 1 && Array.isArray(config.rules) && config.rules.every(validRule)) {
+    for (const rule of config.rules) {
+      if (rule.is_fallback || !rule.source_field_id) continue;
+      projection[rule.source_field_id] = sourceValue(values, fields, rule.source_field_id) ?? null;
+    }
   }
   return projection;
 }

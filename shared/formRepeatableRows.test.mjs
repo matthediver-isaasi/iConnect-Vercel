@@ -93,6 +93,26 @@ test('rejects unsupported children, invalid dependency direction and static sele
   assert.ok(result.errors.some((error) => error.code === 'invalid_selection'));
 });
 
+test('accepts a row-local Organisation Group to Organisation dependency and rejects invalid order', () => {
+  const valid = {
+    type: 'repeatable_rows',
+    child_fields: [
+      { id: 'group', type: 'organisation_group_dropdown' },
+      { id: 'org', type: 'organisation_dropdown', organisation_group_parent_field_id: 'group' },
+    ],
+  };
+  assert.equal(validateRepeatableRows(valid, [{ group: 'group-1', org: 'org-1' }]).valid, true);
+  const invalid = {
+    type: 'repeatable_rows',
+    child_fields: [
+      { id: 'org', type: 'organisation_dropdown', organisation_group_parent_field_id: 'group' },
+      { id: 'group', type: 'organisation_group_dropdown' },
+    ],
+  };
+  assert.ok(validateRepeatableRows(invalid, [{ group: 'group-1', org: 'org-1' }]).errors
+    .some(error => error.code === 'invalid_dependency'));
+});
+
 test('formats non-empty rows readably in child order', () => {
   assert.equal(formatRepeatableRows(field, [
     { org: 'Acme', department: 'Finance', title: 'Manager' },

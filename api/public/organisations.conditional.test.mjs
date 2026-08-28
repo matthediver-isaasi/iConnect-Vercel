@@ -209,6 +209,85 @@ test('nested organisation options resolve only a persisted child of the requeste
   }), []);
 });
 
+test('organisation options are restricted by a saved Organisation Group parent and existing filters', async () => {
+  const form = savedForm([rule()]);
+  form.fields[0] = { id: 'group', type: 'organisation_group_dropdown' };
+  form.fields[1].organisation_group_parent_field_id = 'group';
+  const database = db({
+    form: [form],
+    organization_group: [
+      { id: 'group-1', tenant_id: tenantId, name: 'One' },
+      { id: 'other-tenant-group', tenant_id: 'tenant-2', name: 'Other' },
+    ],
+    organization: [
+      { id: 'match', tenant_id: tenantId, organization_group_id: 'group-1', name: 'Match', is_active: true, status: 'approved' },
+      { id: 'wrong-group', tenant_id: tenantId, organization_group_id: 'group-2', name: 'Wrong group', is_active: true, status: 'approved' },
+      { id: 'wrong-filter', tenant_id: tenantId, organization_group_id: 'group-1', name: 'Wrong filter', is_active: true, status: 'pending' },
+    ],
+  });
+  assert.deepEqual((await loadConditionalOrganizationOptions({
+    db: database,
+    tenantId,
+    formId: 'form-1',
+    fieldId: 'org',
+    sourceAnswers: { group: 'group-1', country: 'GB' },
+  })).map(item => item.id), ['match']);
+  assert.deepEqual(await loadConditionalOrganizationOptions({
+    db: database,
+    tenantId,
+    formId: 'form-1',
+    fieldId: 'org',
+    sourceAnswers: { group: '', country: 'GB' },
+  }), []);
+  assert.deepEqual(await loadConditionalOrganizationOptions({
+    db: database,
+    tenantId,
+    formId: 'form-1',
+    fieldId: 'org',
+    sourceAnswers: { group: '__form_not_listed__', country: 'GB' },
+  }), []);
+  assert.deepEqual(await loadConditionalOrganizationOptions({
+    db: database,
+    tenantId,
+    formId: 'form-1',
+    fieldId: 'org',
+    sourceAnswers: { group: 'other-tenant-group', country: 'GB' },
+  }), []);
+});
+
+test('repeatable organisation group filtering uses only the same row answers', async () => {
+  const nested = {
+    id: 'form-rows', tenant_id: tenantId, slug: 'rows', is_active: true,
+    fields: [{
+      id: 'employment', type: 'repeatable_rows',
+      child_fields: [
+        { id: 'group', type: 'organisation_group_dropdown' },
+        {
+          id: 'org', type: 'organisation_dropdown',
+          organisation_group_parent_field_id: 'group',
+        },
+      ],
+    }],
+  };
+  const database = db({
+    form: [nested],
+    organization_group: [{ id: 'group-1', tenant_id: tenantId, name: 'One' }],
+    organization: [
+      { id: 'one', tenant_id: tenantId, organization_group_id: 'group-1', name: 'One' },
+      { id: 'two', tenant_id: tenantId, organization_group_id: 'group-2', name: 'Two' },
+    ],
+  });
+  const result = await loadConditionalOrganizationOptions({
+    db: database,
+    tenantId,
+    formId: 'form-rows',
+    containerFieldId: 'employment',
+    fieldId: 'org',
+    sourceAnswers: { group: 'group-1' },
+  });
+  assert.deepEqual(result.map(item => item.id), ['one']);
+});
+
 test('custom filters use bounded chunked reads instead of querying once per organisation', async () => {
   const stats = {};
   const organizations = Array.from({ length: 501 }, (_, index) => ({

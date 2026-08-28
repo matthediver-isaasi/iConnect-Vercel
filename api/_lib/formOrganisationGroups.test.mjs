@@ -6,6 +6,7 @@ import {
   resolveMemberOrganisationGroupId,
   resolveTenantOrganisationGroupId,
   validateFormOrganisationGroupAnswers,
+  validateOrganisationGroupDependentOrganizationAnswers,
 } from './formOrganisationGroups.js';
 
 function fakeDb({ forms = [], groups = [], organizations = [] } = {}) {
@@ -58,6 +59,37 @@ test('form-aware group options are tenant scoped and ordered', async () => {
   ]);
   assert.deepEqual(await loadFormOrganisationGroupOptions({
     db, tenantId: 'tenant-a', formSlug: 'safe', fieldId: 'wrong',
+  }), []);
+});
+
+test('form-aware group options resolve only a saved repeatable child', async () => {
+  const db = fakeDb({
+    forms: [{
+      id: 'form-a',
+      slug: 'safe',
+      tenant_id: 'tenant-a',
+      is_active: true,
+      fields: [{
+        id: 'rows',
+        type: 'repeatable_rows',
+        child_fields: [{ id: 'group', type: 'organisation_group_dropdown' }],
+      }],
+    }],
+    groups: [{ id: 'a-1', tenant_id: 'tenant-a', name: 'Alpha' }],
+  });
+  assert.deepEqual(await loadFormOrganisationGroupOptions({
+    db,
+    tenantId: 'tenant-a',
+    formSlug: 'safe',
+    containerFieldId: 'rows',
+    fieldId: 'group',
+  }), [{ id: 'a-1', tenant_id: 'tenant-a', name: 'Alpha' }]);
+  assert.deepEqual(await loadFormOrganisationGroupOptions({
+    db,
+    tenantId: 'tenant-a',
+    formSlug: 'safe',
+    containerFieldId: 'forged',
+    fieldId: 'group',
   }), []);
 });
 
@@ -121,6 +153,77 @@ test('submission validation rejects a tenant group excluded by the matched condi
     tenantId: 'tenant-a',
     fields,
     submissionData: { region: 'Southern', group: 'north' },
+  }), error => error.code === 'INVALID_ORGANISATION_GROUP');
+});
+
+test('dependent organisation answers must belong to the selected tenant group', async () => {
+  const fields = [
+    { id: 'group', type: 'organisation_group_dropdown' },
+    { id: 'org', type: 'organisation_dropdown', organisation_group_parent_field_id: 'group' },
+  ];
+  await assert.doesNotReject(validateOrganisationGroupDependentOrganizationAnswers({
+    db: fakeDb({
+      organizations: [{ id: 'org-1', tenant_id: 'tenant-a', organization_group_id: 'group-1' }],
+    }),
+    tenantId: 'tenant-a',
+    fields,
+    submissionData: { group: 'group-1', org: 'org-1' },
+  }));
+  await assert.rejects(validateOrganisationGroupDependentOrganizationAnswers({
+    db: fakeDb({
+      organizations: [{ id: 'org-2', tenant_id: 'tenant-a', organization_group_id: 'group-2' }],
+    }),
+    tenantId: 'tenant-a',
+    fields,
+    submissionData: { group: 'group-1', org: 'org-2' },
+  }), error => error.code === 'INVALID_ORGANISATION_GROUP_ORGANISATION');
+});
+
+test('dependent organisation validation stays inside each repeatable row', async () => {
+  const fields = [{
+    id: 'rows',
+    type: 'repeatable_rows',
+    child_fields: [
+      { id: 'group', type: 'organisation_group_dropdown' },
+      { id: 'org', type: 'organisation_dropdown', organisation_group_parent_field_id: 'group' },
+    ],
+  }];
+  const database = fakeDb({
+    organizations: [
+      { id: 'org-1', tenant_id: 'tenant-a', organization_group_id: 'group-1' },
+      { id: 'org-2', tenant_id: 'tenant-a', organization_group_id: 'group-2' },
+    ],
+  });
+  await assert.doesNotReject(validateOrganisationGroupDependentOrganizationAnswers({
+    db: database,
+    tenantId: 'tenant-a',
+    fields,
+    submissionData: { rows: [
+      { group: 'group-1', org: 'org-1' },
+      { group: 'group-2', org: 'org-2' },
+    ] },
+  }));
+  await assert.rejects(validateOrganisationGroupDependentOrganizationAnswers({
+    db: database,
+    tenantId: 'tenant-a',
+    fields,
+    submissionData: { rows: [{ group: 'group-1', org: 'org-2' }] },
+  }), error => error.code === 'INVALID_ORGANISATION_GROUP_ORGANISATION');
+});
+
+test('repeatable Organisation Group values are tenant validated even without an organisation answer', async () => {
+  const fields = [{
+    id: 'rows',
+    type: 'repeatable_rows',
+    child_fields: [{ id: 'group', type: 'organisation_group_dropdown' }],
+  }];
+  await assert.rejects(validateFormOrganisationGroupAnswers({
+    db: fakeDb({
+      groups: [{ id: 'foreign', tenant_id: 'tenant-b', name: 'Foreign' }],
+    }),
+    tenantId: 'tenant-a',
+    fields,
+    submissionData: { rows: [{ group: 'foreign' }] },
   }), error => error.code === 'INVALID_ORGANISATION_GROUP');
 });
 
