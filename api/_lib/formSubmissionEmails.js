@@ -27,6 +27,7 @@ import {
   isRelationshipDropdownField,
   loadTenantRelationshipDisplayLabels,
 } from './relationshipDisplayLabels.js';
+import { resolveFormNotListedDisplayValue } from '../../shared/formNotListedChoice.js';
 
 const isMissingColumnError = (err) =>
   err && (err.code === '42703' || /submission_email_state/.test(err.message || ''));
@@ -190,6 +191,11 @@ export function resolveSubmissionEmailFieldDisplayValue({
 }) {
   const field = (fields || []).find((candidate) => candidate?.id === fieldKey)
     || (fields || []).find((candidate) => candidate?.name === fieldKey);
+  const persistedValue = field ? getSubmissionRelationshipValue(persistedSubmissionData, field) : rawValue;
+  const displayValue = resolveFormNotListedDisplayValue(field, persistedValue ?? rawValue, persistedSubmissionData);
+  if (displayValue !== (persistedValue ?? rawValue)) {
+    return Array.isArray(displayValue) ? displayValue.join(', ') : displayValue;
+  }
   if (isRelationshipDropdownField(field)) {
     return formatRelationshipDisplayValue(
       getSubmissionRelationshipValue(persistedSubmissionData, field),
@@ -339,13 +345,21 @@ export async function sendSubmissionEmails({
   );
 
   const resolveFieldValue = async (fieldId, rawValue) => {
+    const syntheticDisplayValue = resolveSubmissionEmailFieldDisplayValue({
+      fields: effectiveFields,
+      fieldKey: fieldId,
+      rawValue,
+      persistedSubmissionData,
+      relationshipLabelsByRecordId,
+    });
+    if (syntheticDisplayValue !== rawValue) return syntheticDisplayValue;
     if (orgDropdownFieldIds.has(fieldId) && rawValue) {
       if (typeof rawValue === 'string') {
         return await resolveOrgName(rawValue);
       }
     }
     return resolveSubmissionEmailFieldDisplayValue({
-      fields: relationshipFields,
+      fields: effectiveFields,
       fieldKey: fieldId,
       rawValue,
       persistedSubmissionData,

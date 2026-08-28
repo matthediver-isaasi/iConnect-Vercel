@@ -14,6 +14,7 @@ import {
   getSubmissionFieldValue,
   isRelationshipDropdownField,
 } from '../../client/src/lib/relationshipDisplayLabels.js';
+import { resolveFormNotListedDisplayValue } from '../../shared/formNotListedChoice.js';
 
 /**
  * Resolve only relationship IDs which occur in the persisted answers under
@@ -35,11 +36,13 @@ export async function loadFormSubmissionRelationshipLabels({
 /**
  * Pure field formatter exported for direct regression tests.
  */
-export function formatFormSubmissionFieldValue(field, value, relationshipLabelsByRecordId = {}) {
+export function formatFormSubmissionFieldValue(field, value, relationshipLabelsByRecordId = {}, submissionData = {}) {
+  const displayValue = resolveFormNotListedDisplayValue(field, value, submissionData);
   if (isRelationshipDropdownField(field)) {
+    if (displayValue !== value) return displayValue;
     return formatRelationshipDisplayValue(value, relationshipLabelsByRecordId);
   }
-  return value;
+  return displayValue;
 }
 
 /**
@@ -104,7 +107,7 @@ export function buildFormSubmissionPdf({
     }
 
     const rawValue = getSubmissionFieldValue(data, field);
-    const value = formatFormSubmissionFieldValue(field, rawValue, relationshipLabelsByRecordId);
+    const value = formatFormSubmissionFieldValue(field, rawValue, relationshipLabelsByRecordId, data);
 
     doc.setFontSize(10);
     doc.setFont('helvetica', 'bold');

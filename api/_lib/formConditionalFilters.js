@@ -1,4 +1,5 @@
 import { resolveCountryToIso2 } from '../../shared/countries.js';
+import { FORM_NOT_LISTED_VALUE, hasEnabledFormNotListedChoice } from '../../shared/formNotListedChoice.js';
 
 const OPERATORS = new Set([
   'equals', 'not_equals', 'includes', 'not_includes', 'in', 'not_in',
@@ -184,7 +185,8 @@ function baseAllowedValues(field) {
   ) {
     return null;
   }
-  return fieldValues(field, configured);
+  const values = fieldValues(field, configured);
+  return hasEnabledFormNotListedChoice(field) ? [...values, FORM_NOT_LISTED_VALUE] : values;
 }
 
 export function resolveConditionalFilter(field, submissionData = {}, fields = []) {

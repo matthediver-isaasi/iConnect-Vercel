@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { FORM_NOT_LISTED_VALUE, isFormNotListedValue } from '../../shared/formNotListedChoice.js';
 import { triggerWorkflows } from '../_lib/workflows.js';
 import { resolveEffectiveOrgGuestAccess } from '../_lib/orgGuestAccess.js';
 import { notifyGuestSignup } from '../_lib/guestSignupNotification.js';
@@ -1220,7 +1221,7 @@ export default async function handler(req, res) {
             // capture the selected id for the org-resolution chain and skip
             // the assignment.
             if (isOrgDropdownSourceField(source_field_id)) {
-              if (typeof value === 'string' && value && !dropdownSelectedOrgId) {
+              if (typeof value === 'string' && value && !isFormNotListedValue(value) && !dropdownSelectedOrgId) {
                 dropdownSelectedOrgId = value;
               }
               console.log('[AppProcessor] Skipped org core assignment from organisation_dropdown source:', { target_field, source_field_id, captured_org_id: value });
@@ -1284,7 +1285,7 @@ export default async function handler(req, res) {
             // it into an org core column would rename the org to its own id.
             // Capture the id for the org-resolution chain and skip.
             if (field.type === 'organisation_dropdown') {
-              if (typeof value === 'string' && value && !dropdownSelectedOrgId) {
+              if (typeof value === 'string' && value && !isFormNotListedValue(value) && !dropdownSelectedOrgId) {
                 dropdownSelectedOrgId = value;
               }
               console.log('[AppProcessor] Skipped org core assignment from organisation_dropdown source (legacy fallback):', { fieldName, field_id: field.id, captured_org_id: value });
@@ -1403,7 +1404,7 @@ export default async function handler(req, res) {
             // selected id so the existing org-resolution chain picks up the
             // right row, and skip the assignment.
             if (targetEntity === 'organization' && isOrgDropdownSourceField(mapping.source_field_id)) {
-              if (typeof value === 'string' && value && !dropdownSelectedOrgId) {
+              if (typeof value === 'string' && value && !isFormNotListedValue(value) && !dropdownSelectedOrgId) {
                 dropdownSelectedOrgId = value;
               }
               console.log('[AppProcessor] Skipped org core assignment from organisation_dropdown source (pipeline):', { target_field: mapping.target_field, source_field_id: mapping.source_field_id, captured_org_id: value });
@@ -2407,6 +2408,7 @@ export default async function handler(req, res) {
           
           // Map selected subcategory names to their parent category IDs
           for (const subcatName of selectedValues) {
+            if (subcatName === FORM_NOT_LISTED_VALUE) continue;
             const normalizedSubcat = String(subcatName).trim();
             // Find which category this subcategory belongs to
             for (const catId of allowedCategoryIds) {

@@ -340,6 +340,56 @@ test('submission validation accepts only the active record related to its submit
   );
 });
 
+test('submission validation accepts configured not-listed choices and rejects forged or mixed sentinels', async () => {
+  const configuredForm = form({
+    fields: [
+      {
+        id: 'org',
+        type: 'organisation_dropdown',
+        not_listed_choice: { enabled: true, label: 'My organisation is not listed' },
+      },
+      {
+        ...form().fields[1],
+        not_listed_choice: { enabled: true, label: 'My department is not listed' },
+      },
+      {
+        id: 'countries',
+        type: 'countries',
+        not_listed_choice: { enabled: true, label: 'My country is not listed' },
+      },
+    ],
+  });
+  const service = createFormRelationshipService({
+    tenantId,
+    db: mockDb({ form: [configuredForm] }),
+  });
+
+  await service.validateSubmission({
+    form: configuredForm,
+    submissionData: {
+      org: '__form_not_listed__',
+      department: '__form_not_listed__',
+      countries: ['__form_not_listed__'],
+    },
+  });
+
+  await assert.rejects(
+    () => service.validateSubmission({
+      form: form(),
+      submissionData: { org: '__form_not_listed__' },
+    }),
+    (error) => error.status === 400 && /Invalid not-listed selection/.test(error.message),
+  );
+
+  await assert.rejects(
+    () => service.validateSubmission({
+      form: configuredForm,
+      submissionData: { countries: ['__form_not_listed__', 'France'] },
+    }),
+    (error) => error.status === 400 && /exclusive/.test(error.message),
+  );
+});
+
 test('submission validation rejects forged legacy name keys and mismatched name-keyed parents', async () => {
   const namedForm = form({
     fields: [

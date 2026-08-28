@@ -53,6 +53,10 @@ import {
   configuredOrganizationFilterOptions,
   mergeOrganizationFilterOptions,
 } from "@/lib/formConditionalFilters";
+import {
+  prependFormNotListedOption,
+  supportsFormNotListedChoice,
+} from "../../../shared/formNotListedChoice.js";
 
 const BADGE_STYLE_DEFAULTS = {
   background_color: '#ffffff',
@@ -3636,6 +3640,7 @@ const conditionalOption = (option) => {
 
 function getConditionalFieldOptions(field, categories, communicationCategories, customFields = []) {
   if (!field) return [];
+  let options;
   if (['select', 'radio', 'checkbox'].includes(field.type)) {
     return (field.options || []).filter(option => option !== '').map(conditionalOption);
   }
@@ -3644,21 +3649,23 @@ function getConditionalFieldOptions(field, categories, communicationCategories, 
   }
   if (['country', 'countries'].includes(field.type)) {
     const allowed = field.all_countries === false ? new Set(field.selected_countries || []) : null;
-    return COUNTRIES
+    options = COUNTRIES
       .filter(country => !allowed || allowed.has(country.code))
       .map(country => ({ value: country.name, label: country.name }));
+    return prependFormNotListedOption(field, options);
   }
   if (field.type === 'category_multiselect') {
     const allowed = new Set(field.allowed_category_ids || []);
-    return categories
+    options = categories
       .filter(category => allowed.size === 0 || allowed.has(category.id))
       .flatMap(category => (category.subcategories || category.children || category.options || [])
         .map(subcategory => conditionalOption(subcategory)));
+    return prependFormNotListedOption(field, options);
   }
   if (field.type === 'category_dropdown') {
     const category = categories.find(item => item.id === field.category_id);
     const children = category?.subcategories || category?.children || category?.options || [];
-    return children.map(conditionalOption);
+    return prependFormNotListedOption(field, children.map(conditionalOption));
   }
   if (field.type === 'communication_preferences') {
     const allowed = new Set(field.allowed_category_ids || []);
@@ -3678,7 +3685,8 @@ function getConditionalFieldOptions(field, categories, communicationCategories, 
     }
     return (customField?.options || field.options || []).map(conditionalOption);
   }
-  return (field.options || []).map(conditionalOption);
+  options = (field.options || []).map(conditionalOption);
+  return prependFormNotListedOption(field, options);
 }
 
 function getConditionalOperatorGroup(field) {
@@ -4421,6 +4429,47 @@ function FieldCard({
                   rows={2}
                 />
               </div>
+
+              {supportsFormNotListedChoice(field) && (
+                <div className="space-y-3 rounded-lg border border-slate-200 bg-slate-50 p-3" data-testid={`not-listed-config-${field.id}`}>
+                  <div className="flex items-center gap-2">
+                    <Switch
+                      id={`not-listed-enabled-${field.id}`}
+                      checked={field.not_listed_choice?.enabled === true}
+                      onCheckedChange={(enabled) => updateField(originalIndex, {
+                        not_listed_choice: {
+                          ...(field.not_listed_choice || {}),
+                          enabled,
+                          label: field.not_listed_choice?.label || 'Not listed',
+                        },
+                      })}
+                      data-testid={`switch-not-listed-${field.id}`}
+                    />
+                    <Label htmlFor={`not-listed-enabled-${field.id}`} className="text-xs font-medium">
+                      Add a “not listed” choice
+                    </Label>
+                  </div>
+                  {field.not_listed_choice?.enabled === true && (
+                    <div className="space-y-1">
+                      <Label htmlFor={`not-listed-label-${field.id}`} className="text-xs">Choice label</Label>
+                      <Input
+                        id={`not-listed-label-${field.id}`}
+                        value={field.not_listed_choice?.label || ''}
+                        onChange={(event) => updateField(originalIndex, {
+                          not_listed_choice: {
+                            ...(field.not_listed_choice || {}),
+                            enabled: true,
+                            label: event.target.value,
+                          },
+                        })}
+                        placeholder="e.g. My organisation isn’t in the list"
+                        className="h-9"
+                        data-testid={`input-not-listed-label-${field.id}`}
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
 
               <ConditionalFilterRuleEditor
                 field={field}
@@ -7713,6 +7762,15 @@ export default function FormBuilderPage() {
       toast.error('Fix the validation issues before publishing.');
       return;
     }
+    const invalidNotListedField = formData.fields.find(field =>
+      supportsFormNotListedChoice(field)
+      && field.not_listed_choice?.enabled === true
+      && !field.not_listed_choice?.label?.trim()
+    );
+    if (invalidNotListedField) {
+      toast.error(`“${invalidNotListedField.label || 'Untitled field'}” needs a label for its not-listed choice.`);
+      return;
+    }
     publishSurveyMutation.mutate();
   };
 
@@ -7757,6 +7815,16 @@ export default function FormBuilderPage() {
     if (formData.fields.length === 0) {
       console.log('[FormBuilder] Validation failed: no fields');
       toast.error('Please add at least one field');
+      return;
+    }
+
+    const invalidNotListedField = formData.fields.find(field =>
+      supportsFormNotListedChoice(field)
+      && field.not_listed_choice?.enabled === true
+      && !field.not_listed_choice?.label?.trim()
+    );
+    if (invalidNotListedField) {
+      toast.error(`“${invalidNotListedField.label || 'Untitled field'}” needs a label for its not-listed choice.`);
       return;
     }
 

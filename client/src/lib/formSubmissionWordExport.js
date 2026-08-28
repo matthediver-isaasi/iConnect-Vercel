@@ -20,6 +20,11 @@ import {
   resolveRelationshipDisplayLabel,
   resolveSubmissionField,
 } from './relationshipDisplayLabels.js';
+import {
+  containsFormNotListedValue,
+  FORM_NOT_LISTED_LABELS_KEY,
+  resolveFormNotListedDisplayValue,
+} from '../../../shared/formNotListedChoice.js';
 
 const MOJIBAKE_MAP = [
   ['â€¯', '\u202F'],
@@ -186,8 +191,14 @@ function getAwardCategory(submission, form) {
   return '';
 }
 
-function formatResponseValueToJson(value, fieldDef, resolvers) {
+function formatResponseValueToJson(value, fieldDef, resolvers, submissionData = {}) {
   if (value == null || value === '') return { lines: [{ kind: 'text', text: '' }], files: [] };
+  const wasNotListed = containsFormNotListedValue(value);
+  value = resolveFormNotListedDisplayValue(fieldDef, value, submissionData);
+  if (wasNotListed) {
+    const text = Array.isArray(value) ? value.join(', ') : value;
+    return { lines: makeLinesFromText(text), files: [] };
+  }
   const fieldType = fieldDef?.type;
   const r = resolvers || {};
 
@@ -269,8 +280,8 @@ function formatResponseValueToJson(value, fieldDef, resolvers) {
   return { lines: makeLinesFromText(String(value)), files: [] };
 }
 
-function formatResponseValue(value, fieldDef, resolvers) {
-  const json = formatResponseValueToJson(value, fieldDef, resolvers);
+function formatResponseValue(value, fieldDef, resolvers, submissionData = {}) {
+  const json = formatResponseValueToJson(value, fieldDef, resolvers, submissionData);
   return {
     paragraphs: json.lines ? paragraphsFromLines(json.lines) : null,
     files: json.files,
@@ -288,6 +299,7 @@ export function resolveSubmissionToPrepared({ submission, form, selectedOptions,
   const supportingDocs = [];
 
   for (const opt of selectedOptions) {
+    if (opt.key === FORM_NOT_LISTED_LABELS_KEY) continue;
     const label = cleanMojibake(opt.label || '');
     let lines = null;
     let files = [];
@@ -315,7 +327,7 @@ export function resolveSubmissionToPrepared({ submission, form, selectedOptions,
         const val = fieldDef
           ? getSubmissionFieldValue(submission.submission_data, fieldDef)
           : submission.submission_data?.[opt.key];
-        const result = formatResponseValueToJson(val, fieldDef, resolvers);
+        const result = formatResponseValueToJson(val, fieldDef, resolvers, submission.submission_data);
         lines = result.lines;
         files = result.files || [];
         if (files.length) supportingDocs.push({ label, files });

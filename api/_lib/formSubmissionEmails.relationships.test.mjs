@@ -39,3 +39,22 @@ test('configured form-email placeholders render current and missing legacy name-
   assert.equal(output, 'Unavailable record');
   assert.equal(output.includes(missingId), false);
 });
+
+test('configured form-email placeholders render snapshotted not-listed labels', () => {
+  const notListedField = {
+    id: 'org',
+    name: 'Organisation',
+    type: 'organisation_dropdown',
+    not_listed_choice: { enabled: false, label: 'Renamed label' },
+  };
+  assert.equal(resolveSubmissionEmailFieldDisplayValue({
+    fields: [notListedField],
+    fieldKey: 'org',
+    rawValue: '__form_not_listed__',
+    persistedSubmissionData: {
+      org: '__form_not_listed__',
+      __not_listed_choice_labels: { org: 'Original label' },
+    },
+    relationshipLabelsByRecordId: {},
+  }), 'Original label');
+});

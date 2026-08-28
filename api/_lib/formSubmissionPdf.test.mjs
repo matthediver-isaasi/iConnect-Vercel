@@ -85,6 +85,23 @@ test('relationship formatter handles current, legacy, and unavailable records wi
   );
 });
 
+test('PDF formatter uses the snapshotted not-listed label after the field is renamed and disabled', () => {
+  const field = {
+    id: 'org',
+    type: 'organisation_dropdown',
+    not_listed_choice: { enabled: false, label: 'Renamed label' },
+  };
+  assert.equal(
+    formatFormSubmissionFieldValue(
+      field,
+      '__form_not_listed__',
+      {},
+      { __not_listed_choice_labels: { org: 'Original label' } },
+    ),
+    'Original label',
+  );
+});
+
 test('PDF builder uses ID-first/name fallback and renders no relationship UUIDs', () => {
   const currentId = '11111111-1111-4111-8111-111111111111';
   const ignoredLegacyId = '22222222-2222-4222-8222-222222222222';

@@ -61,6 +61,11 @@ import {
   resolveSubmissionField,
   resolveRelationshipDisplayLabel,
 } from '@/lib/relationshipDisplayLabels';
+import {
+  containsFormNotListedValue,
+  FORM_NOT_LISTED_LABELS_KEY,
+  resolveFormNotListedDisplayValue,
+} from '../../../shared/formNotListedChoice.js';
 
 const ALLOWED_PAGE_SIZES = [10, 20, 50, 100];
 const DEFAULT_PAGE_SIZE = 20;
@@ -1112,6 +1117,7 @@ export default function FormSubmissionsPage() {
       if (!submission.submission_data) return;
       const form = formsById[submission.form_id];
       Object.keys(submission.submission_data).forEach(key => {
+        if (key === FORM_NOT_LISTED_LABELS_KEY) return;
         if (dynamicFieldKeys.has(key)) return;
         let label = key;
         if (form?.fields) {
@@ -1254,7 +1260,9 @@ export default function FormSubmissionsPage() {
 
   const buildAvailableFieldOptionsForSubmission = (submission) => {
     const form = formsById[submission.form_id];
-    const dynamicEntries = Object.keys(submission.submission_data || {}).map(key => {
+    const dynamicEntries = Object.keys(submission.submission_data || {})
+      .filter(key => key !== FORM_NOT_LISTED_LABELS_KEY)
+      .map(key => {
       const field = resolveSubmissionField(form?.fields, key);
       return { key, label: field?.label || key };
     });
@@ -1562,11 +1570,20 @@ export default function FormSubmissionsPage() {
           case '__submission_date':
             return moment(submission.created_date).format('YYYY-MM-DD HH:mm');
           default: {
+            if (field.key === FORM_NOT_LISTED_LABELS_KEY) return '';
             const fieldDef = resolveSubmissionField(form?.fields, field.key);
             const val = fieldDef
               ? getSubmissionFieldValue(submission.submission_data, fieldDef)
               : submission.submission_data?.[field.key];
             if (val == null) return '';
+            if (containsFormNotListedValue(val)) {
+              const displayValue = resolveFormNotListedDisplayValue(
+                fieldDef,
+                val,
+                submission.submission_data,
+              );
+              return Array.isArray(displayValue) ? displayValue.join(', ') : displayValue;
+            }
             const fieldType = fieldDef?.type;
 
             if (fieldType === 'organisation_dropdown') {
@@ -2698,11 +2715,15 @@ export default function FormSubmissionsPage() {
               <div>
                 <h3 className="font-semibold text-slate-900 mb-3">Submission Data</h3>
                 <div className="space-y-3">
-                  {Object.entries(viewingSubmission.submission_data || {}).map(([key, value]) => {
+                  {Object.entries(viewingSubmission.submission_data || {})
+                    .filter(([key]) => key !== FORM_NOT_LISTED_LABELS_KEY)
+                    .map(([key, value]) => {
                     const field = resolveSubmissionField(viewingForm?.fields, key);
-                    const displayValue = field?.type === 'relationship_dropdown'
-                      ? formatRelationshipDisplayValue(value, relationshipLabelsByRecordId)
-                      : Array.isArray(value) ? value.join(', ') : String(value);
+                    const displayValue = containsFormNotListedValue(value)
+                      ? resolveFormNotListedDisplayValue(field, value, viewingSubmission.submission_data)
+                      : field?.type === 'relationship_dropdown'
+                        ? formatRelationshipDisplayValue(value, relationshipLabelsByRecordId)
+                        : Array.isArray(value) ? value.join(', ') : String(value);
                     return (
                     <div key={key} className="bg-white rounded-lg p-3 border border-slate-200">
                       <Label className="text-slate-600 text-xs uppercase tracking-wide mb-1 block">

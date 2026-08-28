@@ -4,6 +4,11 @@ import {
   conditionalSelectionAllowed,
   resolveConditionalFilter,
 } from './formConditionalFilters.js';
+import {
+  containsFormNotListedValue,
+  hasEnabledFormNotListedChoice,
+  isFormNotListedValue,
+} from '../../shared/formNotListedChoice.js';
 
 export class FormRelationshipError extends Error {
   constructor(status, message) {
@@ -254,12 +259,25 @@ export function createFormRelationshipService({ db, tenantId }) {
     const fields = Array.isArray(form?.fields) ? form.fields : [];
     for (const field of fields) {
       const selected = submittedFieldValue(submissionData, field);
+      if (containsFormNotListedValue(selected) && !hasEnabledFormNotListedChoice(field)) {
+        throw new FormRelationshipError(400, 'Invalid not-listed selection');
+      }
+      if (Array.isArray(selected) && containsFormNotListedValue(selected) && selected.length !== 1) {
+        throw new FormRelationshipError(400, 'Not-listed selection must be exclusive');
+      }
+      if (
+        (field?.type === 'countries' || field?.type === 'category_multiselect')
+        && isFormNotListedValue(selected)
+      ) {
+        throw new FormRelationshipError(400, 'Invalid multi-select not-listed selection');
+      }
       const resolution = resolveConditionalFilter(field, submissionData, fields);
       if (!conditionalSelectionAllowed(selected, resolution)) {
         throw new FormRelationshipError(400, 'Invalid conditional field selection');
       }
       if (field?.type !== 'organisation_dropdown'
           || selected === undefined || selected === null || selected === '') continue;
+      if (isFormNotListedValue(selected)) continue;
       if (typeof selected !== 'string' && typeof selected !== 'number') {
         throw new FormRelationshipError(400, 'Invalid organization selection');
       }
@@ -290,11 +308,15 @@ export function createFormRelationshipService({ db, tenantId }) {
       if (field?.type !== 'relationship_dropdown') continue;
       const recordId = submittedFieldValue(submissionData, field);
       if (recordId === undefined || recordId === null || recordId === '') continue;
+      if (isFormNotListedValue(recordId)) continue;
       if (typeof recordId !== 'string' && typeof recordId !== 'number') {
         throw new FormRelationshipError(400, 'Invalid relationship selection');
       }
       const saved = savedRelationshipField(form, field.id);
       const organizationId = submittedFieldValue(submissionData, saved.parentField);
+      if (isFormNotListedValue(organizationId)) {
+        throw new FormRelationshipError(400, 'Invalid relationship selection');
+      }
       if (!organizationId || (typeof organizationId !== 'string' && typeof organizationId !== 'number')) {
         throw new FormRelationshipError(400, 'Invalid relationship selection');
       }

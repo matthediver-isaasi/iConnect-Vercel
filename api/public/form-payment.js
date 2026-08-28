@@ -30,6 +30,10 @@ import { getStripeCredentials, getStripeIntegrationCredentials, retrieveTenantPa
 import { gocardlessForTenant, buildIdempotencyKey } from '../_lib/gocardless.js';
 import { computeHiddenFieldIds, findPaymentField, derivePaymentAmount } from '../_lib/formFieldVisibility.js';
 import { markFormSubmissionPaid, finalizeFormSubmission } from '../_lib/formPaymentFinalize.js';
+import {
+  FORM_NOT_LISTED_LABELS_KEY,
+  snapshotFormNotListedLabels,
+} from '../../shared/formNotListedChoice.js';
 import { resolveMembershipAction, buildMembershipFieldOverrides } from '../_lib/formMembershipAction.js';
 import { quoteMembershipForNewApplicant, quoteFromSimulationResult } from '../_lib/membershipQuote.js';
 import {
@@ -411,7 +415,10 @@ async function handleCreateMonthlyCard(req, res, supabase, tenantData) {
   }
   if (!submission) {
     const { data, error } = await supabase.from('form_submission').insert({
-      form_id: form.id, form_name: form.name, tenant_id: tenantData.id, submission_data: values,
+      form_id: form.id,
+      form_name: form.name,
+      tenant_id: tenantData.id,
+      submission_data: snapshotFormNotListedLabels(form.fields || [], values),
       submitted_by_email: applicantEmail, created_date: new Date().toISOString(),
       payment_status: 'pending', payment_provider: 'stripe_monthly_card',
       payment_amount: offer.monthlyAmount, payment_currency: offer.currency,
@@ -781,7 +788,17 @@ async function handleCreate(req, res, supabase, tenantData) {
       const { data: refreshed, error: refreshErr } = await supabase
         .from('form_submission')
         .update({
-          submission_data: values,
+          submission_data: {
+            ...snapshotFormNotListedLabels(form.fields || [], values),
+            ...(existing.submission_data?.[FORM_NOT_LISTED_LABELS_KEY]
+              ? {
+                  [FORM_NOT_LISTED_LABELS_KEY]: {
+                    ...(snapshotFormNotListedLabels(form.fields || [], values)[FORM_NOT_LISTED_LABELS_KEY] || {}),
+                    ...existing.submission_data[FORM_NOT_LISTED_LABELS_KEY],
+                  },
+                }
+              : {}),
+          },
           payment_amount: amount,
           payment_currency: currency,
           payment_provider: provider,
@@ -812,7 +829,7 @@ async function handleCreate(req, res, supabase, tenantData) {
       form_id: form.id,
       form_name: form.name,
       tenant_id: tenantData.id,
-      submission_data: values,
+      submission_data: snapshotFormNotListedLabels(form.fields || [], values),
       submitted_by_email: submitterEmail,
       created_date: new Date().toISOString(),
       payment_status: 'pending',

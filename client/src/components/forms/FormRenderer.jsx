@@ -37,14 +37,21 @@ import {
   removeInvalidConditionalValue,
   resolveConditionalFilters,
 } from "@/lib/formConditionalFilters";
+import {
+  FORM_NOT_LISTED_VALUE,
+  applyExclusiveFormNotListedSelection,
+  formNotListedChoiceLabel,
+  prependFormNotListedOption,
+} from "../../../../shared/formNotListedChoice.js";
 
 let organizationQueryInstanceSequence = 0;
 
-function CountryCombobox({ countries, value, onChange, disabled, placeholder, fieldId }) {
+function CountryCombobox({ countries, value, onChange, disabled, placeholder, fieldId, notListedLabel = '' }) {
   const [open, setOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   // Support both country codes (legacy) and country names for backwards compatibility
   const selectedCountry = countries.find(c => c.name === value || c.code === value);
+  const selectedLabel = value === FORM_NOT_LISTED_VALUE ? notListedLabel : selectedCountry?.name;
   
   // Filter countries based on search query while maintaining alphabetical order
   const filteredCountries = searchQuery
@@ -65,7 +72,7 @@ function CountryCombobox({ countries, value, onChange, disabled, placeholder, fi
           className="w-full justify-between font-normal"
           data-testid={`select-country-${fieldId}`}
         >
-          {selectedCountry ? selectedCountry.name : placeholder}
+          {selectedLabel || placeholder}
           <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>
@@ -79,6 +86,18 @@ function CountryCombobox({ countries, value, onChange, disabled, placeholder, fi
           <CommandList>
             <CommandEmpty>No country found.</CommandEmpty>
             <CommandGroup>
+              {notListedLabel && (
+                <CommandItem
+                  value={FORM_NOT_LISTED_VALUE}
+                  onSelect={() => {
+                    onChange(FORM_NOT_LISTED_VALUE);
+                    setOpen(false);
+                  }}
+                >
+                  <Check className={cn("mr-2 h-4 w-4", value === FORM_NOT_LISTED_VALUE ? "opacity-100" : "opacity-0")} />
+                  {notListedLabel}
+                </CommandItem>
+              )}
               {filteredCountries.map((country) => (
                 <CommandItem
                   key={country.code}
@@ -105,7 +124,7 @@ function CountryCombobox({ countries, value, onChange, disabled, placeholder, fi
   );
 }
 
-function MultiCountryCombobox({ countries, value = [], onChange, disabled, placeholder, fieldId }) {
+function MultiCountryCombobox({ countries, value = [], onChange, disabled, placeholder, fieldId, notListedLabel = '' }) {
   const [open, setOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   // Support both country codes (legacy) and country names for backwards compatibility
@@ -140,8 +159,9 @@ function MultiCountryCombobox({ countries, value = [], onChange, disabled, place
       const newValue = value.filter(v => !filteredNames.has(v) && !filteredCodes.has(v));
       onChange(newValue);
     } else {
-      const currentSet = new Set(value);
-      const newValue = [...value];
+      const currentWithoutNotListed = value.filter(entry => entry !== FORM_NOT_LISTED_VALUE);
+      const currentSet = new Set(currentWithoutNotListed);
+      const newValue = [...currentWithoutNotListed];
       for (const c of filteredCountries) {
         if (!currentSet.has(c.name) && !currentSet.has(c.code)) {
           newValue.push(c.name);
@@ -166,7 +186,7 @@ function MultiCountryCombobox({ countries, value = [], onChange, disabled, place
           data-testid={`select-countries-${fieldId}`}
         >
           <span className="flex flex-wrap gap-1 flex-1 text-left">
-            {selectedCountries.length > 0 ? (
+            {value.includes(FORM_NOT_LISTED_VALUE) ? notListedLabel : selectedCountries.length > 0 ? (
               selectedCountries.length <= 3 ? (
                 selectedCountries.map(c => c.name).join(', ')
               ) : (
@@ -189,6 +209,15 @@ function MultiCountryCombobox({ countries, value = [], onChange, disabled, place
           <CommandList>
             <CommandEmpty>No country found.</CommandEmpty>
             <CommandGroup>
+              {notListedLabel && (
+                <CommandItem
+                  value={FORM_NOT_LISTED_VALUE}
+                  onSelect={() => onChange(applyExclusiveFormNotListedSelection(value, FORM_NOT_LISTED_VALUE))}
+                >
+                  <Check className={cn("mr-2 h-4 w-4", value.includes(FORM_NOT_LISTED_VALUE) ? "opacity-100" : "opacity-0")} />
+                  {notListedLabel}
+                </CommandItem>
+              )}
               <CommandItem
                 onSelect={toggleAll}
                 className="font-medium text-primary"
@@ -206,7 +235,7 @@ function MultiCountryCombobox({ countries, value = [], onChange, disabled, place
                 <CommandItem
                   key={country.code}
                   value={country.name}
-                  onSelect={() => toggleCountry(country.name)}
+                  onSelect={() => onChange(applyExclusiveFormNotListedSelection(value, country.name))}
                 >
                   <Check
                     className={cn(
@@ -329,7 +358,7 @@ function CommunicationPreferencesField({ field, value, onChange, disabled, membe
   );
 }
 
-export default function FormRenderer({ field, value: suppliedValue, onChange, memberInfo, organizationInfo, selectedOrgGuestAccess = null, disabled = false, onValidityChange, autoFocus = false, hideLabel = false, formId = null, formSlug = null, formMemberRoleId = null, allFormValues = {}, prefillData = null, allFields = [], membershipFeeQuote = null }) {
+export default function FormRenderer({ field, value: suppliedValue, onChange, memberInfo, organizationInfo, selectedOrgGuestAccess = null, disabled = false, onValidityChange, autoFocus = false, hideLabel = false, formId = null, formSlug = null, formMemberRoleId = null, allFormValues = {}, prefillData = null, allFields = [], membershipFeeQuote = null, notListedDisplayLabel = '' }) {
   const resolvedFieldValue = resolveFormRendererFieldValue({
     field,
     fields: allFields,
@@ -546,23 +575,31 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, me
   } = useQuery({
     queryKey: ['public-form-relationship-options', formSlug, field.id, relationshipParentValue],
     queryFn: () => publicClient.listFormRelationshipOptions(formSlug, field.id, relationshipParentValue),
-    enabled: field.type === 'relationship_dropdown' && !!formSlug && !!field.parent_field_id && !!relationshipParentValue,
+    enabled: field.type === 'relationship_dropdown' && !!formSlug && !!field.parent_field_id
+      && !!relationshipParentValue && relationshipParentValue !== FORM_NOT_LISTED_VALUE,
     staleTime: 60 * 1000,
   });
   const relationshipOptions = useMemo(
     () => intersectConditionalOptions(
-      normalizeRelationshipOptions(relationshipOptionPayload),
+      prependFormNotListedOption(
+        field,
+        normalizeRelationshipOptions(relationshipOptionPayload),
+        (id, label) => ({ id, label }),
+      ),
       conditionalResolution,
       option => option.id,
     ),
-    [relationshipOptionPayload, conditionalResolution],
+    [field, relationshipOptionPayload, conditionalResolution],
   );
   const previousRelationshipParent = useRef();
 
   useEffect(() => {
     if (field.type !== 'relationship_dropdown') return;
     const previousParentValue = previousRelationshipParent.current;
-    const shouldClear = shouldClearRelationshipValue({
+    const shouldClear = (
+      relationshipParentValue === FORM_NOT_LISTED_VALUE
+      && relationshipCurrentValue !== FORM_NOT_LISTED_VALUE
+    ) || shouldClearRelationshipValue({
       value: relationshipCurrentValue,
       parentValue: relationshipParentValue,
       previousParentValue,
@@ -601,8 +638,12 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, me
     [field.options, conditionalResolution],
   );
   const organisationOptions = useMemo(
-    () => intersectConditionalOptions(organisations, conditionalResolution, org => org.id),
-    [organisations, conditionalResolution],
+    () => intersectConditionalOptions(
+      prependFormNotListedOption(field, organisations, (id, name) => ({ id, name })),
+      conditionalResolution,
+      org => org.id,
+    ),
+    [field, organisations, conditionalResolution],
   );
   const imageButtonOptions = useMemo(
     () => intersectConditionalOptions(field.image_options || [], conditionalResolution, option => option.value),
@@ -614,17 +655,38 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, me
       : COUNTRIES.filter(country => (field.selected_countries || []).includes(country.code));
     return intersectConditionalOptions(restricted, conditionalResolution, country => [country.code, country.name]);
   }, [field.all_countries, field.selected_countries, conditionalResolution]);
+  const availableCountryNotListedLabel = useMemo(() => {
+    const label = notListedDisplayLabel || formNotListedChoiceLabel(field);
+    if (!label) return '';
+    const options = intersectConditionalOptions(
+      [{ code: FORM_NOT_LISTED_VALUE, name: label }],
+      conditionalResolution,
+      option => option.code,
+    );
+    return options.length > 0 ? label : '';
+  }, [field, conditionalResolution, notListedDisplayLabel]);
   const categoryDropdownOptions = useMemo(() => {
     const selected = categories.find(category => category.id === field.category_id);
-    return intersectConditionalOptions(selected?.subcategories || [], conditionalResolution);
-  }, [categories, field.category_id, conditionalResolution]);
+    return intersectConditionalOptions(
+      prependFormNotListedOption(
+        field,
+        selected?.subcategories || [],
+        (value, label) => ({ value, label, synthetic: true }),
+      ),
+      conditionalResolution,
+      option => option?.value ?? option,
+    );
+  }, [categories, field, conditionalResolution]);
   const categoryMultiselectAllowedValues = useMemo(() => {
     const filtered = field.allowed_category_ids?.length > 0
       ? categories.filter(category => field.allowed_category_ids.includes(category.id))
       : categories;
     const values = filtered.flatMap(category => category.subcategories || []);
-    return intersectConditionalOptions(values, conditionalResolution);
-  }, [categories, field.allowed_category_ids, conditionalResolution]);
+    return intersectConditionalOptions(
+      prependFormNotListedOption(field, values, value => value),
+      conditionalResolution,
+    );
+  }, [categories, field, conditionalResolution]);
   const { data: customFieldDef, isLoading: customFieldLoading } = useQuery({
     queryKey: ['public-custom-field', field.custom_field_id, formId],
     queryFn: async () => await publicClient.getCustomField(field.custom_field_id, formId) || null,
@@ -664,7 +726,9 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, me
       getValue = option => option.id;
       loading = relationshipOptionsLoading || (!relationshipOptionsLoaded && !!relationshipParentValue);
     } else if (field.type === 'country' || field.type === 'countries') {
-      options = availableCountryOptions;
+      options = availableCountryNotListedLabel
+        ? [{ code: FORM_NOT_LISTED_VALUE, name: availableCountryNotListedLabel }, ...availableCountryOptions]
+        : availableCountryOptions;
       getValue = option => [option.code, option.name];
     } else if (field.type === 'category_dropdown') {
       options = categoryDropdownOptions;
@@ -689,7 +753,7 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, me
   }, [
     field.type, value, staticOptions, imageButtonOptions, organisationOptions, orgsLoading,
     relationshipOptions, relationshipOptionsLoading, relationshipOptionsLoaded,
-    relationshipParentValue, availableCountryOptions, onChange,
+    relationshipParentValue, availableCountryOptions, availableCountryNotListedLabel, onChange,
     categoryDropdownOptions, categoryMultiselectAllowedValues, categoriesLoading,
     customFieldDef?.field_type, customFieldOptions, customCountryOptions, customFieldLoading,
   ]);
@@ -1235,13 +1299,15 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, me
         );
 
       case 'relationship_dropdown': {
-        const selectedOption = relationshipOptions.find((option) => option.id === relationshipCurrentValue);
+        const effectiveRelationshipOptions = relationshipOptions;
+        const selectedOption = effectiveRelationshipOptions.find((option) => option.id === relationshipCurrentValue);
         const missingConfiguration = !formSlug || !field.parent_field_id || !field.relationship_definition_id;
-        const relationshipDisabled = isFieldDisabled || missingConfiguration || !relationshipParentValue
-          || relationshipOptionsLoading || relationshipOptionsError || relationshipOptions.length === 0;
+        const canChooseNotListed = effectiveRelationshipOptions.some(option => option.id === FORM_NOT_LISTED_VALUE);
+        const relationshipDisabled = isFieldDisabled || missingConfiguration || (!relationshipParentValue && !canChooseNotListed)
+          || relationshipOptionsLoading || relationshipOptionsError || effectiveRelationshipOptions.length === 0;
         let placeholder = field.placeholder || 'Select an option';
         if (missingConfiguration) placeholder = 'This field is not configured';
-        else if (!relationshipParentValue) placeholder = 'Select an organisation first';
+        else if (!relationshipParentValue && !canChooseNotListed) placeholder = 'Select an organisation first';
         else if (relationshipOptionsLoading) placeholder = 'Loading options…';
         else if (relationshipOptionsError) placeholder = 'Options could not be loaded';
         else if (relationshipOptions.length === 0) placeholder = 'No related records available';
@@ -1260,7 +1326,7 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, me
                 <SelectValue placeholder={placeholder}>{selectedOption?.label}</SelectValue>
               </SelectTrigger>
               <SelectContent side="bottom">
-                {relationshipOptions.map((option) => (
+                {effectiveRelationshipOptions.map((option) => (
                   <SelectItem key={option.id} value={option.id} data-testid={`option-relationship-${field.id}-${option.id}`}>
                     {option.label}
                   </SelectItem>
@@ -1307,7 +1373,10 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, me
           }
         });
         
-        if (allSubcategoryOptions.length === 0) {
+        const notListedLabel = categoryMultiselectAllowedValues.includes(FORM_NOT_LISTED_VALUE)
+          ? (notListedDisplayLabel || formNotListedChoiceLabel(field))
+          : '';
+        if (allSubcategoryOptions.length === 0 && !notListedLabel) {
           return (
             <p className="text-sm text-slate-500">
               {conditionalResolution.configured && !conditionalResolution.matchedRule
@@ -1347,6 +1416,18 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, me
         
         return (
           <div className="space-y-4">
+            {notListedLabel && (
+              <div className="flex items-start space-x-2">
+                <Checkbox
+                  id={`${field.id}-not-listed`}
+                  checked={selectedValues.includes(FORM_NOT_LISTED_VALUE)}
+                  disabled={isFieldDisabled}
+                  onCheckedChange={() => onChange(applyExclusiveFormNotListedSelection(selectedValues, FORM_NOT_LISTED_VALUE))}
+                  data-testid={`checkbox-not-listed-${field.id}`}
+                />
+                <Label htmlFor={`${field.id}-not-listed`} className="font-normal cursor-pointer">{notListedLabel}</Label>
+              </div>
+            )}
             {groupedByCategory.map((category) => (
               <div key={category.id} className="space-y-2">
                 {/* Category header - only show if multiple categories */}
@@ -1367,7 +1448,7 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, me
                           onCheckedChange={(checked) => {
                             if (isOptionDisabled) return;
                             if (checked) {
-                              onChange([...selectedValues, opt.subcategory]);
+                              onChange(applyExclusiveFormNotListedSelection(selectedValues, opt.subcategory));
                             } else {
                               onChange(selectedValues.filter(v => v !== opt.subcategory));
                             }
@@ -1433,8 +1514,8 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, me
             </SelectTrigger>
             <SelectContent side="bottom">
               {subcategoryOptions.filter(option => option !== '').map((option, index) => (
-                <SelectItem key={index} value={option} data-testid={`option-subcategory-${index}`}>
-                  {option}
+                <SelectItem key={option?.value || option || index} value={option?.value || option} data-testid={`option-subcategory-${index}`}>
+                  {option?.label || option}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -1879,6 +1960,7 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, me
             disabled={isFieldDisabled}
             placeholder="Select a country..."
             fieldId={field.id}
+            notListedLabel={notListedDisplayLabel || availableCountryNotListedLabel}
           />
         );
 
@@ -1897,6 +1979,7 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, me
             disabled={isFieldDisabled}
             placeholder="Select countries..."
             fieldId={field.id}
+            notListedLabel={notListedDisplayLabel || availableCountryNotListedLabel}
           />
         );
 

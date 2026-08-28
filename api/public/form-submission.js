@@ -22,6 +22,7 @@ import {
   promoteAwaitingMemberCommunicationSnapshot,
   safeSubscriptionDiagnostic,
 } from '../_lib/formCommunicationSubscriptions.js';
+import { snapshotFormNotListedLabels } from '../../shared/formNotListedChoice.js';
 
 export default async function handler(req, res) {
   console.log('[Public Form Submission] === ENDPOINT CALLED ===');
@@ -315,7 +316,10 @@ export default async function handler(req, res) {
       await createFormRelationshipService({
         db: supabase,
         tenantId: tenantData.id,
-      }).validateSubmission({ form, submissionData: submission_data || {} });
+      }).validateSubmission({
+        form: isSurvey ? { ...form, fields: surveyVersion?.fields || [] } : form,
+        submissionData: submission_data || {},
+      });
     } catch (error) {
       if (error instanceof FormRelationshipError && error.status < 500) {
         return res.status(400).json({ error: 'Invalid relationship selection' });
@@ -634,9 +638,12 @@ export default async function handler(req, res) {
       // IMPORTANT: redaction uses the IMMUTABLE published snapshot's fields
       // (same source as validation/scoring) — never the mutable live form
       // config, which an admin could edit after publishing.
-      submission_data: surveyIsAnonymous
-        ? redactIdentityAnswers(surveyVersion.fields || [], submission_data || {}).data
-        : (submission_data || {}),
+      submission_data: snapshotFormNotListedLabels(
+        isSurvey ? (surveyVersion?.fields || []) : (form.fields || []),
+        surveyIsAnonymous
+          ? redactIdentityAnswers(surveyVersion.fields || [], submission_data || {}).data
+          : (submission_data || {}),
+      ),
       created_date: new Date().toISOString(),
       tenant_id: tenantData.id,
       ...(contract_instance_id && { contract_instance_id }),

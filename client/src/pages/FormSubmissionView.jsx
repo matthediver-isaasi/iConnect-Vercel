@@ -17,6 +17,11 @@ import {
   getSubmissionFieldValue,
   resolveSubmissionField,
 } from "@/lib/relationshipDisplayLabels";
+import {
+  containsFormNotListedValue,
+  FORM_NOT_LISTED_LABELS_KEY,
+  resolveFormNotListedDisplayValue,
+} from "../../../shared/formNotListedChoice.js";
 
 const SUBMISSION_STATUSES = [
   { value: 'new', label: 'New', className: 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300' },
@@ -202,6 +207,7 @@ export default function FormSubmissionView() {
     }
     
     const value = getSubmissionFieldValue(submissionData, field);
+    const notListedDisplayValue = resolveFormNotListedDisplayValue(field, value, submissionData);
     const isEditable = field.type !== 'page_break';
     
     if (value === undefined || value === null || value === '') {
@@ -232,7 +238,16 @@ export default function FormSubmissionView() {
       <div key={field.id} className="p-4 bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700">
         <div className="flex items-start justify-between gap-2">
           <div className="flex-1 min-w-0">
-            {field.type === 'relationship_dropdown' ? (
+            {containsFormNotListedValue(value) ? (
+              <div>
+                <p className="text-sm font-medium text-slate-600 dark:text-slate-400 mb-1">
+                  {field.label || field.id}
+                </p>
+                <p className="text-slate-900 dark:text-slate-100">
+                  {Array.isArray(notListedDisplayValue) ? notListedDisplayValue.join(', ') : notListedDisplayValue}
+                </p>
+              </div>
+            ) : field.type === 'relationship_dropdown' ? (
               <div>
                 <p className="text-sm font-medium text-slate-600 dark:text-slate-400 mb-1">
                   {field.label || field.id}
@@ -510,7 +525,9 @@ export default function FormSubmissionView() {
               </div>
             ) : (
               <div className="space-y-4">
-                {Object.entries(submissionData).map(([key, value]) => {
+                {Object.entries(submissionData)
+                  .filter(([key]) => key !== FORM_NOT_LISTED_LABELS_KEY)
+                  .map(([key, value]) => {
                   const field = resolveSubmissionField(fields, key);
                   const displayValue = field?.type === 'relationship_dropdown'
                     ? formatRelationshipDisplayValue(value, relationshipLabelsByRecordId)
