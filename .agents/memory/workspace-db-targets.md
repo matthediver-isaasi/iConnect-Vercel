@@ -30,7 +30,9 @@ reachable from every workspace runner, and a guessed Supabase pooler endpoint
 may reject the stored direct-connection credential. Verify SQL connectivity
 before relying on a transactional runner. The DEST REST service-role path
 remains usable for exact reads/writes, but separate REST requests are not one
-database transaction and need explicit compensation if used for related rows.
+database transaction. Related bulk inserts must use deterministic identities
+and explicitly support every reachable interruption state; when each request is
+itself atomic, a rerun can safely resume at the next missing batch.
 
 **Why:** a destination recovery encountered an IPv6-only direct host, no
 installed arbitrary-SQL RPC, and an unusable pooler credential despite healthy
