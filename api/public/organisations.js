@@ -2,7 +2,6 @@ import { createClient } from '@supabase/supabase-js';
 import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
 import {
   filterOrganizationsEligibleForFields,
-  normalizeOrganizationPreferenceValue,
   VALID_ORGANIZATION_CORE_FIELDS,
 } from '../_lib/organizationEligibility.js';
 import { resolveConditionalFilter } from '../_lib/formConditionalFilters.js';
@@ -83,11 +82,14 @@ export async function loadConditionalOrganizationOptions({
 
     const allowedIds = resolution.configured && Array.isArray(resolution.allowedValues)
       ? new Set(resolution.allowedValues.map((value) => String(value))) : null;
+    const excludedIds = new Set(
+      (resolution.excludedValues || []).map((value) => String(value)),
+    );
     // null means the matched rule supplied no ID restriction; an empty Set
     // means a configured ID list intersected the saved base choices to none.
     const idEligible = allowedIds
       ? (organizations || []).filter((organization) => allowedIds.has(String(organization.id)))
-      : (organizations || []);
+      : (organizations || []).filter((organization) => !excludedIds.has(String(organization.id)));
     const eligible = await filterOrganizationsEligibleForFields({
       db,
       tenantId,
@@ -135,8 +137,11 @@ export async function organizationsHandler(req, res, dependencies = {}) {
     if (orgFilterParam) {
       try {
         const parsed = JSON.parse(orgFilterParam);
+        if (parsed?.mode !== undefined && !['include', 'exclude'].includes(parsed.mode)) {
+          return res.status(400).json({ error: 'Invalid organisation filter mode' });
+        }
         if (parsed && parsed.type && parsed.field && Array.isArray(parsed.values) && parsed.values.length > 0) {
-          orgFilter = parsed;
+          orgFilter = { ...parsed, mode: parsed.mode || 'include' };
         }
       } catch (e) { orgFilter = null; }
     }
@@ -196,45 +201,60 @@ export async function organizationsHandler(req, res, dependencies = {}) {
       return res.json(data);
     }
 
-    if (orgFilter && orgFilter.type === 'core') {
-      if (!VALID_ORGANIZATION_CORE_FIELDS.includes(orgFilter.field)) {
+    if (orgFilter) {
+      if (!['core', 'custom'].includes(orgFilter.type)) {
+        return res.status(400).json({ error: 'Invalid organisation filter type' });
+      }
+      if (orgFilter.type === 'core' && !VALID_ORGANIZATION_CORE_FIELDS.includes(orgFilter.field)) {
         return res.status(400).json({ error: 'Invalid core field for filtering' });
       }
-
       const sanitizedValues = orgFilter.values
         .map(v => String(v).trim())
         .filter(v => v.length > 0 && v.length <= 200);
-
       if (sanitizedValues.length === 0) {
         return res.status(400).json({ error: 'No valid filter values provided' });
       }
-
-      let query = supabase
+      const { data: organizations, error } = await supabase
         .from('organization')
-        .select('id, name, logo_url')
-        .eq('tenant_id', tenantId);
-
-      if (orgFilter.field === 'is_active') {
-        const boolVal = sanitizedValues[0] === 'true';
-        query = query.eq('is_active', boolVal);
-      } else {
-        query = query.in(orgFilter.field, sanitizedValues);
-      }
-
-      const { data, error } = await query.order('name', { ascending: true });
-      if (error) {
-        console.error('Error fetching organisations with core filter:', error);
-        return res.status(500).json({ error: error.message });
-      }
-      return res.json(data || []);
-    }
-
-    if (orgFilter && orgFilter.type === 'custom') {
-      return await filterByCustomField(supabase, tenantId, orgFilter.field, orgFilter.values, res);
+        .select('*')
+        .eq('tenant_id', tenantId)
+        .order('name', { ascending: true });
+      if (error) return res.status(500).json({ error: error.message });
+      const data = await filterOrganizationsEligibleForFields({
+        db: supabase,
+        tenantId,
+        organizations,
+        fields: [{ org_filter: { ...orgFilter, values: sanitizedValues } }],
+      });
+      return res.json(data.map(({ id, name, logo_url }) => ({ id, name, logo_url })));
     }
 
     if (allowedStatuses.length > 0) {
-      return await filterByCustomField(supabase, tenantId, 'application_status', allowedStatuses, res);
+      const sanitizedStatuses = allowedStatuses
+        .map(value => String(value).trim())
+        .filter(value => value.length > 0 && value.length <= 200);
+      if (sanitizedStatuses.length === 0) {
+        return res.status(400).json({ error: 'No valid filter values provided' });
+      }
+      const { data: organizations, error } = await supabase
+        .from('organization')
+        .select('*')
+        .eq('tenant_id', tenantId)
+        .order('name', { ascending: true });
+      if (error) return res.status(500).json({ error: error.message });
+      const data = await filterOrganizationsEligibleForFields({
+        db: supabase,
+        tenantId,
+        organizations,
+        fields: [{
+          org_filter: {
+            type: 'custom',
+            field: 'application_status',
+            values: sanitizedStatuses,
+          },
+        }],
+      });
+      return res.json(data.map(({ id, name, logo_url }) => ({ id, name, logo_url })));
     }
 
     const { data, error } = await supabase
@@ -257,64 +277,4 @@ export async function organizationsHandler(req, res, dependencies = {}) {
 
 export default function handler(req, res) {
   return organizationsHandler(req, res);
-}
-
-async function filterByCustomField(supabase, tenantId, fieldName, allowedValues, res) {
-  const { data: prefField, error: fieldError } = await supabase
-    .from('preference_field')
-    .select('id')
-    .eq('tenant_id', tenantId)
-    .eq('name', fieldName)
-    .eq('entity_scope', 'organization')
-    .eq('is_active', true)
-    .single();
-
-  if (fieldError || !prefField) {
-    const { data, error } = await supabase
-      .from('organization')
-      .select('id, name, logo_url')
-      .eq('tenant_id', tenantId)
-      .order('name', { ascending: true });
-    if (error) return res.status(500).json({ error: error.message });
-    return res.json(data || []);
-  }
-
-  const { data: allOrgs, error: orgsError } = await supabase
-    .from('organization')
-    .select('id, name, logo_url')
-    .eq('tenant_id', tenantId)
-    .order('name', { ascending: true });
-
-  if (orgsError) {
-    console.error('Error fetching organisations:', orgsError);
-    return res.status(500).json({ error: orgsError.message });
-  }
-
-  const orgIds = (allOrgs || []).map(org => org.id);
-  if (orgIds.length === 0) return res.json([]);
-
-  const { data: prefValues, error: prefError } = await supabase
-    .from('organization_preference_value')
-    .select('organization_id, value')
-    .eq('field_id', prefField.id)
-    .in('organization_id', orgIds);
-
-  if (prefError) {
-    console.error('Error fetching org preference values:', prefError);
-    return res.json(allOrgs || []);
-  }
-
-  const orgValueMap = {};
-  (prefValues || []).forEach(pv => {
-    orgValueMap[pv.organization_id] = normalizeOrganizationPreferenceValue(pv.value);
-  });
-
-  const normalizedAllowed = allowedValues.map(s => String(s));
-  const filteredOrgs = (allOrgs || []).filter(org => {
-    const orgVal = orgValueMap[org.id];
-    if (orgVal === null || orgVal === undefined) return false;
-    return normalizedAllowed.includes(orgVal);
-  });
-
-  return res.json(filteredOrgs);
 }

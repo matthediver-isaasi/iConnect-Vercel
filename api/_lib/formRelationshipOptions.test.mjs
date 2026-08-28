@@ -518,3 +518,89 @@ test('submission validation enforces conditional organisation rules and saved el
     (error) => error instanceof FormRelationshipError && error.status === 400,
   );
 });
+
+test('submission validation rejects excluded organisation IDs and organisation field values', async () => {
+  const savedForm = form({
+    fields: [
+      { id: 'country', type: 'dropdown', options: ['GB'] },
+      {
+        id: 'org',
+        type: 'organisation_dropdown',
+        options: [],
+        conditional_filters: {
+          version: 1,
+          rules: [{
+            id: 'exclude',
+            source_field_id: 'country',
+            operator: 'equals',
+            value: 'GB',
+            is_fallback: false,
+            allowed_values: ['blocked-id'],
+            allowed_values_mode: 'exclude',
+            org_filter: {
+              type: 'core',
+              field: 'country',
+              values: ['Spain'],
+              mode: 'exclude',
+            },
+          }],
+        },
+      },
+    ],
+  });
+  const service = createFormRelationshipService({
+    db: mockDb({ organization: [
+      { id: 'eligible', tenant_id: tenantId, country: 'Portugal' },
+      { id: 'blocked-id', tenant_id: tenantId, country: 'Portugal' },
+      { id: 'blocked-country', tenant_id: tenantId, country: 'Spain' },
+    ] }),
+    tenantId,
+  });
+  await service.validateSubmission({
+    form: savedForm,
+    submissionData: { country: 'GB', org: 'eligible' },
+  });
+  for (const org of ['blocked-id', 'blocked-country']) {
+    await assert.rejects(
+      service.validateSubmission({
+        form: savedForm,
+        submissionData: { country: 'GB', org },
+      }),
+      (error) => error instanceof FormRelationshipError && error.status === 400,
+    );
+  }
+});
+
+test('submission validation fails closed for malformed empty standalone organisation filters', async () => {
+  const savedForm = form({
+    fields: [{
+      id: 'org',
+      type: 'organisation_dropdown',
+      org_filter: {
+        type: 'core',
+        field: 'country',
+        values: [],
+        mode: 'forged',
+      },
+    }],
+  });
+  const service = createFormRelationshipService({
+    db: mockDb({ organization: [
+      { id: 'org-1', tenant_id: tenantId, country: 'Portugal' },
+    ] }),
+    tenantId,
+  });
+  await assert.rejects(
+    service.validateSubmission({
+      form: savedForm,
+      submissionData: { org: 'org-1' },
+    }),
+    (error) => error instanceof FormRelationshipError && error.status === 400,
+  );
+
+  savedForm.fields[0].org_filter.mode = 'exclude';
+  await service.validateSubmission({
+    form: savedForm,
+    submissionData: { org: 'org-1' },
+  });
+});

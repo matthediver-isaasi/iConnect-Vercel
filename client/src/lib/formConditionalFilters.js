@@ -100,6 +100,11 @@ const SUPPORTED_OPERATORS = new Set([
   'greater_than', 'greater_or_equal', 'less_than', 'less_or_equal',
   'is_empty', 'is_not_empty',
 ]);
+const FILTER_MODES = new Set(['include', 'exclude']);
+
+function filterMode(value) {
+  return value === undefined ? 'include' : (FILTER_MODES.has(value) ? value : null);
+}
 
 function validRule(rule) {
   if (!rule || typeof rule !== 'object' || Array.isArray(rule)) return false;
@@ -112,6 +117,7 @@ function validRule(rule) {
   if (!SUPPORTED_OPERATORS.has(rule.operator)) return false;
   if (!rule.is_fallback && (!rule.source_field_id || typeof rule.source_field_id !== 'string')) return false;
   if (!Array.isArray(rule.allowed_values)) return false;
+  if (filterMode(rule.allowed_values_mode) === null) return false;
   return rule.org_filter == null
     || (
       typeof rule.org_filter === 'object'
@@ -120,7 +126,7 @@ function validRule(rule) {
       && typeof rule.org_filter.field === 'string'
       && rule.org_filter.field.length > 0
       && Array.isArray(rule.org_filter.values)
-      && rule.org_filter.values.length > 0
+      && filterMode(rule.org_filter.mode) !== null
     );
 }
 
@@ -157,12 +163,14 @@ export function resolveConditionalFilters({ field, fields = [], values = {} }) {
       valid: false,
       matchedRule: null,
       allowedValues: [],
+      excludedValues: [],
+      targetMode: 'include',
       orgFilter: null,
     };
   }
   const rules = config?.rules || [];
   if (rules.length === 0) {
-    return { configured: false, valid: true, matchedRule: null, allowedValues: null, orgFilter: null };
+    return { configured: false, valid: true, matchedRule: null, allowedValues: null, excludedValues: [], targetMode: 'include', orgFilter: null };
   }
   const matchedRule = rules.find((rule) => (
     !rule?.is_fallback
@@ -182,6 +190,10 @@ export function resolveConditionalFilters({ field, fields = [], values = {} }) {
     allowedValues: matchedRule && Array.isArray(matchedRule.allowed_values)
       ? normalizeConditionalValue(matchedRule.allowed_values)
       : [],
+    excludedValues: filterMode(matchedRule?.allowed_values_mode) === 'exclude'
+      ? normalizeConditionalValue(matchedRule?.allowed_values || [])
+      : [],
+    targetMode: filterMode(matchedRule?.allowed_values_mode) || 'include',
     orgFilter: matchedRule?.org_filter || null,
   };
 }
@@ -194,7 +206,10 @@ export function intersectConditionalOptions(options, resolution, getValue = (opt
   if (!resolution.matchedRule) return [];
   const allowed = resolution.allowedValues || [];
   if (allowed.length === 0) return list;
-  return list.filter((option) => overlaps(normalizeConditionalValue(getValue(option)), allowed));
+  return list.filter((option) => {
+    const matches = overlaps(normalizeConditionalValue(getValue(option)), allowed);
+    return resolution.targetMode === 'exclude' ? !matches : matches;
+  });
 }
 
 export function removeInvalidConditionalValue(value, options, getValue) {
@@ -210,7 +225,9 @@ export function removeInvalidConditionalValue(value, options, getValue) {
 }
 
 export function applyOrganizationFilter(organizations, filter) {
-  if (!filter?.field || !Array.isArray(filter.values) || filter.values.length === 0) {
+  if (filter?.mode !== undefined && !FILTER_MODES.has(filter.mode)) return [];
+  if (!filter?.field || !Array.isArray(filter.values)) return [];
+  if (filter.values.length === 0) {
     return Array.isArray(organizations) ? organizations : [];
   }
   const allowed = filter.values.map(comparable);
@@ -220,7 +237,8 @@ export function applyOrganizationFilter(organizations, filter) {
         ?? organization?.custom_field_values?.[filter.field]
         ?? organization?.[filter.field]
       : organization?.[filter.field];
-    return normalizeConditionalValue(raw).some((item) => allowed.includes(comparable(item)));
+    const matches = normalizeConditionalValue(raw).some((item) => allowed.includes(comparable(item)));
+    return filter.mode === 'exclude' ? !matches : matches;
   });
 }
 

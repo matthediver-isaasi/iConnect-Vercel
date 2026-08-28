@@ -3827,12 +3827,13 @@ function ConditionalOrgFilterEditor({ value, onChange, customFields, ruleId }) {
   const type = value?.type || 'none';
   const fieldName = value?.field || '';
   const values = Array.isArray(value?.values) ? value.values : [];
+  const mode = value?.mode || 'include';
   const setFilter = (updates) => {
     if (updates.type === 'none') {
       onChange(null);
       return;
     }
-    onChange({ type, field: fieldName, values, ...updates });
+    onChange({ type, field: fieldName, values, mode, ...updates });
   };
 
   return (
@@ -3854,6 +3855,15 @@ function ConditionalOrgFilterEditor({ value, onChange, customFields, ruleId }) {
       </Select>
       {type !== 'none' && (
         <>
+          <Select value={mode} onValueChange={nextMode => setFilter({ mode: nextMode })}>
+            <SelectTrigger className="h-8 text-xs" data-testid={`select-conditional-org-filter-mode-${ruleId}`}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="include">Include only selected values</SelectItem>
+              <SelectItem value="exclude">Exclude selected values</SelectItem>
+            </SelectContent>
+          </Select>
           <Select value={fieldName} onValueChange={field => setFilter({ field, values: [] })}>
             <SelectTrigger className="h-8 text-xs" data-testid={`select-conditional-org-filter-field-${ruleId}`}>
               <SelectValue placeholder="Choose a field…" />
@@ -3915,6 +3925,7 @@ function ConditionalFilterRuleEditor({
       value: rule.value ?? '',
       is_fallback: rule.is_fallback === true,
       allowed_values: Array.isArray(rule.allowed_values) ? rule.allowed_values : [],
+      allowed_values_mode: rule.allowed_values_mode || 'include',
       org_filter: rule.org_filter || null,
     })) },
   });
@@ -3925,6 +3936,7 @@ function ConditionalFilterRuleEditor({
     value: '',
     is_fallback: isFallback,
     allowed_values: [],
+    allowed_values_mode: 'include',
     org_filter: null,
   }]);
   const updateRule = (index, updates) => persistRules(rules.map((rule, ruleIndex) =>
@@ -4096,15 +4108,31 @@ function ConditionalFilterRuleEditor({
 
             {allowedOptions.length > 0 && (
               <div className="space-y-1">
-                <Label className="text-xs">Allowed target values</Label>
+                <Label className="text-xs">Target value filter</Label>
+                <Select
+                  value={rule.allowed_values_mode || 'include'}
+                  onValueChange={allowed_values_mode => updateRule(ruleIndex, { allowed_values_mode })}
+                >
+                  <SelectTrigger className="h-8 text-xs" data-testid={`select-conditional-target-mode-${rule.id}`}>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="include">Include only selected values</SelectItem>
+                    <SelectItem value="exclude">Exclude selected values</SelectItem>
+                  </SelectContent>
+                </Select>
                 <PolicyMultiSelect
                   options={allowedOptions}
                   value={rule.allowed_values || []}
                   onChange={allowed_values => updateRule(ruleIndex, { allowed_values })}
-                  placeholder="No additional restriction"
+                  placeholder={rule.allowed_values_mode === 'exclude' ? 'No excluded values' : 'No additional restriction'}
                   testId={`select-conditional-allowed-values-${rule.id}`}
                 />
-                <p className="text-xs text-slate-500">These values are intersected with the field's existing choices.</p>
+                <p className="text-xs text-slate-500">
+                  {rule.allowed_values_mode === 'exclude'
+                    ? 'Selected values are removed from the field’s existing eligible choices.'
+                    : 'Selected values are intersected with the field’s existing choices.'}
+                </p>
               </div>
             )}
 
@@ -4331,6 +4359,7 @@ function RepeatableRowsSettings({ field, originalIndex, updateField, eligibleRel
                       value: '',
                       is_fallback: false,
                       allowed_values: [],
+                      allowed_values_mode: 'include',
                       org_filter: null,
                     }],
                   },
@@ -4342,7 +4371,7 @@ function RepeatableRowsSettings({ field, originalIndex, updateField, eligibleRel
                   </SelectContent>
                 </Select>
                 {dependency && (
-                  <div className="grid gap-2 md:grid-cols-2">
+                  <div className="grid gap-2 md:grid-cols-3">
                     <Input
                       className="h-9"
                       value={Array.isArray(dependency.value) ? dependency.value.join(', ') : (dependency.value ?? '')}
@@ -4363,6 +4392,21 @@ function RepeatableRowsSettings({ field, originalIndex, updateField, eligibleRel
                       placeholder="Allowed options, comma separated"
                       aria-label="Allowed dependent options"
                     />
+                    <Select
+                      value={dependency.allowed_values_mode || 'include'}
+                      onValueChange={allowed_values_mode => updateChild(childIndex, { conditional_filters: {
+                        version: 1,
+                        rules: [{ ...dependency, allowed_values_mode }],
+                      } })}
+                    >
+                      <SelectTrigger className="h-9" aria-label="Dependent option filter mode">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="include">Include only</SelectItem>
+                        <SelectItem value="exclude">Exclude selected</SelectItem>
+                      </SelectContent>
+                    </Select>
                   </div>
                 )}
               </div>
@@ -5374,9 +5418,10 @@ function FieldCard({
                 const filterType = orgFilter?.type || 'none';
                 const filterField = orgFilter?.field || '';
                 const filterValues = orgFilter?.values || [];
+                const filterMode = orgFilter?.mode || 'include';
 
                 const setOrgFilter = (update) => {
-                  const current = orgFilter || { type: 'none', field: '', values: [] };
+                  const current = orgFilter || { type: 'none', field: '', values: [], mode: 'include' };
                   const newFilter = { ...current, ...update };
                   if (newFilter.type === 'none') {
                     updateField(originalIndex, { org_filter: null, allowed_org_statuses: [] });
@@ -5460,6 +5505,15 @@ function FieldCard({
 
                     {filterType === 'core' && (
                       <div className="space-y-2">
+                        <Select value={filterMode} onValueChange={(mode) => setOrgFilter({ mode })}>
+                          <SelectTrigger data-testid={`select-org-filter-mode-${field.id}`}>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="include">Include only selected values</SelectItem>
+                            <SelectItem value="exclude">Exclude selected values</SelectItem>
+                          </SelectContent>
+                        </Select>
                         <Label className="text-xs">Select field</Label>
                         <Select
                           value={filterField}
@@ -5502,6 +5556,15 @@ function FieldCard({
 
                     {filterType === 'custom' && (
                       <div className="space-y-2">
+                        <Select value={filterMode} onValueChange={(mode) => setOrgFilter({ mode })}>
+                          <SelectTrigger data-testid={`select-org-filter-mode-${field.id}`}>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="include">Include only selected values</SelectItem>
+                            <SelectItem value="exclude">Exclude selected values</SelectItem>
+                          </SelectContent>
+                        </Select>
                         <Label className="text-xs">Select custom field</Label>
                         {orgCustomFields.length === 0 ? (
                           <div className="p-2 bg-warning/10 border border-warning/30 rounded text-xs text-warning">
@@ -7734,6 +7797,7 @@ export default function FormBuilderPage() {
                 value: rule.value ?? '',
                 is_fallback: rule.is_fallback === true,
                 allowed_values: Array.isArray(rule.allowed_values) ? rule.allowed_values : [],
+                allowed_values_mode: rule.allowed_values_mode || 'include',
                 org_filter: rule.org_filter || null,
               })),
             },

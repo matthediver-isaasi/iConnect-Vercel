@@ -119,6 +119,36 @@ test('intersects base options and removes invalid scalar and array values', () =
   assert.deepEqual(removeInvalidConditionalValue(['a', 'b'], options), ['b']);
 });
 
+test('excludes selected target values while legacy rules remain include-only', () => {
+  const excluded = resolveConditionalFilters({
+    field: { conditional_filters: { version: 1, rules: [
+      rule({ allowed_values: ['b'], allowed_values_mode: 'exclude' }),
+    ] } },
+    values: { source: 'x' },
+  });
+  assert.equal(excluded.targetMode, 'exclude');
+  assert.deepEqual(intersectConditionalOptions(['a', 'b', 'c'], excluded), ['a', 'c']);
+
+  const legacy = resolveConditionalFilters({
+    field: { conditional_filters: { version: 1, rules: [
+      rule({ allowed_values: ['b'] }),
+    ] } },
+    values: { source: 'x' },
+  });
+  assert.equal(legacy.targetMode, 'include');
+  assert.deepEqual(intersectConditionalOptions(['a', 'b', 'c'], legacy), ['b']);
+});
+
+test('an empty target exclusion adds no restriction', () => {
+  const resolution = resolveConditionalFilters({
+    field: { conditional_filters: { version: 1, rules: [
+      rule({ allowed_values: [], allowed_values_mode: 'exclude' }),
+    ] } },
+    values: { source: 'x' },
+  });
+  assert.deepEqual(intersectConditionalOptions(['new', 'existing'], resolution), ['new', 'existing']);
+});
+
 test('a matched rule with no allowed values adds no choice restriction', () => {
   const options = ['a', 'b'];
   assert.equal(intersectConditionalOptions(options, {
@@ -215,6 +245,24 @@ test('organization filtering supports standard and custom trusted shapes', () =>
     applyOrganizationFilter(organizations, { type: 'custom', field: 'sector', values: ['tech'] }),
     [organizations[1]],
   );
+  assert.deepEqual(
+    applyOrganizationFilter(organizations, {
+      type: 'custom', field: 'sector', values: ['tech'], mode: 'exclude',
+    }),
+    [organizations[0]],
+  );
+  assert.deepEqual(
+    applyOrganizationFilter(organizations, {
+      type: 'core', field: 'status', values: [], mode: 'exclude',
+    }),
+    organizations,
+  );
+  assert.deepEqual(
+    applyOrganizationFilter(organizations, {
+      type: 'core', field: 'status', values: [], mode: 'forged',
+    }),
+    [],
+  );
 });
 
 test('organization filter options use configured custom-field choices', () => {
@@ -269,4 +317,6 @@ test('organization result filter builder uses a multi-select instead of comma in
   assert.match(editor, /listOrganizationFieldValues/);
   assert.doesNotMatch(editor, /Allowed values, separated by commas/);
   assert.doesNotMatch(editor, /\.split\(','\)/);
+  assert.match(editor, /Include only selected values/);
+  assert.match(editor, /Exclude selected values/);
 });

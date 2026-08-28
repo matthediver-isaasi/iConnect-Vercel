@@ -6,6 +6,11 @@ const OPERATORS = new Set([
   'greater_than', 'greater_or_equal', 'less_than', 'less_or_equal',
   'is_empty', 'is_not_empty',
 ]);
+const FILTER_MODES = new Set(['include', 'exclude']);
+
+function filterMode(value) {
+  return value === undefined ? 'include' : (FILTER_MODES.has(value) ? value : null);
+}
 
 function unwrap(value) {
   if (value && typeof value === 'object' && !Array.isArray(value)
@@ -128,7 +133,8 @@ function validOrgFilter(filter) {
   return filter && typeof filter === 'object' && !Array.isArray(filter)
     && (filter.type === 'core' || filter.type === 'custom')
     && typeof filter.field === 'string' && filter.field.length > 0
-    && Array.isArray(filter.values) && filter.values.length > 0;
+    && Array.isArray(filter.values)
+    && filterMode(filter.mode) !== null;
 }
 
 export function validateConditionalFilters(config) {
@@ -158,6 +164,9 @@ export function validateConditionalFilters(config) {
       if (!OPERATORS.has(rule.operator)) errors.push(`${at}.operator is unsupported`);
     }
     if (!Array.isArray(rule.allowed_values)) errors.push(`${at}.allowed_values must be an array`);
+    if (filterMode(rule.allowed_values_mode) === null) {
+      errors.push(`${at}.allowed_values_mode must be include or exclude`);
+    }
     if (!validOrgFilter(rule.org_filter)) errors.push(`${at}.org_filter is invalid`);
   });
   return { valid: errors.length === 0, errors };
@@ -192,14 +201,14 @@ function baseAllowedValues(field) {
 export function resolveConditionalFilter(field, submissionData = {}, fields = []) {
   const config = field?.conditional_filters;
   if (config === undefined || config === null) {
-    return { configured: false, rule: null, allowedValues: null, orgFilter: null, valid: true };
+    return { configured: false, rule: null, allowedValues: null, excludedValues: [], targetMode: 'include', orgFilter: null, valid: true };
   }
   const validation = validateConditionalFilters(config);
   if (!validation.valid) {
-    return { configured: true, rule: null, allowedValues: [], orgFilter: null, valid: false, errors: validation.errors };
+    return { configured: true, rule: null, allowedValues: [], excludedValues: [], targetMode: 'include', orgFilter: null, valid: false, errors: validation.errors };
   }
   if (config.rules.length === 0) {
-    return { configured: false, rule: null, allowedValues: null, orgFilter: null, valid: true };
+    return { configured: false, rule: null, allowedValues: null, excludedValues: [], targetMode: 'include', orgFilter: null, valid: true };
   }
   let matched = config.rules.find((rule) => !rule.is_fallback && conditionalRuleMatches(
     rule,
@@ -211,15 +220,20 @@ export function resolveConditionalFilter(field, submissionData = {}, fields = []
   ));
   if (!matched) matched = config.rules.find((rule) => rule.is_fallback) || null;
   if (!matched) {
-    return { configured: true, rule: null, allowedValues: [], orgFilter: null, valid: true };
+    return { configured: true, rule: null, allowedValues: [], excludedValues: [], targetMode: 'include', orgFilter: null, valid: true };
   }
   const ruleAllowed = fieldValues(field, matched.allowed_values);
   const base = baseAllowedValues(field);
+  const targetMode = filterMode(matched.allowed_values_mode) || 'include';
   // A matched empty list adds no extra restriction. When the field has a
   // locally persisted base set, that base remains authoritative; otherwise
   // null tells dynamic validators to enforce their existing eligibility rules.
   const allowedValues = ruleAllowed.length === 0
     ? base
+    : targetMode === 'exclude'
+      ? (base === null
+        ? null
+        : base.filter((candidate) => !ruleAllowed.some((excluded) => same(candidate, excluded))))
     : (base === null
       ? ruleAllowed
       : ruleAllowed.filter((candidate) => base.some((baseValue) => same(candidate, baseValue))));
@@ -227,6 +241,8 @@ export function resolveConditionalFilter(field, submissionData = {}, fields = []
     configured: true,
     rule: matched,
     allowedValues,
+    excludedValues: targetMode === 'exclude' ? ruleAllowed : [],
+    targetMode,
     orgFilter: matched.org_filter || null,
     targetField: field,
     valid: true,
@@ -236,8 +252,12 @@ export function resolveConditionalFilter(field, submissionData = {}, fields = []
 export function conditionalSelectionAllowed(selection, resolution) {
   if (!resolution?.configured) return true;
   if (empty(selection)) return true;
+  const selectedValues = fieldValues(resolution.targetField, selection);
+  if ((resolution.excludedValues || []).some(
+    (excluded) => selectedValues.some((selected) => same(selected, excluded)),
+  )) return false;
   if (resolution.allowedValues === null && resolution.rule) return true;
   const allowed = resolution.allowedValues || [];
-  return fieldValues(resolution.targetField, selection)
+  return selectedValues
     .every((selected) => allowed.some((candidate) => same(selected, candidate)));
 }

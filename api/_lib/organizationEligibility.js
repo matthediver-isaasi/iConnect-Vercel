@@ -20,15 +20,35 @@ export function normalizeOrganizationPreferenceValue(rawValue) {
   return String(value);
 }
 
+const INVALID_FILTER = Symbol('invalid-organization-filter');
+
 function configuredFilter(field) {
   const filter = field?.org_filter;
-  if (filter && filter.type && filter.field && Array.isArray(filter.values) && filter.values.length > 0) {
+  if (filter !== undefined && filter !== null) {
+    if (!filter || typeof filter !== 'object' || Array.isArray(filter)
+        || !['core', 'custom'].includes(filter.type)
+        || typeof filter.field !== 'string' || !filter.field
+        || !Array.isArray(filter.values)
+        || !validFilterMode(filter)) {
+      return INVALID_FILTER;
+    }
+    // Legacy include filters with no selected values have always meant no
+    // restriction. Empty exclude filters intentionally mean the same thing.
+    if (filter.values.length === 0) return null;
     return filter;
   }
   const statuses = field?.allowed_org_statuses;
   return Array.isArray(statuses) && statuses.length > 0
     ? { type: 'custom', field: 'application_status', values: statuses }
     : null;
+}
+
+function matchesMode(matches, filter) {
+  return filter?.mode === 'exclude' ? !matches : matches;
+}
+
+function validFilterMode(filter) {
+  return filter?.mode === undefined || filter.mode === 'include' || filter.mode === 'exclude';
 }
 
 function sanitizedFilterValues(filter) {
@@ -51,12 +71,17 @@ export async function filterOrganizationsEligibleForFields({
 
   for (const field of fields) {
     const filter = configuredFilter(field);
+    if (filter === INVALID_FILTER) return [];
     if (!filter) continue;
+    if (!validFilterMode(filter)) return [];
     const values = sanitizedFilterValues(filter);
     if (values.length === 0) return [];
 
     if (filter.type === 'core') {
-      eligible = eligible.filter((organization) => coreFilterMatches(organization, filter, values));
+      eligible = eligible.filter((organization) => matchesMode(
+        coreFilterMatches(organization, filter, values),
+        filter,
+      ));
       continue;
     }
     if (filter.type !== 'custom') return [];
@@ -92,7 +117,8 @@ export async function filterOrganizationsEligibleForFields({
     const allowed = new Set(values);
     eligible = eligible.filter((organization) => {
       const value = customValues.get(String(organization.id));
-      return value !== null && value !== undefined && allowed.has(value);
+      const matches = value !== null && value !== undefined && allowed.has(value);
+      return matchesMode(matches, filter);
     });
   }
 
@@ -103,13 +129,15 @@ export async function filterOrganizationsEligibleForFields({
 // checking a single organisation without exposing the tenant's organisation list.
 export async function isOrganizationEligibleForField({ db, tenantId, organization, field }) {
   const filter = configuredFilter(field);
+  if (filter === INVALID_FILTER) return false;
   if (!filter) return true;
+  if (!validFilterMode(filter)) return false;
 
   const values = sanitizedFilterValues(filter);
   if (values.length === 0) return false;
 
   if (filter.type === 'core') {
-    return coreFilterMatches(organization, filter, values);
+    return matchesMode(coreFilterMatches(organization, filter, values), filter);
   }
   if (filter.type !== 'custom') return false;
 
@@ -132,5 +160,6 @@ export async function isOrganizationEligibleForField({ db, tenantId, organizatio
     .maybeSingle();
   if (valueError) throw valueError;
   const value = normalizeOrganizationPreferenceValue(preferenceValue?.value);
-  return value !== null && values.map(String).includes(value);
+  const matches = value !== null && values.map(String).includes(value);
+  return matchesMode(matches, filter);
 }

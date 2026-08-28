@@ -78,6 +78,76 @@ test('empty matched allowed_values adds no ID restriction while org filter still
   assert.deepEqual(result.map((org) => org.id), ['one', 'two']);
 });
 
+test('dynamic organisation options exclude target IDs and country values without broadening eligibility', async () => {
+  const form = savedForm([rule({
+    allowed_values: ['blocked-id'],
+    allowed_values_mode: 'exclude',
+    org_filter: {
+      type: 'core',
+      field: 'country',
+      values: ['Spain'],
+      mode: 'exclude',
+    },
+  })]);
+  form.fields[1].org_filter = null;
+  const result = await loadConditionalOrganizationOptions({
+    db: db({
+      form: [form],
+      organization: [
+        { id: 'blocked-id', tenant_id: tenantId, name: 'Blocked ID', country: 'France' },
+        { id: 'blocked-country', tenant_id: tenantId, name: 'Blocked country', country: 'Spain' },
+        { id: 'new-id', tenant_id: tenantId, name: 'Newly added', country: 'Portugal' },
+      ],
+    }),
+    tenantId,
+    formId: 'form-1',
+    fieldId: 'org',
+    sourceAnswers: { country: 'GB' },
+  });
+  assert.deepEqual(result.map((org) => org.id), ['new-id']);
+});
+
+test('saved organisation filters fail closed for invalid empty modes but allow valid empty exclusions', async () => {
+  const base = savedForm([]);
+  base.fields[1].conditional_filters = undefined;
+  base.fields[1].org_filter = {
+    type: 'core',
+    field: 'country',
+    values: [],
+    mode: 'forged',
+  };
+  const seed = {
+    organization: [
+      { id: 'one', tenant_id: tenantId, name: 'One', country: 'Portugal' },
+    ],
+  };
+  assert.deepEqual(await loadConditionalOrganizationOptions({
+    db: db({ ...seed, form: [base] }),
+    tenantId,
+    formId: 'form-1',
+    fieldId: 'org',
+    sourceAnswers: {},
+  }), []);
+
+  base.fields[1].org_filter.mode = 'exclude';
+  assert.deepEqual((await loadConditionalOrganizationOptions({
+    db: db({ ...seed, form: [base] }),
+    tenantId,
+    formId: 'form-1',
+    fieldId: 'org',
+    sourceAnswers: {},
+  })).map((org) => org.id), ['one']);
+
+  base.fields[1].org_filter.mode = 'include';
+  assert.deepEqual((await loadConditionalOrganizationOptions({
+    db: db({ ...seed, form: [base] }),
+    tenantId,
+    formId: 'form-1',
+    fieldId: 'org',
+    sourceAnswers: {},
+  })).map((org) => org.id), ['one']);
+});
+
 test('unmatched, malformed, and forged field requests fail closed', async () => {
   const common = {
     tenantId, formId: 'form-1', fieldId: 'org', sourceAnswers: { country: 'US' },
@@ -167,6 +237,40 @@ test('POST handler accepts targetFieldId as a compatibility alias', async () => 
     resolveTenant: async () => ({ id: tenantId }),
   });
   assert.deepEqual(response.payload.map((org) => org.id), ['yes']);
+});
+
+test('GET handler preserves legacy allowedStatuses filtering', async () => {
+  const request = {
+    method: 'GET',
+    query: { allowedStatuses: JSON.stringify(['approved']) },
+  };
+  const response = {
+    statusCode: 200,
+    status(code) { this.statusCode = code; return this; },
+    json(payload) { this.payload = payload; return this; },
+  };
+  await organizationsHandler(request, response, {
+    db: db({
+      organization: [
+        { id: 'approved', tenant_id: tenantId, name: 'Approved' },
+        { id: 'pending', tenant_id: tenantId, name: 'Pending' },
+      ],
+      preference_field: [{
+        id: 'status-field',
+        tenant_id: tenantId,
+        name: 'application_status',
+        entity_scope: 'organization',
+        is_active: true,
+      }],
+      organization_preference_value: [
+        { organization_id: 'approved', field_id: 'status-field', value: 'approved' },
+        { organization_id: 'pending', field_id: 'status-field', value: 'pending' },
+      ],
+    }),
+    resolveTenant: async () => ({ id: tenantId }),
+  });
+  assert.equal(response.statusCode, 200);
+  assert.deepEqual(response.payload.map((org) => org.id), ['approved']);
 });
 
 test('nested organisation options resolve only a persisted child of the requested repeatable container', async () => {

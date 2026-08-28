@@ -84,6 +84,46 @@ test('relationship IDs can be conditionally restricted', () => {
   assert.equal(conditionalSelectionAllowed('record-2', resolution), false);
 });
 
+test('relationship and organisation IDs can be excluded from a dynamic eligible universe', () => {
+  for (const type of ['relationship_dropdown', 'organisation_dropdown']) {
+    const resolution = resolveConditionalFilter({
+      type,
+      options: [],
+      conditional_filters: {
+        version: 1,
+        rules: [rule({
+          allowed_values: ['blocked-id'],
+          allowed_values_mode: 'exclude',
+        })],
+      },
+    }, { country: 'GB' });
+    assert.equal(resolution.allowedValues, null);
+    assert.deepEqual(resolution.excludedValues, ['blocked-id']);
+    assert.equal(conditionalSelectionAllowed('newly-added-id', resolution), true);
+    assert.equal(conditionalSelectionAllowed('blocked-id', resolution), false);
+  }
+});
+
+test('target exclusion is applied after static choices and empty exclusion is unrestricted', () => {
+  const field = {
+    type: 'dropdown',
+    options: ['a', 'b', 'c'],
+    conditional_filters: {
+      version: 1,
+      rules: [rule({ allowed_values: ['b'], allowed_values_mode: 'exclude' })],
+    },
+  };
+  const resolution = resolveConditionalFilter(field, { country: 'GB' });
+  assert.deepEqual(resolution.allowedValues, ['a', 'c']);
+  assert.equal(conditionalSelectionAllowed('a', resolution), true);
+  assert.equal(conditionalSelectionAllowed('b', resolution), false);
+  assert.equal(conditionalSelectionAllowed('forged', resolution), false);
+
+  field.conditional_filters.rules[0].allowed_values = [];
+  const empty = resolveConditionalFilter(field, { country: 'GB' });
+  assert.deepEqual(empty.allowedValues, ['a', 'b', 'c']);
+});
+
 test('organisation-only filters permit IDs for subsequent trusted eligibility check', () => {
   const orgFilter = { type: 'core', field: 'status', values: ['approved'] };
   const resolution = resolveConditionalFilter({
@@ -96,6 +136,24 @@ test('organisation-only filters permit IDs for subsequent trusted eligibility ch
   }, { country: 'GB' });
   assert.equal(conditionalSelectionAllowed('org-id', resolution), true);
   assert.deepEqual(resolution.orgFilter, orgFilter);
+});
+
+test('empty conditional organisation result filters are valid and unrestricted in both modes', () => {
+  for (const mode of ['include', 'exclude']) {
+    const orgFilter = { type: 'core', field: 'country', values: [], mode };
+    const field = {
+      type: 'organisation_dropdown',
+      options: [],
+      conditional_filters: {
+        version: 1,
+        rules: [rule({ allowed_values: [], org_filter: orgFilter })],
+      },
+    };
+    assert.equal(validateConditionalFilters(field.conditional_filters).valid, true);
+    const resolution = resolveConditionalFilter(field, { country: 'GB' });
+    assert.equal(conditionalSelectionAllowed('new-org', resolution), true);
+    assert.deepEqual(resolution.orgFilter, orgFilter);
+  }
 });
 
 test('empty saved option placeholders do not deny server-loaded dynamic IDs', () => {
@@ -130,6 +188,18 @@ test('validator rejects malformed contracts and unsupported operators', () => {
   assert.equal(validateConditionalFilters({
     version: 1,
     rules: [rule({ operator: 'contains', allowed_values: null })],
+  }).valid, false);
+  assert.equal(validateConditionalFilters({
+    version: 1,
+    rules: [rule({ allowed_values_mode: 'forged' })],
+  }).valid, false);
+  assert.equal(validateConditionalFilters({
+    version: 1,
+    rules: [rule({
+      org_filter: {
+        type: 'core', field: 'country', values: ['Spain'], mode: 'forged',
+      },
+    })],
   }).valid, false);
 });
 

@@ -1423,10 +1423,10 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, me
                 ))}
                 {field.allow_other && (
                   !conditionalResolution.configured
-                  || (conditionalResolution.matchedRule && (
-                    conditionalResolution.allowedValues.length === 0
-                    || conditionalResolution.allowedValues.some(option => String(option).toLowerCase() === 'other')
-                  ))
+                  || intersectConditionalOptions(
+                    ['Other'],
+                    conditionalResolution,
+                  ).length > 0
                 ) && (
                   <SelectItem value="other">Other</SelectItem>
                 )}
