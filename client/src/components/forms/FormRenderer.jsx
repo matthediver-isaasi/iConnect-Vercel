@@ -1915,6 +1915,8 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, me
         
         // Min/max selection logic for category_multiselect
         const selectedValues = Array.isArray(value) ? value : [];
+        const nextNotListedCategories = applyExclusiveFormNotListedSelection(selectedValues, FORM_NOT_LISTED_VALUE);
+        const canToggleNotListedCategory = repeatableSelectionIsAvailable(nextNotListedCategories);
         const minSelections = field.min_selections;
         const maxSelections = field.max_selections;
         const hasMin = minSelections != null && minSelections > 0;
@@ -1943,13 +1945,13 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, me
         
         return (
           <div className="space-y-4">
-            {notListedLabel && (
+            {notListedLabel && (selectedValues.includes(FORM_NOT_LISTED_VALUE) || canToggleNotListedCategory) && (
               <div className="flex items-start space-x-2">
                 <Checkbox
                   id={`${field.id}-not-listed`}
                   checked={selectedValues.includes(FORM_NOT_LISTED_VALUE)}
-                  disabled={isFieldDisabled}
-                  onCheckedChange={() => onChange(applyExclusiveFormNotListedSelection(selectedValues, FORM_NOT_LISTED_VALUE))}
+                  disabled={isFieldDisabled || !canToggleNotListedCategory}
+                  onCheckedChange={() => canToggleNotListedCategory && onChange(nextNotListedCategories)}
                   data-testid={`checkbox-not-listed-${field.id}`}
                 />
                 <Label htmlFor={`${field.id}-not-listed`} className="font-normal cursor-pointer">{notListedLabel}</Label>
@@ -1965,7 +1967,13 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, me
                 <div className="space-y-2 pl-0">
                   {category.options.map((opt, optIndex) => {
                     const isChecked = selectedValues.includes(opt.subcategory);
-                    const isOptionDisabled = isFieldDisabled || (isMaxReached && !isChecked);
+                    const nextSelection = isChecked
+                      ? selectedValues.filter(v => v !== opt.subcategory)
+                      : applyExclusiveFormNotListedSelection(selectedValues, opt.subcategory);
+                    const selectionIsAvailable = repeatableSelectionIsAvailable(nextSelection);
+                    const isOptionDisabled = isFieldDisabled
+                      || (isMaxReached && !isChecked)
+                      || !selectionIsAvailable;
                     return (
                       <div key={`${category.id}-${optIndex}`} className="flex items-start space-x-2">
                         <Checkbox
@@ -1974,11 +1982,9 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, me
                           disabled={isOptionDisabled}
                           onCheckedChange={(checked) => {
                             if (isOptionDisabled) return;
-                            if (checked) {
-                              onChange(applyExclusiveFormNotListedSelection(selectedValues, opt.subcategory));
-                            } else {
-                              onChange(selectedValues.filter(v => v !== opt.subcategory));
-                            }
+                            onChange(checked
+                              ? applyExclusiveFormNotListedSelection(selectedValues, opt.subcategory)
+                              : selectedValues.filter(v => v !== opt.subcategory));
                           }}
                           data-testid={`checkbox-subcategory-${category.id}-${optIndex}`}
                         />

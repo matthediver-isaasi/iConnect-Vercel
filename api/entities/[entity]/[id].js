@@ -58,6 +58,11 @@ import { authorizeAndCheckTeamRoleAssignment, validateAssignableRoleIds } from '
 import { checkRoleMutationAccess } from '../../_lib/roleMutationAccess.js';
 import { remapGroupRolePolicy } from '../../../client/src/lib/memberGroupRoleNames.js';
 import { createFormRelationshipService, FormRelationshipError } from '../../_lib/formRelationshipOptions.js';
+import { validateRepeatableRowSubmission } from '../../_lib/formRepeatableRowValidation.js';
+import {
+  preserveFormNotListedLabelSnapshots,
+  snapshotFormNotListedLabels,
+} from '../../../shared/formNotListedChoice.js';
 const entityToTable = {
   'Gallery': 'gallery',
   'GalleryPhoto': 'gallery_photo',
@@ -725,6 +730,12 @@ export default async function handler(req, res) {
               return res.status(400).json({ error: 'Invalid relationship selection' });
             }
             try {
+              await validateRepeatableRowSubmission({
+                db: supabase,
+                tenantId: subForm.tenant_id,
+                form: subForm,
+                submissionData: effectiveSubmissionData,
+              });
               await createFormRelationshipService({
                 db: supabase,
                 tenantId: subForm.tenant_id,
@@ -739,6 +750,10 @@ export default async function handler(req, res) {
               console.error('[Entity PATCH] FormSubmission relationship validation failed:', error);
               return res.status(500).json({ error: 'Failed to validate submission' });
             }
+            sanitizedBody.submission_data = preserveFormNotListedLabelSnapshots(
+              snapshotFormNotListedLabels(subForm.fields || [], effectiveSubmissionData),
+              subRow.submission_data,
+            );
           }
         } else {
           return res.status(400).json({ error: 'Invalid form submission' });

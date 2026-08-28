@@ -4167,6 +4167,24 @@ function ConditionalFilterRuleEditor({
   );
 }
 
+function findInvalidNotListedField(fields) {
+  for (const field of fields || []) {
+    if (supportsFormNotListedChoice(field)
+        && field.not_listed_choice?.enabled === true
+        && !field.not_listed_choice?.label?.trim()) {
+      return field;
+    }
+    if (!isRepeatableRowField(field)) continue;
+    const invalidChild = normalizeRepeatableRowField(field).children.find(child =>
+      supportsFormNotListedChoice(child)
+      && child.not_listed_choice?.enabled === true
+      && !child.not_listed_choice?.label?.trim()
+    );
+    if (invalidChild) return invalidChild;
+  }
+  return null;
+}
+
 function RepeatableRowsSettings({ field, originalIndex, updateField, eligibleRelationships = [], allFields = [] }) {
   const config = normalizeRepeatableRowField(field);
   const children = config.children;
@@ -4295,6 +4313,10 @@ function RepeatableRowsSettings({ field, originalIndex, updateField, eligibleRel
           ? eligibleRelationships.filter(item => isRelationshipCompatibleWithParent(item, selectedRelationshipParent))
           : [];
         const dependency = child.conditional_filters?.rules?.find(rule => !rule.is_fallback);
+        const dependencySource = preceding.find(item => item.id === dependency?.source_field_id);
+        const dependencyNotListedLabel = dependencySource
+          ? formNotListedChoiceLabel(dependencySource)
+          : '';
         const optionsType = ['select', 'radio', 'checkbox'].includes(child.type);
         return (
           <div key={child.id} className="space-y-3 rounded-md border border-slate-200 bg-white p-3" data-testid={`repeatable-child-${field.id}-${childIndex}`}>
@@ -4351,6 +4373,46 @@ function RepeatableRowsSettings({ field, originalIndex, updateField, eligibleRel
                 </Label>
               </div>
             </div>
+            {supportsFormNotListedChoice(child) && (
+              <div className="space-y-3 rounded border border-slate-200 bg-slate-50 p-3" data-testid={`repeatable-not-listed-config-${field.id}-${child.id}`}>
+                <div className="flex items-center gap-2">
+                  <Switch
+                    id={`repeatable-not-listed-enabled-${field.id}-${child.id}`}
+                    checked={child.not_listed_choice?.enabled === true}
+                    onCheckedChange={enabled => updateChild(childIndex, {
+                      not_listed_choice: {
+                        ...(child.not_listed_choice || {}),
+                        enabled,
+                        label: child.not_listed_choice?.label || 'Not listed',
+                      },
+                    })}
+                    data-testid={`switch-repeatable-not-listed-${field.id}-${child.id}`}
+                  />
+                  <Label htmlFor={`repeatable-not-listed-enabled-${field.id}-${child.id}`} className="text-xs font-medium">
+                    Add a “not listed” choice
+                  </Label>
+                </div>
+                {child.not_listed_choice?.enabled === true && (
+                  <div className="space-y-1">
+                    <Label htmlFor={`repeatable-not-listed-label-${field.id}-${child.id}`} className="text-xs">Choice label</Label>
+                    <Input
+                      id={`repeatable-not-listed-label-${field.id}-${child.id}`}
+                      value={child.not_listed_choice?.label || ''}
+                      onChange={event => updateChild(childIndex, {
+                        not_listed_choice: {
+                          ...(child.not_listed_choice || {}),
+                          enabled: true,
+                          label: event.target.value,
+                        },
+                      })}
+                      placeholder="e.g. My organisation isn’t in the list"
+                      className="h-9"
+                      data-testid={`input-repeatable-not-listed-label-${field.id}-${child.id}`}
+                    />
+                  </div>
+                )}
+              </div>
+            )}
             {optionsType && (
               <div className="space-y-1">
                 <Label className="text-xs">Options (one per line)</Label>
@@ -4472,6 +4534,26 @@ function RepeatableRowsSettings({ field, originalIndex, updateField, eligibleRel
                       placeholder="When source equals…"
                       aria-label="Dependency source value"
                     />
+                    {dependencyNotListedLabel && (
+                      <Button
+                        type="button"
+                        variant={dependency.value === FORM_NOT_LISTED_VALUE ? 'default' : 'outline'}
+                        size="sm"
+                        aria-pressed={dependency.value === FORM_NOT_LISTED_VALUE}
+                        onClick={() => updateChild(childIndex, { conditional_filters: {
+                          version: 1,
+                          rules: [{
+                            ...dependency,
+                            value: dependency.value === FORM_NOT_LISTED_VALUE ? '' : FORM_NOT_LISTED_VALUE,
+                          }],
+                        } })}
+                        data-testid={`button-repeatable-dependency-not-listed-${field.id}-${child.id}`}
+                      >
+                        {dependency.value === FORM_NOT_LISTED_VALUE
+                          ? `Using “${dependencyNotListedLabel}”`
+                          : `Use “${dependencyNotListedLabel}”`}
+                      </Button>
+                    )}
                     <Input
                       className="h-9"
                       value={(dependency.allowed_values || []).join(', ')}
@@ -8339,11 +8421,7 @@ export default function FormBuilderPage() {
       toast.error('Fix the validation issues before publishing.');
       return;
     }
-    const invalidNotListedField = formData.fields.find(field =>
-      supportsFormNotListedChoice(field)
-      && field.not_listed_choice?.enabled === true
-      && !field.not_listed_choice?.label?.trim()
-    );
+    const invalidNotListedField = findInvalidNotListedField(formData.fields);
     if (invalidNotListedField) {
       toast.error(`“${invalidNotListedField.label || 'Untitled field'}” needs a label for its not-listed choice.`);
       return;
@@ -8395,11 +8473,7 @@ export default function FormBuilderPage() {
       return;
     }
 
-    const invalidNotListedField = formData.fields.find(field =>
-      supportsFormNotListedChoice(field)
-      && field.not_listed_choice?.enabled === true
-      && !field.not_listed_choice?.label?.trim()
-    );
+    const invalidNotListedField = findInvalidNotListedField(formData.fields);
     if (invalidNotListedField) {
       toast.error(`“${invalidNotListedField.label || 'Untitled field'}” needs a label for its not-listed choice.`);
       return;

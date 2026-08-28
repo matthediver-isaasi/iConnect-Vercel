@@ -1,3 +1,8 @@
+import {
+  isRepeatableRowField,
+  normalizeRepeatableRowField,
+} from './formRepeatableRows.js';
+
 export const FORM_NOT_LISTED_VALUE = '__form_not_listed__';
 export const FORM_NOT_LISTED_LABELS_KEY = '__not_listed_choice_labels';
 
@@ -59,9 +64,24 @@ export function snapshotFormNotListedLabels(fields, submissionData) {
   const labels = {};
   for (const field of (Array.isArray(fields) ? fields : [])) {
     const value = data[field?.id] !== undefined ? data[field.id] : data[field?.name];
-    if (!containsFormNotListedValue(value)) continue;
-    const label = formNotListedChoiceLabel(field);
-    if (label && field?.id) labels[field.id] = label;
+    if (containsFormNotListedValue(value)) {
+      const label = formNotListedChoiceLabel(field);
+      if (label && field?.id) labels[field.id] = label;
+    }
+    if (!isRepeatableRowField(field) || !field?.id || !Array.isArray(value)) continue;
+    const childLabels = {};
+    for (const child of normalizeRepeatableRowField(field).children) {
+      if (!child?.id || !value.some(row => containsFormNotListedValue(row?.[child.id]))) continue;
+      const label = formNotListedChoiceLabel(child);
+      if (label) childLabels[child.id] = label;
+    }
+    if (Object.keys(childLabels).length > 0) {
+      const existing = data[FORM_NOT_LISTED_LABELS_KEY]?.[field.id];
+      labels[field.id] = {
+        ...(existing && typeof existing === 'object' && !Array.isArray(existing) ? existing : {}),
+        ...childLabels,
+      };
+    }
   }
   if (Object.keys(labels).length === 0) return data;
   return {
@@ -73,10 +93,42 @@ export function snapshotFormNotListedLabels(fields, submissionData) {
   };
 }
 
-export function resolveFormNotListedDisplayValue(field, value, submissionData) {
+export function preserveFormNotListedLabelSnapshots(submissionData, trustedSubmissionData) {
+  const current = submissionData && typeof submissionData === 'object' && !Array.isArray(submissionData)
+    ? submissionData
+    : {};
+  const trusted = trustedSubmissionData?.[FORM_NOT_LISTED_LABELS_KEY];
+  if (!trusted || typeof trusted !== 'object' || Array.isArray(trusted)) return current;
+  const merged = {
+    ...(current[FORM_NOT_LISTED_LABELS_KEY] || {}),
+  };
+  for (const [fieldId, label] of Object.entries(trusted)) {
+    if (label && typeof label === 'object' && !Array.isArray(label)) {
+      merged[fieldId] = {
+        ...(merged[fieldId] && typeof merged[fieldId] === 'object' ? merged[fieldId] : {}),
+        ...label,
+      };
+    } else if (typeof label === 'string') {
+      merged[fieldId] = label;
+    }
+  }
+  return {
+    ...current,
+    [FORM_NOT_LISTED_LABELS_KEY]: merged,
+  };
+}
+
+export function resolveFormNotListedDisplayValue(field, value, submissionData, options = {}) {
   if (!containsFormNotListedValue(value)) return value;
   const snapshot = submissionData?.[FORM_NOT_LISTED_LABELS_KEY];
-  const label = (field?.id && typeof snapshot?.[field.id] === 'string' && snapshot[field.id].trim())
+  const parentId = options.parentField?.id;
+  const nestedLabel = parentId && field?.id
+    && snapshot?.[parentId] && typeof snapshot[parentId] === 'object'
+    && typeof snapshot[parentId][field.id] === 'string'
+    ? snapshot[parentId][field.id].trim()
+    : '';
+  const label = nestedLabel
+    || (field?.id && typeof snapshot?.[field.id] === 'string' && snapshot[field.id].trim())
     || formNotListedChoiceLabel(field, { requireEnabled: false })
     || 'Not listed';
   if (Array.isArray(value)) {

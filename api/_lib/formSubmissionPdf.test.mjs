@@ -139,6 +139,29 @@ test('PDF formatter renders repeatable rows with child labels and relationship d
   assert.equal(output.includes('org-1'), false);
 });
 
+test('PDF formatter retains the submitted repeatable not-listed label', () => {
+  const field = {
+    id: 'rows',
+    type: 'repeatable_row',
+    children: [{
+      id: 'country',
+      label: 'Country',
+      type: 'country',
+      not_listed_choice: { enabled: false, label: 'Renamed label' },
+    }],
+  };
+  assert.equal(formatFormSubmissionFieldValue(
+    field,
+    [{ country: '__form_not_listed__' }],
+    {},
+    {
+      __not_listed_choice_labels: {
+        rows: { country: 'Original country label' },
+      },
+    },
+  ), 'Row 1\nCountry: Original country label');
+});
+
 test('PDF builder uses ID-first/name fallback and renders no relationship UUIDs', () => {
   const currentId = '11111111-1111-4111-8111-111111111111';
   const ignoredLegacyId = '22222222-2222-4222-8222-222222222222';

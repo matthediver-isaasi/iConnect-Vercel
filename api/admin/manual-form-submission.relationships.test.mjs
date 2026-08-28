@@ -24,3 +24,10 @@ test('manual submissions enforce relationship and Organisation Group validation 
   assert.ok(dependentIndex > groupIndex);
   assert.ok(insertIndex > dependentIndex);
 });
+
+test('manual submissions snapshot repeatable not-listed labels before persistence', () => {
+  assert.match(
+    source,
+    /submission_data: snapshotFormNotListedLabels\(form\.fields \|\| \[\], submission_data \|\| \{\}\)/,
+  );
+});

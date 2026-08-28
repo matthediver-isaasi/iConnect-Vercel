@@ -6,6 +6,7 @@ import {
   resolveConditionalFilter,
   validateConditionalFilters,
 } from './formConditionalFilters.js';
+import { FORM_NOT_LISTED_VALUE } from '../../shared/formNotListedChoice.js';
 
 const rule = (overrides = {}) => ({
   id: 'rule-1',
@@ -64,6 +65,28 @@ test('configured filters without a match or fallback fail closed', () => {
   assert.equal(resolution.configured, true);
   assert.deepEqual(resolution.allowedValues, []);
   assert.equal(conditionalSelectionAllowed('forged', resolution), false);
+});
+
+test('repeatable dependencies can match the stable not-listed source value', () => {
+  const target = {
+    type: 'category_dropdown',
+    options: ['visible'],
+    conditional_filters: {
+      version: 1,
+      rules: [rule({
+        source_field_id: 'org',
+        value: FORM_NOT_LISTED_VALUE,
+        allowed_values: ['visible'],
+      })],
+    },
+  };
+  const resolution = resolveConditionalFilter(
+    target,
+    { org: FORM_NOT_LISTED_VALUE },
+    [{ id: 'org', type: 'organisation_dropdown' }, target],
+  );
+  assert.equal(resolution.rule.id, 'rule-1');
+  assert.equal(conditionalSelectionAllowed('visible', resolution), true);
 });
 
 test('absent and empty rules preserve legacy selection behavior', () => {

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { validateRepeatableRowSubmission } from './formRepeatableRowValidation.js';
+import { createFormRelationshipService } from './formRelationshipOptions.js';
 
 const form = {
   id: 'form-1',
@@ -114,4 +115,49 @@ test('rejects duplicate values in a server-trusted unique repeatable column', as
       && error.details.every(detail => detail.code === 'duplicate_child_value'),
   );
   assert.equal(calls, 0);
+});
+
+test('accepts the reserved value only when the persisted repeatable child enables it', async () => {
+  const enabledChild = {
+    id: 'org',
+    type: 'organisation_dropdown',
+    required: true,
+    not_listed_choice: { enabled: true, label: 'My organisation is not listed' },
+  };
+  const repeatableForm = {
+    id: 'form-not-listed',
+    fields: [{
+      id: 'rows',
+      type: 'repeatable_row',
+      min_rows: 1,
+      children: [enabledChild],
+    }],
+  };
+  const noQueryDb = { from() { throw new Error('not-listed must not query entity tables'); } };
+  const service = createFormRelationshipService({ tenantId: 'tenant-1', db: noQueryDb });
+
+  await validateRepeatableRowSubmission({
+    db: noQueryDb,
+    tenantId: 'tenant-1',
+    form: repeatableForm,
+    submissionData: { rows: [{ org: '__form_not_listed__' }] },
+    relationshipService: service,
+  });
+
+  await assert.rejects(
+    validateRepeatableRowSubmission({
+      db: noQueryDb,
+      tenantId: 'tenant-1',
+      form: {
+        ...repeatableForm,
+        fields: [{
+          ...repeatableForm.fields[0],
+          children: [{ ...enabledChild, not_listed_choice: { enabled: false, label: 'Disabled' } }],
+        }],
+      },
+      submissionData: { rows: [{ org: '__form_not_listed__' }] },
+      relationshipService: service,
+    }),
+    error => error.status === 400 && /Invalid not-listed selection/.test(error.message),
+  );
 });

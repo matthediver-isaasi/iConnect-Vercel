@@ -2,6 +2,11 @@ import {
   isRepeatableRowField,
   normalizeRepeatableRowField,
 } from './formRepeatableRows.js';
+import {
+  containsFormNotListedValue,
+  isFormNotListedValue,
+  resolveFormNotListedDisplayValue,
+} from './formNotListedChoice.js';
 
 // The builder persists its versioned configuration in `repeatable_row` with
 // `child_fields`; early drafts used config.children. Normalize both so every
@@ -79,7 +84,12 @@ export function formatRepeatableRows(field, value, options = {}) {
     rowId: row._row_id ?? row.row_id ?? `row-${rowIndex + 1}`,
     cells: columns.map(({ id, child }) => {
       const rawValue = row[id];
-      const formatted = child.type === 'organisation_dropdown' && options.organisationNamesById
+      const displayValue = containsFormNotListedValue(rawValue)
+        ? resolveFormNotListedDisplayValue(child, rawValue, options.submissionData, { parentField: field })
+        : rawValue;
+      const formatted = containsFormNotListedValue(rawValue)
+        ? formatRepeatableCellValue(displayValue, child)
+        : child.type === 'organisation_dropdown' && options.organisationNamesById
         ? (Array.isArray(rawValue)
           ? rawValue.map((entry) => resolveRepeatableOrganisationLabel(entry, options.organisationNamesById)).join(', ')
           : resolveRepeatableOrganisationLabel(rawValue, options.organisationNamesById))
@@ -115,7 +125,7 @@ export function collectRepeatableRelationshipRecordIds(fields, submissionData) {
       for (const child of relationshipChildren) {
         const entries = Array.isArray(row[child.id]) ? row[child.id] : [row[child.id]];
         for (const entry of entries) {
-          if (entry != null && entry !== '') ids.add(String(entry));
+          if (entry != null && entry !== '' && !isFormNotListedValue(entry)) ids.add(String(entry));
         }
       }
     }
@@ -134,7 +144,7 @@ export function collectRepeatableOrganisationIds(fields, submissionData) {
     for (const row of Array.isArray(value) ? value : []) {
       for (const child of organisationChildren) {
         for (const entry of (Array.isArray(row?.[child.id]) ? row[child.id] : [row?.[child.id]])) {
-          if (entry != null && entry !== '') ids.add(String(entry));
+          if (entry != null && entry !== '' && !isFormNotListedValue(entry)) ids.add(String(entry));
         }
       }
     }

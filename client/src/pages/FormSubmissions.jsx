@@ -75,8 +75,9 @@ import {
 } from '../../../shared/repeatableFormRowsFormat.js';
 import { isRepeatableRowField } from '../../../shared/formRepeatableRows.js';
 
-function RepeatableRowsTable({ field, value, relationshipLabelsByRecordId, organisationNamesById }) {
+function RepeatableRowsTable({ field, value, submissionData, relationshipLabelsByRecordId, organisationNamesById }) {
   const model = formatRepeatableRows(field, value, {
+    submissionData,
     formatCell: (cellValue, child) => child?.type === 'relationship_dropdown'
       ? formatRelationshipDisplayValue(cellValue, relationshipLabelsByRecordId)
       : child?.type === 'organisation_dropdown'
@@ -1661,6 +1662,7 @@ export default function FormSubmissionsPage() {
             }
             if (isRepeatableRowField(fieldDef)) {
               return formatRepeatableRowsText(fieldDef, val, {
+                submissionData: submission.submission_data,
                 formatCell: (cellValue, child) => child?.type === 'relationship_dropdown'
                   ? formatRelationshipDisplayValue(cellValue, relationshipLabelsByRecordId)
                   : child?.type === 'organisation_dropdown'
@@ -2825,6 +2827,7 @@ export default function FormSubmissionsPage() {
                         <RepeatableRowsTable
                           field={field}
                           value={value}
+                          submissionData={viewingSubmission.submission_data}
                           relationshipLabelsByRecordId={relationshipLabelsByRecordId}
                           organisationNamesById={organisationNamesById}
                         />

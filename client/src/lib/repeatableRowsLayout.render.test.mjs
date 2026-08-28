@@ -49,6 +49,22 @@ test('builder exposes per-column uniqueness and renderer shows duplicate feedbac
   assert.doesNotMatch(renderer, /role="alert"[\s\S]*?repeatable-duplicate-error/);
 });
 
+test('builder exposes not-listed controls and validates nested labels', () => {
+  assert.match(builder, /repeatable-not-listed-config-\$\{field\.id\}-\$\{child\.id\}/);
+  assert.match(builder, /switch-repeatable-not-listed-\$\{field\.id\}-\$\{child\.id\}/);
+  assert.match(builder, /input-repeatable-not-listed-label-\$\{field\.id\}-\$\{child\.id\}/);
+  assert.match(builder, /function findInvalidNotListedField\(fields\)/);
+  assert.match(builder, /normalizeRepeatableRowField\(field\)\.children\.find/);
+  assert.match(builder, /button-repeatable-dependency-not-listed-\$\{field\.id\}-\$\{child\.id\}/);
+  assert.match(builder, /value: dependency\.value === FORM_NOT_LISTED_VALUE \? '' : FORM_NOT_LISTED_VALUE/);
+});
+
+test('repeatable multi-select not-listed choices respect whole-cell uniqueness', () => {
+  assert.match(renderer, /canToggleNotListedCategory = repeatableSelectionIsAvailable\(nextNotListedCategories\)/);
+  assert.match(renderer, /disabled=\{isFieldDisabled \|\| !canToggleNotListedCategory\}/);
+  assert.match(renderer, /selectionIsAvailable = repeatableSelectionIsAvailable\(nextSelection\)/);
+});
+
 test('unique repeatable dropdowns receive sibling exclusions across option sources', () => {
   assert.match(renderer, /repeatableSiblingUniqueValues\(rows, child, rowId\)/);
   assert.match(renderer, /repeatableSiblingUniqueValues=\{siblingUniqueValues\}/);

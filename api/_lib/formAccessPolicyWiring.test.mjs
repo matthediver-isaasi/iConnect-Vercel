@@ -114,6 +114,8 @@ test('generic FormSubmission writes cannot bypass access or forge payment proof'
   assert.match(block, /sendFormAccessDenied\(res, formAccess\)/);
   assert.match(block, /fields/);
   assert.match(block, /createFormRelationshipService\(\{/);
+  assert.match(block, /validateRepeatableRowSubmission\(\{/);
+  assert.match(block, /snapshotFormNotListedLabels\(/);
   assert.match(block, /tenantId: accessForm\.tenant_id/);
   assert.match(block, /submissionData: sanitizedBody\.submission_data \|\| \{\}/);
   assert.match(block, /error instanceof FormRelationshipError && error\.status < 500/);
@@ -157,6 +159,9 @@ test('generic FormSubmission PATCH validates the stored JSON replacement before 
   assert.match(block, /const effectiveSubmission = \{ \.\.\.subRow, \.\.\.req\.body \}/);
   assert.match(block, /const effectiveSubmissionData = effectiveSubmission\.submission_data/);
   assert.match(block, /createFormRelationshipService\(\{/);
+  assert.match(block, /validateRepeatableRowSubmission\(\{/);
+  assert.match(block, /snapshotFormNotListedLabels\(/);
+  assert.match(block, /preserveFormNotListedLabelSnapshots\(/);
   assert.match(block, /submissionData: effectiveSubmissionData/);
   assert.match(block, /error instanceof FormRelationshipError && error\.status < 500/);
   assertOrdered(

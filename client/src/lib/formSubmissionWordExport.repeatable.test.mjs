@@ -41,3 +41,36 @@ test('Word export prepares repeatable rows as labelled lines with resolved relat
   assert.equal(JSON.stringify(prepared).includes('team-id'), false);
   assert.equal(JSON.stringify(prepared).includes('org-1'), false);
 });
+
+test('Word export retains the submitted repeatable not-listed label', () => {
+  const form = {
+    fields: [{
+      id: 'contacts',
+      label: 'Contacts',
+      type: 'repeatable_row',
+      children: [{
+        id: 'organisation',
+        label: 'Organisation',
+        type: 'organisation_dropdown',
+        not_listed_choice: { enabled: false, label: 'Renamed label' },
+      }],
+    }],
+  };
+  const prepared = resolveSubmissionToPrepared({
+    submission: {
+      submission_data: {
+        contacts: [{ organisation: '__form_not_listed__' }],
+        __not_listed_choice_labels: {
+          contacts: { organisation: 'Original organisation label' },
+        },
+      },
+    },
+    form,
+    selectedOptions: [{ key: 'contacts', label: 'Contacts' }],
+    resolvers: { organisationNamesById: {} },
+  });
+  assert.deepEqual(
+    prepared.rows[0].lines.map(line => line.text),
+    ['Row 1', 'Organisation: Original organisation label'],
+  );
+});

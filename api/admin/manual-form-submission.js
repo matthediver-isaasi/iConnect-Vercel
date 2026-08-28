@@ -2,6 +2,7 @@ import { getSessionMember } from '../_lib/session.js';
 import { createClient } from '@supabase/supabase-js';
 import { createFormRelationshipService, FormRelationshipError } from '../_lib/formRelationshipOptions.js';
 import { validateRepeatableRowSubmission } from '../_lib/formRepeatableRowValidation.js';
+import { snapshotFormNotListedLabels } from '../../shared/formNotListedChoice.js';
 import {
   validateFormOrganisationGroupAnswers,
   validateOrganisationGroupDependentOrganizationAnswers,
@@ -129,7 +130,7 @@ export default async function handler(req, res) {
       form_name: form_name || form.name,
       submitted_by_name: submitted_by_name || null,
       submitted_by_email: submitted_by_email || null,
-      submission_data: submission_data || {},
+      submission_data: snapshotFormNotListedLabels(form.fields || [], submission_data || {}),
       created_date: new Date().toISOString(),
       tenant_id: tenantId,
     };

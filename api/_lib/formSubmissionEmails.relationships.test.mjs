@@ -86,3 +86,27 @@ test('configured form-email placeholders render repeatable rows and nested relat
   assert.equal(output.includes('private-row-id'), false);
   assert.equal(output.includes('org-1'), false);
 });
+
+test('configured form-email placeholders retain repeatable not-listed labels', () => {
+  const repeatable = {
+    id: 'contacts',
+    type: 'repeatable_row',
+    children: [{
+      id: 'employer',
+      label: 'Employer',
+      type: 'organisation_dropdown',
+      not_listed_choice: { enabled: false, label: 'Renamed label' },
+    }],
+  };
+  assert.equal(resolveSubmissionEmailFieldDisplayValue({
+    fields: [repeatable],
+    fieldKey: 'contacts',
+    rawValue: [],
+    persistedSubmissionData: {
+      contacts: [{ employer: '__form_not_listed__' }],
+      __not_listed_choice_labels: { contacts: { employer: 'Original employer label' } },
+    },
+    relationshipLabelsByRecordId: {},
+    organisationNamesById: {},
+  }), 'Row 1\nEmployer: Original employer label');
+});

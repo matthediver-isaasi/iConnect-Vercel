@@ -75,6 +75,7 @@ export function formatFormSubmissionFieldValue(
   const displayValue = resolveFormNotListedDisplayValue(field, value, submissionData);
   if (isRepeatableRowsField(field)) {
     return formatRepeatableRowsText(field, value, {
+      submissionData,
       formatCell: (cellValue, child) => child?.type === 'relationship_dropdown'
         ? formatRelationshipDisplayValue(cellValue, relationshipLabelsByRecordId)
         : child?.type === 'organisation_dropdown'

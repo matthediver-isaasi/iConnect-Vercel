@@ -61,6 +61,8 @@ import { authorizeGenericCommunicationPreferenceAccess } from '../../_lib/commun
 import { authorizeAndCheckTeamRoleAssignment, validateAssignableRoleIds } from '../../_lib/teamRoleAssignment.js';
 import { checkRoleMutationAccess } from '../../_lib/roleMutationAccess.js';
 import { createFormRelationshipService, FormRelationshipError } from '../../_lib/formRelationshipOptions.js';
+import { validateRepeatableRowSubmission } from '../../_lib/formRepeatableRowValidation.js';
+import { snapshotFormNotListedLabels } from '../../../shared/formNotListedChoice.js';
 
 /**
  * Task #3100: support staff = tenant users (admin dashboard), tenant admins,
@@ -1838,6 +1840,12 @@ export default async function handler(req, res) {
         // than the dedicated public handler. Revalidate dependent relationship
         // IDs here before idempotency reads, insertion, or any side effects.
         try {
+          await validateRepeatableRowSubmission({
+            db: supabase,
+            tenantId: accessForm.tenant_id,
+            form: accessForm,
+            submissionData: sanitizedBody.submission_data || {},
+          });
           await createFormRelationshipService({
             db: supabase,
             tenantId: accessForm.tenant_id,
@@ -1852,6 +1860,10 @@ export default async function handler(req, res) {
           console.error('[Entity POST] FormSubmission relationship validation failed:', error);
           return res.status(500).json({ error: 'Failed to validate submission' });
         }
+        sanitizedBody.submission_data = snapshotFormNotListedLabels(
+          accessForm.fields || [],
+          sanitizedBody.submission_data || {},
+        );
 
         // Payment lifecycle fields are server-owned. Public/generic form
         // submissions must never be able to forge the authorization proof

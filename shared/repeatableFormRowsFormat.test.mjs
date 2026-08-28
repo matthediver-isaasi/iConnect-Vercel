@@ -55,6 +55,12 @@ test('collects nested organisation IDs from builder-shaped rows', () => {
   assert.deepEqual(collectRepeatableOrganisationIds([field], { employment: value }), ['org-1', 'org-2']);
 });
 
+test('does not treat repeatable not-listed choices as entity IDs', () => {
+  const notListed = [{ organisation: '__form_not_listed__', department: '__form_not_listed__' }];
+  assert.deepEqual(collectRepeatableOrganisationIds([field], { employment: notListed }), []);
+  assert.deepEqual(collectRepeatableRelationshipRecordIds([field], { employment: notListed }), []);
+});
+
 test('accepts config and legacy row-id aliases without exposing either identity key', () => {
   const aliasField = {
     id: 'aliases',
@@ -65,4 +71,30 @@ test('accepts config and legacy row-id aliases without exposing either identity 
   assert.equal(model.rows[0].rowId, 'canonical');
   assert.equal(formatRepeatableRowsText(aliasField, [{ row_id: 'legacy', answer: 'Visible' }]), 'Row 1\nAnswer: Visible');
   assert.equal(JSON.stringify(model).includes('legacy'), false);
+});
+
+test('repeatable formatting uses the nested snapshotted not-listed label', () => {
+  const historicalField = {
+    id: 'rows',
+    type: 'repeatable_row',
+    children: [{
+      id: 'organisation',
+      label: 'Organisation',
+      type: 'organisation_dropdown',
+      not_listed_choice: { enabled: false, label: 'Renamed label' },
+    }],
+  };
+  const text = formatRepeatableRowsText(
+    historicalField,
+    [{ organisation: '__form_not_listed__' }],
+    {
+      submissionData: {
+        __not_listed_choice_labels: {
+          rows: { organisation: 'Original organisation label' },
+        },
+      },
+      organisationNamesById: {},
+    },
+  );
+  assert.equal(text, 'Row 1\nOrganisation: Original organisation label');
 });

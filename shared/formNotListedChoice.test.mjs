@@ -6,6 +6,7 @@ import {
   applyExclusiveFormNotListedSelection,
   hasEnabledFormNotListedChoice,
   prependFormNotListedOption,
+  preserveFormNotListedLabelSnapshots,
   resolveFormNotListedDisplayValue,
   snapshotFormNotListedLabels,
 } from './formNotListedChoice.js';
@@ -43,4 +44,55 @@ test('snapshots and resolves the submitted label after configuration changes', (
     resolveFormNotListedDisplayValue(renamed, FORM_NOT_LISTED_VALUE, stored),
     'My organisation is not listed',
   );
+});
+
+test('snapshots repeatable child labels independently beneath the container field', () => {
+  const repeatable = {
+    id: 'rows',
+    type: 'repeatable_row',
+    repeatable_row: {
+      children: [{
+        id: 'country',
+        type: 'country',
+        not_listed_choice: { enabled: true, label: 'Original country label' },
+      }],
+    },
+  };
+  const stored = snapshotFormNotListedLabels([repeatable], {
+    rows: [{ country: FORM_NOT_LISTED_VALUE }],
+  });
+  assert.equal(stored[FORM_NOT_LISTED_LABELS_KEY].rows.country, 'Original country label');
+  const renamedChild = {
+    ...repeatable.repeatable_row.children[0],
+    not_listed_choice: { enabled: false, label: 'Renamed country label' },
+  };
+  assert.equal(
+    resolveFormNotListedDisplayValue(
+      renamedChild,
+      FORM_NOT_LISTED_VALUE,
+      stored,
+      { parentField: repeatable },
+    ),
+    'Original country label',
+  );
+});
+
+test('trusted historical labels survive a later submission edit while new labels are retained', () => {
+  const merged = preserveFormNotListedLabelSnapshots({
+    __not_listed_choice_labels: {
+      rows: { new_child: 'New child label', old_child: 'Renamed label' },
+    },
+  }, {
+    __not_listed_choice_labels: {
+      rows: { old_child: 'Original child label' },
+      top_level: 'Original top-level label',
+    },
+  });
+  assert.deepEqual(merged.__not_listed_choice_labels, {
+    rows: {
+      new_child: 'New child label',
+      old_child: 'Original child label',
+    },
+    top_level: 'Original top-level label',
+  });
 });

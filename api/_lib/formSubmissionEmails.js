@@ -204,6 +204,7 @@ export function resolveSubmissionEmailFieldDisplayValue({
   const displayValue = resolveFormNotListedDisplayValue(field, persistedValue ?? rawValue, persistedSubmissionData);
   if (isRepeatableRowsField(field)) {
     return formatRepeatableRowsText(field, persistedValue ?? rawValue, {
+      submissionData: persistedSubmissionData,
       formatCell: (cellValue, child) => child?.type === 'relationship_dropdown'
         ? formatRelationshipDisplayValue(cellValue, relationshipLabelsByRecordId)
         : child?.type === 'organisation_dropdown'

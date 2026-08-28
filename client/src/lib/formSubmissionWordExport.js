@@ -210,6 +210,7 @@ function formatResponseValueToJson(value, fieldDef, resolvers, submissionData = 
 
   if (isRepeatableRowsField(fieldDef)) {
     const text = formatRepeatableRowsText(fieldDef, value, {
+      submissionData,
       formatCell: (cellValue, child) => {
         if (child?.type === 'relationship_dropdown') {
           return typeof r.resolveRelationshipLabel === 'function'
