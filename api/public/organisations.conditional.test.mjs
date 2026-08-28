@@ -31,6 +31,7 @@ function savedForm(rules) {
       { id: 'country', name: 'country', type: 'dropdown' },
       {
         id: 'org', type: 'organisation_dropdown',
+        options: [],
         org_filter: { type: 'core', field: 'is_active', values: ['true'] },
         conditional_filters: { version: 1, rules },
       },

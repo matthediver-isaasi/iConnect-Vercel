@@ -178,6 +178,12 @@ function baseAllowedValues(field) {
   const configured = Array.isArray(field?.options) ? field.options
     : (Array.isArray(field?.choices) ? field.choices : null);
   if (!configured) return null;
+  if (
+    configured.length === 0
+    && (field?.type === 'organisation_dropdown' || field?.type === 'relationship_dropdown')
+  ) {
+    return null;
+  }
   return fieldValues(field, configured);
 }
 

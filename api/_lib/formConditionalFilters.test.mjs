@@ -77,6 +77,7 @@ test('absent and empty rules preserve legacy selection behavior', () => {
 test('relationship IDs can be conditionally restricted', () => {
   const resolution = resolveConditionalFilter({
     type: 'relationship_dropdown',
+    options: [],
     conditional_filters: { version: 1, rules: [rule({ allowed_values: ['record-1'] })] },
   }, { country: 'GB' });
   assert.equal(conditionalSelectionAllowed('record-1', resolution), true);
@@ -87,6 +88,7 @@ test('organisation-only filters permit IDs for subsequent trusted eligibility ch
   const orgFilter = { type: 'core', field: 'status', values: ['approved'] };
   const resolution = resolveConditionalFilter({
     type: 'organisation_dropdown',
+    options: [],
     conditional_filters: {
       version: 1,
       rules: [rule({ allowed_values: [], org_filter: orgFilter })],
@@ -94,6 +96,34 @@ test('organisation-only filters permit IDs for subsequent trusted eligibility ch
   }, { country: 'GB' });
   assert.equal(conditionalSelectionAllowed('org-id', resolution), true);
   assert.deepEqual(resolution.orgFilter, orgFilter);
+});
+
+test('empty saved option placeholders do not deny server-loaded dynamic IDs', () => {
+  for (const type of ['organisation_dropdown', 'relationship_dropdown']) {
+    const resolution = resolveConditionalFilter({
+      type,
+      options: [],
+      conditional_filters: {
+        version: 1,
+        rules: [rule({ allowed_values: [] })],
+      },
+    }, { country: 'GB' });
+    assert.equal(resolution.allowedValues, null);
+    assert.equal(conditionalSelectionAllowed('server-loaded-id', resolution), true);
+  }
+});
+
+test('empty saved options remain authoritative for ordinary static fields', () => {
+  const resolution = resolveConditionalFilter({
+    type: 'dropdown',
+    options: [],
+    conditional_filters: {
+      version: 1,
+      rules: [rule({ allowed_values: [] })],
+    },
+  }, { country: 'GB' });
+  assert.deepEqual(resolution.allowedValues, []);
+  assert.equal(conditionalSelectionAllowed('forged', resolution), false);
 });
 
 test('validator rejects malformed contracts and unsupported operators', () => {

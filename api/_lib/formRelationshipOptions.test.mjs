@@ -54,10 +54,11 @@ function form(overrides = {}) {
     tenant_id: tenantId,
     is_active: true,
     fields: [
-      { id: 'org', type: 'organisation_dropdown' },
+      { id: 'org', type: 'organisation_dropdown', options: [] },
       {
         id: 'department',
         type: 'relationship_dropdown',
+        options: [],
         parent_field_id: 'org',
         relationship_definition_id: 'definition-1',
         custom_object_id: 'object-1',
@@ -416,6 +417,7 @@ test('submission validation enforces conditional organisation rules and saved el
       {
         id: 'org',
         type: 'organisation_dropdown',
+        options: [],
         org_filter: { type: 'core', field: 'is_active', values: ['true'] },
         conditional_filters: {
           version: 1,
