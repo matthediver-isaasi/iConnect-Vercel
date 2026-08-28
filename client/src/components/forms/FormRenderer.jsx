@@ -51,8 +51,11 @@ import { formNoRelationshipLabel } from "../../../../shared/formNoRelationshipCh
 import {
   createRepeatableRowId,
   ensureRepeatableRowIds,
+  isRepeatableUniqueOptionAvailable,
   isRepeatableRowField,
   normalizeRepeatableRowField,
+  repeatableSiblingUniqueValues,
+  repeatableUniqueValueKey,
   REPEATABLE_ROW_LAYOUT_SPREADSHEET,
   validateRepeatableRows,
 } from "../../../../shared/formRepeatableRows.js";
@@ -179,6 +182,7 @@ function RepeatableRowsField({
   }
 
   const renderChild = (child, row, rowId, rowIndex, spreadsheet = false) => {
+    const siblingUniqueValues = repeatableSiblingUniqueValues(rows, child, rowId);
     const content = (
       <>
       {spreadsheet
@@ -216,14 +220,15 @@ function RepeatableRowsField({
         prefillData={prefillData}
         membershipFeeQuote={membershipFeeQuote}
         notListedDisplayLabel={notListedDisplayLabel}
+        repeatableSiblingUniqueValues={siblingUniqueValues}
       />
       {duplicateErrors.has(`${rowIndex}:${child.id}`) && (
         <p
-          className="text-xs text-red-600"
-          role="alert"
+          className="text-xs text-slate-500"
+          aria-live="polite"
           data-testid={`repeatable-duplicate-error-${field.id}-${rowIndex}-${child.id}`}
         >
-          {duplicateErrors.get(`${rowIndex}:${child.id}`)}
+          That value is already used in another row.
         </p>
       )}
       </>
@@ -429,52 +434,65 @@ function CountryCombobox({ countries, value, onChange, disabled, placeholder, fi
   );
 }
 
-function MultiCountryCombobox({ countries, value = [], onChange, disabled, placeholder, fieldId, notListedLabel = '' }) {
+function MultiCountryCombobox({ countries, value = [], onChange, disabled, placeholder, fieldId, notListedLabel = '', isSelectionAllowed = () => true }) {
   const [open, setOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   // Support both country codes (legacy) and country names for backwards compatibility
   const selectedCountries = countries.filter(c => value.includes(c.name) || value.includes(c.code));
-  
-  // Filter countries based on search query while maintaining alphabetical order
-  const filteredCountries = searchQuery
+
+  const nextValueForCountry = (country) => {
+    const isSelected = value.includes(country.name) || value.includes(country.code);
+    if (isSelected) return value.filter(item => item !== country.name && item !== country.code);
+    return [...value.filter(item => item !== FORM_NOT_LISTED_VALUE), country.name];
+  };
+  const canToggleCountry = (country) => isSelectionAllowed(nextValueForCountry(country));
+  const nextNotListedValue = applyExclusiveFormNotListedSelection(value, FORM_NOT_LISTED_VALUE);
+  const canToggleNotListed = isSelectionAllowed(nextNotListedValue);
+
+  const searchedCountries = searchQuery
     ? countries.filter(c => c.name.toLowerCase().includes(searchQuery.toLowerCase()))
     : countries;
-  
-  const toggleCountry = (name) => {
-    const country = countries.find(c => c.name === name);
-    const code = country?.code;
-    const isSelected = value.includes(name) || (code && value.includes(code));
-    
-    if (isSelected) {
-      const newValue = value.filter(c => c !== name && c !== code);
-      onChange(newValue);
-    } else {
-      onChange([...value, name]);
-    }
-  };
+  const filteredCountries = searchedCountries.filter(country => (
+    value.includes(country.name)
+    || value.includes(country.code)
+    || canToggleCountry(country)
+  ));
 
   const allFilteredSelected = filteredCountries.length > 0 && filteredCountries.every(
     c => value.includes(c.name) || value.includes(c.code)
   );
 
   const toggleAll = () => {
+    let newValue;
     if (allFilteredSelected) {
       const filteredNames = new Set(filteredCountries.map(c => c.name));
       const filteredCodes = new Set(filteredCountries.map(c => c.code));
-      const newValue = value.filter(v => !filteredNames.has(v) && !filteredCodes.has(v));
-      onChange(newValue);
+      newValue = value.filter(v => !filteredNames.has(v) && !filteredCodes.has(v));
     } else {
       const currentWithoutNotListed = value.filter(entry => entry !== FORM_NOT_LISTED_VALUE);
       const currentSet = new Set(currentWithoutNotListed);
-      const newValue = [...currentWithoutNotListed];
+      newValue = [...currentWithoutNotListed];
       for (const c of filteredCountries) {
         if (!currentSet.has(c.name) && !currentSet.has(c.code)) {
           newValue.push(c.name);
         }
       }
-      onChange(newValue);
     }
+    if (isSelectionAllowed(newValue)) onChange(newValue);
   };
+  const canToggleAll = (() => {
+    if (allFilteredSelected) {
+      const names = new Set(filteredCountries.map(country => country.name));
+      const codes = new Set(filteredCountries.map(country => country.code));
+      return isSelectionAllowed(value.filter(item => !names.has(item) && !codes.has(item)));
+    }
+    const next = value.filter(item => item !== FORM_NOT_LISTED_VALUE);
+    const selected = new Set(next);
+    for (const country of filteredCountries) {
+      if (!selected.has(country.name) && !selected.has(country.code)) next.push(country.name);
+    }
+    return isSelectionAllowed(next);
+  })();
   
   return (
     <Popover open={open} onOpenChange={(isOpen) => {
@@ -514,10 +532,11 @@ function MultiCountryCombobox({ countries, value = [], onChange, disabled, place
           <CommandList>
             <CommandEmpty>No country found.</CommandEmpty>
             <CommandGroup>
-              {notListedLabel && (
+              {notListedLabel && (value.includes(FORM_NOT_LISTED_VALUE) || canToggleNotListed) && (
                 <CommandItem
                   value={FORM_NOT_LISTED_VALUE}
-                  onSelect={() => onChange(applyExclusiveFormNotListedSelection(value, FORM_NOT_LISTED_VALUE))}
+                  disabled={!canToggleNotListed}
+                  onSelect={() => canToggleNotListed && onChange(nextNotListedValue)}
                 >
                   <Check className={cn("mr-2 h-4 w-4", value.includes(FORM_NOT_LISTED_VALUE) ? "opacity-100" : "opacity-0")} />
                   {notListedLabel}
@@ -525,6 +544,7 @@ function MultiCountryCombobox({ countries, value = [], onChange, disabled, place
               )}
               <CommandItem
                 onSelect={toggleAll}
+                disabled={!canToggleAll}
                 className="font-medium text-primary"
                 data-testid={`toggle-all-countries-${fieldId}`}
               >
@@ -540,7 +560,8 @@ function MultiCountryCombobox({ countries, value = [], onChange, disabled, place
                 <CommandItem
                   key={country.code}
                   value={country.name}
-                  onSelect={() => onChange(applyExclusiveFormNotListedSelection(value, country.name))}
+                  disabled={!canToggleCountry(country)}
+                  onSelect={() => canToggleCountry(country) && onChange(nextValueForCountry(country))}
                 >
                   <Check
                     className={cn(
@@ -663,7 +684,7 @@ function CommunicationPreferencesField({ field, value, onChange, disabled, membe
   );
 }
 
-export default function FormRenderer({ field, value: suppliedValue, onChange, memberInfo, organizationInfo, selectedOrgGuestAccess = null, disabled = false, onValidityChange, onRelationshipEmptyStateChange, autoFocus = false, hideLabel = false, formId = null, formSlug = null, formMemberRoleId = null, allFormValues = {}, prefillData = null, allFields = [], membershipFeeQuote = null, notListedDisplayLabel = '', rootAllFields = null, rootAllFormValues = null }) {
+export default function FormRenderer({ field, value: suppliedValue, onChange, memberInfo, organizationInfo, selectedOrgGuestAccess = null, disabled = false, onValidityChange, onRelationshipEmptyStateChange, autoFocus = false, hideLabel = false, formId = null, formSlug = null, formMemberRoleId = null, allFormValues = {}, prefillData = null, allFields = [], membershipFeeQuote = null, notListedDisplayLabel = '', rootAllFields = null, rootAllFormValues = null, repeatableSiblingUniqueValues: siblingUniqueValues = [] }) {
   const resolvedFieldValue = resolveFormRendererFieldValue({
     field,
     fields: allFields,
@@ -1091,6 +1112,24 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, me
     ),
     [customFieldDef?.options, field.options, conditionalResolution],
   );
+  const repeatableComparisonField = field.type === 'custom_field' && customFieldDef?.field_type
+    ? { ...field, custom_field_type: customFieldDef.field_type }
+    : field;
+  const repeatableExcludedValueKeys = new Set(
+    siblingUniqueValues.map(item => repeatableUniqueValueKey(item, repeatableComparisonField)),
+  );
+  const repeatableOptionIsAvailable = (optionValue) => isRepeatableUniqueOptionAvailable(
+    optionValue,
+    value,
+    repeatableComparisonField,
+    repeatableExcludedValueKeys,
+  );
+  const repeatableSelectionIsAvailable = (nextValue) => isRepeatableUniqueOptionAvailable(
+    nextValue,
+    value,
+    repeatableComparisonField,
+    repeatableExcludedValueKeys,
+  );
   const customCountryOptions = useMemo(() => {
     const restricted = customFieldDef?.all_countries !== false
       ? COUNTRIES
@@ -1103,7 +1142,7 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, me
     let options;
     let loading = false;
     let getValue;
-    if (['select', 'radio', 'checkbox'].includes(field.type)) options = staticOptions;
+    if (['dropdown', 'select', 'radio', 'checkbox'].includes(field.type)) options = staticOptions;
     else if (field.type === 'image_buttons') {
       options = imageButtonOptions;
       getValue = option => option.value;
@@ -1540,7 +1579,13 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, me
           </div>
         );
 
-      case 'select':
+      case 'dropdown':
+      case 'select': {
+        const effectiveStaticOptions = staticOptions.filter(repeatableOptionIsAvailable);
+        const otherChoiceAvailable = field.allow_other && repeatableOptionIsAvailable('other');
+        const noRemainingStaticOptions = staticOptions.length > 0
+          && effectiveStaticOptions.length === 0
+          && !otherChoiceAvailable;
         return (
           <div className="space-y-2">
             <Select 
@@ -1556,18 +1601,20 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, me
                   onChange(val);
                 }
               }}
-              disabled={isFieldDisabled}
+              disabled={isFieldDisabled || noRemainingStaticOptions}
             >
               <SelectTrigger className={isFieldDisabled ? 'bg-slate-100 cursor-not-allowed opacity-60' : ''}>
-                <SelectValue placeholder={field.placeholder || 'Select an option'} />
+                <SelectValue placeholder={noRemainingStaticOptions
+                  ? 'All available choices are already used in another row'
+                  : (field.placeholder || 'Select an option')} />
               </SelectTrigger>
               <SelectContent side="bottom">
-                {staticOptions.map((option, index) => (
+                {effectiveStaticOptions.map((option, index) => (
                   <SelectItem key={index} value={option}>
                     {option}
                   </SelectItem>
                 ))}
-                {field.allow_other && (
+                {otherChoiceAvailable && (
                   !conditionalResolution.configured
                   || intersectConditionalOptions(
                     ['Other'],
@@ -1592,6 +1639,7 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, me
             )}
           </div>
         );
+      }
 
       case 'radio':
         return (
@@ -1694,10 +1742,15 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, me
             </div>
           );
         }
-        if (organisationOptions.length === 0) {
+        const effectiveOrganisationOptions = organisationOptions.filter(
+          org => repeatableOptionIsAvailable(org.id),
+        );
+        if (effectiveOrganisationOptions.length === 0) {
           return <p className="text-sm text-slate-500">
             {conditionalResolution.configured && !conditionalResolution.matchedRule
               ? 'No organisations are available until a conditional rule matches.'
+              : organisationOptions.length > 0
+                ? 'All available organisations are already used in another row.'
               : 'No organisations are available.'}
           </p>;
         }
@@ -1711,7 +1764,7 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, me
               </SelectValue>
             </SelectTrigger>
             <SelectContent side="bottom">
-              {organisationOptions.map((org) => (
+              {effectiveOrganisationOptions.map((org) => (
                 <SelectItem key={org.id} value={org.id} data-testid={`option-organisation-${org.id}`}>
                   {org.name}
                 </SelectItem>
@@ -1732,10 +1785,15 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, me
             </div>
           );
         }
-        if (organisationGroupOptions.length === 0) {
+        const effectiveOrganisationGroupOptions = organisationGroupOptions.filter(
+          group => repeatableOptionIsAvailable(group.id),
+        );
+        if (effectiveOrganisationGroupOptions.length === 0) {
           return <p className="text-sm text-slate-500">
             {conditionalResolution.configured && !conditionalResolution.matchedRule
               ? 'No organisation groups are available until a conditional rule matches.'
+              : organisationGroupOptions.length > 0
+                ? 'All available organisation groups are already used in another row.'
               : 'No organisation groups are available.'}
           </p>;
         }
@@ -1748,7 +1806,7 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, me
               </SelectValue>
             </SelectTrigger>
             <SelectContent side="bottom">
-              {organisationGroupOptions.map(group => (
+              {effectiveOrganisationGroupOptions.map(group => (
                 <SelectItem key={group.id} value={group.id} data-testid={`option-organisation-group-${group.id}`}>
                   {group.name}
                 </SelectItem>
@@ -1759,7 +1817,9 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, me
       }
 
       case 'relationship_dropdown': {
-        const effectiveRelationshipOptions = relationshipOptions;
+        const effectiveRelationshipOptions = relationshipOptions.filter(
+          option => repeatableOptionIsAvailable(option.id),
+        );
         const selectedOption = effectiveRelationshipOptions.find((option) => option.id === relationshipCurrentValue);
         const missingConfiguration = !formSlug || !field.parent_field_id || !field.relationship_definition_id;
         const canChooseNotListed = effectiveRelationshipOptions.some(option => option.id === FORM_NOT_LISTED_VALUE);
@@ -1771,7 +1831,11 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, me
         else if (relationshipOptionsLoading) placeholder = 'Loading options…';
         else if (relationshipOptionsError) placeholder = 'Options could not be loaded';
         else if (relationshipResultIsEmpty) placeholder = formNoRelationshipLabel(field);
-        else if (relationshipOptions.length === 0) placeholder = 'No related records available';
+        else if (effectiveRelationshipOptions.length === 0) {
+          placeholder = relationshipOptions.length > 0
+            ? 'All available choices are already used in another row'
+            : 'No related records available';
+        }
         return (
           <div className="space-y-1">
             <Select
@@ -1951,6 +2015,9 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, me
         // Find the selected category and get its subcategories as options
         const selectedCategory = categories.find(cat => cat.id === field.category_id);
         const subcategoryOptions = categoryDropdownOptions;
+        const effectiveSubcategoryOptions = subcategoryOptions.filter(option => (
+          option !== '' && repeatableOptionIsAvailable(option?.value || option)
+        ));
         
         if (!selectedCategory) {
           return (
@@ -1960,11 +2027,13 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, me
           );
         }
         
-        if (subcategoryOptions.length === 0) {
+        if (effectiveSubcategoryOptions.length === 0) {
           return (
             <p className="text-sm text-slate-500">
               {conditionalResolution.configured && !conditionalResolution.matchedRule
                 ? 'No options are available until a conditional rule matches.'
+                : subcategoryOptions.length > 0
+                  ? 'All available options are already used in another row.'
                 : `No options available for "${selectedCategory.name}".`}
             </p>
           );
@@ -1976,7 +2045,7 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, me
               <SelectValue placeholder={field.placeholder || 'Select an option'} />
             </SelectTrigger>
             <SelectContent side="bottom">
-              {subcategoryOptions.filter(option => option !== '').map((option, index) => (
+              {effectiveSubcategoryOptions.map((option, index) => (
                 <SelectItem key={option?.value || option || index} value={option?.value || option} data-testid={`option-subcategory-${index}`}>
                   {option?.label || option}
                 </SelectItem>
@@ -2159,17 +2228,23 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, me
               disabled={isFieldDisabled}
               placeholder={field.placeholder || 'Select countries...'}
               fieldId={field.id}
+              isSelectionAllowed={repeatableSelectionIsAvailable}
             />
           );
         }
 
         if (customFieldDef.field_type === 'country') {
-          const allowedCountriesSingle = customCountryOptions;
           const singleValue = Array.isArray(value) ? (value[0] || '') : (value || '');
-          if (customCountryOptions.length === 0) {
+          const allowedCountriesSingle = customCountryOptions.filter(country => (
+            repeatableOptionIsAvailable(country.name)
+            || (singleValue === country.code && repeatableOptionIsAvailable(country.code))
+          ));
+          if (allowedCountriesSingle.length === 0) {
             return <p className="text-sm text-slate-500">
               {conditionalResolution.configured && !conditionalResolution.matchedRule
                 ? 'No countries are available until a conditional rule matches.'
+                : customCountryOptions.length > 0
+                  ? 'All available countries are already used in another row.'
                 : 'No countries are available.'}
             </p>;
           }
@@ -2321,16 +2396,24 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, me
         }
         
         // Default: dropdown/select
+        const effectiveCustomFieldOptions = customFieldOptions.filter((option) => {
+          const optValue = option.value || option.label || option;
+          return optValue && repeatableOptionIsAvailable(optValue);
+        });
+        if (effectiveCustomFieldOptions.length === 0 && customFieldOptions.length > 0) {
+          return <p className="text-sm text-slate-500">
+            All available options are already used in another row.
+          </p>;
+        }
         return (
           <Select value={value || ''} onValueChange={isFieldDisabled ? undefined : onChange} disabled={isFieldDisabled}>
             <SelectTrigger data-testid={`select-custom-field-${field.id}`} className={isFieldDisabled ? 'bg-slate-100 cursor-not-allowed opacity-60' : ''}>
               <SelectValue placeholder={field.placeholder || 'Select an option'} />
             </SelectTrigger>
             <SelectContent side="bottom">
-              {customFieldOptions.map((option, index) => {
+              {effectiveCustomFieldOptions.map((option, index) => {
                 const optValue = option.value || option.label || option;
                 const optLabel = option.label || option.value || option;
-                if (!optValue) return null;
                 return (
                   <SelectItem key={index} value={optValue} data-testid={`option-custom-${field.id}-${index}`}>
                     {optLabel}
@@ -2410,7 +2493,10 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, me
         );
 
       case 'country':
-        const availableCountries = availableCountryOptions;
+        const availableCountries = availableCountryOptions.filter(country => (
+          repeatableOptionIsAvailable(country.name)
+          || (value === country.code && repeatableOptionIsAvailable(country.code))
+        ));
         const defaultCountryName = field.default_country 
           ? (COUNTRIES.find(c => c.code === field.default_country)?.name || '') 
           : '';
@@ -2423,7 +2509,9 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, me
             disabled={isFieldDisabled}
             placeholder="Select a country..."
             fieldId={field.id}
-            notListedLabel={notListedDisplayLabel || availableCountryNotListedLabel}
+            notListedLabel={repeatableOptionIsAvailable(FORM_NOT_LISTED_VALUE)
+              ? (notListedDisplayLabel || availableCountryNotListedLabel)
+              : ''}
           />
         );
 
@@ -2443,6 +2531,7 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, me
             placeholder="Select countries..."
             fieldId={field.id}
             notListedLabel={notListedDisplayLabel || availableCountryNotListedLabel}
+            isSelectionAllowed={repeatableSelectionIsAvailable}
           />
         );
 

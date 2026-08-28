@@ -4,9 +4,12 @@ import {
   createRepeatableRowId,
   ensureRepeatableRowIds,
   formatRepeatableRows,
+  isRepeatableUniqueOptionAvailable,
   isRepeatableRowEmpty,
   normalizeRepeatableRowField,
   repeatableRowFieldConfigUpdate,
+  repeatableSiblingUniqueValueKeys,
+  repeatableSiblingUniqueValues,
   REPEATABLE_ROW_LAYOUT_CARDS,
   REPEATABLE_ROW_LAYOUT_SPREADSHEET,
   validateRepeatableRows,
@@ -203,6 +206,121 @@ test('columns without the uniqueness flag still allow repeated values', () => {
     { org: 'org-1' },
     { org: 'org-1' },
   ]).valid, true);
+});
+
+test('unique dropdown options exclude sibling selections but retain the current row value', () => {
+  const child = {
+    id: 'org',
+    type: 'organisation_dropdown',
+    unique_across_rows: true,
+  };
+  const rows = [
+    { _row_id: 'one', org: 'org-1' },
+    { _row_id: 'two', org: 'org-2' },
+    { _row_id: 'three', org: '' },
+  ];
+  const excludedForSecond = repeatableSiblingUniqueValueKeys(rows, child, 'two');
+  assert.equal(isRepeatableUniqueOptionAvailable('org-1', 'org-2', child, excludedForSecond), false);
+  assert.equal(isRepeatableUniqueOptionAvailable('org-2', 'org-2', child, excludedForSecond), true);
+  assert.equal(isRepeatableUniqueOptionAvailable('org-3', 'org-2', child, excludedForSecond), true);
+  assert.equal(isRepeatableUniqueOptionAvailable('org-1', 'org-1', child, excludedForSecond), true);
+
+  const releasedRows = rows.filter(row => row._row_id !== 'one');
+  const released = repeatableSiblingUniqueValueKeys(releasedRows, child, 'two');
+  assert.equal(isRepeatableUniqueOptionAvailable('org-1', 'org-2', child, released), true);
+});
+
+test('non-unique columns do not exclude sibling values', () => {
+  const child = { id: 'org', type: 'organisation_dropdown' };
+  const excluded = repeatableSiblingUniqueValueKeys([
+    { _row_id: 'one', org: 'org-1' },
+    { _row_id: 'two', org: 'org-2' },
+  ], child, 'two');
+  assert.equal(excluded.size, 0);
+  assert.equal(isRepeatableUniqueOptionAvailable('org-1', 'org-2', child, excluded), true);
+});
+
+test('country uniqueness treats legacy codes and selectable names as the same value', () => {
+  const child = { id: 'country', type: 'country', unique_across_rows: true };
+  const rows = [
+    { _row_id: 'one', country: 'GB' },
+    { _row_id: 'two', country: '' },
+  ];
+  const excluded = repeatableSiblingUniqueValueKeys(rows, child, 'two');
+  assert.equal(isRepeatableUniqueOptionAvailable('United Kingdom', '', child, excluded), false);
+  assert.equal(validateRepeatableRows({
+    type: 'repeatable_rows',
+    child_fields: [child],
+  }, [
+    { country: 'GB' },
+    { country: 'United Kingdom' },
+  ]).valid, false);
+
+  assert.deepEqual(repeatableSiblingUniqueValues(rows, child, 'two'), ['GB']);
+});
+
+test('multi-country choices only block a toggle that would duplicate the whole sibling cell', () => {
+  const child = { id: 'countries', type: 'countries', unique_across_rows: true };
+  const siblingRows = [
+    { _row_id: 'one', countries: ['GB', 'France'] },
+    { _row_id: 'two', countries: ['United Kingdom'] },
+  ];
+  const excluded = repeatableSiblingUniqueValueKeys(siblingRows, child, 'two');
+
+  assert.equal(
+    isRepeatableUniqueOptionAvailable(
+      ['United Kingdom', 'France'],
+      ['United Kingdom'],
+      child,
+      excluded,
+    ),
+    false,
+  );
+  assert.equal(
+    isRepeatableUniqueOptionAvailable(
+      ['United Kingdom', 'Germany'],
+      ['United Kingdom'],
+      child,
+      excluded,
+    ),
+    true,
+  );
+  assert.equal(
+    isRepeatableUniqueOptionAvailable(
+      ['United Kingdom'],
+      ['United Kingdom'],
+      child,
+      excluded,
+    ),
+    true,
+  );
+  assert.equal(validateRepeatableRows({
+    type: 'repeatable_rows',
+    child_fields: [child],
+  }, [
+    { countries: ['GB', 'France'] },
+    { countries: ['United Kingdom', 'France'] },
+  ]).valid, false);
+});
+
+test('legacy custom country values use the same code/name canonicalization', () => {
+  const single = { id: 'custom_country', type: 'custom_field', unique_across_rows: true };
+  assert.equal(validateRepeatableRows({
+    type: 'repeatable_rows',
+    child_fields: [single],
+  }, [
+    { custom_country: 'GB' },
+    { custom_country: 'United Kingdom' },
+  ]).valid, false);
+
+  const multiple = { id: 'custom_countries', type: 'custom_field', unique_across_rows: true };
+  assert.equal(validateRepeatableRows({
+    type: 'repeatable_rows',
+    child_fields: [multiple],
+  }, [
+    { custom_countries: ['GB', 'France'] },
+    { custom_countries: ['United Kingdom', 'France'] },
+  ]).valid, false);
 });
 
 test('rejects unsupported children, invalid dependency direction and static selections', () => {

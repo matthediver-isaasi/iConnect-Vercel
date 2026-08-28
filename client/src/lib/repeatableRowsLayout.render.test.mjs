@@ -44,6 +44,26 @@ test('builder exposes per-column uniqueness and renderer shows duplicate feedbac
     renderer,
     /data-testid=\{`repeatable-duplicate-error-\$\{field\.id\}-\$\{rowIndex\}-\$\{child\.id\}`\}/,
   );
+  assert.match(renderer, /That value is already used in another row\./);
+  assert.doesNotMatch(renderer, /className="text-xs text-red-600"[\s\S]*?repeatable-duplicate-error/);
+  assert.doesNotMatch(renderer, /role="alert"[\s\S]*?repeatable-duplicate-error/);
+});
+
+test('unique repeatable dropdowns receive sibling exclusions across option sources', () => {
+  assert.match(renderer, /repeatableSiblingUniqueValues\(rows, child, rowId\)/);
+  assert.match(renderer, /repeatableSiblingUniqueValues=\{siblingUniqueValues\}/);
+  assert.match(renderer, /const effectiveStaticOptions = staticOptions\.filter\(repeatableOptionIsAvailable\)/);
+  assert.match(renderer, /const effectiveOrganisationOptions = organisationOptions\.filter\(/);
+  assert.match(renderer, /const effectiveOrganisationGroupOptions = organisationGroupOptions\.filter\(/);
+  assert.match(renderer, /relationshipOptions\.filter\(/);
+  assert.match(renderer, /relationshipResultIsEmpty = isConfirmedEmptyRelationshipResult\(\{[\s\S]*?options: rawRelationshipOptions/);
+  assert.match(renderer, /All available choices are already used in another row/);
+  assert.match(renderer, /repeatableOptionIsAvailable\(country\.name\)/);
+  assert.match(renderer, /repeatableOptionIsAvailable\(option\?\.value \|\| option\)/);
+  assert.match(renderer, /const effectiveCustomFieldOptions = customFieldOptions\.filter/);
+  assert.match(renderer, /isSelectionAllowed=\{repeatableSelectionIsAvailable\}/);
+  assert.match(renderer, /const allowedCountriesSingle = customCountryOptions\.filter/);
+  assert.match(renderer, /disabled=\{!canToggleCountry\(country\)\}/);
 });
 
 test('spreadsheet repeatable rows render one header, aligned rows, and icon-only removal', () => {

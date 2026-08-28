@@ -1,3 +1,5 @@
+import { resolveCountryToIso2 } from './countries.js';
+
 export const REPEATABLE_ROW_SCHEMA_VERSION = 1;
 export const REPEATABLE_ROW_FIELD_TYPE = 'repeatable_row';
 export const REPEATABLE_ROW_FIELD_TYPES = Object.freeze([
@@ -142,20 +144,30 @@ function selectedValues(value) {
   return Array.isArray(value) ? value : [value];
 }
 
-function stableUniqueValue(value, child) {
+export function repeatableUniqueValueKey(value, child) {
   if (Array.isArray(value)) {
     return `array:${JSON.stringify(value
-      .map(item => stableUniqueValue(item, child))
+      .map(item => repeatableUniqueValueKey(item, child))
       .sort())}`;
   }
   if (value && typeof value === 'object') {
     return `object:${JSON.stringify(Object.keys(value).sort().map(key => [
       key,
-      stableUniqueValue(value[key], child),
+      repeatableUniqueValueKey(value[key], child),
     ]))}`;
   }
   if (typeof value === 'string') {
     const trimmed = value.trim();
+    if (
+      child?.type === 'country'
+      || child?.type === 'countries'
+      || child?.custom_field_type === 'country'
+      || child?.custom_field_type === 'countries'
+      || child?.type === 'custom_field'
+    ) {
+      const countryCode = resolveCountryToIso2(trimmed);
+      if (countryCode) return `country:${countryCode}`;
+    }
     if (['number', 'percentage', 'currency'].includes(child?.type)
         && trimmed !== '' && Number.isFinite(Number(trimmed))) {
       return `number:${Number(trimmed)}`;
@@ -165,6 +177,39 @@ function stableUniqueValue(value, child) {
   if (typeof value === 'number') return `number:${Number(value)}`;
   if (typeof value === 'boolean') return `boolean:${value}`;
   return `${typeof value}:${String(value)}`;
+}
+
+export function repeatableSiblingUniqueValueKeys(rows, child, currentRowId) {
+  const keys = new Set();
+  if (!child?.unique_across_rows || !Array.isArray(rows)) return keys;
+  rows.forEach((row) => {
+    if (!row || row._row_id === currentRowId) return;
+    const selected = row[child.id];
+    if (!isRepeatableValueEmpty(selected)) {
+      keys.add(repeatableUniqueValueKey(selected, child));
+    }
+  });
+  return keys;
+}
+
+export function repeatableSiblingUniqueValues(rows, child, currentRowId) {
+  if (!child?.unique_across_rows || !Array.isArray(rows)) return [];
+  return rows
+    .filter(row => row && row._row_id !== currentRowId)
+    .map(row => row[child.id])
+    .filter(selected => !isRepeatableValueEmpty(selected));
+}
+
+export function isRepeatableUniqueOptionAvailable(
+  optionValue,
+  currentValue,
+  child,
+  excludedValueKeys,
+) {
+  if (!(excludedValueKeys instanceof Set) || excludedValueKeys.size === 0) return true;
+  const optionKey = repeatableUniqueValueKey(optionValue, child);
+  return optionKey === repeatableUniqueValueKey(currentValue, child)
+    || !excludedValueKeys.has(optionKey);
 }
 
 export function validateRepeatableRowConfiguration(field, options = {}) {
@@ -343,7 +388,7 @@ export function validateRepeatableRows(field, value, options = {}) {
     value.forEach((row, rowIndex) => {
       const selected = row?.[child.id];
       if (isRepeatableValueEmpty(selected)) return;
-      const key = stableUniqueValue(selected, child);
+      const key = repeatableUniqueValueKey(selected, child);
       const matchingRows = rowsByValue.get(key) || [];
       matchingRows.push(rowIndex);
       rowsByValue.set(key, matchingRows);
