@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { resolveTenantFromRequest } from '../../_lib/tenantResolver.js';
+import { resolveMemberOrganisationGroupId } from '../../_lib/formOrganisationGroups.js';
 
 const WHITELISTED_MEMBER_FIELDS = [
   'id', 'first_name', 'last_name', 'email', 'phone', 'mobile',
@@ -7,7 +8,7 @@ const WHITELISTED_MEMBER_FIELDS = [
   'address_line_2', 'city', 'county', 'postcode', 'country',
   'date_of_birth', 'gender', 'title', 'middle_name', 'suffix',
   'preferred_name', 'company_name', 'department', 'website',
-  'role_id'
+  'role_id', 'organization_group_id'
 ];
 
 export default async function handler(req, res) {
@@ -102,6 +103,15 @@ export default async function handler(req, res) {
         publicMember[field] = member[field];
       }
     }
+
+    // Resolve from the private tenant-scoped member row, not the projected
+    // response, so inherited organisation relationships cannot be lost if the
+    // public member field allowlist changes.
+    publicMember.organization_group_id = await resolveMemberOrganisationGroupId({
+      db: supabase,
+      tenantId,
+      member,
+    });
 
     const { data: allowedFields, error: fieldsError } = await supabase
       .from('preference_field')

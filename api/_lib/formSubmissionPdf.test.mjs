@@ -102,6 +102,18 @@ test('PDF formatter uses the snapshotted not-listed label after the field is ren
   );
 });
 
+test('PDF formatter resolves organisation group IDs without exposing unavailable UUIDs', () => {
+  const field = { id: 'group', type: 'organisation_group_dropdown' };
+  assert.equal(
+    formatFormSubmissionFieldValue(field, 'group-1', {}, {}, { 'group-1': 'Northern Group' }),
+    'Northern Group',
+  );
+  assert.equal(
+    formatFormSubmissionFieldValue(field, 'forged-group', {}, {}, {}),
+    'Unavailable organisation group',
+  );
+});
+
 test('PDF builder uses ID-first/name fallback and renders no relationship UUIDs', () => {
   const currentId = '11111111-1111-4111-8111-111111111111';
   const ignoredLegacyId = '22222222-2222-4222-8222-222222222222';

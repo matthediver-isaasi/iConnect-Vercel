@@ -64,6 +64,7 @@ function buildServerResolvers(maps, origin) {
   const {
     formsById,
     organisationNamesById,
+    organisationGroupNamesById,
     memberNamesById,
     roleNamesById,
     resourceCategoryNamesById,
@@ -76,6 +77,10 @@ function buildServerResolvers(maps, origin) {
     if (orgId == null || orgId === '') return '';
     const id = String(orgId);
     return organisationNamesById[id] || id;
+  };
+  const resolveOrgGroupName = (groupId) => {
+    if (groupId == null || groupId === '') return '';
+    return organisationGroupNamesById[String(groupId)] || 'Unavailable organisation group';
   };
   const resolveMemberName = (memberId) => {
     if (memberId == null || memberId === '') return '';
@@ -174,6 +179,7 @@ function buildServerResolvers(maps, origin) {
     resolveFormName,
     getSubmitterEmail,
     resolveOrgName,
+    resolveOrgGroupName,
     resolveMemberName,
     resolveRoleName,
     resolveResourceCategoryLabel,
@@ -257,6 +263,9 @@ export async function sendSubmitterCopyEmail({ form, submission, recipientEmail,
     referencedFieldTypes.has('organisation_dropdown')
       ? supabase.from('organisation').select('id, name').eq('tenant_id', tenantId)
       : Promise.resolve({ data: [] }),
+    referencedFieldTypes.has('organisation_group_dropdown')
+      ? supabase.from('organization_group').select('id, name').eq('tenant_id', tenantId)
+      : Promise.resolve({ data: [] }),
     referencedFieldTypes.has('member_dropdown')
       ? supabase.from('member').select('id, first_name, last_name, full_name, email').eq('tenant_id', tenantId)
       : Promise.resolve({ data: [] }),
@@ -281,11 +290,13 @@ export async function sendSubmitterCopyEmail({ form, submission, recipientEmail,
       : Promise.resolve({ data: {} }),
   ]);
 
-  const [orgs, members, roles, resourceCats, commCats, prefFields, relationshipLabelsByRecordId] =
+  const [orgs, orgGroups, members, roles, resourceCats, commCats, prefFields, relationshipLabelsByRecordId] =
     lookups.map(r => r.data || []);
 
   const organisationNamesById = {};
   orgs.forEach(o => { if (o?.id) organisationNamesById[o.id] = o.name || ''; });
+  const organisationGroupNamesById = {};
+  orgGroups.forEach(group => { if (group?.id) organisationGroupNamesById[group.id] = group.name || ''; });
   const memberNamesById = {};
   members.forEach(m => {
     if (!m?.id) return;
@@ -305,6 +316,7 @@ export async function sendSubmitterCopyEmail({ form, submission, recipientEmail,
   const resolvers = buildServerResolvers({
     formsById,
     organisationNamesById,
+    organisationGroupNamesById,
     memberNamesById,
     roleNamesById,
     resourceCategoryNamesById,

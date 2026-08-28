@@ -15,6 +15,7 @@ import {
   isRelationshipDropdownField,
 } from '../../client/src/lib/relationshipDisplayLabels.js';
 import { resolveFormNotListedDisplayValue } from '../../shared/formNotListedChoice.js';
+import { loadOrganisationGroupNamesForSubmission } from './formOrganisationGroups.js';
 
 /**
  * Resolve only relationship IDs which occur in the persisted answers under
@@ -33,14 +34,28 @@ export async function loadFormSubmissionRelationshipLabels({
   return loadTenantRelationshipDisplayLabels(db, tenantId, recordIds);
 }
 
+export async function loadFormSubmissionOrganisationGroupLabels({
+  db,
+  tenantId,
+  fields,
+  submissionData,
+}) {
+  return loadOrganisationGroupNamesForSubmission({ db, tenantId, fields, submissionData });
+}
+
 /**
  * Pure field formatter exported for direct regression tests.
  */
-export function formatFormSubmissionFieldValue(field, value, relationshipLabelsByRecordId = {}, submissionData = {}) {
+export function formatFormSubmissionFieldValue(field, value, relationshipLabelsByRecordId = {}, submissionData = {}, organisationGroupNamesById = {}) {
   const displayValue = resolveFormNotListedDisplayValue(field, value, submissionData);
   if (isRelationshipDropdownField(field)) {
     if (displayValue !== value) return displayValue;
     return formatRelationshipDisplayValue(value, relationshipLabelsByRecordId);
+  }
+  if (field?.type === 'organisation_group_dropdown') {
+    if (displayValue === null || displayValue === undefined || displayValue === '') return displayValue;
+    const resolve = entry => organisationGroupNamesById?.[String(entry)] || 'Unavailable organisation group';
+    return Array.isArray(displayValue) ? displayValue.map(resolve).join(', ') : resolve(displayValue);
   }
   return displayValue;
 }
@@ -63,6 +78,7 @@ export function buildFormSubmissionPdf({
   fields,
   submissionData,
   relationshipLabelsByRecordId = {},
+  organisationGroupNamesById = {},
   logPrefix = '[formSubmissionPdf]',
 }) {
   const doc = new jsPDF({
@@ -107,7 +123,13 @@ export function buildFormSubmissionPdf({
     }
 
     const rawValue = getSubmissionFieldValue(data, field);
-    const value = formatFormSubmissionFieldValue(field, rawValue, relationshipLabelsByRecordId, data);
+    const value = formatFormSubmissionFieldValue(
+      field,
+      rawValue,
+      relationshipLabelsByRecordId,
+      data,
+      organisationGroupNamesById,
+    );
 
     doc.setFontSize(10);
     doc.setFont('helvetica', 'bold');

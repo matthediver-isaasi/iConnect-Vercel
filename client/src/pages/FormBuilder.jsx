@@ -106,6 +106,7 @@ const STANDARD_FIELD_TYPES = [
 
 const PREPOPULATE_FIELD_TYPES = [
   { value: 'organisation_dropdown', label: 'Organisation Dropdown' },
+  { value: 'organisation_group_dropdown', label: 'Organisation Group Dropdown' },
   { value: 'relationship_dropdown', label: 'Relationship Dropdown' },
   { value: 'category_multiselect', label: 'Category Multi-Select' },
   { value: 'category_dropdown', label: 'Category Dropdown' },
@@ -947,6 +948,7 @@ function LogicRulesSection({
   categories = [],
   communicationCategories = [],
   organizations = [],
+  organizationGroups = [],
   roles = [],
   pages = [],
   entityPipelines = null
@@ -1239,6 +1241,7 @@ function LogicRulesSection({
       communicationCategories,
       customFields,
       organizations,
+      organizationGroups,
     });
   };
 
@@ -3640,6 +3643,7 @@ const CONDITIONAL_FILTER_TARGET_TYPES = new Set([
   'category_dropdown',
   'communication_preferences',
   'organisation_dropdown',
+  'organisation_group_dropdown',
   'relationship_dropdown',
   'custom_field',
 ]);
@@ -3685,7 +3689,7 @@ const conditionalOption = (option) => {
   return { value: option, label: String(option ?? '') };
 };
 
-function getConditionalFieldOptions(field, categories, communicationCategories, customFields = []) {
+function getConditionalFieldOptions(field, categories, communicationCategories, customFields = [], organizationGroups = []) {
   if (!field) return [];
   let options;
   if (['select', 'radio', 'checkbox'].includes(field.type)) {
@@ -3719,6 +3723,9 @@ function getConditionalFieldOptions(field, categories, communicationCategories, 
     return communicationCategories
       .filter(category => allowed.size === 0 || allowed.has(category.id))
       .map(category => ({ value: category.id, label: category.name }));
+  }
+  if (field.type === 'organisation_group_dropdown') {
+    return organizationGroups.map(group => ({ value: group.id, label: group.name || group.id }));
   }
   if (field.type === 'custom_field') {
     const customField = customFields.find(item => item.id === field.custom_field_id);
@@ -3877,6 +3884,7 @@ function ConditionalFilterRuleEditor({
   categories,
   communicationCategories,
   customFields,
+  organizationGroups,
   updateField,
 }) {
   if (!CONDITIONAL_FILTER_TARGET_TYPES.has(field.type)) return null;
@@ -3885,7 +3893,13 @@ function ConditionalFilterRuleEditor({
   const sourceFields = allFields.slice(0, originalIndex).filter(source =>
     source.id && !['instructions', 'image', 'signature', 'file', 'payment', 'membership_payment'].includes(source.type)
   );
-  const allowedOptions = getConditionalFieldOptions(field, categories, communicationCategories, customFields);
+  const allowedOptions = getConditionalFieldOptions(
+    field,
+    categories,
+    communicationCategories,
+    customFields,
+    organizationGroups,
+  );
   const persistRules = (nextRules) => updateField(originalIndex, {
     conditional_filters: { version: 1, rules: nextRules.map(rule => ({
       id: rule.id,
@@ -3944,7 +3958,13 @@ function ConditionalFilterRuleEditor({
         const operatorGroup = getConditionalOperatorGroup(source);
         const numericSource = ['number', 'percentage', 'currency', 'score'].includes(source?.type);
         const operators = CONDITIONAL_FILTER_OPERATORS[operatorGroup];
-        const sourceOptions = getConditionalFieldOptions(source, categories, communicationCategories, customFields);
+        const sourceOptions = getConditionalFieldOptions(
+          source,
+          categories,
+          communicationCategories,
+          customFields,
+          organizationGroups,
+        );
         const hasValue = !['is_empty', 'is_not_empty'].includes(rule.operator);
         const multiValue = ['in', 'not_in'].includes(rule.operator);
         return (
@@ -4112,6 +4132,7 @@ function FieldCard({
   categories = [],
   communicationCategories = [],
   customFields = [],
+  organizationGroups = [],
   applicationLevel = "member",
   uniquenessChecks = [],
   onUniquenessChange,
@@ -4525,6 +4546,7 @@ function FieldCard({
                 categories={categories}
                 communicationCategories={communicationCategories}
                 customFields={customFields}
+                organizationGroups={organizationGroups}
                 updateField={updateField}
               />
 
@@ -6608,7 +6630,7 @@ function FieldCard({
               })()}
 
               {/* Default Value Section - for non-boolean fields */}
-              {!['boolean', 'terms_conditions', 'file', 'list', 'instructions', 'image', 'country', 'countries', 'user_name', 'user_email', 'user_organization', 'user_job_title', 'organisation_dropdown', 'category_multiselect', 'category_dropdown', 'communication_preferences', 'contact', 'grouped_question', 'signature'].includes(field.type) && (
+              {!['boolean', 'terms_conditions', 'file', 'list', 'instructions', 'image', 'country', 'countries', 'user_name', 'user_email', 'user_organization', 'user_job_title', 'organisation_dropdown', 'organisation_group_dropdown', 'category_multiselect', 'category_dropdown', 'communication_preferences', 'contact', 'grouped_question', 'signature'].includes(field.type) && (
                 <div className="space-y-2 p-3 bg-slate-50 border border-slate-200 rounded-lg">
                   <Label className="text-xs font-medium">Default Value</Label>
                   <p className="text-xs text-slate-500 mb-2">Pre-filled value when form loads</p>
@@ -7153,6 +7175,17 @@ export default function FormBuilderPage() {
         return [];
       }
     }
+  });
+
+  const { data: organizationGroups = [] } = useQuery({
+    queryKey: ['organization-groups-for-form-builder'],
+    queryFn: async () => {
+      try {
+        return await base44.entities.OrganizationGroup.list('name') || [];
+      } catch {
+        return [];
+      }
+    },
   });
 
   // Fetch members for contract signer selection
@@ -9408,6 +9441,7 @@ export default function FormBuilderPage() {
                   categories={categories}
                   communicationCategories={communicationCategories}
                   organizations={organizations}
+                  organizationGroups={organizationGroups}
                   roles={roles}
                   pages={formData.pages || []}
                   entityPipelines={formData.entity_pipelines}
@@ -9726,6 +9760,7 @@ export default function FormBuilderPage() {
                                       categories={categories}
                                       communicationCategories={communicationCategories}
                                       customFields={customFields}
+                                      organizationGroups={organizationGroups}
                                       applicationLevel={formData.application_level}
                                       uniquenessChecks={formData.uniqueness_checks}
                                       onUniquenessChange={handleUniquenessChange}
@@ -9871,6 +9906,7 @@ export default function FormBuilderPage() {
                                                   categories={categories}
                                                   communicationCategories={communicationCategories}
                                                   customFields={customFields}
+                                                  organizationGroups={organizationGroups}
                                                   applicationLevel={formData.application_level}
                                                   uniquenessChecks={formData.uniqueness_checks}
                                                   onUniquenessChange={handleUniquenessChange}
@@ -9932,6 +9968,7 @@ export default function FormBuilderPage() {
                               categories={categories}
                               communicationCategories={communicationCategories}
                               customFields={customFields}
+                              organizationGroups={organizationGroups}
                               isApplicationForm={formData.is_application_form}
                               applicationLevel={formData.application_level}
                               uniquenessChecks={formData.uniqueness_checks}

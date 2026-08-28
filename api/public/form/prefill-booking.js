@@ -16,13 +16,13 @@ const WHITELISTED_MEMBER_FIELDS = [
   'address_line_2', 'city', 'county', 'postcode', 'country',
   'date_of_birth', 'gender', 'title', 'middle_name', 'suffix',
   'preferred_name', 'company_name', 'department', 'website',
-  'role_id'
+  'role_id', 'organization_group_id'
 ];
 
 // Keep in sync with ORG_CORE_FIELDS / ORG_PREFILL_FIELDS in client/src/pages/FormBuilder.jsx.
 const WHITELISTED_ORG_FIELDS = [
   'id', 'name', 'description', 'invoicing_email', 'phone', 'invoicing_address',
-  'website_url', 'logo_url', 'training_fund_balance', 'tags'
+  'website_url', 'logo_url', 'training_fund_balance', 'tags', 'organization_group_id'
 ];
 
 // Empty payload used by the authenticated fallback when there is nothing to
@@ -153,12 +153,27 @@ async function buildPrefillPayload(supabase, tenantId, booking) {
     }
   }
 
+  let organizationGroupId =
+    member?.organization_group_id || organization?.organization_group_id || null;
+  if (organizationGroupId) {
+    const { data: group } = await supabase
+      .from('organization_group')
+      .select('id')
+      .eq('id', organizationGroupId)
+      .eq('tenant_id', tenantId)
+      .maybeSingle();
+    organizationGroupId = group?.id || null;
+  }
+  if (member) member.organization_group_id = organizationGroupId;
+  if (organization) organization.organization_group_id = organizationGroupId;
+
   return {
     booking: publicBooking,
     member,
     memberCustomValues,
     organization,
-    orgCustomValues
+    orgCustomValues,
+    organizationGroupId,
   };
 }
 

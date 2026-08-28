@@ -166,6 +166,7 @@ export const buildPrefillValues = ({
   memberCustomValues = [],
   orgCustomValues = [],
   prefillOrgId = null,
+  prefillOrganizationGroupId = null,
 }) => {
   const newValues = {};
   for (const field of (form?.fields || [])) {
@@ -177,6 +178,14 @@ export const buildPrefillValues = ({
         // session's organisation) when the member row has no organization_id.
         newValues[field.id] = memberEntity?.organization_id || prefillOrgId;
       }
+      continue;
+    }
+
+    if (field.type === 'organisation_group_dropdown') {
+      const groupId = memberEntity?.organization_group_id
+        || orgEntity?.organization_group_id
+        || prefillOrganizationGroupId;
+      if (groupId) newValues[field.id] = groupId;
       continue;
     }
 

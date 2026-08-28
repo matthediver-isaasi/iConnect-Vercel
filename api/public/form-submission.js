@@ -23,6 +23,7 @@ import {
   safeSubscriptionDiagnostic,
 } from '../_lib/formCommunicationSubscriptions.js';
 import { snapshotFormNotListedLabels } from '../../shared/formNotListedChoice.js';
+import { validateFormOrganisationGroupAnswers } from '../_lib/formOrganisationGroups.js';
 
 export default async function handler(req, res) {
   console.log('[Public Form Submission] === ENDPOINT CALLED ===');
@@ -325,6 +326,21 @@ export default async function handler(req, res) {
         return res.status(400).json({ error: 'Invalid relationship selection' });
       }
       console.error('[Public Form Submission] Relationship selection validation failed:', error);
+      return res.status(500).json({ error: 'Failed to validate submission' });
+    }
+
+    try {
+      await validateFormOrganisationGroupAnswers({
+        db: supabase,
+        tenantId: tenantData.id,
+        fields: isSurvey ? (surveyVersion?.fields || []) : (form.fields || []),
+        submissionData: submission_data || {},
+      });
+    } catch (error) {
+      if (error?.code === 'INVALID_ORGANISATION_GROUP') {
+        return res.status(400).json({ error: 'Invalid organisation group selection' });
+      }
+      console.error('[Public Form Submission] Organisation group validation failed:', error);
       return res.status(500).json({ error: 'Failed to validate submission' });
     }
 

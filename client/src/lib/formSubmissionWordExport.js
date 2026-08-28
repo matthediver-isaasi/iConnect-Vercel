@@ -220,6 +220,13 @@ function formatResponseValueToJson(value, fieldDef, resolvers, submissionData = 
     const v = Array.isArray(value) ? value.map(r.resolveOrgName).join(', ') : r.resolveOrgName(value);
     return { lines: makeLinesFromText(v), files: [] };
   }
+  if (fieldType === 'organisation_group_dropdown') {
+    const resolve = typeof r.resolveOrgGroupName === 'function'
+      ? r.resolveOrgGroupName
+      : () => 'Unavailable organisation group';
+    const v = Array.isArray(value) ? value.map(resolve).join(', ') : resolve(value);
+    return { lines: makeLinesFromText(v), files: [] };
+  }
   if (fieldType === 'relationship_dropdown') {
     const resolveLabel = typeof r.resolveRelationshipLabel === 'function'
       ? r.resolveRelationshipLabel

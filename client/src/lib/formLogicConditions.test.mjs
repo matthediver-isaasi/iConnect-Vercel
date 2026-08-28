@@ -28,6 +28,24 @@ test('ordinary form logic exposes the configured label but stores the stable sen
   ]);
 });
 
+test('organisation group dropdown exposes IDs with human-readable names', () => {
+  assert.deepEqual(getFormLogicConditionOptions({
+    field: { id: 'group', type: 'organisation_group_dropdown' },
+    organizationGroups: [{ id: 'group-1', name: 'Northern Group' }],
+  }), [{ value: 'group-1', label: 'Northern Group' }]);
+});
+
+test('FormBuilder registers organisation groups without replacing organisation dropdowns', () => {
+  const source = readFileSync(new URL('../pages/FormBuilder.jsx', import.meta.url), 'utf8');
+  assert.match(source, /\{ value: 'organisation_dropdown', label: 'Organisation Dropdown' \}/);
+  assert.match(source, /\{ value: 'organisation_group_dropdown', label: 'Organisation Group Dropdown' \}/);
+  assert.match(source, /organizationGroups=\{organizationGroups\}/);
+  assert.match(
+    source,
+    /getConditionalFieldOptions\(\s*source,\s*categories,\s*communicationCategories,\s*customFields,\s*organizationGroups,\s*\)/,
+  );
+});
+
 test('all supported dynamic source fields expose the stable not-listed condition value', () => {
   for (const type of [
     'organisation_dropdown',

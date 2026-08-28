@@ -884,6 +884,14 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
         }
         continue;
       }
+
+      if (field.type === 'organisation_group_dropdown') {
+        const groupId = prefillBookingData?.organizationGroupId
+          || memberEntity?.organization_group_id
+          || orgEntity?.organization_group_id;
+        if (groupId) newValues[field.id] = groupId;
+        continue;
+      }
       
       if (!field.prefill_field) continue;
       

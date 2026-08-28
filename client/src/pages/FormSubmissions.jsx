@@ -601,6 +601,24 @@ export default function FormSubmissionsPage() {
     return map;
   }, [organisationsForExport]);
 
+  const { data: organisationGroupsForExport = [] } = useQuery({
+    queryKey: ['organization-groups-for-form-submissions'],
+    queryFn: async () => {
+      try {
+        return await base44.entities.OrganizationGroup.list('name');
+      } catch {
+        return [];
+      }
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const organisationGroupNamesById = useMemo(() => Object.fromEntries(
+    organisationGroupsForExport
+      .filter(group => group?.id)
+      .map(group => [String(group.id), group.name || '']),
+  ), [organisationGroupsForExport]);
+
   // Used by CSV export to resolve communication_preferences category IDs to names.
   const { data: communicationCategoriesForExport = [] } = useQuery({
     queryKey: ['communication-categories-for-form-submissions-export'],
@@ -1167,6 +1185,10 @@ export default function FormSubmissionsPage() {
       const id = String(orgId);
       return organisationNamesById[id] || id;
     };
+    const resolveOrgGroupName = (groupId) => {
+      if (groupId == null || groupId === '') return '';
+      return organisationGroupNamesById[String(groupId)] || 'Unavailable organisation group';
+    };
     const resolveMemberName = (memberId) => {
       if (memberId == null || memberId === '') return '';
       const id = String(memberId);
@@ -1247,6 +1269,7 @@ export default function FormSubmissionsPage() {
       resolveFormName,
       getSubmitterEmail,
       resolveOrgName,
+      resolveOrgGroupName,
       resolveMemberName,
       resolveRoleName,
       resolveResourceCategoryLabel,
@@ -1465,6 +1488,10 @@ export default function FormSubmissionsPage() {
       const id = String(orgId);
       return organisationNamesById[id] || id;
     };
+    const resolveOrgGroupName = (groupId) => {
+      if (groupId == null || groupId === '') return '';
+      return organisationGroupNamesById[String(groupId)] || 'Unavailable organisation group';
+    };
 
     const resolveMemberName = (memberId) => {
       if (memberId == null || memberId === '') return '';
@@ -1589,6 +1616,11 @@ export default function FormSubmissionsPage() {
             if (fieldType === 'organisation_dropdown') {
               if (Array.isArray(val)) return val.map(resolveOrgName).join(', ');
               return resolveOrgName(val);
+            }
+
+            if (fieldType === 'organisation_group_dropdown') {
+              if (Array.isArray(val)) return val.map(resolveOrgGroupName).join(', ');
+              return resolveOrgGroupName(val);
             }
 
             if (fieldType === 'relationship_dropdown') {
@@ -2723,6 +2755,10 @@ export default function FormSubmissionsPage() {
                       ? resolveFormNotListedDisplayValue(field, value, viewingSubmission.submission_data)
                       : field?.type === 'relationship_dropdown'
                         ? formatRelationshipDisplayValue(value, relationshipLabelsByRecordId)
+                        : field?.type === 'organisation_group_dropdown'
+                          ? (Array.isArray(value)
+                            ? value.map(id => organisationGroupNamesById[String(id)] || 'Unavailable organisation group').join(', ')
+                            : organisationGroupNamesById[String(value)] || 'Unavailable organisation group')
                         : Array.isArray(value) ? value.join(', ') : String(value);
                     return (
                     <div key={key} className="bg-white rounded-lg p-3 border border-slate-200">

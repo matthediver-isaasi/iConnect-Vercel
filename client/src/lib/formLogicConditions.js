@@ -33,6 +33,7 @@ export function getFormLogicConditionOptions({
   communicationCategories = [],
   customFields = [],
   organizations = [],
+  organizationGroups = [],
 } = {}) {
   if (!field) return [];
 
@@ -50,6 +51,8 @@ export function getFormLogicConditionOptions({
       organization.id,
       organization.name || organization.id,
     ));
+  } else if (field.type === 'organisation_group_dropdown') {
+    options = organizationGroups.map(group => option(group.id, group.name || group.id));
   } else if (field.type === 'relationship_dropdown') {
     options = [
       option(FORM_NO_RELATIONSHIP_VALUE, formNoRelationshipLabel(field)),

@@ -20,6 +20,7 @@ import {
 import {
   buildFormSubmissionPdf,
   loadFormSubmissionRelationshipLabels,
+  loadFormSubmissionOrganisationGroupLabels,
 } from '../_lib/formSubmissionPdf.js';
 import { addTenantStorageBytes } from '../_lib/tenantStorageUsage.js';
 
@@ -77,6 +78,7 @@ export default async function handler(req, res) {
     let fields = [];
     let submissionData = {};
     let relationshipLabelsByRecordId = {};
+    let organisationGroupNamesById = {};
     let applicantPart = 'applicant';
 
     if (sourceType === 'submission') {
@@ -125,6 +127,12 @@ export default async function handler(req, res) {
       fields = Array.isArray(submission.form?.fields) ? submission.form.fields : [];
       submissionData = submission.submission_data || {};
       relationshipLabelsByRecordId = await loadFormSubmissionRelationshipLabels({
+        db: supabase,
+        tenantId,
+        fields,
+        submissionData,
+      });
+      organisationGroupNamesById = await loadFormSubmissionOrganisationGroupLabels({
         db: supabase,
         tenantId,
         fields,
@@ -204,6 +212,7 @@ export default async function handler(req, res) {
       fields,
       submissionData,
       relationshipLabelsByRecordId,
+      organisationGroupNamesById,
       logPrefix: '[vacancy-application-pdf]',
     });
 

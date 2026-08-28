@@ -7,4 +7,4 @@ Conditional option filters must be resolved from the persisted form definition o
 
 **Why:** Client-only filtering permits forged or stale values, while sending full answers through GET/query keys leaks unrelated form data. Client/server normalization drift also causes the UI and submission validator to select different rules.
 
-**How to apply:** Intersect the matched rule with every existing static restriction, use identical field-aware normalization for scalar, multi-value, boolean, country, score, and keyed-object answers, make malformed/unmatched states fail closed, and revalidate before every submission side effect.
+**How to apply:** Intersect the matched rule with every existing static restriction, use identical field-aware normalization for scalar, multi-value, boolean, country, score, keyed-object, and dynamically loaded entity answers, make malformed/unmatched states fail closed, and revalidate before every submission side effect.

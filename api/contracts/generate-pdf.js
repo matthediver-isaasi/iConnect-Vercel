@@ -4,6 +4,7 @@ import { addTenantStorageBytes } from '../_lib/tenantStorageUsage.js';
 import {
   buildFormSubmissionPdf,
   loadFormSubmissionRelationshipLabels,
+  loadFormSubmissionOrganisationGroupLabels,
 } from '../_lib/formSubmissionPdf.js';
 
 const supabaseUrl = process.env.SUPABASE_URL;
@@ -63,6 +64,12 @@ export default async function handler(req, res) {
       fields,
       submissionData,
     });
+    const organisationGroupNamesById = await loadFormSubmissionOrganisationGroupLabels({
+      db: supabase,
+      tenantId,
+      fields,
+      submissionData,
+    });
 
     const signedDate = new Date(submission.created_date).toLocaleDateString('en-GB', {
       day: 'numeric',
@@ -76,6 +83,7 @@ export default async function handler(req, res) {
       fields,
       submissionData,
       relationshipLabelsByRecordId,
+      organisationGroupNamesById,
       logPrefix: '[contracts/generate-pdf]'
     });
 

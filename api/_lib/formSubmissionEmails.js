@@ -339,9 +339,29 @@ export async function sendSubmissionEmails({
     orgNameCache[uuid] = uuid;
     return uuid;
   };
+  const orgGroupNameCache = {};
+  const resolveOrgGroupName = async (uuid) => {
+    if (!uuid || !supabase || !uuidRegex.test(uuid)) return uuid;
+    if (uuid in orgGroupNameCache) return orgGroupNameCache[uuid];
+    try {
+      const { data: group } = await supabase
+        .from('organization_group')
+        .select('name')
+        .eq('id', uuid)
+        .eq('tenant_id', form?.tenant_id)
+        .maybeSingle();
+      orgGroupNameCache[uuid] = group?.name || 'Unavailable organisation group';
+      return orgGroupNameCache[uuid];
+    } catch {}
+    orgGroupNameCache[uuid] = 'Unavailable organisation group';
+    return orgGroupNameCache[uuid];
+  };
 
   const orgDropdownFieldIds = new Set(
     (effectiveFields || []).filter((f) => f.type === 'organisation_dropdown').map((f) => f.id)
+  );
+  const orgGroupDropdownFieldIds = new Set(
+    (effectiveFields || []).filter((f) => f.type === 'organisation_group_dropdown').map((f) => f.id)
   );
 
   const resolveFieldValue = async (fieldId, rawValue) => {
@@ -357,6 +377,9 @@ export async function sendSubmissionEmails({
       if (typeof rawValue === 'string') {
         return await resolveOrgName(rawValue);
       }
+    }
+    if (orgGroupDropdownFieldIds.has(fieldId) && typeof rawValue === 'string') {
+      return await resolveOrgGroupName(rawValue);
     }
     return resolveSubmissionEmailFieldDisplayValue({
       fields: effectiveFields,

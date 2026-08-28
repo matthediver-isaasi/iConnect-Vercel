@@ -559,6 +559,13 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, me
     staleTime: 5 * 60 * 1000
   });
 
+  const { data: organisationGroups = [], isLoading: organisationGroupsLoading } = useQuery({
+    queryKey: ['public-form-organisation-group-options', formSlug, formId, field.id],
+    queryFn: () => publicClient.listFormOrganisationGroupOptions(formSlug, formId, field.id),
+    enabled: field.type === 'organisation_group_dropdown' && !!(formSlug || formId),
+    staleTime: 5 * 60 * 1000,
+  });
+
   const relationshipValues = field.type === 'relationship_dropdown'
     ? resolveRelationshipDropdownValues({
       field,
@@ -672,6 +679,14 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, me
     ),
     [field, organisations, conditionalResolution],
   );
+  const organisationGroupOptions = useMemo(
+    () => intersectConditionalOptions(
+      organisationGroups,
+      conditionalResolution,
+      group => group.id,
+    ),
+    [organisationGroups, conditionalResolution],
+  );
   const imageButtonOptions = useMemo(
     () => intersectConditionalOptions(field.image_options || [], conditionalResolution, option => option.value),
     [field.image_options, conditionalResolution],
@@ -748,6 +763,10 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, me
       options = organisationOptions;
       getValue = option => option.id;
       loading = orgsLoading;
+    } else if (field.type === 'organisation_group_dropdown') {
+      options = organisationGroupOptions;
+      getValue = option => option.id;
+      loading = organisationGroupsLoading;
     } else if (field.type === 'relationship_dropdown') {
       options = relationshipOptions;
       getValue = option => option.id;
@@ -779,6 +798,7 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, me
     if (next !== value) onChange(next);
   }, [
     field.type, value, staticOptions, imageButtonOptions, organisationOptions, orgsLoading,
+    organisationGroupOptions, organisationGroupsLoading,
     relationshipOptions, relationshipOptionsLoading, relationshipOptionsLoaded,
     relationshipParentValue, availableCountryOptions, availableCountryNotListedLabel, onChange,
     categoryDropdownOptions, categoryMultiselectAllowedValues, categoriesLoading,
@@ -1324,6 +1344,44 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, me
             </SelectContent>
           </Select>
         );
+
+      case 'organisation_group_dropdown': {
+        if (!formSlug && !formId) {
+          return <p className="text-sm text-slate-500">Organisation group options require a persisted form.</p>;
+        }
+        if (organisationGroupsLoading) {
+          return (
+            <div className="flex items-center gap-2 text-sm text-slate-500">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Loading organisation groups...
+            </div>
+          );
+        }
+        if (organisationGroupOptions.length === 0) {
+          return <p className="text-sm text-slate-500">
+            {conditionalResolution.configured && !conditionalResolution.matchedRule
+              ? 'No organisation groups are available until a conditional rule matches.'
+              : 'No organisation groups are available.'}
+          </p>;
+        }
+        const selectedGroup = organisationGroupOptions.find(group => group.id === value);
+        return (
+          <Select value={value || ''} onValueChange={isFieldDisabled ? undefined : onChange} disabled={isFieldDisabled}>
+            <SelectTrigger data-testid={`select-organisation-group-${field.id}`} className={isFieldDisabled ? 'bg-slate-100 cursor-not-allowed opacity-60' : ''}>
+              <SelectValue placeholder={field.placeholder || 'Select an organisation group'}>
+                {selectedGroup?.name}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent side="bottom">
+              {organisationGroupOptions.map(group => (
+                <SelectItem key={group.id} value={group.id} data-testid={`option-organisation-group-${group.id}`}>
+                  {group.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        );
+      }
 
       case 'relationship_dropdown': {
         const effectiveRelationshipOptions = relationshipOptions;

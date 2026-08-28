@@ -53,6 +53,7 @@ import { resolveFormAccess, sendFormAccessDenied } from '../_lib/formAccessPolic
 import { withFormPaymentAccessProof } from '../_lib/formPaymentAccess.js';
 import { isFormScheduleAvailable } from '../_lib/formAvailability.js';
 import { createFormRelationshipService, FormRelationshipError } from '../_lib/formRelationshipOptions.js';
+import { validateFormOrganisationGroupAnswers } from '../_lib/formOrganisationGroups.js';
 
 const STRIPE_MINIMUMS = { GBP: 0.30, USD: 0.50, EUR: 0.50, AUD: 0.50, NZD: 0.50 };
 
@@ -164,10 +165,20 @@ async function validatePaymentRelationships(res, supabase, tenantData, form, val
       tenantId: tenantData.id,
     });
     await service.validateSubmission({ form, submissionData: values });
+    await validateFormOrganisationGroupAnswers({
+      db: supabase,
+      tenantId: tenantData.id,
+      fields: form.fields || [],
+      submissionData: values,
+    });
     return true;
   } catch (error) {
     if (error instanceof FormRelationshipError && error.status < 500) {
       res.status(400).json({ error: 'Invalid relationship selection' });
+      return false;
+    }
+    if (error?.code === 'INVALID_ORGANISATION_GROUP') {
+      res.status(400).json({ error: 'Invalid organisation group selection' });
       return false;
     }
     console.error('[form-payment] Relationship validation failed:', error);
