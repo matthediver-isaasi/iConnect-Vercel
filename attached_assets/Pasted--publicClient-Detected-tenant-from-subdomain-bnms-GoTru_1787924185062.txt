@@ -1,0 +1,113 @@
+ [publicClient] Detected tenant from subdomain: bnms
+ GoTrueClient@sb-lvmzliemqnieeoruhkik-auth-token:1 (2.93.3) 2026-08-28T13:34:31.188Z Multiple GoTrueClient instances detected in the same browser context. It is not an error, but this should be avoided as it may produce undefined behavior when used concurrently under the same storage key.
+ [usePendingPurchaseOrders] memberInfo: null
+ [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+ [Layout] hasPendingPOs: false count: 0 isLoading: false
+ [Layout] currentPageName: CPDCertificateTemplates currentPortalPageId: null
+ [usePendingPurchaseOrders] memberInfo: Object
+ [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+ [Layout] hasPendingPOs: false count: 0 isLoading: true
+ [Layout] currentPageName: CPDCertificateTemplates currentPortalPageId: null
+ [usePendingPurchaseOrders] Query running, memberInfo.id: 3d291826-13d8-4fc1-9221-7627fc45830a
+ [usePendingPurchaseOrders] memberInfo: Object
+ [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-OZq5KBdl.js:2103 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-OZq5KBdl.js:2103 [Layout] currentPageName: CPDCertificateTemplates currentPortalPageId: null
+index-OZq5KBdl.js:2092 [usePendingPurchaseOrders] memberInfo: Object
+index-OZq5KBdl.js:2092 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-OZq5KBdl.js:2103 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-OZq5KBdl.js:2103 [Layout] currentPageName: CPDCertificateTemplates currentPortalPageId: null
+index-OZq5KBdl.js:2092 [usePendingPurchaseOrders] memberInfo: Object
+index-OZq5KBdl.js:2092 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-OZq5KBdl.js:2103 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-OZq5KBdl.js:2103 [Layout] currentPageName: CPDCertificateTemplates currentPortalPageId: null
+index-OZq5KBdl.js:2092 [usePendingPurchaseOrders] memberInfo: Object
+index-OZq5KBdl.js:2092 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-OZq5KBdl.js:2103 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-OZq5KBdl.js:2103 [Layout] currentPageName: CPDCertificateTemplates currentPortalPageId: null
+index-OZq5KBdl.js:2092 [usePendingPurchaseOrders] memberInfo: Object
+index-OZq5KBdl.js:2092 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-OZq5KBdl.js:2103 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-OZq5KBdl.js:2103 [Layout] currentPageName: CPDCertificateTemplates currentPortalPageId: null
+index-OZq5KBdl.js:2092 [usePendingPurchaseOrders] memberInfo: Object
+index-OZq5KBdl.js:2092 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-OZq5KBdl.js:2103 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-OZq5KBdl.js:2103 [Layout] currentPageName: CPDCertificateTemplates currentPortalPageId: null
+index-OZq5KBdl.js:2092 [usePendingPurchaseOrders] memberInfo: Object
+index-OZq5KBdl.js:2092 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-OZq5KBdl.js:2103 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-OZq5KBdl.js:2103 [Layout] currentPageName: CPDCertificateTemplates currentPortalPageId: null
+index-OZq5KBdl.js:2092 [usePendingPurchaseOrders] memberInfo: Object
+index-OZq5KBdl.js:2092 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-OZq5KBdl.js:2103 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-OZq5KBdl.js:2103 [Layout] currentPageName: CPDCertificateTemplates currentPortalPageId: null
+index-OZq5KBdl.js:2092 [usePendingPurchaseOrders] memberInfo: Object
+index-OZq5KBdl.js:2092 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-OZq5KBdl.js:2103 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-OZq5KBdl.js:2103 [Layout] currentPageName: CPDCertificateTemplates currentPortalPageId: null
+index-OZq5KBdl.js:2092 [usePendingPurchaseOrders] memberInfo: Object
+index-OZq5KBdl.js:2092 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-OZq5KBdl.js:2103 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-OZq5KBdl.js:2103 [Layout] currentPageName: CPDCertificateTemplates currentPortalPageId: null
+index-OZq5KBdl.js:2092 [usePendingPurchaseOrders] memberInfo: Object
+index-OZq5KBdl.js:2092 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-OZq5KBdl.js:2103 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-OZq5KBdl.js:2103 [Layout] currentPageName: CPDCertificateTemplates currentPortalPageId: null
+index-OZq5KBdl.js:2092 [usePendingPurchaseOrders] memberInfo: Object
+index-OZq5KBdl.js:2092 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-OZq5KBdl.js:2103 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-OZq5KBdl.js:2103 [Layout] currentPageName: CPDCertificateTemplates currentPortalPageId: null
+index-OZq5KBdl.js:2092 [usePendingPurchaseOrders] memberInfo: Object
+index-OZq5KBdl.js:2092 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-OZq5KBdl.js:2103 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-OZq5KBdl.js:2103 [Layout] currentPageName: CPDCertificateTemplates currentPortalPageId: null
+index-OZq5KBdl.js:2092 [usePendingPurchaseOrders] memberInfo: Object
+index-OZq5KBdl.js:2092 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-OZq5KBdl.js:2103 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-OZq5KBdl.js:2103 [Layout] currentPageName: CPDCertificateTemplates currentPortalPageId: null
+index-OZq5KBdl.js:2092 [usePendingPurchaseOrders] Fetched bookings count: 0
+index-OZq5KBdl.js:2092 [usePendingPurchaseOrders] Pending PO bookings: 0
+index-OZq5KBdl.js:2103 [Layout] Server session found: sharon@onlinem.co.uk
+index-OZq5KBdl.js:2092 [usePendingPurchaseOrders] memberInfo: Object
+index-OZq5KBdl.js:2092 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-OZq5KBdl.js:2103 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-OZq5KBdl.js:2103 [Layout] currentPageName: CPDCertificateTemplates currentPortalPageId: null
+index-OZq5KBdl.js:2092 [usePendingPurchaseOrders] memberInfo: Object
+index-OZq5KBdl.js:2092 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-OZq5KBdl.js:2103 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-OZq5KBdl.js:2103 [Layout] currentPageName: CPDCertificateTemplates currentPortalPageId: null
+index-OZq5KBdl.js:2092 [usePendingPurchaseOrders] memberInfo: Object
+index-OZq5KBdl.js:2092 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-OZq5KBdl.js:2103 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-OZq5KBdl.js:2103 [Layout] currentPageName: CPDCertificateTemplates currentPortalPageId: null
+index-OZq5KBdl.js:2092 [usePendingPurchaseOrders] memberInfo: Object
+index-OZq5KBdl.js:2092 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-OZq5KBdl.js:2103 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-OZq5KBdl.js:2103 [Layout] currentPageName: CPDCertificateTemplates currentPortalPageId: null
+index-OZq5KBdl.js:2092 [usePendingPurchaseOrders] memberInfo: Object
+index-OZq5KBdl.js:2092 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-OZq5KBdl.js:2103 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-OZq5KBdl.js:2103 [Layout] currentPageName: CPDCertificateTemplates currentPortalPageId: null
+index-OZq5KBdl.js:41 TypeError: Cannot read properties of null (reading 'status')
+    at Lcn (index-OZq5KBdl.js:4773:114304)
+    at Aje (index-OZq5KBdl.js:39:17131)
+    at IWe (index-OZq5KBdl.js:41:44418)
+    at MWe (index-OZq5KBdl.js:41:40104)
+    at GCt (index-OZq5KBdl.js:41:40027)
+    at uQ (index-OZq5KBdl.js:41:39875)
+    at dpe (index-OZq5KBdl.js:41:36200)
+    at TWe (index-OZq5KBdl.js:41:35139)
+    at w (index-OZq5KBdl.js:26:1535)
+    at MessagePort.P (index-OZq5KBdl.js:26:1894)
+Xhe @ index-OZq5KBdl.js:41
+index-OZq5KBdl.js:41 Uncaught TypeError: Cannot read properties of null (reading 'status')
+    at Lcn (index-OZq5KBdl.js:4773:114304)
+    at Aje (index-OZq5KBdl.js:39:17131)
+    at IWe (index-OZq5KBdl.js:41:44418)
+    at MWe (index-OZq5KBdl.js:41:40104)
+    at GCt (index-OZq5KBdl.js:41:40027)
+    at uQ (index-OZq5KBdl.js:41:39875)
+    at dpe (index-OZq5KBdl.js:41:36200)
+    at TWe (index-OZq5KBdl.js:41:35139)
+    at w (index-OZq5KBdl.js:26:1535)
+    at MessagePort.P (index-OZq5KBdl.js:26:1894)
