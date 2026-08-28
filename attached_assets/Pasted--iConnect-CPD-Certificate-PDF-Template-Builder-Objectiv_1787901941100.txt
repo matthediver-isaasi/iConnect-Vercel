@@ -1,0 +1,1015 @@
+# iConnect – CPD Certificate PDF Template Builder
+
+## Objective
+
+Build the first stage of a CPD Certificate system within iConnect.
+
+This phase is concerned only with:
+
+1. Uploading an existing PDF certificate design.
+2. Displaying that PDF accurately within an iConnect administration screen.
+3. Allowing administrators to visually position dynamic data placeholders over the PDF.
+4. Saving those placeholder positions and formatting as a reusable certificate template.
+5. Previewing the completed certificate using sample data.
+6. Generating and downloading a finished, flattened PDF.
+
+This phase does **not** need to determine when CPD is awarded, which members qualify, event attendance, course completion or CPD records.
+
+The template system must be built independently so that a later CPD module can simply supply data to the certificate renderer.
+
+---
+
+# 1. Core Concept
+
+Do not attempt to edit the structure of the uploaded PDF or convert it into an editable document.
+
+The uploaded PDF should remain the immutable certificate background.
+
+iConnect should instead maintain:
+
+* Original PDF file.
+* PDF page dimensions.
+* Dynamic placeholder definitions.
+* Placeholder page number.
+* X/Y position.
+* Width/height where appropriate.
+* Typography and formatting settings.
+* Placeholder data key.
+
+When a certificate eventually needs generating:
+
+```text
+Original PDF
++
+Placeholder definitions
++
+Member / CPD data
+=
+Finished flattened PDF
+```
+
+The resulting PDF should visually retain the quality of the original uploaded PDF.
+
+Do not rasterise the original certificate artwork for final PDF generation.
+
+---
+
+# 2. Certificate Template Administration
+
+Create a new administration area, suggested route:
+
+```text
+/admin/cpd/certificate-templates
+```
+
+This should initially show:
+
+* Template Name
+* Description
+* Original PDF filename
+* Number of pages
+* Created date
+* Last updated
+* Status – Draft / Active / Archived
+* Edit
+* Preview
+* Duplicate
+* Archive/Delete
+
+Templates must be tenant-specific using the existing iConnect tenant isolation architecture.
+
+---
+
+# 3. Upload New Certificate Template
+
+Provide:
+
+**Add Certificate Template**
+
+Admin enters:
+
+### Template Name
+
+Example:
+
+```text
+Annual Conference CPD Certificate
+```
+
+### Description
+
+Optional internal description.
+
+### PDF Upload
+
+Accept:
+
+```text
+application/pdf
+```
+
+PDF must be stored in private iConnect/Supabase storage.
+
+Do not expose the original document through a permanently public URL.
+
+Validate:
+
+* Actual file type.
+* PDF signature.
+* File size.
+* Page count.
+* PDF can successfully be parsed.
+* PDF is not corrupted.
+* PDF contains at least one page.
+
+Allow landscape and portrait PDFs and arbitrary standard/non-standard PDF dimensions.
+
+Do not assume A4.
+
+---
+
+# 4. PDF Template Designer
+
+Once uploaded, open the certificate in a visual template editor.
+
+The experience should be similar to a lightweight design canvas.
+
+The PDF appears in the centre of the screen with the complete certificate visible.
+
+For multi-page PDFs provide:
+
+```text
+Page 1
+Page 2
+Page 3
+...
+```
+
+or page thumbnails.
+
+Selecting a page opens it within the editor.
+
+Use PDF.js or equivalent to render the PDF accurately in the browser.
+
+---
+
+# 5. Placeholder Panel
+
+Provide a panel headed:
+
+**Dynamic Fields**
+
+The important architectural requirement is that placeholders are based upon **data keys**, rather than hardcoded CPD database columns.
+
+For example:
+
+```text
+member.full_name
+member.first_name
+member.last_name
+member.membership_number
+
+cpd.activity_title
+cpd.activity_date
+cpd.cpd_hours
+cpd.cpd_points
+cpd.certificate_number
+
+organisation.name
+
+event.name
+event.start_date
+event.end_date
+```
+
+These are initially definitions only.
+
+The later CPD system will provide the values.
+
+---
+
+# 6. Custom Placeholder Support
+
+Do not restrict certificate templates to a fixed list of fields.
+
+Administrators must also be able to create a placeholder:
+
+**Add Custom Placeholder**
+
+Example:
+
+```text
+Label:
+Learning Outcome
+
+Data Key:
+cpd.learning_outcome
+```
+
+Another certificate could therefore contain:
+
+```text
+course.module_name
+course.accreditation_number
+course.hours_completed
+```
+
+without requiring iConnect developers to modify the certificate designer.
+
+This is important because different iConnect tenants and professional organisations will have different certificate requirements.
+
+---
+
+# 7. Adding a Placeholder
+
+An administrator should be able to either:
+
+* Drag a field from the field panel onto the certificate, or
+* Click a field and have it appear centrally on the current PDF page.
+
+Example:
+
+Admin selects:
+
+```text
+Member Full Name
+```
+
+The canvas displays:
+
+```text
+{{member.full_name}}
+```
+
+The placeholder can then be dragged into position.
+
+Example visually:
+
+```text
+This is to certify that
+
+        {{member.full_name}}
+
+attended
+
+        {{event.name}}
+
+on {{cpd.activity_date}}
+```
+
+The `{{ }}` syntax is primarily an editor representation. It does not need to physically exist inside the original PDF.
+
+---
+
+# 8. Placeholder Positioning
+
+Each placeholder must support accurate:
+
+* X position
+* Y position
+* Width
+* Height where necessary
+
+Admin must be able to:
+
+* Drag fields.
+* Reposition fields.
+* Resize the available text area.
+* Delete fields.
+* Duplicate fields.
+
+For precision, also expose numeric positioning values in the properties panel.
+
+Example:
+
+```text
+X: 287
+Y: 314
+Width: 380
+```
+
+Consider optional keyboard arrow nudging for precise placement.
+
+---
+
+# 9. Coordinate System
+
+This is technically important.
+
+Do not save placeholder coordinates as browser pixel coordinates alone.
+
+The PDF may be:
+
+* Displayed at different browser sizes.
+* Viewed on different monitors.
+* Zoomed.
+* Landscape or portrait.
+* A4, Letter or a custom size.
+
+Save positions relative to the underlying PDF page coordinate system.
+
+A suitable approach is either:
+
+```text
+PDF point coordinates
+```
+
+or normalised positions such as:
+
+```text
+x = 0.25
+y = 0.42
+width = 0.50
+```
+
+relative to the page dimensions.
+
+PDF point coordinates are preferable if using `pdf-lib`.
+
+The browser designer must therefore translate:
+
+```text
+Screen coordinates
+↕
+PDF coordinates
+```
+
+This ensures that a placeholder positioned visually in the designer appears in exactly the same location in the generated PDF.
+
+---
+
+# 10. Placeholder Properties
+
+Selecting a placeholder opens its properties.
+
+Initially support:
+
+### Content
+
+* Field label
+* Data key
+* Sample/test value
+
+### Typography
+
+* Font family
+* Font size
+* Bold
+* Italic
+* Text colour
+* Alignment:
+
+  * Left
+  * Centre
+  * Right
+
+### Position
+
+* X
+* Y
+* Width
+* Height
+
+### Text Behaviour
+
+Support:
+
+* Single line
+* Multi-line
+* Shrink to fit
+
+For names and similar fields, **Shrink to Fit** is particularly important.
+
+For example:
+
+```text
+Jane Smith
+```
+
+and:
+
+```text
+Professor Alexander Christopher Montgomery-Smythe
+```
+
+must both remain inside the allocated certificate area.
+
+Configure:
+
+```text
+Preferred font size: 24pt
+Minimum font size: 14pt
+Shrink to fit: Yes
+```
+
+The renderer reduces the font size until the text fits.
+
+Do not allow text to silently run outside its allocated area.
+
+---
+
+# 11. Date Formatting
+
+Date placeholders should eventually be capable of formatting a supplied date.
+
+Provide a format property such as:
+
+```text
+28 August 2026
+28/08/2026
+28 Aug 2026
+August 28, 2026
+```
+
+The underlying value passed into the renderer should remain a normal date value.
+
+Formatting happens during certificate generation.
+
+---
+
+# 12. Sample Data
+
+Every placeholder should have an optional:
+
+**Sample Value**
+
+For example:
+
+```text
+member.full_name
+Sample:
+Professor Jane Smith
+```
+
+```text
+event.name
+Sample:
+BNMS Annual Spring Meeting 2026
+```
+
+```text
+cpd.cpd_points
+Sample:
+6
+```
+
+This allows the administrator to design and test certificates before any CPD awarding functionality exists.
+
+---
+
+# 13. Designer Modes
+
+Provide two modes.
+
+## Edit Mode
+
+Displays placeholder identifiers such as:
+
+```text
+{{member.full_name}}
+{{event.name}}
+{{cpd.cpd_points}}
+```
+
+Fields should have a subtle outline so administrators can see their editable boundaries.
+
+## Preview Mode
+
+Replace the placeholders with their sample values:
+
+```text
+Professor Jane Smith
+
+BNMS Annual Spring Meeting 2026
+
+6 CPD Points
+```
+
+Remove editor borders and controls.
+
+The preview should therefore closely represent the actual finished certificate.
+
+---
+
+# 14. Test PDF Generation
+
+Add:
+
+**Generate Test PDF**
+
+This is essential for this phase.
+
+It should:
+
+1. Load the original uploaded PDF.
+2. Load the saved template fields.
+3. Use each field's sample value.
+4. Render those values onto the original PDF.
+5. Produce a new flattened PDF.
+6. Download the PDF to the administrator.
+
+This allows certificate templates to be fully tested without implementing the CPD-awarding workflow.
+
+---
+
+# 15. PDF Generation Engine
+
+Recommended Node implementation:
+
+```text
+pdf-lib
+```
+
+with:
+
+```text
+@pdf-lib/fontkit
+```
+
+where additional fonts need embedding.
+
+The generation process should broadly be:
+
+```javascript
+load original PDF
+
+for each template field:
+    determine page
+    obtain supplied value
+    apply formatting
+    calculate font sizing
+    draw text at stored PDF coordinates
+
+save as new PDF
+```
+
+The generated certificate must not alter or reduce the quality of the original artwork.
+
+The output should be a normal flattened PDF.
+
+The member should not be able to click into a field and edit the name/date/CPD values as a PDF form.
+
+---
+
+# 16. Font Handling
+
+Initially support a controlled set of reliable fonts.
+
+At minimum:
+
+* Helvetica
+* Times Roman
+* Courier
+
+If iConnect already maintains tenant fonts, architect the renderer so additional fonts can subsequently be embedded.
+
+Do not rely on fonts simply being installed on the user's computer.
+
+Server-side generation must explicitly know which font is being used.
+
+Font settings should therefore be stored against the field.
+
+---
+
+# 17. Suggested Database Structure
+
+## cpd_certificate_templates
+
+```text
+id
+tenant_id
+name
+description
+
+pdf_storage_path
+original_filename
+
+page_count
+
+status
+created_by
+created_at
+updated_at
+```
+
+Potential additional metadata:
+
+```text
+pdf_checksum
+pdf_file_size
+```
+
+---
+
+# 18. Template Fields
+
+Create:
+
+## cpd_certificate_template_fields
+
+```text
+id
+tenant_id
+template_id
+
+page_number
+
+field_label
+data_key
+
+field_type
+
+x
+y
+width
+height
+
+font_family
+font_size
+minimum_font_size
+
+font_weight
+font_style
+text_colour
+text_alignment
+
+shrink_to_fit
+multiline
+
+date_format
+
+sample_value
+
+sort_order
+
+created_at
+updated_at
+```
+
+`field_type` should initially allow:
+
+```text
+text
+date
+number
+```
+
+Keep this extensible for future types such as:
+
+```text
+image
+QR code
+signature
+barcode
+```
+
+but those do not need implementing in this phase.
+
+---
+
+# 19. Generic Rendering API
+
+The PDF generation system should **not know how somebody earned CPD**.
+
+Create the renderer around a generic payload.
+
+Conceptually:
+
+```json
+{
+  "templateId": "abc123",
+  "data": {
+    "member.full_name": "Professor Jane Smith",
+    "member.membership_number": "BNMS12345",
+    "event.name": "Annual Spring Meeting 2026",
+    "cpd.activity_date": "2026-05-20",
+    "cpd.cpd_points": "6"
+  }
+}
+```
+
+The certificate engine's only responsibility is:
+
+```text
+Find template
+↓
+Load original PDF
+↓
+Find placeholder
+↓
+Find matching value
+↓
+Render value
+↓
+Return PDF
+```
+
+This separation is critical.
+
+Later we can connect:
+
+```text
+Event attendance
+Course completion
+Training
+External CPD
+Assessment
+Manual CPD awards
+```
+
+to exactly the same certificate renderer without modifying the PDF designer.
+
+---
+
+# 20. Missing Data Behaviour
+
+Every placeholder should have a configurable policy.
+
+Initially:
+
+```text
+Blank if missing
+```
+
+Optionally prepare the architecture for:
+
+```text
+Required field
+```
+
+A required field would prevent generation when its value is absent.
+
+For the template designer's test generation, warn the administrator if any field has neither:
+
+* sample data, nor
+* a default value.
+
+---
+
+# 21. Template Version Safety
+
+Do not overwrite previously uploaded PDFs unexpectedly.
+
+If an administrator uploads a replacement PDF to an existing template, warn:
+
+```text
+Replacing the PDF may cause existing placeholder positions to become incorrect.
+```
+
+Recommended behaviour:
+
+Treat replacement as a new template version or require placeholder positions to be reviewed before reactivating the template.
+
+This will become particularly important once real certificates have been issued.
+
+---
+
+# 22. Storage
+
+Use the existing iConnect/Supabase storage architecture.
+
+Suggested private storage structure:
+
+```text
+tenants/
+  {tenant_id}/
+    cpd/
+      certificate-templates/
+        {template_id}/
+          original.pdf
+```
+
+Generated member certificates will eventually use a separate structure, but that is outside this phase.
+
+The original template PDF must not be publicly enumerable.
+
+---
+
+# 23. Permissions
+
+Use existing iConnect tenant and role permissions.
+
+Initially:
+
+### Administrator
+
+Can:
+
+* Create templates.
+* Upload PDFs.
+* Edit placeholders.
+* Preview templates.
+* Generate test certificates.
+* Activate/archive templates.
+
+### Member
+
+No template-management access.
+
+Actual member certificate access will be implemented as part of the later CPD workflow.
+
+---
+
+# 24. Autosave / Unsaved Changes
+
+The designer should behave like other modern iConnect builders.
+
+When a field is:
+
+* Added
+* Moved
+* Resized
+* Formatted
+* Deleted
+
+mark the template as changed.
+
+Either autosave changes using a short debounce or provide clear:
+
+**Save Template**
+
+behaviour.
+
+Do not allow navigation away with unsaved changes without warning.
+
+---
+
+# 25. Zoom
+
+The PDF designer should support:
+
+```text
+Fit Page
+Fit Width
+50%
+75%
+100%
+125%
+150%
+```
+
+Changing zoom must NOT affect the saved PDF coordinates of placeholders.
+
+This is another reason screen pixels must not be persisted as the authoritative field position.
+
+---
+
+# 26. Responsive Administration UI
+
+The actual certificate designer should be optimised primarily for desktop/tablet administration.
+
+It does not need to be practical to position certificate fields from a small mobile phone.
+
+However:
+
+* Viewing templates
+* Previewing certificates
+* Downloading PDFs
+
+should remain responsive.
+
+---
+
+# 27. Important Technical Principle
+
+There should effectively be three separate layers:
+
+```text
+LAYER 1
+Original PDF artwork
+
+LAYER 2
+iConnect template definition
+(field positions and formatting)
+
+LAYER 3
+Runtime data
+(member/event/course/CPD values)
+```
+
+Never permanently merge Layer 2 or Layer 3 into Layer 1.
+
+Only merge them when generating an output certificate.
+
+---
+
+# 28. Example
+
+An organisation uploads:
+
+```text
+CPD-Certificate-2026.pdf
+```
+
+The administrator opens it in the designer.
+
+They add:
+
+```text
+Member Name
+```
+
+and position it over the blank name line.
+
+They add:
+
+```text
+Event Name
+```
+
+and position it beneath the certificate wording.
+
+They add:
+
+```text
+Activity Date
+```
+
+They add:
+
+```text
+CPD Points
+```
+
+The template might therefore contain:
+
+```text
+member.full_name
+event.name
+cpd.activity_date
+cpd.cpd_points
+```
+
+Sample data:
+
+```text
+Professor Jane Smith
+
+BNMS Annual Spring Meeting 2026
+
+20 May 2026
+
+6 CPD Points
+```
+
+Selecting **Preview** renders these on the certificate.
+
+Selecting **Generate Test PDF** produces the actual final PDF using that sample data.
+
+No CPD award record or member workflow is required at this stage.
+
+---
+
+# 29. Phase 1 Acceptance Criteria
+
+The work can be considered complete when:
+
+1. An administrator can upload an arbitrary valid PDF certificate.
+2. The uploaded PDF is stored privately.
+3. iConnect can accurately display all pages of the PDF.
+4. An administrator can add dynamic placeholders.
+5. Placeholders can be dragged and accurately positioned.
+6. Placeholders can be resized where appropriate.
+7. Font, size, alignment and colour can be configured.
+8. Placeholder positions remain accurate regardless of browser zoom or PDF preview zoom.
+9. Templates support arbitrary/custom data keys.
+10. Administrators can enter sample values.
+11. Preview mode displays sample values rather than placeholder names.
+12. Text can shrink to fit within its allocated area.
+13. Date fields can be formatted.
+14. Multi-page PDFs can be supported.
+15. Template configuration persists correctly.
+16. Reopening a saved template returns every field to precisely the same position.
+17. A Test PDF can be generated using sample data.
+18. The generated PDF retains the original certificate artwork quality.
+19. Dynamic content is flattened into the resulting PDF.
+20. Tenant isolation and existing iConnect permissions are respected.
+
+---
+
+# 30. Explicitly Out of Scope
+
+Do **not** implement yet:
+
+* CPD awarding.
+* Member CPD records.
+* Event attendance rules.
+* Course completion.
+* Training records.
+* CPD point calculations.
+* Automatic certificate generation.
+* Certificate expiry.
+* Certificate revocation.
+* Member certificate libraries.
+* Emailing certificates.
+* Member notifications.
+* Approval workflows.
+* External CPD submissions.
+* QR verification.
+* Public certificate validation.
+* Digital signatures.
+* Bulk certificate generation.
+
+Those will form subsequent phases.
+
+The only requirement in this phase is to create a robust **PDF Certificate Template + Dynamic Placeholder + PDF Rendering Engine** upon which those later workflows can rely.
