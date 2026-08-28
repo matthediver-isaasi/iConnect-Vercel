@@ -106,6 +106,8 @@
     "openai": "^6.15.0",
     "passport": "^0.7.0",
     "passport-local": "^1.0.0",
+    "pdf-lib": "^1.17.1",
+    "pdfjs-dist": "^5.6.205",
     "pg": "^8.18.0",
     "pg-copy-streams": "^7.0.0",
     "qrcode": "^1.5.4",

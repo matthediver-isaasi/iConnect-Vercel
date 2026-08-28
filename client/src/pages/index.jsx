@@ -262,6 +262,7 @@ import OrganisationDirectorySettings from "./OrganisationDirectorySettings";
 import InstalledFonts from "./InstalledFonts";
 
 import PortalMenuManagement from "./PortalMenuManagement";
+import CPDCertificateTemplates from "./CPDCertificateTemplates";
 
 import MemberGroupAssignmentReport from "./MemberGroupAssignmentReport";
 
@@ -731,6 +732,7 @@ const PAGES = {
     InstalledFonts: InstalledFonts,
     
     PortalMenuManagement: PortalMenuManagement,
+    CPDCertificateTemplates: CPDCertificateTemplates,
     
     MemberGroupAssignmentReport: MemberGroupAssignmentReport,
     
@@ -815,6 +817,9 @@ function _getCurrentPage(url) {
     const urlParts = url.split('/').filter(Boolean);
     if (urlParts[0]?.toLowerCase() === 'customobjectsadmin') {
         return 'CustomObjectsAdmin';
+    }
+    if (urlParts[0]?.toLowerCase() === 'cpdcertificatetemplates') {
+        return 'CPDCertificateTemplates';
     }
     if (
         urlParts.length >= 3 &&
@@ -1196,6 +1201,8 @@ function PagesContent() {
                 <Route path="/InstalledFonts" element={<InstalledFonts />} />
                 
                 <Route path="/PortalMenuManagement" element={<PortalMenuManagement />} />
+                <Route path="/CPDCertificateTemplates" element={<CPDCertificateTemplates />} />
+                <Route path="/CPDCertificateTemplates/:templateId" element={<CPDCertificateTemplates />} />
                 
                 <Route path="/MemberGroupAssignmentReport" element={<MemberGroupAssignmentReport />} />
                 

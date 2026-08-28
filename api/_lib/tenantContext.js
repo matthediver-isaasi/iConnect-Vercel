@@ -172,6 +172,8 @@ export const entityTenantScope = {
   'GuestWriter': TENANT_SCOPE.TENANT,
   'FormDueDiligenceConfig': TENANT_SCOPE.TENANT,
   'FormSubmissionDueDiligence': TENANT_SCOPE.TENANT,
+  'CpdCertificateTemplate': TENANT_SCOPE.TENANT,
+  'CpdCertificatePlaceholder': TENANT_SCOPE.TENANT,
   
   // CONTRACT SIGNING - Contract documents with signature requirements
   'ContractDocument': TENANT_SCOPE.TENANT,

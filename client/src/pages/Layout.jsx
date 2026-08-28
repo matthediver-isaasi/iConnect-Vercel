@@ -107,6 +107,12 @@ const navigationItems = [
     featureId: "page_History"
   },
   {
+    title: "CPD Certificate Templates",
+    url: createPageUrl("CPDCertificateTemplates"),
+    icon: FileText,
+    featureId: "cpd.certificate-templates"
+  },
+  {
     title: "Team",
     url: createPageUrl("Team"),
     icon: Users,

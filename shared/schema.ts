@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, boolean, timestamp, jsonb, integer, uuid, index, uniqueIndex } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, boolean, timestamp, jsonb, integer, uuid, index, uniqueIndex, numeric, bigint } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -37,6 +37,75 @@ export const insertTenantSchema = createInsertSchema(tenant).omit({
 
 export type InsertTenant = z.infer<typeof insertTenantSchema>;
 export type Tenant = typeof tenant.$inferSelect;
+
+export const cpdCertificateTemplate = pgTable("cpd_certificate_template", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenant_id: uuid("tenant_id").notNull(),
+  name: text("name").notNull(),
+  description: text("description"),
+  status: varchar("status", { length: 20 }).notNull().default("draft"),
+  version: integer("version").notNull().default(1),
+  review_requested_at: timestamp("review_requested_at", { withTimezone: true }),
+  reviewed_at: timestamp("reviewed_at", { withTimezone: true }),
+  reviewed_by: text("reviewed_by"),
+  review_note: text("review_note"),
+  source_bucket: text("source_bucket"),
+  source_path: text("source_path"),
+  source_filename: text("source_filename"),
+  source_mime_type: text("source_mime_type"),
+  source_size_bytes: bigint("source_size_bytes", { mode: "number" }),
+  source_sha256: text("source_sha256"),
+  source_page_count: integer("source_page_count"),
+  source_geometry: jsonb("source_geometry").notNull().default([]),
+  created_by: text("created_by"),
+  updated_by: text("updated_by"),
+  archived_at: timestamp("archived_at", { withTimezone: true }),
+  created_at: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updated_at: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  tenantStatusIdx: index("idx_cpd_certificate_template_tenant_status")
+    .on(table.tenant_id, table.status, table.updated_at),
+}));
+
+export const cpdCertificatePlaceholder = pgTable("cpd_certificate_placeholder", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenant_id: uuid("tenant_id").notNull(),
+  template_id: uuid("template_id").notNull(),
+  placeholder_key: text("placeholder_key").notNull(),
+  label: text("label"),
+  field_type: text("field_type").notNull().default("text"),
+  sample_value: text("sample_value"),
+  default_value: text("default_value"),
+  display_order: integer("display_order").notNull().default(0),
+  multiline: boolean("multiline").notNull().default(false),
+  shrink_to_fit: boolean("shrink_to_fit").notNull().default(true),
+  page_number: integer("page_number").notNull(),
+  x: numeric("x").notNull(),
+  y: numeric("y").notNull(),
+  width: numeric("width").notNull(),
+  height: numeric("height").notNull(),
+  font_family: text("font_family").notNull().default("Helvetica"),
+  font_size: numeric("font_size").notNull().default("12"),
+  font_style: text("font_style").notNull().default("normal"),
+  alignment: text("alignment").notNull().default("left"),
+  color: text("color").notNull().default("#000000"),
+  line_height: numeric("line_height").notNull().default("1.2"),
+  minimum_font_size: numeric("minimum_font_size").notNull().default("4"),
+  vertical_align: text("vertical_align").notNull().default("middle"),
+  overflow_policy: text("overflow_policy").notNull().default("shrink"),
+  missing_policy: text("missing_policy").notNull().default("blank"),
+  format: text("format"),
+  created_at: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updated_at: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  templateKeyIdx: index("idx_cpd_certificate_placeholder_template_key")
+    .on(table.template_id, table.placeholder_key),
+  templatePageIdx: index("idx_cpd_certificate_placeholder_template_page")
+    .on(table.tenant_id, table.template_id, table.page_number, table.display_order),
+}));
+
+export type CpdCertificateTemplate = typeof cpdCertificateTemplate.$inferSelect;
+export type CpdCertificatePlaceholder = typeof cpdCertificatePlaceholder.$inferSelect;
 
 // Custom Object foundation. These shared generic tables back every
 // tenant-defined object; preference_field remains the field-definition source

@@ -54,7 +54,12 @@ const DEFAULT_KEYS = extractDefaultKeys();
 // when the corresponding access items are seeded/synced, so that newly
 // introduced modules/pages default to disabled until an admin explicitly
 // grants access on a per-role basis.
-const ROLE_BACKFILL_EXCLUSION_KEYS = ['publications', 'publications.briefmanagement'];
+const ROLE_BACKFILL_EXCLUSION_KEYS = [
+  'publications',
+  'publications.briefmanagement',
+  'cpd',
+  'cpd.certificate-templates',
+];
 
 const backfillRoleExclusionsForKeys = async (newKeys) => {
   const keys = (newKeys || []).filter(Boolean);
@@ -496,7 +501,7 @@ export default function RoleAccessConfigManagement() {
       await seedMutation.mutateAsync(featureItems);
     }
 
-    // Backfill the new Publications keys onto every existing role's
+    // Backfill newly introduced fail-closed keys onto every existing role's
     // excluded_features so the page is disabled by default for everyone.
     try {
       await backfillRoleExclusionsForKeys(ROLE_BACKFILL_EXCLUSION_KEYS);

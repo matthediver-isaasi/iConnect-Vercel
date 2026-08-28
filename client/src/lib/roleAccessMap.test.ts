@@ -43,6 +43,8 @@ const LEGACY_ID_SNAPSHOT: Record<string, string> = {
   page_BriefSettings: "content.brief-settings",
   page_PhotoGalleries: "content.gallery",
   page_EventCheckIn: "events.event-checkin",
+  page_user_CPDCertificateTemplates: "cpd.certificate-templates",
+  page_admin_CPDCertificateTemplates: "cpd.certificate-templates",
   // element_* family
   element_EventsSearch: "events.browse-events.search-filters",
   element_SelfRegistration: "events.event-details.self-registration",
@@ -87,6 +89,36 @@ test("snapshot: every expected canonical key exists in ROLE_ACCESS_MAP", () => {
       `Snapshot for "${legacyId}" points at "${expected}", which is not a real resource in ROLE_ACCESS_MAP`,
     );
   }
+});
+
+test("CPD certificate templates are a dedicated main portal capability", () => {
+  const cpdModule = ROLE_ACCESS_MAP.find((module) => module.id === "cpd");
+  assert.ok(cpdModule, "CPD must be registered as a top-level portal module");
+  assert.equal(cpdModule.label, "CPD");
+  assert.deepEqual(
+    cpdModule.pages.find((page) => page.id === "cpd.certificate-templates"),
+    {
+      id: "cpd.certificate-templates",
+      label: "Certificate Templates",
+    },
+  );
+  assert.equal(
+    migrateLegacyFeatureId("page_CPDCertificateTemplates"),
+    "cpd.certificate-templates",
+  );
+  assert.equal(
+    migrateLegacyFeatureId("page_user_CPDCertificateTemplates"),
+    "cpd.certificate-templates",
+  );
+  assert.equal(
+    migrateLegacyFeatureId("page_admin_CPDCertificateTemplates"),
+    "cpd.certificate-templates",
+  );
+  assert.equal(
+    isResourceExcluded(["cpd"], "cpd.certificate-templates"),
+    true,
+    "excluding the CPD portal module must gate certificate-template management",
+  );
 });
 
 test("every LEGACY_TO_NEW_MAPPING target is a real resource in ROLE_ACCESS_MAP", () => {

@@ -62,6 +62,7 @@ const availableIcons = {
 const PAGE_DEFAULT_FEATURES = {
   EventBudgetReport: "events.event-budget-report",
   OrganisationGroups: "crm.organisation-groups",
+  CPDCertificateTemplates: "cpd.certificate-templates",
 };
 
 const builtInPages = [
@@ -84,6 +85,7 @@ const builtInPages = [
   { value: "CardDeckManagement", label: "Card Deck Management" },
   { value: "CategoryManagement", label: "Category Management" },
   { value: "CommunicationsManagement", label: "Communications Management" },
+  { value: "CPDCertificateTemplates", label: "CPD Certificate Templates" },
   { value: "CustomFieldsAdmin", label: "Custom Fields Admin" },
   { value: "MemberGroupClassificationReport", label: "Group Classification Report" },
   { value: "Dashboard", label: "Dashboard" },
