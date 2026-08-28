@@ -66,3 +66,23 @@ test('request endpoints use source, lifecycle, and render API routes', () => {
     render: '/api/cpd-certificate-templates/a%2Fb/render',
   });
 });
+
+test('designer guards the initial null draft before reading status', () => {
+  const designer = readFileSync('client/src/pages/CPDCertificateTemplates.jsx', 'utf8');
+  const loadingGuard = designer.indexOf('if (isLoading || !draft)');
+  const statusRead = designer.indexOf("const isActive = draft.status === 'active'");
+
+  assert.notEqual(loadingGuard, -1);
+  assert.notEqual(statusRead, -1);
+  assert.ok(loadingGuard < statusRead, 'the null-draft loading guard must run before draft.status is read');
+  assert.match(designer, /\{error \? error\.message : 'Loading designer…'\}/);
+});
+
+test('designer keeps editing controls hidden for active templates', () => {
+  const designer = readFileSync('client/src/pages/CPDCertificateTemplates.jsx', 'utf8');
+
+  assert.match(designer, /\{!isActive && <><Button[^>]+>.*Replace PDF/s);
+  assert.match(designer, /\{!isActive && <Button variant="outline" onClick=\{\(\) => setPreview\(v => !v\)\}>\{preview \? 'Edit' : 'Preview'\}<\/Button>\}/);
+  assert.match(designer, /\{!isActive && <Button onClick=\{save\}/);
+  assert.match(designer, /\{!preview && !isActive && <aside/);
+});

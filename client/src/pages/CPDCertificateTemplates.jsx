@@ -383,9 +383,9 @@ function TemplateDesigner({ id }) {
   };
   const leave = () => { if (!dirty || window.confirm('Discard unsaved certificate changes?')) navigate('/CPDCertificateTemplates'); };
   const missing = draft?.fields?.filter(f => !String(f.sample || f.default_value || '').trim()) || [];
-  const isActive = draft.status === 'active';
 
   if (isLoading || !draft) return <div className="p-12 text-center">{error ? error.message : 'Loading designer…'}</div>;
+  const isActive = draft.status === 'active';
   return (
     <div className="min-h-screen bg-slate-100" onKeyDown={nudge}>
       <header className="sticky top-0 z-30 bg-white border-b px-4 py-3 flex flex-wrap items-center gap-2">
