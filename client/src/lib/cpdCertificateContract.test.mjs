@@ -47,6 +47,15 @@ test('database definitions allow one data key in multiple placeholder positions'
   assert.doesNotMatch(schema, /uniqueIndex\(["']cpd_certificate_placeholder_template_key/);
 });
 
+test('role exclusions are seeded with native text-array operations', () => {
+  const migration = readFileSync('supabase/migrations/20260906_cpd_certificate_templates.sql', 'utf8');
+  const roleSeed = migration.slice(migration.indexOf('UPDATE role'));
+  assert.match(roleSeed, /COALESCE\(excluded_features,\s*ARRAY\[\]::TEXT\[\]\)/);
+  assert.match(roleSeed, /ARRAY\['cpd',\s*'cpd\.certificate-templates'\]::TEXT\[\]/);
+  assert.match(roleSeed, /@>\s*ARRAY\['cpd',\s*'cpd\.certificate-templates'\]::TEXT\[\]/);
+  assert.doesNotMatch(roleSeed, /jsonb/i);
+});
+
 test('request endpoints use source, lifecycle, and render API routes', () => {
   assert.deepEqual(certificateTemplateEndpoints('a/b'), {
     item: '/api/cpd-certificate-templates/a%2Fb',

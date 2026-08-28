@@ -204,18 +204,12 @@ ALTER TABLE cpd_certificate_placeholder ENABLE ROW LEVEL SECURITY;
 -- explicitly through Role Access configuration rather than inherited from
 -- tenant-admin status.
 UPDATE role
-SET excluded_features = (
-  SELECT jsonb_agg(value)
-  FROM (
-    SELECT value
-    FROM jsonb_array_elements_text(COALESCE(excluded_features, '[]'::jsonb))
-    UNION
-    SELECT 'cpd'
-    UNION
-    SELECT 'cpd.certificate-templates'
-  ) exclusions
+SET excluded_features = ARRAY(
+  SELECT DISTINCT feature
+  FROM unnest(
+    COALESCE(excluded_features, ARRAY[]::TEXT[])
+    || ARRAY['cpd', 'cpd.certificate-templates']::TEXT[]
+  ) AS feature
 )
-WHERE NOT (
-  COALESCE(excluded_features, '[]'::jsonb) @> '["cpd"]'::jsonb
-  AND COALESCE(excluded_features, '[]'::jsonb) @> '["cpd.certificate-templates"]'::jsonb
-);
+WHERE NOT COALESCE(excluded_features, ARRAY[]::TEXT[])
+  @> ARRAY['cpd', 'cpd.certificate-templates']::TEXT[];
