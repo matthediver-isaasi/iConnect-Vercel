@@ -1,5 +1,9 @@
 import { getCustomObjectFieldMetadata, resolveCustomObjectDisplayValue } from './customObjectDomain.js';
 import { isOrganizationEligibleForField } from './organizationEligibility.js';
+import {
+  conditionalSelectionAllowed,
+  resolveConditionalFilter,
+} from './formConditionalFilters.js';
 
 export class FormRelationshipError extends Error {
   constructor(status, message) {
@@ -247,7 +251,42 @@ export function createFormRelationshipService({ db, tenantId }) {
   }
 
   async function validateSubmission({ form, submissionData = {} }) {
-    for (const field of (Array.isArray(form?.fields) ? form.fields : [])) {
+    const fields = Array.isArray(form?.fields) ? form.fields : [];
+    for (const field of fields) {
+      const selected = submittedFieldValue(submissionData, field);
+      const resolution = resolveConditionalFilter(field, submissionData, fields);
+      if (!conditionalSelectionAllowed(selected, resolution)) {
+        throw new FormRelationshipError(400, 'Invalid conditional field selection');
+      }
+      if (field?.type !== 'organisation_dropdown'
+          || selected === undefined || selected === null || selected === '') continue;
+      if (typeof selected !== 'string' && typeof selected !== 'number') {
+        throw new FormRelationshipError(400, 'Invalid organization selection');
+      }
+      const { data: organization, error } = await db.from('organization')
+        .select('*')
+        .eq('tenant_id', tenantId)
+        .eq('id', selected)
+        .maybeSingle();
+      throwDb(error);
+      if (!organization) throw new FormRelationshipError(400, 'Invalid organization selection');
+      try {
+        const staticallyEligible = await isOrganizationEligibleForField({
+          db, tenantId, organization, field,
+        });
+        const conditionallyEligible = !resolution.orgFilter
+          || await isOrganizationEligibleForField({
+            db, tenantId, organization, field: { org_filter: resolution.orgFilter },
+          });
+        if (!staticallyEligible || !conditionallyEligible) {
+          throw new FormRelationshipError(400, 'Invalid organization selection');
+        }
+      } catch (error) {
+        if (error instanceof FormRelationshipError) throw error;
+        throwDb(error);
+      }
+    }
+    for (const field of fields) {
       if (field?.type !== 'relationship_dropdown') continue;
       const recordId = submittedFieldValue(submissionData, field);
       if (recordId === undefined || recordId === null || recordId === '') continue;

@@ -1,26 +1,84 @@
 import { createClient } from '@supabase/supabase-js';
 import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
 import {
+  isOrganizationEligibleForField,
   normalizeOrganizationPreferenceValue,
   VALID_ORGANIZATION_CORE_FIELDS,
 } from '../_lib/organizationEligibility.js';
+import { resolveConditionalFilter } from '../_lib/formConditionalFilters.js';
 
-export default async function handler(req, res) {
-  if (req.method !== 'GET') {
+/**
+ * Resolves a dynamic organisation dropdown exclusively from the saved form.
+ * A bad/stale request deliberately returns no options: callers must never get
+ * a broader organisation list because a conditional configuration could not be
+ * loaded or interpreted.
+ */
+export async function loadConditionalOrganizationOptions({
+  db, tenantId, formId, formSlug, fieldId, sourceAnswers,
+}) {
+  if (!db || !tenantId || !fieldId || !sourceAnswers
+      || typeof sourceAnswers !== 'object' || Array.isArray(sourceAnswers)
+      || (!formId && !formSlug)) return [];
+  try {
+    let formQuery = db.from('form')
+      .select('id, fields')
+      .eq('tenant_id', tenantId)
+      .eq('is_active', true);
+    formQuery = formId ? formQuery.eq('id', formId) : formQuery.eq('slug', formSlug);
+    const { data: form, error: formError } = await formQuery.maybeSingle();
+    if (formError || !form || !Array.isArray(form.fields)) return [];
+    const field = form.fields.find((candidate) => String(candidate?.id) === String(fieldId));
+    if (!field || field.type !== 'organisation_dropdown') return [];
+
+    const resolution = resolveConditionalFilter(field, sourceAnswers, form.fields);
+    // Absent/empty rules retain the historical static-filter behavior. A
+    // configured set with no matched rule (or invalid persisted shape) has an
+    // empty allowed set and is therefore closed by the filter below.
+    if (resolution.configured && (!resolution.valid || !resolution.rule)) return [];
+
+    const { data: organizations, error: organizationsError } = await db
+      .from('organization')
+      .select('*')
+      .eq('tenant_id', tenantId)
+      .order('name', { ascending: true });
+    if (organizationsError) return [];
+
+    const allowedIds = resolution.configured && Array.isArray(resolution.allowedValues)
+      ? new Set(resolution.allowedValues.map((value) => String(value))) : null;
+    const visible = [];
+    for (const organization of organizations || []) {
+      // null means the matched rule supplied no ID restriction; an empty Set
+      // means a configured ID list intersected the saved base choices to none.
+      if (allowedIds && !allowedIds.has(String(organization.id))) continue;
+      if (!await isOrganizationEligibleForField({ db, tenantId, organization, field })) continue;
+      if (resolution.orgFilter && !await isOrganizationEligibleForField({
+        db, tenantId, organization, field: { org_filter: resolution.orgFilter },
+      })) continue;
+      visible.push({ id: organization.id, name: organization.name, logo_url: organization.logo_url });
+    }
+    return visible;
+  } catch {
+    return [];
+  }
+}
+
+export async function organizationsHandler(req, res, dependencies = {}) {
+  if (req.method !== 'GET' && req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const supabaseUrl = process.env.SUPABASE_URL;
-  const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
-
-  if (!supabaseUrl || !supabaseServiceKey) {
-    return res.status(503).json({ error: 'Supabase not configured' });
+  let supabase = dependencies.db;
+  if (!supabase) {
+    const supabaseUrl = process.env.SUPABASE_URL;
+    const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
+    if (!supabaseUrl || !supabaseServiceKey) {
+      return res.status(503).json({ error: 'Supabase not configured' });
+    }
+    supabase = createClient(supabaseUrl, supabaseServiceKey);
   }
 
-  const supabase = createClient(supabaseUrl, supabaseServiceKey);
-
   try {
-    const { tenant: tenantParam, allowedStatuses: allowedStatusesParam, orgFilter: orgFilterParam } = req.query;
+    const { tenant: tenantParam, allowedStatuses: allowedStatusesParam, orgFilter: orgFilterParam } = req.query || {};
     let tenantId = null;
 
     let allowedStatuses = [];
@@ -41,7 +99,7 @@ export default async function handler(req, res) {
       } catch (e) { orgFilter = null; }
     }
 
-    const tenant = await resolveTenantFromRequest(req);
+    const tenant = await (dependencies.resolveTenant || resolveTenantFromRequest)(req);
     if (tenant) {
       tenantId = tenant.id;
     }
@@ -72,6 +130,26 @@ export default async function handler(req, res) {
 
     if (!tenantId) {
       return res.status(400).json({ error: 'Invalid tenant context' });
+    }
+
+    if (req.method === 'POST') {
+      const {
+        formId: dynamicFormId,
+        formSlug: dynamicFormSlug,
+        fieldId,
+        targetFieldId,
+        sourceAnswers,
+      } = req.body || {};
+      const dynamicFieldId = fieldId || targetFieldId;
+      const data = await loadConditionalOrganizationOptions({
+        db: supabase,
+        tenantId,
+        formId: dynamicFormId,
+        formSlug: dynamicFormSlug,
+        fieldId: dynamicFieldId,
+        sourceAnswers,
+      });
+      return res.json(data);
     }
 
     if (orgFilter && orgFilter.type === 'core') {
@@ -131,6 +209,10 @@ export default async function handler(req, res) {
     console.error('Public organisations fetch error:', error);
     return res.status(500).json({ error: 'Failed to fetch organisations' });
   }
+}
+
+export default function handler(req, res) {
+  return organizationsHandler(req, res);
 }
 
 async function filterByCustomField(supabase, tenantId, fieldName, allowedValues, res) {

@@ -31,6 +31,14 @@ import {
   resolveRelationshipDropdownValues,
   shouldClearRelationshipValue,
 } from "@/lib/formRelationshipDropdown";
+import {
+  intersectConditionalOptions,
+  projectConditionalSourceValues,
+  removeInvalidConditionalValue,
+  resolveConditionalFilters,
+} from "@/lib/formConditionalFilters";
+
+let organizationQueryInstanceSequence = 0;
 
 function CountryCombobox({ countries, value, onChange, disabled, placeholder, fieldId }) {
   const [open, setOpen] = useState(false);
@@ -217,7 +225,7 @@ function MultiCountryCombobox({ countries, value = [], onChange, disabled, place
   );
 }
 
-function CommunicationPreferencesField({ field, value, onChange, disabled, memberInfo, formMemberRoleId }) {
+function CommunicationPreferencesField({ field, value, onChange, disabled, memberInfo, formMemberRoleId, conditionalResolution }) {
   const { data: allCategories = [], isLoading } = useQuery({
     queryKey: ['public-communication-categories'],
     queryFn: async () => await publicClient.listCommunicationCategories() || [],
@@ -236,10 +244,11 @@ function CommunicationPreferencesField({ field, value, onChange, disabled, membe
       if (!effectiveRoleId) return false;
       return cat.role_ids.includes(effectiveRoleId);
     });
-    if (allowedIds.length === 0) return roleFiltered;
-    const allowed = new Set(allowedIds);
-    return roleFiltered.filter(cat => allowed.has(cat.id));
-  }, [allCategories, formMemberRoleId, memberInfo?.role_id, allowedIdsKey]);
+    const staticallyFiltered = allowedIds.length === 0
+      ? roleFiltered
+      : roleFiltered.filter(cat => new Set(allowedIds).has(cat.id));
+    return intersectConditionalOptions(staticallyFiltered, conditionalResolution, cat => cat.id);
+  }, [allCategories, formMemberRoleId, memberInfo?.role_id, allowedIdsKey, conditionalResolution]);
 
   useEffect(() => {
     if (categories.length > 0 && (!value || Object.keys(value).length === 0)) {
@@ -250,6 +259,13 @@ function CommunicationPreferencesField({ field, value, onChange, disabled, membe
       onChange(initialPrefs);
     }
   }, [categories]);
+
+  useEffect(() => {
+    if (!conditionalResolution?.configured || isLoading || !value || typeof value !== 'object' || Array.isArray(value)) return;
+    const allowed = new Set(categories.map((category) => category.id));
+    const next = Object.fromEntries(Object.entries(value).filter(([id]) => allowed.has(id)));
+    if (Object.keys(next).length !== Object.keys(value).length) onChange(next);
+  }, [categories, conditionalResolution, isLoading, value, onChange]);
 
   if (isLoading) {
     return (
@@ -327,6 +343,10 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, me
   const [domainInfoMessage, setDomainInfoMessage] = useState('');
   const [emailFormatError, setEmailFormatError] = useState('');
   const [urlFormatError, setUrlFormatError] = useState('');
+  const conditionalResolution = useMemo(
+    () => resolveConditionalFilters({ field, fields: allFields, values: allFormValues }),
+    [field, allFields, allFormValues],
+  );
 
   useEffect(() => {
     if (resolvedFieldValue.needsCanonicalValue) {
@@ -474,19 +494,37 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, me
     }
   };
 
-  const orgFilterKey = JSON.stringify(field.org_filter || field.allowed_org_statuses || []);
+  const organizationSourceAnswers = useMemo(
+    () => projectConditionalSourceValues({ field, fields: allFields, values: allFormValues }),
+    [field, allFields, allFormValues],
+  );
+  const [organizationQueryInstance] = useState(() => {
+    organizationQueryInstanceSequence += 1;
+    return organizationQueryInstanceSequence;
+  });
+  const organizationAnswersSignature = JSON.stringify(organizationSourceAnswers);
+  const previousOrganizationAnswersSignature = useRef(organizationAnswersSignature);
+  const organizationAnswersRevision = useRef(0);
+  if (previousOrganizationAnswersSignature.current !== organizationAnswersSignature) {
+    previousOrganizationAnswersSignature.current = organizationAnswersSignature;
+    organizationAnswersRevision.current += 1;
+  }
   const { data: organisations = [], isLoading: orgsLoading } = useQuery({
-    queryKey: ['public-organisations-for-form', orgFilterKey],
-    queryFn: async () => {
-      const opts = {};
-      if (field.org_filter && field.org_filter.type && field.org_filter.field && field.org_filter.values?.length > 0) {
-        opts.orgFilter = field.org_filter;
-      } else if (field.allowed_org_statuses && field.allowed_org_statuses.length > 0) {
-        opts.allowedStatuses = field.allowed_org_statuses;
-      }
-      return await publicClient.listOrganizations(opts) || [];
-    },
-    enabled: field.type === 'organisation_dropdown',
+    queryKey: [
+      'public-form-organization-options',
+      formSlug,
+      formId,
+      field.id,
+      organizationQueryInstance,
+      organizationAnswersRevision.current,
+    ],
+    queryFn: () => publicClient.listFormOrganizationOptions(
+      formSlug,
+      formId,
+      field.id,
+      organizationSourceAnswers,
+    ),
+    enabled: field.type === 'organisation_dropdown' && !!(formSlug || formId),
     staleTime: 5 * 60 * 1000
   });
 
@@ -512,8 +550,12 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, me
     staleTime: 60 * 1000,
   });
   const relationshipOptions = useMemo(
-    () => normalizeRelationshipOptions(relationshipOptionPayload),
-    [relationshipOptionPayload],
+    () => intersectConditionalOptions(
+      normalizeRelationshipOptions(relationshipOptionPayload),
+      conditionalResolution,
+      option => option.id,
+    ),
+    [relationshipOptionPayload, conditionalResolution],
   );
   const previousRelationshipParent = useRef();
 
@@ -551,14 +593,106 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, me
     staleTime: 5 * 60 * 1000 // Cache for 5 minutes
   });
 
-  // Fetch custom field definition for custom_field type (uses public endpoint)
-  // Pass formId to ensure correct tenant resolution for embedded forms
+  const staticOptions = useMemo(
+    () => intersectConditionalOptions(
+      (field.options || []).filter(option => typeof option !== 'string' || option.trim() !== ''),
+      conditionalResolution,
+    ),
+    [field.options, conditionalResolution],
+  );
+  const organisationOptions = useMemo(
+    () => intersectConditionalOptions(organisations, conditionalResolution, org => org.id),
+    [organisations, conditionalResolution],
+  );
+  const imageButtonOptions = useMemo(
+    () => intersectConditionalOptions(field.image_options || [], conditionalResolution, option => option.value),
+    [field.image_options, conditionalResolution],
+  );
+  const availableCountryOptions = useMemo(() => {
+    const restricted = field.all_countries !== false
+      ? COUNTRIES
+      : COUNTRIES.filter(country => (field.selected_countries || []).includes(country.code));
+    return intersectConditionalOptions(restricted, conditionalResolution, country => [country.code, country.name]);
+  }, [field.all_countries, field.selected_countries, conditionalResolution]);
+  const categoryDropdownOptions = useMemo(() => {
+    const selected = categories.find(category => category.id === field.category_id);
+    return intersectConditionalOptions(selected?.subcategories || [], conditionalResolution);
+  }, [categories, field.category_id, conditionalResolution]);
+  const categoryMultiselectAllowedValues = useMemo(() => {
+    const filtered = field.allowed_category_ids?.length > 0
+      ? categories.filter(category => field.allowed_category_ids.includes(category.id))
+      : categories;
+    const values = filtered.flatMap(category => category.subcategories || []);
+    return intersectConditionalOptions(values, conditionalResolution);
+  }, [categories, field.allowed_category_ids, conditionalResolution]);
   const { data: customFieldDef, isLoading: customFieldLoading } = useQuery({
     queryKey: ['public-custom-field', field.custom_field_id, formId],
     queryFn: async () => await publicClient.getCustomField(field.custom_field_id, formId) || null,
     enabled: field.type === 'custom_field' && !!field.custom_field_id,
-    staleTime: 5 * 60 * 1000 // Cache for 5 minutes
+    staleTime: 5 * 60 * 1000,
   });
+  const customFieldOptions = useMemo(
+    () => intersectConditionalOptions(
+      customFieldDef?.options || field.options || [],
+      conditionalResolution,
+      option => option?.value ?? option?.label ?? option,
+    ),
+    [customFieldDef?.options, field.options, conditionalResolution],
+  );
+  const customCountryOptions = useMemo(() => {
+    const restricted = customFieldDef?.all_countries !== false
+      ? COUNTRIES
+      : COUNTRIES.filter(country => (customFieldDef?.selected_countries || []).includes(country.code));
+    return intersectConditionalOptions(restricted, conditionalResolution, country => [country.code, country.name]);
+  }, [customFieldDef?.all_countries, customFieldDef?.selected_countries, conditionalResolution]);
+
+  useEffect(() => {
+    if (!conditionalResolution.configured) return;
+    let options;
+    let loading = false;
+    let getValue;
+    if (['select', 'radio', 'checkbox'].includes(field.type)) options = staticOptions;
+    else if (field.type === 'image_buttons') {
+      options = imageButtonOptions;
+      getValue = option => option.value;
+    } else if (field.type === 'organisation_dropdown') {
+      options = organisationOptions;
+      getValue = option => option.id;
+      loading = orgsLoading;
+    } else if (field.type === 'relationship_dropdown') {
+      options = relationshipOptions;
+      getValue = option => option.id;
+      loading = relationshipOptionsLoading || (!relationshipOptionsLoaded && !!relationshipParentValue);
+    } else if (field.type === 'country' || field.type === 'countries') {
+      options = availableCountryOptions;
+      getValue = option => [option.code, option.name];
+    } else if (field.type === 'category_dropdown') {
+      options = categoryDropdownOptions;
+      loading = categoriesLoading;
+    } else if (field.type === 'category_multiselect') {
+      options = categoryMultiselectAllowedValues;
+      loading = categoriesLoading;
+    } else if (field.type === 'custom_field' && ['checkbox', 'picklist', 'radio'].includes(customFieldDef?.field_type)) {
+      options = customFieldOptions;
+      getValue = option => option?.value ?? option?.label ?? option;
+      loading = customFieldLoading;
+    } else if (field.type === 'custom_field' && ['country', 'countries'].includes(customFieldDef?.field_type)) {
+      options = customCountryOptions;
+      getValue = option => [option.code, option.name];
+      loading = customFieldLoading;
+    } else {
+      return;
+    }
+    if (loading) return;
+    const next = removeInvalidConditionalValue(value, options, getValue);
+    if (next !== value) onChange(next);
+  }, [
+    field.type, value, staticOptions, imageButtonOptions, organisationOptions, orgsLoading,
+    relationshipOptions, relationshipOptionsLoading, relationshipOptionsLoaded,
+    relationshipParentValue, availableCountryOptions, onChange,
+    categoryDropdownOptions, categoryMultiselectAllowedValues, categoriesLoading,
+    customFieldDef?.field_type, customFieldOptions, customCountryOptions, customFieldLoading,
+  ]);
 
   // Auto-populate user fields
   useEffect(() => {
@@ -942,12 +1076,18 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, me
                 <SelectValue placeholder={field.placeholder || 'Select an option'} />
               </SelectTrigger>
               <SelectContent side="bottom">
-                {(field.options || []).filter(option => typeof option !== 'string' || option.trim() !== '').map((option, index) => (
+                {staticOptions.map((option, index) => (
                   <SelectItem key={index} value={option}>
                     {option}
                   </SelectItem>
                 ))}
                 {field.allow_other && (
+                  !conditionalResolution.configured
+                  || (conditionalResolution.matchedRule && (
+                    conditionalResolution.allowedValues.length === 0
+                    || conditionalResolution.allowedValues.some(option => String(option).toLowerCase() === 'other')
+                  ))
+                ) && (
                   <SelectItem value="other">Other</SelectItem>
                 )}
               </SelectContent>
@@ -970,7 +1110,7 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, me
       case 'radio':
         return (
           <RadioGroup value={value || ''} onValueChange={isFieldDisabled ? undefined : onChange} disabled={isFieldDisabled}>
-            {(field.options || []).filter(option => typeof option !== 'string' || option.trim() !== '').map((option, index) => (
+            {staticOptions.map((option, index) => (
               <div key={index} className="flex items-center space-x-2">
                 <RadioGroupItem value={option} id={`${field.id}-${index}`} />
                 <Label htmlFor={`${field.id}-${index}`} className="font-normal">
@@ -1011,7 +1151,7 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, me
               </p>
             )}
             <div className="space-y-2 p-3 bg-slate-50 rounded-lg border">
-              {(field.options || []).filter(option => typeof option !== 'string' || option.trim() !== '').map((option, index) => {
+              {staticOptions.map((option, index) => {
                 const isChecked = checkboxSelectedValues.includes(option);
                 const isOptionDisabled = isFieldDisabled || (checkboxIsMaxReached && !isChecked);
                 return (
@@ -1057,6 +1197,9 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, me
         );
 
       case 'organisation_dropdown':
+        if (!formSlug && !formId) {
+          return <p className="text-sm text-slate-500">Organisation options require a persisted form.</p>;
+        }
         if (orgsLoading) {
           return (
             <div className="flex items-center gap-2 text-sm text-slate-500">
@@ -1065,8 +1208,15 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, me
             </div>
           );
         }
+        if (organisationOptions.length === 0) {
+          return <p className="text-sm text-slate-500">
+            {conditionalResolution.configured && !conditionalResolution.matchedRule
+              ? 'No organisations are available until a conditional rule matches.'
+              : 'No organisations are available.'}
+          </p>;
+        }
         // Find current org name for display (value stores ID)
-        const selectedOrg = organisations.find(org => org.id === value);
+        const selectedOrg = organisationOptions.find(org => org.id === value);
         return (
           <Select value={value || ''} onValueChange={isFieldDisabled ? undefined : onChange} disabled={isFieldDisabled}>
             <SelectTrigger data-testid={`select-organisation-${field.id}`} className={isFieldDisabled ? 'bg-slate-100 cursor-not-allowed opacity-60' : ''}>
@@ -1075,7 +1225,7 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, me
               </SelectValue>
             </SelectTrigger>
             <SelectContent side="bottom">
-              {organisations.map((org) => (
+              {organisationOptions.map((org) => (
                 <SelectItem key={org.id} value={org.id} data-testid={`option-organisation-${org.id}`}>
                   {org.name}
                 </SelectItem>
@@ -1148,7 +1298,7 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, me
         filteredCategories.forEach(category => {
           if (category.subcategories && Array.isArray(category.subcategories)) {
             category.subcategories.forEach(subcat => {
-              allSubcategoryOptions.push({
+              if (categoryMultiselectAllowedValues.includes(subcat)) allSubcategoryOptions.push({
                 categoryId: category.id,
                 categoryName: category.name,
                 subcategory: subcat
@@ -1160,7 +1310,9 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, me
         if (allSubcategoryOptions.length === 0) {
           return (
             <p className="text-sm text-slate-500">
-              No options available. Please add subcategories in Category Management.
+              {conditionalResolution.configured && !conditionalResolution.matchedRule
+                ? 'No options are available until a conditional rule matches.'
+                : 'No options available. Please add subcategories in Category Management.'}
             </p>
           );
         }
@@ -1254,7 +1406,7 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, me
         
         // Find the selected category and get its subcategories as options
         const selectedCategory = categories.find(cat => cat.id === field.category_id);
-        const subcategoryOptions = selectedCategory?.subcategories || [];
+        const subcategoryOptions = categoryDropdownOptions;
         
         if (!selectedCategory) {
           return (
@@ -1267,7 +1419,9 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, me
         if (subcategoryOptions.length === 0) {
           return (
             <p className="text-sm text-slate-500">
-              No options available for "{selectedCategory.name}".
+              {conditionalResolution.configured && !conditionalResolution.matchedRule
+                ? 'No options are available until a conditional rule matches.'
+                : `No options available for "${selectedCategory.name}".`}
             </p>
           );
         }
@@ -1304,8 +1458,6 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, me
             </p>
           );
         }
-        
-        const customFieldOptions = customFieldDef.options || [];
         
         // Handle file upload custom field type
         if (customFieldDef.field_type === 'file') {
@@ -1427,9 +1579,7 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, me
         }
 
         if (customFieldDef.field_type === 'countries') {
-          const allowedCountries = customFieldDef.all_countries !== false
-            ? COUNTRIES
-            : COUNTRIES.filter(c => (customFieldDef.selected_countries || []).includes(c.code));
+          const allowedCountries = customCountryOptions;
           let countriesValue;
           if (Array.isArray(value)) {
             countriesValue = value;
@@ -1450,6 +1600,13 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, me
           } else {
             countriesValue = [value];
           }
+          if (customCountryOptions.length === 0) {
+            return <p className="text-sm text-slate-500">
+              {conditionalResolution.configured && !conditionalResolution.matchedRule
+                ? 'No countries are available until a conditional rule matches.'
+                : 'No countries are available.'}
+            </p>;
+          }
           return (
             <MultiCountryCombobox
               countries={allowedCountries}
@@ -1463,10 +1620,15 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, me
         }
 
         if (customFieldDef.field_type === 'country') {
-          const allowedCountriesSingle = customFieldDef.all_countries !== false
-            ? COUNTRIES
-            : COUNTRIES.filter(c => (customFieldDef.selected_countries || []).includes(c.code));
+          const allowedCountriesSingle = customCountryOptions;
           const singleValue = Array.isArray(value) ? (value[0] || '') : (value || '');
+          if (customCountryOptions.length === 0) {
+            return <p className="text-sm text-slate-500">
+              {conditionalResolution.configured && !conditionalResolution.matchedRule
+                ? 'No countries are available until a conditional rule matches.'
+                : 'No countries are available.'}
+            </p>;
+          }
           return (
             <CountryCombobox
               countries={allowedCountriesSingle}
@@ -1483,7 +1645,9 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, me
         if (customFieldOptions.length === 0) {
           return (
             <p className="text-sm text-slate-500">
-              No options configured for this field.
+              {conditionalResolution.configured && !conditionalResolution.matchedRule
+                ? 'No options are available until a conditional rule matches.'
+                : 'No options configured for this field.'}
             </p>
           );
         }
@@ -1642,6 +1806,7 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, me
             disabled={isFieldDisabled}
             memberInfo={memberInfo}
             formMemberRoleId={formMemberRoleId}
+            conditionalResolution={conditionalResolution}
           />
         );
 
@@ -1701,9 +1866,7 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, me
         );
 
       case 'country':
-        const availableCountries = field.all_countries !== false 
-          ? COUNTRIES 
-          : COUNTRIES.filter(c => (field.selected_countries || []).includes(c.code));
+        const availableCountries = availableCountryOptions;
         const defaultCountryName = field.default_country 
           ? (COUNTRIES.find(c => c.code === field.default_country)?.name || '') 
           : '';
@@ -1720,9 +1883,7 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, me
         );
 
       case 'countries':
-        const availableCountriesMulti = field.all_countries !== false 
-          ? COUNTRIES 
-          : COUNTRIES.filter(c => (field.selected_countries || []).includes(c.code));
+        const availableCountriesMulti = availableCountryOptions;
         const defaultCountriesNames = (field.default_countries || [])
           .map(code => COUNTRIES.find(c => c.code === code)?.name)
           .filter(Boolean);
@@ -1993,7 +2154,7 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, me
   };
 
   if (field.type === 'image_buttons') {
-    const imageOptions = field.image_options || [];
+    const imageOptions = imageButtonOptions;
     return (
       <div className="space-y-2">
         {field.label && (

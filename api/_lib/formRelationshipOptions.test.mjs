@@ -408,3 +408,61 @@ test('submission validation rejects forged legacy name keys and mismatched name-
     },
   });
 });
+
+test('submission validation enforces conditional organisation rules and saved eligibility', async () => {
+  const savedForm = form({
+    fields: [
+      { id: 'country', type: 'dropdown', options: ['GB', 'US'] },
+      {
+        id: 'org',
+        type: 'organisation_dropdown',
+        org_filter: { type: 'core', field: 'is_active', values: ['true'] },
+        conditional_filters: {
+          version: 1,
+          rules: [{
+            id: 'approved-gb',
+            source_field_id: 'country',
+            operator: 'equals',
+            value: 'GB',
+            is_fallback: false,
+            allowed_values: [],
+            org_filter: { type: 'core', field: 'status', values: ['approved'] },
+          }],
+        },
+      },
+    ],
+  });
+  const service = createFormRelationshipService({
+    db: mockDb({ organization: [
+      { id: 'eligible', tenant_id: tenantId, is_active: true, status: 'approved' },
+      { id: 'stale', tenant_id: tenantId, is_active: true, status: 'suspended' },
+      { id: 'inactive', tenant_id: tenantId, is_active: false, status: 'approved' },
+    ] }),
+    tenantId,
+  });
+  await service.validateSubmission({
+    form: savedForm,
+    submissionData: { country: 'GB', org: 'eligible' },
+  });
+  await assert.rejects(
+    service.validateSubmission({
+      form: savedForm,
+      submissionData: { country: 'GB', org: 'stale' },
+    }),
+    (error) => error instanceof FormRelationshipError && error.status === 400,
+  );
+  await assert.rejects(
+    service.validateSubmission({
+      form: savedForm,
+      submissionData: { country: 'GB', org: 'inactive' },
+    }),
+    (error) => error instanceof FormRelationshipError && error.status === 400,
+  );
+  await assert.rejects(
+    service.validateSubmission({
+      form: savedForm,
+      submissionData: { country: 'US', org: 'eligible' },
+    }),
+    (error) => error instanceof FormRelationshipError && error.status === 400,
+  );
+});

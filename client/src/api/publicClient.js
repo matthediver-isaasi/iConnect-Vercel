@@ -321,6 +321,22 @@ class PublicClient {
     const queryString = params.toString();
     return this._fetch(`/api/public/organisations${queryString ? `?${queryString}` : ''}`);
   }
+
+  // The server resolves persisted conditional rules from the form definition;
+  // callers must never send those trusted rules back from the browser.
+  async listFormOrganizationOptions(formSlug, formId, fieldId, answers = {}) {
+    if ((!formSlug && !formId) || !fieldId) return [];
+    return this._fetch('/api/public/organisations', {
+      method: 'POST',
+      credentials: 'include',
+      body: JSON.stringify({
+        formSlug: formSlug || null,
+        formId: formId || null,
+        fieldId,
+        sourceAnswers: answers || {},
+      }),
+    });
+  }
   
   async getOrganization(id) {
     if (!id) return null;

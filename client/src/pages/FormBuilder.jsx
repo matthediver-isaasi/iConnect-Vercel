@@ -3574,6 +3574,424 @@ function ScoreFieldPreview({ field }) {
   );
 }
 
+const CONDITIONAL_FILTER_TARGET_TYPES = new Set([
+  'select',
+  'radio',
+  'checkbox',
+  'image_buttons',
+  'country',
+  'countries',
+  'category_multiselect',
+  'category_dropdown',
+  'communication_preferences',
+  'organisation_dropdown',
+  'relationship_dropdown',
+  'custom_field',
+]);
+
+const CONDITIONAL_FILTER_OPERATORS = {
+  text: [
+    ['equals', 'Equals'],
+    ['not_equals', 'Does not equal'],
+    ['includes', 'Includes'],
+    ['not_includes', 'Does not include'],
+    ['in', 'Is one of'],
+    ['not_in', 'Is not one of'],
+    ['is_empty', 'Is empty'],
+    ['is_not_empty', 'Is not empty'],
+  ],
+  multi: [
+    ['includes', 'Includes'],
+    ['not_includes', 'Does not include'],
+    ['in', 'Contains any of'],
+    ['not_in', 'Contains none of'],
+    ['is_empty', 'Is empty'],
+    ['is_not_empty', 'Is not empty'],
+  ],
+  number: [
+    ['equals', 'Equals'],
+    ['not_equals', 'Does not equal'],
+    ['in', 'Is one of'],
+    ['not_in', 'Is not one of'],
+    ['greater_than', 'Greater than'],
+    ['greater_or_equal', 'Greater than or equal'],
+    ['less_than', 'Less than'],
+    ['less_or_equal', 'Less than or equal'],
+    ['is_empty', 'Is empty'],
+    ['is_not_empty', 'Is not empty'],
+  ],
+};
+
+const conditionalOption = (option) => {
+  if (option && typeof option === 'object') {
+    const value = option.value ?? option.id ?? '';
+    return { value, label: option.label || option.name || String(value) };
+  }
+  return { value: option, label: String(option ?? '') };
+};
+
+function getConditionalFieldOptions(field, categories, communicationCategories, customFields = []) {
+  if (!field) return [];
+  if (['select', 'radio', 'checkbox'].includes(field.type)) {
+    return (field.options || []).filter(option => option !== '').map(conditionalOption);
+  }
+  if (field.type === 'image_buttons') {
+    return (field.image_options || []).filter(option => option?.value !== '').map(conditionalOption);
+  }
+  if (['country', 'countries'].includes(field.type)) {
+    const allowed = field.all_countries === false ? new Set(field.selected_countries || []) : null;
+    return COUNTRIES
+      .filter(country => !allowed || allowed.has(country.code))
+      .map(country => ({ value: country.name, label: country.name }));
+  }
+  if (field.type === 'category_multiselect') {
+    const allowed = new Set(field.allowed_category_ids || []);
+    return categories
+      .filter(category => allowed.size === 0 || allowed.has(category.id))
+      .flatMap(category => (category.subcategories || category.children || category.options || [])
+        .map(subcategory => conditionalOption(subcategory)));
+  }
+  if (field.type === 'category_dropdown') {
+    const category = categories.find(item => item.id === field.category_id);
+    const children = category?.subcategories || category?.children || category?.options || [];
+    return children.map(conditionalOption);
+  }
+  if (field.type === 'communication_preferences') {
+    const allowed = new Set(field.allowed_category_ids || []);
+    return communicationCategories
+      .filter(category => allowed.size === 0 || allowed.has(category.id))
+      .map(category => ({ value: category.id, label: category.name }));
+  }
+  if (field.type === 'custom_field') {
+    const customField = customFields.find(item => item.id === field.custom_field_id);
+    if (['country', 'countries'].includes(customField?.field_type)) {
+      const allowed = customField.all_countries === false
+        ? new Set(customField.selected_countries || [])
+        : null;
+      return COUNTRIES
+        .filter(country => !allowed || allowed.has(country.code))
+        .map(country => ({ value: country.name, label: country.name }));
+    }
+    return (customField?.options || field.options || []).map(conditionalOption);
+  }
+  return (field.options || []).map(conditionalOption);
+}
+
+function getConditionalOperatorGroup(field) {
+  if (['number', 'percentage', 'currency', 'score', 'date', 'time'].includes(field?.type)) return 'number';
+  if (['checkbox', 'countries', 'category_multiselect', 'communication_preferences', 'list'].includes(field?.type)) return 'multi';
+  return 'text';
+}
+
+function ConditionalOrgFilterEditor({ value, onChange, customFields, ruleId }) {
+  const coreFields = [
+    ['name', 'Name'],
+    ['slug', 'Slug'],
+    ['description', 'Description'],
+    ['website_url', 'Website URL'],
+    ['email', 'Email'],
+    ['phone', 'Phone'],
+    ['address', 'Address'],
+    ['city', 'City'],
+    ['country', 'Country'],
+    ['postcode', 'Postcode'],
+    ['status', 'Status'],
+    ['external_id', 'External ID'],
+    ['is_active', 'Is Active'],
+  ];
+  const orgCustomFields = customFields.filter(customField => customField.entity_scope === 'organization');
+  const type = value?.type || 'none';
+  const fieldName = value?.field || '';
+  const values = Array.isArray(value?.values) ? value.values : [];
+  const setFilter = (updates) => {
+    if (updates.type === 'none') {
+      onChange(null);
+      return;
+    }
+    onChange({ type, field: fieldName, values, ...updates });
+  };
+
+  return (
+    <div className="space-y-2 rounded border border-slate-200 bg-white p-2">
+      <Label className="text-xs">Organisation result filter</Label>
+      <Select value={type} onValueChange={nextType => setFilter({
+        type: nextType,
+        field: '',
+        values: [],
+      })}>
+        <SelectTrigger className="h-8 text-xs" data-testid={`select-conditional-org-filter-type-${ruleId}`}>
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="none">No organisation filter</SelectItem>
+          <SelectItem value="core">Core organisation field</SelectItem>
+          <SelectItem value="custom">Custom organisation field</SelectItem>
+        </SelectContent>
+      </Select>
+      {type !== 'none' && (
+        <>
+          <Select value={fieldName} onValueChange={field => setFilter({ field, values: [] })}>
+            <SelectTrigger className="h-8 text-xs" data-testid={`select-conditional-org-filter-field-${ruleId}`}>
+              <SelectValue placeholder="Choose a field…" />
+            </SelectTrigger>
+            <SelectContent>
+              {(type === 'core' ? coreFields : orgCustomFields.map(customField => [
+                customField.name,
+                customField.label || customField.name,
+              ])).map(([field, label]) => (
+                <SelectItem key={field} value={field}>{label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {fieldName && (
+            <Input
+              className="h-8 text-xs"
+              value={values.join(', ')}
+              onChange={event => setFilter({
+                values: event.target.value.split(',').map(item => item.trim()).filter(Boolean),
+              })}
+              placeholder="Allowed values, separated by commas"
+              data-testid={`input-conditional-org-filter-values-${ruleId}`}
+            />
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+function ConditionalFilterRuleEditor({
+  field,
+  originalIndex,
+  allFields,
+  categories,
+  communicationCategories,
+  customFields,
+  updateField,
+}) {
+  if (!CONDITIONAL_FILTER_TARGET_TYPES.has(field.type)) return null;
+
+  const rules = Array.isArray(field.conditional_filters?.rules) ? field.conditional_filters.rules : [];
+  const sourceFields = allFields.slice(0, originalIndex).filter(source =>
+    source.id && !['instructions', 'image', 'signature', 'file', 'payment', 'membership_payment'].includes(source.type)
+  );
+  const allowedOptions = getConditionalFieldOptions(field, categories, communicationCategories, customFields);
+  const persistRules = (nextRules) => updateField(originalIndex, {
+    conditional_filters: { version: 1, rules: nextRules.map(rule => ({
+      id: rule.id,
+      source_field_id: rule.source_field_id || '',
+      source_field_type: rule.source_field_type || null,
+      operator: rule.operator || 'equals',
+      value: rule.value ?? '',
+      is_fallback: rule.is_fallback === true,
+      allowed_values: Array.isArray(rule.allowed_values) ? rule.allowed_values : [],
+      org_filter: rule.org_filter || null,
+    })) },
+  });
+  const addRule = (isFallback = false) => persistRules([...rules, {
+    id: `conditional_filter_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    source_field_id: '',
+    operator: 'equals',
+    value: '',
+    is_fallback: isFallback,
+    allowed_values: [],
+    org_filter: null,
+  }]);
+  const updateRule = (index, updates) => persistRules(rules.map((rule, ruleIndex) =>
+    ruleIndex === index ? { ...rule, ...updates } : rule
+  ));
+  const moveRule = (index, direction) => {
+    const target = index + direction;
+    if (target < 0 || target >= rules.length) return;
+    const next = [...rules];
+    [next[index], next[target]] = [next[target], next[index]];
+    persistRules(next);
+  };
+
+  return (
+    <div className="space-y-3 rounded-lg border border-blue-200 bg-blue-50/40 p-3" data-testid={`conditional-filter-editor-${field.id}`}>
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <Label className="text-sm font-medium">Conditional option filters</Label>
+          <p className="mt-1 text-xs text-slate-500">
+            Rules run top to bottom. The first match wins; otherwise the first fallback is used. With rules but no match or fallback, no options are shown.
+          </p>
+        </div>
+        <div className="flex gap-1">
+          <Button type="button" size="sm" variant="outline" onClick={() => addRule(false)} disabled={sourceFields.length === 0}>
+            <Plus className="mr-1 h-3 w-3" /> Rule
+          </Button>
+          <Button type="button" size="sm" variant="outline" onClick={() => addRule(true)}>
+            <Plus className="mr-1 h-3 w-3" /> Fallback
+          </Button>
+        </div>
+      </div>
+      {sourceFields.length === 0 && rules.length === 0 && (
+        <p className="text-xs text-amber-700">Add an answer field earlier in the form to create a matching rule. You can still add a fallback.</p>
+      )}
+      {rules.map((rule, ruleIndex) => {
+        const source = sourceFields.find(sourceField => sourceField.id === rule.source_field_id);
+        const operatorGroup = getConditionalOperatorGroup(source);
+        const numericSource = ['number', 'percentage', 'currency', 'score'].includes(source?.type);
+        const operators = CONDITIONAL_FILTER_OPERATORS[operatorGroup];
+        const sourceOptions = getConditionalFieldOptions(source, categories, communicationCategories, customFields);
+        const hasValue = !['is_empty', 'is_not_empty'].includes(rule.operator);
+        const multiValue = ['in', 'not_in'].includes(rule.operator);
+        return (
+          <div key={rule.id} className="space-y-3 rounded-md border border-slate-200 bg-white p-3" data-testid={`conditional-filter-rule-${field.id}-${ruleIndex}`}>
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <Badge variant={rule.is_fallback ? 'secondary' : 'outline'}>
+                  {rule.is_fallback ? 'Fallback' : `Rule ${ruleIndex + 1}`}
+                </Badge>
+                <div className="flex">
+                  <Button type="button" variant="ghost" size="icon" className="h-7 w-7" disabled={ruleIndex === 0} onClick={() => moveRule(ruleIndex, -1)} aria-label="Move rule up">
+                    <ChevronUp className="h-3 w-3" />
+                  </Button>
+                  <Button type="button" variant="ghost" size="icon" className="h-7 w-7" disabled={ruleIndex === rules.length - 1} onClick={() => moveRule(ruleIndex, 1)} aria-label="Move rule down">
+                    <ChevronDown className="h-3 w-3" />
+                  </Button>
+                </div>
+              </div>
+              <Button type="button" variant="ghost" size="icon" className="h-7 w-7 text-red-500" onClick={() => persistRules(rules.filter((_, index) => index !== ruleIndex))} aria-label="Remove rule">
+                <Trash2 className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <Checkbox
+                id={`conditional-fallback-${rule.id}`}
+                checked={rule.is_fallback === true}
+                onCheckedChange={checked => updateRule(ruleIndex, { is_fallback: checked === true })}
+              />
+              <Label htmlFor={`conditional-fallback-${rule.id}`} className="text-xs">Use as fallback (does not evaluate a source value)</Label>
+            </div>
+
+            {!rule.is_fallback && (
+              <div className="grid gap-2 md:grid-cols-3">
+                <div className="space-y-1">
+                  <Label className="text-xs">Earlier source field</Label>
+                  <Select value={rule.source_field_id || ''} onValueChange={source_field_id => {
+                    const selectedSource = sourceFields.find(item => item.id === source_field_id);
+                    const selectedCustomField = selectedSource?.type === 'custom_field'
+                      ? customFields.find(item => item.id === selectedSource.custom_field_id)
+                      : null;
+                    updateRule(ruleIndex, {
+                      source_field_id,
+                      source_field_type: selectedCustomField?.field_type || selectedSource?.type || null,
+                      operator: 'equals',
+                      value: '',
+                    });
+                  }}>
+                    <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Choose source…" /></SelectTrigger>
+                    <SelectContent>
+                      {sourceFields.map(sourceField => (
+                        <SelectItem key={sourceField.id} value={sourceField.id}>{sourceField.label || 'Untitled field'}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Operator</Label>
+                  <Select value={rule.operator || 'equals'} onValueChange={operator => updateRule(ruleIndex, {
+                    operator,
+                    value: ['is_empty', 'is_not_empty'].includes(operator) ? null : '',
+                  })}>
+                    <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {operators.map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                {hasValue && (
+                  <div className="space-y-1">
+                    <Label className="text-xs">Value</Label>
+                    {source?.type === 'boolean' ? (
+                      <Select value={String(rule.value)} onValueChange={value => updateRule(ruleIndex, { value: value === 'true' })}>
+                        <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Choose value…" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="true">Yes</SelectItem>
+                          <SelectItem value="false">No</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    ) : sourceOptions.length > 0 && multiValue ? (
+                      <PolicyMultiSelect
+                        options={sourceOptions}
+                        value={Array.isArray(rule.value) ? rule.value : []}
+                        onChange={value => updateRule(ruleIndex, { value })}
+                        placeholder="Choose values…"
+                        testId={`select-conditional-source-values-${rule.id}`}
+                      />
+                    ) : sourceOptions.length > 0 ? (
+                      <Select value={rule.value === '' ? undefined : String(rule.value)} onValueChange={value => {
+                        const option = sourceOptions.find(item => String(item.value) === value);
+                        updateRule(ruleIndex, { value: option?.value ?? value });
+                      }}>
+                        <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Choose value…" /></SelectTrigger>
+                        <SelectContent>
+                          {sourceOptions.map(option => <SelectItem key={String(option.value)} value={String(option.value)}>{option.label}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <Input
+                        type={!multiValue && numericSource
+                          ? 'number'
+                          : !multiValue && source?.type === 'date'
+                            ? 'date'
+                            : !multiValue && source?.type === 'time'
+                              ? 'time'
+                              : 'text'}
+                        className="h-8 text-xs"
+                        value={Array.isArray(rule.value) ? rule.value.join(', ') : (rule.value ?? '')}
+                        onChange={event => updateRule(ruleIndex, {
+                          value: multiValue
+                            ? event.target.value.split(',').map(item => item.trim()).filter(Boolean)
+                            : numericSource && event.target.value !== ''
+                              ? Number(event.target.value)
+                              : event.target.value,
+                        })}
+                        placeholder={multiValue ? 'Values, separated by commas' : 'Comparison value'}
+                      />
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {allowedOptions.length > 0 && (
+              <div className="space-y-1">
+                <Label className="text-xs">Allowed target values</Label>
+                <PolicyMultiSelect
+                  options={allowedOptions}
+                  value={rule.allowed_values || []}
+                  onChange={allowed_values => updateRule(ruleIndex, { allowed_values })}
+                  placeholder="No additional restriction"
+                  testId={`select-conditional-allowed-values-${rule.id}`}
+                />
+                <p className="text-xs text-slate-500">These values are intersected with the field's existing choices.</p>
+              </div>
+            )}
+
+            {field.type === 'organisation_dropdown' && (
+              <ConditionalOrgFilterEditor
+                value={rule.org_filter}
+                onChange={org_filter => updateRule(ruleIndex, { org_filter })}
+                customFields={customFields}
+                ruleId={rule.id}
+              />
+            )}
+          </div>
+        );
+      })}
+      {rules.length > 0 && (
+        <Button type="button" variant="ghost" size="sm" className="text-slate-500" onClick={() => updateField(originalIndex, { conditional_filters: undefined })}>
+          <X className="mr-1 h-3 w-3" /> Remove conditional filtering
+        </Button>
+      )}
+    </div>
+  );
+}
+
 function FieldCard({ 
   field, 
   index, 
@@ -3948,6 +4366,16 @@ function FieldCard({
                   rows={2}
                 />
               </div>
+
+              <ConditionalFilterRuleEditor
+                field={field}
+                originalIndex={originalIndex}
+                allFields={allFields}
+                categories={categories}
+                communicationCategories={communicationCategories}
+                customFields={customFields}
+                updateField={updateField}
+              />
 
               {/* Currency configuration (Task #3480) */}
               {field.type === 'currency' && (() => {
@@ -6779,7 +7207,22 @@ export default function FormBuilderPage() {
           ...field,
           allow_other: field.allow_other ?? false,
           page_id: field.page_id || null,
-          column_index: field.column_index ?? 0 // Default to first column
+          column_index: field.column_index ?? 0, // Default to first column
+          ...(field.conditional_filters ? {
+            conditional_filters: {
+              version: 1,
+              rules: (Array.isArray(field.conditional_filters.rules) ? field.conditional_filters.rules : []).map((rule, ruleIndex) => ({
+                id: rule.id || `conditional_filter_${field.id}_${ruleIndex}`,
+                source_field_id: rule.source_field_id || '',
+                source_field_type: rule.source_field_type || null,
+                operator: rule.operator || 'equals',
+                value: rule.value ?? '',
+                is_fallback: rule.is_fallback === true,
+                allowed_values: Array.isArray(rule.allowed_values) ? rule.allowed_values : [],
+                org_filter: rule.org_filter || null,
+              })),
+            },
+          } : {}),
         })) : [],
         pages: existingForm.pages ? existingForm.pages.map(page => ({
           ...page,
