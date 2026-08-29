@@ -32,7 +32,7 @@ import {
   resolveSavedFormField,
   resolveFormRendererFieldValue,
   resolveRelationshipDropdownValues,
-  shouldClearRelationshipValue,
+  resolveRelationshipParentTransition,
 } from "@/lib/formRelationshipDropdown";
 import {
   intersectConditionalOptions,
@@ -120,6 +120,8 @@ function RepeatableRowsField({
       ? [[FORM_NOT_LISTED_TEXT_KEY, row[FORM_NOT_LISTED_TEXT_KEY]]]
       : []),
   ])), [value, config.children]);
+  const latestRows = useRef(rows);
+  latestRows.current = rows;
   const targetInitialRows = Math.max(config.min_rows, 1);
   const createRow = () => Object.fromEntries([
     ['_row_id', createRepeatableRowId()],
@@ -168,9 +170,14 @@ function RepeatableRowsField({
     }
   }, [field.id, validation.valid, onValidityChange]);
 
+  const commitRows = (update) => {
+    const nextRows = update(latestRows.current);
+    latestRows.current = nextRows;
+    onChange(nextRows);
+  };
   const updateRow = (rowId, childId, nextValue) => {
     const child = config.children.find(candidate => candidate.id === childId);
-    onChange(rows.map((row) => {
+    commitRows(currentRows => currentRows.map((row) => {
       if (row._row_id !== rowId) return row;
       const updated = { ...row, [childId]: nextValue };
       return supportsFormNotListedChoice(child) && !containsFormNotListedValue(nextValue)
@@ -178,13 +185,20 @@ function RepeatableRowsField({
         : updated;
     }));
   };
+  const updateRowNotListedText = (rowId, childId, text) => {
+    commitRows(currentRows => currentRows.map(current => (
+      current._row_id === rowId
+        ? setRepeatableRowNotListedText(current, childId, text)
+        : current
+    )));
+  };
   const addRow = () => {
-    if (rows.length >= config.max_rows) return;
-    onChange([...rows, createRow()]);
+    if (latestRows.current.length >= config.max_rows) return;
+    commitRows(currentRows => [...currentRows, createRow()]);
   };
   const removeRow = (rowId) => {
-    if (rows.length <= config.min_rows) return;
-    onChange(rows.filter(row => row._row_id !== rowId));
+    if (latestRows.current.length <= config.min_rows) return;
+    commitRows(currentRows => currentRows.filter(row => row._row_id !== rowId));
     setChildValidity(current => {
       const next = { ...current };
       delete next[rowId];
@@ -219,11 +233,7 @@ function RepeatableRowsField({
         field={{ ...child, repeatable_container_field_id: field.id }}
         value={row[child.id]}
         onChange={nextValue => updateRow(rowId, child.id, nextValue)}
-        onFormNotListedTextChange={text => onChange(rows.map(current => (
-          current._row_id === rowId
-            ? setRepeatableRowNotListedText(current, child.id, text)
-            : current
-        )))}
+        onFormNotListedTextChange={text => updateRowNotListedText(rowId, child.id, text)}
         onValidityChange={(childId, valid) => setChildValidity(current => (
           current[rowId]?.[childId] === valid
             ? current
@@ -1044,24 +1054,23 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, on
   useEffect(() => {
     if (field.type !== 'relationship_dropdown') return;
     const previousParentValue = previousRelationshipParent.current;
-    const shouldClear = (
-      relationshipParentValue === FORM_NOT_LISTED_VALUE
-      && relationshipCurrentValue !== FORM_NOT_LISTED_VALUE
-    ) || shouldClearRelationshipValue({
+    const parentTransitionValue = resolveRelationshipParentTransition({
+      field,
       value: relationshipCurrentValue,
       parentValue: relationshipParentValue,
       previousParentValue,
       options: relationshipOptions,
       optionsLoaded: relationshipOptionsLoaded,
     });
-    if (shouldClear) {
-      onChange('');
+    if (parentTransitionValue !== null) {
+      onChange(parentTransitionValue);
     } else if (relationshipValues.needsCanonicalValue) {
       onChange(relationshipCurrentValue);
     }
     previousRelationshipParent.current = relationshipParentValue;
   }, [
     field.type,
+    field.not_listed_choice,
     relationshipParentValue,
     relationshipOptions,
     relationshipOptionsLoaded,

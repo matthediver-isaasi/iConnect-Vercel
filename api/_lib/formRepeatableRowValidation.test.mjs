@@ -248,3 +248,101 @@ test('accepts an enabled not-listed sentinel outside persisted static category o
     relationshipService: service,
   });
 });
+
+test('accepts an auto-selected not-listed relationship beneath a not-listed row parent', async () => {
+  const repeatableForm = {
+    fields: [{
+      id: 'rows',
+      type: 'repeatable_row',
+      min_rows: 1,
+      children: [
+        {
+          id: 'org',
+          type: 'organisation_dropdown',
+          required: true,
+          not_listed_choice: { enabled: true, label: 'Organisation is not listed' },
+        },
+        {
+          id: 'department',
+          type: 'relationship_dropdown',
+          parent_field_id: 'org',
+          required: true,
+          not_listed_choice: { enabled: true, label: 'Department is not listed' },
+        },
+      ],
+    }],
+  };
+  const noQueryDb = { from() { throw new Error('not-listed relationship must not query entities'); } };
+  await validateRepeatableRowSubmission({
+    db: noQueryDb,
+    tenantId: 'tenant-1',
+    form: repeatableForm,
+    submissionData: {
+      rows: [{
+        org: '__form_not_listed__',
+        department: '__form_not_listed__',
+        __not_listed_choice_text: {
+          org: 'Independent organisation',
+          department: 'Specialist department',
+        },
+      }],
+    },
+    relationshipService: createFormRelationshipService({
+      tenantId: 'tenant-1',
+      db: noQueryDb,
+    }),
+  });
+
+  await assert.rejects(
+    validateRepeatableRowSubmission({
+      db: noQueryDb,
+      tenantId: 'tenant-1',
+      form: repeatableForm,
+      submissionData: {
+        rows: [{
+          org: '__form_not_listed__',
+          department: '__form_not_listed__',
+          __not_listed_choice_text: { org: 'Independent organisation' },
+        }],
+      },
+      relationshipService: createFormRelationshipService({
+        tenantId: 'tenant-1',
+        db: noQueryDb,
+      }),
+    }),
+    error => error.status === 400 && /Please specify the not-listed value/.test(error.message),
+  );
+
+  await assert.rejects(
+    validateRepeatableRowSubmission({
+      db: noQueryDb,
+      tenantId: 'tenant-1',
+      form: {
+        ...repeatableForm,
+        fields: [{
+          ...repeatableForm.fields[0],
+          children: repeatableForm.fields[0].children.map(child => (
+            child.id === 'department'
+              ? { ...child, not_listed_choice: { enabled: false, label: 'Disabled' } }
+              : child
+          )),
+        }],
+      },
+      submissionData: {
+        rows: [{
+          org: '__form_not_listed__',
+          department: '__form_not_listed__',
+          __not_listed_choice_text: {
+            org: 'Independent organisation',
+            department: 'Forged department',
+          },
+        }],
+      },
+      relationshipService: createFormRelationshipService({
+        tenantId: 'tenant-1',
+        db: noQueryDb,
+      }),
+    }),
+    error => error.status === 400 && /Invalid not-listed selection/.test(error.message),
+  );
+});

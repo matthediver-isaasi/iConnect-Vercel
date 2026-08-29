@@ -37,6 +37,15 @@ test('not-listed text helpers retain only populated field text maps', () => {
     country: FORM_NOT_LISTED_VALUE,
     [FORM_NOT_LISTED_TEXT_KEY]: { country: 'Atlantis' },
   });
+  const siblingText = setRepeatableRowNotListedText(row, 'department', 'Specialist team');
+  assert.deepEqual(siblingText[FORM_NOT_LISTED_TEXT_KEY], {
+    country: 'Atlantis',
+    department: 'Specialist team',
+  });
+  assert.deepEqual(
+    setRepeatableRowNotListedText(siblingText, 'department', '')[FORM_NOT_LISTED_TEXT_KEY],
+    { country: 'Atlantis' },
+  );
   assert.deepEqual(pruneFormNotListedText([
     { id: 'country', type: 'country' },
   ], {
@@ -58,8 +67,10 @@ test('renderer supplies the required accessible not-listed text control and vali
 test('root, repeatable, and review editors persist not-listed text through their contracts', () => {
   assert.match(formView, /setFormValues\(prev => setFormNotListedText\(prev, fieldId, text\)\)/);
   assert.match(embedForm, /setFormValues\(prev => setFormNotListedText\(prev, fieldId, text\)\)/);
-  assert.match(renderer, /setRepeatableRowNotListedText\(current, child\.id, text\)/);
+  assert.match(renderer, /setRepeatableRowNotListedText\(current, childId, text\)/);
   assert.match(renderer, /current\._row_id === rowId/);
+  assert.match(renderer, /latestRows\.current = nextRows/);
+  assert.match(renderer, /resolveRelationshipParentTransition/);
   assert.match(renderer, /!containsFormNotListedValue\(nextValue\)[\s\S]*setRepeatableRowNotListedText\(updated, childId, ''\)/);
   assert.match(reviewSubmission, /setReviewedFormValues\(prev => setFormNotListedText\(prev, fieldId, text\)\)/);
   assert.match(reviewSubmission, /values\[FORM_NOT_LISTED_TEXT_KEY\] =/);

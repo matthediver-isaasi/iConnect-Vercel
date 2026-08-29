@@ -1,3 +1,8 @@
+import {
+  FORM_NOT_LISTED_VALUE,
+  hasEnabledFormNotListedChoice,
+} from '../../../shared/formNotListedChoice.js';
+
 export function getEligibleRelationshipParents(fields, fieldId) {
   const list = Array.isArray(fields) ? fields : [];
   const index = list.findIndex((field) => field?.id === fieldId);
@@ -163,6 +168,30 @@ export function shouldClearRelationshipValue({
   if (!parentValue) return true;
   if (previousParentValue !== undefined && previousParentValue !== parentValue) return true;
   return optionsLoaded && !(options || []).some((option) => option.id === value);
+}
+
+export function resolveRelationshipParentTransition({
+  field,
+  value,
+  parentValue,
+  previousParentValue,
+  options,
+  optionsLoaded = false,
+}) {
+  if (field?.type !== 'relationship_dropdown') return null;
+  if (parentValue === FORM_NOT_LISTED_VALUE) {
+    if (hasEnabledFormNotListedChoice(field)) {
+      return value === FORM_NOT_LISTED_VALUE ? null : FORM_NOT_LISTED_VALUE;
+    }
+    return value ? '' : null;
+  }
+  return shouldClearRelationshipValue({
+    value,
+    parentValue,
+    previousParentValue,
+    options,
+    optionsLoaded,
+  }) ? '' : null;
 }
 
 export function normalizeEligibleRelationships(payload) {

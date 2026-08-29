@@ -12,6 +12,7 @@ import {
   resolveFormRendererFieldValue,
   relationshipFieldConfig,
   resolveRelationshipDropdownValues,
+  resolveRelationshipParentTransition,
   resolveSavedFormField,
   shouldClearRelationshipValue,
 } from './formRelationshipDropdown.js';
@@ -126,6 +127,65 @@ test('relationship value clears on parent change, clear, or invalid loaded optio
   assert.equal(shouldClearRelationshipValue({ ...base, parentValue: '' }), true);
   assert.equal(shouldClearRelationshipValue({ ...base, options: [], optionsLoaded: false }), false);
   assert.equal(shouldClearRelationshipValue({ ...base, options: [], optionsLoaded: true }), true);
+});
+
+test('relationship auto-selects its enabled not-listed choice only from a not-listed parent', () => {
+  const enabled = {
+    id: 'department',
+    type: 'relationship_dropdown',
+    not_listed_choice: { enabled: true, label: 'Department is not listed' },
+  };
+  assert.equal(resolveRelationshipParentTransition({
+    field: enabled,
+    value: '',
+    parentValue: FORM_NOT_LISTED_VALUE,
+  }), FORM_NOT_LISTED_VALUE);
+  assert.equal(resolveRelationshipParentTransition({
+    field: enabled,
+    value: FORM_NOT_LISTED_VALUE,
+    parentValue: FORM_NOT_LISTED_VALUE,
+  }), null);
+  assert.equal(resolveRelationshipParentTransition({
+    field: enabled,
+    value: '',
+    parentValue: 'org-1',
+    options: [],
+    optionsLoaded: false,
+  }), null);
+});
+
+test('relationship stays empty for a not-listed parent when its own choice is disabled', () => {
+  const disabled = {
+    id: 'department',
+    type: 'relationship_dropdown',
+    not_listed_choice: { enabled: false, label: 'Department is not listed' },
+  };
+  assert.equal(resolveRelationshipParentTransition({
+    field: disabled,
+    value: '',
+    parentValue: FORM_NOT_LISTED_VALUE,
+  }), null);
+  assert.equal(resolveRelationshipParentTransition({
+    field: disabled,
+    value: 'department-1',
+    parentValue: FORM_NOT_LISTED_VALUE,
+  }), '');
+});
+
+test('relationship clears an auto-selected choice when its parent becomes resolvable', () => {
+  const field = {
+    id: 'department',
+    type: 'relationship_dropdown',
+    not_listed_choice: { enabled: true, label: 'Department is not listed' },
+  };
+  assert.equal(resolveRelationshipParentTransition({
+    field,
+    value: FORM_NOT_LISTED_VALUE,
+    parentValue: 'org-1',
+    previousParentValue: FORM_NOT_LISTED_VALUE,
+    options: [],
+    optionsLoaded: false,
+  }), '');
 });
 
 test('legacy name-key values resolve through saved fields and request dependent options', () => {
