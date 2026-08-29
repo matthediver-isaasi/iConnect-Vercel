@@ -49,6 +49,12 @@ export function repeatableRowChildren(field) {
   return Array.isArray(children) ? children.filter((child) => child && typeof child === 'object') : [];
 }
 
+export function repeatableRowAddLabelEditorValue(field) {
+  const source = field?.repeatable_row && typeof field.repeatable_row === 'object'
+    ? field.repeatable_row : field;
+  return typeof source?.add_row_label === 'string' ? source.add_row_label : 'Add another';
+}
+
 export function repeatableRowFieldConfigUpdate(field, updates = {}) {
   if (field?.repeatable_row && typeof field.repeatable_row === 'object') {
     return {

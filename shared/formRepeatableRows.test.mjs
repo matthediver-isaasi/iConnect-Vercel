@@ -7,6 +7,7 @@ import {
   isRepeatableUniqueOptionAvailable,
   isRepeatableRowEmpty,
   normalizeRepeatableRowField,
+  repeatableRowAddLabelEditorValue,
   repeatableRowFieldConfigUpdate,
   repeatableSiblingUniqueValueKeys,
   repeatableSiblingUniqueValues,
@@ -63,6 +64,24 @@ test('repeatable rows default to cards and accept only the spreadsheet layout', 
     type: 'repeatable_rows',
     layout: 'forged',
   }).layout, REPEATABLE_ROW_LAYOUT_CARDS);
+});
+
+test('add label preserves spaces while editing and normalizes for rendering', () => {
+  const nested = {
+    type: 'repeatable_rows',
+    repeatable_row: { add_row_label: 'Add another attendee ' },
+  };
+  assert.equal(repeatableRowAddLabelEditorValue(nested), 'Add another attendee ');
+  assert.equal(normalizeRepeatableRowField(nested).add_row_label, 'Add another attendee');
+
+  const legacy = { type: 'repeatable_rows', add_row_label: 'Add a guest ' };
+  assert.equal(repeatableRowAddLabelEditorValue(legacy), 'Add a guest ');
+  assert.equal(normalizeRepeatableRowField(legacy).add_row_label, 'Add a guest');
+
+  const blank = { type: 'repeatable_rows', add_row_label: '   ' };
+  assert.equal(repeatableRowAddLabelEditorValue(blank), '   ');
+  assert.equal(normalizeRepeatableRowField(blank).add_row_label, 'Add another');
+  assert.equal(repeatableRowAddLabelEditorValue({ type: 'repeatable_rows' }), 'Add another');
 });
 
 test('repeatable child uniqueness is opt-in and normalized strictly', () => {

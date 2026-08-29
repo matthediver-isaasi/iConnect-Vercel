@@ -75,6 +75,7 @@ import {
 import {
   isRepeatableRowField,
   normalizeRepeatableRowField,
+  repeatableRowAddLabelEditorValue,
   REPEATABLE_ROW_CHILD_TYPES,
   REPEATABLE_ROW_DEPENDENCY_TYPES,
   REPEATABLE_ROW_LAYOUT_CARDS,
@@ -4187,6 +4188,7 @@ function findInvalidNotListedField(fields) {
 
 function RepeatableRowsSettings({ field, originalIndex, updateField, eligibleRelationships = [], allFields = [] }) {
   const config = normalizeRepeatableRowField(field);
+  const addRowLabelEditorValue = repeatableRowAddLabelEditorValue(field);
   const children = config.children;
   const updateConfig = updates => updateField(
     originalIndex,
@@ -4249,7 +4251,7 @@ function RepeatableRowsSettings({ field, originalIndex, updateField, eligibleRel
         <div className="space-y-1">
           <Label className="text-xs">Add button label</Label>
           <Input
-            value={config.add_row_label}
+            value={addRowLabelEditorValue}
             onChange={event => updateConfig({ add_row_label: event.target.value })}
             placeholder="Add row"
             className="h-9"

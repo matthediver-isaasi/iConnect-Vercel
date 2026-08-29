@@ -15,6 +15,13 @@ test('builder persists cards and spreadsheet repeatable-row layouts', () => {
   assert.match(builder, /updates\.layout = REPEATABLE_ROW_LAYOUT_CARDS/);
 });
 
+test('builder preserves spaces while editing the Add button label', () => {
+  assert.match(builder, /const addRowLabelEditorValue = repeatableRowAddLabelEditorValue\(field\)/);
+  assert.match(builder, /value=\{addRowLabelEditorValue\}/);
+  assert.doesNotMatch(builder, /value=\{config\.add_row_label\}/);
+  assert.match(renderer, /\{config\.add_row_label\}/);
+});
+
 test('builder treats repeatable aliases as existing repeatable fields without resetting them', () => {
   assert.match(
     builder,
