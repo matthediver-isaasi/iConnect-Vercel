@@ -33,6 +33,7 @@ import {
   resolveFormRendererFieldValue,
   resolveRelationshipDropdownValues,
   resolveRelationshipParentTransition,
+  shouldClearFilteredOrganisationValue,
 } from "@/lib/formRelationshipDropdown";
 import {
   intersectConditionalOptions,
@@ -961,16 +962,18 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, on
     staleTime: 5 * 60 * 1000
   });
   useEffect(() => {
-    if (field.type !== 'organisation_dropdown'
-        || !field.organisation_group_parent_field_id
-        || orgsLoading
-        || !value) return;
-    if (!organisations.some(organization => String(organization.id) === String(value))) {
+    if (shouldClearFilteredOrganisationValue({
+      field,
+      value,
+      organisations,
+      optionsLoaded: !orgsLoading,
+    })) {
       onChange('');
     }
   }, [
     field.type,
     field.organisation_group_parent_field_id,
+    field.not_listed_choice,
     organisations,
     orgsLoading,
     value,

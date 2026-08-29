@@ -14,6 +14,7 @@ import {
   resolveRelationshipDropdownValues,
   resolveRelationshipParentTransition,
   resolveSavedFormField,
+  shouldClearFilteredOrganisationValue,
   shouldClearRelationshipValue,
 } from './formRelationshipDropdown.js';
 
@@ -186,6 +187,56 @@ test('relationship clears an auto-selected choice when its parent becomes resolv
     options: [],
     optionsLoaded: false,
   }), '');
+});
+
+test('filtered organisation cleanup retains only an enabled not-listed sentinel', () => {
+  const enabled = {
+    id: 'organisation',
+    type: 'organisation_dropdown',
+    organisation_group_parent_field_id: 'group',
+    not_listed_choice: { enabled: true, label: 'Organisation is not listed' },
+  };
+  assert.equal(shouldClearFilteredOrganisationValue({
+    field: enabled,
+    value: FORM_NOT_LISTED_VALUE,
+    organisations: [],
+    optionsLoaded: true,
+  }), false);
+  assert.equal(shouldClearFilteredOrganisationValue({
+    field: {
+      ...enabled,
+      not_listed_choice: { enabled: false, label: 'Organisation is not listed' },
+    },
+    value: FORM_NOT_LISTED_VALUE,
+    organisations: [],
+    optionsLoaded: true,
+  }), true);
+  assert.equal(shouldClearFilteredOrganisationValue({
+    field: enabled,
+    value: FORM_NOT_LISTED_VALUE,
+    organisations: [],
+    optionsLoaded: false,
+  }), false);
+});
+
+test('filtered organisation cleanup still removes stale real selections', () => {
+  const field = {
+    id: 'organisation',
+    type: 'organisation_dropdown',
+    organisation_group_parent_field_id: 'group',
+  };
+  assert.equal(shouldClearFilteredOrganisationValue({
+    field,
+    value: 'organisation-1',
+    organisations: [{ id: 'organisation-1' }],
+    optionsLoaded: true,
+  }), false);
+  assert.equal(shouldClearFilteredOrganisationValue({
+    field,
+    value: 'organisation-1',
+    organisations: [{ id: 'organisation-2' }],
+    optionsLoaded: true,
+  }), true);
 });
 
 test('legacy name-key values resolve through saved fields and request dependent options', () => {

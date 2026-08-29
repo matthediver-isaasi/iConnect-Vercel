@@ -194,6 +194,25 @@ export function resolveRelationshipParentTransition({
   }) ? '' : null;
 }
 
+export function shouldClearFilteredOrganisationValue({
+  field,
+  value,
+  organisations,
+  optionsLoaded = false,
+}) {
+  if (field?.type !== 'organisation_dropdown'
+      || !field.organisation_group_parent_field_id
+      || !optionsLoaded
+      || !value) {
+    return false;
+  }
+  if (value === FORM_NOT_LISTED_VALUE) {
+    return !hasEnabledFormNotListedChoice(field);
+  }
+  return !(Array.isArray(organisations) ? organisations : [])
+    .some(organisation => String(organisation?.id) === String(value));
+}
+
 export function normalizeEligibleRelationships(payload) {
   const items = Array.isArray(payload)
     ? payload
