@@ -4,6 +4,7 @@ import {
   createRepeatableRowId,
   ensureRepeatableRowIds,
   normalizeRepeatableRowField,
+  reconcilePendingRepeatableRows,
   validateRepeatableRows,
 } from '../../../shared/formRepeatableRows.js';
 
@@ -34,6 +35,29 @@ test('preserves stable row IDs and canonical child keys', () => {
   assert.equal(normalized[0]._row_id, 'stable-row');
   assert.equal(normalized[0].org, 'org-1');
   assert.match(createRepeatableRowId(() => 0.5, () => 1), /^row_/);
+});
+
+test('keeps queued sibling changes through stale controlled-value renders', () => {
+  const original = [{ _row_id: 'row-1', org: '', department: '' }];
+  const parentQueued = [{
+    ...original[0],
+    org: '__form_not_listed__',
+    __not_listed_choice_text: { org: 'Independent organisation' },
+  }];
+  const staleRender = reconcilePendingRepeatableRows(original, parentQueued);
+  assert.deepEqual(staleRender.currentRows, parentQueued);
+  assert.deepEqual(staleRender.pendingRows, parentQueued);
+
+  const dependentQueued = staleRender.currentRows.map(row => ({
+    ...row,
+    department: '__form_not_listed__',
+  }));
+  const intermediateRender = reconcilePendingRepeatableRows(parentQueued, dependentQueued);
+  assert.deepEqual(intermediateRender.currentRows, dependentQueued);
+
+  const acknowledgedRender = reconcilePendingRepeatableRows(dependentQueued, dependentQueued);
+  assert.deepEqual(acknowledgedRender.currentRows, dependentQueued);
+  assert.equal(acknowledgedRender.pendingRows, null);
 });
 
 test('ignores untouched optional rows but validates active rows independently', () => {

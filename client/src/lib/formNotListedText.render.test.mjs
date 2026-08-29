@@ -69,7 +69,9 @@ test('root, repeatable, and review editors persist not-listed text through their
   assert.match(embedForm, /setFormValues\(prev => setFormNotListedText\(prev, fieldId, text\)\)/);
   assert.match(renderer, /setRepeatableRowNotListedText\(current, childId, text\)/);
   assert.match(renderer, /current\._row_id === rowId/);
-  assert.match(renderer, /latestRows\.current = nextRows/);
+  assert.match(renderer, /pendingRows\.current = nextRows/);
+  assert.match(renderer, /reconcilePendingRepeatableRows\(incomingRows, pendingRows\.current\)/);
+  assert.match(renderer, /const rows = reconciledRows\.currentRows/);
   assert.match(renderer, /resolveRelationshipParentTransition/);
   assert.match(renderer, /!containsFormNotListedValue\(nextValue\)[\s\S]*setRepeatableRowNotListedText\(updated, childId, ''\)/);
   assert.match(reviewSubmission, /setReviewedFormValues\(prev => setFormNotListedText\(prev, fieldId, text\)\)/);

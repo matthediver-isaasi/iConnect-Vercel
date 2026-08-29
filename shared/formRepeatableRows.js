@@ -121,6 +121,35 @@ export function ensureRepeatableRowIds(rows, createId = createRepeatableRowId) {
   });
 }
 
+function repeatableRowValueEquals(left, right) {
+  if (Object.is(left, right)) return true;
+  if (Array.isArray(left) || Array.isArray(right)) {
+    return Array.isArray(left)
+      && Array.isArray(right)
+      && left.length === right.length
+      && left.every((value, index) => repeatableRowValueEquals(value, right[index]));
+  }
+  if (!left || !right || typeof left !== 'object' || typeof right !== 'object') return false;
+  if (Object.getPrototypeOf(left) !== Object.prototype || Object.getPrototypeOf(right) !== Object.prototype) {
+    return false;
+  }
+  const leftKeys = Object.keys(left);
+  const rightKeys = Object.keys(right);
+  return leftKeys.length === rightKeys.length
+    && leftKeys.every(key => (
+      Object.prototype.hasOwnProperty.call(right, key)
+      && repeatableRowValueEquals(left[key], right[key])
+    ));
+}
+
+export function reconcilePendingRepeatableRows(incomingRows, pendingRows) {
+  if (!pendingRows) return { currentRows: incomingRows, pendingRows: null };
+  if (repeatableRowValueEquals(incomingRows, pendingRows)) {
+    return { currentRows: incomingRows, pendingRows: null };
+  }
+  return { currentRows: pendingRows, pendingRows };
+}
+
 export function isRepeatableValueEmpty(value) {
   if (value === undefined || value === null || value === '') return true;
   if (typeof value === 'string') return value.trim() === '';

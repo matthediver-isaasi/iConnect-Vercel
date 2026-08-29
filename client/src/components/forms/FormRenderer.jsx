@@ -62,6 +62,7 @@ import {
   isRepeatableUniqueOptionAvailable,
   isRepeatableRowField,
   normalizeRepeatableRowField,
+  reconcilePendingRepeatableRows,
   repeatableSiblingUniqueValues,
   repeatableUniqueValueKey,
   REPEATABLE_ROW_LAYOUT_SPREADSHEET,
@@ -110,7 +111,7 @@ function RepeatableRowsField({
   const [childValidity, setChildValidity] = useState({});
   const lastReportedValidity = useRef();
   const initializedRows = useRef(false);
-  const rows = useMemo(() => ensureRepeatableRowIds(value).map(row => Object.fromEntries([
+  const incomingRows = useMemo(() => ensureRepeatableRowIds(value).map(row => Object.fromEntries([
     ['_row_id', row._row_id],
     ...config.children.map(child => [
       child.id,
@@ -120,8 +121,12 @@ function RepeatableRowsField({
       ? [[FORM_NOT_LISTED_TEXT_KEY, row[FORM_NOT_LISTED_TEXT_KEY]]]
       : []),
   ])), [value, config.children]);
-  const latestRows = useRef(rows);
-  latestRows.current = rows;
+  const latestRows = useRef(incomingRows);
+  const pendingRows = useRef(null);
+  const reconciledRows = reconcilePendingRepeatableRows(incomingRows, pendingRows.current);
+  const rows = reconciledRows.currentRows;
+  latestRows.current = reconciledRows.currentRows;
+  pendingRows.current = reconciledRows.pendingRows;
   const targetInitialRows = Math.max(config.min_rows, 1);
   const createRow = () => Object.fromEntries([
     ['_row_id', createRepeatableRowId()],
@@ -132,7 +137,7 @@ function RepeatableRowsField({
   ]);
 
   useEffect(() => {
-    if (!initializedRows.current && (!Array.isArray(value) || rows.length === 0)) {
+    if (!initializedRows.current && (!Array.isArray(value) || incomingRows.length === 0)) {
       initializedRows.current = true;
       onChange(Array.from(
         { length: targetInitialRows },
@@ -141,12 +146,12 @@ function RepeatableRowsField({
       return;
     }
     initializedRows.current = true;
-    const needsCanonicalValue = rows.length !== value.length || rows.some((row, index) => (
+    const needsCanonicalValue = incomingRows.length !== value.length || incomingRows.some((row, index) => (
       row._row_id !== value[index]?._row_id
       || config.children.some(child => !Object.prototype.hasOwnProperty.call(value[index] || {}, child.id))
     ));
-    if (needsCanonicalValue) onChange(rows);
-  }, [value, rows, targetInitialRows, config.children, onChange]);
+    if (needsCanonicalValue) onChange(incomingRows);
+  }, [value, incomingRows, targetInitialRows, config.children, onChange]);
 
   const validation = useMemo(() => validateRepeatableRows(field, rows, {
       rootFields: rootAllFields || [],
@@ -173,6 +178,7 @@ function RepeatableRowsField({
   const commitRows = (update) => {
     const nextRows = update(latestRows.current);
     latestRows.current = nextRows;
+    pendingRows.current = nextRows;
     onChange(nextRows);
   };
   const updateRow = (rowId, childId, nextValue) => {
