@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
   evaluateFormLogicCondition,
+  isEmptyFormLogicValue,
   getFormLogicConditionOptions,
   isOnlyFormNotListedConditionOption,
 } from './formLogicConditions.js';
@@ -173,6 +174,41 @@ test('no-relationship rules match only a confirmed empty lookup, never a stored 
     { relationshipEmpty: true },
   ), false);
   assert.equal(evaluateFormLogicCondition('', 'is_empty', '', { relationshipEmpty: true }), true);
+});
+
+test('empty organisation placeholders do not satisfy is-not-empty rules', () => {
+  const emptyValues = [
+    undefined,
+    null,
+    '',
+    '   ',
+    [],
+    [''],
+    {},
+    { id: '', name: '' },
+    { value: null, label: '   ' },
+  ];
+  for (const value of emptyValues) {
+    assert.equal(isEmptyFormLogicValue(value), true);
+    assert.equal(evaluateFormLogicCondition(value, 'not_empty', null), false);
+    assert.equal(evaluateFormLogicCondition(value, 'is_empty', null), true);
+  }
+});
+
+test('real, prefilled, falsey, and not-listed values remain meaningfully populated', () => {
+  const populatedValues = [
+    'organisation-id',
+    { id: 'prefilled-organisation-id', name: 'Example Organisation' },
+    '__form_not_listed__',
+    false,
+    0,
+    ['organisation-id'],
+  ];
+  for (const value of populatedValues) {
+    assert.equal(isEmptyFormLogicValue(value), false);
+    assert.equal(evaluateFormLogicCondition(value, 'not_empty', null), true);
+    assert.equal(evaluateFormLogicCondition(value, 'is_empty', null), false);
+  }
 });
 
 test('the runtime sentinel is stripped only from relationship draft values', () => {

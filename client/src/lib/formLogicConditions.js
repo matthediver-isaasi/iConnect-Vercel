@@ -112,6 +112,17 @@ function normalizeBooleanCompareValue(value) {
   return value;
 }
 
+export function isEmptyFormLogicValue(value) {
+  if (value === undefined || value === null) return true;
+  if (typeof value === 'string') return value.trim() === '';
+  if (Array.isArray(value)) return value.length === 0 || value.every(isEmptyFormLogicValue);
+  if (typeof value === 'object' && Object.getPrototypeOf(value) === Object.prototype) {
+    const entries = Object.values(value);
+    return entries.length === 0 || entries.every(isEmptyFormLogicValue);
+  }
+  return false;
+}
+
 export function evaluateFormLogicCondition(triggerValue, operator, expectedValue, {
   relationshipEmpty = false,
 } = {}) {
@@ -134,15 +145,9 @@ export function evaluateFormLogicCondition(triggerValue, operator, expectedValue
       if (typeof effectiveTriggerValue === 'string') return effectiveTriggerValue.includes(expectedValue);
       return false;
     case 'not_empty':
-      return triggerValue !== undefined
-        && triggerValue !== null
-        && triggerValue !== ''
-        && (Array.isArray(triggerValue) ? triggerValue.length > 0 : true);
+      return !isEmptyFormLogicValue(triggerValue);
     case 'is_empty':
-      return triggerValue === undefined
-        || triggerValue === null
-        || triggerValue === ''
-        || (Array.isArray(triggerValue) && triggerValue.length === 0);
+      return isEmptyFormLogicValue(triggerValue);
     default:
       return false;
   }
