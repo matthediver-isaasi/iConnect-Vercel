@@ -4,6 +4,7 @@ import {
   buildOrganisationCustomValueMap,
   deriveOrganisationSaveChanges,
   executeOrganisationSavePlan,
+  normalizeOrganisationCustomValue,
   organisationCustomValuesEqual,
 } from './myOrganisationSave.js';
 
@@ -11,6 +12,7 @@ const fields = [
   { id: 'scalar', field_type: 'text' },
   { id: 'choices', field_type: 'picklist' },
   { id: 'items', field_type: 'list' },
+  { id: 'countries', field_type: 'countries' },
 ];
 const editable = () => true;
 
@@ -69,6 +71,45 @@ test('loaded list and picklist representations compare consistently', () => {
   assert.deepEqual(loaded, { choices: ['One', 'Two'], items: ['Solo'] });
   assert.equal(organisationCustomValuesEqual(fields[1], '["One","Two"]', ['One', 'Two']), true);
   assert.equal(organisationCustomValuesEqual(fields[2], 'Solo', ['Solo']), true);
+});
+
+test('normalizes scalar, JSON-array, empty, and malformed option values safely', () => {
+  const picklist = fields[1];
+  assert.deepEqual(normalizeOrganisationCustomValue(picklist, 'Scotland'), ['Scotland']);
+  assert.deepEqual(normalizeOrganisationCustomValue(picklist, '["Scotland"," Wales "]'), ['Scotland', 'Wales']);
+  assert.deepEqual(normalizeOrganisationCustomValue(picklist, ''), []);
+  assert.deepEqual(normalizeOrganisationCustomValue(picklist, '["Scotland"'), []);
+  assert.deepEqual(normalizeOrganisationCustomValue(picklist, '{"region":"Scotland"}'), []);
+});
+
+test('loading and cancelling preserve a legacy scalar selection without creating a save change', () => {
+  const persistedValues = [{ field_id: 'choices', value: 'Scotland' }];
+  const loaded = buildOrganisationCustomValueMap(fields, persistedValues);
+  const cancelled = buildOrganisationCustomValueMap(fields, persistedValues);
+
+  assert.deepEqual(loaded.choices, ['Scotland']);
+  assert.deepEqual(cancelled.choices, ['Scotland']);
+  assert.deepEqual(deriveOrganisationSaveChanges({
+    formData: {},
+    persistedFormData: {},
+    customFieldValues: cancelled,
+    persistedCustomFieldValues: { choices: 'Scotland' },
+    customFields: fields,
+    canEditField: editable,
+  }).custom, []);
+});
+
+test('genuine option edits save in canonical array form', () => {
+  const changes = deriveOrganisationSaveChanges({
+    formData: {},
+    persistedFormData: {},
+    customFieldValues: { choices: ['Scotland', 'Wales'] },
+    persistedCustomFieldValues: { choices: 'Scotland' },
+    customFields: fields,
+    canEditField: editable,
+  });
+
+  assert.deepEqual(changes.custom, [{ fieldId: 'choices', value: ['Scotland', 'Wales'] }]);
 });
 
 test('a failed custom-field update does not commit snapshots and remains dirty for retry', async () => {

@@ -112,6 +112,12 @@ import {
   getSubmissionFieldValue,
   isRelationshipDropdownField,
 } from "@/lib/relationshipDisplayLabels";
+import {
+  buildOrganisationCustomValueMap,
+  isOrganisationListField,
+  normalizeOrganisationCustomValue,
+  organisationCustomValuesEqual,
+} from "@/lib/myOrganisationSave";
 
 const getMemberName = (m) => {
   return [m?.first_name, m?.last_name].filter(Boolean).join(' ') || m?.full_name || '';
@@ -915,30 +921,7 @@ export default function OrganisationDetailView({
     })));
     
     if (!isEditing && orgCustomFields.length > 0) {
-      const valuesMap = {};
-      orgValues.forEach(pv => {
-        const field = orgCustomFields.find(f => f.id === pv.field_id);
-        console.log('[OrganisationDetailView DEBUG] Processing value:', {
-          field_id: pv.field_id,
-          value: pv.value,
-          foundField: field ? { id: field.id, name: field.name, options: field.options } : null
-        });
-        
-        if ((field?.field_type === 'picklist' || field?.field_type === 'list' || field?.field_type === 'countries') && pv.value) {
-          try {
-            const parsed = JSON.parse(pv.value);
-            // Ensure it's an array, normalize values
-            valuesMap[pv.field_id] = Array.isArray(parsed) 
-              ? parsed.map(v => String(v).trim()).filter(Boolean)
-              : [];
-          } catch {
-            console.warn(`Failed to parse ${field?.field_type} value for field ${pv.field_id}, defaulting to empty array`);
-            valuesMap[pv.field_id] = [];
-          }
-        } else {
-          valuesMap[pv.field_id] = pv.value;
-        }
-      });
+      const valuesMap = buildOrganisationCustomValueMap(orgCustomFields, orgValues);
       console.log('[OrganisationDetailView DEBUG] Final customFieldValues:', valuesMap);
       setCustomFieldValues(valuesMap);
     }
@@ -1102,16 +1085,17 @@ export default function OrganisationDetailView({
       
       Object.entries(currentCustomFieldValues).forEach(([fieldId, value]) => {
         const existingVal = currentOrgValues.find(v => v.field_id === fieldId);
-        // Use ?? to preserve falsy values like 0 or false
-        const storedValue = Array.isArray(value) ? JSON.stringify(value) : String(value ?? '');
-        const existingStored = existingVal?.value || '';
+        const field = orgCustomFields.find(candidate => candidate.id === fieldId);
+        const changed = !organisationCustomValuesEqual(field, value, existingVal?.value);
         
-        console.log('[handleSave] Field:', fieldId, 'newValue:', storedValue, 'existingValue:', existingStored, 'changed:', storedValue !== existingStored);
+        console.log('[handleSave] Field:', fieldId, 'newValue:', value, 'existingValue:', existingVal?.value, 'changed:', changed);
         
-        if (storedValue !== existingStored) {
+        if (changed) {
           updateCustomFieldMutation.mutate({ 
             fieldId, 
-            value
+            value: isOrganisationListField(field)
+              ? normalizeOrganisationCustomValue(field, value)
+              : value
           });
         }
       });
@@ -1135,22 +1119,7 @@ export default function OrganisationDetailView({
       description: organization.description || ''
     });
     
-    const valuesMap = {};
-    orgValues.forEach(pv => {
-      const field = orgCustomFields.find(f => f.id === pv.field_id);
-      if ((field?.field_type === 'picklist' || field?.field_type === 'list' || field?.field_type === 'countries') && pv.value) {
-        try {
-          const parsed = JSON.parse(pv.value);
-          valuesMap[pv.field_id] = Array.isArray(parsed) 
-            ? parsed.map(v => String(v).trim()).filter(Boolean)
-            : [];
-        } catch {
-          valuesMap[pv.field_id] = [];
-        }
-      } else {
-        valuesMap[pv.field_id] = pv.value;
-      }
-    });
+    const valuesMap = buildOrganisationCustomValueMap(orgCustomFields, orgValues);
     setCustomFieldValues(valuesMap);
     setIsEditing(false);
   };
@@ -1276,7 +1245,7 @@ export default function OrganisationDetailView({
           </Select>
         );
       case 'picklist':
-        const selectedValues = Array.isArray(value) ? value : [];
+        const selectedValues = normalizeOrganisationCustomValue(field, value);
         return (
           <div className="space-y-2">
             {(field.options || []).map((opt, idx) => (

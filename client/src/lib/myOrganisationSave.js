@@ -1,4 +1,4 @@
-const LIST_FIELD_TYPES = new Set(['list', 'picklist']);
+const LIST_FIELD_TYPES = new Set(['list', 'picklist', 'countries']);
 
 export function isOrganisationListField(field) {
   return LIST_FIELD_TYPES.has(field?.field_type);
@@ -11,16 +11,24 @@ export function normalizeOrganisationCustomValue(field, value) {
 
   let parsed = value;
   if (typeof parsed === 'string') {
+    const trimmed = parsed.trim();
+    if (!trimmed) return [];
     try {
-      parsed = JSON.parse(parsed);
+      parsed = JSON.parse(trimmed);
     } catch {
-      parsed = parsed ? [parsed] : [];
+      // Plain strings are the supported legacy scalar format. Strings that
+      // look like broken structured data are malformed rather than options.
+      return /^[\[{"]/.test(trimmed) ? [] : [trimmed];
     }
   }
 
   if (parsed == null || parsed === '') return [];
+  if (!Array.isArray(parsed) && typeof parsed !== 'string' && typeof parsed !== 'number' && typeof parsed !== 'boolean') {
+    return [];
+  }
   return (Array.isArray(parsed) ? parsed : [parsed])
-    .map((item) => String(item))
+    .filter((item) => ['string', 'number', 'boolean'].includes(typeof item))
+    .map((item) => String(item).trim())
     .filter(Boolean);
 }
 
@@ -36,7 +44,8 @@ export function organisationCustomValuesEqual(field, left, right) {
   const normalizedLeft = normalizeOrganisationCustomValue(field, left);
   const normalizedRight = normalizeOrganisationCustomValue(field, right);
   if (isOrganisationListField(field)) {
-    return JSON.stringify(normalizedLeft) === JSON.stringify(normalizedRight);
+    return normalizedLeft.length === normalizedRight.length
+      && normalizedLeft.every((value) => normalizedRight.includes(value));
   }
   return normalizedLeft === normalizedRight;
 }
