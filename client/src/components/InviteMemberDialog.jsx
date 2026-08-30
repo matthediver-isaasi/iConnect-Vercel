@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { base44 } from "@/api/base44Client";
 import { publicClient } from "@/api/publicClient";
@@ -18,6 +18,10 @@ import { Loader2, Mail } from "lucide-react";
 import { toast } from "sonner";
 import ReactQuill from "react-quill";
 import "react-quill/dist/quill.snow.css";
+import {
+  isInviteTemplateResolutionPending,
+  shouldInitializeInviteTemplate,
+} from "@/lib/inviteMemberTemplate";
 
 /**
  * Shared invite-member dialog usable from both the /Team page and the
@@ -45,11 +49,16 @@ export default function InviteMemberDialog({
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteSubject, setInviteSubject] = useState("");
   const [inviteBody, setInviteBody] = useState("");
+  const templateInitializedRef = useRef(false);
 
   // ------------------------------------------------------------------
   // Resolve invite template from the inviter's role (same as Team page)
   // ------------------------------------------------------------------
-  const { data: roles = [] } = useQuery({
+  const {
+    data: roles = [],
+    isPending: rolesPending,
+    isFetching: rolesFetching,
+  } = useQuery({
     queryKey: ["roles-for-invite-dialog"],
     queryFn: () => base44.entities.Role.list(),
     enabled: open,
@@ -62,7 +71,11 @@ export default function InviteMemberDialog({
 
   const inviteTemplateId = inviterRole?.invite_email_template_id || null;
 
-  const { data: inviteTemplate } = useQuery({
+  const {
+    data: inviteTemplate,
+    isPending: templatePending,
+    isFetching: templateFetching,
+  } = useQuery({
     queryKey: ["email-template", inviteTemplateId],
     queryFn: async () => {
       if (!inviteTemplateId) return null;
@@ -70,6 +83,15 @@ export default function InviteMemberDialog({
       return templates.find((t) => t.id === inviteTemplateId) || null;
     },
     enabled: !!inviteTemplateId && open,
+  });
+
+  const templateResolutionPending = isInviteTemplateResolutionPending({
+    hasRoleId: !!memberInfo?.role_id,
+    rolesPending,
+    rolesFetching,
+    inviteTemplateId,
+    templatePending,
+    templateFetching,
   });
 
   // ------------------------------------------------------------------
@@ -122,9 +144,24 @@ export default function InviteMemberDialog({
     return result;
   };
 
-  // Populate subject/body when dialog opens or template resolves
+  // Each opening gets one initialization only. Query refetches and parent
+  // rerenders must not overwrite edits after the form becomes interactive.
   useEffect(() => {
-    if (!open) return;
+    if (open) return;
+    templateInitializedRef.current = false;
+    setInviteEmail("");
+    setInviteSubject("");
+    setInviteBody("");
+  }, [open]);
+
+  useEffect(() => {
+    if (!shouldInitializeInviteTemplate({
+      open,
+      initialized: templateInitializedRef.current,
+      resolutionPending: templateResolutionPending,
+    })) return;
+
+    templateInitializedRef.current = true;
     const inviterFull = [memberInfo?.first_name, memberInfo?.last_name]
       .filter(Boolean)
       .join(" ");
@@ -143,15 +180,9 @@ export default function InviteMemberDialog({
         `<p>Hi,</p><p>${inviterFull} has invited you to join ${orgName || "our team"}.</p><p>Click the link below to accept the invitation and set up your account:</p><p style="margin: 20px 0; text-align: center;"><a href="{{invite_link}}" style="background-color: #2563eb; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">Accept Invitation</a></p>`
       );
     }
+    // Placeholder inputs are intentionally captured at initialization time.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, inviteTemplate, memberInfo, targetOrganization, organizationInfo]);
-
-  // Reset email field when dialog closes
-  useEffect(() => {
-    if (!open) {
-      setInviteEmail("");
-    }
-  }, [open]);
+  }, [open, templateResolutionPending, inviteTemplate]);
 
   // ------------------------------------------------------------------
   // Send invite mutation
@@ -246,8 +277,11 @@ export default function InviteMemberDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
+      <DialogContent
+        className="flex max-h-[calc(100vh-1rem)] max-h-[calc(100dvh-1rem)] w-[calc(100%-1rem)] max-w-2xl flex-col gap-0 overflow-hidden p-0"
+        data-testid="invite-member-dialog"
+      >
+        <DialogHeader className="shrink-0 px-4 pb-3 pt-5 pr-12 sm:px-6 sm:pr-12 sm:pt-6">
           <DialogTitle>Invite Member</DialogTitle>
           <DialogDescription>
             Send an invitation to a new member
@@ -256,65 +290,81 @@ export default function InviteMemberDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4 py-4">
-          <div className="space-y-2">
-            <Label htmlFor="invite-email-addr">Recipient Email Address *</Label>
-            <Input
-              id="invite-email-addr"
-              type="email"
-              value={inviteEmail}
-              onChange={(e) => setInviteEmail(e.target.value)}
-              placeholder={hasDomainRestriction ? `user@${primaryDomain}` : "user@example.com"}
-              data-testid="input-invite-email"
-            />
-            <p className="text-xs text-slate-500">{domainHint}</p>
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="invite-email-subject">Email Subject</Label>
-            <Input
-              id="invite-email-subject"
-              type="text"
-              value={inviteSubject}
-              onChange={(e) => setInviteSubject(e.target.value)}
-              placeholder="Enter email subject"
-              data-testid="input-invite-subject"
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label>Email Body</Label>
-            <p className="text-xs text-slate-500 mb-2">
-              Available placeholders: {"{{invitee_email}}"},{" "}
-              {"{{inviter_name}}"}, {"{{organization_name}}"},{"{{invite_link}}"}
-            </p>
-            <div className="border rounded-md">
-              <ReactQuill
-                theme="snow"
-                value={inviteBody}
-                onChange={setInviteBody}
-                className="min-h-[200px]"
-                modules={{
-                  toolbar: [
-                    [{ header: [1, 2, 3, false] }],
-                    ["bold", "italic", "underline"],
-                    [{ list: "ordered" }, { list: "bullet" }],
-                    ["link"],
-                    ["clean"],
-                  ],
-                }}
-              />
+        <div
+          className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4 sm:px-6"
+          data-testid="invite-member-scroll-region"
+        >
+          {templateResolutionPending ? (
+            <div
+              className="flex min-h-[280px] items-center justify-center gap-2 text-sm text-slate-600"
+              role="status"
+              data-testid="invite-template-loading"
+            >
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Loading invitation template...
             </div>
-          </div>
+          ) : (
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="invite-email-addr">Recipient Email Address *</Label>
+                <Input
+                  id="invite-email-addr"
+                  type="email"
+                  value={inviteEmail}
+                  onChange={(e) => setInviteEmail(e.target.value)}
+                  placeholder={hasDomainRestriction ? `user@${primaryDomain}` : "user@example.com"}
+                  data-testid="input-invite-email"
+                />
+                <p className="text-xs text-slate-500">{domainHint}</p>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="invite-email-subject">Email Subject</Label>
+                <Input
+                  id="invite-email-subject"
+                  type="text"
+                  value={inviteSubject}
+                  onChange={(e) => setInviteSubject(e.target.value)}
+                  placeholder="Enter email subject"
+                  data-testid="input-invite-subject"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label>Email Body</Label>
+                <p className="text-xs text-slate-500 mb-2">
+                  Available placeholders: {"{{invitee_email}}"},{" "}
+                  {"{{inviter_name}}"}, {"{{organization_name}}"},{"{{invite_link}}"}
+                </p>
+                <div className="rounded-md border [&_.ql-container]:min-h-[200px]">
+                  <ReactQuill
+                    theme="snow"
+                    value={inviteBody}
+                    onChange={setInviteBody}
+                    className="min-h-[200px]"
+                    modules={{
+                      toolbar: [
+                        [{ header: [1, 2, 3, false] }],
+                        ["bold", "italic", "underline"],
+                        [{ list: "ordered" }, { list: "bullet" }],
+                        ["link"],
+                        ["clean"],
+                      ],
+                    }}
+                  />
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
-        <DialogFooter>
+        <DialogFooter className="shrink-0 gap-2 border-t bg-background px-4 py-4 sm:px-6">
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
           <Button
             onClick={handleSendInvite}
-            disabled={sendInviteMutation.isPending || !inviteEmail}
+            disabled={templateResolutionPending || sendInviteMutation.isPending || !inviteEmail}
             className="bg-blue-600 hover:bg-blue-700"
             data-testid="button-send-invite"
           >
