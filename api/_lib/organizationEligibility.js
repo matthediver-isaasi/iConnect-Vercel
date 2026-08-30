@@ -47,6 +47,13 @@ function matchesMode(matches, filter) {
   return filter?.mode === 'exclude' ? !matches : matches;
 }
 
+function hasFilterableValue(value) {
+  if (value === null || value === undefined) return false;
+  if (Array.isArray(value)) return value.some(hasFilterableValue);
+  if (typeof value === 'string') return value.trim().length > 0;
+  return true;
+}
+
 function validFilterMode(filter) {
   return filter?.mode === undefined || filter.mode === 'include' || filter.mode === 'exclude';
 }
@@ -78,10 +85,10 @@ export async function filterOrganizationsEligibleForFields({
     if (values.length === 0) return [];
 
     if (filter.type === 'core') {
-      eligible = eligible.filter((organization) => matchesMode(
-        coreFilterMatches(organization, filter, values),
-        filter,
-      ));
+      eligible = eligible.filter((organization) => {
+        if (!hasFilterableValue(organization?.[filter.field])) return false;
+        return matchesMode(coreFilterMatches(organization, filter, values), filter);
+      });
       continue;
     }
     if (filter.type !== 'custom') return [];
@@ -117,7 +124,8 @@ export async function filterOrganizationsEligibleForFields({
     const allowed = new Set(values);
     eligible = eligible.filter((organization) => {
       const value = customValues.get(String(organization.id));
-      const matches = value !== null && value !== undefined && allowed.has(value);
+      if (!hasFilterableValue(value)) return false;
+      const matches = allowed.has(value);
       return matchesMode(matches, filter);
     });
   }
@@ -137,6 +145,7 @@ export async function isOrganizationEligibleForField({ db, tenantId, organizatio
   if (values.length === 0) return false;
 
   if (filter.type === 'core') {
+    if (!hasFilterableValue(organization?.[filter.field])) return false;
     return matchesMode(coreFilterMatches(organization, filter, values), filter);
   }
   if (filter.type !== 'custom') return false;
@@ -160,6 +169,7 @@ export async function isOrganizationEligibleForField({ db, tenantId, organizatio
     .maybeSingle();
   if (valueError) throw valueError;
   const value = normalizeOrganizationPreferenceValue(preferenceValue?.value);
-  const matches = value !== null && values.map(String).includes(value);
+  if (!hasFilterableValue(value)) return false;
+  const matches = values.map(String).includes(value);
   return matchesMode(matches, filter);
 }

@@ -237,7 +237,11 @@ export function applyOrganizationFilter(organizations, filter) {
         ?? organization?.custom_field_values?.[filter.field]
         ?? organization?.[filter.field]
       : organization?.[filter.field];
-    const matches = normalizeConditionalValue(raw).some((item) => allowed.includes(comparable(item)));
+    const values = normalizeConditionalValue(raw).filter((item) => (
+      typeof item !== 'string' || item.trim().length > 0
+    ));
+    if (values.length === 0) return false;
+    const matches = values.some((item) => allowed.includes(comparable(item)));
     return filter.mode === 'exclude' ? !matches : matches;
   });
 }

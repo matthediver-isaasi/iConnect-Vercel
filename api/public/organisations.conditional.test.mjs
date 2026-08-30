@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { filterOrganizationsEligibleForFields } from '../_lib/organizationEligibility.js';
 import { loadConditionalOrganizationOptions, organizationsHandler } from './organisations.js';
 
 const tenantId = 'tenant-1';
@@ -146,6 +147,45 @@ test('saved organisation filters fail closed for invalid empty modes but allow v
     fieldId: 'org',
     sourceAnswers: {},
   })).map((org) => org.id), ['one']);
+});
+
+test('populated core and custom filters exclude records with empty values in both modes', async () => {
+  const organizations = [
+    { id: 'match', status: 'approved' },
+    { id: 'other', status: 'pending' },
+    { id: 'missing' },
+    { id: 'blank', status: '   ' },
+  ];
+  for (const mode of ['include', 'exclude']) {
+    const core = await filterOrganizationsEligibleForFields({
+      db: db({}),
+      tenantId,
+      organizations,
+      fields: [{ org_filter: { type: 'core', field: 'status', values: ['approved'], mode } }],
+    });
+    assert.deepEqual(core.map(item => item.id), mode === 'include' ? ['match'] : ['other']);
+  }
+
+  const customSeed = {
+    preference_field: [{
+      id: 'sector-field', tenant_id: tenantId, name: 'sector',
+      entity_scope: 'organization', is_active: true,
+    }],
+    organization_preference_value: [
+      { organization_id: 'match', field_id: 'sector-field', value: 'arts' },
+      { organization_id: 'other', field_id: 'sector-field', value: 'tech' },
+      { organization_id: 'blank', field_id: 'sector-field', value: '   ' },
+    ],
+  };
+  for (const mode of ['include', 'exclude']) {
+    const custom = await filterOrganizationsEligibleForFields({
+      db: db(customSeed),
+      tenantId,
+      organizations,
+      fields: [{ org_filter: { type: 'custom', field: 'sector', values: ['arts'], mode } }],
+    });
+    assert.deepEqual(custom.map(item => item.id), mode === 'include' ? ['match'] : ['other']);
+  }
 });
 
 test('unmatched, malformed, and forged field requests fail closed', async () => {

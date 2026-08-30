@@ -236,6 +236,8 @@ test('organization filtering supports standard and custom trusted shapes', () =>
   const organizations = [
     { id: 'a', status: 'active', custom_fields: { sector: 'arts' } },
     { id: 'b', status: 'inactive', custom_fields: { sector: 'tech' } },
+    { id: 'missing' },
+    { id: 'blank', status: '   ', custom_fields: { sector: '' } },
   ];
   assert.deepEqual(
     applyOrganizationFilter(organizations, { type: 'standard', field: 'status', values: ['active'] }),
@@ -263,6 +265,29 @@ test('organization filtering supports standard and custom trusted shapes', () =>
     }),
     [],
   );
+});
+
+test('populated organization filters exclude empty values in both modes', () => {
+  const organizations = [
+    { id: 'match', status: 'approved', custom_fields: { sector: 'arts' } },
+    { id: 'other', status: 'pending', custom_fields: { sector: 'tech' } },
+    { id: 'missing' },
+    { id: 'blank', status: '  ', custom_fields: { sector: ' ' } },
+    { id: 'empty-array', status: [], custom_fields: { sector: [] } },
+  ];
+  for (const type of ['core', 'custom']) {
+    const field = type === 'core' ? 'status' : 'sector';
+    assert.deepEqual(
+      applyOrganizationFilter(organizations, { type, field, values: [type === 'core' ? 'approved' : 'arts'] })
+        .map(item => item.id),
+      ['match'],
+    );
+    assert.deepEqual(
+      applyOrganizationFilter(organizations, { type, field, values: [type === 'core' ? 'approved' : 'arts'], mode: 'exclude' })
+        .map(item => item.id),
+      ['other'],
+    );
+  }
 });
 
 test('organization filter options use configured custom-field choices', () => {
