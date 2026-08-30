@@ -21,8 +21,11 @@
  *     a membership structure (Associate, Trainee, Student, and the UK
  *     "with NMC" variants) so those applications submit without payment
  *     instead of showing £0.
+ *  5. Collapses duplicate printed-NMC-Journal visibility rules into one rule
+ *     that shows only the six postal-address fields. The NMC Journal page
+ *     remains controlled exclusively by the Member Class rules.
  *
- * Run: node scripts/fix-getting-started-form-3659.mjs [--dry-run]
+ * Run: node scripts/fix-getting-started-form-3659.mjs [--dry-run] [--journal-only]
  */
 import { createClient } from '@supabase/supabase-js';
 
@@ -35,6 +38,15 @@ const STRUCTURE_PREF_FIELD = '87f120ff-92e6-4d52-944b-9ba9d7b1fac0'; // "Member 
 const MEMBERSHIP_RULE_ID = 'rule_1786382904202';    // old hardcoded rule
 const CIRCULAR_RULE_ID = 'rule_1787054287521';
 const HIDE_RULE_ID = 'rule_hide_payment_no_tier_3659';
+const JOURNAL_PRINT_FIELD = 'field_1786369144460';
+const JOURNAL_ADDRESS_FIELDS = [
+  'field_1786370975290',
+  'field_1786370990356',
+  'field_1786371000322',
+  'field_1786371011587',
+  'field_1786371018894',
+  'field_1786371035950',
+];
 
 // Old form values -> structure match values / preference-field values.
 const VALUE_MAP = {
@@ -61,6 +73,7 @@ const NEW_CLASS_OPTIONS = [
 const NO_TIER_CLASSES = ['Associate', 'Trainee', 'Student', 'Full with NMC', 'Full junior with NMC'];
 
 const dryRun = process.argv.includes('--dry-run');
+const journalOnly = process.argv.includes('--journal-only');
 const url = process.env.DEST_SUPABASE_URL;
 const key = process.env.DEST_SUPABASE_KEY;
 if (!url || !key) { console.error('DEST_SUPABASE_URL / DEST_SUPABASE_KEY required'); process.exit(1); }
@@ -77,6 +90,7 @@ let changes = [];
 
 // ── 1. Member Class field options ──────────────────────────────────────
 const fields = (form.fields || []).map((f) => {
+  if (journalOnly) return f;
   if (f?.id !== CLASS_FIELD) return f;
   if (JSON.stringify(f.options) !== JSON.stringify(NEW_CLASS_OPTIONS)) {
     changes.push('class field options aligned with structure match values');
@@ -89,6 +103,7 @@ const fields = (form.fields || []).map((f) => {
 let rules = (form.visibility_rules || []).map((rule) => {
   if (!rule) return rule;
   let r = JSON.parse(JSON.stringify(rule));
+  if (journalOnly) return r;
 
   // 2a. Fix the circular rewrite rule FIRST (its condition value is what
   // makes it circular; the corrected trigger is the non-overseas junior
@@ -146,8 +161,47 @@ let rules = (form.visibility_rules || []).map((rule) => {
   return r;
 });
 
+// 5. Keep exactly one simple "printed journal = Yes" visibility rule and make
+// it field-only. Do not touch rules that also rewrite Member Class values.
+let keptJournalAddressRule = false;
+rules = rules.filter((rule) => {
+  const conditions = rule?.conditions || [];
+  const isJournalAddressRule = conditions.length === 1
+    && conditions[0]?.field_id === JOURNAL_PRINT_FIELD
+    && conditions[0]?.operator === 'equals'
+    && conditions[0]?.value === 'Yes'
+    && (rule.actions || []).some((action) =>
+      action?.action_type === 'visibility'
+      && Object.keys(action.field_states || {}).some((id) => JOURNAL_ADDRESS_FIELDS.includes(id))
+    );
+  if (!isJournalAddressRule) return true;
+
+  if (keptJournalAddressRule) {
+    changes.push(`removed duplicate printed-journal address rule (${rule.id})`);
+    return false;
+  }
+  keptJournalAddressRule = true;
+
+  const wantedFieldStates = Object.fromEntries(
+    JOURNAL_ADDRESS_FIELDS.map((id) => [id, { enabled: null, visible: true }])
+  );
+  const action = (rule.actions || []).find((candidate) => candidate?.action_type === 'visibility');
+  const currentStates = action?.field_states || {};
+  const isAlreadyFieldOnly = Object.keys(currentStates).length === JOURNAL_ADDRESS_FIELDS.length
+    && JOURNAL_ADDRESS_FIELDS.every((id) => currentStates[id]?.visible === true);
+  if (!isAlreadyFieldOnly) {
+    changes.push('printed-journal rule now shows only the six postal-address fields');
+    rule.actions = [{
+      ...action,
+      action_type: 'visibility',
+      field_states: wantedFieldStates,
+    }];
+  }
+  return true;
+});
+
 // 4. Hide the payment field for classes with no structure.
-if (!rules.some((r) => r?.id === HIDE_RULE_ID)) {
+if (!journalOnly && !rules.some((r) => r?.id === HIDE_RULE_ID)) {
   changes.push('added hide-payment rule for classes without a membership structure');
   rules.push({
     id: HIDE_RULE_ID,
