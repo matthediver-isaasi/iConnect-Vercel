@@ -973,6 +973,15 @@ function LogicRulesSection({
 }) {
   // Track the last rules JSON we migrated to detect new data
   const lastMigratedJsonRef = React.useRef(null);
+  const [collapsedActionRuleIds, setCollapsedActionRuleIds] = useState(() => new Set());
+  const toggleRuleActions = (ruleId) => {
+    setCollapsedActionRuleIds((current) => {
+      const next = new Set(current);
+      if (next.has(ruleId)) next.delete(ruleId);
+      else next.add(ruleId);
+      return next;
+    });
+  };
 
   // Migrate and consolidate visibility actions (legacy + duplicates)
   const consolidateVisibilityActions = (actions, ruleId) => {
@@ -1906,6 +1915,7 @@ function LogicRulesSection({
                   // For set_value actions, include ALL fields (including locked ones) - locked fields are prime targets for conditional value setting
                   const availableSetValueTargetFields = fields;
                   const actions = normalizedRule.actions || [];
+                  const actionsExpanded = !collapsedActionRuleIds.has(rule.id);
 
                   return (
                     <Draggable key={rule.id} draggableId={rule.id} index={index}>
@@ -2158,9 +2168,29 @@ function LogicRulesSection({
 
                 {/* Actions Section */}
                 <div className="pt-3 border-t border-slate-200 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <Label className="text-xs text-slate-600">Actions</Label>
-                    <div className="flex gap-1">
+                  <button
+                    type="button"
+                    className="flex w-full items-center justify-between rounded px-1 py-1 text-left hover:bg-slate-100"
+                    onClick={() => toggleRuleActions(rule.id)}
+                    aria-expanded={actionsExpanded}
+                    aria-controls={`rule-actions-${rule.id}`}
+                    data-testid={`button-toggle-rule-actions-${index}`}
+                  >
+                    <span className="text-xs font-medium text-slate-600">
+                      Actions ({actions.length})
+                    </span>
+                    {actionsExpanded
+                      ? <ChevronUp className="h-4 w-4 text-slate-500" />
+                      : <ChevronDown className="h-4 w-4 text-slate-500" />}
+                  </button>
+
+                  {actionsExpanded && (
+                    <div
+                      id={`rule-actions-${rule.id}`}
+                      className="space-y-3"
+                      data-testid={`rule-actions-${index}`}
+                    >
+                      <div className="flex flex-wrap justify-end gap-1">
                       <Button
                         variant="outline"
                         size="sm"
@@ -2198,14 +2228,13 @@ function LogicRulesSection({
                         <CreditCard className="w-3 h-3 mr-1" /> Membership
                       </Button>
                     </div>
-                  </div>
 
-                  {actions.length === 0 ? (
-                    <div className="text-center py-4 text-slate-400 border border-dashed border-slate-200 rounded-lg">
-                      <p className="text-xs">No actions defined. Add an action above.</p>
-                    </div>
-                  ) : (
-                    <div className="space-y-2">
+                    {actions.length === 0 ? (
+                      <div className="text-center py-4 text-slate-400 border border-dashed border-slate-200 rounded-lg">
+                        <p className="text-xs">No actions defined. Add an action above.</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
                       {actions.map((action, actionIndex) => {
                         const isLegacyVisibilityAction = action.action_type === 'show' || action.action_type === 'hide';
                         const isLegacyDisabilityAction = action.action_type === 'disable' || action.action_type === 'enable';
@@ -2552,6 +2581,8 @@ function LogicRulesSection({
                           </div>
                         );
                       })}
+                      </div>
+                    )}
                     </div>
                   )}
                 </div>

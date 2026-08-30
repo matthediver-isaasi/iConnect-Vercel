@@ -13,6 +13,8 @@ import {
   stripFormNoRelationshipValues,
 } from '../../../shared/formNoRelationshipChoice.js';
 
+const formBuilderSource = readFileSync(new URL('../pages/FormBuilder.jsx', import.meta.url), 'utf8');
+
 const enabledNotListed = {
   not_listed_choice: { enabled: true, label: 'My organisation is not listed' },
 };
@@ -36,14 +38,26 @@ test('organisation group dropdown exposes IDs with human-readable names', () => 
 });
 
 test('FormBuilder registers organisation groups without replacing organisation dropdowns', () => {
-  const source = readFileSync(new URL('../pages/FormBuilder.jsx', import.meta.url), 'utf8');
-  assert.match(source, /\{ value: 'organisation_dropdown', label: 'Organisation Dropdown' \}/);
-  assert.match(source, /\{ value: 'organisation_group_dropdown', label: 'Organisation Group Dropdown' \}/);
-  assert.match(source, /organizationGroups=\{organizationGroups\}/);
+  assert.match(formBuilderSource, /\{ value: 'organisation_dropdown', label: 'Organisation Dropdown' \}/);
+  assert.match(formBuilderSource, /\{ value: 'organisation_group_dropdown', label: 'Organisation Group Dropdown' \}/);
+  assert.match(formBuilderSource, /organizationGroups=\{organizationGroups\}/);
   assert.match(
-    source,
+    formBuilderSource,
     /getConditionalFieldOptions\(\s*source,\s*categories,\s*communicationCategories,\s*customFields,\s*organizationGroups,\s*\)/,
   );
+});
+
+test('conditional rule conditions stay visible while actions can be collapsed', () => {
+  assert.match(formBuilderSource, /const \[collapsedActionRuleIds, setCollapsedActionRuleIds\] = useState/);
+  assert.match(formBuilderSource, /data-testid=\{`button-toggle-rule-actions-\$\{index\}`\}/);
+  assert.match(formBuilderSource, /aria-expanded=\{actionsExpanded\}/);
+  assert.match(formBuilderSource, /\{actionsExpanded && \(/);
+
+  const conditionsPosition = formBuilderSource.indexOf('{/* Conditions */}');
+  const actionsTogglePosition = formBuilderSource.indexOf('button-toggle-rule-actions-');
+  const collapsibleContentPosition = formBuilderSource.indexOf('rule-actions-${index}');
+  assert.ok(conditionsPosition >= 0 && conditionsPosition < actionsTogglePosition);
+  assert.ok(actionsTogglePosition < collapsibleContentPosition);
 });
 
 test('all supported dynamic source fields expose the stable not-listed condition value', () => {
