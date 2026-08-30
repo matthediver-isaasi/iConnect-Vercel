@@ -318,6 +318,9 @@ class PublicClient {
     } else if (options.allowedStatuses && options.allowedStatuses.length > 0) {
       params.set('allowedStatuses', JSON.stringify(options.allowedStatuses));
     }
+    if (options.directoryPolicy) {
+      params.set('directory', 'true');
+    }
     const queryString = params.toString();
     return this._fetch(`/api/public/organisations${queryString ? `?${queryString}` : ''}`);
   }

@@ -10,6 +10,51 @@ import {
   repeatableRowChildren,
 } from '../../shared/formRepeatableRows.js';
 
+const DIRECTORY_ORG_TYPE_SETTING = 'org_directory_visible_org_types';
+const DIRECTORY_ORG_TYPE_FIELD_NAMES = ['org_type', 'organisation_type', 'organization_type'];
+
+function parseSavedArray(value) {
+  let parsed = value;
+  if (typeof parsed === 'string') {
+    try {
+      parsed = JSON.parse(parsed);
+    } catch {
+      return [];
+    }
+  }
+  return Array.isArray(parsed)
+    ? parsed.map((item) => String(item).trim()).filter((item) => item && item.length <= 200)
+    : [];
+}
+
+async function resolveDirectoryOrgTypeFilter(db, tenantId) {
+  const { data: settings, error: settingsError } = await db
+    .from('system_settings')
+    .select('setting_value')
+    .eq('tenant_id', tenantId)
+    .eq('setting_key', DIRECTORY_ORG_TYPE_SETTING);
+  if (settingsError) throw settingsError;
+
+  const values = parseSavedArray(settings?.[0]?.setting_value);
+  if (values.length === 0) return { configured: false, filter: null };
+
+  const { data: fields, error: fieldsError } = await db
+    .from('preference_field')
+    .select('name')
+    .eq('tenant_id', tenantId)
+    .eq('entity_scope', 'organization')
+    .eq('is_active', true)
+    .in('name', DIRECTORY_ORG_TYPE_FIELD_NAMES);
+  if (fieldsError) throw fieldsError;
+
+  const availableNames = new Set((fields || []).map((field) => field.name));
+  const fieldName = DIRECTORY_ORG_TYPE_FIELD_NAMES.find((name) => availableNames.has(name));
+  return {
+    configured: true,
+    filter: fieldName ? { type: 'custom', field: fieldName, values } : null,
+  };
+}
+
 /**
  * Resolves a dynamic organisation dropdown exclusively from the saved form.
  * A bad/stale request deliberately returns no options: callers must never get
@@ -132,7 +177,13 @@ export async function organizationsHandler(req, res, dependencies = {}) {
   }
 
   try {
-    const { tenant: tenantParam, allowedStatuses: allowedStatusesParam, orgFilter: orgFilterParam } = req.query || {};
+    const {
+      tenant: tenantParam,
+      allowedStatuses: allowedStatusesParam,
+      orgFilter: orgFilterParam,
+      directory: directoryParam,
+    } = req.query || {};
+    const applyDirectoryPolicy = directoryParam === 'true' || directoryParam === '1';
     let tenantId = null;
 
     let allowedStatuses = [];
@@ -211,6 +262,7 @@ export async function organizationsHandler(req, res, dependencies = {}) {
       return res.json(data);
     }
 
+    const eligibilityFields = [];
     if (orgFilter) {
       if (!['core', 'custom'].includes(orgFilter.type)) {
         return res.status(400).json({ error: 'Invalid organisation filter type' });
@@ -224,28 +276,38 @@ export async function organizationsHandler(req, res, dependencies = {}) {
       if (sanitizedValues.length === 0) {
         return res.status(400).json({ error: 'No valid filter values provided' });
       }
-      const { data: organizations, error } = await supabase
-        .from('organization')
-        .select('*')
-        .eq('tenant_id', tenantId)
-        .order('name', { ascending: true });
-      if (error) return res.status(500).json({ error: error.message });
-      const data = await filterOrganizationsEligibleForFields({
-        db: supabase,
-        tenantId,
-        organizations,
-        fields: [{ org_filter: { ...orgFilter, values: sanitizedValues } }],
-      });
-      return res.json(data.map(({ id, name, logo_url }) => ({ id, name, logo_url })));
+      eligibilityFields.push({ org_filter: { ...orgFilter, values: sanitizedValues } });
     }
 
-    if (allowedStatuses.length > 0) {
+    if (!orgFilter && allowedStatuses.length > 0) {
       const sanitizedStatuses = allowedStatuses
         .map(value => String(value).trim())
         .filter(value => value.length > 0 && value.length <= 200);
       if (sanitizedStatuses.length === 0) {
         return res.status(400).json({ error: 'No valid filter values provided' });
       }
+      eligibilityFields.push({
+        org_filter: {
+          type: 'custom',
+          field: 'application_status',
+          values: sanitizedStatuses,
+        },
+      });
+    }
+
+    if (applyDirectoryPolicy) {
+      const directoryTypePolicy = await resolveDirectoryOrgTypeFilter(supabase, tenantId);
+      // A saved restriction whose field definition has disappeared must not
+      // broaden the public directory until an administrator fixes the setting.
+      if (directoryTypePolicy.configured && !directoryTypePolicy.filter) {
+        return res.json([]);
+      }
+      if (directoryTypePolicy.filter) {
+        eligibilityFields.push({ org_filter: directoryTypePolicy.filter });
+      }
+    }
+
+    if (eligibilityFields.length > 0) {
       const { data: organizations, error } = await supabase
         .from('organization')
         .select('*')
@@ -256,13 +318,7 @@ export async function organizationsHandler(req, res, dependencies = {}) {
         db: supabase,
         tenantId,
         organizations,
-        fields: [{
-          org_filter: {
-            type: 'custom',
-            field: 'application_status',
-            values: sanitizedStatuses,
-          },
-        }],
+        fields: eligibilityFields,
       });
       return res.json(data.map(({ id, name, logo_url }) => ({ id, name, logo_url })));
     }

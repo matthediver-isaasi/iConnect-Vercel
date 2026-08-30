@@ -762,22 +762,11 @@ export function IEditOrganisationDirectoryElementRenderer({ content, settings })
         }
       }
 
-      const visibleOrgTypesSetting = allSettings.find(s => s.setting_key === 'org_directory_visible_org_types');
-      let visibleOrgTypes = [];
-      if (visibleOrgTypesSetting) {
-        try {
-          visibleOrgTypes = JSON.parse(visibleOrgTypesSetting.setting_value);
-        } catch {
-          visibleOrgTypes = [];
-        }
-      }
-      
       return { 
         excludedOrgIds,
         globalShowNameTooltip: nameTooltipSetting?.setting_value === 'true',
         globalShowTitle: titleSetting?.setting_value !== 'false',
-        allowedApplicationStatuses,
-        visibleOrgTypes
+        allowedApplicationStatuses
       };
     },
     staleTime: 5 * 60 * 1000
@@ -786,7 +775,7 @@ export function IEditOrganisationDirectoryElementRenderer({ content, settings })
   const { data: organizations = [], isLoading } = useQuery({
     queryKey: ['public-organizations-element', displaySettings?.allowedApplicationStatuses],
     queryFn: async () => {
-      const options = {};
+      const options = { directoryPolicy: true };
       if (displaySettings?.allowedApplicationStatuses?.length > 0) {
         options.allowedStatuses = displaySettings.allowedApplicationStatuses;
       }
@@ -797,74 +786,6 @@ export function IEditOrganisationDirectoryElementRenderer({ content, settings })
     staleTime: 2 * 60 * 1000,
     refetchOnMount: true
   });
-
-  const hasVisibleOrgTypes = (displaySettings?.visibleOrgTypes?.length ?? 0) > 0;
-
-  const { data: allOrgScopedFields = [] } = useQuery({
-    queryKey: ['org-fields-for-type-filter-element'],
-    enabled: hasVisibleOrgTypes,
-    queryFn: async () => {
-      try {
-        const fields = await base44.entities.PreferenceField.list({
-          filter: { is_active: true, entity_scope: 'organization' }
-        });
-        return (fields || []).filter(f => f.entity_scope === 'organization');
-      } catch {
-        try {
-          const allFields = await base44.entities.PreferenceField.list({ filter: { is_active: true } });
-          return (allFields || []).filter(f => f.entity_scope === 'organization');
-        } catch {
-          return [];
-        }
-      }
-    },
-    staleTime: 5 * 60 * 1000
-  });
-
-  const orgTypeFieldId = useMemo(() => {
-    if (!hasVisibleOrgTypes) return null;
-    const f = allOrgScopedFields.find(f =>
-      f.name === 'org_type' || f.name === 'organisation_type' || f.name === 'organization_type'
-    );
-    return f?.id || null;
-  }, [allOrgScopedFields, hasVisibleOrgTypes]);
-
-  const { data: allOrgPreferenceValues = [] } = useQuery({
-    queryKey: ['org-preference-values-for-type-filter-element'],
-    enabled: hasVisibleOrgTypes && !!orgTypeFieldId,
-    queryFn: async () => {
-      try {
-        return await base44.entities.OrganizationPreferenceValue.list() || [];
-      } catch {
-        return [];
-      }
-    },
-    staleTime: 2 * 60 * 1000
-  });
-
-  const orgPreferenceMap = useMemo(() => {
-    if (!hasVisibleOrgTypes || !orgTypeFieldId) return {};
-    const map = {};
-    const extractPrimitiveValue = (val) => {
-      if (val === null || val === undefined) return val;
-      if (typeof val === 'object' && !Array.isArray(val) && val.value !== undefined) return val.value;
-      if (Array.isArray(val)) return val.map(item => (typeof item === 'object' && item !== null && item.value !== undefined) ? item.value : item);
-      return val;
-    };
-    allOrgPreferenceValues.forEach(pv => {
-      if (!map[pv.organization_id]) map[pv.organization_id] = {};
-      let normalizedValue = pv.value;
-      if (typeof pv.value === 'string') {
-        const trimmed = pv.value.trim();
-        if (trimmed.startsWith('[') || trimmed.startsWith('{')) {
-          try { normalizedValue = JSON.parse(trimmed); } catch {}
-        }
-      }
-      normalizedValue = extractPrimitiveValue(normalizedValue);
-      map[pv.organization_id][pv.field_id] = normalizedValue;
-    });
-    return map;
-  }, [allOrgPreferenceValues, hasVisibleOrgTypes, orgTypeFieldId]);
 
   // Use global settings as fallback for showNameTooltip and showTitle
   const effectiveShowNameTooltip = showNameTooltip || displaySettings?.globalShowNameTooltip;
@@ -902,19 +823,6 @@ export function IEditOrganisationDirectoryElementRenderer({ content, settings })
       !excludedIds.includes(org.id)
     );
 
-    const visibleOrgTypes = displaySettings?.visibleOrgTypes || [];
-    if (visibleOrgTypes.length > 0 && orgTypeFieldId) {
-      filtered = filtered.filter(org => {
-        const orgValues = orgPreferenceMap[org.id] || {};
-        const orgTypeValue = orgValues[orgTypeFieldId];
-        if (!orgTypeValue) return false;
-        if (Array.isArray(orgTypeValue)) {
-          return orgTypeValue.some(v => visibleOrgTypes.includes(v));
-        }
-        return visibleOrgTypes.includes(orgTypeValue);
-      });
-    }
-    
     if (searchQuery) {
       const searchLower = searchQuery.toLowerCase();
       filtered = filtered.filter((org) =>
@@ -934,7 +842,7 @@ export function IEditOrganisationDirectoryElementRenderer({ content, settings })
     });
     
     return filtered;
-  }, [organizations, searchQuery, displaySettings?.excludedOrgIds, displaySettings?.visibleOrgTypes, orgTypeFieldId, orgPreferenceMap, sortOrder]);
+  }, [organizations, searchQuery, displaySettings?.excludedOrgIds, sortOrder]);
 
   const columnsNum = parseInt(columns) || 3;
   const rowsPerPageNum = parseInt(rowsPerPage) || 4;

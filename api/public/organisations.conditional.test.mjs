@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import test from 'node:test';
 import {
   filterOrganizationsEligibleForFields,
@@ -546,6 +547,162 @@ test('GET handler preserves legacy allowedStatuses filtering', async () => {
   });
   assert.equal(response.statusCode, 200);
   assert.deepEqual(response.payload.map((org) => org.id), ['approved']);
+});
+
+test('directory GET combines saved organisation type and application status filters', async () => {
+  const request = {
+    method: 'GET',
+    query: {
+      directory: 'true',
+      allowedStatuses: JSON.stringify(['approved']),
+    },
+  };
+  const response = {
+    statusCode: 200,
+    status(code) { this.statusCode = code; return this; },
+    json(payload) { this.payload = payload; return this; },
+  };
+  await organizationsHandler(request, response, {
+    db: db({
+      system_settings: [
+        {
+          tenant_id: tenantId,
+          setting_key: 'org_directory_visible_org_types',
+          setting_value: JSON.stringify(['University']),
+        },
+        {
+          tenant_id: 'tenant-2',
+          setting_key: 'org_directory_visible_org_types',
+          setting_value: JSON.stringify(['Partner']),
+        },
+      ],
+      organization: [
+        { id: 'university', tenant_id: tenantId, name: 'University' },
+        { id: 'university-pending', tenant_id: tenantId, name: 'Pending University' },
+        { id: 'partner', tenant_id: tenantId, name: 'Partner' },
+        { id: 'other-tenant', tenant_id: 'tenant-2', name: 'Other tenant university' },
+      ],
+      preference_field: [
+        {
+          id: 'status-field',
+          tenant_id: tenantId,
+          name: 'application_status',
+          entity_scope: 'organization',
+          field_type: 'select',
+          is_active: true,
+        },
+        {
+          id: 'type-field',
+          tenant_id: tenantId,
+          name: 'org_type',
+          entity_scope: 'organization',
+          field_type: 'select',
+          is_active: true,
+        },
+      ],
+      organization_preference_value: [
+        { organization_id: 'university', field_id: 'status-field', value: 'approved' },
+        { organization_id: 'university', field_id: 'type-field', value: 'University' },
+        { organization_id: 'university-pending', field_id: 'status-field', value: 'pending' },
+        { organization_id: 'university-pending', field_id: 'type-field', value: 'University' },
+        { organization_id: 'partner', field_id: 'status-field', value: 'approved' },
+        { organization_id: 'partner', field_id: 'type-field', value: 'Partner' },
+      ],
+    }),
+    resolveTenant: async () => ({ id: tenantId }),
+  });
+  assert.equal(response.statusCode, 200);
+  assert.deepEqual(response.payload.map((organization) => organization.id), ['university']);
+});
+
+test('directory GET supports organisation type field aliases', async () => {
+  for (const fieldName of ['organisation_type', 'organization_type']) {
+    const response = {
+      statusCode: 200,
+      status(code) { this.statusCode = code; return this; },
+      json(payload) { this.payload = payload; return this; },
+    };
+    await organizationsHandler(
+      { method: 'GET', query: { directory: '1' } },
+      response,
+      {
+        db: db({
+          system_settings: [{
+            tenant_id: tenantId,
+            setting_key: 'org_directory_visible_org_types',
+            setting_value: '["University"]',
+          }],
+          organization: [
+            { id: 'university', tenant_id: tenantId, name: 'University' },
+            { id: 'partner', tenant_id: tenantId, name: 'Partner' },
+          ],
+          preference_field: [{
+            id: 'type-field',
+            tenant_id: tenantId,
+            name: fieldName,
+            entity_scope: 'organization',
+            field_type: 'select',
+            is_active: true,
+          }],
+          organization_preference_value: [
+            { organization_id: 'university', field_id: 'type-field', value: 'University' },
+            { organization_id: 'partner', field_id: 'type-field', value: 'Partner' },
+          ],
+        }),
+        resolveTenant: async () => ({ id: tenantId }),
+      },
+    );
+    assert.deepEqual(response.payload.map((organization) => organization.id), ['university']);
+  }
+});
+
+test('directory GET preserves all types when the saved type setting is absent or empty', async () => {
+  for (const systemSettings of [
+    [],
+    [{
+      tenant_id: tenantId,
+      setting_key: 'org_directory_visible_org_types',
+      setting_value: '[]',
+    }],
+  ]) {
+    const response = {
+      statusCode: 200,
+      status(code) { this.statusCode = code; return this; },
+      json(payload) { this.payload = payload; return this; },
+    };
+    await organizationsHandler(
+      { method: 'GET', query: { directory: 'true' } },
+      response,
+      {
+        db: db({
+          system_settings: systemSettings,
+          organization: [
+            { id: 'university', tenant_id: tenantId, name: 'University' },
+            { id: 'partner', tenant_id: tenantId, name: 'Partner' },
+          ],
+        }),
+        resolveTenant: async () => ({ id: tenantId }),
+      },
+    );
+    assert.deepEqual(
+      response.payload.map((organization) => organization.id),
+      ['partner', 'university'],
+    );
+  }
+});
+
+test('iEdit directory delegates type eligibility to the public endpoint', () => {
+  const rendererSource = fs.readFileSync(
+    new URL('../../client/src/components/iedit/elements/IEditOrganisationDirectoryElement.jsx', import.meta.url),
+    'utf8',
+  );
+  const publicClientSource = fs.readFileSync(
+    new URL('../../client/src/api/publicClient.js', import.meta.url),
+    'utf8',
+  );
+  assert.match(rendererSource, /const options = \{ directoryPolicy: true \}/);
+  assert.doesNotMatch(rendererSource, /OrganizationPreferenceValue\.list/);
+  assert.match(publicClientSource, /options\.directoryPolicy[\s\S]*params\.set\('directory', 'true'\)/);
 });
 
 test('nested organisation options resolve only a persisted child of the requested repeatable container', async () => {
