@@ -109,6 +109,22 @@ test('submission validation accepts current-tenant IDs and rejects forged IDs', 
   }), error => error.code === 'INVALID_ORGANISATION_GROUP');
 });
 
+test('submission validation accepts the configured not-listed group sentinel', async () => {
+  const db = fakeDb({
+    groups: [{ id: 'safe-group', tenant_id: 'tenant-a', name: 'Safe' }],
+  });
+  await assert.doesNotReject(validateFormOrganisationGroupAnswers({
+    db,
+    tenantId: 'tenant-a',
+    fields: [{
+      id: 'group',
+      type: 'organisation_group_dropdown',
+      not_listed_choice: { enabled: true, label: 'My group is not listed' },
+    }],
+    submissionData: { group: '__form_not_listed__' },
+  }));
+});
+
 test('submission validation rejects a tenant group excluded by the matched conditional rule', async () => {
   const db = fakeDb({
     groups: [
@@ -177,6 +193,31 @@ test('dependent organisation answers must belong to the selected tenant group', 
     fields,
     submissionData: { group: 'group-1', org: 'org-2' },
   }), error => error.code === 'INVALID_ORGANISATION_GROUP_ORGANISATION');
+});
+
+test('a not-listed group can carry a not-listed dependent organisation', async () => {
+  const fields = [
+    {
+      id: 'group',
+      type: 'organisation_group_dropdown',
+      not_listed_choice: { enabled: true, label: 'My group is not listed' },
+    },
+    {
+      id: 'org',
+      type: 'organisation_dropdown',
+      organisation_group_parent_field_id: 'group',
+      not_listed_choice: { enabled: true, label: 'My organisation is not listed' },
+    },
+  ];
+  await assert.doesNotReject(validateOrganisationGroupDependentOrganizationAnswers({
+    db: fakeDb({}),
+    tenantId: 'tenant-a',
+    fields,
+    submissionData: {
+      group: '__form_not_listed__',
+      org: '__form_not_listed__',
+    },
+  }));
 });
 
 test('dependent organisation validation stays inside each repeatable row', async () => {

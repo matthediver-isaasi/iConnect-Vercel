@@ -1113,11 +1113,11 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, on
   );
   const organisationGroupOptions = useMemo(
     () => intersectConditionalOptions(
-      organisationGroups,
+      prependFormNotListedOption(field, organisationGroups, (id, name) => ({ id, name })),
       conditionalResolution,
       group => group.id,
     ),
-    [organisationGroups, conditionalResolution],
+    [field, organisationGroups, conditionalResolution],
   );
   const imageButtonOptions = useMemo(
     () => intersectConditionalOptions(field.image_options || [], conditionalResolution, option => option.value),

@@ -10,6 +10,7 @@ export const FORM_NOT_LISTED_TEXT_MAX_LENGTH = 500;
 
 export const FORM_NOT_LISTED_FIELD_TYPES = new Set([
   'organisation_dropdown',
+  'organisation_group_dropdown',
   'relationship_dropdown',
   'category_dropdown',
   'category_multiselect',

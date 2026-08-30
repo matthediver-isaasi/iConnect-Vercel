@@ -25,8 +25,35 @@ const field = {
 
 test('enables only supported fields with a non-blank configured label', () => {
   assert.equal(hasEnabledFormNotListedChoice(field), true);
+  assert.equal(hasEnabledFormNotListedChoice({
+    ...field,
+    type: 'organisation_group_dropdown',
+  }), true);
   assert.equal(hasEnabledFormNotListedChoice({ ...field, type: 'select' }), false);
   assert.equal(hasEnabledFormNotListedChoice({ ...field, not_listed_choice: { enabled: true, label: ' ' } }), false);
+});
+
+test('organisation group choices use the shared sentinel, text, and label snapshot behavior', () => {
+  const groupField = {
+    id: 'group',
+    type: 'organisation_group_dropdown',
+    not_listed_choice: { enabled: true, label: 'My group is not listed' },
+  };
+  assert.deepEqual(prependFormNotListedOption(groupField, [{ id: 'g1', name: 'Group 1' }], (id, name) => ({ id, name })), [
+    { id: FORM_NOT_LISTED_VALUE, name: 'My group is not listed' },
+    { id: 'g1', name: 'Group 1' },
+  ]);
+  const submission = {
+    group: FORM_NOT_LISTED_VALUE,
+    [FORM_NOT_LISTED_TEXT_KEY]: { group: 'A new group' },
+  };
+  assert.equal(validateFormNotListedText([groupField], submission).valid, true);
+  const snapshotted = snapshotFormNotListedLabels([groupField], submission);
+  assert.equal(snapshotted[FORM_NOT_LISTED_LABELS_KEY].group, 'My group is not listed');
+  assert.equal(
+    resolveFormNotListedDisplayValue(groupField, FORM_NOT_LISTED_VALUE, snapshotted),
+    'My group is not listed — A new group',
+  );
 });
 
 test('prepends one stable synthetic value without changing real options', () => {

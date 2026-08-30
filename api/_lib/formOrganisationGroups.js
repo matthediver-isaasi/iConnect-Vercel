@@ -6,6 +6,10 @@ import {
   isRepeatableRowField,
   repeatableRowChildren,
 } from '../../shared/formRepeatableRows.js';
+import {
+  FORM_NOT_LISTED_VALUE,
+  isFormNotListedValue,
+} from '../../shared/formNotListedChoice.js';
 
 export const ORGANISATION_GROUP_DROPDOWN_TYPE = 'organisation_group_dropdown';
 
@@ -119,7 +123,8 @@ export async function validateFormOrganisationGroupAnswers({
       }
       const selectedValues = Array.isArray(selected) ? selected : [selected];
       values.push(...selectedValues
-        .filter(value => value !== null && value !== undefined && value !== '')
+        .filter(value => value !== null && value !== undefined && value !== ''
+          && !isFormNotListedValue(value))
         .map(String));
     }
   }
@@ -162,15 +167,15 @@ async function validateDependentSet({
       ? containerIndex >= 0 && parentIndex >= 0 && parentIndex < containerIndex
       : parentIndex >= 0 && parentIndex < index;
     if (!validScope || !precedesParent || parent?.type !== ORGANISATION_GROUP_DROPDOWN_TYPE
-        || !groupId || groupId === '__form_not_listed__') {
-      if (organizationId) {
+         || !groupId || isFormNotListedValue(groupId)) {
+      if (organizationId && !isFormNotListedValue(organizationId)) {
         const error = new Error('Invalid organisation group dependency');
         error.code = 'INVALID_ORGANISATION_GROUP_ORGANISATION';
         throw error;
       }
       continue;
     }
-    if (!organizationId) continue;
+    if (!organizationId || isFormNotListedValue(organizationId)) continue;
     const { data: organization, error: organizationError } = await db
       .from('organization')
       .select('id')
@@ -222,7 +227,7 @@ export async function loadOrganisationGroupNamesForSubmission({
       const value = submissionData?.[field.id];
       return Array.isArray(value) ? value : [value];
     })
-    .filter(Boolean)
+    .filter(value => value && value !== FORM_NOT_LISTED_VALUE)
     .map(String);
   if (ids.length === 0) return {};
   const groups = await loadTenantOrganisationGroups(db, tenantId, ids);
