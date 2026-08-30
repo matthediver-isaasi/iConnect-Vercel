@@ -133,6 +133,147 @@ test('dynamic custom Country filter matches the earlier country answer across na
   assert.deepEqual(result.map((organization) => organization.id), ['code', 'name']);
 });
 
+test('Country source matches names and ISO codes in a dropdown-backed organisation field', async () => {
+  const form = savedForm([rule({
+    operator: 'is_not_empty',
+    value: null,
+    org_filter: {
+      type: 'custom',
+      field: 'Overseas country',
+      values: [],
+      mode: 'include',
+      value_source: 'source',
+    },
+  })]);
+  form.id = '1b95a50e-2b5c-42f3-bf39-cc7fa69029d8';
+  form.fields[0].type = 'country';
+  form.fields[1].org_filter = null;
+  const database = db({
+    form: [form],
+    organization: [
+      { id: 'alzaiem', tenant_id: tenantId, name: 'Alzaiem Alazhari University' },
+      { id: 'iso', tenant_id: tenantId, name: 'ISO stored organisation' },
+      { id: 'multi', tenant_id: tenantId, name: 'Multi-value organisation' },
+      { id: 'other', tenant_id: tenantId, name: 'Other organisation' },
+    ],
+    preference_field: [{
+      id: 'overseas-country',
+      tenant_id: tenantId,
+      name: 'Overseas country',
+      entity_scope: 'organization',
+      field_type: 'dropdown',
+      is_active: true,
+    }],
+    organization_preference_value: [
+      { organization_id: 'alzaiem', field_id: 'overseas-country', value: 'Sudan' },
+      { organization_id: 'iso', field_id: 'overseas-country', value: 'SD' },
+      { organization_id: 'multi', field_id: 'overseas-country', value: JSON.stringify(['France', 'Sudan']) },
+      { organization_id: 'other', field_id: 'overseas-country', value: 'Spain' },
+    ],
+  });
+  const sourceAnswers = { country: 'Sudan' };
+  const resolution = {
+    org_filter: {
+      type: 'custom',
+      field: 'Overseas country',
+      values: ['SD'],
+      mode: 'include',
+      value_source: 'source',
+      comparison: 'country',
+    },
+  };
+
+  const options = await loadConditionalOrganizationOptions({
+    db: database,
+    tenantId,
+    formId: form.id,
+    fieldId: 'org',
+    sourceAnswers,
+  });
+  assert.deepEqual(options.map((organization) => organization.id), ['alzaiem', 'iso', 'multi']);
+  for (const organization of [
+    { id: 'alzaiem', tenant_id: tenantId },
+    { id: 'iso', tenant_id: tenantId },
+    { id: 'multi', tenant_id: tenantId },
+  ]) {
+    assert.equal(await isOrganizationEligibleForField({
+      db: database,
+      tenantId,
+      organization,
+      field: resolution,
+    }), true);
+  }
+  assert.equal(await isOrganizationEligibleForField({
+    db: database,
+    tenantId,
+    organization: { id: 'other', tenant_id: tenantId },
+    field: resolution,
+  }), false);
+});
+
+test('Country source comparison also canonicalizes an organisation core country field', async () => {
+  const organizations = [
+    { id: 'name', country: 'Sudan' },
+    { id: 'code', country: 'SD' },
+    { id: 'other', country: 'Spain' },
+  ];
+  const filter = {
+    org_filter: {
+      type: 'core',
+      field: 'country',
+      values: ['SD'],
+      value_source: 'source',
+      comparison: 'country',
+    },
+  };
+  assert.deepEqual((await filterOrganizationsEligibleForFields({
+    db: db({}),
+    tenantId,
+    organizations,
+    fields: [filter],
+  })).map((organization) => organization.id), ['name', 'code']);
+  assert.equal(await isOrganizationEligibleForField({
+    db: db({}),
+    tenantId,
+    organization: organizations[0],
+    field: filter,
+  }), true);
+});
+
+test('fixed and non-country dropdown filters retain literal comparison behavior', async () => {
+  const database = db({
+    preference_field: [{
+      id: 'country-dropdown',
+      tenant_id: tenantId,
+      name: 'country_dropdown',
+      entity_scope: 'organization',
+      field_type: 'dropdown',
+      is_active: true,
+    }],
+    organization_preference_value: [
+      { organization_id: 'name', field_id: 'country-dropdown', value: 'Sudan' },
+      { organization_id: 'code', field_id: 'country-dropdown', value: 'SD' },
+    ],
+  });
+  const organizations = [{ id: 'name' }, { id: 'code' }];
+  for (const valueSource of ['fixed', 'source']) {
+    const eligible = await filterOrganizationsEligibleForFields({
+      db: database,
+      tenantId,
+      organizations,
+      fields: [{
+        org_filter: {
+          type: 'custom',
+          field: 'country_dropdown',
+          values: ['SD'],
+          value_source: valueSource,
+        },
+      }],
+    });
+    assert.deepEqual(eligible.map((organization) => organization.id), ['code']);
+  }
+});
+
 test('multi-country organisation values match any saved country for options and submission validation', async () => {
   const database = db({
     preference_field: [{

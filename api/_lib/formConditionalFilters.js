@@ -44,6 +44,10 @@ function isCountryField(field) {
   return persistedType === 'country' || persistedType === 'countries';
 }
 
+function sourceComparison(field) {
+  return isCountryField(field) ? 'country' : undefined;
+}
+
 function fieldValues(field, value, { source = false } = {}) {
   if (field?.type === 'communication_preferences' && value
       && typeof value === 'object' && !Array.isArray(value)) {
@@ -233,9 +237,11 @@ export function resolveConditionalFilter(field, submissionData = {}, fields = []
     ...fields.find((candidate) => String(candidate?.id) === String(matched.source_field_id)),
     ...(matched.source_field_type ? { custom_field_type: matched.source_field_type } : {}),
   };
+  const matchedSourceComparison = sourceComparison(matchedSourceField);
+  const { comparison: _ignoredComparison, ...savedOrgFilter } = matched.org_filter || {};
   const resolvedOrgFilter = matched.org_filter
     ? {
-      ...matched.org_filter,
+      ...savedOrgFilter,
       values: matched.org_filter.value_source === 'source'
         ? fieldValues(
           matchedSourceField,
@@ -243,6 +249,9 @@ export function resolveConditionalFilter(field, submissionData = {}, fields = []
           { source: true },
         ).filter((item) => !empty(item))
         : matched.org_filter.values,
+      ...(matched.org_filter.value_source === 'source' && matchedSourceComparison
+        ? { comparison: matchedSourceComparison }
+        : {}),
     }
     : null;
   // A matched empty list adds no extra restriction. When the field has a

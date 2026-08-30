@@ -34,6 +34,10 @@ function isCountrySourceField(sourceField) {
   return ['country', 'countries'].includes(inferredType);
 }
 
+function sourceComparison(sourceField) {
+  return isCountrySourceField(sourceField) ? 'country' : undefined;
+}
+
 function normalizeForSourceField(value, sourceField, { source = false } = {}) {
   if (
     sourceField?.type === 'communication_preferences'
@@ -189,21 +193,27 @@ export function resolveConditionalFilters({ field, fields = [], values = {} }) {
   const matchedSourceField = matchedRule
     ? fields.find((candidate) => candidate?.id === matchedRule.source_field_id)
     : null;
+  const matchedSourceDefinition = {
+    ...matchedSourceField,
+    ...(matchedRule?.source_field_type
+      ? { custom_field_type: matchedRule.source_field_type }
+      : {}),
+  };
+  const matchedSourceComparison = sourceComparison(matchedSourceDefinition);
+  const { comparison: _ignoredComparison, ...savedOrgFilter } = matchedRule?.org_filter || {};
   const resolvedOrgFilter = matchedRule?.org_filter
     ? {
-      ...matchedRule.org_filter,
+      ...savedOrgFilter,
       values: matchedRule.org_filter.value_source === 'source'
         ? normalizeForSourceField(
           sourceValue(values, fields, matchedRule.source_field_id),
-          {
-            ...matchedSourceField,
-            ...(matchedRule.source_field_type
-              ? { custom_field_type: matchedRule.source_field_type }
-              : {}),
-          },
+          matchedSourceDefinition,
           { source: true },
         ).filter((item) => item !== '')
         : matchedRule.org_filter.values,
+      ...(matchedRule.org_filter.value_source === 'source' && matchedSourceComparison
+        ? { comparison: matchedSourceComparison }
+        : {}),
     }
     : null;
   return {
@@ -253,7 +263,10 @@ export function applyOrganizationFilter(organizations, filter) {
   if (filter.values.length === 0) {
     return Array.isArray(organizations) ? organizations : [];
   }
-  const allowed = filter.values.map(comparable);
+  const compare = filter.comparison === 'country'
+    ? (value) => comparable(resolveCountryToIso2(value) || value)
+    : comparable;
+  const allowed = filter.values.map(compare);
   return (organizations || []).filter((organization) => {
     const raw = filter.type === 'custom'
       ? organization?.custom_fields?.[filter.field]
@@ -264,7 +277,7 @@ export function applyOrganizationFilter(organizations, filter) {
       typeof item !== 'string' || item.trim().length > 0
     ));
     if (values.length === 0) return false;
-    const matches = values.some((item) => allowed.includes(comparable(item)));
+    const matches = values.some((item) => allowed.includes(compare(item)));
     return filter.mode === 'exclude' ? !matches : matches;
   });
 }

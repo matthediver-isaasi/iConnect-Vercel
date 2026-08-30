@@ -74,10 +74,14 @@ function normalizeComparableFilterValue(value, countryField = false) {
   return countryField ? (resolveCountryToIso2(normalized) || normalized).toLowerCase() : normalized;
 }
 
+function usesCountryComparison(filter, targetIsCountry = false) {
+  return filter?.comparison === 'country' || targetIsCountry;
+}
+
 function coreFilterMatches(organization, filter, values) {
   if (!VALID_ORGANIZATION_CORE_FIELDS.includes(filter.field)) return false;
   if (filter.field === 'is_active') return organization.is_active === (values[0] === 'true');
-  const countryField = filter.field === 'country';
+  const countryField = usesCountryComparison(filter, filter.field === 'country');
   const actual = normalizeComparableFilterValue(organization[filter.field], countryField);
   return values.some((value) => normalizeComparableFilterValue(value, countryField) === actual);
 }
@@ -133,7 +137,10 @@ export async function filterOrganizationsEligibleForFields({
       }
       customValuesByField.set(filter.field, customValues);
     }
-    const countryField = ['country', 'countries'].includes(customValues.fieldType);
+    const countryField = usesCountryComparison(
+      filter,
+      ['country', 'countries'].includes(customValues.fieldType),
+    );
     const allowed = new Set(values.map((value) => normalizeComparableFilterValue(value, countryField)));
     eligible = eligible.filter((organization) => {
       const organizationValues = customValues.values.get(String(organization.id));
@@ -185,7 +192,10 @@ export async function isOrganizationEligibleForField({ db, tenantId, organizatio
   if (valueError) throw valueError;
   const organizationValues = normalizeOrganizationPreferenceValues(preferenceValue?.value);
   if (!hasFilterableValue(organizationValues)) return false;
-  const countryField = ['country', 'countries'].includes(preferenceField.field_type);
+  const countryField = usesCountryComparison(
+    filter,
+    ['country', 'countries'].includes(preferenceField.field_type),
+  );
   const allowed = new Set(values.map(
     (candidate) => normalizeComparableFilterValue(candidate, countryField),
   ));

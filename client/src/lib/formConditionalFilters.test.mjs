@@ -132,6 +132,7 @@ test('resolves organisation filter values from the matched earlier country answe
   });
   assert.deepEqual(resolution.orgFilter.values, ['GB']);
   assert.equal(resolution.orgFilter.value_source, 'source');
+  assert.equal(resolution.orgFilter.comparison, 'country');
   const empty = resolveConditionalFilters({
     field,
     fields: [{ id: 'source', type: 'country' }, field],
@@ -139,6 +140,48 @@ test('resolves organisation filter values from the matched earlier country answe
   });
   assert.equal(empty.matchedRule, null);
   assert.equal(empty.orgFilter, null);
+});
+
+test('country comparison marker matches names and codes without affecting ordinary sources', () => {
+  const dynamic = {
+    conditional_filters: { version: 1, rules: [rule({
+      operator: 'is_not_empty',
+      value: null,
+      org_filter: {
+        type: 'custom',
+        field: 'country_dropdown',
+        values: [],
+        value_source: 'source',
+        comparison: 'country',
+      },
+    })] },
+  };
+  const country = resolveConditionalFilters({
+    field: dynamic,
+    fields: [{ id: 'source', type: 'country' }, dynamic],
+    values: { source: 'Sudan' },
+  });
+  assert.equal(country.orgFilter.comparison, 'country');
+  const organizations = [
+    { id: 'name', custom_fields: { country_dropdown: 'Sudan' } },
+    { id: 'code', custom_fields: { country_dropdown: 'SD' } },
+    { id: 'other', custom_fields: { country_dropdown: 'Spain' } },
+  ];
+  assert.deepEqual(
+    applyOrganizationFilter(organizations, country.orgFilter).map((item) => item.id),
+    ['name', 'code'],
+  );
+
+  const ordinary = resolveConditionalFilters({
+    field: dynamic,
+    fields: [{ id: 'source', type: 'dropdown', name: 'Country' }, dynamic],
+    values: { source: 'Sudan' },
+  });
+  assert.equal(ordinary.orgFilter.comparison, undefined);
+  assert.deepEqual(
+    applyOrganizationFilter(organizations, ordinary.orgFilter).map((item) => item.id),
+    ['name'],
+  );
 });
 
 test('intersects base options and removes invalid scalar and array values', () => {

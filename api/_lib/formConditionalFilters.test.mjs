@@ -183,9 +183,45 @@ test('organisation filters can derive values from the persisted earlier source f
   const resolution = resolveConditionalFilter(target, { country: 'United Kingdom' }, fields);
   assert.deepEqual(resolution.orgFilter.values, ['GB']);
   assert.equal(resolution.orgFilter.value_source, 'source');
+  assert.equal(resolution.orgFilter.comparison, 'country');
 
   const empty = resolveConditionalFilter(target, { country: '' }, fields);
   assert.equal(empty.rule, null);
+});
+
+test('source-derived comparison meaning comes only from the persisted source field type', () => {
+  const dynamicRule = rule({
+    source_field_id: 'source',
+    operator: 'is_not_empty',
+    value: null,
+    allowed_values: [],
+    org_filter: {
+      type: 'custom',
+      field: 'country_named_dropdown',
+      values: [],
+      value_source: 'source',
+      comparison: 'country',
+    },
+  });
+  const target = {
+    type: 'organisation_dropdown',
+    conditional_filters: { version: 1, rules: [dynamicRule] },
+  };
+  const country = resolveConditionalFilter(
+    target,
+    { source: 'Sudan' },
+    [{ id: 'source', type: 'country' }, target],
+  );
+  assert.deepEqual(country.orgFilter.values, ['SD']);
+  assert.equal(country.orgFilter.comparison, 'country');
+
+  const ordinary = resolveConditionalFilter(
+    target,
+    { source: 'Sudan' },
+    [{ id: 'source', type: 'dropdown', name: 'Country' }, target],
+  );
+  assert.deepEqual(ordinary.orgFilter.values, ['Sudan']);
+  assert.equal(ordinary.orgFilter.comparison, undefined);
 });
 
 test('empty conditional organisation result filters are valid and unrestricted in both modes', () => {
