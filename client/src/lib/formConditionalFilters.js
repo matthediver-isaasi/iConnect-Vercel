@@ -126,6 +126,9 @@ function validRule(rule) {
       && typeof rule.org_filter.field === 'string'
       && rule.org_filter.field.length > 0
       && Array.isArray(rule.org_filter.values)
+      && (rule.org_filter.value_source === undefined
+        || ['fixed', 'source'].includes(rule.org_filter.value_source))
+      && (rule.org_filter.value_source !== 'source' || rule.is_fallback !== true)
       && filterMode(rule.org_filter.mode) !== null
     );
 }
@@ -183,6 +186,26 @@ export function resolveConditionalFilters({ field, fields = [], values = {} }) {
       },
     )
   )) || rules.find((rule) => rule?.is_fallback) || null;
+  const matchedSourceField = matchedRule
+    ? fields.find((candidate) => candidate?.id === matchedRule.source_field_id)
+    : null;
+  const resolvedOrgFilter = matchedRule?.org_filter
+    ? {
+      ...matchedRule.org_filter,
+      values: matchedRule.org_filter.value_source === 'source'
+        ? normalizeForSourceField(
+          sourceValue(values, fields, matchedRule.source_field_id),
+          {
+            ...matchedSourceField,
+            ...(matchedRule.source_field_type
+              ? { custom_field_type: matchedRule.source_field_type }
+              : {}),
+          },
+          { source: true },
+        ).filter((item) => item !== '')
+        : matchedRule.org_filter.values,
+    }
+    : null;
   return {
     configured: true,
     valid: true,
@@ -194,7 +217,7 @@ export function resolveConditionalFilters({ field, fields = [], values = {} }) {
       ? normalizeConditionalValue(matchedRule?.allowed_values || [])
       : [],
     targetMode: filterMode(matchedRule?.allowed_values_mode) || 'include',
-    orgFilter: matchedRule?.org_filter || null,
+    orgFilter: resolvedOrgFilter,
   };
 }
 

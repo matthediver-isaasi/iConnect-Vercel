@@ -134,6 +134,7 @@ function validOrgFilter(filter) {
     && (filter.type === 'core' || filter.type === 'custom')
     && typeof filter.field === 'string' && filter.field.length > 0
     && Array.isArray(filter.values)
+    && (filter.value_source === undefined || filter.value_source === 'fixed' || filter.value_source === 'source')
     && filterMode(filter.mode) !== null;
 }
 
@@ -167,7 +168,10 @@ export function validateConditionalFilters(config) {
     if (filterMode(rule.allowed_values_mode) === null) {
       errors.push(`${at}.allowed_values_mode must be include or exclude`);
     }
-    if (!validOrgFilter(rule.org_filter)) errors.push(`${at}.org_filter is invalid`);
+    if (!validOrgFilter(rule.org_filter)
+        || (rule?.org_filter?.value_source === 'source' && rule.is_fallback)) {
+      errors.push(`${at}.org_filter is invalid`);
+    }
   });
   return { valid: errors.length === 0, errors };
 }
@@ -225,6 +229,22 @@ export function resolveConditionalFilter(field, submissionData = {}, fields = []
   const ruleAllowed = fieldValues(field, matched.allowed_values);
   const base = baseAllowedValues(field);
   const targetMode = filterMode(matched.allowed_values_mode) || 'include';
+  const matchedSourceField = {
+    ...fields.find((candidate) => String(candidate?.id) === String(matched.source_field_id)),
+    ...(matched.source_field_type ? { custom_field_type: matched.source_field_type } : {}),
+  };
+  const resolvedOrgFilter = matched.org_filter
+    ? {
+      ...matched.org_filter,
+      values: matched.org_filter.value_source === 'source'
+        ? fieldValues(
+          matchedSourceField,
+          submittedValue(submissionData, matched.source_field_id, fields),
+          { source: true },
+        ).filter((item) => !empty(item))
+        : matched.org_filter.values,
+    }
+    : null;
   // A matched empty list adds no extra restriction. When the field has a
   // locally persisted base set, that base remains authoritative; otherwise
   // null tells dynamic validators to enforce their existing eligibility rules.
@@ -243,7 +263,7 @@ export function resolveConditionalFilter(field, submissionData = {}, fields = []
     allowedValues,
     excludedValues: targetMode === 'exclude' ? ruleAllowed : [],
     targetMode,
-    orgFilter: matched.org_filter || null,
+    orgFilter: resolvedOrgFilter,
     targetField: field,
     valid: true,
   };

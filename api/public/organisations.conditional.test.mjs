@@ -1,9 +1,18 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { filterOrganizationsEligibleForFields } from '../_lib/organizationEligibility.js';
+import {
+  filterOrganizationsEligibleForFields,
+  isOrganizationEligibleForField,
+  normalizeOrganizationPreferenceValue,
+} from '../_lib/organizationEligibility.js';
 import { loadConditionalOrganizationOptions, organizationsHandler } from './organisations.js';
 
 const tenantId = 'tenant-1';
+
+test('legacy scalar organisation preference normalization remains null-safe', () => {
+  assert.equal(normalizeOrganizationPreferenceValue(null), null);
+  assert.equal(normalizeOrganizationPreferenceValue(undefined), null);
+});
 
 function db(seed, stats = null) {
   class Query {
@@ -77,6 +86,91 @@ test('empty matched allowed_values adds no ID restriction while org filter still
     tenantId, formId: 'form-1', fieldId: 'org', sourceAnswers: { country: 'GB' },
   });
   assert.deepEqual(result.map((org) => org.id), ['one', 'two']);
+});
+
+test('dynamic custom Country filter matches the earlier country answer across name and ISO storage', async () => {
+  const form = savedForm([rule({
+    operator: 'is_not_empty',
+    value: null,
+    org_filter: {
+      type: 'custom',
+      field: 'country',
+      values: [],
+      mode: 'include',
+      value_source: 'source',
+    },
+  })]);
+  form.fields[0].type = 'country';
+  form.fields[1].org_filter = null;
+  const database = db({
+    form: [form],
+    organization: [
+      { id: 'name', tenant_id: tenantId, name: 'Stored as name' },
+      { id: 'code', tenant_id: tenantId, name: 'Stored as code' },
+      { id: 'other', tenant_id: tenantId, name: 'Other' },
+    ],
+    preference_field: [{
+      id: 'country-field',
+      tenant_id: tenantId,
+      name: 'country',
+      entity_scope: 'organization',
+      field_type: 'country',
+      is_active: true,
+    }],
+    organization_preference_value: [
+      { organization_id: 'name', field_id: 'country-field', value: 'United Kingdom' },
+      { organization_id: 'code', field_id: 'country-field', value: 'GB' },
+      { organization_id: 'other', field_id: 'country-field', value: 'Spain' },
+    ],
+  });
+  const result = await loadConditionalOrganizationOptions({
+    db: database,
+    tenantId,
+    formId: 'form-1',
+    fieldId: 'org',
+    sourceAnswers: { country: 'United Kingdom' },
+  });
+  assert.deepEqual(result.map((organization) => organization.id), ['code', 'name']);
+});
+
+test('multi-country organisation values match any saved country for options and submission validation', async () => {
+  const database = db({
+    preference_field: [{
+      id: 'countries-field',
+      tenant_id: tenantId,
+      name: 'operating_countries',
+      entity_scope: 'organization',
+      field_type: 'countries',
+      is_active: true,
+    }],
+    organization_preference_value: [{
+      organization_id: 'multi',
+      field_id: 'countries-field',
+      value: JSON.stringify(['France', 'United Kingdom']),
+    }],
+  });
+  const organization = { id: 'multi', tenant_id: tenantId, name: 'Multi-country' };
+  const field = {
+    org_filter: {
+      type: 'custom',
+      field: 'operating_countries',
+      values: ['GB'],
+      mode: 'include',
+      value_source: 'source',
+    },
+  };
+  assert.deepEqual((await filterOrganizationsEligibleForFields({
+    db: database,
+    tenantId,
+    organizations: [organization],
+    fields: [field],
+  })).map((item) => item.id), ['multi']);
+  assert.equal(await isOrganizationEligibleForField({
+    db: database,
+    tenantId,
+    organization,
+    field,
+  }), true);
 });
 
 test('dynamic organisation options exclude target IDs and country values without broadening eligibility', async () => {

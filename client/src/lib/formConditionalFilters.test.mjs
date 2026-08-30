@@ -111,6 +111,36 @@ test('uses first matching ordered rule, then fallback, and fails closed', () => 
   assert.deepEqual(intersectConditionalOptions(['a', 'b'], closed), []);
 });
 
+test('resolves organisation filter values from the matched earlier country answer', () => {
+  const field = { conditional_filters: { version: 1, rules: [
+    rule({
+      operator: 'is_not_empty',
+      value: null,
+      org_filter: {
+        type: 'custom',
+        field: 'country',
+        values: [],
+        mode: 'include',
+        value_source: 'source',
+      },
+    }),
+  ] } };
+  const resolution = resolveConditionalFilters({
+    field,
+    fields: [{ id: 'source', type: 'country' }, field],
+    values: { source: 'United Kingdom' },
+  });
+  assert.deepEqual(resolution.orgFilter.values, ['GB']);
+  assert.equal(resolution.orgFilter.value_source, 'source');
+  const empty = resolveConditionalFilters({
+    field,
+    fields: [{ id: 'source', type: 'country' }, field],
+    values: { source: '' },
+  });
+  assert.equal(empty.matchedRule, null);
+  assert.equal(empty.orgFilter, null);
+});
+
 test('intersects base options and removes invalid scalar and array values', () => {
   const resolution = { configured: true, matchedRule: {}, allowedValues: ['b', 'c'] };
   const options = intersectConditionalOptions(['a', 'b'], resolution);
@@ -344,4 +374,13 @@ test('organization result filter builder uses a multi-select instead of comma in
   assert.doesNotMatch(editor, /\.split\(','\)/);
   assert.match(editor, /Include only selected values/);
   assert.match(editor, /Exclude selected values/);
+  assert.match(editor, /Match earlier field answer/);
+});
+
+test('repeatable organisation children expose source-answer result filtering', () => {
+  const source = readFileSync(new URL('../pages/FormBuilder.jsx', import.meta.url), 'utf8');
+  const editor = source.match(/function RepeatableRowsSettings[\s\S]*?function FieldCard/)?.[0] || '';
+  assert.match(editor, /ConditionalOrgFilterEditor/);
+  assert.match(editor, /Whenever source has a value/);
+  assert.match(editor, /customFields\.find[\s\S]*?field_type/);
 });

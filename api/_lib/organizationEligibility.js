@@ -1,3 +1,5 @@
+import { resolveCountryToIso2 } from '../../shared/countries.js';
+
 export const VALID_ORGANIZATION_CORE_FIELDS = [
   'name', 'slug', 'description', 'website_url', 'email', 'invoicing_email', 'phone',
   'address', 'city', 'country', 'postcode', 'external_id', 'is_active',
@@ -5,19 +7,22 @@ export const VALID_ORGANIZATION_CORE_FIELDS = [
 ];
 
 export function normalizeOrganizationPreferenceValue(rawValue) {
+  return normalizeOrganizationPreferenceValues(rawValue)?.[0] ?? null;
+}
+
+export function normalizeOrganizationPreferenceValues(rawValue) {
   if (rawValue === null || rawValue === undefined) return null;
   let value = rawValue;
   if (typeof value === 'string') {
-    try { value = JSON.parse(value); } catch { return value; }
+    try { value = JSON.parse(value); } catch { return [value]; }
   }
-  if (value && typeof value === 'object') {
-    if (value.value !== undefined) return String(value.value);
-    if (Array.isArray(value) && value.length > 0) {
-      const first = value[0];
-      return typeof first === 'object' && first.value !== undefined ? String(first.value) : String(first);
-    }
+  if (Array.isArray(value)) {
+    return value.flatMap((item) => normalizeOrganizationPreferenceValues(item) || []);
   }
-  return String(value);
+  if (value && typeof value === 'object' && value.value !== undefined) {
+    return normalizeOrganizationPreferenceValues(value.value);
+  }
+  return [String(value)];
 }
 
 const INVALID_FILTER = Symbol('invalid-organization-filter');
@@ -34,7 +39,7 @@ function configuredFilter(field) {
     }
     // Legacy include filters with no selected values have always meant no
     // restriction. Empty exclude filters intentionally mean the same thing.
-    if (filter.values.length === 0) return null;
+    if (filter.values.length === 0 && filter.value_source !== 'source') return null;
     return filter;
   }
   const statuses = field?.allowed_org_statuses;
@@ -64,10 +69,17 @@ function sanitizedFilterValues(filter) {
     .filter((value) => value.length > 0 && value.length <= 200);
 }
 
+function normalizeComparableFilterValue(value, countryField = false) {
+  const normalized = String(value ?? '').trim();
+  return countryField ? (resolveCountryToIso2(normalized) || normalized).toLowerCase() : normalized;
+}
+
 function coreFilterMatches(organization, filter, values) {
   if (!VALID_ORGANIZATION_CORE_FIELDS.includes(filter.field)) return false;
   if (filter.field === 'is_active') return organization.is_active === (values[0] === 'true');
-  return values.includes(String(organization[filter.field] ?? ''));
+  const countryField = filter.field === 'country';
+  const actual = normalizeComparableFilterValue(organization[filter.field], countryField);
+  return values.some((value) => normalizeComparableFilterValue(value, countryField) === actual);
 }
 
 export async function filterOrganizationsEligibleForFields({
@@ -96,7 +108,7 @@ export async function filterOrganizationsEligibleForFields({
     let customValues = customValuesByField.get(filter.field);
     if (!customValues) {
       const { data: preferenceField, error: fieldError } = await db.from('preference_field')
-        .select('id')
+        .select('id, field_type')
         .eq('tenant_id', tenantId)
         .eq('name', filter.field)
         .eq('entity_scope', 'organization')
@@ -106,7 +118,7 @@ export async function filterOrganizationsEligibleForFields({
       // Preserve the established behavior for stale custom field definitions.
       if (!preferenceField) continue;
 
-      customValues = new Map();
+      customValues = { fieldType: preferenceField.field_type, values: new Map() };
       const organizationIds = eligible.map((organization) => organization.id).filter(Boolean);
       for (let offset = 0; offset < organizationIds.length; offset += 500) {
         const ids = organizationIds.slice(offset, offset + 500);
@@ -116,16 +128,19 @@ export async function filterOrganizationsEligibleForFields({
           .in('organization_id', ids);
         if (error) throw error;
         for (const row of data || []) {
-          customValues.set(String(row.organization_id), normalizeOrganizationPreferenceValue(row.value));
+          customValues.values.set(String(row.organization_id), normalizeOrganizationPreferenceValues(row.value));
         }
       }
       customValuesByField.set(filter.field, customValues);
     }
-    const allowed = new Set(values);
+    const countryField = ['country', 'countries'].includes(customValues.fieldType);
+    const allowed = new Set(values.map((value) => normalizeComparableFilterValue(value, countryField)));
     eligible = eligible.filter((organization) => {
-      const value = customValues.get(String(organization.id));
-      if (!hasFilterableValue(value)) return false;
-      const matches = allowed.has(value);
+      const organizationValues = customValues.values.get(String(organization.id));
+      if (!hasFilterableValue(organizationValues)) return false;
+      const matches = organizationValues.some((value) => (
+        allowed.has(normalizeComparableFilterValue(value, countryField))
+      ));
       return matchesMode(matches, filter);
     });
   }
@@ -151,7 +166,7 @@ export async function isOrganizationEligibleForField({ db, tenantId, organizatio
   if (filter.type !== 'custom') return false;
 
   const { data: preferenceField, error: fieldError } = await db.from('preference_field')
-    .select('id')
+    .select('id, field_type')
     .eq('tenant_id', tenantId)
     .eq('name', filter.field)
     .eq('entity_scope', 'organization')
@@ -168,8 +183,14 @@ export async function isOrganizationEligibleForField({ db, tenantId, organizatio
     .eq('field_id', preferenceField.id)
     .maybeSingle();
   if (valueError) throw valueError;
-  const value = normalizeOrganizationPreferenceValue(preferenceValue?.value);
-  if (!hasFilterableValue(value)) return false;
-  const matches = values.map(String).includes(value);
+  const organizationValues = normalizeOrganizationPreferenceValues(preferenceValue?.value);
+  if (!hasFilterableValue(organizationValues)) return false;
+  const countryField = ['country', 'countries'].includes(preferenceField.field_type);
+  const allowed = new Set(values.map(
+    (candidate) => normalizeComparableFilterValue(candidate, countryField),
+  ));
+  const matches = organizationValues.some(
+    (value) => allowed.has(normalizeComparableFilterValue(value, countryField)),
+  );
   return matchesMode(matches, filter);
 }

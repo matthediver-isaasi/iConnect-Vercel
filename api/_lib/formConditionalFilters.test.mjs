@@ -161,6 +161,33 @@ test('organisation-only filters permit IDs for subsequent trusted eligibility ch
   assert.deepEqual(resolution.orgFilter, orgFilter);
 });
 
+test('organisation filters can derive values from the persisted earlier source field', () => {
+  const dynamicRule = rule({
+    operator: 'is_not_empty',
+    value: null,
+    allowed_values: [],
+    org_filter: {
+      type: 'custom',
+      field: 'country',
+      values: [],
+      mode: 'include',
+      value_source: 'source',
+    },
+  });
+  const target = {
+    type: 'organisation_dropdown',
+    options: [],
+    conditional_filters: { version: 1, rules: [dynamicRule] },
+  };
+  const fields = [{ id: 'country', type: 'country' }, target];
+  const resolution = resolveConditionalFilter(target, { country: 'United Kingdom' }, fields);
+  assert.deepEqual(resolution.orgFilter.values, ['GB']);
+  assert.equal(resolution.orgFilter.value_source, 'source');
+
+  const empty = resolveConditionalFilter(target, { country: '' }, fields);
+  assert.equal(empty.rule, null);
+});
+
 test('empty conditional organisation result filters are valid and unrestricted in both modes', () => {
   for (const mode of ['include', 'exclude']) {
     const orgFilter = { type: 'core', field: 'country', values: [], mode };
@@ -221,6 +248,15 @@ test('validator rejects malformed contracts and unsupported operators', () => {
     rules: [rule({
       org_filter: {
         type: 'core', field: 'country', values: ['Spain'], mode: 'forged',
+      },
+    })],
+  }).valid, false);
+  assert.equal(validateConditionalFilters({
+    version: 1,
+    rules: [rule({
+      is_fallback: true,
+      org_filter: {
+        type: 'core', field: 'country', values: [], value_source: 'source',
       },
     })],
   }).valid, false);

@@ -3850,7 +3850,7 @@ function ConditionalOrgFilterValues({ type, fieldName, values, onChange, customF
   );
 }
 
-function ConditionalOrgFilterEditor({ value, onChange, customFields, ruleId }) {
+function ConditionalOrgFilterEditor({ value, onChange, customFields, ruleId, allowSourceValue, sourceLabel }) {
   const coreFields = [
     ['name', 'Name'],
     ['slug', 'Slug'],
@@ -3871,12 +3871,13 @@ function ConditionalOrgFilterEditor({ value, onChange, customFields, ruleId }) {
   const fieldName = value?.field || '';
   const values = Array.isArray(value?.values) ? value.values : [];
   const mode = value?.mode || 'include';
+  const valueSource = value?.value_source === 'source' && allowSourceValue ? 'source' : 'fixed';
   const setFilter = (updates) => {
     if (updates.type === 'none') {
       onChange(null);
       return;
     }
-    onChange({ type, field: fieldName, values, mode, ...updates });
+    onChange({ type, field: fieldName, values, mode, value_source: valueSource, ...updates });
   };
 
   return (
@@ -3907,6 +3908,20 @@ function ConditionalOrgFilterEditor({ value, onChange, customFields, ruleId }) {
               <SelectItem value="exclude">Exclude selected values</SelectItem>
             </SelectContent>
           </Select>
+          <Select
+            value={valueSource}
+            onValueChange={nextValueSource => setFilter({ value_source: nextValueSource })}
+          >
+            <SelectTrigger className="h-8 text-xs" data-testid={`select-conditional-org-filter-value-source-${ruleId}`}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="fixed">Use selected values</SelectItem>
+              {allowSourceValue && (
+                <SelectItem value="source">Match earlier field answer</SelectItem>
+              )}
+            </SelectContent>
+          </Select>
           <Select value={fieldName} onValueChange={field => setFilter({ field, values: [] })}>
             <SelectTrigger className="h-8 text-xs" data-testid={`select-conditional-org-filter-field-${ruleId}`}>
               <SelectValue placeholder="Choose a field…" />
@@ -3920,7 +3935,7 @@ function ConditionalOrgFilterEditor({ value, onChange, customFields, ruleId }) {
               ))}
             </SelectContent>
           </Select>
-          {fieldName && (
+          {fieldName && valueSource === 'fixed' && (
             <ConditionalOrgFilterValues
               type={type}
               fieldName={fieldName}
@@ -3929,6 +3944,12 @@ function ConditionalOrgFilterEditor({ value, onChange, customFields, ruleId }) {
               customFields={customFields}
               ruleId={ruleId}
             />
+          )}
+          {fieldName && valueSource === 'source' && (
+            <p className="rounded border border-blue-200 bg-blue-50 p-2 text-xs text-blue-700">
+              Organisation records will be compared with the current answer to {sourceLabel || 'the earlier source field'}.
+              An empty answer shows no organisations.
+            </p>
           )}
         </>
       )}
@@ -4053,7 +4074,12 @@ function ConditionalFilterRuleEditor({
               <Checkbox
                 id={`conditional-fallback-${rule.id}`}
                 checked={rule.is_fallback === true}
-                onCheckedChange={checked => updateRule(ruleIndex, { is_fallback: checked === true })}
+                onCheckedChange={checked => updateRule(ruleIndex, {
+                  is_fallback: checked === true,
+                  org_filter: checked === true && rule.org_filter?.value_source === 'source'
+                    ? { ...rule.org_filter, value_source: 'fixed', values: [] }
+                    : rule.org_filter,
+                })}
               />
               <Label htmlFor={`conditional-fallback-${rule.id}`} className="text-xs">Use as fallback (does not evaluate a source value)</Label>
             </div>
@@ -4185,6 +4211,8 @@ function ConditionalFilterRuleEditor({
                 onChange={org_filter => updateRule(ruleIndex, { org_filter })}
                 customFields={customFields}
                 ruleId={rule.id}
+                allowSourceValue={!rule.is_fallback && !!source}
+                sourceLabel={source?.label || source?.name}
               />
             )}
           </div>
@@ -4217,7 +4245,14 @@ function findInvalidNotListedField(fields) {
   return null;
 }
 
-function RepeatableRowsSettings({ field, originalIndex, updateField, eligibleRelationships = [], allFields = [] }) {
+function RepeatableRowsSettings({
+  field,
+  originalIndex,
+  updateField,
+  eligibleRelationships = [],
+  allFields = [],
+  customFields = [],
+}) {
   const config = normalizeRepeatableRowField(field);
   const addRowLabelEditorValue = repeatableRowAddLabelEditorValue(field);
   const children = config.children;
@@ -4347,6 +4382,9 @@ function RepeatableRowsSettings({ field, originalIndex, updateField, eligibleRel
           : [];
         const dependency = child.conditional_filters?.rules?.find(rule => !rule.is_fallback);
         const dependencySource = preceding.find(item => item.id === dependency?.source_field_id);
+        const dependencySourceCustomField = dependencySource?.type === 'custom_field'
+          ? customFields.find(item => item.id === dependencySource.custom_field_id)
+          : null;
         const dependencyNotListedLabel = dependencySource
           ? formNotListedChoiceLabel(dependencySource)
           : '';
@@ -4539,7 +4577,14 @@ function RepeatableRowsSettings({ field, originalIndex, updateField, eligibleRel
                     rules: [{
                       id: `row_dependency_${child.id}`,
                       source_field_id,
-                      source_field_type: preceding.find(item => item.id === source_field_id)?.type || null,
+                      source_field_type: (() => {
+                        const selectedSource = preceding.find(item => item.id === source_field_id);
+                        if (selectedSource?.type !== 'custom_field') return selectedSource?.type || null;
+                        return customFields.find(item => item.id === selectedSource.custom_field_id)?.field_type
+                          || selectedSource.custom_field_type
+                          || selectedSource.field_type
+                          || selectedSource.type;
+                      })(),
                       operator: 'equals',
                       value: '',
                       is_fallback: false,
@@ -4556,7 +4601,30 @@ function RepeatableRowsSettings({ field, originalIndex, updateField, eligibleRel
                   </SelectContent>
                 </Select>
                 {dependency && (
-                  <div className="grid gap-2 md:grid-cols-3">
+                  <div className="space-y-2">
+                    {child.type === 'organisation_dropdown' && (
+                      <Select
+                        value={dependency.operator || 'equals'}
+                        onValueChange={operator => updateChild(childIndex, { conditional_filters: {
+                          version: 1,
+                          rules: [{
+                            ...dependency,
+                            operator,
+                            value: operator === 'is_not_empty' ? null : '',
+                          }],
+                        } })}
+                      >
+                        <SelectTrigger className="h-9" aria-label="Organisation dependency condition">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="equals">When source equals a value</SelectItem>
+                          <SelectItem value="is_not_empty">Whenever source has a value</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    )}
+                    <div className="grid gap-2 md:grid-cols-3">
+                    {dependency.operator !== 'is_not_empty' && (
                     <Input
                       className="h-9"
                       value={Array.isArray(dependency.value) ? dependency.value.join(', ') : (dependency.value ?? '')}
@@ -4567,6 +4635,7 @@ function RepeatableRowsSettings({ field, originalIndex, updateField, eligibleRel
                       placeholder="When source equals…"
                       aria-label="Dependency source value"
                     />
+                    )}
                     {dependencyNotListedLabel && (
                       <Button
                         type="button"
@@ -4612,6 +4681,20 @@ function RepeatableRowsSettings({ field, originalIndex, updateField, eligibleRel
                         <SelectItem value="exclude">Exclude selected</SelectItem>
                       </SelectContent>
                     </Select>
+                    </div>
+                    {child.type === 'organisation_dropdown' && (
+                      <ConditionalOrgFilterEditor
+                        value={dependency.org_filter}
+                        onChange={org_filter => updateChild(childIndex, { conditional_filters: {
+                          version: 1,
+                          rules: [{ ...dependency, org_filter }],
+                        } })}
+                        customFields={customFields}
+                        ruleId={dependency.id}
+                        allowSourceValue={!!dependencySource}
+                        sourceLabel={dependencySource?.label || dependencySource?.name}
+                      />
+                    )}
                   </div>
                 )}
               </div>
@@ -5076,6 +5159,7 @@ function FieldCard({
                   updateField={updateField}
                   eligibleRelationships={eligibleRelationships}
                   allFields={allFields}
+                  customFields={customFields}
                 />
               )}
 
