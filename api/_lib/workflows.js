@@ -17,6 +17,7 @@ import {
   isZeroDueMembership,
   zeroDuePaymentFields,
 } from './zeroDueMembership.js';
+import { validateWorkflowOrganizationMembershipSimulation } from './workflowMembershipSimulation.js';
 
 // Task #3253 — when a workflow fires from a background/webhook path with no
 // request context (empty baseUrl) but the email template contains special
@@ -1709,6 +1710,16 @@ async function executeCreateMembershipAction(action, workflow, entityType, entit
       };
     }
 
+    const simulationContractError = validateWorkflowOrganizationMembershipSimulation(simResult);
+    if (simulationContractError) {
+      return {
+        action_type: 'create_membership',
+        status: 'failed',
+        error: simulationContractError,
+        simulation_steps: simResult.steps,
+      };
+    }
+
     if (isDryRun) {
       return {
         action_type: 'create_membership',
@@ -1864,7 +1875,7 @@ async function executeCreateMembershipAction(action, workflow, entityType, entit
       organization_id: organizationId,
       membership_year: simResult.membershipYear.label,
       config_id: simResult.config.id,
-      band_id: simResult.matchedBand.id,
+      band_id: simResult.matchedBand?.id || null,
       tier_label: simResult.tierLabel,
       field_value: simResult.fieldValue,
       annual_cost: simResult.annualCost,

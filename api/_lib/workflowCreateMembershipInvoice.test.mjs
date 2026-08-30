@@ -11,6 +11,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import { validateWorkflowOrganizationMembershipSimulation } from './workflowMembershipSimulation.js';
 
 const src = fs.readFileSync(new URL('./workflows.js', import.meta.url), 'utf8');
 const providerSrc = fs.readFileSync(new URL('./accountingProvider.js', import.meta.url), 'utf8');
@@ -23,6 +24,47 @@ const orgFn = src.slice(orgFnAt, orgFnEnd);
 
 const insertAt = orgFn.indexOf(".from('organisation_membership_history')\n      .insert(record)");
 assert.ok(insertAt > -1, 'org membership insert must exist');
+
+const validSimulation = (overrides = {}) => ({
+  success: true,
+  org: { id: 'org-1', name: 'Example Organisation' },
+  config: { id: 'config-1', pricing_model: 'tiered' },
+  membershipYear: { label: '2026/2027' },
+  matchedBand: { id: 'band-1' },
+  ...overrides,
+});
+
+test('flat membership simulations are valid without a pricing band', () => {
+  const result = validSimulation({
+    config: { id: 'config-flat', pricing_model: 'flat' },
+    matchedBand: null,
+  });
+  assert.equal(validateWorkflowOrganizationMembershipSimulation(result), null);
+  assert.match(orgFn, /band_id: simResult\.matchedBand\?\.id \|\| null/);
+});
+
+test('tiered membership simulations still require and store a pricing band', () => {
+  assert.equal(validateWorkflowOrganizationMembershipSimulation(validSimulation()), null);
+  assert.match(orgFn, /band_id: simResult\.matchedBand\?\.id \|\| null/);
+});
+
+test('malformed successful simulations fail with a descriptive contract error', () => {
+  assert.match(
+    validateWorkflowOrganizationMembershipSimulation(validSimulation({ config: null })),
+    /membership configuration/i,
+  );
+  assert.match(
+    validateWorkflowOrganizationMembershipSimulation(validSimulation({ membershipYear: null })),
+    /membership year/i,
+  );
+  assert.match(
+    validateWorkflowOrganizationMembershipSimulation(validSimulation({ matchedBand: null })),
+    /pricing band.*tiered/i,
+  );
+  const guardAt = orgFn.indexOf('validateWorkflowOrganizationMembershipSimulation(simResult)');
+  assert.ok(guardAt > -1 && guardAt < insertAt, 'simulation contract guard must run before insert');
+  assert.match(orgFn.slice(guardAt, insertAt), /status: 'failed'/);
+});
 
 test('org path raises the accounting invoice after inserting the record', () => {
   const invoiceAt = orgFn.indexOf('provider.createMembershipInvoice', insertAt);
