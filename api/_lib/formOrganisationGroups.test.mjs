@@ -109,6 +109,27 @@ test('submission validation accepts current-tenant IDs and rejects forged IDs', 
   }), error => error.code === 'INVALID_ORGANISATION_GROUP');
 });
 
+test('hidden organisation group selections are ignored while visible forged selections still fail', async () => {
+  const db = fakeDb({
+    groups: [{ id: 'safe-group', tenant_id: 'tenant-a', name: 'Safe' }],
+  });
+  const fields = [{ id: 'group', type: 'organisation_group_dropdown' }];
+  await assert.doesNotReject(validateFormOrganisationGroupAnswers({
+    db,
+    tenantId: 'tenant-a',
+    fields,
+    submissionData: { group: 'stale-forged-group' },
+    hiddenFieldIds: new Set(['group']),
+  }));
+  await assert.rejects(validateFormOrganisationGroupAnswers({
+    db,
+    tenantId: 'tenant-a',
+    fields,
+    submissionData: { group: 'stale-forged-group' },
+    hiddenFieldIds: new Set(),
+  }), error => error.code === 'INVALID_ORGANISATION_GROUP');
+});
+
 test('submission validation accepts the configured not-listed group sentinel', async () => {
   const db = fakeDb({
     groups: [{ id: 'safe-group', tenant_id: 'tenant-a', name: 'Safe' }],
@@ -250,6 +271,26 @@ test('dependent organisation validation stays inside each repeatable row', async
     fields,
     submissionData: { rows: [{ group: 'group-1', org: 'org-2' }] },
   }), error => error.code === 'INVALID_ORGANISATION_GROUP_ORGANISATION');
+});
+
+test('hidden repeatable containers are not re-entered by group validators', async () => {
+  const fields = [{
+    id: 'rows',
+    type: 'repeatable_rows',
+    child_fields: [
+      { id: 'group', type: 'organisation_group_dropdown' },
+      { id: 'org', type: 'organisation_dropdown', organisation_group_parent_field_id: 'group' },
+    ],
+  }];
+  const input = {
+    db: fakeDb({}),
+    tenantId: 'tenant-a',
+    fields,
+    submissionData: { rows: [{ group: 'forged-group', org: 'forged-org' }] },
+    hiddenFieldIds: new Set(['rows']),
+  };
+  await assert.doesNotReject(validateFormOrganisationGroupAnswers(input));
+  await assert.doesNotReject(validateOrganisationGroupDependentOrganizationAnswers(input));
 });
 
 test('repeatable Organisation Group values are tenant validated even without an organisation answer', async () => {

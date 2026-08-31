@@ -387,6 +387,162 @@ test('submission validation accepts only the active record related to its submit
   );
 });
 
+test('submission validation ignores stale hidden relationship values but validates visible organisations', async () => {
+  const hiddenForm = form({
+    fields: [
+      { id: 'show_group', type: 'text' },
+      { id: 'org', type: 'organisation_dropdown', options: [] },
+      form().fields[1],
+    ],
+    visibility_rules: [{
+      trigger_field_id: 'show_group',
+      operator: 'equals',
+      value: 'no',
+      action: 'hide',
+      target_field_ids: ['department'],
+    }],
+  });
+  const service = createFormRelationshipService({
+    tenantId,
+    db: mockDb({
+      organization: [{ id: 'org-1', tenant_id: tenantId }],
+    }),
+  });
+  const hiddenFieldIds = new Set(['department']);
+  await service.validateSubmission({
+    form: hiddenForm,
+    submissionData: {
+      show_group: 'no',
+      org: 'org-1',
+      department: 'stale-forged-record',
+    },
+    hiddenFieldIds,
+  });
+  await assert.rejects(
+    service.validateSubmission({
+      form: hiddenForm,
+      submissionData: {
+        show_group: 'yes',
+        org: 'org-1',
+        department: 'stale-forged-record',
+      },
+      hiddenFieldIds: new Set(),
+    }),
+    error => error instanceof FormRelationshipError && error.status === 409,
+  );
+});
+
+test('visible Organisation and Department remain validated when a stale Group relationship is hidden', async () => {
+  const chainedForm = form({
+    fields: [
+      { id: 'org', type: 'organisation_dropdown', options: [] },
+      form().fields[1],
+      {
+        id: 'group',
+        type: 'relationship_dropdown',
+        parent_field_id: 'department',
+        relationship_definition_id: 'definition-2',
+        relationship_parent_kind: 'custom_object',
+        relationship_parent_custom_object_id: 'object-1',
+        related_kind: 'custom_object',
+        related_custom_object_id: 'object-2',
+        related_primary_display_field_id: 'group-name-field',
+      },
+    ],
+  });
+  const service = createFormRelationshipService({
+    tenantId,
+    db: mockDb({
+      organization: [{ id: 'org-1', tenant_id: tenantId }],
+      custom_object_relationship_definition: [
+        definition(),
+        definition({
+          id: 'definition-2',
+          relationship_key: 'department_groups',
+          source_kind: 'custom_object',
+          source_custom_object_id: 'object-1',
+          target_kind: 'custom_object',
+          target_custom_object_id: 'object-2',
+        }),
+      ],
+      custom_object_definition: [
+        {
+          id: 'object-1', tenant_id: tenantId, status: 'active',
+          primary_display_field_id: 'name-field',
+        },
+        {
+          id: 'object-2', tenant_id: tenantId, status: 'active',
+          primary_display_field_id: 'group-name-field',
+        },
+      ],
+      preference_field: [
+        {
+          id: 'name-field', tenant_id: tenantId, custom_object_id: 'object-1',
+          entity_scope: 'custom_object', is_active: true, name: 'department_name',
+          field_type: 'text',
+        },
+        {
+          id: 'group-name-field', tenant_id: tenantId, custom_object_id: 'object-2',
+          entity_scope: 'custom_object', is_active: true, name: 'group_name',
+          field_type: 'text',
+        },
+      ],
+      custom_object_relationship: [{
+        id: 'department-edge', tenant_id: tenantId, relationship_definition_id: 'definition-1',
+        source_record_id: 'org-1', target_record_id: 'department-1', archived_at: null,
+      }],
+      custom_object_record: [{
+        id: 'department-1', tenant_id: tenantId, custom_object_id: 'object-1',
+        archived_at: null, data: { department_name: 'Operations' },
+      }],
+    }),
+  });
+  const submissionData = {
+    org: 'org-1',
+    department: 'department-1',
+    group: 'stale-group',
+  };
+  await service.validateSubmission({
+    form: chainedForm,
+    submissionData,
+    hiddenFieldIds: new Set(['group']),
+  });
+  await assert.rejects(
+    service.validateSubmission({
+      form: chainedForm,
+      submissionData,
+      hiddenFieldIds: new Set(),
+    }),
+    error => error instanceof FormRelationshipError
+      && error.status === 400 && /Invalid relationship selection/.test(error.message),
+  );
+});
+
+test('submission validation ignores hidden relationship not-listed text metadata', async () => {
+  const hiddenForm = form({
+    fields: [
+      { id: 'org', type: 'organisation_dropdown', options: [] },
+      {
+        ...form().fields[1],
+        not_listed_choice: { enabled: true, label: 'My department is not listed' },
+      },
+    ],
+  });
+  const service = createFormRelationshipService({
+    tenantId,
+    db: mockDb({ organization: [{ id: 'org-1', tenant_id: tenantId }] }),
+  });
+  await service.validateSubmission({
+    form: hiddenForm,
+    submissionData: {
+      org: 'org-1',
+      department: '__form_not_listed__',
+      __not_listed_choice_text: { department: 'Stale hidden department' },
+    },
+    hiddenFieldIds: new Set(['department']),
+  });
+});
+
 test('submission validation cache is isolated by saved relationship definition', async () => {
   const secondForm = form({
     id: 'form-2',

@@ -167,29 +167,35 @@ export async function validatePaymentRelationships(res, supabase, tenantData, fo
     if (!visibilityOptions && rulesUseLmicOperators(form.visibility_rules)) {
       evalOptions.lmicCodes = await loadTenantLmicCodes(supabase, tenantData.id);
     }
+    const hiddenFieldIds = computeHiddenFieldIds(form, values, evalOptions);
     await validateRepeatableRowSubmission({
       db: supabase,
       tenantId: tenantData.id,
       form,
       submissionData: values,
       visibilityOptions: evalOptions,
+      hiddenFieldIds,
     });
     const service = createFormRelationshipService({
       db: supabase,
       tenantId: tenantData.id,
     });
-    await service.validateSubmission({ form, submissionData: values });
+    await service.validateSubmission({
+      form, submissionData: values, hiddenFieldIds, visibilityOptions: evalOptions,
+    });
     await validateFormOrganisationGroupAnswers({
       db: supabase,
       tenantId: tenantData.id,
       fields: form.fields || [],
       submissionData: values,
+      hiddenFieldIds,
     });
     await validateOrganisationGroupDependentOrganizationAnswers({
       db: supabase,
       tenantId: tenantData.id,
       fields: form.fields || [],
       submissionData: values,
+      hiddenFieldIds,
     });
     return true;
   } catch (error) {
@@ -352,12 +358,17 @@ async function handleQuote(req, res, supabase, tenantData) {
   }
   const paymentField = findPaymentField(form);
   if (!paymentField) return res.status(400).json({ error: 'This form has no payment field' });
-  if (!await validatePaymentRelationships(res, supabase, tenantData, form, submission_data || {})) return;
+  const evalOptions = rulesUseLmicOperators(form.visibility_rules)
+    ? { lmicCodes: await loadTenantLmicCodes(supabase, tenantData.id) } : {};
+  if (!await validatePaymentRelationships(
+    res, supabase, tenantData, form, submission_data || {}, evalOptions,
+  )) return;
 
   const resolved = await resolvePayableCharge({
     supabase, tenantData, form, paymentField,
     values: submission_data || {},
     prefill_organization_id,
+    evalOptions,
   });
   if (resolved.error) {
     // A hidden payment field just means the normal submit path applies —
@@ -415,7 +426,9 @@ async function handleCreateMonthlyCard(req, res, supabase, tenantData) {
     ? { lmicCodes: await loadTenantLmicCodes(supabase, tenantData.id) } : {};
   const submitControl = resolveSubmitControl(form.visibility_rules, values, evalOptions);
   if (submitControl.disabled) return res.status(400).json({ error: submitControl.message || 'This form cannot be submitted with the current answers.' });
-  if (!await validatePaymentRelationships(res, supabase, tenantData, form, values)) return;
+  if (!await validatePaymentRelationships(
+    res, supabase, tenantData, form, values, evalOptions,
+  )) return;
   const resolved = await resolvePayableCharge({ supabase, tenantData, form, paymentField, values, prefill_organization_id, evalOptions });
   if (resolved.error) return res.status(resolved.error.status).json(resolved.error.body);
   const quote = resolved.membershipMeta?.quote;
@@ -755,7 +768,9 @@ async function handleCreate(req, res, supabase, tenantData) {
       code: 'SUBMIT_DISABLED_BY_RULE',
     });
   }
-  if (!await validatePaymentRelationships(res, supabase, tenantData, form, values)) return;
+  if (!await validatePaymentRelationships(
+    res, supabase, tenantData, form, values, evalOptions,
+  )) return;
 
   const resolved = await resolvePayableCharge({
     supabase, tenantData, form, paymentField, values,

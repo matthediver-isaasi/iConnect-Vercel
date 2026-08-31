@@ -4,6 +4,7 @@ import { conditionalSelectionAllowed, resolveConditionalFilter } from './formCon
 import { containsFormNotListedValue, hasEnabledFormNotListedChoice, isFormNotListedValue, validateFormNotListedText } from '../../shared/formNotListedChoice.js';
 import { isFormNoRelationshipValue } from '../../shared/formNoRelationshipChoice.js';
 import { isRepeatableRowField, repeatableRowChildren } from '../../shared/formRepeatableRows.js';
+import { computeHiddenFieldIds } from './formFieldVisibility.js';
 
 export class FormRelationshipError extends Error { constructor(status, message) { super(message); this.status = status; } }
 function throwDb(error) { if (error) throw new FormRelationshipError(500, error.message || 'Database operation failed'); }
@@ -142,10 +143,18 @@ export function createFormRelationshipService({ db, tenantId }) {
     const options = rows.map(row => ({ id: row.id, label: state.saved.related.kind === 'organization' ? row.name || row.id : state.saved.related.kind === 'organization_group' ? row.name || row.id : resolveCustomObjectDisplayValue({ objectDefinition: state.relatedObject, record: row, fields: [state.primaryField] }) })).sort((a, b) => String(a.label).localeCompare(String(b.label)) || String(a.id).localeCompare(String(b.id)));
     const p = pagination(query); return { data: options.slice((p.page - 1) * p.pageSize, p.page * p.pageSize), total: options.length, page: p.page, pageSize: p.pageSize };
   }
-  async function validateSubmission({ form, submissionData = {}, cache = new Map(), rootForm, rootSubmissionData, containerFieldId, allowMissingNotListedText }) {
-    const fields = form?.fields || [];
+  async function validateSubmission({ form, submissionData = {}, cache = new Map(), rootForm, rootSubmissionData, containerFieldId, allowMissingNotListedText, hiddenFieldIds, visibilityOptions = {} }) {
+    const authoritativeForm = rootForm || form;
+    const hidden = hiddenFieldIds || computeHiddenFieldIds(
+      authoritativeForm,
+      rootSubmissionData || submissionData,
+      visibilityOptions,
+    );
+    if (containerFieldId && hidden.has(containerFieldId)) return;
+    const fields = (form?.fields || []).filter(field => !hidden.has(field?.id));
     const notListedTextValidation = validateFormNotListedText(fields, submissionData, {
       allowMissingText: allowMissingNotListedText,
+      ignoredFieldIds: hidden,
     });
     if (!notListedTextValidation.valid) {
       throw new FormRelationshipError(400, notListedTextValidation.error);

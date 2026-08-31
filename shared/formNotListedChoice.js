@@ -138,6 +138,9 @@ export function pruneFormNotListedText(fields, submissionData) {
 export function validateFormNotListedText(fields, submissionData, options = {}) {
   const data = isPlainObject(submissionData) ? submissionData : {};
   const list = Array.isArray(fields) ? fields : [];
+  const ignoredFieldIds = options.ignoredFieldIds instanceof Set
+    ? options.ignoredFieldIds
+    : new Set(options.ignoredFieldIds || []);
   const rootText = data[FORM_NOT_LISTED_TEXT_KEY];
   if (rootText !== undefined && !isPlainObject(rootText)) {
     return { valid: false, error: 'Invalid not-listed text' };
@@ -145,6 +148,7 @@ export function validateFormNotListedText(fields, submissionData, options = {}) 
   const allowedRootIds = new Set(list
     .filter(field => field?.id && supportsFormNotListedChoice(field))
     .map(field => String(field.id)));
+  for (const fieldId of ignoredFieldIds) allowedRootIds.add(String(fieldId));
   for (const key of Object.keys(rootText || {})) {
     if (!allowedRootIds.has(String(key))) {
       return { valid: false, error: 'Invalid not-listed text' };
@@ -173,6 +177,7 @@ export function validateFormNotListedText(fields, submissionData, options = {}) 
 
   for (const field of list) {
     if (!field) continue;
+    if (ignoredFieldIds.has(field.id)) continue;
     if (supportsFormNotListedChoice(field) && field.id) {
       const result = validateEntry(field, fieldValue(data, field), rootText, {
         containerField: null,
@@ -187,6 +192,7 @@ export function validateFormNotListedText(fields, submissionData, options = {}) 
     const allowedChildIds = new Set(children
       .filter(child => child?.id && supportsFormNotListedChoice(child))
       .map(child => String(child.id)));
+    for (const fieldId of ignoredFieldIds) allowedChildIds.add(String(fieldId));
     for (const row of rows) {
       if (!isPlainObject(row)) continue;
       const rowText = row[FORM_NOT_LISTED_TEXT_KEY];
@@ -199,7 +205,8 @@ export function validateFormNotListedText(fields, submissionData, options = {}) 
         }
       }
       for (const child of children) {
-        if (!child?.id || !supportsFormNotListedChoice(child)) continue;
+        if (!child?.id || ignoredFieldIds.has(child.id)
+            || !supportsFormNotListedChoice(child)) continue;
         const result = validateEntry(child, fieldValue(row, child), rowText, {
           containerField: field,
           row,

@@ -101,6 +101,133 @@ test('skips initialized invalid rows when a persisted condition hides the contai
   assert.equal(calls, 0);
 });
 
+test('ignores hidden relationship children inside a visible repeatable container', async () => {
+  const calls = [];
+  const childVisibilityForm = {
+    ...form,
+    fields: [{ id: 'kind', type: 'text' }, form.fields[0]],
+    visibility_rules: [{
+      trigger_field_id: 'kind',
+      operator: 'equals',
+      value: 'hide unit',
+      action: 'hide',
+      target_field_ids: ['unit'],
+    }],
+  };
+  await validateRepeatableRowSubmission({
+    tenantId: 'tenant-1',
+    form: childVisibilityForm,
+    submissionData: {
+      kind: 'hide unit',
+      rows: [{ org: 'org-1', unit: 'stale-forged-unit' }],
+    },
+    relationshipService: {
+      async validateSubmission(input) { calls.push(input); },
+    },
+  });
+  assert.equal(calls.length, 1);
+  assert.deepEqual(calls[0].form.fields.map(child => child.id), ['org']);
+
+  await assert.rejects(
+    validateRepeatableRowSubmission({
+      tenantId: 'tenant-1',
+      form: childVisibilityForm,
+      submissionData: { kind: 'show unit', rows: [{ org: 'org-1', unit: '' }] },
+      relationshipService: { async validateSubmission() {} },
+    }),
+    error => error.status === 400 && error.code === 'required_child',
+  );
+});
+
+test('ignores required row constraints when every relationship child is hidden', async () => {
+  const allHiddenForm = {
+    id: 'all-hidden-relationships',
+    fields: [
+      { id: 'kind', type: 'text' },
+      {
+        id: 'rows',
+        type: 'repeatable_row',
+        min_rows: 1,
+        max_rows: 1,
+        first_row_required: true,
+        children: [
+          { id: 'org', type: 'organisation_dropdown', required: true },
+          { id: 'group', type: 'organisation_group_dropdown', required: true },
+          {
+            id: 'unit',
+            type: 'relationship_dropdown',
+            required: true,
+            parent_field_id: 'org',
+            relationship_definition_id: 'rel-1',
+            custom_object_id: 'object-1',
+            custom_object_primary_display_field_id: 'name-field',
+          },
+        ],
+      },
+    ],
+    visibility_rules: [{
+      trigger_field_id: 'kind',
+      operator: 'equals',
+      value: 'hide all',
+      action: 'hide',
+      target_field_ids: ['org', 'group', 'unit'],
+    }],
+  };
+  let calls = 0;
+  const relationshipService = {
+    async validateSubmission() { calls += 1; },
+  };
+  await validateRepeatableRowSubmission({
+    tenantId: 'tenant-1',
+    form: allHiddenForm,
+    submissionData: { kind: 'hide all' },
+    relationshipService,
+  });
+  await validateRepeatableRowSubmission({
+    tenantId: 'tenant-1',
+    form: allHiddenForm,
+    submissionData: {
+      kind: 'hide all',
+      rows: [{
+        _row_id: 'stale-row',
+        org: 'stale-org',
+        group: 'stale-group',
+        unit: 'stale-unit',
+      }],
+    },
+    relationshipService,
+  });
+  assert.equal(calls, 0);
+
+  await assert.rejects(
+    validateRepeatableRowSubmission({
+      tenantId: 'tenant-1',
+      form: allHiddenForm,
+      submissionData: {
+        kind: 'hide all',
+        rows: [
+          { org: 'stale-org-1' },
+          { org: 'stale-org-2' },
+        ],
+      },
+      relationshipService,
+    }),
+    error => error.status === 400 && error.code === 'max_rows',
+  );
+  await assert.rejects(
+    validateRepeatableRowSubmission({
+      tenantId: 'tenant-1',
+      form: allHiddenForm,
+      submissionData: {
+        kind: 'hide all',
+        rows: [{ org: 'stale-org', forged: true }],
+      },
+      relationshipService,
+    }),
+    error => error.status === 400 && error.code === 'unknown_child',
+  );
+});
+
 test('skips initialized invalid rows on a hidden page but rejects the same rows on a visible page', async () => {
   const pagedForm = {
     ...form,

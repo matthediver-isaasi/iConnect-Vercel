@@ -22,6 +22,25 @@ test('paid create, monthly-card, and quote paths validate repeatable rows before
   }
 });
 
+test('paid paths reuse one LMIC visibility context for validation and charge resolution', async () => {
+  const source = await readFile(new URL('./form-payment.js', import.meta.url), 'utf8');
+  for (const name of ['handleQuote', 'handleCreateMonthlyCard', 'handleCreate']) {
+    const start = source.indexOf(`async function ${name}`);
+    const end = source.indexOf('\nasync function ', start + 1);
+    const section = source.slice(start, end < 0 ? source.length : end);
+    assert.match(
+      section,
+      /validatePaymentRelationships\([\s\S]*?evalOptions,[\s\S]*?\)/,
+      `${name} passes its visibility context to selection validation`,
+    );
+    assert.match(
+      section,
+      /resolvePayableCharge\(\{[\s\S]*?evalOptions[\s\S]*?\}\)/,
+      `${name} passes the same visibility context to charge resolution`,
+    );
+  }
+});
+
 test('paid validation rejects repeatable tampering before ordinary relationship database lookups', async () => {
   let queries = 0;
   const response = {

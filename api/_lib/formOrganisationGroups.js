@@ -100,10 +100,13 @@ export async function validateFormOrganisationGroupAnswers({
   tenantId,
   fields,
   submissionData,
+  hiddenFieldIds = new Set(),
 }) {
   const rootFields = Array.isArray(fields) ? fields : [];
   const scopes = [{ fields: rootFields, data: submissionData }];
-  for (const container of rootFields.filter(isRepeatableRowField)) {
+  for (const container of rootFields.filter(field => (
+    isRepeatableRowField(field) && !hiddenFieldIds.has(field?.id)
+  ))) {
     const rows = submittedValue(submissionData, container);
     if (!Array.isArray(rows)) continue;
     const children = repeatableRowChildren(container);
@@ -112,7 +115,8 @@ export async function validateFormOrganisationGroupAnswers({
   const values = [];
   for (const scope of scopes) {
     const groupFields = scope.fields
-      .filter(field => field?.type === ORGANISATION_GROUP_DROPDOWN_TYPE && field.id);
+      .filter(field => field?.type === ORGANISATION_GROUP_DROPDOWN_TYPE
+        && field.id && !hiddenFieldIds.has(field.id));
     for (const field of groupFields) {
       const selected = submittedValue(scope.data, field);
       const resolution = resolveConditionalFilter(field, scope.data, scope.fields);
@@ -148,9 +152,11 @@ function submittedValue(data, field) {
 
 async function validateDependentSet({
   db, tenantId, fields, submissionData, rootFields = [], rootSubmissionData = {}, containerIndex = -1,
+  hiddenFieldIds = new Set(),
 }) {
   for (let index = 0; index < fields.length; index += 1) {
     const field = fields[index];
+    if (hiddenFieldIds.has(field?.id)) continue;
     if (field?.type !== 'organisation_dropdown' || !field.organisation_group_parent_field_id) continue;
     const scope = field.organisation_group_parent_scope
       ?? field.organisation_group_parent_field_scope ?? 'row';
@@ -196,12 +202,15 @@ export async function validateOrganisationGroupDependentOrganizationAnswers({
   tenantId,
   fields,
   submissionData,
+  hiddenFieldIds = new Set(),
 }) {
   const list = Array.isArray(fields) ? fields : [];
-  await validateDependentSet({ db, tenantId, fields: list, submissionData });
+  await validateDependentSet({
+    db, tenantId, fields: list, submissionData, hiddenFieldIds,
+  });
   for (let containerIndex = 0; containerIndex < list.length; containerIndex += 1) {
     const container = list[containerIndex];
-    if (!isRepeatableRowField(container)) continue;
+    if (!isRepeatableRowField(container) || hiddenFieldIds.has(container?.id)) continue;
     const children = repeatableRowChildren(container);
     const rows = submittedValue(submissionData, container);
     if (!Array.isArray(rows)) continue;
@@ -209,6 +218,7 @@ export async function validateOrganisationGroupDependentOrganizationAnswers({
       await validateDependentSet({
         db, tenantId, fields: children, submissionData: row,
         rootFields: list, rootSubmissionData: submissionData, containerIndex,
+        hiddenFieldIds,
       });
     }
   }

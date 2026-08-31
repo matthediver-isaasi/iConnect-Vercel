@@ -70,10 +70,10 @@ test('payment creates validate saved relationship selections before submission r
   const source = read('../public/form-payment.js');
   assert.match(source, /import \{ createFormRelationshipService, FormRelationshipError \} from '\.\.\/_lib\/formRelationshipOptions\.js'/);
   assert.match(source, /tenantId: tenantData\.id/);
-  assert.match(source, /service\.validateSubmission\(\{ form, submissionData: values \}\)/);
+  assert.match(source, /service\.validateSubmission\(\{[\s\S]*?form, submissionData: values, hiddenFieldIds, visibilityOptions: evalOptions,[\s\S]*?\}\)/);
   assert.match(source, /error instanceof FormRelationshipError && error\.status < 500/);
   assert.equal(
-    (source.match(/await validatePaymentRelationships\(res, supabase, tenantData, form, values\)/g) || []).length,
+    (source.match(/form, values, evalOptions,/g) || []).length,
     2,
   );
 

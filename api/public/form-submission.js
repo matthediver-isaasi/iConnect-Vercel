@@ -306,6 +306,18 @@ export default async function handler(req, res) {
       }
     }
 
+    const relationshipForm = isSurvey ? {
+      ...form,
+      fields: surveyVersion?.fields || [],
+      pages: surveyVersion?.pages || [],
+      visibility_rules: surveyVersion?.visibility_rules || [],
+    } : form;
+    const hiddenRelationshipFieldIds = computeHiddenFieldIds(
+      relationshipForm,
+      submission_data || {},
+      submissionVisibilityOptions,
+    );
+
     // Relationship dropdowns store record IDs. Validate those IDs against the
     // saved field, its submitted organisation parent, active relationship edge,
     // and active related record before any duplicate handling or side effects.
@@ -313,21 +325,19 @@ export default async function handler(req, res) {
       await validateRepeatableRowSubmission({
         db: supabase,
         tenantId: tenantData.id,
-        form: isSurvey ? {
-          ...form,
-          fields: surveyVersion?.fields || [],
-          pages: surveyVersion?.pages || [],
-          visibility_rules: surveyVersion?.visibility_rules || [],
-        } : form,
+        form: relationshipForm,
         submissionData: submission_data || {},
         visibilityOptions: submissionVisibilityOptions,
+        hiddenFieldIds: hiddenRelationshipFieldIds,
       });
       await createFormRelationshipService({
         db: supabase,
         tenantId: tenantData.id,
       }).validateSubmission({
-        form: isSurvey ? { ...form, fields: surveyVersion?.fields || [] } : form,
+        form: relationshipForm,
         submissionData: submission_data || {},
+        hiddenFieldIds: hiddenRelationshipFieldIds,
+        visibilityOptions: submissionVisibilityOptions,
       });
     } catch (error) {
       if (error instanceof FormRelationshipError && error.status < 500) {
@@ -350,12 +360,14 @@ export default async function handler(req, res) {
         tenantId: tenantData.id,
         fields: isSurvey ? (surveyVersion?.fields || []) : (form.fields || []),
         submissionData: submission_data || {},
+        hiddenFieldIds: hiddenRelationshipFieldIds,
       });
       await validateOrganisationGroupDependentOrganizationAnswers({
         db: supabase,
         tenantId: tenantData.id,
         fields: isSurvey ? (surveyVersion?.fields || []) : (form.fields || []),
         submissionData: submission_data || {},
+        hiddenFieldIds: hiddenRelationshipFieldIds,
       });
     } catch (error) {
       if (error?.code === 'INVALID_ORGANISATION_GROUP') {
