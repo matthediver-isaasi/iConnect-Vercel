@@ -11,6 +11,7 @@ import {
   createFormRelationshipService,
   FormRelationshipError,
 } from './formRelationshipOptions.js';
+import { computeHiddenFieldIds } from './formFieldVisibility.js';
 
 function submittedValue(submissionData, field) {
   if (Object.prototype.hasOwnProperty.call(submissionData, field.id)) return submissionData[field.id];
@@ -30,12 +31,16 @@ export async function validateRepeatableRowSubmission({
   form,
   submissionData = {},
   relationshipService,
+  visibilityOptions = {},
 }) {
   if (!submissionData || typeof submissionData !== 'object' || Array.isArray(submissionData)) {
     throw new FormRelationshipError(400, 'Invalid submission data');
   }
   const fields = Array.isArray(form?.fields) ? form.fields : [];
-  const repeatableFields = fields.filter(isRepeatableRowField);
+  const hiddenFieldIds = computeHiddenFieldIds(form, submissionData, visibilityOptions);
+  const repeatableFields = fields.filter(field => (
+    isRepeatableRowField(field) && !hiddenFieldIds.has(field.id)
+  ));
   if (repeatableFields.length === 0) return;
   const service = relationshipService || createFormRelationshipService({ db, tenantId });
   const cache = new Map();

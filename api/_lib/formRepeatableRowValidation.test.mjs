@@ -66,6 +66,64 @@ test('rejects row tampering before querying dynamic option resolvers', async () 
   assert.equal(calls, 0);
 });
 
+test('skips initialized invalid rows when the persisted repeatable container starts hidden', async () => {
+  let calls = 0;
+  await validateRepeatableRowSubmission({
+    tenantId: 'tenant-1',
+    form: {
+      ...form,
+      fields: [{ ...form.fields[0], starts_hidden: true }],
+    },
+    submissionData: { rows: [{ org: '', unit: '' }] },
+    relationshipService: { async validateSubmission() { calls += 1; } },
+  });
+  assert.equal(calls, 0);
+});
+
+test('skips initialized invalid rows when a persisted condition hides the container', async () => {
+  let calls = 0;
+  await validateRepeatableRowSubmission({
+    tenantId: 'tenant-1',
+    form: {
+      ...form,
+      fields: [{ id: 'kind', type: 'text' }, form.fields[0]],
+      visibility_rules: [{
+        trigger_field_id: 'kind',
+        operator: 'equals',
+        value: 'hide rows',
+        action: 'hide',
+        target_field_ids: ['rows'],
+      }],
+    },
+    submissionData: { kind: 'hide rows', rows: [{ org: '', unit: '' }] },
+    relationshipService: { async validateSubmission() { calls += 1; } },
+  });
+  assert.equal(calls, 0);
+});
+
+test('skips initialized invalid rows on a hidden page but rejects the same rows on a visible page', async () => {
+  const pagedForm = {
+    ...form,
+    fields: [{ ...form.fields[0], page_id: 'page-2' }],
+    pages: [{ id: 'page-2', starts_hidden: true }],
+  };
+  await validateRepeatableRowSubmission({
+    tenantId: 'tenant-1',
+    form: pagedForm,
+    submissionData: { rows: [{ org: '', unit: '' }] },
+    relationshipService: { async validateSubmission() { throw new Error('hidden row queried'); } },
+  });
+  await assert.rejects(
+    validateRepeatableRowSubmission({
+      tenantId: 'tenant-1',
+      form: { ...pagedForm, pages: [{ id: 'page-2' }] },
+      submissionData: { rows: [{ org: '', unit: '' }] },
+      relationshipService: { async validateSubmission() {} },
+    }),
+    error => error.status === 400 && error.code === 'required_child',
+  );
+});
+
 test('rejects missing required values and excessive rows', async () => {
   await assert.rejects(
     validateRepeatableRowSubmission({

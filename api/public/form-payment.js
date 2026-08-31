@@ -161,13 +161,18 @@ async function authorizePaymentStart(req, res, supabase, tenantData, form) {
   return access;
 }
 
-export async function validatePaymentRelationships(res, supabase, tenantData, form, values) {
+export async function validatePaymentRelationships(res, supabase, tenantData, form, values, visibilityOptions = null) {
   try {
+    const evalOptions = visibilityOptions || {};
+    if (!visibilityOptions && rulesUseLmicOperators(form.visibility_rules)) {
+      evalOptions.lmicCodes = await loadTenantLmicCodes(supabase, tenantData.id);
+    }
     await validateRepeatableRowSubmission({
       db: supabase,
       tenantId: tenantData.id,
       form,
       submissionData: values,
+      visibilityOptions: evalOptions,
     });
     const service = createFormRelationshipService({
       db: supabase,

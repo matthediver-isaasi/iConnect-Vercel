@@ -49,6 +49,41 @@ test('paid validation rejects repeatable tampering before ordinary relationship 
   assert.equal(queries, 0);
 });
 
+test('paid validation ignores an initialized invalid repeatable row hidden by persisted logic', async () => {
+  const response = {
+    statusCode: null,
+    status(code) { this.statusCode = code; return this; },
+    json(payload) { this.payload = payload; return this; },
+  };
+  const form = {
+    id: 'paid-form',
+    fields: [
+      { id: 'kind', type: 'text' },
+      {
+        id: 'workplaces',
+        type: 'repeatable_rows',
+        child_fields: [{ id: 'organisation', type: 'text', required: true }],
+      },
+    ],
+    visibility_rules: [{
+      trigger_field_id: 'kind',
+      operator: 'equals',
+      value: 'none',
+      action: 'hide',
+      target_field_ids: ['workplaces'],
+    }],
+  };
+  const valid = await validatePaymentRelationships(
+    response,
+    { from() { throw new Error('hidden row must not query'); } },
+    { id: 'tenant-1' },
+    form,
+    { kind: 'none', workplaces: [{ organisation: '' }] },
+  );
+  assert.equal(valid, true);
+  assert.equal(response.statusCode, null);
+});
+
 function selectionDb(seed) {
   return {
     from(table) {

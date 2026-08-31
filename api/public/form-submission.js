@@ -76,7 +76,7 @@ export default async function handler(req, res) {
     // Include communication_category_id for newsletter subscription
     const { data: form, error: formError } = await supabase
       .from('form')
-      .select('id, name, tenant_id, require_authentication, access_policy, fields, entity_pipelines, field_mappings, application_level, due_diligence_required, communication_category_id, allow_submitter_email_copy, prevent_duplicate_email_submission, is_event_related, related_event_id, deactivate_at, submission_emails, submission_email_template_id, submission_email_recipient, submission_email_cc, submission_email_bcc, submission_email_field_mapping, form_type, survey_settings')
+      .select('id, name, tenant_id, require_authentication, access_policy, fields, pages, visibility_rules, entity_pipelines, field_mappings, application_level, due_diligence_required, communication_category_id, allow_submitter_email_copy, prevent_duplicate_email_submission, is_event_related, related_event_id, deactivate_at, submission_emails, submission_email_template_id, submission_email_recipient, submission_email_cc, submission_email_bcc, submission_email_field_mapping, form_type, survey_settings')
       .eq('id', form_id)
       .eq('tenant_id', tenantData.id)
       .eq('is_active', true)
@@ -211,6 +211,7 @@ export default async function handler(req, res) {
       : {};
     let surveyVersion = null;
     let surveyScoring = null;
+    let submissionVisibilityOptions = {};
     if (isSurvey) {
       if (surveySettings.status !== 'published') {
         return res.status(403).json({ error: 'This survey is not accepting responses' });
@@ -267,6 +268,7 @@ export default async function handler(req, res) {
       if (rulesUseLmicOperators(submitControlRules)) {
         submitControlOptions.lmicCodes = await loadTenantLmicCodes(supabase, form?.tenant_id || tenantData?.id);
       }
+      submissionVisibilityOptions = submitControlOptions;
       const submitControl = resolveSubmitControl(submitControlRules, submission_data || {}, submitControlOptions);
       if (submitControl.disabled) {
         return res.status(400).json({
@@ -288,18 +290,8 @@ export default async function handler(req, res) {
         if (paymentField && enabledProviders.length > 0) {
           const amountDue = derivePaymentAmount(paymentField, submission_data || {});
           if (amountDue > 0) {
-            // Need pages for hidden-page propagation (not in the main select).
-            let pages = [];
-            try {
-              const { data: pagesRow } = await supabase
-                .from('form')
-                .select('pages')
-                .eq('id', form_id)
-                .maybeSingle();
-              pages = pagesRow?.pages || [];
-            } catch { /* best effort */ }
             const hiddenIds = computeHiddenFieldIds(
-              { ...form, pages, visibility_rules: submitControlRules },
+              { ...form, visibility_rules: submitControlRules },
               submission_data || {},
               submitControlOptions
             );
@@ -321,8 +313,14 @@ export default async function handler(req, res) {
       await validateRepeatableRowSubmission({
         db: supabase,
         tenantId: tenantData.id,
-        form: isSurvey ? { ...form, fields: surveyVersion?.fields || [] } : form,
+        form: isSurvey ? {
+          ...form,
+          fields: surveyVersion?.fields || [],
+          pages: surveyVersion?.pages || [],
+          visibility_rules: surveyVersion?.visibility_rules || [],
+        } : form,
         submissionData: submission_data || {},
+        visibilityOptions: submissionVisibilityOptions,
       });
       await createFormRelationshipService({
         db: supabase,
