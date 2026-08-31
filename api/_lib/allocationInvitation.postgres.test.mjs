@@ -73,3 +73,53 @@ test('reservation idempotency is actor-bound and checked under the capacity lock
   assert.match(reserve, /v_existing_claimed IS NOT NULL OR v_existing_released IS NOT NULL[\s\S]*v_existing_expires<=now\(\)/);
   assert.match(reserve, /invitation request key is no longer reusable; use a new idempotency key[\s\S]*ERRCODE='23514'/);
 });
+
+test('claim locks the source booking before the shared ticket lock', async () => {
+  const migration = await readFile(fileURLToPath(new URL(
+    '../../supabase/migrations/20260913_sales_concurrency_hardening.sql', import.meta.url,
+  )), 'utf8');
+  const claim = migration.slice(migration.indexOf('claim_sales_allocation_invitation'));
+  assert.ok(claim.indexOf("IF p_booking_kind='simple'") < claim.lastIndexOf('pg_advisory_xact_lock'),
+    'booking row must be locked before the ticket advisory lock');
+  assert.match(claim, /booking is already reconciled to an allocation/);
+  assert.match(claim, /REVOKE ALL ON FUNCTION public\.claim_sales_allocation_invitation/);
+});
+
+test('reservation locks expired invitations before the shared ticket lock', async () => {
+  const migration = await readFile(fileURLToPath(new URL(
+    '../../supabase/migrations/20260913_sales_concurrency_hardening.sql', import.meta.url,
+  )), 'utf8');
+  const reserve = migration.slice(
+    migration.indexOf('CREATE OR REPLACE FUNCTION public.reserve_sales_allocation_invitation'),
+    migration.indexOf('CREATE OR REPLACE FUNCTION public.claim_sales_allocation_invitation'),
+  );
+  assert.ok(reserve.indexOf('ORDER BY id FOR UPDATE') < reserve.indexOf('pg_advisory_xact_lock'),
+    'expired invitation rows must be locked before the ticket advisory lock');
+  assert.match(reserve, /REVOKE ALL ON FUNCTION public\.reserve_sales_allocation_invitation/);
+});
+
+test('booking cancellation does not confuse invite conversion with unreconciliation', async () => {
+  const migration = await readFile(fileURLToPath(new URL(
+    '../../supabase/migrations/20260913_sales_concurrency_hardening.sql', import.meta.url,
+  )), 'utf8');
+  const unreconcile = migration.slice(
+    migration.indexOf('DROP INDEX IF EXISTS public.sales_allocation_booking_unreconciled_once'),
+    migration.indexOf('CREATE OR REPLACE FUNCTION public.reserve_sales_allocation_invitation'),
+  );
+  assert.match(unreconcile, /movement_kind='unnamed'[\s\S]*NOT \(metadata \? 'invitationId'\)/);
+  assert.match(unreconcile, /NOT \(m\.movement_kind='unreserved' AND m\.metadata \? 'invitationId'\)/);
+  assert.match(unreconcile, /REVOKE ALL ON FUNCTION public\.unreconcile_sales_commercial_booking/);
+});
+
+test('public quote rate limits are shared, hashed, bounded, and service-role only', async () => {
+  const migration = await readFile(fileURLToPath(new URL(
+    '../../supabase/migrations/20260913_sales_concurrency_hardening.sql', import.meta.url,
+  )), 'utf8');
+  assert.match(migration, /CREATE TABLE IF NOT EXISTS public\.sales_quote_public_rate_limit/);
+  assert.match(migration, /PRIMARY KEY \(token_hash, client_key_hash\)/);
+  assert.match(migration, /digest\(p_client_key, 'sha256'\)/);
+  assert.match(migration, /ON CONFLICT \(token_hash, client_key_hash\) DO UPDATE SET/);
+  assert.match(migration, /LIMIT 100/);
+  assert.match(migration, /REVOKE ALL ON FUNCTION public\.consume_sales_quote_public_rate_limit/);
+  assert.match(migration, /TO service_role/);
+});

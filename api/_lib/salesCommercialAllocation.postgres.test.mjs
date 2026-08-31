@@ -14,6 +14,14 @@ const deliveryMigrationPath = fileURLToPath(new URL(
   '../../supabase/migrations/20260911_sales_quote_delivery.sql',
   import.meta.url,
 ));
+const delegateMigrationPath = fileURLToPath(new URL(
+  '../../supabase/migrations/20260912_sales_allocation_delegate_registration.sql',
+  import.meta.url,
+));
+const hardeningMigrationPath = fileURLToPath(new URL(
+  '../../supabase/migrations/20260913_sales_concurrency_hardening.sql',
+  import.meta.url,
+));
 const sql = await readFile(migrationPath, 'utf8');
 
 function executable(name) {
@@ -191,8 +199,11 @@ test('commercial allocation functions work against isolated PostgreSQL', {
       CREATE TABLE complex_event_ticket_class(id uuid PRIMARY KEY, tenant_id uuid, complex_event_id uuid,
         is_group_ticket boolean NOT NULL DEFAULT false, group_size integer, available_count integer,
         is_unlimited_tickets boolean NOT NULL DEFAULT true);
-       CREATE TABLE booking(id uuid PRIMARY KEY, tenant_id uuid, event_id uuid, ticket_class_id text, status text, created_at timestamptz);
-       CREATE TABLE complex_event_booking(id uuid PRIMARY KEY, tenant_id uuid, event_id uuid, ticket_class_id text, status text, created_at timestamptz);
+       CREATE TABLE member(id uuid PRIMARY KEY, tenant_id uuid, organization_id uuid);
+       CREATE TABLE booking(id uuid PRIMARY KEY, tenant_id uuid, event_id uuid, ticket_class_id text,
+         status text, attendee_email text, organization_id uuid, created_at timestamptz);
+       CREATE TABLE complex_event_booking(id uuid PRIMARY KEY, tenant_id uuid, event_id uuid, ticket_class_id text,
+         status text, attendee_email text, organization_id uuid, created_at timestamptz);
       CREATE TABLE sales_catalogue_product(id uuid PRIMARY KEY, tenant_id uuid, event_reference_kind text,
         event_id uuid, ticket_type_id text, UNIQUE(tenant_id,id));
       CREATE TABLE sales_quote(id uuid PRIMARY KEY, tenant_id uuid NOT NULL, opportunity_id uuid,
@@ -233,6 +244,19 @@ test('commercial allocation functions work against isolated PostgreSQL', {
     // instance: this ensures its SECURITY DEFINER wrapper composes with the
     // real allocation RPC rather than merely passing a textual assertion.
     psql(psqlBin, [...args, '-f', deliveryMigrationPath]);
+    psql(psqlBin, [...args, '-f', delegateMigrationPath]);
+    psql(psqlBin, [...args, '-f', hardeningMigrationPath]);
+
+    const firstRateLimit = psql(psqlBin, [...args, '-t', '-A'], `
+      SELECT consume_sales_quote_public_rate_limit(
+        repeat('a',64),'192.0.2.1',1,60
+      );`);
+    const secondRateLimit = psql(psqlBin, [...args, '-t', '-A'], `
+      SELECT consume_sales_quote_public_rate_limit(
+        repeat('a',64),'192.0.2.1',1,60
+      );`);
+    assert.equal(firstRateLimit.trim(), 'f');
+    assert.equal(secondRateLimit.trim(), 't');
 
     // q1/q2 each claim the same single simple-event place concurrently.
     psql(psqlBin, args, `
@@ -287,6 +311,67 @@ test('commercial allocation functions work against isolated PostgreSQL', {
     const opportunityState = psql(psqlBin, [...args, '-t', '-A'], `SELECT o.stage_id || ':' || o.version || ':' || (SELECT count(*) FROM opportunity_stage_history h WHERE h.opportunity_id=o.id) || ':' || (SELECT count(*) FROM opportunity_activity a WHERE a.opportunity_id=o.id AND a.action='sale.confirmed') FROM opportunity o WHERE o.id='50000000-0000-4000-8000-000000000001';`);
     assert.equal(opportunityState, '51000000-0000-4000-8000-000000000002:2:1:1');
     const secondComplexAllocation = psql(psqlBin, [...args, '-t', '-A'], `SELECT allocation_id FROM sales_commercial_allocation_totals WHERE ticket_type_id='60000000-0000-4000-8000-000000000001' AND allocated=3;`);
+
+    // Reproduce the expiry-boundary ordering that used to deadlock:
+    // claim holds the expiring invitation, while reserve starts after expiry.
+    psql(psqlBin, args, `
+      INSERT INTO complex_event_booking(
+        id,tenant_id,event_id,ticket_class_id,status,attendee_email,organization_id,created_at
+      ) VALUES(
+        '80000000-0000-4000-8000-000000000003','${tenant}','${complexEvent}',
+        '60000000-0000-4000-8000-000000000001','confirmed','delegate@example.org',
+        '40000000-0000-4000-8000-000000000001',now()
+      );
+      SELECT reserve_sales_allocation_invitation(
+        '${tenant}','${secondComplexAllocation}',encode(digest('deadlock-claim','sha256'),'hex'),
+        'delegate@example.org','Deadlock','Claim',now()+interval '300 milliseconds',
+        'deadlock-seed','tenant_user','${actor}'
+      );
+    `);
+    const invitationBoundaryRace = await Promise.all([
+      psqlAsync(psqlBin, [...args, '-t', '-A'], `
+        SET statement_timeout='5s';
+        BEGIN;
+        SELECT id FROM sales_commercial_allocation_invitation
+          WHERE token_hash=digest('deadlock-claim','sha256') FOR UPDATE;
+        SELECT pg_sleep(.5);
+        SELECT claim_sales_allocation_invitation(
+          encode(digest('deadlock-claim','sha256'),'hex'),'complex',
+          '80000000-0000-4000-8000-000000000003'
+        );
+        COMMIT;
+      `),
+      new Promise((resolve) => setTimeout(() => resolve(psqlAsync(
+        psqlBin, [...args, '-t', '-A'], `
+          SET statement_timeout='5s';
+          SELECT reserve_sales_allocation_invitation(
+            '${tenant}','${secondComplexAllocation}',encode(digest('deadlock-next','sha256'),'hex'),
+            'next@example.org','Next','Delegate',now()+interval '1 day',
+            'deadlock-next','tenant_user','${actor}'
+          );
+        `,
+      )), 350)).then((result) => result),
+    ]);
+    assert.equal(invitationBoundaryRace[0].status, 0, invitationBoundaryRace[0].stderr);
+    assert.equal(invitationBoundaryRace[1].status, 0, invitationBoundaryRace[1].stderr);
+    assert.doesNotMatch(
+      invitationBoundaryRace.map((result) => result.stderr).join('\n'),
+      /deadlock detected/i,
+    );
+    const nextInvitation = psql(psqlBin, [...args, '-t', '-A'], `
+      SELECT id FROM sales_commercial_allocation_invitation
+      WHERE idempotency_key='deadlock-next';`);
+    psql(psqlBin, args, `
+      SELECT release_sales_allocation_invitation(
+        '${tenant}','${nextInvitation}','tenant_user','${actor}'
+      );
+      SELECT cancel_event_booking_with_allocation(
+        '${tenant}','complex','80000000-0000-4000-8000-000000000003',
+        'booking-cancelled:80000000-0000-4000-8000-000000000003',
+        'system','80000000-0000-4000-8000-000000000003'
+      );
+    `);
+
     psql(psqlBin, args, `INSERT INTO complex_event_booking VALUES('80000000-0000-4000-8000-000000000002','${tenant}','${complexEvent}','60000000-0000-4000-8000-000000000001','confirmed',now());`);
     const reconcileCancelRace = await Promise.all([
       psqlAsync(psqlBin, [...args, '-t', '-A'], `BEGIN; SELECT reconcile_sales_commercial_booking('${tenant}','${secondComplexAllocation}','complex','80000000-0000-4000-8000-000000000002','named',1,'race-named','member','${actor}'); SELECT pg_sleep(.2); COMMIT;`),

@@ -138,6 +138,7 @@ export const RESERVED_MEMBER_SLUGS = new Set([
   'pagebannermanagement',
   'pagevisibilitysettings',
   'paramtest',
+  'quote',
   'pendingpurchaseordersreport',
   'photogalleries',
   'platform',

@@ -9,10 +9,29 @@ function limited(key, maximum) {
   if (fresh.length >= maximum) { buckets.set(key, fresh); return true; }
   fresh.push(now); buckets.set(key, fresh); return false;
 }
+const trustedClientAddress = (req) => String(
+  req.headers['x-vercel-forwarded-for']
+  || req.headers['x-real-ip']
+  || req.socket?.remoteAddress
+  || '',
+).split(',')[0].trim().slice(0, 100);
 const metadata = (req) => ({
-  ip: String(req.headers['x-forwarded-for'] || req.socket?.remoteAddress || '').split(',')[0].trim().slice(0, 100),
+  // Do not trust the ordinary x-forwarded-for header: callers can forge it.
+  // Vercel's platform header (or the direct proxy/socket address) is used for
+  // both audit provenance and the durable rate-limit identity.
+  ip: trustedClientAddress(req),
   userAgent: String(req.headers['user-agent'] || '').slice(0, 500),
 });
+async function consumeDurableRateLimit(db, tokenDigest, clientKey, maximum) {
+  const { data, error } = await db.rpc('consume_sales_quote_public_rate_limit', {
+    p_token_hash_hex: tokenDigest,
+    p_client_key: clientKey || 'unknown',
+    p_limit: maximum,
+    p_window_seconds: 60,
+  });
+  if (error) throw error;
+  return data === true;
+}
 function parts(req) {
   const value = req.query?.path;
   return (Array.isArray(value) ? value : String(value || '').split('/')).filter(Boolean);
@@ -97,6 +116,8 @@ async function resolveToken(db, token, lockAuditType, requestMetadata = {}) {
 
 export function createPublicSalesQuoteHandler(dependencies = {}) {
   const db = dependencies.db || supabase;
+  const durableRateLimit = dependencies.consumeRateLimit
+    || (db === supabase ? consumeDurableRateLimit : async () => false);
   return async function handler(req, res) {
     try {
       res.setHeader('Cache-Control', 'private, no-store');
@@ -105,7 +126,9 @@ export function createPublicSalesQuoteHandler(dependencies = {}) {
       const [token, action] = parts(req);
       const digest = hashQuoteToken(token || '');
       const ip = metadata(req).ip;
-      if (limited(`${digest}:${ip}`, req.method === 'GET' ? 30 : 8)) {
+      const maximum = req.method === 'GET' ? 30 : 8;
+      if (limited(`${digest}:${ip}`, maximum)
+          || await durableRateLimit(db, digest, ip, maximum)) {
         res.setHeader('Retry-After', '60');
         return res.status(429).json({ outcome: 'rate_limited', error: 'Too many requests' });
       }

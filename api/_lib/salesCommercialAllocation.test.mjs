@@ -157,3 +157,22 @@ test('event visibility separates delegates from unused allocation and true avail
     is_sold_out: false,
   });
 });
+
+test('events without commercial allocations retain ordinary availability and hide allocation facts', () => {
+  const finite = mergeTicketCommercialCapacity(
+    { available_count: 10, is_unlimited_tickets: false },
+    3,
+    null,
+    false,
+  );
+  assert.deepEqual(finite, { true_available: 7, is_sold_out: false });
+  assert.equal('commercial_allocated' in finite, false);
+
+  const unlimited = mergeTicketCommercialCapacity(
+    { available_count: null, is_unlimited_tickets: true },
+    999,
+    null,
+    false,
+  );
+  assert.deepEqual(unlimited, { true_available: null, is_sold_out: false });
+});

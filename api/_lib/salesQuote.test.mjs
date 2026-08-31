@@ -6,6 +6,7 @@ import {
   normaliseQuoteInput, parseQuoteQuantity, validateQuoteDraft,
 } from '../../shared/salesContracts.js';
 import { createSalesQuotesHandler } from '../sales/quotes/[...path].js';
+import { prepareQuoteDraft } from './salesQuote.js';
 
 const uuid = '123e4567-e89b-12d3-a456-426614174000';
 const draft = {
@@ -54,6 +55,32 @@ test('free-text lines, discounts, and builder aliases normalize to the canonical
   assert.equal(validateQuoteDraft(usCamel).ok, true);
   assert.equal(usCamel.organisationId, uuid);
   assert.equal('organizationId' in usCamel, false);
+});
+
+test('catalogue-backed quote lines use the persisted catalogue tax rate', async () => {
+  const product = {
+    id: uuid, is_active: true, currency: 'GBP', standard_price_minor: 1000,
+    minimum_price_minor: null, tax_rate_bps: 2000, name: 'Training',
+  };
+  const db = {
+    from(table) {
+      const row = table === 'sales_catalogue_product' ? product : table === 'sales_settings'
+        ? { default_terms: '' } : null;
+      return {
+        select() { return this; },
+        eq() { return this; },
+        maybeSingle: async () => ({ data: row, error: null }),
+      };
+    },
+  };
+  const prepared = await prepareQuoteDraft(db, 'tenant-server', { actorId: 'actor', actorType: 'tenant_user' }, {
+    currency: 'GBP',
+    lines: [{ kind: 'product', catalogueId: uuid, quantity: '1', taxRateBps: 0 }],
+  });
+
+  assert.equal(prepared.lines[0].taxRateBps, 2000);
+  assert.equal(prepared.totals.taxMinor, 200);
+  assert.equal(prepared.totals.grossMinor, 1200);
 });
 
 test('versioned lifecycle uses declined/superseded/converted vocabulary', () => {

@@ -70,7 +70,13 @@ async function resolveLine(db, tenantId, line, index, allowPriceOverride) {
     quantity: '1', quotedUnitPriceMinor: quoted, discountBps: line.discountBps || 0, taxRateBps: 0,
   }).discountedUnitPriceMinor;
   if (minimum != null && discounted < minimum) throw new SalesHttpError(400, `Quote line ${index + 1} is below its minimum price`);
-  const taxRateBps = line.taxRateBps ?? (line.kind === 'product' ? item.tax_rate_bps : 0);
+  // Catalogue tax is authoritative. A quote editor may display and submit the
+  // rate it read from the catalogue, but it must not be able to alter the
+  // financial tax treatment of a catalogue-backed line.
+  const taxRateBps = line.kind === 'product' ? Number(item.tax_rate_bps) : 0;
+  if (!Number.isInteger(taxRateBps) || taxRateBps < 0 || taxRateBps > 100000) {
+    throw new SalesHttpError(400, `Quote line ${index + 1} catalogue tax rate is invalid`);
+  }
   const amounts = calculateQuoteLine({ quantity: line.quantity, quotedUnitPriceMinor: quoted, discountBps: line.discountBps || 0, taxRateBps });
   let components = [];
   if (line.kind === 'bundle') {

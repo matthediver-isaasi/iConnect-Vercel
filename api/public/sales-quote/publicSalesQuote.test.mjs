@@ -151,6 +151,35 @@ test('public endpoint rate limits repeated requests by token and IP', async () =
   assert.equal(last.body.outcome, 'rate_limited');
 });
 
+test('public endpoint uses a durable limiter without trusting caller-supplied forwarded IP', async () => {
+  clearPublicSalesQuoteRateLimits();
+  let received;
+  const db = { from: () => query(null) };
+  const handler = createPublicSalesQuoteHandler({
+    db,
+    consumeRateLimit: async (_db, digest, clientKey, maximum) => {
+      received = { digest, clientKey, maximum };
+      return true;
+    },
+  });
+  const res = response();
+  await handler({
+    method: 'POST',
+    query: { path: [token, 'accept'] },
+    headers: {
+      'x-forwarded-for': '198.51.100.66',
+      'x-vercel-forwarded-for': '192.0.2.44',
+    },
+    socket: { remoteAddress: '127.0.0.1' },
+    body: {},
+  }, res);
+  assert.equal(res.statusCode, 429);
+  assert.equal(received.clientKey, '192.0.2.44');
+  assert.notEqual(received.clientKey, '198.51.100.66');
+  assert.equal(received.maximum, 8);
+  assert.equal(received.digest.length, 64);
+});
+
 test('authenticated send ignores hostile request origins and uses the canonical tenant host', async () => {
   const audits = [];
   const validUntil = new Date(Date.now() + 2 * 86400000).toISOString();

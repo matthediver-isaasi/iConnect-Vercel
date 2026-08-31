@@ -71,6 +71,16 @@ function getBucketForType(uploadType) {
 }
 
 /**
+ * Opportunity documents can contain commercially sensitive material. Unlike
+ * other upload types, callers must never be able to opt these into a public
+ * bucket with `isPrivate: false`.
+ */
+export function shouldUsePrivateUpload(uploadType, isPrivate) {
+  if (uploadType === 'opportunity-document') return true;
+  return isPrivate === false ? false : (isPrivate || getBucketForType(uploadType || 'upload') === BUCKETS.PRIVATE);
+}
+
+/**
  * Look up the tenant's configured photo gallery max upload size (MB).
  * Defaults to 5MB when unset or invalid.
  */
@@ -230,9 +240,9 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'fileSize is required and must be a number' });
     }
 
-    // Determine bucket based on upload type
-    // If isPrivate is explicitly false (public access enabled), honor it regardless of upload type
-    const usePrivate = isPrivate === false ? false : (isPrivate || getBucketForType(uploadType || 'upload') === BUCKETS.PRIVATE);
+    // Determine bucket based on upload type. Opportunity documents are always
+    // private, regardless of a caller-supplied isPrivate value.
+    const usePrivate = shouldUsePrivateUpload(uploadType, isPrivate);
     const bucket = usePrivate ? BUCKETS.PRIVATE : BUCKETS.PUBLIC;
 
     // Check file size — gallery and resource uploads use tenant-configurable caps

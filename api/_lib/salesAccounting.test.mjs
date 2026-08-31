@@ -270,6 +270,15 @@ test('migration enforces one immutable-source link per sale and provider', async
   assert.match(sql, /GRANT EXECUTE ON FUNCTION public\.save_sales_accounting_configuration/);
 });
 
+test('invoice-link unique conflicts are never treated as a successful different-sale link', async () => {
+  const source = await readFile(new URL('./salesAccounting.js', import.meta.url), 'utf8');
+  assert.match(source, /Provider invoice is already linked to another commercial sale/);
+  assert.match(source, /ACCOUNTING_INVOICE_LINK_CONFLICT/);
+  // The fallback is deliberately scoped to the same sale/provider, rather
+  // than selecting by provider invoice id and accidentally repointing history.
+  assert.match(source, /existingLink\(db, tenantId, sale\.id, provider\.name\)/);
+});
+
 test('QBO payload preserves accepted discounted net without double discount', () => {
   const payload = buildQuickBooksSalesInvoicePayload({
     customerId: 'customer', currency: 'GBP', purchaseOrderReference: 'PO-1',

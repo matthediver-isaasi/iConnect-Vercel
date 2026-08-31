@@ -425,7 +425,21 @@ export async function createSalesInvoice(db, tenantId, actor, saleId, command = 
       status_refreshed_at: new Date().toISOString(), created_by: actor.actorId,
     };
     let { data: link, error: linkError } = await db.from('sales_accounting_invoice_link').insert(linkRow).select('*').single();
-    if (linkError?.code === '23505') link = await existingLink(db, tenantId, sale.id, provider.name);
+    if (linkError?.code === '23505') {
+      // A retry which lost the race to persist this sale/provider linkage is
+      // successful. Do not, however, mistake the distinct unique constraint
+      // on (tenant, provider, provider_invoice_id) for that benign race: that
+      // means a provider document is already irreversibly linked to another
+      // commercial sale and must never be silently associated here.
+      link = await existingLink(db, tenantId, sale.id, provider.name);
+      if (!link) {
+        const conflict = new SalesHttpError(409,
+          'Provider invoice is already linked to another commercial sale');
+        conflict.code = 'ACCOUNTING_INVOICE_LINK_CONFLICT';
+        conflict.details = { provider: provider.name, providerInvoiceId: String(external.id) };
+        throw conflict;
+      }
+    }
     else if (linkError) throw linkError;
     await db.from('sales_accounting_invoice_attempt').update({
       state: 'succeeded', link_id: link.id, completed_at: new Date().toISOString(),
