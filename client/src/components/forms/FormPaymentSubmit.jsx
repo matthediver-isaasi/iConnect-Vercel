@@ -109,6 +109,10 @@ export default function FormPaymentSubmit({
   }, [providers, enabledProviderIds]);
 
   const stripeProvider = usableProviders?.find((p) => p.id === 'stripe') || null;
+  const unavailableStripe = providers?.find((p) => p.id === 'stripe' && !p.configured) || null;
+  const stripeConfigurationError = enabledProviderIds.includes('stripe')
+    ? unavailableStripe?.configurationError
+    : null;
 
   // Task #3501: the redirect return legs (GoCardless redirect back, Stripe
   // 3DS redirect back) are handled at PAGE level via useFormPaymentReturn —
@@ -269,6 +273,7 @@ export default function FormPaymentSubmit({
   const fallbackToNormalSubmit = !effective.blocked
     && (amount <= 0 || (usableProviders !== null
       && usableProviders.length === 0
+      && !membershipQuote?.matched
       && !effective.membership?.monthly_card));
 
   return (
@@ -297,6 +302,12 @@ export default function FormPaymentSubmit({
         <div className="flex items-start gap-2 p-3 bg-destructive/10 rounded-md border border-destructive/20">
           <AlertCircle className="h-4 w-4 text-destructive shrink-0 mt-0.5" />
           <p className="text-sm text-destructive">{paymentError}</p>
+        </div>
+      )}
+      {!paymentError && stripeConfigurationError && amount > 0 && (
+        <div className="flex items-start gap-2 p-3 bg-destructive/10 rounded-md border border-destructive/20" data-testid="form-payment-stripe-configuration-error">
+          <AlertCircle className="h-4 w-4 text-destructive shrink-0 mt-0.5" />
+          <p className="text-sm text-destructive">{stripeConfigurationError}</p>
         </div>
       )}
 

@@ -176,6 +176,7 @@ export default function AdminIntegrations() {
     test_publishable_key: ''
   });
   const [stripeModes, setStripeModes] = useState({
+    stripe_mode_forms: 'live',
     stripe_mode_events: 'live',
     stripe_mode_membership: 'live',
     stripe_mode_jobs: 'live',
@@ -417,6 +418,7 @@ export default function AdminIntegrations() {
               test_publishable_key: stripeIntegration.credentials.test_publishable_key || ''
             });
             setStripeModes({
+              stripe_mode_forms: stripeIntegration.credentials.stripe_mode_forms || 'live',
               stripe_mode_events: stripeIntegration.credentials.stripe_mode_events || 'live',
               stripe_mode_membership: stripeIntegration.credentials.stripe_mode_membership || 'live',
               stripe_mode_jobs: stripeIntegration.credentials.stripe_mode_jobs || 'live',
@@ -2780,6 +2782,7 @@ export default function AdminIntegrations() {
 
                 <div className="space-y-3">
                   {[
+                    { key: 'stripe_mode_forms', label: 'Forms' },
                     { key: 'stripe_mode_events', label: 'Events' },
                     { key: 'stripe_mode_membership', label: 'Membership' },
                     { key: 'stripe_mode_jobs', label: 'Jobs' },
@@ -2812,13 +2815,13 @@ export default function AdminIntegrations() {
                   })}
                 </div>
 
-                {(stripeModes.stripe_mode_events === 'test' || stripeModes.stripe_mode_membership === 'test' || stripeModes.stripe_mode_jobs === 'test' || stripeModes.stripe_mode_fundraising === 'test') &&
+                {(stripeModes.stripe_mode_forms === 'test' || stripeModes.stripe_mode_events === 'test' || stripeModes.stripe_mode_membership === 'test' || stripeModes.stripe_mode_jobs === 'test' || stripeModes.stripe_mode_fundraising === 'test') &&
                   (!stripeForm.test_secret_key || !stripeForm.test_publishable_key) && (
                   <div className="mt-3 rounded-md bg-warning/10 p-3 border border-warning/30">
                     <div className="flex items-start gap-2">
                       <AlertTriangle className="h-4 w-4 text-warning mt-0.5 shrink-0" />
                       <p className="text-xs text-warning">
-                        One or more features are set to test mode but test keys haven't been entered. Those features will fall back to live keys until test keys are saved.
+                        One or more features are set to test mode but complete test keys haven't been entered. Card payment for those features will remain unavailable until both test keys are saved.
                       </p>
                     </div>
                   </div>

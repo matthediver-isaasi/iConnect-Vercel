@@ -33,11 +33,16 @@ export default async function handler(req, res) {
     // includes both a secret and a publishable key.
     let stripeConfigured = false;
     let stripePublishableKey = null;
+    let stripeConfigurationError = null;
+    let stripeMode = null;
     try {
       const creds = await getStripeCredentials(tenantData.id, purpose);
+      stripeMode = creds?.mode || null;
       if (creds && creds.is_enabled !== false && creds.secret_key && creds.publishable_key) {
         stripeConfigured = true;
         stripePublishableKey = creds.publishable_key;
+      } else if (creds?.is_enabled !== false) {
+        stripeConfigurationError = creds?.configuration_error || null;
       }
     } catch (err) {
       console.warn('[form-payment-providers] Stripe credential check failed:', err?.message);
@@ -46,7 +51,9 @@ export default async function handler(req, res) {
       id: 'stripe',
       name: 'Card payment (Stripe)',
       configured: stripeConfigured,
+      ...(stripeMode ? { mode: stripeMode } : {}),
       ...(stripeConfigured ? { publishableKey: stripePublishableKey } : {}),
+      ...(!stripeConfigured && stripeConfigurationError ? { configurationError: stripeConfigurationError } : {}),
     });
 
     // GoCardless: usable when tenant (or platform env fallback) creds exist.

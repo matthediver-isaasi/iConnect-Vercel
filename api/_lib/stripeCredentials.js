@@ -24,7 +24,7 @@ function decrypt(encryptedText) {
   }
 }
 
-function decryptCredentials(credentials) {
+export function decryptCredentials(credentials) {
   if (!credentials) return {};
   const decrypted = {};
   for (const [key, value] of Object.entries(credentials)) {
@@ -35,6 +35,30 @@ function decryptCredentials(credentials) {
     }
   }
   return decrypted;
+}
+
+export function selectStripeCredentials(decrypted = {}, feature = null) {
+  const mode = feature ? (decrypted[`stripe_mode_${feature}`] || 'live') : 'live';
+  if (mode === 'test') {
+    const complete = !!(decrypted.test_secret_key && decrypted.test_publishable_key);
+    return {
+      secret_key: complete ? decrypted.test_secret_key : null,
+      publishable_key: complete ? decrypted.test_publishable_key : null,
+      mode,
+      configuration_error: complete
+        ? null
+        : `Stripe ${feature || 'payment'} payments are set to Test, but the test credentials are missing or could not be read.`,
+    };
+  }
+  const complete = !!(decrypted.secret_key && decrypted.publishable_key);
+  return {
+    secret_key: complete ? decrypted.secret_key : null,
+    publishable_key: complete ? decrypted.publishable_key : null,
+    mode: 'live',
+    configuration_error: complete
+      ? null
+      : `Stripe ${feature || 'payment'} payments are set to Live, but the live credentials are missing or could not be read.`,
+  };
 }
 
 export async function getStripeCredentials(tenantId, feature) {
@@ -64,24 +88,15 @@ export async function getStripeCredentials(tenantId, feature) {
 
   const decrypted = decryptCredentials(integration.credentials);
 
-  let secret_key = decrypted.secret_key || null;
-  let publishable_key = decrypted.publishable_key || null;
-
-  if (feature) {
-    const modeKey = `stripe_mode_${feature}`;
-    const mode = decrypted[modeKey] || 'live';
-    if (mode === 'test' && decrypted.test_secret_key && decrypted.test_publishable_key) {
-      secret_key = decrypted.test_secret_key;
-      publishable_key = decrypted.test_publishable_key;
-      console.log(`[Stripe] Using TEST keys for feature "${feature}" (tenant: ${tenantId})`);
-    } else if (mode === 'test') {
-      console.warn(`[Stripe] Feature "${feature}" set to test mode but test keys not configured, falling back to live keys (tenant: ${tenantId})`);
-    }
+  const selected = selectStripeCredentials(decrypted, feature);
+  if (selected.mode === 'test' && !selected.configuration_error) {
+    console.log(`[Stripe] Using TEST keys for feature "${feature}" (tenant: ${tenantId})`);
+  } else if (selected.configuration_error) {
+    console.warn(`[Stripe] ${selected.configuration_error} (tenant: ${tenantId})`);
   }
   
   return {
-    secret_key,
-    publishable_key,
+    ...selected,
     is_enabled: integration.is_enabled
   };
 }
@@ -135,11 +150,25 @@ export async function retrieveTenantPaymentIntent(tenantId, feature, paymentInte
   const mode = (feature && all[`stripe_mode_${feature}`]) || 'live';
   const liveKey = all.secret_key || null;
   const testKey = all.test_secret_key || null;
-  const selectedKey = mode === 'test' && testKey ? testKey : liveKey;
-  const otherKey = selectedKey === liveKey ? testKey : liveKey;
+  const selectedKey = mode === 'test' ? testKey : liveKey;
+  const otherKey = mode === 'test' ? liveKey : testKey;
   const publishableFor = (secretKey) => (
     secretKey === testKey ? all.test_publishable_key : all.publishable_key
   ) || null;
+  // Confirmation is the one place where the opposite mode is allowed: an
+  // intent may genuinely pre-date an admin mode switch. If the newly selected
+  // mode has no readable key, try only the opposite account for that old ID.
+  if (!selectedKey && otherKey) {
+    const otherStripe = new Stripe(otherKey);
+    const paymentIntent = await otherStripe.paymentIntents.retrieve(paymentIntentId);
+    return {
+      paymentIntent,
+      stripe: otherStripe,
+      usedMode: 'other',
+      secretKey: otherKey,
+      publishableKey: publishableFor(otherKey),
+    };
+  }
   if (!selectedKey) return null;
 
   const selectedStripe = new Stripe(selectedKey);

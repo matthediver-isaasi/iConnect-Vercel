@@ -43,7 +43,7 @@ function decrypt(encryptedText) {
   }
 }
 
-const NON_SECRET_FIELDS = ['region', 'accounts_domain', 'campaigns_domain', 'stripe_mode_events', 'stripe_mode_membership', 'stripe_mode_jobs', 'stripe_mode_fundraising', 'environment', 'country'];
+const NON_SECRET_FIELDS = ['region', 'accounts_domain', 'campaigns_domain', 'stripe_mode_forms', 'stripe_mode_events', 'stripe_mode_membership', 'stripe_mode_jobs', 'stripe_mode_fundraising', 'environment', 'country'];
 
 function encryptCredentials(credentials) {
   if (!credentials) return {};

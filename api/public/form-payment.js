@@ -960,7 +960,10 @@ async function handleCreate(req, res, supabase, tenantData) {
   if (provider === 'stripe') {
     const creds = await getStripeCredentials(tenantData.id, stripeFeature);
     if (!creds || creds.is_enabled === false || !creds.secret_key || !creds.publishable_key) {
-      return res.status(400).json({ error: 'Card payment is not configured for this organisation' });
+      return res.status(400).json({
+        error: creds?.configuration_error || 'Card payment is not configured for this organisation',
+        code: 'STRIPE_CONFIGURATION_ERROR',
+      });
     }
     const Stripe = (await import('stripe')).default;
     const stripe = new Stripe(creds.secret_key);
@@ -989,6 +992,7 @@ async function handleCreate(req, res, supabase, tenantData) {
             submissionId: submissionRow.id,
             clientSecret: prior.intent.client_secret,
             publishableKey: prior.publishableKey,
+            mode: prior.publishableKey?.startsWith('pk_test_') ? 'test' : 'live',
             amount,
             currency,
           });
@@ -1058,6 +1062,7 @@ async function handleCreate(req, res, supabase, tenantData) {
               submissionId: submissionRow.id,
               clientSecret: winnerIntent.client_secret,
               publishableKey: creds.publishable_key,
+              mode: creds.mode,
               amount,
               currency,
             });
@@ -1071,6 +1076,7 @@ async function handleCreate(req, res, supabase, tenantData) {
       submissionId: submissionRow.id,
       clientSecret: paymentIntent.client_secret,
       publishableKey: creds.publishable_key,
+      mode: creds.mode,
       amount,
       currency,
     });

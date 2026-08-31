@@ -108,6 +108,8 @@ test('provider discovery validates payment purpose and selects matching Stripe c
   assert.match(source, /const purpose = req\.query\?\.purpose \|\| 'forms'/);
   assert.match(source, /!\['forms', 'membership'\]\.includes\(purpose\)/);
   assert.match(source, /getStripeCredentials\(tenantData\.id, purpose\)/);
+  assert.match(source, /configurationError: stripeConfigurationError/);
+  assert.match(source, /mode: stripeMode/);
 });
 
 test('form payment UI requests provider availability for the resolved payment purpose', async () => {
@@ -118,6 +120,8 @@ test('form payment UI requests provider availability for the resolved payment pu
   assert.match(source, /membershipQuote\?\.matched \? 'membership' : 'forms'/);
   assert.match(source, /form-payment-providers\?purpose=\$\{encodeURIComponent\(paymentPurpose\)\}/);
   assert.match(source, /\[paymentPurpose\]/);
+  assert.match(source, /json\.publishableKey/);
+  assert.match(source, /stripeConfigurationError/);
 });
 
 function selectionDb(seed) {
