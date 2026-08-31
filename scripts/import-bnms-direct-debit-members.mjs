@@ -99,7 +99,7 @@ export function parseBritishDate(value, context = 'date') {
   return `${yearText}-${monthText.padStart(2, '0')}-${dayText.padStart(2, '0')}`;
 }
 
-function transformed(value, transform, context) {
+export function transformed(value, transform, context) {
   if (!value) return value;
   if (transform === 'date') return parseBritishDate(value, context);
   if (transform === 'validated-date') {
