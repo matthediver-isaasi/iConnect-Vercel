@@ -10,6 +10,10 @@ const migrationPath = fileURLToPath(new URL(
   '../../supabase/migrations/20260910_sales_commercial_allocation.sql',
   import.meta.url,
 ));
+const deliveryMigrationPath = fileURLToPath(new URL(
+  '../../supabase/migrations/20260911_sales_quote_delivery.sql',
+  import.meta.url,
+));
 const sql = await readFile(migrationPath, 'utf8');
 
 function executable(name) {
@@ -225,6 +229,10 @@ test('commercial allocation functions work against isolated PostgreSQL', {
         ('${overflowProduct}','${tenant}','simple','${simpleEvent}','S');
     `);
     psql(psqlBin, [...args, '-f', migrationPath]);
+    // Apply the quote-delivery migration to the same isolated PostgreSQL
+    // instance: this ensures its SECURITY DEFINER wrapper composes with the
+    // real allocation RPC rather than merely passing a textual assertion.
+    psql(psqlBin, [...args, '-f', deliveryMigrationPath]);
 
     // q1/q2 each claim the same single simple-event place concurrently.
     psql(psqlBin, args, `

@@ -8,6 +8,8 @@ import {
   amendQuote, compareQuoteVersions, confirmQuoteSale, getQuote, getQuoteHistory, issueQuote, listQuotes, prepareQuoteDraft,
   saveQuoteDraft, transitionQuote,
 } from '../../_lib/salesQuote.js';
+import { buildSalesQuotePdf } from '../../_lib/salesQuotePdf.js';
+import { canonicalQuoteBaseUrl, sendQuote } from '../../_lib/salesQuoteDelivery.js';
 
 function pathParts(req) {
   const path = req.query?.path;
@@ -68,6 +70,51 @@ export function createSalesQuotesHandler(dependencies = {}) {
         if (!Number.isInteger(from) || !Number.isInteger(to)) throw new SalesHttpError(400, 'from and to versions are required');
         return res.status(200).json(await compareQuoteVersions(db, actor.tenantId, id, from, to));
       }
+      if (read && ['pdf', 'preview-pdf', 'download'].includes(action)) {
+        const quote = await getQuote(db, actor.tenantId, id);
+        const requested = req.query.version ? Number(req.query.version) : quote.current_version;
+        const version = quote.versions.find((item) => item.version_number === requested);
+        if (!version || version.status === 'draft') throw new SalesHttpError(409, 'Only an issued quote version can be rendered');
+        const { data: tenant, error } = await db.from('tenant')
+          .select('name,slug,domain,logo_url,header_logo_url,primary_color,secondary_color,tagline,description,branding_config,settings').eq('id', actor.tenantId).maybeSingle();
+        if (error) throw error;
+        const pdf = buildSalesQuotePdf({ quote, version, tenant });
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', `${action === 'download' ? 'attachment' : 'inline'}; filename="quote-${quote.quote_number}.pdf"`);
+        res.setHeader('Cache-Control', 'private, no-store');
+        return res.send(pdf);
+      }
+      if (read && action === 'delivery-history') {
+        await getQuote(db, actor.tenantId, id);
+        const { data: expiredTokens, error: expiredTokenError } = await db
+          .from('sales_quote_delivery_token')
+          .select('id,quote_version_id,recipient_email')
+          .eq('tenant_id', actor.tenantId)
+          .eq('quote_id', id)
+          .not('activated_at', 'is', null)
+          .is('revoked_at', null)
+          .lte('expires_at', new Date().toISOString());
+        if (expiredTokenError) throw expiredTokenError;
+        for (const token of expiredTokens || []) {
+          const { error: expiryAuditError } = await db.from('sales_quote_delivery_audit').insert({
+            tenant_id: actor.tenantId,
+            quote_id: id,
+            quote_version_id: token.quote_version_id,
+            token_id: token.id,
+            event_type: 'expired',
+            recipient_email: token.recipient_email,
+          });
+          if (expiryAuditError && expiryAuditError.code !== '23505') throw expiryAuditError;
+        }
+        const { data, error } = await db.from('sales_quote_delivery_audit').select('*')
+          .eq('tenant_id', actor.tenantId).eq('quote_id', id).order('created_at', { ascending: false });
+        if (error) throw error;
+        return res.status(200).json({ items: (data || []).map((item) => ({
+          eventType: item.event_type, recipientEmail: item.recipient_email, actorId: item.actor_id,
+          senderDomain: item.sender_domain, providerMessageId: item.provider_message_id,
+          errorMessage: item.error_message, createdAt: item.created_at,
+        })) });
+      }
       if (req.method === 'POST' && action === 'preview') {
         const body = normaliseQuoteInput(req.body || {});
         const validation = validateQuoteDraft(body, { existing: Boolean(id) });
@@ -109,6 +156,42 @@ export function createSalesQuotesHandler(dependencies = {}) {
           throw new SalesHttpError(400, 'idempotencyKey is required');
         }
         return res.status(201).json(await confirmQuoteSale(db, actor.tenantId, actor, id, req.body));
+      }
+      if (req.method === 'POST' && id && action === 'send') {
+        const recipient = String(req.body?.recipient || '').trim();
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(recipient)) throw new SalesHttpError(400, 'A valid recipient is required');
+        const quote = await getQuote(db, actor.tenantId, id);
+        const requested = req.body?.version ? Number(req.body.version) : quote.current_version;
+        const version = quote.versions.find((item) => item.version_number === requested);
+        if (!version) throw new SalesHttpError(404, 'Quote version not found');
+        const { data: tenant, error } = await db.from('tenant')
+          .select('name,slug,domain,logo_url,header_logo_url,primary_color,secondary_color,tagline,description,branding_config,settings').eq('id', actor.tenantId).maybeSingle();
+        if (error) throw error;
+        const pdf = req.body?.attachPdf === false ? null : buildSalesQuotePdf({ quote, version, tenant });
+        const expiresInDays = Number(req.body?.expiresInDays);
+        return res.status(200).json(await sendQuote(db, {
+          quote, version, tenant, actor, recipient,
+          attachPdf: req.body?.attachPdf !== false, pdf, expiresInDays,
+          baseUrl: (dependencies.canonicalQuoteBaseUrl || canonicalQuoteBaseUrl)(tenant),
+          sendEmail: dependencies.sendEmail,
+        }));
+      }
+      if (req.method === 'POST' && id && action === 'revoke') {
+        let query = db.from('sales_quote_delivery_token').update({
+          revoked_at: new Date().toISOString(), revoked_by: actor.actorId,
+        }).eq('tenant_id', actor.tenantId).eq('quote_id', id).is('revoked_at', null);
+        if (req.body?.tokenId) query = query.eq('id', req.body.tokenId);
+        const { data, error } = await query.select('*');
+        if (error) throw error;
+        if (!data?.length) throw new SalesHttpError(404, 'Active delivery token not found');
+        const audits = data.map((token) => ({
+          tenant_id: actor.tenantId, quote_id: id, quote_version_id: token.quote_version_id,
+          token_id: token.id, event_type: 'revoked', actor_id: actor.actorId,
+          recipient_email: token.recipient_email,
+        }));
+        const { error: auditError } = await db.from('sales_quote_delivery_audit').insert(audits);
+        if (auditError) throw auditError;
+        return res.status(200).json({ revoked: data.length });
       }
       if (req.method === 'POST' && id && ['status', 'transition'].includes(action)) {
         const validation = validateQuoteTransition(req.body);

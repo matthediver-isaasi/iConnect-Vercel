@@ -418,6 +418,7 @@ import ExternalWriters from "./ExternalWriters";
 import MemberDemo from "./MemberDemo";
 
 import BnmsMemberDemo from "./BnmsMemberDemo";
+import PublicSalesQuote from "./PublicSalesQuote";
 
 import PhotoGalleries from "./PhotoGalleries";
 
@@ -1368,6 +1369,7 @@ function StandaloneRoutes() {
             <Route path="/campaigns" element={<CampaignsPage />} />
             <Route path="/membership-fees/:token" element={<MembershipFeePage />} />
             <Route path="/submit-po/:token" element={<SubmitPOPage />} />
+            <Route path="/quote/:token" element={<PublicSalesQuote />} />
             <Route path="/group-booking/:token" element={<GroupBookingPage />} />
             <Route path="/guest-approval/:token" element={<GuestApprovalPage />} />
             <Route path="/group-role-invite/:token" element={<MemberGroupRoleInvitePage />} />
@@ -1466,7 +1468,7 @@ function AppRoutes() {
         return <SaasRoutes />;
     }
     
-    const standalonePages = ['/signup', '/register', '/signup-verify', '/email-preferences', '/casestudyupload'];
+    const standalonePages = ['/signup', '/register', '/signup-verify', '/email-preferences', '/casestudyupload', '/quote/'];
     const isStandalonePage = standalonePages.some(path => 
         location.pathname.toLowerCase() === path.toLowerCase()
     );
@@ -1478,6 +1480,7 @@ function AppRoutes() {
     const isFundraiserPage = location.pathname.toLowerCase().startsWith('/fundraiser/');
     const isMembershipFeePage = location.pathname.toLowerCase().startsWith('/membership-fees/');
     const isSubmitPoPage = location.pathname.toLowerCase().startsWith('/submit-po/');
+    const isPublicQuotePage = location.pathname.toLowerCase().startsWith('/quote/');
     const isGroupBookingPage = location.pathname.toLowerCase().startsWith('/group-booking/');
     const isGuestApprovalPage = location.pathname.toLowerCase().startsWith('/guest-approval/');
     const isGroupRoleInvitePage = location.pathname.toLowerCase().startsWith('/group-role-invite/');
@@ -1492,7 +1495,7 @@ function AppRoutes() {
     const isAdminPage = location.pathname.toLowerCase().startsWith('/admin');
     const isPlatformPage = location.pathname.toLowerCase().startsWith('/platform');
     
-    if (isStandalonePage || isEmbedPage || isBookingPage || isDonatePage || isFundraisePage || isFundraiserPage || isMembershipFeePage || isSubmitPoPage || isGroupBookingPage || isGuestApprovalPage || isGroupRoleInvitePage || isTeamInvitePage || isDdSetupPage || isCampaignsPage || hasEmbedParam) {
+    if (isStandalonePage || isEmbedPage || isBookingPage || isDonatePage || isFundraisePage || isFundraiserPage || isMembershipFeePage || isSubmitPoPage || isPublicQuotePage || isGroupBookingPage || isGuestApprovalPage || isGroupRoleInvitePage || isTeamInvitePage || isDdSetupPage || isCampaignsPage || hasEmbedParam) {
         return <StandaloneRoutes />;
     }
     

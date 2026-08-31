@@ -152,3 +152,4 @@
 - [Immutable child re-parenting](immutable-child-reparenting.md) — child immutability triggers must validate both OLD and NEW parents or updates can move data out of locked snapshots.
 - [Commercial Event capacity](commercial-event-capacity.md) — unused sale allocations and confirmed delegate rows share one locked capacity equation; reconciliation/cancellation must be atomic.
 - [Canvas dynamic-block tests](canvas-dynamic-block-tests.md) — enter through the registry and inject lazy page boundaries; direct imports hit registry cycles, while resolved pages require Vite-only env.
+- [Quote delivery bearer safety](quote-delivery-bearer-safety.md) — quote links stay inactive until delivery is durably recorded; never persist token-bearing referrers or return broad snapshots publicly.

@@ -2,15 +2,17 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  AlertTriangle, ArrowDown, ArrowLeft, ArrowUp, Check, ChevronLeft, ChevronRight,
-  GitCompare, History, Loader2, PackagePlus, Plus, RefreshCw, Search, Send,
-  Trash2,
+  AlertTriangle, ArrowDown, ArrowLeft, ArrowUp, ChevronLeft, ChevronRight,
+  Download, Eye, GitCompare, History, Link2Off, Loader2, PackagePlus,
+  Plus, RefreshCw, Search, Send, Trash2,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
@@ -42,6 +44,29 @@ async function request(path, options = {}) {
     throw error;
   }
   return payload;
+}
+
+async function quotePdf(quoteId) {
+  const response = await fetch(`/api/sales/quotes/${quoteId}?action=pdf`, { credentials: "include" });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null);
+    throw new Error(payload?.message || payload?.error || `Could not generate PDF (${response.status})`);
+  }
+  return response.blob();
+}
+
+function openBlob(blob, filename, preview = false) {
+  const url = URL.createObjectURL(blob);
+  if (preview) window.open(url, "_blank", "noopener,noreferrer");
+  else {
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+  }
+  window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
 
 const emptyLine = () => ({
@@ -102,7 +127,7 @@ function normalizeQuote(payload, opportunityId = "") {
 }
 
 function statusBadge(status) {
-  const tones = { draft: "bg-slate-100 text-slate-700", issued: "bg-blue-100 text-blue-800", sent: "bg-blue-100 text-blue-800", accepted: "bg-emerald-100 text-emerald-800", converted: "bg-emerald-100 text-emerald-800", rejected: "bg-rose-100 text-rose-800", declined: "bg-rose-100 text-rose-800", expired: "bg-amber-100 text-amber-800", superseded: "bg-violet-100 text-violet-800" };
+  const tones = { draft: "bg-slate-100 text-slate-700", issued: "bg-blue-100 text-blue-800", send_attempt: "bg-slate-100 text-slate-700", sent: "bg-blue-100 text-blue-800", send_failed: "bg-rose-100 text-rose-800", viewed: "bg-cyan-100 text-cyan-800", downloaded: "bg-cyan-100 text-cyan-800", accepted: "bg-emerald-100 text-emerald-800", converted: "bg-emerald-100 text-emerald-800", rejected: "bg-rose-100 text-rose-800", declined: "bg-rose-100 text-rose-800", revoked: "bg-rose-100 text-rose-800", expired: "bg-amber-100 text-amber-800", superseded: "bg-violet-100 text-violet-800" };
   return <Badge className={`border-0 capitalize ${tones[status] || tones.draft}`}>{String(status || "draft").replaceAll("_", " ")}</Badge>;
 }
 
@@ -191,6 +216,50 @@ function HistoryPanel({ quoteId, version }) {
   </div>;
 }
 
+function DeliveryHistory({ quoteId }) {
+  const history = useQuery({
+    queryKey: ["quote-delivery-history", quoteId],
+    queryFn: () => request(`/api/sales/quotes/${quoteId}?action=delivery-history`),
+  });
+  const rows = list(history.data?.history || history.data?.deliveries || history.data);
+  return <Card><CardHeader><CardTitle className="flex items-center gap-2"><Send className="h-4 w-4" />Delivery history</CardTitle></CardHeader><CardContent>
+    {history.isLoading ? <Loading /> : history.error ? <Failure error={history.error} retry={history.refetch} /> : !rows.length ? <p className="py-8 text-center text-sm text-slate-500">This quote has not been delivered yet.</p> :
+      <ol className="space-y-4">{rows.map((item, index) => {
+        // Delivery history deliberately consumes only fields exposed by the
+        // delivery-history DTO; never render request metadata or token values.
+        const state = String(item.eventType || item.event_type || item.status || item.event || "sent")
+          .replace(/([a-z])([A-Z])/g, "$1_$2").replace(/[-\s]+/g, "_").toLowerCase();
+        const labels = { send_attempt: "Send attempted", sent: "Sent", send_failed: "Send failed", viewed: "Viewed", downloaded: "Downloaded", accepted: "Accepted", declined: "Declined", expired: "Expired", revoked: "Link revoked" };
+        const recipient = item.recipientEmail || item.recipient_email || item.recipient || "Customer";
+        const occurredAt = item.occurredAt || item.occurred_at || item.createdAt || item.created_at;
+        const version = item.versionNumber || item.version_number;
+        const errorMessage = item.errorMessage || item.error_message;
+        return <li key={idOf(item) || index} className="flex gap-3 border-l-2 border-blue-200 pl-4">
+          <div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2">{statusBadge(state)}<span className="text-sm font-medium">{labels[state] || "Delivery event"}</span></div>
+            <p className="mt-1 text-xs text-slate-500">{recipient}{occurredAt ? ` · ${new Date(occurredAt).toLocaleString()}` : ""}{version ? ` · Version ${version}` : ""}</p>
+            {errorMessage && <p className="mt-1 text-sm text-rose-700">{errorMessage}</p>}
+          </div>
+        </li>;
+      })}</ol>}
+  </CardContent></Card>;
+}
+
+function SendQuoteDialog({ open, onOpenChange, pending, onSend, initialRecipient = "" }) {
+  const [recipient, setRecipient] = useState(initialRecipient);
+  const [expiresInDays, setExpiresInDays] = useState("30");
+  const [attachPdf, setAttachPdf] = useState(true);
+  useEffect(() => { if (open && initialRecipient) setRecipient(initialRecipient); }, [open, initialRecipient]);
+  return <Dialog open={open} onOpenChange={onOpenChange}><DialogContent className="max-w-md">
+    <DialogHeader><DialogTitle>Send quote</DialogTitle><DialogDescription>A secure, expiring link will point to this exact immutable quote version.</DialogDescription></DialogHeader>
+    <div className="space-y-4 py-2">
+      <Field label="Recipient email"><Input type="email" autoFocus value={recipient} onChange={(event) => setRecipient(event.target.value)} placeholder="customer@example.com" /></Field>
+      <Field label="Link expiry"><Select value={expiresInDays} onValueChange={setExpiresInDays}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{["7", "14", "30", "60", "90"].map((days) => <SelectItem key={days} value={days}>{days} days</SelectItem>)}</SelectContent></Select></Field>
+      <label className="flex items-start gap-3 rounded-lg border p-3 text-sm"><Checkbox checked={attachPdf} onCheckedChange={(value) => setAttachPdf(value === true)} /><span><strong className="block">Attach PDF</strong><span className="text-slate-500">Also include the branded PDF alongside the secure link.</span></span></label>
+    </div>
+    <DialogFooter><Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button><Button disabled={pending || !recipient.trim() || !recipient.includes("@")} onClick={() => onSend({ recipient: recipient.trim(), expiresInDays: Number(expiresInDays), attachPdf })}>{pending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Send quote</Button></DialogFooter>
+  </DialogContent></Dialog>;
+}
+
 function Comparison({ data }) {
   if (data?.from && data?.to) {
     const snapshot = (value) => {
@@ -220,6 +289,7 @@ function QuoteEditor() {
   const [form, setForm] = useState(() => blankQuote(opportunityId));
   const [loadedId, setLoadedId] = useState(null);
   const [savedFingerprint, setSavedFingerprint] = useState("");
+  const [sendOpen, setSendOpen] = useState(false);
   useEffect(() => {
     if (!isNew && detail.data && loadedId !== id) { const next = normalizeQuote(detail.data); setForm(next); setSavedFingerprint(JSON.stringify(next)); setLoadedId(id); }
   }, [detail.data, id, isNew, loadedId]);
@@ -268,13 +338,39 @@ function QuoteEditor() {
     onSuccess: (data, variables) => { const result = normalizeQuote(data); qc.invalidateQueries({ queryKey: ["sales-quotes"] }); qc.invalidateQueries({ queryKey: ["sales-quote", id] }); toast({ title: variables.action === "amend" ? "Amendment created" : variables.action === "issue" ? "Quote issued" : "Quote status updated" }); if (variables.action === "amend" && result.id) navigate(`/sales/quotes/${result.id}`); },
     onError: (error) => toast({ title: "Quote action failed", description: error.message, variant: "destructive" }),
   });
+  const deliveryAction = useMutation({
+    mutationFn: ({ action: actionName, extra = {} }) => request(`/api/sales/quotes/${id}?action=${actionName}`, { method: "POST", body: JSON.stringify(extra) }),
+    onSuccess: (_, variables) => {
+      qc.invalidateQueries({ queryKey: ["sales-quotes"] });
+      qc.invalidateQueries({ queryKey: ["sales-quote", id] });
+      qc.invalidateQueries({ queryKey: ["quote-delivery-history", id] });
+      if (variables.action === "send") setSendOpen(false);
+      toast({ title: variables.action === "send" ? "Quote sent" : "Customer link revoked" });
+    },
+    onError: (error) => toast({ title: "Delivery action failed", description: error.message, variant: "destructive" }),
+  });
+  const pdf = useMutation({
+    mutationFn: ({ preview: shouldPreview }) => quotePdf(id).then((blob) => ({ blob, shouldPreview })),
+    onSuccess: ({ blob, shouldPreview }) => openBlob(blob, `${quote.number || quote.quoteNumber || quote.quote_number || "quote"}-v${quote.versionNumber || quote.version_number || 1}.pdf`, shouldPreview),
+    onError: (error) => toast({ title: "Could not load PDF", description: error.message, variant: "destructive" }),
+  });
   if (!isNew && detail.isLoading) return <Loading />;
   if (!isNew && detail.error) return <Failure error={detail.error} retry={detail.refetch} />;
   const patch = (key, value) => setForm((old) => ({ ...old, [key]: value }));
   return <div className="space-y-5">
-    <div className="flex flex-wrap items-start justify-between gap-3"><div className="flex items-start gap-3"><Button variant="outline" size="icon" onClick={() => navigate("/sales/quotes")}><ArrowLeft className="h-4 w-4" /></Button><div><div className="flex flex-wrap items-center gap-2"><h2 className="text-2xl font-bold">{isNew ? "Create quote" : quote.number || quote.quoteNumber || quote.quote_number || "Quote"}</h2>{statusBadge(status)}{!isNew && <Badge variant="outline">Version {quote.versionNumber || quote.version_number || quote.version || 1}</Badge>}</div><p className="mt-1 text-sm text-slate-500">{readOnly ? "Issued versions are immutable. Create an amendment to make changes." : "Build and save a customer-ready quote."}</p></div></div><div className="flex flex-wrap gap-2">{!readOnly && <Button variant="outline" disabled={preview.isPending || !form.lines.length} onClick={() => preview.mutate()}>{preview.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Recalculate</Button>}{!readOnly && <Button variant="outline" disabled={save.isPending || !form.opportunityId || !form.lines.length} onClick={() => save.mutate()}>{save.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Save draft</Button>}{!isNew && status === "draft" && allowed(["canIssue", "can_issue", "issue"], false) && <Button disabled={action.isPending || !form.lines.length || isDirty} title={isDirty ? "Save the latest draft before issuing" : ""} onClick={() => action.mutate({ action: "issue" })}><Send className="mr-2 h-4 w-4" />Issue</Button>}{!isNew && status !== "draft" && status !== "superseded" && allowed(["canAmend", "can_amend", "amend"], false) && <Button onClick={() => action.mutate({ action: "amend" })}><RefreshCw className="mr-2 h-4 w-4" />Amend</Button>}{!isNew && ["issued", "sent"].includes(status) && allowed(["canTransition", "can_transition", "transition"], false) && <><Button variant="outline" onClick={() => action.mutate({ action: "transition", extra: { status: "accepted" } })}><Check className="mr-2 h-4 w-4" />Accept</Button><Button variant="outline" onClick={() => action.mutate({ action: "transition", extra: { status: "declined" } })}>Decline</Button><Button variant="outline" onClick={() => action.mutate({ action: "transition", extra: { status: "expired" } })}>Expire</Button></>}{!isNew && status === "accepted" && allowed(["canTransition", "can_transition", "transition"], false) && <Button variant="outline" onClick={() => action.mutate({ action: "transition", extra: { status: "converted" } })}>Convert</Button>}</div></div>
+    <div className="flex flex-wrap items-start justify-between gap-3"><div className="flex items-start gap-3"><Button variant="outline" size="icon" onClick={() => navigate("/sales/quotes")}><ArrowLeft className="h-4 w-4" /></Button><div><div className="flex flex-wrap items-center gap-2"><h2 className="text-2xl font-bold">{isNew ? "Create quote" : quote.number || quote.quoteNumber || quote.quote_number || "Quote"}</h2>{statusBadge(status)}{!isNew && <Badge variant="outline">Version {quote.versionNumber || quote.version_number || quote.version || 1}</Badge>}</div><p className="mt-1 text-sm text-slate-500">{readOnly ? "Issued versions are immutable. Create an amendment to make changes." : "Build and save a customer-ready quote."}</p></div></div><div className="flex flex-wrap gap-2">
+      {!readOnly && <Button variant="outline" disabled={preview.isPending || !form.lines.length} onClick={() => preview.mutate()}>{preview.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Recalculate</Button>}
+      {!readOnly && <Button variant="outline" disabled={save.isPending || !form.opportunityId || !form.lines.length} onClick={() => save.mutate()}>{save.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Save draft</Button>}
+      {!isNew && status === "draft" && allowed(["canIssue", "can_issue", "issue"], false) && <Button disabled={action.isPending || !form.lines.length || isDirty} title={isDirty ? "Save the latest draft before issuing" : ""} onClick={() => action.mutate({ action: "issue" })}><Send className="mr-2 h-4 w-4" />Issue</Button>}
+      {!isNew && status !== "draft" && <><Button variant="outline" disabled={pdf.isPending} onClick={() => pdf.mutate({ preview: true })}><Eye className="mr-2 h-4 w-4" />Preview PDF</Button><Button variant="outline" disabled={pdf.isPending} onClick={() => pdf.mutate({ preview: false })}><Download className="mr-2 h-4 w-4" />Download</Button></>}
+      {!isNew && ["issued", "sent"].includes(status) && <Button disabled={deliveryAction.isPending} onClick={() => setSendOpen(true)}><Send className="mr-2 h-4 w-4" />Send</Button>}
+      {!isNew && ["issued", "sent"].includes(status) && <Button variant="outline" disabled={deliveryAction.isPending} onClick={() => deliveryAction.mutate({ action: "revoke" })}><Link2Off className="mr-2 h-4 w-4" />Revoke link</Button>}
+      {!isNew && !["draft", "superseded", "accepted", "converted", "declined", "rejected", "expired"].includes(status) && allowed(["canAmend", "can_amend", "amend"], false) && <Button onClick={() => action.mutate({ action: "amend" })}><RefreshCw className="mr-2 h-4 w-4" />Amend</Button>}
+      {!isNew && status === "accepted" && allowed(["canTransition", "can_transition", "transition"], false) && <Button variant="outline" onClick={() => action.mutate({ action: "transition", extra: { status: "converted" } })}>Convert</Button>}
+    </div></div>
+    {!isNew && <SendQuoteDialog open={sendOpen} onOpenChange={setSendOpen} pending={deliveryAction.isPending} initialRecipient={quote.recipient || quote.customerEmail || quote.customer_email || ""} onSend={(extra) => deliveryAction.mutate({ action: "send", extra })} />}
     {isNew && !opportunityId && <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900"><AlertTriangle className="mr-2 inline h-4 w-4" />A quote must be linked to an opportunity. Enter its ID below or start from an opportunity detail page.</div>}
-    <Tabs defaultValue="quote"><TabsList><TabsTrigger value="quote">Quote</TabsTrigger>{!isNew && <TabsTrigger value="history">History & compare</TabsTrigger>}</TabsList>
+    <Tabs defaultValue="quote"><TabsList><TabsTrigger value="quote">Quote</TabsTrigger>{!isNew && <><TabsTrigger value="delivery">Delivery</TabsTrigger><TabsTrigger value="history">History & compare</TabsTrigger></>}</TabsList>
       <TabsContent value="quote" className="space-y-5">
         <Card><CardHeader><CardTitle>Customer & commercial details</CardTitle></CardHeader><CardContent className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <Field label="Opportunity"><Input disabled={!isNew || readOnly} value={form.opportunityId} onChange={(e) => patch("opportunityId", e.target.value)} placeholder="Opportunity ID" /></Field>
@@ -295,6 +391,7 @@ function QuoteEditor() {
         <LinesEditor form={form} setForm={setForm} products={list(products.data)} bundles={list(bundles.data)} readOnly={readOnly} canOverride={canOverride} />
         <Card><CardContent className="flex flex-col items-end gap-1 p-5 text-sm"><p className="mb-2 w-full text-xs text-slate-500">{serverTotals ? "Server-calculated totals" : "Local estimate — save or recalculate for final server totals"}</p><div className="flex w-full max-w-xs justify-between"><span>Net</span><strong>{money(serverTotals?.netMinor ?? serverTotals?.net_minor ?? serverTotals?.netTotalMinor ?? serverTotals?.net_total_minor ?? totals.net, form.currency)}</strong></div><div className="flex w-full max-w-xs justify-between"><span>Tax</span><strong>{money(serverTotals?.taxMinor ?? serverTotals?.tax_minor ?? serverTotals?.taxTotalMinor ?? serverTotals?.tax_total_minor ?? totals.tax, form.currency)}</strong></div><div className="mt-2 flex w-full max-w-xs justify-between border-t pt-2 text-lg"><span>Gross total</span><strong>{money(serverTotals?.grossMinor ?? serverTotals?.gross_minor ?? serverTotals?.grossTotalMinor ?? serverTotals?.gross_total_minor ?? totals.gross, form.currency)}</strong></div></CardContent></Card>
       </TabsContent>
+      {!isNew && <TabsContent value="delivery"><DeliveryHistory quoteId={id} /></TabsContent>}
       {!isNew && <TabsContent value="history"><HistoryPanel quoteId={id} version={quote.versionNumber || quote.version_number || quote.version} /></TabsContent>}
     </Tabs>
   </div>;
