@@ -445,6 +445,7 @@ export default function PaymentOptions({
   complexEventApi = null,
   onComplexBookingComplete = null,
   renderAsCard = true,
+  allocationContext = null,
   // TBC events with "Replace standard booking elements" on:
   // { message, ctaLabel } — hides the pricing/summary display (unless payment
   // is still required) and overrides the "Confirm Booking" button label.
@@ -1240,6 +1241,10 @@ export default function PaymentOptions({
           thirdPartyConsent: collectThirdPartyConsent ? thirdPartyConsent === true : null,
           _testMode: testMode
         };
+        if (allocationContext?.token) {
+          bookingPayload.allocationInvitationToken = allocationContext.token;
+          bookingPayload.allocationId = allocationContext.id || null;
+        }
 
         if (!isGuestCheckout) {
           bookingPayload.memberEmail = memberInfo.email;

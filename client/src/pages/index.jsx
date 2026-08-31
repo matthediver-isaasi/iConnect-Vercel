@@ -320,6 +320,7 @@ import ProjectBoard from "./ProjectBoard";
 
 import ReportsDashboard from "./ReportsDashboard";
 import Sales from "./Sales";
+import EventAllocationManager from "@/components/sales/EventAllocationManager";
 
 import AIReports from "./AIReports";
 import AccessibilityAudits from "./AccessibilityAudits";
@@ -967,6 +968,7 @@ function PagesContent() {
                 <Route path="/sales/tasks" element={<Sales destination="tasks" />} />
                 <Route path="/sales/reports" element={<Sales destination="reports" />} />
                 <Route path="/sales/settings" element={<Sales destination="settings" />} />
+                <Route path="/sales/allocations/:allocationId" element={<EventAllocationManager />} />
                 
                 <Route path="/MemberDemo" element={<MemberDemo />} />
                 

@@ -44,6 +44,7 @@ import { useEventSeatRealtime } from "@/hooks/useEventSeatRealtime";
 import { useTicketAvailabilityRealtime } from "@/hooks/useTicketAvailabilityRealtime";
 import BookmarkButton from "@/components/bookmarks/BookmarkButton";
 import { getSeatStatusLabels } from "@/lib/seatStatusLabels";
+import { normalizeAllocationContext } from "@/lib/eventAllocation.mjs";
 
 // Training agenda grouped by day with the same collapse behaviour/styling as
 // the complex-event schedule (ComplexEventSchedule.jsx ScheduleGrid): chevron +
@@ -244,6 +245,7 @@ export function EventDetailsExperience({
   embedTenant = null,
   notifyIframeResize = false,
   debugMode = false,
+  allocationToken = null,
 }) {
   const { memberInfo, organizationInfo, memberRole, authResolved, isFeatureExcluded, reloadMemberInfo, refreshOrganizationInfo } = useMemberAccess();
   const { singular: speakerSingular, plural: speakerPlural } = useSpeakerModuleName();
@@ -313,10 +315,39 @@ export function EventDetailsExperience({
   // Track if initialization has completed to prevent resets on subsequent renders
   const hasInitialized = useRef(null);
 
-  const slugToResolve = explicitEventSlug;
+  const { data: allocationPayload, isLoading: allocationLoading, error: allocationError } = useQuery({
+    queryKey: ['event-allocation-context', allocationToken],
+    queryFn: () => publicClient.getEventAllocationContext(allocationToken),
+    enabled: Boolean(allocationToken),
+    retry: false,
+  });
+  const allocationContext = useMemo(() => allocationToken ? normalizeAllocationContext(allocationPayload) : null, [allocationPayload, allocationToken]);
+  const allocationMode = Boolean(allocationToken && allocationContext?.eventId);
+  useEffect(() => {
+    if (!allocationMode) return;
+    setGuestInfo((current) => ({
+      ...current,
+      email: allocationContext.delegateEmail || current.email,
+      first_name: allocationContext.delegateFirstName || current.first_name,
+      last_name: allocationContext.delegateLastName || current.last_name,
+      organization: allocationContext.organizationName || current.organization,
+    }));
+    if (allocationContext.delegateEmail) {
+      setRegistrationMode('colleagues');
+      setAttendees((current) => current.length ? current : [{
+        email: allocationContext.delegateEmail,
+        first_name: allocationContext.delegateFirstName || '',
+        last_name: allocationContext.delegateLastName || '',
+        organization: allocationContext.organizationName || '',
+        isValid: true,
+        validationStatus: 'external',
+      }]);
+    }
+  }, [allocationMode, allocationContext?.delegateEmail, allocationContext?.delegateFirstName, allocationContext?.delegateLastName, allocationContext?.organizationName]);
+  const slugToResolve = allocationMode ? null : explicitEventSlug;
   const isSlugLookup = !!slugToResolve && !explicitEventId;
   const { data: slugResolvedEvent, isLoading: isSlugLoading } = useEventDataBySlug(isSlugLookup ? slugToResolve : null);
-  const eventId = explicitEventId || (slugResolvedEvent?.id) || null;
+  const eventId = allocationContext?.eventId || explicitEventId || (slugResolvedEvent?.id) || null;
   const isEmbedMode = embedded;
 
   // Notify parent iframe of height changes for embed mode
@@ -833,6 +864,7 @@ export function EventDetailsExperience({
   // - Public Only: ONLY visible/purchasable by non-logged-in visitors
   const isTicketPurchasable = (ticket) => {
     if (!ticket) return false;
+    if (allocationMode && String(ticket.id) === allocationContext.ticketTypeId) return true;
     
     // Count-based availability (Task #1758): availability is derived from the
     // number of confirmed bookings, not from mutating available_count.
@@ -887,6 +919,9 @@ export function EventDetailsExperience({
   // For logged-in users: tickets they have access to based on visibility and role
   const availableTicketClasses = useMemo(() => {
     if (!isOneOffEvent || !pricingConfig) return [];
+    if (allocationMode) {
+      return allNormalizedTickets.filter((ticket) => String(ticket.id) === allocationContext.ticketTypeId);
+    }
     
     // For logged-in members, filter based on visibility_mode and role_match_only
     if (currentMemberInfo) {
@@ -929,11 +964,15 @@ export function EventDetailsExperience({
       }
       return true;
     });
-  }, [isOneOffEvent, pricingConfig, currentMemberInfo, userRoleId, userMemberGroupIds, allNormalizedTickets, allowGuestsToViewAllTickets]);
+  }, [isOneOffEvent, pricingConfig, currentMemberInfo, userRoleId, userMemberGroupIds, allNormalizedTickets, allowGuestsToViewAllTickets, allocationMode, allocationContext?.ticketTypeId]);
   
   // Auto-select first available PURCHASABLE ticket class
   // Also reset selection if currently selected ticket becomes non-purchasable
   useEffect(() => {
+    if (allocationMode && allocationContext.ticketTypeId) {
+      setSelectedTicketClassId(allocationContext.ticketTypeId);
+      return;
+    }
     if (availableTicketClasses.length > 0) {
       // Find the currently selected ticket if any
       const currentSelection = selectedTicketClassId 
@@ -953,7 +992,7 @@ export function EventDetailsExperience({
         }
       }
     }
-  }, [availableTicketClasses, selectedTicketClassId, allowGuestsToViewAllTickets, currentMemberInfo, userRoleId]);
+  }, [availableTicketClasses, selectedTicketClassId, allowGuestsToViewAllTickets, currentMemberInfo, userRoleId, allocationMode, allocationContext?.ticketTypeId]);
   
   // Get selected ticket class
   const selectedTicketClass = useMemo(() => {
@@ -1240,7 +1279,7 @@ export function EventDetailsExperience({
     }
   };
 
-  if (isLoading || isSlugLoading) {
+  if (isLoading || isSlugLoading || allocationLoading) {
     return (
       <div className={isEmbedMode
         ? "w-full flex items-center justify-center"
@@ -1248,6 +1287,10 @@ export function EventDetailsExperience({
         <div className="animate-pulse text-slate-600">Loading event...</div>
       </div>
     );
+  }
+
+  if (allocationError) {
+    return <div className="min-h-full bg-slate-50 p-6"><Card className="mx-auto max-w-lg border-rose-200"><CardContent className="p-6 text-rose-700"><AlertTriangle className="mr-2 inline h-5 w-5" />This allocation link is invalid, expired, or no longer available.</CardContent></Card></div>;
   }
 
   if (!event) {
@@ -1285,7 +1328,7 @@ export function EventDetailsExperience({
   
   // Use effective ticket price (early bird or standard)
   const effectivePricing = getEffectiveTicketPrice(selectedTicketClass);
-  const ticketPrice = effectivePricing.price || pricingConfig?.ticket_price || 0;
+  const ticketPrice = allocationMode ? 0 : (effectivePricing.price || pricingConfig?.ticket_price || 0);
   
   // Calculate one-off event cost with offers based on selected ticket class
   const calculateOneOffCost = () => {
@@ -1293,7 +1336,7 @@ export function EventDetailsExperience({
       return { totalCost: 0, ticketsToPay: ticketsRequired, freeTickets: 0, discount: 0, discountDescription: '' };
     }
     
-    const basePrice = effectivePricing.price || 0;
+    const basePrice = allocationMode ? 0 : (effectivePricing.price || 0);
     let ticketsToPay = ticketsRequired;
     let freeTickets = 0;
     let discount = 0;
@@ -2061,8 +2104,8 @@ export function EventDetailsExperience({
                           if (guestEmailIsMember) setGuestEmailIsMember(false);
                         }}
                         onBlur={handleGuestEmailBlur}
-                        disabled={isGuestFormDisabled}
-                        className={`${isGuestFormDisabled ? "bg-slate-100 cursor-not-allowed" : ""} ${guestEmailIsMember ? "border-warning/50 focus-visible:ring-amber-500" : ""}`}
+                        disabled={isGuestFormDisabled || allocationMode}
+                        className={`${isGuestFormDisabled || allocationMode ? "bg-slate-100 cursor-not-allowed" : ""} ${guestEmailIsMember ? "border-warning/50 focus-visible:ring-amber-500" : ""}`}
                         data-testid="input-guest-email"
                       />
                       {guestEmailIsMember && (
@@ -2082,8 +2125,8 @@ export function EventDetailsExperience({
                         placeholder="Your company or organisation"
                         value={guestInfo.organization}
                         onChange={(e) => setGuestInfo({...guestInfo, organization: e.target.value})}
-                        disabled={isGuestFormDisabled}
-                        className={isGuestFormDisabled ? "bg-slate-100 cursor-not-allowed" : ""}
+                        disabled={isGuestFormDisabled || allocationMode}
+                        className={isGuestFormDisabled || allocationMode ? "bg-slate-100 cursor-not-allowed" : ""}
                         data-testid="input-guest-organization"
                       />
                     </div>
@@ -2408,6 +2451,17 @@ export function EventDetailsExperience({
               </Card>
             )}
 
+            {allocationMode && (
+              <Card className="mb-4 border-blue-200 bg-blue-50" data-testid="allocation-context">
+                <CardContent className="pt-6">
+                  <div className="flex items-start gap-3"><Lock className="mt-0.5 h-5 w-5 text-blue-700" /><div>
+                    <p className="font-semibold text-blue-950">Registering an allocated delegate</p>
+                    <p className="text-sm text-blue-800">{allocationContext.ticketName} for {allocationContext.organizationName}. Event, ticket and Organisation are fixed.</p>
+                  </div></div>
+                </CardContent>
+              </Card>
+            )}
+
             {/* Ticket Class Selector - Only shown for one-off events with multiple ticket classes */}
             {isOneOffEvent && availableTicketClasses.length > 1 && !tbcTicketSelectorsHidden && (
               <Card className="border-slate-200 shadow-sm mb-4">
@@ -2616,8 +2670,7 @@ export function EventDetailsExperience({
                         {!tbcBookingReplacementActive && (
                           <div className="flex flex-col items-end flex-shrink-0">
                             <div className={`flex items-center gap-1 text-lg font-semibold ${purchasable ? 'text-slate-900' : 'text-slate-500'}`}>
-                              <PoundSterling className="h-4 w-4" />
-                              {singlePricing.price.toFixed(2)}
+                              {allocationMode ? <Badge className="bg-emerald-600">Covered by allocation</Badge> : <><PoundSterling className="h-4 w-4" />{singlePricing.price.toFixed(2)}</>}
                             </div>
                             {singlePricing.isEarlyBird && (
                               <div className="flex items-center gap-1 text-sm text-slate-400 line-through">
@@ -2732,6 +2785,7 @@ export function EventDetailsExperience({
               checkGuestEmailIsMember={checkGuestEmailIsMember}
               checkingMemberEmail={checkingMemberEmail}
               guestEmailIsMember={guestEmailIsMember}
+              allocationContext={allocationMode ? { token: allocationToken, id: allocationContext.id } : null}
             />
             )}
             </>
@@ -2877,6 +2931,7 @@ export default function EventDetailsPage() {
       embedTenant={urlParams.get('tenant')}
       notifyIframeResize={urlParams.get('embed') === 'true'}
       debugMode={urlParams.get('debugZoom') === '1'}
+      allocationToken={urlParams.get('allocation')}
     />
   );
 }

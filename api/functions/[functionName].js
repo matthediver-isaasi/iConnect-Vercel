@@ -29,6 +29,10 @@ import {
   getMemberGroupIdsForMember,
   isActiveMemberOfGroup
 } from '../_lib/ticketAccess.js';
+import {
+  claimAllocationInvitation,
+  resolveAllocationInvitation,
+} from '../_lib/allocationInvitation.js';
 
 // Helper: Get Stripe client for a tenant
 async function getStripeClient(tenantId, feature) {
@@ -1729,12 +1733,12 @@ const functionHandlers = {
     if (!supabase) throw new Error('Supabase not configured');
     
     const {
-      eventId,
+      eventId: requestedEventId,
       memberEmail,
       attendees,
       registrationMode,
-      ticketsRequired,
-      totalCost,
+      ticketsRequired: requestedTicketsRequired,
+      totalCost: requestedTotalCost,
       pricingDetails,
       selectedVoucherIds = [],
       voucherOrderManual = false,
@@ -1742,9 +1746,9 @@ const functionHandlers = {
       accountAmount = 0,
       purchaseOrderNumber = null,
       poToFollow = false,
-      paymentMethod = 'account',
+      paymentMethod: requestedPaymentMethod = 'account',
       stripePaymentIntentId = null,
-      ticketClassId = null,
+      ticketClassId: requestedTicketClassId = null,
       ticketClassName = null,
       ticketClassPrice = null,
       isGuestBooking = false,
@@ -1753,8 +1757,32 @@ const functionHandlers = {
       discountCodeAmount = 0,
       donationData = null,
       thirdPartyConsent = null,
-      _testMode = false
+      _testMode = false,
+      allocationInvitationToken = null
     } = params;
+    let eventId = requestedEventId;
+    let ticketsRequired = requestedTicketsRequired;
+    let totalCost = requestedTotalCost;
+    let paymentMethod = requestedPaymentMethod;
+    let ticketClassId = requestedTicketClassId;
+    let allocationContext = null;
+    if (allocationInvitationToken) {
+      allocationContext = await resolveAllocationInvitation(supabase, allocationInvitationToken);
+      if (allocationContext.eventKind !== 'simple') {
+        return { success: false, error: 'Invalid allocation invitation' };
+      }
+      if (requestedEventId && requestedEventId !== allocationContext.eventId) {
+        return { success: false, error: 'Event is fixed by the allocation invitation' };
+      }
+      if (requestedTicketClassId && String(requestedTicketClassId) !== String(allocationContext.ticketTypeId)) {
+        return { success: false, error: 'Ticket type is fixed by the allocation invitation' };
+      }
+      eventId = allocationContext.eventId;
+      ticketClassId = allocationContext.ticketTypeId;
+      ticketsRequired = 1;
+      totalCost = 0;
+      paymentMethod = 'free';
+    }
 
     console.log('[createOneOffEventBooking] Starting booking:', {
       eventId,
@@ -1814,6 +1842,12 @@ const functionHandlers = {
     if (!bookingAttendees || !Array.isArray(bookingAttendees) || bookingAttendees.length === 0) {
       console.error('[createOneOffEventBooking] No attendees provided:', { attendees: bookingAttendees });
       return { success: false, error: 'No attendees provided' };
+    }
+    if (allocationContext) {
+      const attendeeEmail = String(bookingAttendees[0]?.email || '').trim().toLowerCase();
+      if (bookingAttendees.length !== 1 || attendeeEmail !== allocationContext.delegateEmail) {
+        return { success: false, error: 'Delegate identity is fixed by the allocation invitation' };
+      }
     }
 
     // Get event details first (needed for tenant scoping)
@@ -1889,6 +1923,21 @@ const functionHandlers = {
       }
     } else {
       console.log('[createOneOffEventBooking] Guest booking - no member lookup needed');
+    }
+    if (allocationContext) {
+      const { data: allocationOrg, error: allocationOrgError } = await supabase
+        .from('organization')
+        .select('*')
+        .eq('tenant_id', event.tenant_id)
+        .eq('id', allocationContext.organizationId)
+        .maybeSingle();
+      if (allocationOrgError || !allocationOrg) {
+        return { success: false, error: 'Allocation organisation not found' };
+      }
+      if (member?.organization_id && member.organization_id !== allocationOrg.id) {
+        return { success: false, error: 'Delegate does not belong to the allocation organisation' };
+      }
+      org = allocationOrg;
     }
 
     // Task #1519: Group events (member_group_id set) are SELF-ONLY. A caller may
@@ -2572,7 +2621,9 @@ const functionHandlers = {
       const attendee = bookingAttendees[i];
       console.log(`[createOneOffEventBooking] Processing attendee ${i + 1}/${bookingAttendees.length}:`, attendee.email);
       // Calculate ticket price - use ticket class price if provided, otherwise from pricing config or total cost
-      const ticketPriceValue = ticketClassPrice || event.pricing_config?.ticketPrice || (totalCost / ticketsRequired);
+      const ticketPriceValue = allocationContext
+        ? 0
+        : (ticketClassPrice || event.pricing_config?.ticketPrice || (totalCost / ticketsRequired));
       
       // Generate unique booking reference for each attendee (append index if multiple attendees)
       // Keep the base reference in booking_group_reference for grouping all attendees together
@@ -2583,7 +2634,7 @@ const functionHandlers = {
       const bookingData = {
         event_id: event.id,
         member_id: isGuestBooking ? null : member?.id,
-        organization_id: isGuestBooking ? null : org?.id,
+        organization_id: allocationContext?.organizationId || (isGuestBooking ? null : org?.id),
         booking_reference: attendeeBookingRef,
         booking_group_reference: bookingReference, // Base reference to group all attendees from same booking session
         attendee_email: attendee.email,
@@ -2655,15 +2706,10 @@ const functionHandlers = {
           error: `Failed to create booking: ${bookingError.message || 'Unknown database error'}`,
           details: bookingError
         };
-      } else if (booking) {
+      }
+      if (booking) {
         console.log('[createOneOffEventBooking] Booking created:', booking.id);
         createdBookings.push(booking);
-        
-        try {
-          await scheduleBookingReminderEmails(booking.id, eventId, booking.attendee_email, ticketClassId);
-        } catch (err) {
-          console.error('[createOneOffEventBooking] Failed to schedule reminders:', err.message);
-        }
       }
     }
 
@@ -2764,6 +2810,29 @@ const functionHandlers = {
           error: 'Sorry, these tickets have just sold out.',
           sold_out: true
         };
+      }
+    }
+
+    // Claim only after the post-insert capacity guard. A losing capacity row
+    // is deleted by that guard, so claiming earlier would strand its invite.
+    if (allocationContext) {
+      const coveredBooking = createdBookings.find((booking) => String(booking.ticket_class_id) === String(ticketClassId));
+      if (!coveredBooking) return { success: false, error: 'Booking was not returned for allocation claim' };
+      try {
+        await claimAllocationInvitation(supabase, allocationInvitationToken, 'simple', coveredBooking.id);
+      } catch (claimError) {
+        // The booking is ordinary data until the claim succeeds. Delete it on
+        // failure; no invitation movement has been consumed yet.
+        const { error: deleteError } = await supabase.from('booking').delete().eq('id', coveredBooking.id);
+        if (deleteError) throw new Error(`Allocation claim failed and booking rollback failed: ${deleteError.message}`);
+        return { success: false, error: claimError.message };
+      }
+    }
+    for (const booking of createdBookings) {
+      try {
+        await scheduleBookingReminderEmails(booking.id, eventId, booking.attendee_email, ticketClassId);
+      } catch (err) {
+        console.error('[createOneOffEventBooking] Failed to schedule reminders:', err.message);
       }
     }
 

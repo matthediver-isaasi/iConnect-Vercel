@@ -23,6 +23,15 @@ import { getAccountingProvider } from '../_lib/accountingProvider.js';
 import { getAllowVoucherUseAfterExpiry, isVoucherUsableForEventDate } from '../_lib/voucherExpiryPolicy.js';
 import { orderVoucherIdsForRedemption } from '../_lib/voucherOrdering.js';
 import { sendConfirmationEmailsFromTemplate } from '../_lib/eventConfirmationEmail.js';
+import {
+  claimAllocationInvitation,
+  resolveAllocationInvitation,
+} from '../_lib/allocationInvitation.js';
+import {
+  paymentIntentMatchesAllocation,
+  refundBoundAllocationPayment,
+  runAuthorizedCardCompensation,
+} from '../_lib/allocationPaymentBinding.js';
 
 function generateBookingReference() {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -52,7 +61,7 @@ export default async function handler(req, res) {
     if (!tenant) return res.status(404).json({ error: 'Tenant not found' });
 
     const {
-      event_id,
+      event_id: requestedEventId,
       attendees: legacyAttendees,
       ticket_class_id: legacyTicketClassId,
       payment_method,
@@ -64,8 +73,21 @@ export default async function handler(req, res) {
       training_fund_amount: requestedTrainingFundAmount,
       purchase_order_number: purchaseOrderNumber,
       po_to_follow: poToFollow,
-      third_party_consent: thirdPartyConsent
+      third_party_consent: thirdPartyConsent,
+      allocation_invitation_token: allocationInvitationToken
     } = req.body;
+    let event_id = requestedEventId;
+    let allocationContext = null;
+    if (allocationInvitationToken) {
+      allocationContext = await resolveAllocationInvitation(supabase, allocationInvitationToken);
+      if (allocationContext.tenantId !== tenant.id || allocationContext.eventKind !== 'complex') {
+        return res.status(404).json({ error: 'Invalid allocation invitation' });
+      }
+      if (requestedEventId && requestedEventId !== allocationContext.eventId) {
+        return res.status(400).json({ error: 'Event is fixed by the allocation invitation' });
+      }
+      event_id = allocationContext.eventId;
+    }
 
     let authenticatedMember = null;
     try {
@@ -78,7 +100,8 @@ export default async function handler(req, res) {
       }
     } catch (e) {}
     const member_id = authenticatedMember?.id || null;
-    const organization_id = authenticatedMember?.organization_id || null;
+    const organization_id = allocationContext?.organizationId
+      || authenticatedMember?.organization_id || null;
 
     if (!event_id) return res.status(400).json({ error: 'event_id is required' });
 
@@ -91,6 +114,20 @@ export default async function handler(req, res) {
           attendees: legacyAttendees,
           discount_code: legacyDiscountCode
         }];
+    if (allocationContext) {
+      const coveredItems = normalizedItems.filter(
+        (item) => String(item.ticket_class_id) === String(allocationContext.ticketTypeId),
+      );
+      if (coveredItems.length !== 1 || coveredItems[0].attendees?.length !== 1) {
+        return res.status(400).json({
+          error: 'Allocation invitation covers exactly one delegate on its fixed ticket type',
+        });
+      }
+      const delegateEmail = String(coveredItems[0].attendees[0]?.email || '').trim().toLowerCase();
+      if (delegateEmail !== allocationContext.delegateEmail) {
+        return res.status(400).json({ error: 'Delegate email is fixed by the allocation invitation' });
+      }
+    }
 
     for (const item of normalizedItems) {
       if (!item.attendees || !Array.isArray(item.attendees) || item.attendees.length === 0) {
@@ -208,7 +245,9 @@ export default async function handler(req, res) {
       }
 
       const serverTicket = resolveTicketPrice(allTicketClasses, item.ticket_class_id);
-      let authoritativePrice = ticketClass?.is_free ? 0 : serverTicket.price;
+      const allocationCovered = !!allocationContext
+        && String(item.ticket_class_id) === String(allocationContext.ticketTypeId);
+      let authoritativePrice = allocationCovered || ticketClass?.is_free ? 0 : serverTicket.price;
       const ticketCurrency = (serverTicket.currency || 'gbp').toLowerCase();
       if (unifiedCurrency === null) {
         unifiedCurrency = ticketCurrency;
@@ -252,6 +291,7 @@ export default async function handler(req, res) {
         ticketCurrency,
         validatedDiscountCode,
         discountAmount,
+        allocationCovered,
         attendees: item.attendees
       });
     }
@@ -264,6 +304,8 @@ export default async function handler(req, res) {
     // Captured during card verification so sold-out paths can auto-refund
     // (mirrors the standard-event guard's auto-refund). Task #1760.
     let stripeSecretKeyForRefund = null;
+    let allocationPaymentBindingVerified = false;
+    let cardPaymentAuthorizedForCompensation = false;
 
     let org = null;
     if (organization_id) {
@@ -315,14 +357,37 @@ export default async function handler(req, res) {
             headers: { 'Authorization': `Bearer ${stripeSecretKey}` }
           });
           const paymentIntent = await stripeResponse.json();
+          const refundInvalidIntent = async () => {
+            if (paymentIntent.status !== 'succeeded') return;
+            await refundBoundAllocationPayment(paymentIntent, allocationContext, async () => {
+              await fetch('https://api.stripe.com/v1/refunds', {
+                method: 'POST',
+                headers: {
+                  'Authorization': `Bearer ${stripeSecretKey}`,
+                  'Content-Type': 'application/x-www-form-urlencoded',
+                  'Idempotency-Key': `complex-booking-invalid:${stripe_payment_intent_id}`,
+                },
+                body: new URLSearchParams({ payment_intent: stripe_payment_intent_id, reason: 'requested_by_customer' }),
+              });
+            });
+          };
 
           if (paymentIntent.status !== 'succeeded') {
             return res.status(400).json({ error: 'Payment has not been completed' });
           }
 
+          if (allocationContext) {
+            const allocationMetadataMatches = paymentIntentMatchesAllocation(paymentIntent, allocationContext);
+            if (!allocationMetadataMatches) {
+              return res.status(400).json({ error: 'Payment intent does not match this allocation invitation' });
+            }
+            allocationPaymentBindingVerified = true;
+          }
+
           const maxReasonableAmount = grandTotalMinor + 100;
           if (paymentIntent.amount > maxReasonableAmount) {
             console.error(`[Complex Event Booking] Stripe amount exceeds expected maximum: intent=${paymentIntent.amount}, max=${maxReasonableAmount}`);
+            await refundInvalidIntent();
             return res.status(400).json({ error: 'Payment amount exceeds expected total' });
           }
 
@@ -348,26 +413,35 @@ export default async function handler(req, res) {
           const minExpectedPence = Math.max(0, grandTotalMinor - maxServerDeductionsMinor);
           if (paymentIntent.amount < minExpectedPence - 100) {
             console.error(`[Complex Event Booking] Stripe amount too low: intent=${paymentIntent.amount}, minExpected=${minExpectedPence}`);
+            await refundInvalidIntent();
             return res.status(400).json({ error: 'Payment amount is insufficient for this booking' });
           }
 
           const firstCurrency = resolvedItems[0]?.ticketCurrency || 'gbp';
           const intentCurrency = (paymentIntent.currency || '').toLowerCase();
           if (intentCurrency !== firstCurrency.toLowerCase()) {
+            await refundInvalidIntent();
             return res.status(400).json({ error: 'Payment currency does not match' });
           }
 
           const piEventId = paymentIntent.metadata?.event_id;
           if (!piEventId || piEventId !== event_id) {
+            await refundInvalidIntent();
             return res.status(400).json({ error: 'Payment intent does not match this event' });
           }
 
           if (!isMultiTicket) {
             const piTicketClassId = paymentIntent.metadata?.ticket_class_id;
             if (piTicketClassId && piTicketClassId !== legacyTicketClassId) {
+              await refundInvalidIntent();
               return res.status(400).json({ error: 'Payment intent does not match this ticket class' });
             }
           }
+          // Set only after every ordinary authoritative PI validation above.
+          // Allocation checkouts can reach here only after their stronger
+          // invitation binding was also verified.
+          cardPaymentAuthorizedForCompensation = !allocationContext
+            || allocationPaymentBindingVerified;
         } catch (stripeErr) {
           console.error('[Complex Event Booking] Stripe verification error:', stripeErr);
           return res.status(500).json({ error: 'Failed to verify payment' });
@@ -596,15 +670,18 @@ export default async function handler(req, res) {
     // Auto-refund any card payment when we have to bail out on a sold-out race
     // (mirrors the standard-event guard's behaviour). Task #1760.
     const refundCardPayment = async () => {
-      if (confirmedPaymentMethod !== 'card' || !stripe_payment_intent_id || !stripeSecretKeyForRefund) {
+      if (confirmedPaymentMethod !== 'card' || !stripe_payment_intent_id || !stripeSecretKeyForRefund
+        || !cardPaymentAuthorizedForCompensation) {
         return { refunded: false };
       }
-      try {
+      return runAuthorizedCardCompensation(cardPaymentAuthorizedForCompensation, async () => {
+       try {
         const resp = await fetch('https://api.stripe.com/v1/refunds', {
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${stripeSecretKeyForRefund}`,
-            'Content-Type': 'application/x-www-form-urlencoded'
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'Idempotency-Key': `complex-booking-compensation:${stripe_payment_intent_id}`,
           },
           body: new URLSearchParams({
             payment_intent: stripe_payment_intent_id,
@@ -618,10 +695,11 @@ export default async function handler(req, res) {
         }
         console.log('[Complex Event Booking] Auto-refunded payment intent', stripe_payment_intent_id);
         return { refunded: true };
-      } catch (e) {
+       } catch (e) {
         console.error('[Complex Event Booking] Auto-refund exception:', e.message);
         return { refunded: false };
-      }
+       }
+      });
     };
 
     // Count-based ticket capacity PRE-CHECK (Task #1760). available_count on a
@@ -695,6 +773,7 @@ export default async function handler(req, res) {
             .update({ available_seats: currentEvent.available_seats + totalAttendees })
             .eq('id', event_id)
             .catch(e => console.error('[Complex Event Booking] Failed to restore event seats:', e.message));
+          seatsDecrementedForEvent = false;
         }
       }
     };
@@ -780,7 +859,6 @@ export default async function handler(req, res) {
           }
           return res.status(500).json({ error: 'Failed to create booking' });
         }
-
         bookings.push(booking);
         isFirstAttendeeOverall = false;
       }
@@ -806,9 +884,27 @@ export default async function handler(req, res) {
 
     const firstBookingRef = bookings[0]?.booking_reference || bookingGroupRef;
     let actualTrainingFundApplied = 0;
+    let actualAccountBalanceApplied = 0;
 
     const rollbackBookingsAndSeats = async () => {
       await restoreSeats();
+      for (const booking of bookings) {
+        if (!allocationContext || String(booking.ticket_class_id) !== String(allocationContext.ticketTypeId)) continue;
+        const { error: allocationRollbackError } = await supabase.rpc(
+          'unreconcile_sales_commercial_booking',
+          {
+            p_tenant_id: tenant.id,
+            p_booking_kind: 'complex',
+            p_booking_id: booking.id,
+            p_idempotency_key: `booking-rollback:${booking.id}`,
+            p_actor_kind: 'system',
+            p_actor_id: booking.id,
+          },
+        );
+        if (allocationRollbackError) {
+          throw new Error(`Failed to return allocated place: ${allocationRollbackError.message}`);
+        }
+      }
       if (bookings.length > 0) {
         await supabase
           .from('complex_event_booking')
@@ -903,6 +999,14 @@ export default async function handler(req, res) {
           .like('reason', `%${firstBookingRef}%`);
         if (tftDeleteErr) console.error('[Complex Event Booking] Training fund transaction rollback error:', tftDeleteErr.message);
         actualTrainingFundApplied = 0;
+      }
+      if (actualAccountBalanceApplied > 0 && org) {
+        const { error: accountRestoreError } = await supabase
+          .from('organization')
+          .update({ account_balance: (org.account_balance || 0) })
+          .eq('id', org.id);
+        if (accountRestoreError) throw new Error(`Account balance rollback failed: ${accountRestoreError.message}`);
+        actualAccountBalanceApplied = 0;
       }
     };
 
@@ -1041,6 +1145,7 @@ export default async function handler(req, res) {
           await rollbackBookingsAndSeats();
           return res.status(409).json({ error: 'Account balance deduction failed due to concurrent modification or insufficient balance' });
         }
+        actualAccountBalanceApplied = totalCostPounds;
         console.log(`[Complex Event Booking] Account balance decremented by £${totalCostPounds.toFixed(2)}, new balance: £${updatedOrgBal.account_balance.toFixed(2)}`);
       }
     }
@@ -1071,6 +1176,25 @@ export default async function handler(req, res) {
 
     const validatedRemainingBalance = Math.max(0, totalCostPounds - actualVoucherApplied - actualTfApplied);
     console.log(`[Complex Event Booking] Payment breakdown: totalCost=${totalCostPounds}, vouchers=${voucherAmountApplied}, trainingFund=${validatedTrainingFundAmount}, remaining=${validatedRemainingBalance}`);
+
+    // Claims happen after capacity and reversible internal deductions, but
+    // before invoices, confirmation messages, or reminder jobs.
+    if (allocationContext) {
+      const coveredBooking = bookings.find((booking) => String(booking.ticket_class_id) === String(allocationContext.ticketTypeId));
+      try {
+        await claimAllocationInvitation(supabase, allocationInvitationToken, 'complex', coveredBooking?.id);
+      } catch (claimError) {
+        try {
+          await rollbackFinancialDeductions();
+          await rollbackBookingsAndSeats();
+          await refundCardPayment();
+        } catch (compensationError) {
+          console.error('[Complex Event Booking] Allocation claim compensation failed:', compensationError.message);
+          return res.status(500).json({ error: `Allocation claim failed and compensation requires attention: ${compensationError.message}` });
+        }
+        return res.status(claimError.status || 409).json({ error: claimError.message });
+      }
+    }
 
     if (validatedRemainingBalance > 0) {
       const appTenantId = event.tenant_id || tenant.id;

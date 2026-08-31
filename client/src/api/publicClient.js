@@ -703,6 +703,15 @@ class PublicClient {
     });
   }
 
+  // Signed Event allocation context. The server is authoritative for Event,
+  // ticket and Organisation; callers should not infer these from query params.
+  async getEventAllocationContext(token) {
+    if (!token) return null;
+    return this._fetch(`/api/public/event-allocation/context/${encodeURIComponent(token)}`, {
+      credentials: 'include'
+    });
+  }
+
   // Photo Galleries (task #681) - returns public galleries with their photos
   async listGalleries() {
     return this._fetch('/api/public/galleries');

@@ -46,6 +46,7 @@ import { useComplexEventTicketAvailabilityRealtime } from "@/hooks/useComplexEve
 import PaymentOptions from "@/components/booking/PaymentOptions";
 import EventSponsorsCard from "@/components/events/EventSponsorsCard";
 import { getSeatStatusLabels } from "@/lib/seatStatusLabels";
+import { allocationCartUnitPrice, normalizeAllocationContext } from "@/lib/eventAllocation.mjs";
 
 
 function TrackAccessIndicator({ ticket, tracks }) {
@@ -91,11 +92,18 @@ function TrackAccessIndicator({ ticket, tracks }) {
   );
 }
 
-function AddAttendeeModal({ open, onOpenChange, ticketClass, memberInfo, organizationInfo, onAddAttendee, existingEmails, isGroupEvent = false }) {
+function AddAttendeeModal({ open, onOpenChange, ticketClass, memberInfo, organizationInfo, onAddAttendee, existingEmails, isGroupEvent = false, allocationContext = null }) {
   const [externalFirstName, setExternalFirstName] = useState('');
   const [externalLastName, setExternalLastName] = useState('');
   const [externalEmail, setExternalEmail] = useState('');
   const [externalOrganization, setExternalOrganization] = useState('');
+  useEffect(() => {
+    if (!open || !allocationContext) return;
+    setExternalEmail(allocationContext.delegateEmail || '');
+    setExternalFirstName(allocationContext.delegateFirstName || '');
+    setExternalLastName(allocationContext.delegateLastName || '');
+    setExternalOrganization(allocationContext.organizationName || '');
+  }, [open, allocationContext]);
 
   const resetExternal = () => {
     setExternalFirstName('');
@@ -181,10 +189,10 @@ function AddAttendeeModal({ open, onOpenChange, ticketClass, memberInfo, organiz
           </DialogDescription>
         </DialogHeader>
 
-        <Tabs defaultValue={memberInfo ? "self" : "external"} className="mt-2">
+        <Tabs defaultValue={allocationContext ? "external" : (memberInfo ? "self" : "external")} className="mt-2">
           <TabsList className="w-full">
-            {memberInfo && <TabsTrigger value="self" className="flex-1" data-testid="tab-self">Myself</TabsTrigger>}
-            {!isGroupEvent && memberInfo && organizationInfo && (
+            {memberInfo && !allocationContext && <TabsTrigger value="self" className="flex-1" data-testid="tab-self">Myself</TabsTrigger>}
+            {!allocationContext && !isGroupEvent && memberInfo && organizationInfo && (
               <TabsTrigger value="colleague" className="flex-1" data-testid="tab-colleague">Colleague</TabsTrigger>
             )}
             {(!isGroupEvent || !memberInfo) && (
@@ -259,12 +267,14 @@ function AddAttendeeModal({ open, onOpenChange, ticketClass, memberInfo, organiz
               placeholder="Email *"
               value={externalEmail}
               onChange={(e) => setExternalEmail(e.target.value)}
+                disabled={Boolean(allocationContext)}
               data-testid="input-external-email"
             />
             <Input
               placeholder="Organisation (optional)"
               value={externalOrganization}
               onChange={(e) => setExternalOrganization(e.target.value)}
+                disabled={Boolean(allocationContext)}
               data-testid="input-external-org"
             />
             <div className="flex gap-2">
@@ -374,7 +384,7 @@ function TicketDiscountInput({ ticketClassId, discountInfo, onApply, onRemove, e
   );
 }
 
-function CartSummary({ cart, ticketClasses, onRemoveAttendee, onUpdateAttendee, getEffectiveTicketPrice, eventOptions }) {
+function CartSummary({ cart, ticketClasses, onRemoveAttendee, onUpdateAttendee, getEffectiveTicketPrice, eventOptions, allocationContext = null }) {
   const entries = Object.entries(cart).filter(([, item]) => item.attendees.length > 0);
   if (entries.length === 0) return null;
 
@@ -385,7 +395,9 @@ function CartSummary({ cart, ticketClasses, onRemoveAttendee, onUpdateAttendee, 
     const tc = item.ticketClass;
     const ep = tc && getEffectiveTicketPrice ? getEffectiveTicketPrice(tc) : { price: 0 };
     const di = item.discountInfo;
-    const effectiveUnitPrice = di ? di.discountedPrice : ep.price;
+    const effectiveUnitPrice = allocationCartUnitPrice(
+      ticketClassId, di ? di.discountedPrice : ep.price, allocationContext,
+    );
     const subtotal = effectiveUnitPrice * item.attendees.length;
     grandTotal += subtotal;
     return { ticketClassId, unitPrice: effectiveUnitPrice, originalPrice: ep.price, subtotal, discountInfo: di };
@@ -413,14 +425,15 @@ function CartSummary({ cart, ticketClasses, onRemoveAttendee, onUpdateAttendee, 
               )}
               <span className="ml-auto text-[11px] text-slate-500">
                 {item.attendees.length} x{' '}
-                {sub.discountInfo ? (
+                {allocationContext && String(ticketClassId) === allocationContext.ticketTypeId ? <span className="font-medium text-emerald-700">Covered</span> :
+                (sub.discountInfo ? (
                   <>
                     <span className="line-through text-slate-400">{'\u00a3'}{sub.originalPrice.toFixed(2)}</span>
                     {' '}{'\u00a3'}{sub.unitPrice.toFixed(2)}
                   </>
                 ) : (
                   <>{'\u00a3'}{sub.unitPrice.toFixed(2)}</>
-                )}
+                ))}
                 {' = '}{'\u00a3'}{sub.subtotal.toFixed(2)}
               </span>
             </div>
@@ -444,6 +457,8 @@ function CartSummary({ cart, ticketClasses, onRemoveAttendee, onUpdateAttendee, 
                     size="icon"
                     className="shrink-0"
                     onClick={() => onRemoveAttendee(ticketClassId, i)}
+                    disabled={Boolean(allocationContext)
+                      && String(ticketClassId) === String(allocationContext.ticketTypeId)}
                     data-testid={`button-remove-cart-attendee-${ticketClassId}-${i}`}
                   >
                     <X className="w-3.5 h-3.5 text-slate-400" />
@@ -470,7 +485,7 @@ function CartSummary({ cart, ticketClasses, onRemoveAttendee, onUpdateAttendee, 
   );
 }
 
-function BookingSection({ event, sessions, memberInfo, organizationInfo, memberGroupIds, onBookingComplete, cart, setCart, editorMode = false }) {
+function BookingSection({ event, sessions, memberInfo, organizationInfo, memberGroupIds, onBookingComplete, cart, setCart, editorMode = false, allocationContext = null }) {
   const [attendeeModalOpen, setAttendeeModalOpen] = useState(false);
   const [modalTicketClassId, setModalTicketClassId] = useState(null);
   const [termsAccepted, setTermsAccepted] = useState(false);
@@ -527,6 +542,7 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
   // the count-based fields embedded by the public API, falling back to the
   // raw capacity only when nothing else is available.
   const isTicketSoldOut = useCallback((tc) => {
+    if (allocationContext?.ticketTypeId && String(tc.id) === allocationContext.ticketTypeId) return false;
     const live = getTicketClassAvailability(tc.id);
     if (live) return live.isSoldOut;
     const isUnlimited = tc.is_unlimited_tickets === true
@@ -537,7 +553,7 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
     if (typeof tc.is_sold_out === 'boolean') return tc.is_sold_out;
     if (typeof tc.remaining === 'number') return tc.remaining <= 0;
     return Number(tc.available_count) <= 0;
-  }, [getTicketClassAvailability]);
+  }, [getTicketClassAvailability, allocationContext?.ticketTypeId]);
 
   // Remaining tickets for a finite class, or null when unlimited / unknown.
   const getTicketRemaining = useCallback((tc) => {
@@ -561,6 +577,8 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
 
   const availableTicketClasses = useMemo(() => {
     return ticketClasses.filter(tc => {
+      if (allocationContext?.ticketTypeId
+        && String(tc.id) === String(allocationContext.ticketTypeId)) return true;
       const vis = getTicketVisibility(tc);
       const ticketRoleIds = Array.isArray(tc.role_ids) ? tc.role_ids : [];
       const ticketGroupIds = Array.isArray(tc.member_group_ids) ? tc.member_group_ids : [];
@@ -577,7 +595,7 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
       const groupMatches = (memberGroupIds || []).some(g => ticketGroupIds.includes(g));
       return roleMatches || groupMatches;
     });
-  }, [ticketClasses, isGuest, userRoleId, memberGroupIds]);
+  }, [ticketClasses, isGuest, userRoleId, memberGroupIds, allocationContext?.ticketTypeId]);
 
   const isTicketRestricted = (tc) => {
     const vis = getTicketVisibility(tc);
@@ -615,6 +633,29 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
     setAttendeeModalOpen(true);
   }, []);
 
+  useEffect(() => {
+    if (!allocationContext?.ticketTypeId) return;
+    const ticketClassId = String(allocationContext.ticketTypeId);
+    const ticketClass = ticketClasses.find((ticket) => String(ticket.id) === ticketClassId);
+    if (!ticketClass) return;
+    setCart((previous) => {
+      const existing = previous[ticketClassId];
+      if (existing?.attendees?.length) return previous;
+      return {
+        ...previous,
+        [ticketClassId]: {
+          ticketClass,
+          attendees: [{
+            email: allocationContext.delegateEmail || '',
+            first_name: allocationContext.delegateFirstName || '',
+            last_name: allocationContext.delegateLastName || '',
+            organization: allocationContext.organizationName || '',
+          }],
+        },
+      };
+    });
+  }, [allocationContext, setCart, ticketClasses]);
+
   const handleAddAttendee = useCallback((attendee) => {
     if (!modalTicketClassId) return;
     setCart(prev => {
@@ -643,6 +684,8 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
   }, []);
 
   const handleRemoveAttendee = useCallback((ticketClassId, attendeeIndex) => {
+    if (allocationContext?.ticketTypeId
+      && String(ticketClassId) === String(allocationContext.ticketTypeId)) return;
     setCart(prev => {
       const existing = prev[ticketClassId];
       if (!existing) return prev;
@@ -654,7 +697,7 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
       }
       return { ...prev, [ticketClassId]: updated };
     });
-  }, []);
+  }, [allocationContext?.ticketTypeId]);
 
   const handleApplyDiscount = useCallback((ticketClassId, discountInfo) => {
     setCart(prev => {
@@ -695,7 +738,9 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
         const tc = item.ticketClass;
         const ep = tc ? getEffectiveTicketPrice(tc) : { price: 0, isEarlyBird: false };
         const di = item.discountInfo;
-        const effectiveUnitPrice = di ? di.discountedPrice : ep.price;
+        const effectiveUnitPrice = allocationCartUnitPrice(
+          ticketClassId, di ? di.discountedPrice : ep.price, allocationContext,
+        );
         return {
           ticketClassId,
           ticketClass: tc,
@@ -707,7 +752,7 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
           discountInfo: di || null
         };
       });
-  }, [cart]);
+  }, [cart, allocationContext]);
 
   const grandTotal = useMemo(() => {
     return cartItems.reduce((sum, item) => sum + item.subtotal, 0);
@@ -731,7 +776,8 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
       }));
       return publicClient.createComplexEventPaymentIntent({
         event_id: event.id,
-        items
+        items,
+        allocation_invitation_token: allocationContext?.token || undefined,
       });
     },
     submitBooking: (data) => {
@@ -762,6 +808,7 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
         payment_method: data.payment_method,
         stripe_payment_intent_id: data.stripe_payment_intent_id || null,
         third_party_consent: typeof data.third_party_consent === 'boolean' ? data.third_party_consent : null
+        ,allocation_invitation_token: allocationContext?.token || undefined
       });
     },
     _getCartItems: () => {
@@ -781,7 +828,7 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
         }))
       }));
     },
-  }), [cartItems, event]);
+  }), [cartItems, event, allocationContext]);
 
   const paymentOptionsEvent = useMemo(() => ({
     ...event,
@@ -908,7 +955,7 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
               {!tbcReplacementActive && (
                 <div className="flex flex-col items-end gap-1.5 shrink-0">
                   <div className="text-base font-semibold text-slate-900">
-                    {tcPrice.price === 0 ? 'Free' : `\u00a3${tcPrice.price.toFixed(2)}`}
+                    {allocationContext?.ticketTypeId === String(tc.id) ? <Badge className="bg-emerald-600">Covered by allocation</Badge> : (tcPrice.price === 0 ? 'Free' : `\u00a3${tcPrice.price.toFixed(2)}`)}
                   </div>
                   {tcPrice.isEarlyBird && (
                     <div className="text-xs text-slate-400 line-through">
@@ -924,7 +971,9 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
                 variant="outline"
                 size="sm"
                 onClick={() => handleOpenAttendeeModal(tc.id)}
-                disabled={restricted || soldOut || (isGroupEvent && totalAttendeeCount >= 1)}
+                disabled={restricted || soldOut || (isGroupEvent && totalAttendeeCount >= 1)
+                  || (Boolean(allocationContext?.ticketTypeId)
+                    && String(tc.id) === String(allocationContext.ticketTypeId) && count >= 1)}
                 data-testid={`button-add-attendee-${tc.id}`}
               >
                 <UserPlus className="w-3.5 h-3.5 mr-1" />
@@ -936,7 +985,8 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
                 </Badge>
               )}
             </div>
-            {count > 0 && tcPrice.price > 0 && (
+            {count > 0 && tcPrice.price > 0
+              && String(tc.id) !== String(allocationContext?.ticketTypeId) && (
               <TicketDiscountInput
                 ticketClassId={tc.id}
                 discountInfo={cartEntry?.discountInfo || null}
@@ -998,6 +1048,7 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-6">
+        {allocationContext && <div className="flex items-start gap-3 rounded-lg border border-blue-200 bg-blue-50 p-4" data-testid="allocation-context"><Lock className="mt-0.5 h-5 w-5 text-blue-700" /><div><p className="font-semibold text-blue-950">Registering an allocated delegate</p><p className="text-sm text-blue-800">{allocationContext.ticketName} for {allocationContext.organizationName}. Event, ticket and Organisation are fixed.</p></div></div>}
         {useCtaOverrideDetailMode ? (
           <>
             <div className="space-y-3">
@@ -1119,7 +1170,7 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
             )}
             {ticketCards}
             {!tbcReplacementActive && (
-              <CartSummary cart={cart} ticketClasses={ticketClasses} onRemoveAttendee={handleRemoveAttendee} onUpdateAttendee={handleUpdateAttendee} getEffectiveTicketPrice={getEffectiveTicketPrice} eventOptions={eventOptions} />
+              <CartSummary cart={cart} ticketClasses={ticketClasses} onRemoveAttendee={handleRemoveAttendee} onUpdateAttendee={handleUpdateAttendee} getEffectiveTicketPrice={getEffectiveTicketPrice} eventOptions={eventOptions} allocationContext={allocationContext} />
             )}
             {paymentOptionsSection}
           </>
@@ -1135,6 +1186,7 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
         onAddAttendee={handleAddAttendee}
         existingEmails={allExistingEmails}
         isGroupEvent={isGroupEvent}
+        allocationContext={allocationContext}
       />
 
       <Dialog open={showTermsModal} onOpenChange={setShowTermsModal}>
@@ -1172,6 +1224,7 @@ export function ComplexEventDetailExperience({
   eventSlug: explicitEventSlug = null,
   embedded = false,
   editorMode = false,
+  allocationToken = null,
 }) {
   const { memberInfo, organizationInfo, isAdmin, authResolved } = useMemberAccess();
   // Task #3508: canonical ACTIVE-group-membership signal (unexpired assignment
@@ -1180,6 +1233,13 @@ export function ComplexEventDetailExperience({
   const [showSpeakerModal, setShowSpeakerModal] = useState(false);
   const [selectedSpeaker, setSelectedSpeaker] = useState(null);
   const [cart, setCart] = useState({});
+  const { data: allocationPayload, isLoading: allocationLoading, error: allocationError } = useQuery({
+    queryKey: ['event-allocation-context', allocationToken],
+    queryFn: () => publicClient.getEventAllocationContext(allocationToken),
+    enabled: Boolean(allocationToken),
+    retry: false,
+  });
+  const allocationContext = useMemo(() => allocationToken ? { ...normalizeAllocationContext(allocationPayload), token: allocationToken } : null, [allocationPayload, allocationToken]);
 
   // Load the current member's group assignments so tickets restricted by
   // member_group_ids can be matched on the frontend (OR with role match).
@@ -1196,7 +1256,7 @@ export function ComplexEventDetailExperience({
     }
   });
 
-  const isSlugLookup = !!explicitEventSlug && !explicitEventId;
+  const isSlugLookup = !!explicitEventSlug && !explicitEventId && !allocationContext?.eventId;
 
   const { data: slugResolvedEvent, isLoading: isSlugLoading } = useQuery({
     queryKey: ['complex-event-by-slug', explicitEventSlug],
@@ -1204,7 +1264,7 @@ export function ComplexEventDetailExperience({
     enabled: isSlugLookup
   });
 
-  const eventId = explicitEventId || (slugResolvedEvent?.id) || null;
+  const eventId = allocationContext?.eventId || explicitEventId || (slugResolvedEvent?.id) || null;
 
   const { data: event, isLoading: eventLoading } = useQuery({
     queryKey: ['complex-event', eventId],
@@ -1382,7 +1442,7 @@ export function ComplexEventDetailExperience({
     return () => { document.title = 'Portal'; };
   }, [event, editorMode]);
 
-  const isLoading = eventLoading || isSlugLoading;
+  const isLoading = eventLoading || isSlugLoading || sessionsLoading || allocationLoading;
   const tz = event?.timezone || DEFAULT_TIMEZONE;
 
   if (isLoading) {
@@ -1391,6 +1451,10 @@ export function ComplexEventDetailExperience({
         <Loader2 className="w-8 h-8 animate-spin text-slate-400" />
       </div>
     );
+  }
+
+  if (allocationError) {
+    return <div className="min-h-screen bg-slate-50 p-6"><Card className="mx-auto max-w-lg border-rose-200"><CardContent className="p-6 text-rose-700"><AlertCircle className="mr-2 inline h-5 w-5" />This allocation link is invalid, expired, or no longer available.</CardContent></Card></div>;
   }
 
   if (!event) {
@@ -1732,6 +1796,7 @@ export function ComplexEventDetailExperience({
                   cart={cart}
                   setCart={setCart}
                   editorMode={editorMode}
+                  allocationContext={allocationContext}
                   onBookingComplete={() => { setCart({}); }}
                 />
               );
@@ -1802,6 +1867,7 @@ export default function ComplexEventDetail() {
       eventSlug={routeParams.eventSlug || urlParams.get('slug')}
       embedded={urlParams.get('embed') === 'true'}
       editorMode={false}
+      allocationToken={urlParams.get('allocation')}
     />
   );
 }

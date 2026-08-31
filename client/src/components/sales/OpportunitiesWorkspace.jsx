@@ -12,6 +12,7 @@ import { getOpportunityUiCapabilities } from "@/lib/opportunityCapabilities";
 import { normalizeOpportunityDetail } from "@/lib/opportunityDetail";
 import { hasAccountingManagementCapability } from "@/lib/salesAccountingConfiguration";
 import SalesAccountingSettingsPanel from "@/components/sales/SalesAccountingSettingsPanel";
+import { OpportunityAllocations } from "@/components/sales/EventAllocationManager";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -455,7 +456,7 @@ function OpportunityDetail() {
       <TabsContent value="tasks"><CollectionPanel opportunityId={id} type="tasks" items={collections.tasks} canEdit={canEdit} onChanged={refresh} /></TabsContent>
       <TabsContent value="activity"><div className="grid gap-4 lg:grid-cols-2"><Timeline title="Activity" items={collections.activity} /><Timeline title="Stage history" items={collections.stageHistory} /></div></TabsContent>
       <TabsContent value="quotes"><Card><CardContent className="p-10 text-center"><FileText className="mx-auto h-8 w-8 text-slate-300" /><h3 className="mt-3 font-semibold">Opportunity quotes</h3><p className="mt-1 text-sm text-slate-500">Create and manage immutable quote versions in the Quotes workspace.</p><Button className="mt-4" asChild><Link to={`/sales/quotes/new?opportunityId=${id}`}><Plus className="mr-2 h-4 w-4" />Create quote</Link></Button></CardContent></Card></TabsContent>
-      <TabsContent value="allocations"><Placeholder title="Allocations" text="Product and service allocations will appear here when allocation management is enabled." /></TabsContent>
+      <TabsContent value="allocations"><OpportunityAllocations opportunityId={id} /></TabsContent>
     </Tabs>
     <LossReasonDialog open={lossDialogOpen} onOpenChange={setLossDialogOpen} reasons={arr(lossReasonsQuery.data)} onConfirm={(lossReasonId) => { setLossDialogOpen(false); update.mutate(lossReasonId); }} />
   </div>;

@@ -10,6 +10,7 @@ import {
   validateDiscountCode,
   computeDiscountedPrice
 } from '../_lib/complexEventPricing.js';
+import { resolveAllocationInvitation } from '../_lib/allocationInvitation.js';
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -29,7 +30,20 @@ export default async function handler(req, res) {
     const tenant = await resolveTenantFromRequest(req);
     if (!tenant) return res.status(404).json({ error: 'Tenant not found' });
 
-    const { event_id, ticket_class_id, attendee_count = 1, discount_code, items } = req.body;
+    const { event_id: requestedEventId, ticket_class_id: requestedTicketClassId, attendee_count = 1, discount_code, items,
+      allocation_invitation_token: allocationInvitationToken } = req.body;
+    let allocationContext = null;
+    if (allocationInvitationToken) {
+      allocationContext = await resolveAllocationInvitation(supabase, allocationInvitationToken);
+      if (allocationContext.tenantId !== tenant.id || allocationContext.eventKind !== 'complex') {
+        return res.status(404).json({ error: 'Invalid allocation invitation' });
+      }
+      if (requestedEventId && String(requestedEventId) !== String(allocationContext.eventId)) {
+        return res.status(400).json({ error: 'Event is fixed by the allocation invitation' });
+      }
+    }
+    const event_id = allocationContext?.eventId || requestedEventId;
+    const ticket_class_id = requestedTicketClassId;
 
     if (!event_id) {
       return res.status(400).json({ error: 'event_id is required' });
@@ -96,6 +110,12 @@ export default async function handler(req, res) {
           attendee_count: Math.max(1, Math.min(100, parseInt(attendee_count) || 1)),
           discount_code: discount_code || null
         }];
+    if (allocationContext) {
+      const covered = normalizedItems.filter((item) => String(item.ticket_class_id) === String(allocationContext.ticketTypeId));
+      if (covered.length !== 1 || covered[0].attendee_count !== 1) {
+        return res.status(400).json({ error: 'Allocation invitation covers exactly one fixed ticket' });
+      }
+    }
 
     let grandTotalMinor = 0;
     let currency = 'gbp';
@@ -117,7 +137,9 @@ export default async function handler(req, res) {
         return res.status(400).json({ error: `Invalid ticket class: ${item.ticket_class_id}` });
       }
 
-      let finalPrice = ticket.price;
+      const allocationCovered = !!allocationContext
+        && String(item.ticket_class_id) === String(allocationContext.ticketTypeId);
+      let finalPrice = allocationCovered ? 0 : ticket.price;
 
       if (ticket.price === 0) {
         ticketClassIds.push(item.ticket_class_id);
@@ -176,7 +198,8 @@ export default async function handler(req, res) {
         unit_price: finalPrice,
         original_price: ticket.price,
         attendee_count: item.attendee_count,
-        subtotal_minor: itemTotal
+        subtotal_minor: itemTotal,
+        allocation_covered: allocationCovered
       });
     }
 
@@ -198,6 +221,13 @@ export default async function handler(req, res) {
       type: 'complex_event_booking',
       is_multi_ticket: isMultiTicket ? 'true' : 'false'
     };
+    if (allocationContext) {
+      // Never stamp the bearer token itself into Stripe metadata.
+      metadata.allocation_invitation_id = allocationContext.invitationId;
+      metadata.allocation_event_id = allocationContext.eventId;
+      metadata.allocation_ticket_type_id = allocationContext.ticketTypeId;
+      metadata.allocation_delegate_email = allocationContext.delegateEmail;
+    }
 
     if (!isMultiTicket) {
       metadata.ticket_class_id = ticket_class_id;
