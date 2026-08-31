@@ -48,16 +48,31 @@ test('FormBuilder registers organisation groups without replacing organisation d
   );
 });
 
-test('conditional rule conditions stay visible while actions can be collapsed', () => {
+test('conditional rules start collapsed and expose independent accessible controls', () => {
+  assert.match(formBuilderSource, /const \[expandedRuleIds, setExpandedRuleIds\] = useState\(\(\) => new Set\(\)\)/);
+  assert.match(formBuilderSource, /const ruleExpanded = expandedRuleIds\.has\(rule\.id\)/);
+  assert.match(formBuilderSource, /data-testid=\{`button-toggle-rule-\$\{index\}`\}/);
+  assert.match(formBuilderSource, /aria-expanded=\{ruleExpanded\}/);
+  assert.match(formBuilderSource, /aria-controls=\{`rule-editor-\$\{rule\.id\}`\}/);
+  assert.match(formBuilderSource, /\{ruleExpanded && \(/);
+  assert.match(formBuilderSource, /data-testid=\{`rule-editor-\$\{index\}`\}/);
+
+  // IDs are expanded only on demand, so rules arriving after mount are also collapsed.
+  assert.doesNotMatch(formBuilderSource, /useState\([^)]*visibilityRules/);
+  assert.match(formBuilderSource, /setExpandedRuleIds\(\(current\) => new Set\(current\)\.add\(newRule\.id\)\)/);
+
+  // The nested actions disclosure remains available inside an expanded rule.
   assert.match(formBuilderSource, /const \[collapsedActionRuleIds, setCollapsedActionRuleIds\] = useState/);
   assert.match(formBuilderSource, /data-testid=\{`button-toggle-rule-actions-\$\{index\}`\}/);
   assert.match(formBuilderSource, /aria-expanded=\{actionsExpanded\}/);
   assert.match(formBuilderSource, /\{actionsExpanded && \(/);
 
+  const ruleTogglePosition = formBuilderSource.indexOf('button-toggle-rule-');
   const conditionsPosition = formBuilderSource.indexOf('{/* Conditions */}');
   const actionsTogglePosition = formBuilderSource.indexOf('button-toggle-rule-actions-');
   const collapsibleContentPosition = formBuilderSource.indexOf('rule-actions-${index}');
-  assert.ok(conditionsPosition >= 0 && conditionsPosition < actionsTogglePosition);
+  assert.ok(ruleTogglePosition >= 0 && ruleTogglePosition < conditionsPosition);
+  assert.ok(conditionsPosition < actionsTogglePosition);
   assert.ok(actionsTogglePosition < collapsibleContentPosition);
 });
 
