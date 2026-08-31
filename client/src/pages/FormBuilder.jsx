@@ -973,18 +973,9 @@ function LogicRulesSection({
 }) {
   // Track the last rules JSON we migrated to detect new data
   const lastMigratedJsonRef = React.useRef(null);
-  const [expandedRuleIds, setExpandedRuleIds] = useState(() => new Set());
-  const [collapsedActionRuleIds, setCollapsedActionRuleIds] = useState(() => new Set());
-  const toggleRuleExpanded = (ruleId) => {
-    setExpandedRuleIds((current) => {
-      const next = new Set(current);
-      if (next.has(ruleId)) next.delete(ruleId);
-      else next.add(ruleId);
-      return next;
-    });
-  };
+  const [expandedActionRuleIds, setExpandedActionRuleIds] = useState(() => new Set());
   const toggleRuleActions = (ruleId) => {
-    setCollapsedActionRuleIds((current) => {
+    setExpandedActionRuleIds((current) => {
       const next = new Set(current);
       if (next.has(ruleId)) next.delete(ruleId);
       else next.add(ruleId);
@@ -1223,7 +1214,6 @@ function LogicRulesSection({
       }],
       actions: [] // Start with empty actions, user adds them
     };
-    setExpandedRuleIds((current) => new Set(current).add(newRule.id));
     onRulesChange([...visibilityRules, newRule]);
   };
 
@@ -1925,8 +1915,7 @@ function LogicRulesSection({
                   // For set_value actions, include ALL fields (including locked ones) - locked fields are prime targets for conditional value setting
                   const availableSetValueTargetFields = fields;
                   const actions = normalizedRule.actions || [];
-                  const ruleExpanded = expandedRuleIds.has(rule.id);
-                  const actionsExpanded = !collapsedActionRuleIds.has(rule.id);
+                  const actionsExpanded = expandedActionRuleIds.has(rule.id);
 
                   return (
                     <Draggable key={rule.id} draggableId={rule.id} index={index}>
@@ -1947,22 +1936,12 @@ function LogicRulesSection({
                     >
                       <GripVertical className="w-4 h-4 text-slate-400" />
                     </div>
-                    <button
-                      type="button"
-                      className="flex items-center gap-2 rounded px-1 py-1 text-left hover:bg-slate-100"
-                      onClick={() => toggleRuleExpanded(rule.id)}
-                      aria-expanded={ruleExpanded}
-                      aria-controls={`rule-editor-${rule.id}`}
-                      data-testid={`button-toggle-rule-${index}`}
-                    >
-                      {ruleExpanded
-                        ? <ChevronUp className="h-4 w-4 text-slate-500" />
-                        : <ChevronDown className="h-4 w-4 text-slate-500" />}
+                    <div className="flex items-center gap-2 px-1 py-1">
                       <Settings2 className="w-4 h-4 text-slate-600" />
                       <span className="text-xs font-medium text-slate-600">
                         Rule #{index + 1} ({conditions.length} condition{conditions.length !== 1 ? 's' : ''}, {actions.length} action{actions.length !== 1 ? 's' : ''})
                       </span>
-                    </button>
+                    </div>
                   </div>
                   <Button
                     variant="ghost"
@@ -1975,8 +1954,7 @@ function LogicRulesSection({
                   </Button>
                 </div>
 
-                {ruleExpanded && (
-                  <div id={`rule-editor-${rule.id}`} className="space-y-3" data-testid={`rule-editor-${index}`}>
+                <div className="space-y-3" data-testid={`rule-editor-${index}`}>
                 {/* AND/OR Logic Toggle - shown when multiple conditions */}
                 {conditions.length > 1 && (
                   <div className="flex items-center gap-2 pb-2">
@@ -2612,7 +2590,6 @@ function LogicRulesSection({
                   )}
                 </div>
                   </div>
-                )}
               </div>
                       )}
                     </Draggable>
