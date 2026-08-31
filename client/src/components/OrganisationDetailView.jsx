@@ -105,6 +105,7 @@ import WorkflowConfirmationModal, { DryRunSimulationModal } from "@/components/W
 import { listAllOrganizationsForAdmin } from '@/lib/adminOrgList';
 import InviteMemberDialog from "@/components/InviteMemberDialog";
 import RelatedOpportunityActivity from "@/components/opportunities/RelatedOpportunityActivity";
+import { OrganisationCommercial } from "@/components/sales/SalesReportingWorkspace";
 import { RelatedRecordsPanel, useRelatedRecordDefinitions } from "@/pages/customObjects/RelatedRecordsPanel";
 import { labelForSide, relationshipTabValue } from "@/pages/customObjects/relationshipHelpers";
 import {
@@ -289,6 +290,9 @@ export default function OrganisationDetailView({
   const { isAdmin, memberInfo, isAccessReady, isFeatureExcluded } = useMemberAccess();
   const { memberLabel, memberLabelPlural } = useMemberTerminology();
   const hideTrainingFundCard = isFeatureExcluded('crm.organisations.fund');
+  const canViewCommercial = isAccessReady && (isAdmin || (
+    !isFeatureExcluded('sales.view') && !isFeatureExcluded('sales.reports.view')
+  ));
   const { formatDate } = useDateFormat();
   const queryClient = useQueryClient();
   const relatedRecords = useRelatedRecordDefinitions({
@@ -1821,6 +1825,11 @@ export default function OrganisationDetailView({
               <TabsTrigger value="activity" className="data-[state=active]:border-b-2 data-[state=active]:border-blue-600 rounded-none" data-testid="tab-activity">
                 Activity
               </TabsTrigger>
+              {canViewCommercial && !isNew && (
+                <TabsTrigger value="commercial" className="data-[state=active]:border-b-2 data-[state=active]:border-blue-600 rounded-none" data-testid="tab-commercial">
+                  Commercial
+                </TabsTrigger>
+              )}
               <TabsTrigger value="notes" className="data-[state=active]:border-b-2 data-[state=active]:border-blue-600 rounded-none" data-testid="tab-notes">
                 Notes
               </TabsTrigger>
@@ -2317,6 +2326,11 @@ export default function OrganisationDetailView({
               organizationId={organization?.id}
               enabled={activeTab === 'activity'}
             />
+          </div>
+        )}
+        {activeTab === 'commercial' && canViewCommercial && !isNew && (
+          <div className="p-6">
+            <OrganisationCommercial organizationId={organization?.id} enabled />
           </div>
         )}
 

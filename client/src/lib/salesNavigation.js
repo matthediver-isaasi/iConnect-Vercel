@@ -7,7 +7,7 @@ export const SALES_DESTINATIONS = Object.freeze([
   { key: 'products', label: 'Products', permissionId: 'sales.catalogue-prices.manage' },
   { key: 'bundles', label: 'Bundles', permissionId: 'sales.catalogue-prices.manage' },
   { key: 'tasks', label: 'Tasks', permissionId: 'sales.tasks' },
-  { key: 'reports', label: 'Reports', permissionId: 'sales.reports' },
+  { key: 'reports', label: 'Reports', permissionId: 'sales.reports.view' },
   { key: 'settings', label: 'Settings', permissionId: 'sales.settings' },
 ].map((destination) => ({
   ...destination,

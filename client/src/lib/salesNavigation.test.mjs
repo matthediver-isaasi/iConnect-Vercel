@@ -17,6 +17,10 @@ test('each Sales destination has its own page permission and route', () => {
   }
 });
 
+test('Reports navigation uses the same capability enforced by the API', () => {
+  assert.equal(getSalesDestination('reports')?.permissionId, 'sales.reports.view');
+});
+
 test('Sales navigation is hidden when baseline Sales access is excluded', () => {
   const visible = getVisibleSalesDestinations((id) => id === 'sales.view');
   assert.deepEqual(visible, []);
