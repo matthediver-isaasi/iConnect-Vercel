@@ -407,7 +407,7 @@ async function fetchAll(db, table, columns, configure = (query) => query) {
   }
 }
 
-async function memberAssignmentNullability() {
+export async function memberAssignmentNullability() {
   if (!process.env.DEST_DATABASE_URL) {
     const response = await fetch(`${process.env.DEST_SUPABASE_URL}/rest/v1/`, {
       headers: {
