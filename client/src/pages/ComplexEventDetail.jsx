@@ -470,7 +470,7 @@ function CartSummary({ cart, ticketClasses, onRemoveAttendee, onUpdateAttendee, 
   );
 }
 
-function BookingSection({ event, sessions, memberInfo, organizationInfo, memberGroupIds, onBookingComplete, cart, setCart }) {
+function BookingSection({ event, sessions, memberInfo, organizationInfo, memberGroupIds, onBookingComplete, cart, setCart, editorMode = false }) {
   const [attendeeModalOpen, setAttendeeModalOpen] = useState(false);
   const [modalTicketClassId, setModalTicketClassId] = useState(null);
   const [termsAccepted, setTermsAccepted] = useState(false);
@@ -957,7 +957,7 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
     </div>
   );
 
-  const isStripeReturn = typeof window !== 'undefined' &&
+  const isStripeReturn = !editorMode && typeof window !== 'undefined' &&
     new URLSearchParams(window.location.search).has('payment_intent');
 
   const shouldShowPaymentOptions = totalAttendeeCount > 0 || isStripeReturn;
@@ -1163,7 +1163,16 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
   );
 }
 
-export default function ComplexEventDetail() {
+/**
+ * Complete complex-event experience. The event identifier and hosting context
+ * are explicit so this can render independently of a route.
+ */
+export function ComplexEventDetailExperience({
+  eventId: explicitEventId = null,
+  eventSlug: explicitEventSlug = null,
+  embedded = false,
+  editorMode = false,
+}) {
   const { memberInfo, organizationInfo, isAdmin, authResolved } = useMemberAccess();
   // Task #3508: canonical ACTIVE-group-membership signal (unexpired assignment
   // + active group, resolved server-side) used for the join-to-book gate.
@@ -1187,20 +1196,15 @@ export default function ComplexEventDetail() {
     }
   });
 
-  const routeParams = useParams();
-  const urlParams = new URLSearchParams(window.location.search);
-  const eventIdFromQuery = urlParams.get('id');
-  const eventSlugFromRoute = routeParams.eventSlug;
-
-  const isSlugLookup = !!eventSlugFromRoute && !eventIdFromQuery;
+  const isSlugLookup = !!explicitEventSlug && !explicitEventId;
 
   const { data: slugResolvedEvent, isLoading: isSlugLoading } = useQuery({
-    queryKey: ['complex-event-by-slug', eventSlugFromRoute],
-    queryFn: async () => await publicClient.getComplexEventBySlug(eventSlugFromRoute),
+    queryKey: ['complex-event-by-slug', explicitEventSlug],
+    queryFn: async () => await publicClient.getComplexEventBySlug(explicitEventSlug),
     enabled: isSlugLookup
   });
 
-  const eventId = eventIdFromQuery || (slugResolvedEvent?.id) || null;
+  const eventId = explicitEventId || (slugResolvedEvent?.id) || null;
 
   const { data: event, isLoading: eventLoading } = useQuery({
     queryKey: ['complex-event', eventId],
@@ -1364,6 +1368,7 @@ export default function ComplexEventDetail() {
   }, [speakers, speakerSessionsMap]);
 
   useEffect(() => {
+    if (editorMode) return;
     if (event) {
       document.title = event.seo_title || event.title || 'Event';
       let metaDescription = document.querySelector('meta[name="description"]');
@@ -1375,14 +1380,14 @@ export default function ComplexEventDetail() {
       metaDescription.content = event.seo_description || event.summary || '';
     }
     return () => { document.title = 'Portal'; };
-  }, [event]);
+  }, [event, editorMode]);
 
   const isLoading = eventLoading || isSlugLoading;
   const tz = event?.timezone || DEFAULT_TIMEZONE;
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-white flex items-center justify-center">
+      <div className={embedded ? "w-full flex items-center justify-center" : "min-h-screen bg-white flex items-center justify-center"}>
         <Loader2 className="w-8 h-8 animate-spin text-slate-400" />
       </div>
     );
@@ -1390,18 +1395,20 @@ export default function ComplexEventDetail() {
 
   if (!event) {
     return (
-      <div className="min-h-screen bg-white flex items-center justify-center">
+      <div className={embedded ? "w-full flex items-center justify-center" : "min-h-screen bg-white flex items-center justify-center"}>
         <Card className="border-slate-200 max-w-md w-full mx-4">
           <CardContent className="p-8 text-center">
             <Calendar className="w-12 h-12 text-slate-300 mx-auto mb-4" />
             <h2 className="text-xl font-semibold text-slate-900 mb-2" data-testid="text-event-not-found">Event Not Found</h2>
             <p className="text-slate-600 mb-4">This event may have been removed or is not available.</p>
-            <Link to="/events">
-              <Button variant="outline" data-testid="button-back-to-events">
-                <ArrowLeft className="w-4 h-4 mr-2" />
-                Back to Events
-              </Button>
-            </Link>
+            {!embedded && (
+              <Link to="/events">
+                <Button variant="outline" data-testid="button-back-to-events">
+                  <ArrowLeft className="w-4 h-4 mr-2" />
+                  Back to Events
+                </Button>
+              </Link>
+            )}
           </CardContent>
         </Card>
       </div>
@@ -1409,8 +1416,22 @@ export default function ComplexEventDetail() {
   }
 
   return (
-    <div className="min-h-screen bg-white">
-      <div className="max-w-7xl mx-auto px-4 py-8">
+    <div
+      className={embedded ? "w-full" : "min-h-screen bg-white"}
+      onClickCapture={editorMode ? (interactionEvent) => {
+        if (interactionEvent.target.closest?.('a, button')) {
+          interactionEvent.preventDefault();
+          interactionEvent.stopPropagation();
+        }
+      } : undefined}
+      onSubmitCapture={editorMode ? (interactionEvent) => {
+        interactionEvent.preventDefault();
+        interactionEvent.stopPropagation();
+      } : undefined}
+      data-editor-mode={editorMode ? "true" : undefined}
+    >
+      <div className={embedded ? "max-w-7xl mx-auto" : "max-w-7xl mx-auto px-4 py-8"}>
+        {!embedded && (
         <div className="flex items-center justify-between mb-6 gap-2 flex-wrap">
           <Link to="/events" className="inline-flex items-center gap-2 text-slate-600 hover:text-slate-900">
             <ArrowLeft className="w-4 h-4" />
@@ -1451,6 +1472,7 @@ export default function ComplexEventDetail() {
             </Button>
           )}
         </div>
+        )}
 
         <div className="grid lg:grid-cols-3 gap-8 mb-8 lg:items-start">
           <div className="lg:col-span-2 space-y-6 lg:sticky lg:top-4 lg:max-h-[calc(100dvh-2rem)] lg:overflow-y-auto lg:pr-2">
@@ -1709,6 +1731,7 @@ export default function ComplexEventDetail() {
                   memberGroupIds={userMemberGroupIds}
                   cart={cart}
                   setCart={setCart}
+                  editorMode={editorMode}
                   onBookingComplete={() => { setCart({}); }}
                 />
               );
@@ -1765,5 +1788,20 @@ export default function ComplexEventDetail() {
       </Dialog>
 
     </div>
+  );
+}
+
+/** Thin route adapter for the standalone complex-event page. */
+export default function ComplexEventDetail() {
+  const routeParams = useParams();
+  const urlParams = new URLSearchParams(window.location.search);
+
+  return (
+    <ComplexEventDetailExperience
+      eventId={urlParams.get('id')}
+      eventSlug={routeParams.eventSlug || urlParams.get('slug')}
+      embedded={urlParams.get('embed') === 'true'}
+      editorMode={false}
+    />
   );
 }

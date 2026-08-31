@@ -179,6 +179,60 @@ test('Card Flip Grid is content-sized and its measured page reflows downstream f
   assert.ok(shrunk.height < grown.height);
 });
 
+test('Event Registration is content-sized and dynamic registration steps reflow V2 content', () => {
+  const design = {
+    version: 2,
+    root: {
+      sections: [{
+        id: 'section',
+        type: BLOCK_TYPES.SECTION,
+        flow: { padTop: 10, padBottom: 10, gap: 16 },
+        children: [
+          {
+            id: 'registration',
+            type: BLOCK_TYPES.EVENT_REGISTRATION,
+            bp: {
+              desktop: { x: 0, y: 0, w: 800, h: 400 },
+              mobile: { x: 0, y: 0, w: 375, h: 400 },
+            },
+            flow: { heightMode: 'auto' },
+            content: { eventType: 'simple', eventId: 'event-1' },
+          },
+          {
+            id: 'after-registration',
+            type: BLOCK_TYPES.TEXT,
+            flow: { heightMode: 'fixed', height: 80 },
+            content: {},
+          },
+        ],
+      }],
+    },
+  };
+  const css = buildFlowCanvasCss(design, '#cb');
+  assert.match(css.match(/#cb \[data-cb="registration"\]\{([^}]*)\}/)[1], /height:auto;/);
+
+  const firstStep = resolveFlowLayout(design, {
+    breakpoint: 'mobile',
+    containerWidth: BREAKPOINT_WIDTHS.mobile,
+    measured: { registration: { height: 520 } },
+  });
+  const attendeeStep = resolveFlowLayout(design, {
+    breakpoint: 'mobile',
+    containerWidth: BREAKPOINT_WIDTHS.mobile,
+    measured: { registration: { height: 960 } },
+  });
+
+  assert.equal(
+    firstStep.boxes['after-registration'].y,
+    firstStep.boxes.registration.y + 520 + 16,
+  );
+  assert.equal(
+    attendeeStep.boxes['after-registration'].y,
+    attendeeStep.boxes.registration.y + 960 + 16,
+  );
+  assert.ok(attendeeStep.height > firstStep.height);
+});
+
 test('emits tablet and mobile @media breakpoint blocks with stage min-height', () => {
   const css = buildFlowCanvasCss(makeFlowDesign(), '#cb');
   assert.match(css, /@media \(max-width: 1023\.98px\)\{/);

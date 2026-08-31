@@ -229,7 +229,22 @@ function TrainingAgendaSchedule({ agendaLines, eventSpeakers = [] }) {
   );
 }
 
-export default function EventDetailsPage() {
+/**
+ * Complete event-detail experience.
+ *
+ * Route concerns deliberately stay outside this component so it can also be
+ * hosted in another surface (for example, a page builder). `embedded` only
+ * removes page-level chrome; it does not trim any event content.
+ */
+export function EventDetailsExperience({
+  eventId: explicitEventId = null,
+  eventSlug: explicitEventSlug = null,
+  embedded = false,
+  editorMode = false,
+  embedTenant = null,
+  notifyIframeResize = false,
+  debugMode = false,
+}) {
   const { memberInfo, organizationInfo, memberRole, authResolved, isFeatureExcluded, reloadMemberInfo, refreshOrganizationInfo } = useMemberAccess();
   const { singular: speakerSingular, plural: speakerPlural } = useSpeakerModuleName();
   const [memberInfoState, setMemberInfoState] = useState(null);
@@ -266,11 +281,6 @@ export default function EventDetailsPage() {
   const [showTermsModal, setShowTermsModal] = useState(false);
   const [thirdPartyConsent, setThirdPartyConsent] = useState(true);
   
-  // Get eventId for terms reset tracking
-  const routeParams = useParams();
-  const urlParams2 = new URLSearchParams(window.location.search);
-  const currentEventId = urlParams2.get('id');
-
   // Guest registration form state (for non-logged-in users)
   const [guestInfo, setGuestInfo] = useState({
     first_name: '',
@@ -303,22 +313,15 @@ export default function EventDetailsPage() {
   // Track if initialization has completed to prevent resets on subsequent renders
   const hasInitialized = useRef(null);
 
-  const urlParams = new URLSearchParams(window.location.search);
-  const eventIdFromQuery = urlParams.get('id');
-  const eventSlugFromQuery = urlParams.get('slug');
-  const eventSlugFromRoute = routeParams.eventSlug;
-  const debugMode = urlParams.get('debugZoom') === '1';
-  const isEmbedMode = urlParams.get('embed') === 'true';
-  const embedTenant = urlParams.get('tenant');
-
-  const slugToResolve = eventSlugFromRoute || eventSlugFromQuery;
-  const isSlugLookup = !!slugToResolve && !eventIdFromQuery;
+  const slugToResolve = explicitEventSlug;
+  const isSlugLookup = !!slugToResolve && !explicitEventId;
   const { data: slugResolvedEvent, isLoading: isSlugLoading } = useEventDataBySlug(isSlugLookup ? slugToResolve : null);
-  const eventId = eventIdFromQuery || (slugResolvedEvent?.id) || null;
+  const eventId = explicitEventId || (slugResolvedEvent?.id) || null;
+  const isEmbedMode = embedded;
 
   // Notify parent iframe of height changes for embed mode
-  const notifyParentResize = () => {
-    if (!isEmbedMode) return;
+  const notifyParentResize = useCallback(() => {
+    if (!notifyIframeResize || editorMode) return;
     setTimeout(() => {
       const height = document.documentElement.scrollHeight;
       window.parent.postMessage({ 
@@ -328,21 +331,21 @@ export default function EventDetailsPage() {
         tenant: embedTenant
       }, '*');
     }, 100);
-  };
+  }, [notifyIframeResize, editorMode, eventId, embedTenant]);
 
   // Watch for resize in embed mode
   useEffect(() => {
-    if (!isEmbedMode) return;
+    if (!notifyIframeResize || editorMode) return;
     notifyParentResize();
     const resizeObserver = new ResizeObserver(() => {
       notifyParentResize();
     });
     resizeObserver.observe(document.body);
     return () => resizeObserver.disconnect();
-  }, [isEmbedMode]);
+  }, [notifyIframeResize, editorMode, notifyParentResize]);
 
   // Determine if tours should be shown for this user (never in embed mode)
-  const shouldShowTours = !isEmbedMode && memberRole?.show_tours !== false;
+  const shouldShowTours = !isEmbedMode && !editorMode && memberRole?.show_tours !== false;
 
   // Check if user has seen this page's tour
   const hasSeenTour = currentMemberInfo?.page_tours_seen?.EventDetails === true;
@@ -413,7 +416,7 @@ export default function EventDetailsPage() {
   // Separate useEffect to save state to sessionStorage
   useEffect(() => {
     // Only save if initialization has completed for the current eventId
-    if (eventId && currentMemberInfo && hasInitialized.current === eventId) {
+    if (!editorMode && eventId && currentMemberInfo && hasInitialized.current === eventId) {
       const registrationData = {
         attendees,
         registrationMode,
@@ -421,7 +424,7 @@ export default function EventDetailsPage() {
       };
       sessionStorage.setItem(`event_registration_${eventId}`, JSON.stringify(registrationData));
     }
-  }, [attendees, registrationMode, memberAttending, eventId, currentMemberInfo]);
+  }, [attendees, registrationMode, memberAttending, eventId, currentMemberInfo, editorMode]);
 
   // Set up realtime subscription for seat updates
   const { isConnected: realtimeConnected } = useEventSeatRealtime(eventId, {
@@ -435,6 +438,7 @@ export default function EventDetailsPage() {
   const { data: event, isLoading } = useEventData(eventId);
 
   useEffect(() => {
+    if (editorMode) return;
     if (event) {
       document.title = event.seo_title || event.title || 'Event';
 
@@ -484,7 +488,7 @@ export default function EventDetailsPage() {
     return () => {
       document.title = 'Portal';
     };
-  }, [event]);
+  }, [event, editorMode]);
 
   const { data: eventSessions = [] } = useQuery({
     queryKey: ['event-sessions', event?.id],
@@ -535,7 +539,7 @@ export default function EventDetailsPage() {
   useEffect(() => {
     setTermsAccepted(false);
     setThirdPartyConsent(true);
-  }, [currentEventId, termsSettingValue]);
+  }, [eventId, termsSettingValue]);
 
   // Query for webinar join link visibility settings (using public endpoint)
   const { data: joinLinkSettings } = useQuery({
@@ -1238,7 +1242,9 @@ export default function EventDetailsPage() {
 
   if (isLoading || isSlugLoading) {
     return (
-      <div className="min-h-full bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
+      <div className={isEmbedMode
+        ? "w-full flex items-center justify-center"
+        : "min-h-full bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center"}>
         <div className="animate-pulse text-slate-600">Loading event...</div>
       </div>
     );
@@ -1246,12 +1252,16 @@ export default function EventDetailsPage() {
 
   if (!event) {
     return (
-      <div className="min-h-full bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
+      <div className={isEmbedMode
+        ? "w-full"
+        : "min-h-full bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8"}>
         <div className="max-w-4xl mx-auto text-center py-16">
           <h2 className="text-2xl font-bold text-slate-900 mb-4">Event not found</h2>
-          <Link to={createPageUrl('Events')}>
-            <Button>Back to Events</Button>
-          </Link>
+          {!isEmbedMode && (
+            <Link to={createPageUrl('Events')}>
+              <Button>Back to Events</Button>
+            </Link>
+          )}
         </div>
       </div>
     );
@@ -1605,7 +1615,22 @@ export default function EventDetailsPage() {
   };
 
   return (
-    <div className="min-h-full bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
+    <div
+      className={isEmbedMode
+        ? "w-full"
+        : "min-h-full bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8"}
+      onClickCapture={editorMode ? (interactionEvent) => {
+        if (interactionEvent.target.closest?.('a, button')) {
+          interactionEvent.preventDefault();
+          interactionEvent.stopPropagation();
+        }
+      } : undefined}
+      onSubmitCapture={editorMode ? (interactionEvent) => {
+        interactionEvent.preventDefault();
+        interactionEvent.stopPropagation();
+      } : undefined}
+      data-editor-mode={editorMode ? "true" : undefined}
+    >
       {showTour && shouldShowTours && (
         <PageTour
           tourGroupName="EventDetails"
@@ -2832,5 +2857,26 @@ export default function EventDetailsPage() {
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+/**
+ * Route adapter. Keep URL parsing here so EventDetailsExperience can be given
+ * an explicit identifier without depending on the current location.
+ */
+export default function EventDetailsPage() {
+  const routeParams = useParams();
+  const urlParams = new URLSearchParams(window.location.search);
+
+  return (
+    <EventDetailsExperience
+      eventId={urlParams.get('id')}
+      eventSlug={routeParams.eventSlug || urlParams.get('slug')}
+      embedded={urlParams.get('embed') === 'true'}
+      editorMode={false}
+      embedTenant={urlParams.get('tenant')}
+      notifyIframeResize={urlParams.get('embed') === 'true'}
+      debugMode={urlParams.get('debugZoom') === '1'}
+    />
   );
 }

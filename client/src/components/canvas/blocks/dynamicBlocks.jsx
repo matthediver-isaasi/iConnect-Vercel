@@ -107,6 +107,20 @@ import {
   buildSectionOverlayBackground,
 } from './registry';
 import { applyFormEmbedResize } from './formEmbedResize';
+import { useReportReflowHeight } from '../AccordionReflowContext';
+import {
+  EVENT_REGISTRATION_LAYOUT_CONTRACT,
+  EVENT_REGISTRATION_MEASUREMENT_OPTIONS,
+  guardEventRegistrationEditorInteraction,
+  resolveEventRegistrationSelection,
+} from '@/lib/eventRegistrationBlock';
+
+const EventDetailsExperience = lazy(() => import('@/pages/EventDetails').then((module) => ({
+  default: module.EventDetailsExperience,
+})));
+const ComplexEventDetailExperience = lazy(() => import('@/pages/ComplexEventDetail').then((module) => ({
+  default: module.ComplexEventDetailExperience,
+})));
 
 // ---- Shared small primitives (duplicated minimally from registry.jsx to
 // keep this file self-contained without forcing big imports).
@@ -767,6 +781,146 @@ function EventTeaserInspector({ block, update }) {
       <ToggleField label="Show CTA" value={c.showCta !== false} onChange={(v) => set({ showCta: v })} testId="toggle-event-teaser-cta" />
       <TextField label="CTA label" value={c.ctaLabel} onChange={(v) => set({ ctaLabel: v })} testId="input-event-teaser-cta-label" />
     </>
+  );
+}
+
+// ============================================================================
+// EVENT REGISTRATION (complete simple/complex event booking experience)
+// ============================================================================
+export function EventRegistrationRender({
+  block,
+  asEditor,
+  simpleExperience: SimpleExperience = EventDetailsExperience,
+  complexExperience: ComplexExperience = ComplexEventDetailExperience,
+}) {
+  const selection = resolveEventRegistrationSelection(block.content);
+  const reflowRef = useReportReflowHeight(
+    block.id,
+    (block.style?.paddingTop || 0) + (block.style?.paddingBottom || 0),
+    EVENT_REGISTRATION_MEASUREMENT_OPTIONS,
+  );
+  const guard = (event) => guardEventRegistrationEditorInteraction(event, asEditor);
+
+  return (
+    <div
+      ref={reflowRef}
+      className="w-full"
+      data-testid="event-registration-experience"
+      data-event-type={selection?.eventType}
+      onClickCapture={guard}
+      onSubmitCapture={guard}
+      onChangeCapture={asEditor ? guard : undefined}
+      onKeyDownCapture={asEditor ? guard : undefined}
+    >
+      {!selection ? (
+        <EmptyState icon={Calendar} text="Pick an event in the inspector." />
+      ) : (
+        <Suspense fallback={<ListSkeleton count={1} columns={1} gap={0} />}>
+          {selection.eventType === 'complex' ? (
+            <ComplexExperience
+              eventId={selection.eventId}
+              eventSlug={selection.eventSlug}
+              embedded
+              editorMode={!!asEditor}
+            />
+          ) : (
+            <SimpleExperience
+              eventId={selection.eventId}
+              eventSlug={selection.eventSlug}
+              embedded
+              editorMode={!!asEditor}
+            />
+          )}
+        </Suspense>
+      )}
+    </div>
+  );
+}
+
+function EventRegistrationPickerField({ content, onChange, testId }) {
+  const { data: simpleEvents, isLoading: loadingSimple } = useQuery({
+    queryKey: ['canvas', 'admin-simple-events'],
+    queryFn: () => base44.entities.Event.list({ sort: { start_date: 'asc' } }),
+    staleTime: 60_000,
+  });
+  const { data: complexEvents, isLoading: loadingComplex } = useQuery({
+    queryKey: ['canvas', 'admin-complex-events'],
+    queryFn: () => base44.entities.ComplexEvent.list(),
+    staleTime: 60_000,
+  });
+  const selection = resolveEventRegistrationSelection(content);
+  const options = [
+    ...(simpleEvents || []).map((event) => ({
+      value: `simple:${event.id}`,
+      label: `${event.title || event.name || 'Untitled event'} (Simple)`,
+      eventType: 'simple',
+      eventId: String(event.id),
+      eventSlug: event.slug || '',
+    })),
+    ...(complexEvents || []).map((event) => ({
+      value: `complex:${event.id}`,
+      label: `${event.title || event.name || 'Untitled event'} (Complex)`,
+      eventType: 'complex',
+      eventId: String(event.id),
+      eventSlug: event.slug || '',
+    })),
+  ];
+  const currentOption = selection
+    ? options.find((option) => (
+      option.eventType === selection.eventType
+      && (
+        (selection.eventId && option.eventId === selection.eventId)
+        || (selection.eventSlug && option.eventSlug === selection.eventSlug)
+      )
+    ))
+    : null;
+  const value = currentOption?.value || '';
+  return (
+    <Field
+      label="Event"
+      hint={(loadingSimple || loadingComplex)
+        ? 'Loading simple and complex events…'
+        : 'Choose the event whose complete registration experience should appear.'}
+    >
+      <Select
+        value={value}
+        onValueChange={(nextValue) => {
+          const selected = options.find((option) => option.value === nextValue);
+          if (selected) {
+            onChange({
+              eventType: selected.eventType,
+              eventId: selected.eventId,
+              eventSlug: selected.eventSlug,
+            });
+          }
+        }}
+      >
+        <SelectTrigger className="h-8" data-testid={testId}>
+          <SelectValue placeholder="Select an event" />
+        </SelectTrigger>
+        <SelectContent>
+          {options.length === 0 ? (
+            <SelectItem value="__none__" disabled>No events available</SelectItem>
+          ) : options.map((option) => (
+            <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </Field>
+  );
+}
+
+function EventRegistrationInspector({ block, update }) {
+  const set = (patch) => update((current) => ({
+    ...current,
+    content: { ...current.content, ...patch },
+  }));
+  return (
+    <EventRegistrationPickerField
+      content={block.content}
+      onChange={set}
+      testId="select-event-registration"
+    />
   );
 }
 
@@ -7834,6 +7988,15 @@ export const DYNAMIC_BLOCK_DEFINITIONS = {
     Editor: (props) => <EventTeaserRender {...props} asEditor />,
     Renderer: EventTeaserRender,
     Inspector: EventTeaserInspector,
+  },
+  [BLOCK_TYPES.EVENT_REGISTRATION]: {
+    label: 'Event Registration',
+    icon: Calendar,
+    category: 'data',
+    Editor: (props) => <EventRegistrationRender {...props} asEditor />,
+    Renderer: EventRegistrationRender,
+    Inspector: EventRegistrationInspector,
+    ...EVENT_REGISTRATION_LAYOUT_CONTRACT,
   },
   [BLOCK_TYPES.EVENT_SESSIONS]: {
     label: 'Event sessions',

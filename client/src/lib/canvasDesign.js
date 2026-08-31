@@ -185,6 +185,7 @@ export const BLOCK_TYPES = {
   // Dynamic / data-bound blocks (Phase 4)
   EVENT_LIST: 'event-list',
   EVENT_TEASER: 'event-teaser',
+  EVENT_REGISTRATION: 'event-registration',
   EVENT_SESSIONS: 'event-sessions',
   EVENT_CAROUSEL: 'event-carousel',
   SPEAKER_CAROUSEL: 'speaker-carousel',
@@ -1343,6 +1344,16 @@ export const BLOCK_DEFAULTS = {
       showSummary: true,
       showCta: true,
       ctaLabel: 'Find out more',
+    },
+  },
+  [BLOCK_TYPES.EVENT_REGISTRATION]: {
+    name: 'Event Registration',
+    geom: { w: 800, h: 900 },
+    style: { background: 'transparent', borderWidth: 0 },
+    content: {
+      eventType: 'simple',
+      eventId: '',
+      eventSlug: '',
     },
   },
   [BLOCK_TYPES.EVENT_SESSIONS]: {
@@ -2560,6 +2571,9 @@ export const AUTO_HEIGHT_LEAF_TYPES = new Set([
   BLOCK_TYPES.AI_COMPOSITION,
   // V2 code compositions are pure flowed HTML — always content-sized (#2904).
   BLOCK_TYPES.AI_CODE_COMPOSITION,
+  // Registration is a complete, stateful event experience whose footprint
+  // changes as booking panels, validation and confirmation content appear.
+  BLOCK_TYPES.EVENT_REGISTRATION,
 ]);
 
 // ---------------------------------------------------------------------------
@@ -3757,6 +3771,12 @@ export function validateBlock(block) {
       break;
     case BLOCK_TYPES.EVENT_TEASER:
       if (!c.eventId && !c.eventSlug) errors.push('Event teaser requires an event.');
+      break;
+    case BLOCK_TYPES.EVENT_REGISTRATION:
+      if (!c.eventId && !c.eventSlug) errors.push('Event Registration requires an event.');
+      if (c.eventType && !['simple', 'complex'].includes(c.eventType)) {
+        errors.push('Event Registration has an invalid event type.');
+      }
       break;
     case BLOCK_TYPES.EVENT_SESSIONS:
       if (!c.eventId) errors.push('Event sessions block requires a multi-session event.');
