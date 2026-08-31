@@ -15,4 +15,10 @@ The canonical helper is `getAllActiveConfigs(tenantId, onDate)` in `api/_lib/mem
 
 **How a switch-over is stored:** saving a new future-dated structure caps the currently-in-effect structure to `effective_to = newStart - 1 day` (UTC arithmetic) and inserts the new one open-ended (effective_to null). So at most one config per scope is in effect on any date, and downstream consumers that resolve "today" stay correct.
 
+**UI lifecycle and editability are separate:** a capped structure remains lifecycle `active` until its future `effective_to`, but the tiers update API treats any non-null `effective_to` as immutable. Show its date-aware status as Active while also marking it read-only.
+
+**Why:** collapsing these into one predicate either mislabels the current structure as historical or offers Edit/Save actions that the API will always reject.
+
+**How to apply:** use the date-aware lifecycle helper for grouping/status labels and the server immutability rule (`effective_to == null`) for edit controls.
+
 **Known gap (see follow-up tasks):** the reminders cron `processTenantReminders` in `api/_lib/membershipReminders.js` still filters on `effective_to IS NULL` instead of date-aware resolution, and the tiers.js UPDATE path doesn't re-cap when a scheduled structure's start date is edited in place.

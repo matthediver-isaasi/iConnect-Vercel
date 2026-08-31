@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -13,7 +13,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
   Layers, Plus, Trash2, Save, Building2, AlertCircle,
-  Search, Download, History, CalendarDays, ChevronRight, ChevronDown, Eye, PlusCircle, Percent, Tag,
+  Search, Download, History, CalendarDays, ChevronRight, ChevronDown, PlusCircle, Percent, Tag,
   CheckCircle2, Check, ChevronsUpDown, Copy, Bell, Mail, Landmark, CreditCard
 } from "lucide-react";
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "@/components/ui/collapsible";
@@ -22,6 +22,15 @@ import { createPageUrl } from "@/utils";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { base44 } from "@/api/base44Client";
 import { COUNTRIES } from "@/data/countries";
+import {
+  getTierEffectivePeriod,
+  getTierLifecycle,
+  getTierScopeLabel,
+  groupTierStructures,
+  isHistoricalTierSelection,
+  isTierSelectionReadOnly,
+  TIER_LIFECYCLE,
+} from "@/lib/membershipTierNavigation";
 
 const MONTHS = [
   { value: 1, label: 'January' }, { value: 2, label: 'February' }, { value: 3, label: 'March' },
@@ -307,12 +316,12 @@ export default function MembershipTierManagement() {
   const [hasChanges, setHasChanges] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
   const [previewSearch, setPreviewSearch] = useState('');
-  const [showHistory, setShowHistory] = useState(false);
   const [viewingHistorical, setViewingHistorical] = useState(null);
   const [isCreatingNew, setIsCreatingNew] = useState(false);
   const [wizardStep, setWizardStep] = useState(7);
   const [fieldErrors, setFieldErrors] = useState({});
   const [ddTotalConfirmed, setDdTotalConfirmed] = useState(false);
+  const activeConfigRequestRef = useRef(0);
 
   useEffect(() => {
     if (isAccessReady) {
@@ -445,7 +454,7 @@ export default function MembershipTierManagement() {
   });
 
   useEffect(() => {
-    if (viewingHistorical && historicalData?.config) {
+    if (viewingHistorical && historicalData?.config?.id === viewingHistorical) {
       const c = historicalData.config;
       setConfig({
         id: c.id,
@@ -956,7 +965,8 @@ export default function MembershipTierManagement() {
   });
 
   const handleCreateNew = () => {
-    const currentConfig = tierData?.config;
+    activeConfigRequestRef.current += 1;
+    const currentConfig = config;
     setIsCreatingNew(true);
     setViewingHistorical(null);
     setConfig({
@@ -990,8 +1000,8 @@ export default function MembershipTierManagement() {
       invoice_recipients: { invoicing_email: true, primary_contact: true, role_ids: [] },
       fee_link_email_template_id: null,
     });
-    if (tierData?.bands?.length > 0) {
-      setBands(tierData.bands.map(b => ({
+    if (bands.length > 0) {
+      setBands(bands.map(b => ({
         ...b,
         id: `new-${Date.now()}-${Math.random()}`,
         min_value: b.min_value != null ? b.min_value.toString() : '',
@@ -1003,8 +1013,8 @@ export default function MembershipTierManagement() {
     } else {
       setBands([]);
     }
-    if (tierData?.discounts?.length > 0) {
-      setDiscounts(tierData.discounts.map(d => ({
+    if (discounts.length > 0) {
+      setDiscounts(discounts.map(d => ({
         ...d,
         id: `new-${Date.now()}-${Math.random()}`,
         discount_value: d.discount_value?.toString() || '0',
@@ -1012,16 +1022,16 @@ export default function MembershipTierManagement() {
     } else {
       setDiscounts([]);
     }
-    if (tierData?.vatOverrides?.length > 0) {
-      setVatOverrides(tierData.vatOverrides.map(v => ({
+    if (vatOverrides.length > 0) {
+      setVatOverrides(vatOverrides.map(v => ({
         ...v,
         id: `new-${Date.now()}-${Math.random()}`,
       })));
     } else {
       setVatOverrides([]);
     }
-    if (tierData?.reminders?.length > 0) {
-      setReminders(tierData.reminders.map(r => ({
+    if (reminders.length > 0) {
+      setReminders(reminders.map(r => ({
         ...r,
         id: `new-${Date.now()}-${Math.random()}`,
         offset_value: r.offset_value?.toString() ?? '0',
@@ -1030,15 +1040,16 @@ export default function MembershipTierManagement() {
       setReminders([]);
     }
     setHasChanges(true);
-    setShowHistory(false);
     setWizardStep(1);
   };
 
   const handleDuplicateHistorical = async (configId) => {
+    const requestId = ++activeConfigRequestRef.current;
     try {
       const response = await fetch(`/api/membership/tiers?configId=${configId}`, { credentials: 'include' });
       if (!response.ok) throw new Error('Failed to fetch config');
       const data = await response.json();
+      if (requestId !== activeConfigRequestRef.current) return;
       const c = data?.config;
       if (!c) throw new Error('No config returned');
 
@@ -1103,7 +1114,6 @@ export default function MembershipTierManagement() {
         offset_value: r.offset_value?.toString() ?? '0',
       })));
       setHasChanges(true);
-      setShowHistory(false);
       setShowPreview(false);
       setWizardStep(1);
       toast.success('Duplicated — review and save to create the new structure');
@@ -1114,10 +1124,12 @@ export default function MembershipTierManagement() {
 
   const handleSwitchActiveConfig = async (configId) => {
     if (configId === selectedActiveConfigId && !viewingHistorical && !isCreatingNew) return;
+    const requestId = ++activeConfigRequestRef.current;
     try {
       const response = await fetch(`/api/membership/tiers?configId=${configId}`, { credentials: 'include' });
       if (!response.ok) throw new Error('Failed to fetch config');
       const data = await response.json();
+      if (requestId !== activeConfigRequestRef.current) return;
       if (data.config) {
         loadConfigIntoState(data.config, data.bands, data.discounts, data.vatOverrides, data.reminders);
         setSelectedActiveConfigId(configId);
@@ -1131,14 +1143,19 @@ export default function MembershipTierManagement() {
   };
 
   const handleViewHistorical = (configId) => {
+    activeConfigRequestRef.current += 1;
     setViewingHistorical(configId);
     setIsCreatingNew(false);
-    setShowHistory(false);
     setShowPreview(false);
     setWizardStep(7);
   };
 
-  const handleBackToCurrent = () => {
+  const handleBackToCurrent = async () => {
+    const currentId = tierData?.config?.id;
+    if (currentId) {
+      await handleSwitchActiveConfig(currentId);
+      return;
+    }
     setViewingHistorical(null);
     setIsCreatingNew(false);
     setHasChanges(false);
@@ -1242,16 +1259,30 @@ export default function MembershipTierManagement() {
   }
 
   const currencySymbol = getCurrencySymbol(config.currency);
-  const isHistoricalView = viewingHistorical && historicalData?.isHistorical;
-  const isEditable = !isHistoricalView;
+  const historyItems = tierData?.history || [];
+  const isHistoricalView = isHistoricalTierSelection(viewingHistorical, historyItems);
+  const loadedSelectionId = viewingHistorical || selectedActiveConfigId;
+  const isReadOnlyView = isTierSelectionReadOnly(loadedSelectionId, historyItems);
+  const isLoadingSelectedConfig = !!viewingHistorical && historicalData?.config?.id !== viewingHistorical;
+  const isEditable = !isReadOnlyView && !isLoadingSelectedConfig;
   const showDdBandColumn = isMemberScoped && !!config.dd_enabled && config.pricing_model === 'tiered';
   const bandGridClass = isTextBasisField
     ? (showDdBandColumn ? 'md:grid-cols-[1fr_1fr_130px_130px_150px_40px]' : 'md:grid-cols-[1fr_1fr_130px_150px_40px]')
     : (showDdBandColumn ? 'md:grid-cols-[1fr_100px_100px_130px_130px_150px_40px]' : 'md:grid-cols-[1fr_100px_100px_130px_150px_40px]');
-  const historyItems = tierData?.history || [];
-  const currentConfigId = tierData?.config?.id;
   const periodLabel = config.billing_period === 'annual' ? 'Annual' : config.billing_period === 'monthly' ? 'Monthly' : 'Quarterly';
-  const activeConfigs = tierData?.activeConfigs || [];
+  const groupedStructures = groupTierStructures(historyItems);
+  const loadedHistoryItem = historyItems.find(item => item.id === (viewingHistorical || selectedActiveConfigId));
+  const loadedLifecycle = isCreatingNew ? 'new' : getTierLifecycle(loadedHistoryItem || config);
+  const loadedStatusLabel = isCreatingNew ? 'New structure' : TIER_LIFECYCLE[loadedLifecycle].label;
+  const loadedContextConfig = isLoadingSelectedConfig && loadedHistoryItem ? loadedHistoryItem : config;
+  const loadedName = isCreatingNew ? (config.name || 'Untitled structure') : (loadedContextConfig.name || 'Untitled structure');
+  const loadedScopeLabel = getTierScopeLabel(
+    loadedContextConfig,
+    isLoadingSelectedConfig ? loadedContextConfig.structure_field_name : (selectedStructureField?.label || selectedStructureField?.name),
+  );
+  const loadedEffectivePeriod = isCreatingNew
+    ? (config.effective_from ? `Planned from ${formatDate(config.effective_from)}` : 'Effective date not set')
+    : getTierEffectivePeriod({ ...loadedHistoryItem, ...loadedContextConfig }, formatDate);
 
   const renderStep1 = () => (
     <Card>
@@ -3068,11 +3099,19 @@ export default function MembershipTierManagement() {
   const renderStep7 = () => (
     <Card>
       <CardHeader>
-        <CardTitle className="text-lg" data-testid="text-config-title">
-          {isHistoricalView ? 'Historical Configuration' : 'Configuration Summary'}
-        </CardTitle>
-        <p className="text-sm text-muted-foreground">
-          {isHistoricalView ? 'Read-only view of this historical tier structure' : 'Review your membership tier configuration before saving'}
+        <div className="rounded-lg border border-blue-200 bg-blue-50/70 p-4 dark:border-blue-900 dark:bg-blue-950/30" data-testid="summary-loaded-context">
+          <div className="flex flex-wrap items-center gap-2">
+            <CardTitle className="text-xl" data-testid="text-config-title">{config.name || 'Untitled structure'}</CardTitle>
+            <Badge variant={isHistoricalView ? 'outline' : 'secondary'}>{loadedStatusLabel}</Badge>
+            {isReadOnlyView && <Badge variant="outline">Read only</Badge>}
+          </div>
+          <div className="mt-2 grid gap-1 text-sm text-muted-foreground sm:grid-cols-2">
+            <span><strong className="text-foreground">Scope:</strong> {loadedScopeLabel}</span>
+            <span><strong className="text-foreground">Effective:</strong> {loadedEffectivePeriod}</span>
+          </div>
+        </div>
+        <p className="pt-3 text-sm text-muted-foreground">
+          {isReadOnlyView ? 'Review this read-only configuration.' : 'Confirm the loaded structure before editing or saving.'}
         </p>
       </CardHeader>
       <CardContent className="space-y-6 divide-y">
@@ -3314,6 +3353,47 @@ export default function MembershipTierManagement() {
     }
   };
 
+  const renderStructureNavItem = (item) => {
+    const lifecycle = getTierLifecycle(item);
+    const isSelected = !isCreatingNew && (viewingHistorical || selectedActiveConfigId) === item.id;
+    const field = structureFields.find(candidate => candidate.id === item.structure_field_id);
+    const scope = getTierScopeLabel(item, field?.label || field?.name);
+    return (
+      <div
+        key={item.id}
+        className={`w-[220px] shrink-0 rounded-lg border p-3 transition-colors lg:w-full ${isSelected ? 'border-blue-600 bg-blue-600 text-white shadow-sm' : 'border-slate-200 bg-white hover:border-blue-300 hover:bg-blue-50 dark:border-slate-700 dark:bg-slate-900'}`}
+        data-testid={`structure-nav-${item.id}`}
+      >
+        <button
+          type="button"
+          className="w-full text-left"
+          aria-current={isSelected ? 'page' : undefined}
+          onClick={() => lifecycle === 'active' ? handleSwitchActiveConfig(item.id) : handleViewHistorical(item.id)}
+        >
+          <span className="flex items-start justify-between gap-2">
+            <span className="font-semibold leading-tight">{item.name || 'Untitled structure'}</span>
+            <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${isSelected ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300'}`}>
+              {TIER_LIFECYCLE[lifecycle].label}
+            </span>
+          </span>
+          <span className={`mt-2 block text-xs ${isSelected ? 'text-blue-100' : 'text-muted-foreground'}`}>{scope}</span>
+          <span className={`mt-1 block text-xs ${isSelected ? 'text-blue-100' : 'text-muted-foreground'}`}>{getTierEffectivePeriod(item, formatDate)}</span>
+        </button>
+        <Button
+          type="button"
+          size="sm"
+          variant={isSelected ? 'secondary' : 'ghost'}
+          className="mt-2 h-7 w-full text-xs"
+          onClick={() => handleDuplicateHistorical(item.id)}
+          data-testid={`button-duplicate-history-${item.id}`}
+        >
+          <Copy className="mr-1 h-3 w-3" />
+          Duplicate
+        </Button>
+      </div>
+    );
+  };
+
   return (
     <div className="p-4 md:p-6 max-w-7xl mx-auto space-y-6">
       <div className="flex items-center justify-between gap-4 flex-wrap">
@@ -3338,16 +3418,6 @@ export default function MembershipTierManagement() {
               Back to Current
             </Button>
           )}
-          {historyItems.length > 0 && !isCreatingNew && (
-            <Button
-              variant="outline"
-              onClick={() => setShowHistory(!showHistory)}
-              data-testid="button-toggle-history"
-            >
-              <History className="w-4 h-4 mr-2" />
-              History ({historyItems.length})
-            </Button>
-          )}
           {!isHistoricalView && !isCreatingNew && tierData?.config && (
             <Button variant="outline" onClick={handleCreateNew} data-testid="button-create-new">
               <PlusCircle className="w-4 h-4 mr-2" />
@@ -3370,133 +3440,60 @@ export default function MembershipTierManagement() {
         </div>
       </div>
 
-      {isHistoricalView && (
-        <div className="p-3 bg-muted/50 border rounded-md flex items-center gap-2">
-          <History className="w-4 h-4 text-muted-foreground" />
-          <p className="text-sm text-muted-foreground">
-            This is a historical tier structure effective from <strong>{formatDate(config.effective_from)}</strong>
-            {historicalData?.config?.effective_to && <> to <strong>{formatDate(historicalData.config.effective_to)}</strong></>}.
-            It is read-only. To make changes, create a new tier structure.
-          </p>
-        </div>
-      )}
+      <div className="grid gap-6 lg:grid-cols-[240px_minmax(0,1fr)]">
+        <nav aria-label="Tier structures" className="min-w-0">
+          <div className="mb-2 flex items-center justify-between">
+            <h2 className="text-sm font-semibold">Tier structures</h2>
+            <span className="text-xs text-muted-foreground">{historyItems.length} total</span>
+          </div>
+          <div className="flex gap-3 overflow-x-auto pb-3 lg:block lg:space-y-4 lg:overflow-visible">
+            {isCreatingNew && (
+              <div className="min-w-[220px] rounded-lg border-2 border-dashed border-blue-500 bg-blue-50 p-3 text-blue-900 dark:bg-blue-950/30 dark:text-blue-100" data-testid="structure-nav-new">
+                <p className="font-semibold">New structure</p>
+                <p className="mt-1 text-xs">Unsaved configuration</p>
+                <p className="mt-1 text-xs">{loadedEffectivePeriod}</p>
+              </div>
+            )}
+            {[
+              ['active', 'Current'],
+              ['scheduled', 'Scheduled'],
+              ['historical', 'History'],
+            ].map(([key, label]) => groupedStructures[key].length > 0 && (
+              <section key={key} className="min-w-[220px] lg:min-w-0">
+                <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">{label}</h3>
+                <div className="flex gap-2 lg:block lg:space-y-2">
+                  {groupedStructures[key].map(renderStructureNavItem)}
+                </div>
+              </section>
+            ))}
+          </div>
+        </nav>
 
-      {isCreatingNew && (
-        <div className="p-3 bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-md flex items-center gap-2">
-          <CalendarDays className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-          <p className="text-sm text-blue-700 dark:text-blue-300">
-            Creating a new tier structure. Set an <strong>Effective From</strong> date in the future to schedule it &mdash; it stays
-            dormant until that date while the current structure remains active. If it shares the same structure scope (field and match
-            value) as an existing structure, that one is automatically closed the day before this one starts. Saving another future-dated
-            structure for the same scope replaces the previously scheduled one.
-          </p>
-        </div>
-      )}
-
-      {activeConfigs.length > 1 && !isCreatingNew && !viewingHistorical && (
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between gap-2 pb-3">
-            <CardTitle className="text-sm font-medium">Active Tier Structures ({activeConfigs.length})</CardTitle>
-          </CardHeader>
-          <CardContent className="pt-0">
-            <div className="flex flex-wrap gap-2">
-              {activeConfigs.map((ac) => (
-                <Button
-                  key={ac.id}
-                  variant={selectedActiveConfigId === ac.id ? 'default' : 'outline'}
-                  size="sm"
-                  onClick={() => handleSwitchActiveConfig(ac.id)}
-                  data-testid={`button-switch-config-${ac.id}`}
-                >
-                  {ac.name || 'Untitled'}
-                  {ac.structure_match_value && (
-                    <Badge variant="secondary" className="ml-1.5">{ac.structure_match_value}</Badge>
-                  )}
-                </Button>
-              ))}
+        <main className="min-w-0 space-y-4">
+          <div className={`rounded-xl border p-4 ${isHistoricalView ? 'bg-muted/50' : isCreatingNew ? 'border-blue-200 bg-blue-50/70 dark:border-blue-900 dark:bg-blue-950/30' : 'bg-card'}`} data-testid="loaded-configuration-context">
+            <div className="flex flex-wrap items-center gap-2">
+              {isHistoricalView ? <History className="h-5 w-5" /> : <CalendarDays className="h-5 w-5 text-blue-600" />}
+              <h2 className="text-lg font-semibold">{loadedName}</h2>
+              <Badge variant={isHistoricalView ? 'outline' : 'secondary'}>{loadedStatusLabel}</Badge>
+              {isReadOnlyView && <Badge variant="outline">Read only</Badge>}
             </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {showHistory && historyItems.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-lg">Tier Structure History</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-2">
-              {historyItems.map((item) => {
-                const status = item.status || (item.effective_to === null ? 'active' : 'historical');
-                const isActive = status === 'active';
-                const isScheduled = status === 'scheduled';
-                const isViewing = viewingHistorical
-                  ? viewingHistorical === item.id
-                  : (!isCreatingNew && selectedActiveConfigId === item.id);
-                return (
-                  <div
-                    key={item.id}
-                    className={`flex items-center justify-between gap-3 p-3 rounded-md border ${isViewing ? 'border-primary bg-primary/5' : ''}`}
-                    data-testid={`row-history-${item.id}`}
-                  >
-                    <div className="flex items-center gap-3 min-w-0">
-                      <CalendarDays className="w-4 h-4 text-muted-foreground shrink-0" />
-                      <div className="min-w-0">
-                        <p className="font-medium truncate">
-                          {item.name || 'Tier Structure'}
-                          {item.structure_match_value && (
-                            <Badge variant="outline" className="ml-2">{item.structure_match_value}</Badge>
-                          )}
-                        </p>
-                        <p className="text-sm text-muted-foreground">
-                          {isScheduled ? (
-                            <>Starts {formatDate(item.effective_from)}</>
-                          ) : (
-                            <>
-                              {formatDate(item.effective_from) || 'No start date'}
-                              {item.effective_to ? ` - ${formatDate(item.effective_to)}` : ' - Present'}
-                            </>
-                          )}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2 shrink-0">
-                      {isActive && <Badge variant="secondary">Active</Badge>}
-                      {isScheduled && <Badge variant="warning">Scheduled</Badge>}
-                      {!isViewing && (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => isActive ? handleSwitchActiveConfig(item.id) : handleViewHistorical(item.id)}
-                          data-testid={`button-view-history-${item.id}`}
-                        >
-                          <Eye className="w-3 h-3 mr-1" />
-                          View
-                        </Button>
-                      )}
-                      {isViewing && (
-                        <Badge>Viewing</Badge>
-                      )}
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => handleDuplicateHistorical(item.id)}
-                        data-testid={`button-duplicate-history-${item.id}`}
-                      >
-                        <Copy className="w-3 h-3 mr-1" />
-                        Duplicate
-                      </Button>
-                    </div>
-                  </div>
-                );
-              })}
+            <div className="mt-2 grid gap-1 text-sm text-muted-foreground sm:grid-cols-2">
+              <span><strong className="text-foreground">Scope:</strong> {loadedScopeLabel}</span>
+              <span><strong className="text-foreground">Effective:</strong> {loadedEffectivePeriod}</span>
             </div>
-          </CardContent>
-        </Card>
-      )}
+            {isCreatingNew && (
+              <p className="mt-3 text-xs text-blue-700 dark:text-blue-300">
+                Set a future Effective From date to schedule this structure. A structure with the same scope will close the day before it starts.
+              </p>
+            )}
+          </div>
 
-      <div>
-        {(isCreatingNew || ((isEditable || isHistoricalView) && tierData?.config)) && (
+        {isLoadingSelectedConfig ? (
+          <div className="flex items-center justify-center rounded-xl border bg-card py-16" aria-live="polite" data-testid="loading-selected-structure">
+            <div className="mr-3 h-6 w-6 animate-spin rounded-full border-b-2 border-primary" />
+            <span className="text-sm text-muted-foreground">Loading selected structure…</span>
+          </div>
+        ) : (isCreatingNew || ((isEditable || isReadOnlyView) && tierData?.config)) && (
           <>
             <StepIndicator currentStep={wizardStep} onStepClick={handleStepClick} />
             {renderWizardContent()}
@@ -3561,6 +3558,7 @@ export default function MembershipTierManagement() {
             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
           </div>
         )}
+        </main>
       </div>
 
       {showPreview && (

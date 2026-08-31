@@ -114,7 +114,9 @@ async function handleGet(req, res, tenantId) {
     effective_from: c.effective_from,
     effective_to: c.effective_to,
     created_at: c.created_at,
+    structure_scope_type: c.structure_scope_type,
     structure_field_id: c.structure_field_id,
+    structure_field_name: c.structure_field_name,
     structure_match_value: c.structure_match_value,
     status: configLifecycleStatus(c)
   }));
