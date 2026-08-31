@@ -32,6 +32,26 @@ export function groupTierStructures(items) {
   }, { active: [], scheduled: [], historical: [] });
 }
 
+export function filterTierStructures(items, query, { formatDate, getFieldLabel } = {}) {
+  const normalizedQuery = String(query || '').trim().toLocaleLowerCase();
+  if (!normalizedQuery) return items;
+
+  return items.filter(item => {
+    const lifecycle = getTierLifecycle(item);
+    const lifecycleDetails = TIER_LIFECYCLE[lifecycle];
+    const fieldLabel = getFieldLabel?.(item);
+    const searchableText = [
+      item?.name || 'Untitled structure',
+      lifecycleDetails.label,
+      lifecycleDetails.group,
+      getTierScopeLabel(item, fieldLabel),
+      getTierEffectivePeriod(item, formatDate || (value => value || '')),
+    ].join(' ').toLocaleLowerCase();
+
+    return searchableText.includes(normalizedQuery);
+  });
+}
+
 export function isHistoricalTierSelection(selectedId, items) {
   if (!selectedId) return false;
   const selected = items.find(item => item.id === selectedId);

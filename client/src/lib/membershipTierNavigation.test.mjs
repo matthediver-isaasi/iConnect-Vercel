@@ -5,6 +5,7 @@ import {
   getTierEffectivePeriod,
   getTierLifecycle,
   getTierScopeLabel,
+  filterTierStructures,
   groupTierStructures,
   isHistoricalTierSelection,
   isTierSelectionReadOnly,
@@ -23,6 +24,22 @@ test('groups structures by their API lifecycle without changing semantics', () =
   assert.deepEqual(grouped.active.map(x => x.id), ['a']);
   assert.deepEqual(grouped.scheduled.map(x => x.id), ['s']);
   assert.deepEqual(grouped.historical.map(x => x.id), ['h']);
+});
+
+test('filters structures by normalized displayed name, lifecycle, scope, and effective period', () => {
+  const items = [
+    { id: 'north', name: 'Regional rates', status: 'active', structure_field_id: 'region', structure_match_value: 'North', effective_from: '2026-01-01' },
+    { id: 'future', name: 'Standard fees', status: 'scheduled', structure_scope_type: 'member', effective_from: '2027-04-01' },
+    { id: 'past', name: 'Legacy pricing', status: 'historical', effective_from: '2025-01-01', effective_to: '2025-12-31' },
+  ];
+  const options = { formatDate: date, getFieldLabel: item => item.structure_field_id === 'region' ? 'Region' : undefined };
+
+  assert.deepEqual(filterTierStructures(items, '  REGIONAL ', options).map(x => x.id), ['north']);
+  assert.deepEqual(filterTierStructures(items, 'current', options).map(x => x.id), ['north']);
+  assert.deepEqual(filterTierStructures(items, 'member', options).map(x => x.id), ['future']);
+  assert.deepEqual(filterTierStructures(items, '2025/12/31', options).map(x => x.id), ['past']);
+  assert.equal(filterTierStructures(items, 'missing', options).length, 0);
+  assert.equal(filterTierStructures(items, '', options), items);
 });
 
 test('describes scoped and unscoped structures clearly', () => {
@@ -92,6 +109,19 @@ test('page enters the structure browser first and editor renders only the loaded
   assert.match(pageSource, /data-testid="tier-structure-browser"/);
   assert.match(pageSource, /!isCreatingNew && loadedHistoryItem && renderStructureNavItem\(loadedHistoryItem\)/);
   assert.doesNotMatch(pageSource, /summary-loaded-context/);
+});
+
+test('structure browser exposes responsive search, accessible view switching, both renderers and distinct result states', () => {
+  assert.match(pageSource, /aria-label="Search tier structures"/);
+  assert.match(pageSource, /role="group" aria-label="Structure view"/);
+  assert.match(pageSource, /aria-pressed=\{structureViewMode === 'card'\}/);
+  assert.match(pageSource, /aria-pressed=\{structureViewMode === 'list'\}/);
+  assert.match(pageSource, /sm:flex-row sm:items-center/);
+  assert.match(pageSource, /structure-card-\$\{item\.id\}/);
+  assert.match(pageSource, /structure-row-\$\{item\.id\}/);
+  assert.match(pageSource, /historyItems\.length === 0/);
+  assert.match(pageSource, /filteredStructures\.length === 0/);
+  assert.match(pageSource, /groupedStructures\[key\]\.length/);
 });
 
 test('duplicate drafts retain Direct Debit settings and per-band monthly amounts', () => {

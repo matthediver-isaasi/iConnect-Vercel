@@ -14,7 +14,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
   Layers, Plus, Trash2, Save, Building2, AlertCircle,
   Search, Download, History, CalendarDays, ChevronRight, ChevronDown, PlusCircle, Percent, Tag,
-  CheckCircle2, Check, ChevronsUpDown, Copy, Bell, Mail, Landmark, CreditCard
+  CheckCircle2, Check, ChevronsUpDown, Copy, Bell, Mail, Landmark, CreditCard, LayoutGrid, List
 } from "lucide-react";
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "@/components/ui/collapsible";
 import { toast } from "sonner";
@@ -26,6 +26,7 @@ import {
   getTierEffectivePeriod,
   getTierLifecycle,
   getTierScopeLabel,
+  filterTierStructures,
   groupTierStructures,
   isHistoricalTierSelection,
   isTierSelectionReadOnly,
@@ -320,6 +321,8 @@ export default function MembershipTierManagement() {
   const [viewingHistorical, setViewingHistorical] = useState(null);
   const [isCreatingNew, setIsCreatingNew] = useState(false);
   const [pageMode, setPageMode] = useState('list');
+  const [structureSearch, setStructureSearch] = useState('');
+  const [structureViewMode, setStructureViewMode] = useState('card');
   const [wizardStep, setWizardStep] = useState(7);
   const [fieldErrors, setFieldErrors] = useState({});
   const [ddTotalConfirmed, setDdTotalConfirmed] = useState(false);
@@ -1280,7 +1283,14 @@ export default function MembershipTierManagement() {
     ? (showDdBandColumn ? 'md:grid-cols-[1fr_1fr_130px_130px_150px_40px]' : 'md:grid-cols-[1fr_1fr_130px_150px_40px]')
     : (showDdBandColumn ? 'md:grid-cols-[1fr_100px_100px_130px_130px_150px_40px]' : 'md:grid-cols-[1fr_100px_100px_130px_150px_40px]');
   const periodLabel = config.billing_period === 'annual' ? 'Annual' : config.billing_period === 'monthly' ? 'Monthly' : 'Quarterly';
-  const groupedStructures = groupTierStructures(historyItems);
+  const filteredStructures = useMemo(() => filterTierStructures(historyItems, structureSearch, {
+    formatDate,
+    getFieldLabel: item => {
+      const field = structureFields.find(candidate => candidate.id === item.structure_field_id);
+      return field?.label || field?.name;
+    },
+  }), [historyItems, structureSearch, structureFields]);
+  const groupedStructures = useMemo(() => groupTierStructures(filteredStructures), [filteredStructures]);
   const loadedHistoryItem = historyItems.find(item => item.id === (viewingHistorical || selectedActiveConfigId));
   const loadedLifecycle = isCreatingNew ? 'new' : getTierLifecycle(loadedHistoryItem || config);
   const loadedStatusLabel = isCreatingNew ? 'New structure' : TIER_LIFECYCLE[loadedLifecycle].label;
@@ -3448,6 +3458,49 @@ export default function MembershipTierManagement() {
     );
   };
 
+  const renderStructureBrowserRow = (item) => {
+    const lifecycle = getTierLifecycle(item);
+    const field = structureFields.find(candidate => candidate.id === item.structure_field_id);
+    const scope = getTierScopeLabel(item, field?.label || field?.name);
+    return (
+      <Card key={item.id} className="border-slate-200 dark:border-slate-700" data-testid={`structure-row-${item.id}`}>
+        <CardContent className="flex flex-col gap-4 p-4 lg:flex-row lg:items-center lg:justify-between">
+          <div className="min-w-0 flex-1 space-y-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="font-medium">{item.name || 'Untitled structure'}</span>
+              <Badge variant={lifecycle === 'active' ? 'default' : 'secondary'}>
+                {TIER_LIFECYCLE[lifecycle].label}
+              </Badge>
+            </div>
+            <div className="grid gap-1 text-sm text-muted-foreground sm:grid-cols-2">
+              <span><span className="font-medium text-foreground">Scope:</span> {scope}</span>
+              <span><span className="font-medium text-foreground">Effective period:</span> {getTierEffectivePeriod(item, formatDate)}</span>
+            </div>
+          </div>
+          <div className="flex flex-col gap-2 sm:flex-row lg:flex-nowrap">
+            <Button
+              type="button"
+              variant={lifecycle === 'historical' ? 'outline' : 'default'}
+              onClick={() => lifecycle === 'active' ? handleSwitchActiveConfig(item.id) : handleViewHistorical(item.id)}
+              data-testid={`button-open-structure-row-${item.id}`}
+            >
+              {lifecycle === 'historical' ? 'View' : 'Configure'}
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => handleDuplicateHistorical(item.id)}
+              data-testid={`button-duplicate-history-row-${item.id}`}
+            >
+              <Copy className="mr-2 h-4 w-4" />
+              Duplicate
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  };
+
   return (
     <div className="p-4 md:p-6 max-w-7xl mx-auto space-y-6">
       <div className="flex items-center justify-between gap-4 flex-wrap">
@@ -3516,7 +3569,57 @@ export default function MembershipTierManagement() {
               </CardContent>
             </Card>
           ) : (
-            <div className="space-y-8">
+            <div className="space-y-6">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                <div className="relative min-w-0 flex-1">
+                  <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
+                  <Input
+                    type="search"
+                    value={structureSearch}
+                    onChange={event => setStructureSearch(event.target.value)}
+                    placeholder="Search structures by name, lifecycle, scope, or effective period…"
+                    aria-label="Search tier structures"
+                    className="pl-9"
+                    data-testid="input-search-structures"
+                  />
+                </div>
+                <div className="flex items-center gap-1 self-stretch rounded-md border border-slate-200 p-1 sm:self-auto" role="group" aria-label="Structure view">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className={`flex-1 toggle-elevate sm:flex-none ${structureViewMode === 'card' ? 'toggle-elevated' : ''}`}
+                    onClick={() => setStructureViewMode('card')}
+                    aria-pressed={structureViewMode === 'card'}
+                    data-testid="button-structure-view-card"
+                  >
+                    <LayoutGrid className="mr-2 h-4 w-4" />
+                    Cards
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className={`flex-1 toggle-elevate sm:flex-none ${structureViewMode === 'list' ? 'toggle-elevated' : ''}`}
+                    onClick={() => setStructureViewMode('list')}
+                    aria-pressed={structureViewMode === 'list'}
+                    data-testid="button-structure-view-list"
+                  >
+                    <List className="mr-2 h-4 w-4" />
+                    List
+                  </Button>
+                </div>
+              </div>
+              {filteredStructures.length === 0 ? (
+                <Card data-testid="structure-search-empty">
+                  <CardContent className="py-12 text-center">
+                    <Search className="mx-auto mb-3 h-10 w-10 text-muted-foreground opacity-50" />
+                    <p className="text-lg font-medium">No matching structures</p>
+                    <p className="mt-1 text-sm text-muted-foreground">Try a different name, lifecycle, scope, or effective period.</p>
+                  </CardContent>
+                </Card>
+              ) : (
+              <div className="space-y-8">
               {[
                 ['active', 'Current'],
                 ['scheduled', 'Scheduled'],
@@ -3527,11 +3630,13 @@ export default function MembershipTierManagement() {
                     <h2 id={`structure-group-${key}`} className="text-lg font-semibold">{label}</h2>
                     <Badge variant="secondary">{groupedStructures[key].length}</Badge>
                   </div>
-                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-                    {groupedStructures[key].map(renderStructureBrowserCard)}
+                  <div className={structureViewMode === 'card' ? 'grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3' : 'space-y-3'}>
+                    {groupedStructures[key].map(structureViewMode === 'card' ? renderStructureBrowserCard : renderStructureBrowserRow)}
                   </div>
                 </section>
               ))}
+              </div>
+              )}
             </div>
           )}
         </main>
