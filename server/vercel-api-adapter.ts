@@ -22,7 +22,7 @@ const handlerCache = new Map<string, any>();
  * Parse a route path like /api/entities/Member/123 and find matching handler
  * Returns { handler, params } where params contains dynamic segments
  */
-async function findHandler(urlPath: string): Promise<{ handler: any; params: Record<string, string> } | null> {
+export async function findHandler(urlPath: string): Promise<{ handler: any; params: Record<string, string> } | null> {
   // Remove /api prefix and trailing slashes
   let relativePath = urlPath.replace(/^\/api/, "").replace(/\/$/, "") || "/";
   
@@ -66,6 +66,16 @@ async function findHandler(urlPath: string): Promise<{ handler: any; params: Rec
     try {
       const entries = fs.readdirSync(currentDir);
       for (const entry of entries) {
+        if (entry.startsWith("[...") && entry.endsWith("].js")) {
+          const paramName = entry.slice(4, -4);
+          const filePath = path.join(currentDir, entry);
+          possiblePaths.push({
+            filePath,
+            params: { ...params, [paramName]: segments.slice(segmentIndex).join("/") },
+          });
+          continue;
+        }
+
         if (entry.startsWith("[") && entry.endsWith("]")) {
           const paramName = entry.slice(1, -1);
           const dynamicPath = path.join(currentDir, entry);

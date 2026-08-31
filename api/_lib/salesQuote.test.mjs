@@ -119,3 +119,72 @@ test('quote route derives tenant and actor and passes concurrency token to issue
   assert.equal(calls[0][1].p_actor_id, 'actor-server');
   assert.equal(calls[0][1].p_expected_version, 7);
 });
+
+test('quote route accepts workspace query-parameter actions through the catch-all handler', async () => {
+  const calls = [];
+  const db = {
+    rpc(name, args) {
+      calls.push([name, args]);
+      return Promise.resolve({ data: { id: uuid, status: 'issued' }, error: null });
+    },
+  };
+  const handler = createSalesQuotesHandler({
+    db,
+    getTenantContext: async () => ({
+      isAuthenticated: true, tenantId: 'tenant-server', tenantUserId: 'actor-server',
+    }),
+  });
+  const res = response();
+  await handler({
+    method: 'POST', query: { path: uuid, action: 'issue' },
+    body: { expectedVersion: 8 },
+  }, res);
+  assert.equal(res.statusCode, 200);
+  assert.equal(calls[0][0], 'issue_sales_quote');
+  assert.equal(calls[0][1].p_expected_version, 8);
+});
+
+test('quote detail route accepts the scalar catch-all shape emitted by the development adapter', async () => {
+  const quote = { id: uuid, current_version: 1, quote_number: 'Q-1' };
+  const version = { id: 'version-id', version_number: 1, status: 'draft' };
+  const db = {
+    from(table) {
+      if (table === 'sales_quote') {
+        return {
+          select() { return this; },
+          eq() { return this; },
+          maybeSingle: async () => ({ data: quote, error: null }),
+        };
+      }
+      if (table === 'sales_quote_version') {
+        return {
+          select() { return this; },
+          eq() { return this; },
+          order: async () => ({ data: [version], error: null }),
+        };
+      }
+      if (table === 'sales_commercial_sale') {
+        return {
+          select() { return this; },
+          eq() { return this; },
+          maybeSingle: async () => ({ data: null, error: null }),
+        };
+      }
+      throw new Error(`unexpected table ${table}`);
+    },
+  };
+  const handler = createSalesQuotesHandler({
+    db,
+    getTenantContext: async () => ({
+      isAuthenticated: true, tenantId: 'tenant-server', tenantUserId: 'actor-server',
+    }),
+    getActiveAccountingProvider: async () => 'xero',
+  });
+  const res = response();
+
+  await handler({ method: 'GET', query: { path: uuid } }, res);
+
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body.id, uuid);
+  assert.equal(res.body.currentVersion.id, 'version-id');
+});
