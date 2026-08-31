@@ -34,6 +34,10 @@
         "type": "string",
         "description": "Reference to Organization entity"
       },
+      "organization_group_id": {
+        "type": "string",
+        "description": "Direct Organisation Group assignment for a member without an Organisation"
+      },
       "role_id": {
         "type": "string",
         "description": "Reference to Role entity - determines base permissions"

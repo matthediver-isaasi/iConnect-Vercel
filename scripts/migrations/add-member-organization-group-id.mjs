@@ -8,15 +8,15 @@
  * Run:
  *   DEST_SUPABASE_KEY=<service-role-key> node scripts/migrations/add-member-organization-group-id.mjs
  *
- * Then apply any printed SQL in the Supabase SQL Editor.
+ * Applies the idempotent migration through the destination exec_sql RPC.
  */
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = 'https://lvmzliemqnieeoruhkik.supabase.co';
+const supabaseUrl = process.env.DEST_SUPABASE_URL;
 const supabaseKey = process.env.DEST_SUPABASE_KEY;
 
-if (!supabaseKey) {
-  console.error('DEST_SUPABASE_KEY is required');
+if (!supabaseUrl || !supabaseKey) {
+  console.error('DEST_SUPABASE_URL and DEST_SUPABASE_KEY are required');
   process.exit(1);
 }
 
@@ -39,12 +39,7 @@ async function main() {
     return;
   }
 
-  console.log('Needs adding: member.organization_group_id');
-  console.log('');
-  console.log('='.repeat(60));
-  console.log('Run the following SQL in Supabase SQL Editor (DEST):');
-  console.log('='.repeat(60));
-  console.log(`
+  const sql = `
 ALTER TABLE member
   ADD COLUMN IF NOT EXISTS organization_group_id uuid
     REFERENCES organization_group(id) ON DELETE SET NULL;
@@ -57,8 +52,20 @@ COMMENT ON COLUMN member.organization_group_id IS
 CREATE INDEX IF NOT EXISTS member_organization_group_id_idx
   ON member (organization_group_id)
   WHERE organization_group_id IS NOT NULL;
-`.trim());
-  console.log('='.repeat(60));
+
+NOTIFY pgrst, 'reload schema';
+`.trim();
+  const { error } = await supabase.rpc('exec_sql', { sql });
+  if (error) throw new Error(`Could not apply migration through exec_sql: ${error.message}`);
+
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    if (await columnExists('member', 'organization_group_id')) {
+      console.log('Applied and verified: member.organization_group_id');
+      return;
+    }
+  }
+  throw new Error('Migration ran, but member.organization_group_id was not visible through the destination API.');
 }
 
 main().catch(err => {

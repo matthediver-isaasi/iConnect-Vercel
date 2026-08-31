@@ -68,10 +68,9 @@
 - [Aspect-carousel reflow reference](canvas-aspect-carousel-reflow.md) — public signed reflow must use the aspect-derived height at the stage width, not stored geom h; signed rows get a small push-slack.
 - [Canvas reflow font baseline](canvas-reflow-font-baseline.md) — public-path measurement-derived state must stay provisional until fonts.ready + double rAF, or fallback-font heights lock in phantom gaps.
 - [AI Composition editing/imagery](ai-composition-editing.md) — proposals stored server-side, re-applied vs current doc; imagery: factual elements never carry images, crop aspect "16 / 9" (see ai-composition-images.md).
-- [AI Composition workflow & gates](ai-composition-phase5.md) — plan-review pause, server-verified records only; gates deterministic+retryable, screenshot review advisory; gates must reconcile plan promises on final retry (see ai-composition-quality-gates.md, ai-composition-gate-reconciliation.md).
+- [AI Composition workflow & gates](ai-composition-phase5.md) — deterministic retryable gates belong in prompts too, use server-verified records, and must reconcile plan promises on final retry.
 - [AI generation style reference](ai-style-reference.md) — no-reference generation must stay byte-identical; screenshots trusted only under tenant asset prefix; branding/content always beat the reference.
 - [AI V2 design-first workflow](ai-design-first.md) — approved visual is layout intent only (sanitized blueprint, never content); similarity gate = bounded repairs then WARNING, never reject on similarity alone.
-- [Quality gates belong in the prompt too](ai-quality-gate-prompt-pairing.md) — post-hoc gates + terse retry feedback don't converge; state floors up front and feed back measured deltas.
 - [Unchecked supabase inserts hide schema drift](unchecked-supabase-inserts.md) — supabase-js returns {error}, never throws; unchecked side-effect inserts fail silently forever on column drift.
 - [AI V2 retry carry-forward](ai-code-v2-retry-carry.md) — carry a passing HTML/CSS side between retries only when ALL real gate errors sit on the other side; heuristics alone trap loops.
 - [Complex event reminders per-day](complex-reminders-per-day.md) — relative reminders schedule once per calendar day via shared helper; dedupe reuses session_id as the deterministic day-anchor session.
@@ -157,3 +156,4 @@
 - [Allocated delegate claim ordering](allocated-delegate-claim-ordering.md) — claim invite entitlement only after booking capacity checks; compensate the whole checkout if a later claim fails.
 - [Mixed-encoding CSV imports](mixed-encoding-csv-imports.md) — preserve valid UTF-8 sequences while decoding isolated Windows-1252 bytes; whole-file fallback can silently create mojibake.
 - [Stripe feature mode for shared payments](stripe-feature-payment-mode.md) — discovery, creation, and confirmation must use one persisted feature when a shared flow serves several products.
+- [Department relationship replacement](department-relationship-replacement.md) — changing a member Organisation may auto-archive Department edges; pre-journal restoration and never hard-delete.
