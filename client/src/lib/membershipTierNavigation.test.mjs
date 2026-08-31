@@ -124,6 +124,18 @@ test('structure browser exposes responsive search, accessible view switching, bo
   assert.match(pageSource, /groupedStructures\[key\]\.length/);
 });
 
+test('structure browser derivation hooks run before the access-loading early return', () => {
+  const filteredHookIndex = pageSource.indexOf('const filteredStructures = useMemo');
+  const groupedHookIndex = pageSource.indexOf('const groupedStructures = useMemo');
+  const accessReturnIndex = pageSource.indexOf('if (!accessChecked)');
+
+  assert.notEqual(filteredHookIndex, -1);
+  assert.notEqual(groupedHookIndex, -1);
+  assert.notEqual(accessReturnIndex, -1);
+  assert.ok(filteredHookIndex < accessReturnIndex);
+  assert.ok(groupedHookIndex < accessReturnIndex);
+});
+
 test('duplicate drafts retain Direct Debit settings and per-band monthly amounts', () => {
   const duplicateHandler = pageSource.slice(
     pageSource.indexOf('const handleDuplicateHistorical'),

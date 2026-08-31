@@ -1267,12 +1267,21 @@ export default function MembershipTierManagement() {
     URL.revokeObjectURL(url);
   };
 
+  const historyItems = tierData?.history || [];
+  const filteredStructures = useMemo(() => filterTierStructures(historyItems, structureSearch, {
+    formatDate,
+    getFieldLabel: item => {
+      const field = structureFields.find(candidate => candidate.id === item.structure_field_id);
+      return field?.label || field?.name;
+    },
+  }), [historyItems, structureSearch, structureFields]);
+  const groupedStructures = useMemo(() => groupTierStructures(filteredStructures), [filteredStructures]);
+
   if (!accessChecked) {
     return <div className="p-6 flex items-center justify-center h-full"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" /></div>;
   }
 
   const currencySymbol = getCurrencySymbol(config.currency);
-  const historyItems = tierData?.history || [];
   const isHistoricalView = isHistoricalTierSelection(viewingHistorical, historyItems);
   const loadedSelectionId = viewingHistorical || selectedActiveConfigId;
   const isReadOnlyView = isTierSelectionReadOnly(loadedSelectionId, historyItems);
@@ -1283,14 +1292,6 @@ export default function MembershipTierManagement() {
     ? (showDdBandColumn ? 'md:grid-cols-[1fr_1fr_130px_130px_150px_40px]' : 'md:grid-cols-[1fr_1fr_130px_150px_40px]')
     : (showDdBandColumn ? 'md:grid-cols-[1fr_100px_100px_130px_130px_150px_40px]' : 'md:grid-cols-[1fr_100px_100px_130px_150px_40px]');
   const periodLabel = config.billing_period === 'annual' ? 'Annual' : config.billing_period === 'monthly' ? 'Monthly' : 'Quarterly';
-  const filteredStructures = useMemo(() => filterTierStructures(historyItems, structureSearch, {
-    formatDate,
-    getFieldLabel: item => {
-      const field = structureFields.find(candidate => candidate.id === item.structure_field_id);
-      return field?.label || field?.name;
-    },
-  }), [historyItems, structureSearch, structureFields]);
-  const groupedStructures = useMemo(() => groupTierStructures(filteredStructures), [filteredStructures]);
   const loadedHistoryItem = historyItems.find(item => item.id === (viewingHistorical || selectedActiveConfigId));
   const loadedLifecycle = isCreatingNew ? 'new' : getTierLifecycle(loadedHistoryItem || config);
   const loadedStatusLabel = isCreatingNew ? 'New structure' : TIER_LIFECYCLE[loadedLifecycle].label;
