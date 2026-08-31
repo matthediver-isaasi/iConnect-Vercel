@@ -2,10 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import {
+  catalogueCodeError, normaliseCatalogueCode, suggestedCatalogueCategoryCode,
   validateCatalogueBundle, validateCatalogueProduct,
 } from '../../shared/salesContracts.js';
 import {
-  delegateCapacityFromTicket, listCatalogue, listCatalogueEventOptions, resolveEventTicketReference,
+  delegateCapacityFromTicket, listCatalogue, listCatalogueEventOptions, resolveEventTicketReference, throwDb,
 } from './salesCatalogue.js';
 import { createSalesCatalogueHandler } from '../sales/catalogue/[...path].js';
 
@@ -30,6 +31,33 @@ test('catalogue validates currencies, integer minor units, dates and composition
   }).ok, false);
   assert.equal(validateCatalogueBundle(bundle).ok, true);
   assert.equal(validateCatalogueBundle({ ...bundle, items: [...bundle.items, bundle.items[0]] }).ok, false);
+});
+
+test('category code suggestions normalise punctuation, spacing, case, and length', () => {
+  assert.equal(normaliseCatalogueCode('Sponsorship'), 'SPONSORSHIP');
+  assert.equal(normaliseCatalogueCode('  Event sponsorship & awards!  '), 'EVENT_SPONSORSHIP_AWARDS');
+  assert.equal(normaliseCatalogueCode('x'.repeat(80)).length, 64);
+  assert.equal(normaliseCatalogueCode('___---'), '');
+  assert.equal(suggestedCatalogueCategoryCode('New name', 'MANUAL', true), 'MANUAL');
+  assert.equal(suggestedCatalogueCategoryCode('New name', 'OLD_SUGGESTION', false), 'NEW_NAME');
+});
+
+test('category code validation includes archived duplicates and excludes the edited category', () => {
+  const categories = [
+    { id: 'active', code: 'SPONSORSHIP', isActive: true },
+    { id: 'archived', code: 'AWARDS', isActive: false },
+  ];
+  assert.match(catalogueCodeError('sponsorship', categories), /uppercase/);
+  assert.match(catalogueCodeError('AWARDS', categories), /archived/);
+  assert.equal(catalogueCodeError('SPONSORSHIP', categories, 'active'), '');
+  assert.equal(catalogueCodeError('SPONSORSHIP_2', categories), '');
+});
+
+test('category unique constraint conflicts have a clear category-code message', () => {
+  assert.throws(
+    () => throwDb({ code: '23505', constraint: 'sales_catalogue_category_code_unique' }),
+    (error) => error.status === 409 && /category code is already in use/i.test(error.message),
+  );
 });
 
 test('bundle price is independent of component product prices', () => {

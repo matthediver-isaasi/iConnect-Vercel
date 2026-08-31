@@ -13,6 +13,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useCatalogue, useEventOptions } from "./useCatalogue";
 import { getSalesCataloguePath } from "@/lib/salesNavigation";
+import { catalogueCodeError, normaliseCatalogueCode, suggestedCatalogueCategoryCode } from "../../../../shared/salesContracts.js";
 
 const icon = { categories: FolderTree, products: Package, bundles: Boxes };
 const title = { categories: "Categories", products: "Products", bundles: "Bundles" };
@@ -64,7 +65,7 @@ export default function Catalogue({ section = "categories" }) {
       </div>
       {catalogue.isLoading ? <Skeleton /> : catalogue.isError ? <Failure onRetry={() => catalogue.refetch()} /> : rows.length === 0 ? <Empty type={tab} onCreate={() => setDialog({ type: tab })} /> : <div className="overflow-x-auto"><CatalogueTable rows={rows} type={tab} categories={asList(categories.data)} products={asList(products.data)} onEdit={(row) => setDialog({ type: tab, row })} onArchive={(row) => { const action = row.isActive === false || row.archivedAt ? catalogue.restore : catalogue.archive; action.mutate(row.id, { onError: onMutationError }); }} onMove={move} /></div>}
     </section>
-    <EditDialog config={dialog} categories={asList(categories.data)} products={asList(products.data)} events={events.data || {}} onClose={() => setDialog(null)} onSave={(data) => dialog?.row ? catalogue.update.mutate({ id: dialog.row.id, data }, { onSuccess: onSaved, onError: onMutationError }) : catalogue.create.mutate(data, { onSuccess: onSaved, onError: onMutationError })} saving={catalogue.create.isPending || catalogue.update.isPending} />
+    <EditDialog config={dialog} categories={asList(categories.data)} categoriesLoading={categories.isLoading} products={asList(products.data)} events={events.data || {}} onClose={() => setDialog(null)} onSave={(data) => dialog?.row ? catalogue.update.mutate({ id: dialog.row.id, data }, { onSuccess: onSaved, onError: onMutationError }) : catalogue.create.mutate(data, { onSuccess: onSaved, onError: onMutationError })} saving={catalogue.create.isPending || catalogue.update.isPending} />
   </div>;
 }
 
@@ -74,13 +75,32 @@ function CatalogueTable({ rows, type, categories, products, onEdit, onArchive, o
   return <Table className="min-w-[680px]"><TableHeader><TableRow className="bg-slate-50 hover:bg-slate-50"><TableHead>{type === "categories" ? "Category" : type === "products" ? "Product" : "Bundle"}</TableHead><TableHead>{type === "categories" ? "Description" : type === "products" ? "Category / code" : "Included items"}</TableHead><TableHead>{type === "products" || type === "bundles" ? "Price / capacity" : "Status"}</TableHead><TableHead className="w-28 text-right">Actions</TableHead></TableRow></TableHeader><TableBody>{rows.map((row, index) => { const archived = row.isActive === false || row.archivedAt; const reference = row.eventReference || {}; return <TableRow key={row.id} className={archived ? "bg-slate-50/70 text-slate-500" : ""}><TableCell><div className="font-semibold text-slate-900">{row.name}</div>{row.code && <div className="mt-0.5 font-mono text-[11px] text-slate-500">{row.code}</div>}</TableCell><TableCell className="max-w-[280px] text-xs text-slate-600">{type === "products" ? <><span className="font-medium text-blue-700">{categoryName(row.categoryId)}</span>{row.sku && <span className="ml-2 font-mono text-slate-500">SKU {row.sku}</span>}</> : type === "bundles" ? <span>{(row.items || []).map((item) => `${item.quantity} × ${productName(item.productId)}`).join(" · ") || "No products selected"}</span> : row.description || "—"}</TableCell><TableCell>{type === "products" ? <><div className="font-medium text-slate-800">{money(row.standardPriceMinor, row.currency)}</div><div className="text-[11px] text-slate-500">minimum {money(row.minimumPriceMinor, row.currency)}{reference.eventId ? ` · ${row.delegateCapacity ?? "Unavailable"} delegate${row.delegateCapacity === 1 ? "" : "s"}` : " · general"}</div></> : type === "bundles" ? <><div className="font-medium text-slate-800">{money(row.sellingPriceMinor, row.currency)}</div><div className="text-[11px] text-slate-500">{(row.items || []).length} products</div></> : <Badge variant="outline" className={archived ? "border-slate-300 bg-slate-100 text-slate-600" : "border-blue-200 bg-blue-50 text-blue-700"}>{archived ? "Archived" : "Active"}</Badge>}</TableCell><TableCell><div className="flex justify-end gap-1"><Button variant="ghost" size="icon" aria-label={`Edit ${row.name}`} onClick={() => onEdit(row)} className="h-8 w-8 text-slate-600 hover:bg-blue-50 hover:text-blue-700"><Pencil className="h-3.5 w-3.5" /></Button>{type === "categories" && <div className="hidden sm:flex"><Button variant="ghost" size="icon" disabled={index === 0} onClick={() => onMove(index, -1)} className="h-8 w-6"><ChevronUp className="h-3.5 w-3.5" /></Button><Button variant="ghost" size="icon" disabled={index === rows.length - 1} onClick={() => onMove(index, 1)} className="h-8 w-6"><ChevronDown className="h-3.5 w-3.5" /></Button></div>}<Button variant="ghost" size="icon" aria-label={`${archived ? "Restore" : "Archive"} ${row.name}`} onClick={() => onArchive(row)} className="h-8 w-8 text-slate-500 hover:bg-amber-50 hover:text-amber-700">{archived ? <RotateCcw className="h-3.5 w-3.5" /> : <Archive className="h-3.5 w-3.5" />}</Button></div></TableCell></TableRow>; })}</TableBody></Table>;
 }
 
-function EditDialog({ config, categories, products, events, onClose, onSave, saving }) {
+function EditDialog({ config, categories, categoriesLoading, products, events, onClose, onSave, saving }) {
   const type = config?.type; const [form, setForm] = useState(blank[type] || blank.categories);
-  useEffect(() => { if (config) setForm({ ...blank[config.type], ...config.row, items: config.row?.items || [] }); }, [config]);
+  const [categoryCodeEdited, setCategoryCodeEdited] = useState(false);
+  useEffect(() => {
+    if (config) {
+      setForm({ ...blank[config.type], ...config.row, items: config.row?.items || [] });
+      setCategoryCodeEdited(Boolean(config.row));
+    }
+  }, [config]);
   if (!config) return null;
   const update = (key, value) => setForm((current) => ({ ...current, [key]: value }));
+  const categoryError = type === "categories" ? catalogueCodeError(form.code || "", categories, config.row?.id) : "";
+  const updateName = (value) => setForm((current) => ({
+    ...current,
+    name: value,
+    ...(type === "categories" && !config.row ? {
+      code: suggestedCatalogueCategoryCode(value, current.code, categoryCodeEdited),
+    } : {}),
+  }));
+  const updateCategoryCode = (value) => {
+    setCategoryCodeEdited(true);
+    update("code", normaliseCatalogueCode(value));
+  };
   const submit = (event) => {
     event.preventDefault();
+    if (categoryError) return;
     const numeric = ["standardPriceMinor", "minimumPriceMinor", "costMinor", "taxRateBps", "sellingPriceMinor"];
     const allowed = type === "categories" ? ["name", "code", "description"] : type === "products" ? ["name", "code", "sku", "categoryId", "currency", "standardPriceMinor", "minimumPriceMinor", "costMinor", "shortDescription", "description", "taxTreatment", "taxRateBps", "availableFrom", "availableTo", "eventReference", "capacityMetadata"] : ["name", "code", "currency", "sellingPriceMinor", "minimumPriceMinor", "presentationMode", "availableFrom", "availableTo", "description", "items"];
     const data = Object.fromEntries(allowed.map((key) => [key, numeric.includes(key) && form[key] !== "" ? Number(form[key]) : form[key] === "" ? null : form[key]]));
@@ -94,14 +114,14 @@ function EditDialog({ config, categories, products, events, onClose, onSave, sav
     onSave(data);
   };
   return <Dialog open onOpenChange={(open) => !open && onClose()}><DialogContent className="max-h-[90dvh] w-[calc(100vw-2rem)] max-w-2xl overflow-y-auto border-slate-200 bg-white"><form onSubmit={submit}><DialogHeader><DialogTitle className="text-2xl font-semibold text-slate-950">{config.row ? "Edit" : "Add"} {singular[type]}</DialogTitle><DialogDescription>{type === "products" ? "Prices are stored as minor currency units; £125.00 is entered as 12500." : type === "bundles" ? "Set the included products and their display order." : "Organise how your sales catalogue is browsed."}</DialogDescription></DialogHeader><div className="mt-6 grid gap-4 sm:grid-cols-2">
-    <Field label="Name"><Input required value={form.name || ""} onChange={(e) => update("name", e.target.value)} /></Field>
+    <Field label="Name"><Input required value={form.name || ""} onChange={(e) => updateName(e.target.value)} /></Field>
      {type !== "categories" && <Field label="Internal code"><Input required value={form.code || ""} onChange={(e) => update("code", e.target.value)} /></Field>}
-     {type === "categories" && <><Field label="Category code"><Input required value={form.code || ""} onChange={(e) => update("code", e.target.value)} /></Field><Field label="Description" wide><Textarea value={form.description || ""} onChange={(e) => update("description", e.target.value)} /></Field></>}
+     {type === "categories" && <><Field label="Category code"><Input required maxLength={64} aria-invalid={Boolean(categoryError)} aria-describedby="category-code-help category-code-error" value={form.code || ""} onChange={(e) => updateCategoryCode(e.target.value)} /><p id="category-code-help" className="mt-1 text-xs text-slate-500">1–64 uppercase letters, numbers, underscores, or hyphens. Codes must be unique.</p>{categoryError && <p id="category-code-error" className="mt-1 text-xs font-medium text-red-600">{categoryError}</p>}</Field><Field label="Description" wide><Textarea value={form.description || ""} onChange={(e) => update("description", e.target.value)} /></Field></>}
     {type === "products" && <ProductFields form={form} update={update} categories={categories} events={events} />}
      {type === "bundles" && <BundleFields form={form} update={update} />}
      {type === "bundles" && <BundleItems form={form} update={update} products={products} />}
     {type === "bundles" && <Field label="Description" wide><Textarea value={form.description || ""} onChange={(e) => update("description", e.target.value)} /></Field>}
-  </div><DialogFooter className="mt-7"><Button type="button" variant="ghost" onClick={onClose}>Cancel</Button><Button disabled={saving} type="submit" className="bg-blue-600 text-white hover:bg-blue-700">{saving ? "Saving…" : "Save catalogue item"}</Button></DialogFooter></form></DialogContent></Dialog>;
+  </div><DialogFooter className="mt-7"><Button type="button" variant="ghost" onClick={onClose}>Cancel</Button><Button disabled={saving || Boolean(categoryError) || (type === "categories" && categoriesLoading)} type="submit" className="bg-blue-600 text-white hover:bg-blue-700">{saving ? "Saving…" : categoriesLoading && type === "categories" ? "Checking codes…" : "Save catalogue item"}</Button></DialogFooter></form></DialogContent></Dialog>;
 }
 
 function ProductFields({ form, update, categories, events }) {

@@ -6,9 +6,15 @@ const TABLES = {
   bundles: 'sales_catalogue_bundle',
 };
 
-const throwDb = (error) => {
+export const throwDb = (error) => {
   if (!error) return;
-  if (error.code === '23505') throw new SalesHttpError(409, 'Catalogue code or SKU already exists');
+  if (error.code === '23505') {
+    const constraint = String(error.constraint || error.details || error.message || '');
+    if (constraint.includes('sales_catalogue_category_code_unique')) {
+      throw new SalesHttpError(409, 'This category code is already in use, including by an archived category');
+    }
+    throw new SalesHttpError(409, 'Catalogue code or SKU already exists');
+  }
   if (error.code === '23503') throw new SalesHttpError(409, 'Catalogue record is still referenced');
   throw error;
 };

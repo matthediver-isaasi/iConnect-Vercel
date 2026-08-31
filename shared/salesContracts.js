@@ -340,6 +340,31 @@ const validDate = (value) => value === null || (
   typeof value === 'string' && value !== '' && Number.isFinite(Date.parse(value))
 );
 
+export function normaliseCatalogueCode(value) {
+  return String(value || '')
+    .toUpperCase()
+    .replace(/[^A-Z0-9_-]+/g, '_')
+    .replace(/^[_-]+/, '')
+    .replace(/[_-]+$/, '')
+    .replace(/_{2,}/g, '_')
+    .slice(0, 64);
+}
+
+export function suggestedCatalogueCategoryCode(name, currentCode = '', manuallyEdited = false) {
+  return manuallyEdited ? currentCode : normaliseCatalogueCode(name);
+}
+
+export function catalogueCodeError(code, categories = [], currentId = null) {
+  if (typeof code !== 'string' || !CATALOGUE_CODE_RE.test(code)) {
+    return 'Use 1–64 uppercase letters, numbers, underscores, or hyphens.';
+  }
+  const duplicate = categories.some((category) => (
+    String(category.id) !== String(currentId || '')
+    && String(category.code || '').toUpperCase() === code.toUpperCase()
+  ));
+  return duplicate ? 'This category code is already in use, including by an archived category.' : '';
+}
+
 export function validateCatalogueCategory(value, { patch = false } = {}) {
   if (!isObject(value)) return { ok: false, errors: ['Body must be an object'] };
   const allowed = new Set(['code', 'name', 'description', 'displayOrder']);
