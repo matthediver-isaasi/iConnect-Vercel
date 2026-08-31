@@ -1,15 +1,42 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { existsSync } from 'node:fs';
 import {
   ASSIGNMENT_COUNTS, COLUMN_COUNT, CORE_MAPPINGS, CUSTOM_MAPPINGS,
-  EXPECTED_FILE_SHA256, HEADERS, ROW_COUNT, auditHierarchy, auditMappings,
+  EXPECTED_FILE_SHA256, FILE, HEADERS, ROW_COUNT, auditHierarchy, auditMappings,
   makePlan, noReferenceRows, parseSourceBytes, protectedRelationshipRows, readSource,
 } from './import-bnms-honorary-members.mjs';
 import {
   TENANT_ID, applyPlan, parseBritishDate, verifyOrCompensate,
 } from './import-bnms-direct-debit-members.mjs';
 
-const source = readSource();
+function csvBytes(rows) {
+  const cell = (value) => `"${String(value).replaceAll('"', '""')}"`;
+  return Buffer.from(rows.map((row) => row.map(cell).join(',')).join('\r\n'));
+}
+
+const syntheticRows = Array.from({ length: ROW_COUNT }, (_, index) => {
+  const row = Array(COLUMN_COUNT).fill('');
+  row[0] = `TEST-HONORARY-${index + 1}`;
+  row[1] = '01/01/2020';
+  row[3] = 'Honorary Membership';
+  row[4] = 'Honorary';
+  row[5] = 'Active';
+  row[6] = 'Fixture';
+  row[7] = `Member ${index + 1}`;
+  row[8] = 'Mx';
+  row[9] = `honorary-${index + 1}@example.test`;
+  row[16] = 'United Kingdom';
+  row[21] = `Occupation ${index % 2 + 1}`;
+  row[22] = 'Synthetic test qualification';
+  if (index === 0 || index === ASSIGNMENT_COUNTS.department + 1) {
+    row[19] = `00000000-0000-4000-8000-${String(index + 1).padStart(12, '0')}`;
+  } else if (index >= 1 && index <= ASSIGNMENT_COUNTS.department) {
+    row[20] = `10000000-0000-4000-8000-${String(index + 1).padStart(12, '0')}`;
+  }
+  return row;
+});
+const source = parseSourceBytes(csvBytes([HEADERS, ...syntheticRows]), { verifyFingerprint: false });
 const fields = CUSTOM_MAPPINGS.map((mapping) => ({
   id: mapping.id, tenant_id: TENANT_ID, name: mapping.name, label: mapping.label,
   field_type: mapping.type, entity_scope: 'member', is_active: true,
@@ -37,18 +64,13 @@ const hierarchyState = { groups, organizations, departments, parentEdges, relati
 const mappings = auditMappings(fields, source);
 const hierarchy = auditHierarchy(source, hierarchyState);
 
-function csvBytes(rows) {
-  const cell = (value) => `"${String(value).replaceAll('"', '""')}"`;
-  return Buffer.from(rows.map((row) => row.map(cell).join(',')).join('\r\n'));
-}
 function mutateSource(mutator) {
   const rows = [HEADERS, ...source.rows.map((row) => [...row.values])];
   mutator(rows);
   return parseSourceBytes(csvBytes(rows), { verifyFingerprint: false });
 }
 
-test('pins exact fingerprint, 21-row/23-column shape, identities, constants and assignments', () => {
-  assert.equal(source.fingerprint, EXPECTED_FILE_SHA256);
+test('synthetic fixture preserves the 21-row/23-column contract, identities, constants and assignments', () => {
   assert.equal(source.rows.length, ROW_COUNT);
   assert.equal(HEADERS.length, COLUMN_COUNT);
   assert.deepEqual(source.counts, ASSIGNMENT_COUNTS);
@@ -58,14 +80,20 @@ test('pins exact fingerprint, 21-row/23-column shape, identities, constants and 
   assert.deepEqual([...new Set(source.rows.map((row) => row.values[3]))], ['Honorary Membership']);
 });
 
+test('pins the exact protected source fingerprint when the local import file is available', {
+  skip: !existsSync(FILE),
+}, () => {
+  assert.equal(readSource().fingerprint, EXPECTED_FILE_SHA256);
+});
+
 test('rejects fingerprint drift and malformed source identities, dates and UUID exclusivity', () => {
-  const changed = Buffer.from(readSource().rows[0].email);
+  const changed = Buffer.from(source.rows[0].email);
   assert.throws(() => parseSourceBytes(changed), /fingerprint mismatch/);
   assert.throws(() => mutateSource((rows) => { rows[2][9] = rows[1][9].toUpperCase(); }), /Duplicate normalized Email/);
   assert.throws(() => mutateSource((rows) => { rows[2][0] = rows[1][0]; }), /Duplicate YM Web Site Member ID/);
   assert.throws(() => mutateSource((rows) => { rows[1][1] = '31/2/2007'; }), /Invalid/);
   assert.throws(() => mutateSource((rows) => { rows[1][19] = 'bad'; }), /invalid UUID/);
-  assert.throws(() => mutateSource((rows) => { rows[1][19] = organizationIds[0]; }), /both Organisation and Department/);
+  assert.throws(() => mutateSource((rows) => { rows[2][19] = organizationIds[0]; }), /both Organisation and Department/);
   assert.throws(() => mutateSource((rows) => { rows[1][2] = '1/1/2030'; }), /unexpectedly supplies/);
 });
 

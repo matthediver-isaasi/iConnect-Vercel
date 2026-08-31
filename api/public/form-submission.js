@@ -3,6 +3,7 @@ import { resolveTenantFromRequest, getHostFromRequest } from '../_lib/tenantReso
 import { executeStageActions } from '../due-diligence/_stageActions.js';
 import { sendSubmitterCopyEmail } from '../forms/send-submitter-copy.js';
 import { getSessionMember } from '../_lib/session.js';
+import { getTenantContext, hasAdminAccess } from '../_lib/tenantContext.js';
 import { sendSubmissionEmailsGuarded } from '../_lib/formSubmissionEmails.js';
 import { scoreSubmission, redactIdentityAnswers, anonymizeSubmissionRecord, activeVersionNumber } from '../_lib/surveyScoring.js';
 import { createHmac } from 'node:crypto';
@@ -28,6 +29,9 @@ import {
   validateOrganisationGroupDependentOrganizationAnswers,
 } from '../_lib/formOrganisationGroups.js';
 import { validateRepeatableRowSubmission } from '../_lib/formRepeatableRowValidation.js';
+import { buildFormProcessingHeaders } from '../_lib/formProcessingAuth.js';
+import { getInternalApiBaseUrl } from '../_lib/publicBaseUrl.js';
+import { hasPersistedFormEntityActions } from '../_lib/formEntityActionMode.js';
 
 export default async function handler(req, res) {
   console.log('[Public Form Submission] === ENDPOINT CALLED ===');
@@ -76,7 +80,7 @@ export default async function handler(req, res) {
     // Include communication_category_id for newsletter subscription
     const { data: form, error: formError } = await supabase
       .from('form')
-      .select('id, name, tenant_id, require_authentication, access_policy, fields, pages, visibility_rules, entity_pipelines, field_mappings, application_level, due_diligence_required, communication_category_id, allow_submitter_email_copy, prevent_duplicate_email_submission, is_event_related, related_event_id, deactivate_at, submission_emails, submission_email_template_id, submission_email_recipient, submission_email_cc, submission_email_bcc, submission_email_field_mapping, form_type, survey_settings')
+      .select('id, name, tenant_id, require_authentication, access_policy, fields, pages, visibility_rules, entity_pipelines, structured_actions, field_mappings, application_level, create_entity_type, entity_action, member_entity_action, organization_entity_action, additional_member_creations, due_diligence_required, communication_category_id, allow_submitter_email_copy, prevent_duplicate_email_submission, is_event_related, related_event_id, deactivate_at, submission_emails, submission_email_template_id, submission_email_recipient, submission_email_cc, submission_email_bcc, submission_email_field_mapping, form_type, survey_settings')
       .eq('id', form_id)
       .eq('tenant_id', tenantData.id)
       .eq('is_active', true)
@@ -109,7 +113,9 @@ export default async function handler(req, res) {
     // swallowed so it can never block a public submission.
     let sessionMemberName = null;
     let sessionMemberEmail = null;
+    let sessionMemberId = null;
     let hasTenantSession = false;
+    let sessionHasAdminAccess = false;
     try {
       const sessionMember = await getSessionMember(req);
       // Only honour a session that belongs to THIS tenant, so a member's
@@ -120,6 +126,7 @@ export default async function handler(req, res) {
         sessionMember?.tenant_id || sessionMember?.organization?.tenant_id || null;
       if (sessionMember && memberTenantId === tenantData.id) {
         hasTenantSession = true;
+        sessionMemberId = sessionMember.id;
         const fullName = [sessionMember.first_name, sessionMember.last_name]
           .filter((p) => typeof p === 'string' && p.trim())
           .join(' ')
@@ -131,6 +138,14 @@ export default async function handler(req, res) {
       }
     } catch (sessionErr) {
       console.warn('[Public Form Submission] Session member lookup failed (continuing as anonymous):', sessionErr?.message);
+    }
+    try {
+      const tenantContext = await getTenantContext(req);
+      sessionHasAdminAccess = tenantContext?.tenantId === tenantData.id
+        && await hasAdminAccess(tenantContext);
+    } catch (adminErr) {
+      console.warn('[Public Form Submission] Session admin lookup failed (continuing without admin authority):', adminErr?.message);
+      sessionHasAdminAccess = false;
     }
 
     // Forms that require authentication cannot be submitted publicly —
@@ -646,7 +661,7 @@ export default async function handler(req, res) {
       }
     }
 
-    const hasEntityPipelines = (form.entity_pipelines?.members?.length > 0) || (form.entity_pipelines?.organisations?.length > 0);
+    const hasEntityPipelines = hasPersistedFormEntityActions(form);
     const hasMemberPipelines = form.entity_pipelines?.members?.length > 0;
     const pipelineCommunicationSelections = collectMemberPipelineCommunicationSelections(
       form.entity_pipelines,
@@ -990,18 +1005,36 @@ export default async function handler(req, res) {
       }
     }
 
-    const baseUrl = `${req.headers['x-forwarded-proto'] || 'https'}://${host}`;
-
     // Process entity pipelines if configured (members/organisations creation)
     let pipelineCreatedMemberId = null;
     let pipelineCreatedOrgId = null;
+    let pipelineProcessingResult = null;
     // Anonymous surveys never run identity-creating pipelines.
     if (hasEntityPipelines && !surveyIsAnonymous) {
       try {
+        // Resolve only when processing is needed. Never follow request Host
+        // headers because this call carries an internal authentication proof.
+        const baseUrl = getInternalApiBaseUrl(null);
+        if (!baseUrl) {
+          await supabase.from('form_submission').delete().eq('id', submission.id);
+          return res.status(503).json({
+            error: 'Form processing service is temporarily unavailable',
+            code: 'PROCESSING_ORIGIN_UNAVAILABLE',
+          });
+        }
         console.log('[Public Form Submission] Processing entity pipelines for tenant:', tenantData.id);
         const pipelineResponse = await fetch(`${baseUrl}/api/forms/process-application`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            ...buildFormProcessingHeaders({
+              tenantId: tenantData.id,
+              formId: form.id,
+              submissionId: submission.id,
+              verifiedSubmitterMemberId: sessionMemberId,
+              verifiedAdminAccess: sessionHasAdminAccess,
+            }),
+          },
           body: JSON.stringify({
             form_id: form.id,
             form_values: submission_data || {},
@@ -1013,7 +1046,9 @@ export default async function handler(req, res) {
             role_id: clientRoleId || null,
             entity_pipelines: form.entity_pipelines,
             tenant_id: tenantData.id,
-            defer_communication_subscriptions: true
+            defer_communication_subscriptions: true,
+            verified_submitter_member_id: sessionMemberId,
+            verified_admin_access: sessionHasAdminAccess,
           })
         });
         
@@ -1066,6 +1101,7 @@ export default async function handler(req, res) {
           if (hasJsonBody) {
             try {
               const result = await pipelineResponse.json();
+              pipelineProcessingResult = result;
               console.log('[Public Form Submission] Entity pipeline processed:', result);
               
               // If the pipeline resolved an organization (created or existing) and we don't already have an org ID,
@@ -1533,7 +1569,11 @@ export default async function handler(req, res) {
       id: submission.id,
       message: 'Form submitted successfully',
       created_member_id: pipelineCreatedMemberId || null,
-      created_organization_id: pipelineCreatedOrgId || null
+      created_organization_id: pipelineCreatedOrgId || null,
+      ...(pipelineProcessingResult?.structured_actions ? {
+        structured_actions: pipelineProcessingResult.structured_actions,
+        processing_partial: pipelineProcessingResult.structured_actions.success === false,
+      } : {}),
     });
   } catch (error) {
     console.error('[Public Form Submission] Error:', error);

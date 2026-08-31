@@ -75,6 +75,7 @@ import {
 import {
   isRepeatableRowField,
   normalizeRepeatableRowField,
+  repeatableRowChildren,
   repeatableRowAddLabelEditorValue,
   REPEATABLE_ROW_CHILD_TYPES,
   REPEATABLE_ROW_DEPENDENCY_TYPES,
@@ -447,6 +448,278 @@ const ORG_CORE_FIELDS = [
   { value: 'website_url', label: 'Website URL' },
   { value: 'tags', label: 'Tags' },
 ];
+
+const STRUCTURED_ACTIONS_VERSION = 1;
+const STRUCTURED_ACTION_TARGETS = [
+  { value: 'member', label: 'Member' },
+  { value: 'organization', label: 'Organisation' },
+  { value: 'organization_group', label: 'Organisation Group' },
+  { value: 'custom_object', label: 'Custom Object' },
+];
+const STRUCTURED_CORE_FIELDS = {
+  member: MEMBER_CORE_FIELDS.filter(field => !['full_name', 'phone'].includes(field.value)),
+  organization: ORG_CORE_FIELDS,
+  organization_group: [
+    { value: 'name', label: 'Group name' },
+    { value: 'description', label: 'Description' },
+  ],
+};
+const NON_MAPPING_FORM_FIELD_TYPES = new Set([
+  'instructions', 'image', 'signature', 'file', 'payment', 'membership_payment',
+  'repeatable_rows', 'repeatable_row', 'repeatable_grid',
+]);
+const NON_MAPPING_TARGET_TYPES = new Set(['file']);
+const RECORD_REFERENCE_SOURCE_KINDS = {
+  organisation_dropdown: 'organization',
+  organization_dropdown: 'organization',
+  organisation_group_dropdown: 'organization_group',
+  relationship_dropdown: 'custom_object',
+};
+const mappingTypeFamily = (field) => {
+  const type = String(field?.type || field?.field_type || '').toLowerCase();
+  if (RECORD_REFERENCE_SOURCE_KINDS[type]) return `reference:${RECORD_REFERENCE_SOURCE_KINDS[type]}`;
+  if (['text', 'textarea', 'url', 'tel', 'phone', 'contact'].includes(type)) return 'text';
+  if (type === 'email') return 'email';
+  if (['number', 'percentage', 'currency', 'decimal'].includes(type)) return 'number';
+  if (['date', 'time'].includes(type)) return type;
+  if (type === 'boolean') return 'boolean';
+  if (['checkbox', 'checkboxes', 'list', 'multiselect', 'countries', 'category_multiselect'].includes(type)) return 'list';
+  return 'choice';
+};
+const isCompatibleStructuredMapping = (source, target) => {
+  if (!source || !target) return false;
+  const sourceFamily = mappingTypeFamily(source);
+  const targetFamily = target?.reference_kind ? `reference:${target.reference_kind}` : mappingTypeFamily(target);
+  if (sourceFamily.startsWith('reference:') || targetFamily.startsWith('reference:')) return sourceFamily === targetFamily;
+  if (targetFamily === 'text') return ['text', 'email', 'choice'].includes(sourceFamily);
+  if (targetFamily === 'choice') return ['text', 'email', 'choice'].includes(sourceFamily);
+  return sourceFamily === targetFamily;
+};
+const structuredUpsertFields = (action, fields) => {
+  const kind = action?.target?.kind;
+  if (kind === 'member') return fields.filter(field => field.target_type === 'core' && field.value === 'email');
+  if (kind === 'organization') return fields.filter(field => field.target_type === 'core' && field.value === 'name');
+  if (kind === 'organization_group') return fields.filter(field => field.target_type === 'core' && field.value === 'name');
+  if (kind === 'custom_object') {
+    const eligibleTypes = new Set(['text', 'email', 'url', 'number', 'decimal', 'date', 'dropdown', 'country']);
+    return fields.filter(field => field.target_type === 'custom'
+      && eligibleTypes.has(String(field.type || '').toLowerCase()));
+  }
+  return [];
+};
+
+const structuredActionSourceFields = (fields, action) => {
+  if (action?.source?.scope === 'repeatable_row') {
+    const container = (fields || []).find(field => field.id === action.source.repeatable_field_id);
+    return container ? repeatableRowChildren(container) : [];
+  }
+  return (fields || []).filter(field => !NON_MAPPING_FORM_FIELD_TYPES.has(field.type));
+};
+
+const structuredTargetFields = (action, customFields, customObjectFields) => {
+  const kind = action?.target?.kind;
+  if (kind === 'custom_object') {
+    return (customObjectFields[action?.target?.custom_object_id] || [])
+      .filter(field => field.is_active !== false && !NON_MAPPING_TARGET_TYPES.has(field.type || field.field_type))
+      .map(field => ({ value: field.id, label: field.label || field.name || field.key, type: field.type || field.field_type, required: field.is_required === true, target_type: 'custom' }));
+  }
+  const requiredCoreField = kind === 'member' ? 'email' : 'name';
+  const core = (STRUCTURED_CORE_FIELDS[kind] || []).map(field => ({
+    ...field,
+    required: field.value === requiredCoreField,
+    reference_kind: kind === 'member' && field.value === 'organization_id' ? 'organization' : null,
+    target_type: 'core',
+  }));
+  const preferences = kind === 'member' || kind === 'organization' || kind === 'organization_group'
+    ? (customFields || []).filter(field => {
+        const scope = field.entity_scope || field.target_entity || field.entity_type;
+        return field.is_active !== false
+          && !NON_MAPPING_TARGET_TYPES.has(field.type || field.field_type)
+          && (scope === kind || (kind === 'member' && !scope)
+            || (kind === 'organization' && scope === 'organisation')
+            || (kind === 'organization_group' && scope === 'organisation_group'));
+      }).map(field => ({ value: field.id, label: field.label || field.name, type: field.type || field.field_type, required: field.is_required === true, target_type: 'custom' }))
+    : [];
+  return [...core, ...preferences];
+};
+
+const relationshipSupportsTarget = (definition, action) => {
+  if (!definition || definition.status !== 'active') return false;
+  const kind = action?.target?.kind;
+  const objectId = action?.target?.custom_object_id;
+  const endpoints = [
+    { kind: definition.source_kind, objectId: definition.source_custom_object_id },
+    { kind: definition.target_kind, objectId: definition.target_custom_object_id },
+  ];
+  return endpoints.some(endpoint => endpoint.kind === kind
+    && (kind !== 'custom_object' || endpoint.objectId === objectId));
+};
+const structuredFieldRecordDescriptor = (field) => {
+  const kind = RECORD_REFERENCE_SOURCE_KINDS[field?.type];
+  if (!kind) return null;
+  return {
+    kind: field.type === 'relationship_dropdown' ? (field.related_kind || 'custom_object') : kind,
+    objectId: field.type === 'relationship_dropdown'
+      ? (field.related_custom_object_id || field.custom_object_id || null)
+      : null,
+  };
+};
+const structuredRelationshipSide = (definition, action) => ['source', 'target'].find(side =>
+  definition?.[`${side}_kind`] === action?.target?.kind
+  && (action?.target?.kind !== 'custom_object'
+    || definition?.[`${side}_custom_object_id`] === action?.target?.custom_object_id));
+
+function StructuredRecordActionsEditor({
+  value,
+  onChange,
+  fields,
+  customFields,
+  customObjects,
+  customObjectFields,
+  relationshipDefinitions,
+  metadataLoading,
+  metadataError,
+}) {
+  const actions = Array.isArray(value?.actions) ? value.actions : [];
+  const updateActions = (next) => onChange({ version: STRUCTURED_ACTIONS_VERSION, actions: next });
+  const updateAction = (index, updates) => {
+    const next = [...actions];
+    next[index] = { ...next[index], ...updates };
+    updateActions(next);
+  };
+  const repeatables = (fields || []).filter(isRepeatableRowField);
+
+  return (
+    <div className="space-y-3 pb-5 border-b border-slate-200" data-testid="structured-record-actions">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <Label className="text-sm font-semibold">Structured Record Actions</Label>
+          <p className="text-xs text-slate-500 mt-1">Create or update a record once per submission, or once for every repeatable row. This versioned configuration is additive to the legacy member and organisation pipelines below.</p>
+        </div>
+        <Button type="button" variant="outline" size="sm" onClick={() => updateActions([...actions, {
+          id: `record_action_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+          source: { scope: 'top_level', repeatable_field_id: null },
+          target: { kind: 'member', custom_object_id: null },
+          operation: 'upsert',
+          relationship_definition_id: null,
+          uniqueness_field: 'email',
+          mappings: [],
+        }])} data-testid="button-add-structured-action">
+          <Plus className="w-4 h-4 mr-2" /> Add action
+        </Button>
+      </div>
+      {metadataLoading && <p className="text-xs text-slate-500"><Loader2 className="inline w-3 h-3 mr-1 animate-spin" />Loading active Custom Object metadata…</p>}
+      {metadataError && <p className="text-xs text-red-600" role="alert">Custom Object metadata could not be loaded: {metadataError.message}</p>}
+      {actions.length === 0 && <div className="rounded-lg border border-dashed p-4 text-center text-sm text-slate-400">No structured actions configured</div>}
+      {actions.map((action, actionIndex) => {
+        const sourceFields = structuredActionSourceFields(fields, action);
+        const targetFields = structuredTargetFields(action, customFields, customObjectFields);
+        const relationships = (relationshipDefinitions || []).filter(definition => relationshipSupportsTarget(definition, action));
+        const selectorFields = sourceFields.filter(field => {
+          const descriptor = structuredFieldRecordDescriptor(field);
+          return field.type === 'relationship_dropdown'
+            && descriptor?.kind === action.target?.kind
+            && (descriptor.kind !== 'custom_object' || descriptor.objectId === action.target?.custom_object_id)
+            && relationships.some(definition => definition.id === field.relationship_definition_id);
+        });
+        const selectedRelationship = relationships.find(definition => definition.id === action.relationship_definition_id);
+        const targetSide = structuredRelationshipSide(selectedRelationship, action);
+        const parentSide = targetSide === 'source' ? 'target' : targetSide === 'target' ? 'source' : null;
+        const relationshipParentFields = sourceFields.filter(field => {
+          const descriptor = structuredFieldRecordDescriptor(field);
+          return descriptor && parentSide
+            && descriptor.kind === selectedRelationship?.[`${parentSide}_kind`]
+            && (descriptor.kind !== 'custom_object'
+              || descriptor.objectId === selectedRelationship?.[`${parentSide}_custom_object_id`]);
+        });
+        const upsertFields = structuredUpsertFields(action, targetFields);
+        return (
+          <div key={action.id || actionIndex} className="rounded-lg border bg-slate-50 p-4 space-y-4" data-testid={`structured-action-${actionIndex}`}>
+            <div className="flex justify-between gap-3">
+              <Input className="max-w-xs h-8" value={action.label || ''} placeholder={`Action ${actionIndex + 1} label (optional)`} onChange={event => updateAction(actionIndex, { label: event.target.value })} />
+              <Button type="button" variant="ghost" size="icon" className="h-8 w-8 text-red-500" onClick={() => updateActions(actions.filter((_, index) => index !== actionIndex))} aria-label={`Remove action ${actionIndex + 1}`}><Trash2 className="w-4 h-4" /></Button>
+            </div>
+            <div className="grid md:grid-cols-3 gap-3">
+              <div className="space-y-1"><Label className="text-xs">Source scope</Label>
+                <Select value={action.source?.scope || 'top_level'} onValueChange={scope => updateAction(actionIndex, { source: { scope, repeatable_field_id: scope === 'repeatable_row' ? (repeatables[0]?.id || null) : null }, mappings: [] })}>
+                  <SelectTrigger data-testid={`select-action-source-${actionIndex}`}><SelectValue /></SelectTrigger>
+                  <SelectContent><SelectItem value="top_level">Top-level submission</SelectItem><SelectItem value="repeatable_row" disabled={!repeatables.length}>Each repeatable row</SelectItem></SelectContent>
+                </Select>
+              </div>
+              {action.source?.scope === 'repeatable_row' && <div className="space-y-1"><Label className="text-xs">Repeatable field</Label>
+                <Select value={action.source?.repeatable_field_id || ''} onValueChange={repeatable_field_id => updateAction(actionIndex, { source: { scope: 'repeatable_row', repeatable_field_id }, mappings: [] })}>
+                  <SelectTrigger><SelectValue placeholder="Select repeatable rows…" /></SelectTrigger>
+                  <SelectContent>{repeatables.map(field => <SelectItem key={field.id} value={field.id}>{field.label || field.id}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>}
+              <div className="space-y-1"><Label className="text-xs">Target</Label>
+                <Select value={action.target?.kind || ''} onValueChange={kind => updateAction(actionIndex, { target: { kind, custom_object_id: null }, relationship_definition_id: null, uniqueness_field: null, mappings: [] })}>
+                  <SelectTrigger data-testid={`select-action-target-${actionIndex}`}><SelectValue placeholder="Select target…" /></SelectTrigger>
+                  <SelectContent>{STRUCTURED_ACTION_TARGETS.map(target => <SelectItem key={target.value} value={target.value}>{target.label}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>
+              {action.target?.kind === 'custom_object' && <div className="space-y-1"><Label className="text-xs">Custom Object</Label>
+                <Select value={action.target?.custom_object_id || ''} onValueChange={custom_object_id => updateAction(actionIndex, { target: { kind: 'custom_object', custom_object_id }, relationship_definition_id: null, uniqueness_field: null, mappings: [] })}>
+                  <SelectTrigger data-testid={`select-action-object-${actionIndex}`}><SelectValue placeholder="Select active object…" /></SelectTrigger>
+                  <SelectContent>{customObjects.map(object => <SelectItem key={object.id} value={object.id}>{object.plural_label || object.singular_label || object.object_key}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>}
+            </div>
+            <div className="grid md:grid-cols-3 gap-3">
+              <div className="space-y-1"><Label className="text-xs">Record operation</Label>
+                <Select value={action.operation || ''} onValueChange={operation => updateAction(actionIndex, { operation, selector_field_id: operation === 'update_selected' ? (selectorFields[0]?.id || null) : null, uniqueness_field: operation === 'upsert' ? (upsertFields[0]?.value || null) : null })}>
+                  <SelectTrigger data-testid={`select-action-operation-${actionIndex}`}><SelectValue /></SelectTrigger>
+                  <SelectContent><SelectItem value="create">Create new</SelectItem><SelectItem value="update_selected">Update selected related record</SelectItem><SelectItem value="upsert" disabled={!upsertFields.length}>Upsert by unique field</SelectItem></SelectContent>
+                </Select>
+              </div>
+              {action.operation === 'update_selected' && <div className="space-y-1"><Label className="text-xs">Selected-record field</Label>
+                <Select value={action.selector_field_id || ''} onValueChange={selector_field_id => {
+                  const selector = selectorFields.find(field => field.id === selector_field_id);
+                  updateAction(actionIndex, { selector_field_id, relationship_definition_id: selector?.relationship_definition_id || null });
+                }}>
+                  <SelectTrigger data-testid={`select-action-selector-field-${actionIndex}`}><SelectValue placeholder="Select relationship field…" /></SelectTrigger>
+                  <SelectContent>{selectorFields.map(field => <SelectItem key={field.id} value={field.id}>{field.label || field.id}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>}
+              <div className="space-y-1"><Label className="text-xs">Relationship {action.operation === 'update_selected' ? '(derived from selector)' : '(optional)'}</Label>
+                <Select value={action.relationship_definition_id || 'none'} onValueChange={relationship_definition_id => updateAction(actionIndex, { relationship_definition_id: relationship_definition_id === 'none' ? null : relationship_definition_id, relationship_parent_field_id: null })}>
+                  <SelectTrigger disabled={action.operation === 'update_selected'} data-testid={`select-action-relationship-${actionIndex}`}><SelectValue placeholder="No relationship" /></SelectTrigger>
+                  <SelectContent><SelectItem value="none">No relationship</SelectItem>{relationships.map(definition => <SelectItem key={definition.id} value={definition.id}>{definition.source_label || definition.relationship_key} ↔ {definition.target_label || definition.relationship_key}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>
+              {action.operation !== 'update_selected' && action.relationship_definition_id && <div className="space-y-1"><Label className="text-xs">Relationship parent field</Label>
+                <Select value={action.relationship_parent_field_id || ''} onValueChange={relationship_parent_field_id => updateAction(actionIndex, { relationship_parent_field_id })}>
+                  <SelectTrigger data-testid={`select-action-relationship-parent-${actionIndex}`}><SelectValue placeholder="Select parent record field…" /></SelectTrigger>
+                  <SelectContent>{relationshipParentFields.map(field => <SelectItem key={field.id} value={field.id}>{field.label || field.id}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>}
+              {action.operation === 'upsert' && <div className="space-y-1"><Label className="text-xs">Uniqueness field</Label>
+                <Select value={action.uniqueness_field || ''} onValueChange={uniqueness_field => updateAction(actionIndex, { uniqueness_field })}>
+                  <SelectTrigger data-testid={`select-action-unique-${actionIndex}`}><SelectValue placeholder="Select field…" /></SelectTrigger>
+                  <SelectContent>{upsertFields.map(field => <SelectItem key={`${field.target_type}:${field.value}`} value={field.value}>{field.label}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>}
+            </div>
+            <div className="space-y-2">
+              <div className="flex justify-between items-center"><Label className="text-xs font-semibold">Field mappings</Label>
+                <Button type="button" variant="outline" size="sm" disabled={!sourceFields.length || !targetFields.length} onClick={() => updateAction(actionIndex, { mappings: [...(action.mappings || []), { id: `mapping_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`, source_field_id: '', target_field_id: '', target_type: 'core' }] })}><Plus className="w-3 h-3 mr-1" />Mapping</Button>
+              </div>
+              {(action.mappings || []).map((mapping, mappingIndex) => (
+                <div className="grid grid-cols-[1fr_auto_1fr_auto] gap-2 items-center" key={mapping.id || mappingIndex}>
+                  <Select value={mapping.source_field_id || ''} onValueChange={source_field_id => { const mappings = [...action.mappings]; mappings[mappingIndex] = { ...mapping, source_field_id, target_field_id: '', target_type: 'core' }; updateAction(actionIndex, { mappings }); }}><SelectTrigger><SelectValue placeholder="Source field…" /></SelectTrigger><SelectContent>{sourceFields.filter(source => targetFields.some(target => isCompatibleStructuredMapping(source, target))).map(field => <SelectItem key={field.id} value={field.id}>{field.label || field.id}</SelectItem>)}</SelectContent></Select>
+                  <ArrowRight className="w-4 h-4 text-slate-400" />
+                  <Select value={mapping.target_field_id || ''} onValueChange={target_field_id => { const selected = targetFields.find(field => field.value === target_field_id); const mappings = [...action.mappings]; mappings[mappingIndex] = { ...mapping, target_field_id, target_type: selected?.target_type || 'custom' }; updateAction(actionIndex, { mappings }); }}><SelectTrigger><SelectValue placeholder="Target field…" /></SelectTrigger><SelectContent>{targetFields.filter(field => isCompatibleStructuredMapping(sourceFields.find(source => source.id === mapping.source_field_id), field)).map(field => <SelectItem key={`${field.target_type}:${field.value}`} value={field.value}>{field.target_type === 'custom' ? 'Custom: ' : ''}{field.label}</SelectItem>)}</SelectContent></Select>
+                  <Button type="button" variant="ghost" size="icon" className="text-red-500" onClick={() => updateAction(actionIndex, { mappings: action.mappings.filter((_, index) => index !== mappingIndex) })}><Trash2 className="w-4 h-4" /></Button>
+                </div>
+              ))}
+              {!(action.mappings || []).length && <p className="text-xs text-slate-400">Add at least one mapping from a field in the selected source scope.</p>}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
 const BOOKING_CORE_FIELDS = [
   { value: 'attendee_first_name', label: 'Attendee First Name' },
@@ -7595,6 +7868,7 @@ export default function FormBuilderPage() {
       members: [], // [{id, label, isPrimary, role_id, uniqueness_key, field_mappings}]
       organisations: [] // [{id, label, isPrimary, uniqueness_key, field_mappings}]
     },
+    structured_actions: { version: STRUCTURED_ACTIONS_VERSION, actions: [] },
     // Contract signing mode
     is_contract: false,
     blank_layout: false,
@@ -7765,6 +8039,40 @@ export default function FormBuilderPage() {
         return [];
       }
     }
+  });
+
+  // Structured Record Actions use the authenticated generic Custom Object API.
+  // Calling through base44's request adapter preserves credentials and the
+  // active-tenant header used throughout the admin application.
+  const {
+    data: structuredActionMetadata = { objects: [], fields: {}, relationships: [] },
+    isLoading: structuredActionMetadataLoading,
+    error: structuredActionMetadataError,
+  } = useQuery({
+    queryKey: ['custom-objects', 'form-builder-structured-actions'],
+    queryFn: async () => {
+      const objectEnvelope = await base44._apiRequest('/api/custom-objects?status=active&pageSize=100');
+      const objects = (objectEnvelope?.data || []).filter(object => object.status === 'active');
+      const resources = await Promise.all(objects.map(async object => {
+        const [fieldEnvelope, relationshipEnvelope] = await Promise.all([
+          base44._apiRequest(`/api/custom-objects/${encodeURIComponent(object.id)}/fields?pageSize=100`),
+          base44._apiRequest(`/api/custom-objects/${encodeURIComponent(object.id)}/relationship-definitions?pageSize=100`),
+        ]);
+        return {
+          objectId: object.id,
+          fields: (fieldEnvelope?.data || []).filter(field => field.is_active !== false),
+          relationships: relationshipEnvelope?.data || [],
+        };
+      }));
+      const fields = Object.fromEntries(resources.map(resource => [resource.objectId, resource.fields]));
+      const relationships = Array.from(new Map(
+        resources.flatMap(resource => resource.relationships)
+          .filter(definition => definition.status === 'active')
+          .map(definition => [definition.id, definition]),
+      ).values());
+      return { objects, fields, relationships };
+    },
+    staleTime: 60_000,
   });
 
   const { data: roles = [] } = useQuery({
@@ -8165,6 +8473,12 @@ export default function FormBuilderPage() {
           target_field_ids: rule.target_field_ids || []
         })),
         entity_pipelines: entityPipelines,
+        structured_actions: {
+          version: STRUCTURED_ACTIONS_VERSION,
+          actions: Array.isArray(existingForm.structured_actions?.actions)
+            ? existingForm.structured_actions.actions
+            : [],
+        },
         is_contract: existingForm.is_contract || false,
         blank_layout: existingForm.blank_layout || false,
         contract_settings: existingForm.contract_settings || {
@@ -8690,6 +9004,148 @@ export default function FormBuilderPage() {
       }
     }
 
+    // Structured actions are deliberately validated against the currently
+    // active metadata, rather than trusting stale labels or archived IDs.
+    const structuredActions = formData.structured_actions?.actions || [];
+    if (structuredActions.length > 0 && (structuredActionMetadataLoading || structuredActionMetadataError)) {
+      toast.error(structuredActionMetadataLoading
+        ? 'Please wait for Custom Object metadata to finish loading.'
+        : 'Structured Record Actions cannot be saved because Custom Object metadata failed to load.');
+      return;
+    }
+    const actionIds = new Set();
+    for (let index = 0; index < structuredActions.length; index += 1) {
+      const action = structuredActions[index];
+      const actionName = action.label?.trim() || `Action ${index + 1}`;
+      if (!action.id || actionIds.has(action.id)) {
+        toast.error(`${actionName} must have a unique action ID. Remove and recreate the duplicate action.`);
+        return;
+      }
+      actionIds.add(action.id);
+      if (!['top_level', 'repeatable_row'].includes(action.source?.scope)) {
+        toast.error(`${actionName} needs a valid source scope.`);
+        return;
+      }
+      if (action.source.scope === 'repeatable_row'
+        && !formData.fields.some(field => field.id === action.source.repeatable_field_id && isRepeatableRowField(field))) {
+        toast.error(`${actionName} points to a repeatable field that no longer exists.`);
+        return;
+      }
+      if (!STRUCTURED_ACTION_TARGETS.some(target => target.value === action.target?.kind)) {
+        toast.error(`${actionName} needs a target record type.`);
+        return;
+      }
+      if (action.target.kind === 'custom_object'
+        && !structuredActionMetadata.objects.some(object => object.id === action.target.custom_object_id)) {
+        toast.error(`${actionName} needs an active Custom Object.`);
+        return;
+      }
+      if (!['create', 'update_selected', 'upsert'].includes(action.operation)) {
+        toast.error(`${actionName} needs a valid record operation.`);
+        return;
+      }
+      const compatibleRelationships = structuredActionMetadata.relationships
+        .filter(definition => relationshipSupportsTarget(definition, action));
+      const sourceFields = structuredActionSourceFields(formData.fields, action);
+      if (action.relationship_definition_id
+        && !compatibleRelationships.some(definition => definition.id === action.relationship_definition_id)) {
+        toast.error(`${actionName} uses an inactive or incompatible relationship.`);
+        return;
+      }
+      if (action.operation === 'update_selected' && !action.relationship_definition_id) {
+        toast.error(`${actionName} must select a compatible relationship when updating a selected record.`);
+        return;
+      }
+      if (action.operation === 'update_selected') {
+        const selector = sourceFields.find(field => field.id === action.selector_field_id);
+        const selectorDescriptor = structuredFieldRecordDescriptor(selector);
+        if (!selector || selector.type !== 'relationship_dropdown'
+          || selector.relationship_definition_id !== action.relationship_definition_id
+          || selectorDescriptor?.kind !== action.target.kind
+          || (action.target.kind === 'custom_object'
+            && selectorDescriptor?.objectId !== action.target.custom_object_id)) {
+          toast.error(`${actionName} must select a compatible Relationship Dropdown field from its source scope.`);
+          return;
+        }
+      }
+      if (action.operation !== 'update_selected' && action.relationship_definition_id) {
+        const definition = compatibleRelationships.find(item => item.id === action.relationship_definition_id);
+        const targetSide = structuredRelationshipSide(definition, action);
+        const parentSide = targetSide === 'source' ? 'target' : targetSide === 'target' ? 'source' : null;
+        const parentField = sourceFields.find(field => field.id === action.relationship_parent_field_id);
+        const parentDescriptor = structuredFieldRecordDescriptor(parentField);
+        if (!parentDescriptor || !parentSide
+          || parentDescriptor.kind !== definition?.[`${parentSide}_kind`]
+          || (parentDescriptor.kind === 'custom_object'
+            && parentDescriptor.objectId !== definition?.[`${parentSide}_custom_object_id`])) {
+          toast.error(`${actionName} must select a compatible parent-record field for its relationship.`);
+          return;
+        }
+      }
+      const targetFields = structuredTargetFields(
+        action,
+        customFields,
+        structuredActionMetadata.fields,
+      );
+      const mappingsForAction = Array.isArray(action.mappings) ? action.mappings : [];
+      if (mappingsForAction.length === 0) {
+        toast.error(`${actionName} needs at least one field mapping.`);
+        return;
+      }
+      const mappedTargets = new Set();
+      const mappingIds = new Set();
+      for (let mappingIndex = 0; mappingIndex < mappingsForAction.length; mappingIndex += 1) {
+        const mapping = mappingsForAction[mappingIndex];
+        if (!mapping.id || mappingIds.has(mapping.id)) {
+          toast.error(`${actionName} has a missing or duplicate mapping ID.`);
+          return;
+        }
+        mappingIds.add(mapping.id);
+        if (!sourceFields.some(field => field.id === mapping.source_field_id)) {
+          toast.error(`${actionName}, mapping ${mappingIndex + 1}, needs a source field from its selected scope.`);
+          return;
+        }
+        const target = targetFields.find(field => field.value === mapping.target_field_id);
+        if (!target || target.target_type !== mapping.target_type) {
+          toast.error(`${actionName}, mapping ${mappingIndex + 1}, needs an active supported target field.`);
+          return;
+        }
+        const source = sourceFields.find(field => field.id === mapping.source_field_id);
+        if (!isCompatibleStructuredMapping(source, target)) {
+          toast.error(`${actionName}, mapping ${mappingIndex + 1}, maps incompatible field types.`);
+          return;
+        }
+        const targetKey = `${mapping.target_type}:${mapping.target_field_id}`;
+        if (mappedTargets.has(targetKey)) {
+          toast.error(`${actionName} maps the same target field more than once.`);
+          return;
+        }
+        mappedTargets.add(targetKey);
+      }
+      if (action.operation !== 'update_selected') {
+        const missingRequired = targetFields.find(target => target.required
+          && !mappingsForAction.some(mapping => (
+            mapping.target_field_id === target.value && mapping.target_type === target.target_type
+          )));
+        if (missingRequired) {
+          toast.error(`${actionName} must map required target field "${missingRequired.label}".`);
+          return;
+        }
+      }
+      if (action.operation === 'upsert') {
+        const uniqueTarget = structuredUpsertFields(action, targetFields)
+          .find(field => field.value === action.uniqueness_field);
+        if (!uniqueTarget) {
+          toast.error(`${actionName} needs an active uniqueness field for upsert.`);
+          return;
+        }
+        if (!mappingsForAction.some(mapping => mapping.target_field_id === action.uniqueness_field)) {
+          toast.error(`${actionName} must map its selected uniqueness field.`);
+          return;
+        }
+      }
+    }
+
     console.log('[FormBuilder] All validation passed, submitting form');
     
     // Remove temporary UI-only flags before saving
@@ -8699,6 +9155,10 @@ export default function FormBuilderPage() {
     // client-supplied survey_audit_log and appends create/edit/archive
     // entries itself, so never send it from the builder.
     delete dataToSave.survey_audit_log;
+    dataToSave.structured_actions = {
+      version: STRUCTURED_ACTIONS_VERSION,
+      actions: structuredActions,
+    };
 
     // Strip blank/whitespace-only option rows so empty "Add Option" rows are
     // never persisted (image_options fields keep their own structure).
@@ -9686,6 +10146,18 @@ export default function FormBuilderPage() {
                 </p>
               </CardHeader>
               <CardContent className="space-y-6">
+                <StructuredRecordActionsEditor
+                  value={formData.structured_actions}
+                  onChange={(structured_actions) => setFormData(prev => ({ ...prev, structured_actions }))}
+                  fields={formData.fields}
+                  customFields={customFields}
+                  customObjects={structuredActionMetadata.objects}
+                  customObjectFields={structuredActionMetadata.fields}
+                  relationshipDefinitions={structuredActionMetadata.relationships}
+                  metadataLoading={structuredActionMetadataLoading}
+                  metadataError={structuredActionMetadataError}
+                />
+
                 {/* Members Section */}
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">

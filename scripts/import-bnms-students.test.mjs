@@ -1,15 +1,61 @@
 import assert from 'node:assert/strict';
+import { existsSync } from 'node:fs';
 import test from 'node:test';
 import {
   ASSIGNMENT_COUNTS, COLUMN_COUNT, COMBINATION_COUNTS, CORE_MAPPINGS,
-  CUSTOM_MAPPINGS, EXPECTED_FILE_SHA256, FOCUS_AREA_MAPPING, HEADERS,
+  CUSTOM_MAPPINGS, EXPECTED_FILE_SHA256, FILE, FOCUS_AREA_MAPPING, HEADERS,
   REGION_MAPPING, ROW_COUNT, IMPORT_ROW_COUNT, auditFocusArea, auditHierarchy, auditMappings,
   applyStudentPlan, auditNoReferenceEligibility, decodeMixedEncoding, makePlan, noReferenceRows, parseSourceBytes,
   prepareApprovedSource, preservationSnapshot, readSource,
 } from './import-bnms-students.mjs';
 import { TENANT_ID, parseBritishDate, verifyOrCompensate } from './import-bnms-direct-debit-members.mjs';
 
-const rawSource = readSource();
+function csvBytes(rows) {
+  const cell = (value) => `"${String(value).replaceAll('"', '""')}"`;
+  return Buffer.from(rows.map((row) => row.map(cell).join(',')).join('\r\n'));
+}
+
+function syntheticSourceBytes() {
+  const skippedOrg = '55b65591-6a02-4370-9805-c0c720924d79';
+  const organizationIds = Array.from({ length: 35 }, (_, index) =>
+    index === 19 ? skippedOrg : `00000000-0000-4000-8000-${String(index + 1).padStart(12, '0')}`);
+  const rows = Array.from({ length: ROW_COUNT }, (_, index) => {
+    const values = Array(COLUMN_COUNT).fill('');
+    const membership = index < 47
+      ? ['Student Membership', 'Active', 'Student']
+      : index < 52
+        ? ['Resigned Membership', 'Active', 'Former']
+        : ['Student Membership', 'Active', 'Patient representative'];
+    values[0] = index === 19 ? '81630031' : `SYN-${String(index + 1).padStart(4, '0')}`;
+    values[1] = `${(index % 27) + 1}/1/2026`;
+    values[2] = `${(index % 27) + 1}/1/2027`;
+    [values[3], values[4], values[5]] = membership;
+    values[6] = `Synthetic${index + 1}`;
+    values[7] = `Student${index + 1}`;
+    values[8] = index === 23 ? 'Ms.' : index === 35 ? 'Mr.' : index % 2 ? 'Mr' : 'Ms';
+    values[9] = `synthetic.student.${index + 1}@example.invalid`;
+    values[10] = index % 4 ? `synthetic.alt.${index + 1}@example.invalid` : '';
+    values[11] = index === 0 ? '17–19 Synthetic Street' : `${index + 1} Example Road`;
+    values[12] = index % 3 ? 'Learning House' : '';
+    values[13] = `Test City ${index % 5}`;
+    values[14] = 'Example County';
+    values[15] = `ZZ${String(index).padStart(2, '0')} 0ZZ`;
+    values[16] = 'United Kingdom';
+    values[17] = `Region ${index % 4}`;
+    values[18] = index % 5 ? `0100000${String(index).padStart(3, '0')}` : '';
+    values[19] = index === 52 ? '' : `0700000${String(index).padStart(3, '0')}`;
+    values[20] = `Synthetic course ${index % 3}`;
+    values[21] = index === 0 ? 'I’m ready for training' : index % 6 ? `Synthetic note ${index + 1}` : '';
+    values[22] = index === 52 ? '' : index === 35 ? skippedOrg : organizationIds[index % organizationIds.length];
+    values[23] = index === 2 ? '' : index % 2
+      ? 'Physics – imaging science'
+      : 'Physics – imaging science|Physics – dosimetry';
+    return values;
+  });
+  return csvBytes([HEADERS, ...rows]);
+}
+
+const rawSource = parseSourceBytes(syntheticSourceBytes(), { verifyFingerprint: false });
 const source = prepareApprovedSource(rawSource);
 const requested = (mapping) => [...new Set(source.rows.map((row) => row.values[mapping.column]).filter(Boolean))];
 const fields = [...CUSTOM_MAPPINGS, REGION_MAPPING].map((mapping, index) => ({
@@ -33,19 +79,13 @@ const organizations = organizationIds.map((id) => ({ id, tenant_id: TENANT_ID, o
 const hierarchy = auditHierarchy(source, { groups, organizations });
 const mappings = auditMappings(fields, source);
 const focusArea = auditFocusArea(categories, source);
-
-function csvBytes(rows) {
-  const cell = (value) => `"${String(value).replaceAll('"', '""')}"`;
-  return Buffer.from(rows.map((row) => row.map(cell).join(',')).join('\r\n'));
-}
 function mutateSource(mutator) {
   const rows = [HEADERS, ...rawSource.rows.map((row) => [...row.values])];
   mutator(rows);
   return parseSourceBytes(csvBytes(rows), { verifyFingerprint: false });
 }
 
-test('pins the exact mixed-encoding source, shape, identities, combinations and hierarchy counts', () => {
-  assert.equal(source.fingerprint, EXPECTED_FILE_SHA256);
+test('synthetic fixture preserves source shape, identities, combinations and hierarchy counts', () => {
   assert.equal(rawSource.rows.length, ROW_COUNT);
   assert.equal(source.rows.length, IMPORT_ROW_COUNT);
   assert.equal(HEADERS.length, COLUMN_COUNT);
@@ -58,6 +98,14 @@ test('pins the exact mixed-encoding source, shape, identities, combinations and 
     { sourceRow: 25, from: 'Ms.', to: 'Ms' },
     { sourceRow: 37, from: 'Mr.', to: 'Mr' },
   ]);
+});
+
+test('pins the exact protected mixed-encoding source when the local file is available', {
+  skip: !existsSync(FILE),
+}, () => {
+  const protectedSource = readSource();
+  assert.equal(protectedSource.fingerprint, EXPECTED_FILE_SHA256);
+  assert.equal(protectedSource.rows.length, ROW_COUNT);
 });
 
 test('mixed decoder preserves valid UTF-8 while repairing isolated Windows-1252 and rejects corruption', () => {

@@ -63,6 +63,10 @@ import { checkRoleMutationAccess } from '../../_lib/roleMutationAccess.js';
 import { createFormRelationshipService, FormRelationshipError } from '../../_lib/formRelationshipOptions.js';
 import { validateRepeatableRowSubmission } from '../../_lib/formRepeatableRowValidation.js';
 import { snapshotFormNotListedLabels } from '../../../shared/formNotListedChoice.js';
+import {
+  StructuredActionContractError,
+  validateStructuredActionsContract,
+} from '../../_lib/formStructuredActions.js';
 
 /**
  * Task #3100: support staff = tenant users (admin dashboard), tenant admins,
@@ -1314,6 +1318,24 @@ export default async function handler(req, res) {
         });
         if (!validation.ok) return res.status(422).json({ error: validation.error, code: 'INVALID_FORM_ACCESS_POLICY' });
         sanitizedBody.access_policy = validation.policy;
+      }
+
+      if (entityNorm === 'form' && Object.prototype.hasOwnProperty.call(sanitizedBody, 'structured_actions')) {
+        try {
+          sanitizedBody.structured_actions = validateStructuredActionsContract(
+            sanitizedBody.structured_actions,
+            sanitizedBody.fields || [],
+          ) || { version: 1, actions: [] };
+        } catch (error) {
+          if (error instanceof StructuredActionContractError) {
+            return res.status(422).json({
+              error: error.message,
+              code: error.code,
+              details: error.details,
+            });
+          }
+          throw error;
+        }
       }
 
       if (entityNorm === 'portalmenu') {

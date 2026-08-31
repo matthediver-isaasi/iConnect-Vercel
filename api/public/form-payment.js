@@ -22,6 +22,7 @@
  */
 import { createClient } from '@supabase/supabase-js';
 import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
+import { getTenantContext, hasAdminAccess } from '../_lib/tenantContext.js';
 import { getTenantTrustedBaseUrl } from '../_lib/publicBaseUrl.js';
 import { resolveSubmitControl } from '../_lib/formSubmitControl.js';
 import { rulesUseLmicOperators } from '../_lib/formLmicConditions.js';
@@ -59,9 +60,10 @@ import {
   validateOrganisationGroupDependentOrganizationAnswers,
 } from '../_lib/formOrganisationGroups.js';
 import { validateRepeatableRowSubmission } from '../_lib/formRepeatableRowValidation.js';
+import { getSessionMember } from '../_lib/session.js';
 const STRIPE_MINIMUMS = { GBP: 0.30, USD: 0.50, EUR: 0.50, AUD: 0.50, NZD: 0.50 };
 
-const FORM_COLUMNS = 'id, name, tenant_id, require_authentication, access_policy, fields, pages, visibility_rules, entity_pipelines, field_mappings, application_level, deactivate_at, submission_emails, submission_email_template_id, submission_email_recipient, submission_email_cc, submission_email_bcc, submission_email_field_mapping, form_type';
+const FORM_COLUMNS = 'id, name, tenant_id, require_authentication, access_policy, fields, pages, visibility_rules, entity_pipelines, structured_actions, field_mappings, application_level, create_entity_type, entity_action, member_entity_action, organization_entity_action, additional_member_creations, deactivate_at, submission_emails, submission_email_template_id, submission_email_recipient, submission_email_cc, submission_email_bcc, submission_email_field_mapping, form_type';
 
 function sanitizeReturnPath(p) {
   if (typeof p !== 'string') return '/';
@@ -159,7 +161,25 @@ async function authorizePaymentStart(req, res, supabase, tenantData, form) {
     sendFormAccessDenied(res, access);
     return null;
   }
-  return access;
+  let verifiedSubmitterMemberId = null;
+  let verifiedAdminAccess = false;
+  try {
+    const member = await getSessionMember(req);
+    const memberTenantId = member?.tenant_id || member?.organization?.tenant_id || null;
+    if (member?.id && memberTenantId === tenantData.id) {
+      verifiedSubmitterMemberId = member.id;
+    }
+  } catch {
+    // Unrestricted forms remain available to anonymous submitters.
+  }
+  try {
+    const tenantContext = await getTenantContext(req);
+    verifiedAdminAccess = tenantContext?.tenantId === tenantData.id
+      && await hasAdminAccess(tenantContext);
+  } catch {
+    verifiedAdminAccess = false;
+  }
+  return { ...access, verifiedSubmitterMemberId, verifiedAdminAccess };
 }
 
 export async function validatePaymentRelationships(res, supabase, tenantData, form, values, visibilityOptions = null) {
@@ -475,6 +495,8 @@ async function handleCreateMonthlyCard(req, res, supabase, tenantData) {
       payment_status: 'pending', payment_provider: 'stripe_monthly_card',
       payment_amount: offer.monthlyAmount, payment_currency: offer.currency,
       payment_meta: withFormPaymentAccessProof({ prefill_organization_id: prefill_organization_id || null, role_id: role_id || null,
+        verified_submitter_member_id: access.verifiedSubmitterMemberId || null,
+        verified_admin_access: access.verifiedAdminAccess === true,
         membership: resolved.membershipMeta, monthly_card: {
           offer,
           pre_resolved_member_id: existingApplicant?.id || null,
@@ -863,6 +885,8 @@ async function handleCreate(req, res, supabase, tenantData) {
             price_field_id: paymentField.price_field_id || null,
             prefill_organization_id: prefill_organization_id || null,
             role_id: role_id || null,
+            verified_submitter_member_id: access.verifiedSubmitterMemberId || null,
+            verified_admin_access: access.verifiedAdminAccess === true,
             membership: membershipMeta,
             stripe_feature: stripeFeature,
           }, { accessPolicyRequired: access.restricted }),
@@ -896,6 +920,8 @@ async function handleCreate(req, res, supabase, tenantData) {
         price_field_id: paymentField.price_field_id || null,
         prefill_organization_id: prefill_organization_id || null,
         role_id: role_id || null,
+        verified_submitter_member_id: access.verifiedSubmitterMemberId || null,
+        verified_admin_access: access.verifiedAdminAccess === true,
         membership: membershipMeta,
         stripe_feature: stripeFeature,
       }, { accessPolicyRequired: access.restricted }),
@@ -1127,11 +1153,15 @@ async function handleConfirm(req, res, supabase, tenantData) {
   // before money was taken. Do not revoke finalisation if membership changes
   // while the provider is completing. Legacy rows without that proof are
   // checked against the live policy and fail closed.
-  if (!row.payment_meta?.access_authorized_at) {
+  if (!row.payment_meta?.access_authorized_at || !row.payment_meta?.verified_submitter_member_id) {
     if (!form) return res.status(404).json({ error: 'Form not found' });
     const access = await authorizePaymentStart(req, res, supabase, tenantData, form);
     if (!access) return;
-    const paymentMeta = withFormPaymentAccessProof(row.payment_meta, {
+    const paymentMeta = withFormPaymentAccessProof({
+      ...(row.payment_meta || {}),
+      verified_submitter_member_id: access.verifiedSubmitterMemberId || null,
+      verified_admin_access: access.verifiedAdminAccess === true,
+    }, {
       accessPolicyRequired: access.restricted,
     });
     const { data: authorizedRow, error: authorizationError } = await supabase

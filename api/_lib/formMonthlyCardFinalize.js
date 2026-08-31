@@ -63,7 +63,7 @@ import { hasFormPaymentAccessProof } from './formPaymentAccess.js';
 export const FINALIZE_CLAIM_TTL_MS = 15 * 60 * 1000; // 15 minutes
 
 // Full form columns needed for entity pipelines + submission emails.
-export const FORM_COLUMNS = 'id, name, tenant_id, access_policy, fields, pages, visibility_rules, entity_pipelines, field_mappings, application_level, submission_emails, submission_email_template_id, submission_email_recipient, submission_email_cc, submission_email_bcc, submission_email_field_mapping, form_type';
+export const FORM_COLUMNS = 'id, name, tenant_id, access_policy, fields, pages, visibility_rules, entity_pipelines, structured_actions, field_mappings, application_level, create_entity_type, entity_action, member_entity_action, organization_entity_action, additional_member_creations, submission_emails, submission_email_template_id, submission_email_recipient, submission_email_cc, submission_email_bcc, submission_email_field_mapping, form_type';
 
 // ── Internal helpers ────────────────────────────────────────────────────────
 

@@ -15,7 +15,6 @@
 - [Reindex concurrency guard](reindex-concurrency-guard.md) — reindex chain uses a fail-open defer-marker (system_settings global row + runId), NOT a hard lock; keep it best-effort or "restart is free" breaks.
 - [Platform manual backup orchestration](platform-manual-backup-orchestration.md) — manual R2 backup completes via a browser loop re-invoking a single-chunk resumable /run endpoint, not server self-chaining (stays within serverless maxDuration).
 - [Workspace DB targets](workspace-db-targets.md) — runtime SUPABASE_URL here == legacy SOURCE (stale); prod/migrations target DEST. Apply feature migrations to DEST only.
-- [Vercel lockfile firewall URLs](vercel-lockfile-firewall-urls.md) — package installs leave package-firewall.replit.local URLs in package-lock.json; Vercel npm install crashes ("Exit handler never called!"); sed them to registry.npmjs.org.
 - [Private subsets of a tenant entity](private-subset-of-tenant-entity.md) — client-side hiding of group-private rows isn't access control; add server-side filter on entity list + by-id reads, exempt admins.
 - [Workflow trigger types & scheduled workflows](workflow-trigger-types.md) — trigger_type is free-text (no migration to add one); operator comparison centralized in evaluateConditionOperator; scheduled path has no before-value, date ops are UTC.
 - [Canvas anchor links / link-field surfaces](canvas-anchor-links.md) — anchorId→id only in CanvasPageRenderer (not stage); every block link field must use shared LinkField; RichTextEditor anchorOptions is additive (shared w/ email-builder).
@@ -28,8 +27,6 @@
 - [Group-event authz body aliasing](group-event-authz-body-aliasing.md) — entity PATCH clear+reassign of sanitizedBody empties the update for tenant admins because authz.body is the SAME object ref; empty update -> PGRST116 -> silent 404.
 - [tenant-branding secondaryBar sanitization](tenant-branding-secondarybar-sanitize.md) — branding PATCH rebuilds header_config.secondaryBar from scratch; new subfields silently dropped unless whitelisted in the sanitizer.
 - [Count-based ticket availability & oversell guard](ticket-capacity-count-based.md) — available_count is a fixed max; derive remaining from confirmed bookings; oversell needs a DB advisory-lock guard, not a stored decrement.
-- [Tenant button-style reuse](tenant-button-styles.md) — Primary/Secondary button styling resolved by shared helpers in lib/tenantButtonStyle.js; reuse TenantCtaButton for new CTAs, don't redefine the resolver.
-- [Recoloured icon paints a square](cross-origin-css-mask.md) — a mask-image SVG painting a solid square is almost always a MALFORMED/truncated svg, not the mask technique or fetch; hexdump stored bytes first. Root cause here: hand-rolled multipart upload parser double-stripped trailing bytes off every upload.
 - [getTenantIdFromSession only checks membership](tenant-session-admin-gate.md) — admin-only /api endpoints must use getTenantContext + hasAdminAccess; getTenantIdFromSession verifies tenant membership only, not admin role.
 - [Redacted group-admin data surfaces](redacted-group-admin-surfaces.md) — give group admins a tenant-wide signal (count/boolean) by branching the RESPONSE not just auth; redact every success branch so other groups private details never leak.
 - [member_group_assignment has no join timestamp](member-group-assignment-no-timestamp.md) — table has no created/joined column; activity "joined" backfills must use now(), true historical dates unrecoverable.
@@ -43,7 +40,6 @@
 - [Transactional inbox delivery](transactional-inbox-delivery.md) — /inbox unions two backends (campaign state-table vs transactional co-located-state row); every inbox endpoint must branch on a `source` discriminator or one kind silently disappears.
 - [Canvas layout engine text encoding](canvas-layout-engine-text-encoding.md) — buildDesign: use &amp; only inside P()/LI()/html; use literal & in card heading/cta, button labels, section headings (else "&amp;" shows literally).
 - [Canvas page-from-doc fidelity](canvas-from-doc-fidelity.md) — AI page gen must be 100% faithful: structured verbatim source + bidirectional isSpecFaithful guard + deterministic fallback; layout factories interpolating source into HTML must escape it.
-- [Canvas blocks reusing public card components](canvas-shared-card-editor-safety.md) — mirror a public list page by rendering its real card w/ same props (no drift); JS-onClick cards need onClickCapture stopPropagation in editor.
 - [Canvas public reflow collapsed baseline](canvas-reflow-collapsed-baseline.md) — accordion push-down measures growth from collapsed baseline (min measured), not stored box; else tall stored box clamps expansion to 0. Cards excluded.
 - [Canvas spatial reflow lanes](canvas-spatial-reflow-lanes.md) — V1 blocks move only on visible collision; lanes stay independent and spanning targets follow the deepest path.
 - [Baking auto-height reflow into stored geom](canvas-autoheight-commit.md) — committing an auto-height block's measured h must ALSO push blocks below + grow containing sections by the delta, else getOffset→0 and blocks below overlap; scoped to non-cardGrow blocks (Text/Accordion), cards use runtime row-equalization.
@@ -61,12 +57,6 @@
 - [Canvas block.style render surfaces](canvas-block-style-render-surfaces.md) — a new block.style visual prop (e.g. boxShadow) must be added to DEFAULT_STYLE + 5 inline wrappers (v1 stage/renderer, v2 flow leaf+container, v2 flow public, SymbolChildPreview) via one shared resolver.
 - [Canvas unsaved-changes guard](canvas-unsaved-changes-guard.md) — editor is manual-save only; app uses non-data BrowserRouter so useBlocker is unavailable — guard leave via beforeunload + popstate sentinel + custom modal; manual Save records a version.
 - [Canvas editor zoom vs reflow](canvas-editor-zoom-reflow.md) — editor zoom is transform:scale, so getBoundingClientRect reflow reads are inflated; divide by zoom (normalizeMeasuredLength) before baking, but NOT getComputedStyle margins; public zoom=1 no-op.
-- [TipTap Link per-link new-tab](tiptap-link-target-default.md) — extension default target='_blank' survives .configure() deep-merge + renderHTML always merges global HTMLAttributes; must explicitly null global target to get same-tab default.
-- [Canvas engine mobile stacking](canvas-engine-mobile-stacking.md) — engine emits desktop-only frames (2-up cards overlap on phones); card bodies strip <table>; add stacked bp frames in source order + verify arithmetically.
-- [Canvas responsive typography selectors](canvas-responsive-typography-selector.md) — tenant @media typography overrides must target the element with the inline style (data-tg-r marker), never the bare data-cb wrapper.
-- [Canvas public renderer passes no breakpoint](canvas-public-breakpoint-undefined.md) — per-breakpoint knobs baked into inline styles render desktop-only publicly; emit data-cb-scoped @media CSS instead.
-- [Aspect-carousel reflow reference](canvas-aspect-carousel-reflow.md) — public signed reflow must use the aspect-derived height at the stage width, not stored geom h; signed rows get a small push-slack.
-- [Canvas reflow font baseline](canvas-reflow-font-baseline.md) — public-path measurement-derived state must stay provisional until fonts.ready + double rAF, or fallback-font heights lock in phantom gaps.
 - [AI Composition editing/imagery](ai-composition-editing.md) — proposals stored server-side, re-applied vs current doc; imagery: factual elements never carry images, crop aspect "16 / 9" (see ai-composition-images.md).
 - [AI Composition workflow & gates](ai-composition-phase5.md) — deterministic retryable gates belong in prompts too, use server-verified records, and must reconcile plan promises on final retry.
 - [AI generation style reference](ai-style-reference.md) — no-reference generation must stay byte-identical; screenshots trusted only under tenant asset prefix; branding/content always beat the reference.
@@ -76,7 +66,6 @@
 - [Complex event reminders per-day](complex-reminders-per-day.md) — relative reminders schedule once per calendar day via shared helper; dedupe reuses session_id as the deterministic day-anchor session.
 - [Session Zoom ID conventions](session-zoom-id-conventions.md) — session cols hold EXTERNAL Zoom IDs (event table holds local PKs); saved-session Zoom changes must route through change-zoom, the PATCH strips them.
 - [complex_event_session FK column](complex-event-session-fk.md) — parent FK is complex_event_id (NOT event_id, despite some code querying that); session start column is start_time.
-- [useQuery `= []` default render loop](usequery-default-array-loop.md) — disabled query + inline array default + setState effect = silent infinite loop that freezes router transitions; use stable EMPTY consts.
 - [Accounting provider dual invoice columns](accounting-provider-dual-columns.md) — QBO rows fill only accounting_invoice_id/number; queries filtering xero_* alone silently miss them; keep xero_invoice_id strictly Xero for API calls.
 - [Pending-PO Xero reference heuristic](pending-po-reference-heuristic.md) — descriptive Xero References ('Training Fund top-up', 'Membership …') must be blacklisted or the PO report hides rows; PostgREST .or() fails on UPDATE.
 - [Member group role name canonicalisation](member-group-role-name-canonicalisation.md) — role names are free text duplicated across ~9 surfaces incl. role-keyed JSONB maps; rename/merge must rewrite all together.
@@ -98,7 +87,6 @@
 - [Outlook busy-time handling](outlook-busy-times.md) — Graph calendarview returns naive datetimes in the Prefer tz; never offset-detect via includes('-'); paginate nextLink; flag connection on failure.
 - [Fee approval must not set invoicing_mode](fee-approval-invoicing-mode.md) — side-effect invoicing rows must be 'automatic' (org column NOT NULL) or the Create Membership workflow guard deadlocks; log status must surface skipped actions.
 - [Cron email delivery model](speaker-award-notifications.md) — one-off notification emails need lease+delivered timestamp pairs (CAS everywhere) and a retry sweep independent of the parent's done-stamp; a claim is not delivery.
-- [Radix Select undefined = uncontrolled](radix-select-undefined-uncontrolled.md) — clearing a controlled Select via `value={x || undefined}` leaves the old choice displayed; remount with a value-tied key.
 - [Resource category & subcategory role access](resource-category-role-access.md) — name-level visible-wins hiding via one shared helper; ~6 surfaces must strip access fields + trim hidden names or roles leak.
 - [Org directory filters vs admin surfaces](org-directory-filter-admin.md) — non-tenant-admin Organization lists are directory-filtered unless skipDirectoryFilters=true; admin pages use adminOrgList helpers.
 - [record_create workflows & custom fields](workflow-record-create-custom-fields.md) — trigger AFTER preference values persist or custom-field conditions see empty; workflow_log status check allows success|partial|failed|skipped.
@@ -122,10 +110,8 @@
 - [Tenant feed cron fairness](tenant-feed-cron-fairness.md) — time-bounded tenant feed crons need an ordered durable cursor, or the first page silently starves later tenants.
 - [Simple-event timing invariants](simple-event-timing-invariants.md) — enforce timing rules before event-write admin bypasses; training normalizes timing, while public reads suppress stale schedule data.
 - [Public directory field privacy](public-directory-field-privacy.md) — public projections must enforce both member eligibility and tenant field visibility server-side.
-- [Supabase public Storage misses](supabase-storage-missing-object.md) — a missing public object can be HTTP 400 with an embedded 404/NoSuchKey; inspect the JSON body before treating it as absent.
 - [WordPress option leases](wordpress-option-leases.md) — expiring locks need DB compare-and-swap takeover/renewal and compare-and-delete release; read/delete/add reopens concurrency races.
 - [Preference-field ownership scopes](preference-field-ownership-scopes.md) — adding a new field owner requires API and DB guards on every legacy value table, not just filtering field definitions.
-- [Stable Lucide icon identities](lucide-icon-identities.md) — lucide-react component.name is not a stable persisted key; pair components with explicit string identifiers.
 - [External campaign contacts](external-campaign-contacts.md) — non-member recipients may have no subscriber row; resolve them before shared suppression and treat email_unsubscribe as canonical.
 - [Bounded list APIs and exports](bounded-list-api-exports.md) — when an interactive list API caps page size, existing exports must paginate to the exact total or they silently truncate.
 - [Mailgun HTTPS tracking reconciliation](mailgun-https-tracking.md) — trust the final domain GET; readiness requires both HTTPS web_scheme and active domain state.
@@ -150,10 +136,10 @@
 - [Deactivating referenced workflow states](workflow-state-deactivation-races.md) — assignment and deactivation must serialize on the same database row; an existence check is raceable.
 - [Immutable child re-parenting](immutable-child-reparenting.md) — child immutability triggers must validate both OLD and NEW parents or updates can move data out of locked snapshots.
 - [Commercial Event capacity](commercial-event-capacity.md) — unused sale allocations and confirmed delegate rows share one locked capacity equation; reconciliation/cancellation must be atomic.
-- [Canvas dynamic-block tests](canvas-dynamic-block-tests.md) — enter through the registry and inject lazy page boundaries; direct imports hit registry cycles, while resolved pages require Vite-only env.
 - [Quote delivery bearer safety](quote-delivery-bearer-safety.md) — quote links stay inactive until delivery is durably recorded; never persist token-bearing referrers or return broad snapshots publicly.
 - [Commercial sale invoice conversion](commercial-sale-invoice-conversion.md) — invoice only from the accepted quote snapshot; claim per sale/provider and preserve exact accepted arithmetic.
 - [Allocated delegate claim ordering](allocated-delegate-claim-ordering.md) — claim invite entitlement only after booking capacity checks; compensate the whole checkout if a later claim fails.
 - [Mixed-encoding CSV imports](mixed-encoding-csv-imports.md) — preserve valid UTF-8 sequences while decoding isolated Windows-1252 bytes; whole-file fallback can silently create mojibake.
 - [Stripe feature mode for shared payments](stripe-feature-payment-mode.md) — discovery, creation, and confirmation must use one persisted feature when a shared flow serves several products.
 - [Department relationship replacement](department-relationship-replacement.md) — changing a member Organisation may auto-archive Department edges; pre-journal restoration and never hard-delete.
+- [Form processing authorization boundary](form-processing-authorization-boundary.md) — record side effects require trusted/authenticated identity and persisted lifecycle/config checks before execution.

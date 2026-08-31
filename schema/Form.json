@@ -192,6 +192,93 @@
       "default": [],
       "description": "Array of field mappings for application forms"
     },
+    "structured_actions": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "type": "number",
+          "enum": [1],
+          "description": "Structured Record Actions contract version"
+        },
+        "actions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string" },
+              "label": { "type": "string" },
+              "source": {
+                "type": "object",
+                "properties": {
+                  "scope": {
+                    "type": "string",
+                    "enum": ["top_level", "repeatable_row"]
+                  },
+                  "repeatable_field_id": {
+                    "type": ["string", "null"]
+                  }
+                },
+                "required": ["scope"]
+              },
+              "target": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": ["member", "organization", "organization_group", "custom_object"]
+                  },
+                  "custom_object_id": {
+                    "type": ["string", "null"]
+                  }
+                },
+                "required": ["kind"]
+              },
+              "operation": {
+                "type": "string",
+                "enum": ["create", "update_selected", "upsert"]
+              },
+              "relationship_definition_id": {
+                "type": ["string", "null"]
+              },
+              "relationship_parent_field_id": {
+                "type": ["string", "null"],
+                "description": "For create/upsert relationship linking, the exact source-scope field containing the opposite endpoint record ID."
+              },
+              "selector_field_id": {
+                "type": ["string", "null"],
+                "description": "For update_selected, the exact relationship_dropdown form field ID in the selected source scope. Its saved relationship_definition_id must equal relationship_definition_id."
+              },
+              "uniqueness_field": {
+                "type": ["string", "null"]
+              },
+              "mappings": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": { "type": "string" },
+                    "source_field_id": { "type": "string" },
+                    "target_field_id": { "type": "string" },
+                    "target_type": {
+                      "type": "string",
+                      "enum": ["core", "custom"]
+                    }
+                  },
+                  "required": ["id", "source_field_id", "target_field_id", "target_type"]
+                }
+              }
+            },
+            "required": ["id", "source", "target", "operation", "mappings"]
+          }
+        }
+      },
+      "required": ["version", "actions"],
+      "default": {
+        "version": 1,
+        "actions": []
+      },
+      "description": "Versioned Structured Record Actions. Each action runs against top-level answers or each row of one repeatable field and creates, updates a selected related record, or upserts a Member, Organisation, Organisation Group, or active Custom Object using stable relationship, object, form-field, and target-field IDs. Legacy entity_pipelines remain separate."
+    },
     "form_type": {
       "type": "string",
       "enum": [

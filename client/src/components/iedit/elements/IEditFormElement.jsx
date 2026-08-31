@@ -1372,7 +1372,9 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
 
         // Process entity pipelines if configured (create/update member/org entities)
         // Only for authenticated users - unauthenticated submissions are processed server-side by form-submission.js
-        const hasEntityPipelines = (form?.entity_pipelines?.members?.length > 0) || (form?.entity_pipelines?.organisations?.length > 0);
+        const hasEntityPipelines = (form?.entity_pipelines?.members?.length > 0)
+          || (form?.entity_pipelines?.organisations?.length > 0)
+          || (form?.structured_actions?.actions?.length > 0);
         // Surveys submit through the public endpoint, which runs (or, for
         // anonymous surveys, deliberately skips) pipelines server-side —
         // never re-run them client-side.

@@ -269,7 +269,7 @@ async function maybeProcessFormPaymentBillingRequest({ action, brId, db, gc }) {
         : { row };
       const { data: form } = await db
         .from('form')
-        .select('id, name, tenant_id, fields, pages, visibility_rules, entity_pipelines, field_mappings, application_level, submission_emails, submission_email_template_id, submission_email_recipient, submission_email_cc, submission_email_bcc, submission_email_field_mapping, form_type')
+        .select('id, name, tenant_id, fields, pages, visibility_rules, entity_pipelines, structured_actions, field_mappings, application_level, create_entity_type, entity_action, member_entity_action, organization_entity_action, additional_member_creations, submission_emails, submission_email_template_id, submission_email_recipient, submission_email_cc, submission_email_bcc, submission_email_field_mapping, form_type')
         .eq('id', row.form_id)
         .eq('tenant_id', row.tenant_id)
         .maybeSingle();

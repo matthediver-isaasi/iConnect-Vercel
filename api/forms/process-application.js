@@ -15,6 +15,23 @@ import {
   collectMemberPipelineCommunicationSelections,
   persistFormCommunicationSubscriptions,
 } from '../_lib/formCommunicationSubscriptions.js';
+import {
+  assertStructuredMutationAuthorized,
+  processPersistedStructuredActions,
+  StructuredActionAuthorizationError,
+  StructuredActionContractError,
+} from '../_lib/formStructuredActions.js';
+import {
+  resolveTrustedFormProcessingAdmin,
+  verifyFormProcessingRequest,
+} from '../_lib/formProcessingAuth.js';
+import { getTenantContext, hasAdminAccess } from '../_lib/tenantContext.js';
+import { getSessionMember } from '../_lib/session.js';
+import {
+  derivePersistedFormRole,
+  resolveFormProcessingPrefillTargets,
+} from '../_lib/formProcessingPolicy.js';
+import { hasPersistedLegacyFormEntityActions, resolveFormEntityActions } from '../_lib/formEntityActionMode.js';
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
@@ -576,7 +593,7 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { 
+    let {
       form_id,
       form_values,
       fields,
@@ -593,7 +610,9 @@ export default async function handler(req, res) {
       additional_member_creations, // Legacy: Array of additional members to create
       entity_pipelines,            // New unified structure: {members: [], organisations: []}
       tenant_id,                   // Tenant ID for multi-tenant isolation (from public API)
-      defer_communication_subscriptions = false
+      defer_communication_subscriptions = false,
+      verified_submitter_member_id,
+      verified_admin_access = false,
     } = req.body;
 
     if (!form_values || typeof form_values !== 'object') {
@@ -745,96 +764,6 @@ export default async function handler(req, res) {
       return { ok: true };
     };
 
-    // Normalize entity_pipelines to work with both new and legacy formats
-    const memberPipelines = entity_pipelines?.members || [];
-    const orgPipelines = entity_pipelines?.organisations || [];
-    
-    console.log('[AppProcessor] Entity pipelines - members:', memberPipelines.length, 'organisations:', orgPipelines.length);
-    
-    // Debug: Log all field IDs in form_values to help diagnose missing fields
-    console.log('[AppProcessor] Form values - all field IDs present:', Object.keys(form_values));
-    console.log('[AppProcessor] Form values sample (first 5 entries):', 
-      Object.entries(form_values).slice(0, 5).map(([k, v]) => `${k}=${JSON.stringify(v)?.substring(0, 50)}`));
-    
-    // Determine if we should process members/orgs based on new entity_pipelines structure
-    // If entity_pipelines is provided, use that exclusively; otherwise fall back to legacy fields
-    const validActions = ['none', 'create', 'update', 'upsert'];
-    const hasEntityPipelinesConfig = entity_pipelines !== undefined && entity_pipelines !== null;
-    
-    let memberAction;
-    let orgAction;
-    
-    if (hasEntityPipelinesConfig) {
-      // New entity_pipelines system - if provided, use it exclusively
-      // If member pipelines exist, use 'upsert'; otherwise 'none' (no member processing)
-      memberAction = memberPipelines.length > 0 ? 'upsert' : 'none';
-    } else if (member_entity_action && validActions.includes(member_entity_action)) {
-      memberAction = member_entity_action;
-    } else {
-      // Legacy fallback (only when entity_pipelines is not provided)
-      const legacyEntityType = create_entity_type || application_level || 'member';
-      const legacyActionMode = entity_action || 'create';
-      if (legacyEntityType === 'member' || legacyEntityType === 'both') {
-        memberAction = legacyActionMode === 'update' ? 'update' : 'create';
-      } else {
-        memberAction = 'none';
-      }
-    }
-    
-    if (hasEntityPipelinesConfig) {
-      // New entity_pipelines system - if provided, use it exclusively
-      // If org pipelines exist, use 'upsert'; otherwise 'none' (no org processing)
-      orgAction = orgPipelines.length > 0 ? 'upsert' : 'none';
-    } else if (organization_entity_action && validActions.includes(organization_entity_action)) {
-      orgAction = organization_entity_action;
-    } else {
-      // Legacy fallback (only when entity_pipelines is not provided)
-      const legacyEntityType = create_entity_type || application_level || 'member';
-      const legacyActionMode = entity_action || 'create';
-      if (legacyEntityType === 'organization' || legacyEntityType === 'both') {
-        orgAction = legacyActionMode === 'update' ? 'update' : 'create';
-      } else {
-        orgAction = 'none';
-      }
-    }
-    
-    // Determine processing flags based on action values
-    const shouldProcessMember = memberAction !== 'none';
-    const shouldProcessOrganization = orgAction !== 'none';
-    const isUpdateMode = orgAction === 'update'; // For org logic compatibility
-    const isMemberUpdateMode = memberAction === 'update';
-    
-    console.log('[AppProcessor] Entity actions - member:', memberAction, 'organization:', orgAction);
-    console.log('[AppProcessor] Received role_id:', role_id, 'type:', typeof role_id);
-
-    // Idempotency check: if submission_id provided, check if already processed.
-    // form_submission has no processed_at column (the previous select referenced
-    // a non-existent column and silently errored, defeating idempotency). We
-    // treat a non-null created_member_id or created_organization_id as the
-    // success marker — both are stamped at the end of a successful run.
-    // Uses .maybeSingle() so a missing row (or zero rows) doesn't throw.
-    if (submission_id) {
-      const { data: existingSubmission, error: existingErr } = await supabase
-        .from('form_submission')
-        .select('created_member_id, created_organization_id')
-        .eq('id', submission_id)
-        .maybeSingle();
-
-      if (existingErr) {
-        console.error('[AppProcessor] Failed to look up existing submission for idempotency:', existingErr);
-      }
-
-      if (existingSubmission && (existingSubmission.created_member_id || existingSubmission.created_organization_id)) {
-        console.log('[AppProcessor] Submission already processed:', submission_id);
-        return res.json({
-          success: true,
-          already_processed: true,
-          created_member_id: existingSubmission.created_member_id,
-          created_organization_id: existingSubmission.created_organization_id
-        });
-      }
-    }
-
     // ─────────────────────────────────────────────────────────────────────────
     // Effective tenant for ALL tenant-scoped processing below (uniqueness
     // validation, entity resolution, and record creation). Resolved
@@ -861,42 +790,229 @@ export default async function handler(req, res) {
     const effectiveEntityTenantId = tenantResolution.tenantId;
     console.log('[AppProcessor] Effective tenant for entity resolution:', effectiveEntityTenantId, '(source:', tenantResolution.source, ')');
 
+    if (!submission_id) {
+      return res.status(400).json({ error: 'submission_id is required', code: 'SUBMISSION_REQUIRED' });
+    }
+    const trustedInternal = verifyFormProcessingRequest(req, {
+      tenantId: effectiveEntityTenantId,
+      formId: form_id,
+      submissionId: submission_id,
+      verifiedSubmitterMemberId: verified_submitter_member_id,
+      verifiedAdminAccess: verified_admin_access,
+    });
+    const [{ data: persistedSubmission, error: persistedSubmissionError }, { data: persistedForm, error: persistedFormError }] = await Promise.all([
+      supabase.from('form_submission').select('id, form_id, tenant_id, submission_data, submitted_by_email, organization_id, created_member_id, created_organization_id, payment_reference, payment_status, payment_meta')
+        .eq('id', submission_id).eq('form_id', form_id).eq('tenant_id', effectiveEntityTenantId).maybeSingle(),
+      supabase.from('form').select('id, tenant_id, visibility_rules, fields, field_mappings, application_level, create_entity_type, entity_action, member_entity_action, organization_entity_action, additional_member_creations, entity_pipelines, default_member_role_id')
+        .eq('id', form_id).eq('tenant_id', effectiveEntityTenantId).maybeSingle(),
+    ]);
+    if (persistedSubmissionError || !persistedSubmission || persistedFormError || !persistedForm) {
+      return res.status(404).json({ error: 'Persisted form submission was not found', code: 'SUBMISSION_NOT_FOUND' });
+    }
+    if (trustedInternal && persistedSubmission.payment_status) {
+      const persistedVerifiedMemberId = persistedSubmission.payment_meta?.verified_submitter_member_id || null;
+      if (String(verified_submitter_member_id || '') !== String(persistedVerifiedMemberId || '')) {
+        return res.status(403).json({
+          error: 'Paid application processing identity does not match the persisted payment submission',
+          code: 'PROCESSING_IDENTITY_MISMATCH',
+        });
+      }
+      const persistedVerifiedAdminAccess = persistedSubmission.payment_meta?.verified_admin_access === true;
+      if ((verified_admin_access === true) !== persistedVerifiedAdminAccess) {
+        return res.status(403).json({
+          error: 'Paid application processing authority does not match the persisted payment submission',
+          code: 'PROCESSING_AUTHORITY_MISMATCH',
+        });
+      }
+    }
+    let authorizedAdmin = resolveTrustedFormProcessingAdmin({
+      trustedInternal,
+      verifiedAdminAccess: verified_admin_access,
+    });
+    let authorizedSubmitter = false;
+    let authenticatedSubmitterMember = null;
+    if (!trustedInternal) {
+      try {
+        const [tenantCtx, sessionMember] = await Promise.all([
+          getTenantContext(req),
+          getSessionMember(req),
+        ]);
+        authorizedAdmin = tenantCtx?.tenantId === effectiveEntityTenantId
+          && await hasAdminAccess(tenantCtx);
+        authorizedSubmitter = sessionMember?.tenant_id === effectiveEntityTenantId
+          && String(sessionMember.email || '').trim().toLowerCase()
+            === String(persistedSubmission.submitted_by_email || '').trim().toLowerCase();
+        if (authorizedSubmitter) authenticatedSubmitterMember = sessionMember;
+      } catch {
+        authorizedAdmin = false;
+        authorizedSubmitter = false;
+      }
+    }
+    if (!trustedInternal && !authorizedAdmin && !authorizedSubmitter) {
+      return res.status(403).json({ error: 'Application processing is restricted to trusted submission flows, the authenticated submitter, or tenant administrators', code: 'PROCESSING_FORBIDDEN' });
+    }
+    if (persistedSubmission.payment_status && persistedSubmission.payment_status !== 'paid') {
+      return res.status(409).json({ error: 'Payment must be completed before application processing', code: 'PAYMENT_NOT_COMPLETED' });
+    }
+    const authoritativeAnswers = persistedSubmission.submission_data || {};
+    // Request copies are never authoritative, even for a signed request.
+    // This prevents signature replay with altered legacy mappings/config.
+    form_values = authoritativeAnswers;
+    fields = persistedForm.fields || [];
+    field_mappings = persistedForm.field_mappings || [];
+    application_level = persistedForm.application_level || 'member';
+    create_entity_type = persistedForm.create_entity_type || 'member';
+    entity_action = persistedForm.entity_action;
+    member_entity_action = persistedForm.member_entity_action;
+    organization_entity_action = persistedForm.organization_entity_action;
+    additional_member_creations = persistedForm.additional_member_creations || [];
+    // Preserve null/absence so the established action selector can fall back
+    // to legacy member/org action fields.
+    entity_pipelines = hasPersistedLegacyFormEntityActions(persistedForm)
+      ? persistedForm.entity_pipelines
+      : { members: [], organisations: [] };
+    // Normalize and derive action modes only after replacing every
+    // request-controlled copy with the persisted form configuration.
+    const memberPipelines = entity_pipelines?.members || [];
+    const orgPipelines = entity_pipelines?.organisations || [];
+    const {
+      memberAction,
+      organizationAction: orgAction,
+    } = resolveFormEntityActions({
+      entityPipelines: entity_pipelines,
+      memberEntityAction: member_entity_action,
+      organizationEntityAction: organization_entity_action,
+      createEntityType: create_entity_type,
+      applicationLevel: application_level,
+      entityAction: entity_action,
+    });
+    const shouldProcessMember = memberAction !== 'none';
+    const shouldProcessOrganization = orgAction !== 'none';
+    const isUpdateMode = orgAction === 'update';
+    const isMemberUpdateMode = memberAction === 'update';
+
+    console.log('[AppProcessor] Entity pipelines - members:', memberPipelines.length, 'organisations:', orgPipelines.length);
+    console.log('[AppProcessor] Entity actions - member:', memberAction, 'organization:', orgAction);
+    console.log('[AppProcessor] Received role_id:', role_id, 'type:', typeof role_id);
+    const submitControlOptions = {};
+    if (rulesUseLmicOperators(persistedForm.visibility_rules)) {
+      submitControlOptions.lmicCodes = await loadTenantLmicCodes(supabase, effectiveEntityTenantId);
+    }
+    const authoritativeSubmitControl = resolveSubmitControl(
+      persistedForm.visibility_rules,
+      authoritativeAnswers,
+      submitControlOptions,
+    );
+    if (authoritativeSubmitControl.disabled) {
+      return res.status(400).json({
+        error: authoritativeSubmitControl.message || 'This form cannot be submitted with the current answers.',
+        code: 'SUBMIT_DISABLED_BY_RULE',
+      });
+    }
+    if (!authenticatedSubmitterMember && trustedInternal && verified_submitter_member_id) {
+      const { data: submitterMember } = await supabase.from('member')
+        .select('id, tenant_id, email, organization_id')
+        .eq('id', verified_submitter_member_id)
+        .eq('tenant_id', effectiveEntityTenantId)
+        .ilike('email', String(persistedSubmission.submitted_by_email).trim())
+        .maybeSingle();
+      authenticatedSubmitterMember = submitterMember || null;
+    }
+    role_id = derivePersistedFormRole({
+      defaultRoleId: persistedForm.default_member_role_id,
+      visibilityRules: persistedForm.visibility_rules,
+      answers: authoritativeAnswers,
+      conditionOptions: submitControlOptions,
+    });
+    const prefillTargets = resolveFormProcessingPrefillTargets({
+      isAdmin: authorizedAdmin,
+      submitterMember: authenticatedSubmitterMember,
+      persistedSubmission,
+      requestedOrganizationId: prefill_organization_id,
+    });
+    prefill_member_id = prefillTargets.memberId || null;
+    prefill_organization_id = prefillTargets.organizationId || null;
+    const processingAuthorization = {
+      isAdmin: authorizedAdmin,
+      verifiedMemberId: authenticatedSubmitterMember?.id || null,
+      verifiedOrganizationId: authenticatedSubmitterMember?.organization_id || null,
+    };
+    const legacyCreatedRecordIds = {
+      member: new Set([persistedSubmission.created_member_id].filter(Boolean).map(String)),
+      organization: new Set([persistedSubmission.created_organization_id].filter(Boolean).map(String)),
+    };
+    const assertLegacyExistingRecordAuthorized = (entity, recordId) => {
+      if (legacyCreatedRecordIds[entity]?.has(String(recordId))) return true;
+      return assertStructuredMutationAuthorized({
+        action: { target: { kind: entity } },
+        recordId,
+        authorization: processingAuthorization,
+      });
+    };
+
+    // Versioned structured actions are an authoritative persisted contract.
+    // The executor reloads both the form configuration and answers; request
+    // copies are deliberately ignored. Legacy processing below remains intact.
+    let structuredActionResult = null;
+    if (form_id && submission_id && effectiveEntityTenantId) {
+      try {
+        const structuredResult = await processPersistedStructuredActions({
+          db: supabase,
+          formId: form_id,
+          submissionId: submission_id,
+          tenantId: effectiveEntityTenantId,
+          authorization: processingAuthorization,
+        });
+        structuredActionResult = structuredResult;
+        for (const outcome of structuredResult?.outcomes || []) {
+          addProcessingNote({
+            kind: 'structured_action',
+            ...outcome,
+          });
+        }
+      } catch (error) {
+        if (error instanceof StructuredActionContractError || error?.code === 'STRUCTURED_ACTION_FORBIDDEN') {
+          return res.status(error.status || 400).json({
+            error: error.message,
+            code: error.code,
+            details: error.details,
+          });
+        }
+        throw error;
+      }
+    }
+
+    // Legacy linkage remains the authority for whether the established
+    // member/organisation pipeline already completed. Structured actions run
+    // first so a partial structured run can resume, then a prior legacy result
+    // returns without replaying workflows or communication side effects.
+    if (submission_id) {
+      const { data: existingSubmission, error: existingErr } = await supabase
+        .from('form_submission')
+        .select('created_member_id, created_organization_id')
+        .eq('id', submission_id)
+        .eq('tenant_id', effectiveEntityTenantId)
+        .maybeSingle();
+      if (existingErr) {
+        console.error('[AppProcessor] Failed to look up existing submission for idempotency:', existingErr);
+      }
+      if (existingSubmission && (existingSubmission.created_member_id || existingSubmission.created_organization_id)) {
+        return res.json({
+          success: structuredActionResult ? structuredActionResult.success : true,
+          already_processed: true,
+          created_member_id: existingSubmission.created_member_id,
+          created_organization_id: existingSubmission.created_organization_id,
+          organization_id: existingSubmission.created_organization_id,
+          ...(structuredActionResult ? { structured_actions: structuredActionResult } : {}),
+        });
+      }
+    }
+
     // SERVER-SIDE UNIQUENESS VALIDATION (defense in depth)
     // This blocks duplicates even if client-side validation is bypassed
     // Skip for update modes with prefill IDs (those are legitimate self-updates)
     const isCreatingNewEntities = !prefill_member_id && !prefill_organization_id;
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // Conditional-logic submit control (Task #3474): re-evaluate the form's
-    // STORED visibility rules (never client-supplied) against the submitted
-    // answers. When a matched rule disables submission, reject — the client
-    // disables the Submit button with the same shared evaluator, so this only
-    // fires when the UI was bypassed.
-    if (form_id) {
-      const { data: submitControlForm, error: submitControlFormError } = await supabase
-        .from('form')
-        .select('visibility_rules, tenant_id')
-        .eq('id', form_id)
-        .maybeSingle();
-      if (submitControlFormError) {
-        console.error('[AppProcessor] Failed to load form for submit-control check:', submitControlFormError);
-        return res.status(500).json({ error: 'Failed to validate submission rules' });
-      }
-      // Task #3477: LMIC operators compare against the tenant's STORED LMIC
-      // list (never client-supplied), so submit rules can't be bypassed.
-      const submitControlOptions = {};
-      if (rulesUseLmicOperators(submitControlForm?.visibility_rules)) {
-        submitControlOptions.lmicCodes = await loadTenantLmicCodes(supabase, submitControlForm?.tenant_id || effectiveEntityTenantId);
-      }
-      const submitControl = resolveSubmitControl(submitControlForm?.visibility_rules, form_values, submitControlOptions);
-      if (submitControl.disabled) {
-        return res.status(400).json({
-          error: submitControl.message || 'This form cannot be submitted with the current answers.',
-          code: 'SUBMIT_DISABLED_BY_RULE',
-        });
-      }
-    }
-    
     if (form_id && isCreatingNewEntities) {
       const { data: formData } = await supabase
         .from('form')
@@ -1666,6 +1782,7 @@ export default async function handler(req, res) {
       }
       
       if (existingOrg) {
+        assertLegacyExistingRecordAuthorized('organization', existingOrg.id);
         // Organization exists
         if (orgAction === 'create') {
           // Create mode but org exists - skip creation, use existing ID
@@ -1832,6 +1949,7 @@ export default async function handler(req, res) {
           }
 
           createdOrganizationId = newOrg.id;
+          legacyCreatedRecordIds.organization.add(String(newOrg.id));
           newlyCreatedOrgData = newOrg; // Track for workflow trigger after custom fields are saved
           console.log('[AppProcessor] Created organization:', createdOrganizationId);
         }
@@ -1937,6 +2055,7 @@ export default async function handler(req, res) {
       }
       
       if (existingMember) {
+        assertLegacyExistingRecordAuthorized('member', existingMember.id);
         // Member exists
         if (memberAction === 'create') {
           // Create mode but member exists - skip creation, use existing ID
@@ -2281,6 +2400,7 @@ export default async function handler(req, res) {
           }
 
           createdMemberId = newMember.id;
+          legacyCreatedRecordIds.member.add(String(newMember.id));
           console.log('[AppProcessor] Created member:', createdMemberId);
 
           // Task 3196: record_create workflows are triggered AFTER the
@@ -2813,6 +2933,7 @@ export default async function handler(req, res) {
         }
         
         if (existingMemberId) {
+          assertLegacyExistingRecordAuthorized('member', existingMemberId);
           // UPDATE existing member - merge fields, don't clear unless explicitly requested
 
           // Cross-tenant guard: if the additional-member pipeline carries a
@@ -3058,6 +3179,7 @@ export default async function handler(req, res) {
           }
           
           existingMemberId = newMember.id;
+          legacyCreatedRecordIds.member.add(String(newMember.id));
           additionalMemberIds.push({ id: newMember.id, label: memberConfig.label, created: true, updated: false });
           // Track with full context from the actual created record (not the input data)
           // This ensures subsequent entries get authoritative role_id/organization_id
@@ -3190,11 +3312,13 @@ export default async function handler(req, res) {
     // silently. Dropping the bogus column lets the legitimate fields
     // (created_member_id, created_organization_id, organization_id, and
     // processing_notes) actually persist.
-    if (submission_id && (createdMemberId || createdOrganizationId || prefill_organization_id || processingNotes.length > 0)) {
-      const finalOrganizationId = createdOrganizationId || prefill_organization_id || null;
+    const structuredMemberId = structuredActionResult?.created_member_id || null;
+    const structuredOrganizationId = structuredActionResult?.created_organization_id || null;
+    if (submission_id && (createdMemberId || createdOrganizationId || structuredMemberId || structuredOrganizationId || prefill_organization_id || processingNotes.length > 0)) {
+      const finalOrganizationId = createdOrganizationId || structuredOrganizationId || prefill_organization_id || null;
       const updatePayload = {};
-      if (createdMemberId) updatePayload.created_member_id = createdMemberId;
-      if (createdOrganizationId) updatePayload.created_organization_id = createdOrganizationId;
+      if (createdMemberId || structuredMemberId) updatePayload.created_member_id = createdMemberId || structuredMemberId;
+      if (createdOrganizationId || structuredOrganizationId) updatePayload.created_organization_id = createdOrganizationId || structuredOrganizationId;
       if (finalOrganizationId) updatePayload.organization_id = finalOrganizationId;
       if (processingNotes.length > 0) updatePayload.processing_notes = processingNotes;
 
@@ -3210,12 +3334,13 @@ export default async function handler(req, res) {
     }
 
     // Return the resolved organization_id (whether created or existing)
-    const resolvedOrganizationId = createdOrganizationId || prefill_organization_id || null;
+    const resolvedMemberId = createdMemberId || structuredMemberId || null;
+    const resolvedOrganizationId = createdOrganizationId || structuredOrganizationId || prefill_organization_id || null;
     
     return res.json({
-      success: true,
-      created_member_id: createdMemberId,
-      created_organization_id: createdOrganizationId,
+      success: structuredActionResult ? structuredActionResult.success : true,
+      created_member_id: resolvedMemberId,
+      created_organization_id: createdOrganizationId || structuredOrganizationId || null,
       organization_id: resolvedOrganizationId, // Canonical org ID (created or existing)
       additional_member_ids: additionalMemberIds,
       // When persistence is deferred, return the processor-derived mapping
@@ -3226,10 +3351,19 @@ export default async function handler(req, res) {
             category_id,
             is_subscribed,
           }))
-        : []
+        : [],
+      // Structured actions are additive: legacy pipelines/workflows above
+      // retain their established ordering and their response remains intact.
+      ...(structuredActionResult ? { structured_actions: structuredActionResult } : {})
     });
   } catch (error) {
     console.error('[AppProcessor] Error:', error);
+    if (error instanceof StructuredActionAuthorizationError || error?.code === 'STRUCTURED_ACTION_FORBIDDEN') {
+      return res.status(error.status || 403).json({
+        error: error.message,
+        code: error.code || 'STRUCTURED_ACTION_FORBIDDEN',
+      });
+    }
     res.status(500).json({ error: 'Failed to process application' });
   }
 }

@@ -1,0 +1,419 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {
+  StructuredActionContractError,
+  StructuredActionAuthorizationError,
+  assertStructuredMutationAuthorized,
+  assertStructuredRelationshipParentAuthorized,
+  expandStructuredActionInvocations,
+  processPersistedStructuredActions,
+  validateStructuredActionsContract,
+} from './formStructuredActions.js';
+
+const repeatable = {
+  id: 'people',
+  type: 'repeatable_row',
+  repeatable_row: {
+    version: 1,
+    child_fields: [
+      { id: 'email', type: 'email', label: 'Email' },
+      { id: 'org', type: 'organisation_dropdown', label: 'Organisation' },
+    ],
+  },
+};
+
+test('validates the versioned structured-actions contract against persisted fields', () => {
+  const contract = validateStructuredActionsContract({
+    version: 1,
+    actions: [{
+      id: 'create-person',
+      source: { scope: 'repeatable_row', repeatable_field_id: 'people' },
+      target: { kind: 'member', custom_object_id: null },
+      operation: 'upsert',
+      uniqueness_field: 'email',
+      mappings: [{ id: 'email-map', source_field_id: 'email', target_type: 'core', target_field_id: 'email' }],
+    }],
+  }, [repeatable]);
+  assert.equal(contract.version, 1);
+  assert.equal(contract.actions.length, 1);
+});
+
+test('rejects unknown versions, unsafe core columns, and forged source fields', () => {
+  assert.throws(() => validateStructuredActionsContract({
+    version: 2,
+    actions: [{
+      id: 'bad',
+      entity_type: 'member',
+      operation: 'update',
+      mappings: [{ source_field_id: 'forged', target_type: 'core', target_field: 'tenant_id' }],
+    }],
+  }, [repeatable]), (error) => {
+    assert.ok(error instanceof StructuredActionContractError);
+    assert.match(error.details.join(' '), /unsupported/);
+    assert.match(error.details.join(' '), /not writable/);
+    assert.match(error.details.join(' '), /persisted action source scope/);
+    return true;
+  });
+});
+
+test('expands top-level and active repeatable rows with stable idempotency keys', () => {
+  const contract = validateStructuredActionsContract({
+    contract_version: 1,
+    actions: [
+      {
+        id: 'org',
+        source: { scope: 'top_level' },
+        target: { kind: 'organization' },
+        operation: 'create',
+        mappings: [{ id: 'name-map', source_type: 'static', static_value: 'Acme', target_field: 'name' }],
+      },
+      {
+        id: 'people',
+        target: { kind: 'member' },
+        operation: 'upsert',
+        uniqueness_field: 'email',
+        source: { scope: 'repeatable_row', repeatable_field_id: 'people' },
+        mappings: [{ id: 'person-email-map', source_field_id: 'email', target_field_id: 'email', target_type: 'core' }],
+      },
+    ],
+  }, [repeatable]);
+  const invocations = expandStructuredActionInvocations(contract, { fields: [repeatable] }, {
+    people: [
+      { _row_id: 'row-a', email: 'a@example.test' },
+      { email: 'deleted@example.test', _deleted: true },
+      { email: 'inactive@example.test', active: false },
+      { _row_id: 'row-b', email: 'b@example.test' },
+    ],
+  });
+  // Persisted repeatable rows carry their stable identity; indexes are never
+  // safe because admins can reorder/remove rows between retries.
+  assert.deepEqual(invocations.map(row => row.invocationKey), ['org:top', 'people:row:row-a', 'people:row:row-b']);
+  assert.equal(invocations[2].values.email, 'b@example.test');
+});
+
+test('does not expand repeatable actions when the persisted container is hidden', () => {
+  const hiddenRepeatable = { ...repeatable, starts_hidden: true };
+  const contract = validateStructuredActionsContract({
+    version: 1,
+    actions: [{
+      id: 'people',
+      target: { kind: 'member' },
+      operation: 'create',
+        source: { scope: 'repeatable_row', repeatable_field_id: 'people' },
+      mappings: [{ id: 'hidden-email-map', source_field_id: 'email', target_field_id: 'email', target_type: 'core' }],
+    }],
+  }, [hiddenRepeatable]);
+  assert.deepEqual(
+    expandStructuredActionInvocations(contract, { fields: [hiddenRepeatable] }, { people: [{ email: 'a@example.test' }] }),
+    [],
+  );
+});
+
+test('LMIC visibility options control repeatable expansion authoritatively', () => {
+  const conditionalRepeatable = { ...repeatable, starts_hidden: true };
+  const country = { id: 'country', type: 'country' };
+  const form = {
+    fields: [country, conditionalRepeatable],
+    visibility_rules: [{
+      id: 'show-lmic-rows',
+      trigger_field_id: 'country',
+      operator: 'is_lmic',
+      actions: [{ action_type: 'show', target_field_ids: ['people'] }],
+    }],
+  };
+  const contract = validateStructuredActionsContract({
+    version: 1,
+    actions: [{
+      id: 'people',
+      source: { scope: 'repeatable_row', repeatable_field_id: 'people' },
+      target: { kind: 'member' },
+      operation: 'create',
+      mappings: [{ id: 'email-map', source_field_id: 'email', target_field_id: 'email', target_type: 'core' }],
+    }],
+  }, form.fields);
+  const answers = { country: 'Kenya', people: [{ _row_id: 'row-1', email: 'person@example.test' }] };
+  assert.equal(expandStructuredActionInvocations(contract, form, answers).length, 0);
+  assert.equal(expandStructuredActionInvocations(contract, form, answers, { lmicCodes: ['KE'] }).length, 1);
+  assert.equal(expandStructuredActionInvocations(contract, form, {
+    ...answers,
+    country: 'United Kingdom',
+  }, { lmicCodes: ['KE'] }).length, 0);
+});
+
+test('forged hidden top-level and repeatable child answers are excluded before mapping', () => {
+  const topForm = {
+    fields: [
+      { id: 'email', type: 'email' },
+      { id: 'hidden-name', type: 'text', starts_hidden: true },
+    ],
+  };
+  const topContract = validateStructuredActionsContract({
+    version: 1,
+    actions: [{
+      id: 'top',
+      source: { scope: 'top_level' },
+      target: { kind: 'member' },
+      operation: 'create',
+      mappings: [
+        { id: 'top-email', source_field_id: 'email', target_field_id: 'email', target_type: 'core' },
+        { id: 'top-name', source_field_id: 'hidden-name', target_field_id: 'first_name', target_type: 'core' },
+      ],
+    }],
+  }, topForm.fields);
+  const [topInvocation] = expandStructuredActionInvocations(topContract, topForm, {
+    email: 'visible@example.test',
+    'hidden-name': 'forged hidden value',
+  });
+  assert.equal(topInvocation.values.email, 'visible@example.test');
+  assert.equal(Object.hasOwn(topInvocation.values, 'hidden-name'), false);
+
+  const hiddenChildRepeatable = {
+    ...repeatable,
+    repeatable_row: {
+      ...repeatable.repeatable_row,
+      child_fields: repeatable.repeatable_row.child_fields.map(child =>
+        child.id === 'email' ? { ...child, starts_hidden: true } : child),
+    },
+  };
+  const rowContract = validateStructuredActionsContract({
+    version: 1,
+    actions: [{
+      id: 'rows',
+      source: { scope: 'repeatable_row', repeatable_field_id: 'people' },
+      target: { kind: 'member' },
+      operation: 'create',
+      mappings: [{ id: 'row-email', source_field_id: 'email', target_field_id: 'email', target_type: 'core' }],
+    }],
+  }, [hiddenChildRepeatable]);
+  assert.equal(expandStructuredActionInvocations(rowContract, { fields: [hiddenChildRepeatable] }, {
+    people: [{ _row_id: 'forged-row', email: 'forged@example.test' }],
+  }).length, 0);
+});
+
+test('rejects relationship selectors mapped into arbitrary fields and requires exact update selector', () => {
+  const fields = [{
+    id: 'org-picker',
+    type: 'organisation_dropdown',
+    relationship_definition_id: 'relationship-1',
+  }];
+  assert.throws(() => validateStructuredActionsContract({
+    version: 1,
+    actions: [{
+      id: 'unsafe-selector',
+      source: { scope: 'top_level' },
+      target: { kind: 'member' },
+      operation: 'upsert',
+      mappings: [{ source_field_id: 'org-picker', target_field_id: 'first_name', target_type: 'core' }],
+    }],
+  }, fields), /Invalid persisted/);
+  assert.throws(() => validateStructuredActionsContract({
+    version: 1,
+    actions: [{
+      id: 'missing-exact-selector',
+      source: { scope: 'top_level' },
+      target: { kind: 'member' },
+      operation: 'update_selected',
+      relationship_definition_id: 'relationship-1',
+      selector_field_id: 'not-a-picker',
+      mappings: [{ source_field_id: 'org-picker', target_field_id: 'organization_id', target_type: 'core' }],
+    }],
+  }, fields), /Invalid persisted/);
+});
+
+test('requires a stable row id only for material repeatable rows', () => {
+  const contract = validateStructuredActionsContract({
+    version: 1,
+    actions: [{
+      id: 'people',
+      source: { scope: 'repeatable_row', repeatable_field_id: 'people' },
+      target: { kind: 'member' },
+      operation: 'create',
+      mappings: [{ id: 'stable-row-email-map', source_field_id: 'email', target_field_id: 'email', target_type: 'core' }],
+    }],
+  }, [repeatable]);
+  assert.deepEqual(expandStructuredActionInvocations(contract, { fields: [repeatable] }, {
+    people: [{ _row_id: 'blank' }, { _row_id: 'real', email: 'real@example.test' }],
+  }).map(x => x.invocationKey), ['people:row:real']);
+  assert.throws(() => expandStructuredActionInvocations(contract, { fields: [repeatable] }, {
+    people: [{ email: 'missing-id@example.test' }],
+  }), /row\._row_id/);
+});
+
+test('anonymous and non-admin structured mutations cannot target another record', () => {
+  const memberAction = { target: { kind: 'member' }, operation: 'update_selected' };
+  const organizationAction = { target: { kind: 'organization' }, operation: 'update_selected' };
+  assert.throws(() => assertStructuredMutationAuthorized({
+    action: memberAction,
+    recordId: 'victim-member',
+    authorization: {},
+  }), StructuredActionAuthorizationError);
+  assert.throws(() => assertStructuredMutationAuthorized({
+    action: memberAction,
+    recordId: 'other-member',
+    authorization: { verifiedMemberId: 'own-member' },
+  }), /verified ownership/);
+  assert.equal(assertStructuredMutationAuthorized({
+    action: memberAction,
+    recordId: 'own-member',
+    authorization: { verifiedMemberId: 'own-member' },
+  }), true);
+  assert.equal(assertStructuredMutationAuthorized({
+    action: organizationAction,
+    recordId: 'own-org',
+    authorization: { verifiedOrganizationId: 'own-org' },
+  }), true);
+  assert.throws(() => assertStructuredMutationAuthorized({
+    action: { target: { kind: 'custom_object', custom_object_id: 'object-1' }, operation: 'upsert' },
+    recordId: 'existing-object-record',
+    authorization: { verifiedMemberId: 'own-member' },
+  }), StructuredActionAuthorizationError);
+  for (const action of [
+    { target: { kind: 'custom_object', custom_object_id: 'object-1' }, operation: 'create' },
+    { target: { kind: 'custom_object', custom_object_id: 'object-1' }, operation: 'upsert' },
+    { target: { kind: 'organization_group' }, operation: 'create' },
+    { target: { kind: 'organization_group' }, operation: 'upsert' },
+  ]) {
+    assert.throws(() => assertStructuredMutationAuthorized({
+      action,
+      recordId: null,
+      authorization: { verifiedMemberId: 'own-member', verifiedOrganizationId: 'own-org' },
+    }), StructuredActionAuthorizationError);
+    assert.equal(assertStructuredMutationAuthorized({
+      action,
+      recordId: action.operation === 'create' ? null : 'tenant-owned-record',
+      authorization: { isAdmin: true },
+    }), true);
+  }
+});
+
+test('non-admin Group and Custom Object creates fail before a ledger claim or insert', async () => {
+  const tenantId = 'tenant-1';
+  const makeDb = (action, fields, submissionData, preferenceFields = []) => {
+    const writes = [];
+    const rpcCalls = [];
+    const form = { id: 'form-1', tenant_id: tenantId, fields, structured_actions: { version: 1, actions: [action] } };
+    const submission = { id: 'submission-1', tenant_id: tenantId, form_id: form.id, submission_data: submissionData, processing_notes: [] };
+    class Query {
+      constructor(table) { this.table = table; }
+      select() { return this; }
+      eq() { return this; }
+      in() { return this; }
+      is() { return this; }
+      insert(payload) { writes.push({ table: this.table, payload }); return this; }
+      maybeSingle() {
+        if (this.table === 'form') return Promise.resolve({ data: form, error: null });
+        if (this.table === 'form_submission') return Promise.resolve({ data: submission, error: null });
+        return Promise.resolve({ data: null, error: null });
+      }
+      then(resolve, reject) {
+        const data = this.table === 'custom_object_definition'
+          ? [{ id: 'object-1' }]
+          : this.table === 'preference_field' ? preferenceFields : [];
+        return Promise.resolve({ data, error: null }).then(resolve, reject);
+      }
+    }
+    return {
+      db: {
+        from: table => new Query(table),
+        rpc: async (name) => {
+          rpcCalls.push(name);
+          return { data: null, error: null };
+        },
+      },
+      writes,
+      rpcCalls,
+    };
+  };
+  const cases = [
+    {
+      action: {
+        id: 'group-create', source: { scope: 'top_level' },
+        target: { kind: 'organization_group' }, operation: 'create',
+        mappings: [{ id: 'group-name-map', source_field_id: 'name', target_type: 'core', target_field_id: 'name' }],
+      },
+      fields: [{ id: 'name', type: 'text' }],
+      submissionData: { name: 'Untrusted group' },
+      authorization: {},
+    },
+    {
+      action: {
+        id: 'object-upsert', source: { scope: 'top_level' },
+        target: { kind: 'custom_object', custom_object_id: 'object-1' }, operation: 'upsert',
+        uniqueness_field: 'object-key',
+        mappings: [{
+          id: 'object-key-map', source_field_id: 'key', target_type: 'custom',
+          target_field_id: 'object-key', is_match: true,
+        }],
+      },
+      fields: [{ id: 'key', type: 'text' }],
+      submissionData: { key: 'unmatched' },
+      preferenceFields: [{
+        id: 'object-key', tenant_id: tenantId, entity_scope: 'custom_object',
+        custom_object_id: 'object-1', field_type: 'text', is_active: true, field_key: 'key',
+      }],
+      authorization: { verifiedMemberId: 'member-1', verifiedOrganizationId: 'org-1' },
+    },
+  ];
+  for (const item of cases) {
+    const { db, writes, rpcCalls } = makeDb(item.action, item.fields, item.submissionData, item.preferenceFields);
+    await assert.rejects(() => processPersistedStructuredActions({
+      db, formId: 'form-1', submissionId: 'submission-1', tenantId,
+      authorization: item.authorization,
+    }), StructuredActionAuthorizationError);
+    assert.deepEqual(rpcCalls, []);
+    assert.deepEqual(writes, []);
+  }
+});
+
+test('relationship parents require verified ownership for non-admin processing', () => {
+  assert.throws(() => assertStructuredRelationshipParentAuthorized({
+    parentDescriptor: { kind: 'member' },
+    parentId: 'victim-member',
+    authorization: {},
+  }), StructuredActionAuthorizationError);
+  assert.throws(() => assertStructuredRelationshipParentAuthorized({
+    parentDescriptor: { kind: 'organization' },
+    parentId: 'other-org',
+    authorization: { verifiedOrganizationId: 'own-org' },
+  }), /verified ownership/);
+  assert.equal(assertStructuredRelationshipParentAuthorized({
+    parentDescriptor: { kind: 'organization' },
+    parentId: 'own-org',
+    authorization: { verifiedOrganizationId: 'own-org' },
+  }), true);
+  assert.throws(() => assertStructuredRelationshipParentAuthorized({
+    parentDescriptor: { kind: 'organization_group' },
+    parentId: 'group-1',
+    authorization: { verifiedMemberId: 'own-member', verifiedOrganizationId: 'own-org' },
+  }), StructuredActionAuthorizationError);
+  assert.equal(assertStructuredRelationshipParentAuthorized({
+    parentDescriptor: { kind: 'custom_object' },
+    parentId: 'object-record-1',
+    authorization: { isAdmin: true },
+  }), true);
+});
+
+test('rejects direct record IDs, incomplete repeatable scope, and missing mapping IDs', () => {
+  const base = {
+    version: 1,
+    actions: [{
+      id: 'action',
+      source: { scope: 'top_level' },
+      target: { kind: 'member' },
+      operation: 'create',
+      mappings: [{ id: 'email-map', source_field_id: 'email', target_field_id: 'email', target_type: 'core' }],
+    }],
+  };
+  assert.throws(() => validateStructuredActionsContract({
+    ...base,
+    actions: [{ ...base.actions[0], operation: 'update', target_record_id: 'forged-id' }],
+  }, [{ id: 'email', type: 'email' }]), /Invalid persisted/);
+  assert.throws(() => validateStructuredActionsContract({
+    ...base,
+    actions: [{ ...base.actions[0], source: { scope: 'repeatable_row' } }],
+  }, [repeatable]), /Invalid persisted/);
+  assert.throws(() => validateStructuredActionsContract({
+    ...base,
+    actions: [{ ...base.actions[0], mappings: [{ source_field_id: 'email', target_field_id: 'email', target_type: 'core' }] }],
+  }, [{ id: 'email', type: 'email' }]), /Invalid persisted/);
+});

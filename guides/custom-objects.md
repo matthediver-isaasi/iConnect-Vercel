@@ -207,6 +207,43 @@ The option endpoint re-loads the active form and validates the exact saved paren
 
 Submission data stores the related record UUID. Review, CSV/Word export, background export, and submitter-copy paths resolve the current active primary display label in the submission tenant. Interactive label reads require the relevant submission/review feature and derive their allowed record IDs from tenant-scoped persisted submissions; caller-supplied IDs are only an intersection filter. Missing, archived, inactive, or cross-tenant records use `Unavailable record`; they never expose the raw UUID as a display fallback.
 
+### Form Structured Record Actions
+
+The FormBuilder **Record Creation** card also provides Structured Record Actions. This editor is additive: existing Member and Organisation pipeline controls remain available and continue to round-trip unchanged.
+
+Actions are persisted on the Form as `structured_actions`:
+
+```json
+{
+  "version": 1,
+  "actions": [{
+    "id": "record_action_stable-id",
+    "source": { "scope": "repeatable_row", "repeatable_field_id": "field_people" },
+    "target": { "kind": "custom_object", "custom_object_id": "object-uuid" },
+    "operation": "upsert",
+    "relationship_definition_id": "relationship-uuid",
+    "selector_field_id": null,
+    "uniqueness_field": "custom-field-uuid",
+    "mappings": [{
+      "id": "mapping_stable-id",
+      "source_field_id": "row_email",
+      "target_field_id": "custom-field-uuid",
+      "target_type": "custom"
+    }]
+  }]
+}
+```
+
+`source.scope` is either `top_level` (one action per submission) or `repeatable_row` (one action per submitted row in the selected repeatable field). Targets are `member`, `organization`, `organization_group`, or `custom_object`; Custom Object targets additionally store the active object UUID. Operations are:
+
+- `create`: always create a new target record;
+- `update_selected`: update the record selected through a compatible active Relationship Dropdown. Both the relationship definition and the exact saved `selector_field_id` in the selected source scope are persisted; the selector's definition must match `relationship_definition_id`;
+- `upsert`: find by the selected backend-eligible uniqueness field, otherwise create. The uniqueness field must also be mapped. In v1 the eligible core keys are Member email, Organisation name, and Organisation Group name. Custom Objects may use a mapped scalar field (text, email, URL, number, decimal, date, dropdown, or country); processing rejects ambiguous matches instead of choosing one.
+
+The editor queries active object definitions, active fields, and active relationship definitions through the authenticated, tenant-aware Custom Object API. It offers only source fields in the selected scope and supported active core/custom target fields, including active `organization_group` custom fields. Mappings are type-compatible: record IDs from organisation/group/relationship dropdowns can only map to an explicitly supported matching record-reference target (currently Member `organization_id` accepts an Organisation Dropdown); relationship record IDs cannot be written into text or ordinary custom fields. Files and display-only/action fields are not mapping choices. Save validation rejects missing or duplicate action IDs, stale repeatable fields, inactive objects or fields, incompatible relationships/selectors, incompatible types, incomplete/duplicate mappings, and unmapped upsert keys. Stable IDs—not labels—are authoritative.
+
+For repeatable rows, `_row_id` is the stable retry identity. Runtime execution must create an idempotency/ledger entry keyed by the submission ID, action ID, and `_row_id` (top-level actions use one submission/action key), and reuse the completed result on retry. It must not use row position, labels, or submitted values as an idempotency key. Runtime processors must re-resolve and authorize all saved metadata and must not write Custom Object JSONB directly.
+
 ---
 
 ## Security and Tenant Boundaries
@@ -305,7 +342,7 @@ Public preference-value routes first build a tenant-scoped allowlist excluding C
 
 ## Frontend UI
 
-`CustomObjectsAdmin.jsx` shows the tenant catalogue and generated schema controls. `CustomObjectRecords.jsx` renders lists, add/edit forms, details, archive actions, and permissions from object and field metadata. Relationship panels and pickers derive labels, endpoint kinds, visibility, and edit controls from definitions.
+`CustomObjectsAdmin.jsx` shows the tenant catalogue and generated schema controls. `CustomObjectRecords.jsx` renders lists, add/edit forms, details, archive actions, and permissions from object and field metadata. Relationship panels and pickers derive labels, endpoint kinds, visibility, and edit controls from definitions. FormBuilder's Structured Record Actions editor uses the same active metadata and stores its configuration under a versioned Form property.
 
 FormBuilder offers a **Relationship Dropdown** field type. The field settings show an earlier organisation-field picker and an eligible active-relationship picker. The shared `FormRenderer` supplies the respondent experience across normal public forms, embedded forms, builder/iEdit previews, and manual submissions.
 
@@ -393,6 +430,9 @@ Phase 2 must consume stable generic contracts rather than inspect JSON or add ex
 | Record capabilities | role permission | five booleans | false | Per-object authorization |
 | Form relationship parent | form field | earlier `organisation_dropdown` field UUID | none | Direct dependency source |
 | Form relationship definition | form field | eligible active relationship UUID | none | Constrains related options |
+| Structured action source | `Form.structured_actions.actions[]` | `top_level`, `repeatable_row` | `top_level` | Selects one submission or each row; repeatable scope also requires `repeatable_field_id` |
+| Structured action target | action target | Member, Organisation, Organisation Group, Custom Object | required | Custom Object also requires an active object UUID |
+| Structured action operation | action | `create`, `update_selected`, `upsert` | required | Selected update requires a compatible relationship; upsert requires a mapped uniqueness field |
 
 ---
 

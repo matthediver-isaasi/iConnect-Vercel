@@ -33,6 +33,55 @@ test('tenant resolution + mismatch rejection run before uniqueness validation', 
   assert.ok(mismatchAt < uniquenessAt, 'TENANT_MISMATCH rejection must precede the uniqueness block');
 });
 
+test('authorization, paid lifecycle, and stored submit-control all precede structured side effects', () => {
+  const auth = src.indexOf('verifyFormProcessingRequest(req');
+  const payment = src.indexOf("persistedSubmission.payment_status && persistedSubmission.payment_status !== 'paid'");
+  const submitControl = src.indexOf('const authoritativeSubmitControl = resolveSubmitControl');
+  const structured = src.indexOf('processPersistedStructuredActions({');
+  assert.ok(auth > -1 && payment > auth && submitControl > payment && structured > submitControl);
+  assert.match(src, /form_values = authoritativeAnswers;/);
+  assert.match(src, /fields = persistedForm\.fields \|\| \[\];/);
+  assert.match(src, /entity_pipelines = hasPersistedLegacyFormEntityActions\(persistedForm\)/);
+  assert.match(src, /\? persistedForm\.entity_pipelines\s*: \{ members: \[\], organisations: \[\] \};/);
+  assert.match(src, /role_id = derivePersistedFormRole\(\{/);
+  assert.match(src, /const prefillTargets = resolveFormProcessingPrefillTargets\(\{/);
+  assert.match(src, /const processingAuthorization = \{[\s\S]*?isAdmin: authorizedAdmin,[\s\S]*?verifiedMemberId: authenticatedSubmitterMember\?\.id/);
+  assert.match(src, /authorization: processingAuthorization,/);
+  assert.match(src, /persistedSubmission\.payment_meta\?\.verified_submitter_member_id/);
+  assert.match(src, /code:\s*'PROCESSING_IDENTITY_MISMATCH'/);
+  assert.match(src, /resolveTrustedFormProcessingAdmin\(\{[\s\S]*?trustedInternal,[\s\S]*?verifiedAdminAccess: verified_admin_access/);
+  assert.match(src, /persistedSubmission\.payment_meta\?\.verified_admin_access === true/);
+  assert.match(src, /code:\s*'PROCESSING_AUTHORITY_MISMATCH'/);
+});
+
+test('legacy pipeline and action derivation happens only after persisted configuration replaces request copies', () => {
+  const persistedPipelineAssignment = src.indexOf('entity_pipelines = hasPersistedLegacyFormEntityActions(persistedForm)');
+  const pipelineNormalization = src.indexOf('const memberPipelines = entity_pipelines?.members || [];');
+  const actionResolution = src.indexOf('} = resolveFormEntityActions({');
+  assert.ok(persistedPipelineAssignment > 0);
+  assert.ok(pipelineNormalization > persistedPipelineAssignment);
+  assert.ok(actionResolution > persistedPipelineAssignment);
+  assert.equal(src.slice(0, persistedPipelineAssignment).includes('const memberPipelines ='), false);
+  assert.equal(src.slice(0, persistedPipelineAssignment).includes('resolveFormEntityActions({'), false);
+  assert.match(src, /: \{ members: \[\], organisations: \[\] \};/);
+});
+
+test('legacy existing-record reuse is ownership-gated before primary and additional mutations', () => {
+  const authContext = src.indexOf('const processingAuthorization = {');
+  const orgGate = src.indexOf("assertLegacyExistingRecordAuthorized('organization', existingOrg.id);");
+  const memberGate = src.indexOf("assertLegacyExistingRecordAuthorized('member', existingMember.id);");
+  const additionalGate = src.indexOf("assertLegacyExistingRecordAuthorized('member', existingMemberId);");
+  assert.ok(authContext > 0);
+  assert.ok(orgGate > authContext);
+  assert.ok(memberGate > orgGate);
+  assert.ok(additionalGate > memberGate);
+  assert.ok(orgGate < src.indexOf("supabase.from('organization').update(orgUpdateData)"));
+  assert.ok(memberGate < src.indexOf("table: 'member'", memberGate));
+  assert.ok(additionalGate < src.indexOf("table: 'member'", additionalGate));
+  assert.match(src, /authorization: processingAuthorization,/);
+  assert.match(src, /error instanceof StructuredActionAuthorizationError/);
+});
+
 test('tenant is resolved exactly once and mismatch rejects with 403', () => {
   assert.equal(src.split('await resolveEffectiveEntityTenant(supabase,').length - 1, 1);
   const rejectBlock = src.slice(idx('tenantResolution.mismatch'), idx("code: 'TENANT_MISMATCH'"));

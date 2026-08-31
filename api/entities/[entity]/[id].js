@@ -63,6 +63,10 @@ import {
   preserveFormNotListedLabelSnapshots,
   snapshotFormNotListedLabels,
 } from '../../../shared/formNotListedChoice.js';
+import {
+  StructuredActionContractError,
+  validateStructuredActionsContract,
+} from '../../_lib/formStructuredActions.js';
 const entityToTable = {
   'Gallery': 'gallery',
   'GalleryPhoto': 'gallery_photo',
@@ -888,6 +892,37 @@ export default async function handler(req, res) {
         });
         if (!validation.ok) return res.status(422).json({ error: validation.error, code: 'INVALID_FORM_ACCESS_POLICY' });
         sanitizedBody.access_policy = validation.policy;
+      }
+
+      if (entityNormalized === 'form' && Object.prototype.hasOwnProperty.call(sanitizedBody, 'structured_actions')) {
+        try {
+          let persistedFields = sanitizedBody.fields;
+          if (!Array.isArray(persistedFields)) {
+            const { data: formFields, error: formFieldsError } = await supabase
+              .from('form')
+              .select('fields')
+              .eq('id', id)
+              .eq('tenant_id', tenantCtx.tenantId)
+              .maybeSingle();
+            if (formFieldsError || !formFields) {
+              return res.status(404).json({ error: 'Form not found' });
+            }
+            persistedFields = formFields.fields || [];
+          }
+          sanitizedBody.structured_actions = validateStructuredActionsContract(
+            sanitizedBody.structured_actions,
+            persistedFields,
+          ) || { version: 1, actions: [] };
+        } catch (error) {
+          if (error instanceof StructuredActionContractError) {
+            return res.status(422).json({
+              error: error.message,
+              code: error.code,
+              details: error.details,
+            });
+          }
+          throw error;
+        }
       }
 
       if (entityNormalized === 'portalmenu'
