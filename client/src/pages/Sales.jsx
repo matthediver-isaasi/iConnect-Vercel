@@ -13,6 +13,7 @@ import {
 import { useLayoutContext } from "@/contexts/LayoutContext";
 import {
   getSalesDestination,
+  getSalesCatalogueSection,
   getVisibleSalesDestinations,
   SALES_BASE_PERMISSION,
 } from "@/lib/salesNavigation";
@@ -62,10 +63,6 @@ export default function Sales({ destination = "dashboard" }) {
 
   const CurrentIcon = ICONS[current.key];
 
-  if (["catalogue", "products", "bundles"].includes(current.key)) {
-    return <Catalogue initialTab={current.key === "bundles" ? "bundles" : "products"} />;
-  }
-
   return (
     <div className="min-h-full bg-slate-50/70">
       <header className="border-b border-slate-200 bg-white">
@@ -106,7 +103,9 @@ export default function Sales({ destination = "dashboard" }) {
         </nav>
 
         <main className="min-w-0">
-          {current.key === "dashboard" ? <SalesDashboard /> : current.key === "reports" ? <SalesReports /> : current.key === "quotes" ? <QuotesWorkspace /> : ["pipeline", "opportunities", "settings"].includes(current.key) ? (
+          {getSalesCatalogueSection(current.key) ? (
+            <Catalogue section={getSalesCatalogueSection(current.key)} />
+          ) : current.key === "dashboard" ? <SalesDashboard /> : current.key === "reports" ? <SalesReports /> : current.key === "quotes" ? <QuotesWorkspace /> : ["pipeline", "opportunities", "settings"].includes(current.key) ? (
             <OpportunitiesWorkspace destination={current.key} />
           ) : <section className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
             <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-blue-50 text-blue-700">

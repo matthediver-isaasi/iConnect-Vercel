@@ -16,6 +16,12 @@ export const SALES_DESTINATIONS = Object.freeze([
 
 export const SALES_BASE_PERMISSION = 'sales.view';
 
+export const SALES_CATALOGUE_SECTIONS = Object.freeze({
+  catalogue: 'categories',
+  products: 'products',
+  bundles: 'bundles',
+});
+
 export function getVisibleSalesDestinations(isExcluded) {
   if (isExcluded(SALES_BASE_PERMISSION)) return [];
   return SALES_DESTINATIONS.filter(({ permissionId }) => !isExcluded(permissionId));
@@ -23,4 +29,14 @@ export function getVisibleSalesDestinations(isExcluded) {
 
 export function getSalesDestination(key) {
   return SALES_DESTINATIONS.find((destination) => destination.key === key) || null;
+}
+
+export function getSalesCatalogueSection(destinationKey) {
+  return SALES_CATALOGUE_SECTIONS[destinationKey] || null;
+}
+
+export function getSalesCataloguePath(section) {
+  const destinationKey = Object.entries(SALES_CATALOGUE_SECTIONS)
+    .find(([, mappedSection]) => mappedSection === section)?.[0];
+  return destinationKey ? `/sales/${destinationKey}` : null;
 }
