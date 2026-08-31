@@ -1346,31 +1346,54 @@ export default function EmbedFormPage() {
             </div>
           )}
 
-          <div className="flex justify-between mt-6">
-            {isMultiPage && currentPageIndex > 0 ? (
-              <Button
-                type="button"
-                variant="outline"
-                onClick={handlePrevious}
-                data-testid="button-previous-page"
-              >
-                <ChevronLeft className="h-4 w-4 mr-1" />
-                Previous
-              </Button>
-            ) : (
-              <div />
-            )}
+          <div className="mt-6 space-y-5" data-testid="embed-form-final-actions">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              {isMultiPage && currentPageIndex > 0 ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={handlePrevious}
+                  className="w-full sm:w-auto"
+                  data-testid="button-previous-page"
+                >
+                  <ChevronLeft className="h-4 w-4 mr-1" />
+                  Previous
+                </Button>
+              ) : (
+                <div />
+              )}
 
-            {isMultiPage && currentPageIndex < pages.length - 1 ? (
-              <Button
-                type="button"
-                onClick={handleNext}
-                data-testid="button-next-page"
-              >
-                Next
-                <ChevronRight className="h-4 w-4 ml-1" />
-              </Button>
-            ) : visiblePaymentField ? (
+              {isMultiPage && currentPageIndex < pages.length - 1 ? (
+                <Button
+                  type="button"
+                  onClick={handleNext}
+                  className="w-full sm:w-auto"
+                  data-testid="button-next-page"
+                >
+                  Next
+                  <ChevronRight className="h-4 w-4 ml-1" />
+                </Button>
+              ) : !visiblePaymentField ? (
+                <Button
+                  type="button"
+                  onClick={handleSubmit}
+                  disabled={submitControl.disabled || submitFormMutation.isPending}
+                  className="w-full sm:w-auto"
+                  data-testid="button-submit-form"
+                >
+                  {submitFormMutation.isPending ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Submitting...
+                    </>
+                  ) : (
+                    form.submit_button_text || 'Submit'
+                  )}
+                </Button>
+              ) : null}
+            </div>
+            {currentPageIndex >= pages.length - 1 && visiblePaymentField && (
+              <div className="w-full border-t pt-5" data-testid="embed-form-payment-area">
               <FormPaymentSubmit
                 field={visiblePaymentField}
                 formValues={formValues}
@@ -1384,22 +1407,7 @@ export default function EmbedFormPage() {
                 submitLabel={form.submit_button_text || 'Submit'}
                 membershipQuote={membershipFeeQuote}
               />
-            ) : (
-              <Button
-                type="button"
-                onClick={handleSubmit}
-                disabled={submitControl.disabled || submitFormMutation.isPending}
-                data-testid="button-submit-form"
-              >
-                {submitFormMutation.isPending ? (
-                  <>
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    Submitting...
-                  </>
-                ) : (
-                  form.submit_button_text || 'Submit'
-                )}
-              </Button>
+              </div>
             )}
           </div>
         </CardContent>

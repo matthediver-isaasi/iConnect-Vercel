@@ -171,6 +171,27 @@ test('existing one-off card and Direct Debit choices remain wired', () => {
   assert.match(src, /onClick=\{\(\) => startPayment\(p\.id\)\}/, 'one-off provider buttons must still start their provider');
 });
 
+test('payment choices and selected Stripe content use responsive full-width layout', () => {
+  const src = readFileSync(join(repoRoot, 'client', 'src', 'components', 'forms', 'FormPaymentSubmit.jsx'), 'utf8');
+  assert.match(src, /form-payment-provider-choices-/);
+  assert.match(src, /grid w-full grid-cols-1 gap-3 md:grid-cols-2/);
+  assert.match(src, /min-h-11 w-full justify-start whitespace-normal/);
+  assert.match(src, /form-payment-provider-content-/);
+  assert.match(src, /w-full max-w-2xl space-y-4/);
+  assert.doesNotMatch(src, /space-y-3 max-w-lg/, 'Stripe must not retain the narrow footer-era constraint');
+});
+
+test('hosted and embedded forms render payment in a separate full-width action row', () => {
+  const hosted = readFileSync(join(repoRoot, 'client', 'src', 'pages', 'FormView.jsx'), 'utf8');
+  const embedded = readFileSync(join(repoRoot, 'client', 'src', 'pages', 'EmbedForm.jsx'), 'utf8');
+  assert.match(hosted, /data-testid="form-final-actions"/);
+  assert.match(hosted, /data-testid="form-payment-area"/);
+  assert.match(hosted, /className="w-full border-t pt-5"/);
+  assert.match(embedded, /data-testid="embed-form-final-actions"/);
+  assert.match(embedded, /data-testid="embed-form-payment-area"/);
+  assert.match(embedded, /className="w-full border-t pt-5"/);
+});
+
 test('server monthly checkout re-derives membership terms and uses durable idempotency', () => {
   const src = readFileSync(join(repoRoot, 'api', 'public', 'form-payment.js'), 'utf8');
   const monthly = src.slice(src.indexOf('async function handleCreateMonthlyCard'), src.indexOf('async function handleCreate('));

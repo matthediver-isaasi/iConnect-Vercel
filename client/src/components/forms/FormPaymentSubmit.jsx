@@ -338,10 +338,10 @@ export default function FormPaymentSubmit({
           </Button>
         </>
       ) : stripeMounted && selectedProvider === 'stripe' ? (
-        <div className="space-y-3 max-w-lg">
+        <div className="w-full max-w-2xl space-y-4" data-testid={`form-payment-provider-content-${field.id}`}>
           <div
             id={`form-payment-element-${field.id}`}
-            className="min-h-[100px] border rounded-md p-3"
+            className="min-h-[100px] w-full rounded-md border p-3"
             data-testid={`form-payment-stripe-element-${field.id}`}
           />
           <Button
@@ -358,7 +358,7 @@ export default function FormPaymentSubmit({
           </Button>
         </div>
       ) : (
-        <div className="space-y-2">
+        <div className="w-full space-y-3">
           <p className="text-sm font-medium">
             Amount due: <span data-testid={`form-payment-amount-${field?.id}`}>{formatPaymentAmount(amount, currency)}</span>
           </p>
@@ -373,9 +373,18 @@ export default function FormPaymentSubmit({
               <Loader2 className="h-4 w-4 animate-spin" /> Checking payment options…
             </div>
           )}
-          <div className="flex flex-wrap gap-2">
+          <div
+            className="grid w-full grid-cols-1 gap-3 md:grid-cols-2"
+            data-testid={`form-payment-provider-choices-${field?.id}`}
+          >
              {effective.membership?.monthly_card && (
-               <Button variant="outline" onClick={startMonthlyCard} disabled={disabled || anyBusy} data-testid={`button-form-payment-monthly-card-${field?.id}`}>
+               <Button
+                 variant="outline"
+                 onClick={startMonthlyCard}
+                 disabled={disabled || anyBusy}
+                 className="h-auto min-h-11 w-full justify-start whitespace-normal px-4 py-3 text-left leading-snug"
+                 data-testid={`button-form-payment-monthly-card-${field?.id}`}
+               >
                  {creating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CreditCard className="mr-2 h-4 w-4" />}
                  {`Pay monthly by card — ${formatPaymentAmount(effective.membership.monthly_card.monthlyAmount, effective.membership.monthly_card.currency || currency)} × ${effective.membership.monthly_card.instalmentCount} (total ${formatPaymentAmount(effective.membership.monthly_card.planTotal, effective.membership.monthly_card.currency || currency)})`}
                </Button>
@@ -386,6 +395,7 @@ export default function FormPaymentSubmit({
                 variant={p.id === 'stripe' ? 'default' : 'outline'}
                 onClick={() => startPayment(p.id)}
                 disabled={disabled || anyBusy}
+                 className="h-auto min-h-11 w-full justify-start whitespace-normal px-4 py-3 text-left leading-snug"
                 data-testid={`button-form-payment-${p.id}-${field?.id}`}
               >
                 {creating ? (

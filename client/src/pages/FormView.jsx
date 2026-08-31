@@ -3156,27 +3156,30 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
               </div>
             )}
 
-            <div className="flex justify-between pt-4 gap-2 flex-wrap">
-              {/* Previous button (only show if we have pages and not on first page) */}
-              {hasPages && !isFirstPage ? (
-                <Button
-                  variant="outline"
-                  onClick={goToPreviousPage}
-                >
-                  <ChevronLeft className="w-4 h-4 mr-2" />
-                  Previous
-                </Button>
-              ) : (
-                <div />
-              )}
-              
-              <div className="flex gap-2 flex-wrap">
+            <div className="space-y-5 pt-4" data-testid="form-final-actions">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                {/* Previous button (only show if we have pages and not on first page) */}
+                {hasPages && !isFirstPage ? (
+                  <Button
+                    variant="outline"
+                    onClick={goToPreviousPage}
+                    className="w-full sm:w-auto"
+                  >
+                    <ChevronLeft className="w-4 h-4 mr-2" />
+                    Previous
+                  </Button>
+                ) : (
+                  <div />
+                )}
+
+                <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row sm:flex-wrap sm:justify-end">
                 {/* Save & Continue Later button - only show when allowed (default on) */}
                 {form?.allow_save_continue_later !== false && (
                   <Button
                     variant="outline"
                     onClick={() => saveDraftMutation.mutate()}
                     disabled={saveDraftMutation.isPending}
+                    className="w-full sm:w-auto"
                     data-testid="button-save-draft"
                   >
                     {saveDraftMutation.isPending ? (
@@ -3204,21 +3207,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
                       <ChevronRight className="w-4 h-4 ml-2" />
                     </Button>
                   ) : null
-                ) : visiblePaymentField ? (
-                  <FormPaymentSubmit
-                    field={visiblePaymentField}
-                    formValues={formValues}
-                    buildPayload={buildSubmissionPayload}
-                    idempotencyKey={getIdempotencyKey()}
-                    disabled={submitControl.disabled}
-                    disabledMessage={submitControl.message}
-                    busy={submitFormMutation.isPending}
-                    onPaid={() => { rotateIdempotencyKey(); setSubmitted(true); }}
-                    onNormalSubmit={handleSubmit}
-                    submitLabel={form.submit_button_text}
-                    membershipQuote={membershipFeeQuote}
-                  />
-                ) : (
+                ) : !visiblePaymentField ? (
                   <Button
                     onClick={handleSubmit}
                     disabled={submitControl.disabled || submitFormMutation.isPending}
@@ -3234,8 +3223,26 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
                       form.submit_button_text
                     )}
                   </Button>
-                )}
+                ) : null}
+                </div>
               </div>
+              {(isLastPage || !hasPages) && visiblePaymentField && (
+                <div className="w-full border-t pt-5" data-testid="form-payment-area">
+                  <FormPaymentSubmit
+                    field={visiblePaymentField}
+                    formValues={formValues}
+                    buildPayload={buildSubmissionPayload}
+                    idempotencyKey={getIdempotencyKey()}
+                    disabled={submitControl.disabled}
+                    disabledMessage={submitControl.message}
+                    busy={submitFormMutation.isPending}
+                    onPaid={() => { rotateIdempotencyKey(); setSubmitted(true); }}
+                    onNormalSubmit={handleSubmit}
+                    submitLabel={form.submit_button_text}
+                    membershipQuote={membershipFeeQuote}
+                  />
+                </div>
+              )}
             </div>
             {(isLastPage || !hasPages) && submitControl.disabled && submitControl.message && (
               <p className="text-xs text-warning text-center mt-2" data-testid="text-submit-disabled-message">
