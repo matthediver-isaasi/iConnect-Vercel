@@ -165,6 +165,7 @@ export const RESERVED_MEMBER_SLUGS = new Set([
   'reviewsubmission',
   'roleaccessconfigmanagement',
   'rolemanagement',
+  'sales',
   'search',
   'sharon',
   'signup',

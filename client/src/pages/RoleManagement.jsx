@@ -22,6 +22,7 @@ import { PAGE_NAMES } from "./pageRegistry.js";
 import { useNavigate } from "react-router-dom";
 import { ROLE_ACCESS_MAP, migrateLegacyExcludedFeatures } from "@/lib/roleAccessMap";
 import { isResourceExcluded, getModuleExclusionState, getPageExclusionState, toggleResourceExclusion } from "@/lib/roleVisibility";
+import { SALES_DEFAULT_ROLE_EXCLUSIONS } from "@shared/salesContracts.js";
 
 // Helper: upload to Supabase Storage and return public URL
 async function uploadImageToSupabase(file, bucket, folderPrefix = "") {
@@ -500,7 +501,7 @@ export default function RoleManagementPage() {
     setEditingRole({
       name: "",
       description: "",
-      excluded_features: ['events.pending-purchase-orders'],
+      excluded_features: ['events.pending-purchase-orders', ...SALES_DEFAULT_ROLE_EXCLUSIONS],
       is_default: false,
       show_tours: true,
       show_bookmarks: true,

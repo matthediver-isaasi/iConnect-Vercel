@@ -833,6 +833,71 @@ export const ROLE_ACCESS_MAP: Module[] = [
     ]
   },
   {
+    id: "sales",
+    label: "Sales",
+    icon: "Handshake",
+    pages: [
+      {
+        id: "sales.view",
+        label: "Sales Access"
+      },
+      {
+        id: "sales.dashboard",
+        label: "Dashboard"
+      },
+      {
+        id: "sales.pipeline",
+        label: "Pipeline"
+      },
+      {
+        id: "sales.opportunities",
+        label: "Opportunities",
+        features: [
+          { id: "sales.opportunities.manage", label: "Manage Opportunities" },
+          { id: "sales.owners.view-all", label: "View All Owners" }
+        ]
+      },
+      {
+        id: "sales.quotes",
+        label: "Quotes",
+        features: [
+          { id: "sales.quotes.manage", label: "Manage Quotes" },
+          { id: "sales.accounting.manage", label: "Manage Accounting" },
+          { id: "sales.allocations.manage", label: "Manage Allocations" }
+        ]
+      },
+      {
+        id: "sales.products",
+        label: "Products",
+        features: [
+          { id: "sales.catalogue-prices.manage", label: "Manage Catalogue Prices" }
+        ]
+      },
+      {
+        id: "sales.bundles",
+        label: "Bundles"
+      },
+      {
+        id: "sales.tasks",
+        label: "Tasks"
+      },
+      {
+        id: "sales.reports",
+        label: "Reports",
+        features: [
+          { id: "sales.reports.view", label: "View Sales Reports" }
+        ]
+      },
+      {
+        id: "sales.settings",
+        label: "Settings",
+        features: [
+          { id: "sales.settings.manage", label: "Manage Sales Settings" }
+        ]
+      }
+    ]
+  },
+  {
     id: "system",
     label: "System Settings",
     icon: "Settings",

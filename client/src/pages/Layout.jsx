@@ -11,6 +11,7 @@ import { useTenantBranding } from "@/contexts/TenantBrandingContext";
 import { isResourceExcluded, setDbRoleAccessOverlay } from "@/lib/roleVisibility";
 import { migrateLegacyFeatureId } from "@/lib/roleAccessMap";
 import { buildPortalNavBackgroundStyle } from "@/lib/canvasBackground";
+import { SALES_DESTINATIONS } from "@/lib/salesNavigation";
 import { InstalledFontsLoader } from "@/lib/installedFonts";
 import PortalNavLink from "@/components/navigation/PortalNavLink";
 import {
@@ -70,6 +71,16 @@ import { base44 } from "@/api/base44Client";
 
 
 const navigationItems = [
+  {
+    title: "Sales",
+    icon: Handshake,
+    featureId: "sales.view",
+    subItems: SALES_DESTINATIONS.map(({ label, path, permissionId }) => ({
+      title: label,
+      url: path,
+      featureId: permissionId,
+    })),
+  },
   {
     title: "Buy Tickets",
     url: createPageUrl("BuyProgramTickets"),
@@ -1529,6 +1540,15 @@ useEffect(() => {
     'Preferences': 'page_user_Preferences',
     'about-me': 'user.about-me',
     'Support': 'page_user_Support',
+    'SalesDashboard': 'sales.dashboard',
+    'SalesPipeline': 'sales.pipeline',
+    'SalesOpportunities': 'sales.opportunities',
+    'SalesQuotes': 'sales.quotes',
+    'SalesProducts': 'sales.products',
+    'SalesBundles': 'sales.bundles',
+    'SalesTasks': 'sales.tasks',
+    'SalesReports': 'sales.reports',
+    'SalesSettings': 'sales.settings',
     // Admin navigation pages use page_admin_* pattern  
     'AdminSetup': 'page_admin_AdminSetup',
     'NewsSettings': 'page_admin_NewsSettings',

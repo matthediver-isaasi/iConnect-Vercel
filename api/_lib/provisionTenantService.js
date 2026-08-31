@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import { provisionEmailDomain } from './emailDomainService.js';
 import { normalizeHeaderToggles, resolveLoginPosition, buildHeaderControlInserts } from './headerControlSeed.js';
+import { SALES_DEFAULT_ROLE_EXCLUSIONS } from '../../shared/salesContracts.js';
 
 const RESERVED_SLUGS = ['www', 'api', 'app', 'admin', 'mail', 'ftp', 'cdn', 'static', 'assets', 'images', 'login', 'signup', 'register'];
 
@@ -161,9 +162,12 @@ async function createRolesFromTemplates(tenantId) {
   // Member role; Super Admin must always retain access.
   const PENDING_PO_KEY = 'events.pending-purchase-orders';
   const memberExcludedBase = memberTemplate?.excluded_features || ['admin.*'];
-  const memberExcluded = memberExcludedBase.includes(PENDING_PO_KEY)
+  const memberExcludedWithPendingPo = memberExcludedBase.includes(PENDING_PO_KEY)
     ? memberExcludedBase
     : [...memberExcludedBase, PENDING_PO_KEY];
+  const memberExcluded = [
+    ...new Set([...memberExcludedWithPendingPo, ...SALES_DEFAULT_ROLE_EXCLUSIONS]),
+  ];
   const superAdminExcluded = (superAdminTemplate?.excluded_features || [])
     .filter(key => key !== PENDING_PO_KEY);
 

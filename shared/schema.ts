@@ -38,6 +38,53 @@ export const insertTenantSchema = createInsertSchema(tenant).omit({
 export type InsertTenant = z.infer<typeof insertTenantSchema>;
 export type Tenant = typeof tenant.$inferSelect;
 
+// Sales foundation. Amounts in downstream Sales records are signed bigint
+// minor units and each commercial document owns one ISO-4217 currency.
+export const salesSettings = pgTable("sales_settings", {
+  tenant_id: uuid("tenant_id").primaryKey(),
+  quote_prefix: varchar("quote_prefix", { length: 16 }).notNull().default("Q"),
+  quote_number_padding: integer("quote_number_padding").notNull().default(6),
+  default_currency: varchar("default_currency", { length: 3 }).notNull().default("GBP"),
+  default_tax_rate_bps: integer("default_tax_rate_bps").notNull().default(0),
+  default_terms: text("default_terms").notNull().default(""),
+  module_enabled: boolean("module_enabled").notNull().default(true),
+  version: integer("version").notNull().default(1),
+  updated_by: text("updated_by"),
+  created_at: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updated_at: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const salesNumberSequence = pgTable("sales_number_sequence", {
+  tenant_id: uuid("tenant_id").notNull(),
+  kind: varchar("kind", { length: 30 }).notNull(),
+  last_value: bigint("last_value", { mode: "number" }).notNull().default(0),
+  updated_at: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  tenantKindUnique: uniqueIndex("sales_number_sequence_tenant_kind_unique")
+    .on(table.tenant_id, table.kind),
+}));
+
+export const salesAuditEvent = pgTable("sales_audit_event", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenant_id: uuid("tenant_id").notNull(),
+  actor_id: text("actor_id").notNull(),
+  actor_type: varchar("actor_type", { length: 30 }).notNull(),
+  action: varchar("action", { length: 100 }).notNull(),
+  entity_type: varchar("entity_type", { length: 100 }).notNull(),
+  entity_id: text("entity_id").notNull(),
+  before_data: jsonb("before_data"),
+  after_data: jsonb("after_data"),
+  metadata: jsonb("metadata").notNull().default({}),
+  created_at: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  tenantCreatedIdx: index("idx_sales_audit_event_tenant_created")
+    .on(table.tenant_id, table.created_at),
+}));
+
+export type SalesSettings = typeof salesSettings.$inferSelect;
+export type SalesNumberSequence = typeof salesNumberSequence.$inferSelect;
+export type SalesAuditEvent = typeof salesAuditEvent.$inferSelect;
+
 export const cpdCertificateTemplate = pgTable("cpd_certificate_template", {
   id: uuid("id").primaryKey().defaultRandom(),
   tenant_id: uuid("tenant_id").notNull(),

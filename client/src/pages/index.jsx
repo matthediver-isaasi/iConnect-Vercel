@@ -319,6 +319,7 @@ import ProjectBoards from "./ProjectBoards";
 import ProjectBoard from "./ProjectBoard";
 
 import ReportsDashboard from "./ReportsDashboard";
+import Sales from "./Sales";
 
 import AIReports from "./AIReports";
 import AccessibilityAudits from "./AccessibilityAudits";
@@ -421,7 +422,7 @@ import BnmsMemberDemo from "./BnmsMemberDemo";
 import PhotoGalleries from "./PhotoGalleries";
 
 import { useEffect, useRef, lazy, Suspense } from 'react';
-import { BrowserRouter as Router, Route, Routes, useLocation, useParams } from 'react-router-dom';
+import { BrowserRouter as Router, Navigate, Route, Routes, useLocation, useParams } from 'react-router-dom';
 import { LayoutProvider } from '@/contexts/LayoutContext';
 import { MicrositeProvider } from '@/contexts/MicrositeContext';
 import PlanQuotaDialog from '@/components/PlanQuotaDialog';
@@ -802,6 +803,15 @@ const PAGES = {
     CanvasLinksManager: CanvasLinksManager,
     EventCheckIn: EventCheckIn,
     EventCheckInDashboard: EventCheckInDashboard,
+    SalesDashboard: Sales,
+    SalesPipeline: Sales,
+    SalesOpportunities: Sales,
+    SalesQuotes: Sales,
+    SalesProducts: Sales,
+    SalesBundles: Sales,
+    SalesTasks: Sales,
+    SalesReports: Sales,
+    SalesSettings: Sales,
     
     CreateComplexEvent: CreateComplexEvent,
     PublicComplexEvents: PublicComplexEvents,
@@ -815,6 +825,21 @@ function _getCurrentPage(url) {
     
     // Handle parameterized routes like /members/:id (and member-list aliases)
     const urlParts = url.split('/').filter(Boolean);
+    if (urlParts[0]?.toLowerCase() === 'sales') {
+        const salesPage = urlParts[1]?.toLowerCase() || 'dashboard';
+        const salesPages = {
+            dashboard: 'SalesDashboard',
+            pipeline: 'SalesPipeline',
+            opportunities: 'SalesOpportunities',
+            quotes: 'SalesQuotes',
+            products: 'SalesProducts',
+            bundles: 'SalesBundles',
+            tasks: 'SalesTasks',
+            reports: 'SalesReports',
+            settings: 'SalesSettings',
+        };
+        return salesPages[salesPage] || 'SalesDashboard';
+    }
     if (urlParts[0]?.toLowerCase() === 'customobjectsadmin') {
         return 'CustomObjectsAdmin';
     }
@@ -926,6 +951,16 @@ function PagesContent() {
                 <Route path="/Balances" element={<Balances />} />
                 
                 <Route path="/Dashboard" element={<Dashboard />} />
+                <Route path="/sales" element={<Navigate to="/sales/dashboard" replace />} />
+                <Route path="/sales/dashboard" element={<Sales destination="dashboard" />} />
+                <Route path="/sales/pipeline" element={<Sales destination="pipeline" />} />
+                <Route path="/sales/opportunities" element={<Sales destination="opportunities" />} />
+                <Route path="/sales/quotes" element={<Sales destination="quotes" />} />
+                <Route path="/sales/products" element={<Sales destination="products" />} />
+                <Route path="/sales/bundles" element={<Sales destination="bundles" />} />
+                <Route path="/sales/tasks" element={<Sales destination="tasks" />} />
+                <Route path="/sales/reports" element={<Sales destination="reports" />} />
+                <Route path="/sales/settings" element={<Sales destination="settings" />} />
                 
                 <Route path="/MemberDemo" element={<MemberDemo />} />
                 

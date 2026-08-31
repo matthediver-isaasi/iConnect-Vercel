@@ -59,6 +59,7 @@ const ROLE_BACKFILL_EXCLUSION_KEYS = [
   'publications.briefmanagement',
   'cpd',
   'cpd.certificate-templates',
+  'sales',
 ];
 
 const backfillRoleExclusionsForKeys = async (newKeys) => {
