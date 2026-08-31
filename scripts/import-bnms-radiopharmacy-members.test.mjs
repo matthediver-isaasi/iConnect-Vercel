@@ -1,92 +1,79 @@
 import assert from 'node:assert/strict';
+import { copyFileSync, readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import test from 'node:test';
 import {
-  EXPECTED_FILE_SHA256,
-  HEADERS,
-  ROW_COUNT,
-  deterministicMemberId,
-  makePlan,
-  readSource,
+  EXPECTED_FILE_SHA256, FIELD_CONTRACTS, HEADERS, ROW_COUNT, TENANT_ID,
+  auditMappings, makePlan, readSource, validateAppliedRows,
 } from './import-bnms-radiopharmacy-members.mjs';
 
-test('source workbook is pinned to the approved exact 55-row shape', () => {
-  const source = readSource();
+const source = readSource();
+const fields = FIELD_CONTRACTS.map((field) => ({
+  ...field, tenant_id: TENANT_ID, entity_scope: 'member', field_type: field.type, is_active: true,
+  options: field.type === 'dropdown' ? [...new Set(source.rows.map((row) => row.values[field.source]))].map((value) => ({ label: value, value })) : null,
+}));
+const mappings = auditMappings(fields, source);
+const members = source.rows.map((row) => ({ id: row.id, tenant_id: TENANT_ID, unrelated: `keep-${row.id}` }));
+
+test('pins the exact 54-row CSV shape, fingerprint, IDs, and constants', () => {
   assert.equal(source.fingerprint, EXPECTED_FILE_SHA256);
   assert.equal(source.rows.length, ROW_COUNT);
-  assert.deepEqual(HEADERS, ['Department UUID', 'First name', 'Last name', 'Email address']);
-  assert.equal(new Set(source.rows.map((row) => row.email)).size, ROW_COUNT);
-  assert.equal(new Set(source.rows.map((row) => row.departmentId)).size, ROW_COUNT);
+  assert.deepEqual(HEADERS, ['id', 'YM Web Site Member ID', 'YM Membership type', 'Member class', 'Membership status']);
+  assert.equal(new Set(source.rows.map((row) => row.id)).size, ROW_COUNT);
+  assert.deepEqual(new Set(source.rows.map((row) => row.values['YM Membership type'])), new Set(['Radiopharmacy Departmental Contact']));
+  assert.deepEqual(new Set(source.rows.map((row) => row.values['Member class'])), new Set(['Department contact']));
+  assert.deepEqual(new Set(source.rows.map((row) => row.values['Membership status'])), new Set(['Active']));
 });
 
-test('deterministic member IDs are stable UUIDs and normalize email case', () => {
-  const lower = deterministicMemberId('person@example.org');
-  assert.equal(lower, deterministicMemberId(' Person@Example.org '));
-  assert.match(lower, /^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-a[0-9a-f]{3}-[0-9a-f]{12}$/);
+test('rejects source fingerprint drift before parsing or writes', () => {
+  const file = path.join(tmpdir(), `bnms-${process.pid}.csv`);
+  copyFileSync(new URL('../attached_assets/Radiopharmacy_contacts_updated_31.08.26_1788196158731.csv', import.meta.url), file);
+  writeFileSync(file, readFileSync(file, 'utf8').replace('Active', 'Inactive'));
+  assert.throws(() => readSource(file), /fingerprint mismatch/);
 });
 
-function fixture({ existing = false, archivedConflict = false } = {}) {
-  const source = readSource();
-  const activeParentByDepartment = new Map();
-  const organizationById = new Map();
-  const byEmail = new Map();
-  const memberEdges = [];
-  for (const [index, row] of source.rows.entries()) {
-    const organizationId = `10000000-0000-4000-8000-${String(index).padStart(12, '0')}`;
-    activeParentByDepartment.set(row.departmentId, { source_record_id: row.departmentId, target_record_id: organizationId });
-    organizationById.set(organizationId, { id: organizationId, tenant_id: 'tenant', status: 'active' });
-    if (existing) {
-      byEmail.set(row.email, {
-        id: row.memberId, email: row.email, first_name: row.firstName, last_name: row.lastName,
-        organization_id: organizationId, login_enabled: true, show_in_directory: true, is_guest: false,
-      });
-      memberEdges.push({
-        id: `edge-${index}`, source_record_id: row.departmentId, target_record_id: row.memberId,
-        archived_at: archivedConflict && index === 0 ? '2026-01-01T00:00:00Z' : null,
-      });
-    }
-  }
-  const sharon = { id: 'sharon' };
-  return {
-    source,
-    model: { memberDefinition: { id: 'members-definition' } },
-    state: {
-      activeParentByDepartment, organizationById, byEmail, memberEdges,
-      allMembers: existing ? [sharon, ...byEmail.values()] : [sharon],
-    },
-  };
-}
-
-test('clean pre-import state plans Member before matching Department edge', () => {
-  const { source, state, model } = fixture();
-  const plan = makePlan(source, state, model);
-  assert.equal(plan.members.filter((row) => row.action === 'create').length, 55);
-  assert.equal(plan.edges.filter((row) => row.action === 'create').length, 55);
-  for (let index = 0; index < ROW_COUNT; index += 1) {
-    assert.equal(plan.members[index].organizationId, state.activeParentByDepartment.get(source.rows[index].departmentId).target_record_id);
-    assert.equal(plan.edges[index].memberId, plan.members[index].memberId);
-  }
+test('requires exact tenant-owned active member fields and controlled options', () => {
+  assert.equal(mappings.length, 4);
+  assert.throws(() => auditMappings([...fields, { ...fields[0], id: 'other' }], source), /unambiguous/);
+  assert.throws(() => auditMappings(fields.map((field, i) => i ? field : { ...field, tenant_id: 'other' }), source), /contract drifted/);
+  assert.throws(() => auditMappings(fields.map((field, i) => i === 1 ? { ...field, options: [] } : field), source), /Unsupported/);
 });
 
-test('exact replay plans zero writes', () => {
-  const { source, state, model } = fixture({ existing: true });
-  const plan = makePlan(source, state, model);
-  assert.ok(plan.members.every((row) => row.action === 'unchanged'));
-  assert.ok(plan.edges.every((row) => row.action === 'unchanged'));
+test('fails closed for missing, duplicate, and cross-tenant Member IDs', () => {
+  assert.throws(() => makePlan(source, members.slice(1), [], mappings), /missing=1/);
+  assert.throws(() => makePlan(source, [...members, members[0]], [], mappings), /duplicate=1/);
+  assert.throws(() => makePlan(source, members.map((member, i) => i ? member : { ...member, tenant_id: 'other' }), [], mappings), /crossTenant=1/);
 });
 
-test('interrupted apply with committed Members safely resumes only missing edges', () => {
-  const { source, state, model } = fixture({ existing: true });
-  state.memberEdges = [];
-  const plan = makePlan(source, state, model);
-  assert.ok(plan.members.every((row) => row.action === 'unchanged'));
-  assert.ok(plan.edges.every((row) => row.action === 'create'));
+test('plans mixed inserts, updates, unchanged values and preserves Member objects', () => {
+  const before = structuredClone(members);
+  const first = source.rows[0];
+  const values = [
+    { id: 'a', member_id: first.id, field_id: mappings[0].id, value: first.values[mappings[0].source] },
+    { id: 'b', member_id: first.id, field_id: mappings[1].id, value: 'old' },
+  ];
+  const plan = makePlan(source, members, values, mappings);
+  assert.equal(plan.items.filter((item) => item.action === 'unchanged').length, 1);
+  assert.equal(plan.items.filter((item) => item.action === 'update').length, 1);
+  assert.equal(plan.items.filter((item) => item.action === 'insert').length, ROW_COUNT * 4 - 2);
+  assert.deepEqual(members, before);
 });
 
-test('existing Member drift and archived edge history fail closed', () => {
-  const memberDrift = fixture({ existing: true });
-  memberDrift.state.byEmail.get(memberDrift.source.rows[0].email).organization_id = '20000000-0000-4000-8000-000000000000';
-  assert.throws(() => makePlan(memberDrift.source, memberDrift.state, memberDrift.model), /never updated/);
+test('rejects duplicate destination values and exact replay proposes zero writes', () => {
+  const all = source.rows.flatMap((row) => mappings.map((mapping, index) => ({
+    id: `${row.id}-${index}`, member_id: row.id, field_id: mapping.id, value: row.values[mapping.source],
+  })));
+  assert.ok(makePlan(source, members, all, mappings).items.every((item) => item.action === 'unchanged'));
+  assert.throws(() => makePlan(source, members, [...all, { ...all[0], id: 'duplicate' }], mappings), /Duplicate preference values/);
+});
 
-  const archived = fixture({ existing: true, archivedConflict: true });
-  assert.throws(() => makePlan(archived.source, archived.state, archived.model), /conflicting active or archived/);
+test('fails closed on partial or unexpected write results', () => {
+  const writes = [
+    { member_id: source.rows[0].id, field_id: mappings[0].id, value: 'one' },
+    { member_id: source.rows[1].id, field_id: mappings[0].id, value: 'two' },
+  ];
+  assert.throws(() => validateAppliedRows(writes.slice(0, 1), writes), /1\/2 rows/);
+  assert.throws(() => validateAppliedRows([{ ...writes[0], value: 'wrong' }, writes[1]], writes), /unexpected rows/);
+  assert.doesNotThrow(() => validateAppliedRows(writes, writes));
 });
