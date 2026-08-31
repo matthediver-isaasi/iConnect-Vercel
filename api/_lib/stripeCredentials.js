@@ -123,7 +123,7 @@ export async function getStripeIntegrationCredentials(tenantId) {
  * with the other mode's key and reports the mismatch so callers can still
  * verify + record the payment against the account that actually charged it.
  *
- * @returns {Promise<{ paymentIntent, stripe, usedMode: 'selected'|'other', secretKey } | null>}
+ * @returns {Promise<{ paymentIntent, stripe, usedMode: 'selected'|'other', secretKey, publishableKey } | null>}
  *          null when no Stripe credentials are configured at all.
  * @throws the original Stripe error when the PI is not found in either mode.
  */
@@ -137,12 +137,21 @@ export async function retrieveTenantPaymentIntent(tenantId, feature, paymentInte
   const testKey = all.test_secret_key || null;
   const selectedKey = mode === 'test' && testKey ? testKey : liveKey;
   const otherKey = selectedKey === liveKey ? testKey : liveKey;
+  const publishableFor = (secretKey) => (
+    secretKey === testKey ? all.test_publishable_key : all.publishable_key
+  ) || null;
   if (!selectedKey) return null;
 
   const selectedStripe = new Stripe(selectedKey);
   try {
     const paymentIntent = await selectedStripe.paymentIntents.retrieve(paymentIntentId);
-    return { paymentIntent, stripe: selectedStripe, usedMode: 'selected', secretKey: selectedKey };
+    return {
+      paymentIntent,
+      stripe: selectedStripe,
+      usedMode: 'selected',
+      secretKey: selectedKey,
+      publishableKey: publishableFor(selectedKey),
+    };
   } catch (err) {
     const notFound = err?.code === 'resource_missing' || err?.statusCode === 404;
     if (!notFound || !otherKey || otherKey === selectedKey) throw err;
@@ -150,7 +159,13 @@ export async function retrieveTenantPaymentIntent(tenantId, feature, paymentInte
     const otherStripe = new Stripe(otherKey);
     const paymentIntent = await otherStripe.paymentIntents.retrieve(paymentIntentId);
     console.warn(`[Stripe] MODE MISMATCH: PI ${paymentIntentId} belongs to the ${mode === 'test' ? 'live' : 'test'} account while feature "${feature}" is set to ${mode} (tenant ${tenantId})`);
-    return { paymentIntent, stripe: otherStripe, usedMode: 'other', secretKey: otherKey };
+    return {
+      paymentIntent,
+      stripe: otherStripe,
+      usedMode: 'other',
+      secretKey: otherKey,
+      publishableKey: publishableFor(otherKey),
+    };
   }
 }
 

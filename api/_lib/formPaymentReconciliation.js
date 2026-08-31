@@ -47,7 +47,11 @@ function recordMonitoringFailure(results, scope, error) {
   });
 }
 
-export async function reconcileFormPayments(supabase, { baseUrl = null, limit = 50 } = {}) {
+export async function reconcileFormPayments(supabase, {
+  baseUrl = null,
+  limit = 50,
+  retrievePaymentIntent = retrieveTenantPaymentIntent,
+} = {}) {
   const results = { checked: 0, paid: 0, failed: 0, finalized: 0, errors: [] };
   const now = Date.now();
   const minCreated = new Date(now - MAX_AGE_DAYS * 24 * 60 * 60 * 1000).toISOString();
@@ -113,7 +117,9 @@ export async function reconcileFormPayments(supabase, { baseUrl = null, limit = 
       // by an eligible member's legacy browser confirmation).
       if (!hasFormPaymentAccessProof(row, form)) continue;
       if (row.payment_provider === 'stripe') {
-        const found = await retrieveTenantPaymentIntent(row.tenant_id, 'forms', row.payment_reference);
+        const stripeFeature = row.payment_meta?.stripe_feature
+          || (row.payment_meta?.membership ? 'membership' : 'forms');
+        const found = await retrievePaymentIntent(row.tenant_id, stripeFeature, row.payment_reference);
         if (!found) continue;
         const pi = found.paymentIntent;
         const metadataMatches = pi.metadata?.type === 'form_payment'

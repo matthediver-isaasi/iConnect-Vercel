@@ -51,6 +51,7 @@ import {
 } from '../_lib/formMonthlyCardCheckout.js';
 import { resolveFormAccess, sendFormAccessDenied } from '../_lib/formAccessPolicy.js';
 import { withFormPaymentAccessProof } from '../_lib/formPaymentAccess.js';
+import { inspectPriorFormStripeIntent } from '../_lib/formStripeIntentRetry.js';
 import { isFormScheduleAvailable } from '../_lib/formAvailability.js';
 import { createFormRelationshipService, FormRelationshipError } from '../_lib/formRelationshipOptions.js';
 import {
@@ -778,6 +779,7 @@ async function handleCreate(req, res, supabase, tenantData) {
   });
   if (resolved.error) return res.status(resolved.error.status).json(resolved.error.body);
   const { membershipMeta, amount, currency } = resolved;
+  const stripeFeature = membershipMeta ? 'membership' : 'forms';
 
   if (!(amount > 0)) {
     return res.status(400).json({ error: 'No payment is due for these answers', code: 'NO_PAYMENT_REQUIRED' });
@@ -862,6 +864,7 @@ async function handleCreate(req, res, supabase, tenantData) {
             prefill_organization_id: prefill_organization_id || null,
             role_id: role_id || null,
             membership: membershipMeta,
+            stripe_feature: stripeFeature,
           }, { accessPolicyRequired: access.restricted }),
         })
         .eq('id', existing.id)
@@ -894,6 +897,7 @@ async function handleCreate(req, res, supabase, tenantData) {
         prefill_organization_id: prefill_organization_id || null,
         role_id: role_id || null,
         membership: membershipMeta,
+        stripe_feature: stripeFeature,
       }, { accessPolicyRequired: access.restricted }),
       ...(idemKey && { idempotency_key: idemKey }),
     };
@@ -928,7 +932,7 @@ async function handleCreate(req, res, supabase, tenantData) {
   const description = (paymentField.payment_label || paymentField.label || form.name || 'Form payment').slice(0, 100);
 
   if (provider === 'stripe') {
-    const creds = await getStripeCredentials(tenantData.id, 'forms');
+    const creds = await getStripeCredentials(tenantData.id, stripeFeature);
     if (!creds || creds.is_enabled === false || !creds.secret_key || !creds.publishable_key) {
       return res.status(400).json({ error: 'Card payment is not configured for this organisation' });
     }
@@ -943,40 +947,33 @@ async function handleCreate(req, res, supabase, tenantData) {
       ? submissionRow.payment_reference : null;
     if (priorStripeReference) {
       try {
-        const existingIntent = await stripe.paymentIntents.retrieve(priorStripeReference);
-        if (existingIntent) {
-          if (existingIntent.status === 'succeeded') {
-            return res.status(200).json({ alreadyPaid: true, submissionId: submissionRow.id });
-          }
-          const reusable = ['requires_payment_method', 'requires_confirmation', 'requires_action', 'processing'].includes(existingIntent.status);
-          if (reusable && existingIntent.amount === amountMinor
-              && existingIntent.currency === currency.toLowerCase()) {
-            return res.status(200).json({
-              provider: 'stripe',
-              submissionId: submissionRow.id,
-              clientSecret: existingIntent.client_secret,
-              publishableKey: creds.publishable_key,
-              amount,
-              currency,
-            });
-          }
-          // Not reusable (cancelled, or amount drifted on an unreferenced
-          // refresh): invalidate before replacing so it can never be paid.
-          if (existingIntent.status !== 'canceled') {
-            try { await stripe.paymentIntents.cancel(existingIntent.id); }
-            catch (cancelErr) {
-              console.error('[form-payment] Could not cancel superseded intent', existingIntent.id, cancelErr?.message);
-              return res.status(409).json({ error: 'An earlier payment attempt is still open. Please try again shortly.', code: 'PAYMENT_ALREADY_INITIATED' });
-            }
-          }
+        const prior = await inspectPriorFormStripeIntent({
+          tenantId: tenantData.id,
+          stripeFeature,
+          paymentIntentId: priorStripeReference,
+          amountMinor,
+          currency,
+        });
+        if (prior.kind === 'succeeded') {
+          return res.status(200).json({ alreadyPaid: true, submissionId: submissionRow.id });
+        }
+        if (prior.kind === 'reusable') {
+          return res.status(200).json({
+            provider: 'stripe',
+            submissionId: submissionRow.id,
+            clientSecret: prior.intent.client_secret,
+            publishableKey: prior.publishableKey,
+            amount,
+            currency,
+          });
+        }
+        if (prior.kind === 'blocked') {
+          console.error('[form-payment] Could not cancel superseded intent', prior.intent.id, prior.error?.message);
+          return res.status(409).json({ error: 'An earlier payment attempt is still open. Please try again shortly.', code: 'PAYMENT_ALREADY_INITIATED' });
         }
       } catch (err) {
-        // Intent id not found on this account (e.g. mode flip) — fall
-        // through and create a fresh one.
-        if (err?.code !== 'resource_missing') {
-          console.error('[form-payment] Failed to retrieve existing intent:', err?.message);
-          return res.status(500).json({ error: 'Failed to prepare payment' });
-        }
+        console.error('[form-payment] Failed to retrieve existing intent:', err?.message);
+        return res.status(500).json({ error: 'Failed to prepare payment' });
       }
     }
 
@@ -1247,7 +1244,9 @@ async function handleConfirm(req, res, supabase, tenantData) {
   if (row.payment_provider === 'stripe') {
     const piId = payment_intent_id || row.payment_reference;
     if (!piId) return res.status(400).json({ error: 'payment_intent_id is required' });
-    const found = await retrieveTenantPaymentIntent(tenantData.id, 'forms', piId);
+    const stripeFeature = row.payment_meta?.stripe_feature
+      || (row.payment_meta?.membership ? 'membership' : 'forms');
+    const found = await retrieveTenantPaymentIntent(tenantData.id, stripeFeature, piId);
     if (!found) return res.status(400).json({ error: 'Card payment is not configured' });
     const pi = found.paymentIntent;
     const metadataMatches = pi.metadata?.type === 'form_payment'

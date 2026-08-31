@@ -156,3 +156,4 @@
 - [Commercial sale invoice conversion](commercial-sale-invoice-conversion.md) — invoice only from the accepted quote snapshot; claim per sale/provider and preserve exact accepted arithmetic.
 - [Allocated delegate claim ordering](allocated-delegate-claim-ordering.md) — claim invite entitlement only after booking capacity checks; compensate the whole checkout if a later claim fails.
 - [Mixed-encoding CSV imports](mixed-encoding-csv-imports.md) — preserve valid UTF-8 sequences while decoding isolated Windows-1252 bytes; whole-file fallback can silently create mojibake.
+- [Stripe feature mode for shared payments](stripe-feature-payment-mode.md) — discovery, creation, and confirmation must use one persisted feature when a shared flow serves several products.

@@ -5,6 +5,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import { reconcileFormPayments } from './formPaymentReconciliation.js';
+import { inspectPriorFormStripeIntent } from './formStripeIntentRetry.js';
 
 const reconSrc = fs.readFileSync(new URL('./formPaymentReconciliation.js', import.meta.url), 'utf8');
 const finalizeSrc = fs.readFileSync(new URL('./formMembershipFinalize.js', import.meta.url), 'utf8');
@@ -130,16 +132,17 @@ test('Stripe same-key retries reuse the existing intent; at most one payable int
   assert.ok(reuseAt < createAt, 'reuse guard must run before any new intent is created');
   const guard = paymentSrc.slice(reuseAt, createAt);
   // A still-payable intent with the same amount/currency is returned as-is.
-  assert.match(guard, /paymentIntents\.retrieve/);
-  assert.match(guard, /existingIntent\.amount === amountMinor/);
-  assert.match(guard, /clientSecret: existingIntent\.client_secret/);
+  assert.match(guard, /inspectPriorFormStripeIntent/);
+  assert.match(guard, /prior\.kind === 'reusable'/);
+  assert.match(guard, /clientSecret: prior\.intent\.client_secret/);
   // A superseded intent is cancelled BEFORE a replacement is created; if
   // cancellation fails the request aborts rather than leaving two payable
   // intents.
-  assert.match(guard, /paymentIntents\.cancel\(existingIntent\.id\)/);
+  const retrySrc = fs.readFileSync(new URL('./formStripeIntentRetry.js', import.meta.url), 'utf8');
+  assert.match(retrySrc, /found\.stripe\.paymentIntents\.cancel\(intent\.id\)/);
   assert.ok(guard.includes("code: 'PAYMENT_ALREADY_INITIATED'"), 'failed cancel must abort, not replace');
   // An already-succeeded intent short-circuits instead of re-charging.
-  assert.match(guard, /status === 'succeeded'/);
+  assert.match(guard, /prior\.kind === 'succeeded'/);
 });
 
 test('Stripe intent publication is a CAS — concurrent racers cancel their losing intent', () => {
@@ -191,4 +194,144 @@ test('payment-create only accepts membership configs effective today', () => {
 test('member-scoped structures quote detached even with an organisation prefill', () => {
   // Only organisation-target actions use the org simulation branch.
   assert.match(paymentSrc, /membershipTarget === 'organization' && prefill_organization_id/);
+});
+
+test('one-off Stripe create and confirm preserve the membership credential feature', () => {
+  assert.match(paymentSrc, /const stripeFeature = membershipMeta \? 'membership' : 'forms'/);
+  assert.match(paymentSrc, /stripe_feature: stripeFeature/);
+  assert.match(paymentSrc, /getStripeCredentials\(tenantData\.id, stripeFeature\)/);
+  assert.match(
+    paymentSrc,
+    /row\.payment_meta\?\.stripe_feature[\s\S]*row\.payment_meta\?\.membership \? 'membership' : 'forms'[\s\S]*retrieveTenantPaymentIntent\(tenantData\.id, stripeFeature, piId\)/,
+  );
+});
+
+test('payment reconciliation looks up each Stripe intent using its originating feature', async () => {
+  const pendingRows = [
+    {
+      id: 'membership-payment',
+      form_id: 'form-1',
+      tenant_id: 'tenant-1',
+      payment_provider: 'stripe',
+      payment_reference: 'pi_membership',
+      payment_meta: { stripe_feature: 'membership' },
+    },
+    {
+      id: 'forms-payment',
+      form_id: 'form-1',
+      tenant_id: 'tenant-1',
+      payment_provider: 'stripe',
+      payment_reference: 'pi_forms',
+      payment_meta: { stripe_feature: 'forms' },
+    },
+    {
+      id: 'legacy-membership-payment',
+      form_id: 'form-1',
+      tenant_id: 'tenant-1',
+      payment_provider: 'stripe',
+      payment_reference: 'pi_legacy_membership',
+      payment_meta: { membership: { quote: { config_id: 'config-1' } } },
+    },
+  ];
+  const db = {
+    from(table) {
+      const filters = [];
+      const query = {
+        select() { return query; },
+        eq(column, value) { filters.push([column, value]); return query; },
+        not() { return query; },
+        gte() { return query; },
+        lte() { return query; },
+        filter() { return query; },
+        or() { return query; },
+        order() { return query; },
+        limit() {
+          const pending = filters.some(([column, value]) => (
+            column === 'payment_status' && value === 'pending'
+          ));
+          return Promise.resolve({
+            data: table === 'form_submission' && pending ? pendingRows : [],
+            error: null,
+          });
+        },
+        maybeSingle() {
+          if (table === 'form') {
+            return Promise.resolve({
+              data: { id: 'form-1', tenant_id: 'tenant-1', access_policy: null },
+              error: null,
+            });
+          }
+          return Promise.resolve({ data: null, error: null });
+        },
+      };
+      return query;
+    },
+  };
+  const lookups = [];
+  const result = await reconcileFormPayments(db, {
+    retrievePaymentIntent: async (tenantId, feature, intentId) => {
+      lookups.push([tenantId, feature, intentId]);
+      return {
+        paymentIntent: {
+          id: intentId,
+          status: 'processing',
+          metadata: {
+            type: 'form_payment',
+            form_submission_id: pendingRows.find((row) => row.payment_reference === intentId).id,
+            tenant_id: tenantId,
+          },
+        },
+      };
+    },
+  });
+
+  assert.equal(result.checked, 3);
+  assert.deepEqual(lookups, [
+    ['tenant-1', 'membership', 'pi_membership'],
+    ['tenant-1', 'forms', 'pi_forms'],
+    ['tenant-1', 'membership', 'pi_legacy_membership'],
+  ]);
+});
+
+test('same-key membership retry after a mode flip reuses the sole payable intent', async () => {
+  let cancellations = 0;
+  let creations = 0;
+  const originalIntent = {
+    id: 'pi_original',
+    status: 'requires_payment_method',
+    amount: 12500,
+    currency: 'gbp',
+    client_secret: 'pi_original_secret',
+  };
+  const result = await inspectPriorFormStripeIntent({
+    tenantId: 'tenant-1',
+    stripeFeature: 'membership',
+    paymentIntentId: originalIntent.id,
+    amountMinor: 12500,
+    currency: 'GBP',
+    retrievePaymentIntent: async (tenantId, feature, intentId) => {
+      assert.deepEqual([tenantId, feature, intentId], [
+        'tenant-1', 'membership', 'pi_original',
+      ]);
+      // Models retrieveTenantPaymentIntent finding the original intent with
+      // the opposite-mode key after the admin changes the Membership toggle.
+      return {
+        paymentIntent: originalIntent,
+        usedMode: 'other',
+        publishableKey: 'pk_original_mode',
+        stripe: {
+          paymentIntents: {
+            cancel: async () => { cancellations += 1; },
+            create: async () => { creations += 1; },
+          },
+        },
+      };
+    },
+  });
+
+  assert.equal(result.kind, 'reusable');
+  assert.equal(result.intent, originalIntent);
+  assert.equal(result.publishableKey, 'pk_original_mode');
+  assert.equal(cancellations, 0);
+  assert.equal(creations, 0);
 });

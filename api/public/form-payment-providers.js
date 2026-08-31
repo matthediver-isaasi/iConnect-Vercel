@@ -20,16 +20,21 @@ export default async function handler(req, res) {
   try {
     const tenantData = await resolveTenantFromRequest(req);
     if (!tenantData) return res.status(404).json({ error: 'Tenant not found' });
+    const purpose = req.query?.purpose || 'forms';
+    if (!['forms', 'membership'].includes(purpose)) {
+      return res.status(400).json({ error: 'Invalid payment purpose' });
+    }
 
     const providers = [];
 
     // Stripe: usable when the tenant integration is enabled and the
-    // feature-resolved key pair (respecting stripe_mode_forms test/live)
+    // feature-resolved key pair (respecting the requested feature's
+    // test/live mode)
     // includes both a secret and a publishable key.
     let stripeConfigured = false;
     let stripePublishableKey = null;
     try {
-      const creds = await getStripeCredentials(tenantData.id, 'forms');
+      const creds = await getStripeCredentials(tenantData.id, purpose);
       if (creds && creds.is_enabled !== false && creds.secret_key && creds.publishable_key) {
         stripeConfigured = true;
         stripePublishableKey = creds.publishable_key;

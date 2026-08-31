@@ -103,6 +103,23 @@ test('paid validation ignores an initialized invalid repeatable row hidden by pe
   assert.equal(response.statusCode, null);
 });
 
+test('provider discovery validates payment purpose and selects matching Stripe credentials', async () => {
+  const source = await readFile(new URL('./form-payment-providers.js', import.meta.url), 'utf8');
+  assert.match(source, /const purpose = req\.query\?\.purpose \|\| 'forms'/);
+  assert.match(source, /!\['forms', 'membership'\]\.includes\(purpose\)/);
+  assert.match(source, /getStripeCredentials\(tenantData\.id, purpose\)/);
+});
+
+test('form payment UI requests provider availability for the resolved payment purpose', async () => {
+  const source = await readFile(
+    new URL('../../client/src/components/forms/FormPaymentSubmit.jsx', import.meta.url),
+    'utf8',
+  );
+  assert.match(source, /membershipQuote\?\.matched \? 'membership' : 'forms'/);
+  assert.match(source, /form-payment-providers\?purpose=\$\{encodeURIComponent\(paymentPurpose\)\}/);
+  assert.match(source, /\[paymentPurpose\]/);
+});
+
 function selectionDb(seed) {
   return {
     from(table) {

@@ -89,16 +89,18 @@ export default function FormPaymentSubmit({
   }), [membershipQuote?.matched, membershipQuote?.quote, membershipQuote?.loading, membershipQuote?.error, derivedAmount, fieldCurrency]);
   const amount = effective.amount ?? 0;
   const currency = effective.currency || fieldCurrency;
+  const paymentPurpose = membershipQuote?.matched ? 'membership' : 'forms';
 
   // Provider detection (public, secrets-free).
   useEffect(() => {
     let cancelled = false;
-    fetch('/api/public/form-payment-providers')
+    setProviders(null);
+    fetch(`/api/public/form-payment-providers?purpose=${encodeURIComponent(paymentPurpose)}`)
       .then((res) => (res.ok ? res.json() : { providers: [] }))
       .then((json) => { if (!cancelled) setProviders(json.providers || []); })
       .catch(() => { if (!cancelled) setProviders([]); });
     return () => { cancelled = true; };
-  }, []);
+  }, [paymentPurpose]);
 
   const enabledProviderIds = Array.isArray(field?.payment_providers) ? field.payment_providers : [];
   const usableProviders = useMemo(() => {
