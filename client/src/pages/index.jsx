@@ -959,6 +959,7 @@ function PagesContent() {
                 <Route path="/sales/opportunities" element={<Sales destination="opportunities" />} />
                 <Route path="/sales/opportunities/:id" element={<Sales destination="opportunities" />} />
                 <Route path="/sales/quotes" element={<Sales destination="quotes" />} />
+                <Route path="/sales/quotes/:id" element={<Sales destination="quotes" />} />
                 <Route path="/sales/catalogue" element={<Sales destination="catalogue" />} />
                 <Route path="/sales/products" element={<Sales destination="products" />} />
                 <Route path="/sales/bundles" element={<Sales destination="bundles" />} />

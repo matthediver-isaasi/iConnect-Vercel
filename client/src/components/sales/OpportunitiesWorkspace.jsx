@@ -410,7 +410,7 @@ function OpportunityDetail() {
   return <div className="space-y-5">
     <div className="flex flex-wrap items-start justify-between gap-3">
       <div className="flex items-start gap-3"><Button variant="outline" size="icon" aria-label="Back to opportunities" onClick={() => navigate("/sales/opportunities")}><ArrowLeft className="h-4 w-4" /></Button><div><div className="flex flex-wrap items-center gap-2"><h2 className="text-2xl font-bold text-slate-950">{nameOf(opportunity)}</h2><Badge className="capitalize" variant="outline">{opportunity.priority || "medium"}</Badge></div><div className="mt-1 flex flex-wrap gap-x-4 text-sm text-slate-500"><span>{nameOf(opportunity.organization || { name: opportunity.organization_name })}</span><span>{money(opportunityValue(opportunity), opportunity.currency)}</span><span>Close {date(opportunity.expected_close_date || opportunity.expectedCloseDate)}</span></div></div></div>
-      {opportunity.organization_id && <Button variant="outline" asChild><Link to={`/organisations/${opportunity.organization_id}`}>View organisation</Link></Button>}
+      <div className="flex flex-wrap gap-2"><Button asChild><Link to={`/sales/quotes/new?opportunityId=${id}`}><FileText className="mr-2 h-4 w-4" />Create quote</Link></Button>{opportunity.organization_id && <Button variant="outline" asChild><Link to={`/organisations/${opportunity.organization_id}`}>View organisation</Link></Button>}</div>
     </div>
     <Tabs defaultValue="overview">
       <TabsList className="h-auto max-w-full flex-wrap justify-start">
@@ -433,7 +433,7 @@ function OpportunityDetail() {
       <TabsContent value="documents"><DocumentsPanel opportunityId={id} items={collections.documents} canEdit={canEdit} onChanged={refresh} /></TabsContent>
       <TabsContent value="tasks"><CollectionPanel opportunityId={id} type="tasks" items={collections.tasks} canEdit={canEdit} onChanged={refresh} /></TabsContent>
       <TabsContent value="activity"><div className="grid gap-4 lg:grid-cols-2"><Timeline title="Activity" items={collections.activity} /><Timeline title="Stage history" items={collections.stageHistory} /></div></TabsContent>
-      <TabsContent value="quotes"><Placeholder title="Quotes" text="Quotes linked to this opportunity will appear here when quoting is enabled." /></TabsContent>
+      <TabsContent value="quotes"><Card><CardContent className="p-10 text-center"><FileText className="mx-auto h-8 w-8 text-slate-300" /><h3 className="mt-3 font-semibold">Opportunity quotes</h3><p className="mt-1 text-sm text-slate-500">Create and manage immutable quote versions in the Quotes workspace.</p><Button className="mt-4" asChild><Link to={`/sales/quotes/new?opportunityId=${id}`}><Plus className="mr-2 h-4 w-4" />Create quote</Link></Button></CardContent></Card></TabsContent>
       <TabsContent value="allocations"><Placeholder title="Allocations" text="Product and service allocations will appear here when allocation management is enabled." /></TabsContent>
     </Tabs>
     <LossReasonDialog open={lossDialogOpen} onOpenChange={setLossDialogOpen} reasons={arr(lossReasonsQuery.data)} onConfirm={(lossReasonId) => { setLossDialogOpen(false); update.mutate(lossReasonId); }} />

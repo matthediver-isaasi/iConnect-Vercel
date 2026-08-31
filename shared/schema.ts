@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, boolean, timestamp, jsonb, integer, uuid, index, uniqueIndex, numeric, bigint } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, boolean, timestamp, jsonb, integer, uuid, index, uniqueIndex, numeric, bigint, date } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -129,6 +129,77 @@ export type SalesCatalogueCategory = typeof salesCatalogueCategory.$inferSelect;
 export type SalesCatalogueProduct = typeof salesCatalogueProduct.$inferSelect;
 export type SalesCatalogueBundle = typeof salesCatalogueBundle.$inferSelect;
 export type SalesCatalogueBundleItem = typeof salesCatalogueBundleItem.$inferSelect;
+
+export const salesQuote = pgTable("sales_quote", {
+  id: uuid("id").primaryKey().defaultRandom(), tenant_id: uuid("tenant_id").notNull(),
+  quote_number: varchar("quote_number", { length: 64 }), opportunity_id: uuid("opportunity_id"),
+  current_version: integer("current_version").notNull().default(1),
+  row_version: integer("row_version").notNull().default(1),
+  created_by: text("created_by").notNull(), updated_by: text("updated_by").notNull(),
+  created_at: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updated_at: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  tenantIdUnique: uniqueIndex("sales_quote_tenant_id_unique").on(table.tenant_id, table.id),
+  tenantNumberUnique: uniqueIndex("sales_quote_tenant_number_unique").on(table.tenant_id, table.quote_number),
+  tenantListIdx: index("idx_sales_quote_tenant_updated").on(table.tenant_id, table.updated_at),
+}));
+
+export const salesQuoteVersion = pgTable("sales_quote_version", {
+  id: uuid("id").primaryKey().defaultRandom(), tenant_id: uuid("tenant_id").notNull(),
+  quote_id: uuid("quote_id").notNull(), version_number: integer("version_number").notNull(),
+  status: varchar("status", { length: 30 }).notNull().default("draft"),
+  currency: varchar("currency", { length: 3 }).notNull(),
+  organisation_snapshot: jsonb("organisation_snapshot"), customer_contact_snapshot: jsonb("customer_contact_snapshot"), billing_contact_snapshot: jsonb("billing_contact_snapshot"),
+  address_snapshot: jsonb("address_snapshot"), event_snapshot: jsonb("event_snapshot"),
+  terms_snapshot: jsonb("terms_snapshot").notNull().default({}),
+  salesperson_snapshot: jsonb("salesperson_snapshot"), issue_date: date("issue_date"), purchase_order_reference: text("purchase_order_reference"), customer_reference: text("customer_reference"), tax_treatment: varchar("tax_treatment", { length: 30 }), payment_terms: text("payment_terms"), notes: text("notes"),
+  valid_until: timestamp("valid_until", { withTimezone: true }),
+  net_minor: bigint("net_minor", { mode: "number" }).notNull().default(0),
+  tax_minor: bigint("tax_minor", { mode: "number" }).notNull().default(0),
+  gross_minor: bigint("gross_minor", { mode: "number" }).notNull().default(0),
+  issued_at: timestamp("issued_at", { withTimezone: true }),
+  created_by: text("created_by").notNull(), created_at: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updated_at: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  tenantIdUnique: uniqueIndex("sales_quote_version_tenant_id_unique").on(table.tenant_id, table.id),
+  quoteVersionUnique: uniqueIndex("sales_quote_version_number_unique").on(table.tenant_id, table.quote_id, table.version_number),
+}));
+
+export const salesQuoteLine = pgTable("sales_quote_line", {
+  id: uuid("id").primaryKey().defaultRandom(), tenant_id: uuid("tenant_id").notNull(),
+  quote_version_id: uuid("quote_version_id").notNull(), display_order: integer("display_order").notNull(),
+  catalogue_kind: varchar("catalogue_kind", { length: 20 }).notNull(), catalogue_id: uuid("catalogue_id"),
+  product_id: uuid("product_id"), bundle_id: uuid("bundle_id"),
+  catalogue_snapshot: jsonb("catalogue_snapshot"), description: text("description").notNull(),
+  quantity: numeric("quantity", { precision: 24, scale: 6 }).notNull(),
+  standard_unit_price_minor: bigint("standard_unit_price_minor", { mode: "number" }).notNull(),
+  quoted_unit_price_minor: bigint("quoted_unit_price_minor", { mode: "number" }).notNull(),
+  price_overridden: boolean("price_overridden").notNull().default(false), discount_bps: integer("discount_bps").notNull().default(0),
+  tax_rate_bps: integer("tax_rate_bps").notNull(), net_minor: bigint("net_minor", { mode: "number" }).notNull(),
+  tax_minor: bigint("tax_minor", { mode: "number" }).notNull(), gross_minor: bigint("gross_minor", { mode: "number" }).notNull(),
+  created_at: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({ tenantIdUnique: uniqueIndex("sales_quote_line_tenant_id_unique").on(table.tenant_id, table.id), versionOrderUnique: uniqueIndex("sales_quote_line_order_unique").on(table.tenant_id, table.quote_version_id, table.display_order) }));
+
+export const salesQuoteBundleComponent = pgTable("sales_quote_bundle_component", {
+  id: uuid("id").primaryKey().defaultRandom(), tenant_id: uuid("tenant_id").notNull(),
+  quote_line_id: uuid("quote_line_id").notNull(), display_order: integer("display_order").notNull(),
+  product_id: uuid("product_id").notNull(), quantity: integer("quantity").notNull(),
+  product_snapshot: jsonb("product_snapshot").notNull(),
+}, (table) => ({ lineOrderUnique: uniqueIndex("sales_quote_bundle_component_order_unique").on(table.tenant_id, table.quote_line_id, table.display_order) }));
+
+export const salesQuoteStatusHistory = pgTable("sales_quote_status_history", {
+  id: uuid("id").primaryKey().defaultRandom(), tenant_id: uuid("tenant_id").notNull(),
+  quote_id: uuid("quote_id").notNull(), quote_version_id: uuid("quote_version_id").notNull(),
+  from_status: varchar("from_status", { length: 30 }), to_status: varchar("to_status", { length: 30 }).notNull(),
+  actor_id: text("actor_id").notNull(), actor_type: varchar("actor_type", { length: 30 }).notNull(),
+  note: text("note"), created_at: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({ tenantCreatedIdx: index("idx_sales_quote_status_history").on(table.tenant_id, table.quote_id, table.created_at) }));
+
+export type SalesQuote = typeof salesQuote.$inferSelect;
+export type SalesQuoteVersion = typeof salesQuoteVersion.$inferSelect;
+export type SalesQuoteLine = typeof salesQuoteLine.$inferSelect;
+export type SalesQuoteBundleComponent = typeof salesQuoteBundleComponent.$inferSelect;
+export type SalesQuoteStatusHistory = typeof salesQuoteStatusHistory.$inferSelect;
 
 export const cpdCertificateTemplate = pgTable("cpd_certificate_template", {
   id: uuid("id").primaryKey().defaultRandom(),

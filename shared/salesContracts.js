@@ -22,18 +22,20 @@ export const SALES_CAPABILITIES = Object.freeze({
 export const SALES_DEFAULT_ROLE_EXCLUSIONS = Object.freeze(['sales']);
 
 export const SALES_QUOTE_STATUSES = Object.freeze([
-  'draft', 'issued', 'accepted', 'rejected', 'expired', 'cancelled',
+  'draft', 'issued', 'sent', 'accepted', 'declined', 'expired', 'superseded', 'converted',
 ]);
 export const IMMUTABLE_QUOTE_STATUSES = Object.freeze([
-  'issued', 'accepted', 'rejected', 'expired', 'cancelled',
+  'issued', 'sent', 'accepted', 'declined', 'expired', 'superseded', 'converted',
 ]);
 export const SALES_QUOTE_TRANSITIONS = Object.freeze({
-  draft: Object.freeze(['issued', 'cancelled']),
-  issued: Object.freeze(['accepted', 'rejected', 'expired', 'cancelled']),
-  accepted: Object.freeze([]),
-  rejected: Object.freeze([]),
+  draft: Object.freeze(['issued']),
+  issued: Object.freeze(['sent', 'accepted', 'declined', 'expired']),
+  sent: Object.freeze(['accepted', 'declined', 'expired']),
+  accepted: Object.freeze(['converted']),
+  declined: Object.freeze([]),
   expired: Object.freeze([]),
-  cancelled: Object.freeze([]),
+  superseded: Object.freeze([]),
+  converted: Object.freeze([]),
 });
 export const SALES_SEQUENCE_KINDS = Object.freeze(['quote']);
 export const SALES_ACTOR_TYPES = Object.freeze(['tenant_user', 'member', 'system']);
@@ -84,6 +86,133 @@ export function nextQuoteVersion(currentVersion, currentStatus) {
     throw new TypeError('Only an immutable quote can be superseded');
   }
   return currentVersion + 1;
+}
+
+const DECIMAL_RE = /^(0|[1-9]\d*)(?:\.(\d{1,6}))?$/;
+
+/**
+ * Quantities cross the API as canonical decimal strings. Returning a scaled
+ * integer keeps every multiplication outside IEEE-754 arithmetic.
+ */
+export function parseQuoteQuantity(value) {
+  if (typeof value !== 'string') throw new TypeError('Quantity must be a decimal string');
+  const match = DECIMAL_RE.exec(value);
+  if (!match || value === '0' || /^0\.0*$/.test(value)) {
+    throw new TypeError('Quantity must be a positive decimal with at most 6 decimal places');
+  }
+  const scale = 10 ** (match[2] ? match[2].length : 0);
+  const units = BigInt(match[0].replace('.', ''));
+  if (units > BigInt(Number.MAX_SAFE_INTEGER)) throw new TypeError('Quantity is too large');
+  return { units, scale: BigInt(scale), canonical: match[2] ? `${match[1]}.${match[2].replace(/0+$/, '')}`.replace(/\.$/, '') : match[0] };
+}
+
+function roundedDivide(numerator, denominator) {
+  return (numerator + denominator / 2n) / denominator;
+}
+
+export function calculateQuoteLine({ quantity, quotedUnitPriceMinor, discountBps = 0, taxRateBps = 0 }) {
+  if (!isMinorUnitAmount(quotedUnitPriceMinor) || quotedUnitPriceMinor < 0) {
+    throw new TypeError('quotedUnitPriceMinor must be a non-negative safe integer');
+  }
+  if (!Number.isInteger(taxRateBps) || taxRateBps < 0 || taxRateBps > 100000) {
+    throw new TypeError('taxRateBps must be an integer from 0 to 100000');
+  }
+  if (!Number.isInteger(discountBps) || discountBps < 0 || discountBps > 10000) {
+    throw new TypeError('discountBps must be an integer from 0 to 10000');
+  }
+  const parsed = parseQuoteQuantity(quantity);
+  const discountedUnit = roundedDivide(BigInt(quotedUnitPriceMinor) * BigInt(10000 - discountBps), 10000n);
+  const net = roundedDivide(parsed.units * discountedUnit, parsed.scale);
+  const tax = roundedDivide(net * BigInt(taxRateBps), 10000n);
+  const gross = net + tax;
+  for (const amount of [net, tax, gross]) {
+    if (amount > BigInt(Number.MAX_SAFE_INTEGER)) throw new RangeError('Calculated quote amount exceeds safe integer range');
+  }
+  return { quantity: parsed.canonical, discountedUnitPriceMinor: Number(discountedUnit), netMinor: Number(net), taxMinor: Number(tax), grossMinor: Number(gross) };
+}
+
+export function calculateQuoteTotals(lines) {
+  if (!Array.isArray(lines) || lines.length === 0) throw new TypeError('At least one quote line is required');
+  const totals = lines.reduce((sum, line) => {
+    const calculated = calculateQuoteLine(line);
+    return {
+      netMinor: sum.netMinor + BigInt(calculated.netMinor),
+      taxMinor: sum.taxMinor + BigInt(calculated.taxMinor),
+      grossMinor: sum.grossMinor + BigInt(calculated.grossMinor),
+    };
+  }, { netMinor: 0n, taxMinor: 0n, grossMinor: 0n });
+  if (Object.values(totals).some((amount) => amount > BigInt(Number.MAX_SAFE_INTEGER))) {
+    throw new RangeError('Calculated quote total exceeds safe integer range');
+  }
+  return Object.fromEntries(Object.entries(totals).map(([key, amount]) => [key, Number(amount)]));
+}
+
+export function validateQuoteDraft(value, { existing = false } = {}) {
+  if (!isObject(value)) return { ok: false, errors: ['Body must be an object'] };
+  const allowed = new Set([
+    'expectedVersion', 'currency', 'opportunityId', 'organisationId', 'customerContactId', 'billingContactId',
+    'address', 'event', 'eventId', 'terms', 'paymentTerms', 'salesperson', 'salespersonId',
+    'validUntil', 'issueDate', 'purchaseOrderReference', 'customerReference', 'taxTreatment', 'notes', 'lines',
+  ]);
+  const errors = Object.keys(value).filter((key) => !allowed.has(key)).map((key) => `Unknown quote field: ${key}`);
+  if (existing && (!Number.isInteger(value.expectedVersion) || value.expectedVersion < 1)) errors.push('expectedVersion must be a positive integer');
+  if (!existing && 'expectedVersion' in value) errors.push('expectedVersion is not valid when creating a quote');
+  if (!validateCurrency(value.currency)) errors.push('currency must be a three-letter uppercase ISO-4217 code');
+  for (const key of ['opportunityId', 'organisationId', 'customerContactId', 'billingContactId', 'eventId', 'salespersonId']) {
+    if (value[key] != null && !UUID_RE.test(value[key])) errors.push(`${key} must be a UUID or null`);
+  }
+  for (const key of ['address', 'event', 'salesperson']) {
+    if (value[key] != null && !isObject(value[key])) errors.push(`${key} must be an object or null`);
+  }
+  optionalText(errors, value.terms, 'terms', 20000);
+  optionalText(errors, value.notes, 'notes', 20000);
+  if (!Array.isArray(value.lines) || value.lines.length === 0) errors.push('lines must be a non-empty array');
+  else value.lines.forEach((line, index) => {
+    if (!isObject(line)) return errors.push(`lines[${index}] must be an object`);
+    const lineAllowed = new Set(['kind', 'catalogueId', 'quantity', 'standardUnitPriceMinor', 'quotedUnitPriceMinor', 'discountBps', 'description', 'taxRateBps']);
+    for (const key of Object.keys(line)) if (!lineAllowed.has(key)) errors.push(`Unknown lines[${index}] field: ${key}`);
+    if (!['product', 'bundle', 'free_text'].includes(line.kind) || (line.kind !== 'free_text' && !UUID_RE.test(line.catalogueId || '')) || (line.kind === 'free_text' && line.catalogueId != null)) errors.push(`lines[${index}] must identify a product, bundle, or free_text item`);
+    try { parseQuoteQuantity(line.quantity); } catch (error) { errors.push(`lines[${index}].quantity: ${error.message}`); }
+    for (const price of ['standardUnitPriceMinor', 'quotedUnitPriceMinor']) if ((line.kind === 'free_text' || price in line) && (!isMinorUnitAmount(line[price]) || line[price] < 0)) errors.push(`lines[${index}].${price} must be a non-negative safe integer`);
+    if ('discountBps' in line && (!Number.isInteger(line.discountBps) || line.discountBps < 0 || line.discountBps > 10000)) errors.push(`lines[${index}].discountBps is invalid`);
+    if ('taxRateBps' in line && (!Number.isInteger(line.taxRateBps) || line.taxRateBps < 0 || line.taxRateBps > 100000)) errors.push(`lines[${index}].taxRateBps is invalid`);
+    optionalText(errors, line.description, `lines[${index}].description`, 20000);
+  });
+  return { ok: errors.length === 0, errors };
+}
+
+export function normaliseQuoteInput(input) {
+  const value = { ...input };
+  const take = (camel, snake) => value[camel] ?? value[snake];
+  const canonical = {
+    ...value, organisationId: take('organisationId', 'organization_id') ?? value.organizationId,
+    customerContactId: take('customerContactId', 'customer_contact_id'), billingContactId: take('billingContactId', 'billing_contact_id'),
+    issueDate: take('issueDate', 'issue_date'), validUntil: take('validUntil', 'valid_until'),
+    purchaseOrderReference: take('purchaseOrderReference', 'purchase_order_reference'), customerReference: take('customerReference', 'customer_reference'),
+    taxTreatment: take('taxTreatment', 'tax_treatment'), paymentTerms: take('paymentTerms', 'payment_terms'), salespersonId: take('salespersonId', 'salesperson_id'),
+    lines: (value.lines ?? value.lineItems ?? value.line_items ?? []).map((line) => {
+      const kind = line.kind ?? line.type ?? line.line_type ?? (line.bundleId ?? line.bundle_id ? 'bundle' : line.productId ?? line.product_id ? 'product' : 'free_text');
+      const normalized = { kind, catalogueId: line.catalogueId ?? line.catalogue_id ?? (kind === 'bundle' ? line.bundleId ?? line.bundle_id : line.productId ?? line.product_id) ?? null,
+        quantity: typeof line.quantity === 'number' ? String(line.quantity) : line.quantity, standardUnitPriceMinor: line.standardUnitPriceMinor ?? line.standard_unit_price_minor,
+        quotedUnitPriceMinor: line.quotedUnitPriceMinor ?? line.quoted_unit_price_minor, discountBps: line.discountBps ?? line.discount_bps ?? 0,
+        taxRateBps: line.taxRateBps ?? line.tax_rate_bps, description: line.description };
+      return Object.fromEntries(Object.entries(normalized).filter(([, fieldValue]) => fieldValue !== undefined));
+    }),
+  };
+  ['organizationId', 'organization_id', 'customer_contact_id', 'billing_contact_id', 'issue_date', 'valid_until',
+    'purchase_order_reference', 'customer_reference', 'tax_treatment', 'payment_terms',
+    'salesperson_id', 'lineItems', 'line_items'].forEach((key) => delete canonical[key]);
+  return canonical;
+}
+
+export function validateQuoteTransition(value) {
+  const errors = [];
+  if (!isObject(value)) return { ok: false, errors: ['Body must be an object'] };
+  if (!SALES_QUOTE_STATUSES.includes(value.status) || value.status === 'draft' || value.status === 'superseded') errors.push('status is not a client-transitionable quote status');
+  if (!Number.isInteger(value.expectedVersion) || value.expectedVersion < 1) errors.push('expectedVersion must be a positive integer');
+  if (Object.keys(value).some((key) => !['status', 'expectedVersion', 'note'].includes(key))) errors.push('Unknown status transition field');
+  optionalText(errors, value.note, 'note', 2000);
+  return { ok: errors.length === 0, errors };
 }
 
 export function validateSalesSettingsPatch(value) {
