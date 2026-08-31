@@ -1,5 +1,5 @@
 -- Task #3878: tenant-isolated opportunity pipeline and immutable history.
-CREATE TABLE public.opportunity_stage (
+CREATE TABLE IF NOT EXISTS public.opportunity_stage (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   tenant_id uuid NOT NULL REFERENCES public.tenant(id) ON DELETE CASCADE,
   name varchar(120) NOT NULL,
@@ -20,7 +20,53 @@ CREATE TABLE public.opportunity_stage (
   CHECK (NOT (is_won AND is_lost))
 );
 
-CREATE TABLE public.opportunity_loss_reason (
+-- IF NOT EXISTS preserves a complete or partially-applied pipeline without
+-- pretending that an unrelated/incomplete relation is compatible. This is the
+-- first relation created by the original migration, so it is the common replay
+-- boundary after a failed application.
+DO $migration$
+DECLARE missing_columns text;
+BEGIN
+  IF (SELECT c.relkind FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+      WHERE n.nspname='public' AND c.relname='opportunity_stage') <> 'r' THEN
+    RAISE EXCEPTION 'public.opportunity_stage exists but is not a table';
+  END IF;
+
+  SELECT string_agg(expected.name, ', ' ORDER BY expected.name)
+  INTO missing_columns
+  FROM (VALUES
+    ('id','uuid',true), ('tenant_id','uuid',true), ('name','character varying(120)',true),
+    ('position','integer',true), ('color','character varying(20)',true),
+    ('probability','integer',true), ('is_won','boolean',true), ('is_lost','boolean',true),
+    ('is_active','boolean',true), ('opportunity_count','integer',true),
+    ('created_at','timestamp with time zone',true), ('updated_at','timestamp with time zone',true)
+  ) AS expected(name,type_name,required)
+  LEFT JOIN pg_attribute a ON a.attrelid='public.opportunity_stage'::regclass
+    AND a.attname=expected.name AND a.attnum>0 AND NOT a.attisdropped
+  WHERE a.attname IS NULL
+    OR format_type(a.atttypid,a.atttypmod)<>expected.type_name
+    OR (expected.required AND NOT a.attnotnull);
+
+  IF missing_columns IS NOT NULL THEN
+    RAISE EXCEPTION 'public.opportunity_stage has incompatible columns: %', missing_columns
+      USING ERRCODE='42804';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_index i
+    WHERE i.indrelid='public.opportunity_stage'::regclass
+      AND i.indisunique
+      AND (SELECT array_agg(a.attname ORDER BY key.ordinality)
+           FROM unnest(i.indkey) WITH ORDINALITY key(attnum,ordinality)
+           JOIN pg_attribute a ON a.attrelid=i.indrelid AND a.attnum=key.attnum)
+          = ARRAY['tenant_id','id']::name[]
+  ) THEN
+    RAISE EXCEPTION 'public.opportunity_stage lacks required unique key (tenant_id, id)'
+      USING ERRCODE='42830';
+  END IF;
+END $migration$;
+
+CREATE TABLE IF NOT EXISTS public.opportunity_loss_reason (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   tenant_id uuid NOT NULL REFERENCES public.tenant(id) ON DELETE CASCADE,
   name varchar(160) NOT NULL,
@@ -33,7 +79,7 @@ CREATE TABLE public.opportunity_loss_reason (
   CHECK (position >= 0)
 );
 
-CREATE TABLE public.opportunity (
+CREATE TABLE IF NOT EXISTS public.opportunity (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   tenant_id uuid NOT NULL REFERENCES public.tenant(id) ON DELETE CASCADE,
   organization_id uuid NOT NULL,
@@ -69,7 +115,7 @@ CREATE TABLE public.opportunity (
   CHECK (version > 0)
 );
 
-CREATE TABLE public.opportunity_collaborator (
+CREATE TABLE IF NOT EXISTS public.opportunity_collaborator (
   opportunity_id uuid NOT NULL,
   tenant_id uuid NOT NULL,
   principal_kind varchar(20) NOT NULL,
@@ -83,7 +129,7 @@ CREATE TABLE public.opportunity_collaborator (
   CHECK (added_by_kind IN ('tenant_user', 'member'))
 );
 
-CREATE TABLE public.opportunity_contact_role (
+CREATE TABLE IF NOT EXISTS public.opportunity_contact_role (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   tenant_id uuid NOT NULL,
   opportunity_id uuid NOT NULL,
@@ -96,7 +142,7 @@ CREATE TABLE public.opportunity_contact_role (
   FOREIGN KEY (member_id) REFERENCES public.member(id)
 );
 
-CREATE TABLE public.opportunity_note (
+CREATE TABLE IF NOT EXISTS public.opportunity_note (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   tenant_id uuid NOT NULL,
   opportunity_id uuid NOT NULL,
@@ -110,7 +156,7 @@ CREATE TABLE public.opportunity_note (
   CHECK (length(body) BETWEEN 1 AND 20000)
 );
 
-CREATE TABLE public.opportunity_task (
+CREATE TABLE IF NOT EXISTS public.opportunity_task (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   tenant_id uuid NOT NULL,
   opportunity_id uuid NOT NULL,
@@ -130,7 +176,7 @@ CREATE TABLE public.opportunity_task (
   CHECK (created_by_kind IN ('tenant_user', 'member'))
 );
 
-CREATE TABLE public.opportunity_document (
+CREATE TABLE IF NOT EXISTS public.opportunity_document (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   tenant_id uuid NOT NULL,
   opportunity_id uuid NOT NULL,
@@ -150,7 +196,7 @@ CREATE TABLE public.opportunity_document (
   UNIQUE (tenant_id, storage_path)
 );
 
-CREATE TABLE public.opportunity_stage_history (
+CREATE TABLE IF NOT EXISTS public.opportunity_stage_history (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   tenant_id uuid NOT NULL,
   opportunity_id uuid NOT NULL,
@@ -159,6 +205,7 @@ CREATE TABLE public.opportunity_stage_history (
   loss_reason_id uuid,
   actor_kind varchar(20) NOT NULL,
   actor_id uuid NOT NULL,
+  note text,
   created_at timestamptz NOT NULL DEFAULT now(),
   FOREIGN KEY (tenant_id, opportunity_id) REFERENCES public.opportunity(tenant_id, id) ON DELETE CASCADE,
   FOREIGN KEY (tenant_id, from_stage_id) REFERENCES public.opportunity_stage(tenant_id, id),
@@ -167,7 +214,7 @@ CREATE TABLE public.opportunity_stage_history (
   CHECK (actor_kind IN ('tenant_user', 'member'))
 );
 
-CREATE TABLE public.opportunity_activity (
+CREATE TABLE IF NOT EXISTS public.opportunity_activity (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   tenant_id uuid NOT NULL,
   opportunity_id uuid NOT NULL,
@@ -188,26 +235,241 @@ CREATE TABLE public.opportunity_activity (
   CHECK (jsonb_typeof(metadata) = 'object')
 );
 
-CREATE INDEX opportunity_tenant_stage_idx ON public.opportunity (tenant_id, stage_id, updated_at DESC);
-CREATE INDEX opportunity_tenant_owner_idx ON public.opportunity (tenant_id, owner_kind, owner_id, updated_at DESC);
-CREATE INDEX opportunity_tenant_org_idx ON public.opportunity (tenant_id, organization_id, updated_at DESC);
-CREATE INDEX opportunity_collaborator_principal_idx ON public.opportunity_collaborator (tenant_id, principal_kind, principal_id);
-CREATE INDEX opportunity_contact_member_idx ON public.opportunity_contact_role (tenant_id, member_id);
-CREATE INDEX opportunity_activity_org_idx ON public.opportunity_activity (tenant_id, organization_id, created_at DESC);
-CREATE INDEX opportunity_activity_member_idx ON public.opportunity_activity (tenant_id, member_id, created_at DESC);
-CREATE INDEX opportunity_activity_opportunity_idx ON public.opportunity_activity (tenant_id, opportunity_id, created_at DESC);
-CREATE INDEX opportunity_history_idx ON public.opportunity_stage_history (tenant_id, opportunity_id, created_at DESC);
+-- The original complete migration predated this nullable field, while the
+-- immediately following Sales migrations write it. Reconcile that known legacy
+-- shape non-destructively before validating retained relations.
+ALTER TABLE public.opportunity_stage_history
+  ADD COLUMN IF NOT EXISTS note text;
+
+-- CREATE TABLE IF NOT EXISTS is only safe when any retained relation has the
+-- contract this migration and its direct dependants require. Column names,
+-- types/nullability, and the minimum number of keys/checks are checked here;
+-- an interrupted application may retain complete earlier tables, but an
+-- unrelated or hand-built lookalike fails explicitly rather than weakening
+-- tenant isolation.
+DO $migration$
+DECLARE mismatch text;
+BEGIN
+  WITH expected(table_name,column_name,type_name,is_required,min_constraints) AS (VALUES
+    ('opportunity_stage','id','uuid',true,8), ('opportunity_stage','tenant_id','uuid',true,8),
+    ('opportunity_stage','name','character varying(120)',true,8), ('opportunity_stage','position','integer',true,8),
+    ('opportunity_stage','color','character varying(20)',true,8), ('opportunity_stage','probability','integer',true,8),
+    ('opportunity_stage','is_won','boolean',true,8), ('opportunity_stage','is_lost','boolean',true,8),
+    ('opportunity_stage','is_active','boolean',true,8), ('opportunity_stage','opportunity_count','integer',true,8),
+    ('opportunity_stage','created_at','timestamp with time zone',true,8), ('opportunity_stage','updated_at','timestamp with time zone',true,8),
+    ('opportunity_loss_reason','id','uuid',true,5), ('opportunity_loss_reason','tenant_id','uuid',true,5),
+    ('opportunity_loss_reason','name','character varying(160)',true,5), ('opportunity_loss_reason','position','integer',true,5),
+    ('opportunity_loss_reason','is_active','boolean',true,5), ('opportunity_loss_reason','created_at','timestamp with time zone',true,5),
+    ('opportunity_loss_reason','updated_at','timestamp with time zone',true,5),
+    ('opportunity','id','uuid',true,13), ('opportunity','tenant_id','uuid',true,13),
+    ('opportunity','organization_id','uuid',true,13), ('opportunity','stage_id','uuid',true,13),
+    ('opportunity','loss_reason_id','uuid',false,13), ('opportunity','primary_contact_id','uuid',false,13),
+    ('opportunity','owner_kind','character varying(20)',true,13), ('opportunity','owner_id','uuid',true,13),
+    ('opportunity','name','character varying(240)',true,13), ('opportunity','description','text',false,13),
+    ('opportunity','value_minor','bigint',false,13), ('opportunity','currency','character varying(3)',true,13),
+    ('opportunity','expected_close_date','date',false,13), ('opportunity','source','character varying(160)',false,13),
+    ('opportunity','priority','character varying(20)',true,13), ('opportunity','won_at','timestamp with time zone',false,13),
+    ('opportunity','lost_at','timestamp with time zone',false,13), ('opportunity','version','integer',true,13),
+    ('opportunity','created_by_kind','character varying(20)',true,13), ('opportunity','created_by_id','uuid',true,13),
+    ('opportunity','created_at','timestamp with time zone',true,13), ('opportunity','updated_at','timestamp with time zone',true,13),
+    ('opportunity_collaborator','opportunity_id','uuid',true,4), ('opportunity_collaborator','tenant_id','uuid',true,4),
+    ('opportunity_collaborator','principal_kind','character varying(20)',true,4), ('opportunity_collaborator','principal_id','uuid',true,4),
+    ('opportunity_collaborator','added_by_kind','character varying(20)',true,4), ('opportunity_collaborator','added_by_id','uuid',true,4),
+    ('opportunity_collaborator','created_at','timestamp with time zone',true,4),
+    ('opportunity_contact_role','id','uuid',true,4), ('opportunity_contact_role','tenant_id','uuid',true,4),
+    ('opportunity_contact_role','opportunity_id','uuid',true,4), ('opportunity_contact_role','member_id','uuid',true,4),
+    ('opportunity_contact_role','role','character varying(120)',true,4), ('opportunity_contact_role','is_primary','boolean',true,4),
+    ('opportunity_contact_role','created_at','timestamp with time zone',true,4),
+    ('opportunity_note','id','uuid',true,4), ('opportunity_note','tenant_id','uuid',true,4),
+    ('opportunity_note','opportunity_id','uuid',true,4), ('opportunity_note','body','text',true,4),
+    ('opportunity_note','author_kind','character varying(20)',true,4), ('opportunity_note','author_id','uuid',true,4),
+    ('opportunity_note','created_at','timestamp with time zone',true,4), ('opportunity_note','updated_at','timestamp with time zone',true,4),
+    ('opportunity_task','id','uuid',true,5), ('opportunity_task','tenant_id','uuid',true,5),
+    ('opportunity_task','opportunity_id','uuid',true,5), ('opportunity_task','title','character varying(240)',true,5),
+    ('opportunity_task','description','text',false,5), ('opportunity_task','due_at','timestamp with time zone',false,5),
+    ('opportunity_task','completed_at','timestamp with time zone',false,5), ('opportunity_task','assignee_kind','character varying(20)',false,5),
+    ('opportunity_task','assignee_id','uuid',false,5), ('opportunity_task','created_by_kind','character varying(20)',true,5),
+    ('opportunity_task','created_by_id','uuid',true,5), ('opportunity_task','created_at','timestamp with time zone',true,5),
+    ('opportunity_task','updated_at','timestamp with time zone',true,5),
+    ('opportunity_document','id','uuid',true,7), ('opportunity_document','tenant_id','uuid',true,7),
+    ('opportunity_document','opportunity_id','uuid',true,7), ('opportunity_document','name','character varying(255)',true,7),
+    ('opportunity_document','bucket','character varying(100)',true,7), ('opportunity_document','storage_path','text',true,7),
+    ('opportunity_document','mime_type','character varying(255)',false,7), ('opportunity_document','size_bytes','bigint',false,7),
+    ('opportunity_document','uploaded_by_kind','character varying(20)',true,7), ('opportunity_document','uploaded_by_id','uuid',true,7),
+    ('opportunity_document','created_at','timestamp with time zone',true,7),
+    ('opportunity_stage_history','id','uuid',true,6), ('opportunity_stage_history','tenant_id','uuid',true,6),
+    ('opportunity_stage_history','opportunity_id','uuid',true,6), ('opportunity_stage_history','from_stage_id','uuid',false,6),
+    ('opportunity_stage_history','to_stage_id','uuid',true,6), ('opportunity_stage_history','loss_reason_id','uuid',false,6),
+    ('opportunity_stage_history','actor_kind','character varying(20)',true,6), ('opportunity_stage_history','actor_id','uuid',true,6),
+    ('opportunity_stage_history','note','text',false,6), ('opportunity_stage_history','created_at','timestamp with time zone',true,6),
+    ('opportunity_activity','id','uuid',true,7), ('opportunity_activity','tenant_id','uuid',true,7),
+    ('opportunity_activity','opportunity_id','uuid',true,7), ('opportunity_activity','organization_id','uuid',true,7),
+    ('opportunity_activity','member_id','uuid',false,7), ('opportunity_activity','event_id','uuid',false,7),
+    ('opportunity_activity','actor_kind','character varying(20)',true,7), ('opportunity_activity','actor_id','uuid',true,7),
+    ('opportunity_activity','action','character varying(100)',true,7), ('opportunity_activity','summary','text',true,7),
+    ('opportunity_activity','metadata','jsonb',true,7), ('opportunity_activity','created_at','timestamp with time zone',true,7)
+  ), checked AS (
+    SELECT e.*, c.relkind, a.attname, format_type(a.atttypid,a.atttypmod) actual_type,
+      a.attnotnull, (SELECT count(*) FROM pg_constraint x WHERE x.conrelid=c.oid) constraint_count
+    FROM expected e
+    LEFT JOIN pg_class c ON c.relname=e.table_name AND c.relnamespace='public'::regnamespace
+    LEFT JOIN pg_attribute a ON a.attrelid=c.oid AND a.attname=e.column_name
+      AND a.attnum>0 AND NOT a.attisdropped
+  )
+  SELECT string_agg(table_name||'.'||column_name, ', ' ORDER BY table_name,column_name)
+  INTO mismatch FROM checked
+  WHERE relkind<>'r' OR attname IS NULL OR actual_type<>type_name
+    OR (is_required AND NOT attnotnull) OR constraint_count<min_constraints;
+  IF mismatch IS NOT NULL THEN
+    RAISE EXCEPTION 'incompatible opportunity pipeline relations: %', mismatch
+      USING ERRCODE='42804';
+  END IF;
+
+  WITH expected(table_name,kind,key_names,foreign_table,foreign_names,delete_action) AS (VALUES
+    ('opportunity_stage','p',ARRAY['id'],NULL::text,NULL::text[],'a'),
+    ('opportunity_stage','u',ARRAY['tenant_id','id'],NULL,NULL,'a'),
+    ('opportunity_stage','f',ARRAY['tenant_id'],'tenant',ARRAY['id'],'c'),
+    ('opportunity_loss_reason','p',ARRAY['id'],NULL,NULL,'a'),
+    ('opportunity_loss_reason','u',ARRAY['tenant_id','id'],NULL,NULL,'a'),
+    ('opportunity_loss_reason','u',ARRAY['tenant_id','name'],NULL,NULL,'a'),
+    ('opportunity_loss_reason','f',ARRAY['tenant_id'],'tenant',ARRAY['id'],'c'),
+    ('opportunity','p',ARRAY['id'],NULL,NULL,'a'),
+    ('opportunity','u',ARRAY['tenant_id','id'],NULL,NULL,'a'),
+    ('opportunity','f',ARRAY['tenant_id'],'tenant',ARRAY['id'],'c'),
+    ('opportunity','f',ARRAY['organization_id'],'organization',ARRAY['id'],'a'),
+    ('opportunity','f',ARRAY['tenant_id','stage_id'],'opportunity_stage',ARRAY['tenant_id','id'],'a'),
+    ('opportunity','f',ARRAY['tenant_id','loss_reason_id'],'opportunity_loss_reason',ARRAY['tenant_id','id'],'a'),
+    ('opportunity','f',ARRAY['primary_contact_id'],'member',ARRAY['id'],'a'),
+    ('opportunity_collaborator','p',ARRAY['opportunity_id','principal_kind','principal_id'],NULL,NULL,'a'),
+    ('opportunity_collaborator','f',ARRAY['tenant_id','opportunity_id'],'opportunity',ARRAY['tenant_id','id'],'c'),
+    ('opportunity_contact_role','p',ARRAY['id'],NULL,NULL,'a'),
+    ('opportunity_contact_role','u',ARRAY['opportunity_id','member_id','role'],NULL,NULL,'a'),
+    ('opportunity_contact_role','f',ARRAY['tenant_id','opportunity_id'],'opportunity',ARRAY['tenant_id','id'],'c'),
+    ('opportunity_contact_role','f',ARRAY['member_id'],'member',ARRAY['id'],'a'),
+    ('opportunity_note','p',ARRAY['id'],NULL,NULL,'a'),
+    ('opportunity_note','f',ARRAY['tenant_id','opportunity_id'],'opportunity',ARRAY['tenant_id','id'],'c'),
+    ('opportunity_task','p',ARRAY['id'],NULL,NULL,'a'),
+    ('opportunity_task','f',ARRAY['tenant_id','opportunity_id'],'opportunity',ARRAY['tenant_id','id'],'c'),
+    ('opportunity_document','p',ARRAY['id'],NULL,NULL,'a'),
+    ('opportunity_document','u',ARRAY['tenant_id','storage_path'],NULL,NULL,'a'),
+    ('opportunity_document','f',ARRAY['tenant_id','opportunity_id'],'opportunity',ARRAY['tenant_id','id'],'c'),
+    ('opportunity_stage_history','p',ARRAY['id'],NULL,NULL,'a'),
+    ('opportunity_stage_history','f',ARRAY['tenant_id','opportunity_id'],'opportunity',ARRAY['tenant_id','id'],'c'),
+    ('opportunity_stage_history','f',ARRAY['tenant_id','from_stage_id'],'opportunity_stage',ARRAY['tenant_id','id'],'a'),
+    ('opportunity_stage_history','f',ARRAY['tenant_id','to_stage_id'],'opportunity_stage',ARRAY['tenant_id','id'],'a'),
+    ('opportunity_stage_history','f',ARRAY['tenant_id','loss_reason_id'],'opportunity_loss_reason',ARRAY['tenant_id','id'],'a'),
+    ('opportunity_activity','p',ARRAY['id'],NULL,NULL,'a'),
+    ('opportunity_activity','f',ARRAY['tenant_id','opportunity_id'],'opportunity',ARRAY['tenant_id','id'],'c'),
+    ('opportunity_activity','f',ARRAY['organization_id'],'organization',ARRAY['id'],'a'),
+    ('opportunity_activity','f',ARRAY['member_id'],'member',ARRAY['id'],'a'),
+    ('opportunity_activity','f',ARRAY['event_id'],'event',ARRAY['id'],'a')
+  ), missing AS (
+    SELECT e.*
+    FROM expected e
+    WHERE NOT EXISTS (
+      SELECT 1
+      FROM pg_constraint con
+      JOIN pg_class rel ON rel.oid=con.conrelid
+      LEFT JOIN pg_class foreign_rel ON foreign_rel.oid=con.confrelid
+      WHERE rel.relnamespace='public'::regnamespace AND rel.relname=e.table_name
+        AND con.contype=e.kind::"char"
+        AND (SELECT array_agg(a.attname::text ORDER BY key.ordinality)
+             FROM unnest(con.conkey) WITH ORDINALITY key(attnum,ordinality)
+             JOIN pg_attribute a ON a.attrelid=con.conrelid AND a.attnum=key.attnum)=e.key_names
+        AND (e.kind<>'f' OR (
+          foreign_rel.relnamespace='public'::regnamespace
+          AND foreign_rel.relname=e.foreign_table
+          AND (SELECT array_agg(a.attname::text ORDER BY key.ordinality)
+               FROM unnest(con.confkey) WITH ORDINALITY key(attnum,ordinality)
+               JOIN pg_attribute a ON a.attrelid=con.confrelid AND a.attnum=key.attnum)=e.foreign_names
+          AND con.confdeltype=e.delete_action::"char"
+        ))
+    )
+  )
+  SELECT string_agg(table_name||':'||kind||':'||array_to_string(key_names,','), '; '
+    ORDER BY table_name,kind,key_names::text)
+  INTO mismatch FROM missing;
+  IF mismatch IS NOT NULL THEN
+    RAISE EXCEPTION 'opportunity pipeline keys are incompatible: %', mismatch
+      USING ERRCODE='42830';
+  END IF;
+END $migration$;
+
+CREATE INDEX IF NOT EXISTS opportunity_tenant_stage_idx ON public.opportunity (tenant_id, stage_id, updated_at DESC);
+CREATE INDEX IF NOT EXISTS opportunity_tenant_owner_idx ON public.opportunity (tenant_id, owner_kind, owner_id, updated_at DESC);
+CREATE INDEX IF NOT EXISTS opportunity_tenant_org_idx ON public.opportunity (tenant_id, organization_id, updated_at DESC);
+CREATE INDEX IF NOT EXISTS opportunity_collaborator_principal_idx ON public.opportunity_collaborator (tenant_id, principal_kind, principal_id);
+CREATE INDEX IF NOT EXISTS opportunity_contact_member_idx ON public.opportunity_contact_role (tenant_id, member_id);
+CREATE INDEX IF NOT EXISTS opportunity_activity_org_idx ON public.opportunity_activity (tenant_id, organization_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS opportunity_activity_member_idx ON public.opportunity_activity (tenant_id, member_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS opportunity_activity_opportunity_idx ON public.opportunity_activity (tenant_id, opportunity_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS opportunity_history_idx ON public.opportunity_stage_history (tenant_id, opportunity_id, created_at DESC);
+
+DO $migration$
+DECLARE mismatch text;
+BEGIN
+  WITH expected(index_name,table_name,key_names,last_key_desc) AS (VALUES
+    ('opportunity_tenant_stage_idx','opportunity',ARRAY['tenant_id','stage_id','updated_at'],true),
+    ('opportunity_tenant_owner_idx','opportunity',ARRAY['tenant_id','owner_kind','owner_id','updated_at'],true),
+    ('opportunity_tenant_org_idx','opportunity',ARRAY['tenant_id','organization_id','updated_at'],true),
+    ('opportunity_collaborator_principal_idx','opportunity_collaborator',ARRAY['tenant_id','principal_kind','principal_id'],false),
+    ('opportunity_contact_member_idx','opportunity_contact_role',ARRAY['tenant_id','member_id'],false),
+    ('opportunity_activity_org_idx','opportunity_activity',ARRAY['tenant_id','organization_id','created_at'],true),
+    ('opportunity_activity_member_idx','opportunity_activity',ARRAY['tenant_id','member_id','created_at'],true),
+    ('opportunity_activity_opportunity_idx','opportunity_activity',ARRAY['tenant_id','opportunity_id','created_at'],true),
+    ('opportunity_history_idx','opportunity_stage_history',ARRAY['tenant_id','opportunity_id','created_at'],true)
+  ), actual AS (
+    SELECT e.*, rel.relname actual_table, am.amname access_method,
+      i.indisvalid, i.indisunique, i.indpred, i.indexprs,
+      (SELECT array_agg(a.attname::text ORDER BY key.ordinality)
+       FROM unnest(i.indkey) WITH ORDINALITY key(attnum,ordinality)
+       JOIN pg_attribute a ON a.attrelid=i.indrelid AND a.attnum=key.attnum) key_names_actual,
+      pg_get_indexdef(i.indexrelid) ~ ' DESC\)$' last_key_desc_actual
+    FROM expected e
+    LEFT JOIN pg_class x ON x.relname=e.index_name AND x.relnamespace='public'::regnamespace
+    LEFT JOIN pg_index i ON i.indexrelid=x.oid
+    LEFT JOIN pg_class rel ON rel.oid=i.indrelid
+    LEFT JOIN pg_am am ON am.oid=x.relam
+  )
+  SELECT string_agg(index_name, ', ' ORDER BY index_name) INTO mismatch
+  FROM actual
+  WHERE actual_table IS DISTINCT FROM table_name OR access_method IS DISTINCT FROM 'btree'
+    OR indisvalid IS DISTINCT FROM true OR indisunique IS DISTINCT FROM false
+    OR indpred IS NOT NULL OR indexprs IS NOT NULL
+    OR key_names_actual IS DISTINCT FROM key_names
+    OR last_key_desc_actual IS DISTINCT FROM last_key_desc;
+  IF mismatch IS NOT NULL THEN
+    RAISE EXCEPTION 'incompatible opportunity pipeline indexes: %', mismatch
+      USING ERRCODE='42804';
+  END IF;
+END $migration$;
+
+-- CREATE OR REPLACE keeps function OIDs stable. Before recreating each expected
+-- hook, remove every non-internal trigger bound to that function (including
+-- stale aliases left by a partial/manual attempt), then recreate the canonical
+-- names below.
+CREATE OR REPLACE PROCEDURE pg_temp.drop_triggers_for(p_function regprocedure)
+LANGUAGE plpgsql AS $$
+DECLARE bound record;
+BEGIN
+  FOR bound IN
+    SELECT n.nspname, c.relname, t.tgname
+    FROM pg_trigger t
+    JOIN pg_class c ON c.oid=t.tgrelid
+    JOIN pg_namespace n ON n.oid=c.relnamespace
+    WHERE t.tgfoid=p_function::oid AND NOT t.tgisinternal
+  LOOP
+    EXECUTE format('DROP TRIGGER %I ON %I.%I', bound.tgname, bound.nspname, bound.relname);
+  END LOOP;
+END $$;
 
 -- Maintained transactionally below. This statement is also the required
 -- backfill when the complete migration is adapted to an existing schema.
 UPDATE public.opportunity_stage s
-SET opportunity_count = counts.opportunity_count
-FROM (
-  SELECT tenant_id, stage_id, count(*)::integer AS opportunity_count
-  FROM public.opportunity
-  GROUP BY tenant_id, stage_id
-) counts
-WHERE s.tenant_id=counts.tenant_id AND s.id=counts.stage_id;
+SET opportunity_count = (
+  SELECT count(*)::integer FROM public.opportunity o
+  WHERE o.tenant_id=s.tenant_id AND o.stage_id=s.id
+);
 
 -- Polymorphic principals and optional CRM event links are tenant checked here.
 CREATE OR REPLACE FUNCTION public.guard_opportunity_tenant_links()
@@ -253,12 +515,17 @@ BEGIN
   END IF;
   RETURN NEW;
 END $$;
+CALL pg_temp.drop_triggers_for('public.guard_opportunity_tenant_links()'::regprocedure);
+DROP TRIGGER IF EXISTS opportunity_tenant_links ON public.opportunity;
 CREATE TRIGGER opportunity_tenant_links BEFORE INSERT OR UPDATE ON public.opportunity
   FOR EACH ROW EXECUTE FUNCTION public.guard_opportunity_tenant_links();
+DROP TRIGGER IF EXISTS opportunity_collaborator_tenant_links ON public.opportunity_collaborator;
 CREATE TRIGGER opportunity_collaborator_tenant_links BEFORE INSERT OR UPDATE ON public.opportunity_collaborator
   FOR EACH ROW EXECUTE FUNCTION public.guard_opportunity_tenant_links();
+DROP TRIGGER IF EXISTS opportunity_contact_tenant_links ON public.opportunity_contact_role;
 CREATE TRIGGER opportunity_contact_tenant_links BEFORE INSERT OR UPDATE ON public.opportunity_contact_role
   FOR EACH ROW EXECUTE FUNCTION public.guard_opportunity_tenant_links();
+DROP TRIGGER IF EXISTS opportunity_activity_tenant_links ON public.opportunity_activity;
 CREATE TRIGGER opportunity_activity_tenant_links BEFORE INSERT OR UPDATE ON public.opportunity_activity
   FOR EACH ROW EXECUTE FUNCTION public.guard_opportunity_tenant_links();
 
@@ -304,6 +571,8 @@ BEGIN
     WHERE tenant_id=OLD.tenant_id AND id=OLD.stage_id;
   RETURN OLD;
 END $$;
+CALL pg_temp.drop_triggers_for('public.maintain_opportunity_stage_count()'::regprocedure);
+DROP TRIGGER IF EXISTS opportunity_stage_count_trigger ON public.opportunity;
 CREATE TRIGGER opportunity_stage_count_trigger
   BEFORE INSERT OR UPDATE OF stage_id OR DELETE ON public.opportunity
   FOR EACH ROW EXECUTE FUNCTION public.maintain_opportunity_stage_count();
@@ -329,8 +598,11 @@ BEGIN
   END IF;
   RETURN OLD;
 END $$;
+CALL pg_temp.drop_triggers_for('public.guard_opportunity_immutable()'::regprocedure);
+DROP TRIGGER IF EXISTS opportunity_history_immutable ON public.opportunity_stage_history;
 CREATE TRIGGER opportunity_history_immutable BEFORE UPDATE OR DELETE ON public.opportunity_stage_history
   FOR EACH ROW EXECUTE FUNCTION public.guard_opportunity_immutable();
+DROP TRIGGER IF EXISTS opportunity_activity_immutable ON public.opportunity_activity;
 CREATE TRIGGER opportunity_activity_immutable BEFORE UPDATE OR DELETE ON public.opportunity_activity
   FOR EACH ROW EXECUTE FUNCTION public.guard_opportunity_immutable();
 
@@ -368,6 +640,8 @@ BEGIN
   END IF;
   RETURN NEW;
 END $$;
+CALL pg_temp.drop_triggers_for('public.guard_opportunity_lifecycle()'::regprocedure);
+DROP TRIGGER IF EXISTS opportunity_lifecycle ON public.opportunity;
 CREATE TRIGGER opportunity_lifecycle BEFORE INSERT OR UPDATE ON public.opportunity
   FOR EACH ROW EXECUTE FUNCTION public.guard_opportunity_lifecycle();
 
@@ -387,6 +661,8 @@ BEGIN
       'opportunity.created','Opportunity created in '||stage_name);
   RETURN NEW;
 END $$;
+CALL pg_temp.drop_triggers_for('public.record_opportunity_created()'::regprocedure);
+DROP TRIGGER IF EXISTS opportunity_created ON public.opportunity;
 CREATE TRIGGER opportunity_created AFTER INSERT ON public.opportunity
   FOR EACH ROW EXECUTE FUNCTION public.record_opportunity_created();
 
@@ -399,16 +675,38 @@ BEGIN
   END IF;
   RETURN NEW;
 END $$;
+CALL pg_temp.drop_triggers_for('public.create_opportunity_primary_contact()'::regprocedure);
+DROP TRIGGER IF EXISTS opportunity_primary_contact ON public.opportunity;
 CREATE TRIGGER opportunity_primary_contact AFTER INSERT ON public.opportunity
   FOR EACH ROW EXECUTE FUNCTION public.create_opportunity_primary_contact();
 
 -- One tenant-wide version makes a complete Kanban reorder an optimistic,
 -- atomic operation rather than a sequence of collision-prone row updates.
-CREATE TABLE public.opportunity_pipeline_config (
+CREATE TABLE IF NOT EXISTS public.opportunity_pipeline_config (
   tenant_id uuid PRIMARY KEY REFERENCES public.tenant(id) ON DELETE CASCADE,
   order_version integer NOT NULL DEFAULT 1 CHECK (order_version > 0),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
+
+DO $migration$
+DECLARE mismatch text;
+BEGIN
+  SELECT string_agg(expected.name, ', ' ORDER BY expected.name) INTO mismatch
+  FROM (VALUES
+    ('tenant_id','uuid',true), ('order_version','integer',true),
+    ('updated_at','timestamp with time zone',true)
+  ) expected(name,type_name,is_required)
+  LEFT JOIN pg_attribute a ON a.attrelid='public.opportunity_pipeline_config'::regclass
+    AND a.attname=expected.name AND a.attnum>0 AND NOT a.attisdropped
+  WHERE a.attname IS NULL OR format_type(a.atttypid,a.atttypmod)<>expected.type_name
+    OR (expected.is_required AND NOT a.attnotnull);
+  IF mismatch IS NOT NULL OR
+     (SELECT count(*) FROM pg_constraint
+      WHERE conrelid='public.opportunity_pipeline_config'::regclass)<3 THEN
+    RAISE EXCEPTION 'incompatible public.opportunity_pipeline_config: %', COALESCE(mismatch,'constraints')
+      USING ERRCODE='42804';
+  END IF;
+END $migration$;
 
 CREATE OR REPLACE FUNCTION public.guard_opportunity_stage_position()
 RETURNS trigger LANGUAGE plpgsql SET search_path=public AS $$
@@ -420,6 +718,8 @@ BEGIN
   END IF;
   RETURN NEW;
 END $$;
+CALL pg_temp.drop_triggers_for('public.guard_opportunity_stage_position()'::regprocedure);
+DROP TRIGGER IF EXISTS opportunity_stage_position_guard ON public.opportunity_stage;
 CREATE TRIGGER opportunity_stage_position_guard BEFORE UPDATE ON public.opportunity_stage
   FOR EACH ROW EXECUTE FUNCTION public.guard_opportunity_stage_position();
 
@@ -441,6 +741,8 @@ BEGIN
   END IF;
   RETURN NEW;
 END $$;
+CALL pg_temp.drop_triggers_for('public.guard_opportunity_stage_deactivation()'::regprocedure);
+DROP TRIGGER IF EXISTS opportunity_stage_deactivation_guard ON public.opportunity_stage;
 CREATE TRIGGER opportunity_stage_deactivation_guard BEFORE UPDATE ON public.opportunity_stage
   FOR EACH ROW EXECUTE FUNCTION public.guard_opportunity_stage_deactivation();
 
@@ -465,6 +767,8 @@ BEGIN
   IF TG_OP = 'DELETE' THEN RETURN OLD; END IF;
   RETURN NEW;
 END $$;
+CALL pg_temp.drop_triggers_for('public.bump_opportunity_stage_order_version()'::regprocedure);
+DROP TRIGGER IF EXISTS opportunity_stage_order_version ON public.opportunity_stage;
 CREATE TRIGGER opportunity_stage_order_version AFTER INSERT OR UPDATE OR DELETE ON public.opportunity_stage
   FOR EACH ROW EXECUTE FUNCTION public.bump_opportunity_stage_order_version();
 
