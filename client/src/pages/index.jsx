@@ -807,6 +807,7 @@ const PAGES = {
     SalesPipeline: Sales,
     SalesOpportunities: Sales,
     SalesQuotes: Sales,
+    SalesCatalogue: Sales,
     SalesProducts: Sales,
     SalesBundles: Sales,
     SalesTasks: Sales,
@@ -832,6 +833,7 @@ function _getCurrentPage(url) {
             pipeline: 'SalesPipeline',
             opportunities: 'SalesOpportunities',
             quotes: 'SalesQuotes',
+            catalogue: 'SalesCatalogue',
             products: 'SalesProducts',
             bundles: 'SalesBundles',
             tasks: 'SalesTasks',
@@ -956,6 +958,7 @@ function PagesContent() {
                 <Route path="/sales/pipeline" element={<Sales destination="pipeline" />} />
                 <Route path="/sales/opportunities" element={<Sales destination="opportunities" />} />
                 <Route path="/sales/quotes" element={<Sales destination="quotes" />} />
+                <Route path="/sales/catalogue" element={<Sales destination="catalogue" />} />
                 <Route path="/sales/products" element={<Sales destination="products" />} />
                 <Route path="/sales/bundles" element={<Sales destination="bundles" />} />
                 <Route path="/sales/tasks" element={<Sales destination="tasks" />} />

@@ -147,3 +147,4 @@
 - [Relationship empty-result rules](relationship-empty-result-rules.md) — confirmed zero options is transient rule state, never a saved relationship answer; loading/error/no-parent must not match.
 - [Nested form-field parity](nested-form-field-parity.md) — container children must be discovered explicitly across option APIs, validation, caches, and every label/export surface.
 - [Controlled composite pending state](controlled-composite-pending-state.md) — queued sibling edits must drive rendering as well as mutations until the parent acknowledges them.
+- [Catalogue event references](catalogue-event-references.md) — derive ticket delegate capacity live; revalidate links on restore, and replace bundle composition atomically.

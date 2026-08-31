@@ -85,6 +85,51 @@ export type SalesSettings = typeof salesSettings.$inferSelect;
 export type SalesNumberSequence = typeof salesNumberSequence.$inferSelect;
 export type SalesAuditEvent = typeof salesAuditEvent.$inferSelect;
 
+export const salesCatalogueCategory = pgTable("sales_catalogue_category", {
+  id: uuid("id").primaryKey().defaultRandom(), tenant_id: uuid("tenant_id").notNull(),
+  code: varchar("code", { length: 64 }).notNull(), name: varchar("name", { length: 255 }).notNull(),
+  description: text("description"), display_order: integer("display_order").notNull().default(0),
+  is_active: boolean("is_active").notNull().default(true), archived_at: timestamp("archived_at", { withTimezone: true }),
+  archived_by: text("archived_by"), created_by: text("created_by"), updated_by: text("updated_by"),
+  created_at: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(), updated_at: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({ tenantCodeUnique: uniqueIndex("sales_catalogue_category_code_unique").on(table.tenant_id, table.code) }));
+
+export const salesCatalogueProduct = pgTable("sales_catalogue_product", {
+  id: uuid("id").primaryKey().defaultRandom(), tenant_id: uuid("tenant_id").notNull(), category_id: uuid("category_id"),
+  code: varchar("code", { length: 64 }).notNull(), sku: varchar("sku", { length: 100 }), name: varchar("name", { length: 255 }).notNull(),
+  short_description: varchar("short_description", { length: 500 }), description: text("description"), currency: varchar("currency", { length: 3 }).notNull(),
+  standard_price_minor: bigint("standard_price_minor", { mode: "number" }).notNull(), minimum_price_minor: bigint("minimum_price_minor", { mode: "number" }),
+  cost_minor: bigint("cost_minor", { mode: "number" }), tax_treatment: varchar("tax_treatment", { length: 30 }).notNull(),
+  tax_rate_bps: integer("tax_rate_bps").notNull().default(0), available_from: timestamp("available_from", { withTimezone: true }), available_to: timestamp("available_to", { withTimezone: true }),
+  capacity_metadata: jsonb("capacity_metadata").notNull().default({}), display_order: integer("display_order").notNull().default(0),
+  event_reference_kind: varchar("event_reference_kind", { length: 20 }),
+  event_id: uuid("event_id"), ticket_type_id: text("ticket_type_id"), is_active: boolean("is_active").notNull().default(true),
+  archived_at: timestamp("archived_at", { withTimezone: true }), archived_by: text("archived_by"), created_by: text("created_by"), updated_by: text("updated_by"),
+  created_at: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(), updated_at: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({ tenantCodeUnique: uniqueIndex("sales_catalogue_product_code_unique").on(table.tenant_id, table.code), tenantActiveIdx: index("idx_sales_catalogue_product_list").on(table.tenant_id, table.is_active, table.name) }));
+
+export const salesCatalogueBundle = pgTable("sales_catalogue_bundle", {
+  id: uuid("id").primaryKey().defaultRandom(), tenant_id: uuid("tenant_id").notNull(), code: varchar("code", { length: 64 }).notNull(),
+  name: varchar("name", { length: 255 }).notNull(), description: text("description"), currency: varchar("currency", { length: 3 }).notNull(),
+  selling_price_minor: bigint("selling_price_minor", { mode: "number" }).notNull(), minimum_price_minor: bigint("minimum_price_minor", { mode: "number" }),
+  presentation_mode: varchar("presentation_mode", { length: 20 }).notNull().default("bundle"), available_from: timestamp("available_from", { withTimezone: true }),
+  available_to: timestamp("available_to", { withTimezone: true }), display_order: integer("display_order").notNull().default(0),
+  is_active: boolean("is_active").notNull().default(true), archived_at: timestamp("archived_at", { withTimezone: true }), archived_by: text("archived_by"),
+  created_by: text("created_by"), updated_by: text("updated_by"), created_at: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updated_at: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({ tenantCodeUnique: uniqueIndex("sales_catalogue_bundle_code_unique").on(table.tenant_id, table.code) }));
+
+export const salesCatalogueBundleItem = pgTable("sales_catalogue_bundle_item", {
+  id: uuid("id").primaryKey().defaultRandom(), tenant_id: uuid("tenant_id").notNull(), bundle_id: uuid("bundle_id").notNull(),
+  product_id: uuid("product_id").notNull(), quantity: integer("quantity").notNull(), display_order: integer("display_order").notNull().default(0),
+  created_at: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({ compositionUnique: uniqueIndex("sales_catalogue_bundle_item_unique").on(table.tenant_id, table.bundle_id, table.product_id) }));
+
+export type SalesCatalogueCategory = typeof salesCatalogueCategory.$inferSelect;
+export type SalesCatalogueProduct = typeof salesCatalogueProduct.$inferSelect;
+export type SalesCatalogueBundle = typeof salesCatalogueBundle.$inferSelect;
+export type SalesCatalogueBundleItem = typeof salesCatalogueBundleItem.$inferSelect;
+
 export const cpdCertificateTemplate = pgTable("cpd_certificate_template", {
   id: uuid("id").primaryKey().defaultRandom(),
   tenant_id: uuid("tenant_id").notNull(),

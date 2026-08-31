@@ -16,6 +16,7 @@ import {
   getVisibleSalesDestinations,
   SALES_BASE_PERMISSION,
 } from "@/lib/salesNavigation";
+import Catalogue from "./sales/Catalogue";
 
 const ICONS = {
   dashboard: Gauge,
@@ -27,6 +28,7 @@ const ICONS = {
   tasks: CheckSquare,
   reports: BarChart3,
   settings: Settings,
+  catalogue: Package,
 };
 
 const DESCRIPTIONS = {
@@ -39,6 +41,7 @@ const DESCRIPTIONS = {
   tasks: "Keep sales follow-ups and actions in one place.",
   reports: "Review performance across your sales operation.",
   settings: "Configure the Sales module for your organisation.",
+  catalogue: "Maintain categories, prices and bundled offers.",
 };
 
 export default function Sales({ destination = "dashboard" }) {
@@ -55,6 +58,10 @@ export default function Sales({ destination = "dashboard" }) {
   }
 
   const CurrentIcon = ICONS[current.key];
+
+  if (["catalogue", "products", "bundles"].includes(current.key)) {
+    return <Catalogue initialTab={current.key === "bundles" ? "bundles" : "products"} />;
+  }
 
   return (
     <div className="min-h-full bg-slate-50/70">
