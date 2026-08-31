@@ -43,3 +43,7 @@ export function isTierSelectionReadOnly(selectedId, items) {
   const selected = items.find(item => item.id === selectedId);
   return !!selected && selected.effective_to != null;
 }
+
+export function shouldBootstrapTierSelection({ selectedId, viewingHistorical, isCreatingNew }) {
+  return !selectedId && !viewingHistorical && !isCreatingNew;
+}

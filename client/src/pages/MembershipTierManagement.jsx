@@ -29,6 +29,7 @@ import {
   groupTierStructures,
   isHistoricalTierSelection,
   isTierSelectionReadOnly,
+  shouldBootstrapTierSelection,
   TIER_LIFECYCLE,
 } from "@/lib/membershipTierNavigation";
 
@@ -318,6 +319,7 @@ export default function MembershipTierManagement() {
   const [previewSearch, setPreviewSearch] = useState('');
   const [viewingHistorical, setViewingHistorical] = useState(null);
   const [isCreatingNew, setIsCreatingNew] = useState(false);
+  const [pageMode, setPageMode] = useState('list');
   const [wizardStep, setWizardStep] = useState(7);
   const [fieldErrors, setFieldErrors] = useState({});
   const [ddTotalConfirmed, setDdTotalConfirmed] = useState(false);
@@ -574,7 +576,11 @@ export default function MembershipTierManagement() {
   };
 
   useEffect(() => {
-    if (tierData && !viewingHistorical && !isCreatingNew) {
+    if (tierData && shouldBootstrapTierSelection({
+      selectedId: selectedActiveConfigId,
+      viewingHistorical,
+      isCreatingNew,
+    })) {
       if (tierData.config) {
         loadConfigIntoState(tierData.config, tierData.bands, tierData.discounts, tierData.vatOverrides, tierData.reminders);
         setSelectedActiveConfigId(tierData.config.id);
@@ -587,7 +593,7 @@ export default function MembershipTierManagement() {
         setHasChanges(false);
       }
     }
-  }, [tierData, viewingHistorical, isCreatingNew]);
+  }, [tierData, selectedActiveConfigId, viewingHistorical, isCreatingNew]);
 
   const saveMutation = useMutation({
     mutationFn: async (payload) => {
@@ -606,15 +612,16 @@ export default function MembershipTierManagement() {
       return response.json();
     },
     onSuccess: (data) => {
+      if (data.config) {
+        setConfig(prev => ({ ...prev, id: data.config.id }));
+        setSelectedActiveConfigId(data.config.id);
+      }
       queryClient.invalidateQueries({ queryKey: ['membership-tiers'] });
       queryClient.invalidateQueries({ queryKey: ['membership-tier-preview'] });
       setHasChanges(false);
       setIsCreatingNew(false);
       setViewingHistorical(null);
       setFieldErrors({});
-      if (data.config) {
-        setConfig(prev => ({ ...prev, id: data.config.id }));
-      }
       toast.success(isCreatingNew ? 'New tier structure created successfully' : 'Membership tier structure saved successfully');
     },
     onError: (error) => {
@@ -968,6 +975,7 @@ export default function MembershipTierManagement() {
     activeConfigRequestRef.current += 1;
     const currentConfig = config;
     setIsCreatingNew(true);
+    setPageMode('editor');
     setViewingHistorical(null);
     setConfig({
       id: null,
@@ -1057,6 +1065,7 @@ export default function MembershipTierManagement() {
       const genId = () => `new-${Date.now()}-${Math.random()}`;
 
       setIsCreatingNew(true);
+      setPageMode('editor');
       setViewingHistorical(null);
       setSelectedActiveConfigId(null);
       setConfig({
@@ -1087,6 +1096,7 @@ export default function MembershipTierManagement() {
         invoice_description: c.invoice_description || null,
         auto_approve_fees: c.auto_approve_fees ?? false,
         online_card_payment: c.online_card_payment ?? false,
+        ...ddFieldsFromConfig(c),
         invoice_address_field: c.invoice_address_field_id || (c.invoice_address_field_name ? `core:${c.invoice_address_field_name}` : null),
         invoice_recipients: deriveInvoiceRecipients(c),
         fee_link_email_template_id: c.fee_link_email_template_id || null,
@@ -1098,6 +1108,7 @@ export default function MembershipTierManagement() {
         max_value: b.max_value != null ? b.max_value.toString() : '',
         annual_cost: b.annual_cost?.toString() || '0',
         match_value: b.match_value ?? '',
+        dd_monthly_amount: b.dd_monthly_amount != null ? b.dd_monthly_amount.toString() : '',
       })));
       setDiscounts((data.discounts || []).map(d => ({
         ...d,
@@ -1123,7 +1134,10 @@ export default function MembershipTierManagement() {
   };
 
   const handleSwitchActiveConfig = async (configId) => {
-    if (configId === selectedActiveConfigId && !viewingHistorical && !isCreatingNew) return;
+    if (configId === selectedActiveConfigId && !viewingHistorical && !isCreatingNew) {
+      setPageMode('editor');
+      return;
+    }
     const requestId = ++activeConfigRequestRef.current;
     try {
       const response = await fetch(`/api/membership/tiers?configId=${configId}`, { credentials: 'include' });
@@ -1135,6 +1149,7 @@ export default function MembershipTierManagement() {
         setSelectedActiveConfigId(configId);
         setViewingHistorical(null);
         setIsCreatingNew(false);
+        setPageMode('editor');
         setWizardStep(7);
       }
     } catch (err) {
@@ -1146,20 +1161,15 @@ export default function MembershipTierManagement() {
     activeConfigRequestRef.current += 1;
     setViewingHistorical(configId);
     setIsCreatingNew(false);
+    setPageMode('editor');
     setShowPreview(false);
     setWizardStep(7);
   };
 
-  const handleBackToCurrent = async () => {
-    const currentId = tierData?.config?.id;
-    if (currentId) {
-      await handleSwitchActiveConfig(currentId);
-      return;
-    }
-    setViewingHistorical(null);
-    setIsCreatingNew(false);
-    setHasChanges(false);
-    setWizardStep(7);
+  const handleBackToStructureList = () => {
+    activeConfigRequestRef.current += 1;
+    setPageMode('list');
+    setShowPreview(false);
   };
 
   const selectedFieldKey = config.field_source === 'core'
@@ -3099,18 +3109,8 @@ export default function MembershipTierManagement() {
   const renderStep7 = () => (
     <Card>
       <CardHeader>
-        <div className="rounded-lg border border-blue-200 bg-blue-50/70 p-4 dark:border-blue-900 dark:bg-blue-950/30" data-testid="summary-loaded-context">
-          <div className="flex flex-wrap items-center gap-2">
-            <CardTitle className="text-xl" data-testid="text-config-title">{config.name || 'Untitled structure'}</CardTitle>
-            <Badge variant={isHistoricalView ? 'outline' : 'secondary'}>{loadedStatusLabel}</Badge>
-            {isReadOnlyView && <Badge variant="outline">Read only</Badge>}
-          </div>
-          <div className="mt-2 grid gap-1 text-sm text-muted-foreground sm:grid-cols-2">
-            <span><strong className="text-foreground">Scope:</strong> {loadedScopeLabel}</span>
-            <span><strong className="text-foreground">Effective:</strong> {loadedEffectivePeriod}</span>
-          </div>
-        </div>
-        <p className="pt-3 text-sm text-muted-foreground">
+        <CardTitle className="text-xl">Summary</CardTitle>
+        <p className="text-sm text-muted-foreground">
           {isReadOnlyView ? 'Review this read-only configuration.' : 'Confirm the loaded structure before editing or saving.'}
         </p>
       </CardHeader>
@@ -3394,6 +3394,60 @@ export default function MembershipTierManagement() {
     );
   };
 
+  const renderStructureBrowserCard = (item) => {
+    const lifecycle = getTierLifecycle(item);
+    const field = structureFields.find(candidate => candidate.id === item.structure_field_id);
+    const scope = getTierScopeLabel(item, field?.label || field?.name);
+    return (
+      <Card
+        key={item.id}
+        className="border-slate-200 transition-shadow hover:shadow-lg dark:border-slate-700"
+        data-testid={`structure-card-${item.id}`}
+      >
+        <CardHeader className="pb-3">
+          <div className="flex items-start justify-between gap-3">
+            <CardTitle className="text-base leading-tight">{item.name || 'Untitled structure'}</CardTitle>
+            <Badge variant={lifecycle === 'active' ? 'default' : 'secondary'}>
+              {TIER_LIFECYCLE[lifecycle].label}
+            </Badge>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <dl className="space-y-2 text-sm">
+            <div>
+              <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Scope</dt>
+              <dd className="mt-0.5">{scope}</dd>
+            </div>
+            <div>
+              <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Effective period</dt>
+              <dd className="mt-0.5">{getTierEffectivePeriod(item, formatDate)}</dd>
+            </div>
+          </dl>
+          <div className="flex flex-col gap-2 border-t pt-4 sm:flex-row">
+            <Button
+              type="button"
+              className="flex-1"
+              variant={lifecycle === 'historical' ? 'outline' : 'default'}
+              onClick={() => lifecycle === 'active' ? handleSwitchActiveConfig(item.id) : handleViewHistorical(item.id)}
+              data-testid={`button-open-structure-${item.id}`}
+            >
+              {lifecycle === 'historical' ? 'View' : 'Configure'}
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => handleDuplicateHistorical(item.id)}
+              data-testid={`button-duplicate-history-${item.id}`}
+            >
+              <Copy className="mr-2 h-4 w-4" />
+              Duplicate
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  };
+
   return (
     <div className="p-4 md:p-6 max-w-7xl mx-auto space-y-6">
       <div className="flex items-center justify-between gap-4 flex-wrap">
@@ -3403,7 +3457,9 @@ export default function MembershipTierManagement() {
             Membership Tier Structure
           </h1>
           <p className="text-muted-foreground mt-1">
-            {isCreatingNew
+            {pageMode === 'list'
+              ? 'Create and manage membership tier structures'
+              : isCreatingNew
               ? 'Creating a new tier structure'
               : isHistoricalView
                 ? 'Viewing historical tier structure (read-only)'
@@ -3412,19 +3468,19 @@ export default function MembershipTierManagement() {
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          {(viewingHistorical || isCreatingNew) && (
-            <Button variant="outline" onClick={handleBackToCurrent} data-testid="button-back-current">
+          {pageMode === 'editor' && (
+            <Button variant="outline" onClick={handleBackToStructureList} data-testid="button-back-structures">
               <ChevronRight className="w-4 h-4 mr-1 rotate-180" />
-              Back to Current
+              All Structures
             </Button>
           )}
-          {!isHistoricalView && !isCreatingNew && tierData?.config && (
+          {pageMode === 'list' && (
             <Button variant="outline" onClick={handleCreateNew} data-testid="button-create-new">
               <PlusCircle className="w-4 h-4 mr-2" />
               New Structure
             </Button>
           )}
-          {!isHistoricalView && (
+          {pageMode === 'editor' && !isHistoricalView && (
             <Button
               variant="outline"
               onClick={() => {
@@ -3440,32 +3496,58 @@ export default function MembershipTierManagement() {
         </div>
       </div>
 
+      {pageMode === 'list' ? (
+        <main data-testid="tier-structure-browser">
+          {loadingConfig ? (
+            <div className="flex items-center justify-center rounded-xl border bg-card py-16" aria-live="polite">
+              <div className="mr-3 h-6 w-6 animate-spin rounded-full border-b-2 border-primary" />
+              <span className="text-sm text-muted-foreground">Loading tier structures…</span>
+            </div>
+          ) : historyItems.length === 0 ? (
+            <Card>
+              <CardContent className="text-center py-12">
+                <Layers className="w-12 h-12 mx-auto mb-3 text-muted-foreground opacity-50" />
+                <p className="text-lg font-medium mb-1">No tier structure configured</p>
+                <p className="text-sm text-muted-foreground mb-4">Create your first membership tier structure to get started</p>
+                <Button onClick={handleCreateNew} data-testid="button-create-first">
+                  <PlusCircle className="w-4 h-4 mr-2" />
+                  Create First Structure
+                </Button>
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="space-y-8">
+              {[
+                ['active', 'Current'],
+                ['scheduled', 'Scheduled'],
+                ['historical', 'History'],
+              ].map(([key, label]) => groupedStructures[key].length > 0 && (
+                <section key={key} aria-labelledby={`structure-group-${key}`}>
+                  <div className="mb-3 flex items-center gap-2">
+                    <h2 id={`structure-group-${key}`} className="text-lg font-semibold">{label}</h2>
+                    <Badge variant="secondary">{groupedStructures[key].length}</Badge>
+                  </div>
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+                    {groupedStructures[key].map(renderStructureBrowserCard)}
+                  </div>
+                </section>
+              ))}
+            </div>
+          )}
+        </main>
+      ) : (
       <div className="grid gap-6 lg:grid-cols-[240px_minmax(0,1fr)]">
         <nav aria-label="Tier structures" className="min-w-0">
-          <div className="mb-2 flex items-center justify-between">
-            <h2 className="text-sm font-semibold">Tier structures</h2>
-            <span className="text-xs text-muted-foreground">{historyItems.length} total</span>
-          </div>
-          <div className="flex gap-3 overflow-x-auto pb-3 lg:block lg:space-y-4 lg:overflow-visible">
+          <h2 className="mb-2 text-sm font-semibold">Selected structure</h2>
+          <div>
             {isCreatingNew && (
-              <div className="min-w-[220px] rounded-lg border-2 border-dashed border-blue-500 bg-blue-50 p-3 text-blue-900 dark:bg-blue-950/30 dark:text-blue-100" data-testid="structure-nav-new">
+              <div className="rounded-lg border-2 border-dashed border-blue-500 bg-blue-50 p-3 text-blue-900 dark:bg-blue-950/30 dark:text-blue-100" data-testid="structure-nav-new">
                 <p className="font-semibold">New structure</p>
                 <p className="mt-1 text-xs">Unsaved configuration</p>
                 <p className="mt-1 text-xs">{loadedEffectivePeriod}</p>
               </div>
             )}
-            {[
-              ['active', 'Current'],
-              ['scheduled', 'Scheduled'],
-              ['historical', 'History'],
-            ].map(([key, label]) => groupedStructures[key].length > 0 && (
-              <section key={key} className="min-w-[220px] lg:min-w-0">
-                <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">{label}</h3>
-                <div className="flex gap-2 lg:block lg:space-y-2">
-                  {groupedStructures[key].map(renderStructureNavItem)}
-                </div>
-              </section>
-            ))}
+            {!isCreatingNew && loadedHistoryItem && renderStructureNavItem(loadedHistoryItem)}
           </div>
         </nav>
 
@@ -3560,6 +3642,7 @@ export default function MembershipTierManagement() {
         )}
         </main>
       </div>
+      )}
 
       {showPreview && (
         <Card>

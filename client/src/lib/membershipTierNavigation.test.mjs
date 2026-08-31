@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import {
   getTierEffectivePeriod,
@@ -7,9 +8,11 @@ import {
   groupTierStructures,
   isHistoricalTierSelection,
   isTierSelectionReadOnly,
+  shouldBootstrapTierSelection,
 } from './membershipTierNavigation.js';
 
 const date = value => value ? value.replaceAll('-', '/') : '';
+const pageSource = readFileSync(new URL('../pages/MembershipTierManagement.jsx', import.meta.url), 'utf8');
 
 test('groups structures by their API lifecycle without changing semantics', () => {
   const grouped = groupTierStructures([
@@ -59,4 +62,43 @@ test('server-immutable structures are read-only even while still date-active', (
   ];
   assert.equal(isTierSelectionReadOnly('ending-current', items), true);
   assert.equal(isTierSelectionReadOnly('open-current', items), false);
+});
+
+test('tier list refetches do not replace an explicit editor selection', () => {
+  assert.equal(shouldBootstrapTierSelection({
+    selectedId: null,
+    viewingHistorical: null,
+    isCreatingNew: false,
+  }), true);
+  assert.equal(shouldBootstrapTierSelection({
+    selectedId: 'selected-active',
+    viewingHistorical: null,
+    isCreatingNew: false,
+  }), false);
+  assert.equal(shouldBootstrapTierSelection({
+    selectedId: null,
+    viewingHistorical: 'historical',
+    isCreatingNew: false,
+  }), false);
+  assert.equal(shouldBootstrapTierSelection({
+    selectedId: null,
+    viewingHistorical: null,
+    isCreatingNew: true,
+  }), false);
+});
+
+test('page enters the structure browser first and editor renders only the loaded card', () => {
+  assert.match(pageSource, /useState\('list'\)/);
+  assert.match(pageSource, /data-testid="tier-structure-browser"/);
+  assert.match(pageSource, /!isCreatingNew && loadedHistoryItem && renderStructureNavItem\(loadedHistoryItem\)/);
+  assert.doesNotMatch(pageSource, /summary-loaded-context/);
+});
+
+test('duplicate drafts retain Direct Debit settings and per-band monthly amounts', () => {
+  const duplicateHandler = pageSource.slice(
+    pageSource.indexOf('const handleDuplicateHistorical'),
+    pageSource.indexOf('const handleSwitchActiveConfig'),
+  );
+  assert.match(duplicateHandler, /\.\.\.ddFieldsFromConfig\(c\)/);
+  assert.match(duplicateHandler, /dd_monthly_amount: b\.dd_monthly_amount != null/);
 });
