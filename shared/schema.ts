@@ -413,6 +413,59 @@ export const insertCustomObjectDefinitionSchema = createInsertSchema(customObjec
   created_at: true,
   updated_at: true,
 });
+
+export const salesAccountingCustomerMapping = pgTable("sales_accounting_customer_mapping", {
+  id: uuid("id").primaryKey().defaultRandom(), tenant_id: uuid("tenant_id").notNull(),
+  organisation_id: uuid("organisation_id").notNull(), provider: text("provider").notNull(),
+  provider_customer_id: text("provider_customer_id").notNull(), provider_customer_name: text("provider_customer_name"),
+  match_kind: text("match_kind").notNull(), confirmed_by: text("confirmed_by"),
+  claim_token: uuid("claim_token"),
+  confirmed_at: timestamp("confirmed_at", { withTimezone: true }),
+  created_at: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updated_at: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  organisationProviderUnique: uniqueIndex("sales_accounting_customer_mapping_organisation_unique")
+    .on(table.tenant_id, table.organisation_id, table.provider),
+  providerCustomerUnique: uniqueIndex("sales_accounting_customer_mapping_customer_unique")
+    .on(table.tenant_id, table.provider, table.provider_customer_id),
+}));
+
+export const salesAccountingInvoiceLink = pgTable("sales_accounting_invoice_link", {
+  id: uuid("id").primaryKey().defaultRandom(), tenant_id: uuid("tenant_id").notNull(),
+  sale_id: uuid("sale_id").notNull(), quote_version_id: uuid("quote_version_id").notNull(),
+  provider: text("provider").notNull(), provider_invoice_id: text("provider_invoice_id").notNull(),
+  provider_invoice_number: text("provider_invoice_number"), provider_invoice_url: text("provider_invoice_url"),
+  provider_status: text("provider_status").notNull().default("unknown"), provider_status_raw: text("provider_status_raw"),
+  provider_created_at: timestamp("provider_created_at", { withTimezone: true }),
+  status_refreshed_at: timestamp("status_refreshed_at", { withTimezone: true }),
+  created_by: text("created_by").notNull(),
+  created_at: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updated_at: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  saleProviderUnique: uniqueIndex("sales_accounting_invoice_link_sale_unique")
+    .on(table.tenant_id, table.sale_id, table.provider),
+  providerInvoiceUnique: uniqueIndex("sales_accounting_invoice_link_provider_invoice_unique")
+    .on(table.tenant_id, table.provider, table.provider_invoice_id),
+}));
+
+export const salesAccountingInvoiceAttempt = pgTable("sales_accounting_invoice_attempt", {
+  id: uuid("id").primaryKey().defaultRandom(), tenant_id: uuid("tenant_id").notNull(),
+  sale_id: uuid("sale_id").notNull(), provider: text("provider").notNull(),
+  provider_idempotency_key: text("provider_idempotency_key").notNull(), actor_id: text("actor_id").notNull(),
+  state: text("state").notNull().default("started"), error_code: text("error_code"),
+  error_message: text("error_message"), link_id: uuid("link_id"),
+  started_at: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
+  completed_at: timestamp("completed_at", { withTimezone: true }),
+}, (table) => ({ lookupIdx: index("sales_accounting_attempt_lookup").on(table.tenant_id, table.sale_id, table.provider, table.started_at) }));
+
+export const salesAccountingTaxMapping = pgTable("sales_accounting_tax_mapping", {
+  id: uuid("id").primaryKey().defaultRandom(), tenant_id: uuid("tenant_id").notNull(),
+  provider: text("provider").notNull(), tax_treatment: text("tax_treatment").notNull(),
+  tax_rate_bps: integer("tax_rate_bps").notNull(), provider_tax_code: text("provider_tax_code").notNull(),
+  provider_tax_name: text("provider_tax_name").notNull(),
+  created_at: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({ rateUnique: uniqueIndex("sales_accounting_tax_mapping_unique")
+  .on(table.tenant_id, table.provider, table.tax_treatment, table.tax_rate_bps) }));
 export const insertCustomObjectRecordSchema = createInsertSchema(customObjectRecord).omit({
   id: true,
   created_at: true,

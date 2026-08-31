@@ -204,6 +204,169 @@ export async function findOrCreateXeroContact(accessToken, xeroTenantId, contact
   throw new Error('Failed to create Xero contact');
 }
 
+export async function findXeroSalesCustomers(appTenantId, { name }) {
+  const { accessToken, tenantId } = await getValidXeroAccessToken(appTenantId);
+  const escaped = String(name || '').replace(/"/g, '\\"');
+  const response = await fetch(`https://api.xero.com/api.xro/2.0/Contacts?where=${encodeURIComponent(`Name=="${escaped}"`)}`, {
+    headers: { Authorization: `Bearer ${accessToken}`, 'xero-tenant-id': tenantId, Accept: 'application/json' },
+  });
+  const data = await safeXeroJson(response, 'sales-contact-search');
+  return (data?.Contacts || []).map((item) => ({
+    id: item.ContactID, name: item.Name, email: item.EmailAddress || null,
+  }));
+}
+
+export async function createXeroSalesCustomer(appTenantId, customer) {
+  const { accessToken, tenantId } = await getValidXeroAccessToken(appTenantId);
+  return findOrCreateXeroContact(accessToken, tenantId, customer);
+}
+
+export async function listXeroSalesTaxCodes(appTenantId) {
+  const { accessToken, tenantId } = await getValidXeroAccessToken(appTenantId);
+  const response = await fetch('https://api.xero.com/api.xro/2.0/TaxRates', {
+    headers: { Authorization: `Bearer ${accessToken}`, 'xero-tenant-id': tenantId, Accept: 'application/json' },
+  });
+  const data = await safeXeroJson(response, 'sales-tax-rates');
+  return (data?.TaxRates || []).filter((rate) =>
+    rate.Status === 'ACTIVE' && rate.CanApplyToRevenue !== false).map((rate) => ({
+    id: String(rate.TaxType), name: rate.Name || rate.TaxType,
+  }));
+}
+
+const roundedPositiveDivide = (numerator, denominator) =>
+  (numerator + denominator / 2n) / denominator;
+
+/**
+ * Xero accepts UnitAmount at four decimal places when unitdp=4. Derive that
+ * effective unit amount from the accepted final net, rather than reapplying
+ * the original discount. Fail closed when Xero's quantity × 4dp unit amount
+ * would round to a different minor-unit net.
+ */
+export function buildXeroSalesInvoiceLine(line) {
+  const rawQuantity = String(line.quantity);
+  const quantity = rawQuantity.includes('.')
+    ? rawQuantity.replace(/0+$/, '').replace(/\.$/, '')
+    : rawQuantity;
+  const match = /^(0|[1-9]\d*)(?:\.(\d{1,4}))?$/.exec(quantity);
+  const netMinor = Number(line.netMinor);
+  const taxMinor = Number(line.taxMinor);
+  const grossMinor = Number(line.grossMinor);
+  const fail = (message) => {
+    const error = new Error(`Xero cannot represent accepted invoice line: ${message}`);
+    error.code = 'ACCOUNTING_UNREPRESENTABLE';
+    throw error;
+  };
+  if (!match || /^0(?:\.0*)?$/.test(quantity)) fail('quantity is invalid');
+  if (![netMinor, taxMinor, grossMinor].every(Number.isSafeInteger)
+      || netMinor < 0 || taxMinor < 0 || grossMinor !== netMinor + taxMinor) {
+    fail('net, tax, or gross snapshot is invalid');
+  }
+  const decimals = match[2] ? match[2].length : 0;
+  const scale = 10n ** BigInt(decimals);
+  const quantityUnits = BigInt(quantity.replace('.', ''));
+  // UnitAmount in ten-thousandths of one currency unit:
+  // (netMinor / 100) / (quantityUnits / scale) * 10000.
+  const unitAmount4 = roundedPositiveDivide(BigInt(netMinor) * scale * 100n, quantityUnits);
+  const representedNetMinor = roundedPositiveDivide(quantityUnits * unitAmount4, scale * 100n);
+  if (representedNetMinor !== BigInt(netMinor)) {
+    fail(`four-decimal UnitAmount rounds to ${representedNetMinor} minor units, expected ${netMinor}`);
+  }
+  return {
+    Description: line.description,
+    Quantity: Number(quantity),
+    UnitAmount: Number(unitAmount4) / 10000,
+    AccountCode: line.accountCode,
+    TaxType: line.taxCode,
+    TaxAmount: taxMinor / 100,
+  };
+}
+
+export function buildXeroSalesInvoicePayload(invoice) {
+  return { Invoices: [{
+    Type: 'ACCREC', Contact: { ContactID: invoice.customerId },
+    Status: 'AUTHORISED', CurrencyCode: invoice.currency,
+    Reference: [invoice.purchaseOrderReference, invoice.customerReference].filter(Boolean).join(' / ') || undefined,
+    LineAmountTypes: 'Exclusive',
+    LineItems: invoice.lines.map(buildXeroSalesInvoiceLine),
+  }] };
+}
+
+const xeroMoneyMinor = (value, label) => {
+  const amount = Number(value);
+  const scaled = amount * 100;
+  if (value == null || !Number.isFinite(amount) || !Number.isSafeInteger(Math.round(scaled))
+      || Math.abs(scaled - Math.round(scaled)) > 1e-7) {
+    const error = new Error(`Xero returned an invalid ${label}`);
+    error.code = 'ACCOUNTING_TOTAL_MISMATCH';
+    error.details = { field: label };
+    throw error;
+  }
+  return Math.round(scaled);
+};
+
+export function verifyXeroSalesInvoice(invoice, accepted) {
+  const mismatch = (field, expectedMinor, actualMinor, line = null) => {
+    const error = new Error(`Xero invoice ${field} does not match the accepted sale`);
+    error.code = 'ACCOUNTING_TOTAL_MISMATCH';
+    error.details = { field, expectedMinor, actualMinor, ...(line == null ? {} : { line }) };
+    throw error;
+  };
+  const actualLines = Array.isArray(invoice?.LineItems) ? invoice.LineItems : [];
+  if (actualLines.length !== accepted.lines.length) mismatch('lineCount', accepted.lines.length, actualLines.length);
+  let aggregateNet = 0;
+  actualLines.forEach((line, index) => {
+    const actual = xeroMoneyMinor(line?.LineAmount, `line ${index + 1} amount`);
+    const expected = Number(accepted.lines[index].netMinor);
+    if (actual !== expected) mismatch('lineNet', expected, actual, index + 1);
+    aggregateNet += actual;
+  });
+  if (aggregateNet !== Number(accepted.netMinor)) mismatch('net', Number(accepted.netMinor), aggregateNet);
+  const subtotal = xeroMoneyMinor(invoice?.SubTotal, 'subtotal');
+  if (subtotal !== Number(accepted.netMinor)) mismatch('subtotal', Number(accepted.netMinor), subtotal);
+  const tax = xeroMoneyMinor(invoice?.TotalTax, 'tax');
+  if (tax !== Number(accepted.taxMinor)) mismatch('tax', Number(accepted.taxMinor), tax);
+  const gross = xeroMoneyMinor(invoice?.Total, 'gross');
+  if (gross !== Number(accepted.grossMinor)) mismatch('gross', Number(accepted.grossMinor), gross);
+  return invoice;
+}
+
+export async function createXeroSalesInvoice(appTenantId, invoice, dependencies = {}) {
+  const tokenResolver = dependencies.getValidXeroAccessToken || getValidXeroAccessToken;
+  const { accessToken, tenantId } = await tokenResolver(appTenantId);
+  const payload = buildXeroSalesInvoicePayload(invoice);
+  const response = await fetch('https://api.xero.com/api.xro/2.0/Invoices?unitdp=4', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${accessToken}`, 'xero-tenant-id': tenantId,
+      'Content-Type': 'application/json', Accept: 'application/json',
+      'Idempotency-Key': String(invoice.idempotencyKey) },
+    body: JSON.stringify(payload),
+  });
+  const data = await safeXeroJson(response, 'sales-invoice-create');
+  const result = data?.Invoices?.[0];
+  if (!result?.InvoiceID) throw new Error('Xero did not return an invoice identifier');
+  // POST responses (including idempotent replays) are not trusted as the
+  // accounting result. Read the persisted provider invoice at unitdp=4 and
+  // compare only money/count/order facts with the immutable accepted snapshot.
+  const verifyResponse = await fetch(
+    `https://api.xero.com/api.xro/2.0/Invoices/${encodeURIComponent(result.InvoiceID)}?unitdp=4`,
+    { headers: { Authorization: `Bearer ${accessToken}`, 'xero-tenant-id': tenantId, Accept: 'application/json' } },
+  );
+  const verifyData = await safeXeroJson(verifyResponse, 'sales-invoice-verify');
+  const verified = verifyXeroSalesInvoice(verifyData?.Invoices?.[0], invoice);
+  let url = null;
+  try {
+    const online = await fetch(`https://api.xero.com/api.xro/2.0/Invoices/${verified.InvoiceID}/OnlineInvoice`, {
+      headers: { Authorization: `Bearer ${accessToken}`, 'xero-tenant-id': tenantId, Accept: 'application/json' },
+    });
+    const onlineData = await safeXeroJson(online, 'sales-invoice-url');
+    url = onlineData?.OnlineInvoices?.[0]?.OnlineInvoiceUrl || null;
+  } catch (error) {
+    console.warn(`[Xero] Sales invoice URL unavailable: ${error.message}`);
+  }
+  return { id: verified.InvoiceID, number: verified.InvoiceNumber || null, url,
+    status: verified.Status, createdAt: verified.DateString || null };
+}
+
 export async function createXeroMembershipInvoice({ appTenantId, organizationName, invoicingEmail, invoicingAddress, membershipYear, tierLabel, finalCost, currency, reference, vatRate, markAsPaid, stripePaymentIntentId, invoiceDescription, extraLineItems, nominalCode, bankAccountSettingKey, strictBankAccount, idempotencyKey, paymentIdempotencyKey }) {
   if (!supabase) throw new Error('Supabase not configured');
   if (!appTenantId) throw new Error('appTenantId is required');

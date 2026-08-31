@@ -2,6 +2,7 @@ import { supabase } from '../_lib/database.js';
 import { getTenantContext } from '../_lib/tenantContext.js';
 import { requireSalesContext } from '../_lib/salesAccess.js';
 import { SALES_CAPABILITIES } from '../../shared/salesContracts.js';
+import { getSalesInvoicePresentation, salesInvoicePermissions } from '../_lib/salesAccounting.js';
 import {
   OpportunityHttpError, assertExpectedVersion, assertPrivateDocumentPath, validatePriority,
   validateStageChange,
@@ -21,7 +22,7 @@ const CHILDREN = {
   activity: { table: 'opportunity_activity', mutable: 'append' },
 };
 
-async function fullDetail(db, access) {
+async function fullDetail(db, access, accountingAccess, dependencies = {}) {
   const entries = await Promise.all(Object.entries(CHILDREN).map(async ([key, config]) => {
     const { data, error } = await db.from(config.table).select('*')
       .eq('tenant_id', access.opportunity.tenant_id)
@@ -47,7 +48,28 @@ async function fullDetail(db, access) {
       } };
     });
   }
-  return { ...opportunity, permissions: access.permissions, ...children };
+  const accounting = await getSalesInvoicePresentation(db, access.opportunity.tenant_id, {
+    opportunityId: access.opportunity.id,
+  }, dependencies);
+  return {
+    ...opportunity,
+    permissions: {
+      ...access.permissions,
+      canManageAccounting: accountingAccess,
+      ...salesInvoicePermissions({
+        canManageAccounting: accountingAccess, canView: access.permissions.canView,
+        saleId: accounting.saleId, activeProvider: accounting.activeProvider, invoice: accounting.invoice,
+      }),
+    },
+    saleId: accounting.saleId,
+    activeProvider: accounting.activeProvider,
+    invoice: accounting.invoice,
+    invoices: accounting.invoices,
+    acceptedQuoteId: accounting.acceptedQuote?.id || null,
+    acceptedQuoteVersion: accounting.acceptedQuote?.versionNumber || null,
+    acceptedQuote: accounting.acceptedQuote,
+    ...children,
+  };
 }
 
 export function createOpportunityDetailHandler(dependencies = {}) {
@@ -69,7 +91,18 @@ export function createOpportunityDetailHandler(dependencies = {}) {
       const resource = req.query.resource;
 
       if (req.method === 'GET') {
-        if (!resource) return res.status(200).json(await fullDetail(db, access));
+        if (!resource) {
+          let canManageAccounting = false;
+          try {
+            await requireSalesContext(context, SALES_CAPABILITIES.MANAGE_ACCOUNTING, dependencies);
+            canManageAccounting = true;
+          } catch (error) {
+            // The detail remains readable when accounting is denied; this does
+            // not alter opportunity ownership/edit permissions.
+            if (error?.status !== 403) throw error;
+          }
+          return res.status(200).json(await fullDetail(db, access, canManageAccounting, dependencies));
+        }
         if (resource === 'document-url') {
           const document = await validateTenantRecord(db, 'opportunity_document',
             context.tenantId, req.query.documentId, 'Document');

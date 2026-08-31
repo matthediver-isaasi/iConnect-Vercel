@@ -2,6 +2,7 @@ import { supabase } from '../../_lib/database.js';
 import { getTenantContext } from '../../_lib/tenantContext.js';
 import {
   SALES_CAPABILITIES, normaliseQuoteInput, validateQuoteDraft, validateQuoteTransition,
+  validateSalesInvoiceCommand,
 } from '../../../shared/salesContracts.js';
 import { requireSalesContext, SalesHttpError } from '../../_lib/salesAccess.js';
 import {
@@ -10,6 +11,22 @@ import {
 } from '../../_lib/salesQuote.js';
 import { buildSalesQuotePdf } from '../../_lib/salesQuotePdf.js';
 import { canonicalQuoteBaseUrl, sendQuote } from '../../_lib/salesQuoteDelivery.js';
+import {
+  createSalesInvoice, getSalesInvoicePresentation, refreshSalesInvoiceStatus,
+  salesInvoicePermissions,
+} from '../../_lib/salesAccounting.js';
+
+export function salesQuoteErrorBody(error) {
+  const status = error instanceof SalesHttpError ? error.status : 500;
+  return {
+    status,
+    body: {
+      error: status === 500 ? 'Failed to handle Sales quote' : error.message,
+      ...(error?.code ? { code: error.code } : {}),
+      ...(error?.details ? { details: error.details } : {}),
+    },
+  };
+}
 
 function pathParts(req) {
   const path = req.query?.path;
@@ -30,6 +47,8 @@ export function createSalesQuotesHandler(dependencies = {}) {
       const actor = await requireSalesContext(context,
         read
           ? SALES_CAPABILITIES.VIEW
+          : ['create-invoice', 'refresh-invoice-status'].includes(action)
+            ? SALES_CAPABILITIES.MANAGE_ACCOUNTING
           : action === 'confirm-sale'
             ? SALES_CAPABILITIES.MANAGE_ALLOCATIONS
             : SALES_CAPABILITIES.MANAGE_QUOTES,
@@ -47,10 +66,12 @@ export function createSalesQuotesHandler(dependencies = {}) {
       if (read && !id) return res.status(200).json(await listQuotes(db, actor.tenantId, req.query || {}));
       if (read && id && !action) {
         const quote = await getQuote(db, actor.tenantId, id);
-        const [canManage, canOverridePrices] = await Promise.all([
+        const [canManage, canOverridePrices, canManageAccounting] = await Promise.all([
           can(SALES_CAPABILITIES.MANAGE_QUOTES),
           can(SALES_CAPABILITIES.MANAGE_CATALOGUE_PRICES),
+          can(SALES_CAPABILITIES.MANAGE_ACCOUNTING),
         ]);
+        const accounting = await getSalesInvoicePresentation(db, actor.tenantId, { quoteId: id }, dependencies);
         const draft = quote.currentVersion?.status === 'draft';
         return res.status(200).json({
           ...quote,
@@ -61,7 +82,16 @@ export function createSalesQuotesHandler(dependencies = {}) {
             canAmend: canManage && !draft && quote.currentVersion?.status !== 'superseded',
             canTransition: canManage,
             canOverridePrices,
+            canManageAccounting,
+            ...salesInvoicePermissions({
+              canManageAccounting, canView: true, saleId: accounting.saleId,
+              activeProvider: accounting.activeProvider, invoice: accounting.invoice,
+            }),
           },
+          saleId: accounting.saleId,
+          activeProvider: accounting.activeProvider,
+          invoice: accounting.invoice,
+          invoices: accounting.invoices,
         });
       }
       if (read && action === 'history') return res.status(200).json({ items: await getQuoteHistory(db, actor.tenantId, id) });
@@ -157,6 +187,26 @@ export function createSalesQuotesHandler(dependencies = {}) {
         }
         return res.status(201).json(await confirmQuoteSale(db, actor.tenantId, actor, id, req.body));
       }
+      if (req.method === 'POST' && id && ['create-invoice', 'refresh-invoice-status'].includes(action)) {
+        const { data: sale, error } = await db.from('sales_commercial_sale').select('id')
+          .eq('tenant_id', actor.tenantId).eq('quote_id', id).maybeSingle();
+        if (error) throw error;
+        if (!sale) throw new SalesHttpError(409, 'Quote has not been confirmed as a commercial sale');
+        if (action === 'create-invoice') {
+          const validation = validateSalesInvoiceCommand(req.body || {});
+          if (!validation.ok) return res.status(400).json({ error: 'Invalid sales invoice request', details: validation.errors });
+          const result = await createSalesInvoice(db, actor.tenantId, actor, sale.id, req.body || {}, dependencies);
+          return res.status(result.existing ? 200 : 201).json(result);
+        }
+        // Refresh only the currently selected provider link. Historical links
+        // remain refreshable through the accounting endpoint with their own
+        // provider name and are never redirected to a newly active provider.
+        const accounting = await getSalesInvoicePresentation(db, actor.tenantId, { saleId: sale.id }, dependencies);
+        if (!accounting.invoice) throw new SalesHttpError(404, 'Sales invoice linkage not found for the active provider');
+        return res.status(200).json(await refreshSalesInvoiceStatus(
+          db, actor.tenantId, sale.id, accounting.invoice.provider, dependencies,
+        ));
+      }
       if (req.method === 'POST' && id && action === 'send') {
         const recipient = String(req.body?.recipient || '').trim();
         if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(recipient)) throw new SalesHttpError(400, 'A valid recipient is required');
@@ -202,8 +252,8 @@ export function createSalesQuotesHandler(dependencies = {}) {
       res.setHeader('Allow', 'GET, POST, PATCH');
       return res.status(405).json({ error: 'Method not allowed' });
     } catch (error) {
-      const status = error instanceof SalesHttpError ? error.status : 500;
-      return res.status(status).json({ error: status === 500 ? 'Failed to handle Sales quote' : error.message });
+      const response = salesQuoteErrorBody(error);
+      return res.status(response.status).json(response.body);
     }
   };
 }

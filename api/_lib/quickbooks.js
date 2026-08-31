@@ -358,6 +358,160 @@ export async function findOrCreateQuickBooksCustomer(appTenantId, contactInfo) {
   return created.Customer.Id;
 }
 
+export async function findQuickBooksSalesCustomers(appTenantId, { name }) {
+  const { accessToken, realmId, environment } = await getValidQuickBooksAccessToken(appTenantId);
+  const escaped = String(name || '').replace(/'/g, "\\'");
+  const data = await qboQuery(accessToken, realmId, environment,
+    `SELECT * FROM Customer WHERE DisplayName = '${escaped}'`);
+  return (data?.QueryResponse?.Customer || []).map((item) => ({
+    id: item.Id, name: item.DisplayName, email: item.PrimaryEmailAddr?.Address || null,
+  }));
+}
+
+export async function createQuickBooksSalesCustomer(appTenantId, customer) {
+  return findOrCreateQuickBooksCustomer(appTenantId, customer);
+}
+
+export async function listQuickBooksSalesTaxCodes(appTenantId) {
+  const { accessToken, realmId, environment } = await getValidQuickBooksAccessToken(appTenantId);
+  const data = await qboQuery(accessToken, realmId, environment,
+    'SELECT * FROM TaxCode WHERE Active = true MAXRESULTS 1000');
+  return (data?.QueryResponse?.TaxCode || []).map((code) => ({
+    id: String(code.Id), name: code.Name || String(code.Id),
+  }));
+}
+
+export async function listQuickBooksSalesItems(appTenantId) {
+  const { accessToken, realmId, environment } = await getValidQuickBooksAccessToken(appTenantId);
+  const data = await qboQuery(accessToken, realmId, environment,
+    'SELECT * FROM Item WHERE Active = true MAXRESULTS 1000');
+  return (data?.QueryResponse?.Item || []).filter((item) =>
+    item.Id && item.Name && item.Type !== 'Group' && item.Type !== 'Discount').map((item) => ({
+    id: String(item.Id), name: item.Name,
+  }));
+}
+
+export function buildQuickBooksSalesInvoicePayload(invoice) {
+  const fail = (message, details = {}) => {
+    const error = new Error(`QuickBooks cannot represent accepted invoice: ${message}`);
+    error.code = 'ACCOUNTING_UNREPRESENTABLE';
+    error.details = details;
+    throw error;
+  };
+  const effectiveUnitPrice = (line, index) => {
+    const quantity = String(line.quantity);
+    const match = /^(0|[1-9]\d*)(?:\.(\d{1,6}))?$/.exec(quantity);
+    if (!match || /^0(?:\.0*)?$/.test(quantity)) fail(`line ${index + 1} quantity is invalid`, { line: index + 1 });
+    const scale = 10n ** BigInt(match[2]?.length || 0);
+    const quantityUnits = BigInt(quantity.replace('.', ''));
+    const netMinor = Number(line.netMinor);
+    if (!Number.isSafeInteger(netMinor) || netMinor < 0) fail(`line ${index + 1} net is invalid`, { line: index + 1 });
+    // QBO commercial invoices use an explicit six-decimal UnitPrice.
+    const precision = 1000000n;
+    const numerator = BigInt(netMinor) * scale * precision;
+    const denominator = quantityUnits * 100n;
+    const unitMicros = (numerator + denominator / 2n) / denominator;
+    if (netMinor > 0 && unitMicros < 10000n) {
+      fail(`line ${index + 1} effective UnitPrice is below one minor currency unit`, { line: index + 1 });
+    }
+    const representedNumerator = quantityUnits * unitMicros * 100n;
+    const representedDenominator = scale * precision;
+    const representedMinor = (representedNumerator + representedDenominator / 2n) / representedDenominator;
+    if (representedMinor !== BigInt(netMinor)) {
+      fail(`line ${index + 1} six-decimal UnitPrice does not round to accepted net`, { line: index + 1 });
+    }
+    return Number(unitMicros) / Number(precision);
+  };
+  return {
+    CustomerRef: { value: invoice.customerId },
+    CurrencyRef: { value: invoice.currency },
+    CustomerMemo: { value: invoice.customerReference || invoice.purchaseOrderReference || '' },
+    PONumber: invoice.purchaseOrderReference || undefined,
+    GlobalTaxCalculation: 'TaxExcluded',
+    Line: invoice.lines.map((line, index) => ({
+      DetailType: 'SalesItemLineDetail', Description: line.description,
+      Amount: line.netMinor / 100,
+      SalesItemLineDetail: {
+        ItemRef: { value: line.itemId }, Qty: Number(line.quantity),
+        // Amount is the accepted, already-discounted net snapshot. QBO
+        // recomputes Amount from Qty/UnitPrice, so derive the effective unit
+        // price from it (including for fractional quantities) and never send
+        // DiscountRate as well.
+        UnitPrice: effectiveUnitPrice(line, index),
+        TaxCodeRef: { value: line.taxCode },
+      },
+    })),
+  };
+}
+
+const qboMoneyMinor = (value, label) => {
+  const amount = Number(value);
+  const scaled = amount * 100;
+  if (!Number.isFinite(amount) || !Number.isSafeInteger(Math.round(scaled))
+      || Math.abs(scaled - Math.round(scaled)) > 1e-7) {
+    const error = new Error(`QuickBooks returned an invalid ${label}`);
+    error.code = 'ACCOUNTING_TOTAL_MISMATCH';
+    error.details = { field: label };
+    throw error;
+  }
+  return Math.round(scaled);
+};
+
+export function verifyQuickBooksSalesInvoice(invoice, accepted) {
+  const mismatch = (field, expectedMinor, actualMinor, line = null) => {
+    const error = new Error(`QuickBooks invoice ${field} does not match the accepted sale`);
+    error.code = 'ACCOUNTING_TOTAL_MISMATCH';
+    error.details = { field, expectedMinor, actualMinor, ...(line == null ? {} : { line }) };
+    throw error;
+  };
+  const actualLines = (invoice?.Line || []).filter((line) => line?.DetailType === 'SalesItemLineDetail');
+  if (actualLines.length !== accepted.lines.length) mismatch('lineCount', accepted.lines.length, actualLines.length);
+  let actualNet = 0;
+  actualLines.forEach((line, index) => {
+    const actual = qboMoneyMinor(line.Amount, `line ${index + 1} amount`);
+    const expected = Number(accepted.lines[index].netMinor);
+    if (actual !== expected) mismatch('lineNet', expected, actual, index + 1);
+    actualNet += actual;
+  });
+  if (actualNet !== Number(accepted.netMinor)) mismatch('net', Number(accepted.netMinor), actualNet);
+  if (!invoice?.TxnTaxDetail || invoice.TxnTaxDetail.TotalTax == null) {
+    mismatch('tax', Number(accepted.taxMinor), null);
+  }
+  const actualTax = qboMoneyMinor(invoice.TxnTaxDetail.TotalTax, 'tax');
+  if (actualTax !== Number(accepted.taxMinor)) mismatch('tax', Number(accepted.taxMinor), actualTax);
+  const actualGross = qboMoneyMinor(invoice.TotalAmt, 'gross');
+  if (actualGross !== Number(accepted.grossMinor)) mismatch('gross', Number(accepted.grossMinor), actualGross);
+  return invoice;
+}
+
+export function quickBooksRequestId(value) {
+  const providerKey = String(value || '');
+  if (!/^[A-Za-z0-9_-]{1,50}$/.test(providerKey)) {
+    throw new Error('QuickBooks invoice idempotency key must be 1-50 provider-safe characters');
+  }
+  return providerKey;
+}
+
+export async function createQuickBooksSalesInvoice(appTenantId, invoice, dependencies = {}) {
+  const tokenResolver = dependencies.getValidQuickBooksAccessToken || getValidQuickBooksAccessToken;
+  const { accessToken, realmId, environment } = await tokenResolver(appTenantId);
+  const { apiBaseUrl } = getIntuitEndpoints(environment);
+  const body = buildQuickBooksSalesInvoicePayload(invoice);
+  const providerKey = quickBooksRequestId(invoice.idempotencyKey);
+  const requestid = encodeURIComponent(providerKey);
+  const url = `${companyBase(apiBaseUrl, realmId)}/invoice?minorversion=${MINOR_VERSION}&requestid=${requestid}`;
+  const data = await qboFetch('sales-invoice-create', accessToken, 'POST', url, body);
+  const result = data?.Invoice;
+  if (!result?.Id) throw new Error('QuickBooks did not return an invoice identifier');
+  // Always read back, including an idempotent requestid replay. The POST
+  // response alone is not evidence that provider values match our snapshot.
+  const readback = await qboFetch('sales-invoice-verify', accessToken, 'GET',
+    `${companyBase(apiBaseUrl, realmId)}/invoice/${encodeURIComponent(result.Id)}?include=invoiceLink&minorversion=${MINOR_VERSION}`);
+  const verified = verifyQuickBooksSalesInvoice(readback?.Invoice, invoice);
+  return { id: verified.Id, number: verified.DocNumber || null, url: verified.InvoiceLink || null,
+    status: Number(verified.Balance) === 0 ? 'paid' : 'open', createdAt: verified.MetaData?.CreateTime || null };
+}
+
 // ---------------------------------------------------------------------------
 // Membership invoice
 // ---------------------------------------------------------------------------

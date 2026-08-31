@@ -24,6 +24,7 @@ const firstCollection = (sources, aliases) => {
 export function normalizeOpportunityDetail(response) {
   const value = response?.data || response || {};
   const opportunity = value.opportunity || value;
+  const invoiceSource = [value, opportunity].find((source) => Object.prototype.hasOwnProperty.call(source || {}, "invoice"));
   // Wrapper-level collections take precedence, followed by collections
   // flattened onto the opportunity itself.
   const sources = value.opportunity ? [value, opportunity] : [opportunity];
@@ -31,6 +32,20 @@ export function normalizeOpportunityDetail(response) {
     opportunity,
     permissions: value.permissions || value.capabilities
       || opportunity.permissions || opportunity.capabilities || {},
+    invoice: invoiceSource ? invoiceSource.invoice : null,
+    activeProvider: value.activeProvider ?? value.active_provider ?? opportunity.activeProvider ?? opportunity.active_provider ?? null,
+    invoices: value.invoices ?? value.invoiceHistory ?? value.invoice_history
+      ?? opportunity.invoices ?? opportunity.invoiceHistory ?? opportunity.invoice_history ?? [],
+    invoiceQuoteId: value.invoiceQuoteId || value.invoice_quote_id
+      || value.acceptedQuoteId || value.accepted_quote_id
+      || value.acceptedQuote?.id || value.accepted_quote?.id
+      || opportunity.invoiceQuoteId || opportunity.invoice_quote_id
+      || opportunity.acceptedQuoteId || opportunity.accepted_quote_id
+      || opportunity.acceptedQuote?.id || opportunity.accepted_quote?.id
+      || value.invoice?.quoteId || value.invoice?.quote_id
+      || value.invoice?.quote?.id
+      || opportunity.invoice?.quoteId || opportunity.invoice?.quote_id
+      || opportunity.invoice?.quote?.id || null,
     stages: firstCollection(sources, ["stages"]),
     collections: {
       contacts: firstCollection(sources, ["contacts", "contact-roles", "contactRoles", "contact_roles"]),

@@ -17,6 +17,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/components/ui/use-toast";
+import InvoiceStatusPanel from "@/components/sales/InvoiceStatusPanel";
 import { calculateQuoteLine } from "@shared/salesContracts.js";
 
 const list = (value) => Array.isArray(value) ? value : value?.items || value?.data || value?.results || value?.quotes || [];
@@ -99,6 +100,9 @@ function normalizeQuote(payload, opportunityId = "") {
   // values in currentVersion. Always prefer that authoritative version.
   const version = root.currentVersion || root.current_version || root;
   const quote = { ...root, ...version };
+  // `invoice: null` is meaningful after an accounting-provider switch: do not
+  // fall back to a historical version's invoice in that case.
+  const invoiceSource = [payload, root, quote].find((value) => Object.prototype.hasOwnProperty.call(value || {}, "invoice"));
   const address = quote.address || quote.addressSnapshot || quote.address_snapshot || quote.billingAddress || quote.billing_address || {};
   return {
     ...blankQuote(opportunityId), ...quote,
@@ -123,6 +127,12 @@ function normalizeQuote(payload, opportunityId = "") {
     status: root.status || quote.status, rowVersion: quote.rowVersion ?? quote.row_version ?? root.rowVersion ?? root.row_version,
     versionNumber: quote.versionNumber ?? quote.version_number ?? version.versionNumber ?? version.version_number,
     permissions: payload?.permissions || payload?.capabilities || root.permissions || quote.permissions || {},
+    invoice: invoiceSource ? invoiceSource.invoice : null,
+    saleId: quote.saleId ?? quote.sale_id ?? root.saleId ?? root.sale_id ?? payload?.saleId ?? payload?.sale_id ?? null,
+    activeProvider: payload?.activeProvider ?? payload?.active_provider ?? root.activeProvider ?? root.active_provider ?? quote.activeProvider ?? quote.active_provider ?? null,
+    invoices: payload?.invoices ?? payload?.invoiceHistory ?? payload?.invoice_history
+      ?? root.invoices ?? root.invoiceHistory ?? root.invoice_history
+      ?? quote.invoices ?? quote.invoiceHistory ?? quote.invoice_history ?? [],
   };
 }
 
@@ -354,6 +364,14 @@ function QuoteEditor() {
     onSuccess: ({ blob, shouldPreview }) => openBlob(blob, `${quote.number || quote.quoteNumber || quote.quote_number || "quote"}-v${quote.versionNumber || quote.version_number || 1}.pdf`, shouldPreview),
     onError: (error) => toast({ title: "Could not load PDF", description: error.message, variant: "destructive" }),
   });
+  const invoiceAction = async (actionName, command = {}) => {
+    const result = await request(`/api/sales/quotes/${id}?action=${actionName}`, { method: "POST", body: JSON.stringify(command) });
+    await Promise.all([
+      qc.invalidateQueries({ queryKey: ["sales-quote", id] }),
+      qc.invalidateQueries({ queryKey: ["sales-quotes"] }),
+    ]);
+    return result;
+  };
   if (!isNew && detail.isLoading) return <Loading />;
   if (!isNew && detail.error) return <Failure error={detail.error} retry={detail.refetch} />;
   const patch = (key, value) => setForm((old) => ({ ...old, [key]: value }));
@@ -369,6 +387,7 @@ function QuoteEditor() {
       {!isNew && status === "accepted" && allowed(["canTransition", "can_transition", "transition"], false) && <Button variant="outline" onClick={() => action.mutate({ action: "transition", extra: { status: "converted" } })}>Convert</Button>}
     </div></div>
     {!isNew && <SendQuoteDialog open={sendOpen} onOpenChange={setSendOpen} pending={deliveryAction.isPending} initialRecipient={quote.recipient || quote.customerEmail || quote.customer_email || ""} onSend={(extra) => deliveryAction.mutate({ action: "send", extra })} />}
+    {!isNew && (["accepted", "converted"].includes(status) || Boolean(quote.saleId)) && <InvoiceStatusPanel invoice={quote.invoice} invoices={quote.invoices} activeProvider={quote.activeProvider} permissions={permissions} error={action.error} onCreate={(command) => invoiceAction("create-invoice", command)} onRetry={(command) => invoiceAction("create-invoice", command)} onRefresh={quote.invoice ? () => invoiceAction("refresh-invoice-status") : undefined} />}
     {isNew && !opportunityId && <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900"><AlertTriangle className="mr-2 inline h-4 w-4" />A quote must be linked to an opportunity. Enter its ID below or start from an opportunity detail page.</div>}
     <Tabs defaultValue="quote"><TabsList><TabsTrigger value="quote">Quote</TabsTrigger>{!isNew && <><TabsTrigger value="delivery">Delivery</TabsTrigger><TabsTrigger value="history">History & compare</TabsTrigger></>}</TabsList>
       <TabsContent value="quote" className="space-y-5">

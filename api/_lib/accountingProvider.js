@@ -330,6 +330,11 @@ export function normalizeInvoiceIdArgs(args) {
 function makeXeroProvider() {
   return {
     name: PROVIDER_XERO,
+    listSalesTaxCodes(appTenantId) { return xero.listXeroSalesTaxCodes(appTenantId); },
+    async listSalesItems() { return []; },
+    findSalesCustomers(appTenantId, customer) { return xero.findXeroSalesCustomers(appTenantId, customer); },
+    createSalesCustomer(appTenantId, customer) { return xero.createXeroSalesCustomer(appTenantId, customer); },
+    createSalesInvoice(appTenantId, invoice) { return xero.createXeroSalesInvoice(appTenantId, invoice); },
 
     async getRawAccessToken(appTenantId) {
       // Escape hatch for the few callers that talk to Xero's raw HTTP
@@ -431,6 +436,11 @@ function makeXeroProvider() {
 function makeQuickBooksProvider() {
   return {
     name: PROVIDER_QUICKBOOKS,
+    listSalesTaxCodes(appTenantId) { return qbo.listQuickBooksSalesTaxCodes(appTenantId); },
+    listSalesItems(appTenantId) { return qbo.listQuickBooksSalesItems(appTenantId); },
+    findSalesCustomers(appTenantId, customer) { return qbo.findQuickBooksSalesCustomers(appTenantId, customer); },
+    createSalesCustomer(appTenantId, customer) { return qbo.createQuickBooksSalesCustomer(appTenantId, customer); },
+    createSalesInvoice(appTenantId, invoice) { return qbo.createQuickBooksSalesInvoice(appTenantId, invoice); },
 
     async getRawAccessToken(appTenantId) {
       const { accessToken, realmId, environment } = await qbo.getValidQuickBooksAccessToken(appTenantId);
@@ -536,6 +546,11 @@ function makeNoneProvider() {
   };
   return {
     name: PROVIDER_NONE,
+    async listSalesTaxCodes()      { throw notConnected('listSalesTaxCodes'); },
+    async listSalesItems()         { throw notConnected('listSalesItems'); },
+    async findSalesCustomers()      { throw notConnected('findSalesCustomers'); },
+    async createSalesCustomer()     { throw notConnected('createSalesCustomer'); },
+    async createSalesInvoice()      { throw notConnected('createSalesInvoice'); },
     async getRawAccessToken()          { throw notConnected('getRawAccessToken'); },
     async resolveOrCreateContact()     { throw notConnected('resolveOrCreateContact'); },
     async createMembershipInvoice()    { throw notConnected('createMembershipInvoice'); },

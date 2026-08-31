@@ -40,3 +40,28 @@ test("keeps legacy nested aliases compatible", () => {
   assert.deepEqual(normalized.collections.contacts, [contact]);
   assert.deepEqual(normalized.collections.stageHistory, [history]);
 });
+
+test("preserves invoice DTO and its accepted quote identity", () => {
+  const invoice = { id: "invoice-1", quote_id: "quote-1" };
+  const normalized = normalizeOpportunityDetail({
+    opportunity: { id: "opportunity-1" },
+    permissions: { canViewInvoice: true },
+    invoice,
+  });
+
+  assert.equal(normalized.invoice, invoice);
+  assert.equal(normalized.invoiceQuoteId, "quote-1");
+});
+
+test("keeps a null current invoice distinct from historical invoices", () => {
+  const normalized = normalizeOpportunityDetail({
+    opportunity: { id: "opportunity-1", invoice: { id: "stale-invoice" } },
+    invoice: null,
+    active_provider: "New provider",
+    invoice_history: [{ id: "stale-invoice", provider: "Old provider" }],
+  });
+
+  assert.equal(normalized.invoice, null);
+  assert.equal(normalized.activeProvider, "New provider");
+  assert.equal(normalized.invoices.length, 1);
+});

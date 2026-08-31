@@ -10,6 +10,8 @@ import { base44 } from "@/api/base44Client";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { getOpportunityUiCapabilities } from "@/lib/opportunityCapabilities";
 import { normalizeOpportunityDetail } from "@/lib/opportunityDetail";
+import { hasAccountingManagementCapability } from "@/lib/salesAccountingConfiguration";
+import SalesAccountingSettingsPanel from "@/components/sales/SalesAccountingSettingsPanel";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -20,6 +22,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/components/ui/use-toast";
+import InvoiceStatusPanel from "@/components/sales/InvoiceStatusPanel";
 
 const FALLBACK_STAGES = [];
 const opportunityValue = (value) => value?.value ?? (value?.value_minor == null ? 0 : Number(value.value_minor) / 100);
@@ -225,7 +228,7 @@ function SavedViews({ state, onApply, tenantId, memberId }) {
 }
 
 function SettingsPage() {
-  const { isAdmin } = useMemberAccess();
+  const { isAdmin, isAccessReady, isFeatureExcluded } = useMemberAccess();
   const { toast } = useToast();
   const qc = useQueryClient();
   const settings = useQuery({
@@ -294,7 +297,14 @@ function SettingsPage() {
   if (settings.error) return <Card className="border-rose-200"><CardContent className="p-5 text-rose-700">{settings.error.message}</CardContent></Card>;
   const updateStage = (index, key, value) => setDraft({ ...draft, stages: draft.stages.map((row, i) => i === index ? { ...row, [key]: value } : row) });
   const updateReason = (index, value) => setDraft({ ...draft, lossReasons: draft.lossReasons.map((row, i) => i === index ? (typeof row === "string" ? value : { ...row, name: value }) : row) });
+  // Match the explicit permissions shape returned by opportunity and quote
+  // detail DTOs, while deriving it from the same role capability on settings.
+  const settingsPermissions = {
+    canManageAccounting: isAccessReady && !isFeatureExcluded("sales.accounting.manage"),
+  };
+  const canManageAccounting = hasAccountingManagementCapability(settingsPermissions);
   return <div className="space-y-5">
+    {canManageAccounting && <SalesAccountingSettingsPanel />}
     {!isAdmin && <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">Only administrators can change pipeline settings.</div>}
     <Card><CardHeader className="flex-row items-center justify-between"><div><CardTitle>Pipeline stages</CardTitle><p className="mt-1 text-sm text-slate-500">Stages are ordered top-to-bottom. Use the arrow controls to change order, then save.</p></div>{isAdmin && <Button variant="outline" onClick={() => setDraft({ ...draft, stages: [...draft.stages, { name: "New stage", color: "#64748b", probability: 0, is_won: false, is_lost: false }] })}><Plus className="mr-2 h-4 w-4" />Stage</Button>}</CardHeader><CardContent className="space-y-3">{draft.stages.map((stage, index) => <div key={idOf(stage) || index} className="grid items-end gap-3 rounded-lg border p-3 sm:grid-cols-[1fr_90px_110px_100px_100px_auto_auto]">
       <div><Label>Name</Label><Input disabled={!isAdmin} value={stage.name || stage.title || ""} onChange={(e) => updateStage(index, "name", e.target.value)} /></div>
@@ -385,6 +395,13 @@ function OpportunityDetail() {
     stage_id: opportunity.stage_id || opportunity.stageId || idOf(opportunity.stage) || "",
   }); }, [opportunity]);
   const refresh = () => qc.invalidateQueries({ queryKey: ["opportunity", id] });
+  const invoiceQuoteId = normalizedDetail.invoiceQuoteId;
+  const invoiceAction = async (actionName, command = {}) => {
+    if (!invoiceQuoteId) return Promise.reject(new Error("The accepted quote for this opportunity is unavailable."));
+    const result = await request(`/api/sales/quotes/${invoiceQuoteId}?action=${actionName}`, { method: "POST", body: JSON.stringify(command) });
+    await refresh();
+    return result;
+  };
   const update = useMutation({
     mutationFn: async (lossReasonId) => {
       const originalStageId = opportunity.stage_id || opportunity.stageId || idOf(opportunity.stage);
@@ -407,11 +424,15 @@ function OpportunityDetail() {
   if (detail.error) return <Card className="border-rose-200"><CardContent className="p-6 text-rose-700"><AlertTriangle className="mr-2 inline h-4 w-4" />{detail.error.message}<Button className="ml-4" variant="outline" onClick={() => detail.refetch()}>Retry</Button></CardContent></Card>;
   const stages = normalizedDetail.stages.length ? normalizedDetail.stages : arr(stageQuery.data);
   const collections = normalizedDetail.collections;
+  const currentStage = stages.find((stage) => idOf(stage) === (opportunity.stage_id || opportunity.stageId || idOf(opportunity.stage)));
+  const isConfirmed = ["confirmed", "won"].includes(String(opportunity.status || "").toLowerCase())
+    || Boolean(opportunity.isConfirmed || opportunity.is_confirmed || opportunity.stage?.is_won || opportunity.stage?.isWon || currentStage?.is_won || currentStage?.isWon);
   return <div className="space-y-5">
     <div className="flex flex-wrap items-start justify-between gap-3">
       <div className="flex items-start gap-3"><Button variant="outline" size="icon" aria-label="Back to opportunities" onClick={() => navigate("/sales/opportunities")}><ArrowLeft className="h-4 w-4" /></Button><div><div className="flex flex-wrap items-center gap-2"><h2 className="text-2xl font-bold text-slate-950">{nameOf(opportunity)}</h2><Badge className="capitalize" variant="outline">{opportunity.priority || "medium"}</Badge></div><div className="mt-1 flex flex-wrap gap-x-4 text-sm text-slate-500"><span>{nameOf(opportunity.organization || { name: opportunity.organization_name })}</span><span>{money(opportunityValue(opportunity), opportunity.currency)}</span><span>Close {date(opportunity.expected_close_date || opportunity.expectedCloseDate)}</span></div></div></div>
       <div className="flex flex-wrap gap-2"><Button asChild><Link to={`/sales/quotes/new?opportunityId=${id}`}><FileText className="mr-2 h-4 w-4" />Create quote</Link></Button>{opportunity.organization_id && <Button variant="outline" asChild><Link to={`/organisations/${opportunity.organization_id}`}>View organisation</Link></Button>}</div>
     </div>
+    {isConfirmed && <InvoiceStatusPanel invoice={normalizedDetail.invoice} invoices={normalizedDetail.invoices} activeProvider={normalizedDetail.activeProvider} permissions={capabilities} error={update.error} onCreate={(command) => invoiceAction("create-invoice", command)} onRetry={(command) => invoiceAction("create-invoice", command)} onRefresh={normalizedDetail.invoice ? () => invoiceAction("refresh-invoice-status") : undefined} />}
     <Tabs defaultValue="overview">
       <TabsList className="h-auto max-w-full flex-wrap justify-start">
         <TabsTrigger value="overview">Overview</TabsTrigger><TabsTrigger value="contacts">Contacts</TabsTrigger><TabsTrigger value="notes">Notes</TabsTrigger><TabsTrigger value="documents">Documents</TabsTrigger><TabsTrigger value="tasks">Tasks</TabsTrigger><TabsTrigger value="activity">Activity</TabsTrigger><TabsTrigger value="quotes">Quotes</TabsTrigger><TabsTrigger value="allocations">Allocations</TabsTrigger>

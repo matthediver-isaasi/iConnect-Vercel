@@ -43,6 +43,10 @@ export const SALES_CATALOGUE_ENTITY_TYPES = Object.freeze(['category', 'product'
 export const SALES_TAX_TREATMENTS = Object.freeze(['standard', 'zero_rated', 'exempt', 'outside_scope']);
 export const SALES_BUNDLE_PRESENTATION_MODES = Object.freeze(['bundle', 'itemised']);
 export const SALES_EVENT_REFERENCE_KINDS = Object.freeze(['simple', 'complex']);
+export const SALES_ACCOUNTING_PROVIDERS = Object.freeze(['xero', 'quickbooks']);
+export const SALES_INVOICE_STATUSES = Object.freeze([
+  'draft', 'authorised', 'open', 'paid', 'voided', 'deleted', 'unknown',
+]);
 
 export const DEFAULT_SALES_SETTINGS = Object.freeze({
   quotePrefix: 'Q',
@@ -63,6 +67,61 @@ export function isMinorUnitAmount(value) {
 
 export function validateCurrency(value) {
   return typeof value === 'string' && CURRENCY_RE.test(value);
+}
+
+/**
+ * The public, provider-neutral command used to convert a confirmed commercial
+ * sale. Commercial values are deliberately not accepted here: they are always
+ * read from the accepted quote version.
+ */
+export function validateSalesInvoiceCommand(value) {
+  if (!isObject(value)) return { ok: false, errors: ['Body must be an object'] };
+  const allowed = new Set(['providerCustomerId', 'confirmCustomerMatch']);
+  const errors = Object.keys(value).filter((key) => !allowed.has(key))
+    .map((key) => `Unknown invoice field: ${key}`);
+  optionalText(errors, value.providerCustomerId, 'providerCustomerId', 255);
+  if (value.providerCustomerId != null && !String(value.providerCustomerId).trim()) {
+    errors.push('providerCustomerId must not be empty');
+  }
+  if ('confirmCustomerMatch' in value && typeof value.confirmCustomerMatch !== 'boolean') {
+    errors.push('confirmCustomerMatch must be boolean');
+  }
+  if (value.providerCustomerId && value.confirmCustomerMatch !== true) {
+    errors.push('confirmCustomerMatch must be true when selecting a provider customer');
+  }
+  return { ok: errors.length === 0, errors };
+}
+
+export function validateSalesAccountingConfigurationPatch(value) {
+  if (!isObject(value)) return { ok: false, errors: ['Body must be an object'] };
+  const errors = Object.keys(value).filter((key) => !['mappings', 'quickbooksSalesItemId'].includes(key))
+    .map((key) => `Unknown accounting configuration field: ${key}`);
+  if (!Array.isArray(value.mappings) || value.mappings.length === 0) {
+    errors.push('mappings must be a non-empty array');
+  } else {
+    const rates = new Set();
+    value.mappings.forEach((mapping, index) => {
+      if (!isObject(mapping)
+          || !Number.isInteger(mapping.taxRateBps) || mapping.taxRateBps < 0 || mapping.taxRateBps > 100000
+          || typeof mapping.providerTaxCodeId !== 'string' || !mapping.providerTaxCodeId.trim()) {
+        errors.push(`mappings[${index}] must contain a valid taxRateBps and providerTaxCodeId`);
+      } else if (rates.has(mapping.taxRateBps)) errors.push(`mappings[${index}] duplicates taxRateBps`);
+      else rates.add(mapping.taxRateBps);
+    });
+  }
+  optionalText(errors, value.quickbooksSalesItemId, 'quickbooksSalesItemId', 255);
+  return { ok: errors.length === 0, errors };
+}
+
+export function normalizeSalesInvoiceStatus(value) {
+  const status = String(value || '').toLowerCase().replace(/\s+/g, '_');
+  if (['authorised', 'authorized'].includes(status)) return 'authorised';
+  if (['open', 'unpaid', 'submitted'].includes(status)) return 'open';
+  if (['paid'].includes(status)) return 'paid';
+  if (['voided', 'void'].includes(status)) return 'voided';
+  if (['deleted'].includes(status)) return 'deleted';
+  if (['draft'].includes(status)) return 'draft';
+  return 'unknown';
 }
 
 export function validateMoney(value, documentCurrency) {
