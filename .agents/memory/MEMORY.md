@@ -148,3 +148,4 @@
 - [Nested form-field parity](nested-form-field-parity.md) — container children must be discovered explicitly across option APIs, validation, caches, and every label/export surface.
 - [Controlled composite pending state](controlled-composite-pending-state.md) — queued sibling edits must drive rendering as well as mutations until the parent acknowledges them.
 - [Catalogue event references](catalogue-event-references.md) — derive ticket delegate capacity live; revalidate links on restore, and replace bundle composition atomically.
+- [Deactivating referenced workflow states](workflow-state-deactivation-races.md) — assignment and deactivation must serialize on the same database row; an existence check is raceable.

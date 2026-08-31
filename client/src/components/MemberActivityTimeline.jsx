@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Loader2, ClipboardList, Calendar, UserCheck, UserPlus, UserMinus } from "lucide-react";
 import { format } from "date-fns";
 import { useDateFormat } from "@/hooks/useDateFormat";
+import RelatedOpportunityActivity from "@/components/opportunities/RelatedOpportunityActivity";
 
 /**
  * Shared member Activity timeline.
@@ -310,14 +311,15 @@ export default function MemberActivityTimeline({
   const anyBookingsLoading = bookingsLoading || complexBookingsLoading || groupActivityLoading || complexCheckinsLoading;
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-lg flex items-center gap-2">
-          <ClipboardList className="w-5 h-5 text-blue-600" />
-          {title}
-        </CardTitle>
-      </CardHeader>
-      <CardContent>
+    <div className="space-y-6">
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg flex items-center gap-2">
+            <ClipboardList className="w-5 h-5 text-blue-600" />
+            {title}
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
         {anyBookingsLoading ? (
           <div className="flex items-center justify-center py-8">
             <Loader2 className="w-6 h-6 animate-spin text-slate-400" />
@@ -438,7 +440,9 @@ export default function MemberActivityTimeline({
             })}
           </div>
         )}
-      </CardContent>
-    </Card>
+        </CardContent>
+      </Card>
+      <RelatedOpportunityActivity memberId={memberId} enabled={queriesEnabled} />
+    </div>
   );
 }

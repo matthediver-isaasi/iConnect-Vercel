@@ -15,6 +15,7 @@ import { supabase } from '../_lib/database.js';
 import { getTenantContext } from '../_lib/tenantContext.js';
 import { checkStorageQuota } from '../_lib/planQuota.js';
 import { addTenantStorageBytes } from '../_lib/tenantStorageUsage.js';
+import { loadOpportunityAccess } from '../_lib/opportunityService.js';
 
 /**
  * Look up tenant from form record for public form submissions
@@ -62,7 +63,7 @@ function sanitizeFileName(name) {
  * Determine which bucket to use based on upload type
  */
 function getBucketForType(uploadType) {
-  const privateTypes = ['form-submission', 'attachment', 'document', 'private'];
+  const privateTypes = ['form-submission', 'attachment', 'document', 'opportunity-document', 'private'];
   if (privateTypes.includes(uploadType)) {
     return BUCKETS.PRIVATE;
   }
@@ -130,6 +131,9 @@ function buildStoragePath(tenantId, uploadType, entityId, fileName) {
       return `${tenantId}/attachments/${entityId || 'general'}/${uniqueId}-${sanitizedName}`;
     case 'document':
       return `${tenantId}/documents/${entityId || 'general'}/${uniqueId}-${sanitizedName}`;
+    case 'opportunity-document':
+      if (!entityId) throw new Error('entityId is required for opportunity documents');
+      return `${tenantId}/opportunities/${entityId}/${uniqueId}-${sanitizedName}`;
     case 'forum':
       return `${tenantId}/forum/${entityId || 'general'}/${uniqueId}-${sanitizedName}`;
     case 'gallery-photo':
@@ -191,6 +195,18 @@ export default async function handler(req, res) {
 
     if (!fileName) {
       return res.status(400).json({ error: 'fileName is required' });
+    }
+
+    if (uploadType === 'opportunity-document') {
+      if (!entityId) return res.status(400).json({ error: 'entityId is required' });
+      try {
+        const access = await loadOpportunityAccess(supabase, tenantContext, entityId);
+        if (!access.permissions.canEdit) {
+          return res.status(403).json({ error: 'Opportunity edit access required' });
+        }
+      } catch {
+        return res.status(404).json({ error: 'Opportunity not found' });
+      }
     }
 
     const IMAGE_ONLY_TYPES = ['forum'];

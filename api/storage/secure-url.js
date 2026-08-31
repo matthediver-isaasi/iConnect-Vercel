@@ -11,6 +11,7 @@
 
 import { supabase } from '../_lib/database.js';
 import { getTenantContext } from '../_lib/tenantContext.js';
+import { loadOpportunityAccess } from '../_lib/opportunityService.js';
 
 const BUCKETS = {
   PUBLIC: 'public-assets',
@@ -118,6 +119,28 @@ export default async function handler(req, res) {
         error: 'Access denied',
         message: 'You do not have permission to access this file'
       });
+    }
+
+    // Opportunity files are more restrictive than ordinary tenant files:
+    // tenant membership alone is insufficient; the requester must be the
+    // owner, a collaborator, or an administrator for that opportunity.
+    const pathParts = storagePath.split('/');
+    if (targetBucket === BUCKETS.PRIVATE && pathParts[1] === 'opportunities') {
+      const opportunityId = pathParts[2];
+      if (!opportunityId) {
+        return res.status(400).json({ error: 'Invalid opportunity document path' });
+      }
+      try {
+        const access = await loadOpportunityAccess(supabase, tenantContext, opportunityId);
+        const { data: document } = await supabase.from('opportunity_document').select('id')
+          .eq('tenant_id', userTenantId).eq('opportunity_id', opportunityId)
+          .eq('bucket', targetBucket).eq('storage_path', storagePath).maybeSingle();
+        if (!access.permissions.canView || !document) {
+          return res.status(404).json({ error: 'File not found' });
+        }
+      } catch {
+        return res.status(404).json({ error: 'File not found' });
+      }
     }
 
     console.log('[SecureUrl] Generating signed URL:', {

@@ -104,6 +104,7 @@ import { useMemberTerminology } from "@/contexts/MemberTerminologyContext";
 import WorkflowConfirmationModal, { DryRunSimulationModal } from "@/components/WorkflowConfirmationModal";
 import { listAllOrganizationsForAdmin } from '@/lib/adminOrgList';
 import InviteMemberDialog from "@/components/InviteMemberDialog";
+import RelatedOpportunityActivity from "@/components/opportunities/RelatedOpportunityActivity";
 import { RelatedRecordsPanel, useRelatedRecordDefinitions } from "@/pages/customObjects/RelatedRecordsPanel";
 import { labelForSide, relationshipTabValue } from "@/pages/customObjects/relationshipHelpers";
 import {
@@ -2220,7 +2221,8 @@ export default function OrganisationDetailView({
         )}
 
         {activeTab === 'activity' && (
-          <Card>
+          <div className="space-y-6">
+            <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Calendar className="w-5 h-5 text-blue-600" />
@@ -2310,7 +2312,12 @@ export default function OrganisationDetailView({
                 </div>
               )}
             </CardContent>
-          </Card>
+            </Card>
+            <RelatedOpportunityActivity
+              organizationId={organization?.id}
+              enabled={activeTab === 'activity'}
+            />
+          </div>
         )}
 
         {activeTab === 'notes' && (

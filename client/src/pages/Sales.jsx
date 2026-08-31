@@ -17,6 +17,7 @@ import {
   SALES_BASE_PERMISSION,
 } from "@/lib/salesNavigation";
 import Catalogue from "./sales/Catalogue";
+import OpportunitiesWorkspace from "@/components/sales/OpportunitiesWorkspace";
 
 const ICONS = {
   dashboard: Gauge,
@@ -102,8 +103,10 @@ export default function Sales({ destination = "dashboard" }) {
           })}
         </nav>
 
-        <main>
-          <section className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
+        <main className="min-w-0">
+          {["pipeline", "opportunities", "settings"].includes(current.key) ? (
+            <OpportunitiesWorkspace destination={current.key} />
+          ) : <section className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
             <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-blue-50 text-blue-700">
               <CurrentIcon className="h-6 w-6" aria-hidden="true" />
             </div>
@@ -111,7 +114,7 @@ export default function Sales({ destination = "dashboard" }) {
             <p className="mt-2 max-w-xl text-slate-600">
               This area is ready for your organisation&apos;s sales data and workflows.
             </p>
-          </section>
+          </section>}
         </main>
       </div>
     </div>
