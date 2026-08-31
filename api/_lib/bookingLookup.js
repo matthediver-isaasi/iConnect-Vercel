@@ -378,22 +378,9 @@ export async function restoreComplexEventSeats(booking, tenantId) {
       console.log(`[BookingLookup] Complex event seats restored for event ${complexEvent.id}`);
     }
 
-    if (booking.ticket_class_id) {
-      const { data: ticketClass } = await supabase
-        .from('complex_event_ticket_class')
-        .select('id, available_count, is_unlimited_tickets')
-        .eq('id', booking.ticket_class_id)
-        .eq('complex_event_id', booking.event_id)
-        .single();
-
-      if (ticketClass && !ticketClass.is_unlimited_tickets && ticketClass.available_count !== null) {
-        await supabase
-          .from('complex_event_ticket_class')
-          .update({ available_count: ticketClass.available_count + 1 })
-          .eq('id', ticketClass.id);
-        console.log(`[BookingLookup] Ticket class ${ticketClass.id} seats restored`);
-      }
-    }
+    // Ticket-class available_count is the fixed maximum. Confirmed bookings
+    // and commercial movements derive usage, so cancellation never increments
+    // the definition.
   } catch (err) {
     console.error(`[BookingLookup] Complex event seat restoration error:`, err.message);
   }
@@ -419,29 +406,7 @@ export async function restoreComplexEventSeatsMultiple(bookings, count) {
       console.log(`[BookingLookup] Complex event seats restored by ${count} for event ${complexEvent.id}`);
     }
 
-    const ticketClassCounts = {};
-    for (const b of bookings) {
-      if (b.ticket_class_id) {
-        ticketClassCounts[b.ticket_class_id] = (ticketClassCounts[b.ticket_class_id] || 0) + 1;
-      }
-    }
-
-    for (const [tcId, tcCount] of Object.entries(ticketClassCounts)) {
-      const { data: ticketClass } = await supabase
-        .from('complex_event_ticket_class')
-        .select('id, available_count, is_unlimited_tickets')
-        .eq('id', tcId)
-        .eq('complex_event_id', eventId)
-        .single();
-
-      if (ticketClass && !ticketClass.is_unlimited_tickets && ticketClass.available_count !== null) {
-        await supabase
-          .from('complex_event_ticket_class')
-          .update({ available_count: ticketClass.available_count + tcCount })
-          .eq('id', ticketClass.id);
-        console.log(`[BookingLookup] Ticket class ${tcId} seats restored by ${tcCount}`);
-      }
-    }
+    // Ticket-class available_count is immutable capacity; do not restore it.
   } catch (err) {
     console.error(`[BookingLookup] Complex event seat restoration error:`, err.message);
   }

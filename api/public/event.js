@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { getEventCommercialCapacity, mergeTicketCommercialCapacity } from '../_lib/eventCommercialCapacity.js';
 import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
 import {
   PUBLIC_SIMPLE_EVENT_DETAIL_STATUSES,
@@ -192,14 +193,22 @@ export default async function handler(req, res) {
       soldCounts[tcId] = count || 0;
     }));
 
+    const commercialCapacity = await getEventCommercialCapacity(supabase, tenant.id, 'simple', event.id);
     const publicTicketClasses = publicTicketClassesBase.map(tc => {
       if (isUnlimitedTicket(tc)) {
-        return { ...tc, sold_count: 0, is_sold_out: false };
+        return {
+          ...tc,
+          sold_count: 0,
+          ...mergeTicketCommercialCapacity(tc, 0, commercialCapacity.get(String(tc.id)), false),
+          is_sold_out: false,
+        };
       }
       const soldCount = soldCounts[String(tc.id)] || 0;
-      const max = Number(tc.available_count);
-      const isSoldOut = Number.isFinite(max) ? (max - soldCount) <= 0 : false;
-      return { ...tc, sold_count: soldCount, is_sold_out: isSoldOut };
+      return {
+        ...tc,
+        sold_count: soldCount,
+        ...mergeTicketCommercialCapacity(tc, soldCount, commercialCapacity.get(String(tc.id)), false),
+      };
     });
 
     const publicEvent = {

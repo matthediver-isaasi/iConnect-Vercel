@@ -91,6 +91,7 @@ export default async function handler(req, res) {
 
     let bookingGroups = [];
     let organizations = {};
+    let commercialAllocations = [];
     let hasZoomForSelectedEvents = false;
     let hasAttendanceForSelectedEvents = false;
     let summary = {
@@ -209,6 +210,35 @@ export default async function handler(req, res) {
             }
             return inRange(complexStartById.get(id));
           });
+        }
+      }
+
+      const allocationQueries = [];
+      if (targetEventIds.length > 0) {
+        allocationQueries.push(
+          supabase.from('sales_commercial_allocation_totals').select('*')
+            .eq('tenant_id', tenantId).eq('event_reference_kind', 'simple')
+            .in('event_id', targetEventIds),
+        );
+      }
+      if (targetComplexEventIds.length > 0) {
+        allocationQueries.push(
+          supabase.from('sales_commercial_allocation_totals').select('*')
+            .eq('tenant_id', tenantId).eq('event_reference_kind', 'complex')
+            .in('event_id', targetComplexEventIds),
+        );
+      }
+      if (allocationQueries.length > 0) {
+        const allocationResults = await Promise.all(allocationQueries);
+        for (const result of allocationResults) {
+          if (result.error) {
+            // The report remains usable while the allocation migration rolls out.
+            if (result.error.code !== '42P01' && result.error.code !== 'PGRST205') {
+              console.error('[Event Registration Report] Error fetching commercial allocations:', result.error);
+            }
+          } else {
+            commercialAllocations.push(...(result.data || []));
+          }
         }
       }
 
@@ -901,6 +931,12 @@ export default async function handler(req, res) {
         countByStatus,
         totalBookings: allBookings.length,
         totalGroups: groupMap.size,
+        commercialAllocated: commercialAllocations.reduce((sum, row) => sum + (Number(row.allocated) || 0), 0),
+        commercialNamed: commercialAllocations.reduce((sum, row) => sum + (Number(row.named) || 0), 0),
+        commercialReserved: commercialAllocations.reduce((sum, row) => sum + (Number(row.reserved) || 0), 0),
+        commercialReleased: commercialAllocations.reduce((sum, row) => sum + (Number(row.released) || 0), 0),
+        commercialCancelled: commercialAllocations.reduce((sum, row) => sum + (Number(row.cancelled) || 0), 0),
+        commercialRemaining: commercialAllocations.reduce((sum, row) => sum + (Number(row.remaining) || 0), 0),
       };
     }
 
@@ -908,6 +944,7 @@ export default async function handler(req, res) {
       events: allEvents,
       bookingGroups,
       organizations,
+      commercialAllocations,
       summary,
       hasZoomForSelectedEvents,
       hasAttendanceForSelectedEvents,

@@ -147,6 +147,11 @@ export async function transitionQuote(db, tenantId, actor, id, expectedVersion, 
   });
 }
 
+export async function confirmQuoteSale(db, tenantId, actor, id, input) {
+  const { confirmQuoteSale: confirm } = await import('./salesCommercialAllocation.js');
+  return confirm(db, tenantId, actor, id, input);
+}
+
 export async function listQuotes(db, tenantId, filters = {}) {
   let query = db.from('sales_quote').select('*').eq('tenant_id', tenantId).order('updated_at', { ascending: false });
   if (filters.opportunityId) query = query.eq('opportunity_id', filters.opportunityId);

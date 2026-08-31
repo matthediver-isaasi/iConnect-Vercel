@@ -150,3 +150,4 @@
 - [Catalogue event references](catalogue-event-references.md) — derive ticket delegate capacity live; revalidate links on restore, and replace bundle composition atomically.
 - [Deactivating referenced workflow states](workflow-state-deactivation-races.md) — assignment and deactivation must serialize on the same database row; an existence check is raceable.
 - [Immutable child re-parenting](immutable-child-reparenting.md) — child immutability triggers must validate both OLD and NEW parents or updates can move data out of locked snapshots.
+- [Commercial Event capacity](commercial-event-capacity.md) — unused sale allocations and confirmed delegate rows share one locked capacity equation; reconciliation/cancellation must be atomic.

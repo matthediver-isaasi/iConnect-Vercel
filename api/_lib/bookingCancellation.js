@@ -131,13 +131,34 @@ export async function cancelBooking({
     }
   }
 
-  // 1. Mark booking cancelled (do this first so re-runs are idempotent).
-  const { error: updateError } = await supabase
-    .from(bookingTable)
-    .update({ status: 'cancelled' })
-    .eq('id', booking.id);
-  if (updateError) {
-    return { success: false, error: 'Failed to update booking status: ' + updateError.message };
+  // 1. Commit the status and any commercial allocation movement together under
+  // the shared ticket lock. Otherwise registrations can observe a false
+  // free-place window between two separate database requests.
+  const { data: atomicCancellation, error: atomicCancellationError } = await supabase.rpc('cancel_event_booking_with_allocation', {
+    p_tenant_id: tenantId,
+    p_booking_kind: isComplex ? 'complex' : 'simple',
+    p_booking_id: booking.id,
+    p_idempotency_key: `booking-cancelled:${booking.id}`,
+    p_actor_kind: 'system',
+    p_actor_id: booking.id,
+  });
+  if (atomicCancellationError) {
+    // Rollout compatibility for environments that have not applied the new
+    // migration yet. Other RPC errors fail closed before financial side effects.
+    if (atomicCancellationError.code === '42883' || atomicCancellationError.code === 'PGRST202') {
+      const { error: updateError } = await supabase
+        .from(bookingTable)
+        .update({ status: 'cancelled' })
+        .eq('id', booking.id);
+      if (updateError) {
+        return { success: false, error: 'Failed to update booking status: ' + updateError.message };
+      }
+    } else {
+      return { success: false, error: 'Failed to update booking status: ' + atomicCancellationError.message };
+    }
+  }
+  if (atomicCancellation?.alreadyCancelled) {
+    return { success: true, alreadyCancelled: true, reversalResults };
   }
   console.log(`${LP} Booking ${booking.id} cancelled (source: ${source}, reason: ${reason})`);
 

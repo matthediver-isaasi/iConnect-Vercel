@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { getEventCommercialCapacity, mergeTicketCommercialCapacity } from '../_lib/eventCommercialCapacity.js';
 import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
 
 
@@ -109,13 +110,20 @@ export default async function handler(req, res) {
       .eq('tenant_id', tenant.id)
       .order('display_order', { ascending: true });
 
+    const commercialCapacity = await getEventCommercialCapacity(supabase, tenant.id, 'complex', event.id);
     const publicTicketClasses = (ticketClasses || [])
       .map(tc => {
         const isUnlimited = tc.is_unlimited_tickets === true ||
           tc.available_count === null || tc.available_count === undefined;
         const max = isUnlimited ? null : (Number(tc.available_count) || 0);
         const soldCount = soldCounts[String(tc.id)] || 0;
-        const remaining = isUnlimited ? null : Math.max(0, max - soldCount);
+        const allocationCapacity = mergeTicketCommercialCapacity(
+          tc,
+          soldCount,
+          commercialCapacity.get(String(tc.id)),
+          false,
+        );
+        const remaining = allocationCapacity.true_available;
         return {
           id: tc.id,
           name: tc.name,
@@ -139,6 +147,7 @@ export default async function handler(req, res) {
           is_unlimited_tickets: isUnlimited,
           sold_count: soldCount,
           remaining,
+          ...allocationCapacity,
           is_sold_out: !isUnlimited && remaining <= 0
         };
       });

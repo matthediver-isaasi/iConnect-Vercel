@@ -5,7 +5,7 @@ import {
 } from '../../../shared/salesContracts.js';
 import { requireSalesContext, SalesHttpError } from '../../_lib/salesAccess.js';
 import {
-  amendQuote, compareQuoteVersions, getQuote, getQuoteHistory, issueQuote, listQuotes, prepareQuoteDraft,
+  amendQuote, compareQuoteVersions, confirmQuoteSale, getQuote, getQuoteHistory, issueQuote, listQuotes, prepareQuoteDraft,
   saveQuoteDraft, transitionQuote,
 } from '../../_lib/salesQuote.js';
 
@@ -26,7 +26,12 @@ export function createSalesQuotesHandler(dependencies = {}) {
       const read = req.method === 'GET';
       const context = await getContext(req);
       const actor = await requireSalesContext(context,
-        read ? SALES_CAPABILITIES.VIEW : SALES_CAPABILITIES.MANAGE_QUOTES, dependencies);
+        read
+          ? SALES_CAPABILITIES.VIEW
+          : action === 'confirm-sale'
+            ? SALES_CAPABILITIES.MANAGE_ALLOCATIONS
+            : SALES_CAPABILITIES.MANAGE_QUOTES,
+        dependencies);
       const can = async (capability) => {
         try {
           await requireSalesContext(context, capability, dependencies);
@@ -95,6 +100,15 @@ export function createSalesQuotesHandler(dependencies = {}) {
       if (req.method === 'POST' && id && action === 'amend') {
         if (!Number.isInteger(req.body?.expectedVersion) || req.body.expectedVersion < 1) throw new SalesHttpError(400, 'expectedVersion is required');
         return res.status(201).json(await amendQuote(db, actor.tenantId, actor, id, req.body.expectedVersion));
+      }
+      if (req.method === 'POST' && id && action === 'confirm-sale') {
+        if (!Number.isInteger(req.body?.expectedVersion) || req.body.expectedVersion < 1) {
+          throw new SalesHttpError(400, 'expectedVersion is required');
+        }
+        if (typeof req.body?.idempotencyKey !== 'string' || !req.body.idempotencyKey.trim()) {
+          throw new SalesHttpError(400, 'idempotencyKey is required');
+        }
+        return res.status(201).json(await confirmQuoteSale(db, actor.tenantId, actor, id, req.body));
       }
       if (req.method === 'POST' && id && ['status', 'transition'].includes(action)) {
         const validation = validateQuoteTransition(req.body);
