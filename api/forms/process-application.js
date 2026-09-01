@@ -34,6 +34,7 @@ import {
   resolveFormProcessingPrefillTargets,
 } from '../_lib/formProcessingPolicy.js';
 import { hasPersistedLegacyFormEntityActions, resolveFormEntityActions } from '../_lib/formEntityActionMode.js';
+import { resolveMemberRoleAssignment } from '../_lib/formMemberRoleAssignment.js';
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
@@ -1775,6 +1776,8 @@ export default async function handler(req, res) {
       }
     };
 
+    let primaryMemberRoleAssignment = { configured: false, roleId: undefined, source: 'fixed' };
+
     // Process entity_pipelines primary entries if available (new unified system)
     // This supplements/overrides the field_mappings data
     if (memberPipelines.length > 0) {
@@ -1795,19 +1798,33 @@ export default async function handler(req, res) {
       
       processPipelineMappings(primaryMemberPipeline, 'member', memberData, memberCustomFieldsMap, memberCoreFieldMappings, memberCustomFieldsToClear);
       
-      // If pipeline has a role_id, use it. null/undefined/'__keep__' all mean
-      // "don't change" — leave memberData.role_id unset so update/insert skip it.
-      // '__clear__' explicitly sets the role to null. A specific role overwrites.
-      const pipelineRoleId = primaryMemberPipeline?.role_id;
-      if (pipelineRoleId && pipelineRoleId !== '__keep__') {
-        if (pipelineRoleId === '__clear__') {
-          memberData.role_id = null;
-        } else {
-          memberData.role_id = pipelineRoleId;
-        }
-        console.log('[AppProcessor] Using pipeline role_id:', memberData.role_id);
+      primaryMemberRoleAssignment = resolveMemberRoleAssignment({
+        pipeline: primaryMemberPipeline,
+        answers: form_values,
+      });
+      if (primaryMemberRoleAssignment.invalid) {
+        return res.status(400).json({
+          error: primaryMemberRoleAssignment.error,
+          code: primaryMemberRoleAssignment.code,
+        });
+      }
+      if (primaryMemberRoleAssignment.configured) {
+        // Answer-driven role assignment is create-only. Do not put it in
+        // memberData, because memberData is also used by the update branch.
+        console.log('[AppProcessor] Resolved primary answer-driven role:', {
+          role_id: primaryMemberRoleAssignment.roleId,
+          source: primaryMemberRoleAssignment.source,
+        });
       } else {
-        console.log('[AppProcessor] Pipeline role_id is don\'t-change (keep/null) — preserving existing role on update');
+        // Fixed roles retain their established update/create behaviour.
+        // null/undefined/'__keep__' mean don't change; '__clear__' is explicit.
+        const pipelineRoleId = primaryMemberPipeline?.role_id;
+        if (pipelineRoleId && pipelineRoleId !== '__keep__') {
+          memberData.role_id = pipelineRoleId === '__clear__' ? null : pipelineRoleId;
+          console.log('[AppProcessor] Using pipeline role_id:', memberData.role_id);
+        } else {
+          console.log('[AppProcessor] Pipeline role_id is don\'t-change (keep/null) — preserving existing role on update');
+        }
       }
 
       // Login: only set when pipeline explicitly chose true/false. null/undefined
@@ -2224,7 +2241,9 @@ export default async function handler(req, res) {
           if (memberData.landline) memberUpdateData.landline = memberData.landline;
           
           // Determine effective role_id from multiple sources
-          const effectiveRoleIdForUpdate = memberData.role_id !== undefined ? memberData.role_id : role_id;
+          const effectiveRoleIdForUpdate = primaryMemberRoleAssignment.configured
+            ? undefined
+            : (memberData.role_id !== undefined ? memberData.role_id : role_id);
           console.log('[AppProcessor] Role ID resolution (update):', { 
             memberData_role_id: memberData.role_id, 
             role_id_param: role_id, 
@@ -2457,7 +2476,12 @@ export default async function handler(req, res) {
           // pipeline-clear (null) is preserved.
           let effectiveRoleId;
           let roleSource;
-          if (memberData.role_id !== undefined) {
+          if (primaryMemberRoleAssignment.configured
+              && primaryMemberRoleAssignment.roleId !== undefined) {
+            effectiveRoleId = primaryMemberRoleAssignment.roleId;
+            roleSource = primaryMemberRoleAssignment.source;
+            console.log('[AppProcessor] Applied answer-driven role to new member:', effectiveRoleId);
+          } else if (memberData.role_id !== undefined) {
             effectiveRoleId = memberData.role_id;
             if (effectiveRoleId === null) {
               roleSource = 'pipeline-clear';
@@ -3036,20 +3060,37 @@ export default async function handler(req, res) {
           customFieldCount: additionalCustomFieldsMap.size
         });
         
-        // Add role_id if specified. null/undefined/'__keep__' all mean "don't change" —
-        // leave additionalMemberData.role_id unset so update/insert skip it.
-        // '__clear__' explicitly sets the role to null. A specific role overwrites.
-        const additionalRoleId = memberConfig.role_id;
-        if (additionalRoleId && additionalRoleId !== '__keep__') {
-          if (additionalRoleId === '__clear__') {
-            additionalMemberData.role_id = null;
-            clearFields.push('role_id');
-          } else {
-            additionalMemberData.role_id = additionalRoleId;
-          }
-          console.log('[AppProcessor] Additional member role_id:', additionalMemberData.role_id);
+        const additionalMemberRoleAssignment = resolveMemberRoleAssignment({
+          pipeline: memberConfig,
+          answers: form_values,
+        });
+        if (additionalMemberRoleAssignment.invalid) {
+          return res.status(400).json({
+            error: additionalMemberRoleAssignment.error,
+            code: additionalMemberRoleAssignment.code,
+          });
+        }
+        if (additionalMemberRoleAssignment.configured) {
+          // Answer-driven assignment is create-only, so existing members keep
+          // their role during additional-member update/upsert processing.
+          console.log('[AppProcessor] Resolved additional answer-driven role:', {
+            role_id: additionalMemberRoleAssignment.roleId,
+            source: additionalMemberRoleAssignment.source,
+          });
         } else {
-          console.log('[AppProcessor] Additional member role_id is don\'t-change — preserving existing role on update');
+          // Fixed role behaviour remains backwards-compatible.
+          const additionalRoleId = memberConfig.role_id;
+          if (additionalRoleId && additionalRoleId !== '__keep__') {
+            if (additionalRoleId === '__clear__') {
+              additionalMemberData.role_id = null;
+              clearFields.push('role_id');
+            } else {
+              additionalMemberData.role_id = additionalRoleId;
+            }
+            console.log('[AppProcessor] Additional member role_id:', additionalMemberData.role_id);
+          } else {
+            console.log('[AppProcessor] Additional member role_id is don\'t-change — preserving existing role on update');
+          }
         }
 
         // Login: only set when member config explicitly chose true/false. null/undefined
@@ -3286,6 +3327,11 @@ export default async function handler(req, res) {
           // __keep__ (newMemberData.role_id === undefined), fall back to
           // the tenant default. Explicit __clear__ (null) is preserved.
           let additionalRoleSource;
+          if (additionalMemberRoleAssignment.configured
+              && additionalMemberRoleAssignment.roleId !== undefined) {
+            newMemberData.role_id = additionalMemberRoleAssignment.roleId;
+            additionalRoleSource = additionalMemberRoleAssignment.source;
+          }
           if (newMemberData.role_id === undefined) {
             additionalRoleSource = 'none';
           } else if (newMemberData.role_id === null) {

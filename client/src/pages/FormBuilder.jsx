@@ -72,6 +72,10 @@ import {
   FORM_NO_RELATIONSHIP_VALUE,
   formNoRelationshipLabel,
 } from "../../../shared/formNoRelationshipChoice.js";
+import {
+  formRoleFieldOptions,
+  isFormRoleMappingField,
+} from "../../../api/_lib/formMemberRoleAssignment.js";
 import { validateFormFieldPrefillConfig } from "@/lib/formFieldPrefill";
 import {
   isRepeatableRowField,
@@ -433,6 +437,206 @@ const MEMBER_CORE_FIELDS = [
   { value: 'organization_id', label: 'Organisation' },
   { value: 'show_in_directory', label: 'Show in Member Directory' },
 ];
+
+function MemberRoleAssignmentEditor({ member, fields, roles, onChange, memberIndex }) {
+  const assignment = member.role_assignment;
+  const mode = assignment?.mode === 'from_field' ? 'from_field' : 'fixed';
+  const eligibleFields = fields.filter(isFormRoleMappingField);
+  const sourceField = eligibleFields.find(field => field.id === assignment?.source_field_id) || null;
+  const sourceOptions = sourceField ? formRoleFieldOptions(sourceField) : [];
+  const valueMap = assignment?.value_to_role_id && typeof assignment.value_to_role_id === 'object'
+    ? assignment.value_to_role_id
+    : {};
+
+  const updateAssignment = (updates) => {
+    onChange({
+      ...member,
+      role_assignment: {
+        mode: 'from_field',
+        source_field_id: assignment?.source_field_id || '',
+        value_to_role_id: valueMap,
+        fallback: assignment?.fallback || 'default',
+        fallback_role_id: assignment?.fallback_role_id || null,
+        ...updates,
+      },
+    });
+  };
+
+  return (
+    <div className="mb-4 rounded-md border border-slate-200 bg-white p-3 space-y-3" data-testid={`member-role-assignment-${memberIndex}`}>
+      <div className="grid gap-3 md:grid-cols-2">
+        <div className="space-y-1">
+          <Label className="text-xs">Role assignment</Label>
+          <Select
+            value={mode}
+            onValueChange={(nextMode) => {
+              if (nextMode === 'fixed') {
+                onChange({ ...member, role_assignment: { mode: 'fixed' } });
+                return;
+              }
+              const firstField = eligibleFields[0];
+              onChange({
+                ...member,
+                role_assignment: {
+                  mode: 'from_field',
+                  source_field_id: firstField?.id || '',
+                  value_to_role_id: {},
+                  fallback: 'default',
+                  fallback_role_id: null,
+                },
+              });
+            }}
+          >
+            <SelectTrigger className="h-9" data-testid={`select-member-role-mode-${memberIndex}`}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="fixed">Use one fixed role</SelectItem>
+              <SelectItem value="from_field">Choose role from a form answer</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        {mode === 'fixed' ? (
+          <div className="space-y-1">
+            <Label className="text-xs">Fixed role</Label>
+            <Select
+              value={
+                member.role_id === "__clear__" ? "clear"
+                  : (member.role_id === "__keep__" || !member.role_id) ? "keep"
+                  : member.role_id
+              }
+              onValueChange={(value) => onChange({
+                ...member,
+                role_id: value === "keep" ? null : (value === "clear" ? "__clear__" : value),
+              })}
+            >
+              <SelectTrigger className="h-9" data-testid={`select-member-role-${memberIndex}`}>
+                <SelectValue placeholder="Select role..." />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="keep">-- Don't change role --</SelectItem>
+                <SelectItem value="clear" className="text-warning">Clear role (set to none)</SelectItem>
+                {roles.map(role => (
+                  <SelectItem key={role.id} value={role.id}>{role.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        ) : (
+          <div className="space-y-1">
+            <Label className="text-xs">Answer field</Label>
+            <Select
+              value={assignment?.source_field_id || undefined}
+              onValueChange={(source_field_id) => updateAssignment({
+                source_field_id,
+                value_to_role_id: {},
+              })}
+            >
+              <SelectTrigger className="h-9" data-testid={`select-member-role-field-${memberIndex}`}>
+                <SelectValue placeholder="Select a dropdown or radio field..." />
+              </SelectTrigger>
+              <SelectContent>
+                {eligibleFields.map(field => (
+                  <SelectItem key={field.id} value={field.id}>{field.label || field.type}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {eligibleFields.length === 0 && (
+              <p className="text-xs text-warning">
+                Add a Dropdown or Radio Buttons field with options before using answer-driven roles.
+              </p>
+            )}
+          </div>
+        )}
+      </div>
+
+      {mode === 'from_field' && sourceField && (
+        <>
+          <div className="space-y-2">
+            <Label className="text-xs">Answer-to-role mapping</Label>
+            {sourceOptions.map((option) => {
+              const isMapped = Object.prototype.hasOwnProperty.call(valueMap, option.value);
+              const mappedRole = isMapped
+                ? (valueMap[option.value] === null ? '__none__' : valueMap[option.value])
+                : '__unmapped__';
+              return (
+                <div key={option.value} className="grid items-center gap-2 sm:grid-cols-[minmax(0,1fr)_24px_minmax(0,1fr)]">
+                  <div className="truncate rounded border bg-slate-50 px-3 py-2 text-sm">{option.label}</div>
+                  <ArrowRight className="mx-auto h-4 w-4 text-slate-400" />
+                  <Select
+                    value={mappedRole}
+                    onValueChange={(roleId) => {
+                      const nextMap = { ...valueMap };
+                      if (roleId === '__unmapped__') delete nextMap[option.value];
+                      else nextMap[option.value] = roleId === '__none__' ? null : roleId;
+                      updateAssignment({ value_to_role_id: nextMap });
+                    }}
+                  >
+                    <SelectTrigger className="h-9" data-testid={`select-member-role-map-${memberIndex}-${option.value}`}>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__unmapped__">Use fallback</SelectItem>
+                      <SelectItem value="__none__">No role</SelectItem>
+                      {roles.map(role => (
+                        <SelectItem key={role.id} value={role.id}>{role.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="grid gap-3 border-t border-slate-100 pt-3 md:grid-cols-2">
+            <div className="space-y-1">
+              <Label className="text-xs">Blank or unmapped answers</Label>
+              <Select
+                value={assignment?.fallback || 'default'}
+                onValueChange={(fallback) => updateAssignment({
+                  fallback,
+                  fallback_role_id: fallback === 'fixed' ? assignment?.fallback_role_id || null : null,
+                })}
+              >
+                <SelectTrigger className="h-9" data-testid={`select-member-role-fallback-${memberIndex}`}>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="default">Use existing form / tenant default</SelectItem>
+                  <SelectItem value="none">Assign no role</SelectItem>
+                  <SelectItem value="fixed">Use a fixed fallback role</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            {assignment?.fallback === 'fixed' && (
+              <div className="space-y-1">
+                <Label className="text-xs">Fallback role</Label>
+                <Select
+                  value={assignment?.fallback_role_id || undefined}
+                  onValueChange={(fallback_role_id) => updateAssignment({ fallback_role_id })}
+                >
+                  <SelectTrigger className="h-9" data-testid={`select-member-role-fallback-role-${memberIndex}`}>
+                    <SelectValue placeholder="Select fallback role..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {roles.map(role => (
+                      <SelectItem key={role.id} value={role.id}>{role.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+          </div>
+          <p className="text-xs text-slate-500">
+            Submitted answers are matched to this saved table; the answer itself is never treated as a role ID.
+            Answer-driven roles are applied only when a new member is created.
+          </p>
+        </>
+      )}
+    </div>
+  );
+}
 
 // Canonical list of organisation core columns safe to expose for prefill.
 // Cross-referenced with OrganisationDetailView.jsx editable formData, the
@@ -8138,7 +8342,7 @@ export default function FormBuilderPage() {
     visibility_rules: [], // Conditional logic rules
     // Unified entity pipelines - replaces old member_entity_action, organization_entity_action, additional_member_creations
     entity_pipelines: {
-      members: [], // [{id, label, isPrimary, role_id, uniqueness_key, field_mappings}]
+      members: [], // [{id, label, isPrimary, role_id, role_assignment, uniqueness_key, mappings}]
       organisations: [] // [{id, label, isPrimary, uniqueness_key, field_mappings}]
     },
     structured_actions: { version: STRUCTURED_ACTIONS_VERSION, actions: [] },
@@ -9267,6 +9471,35 @@ export default function FormBuilderPage() {
         console.log('[FormBuilder] VALIDATION FAILED: Member entry missing email mapping:', member.label);
         toast.error(`Member "${member.label}" requires an email field mapping.`);
         return;
+      }
+      const roleAssignment = member.role_assignment;
+      if (roleAssignment?.mode === 'from_field') {
+        const sourceField = formData.fields.find(field => field.id === roleAssignment.source_field_id);
+        if (!sourceField || !isFormRoleMappingField(sourceField)) {
+          toast.error(`Member "${member.label}" must select a Dropdown or Radio Buttons field with options for role assignment.`);
+          return;
+        }
+        const allowedValues = new Set(formRoleFieldOptions(sourceField).map(option => option.value));
+        const valueMap = roleAssignment.value_to_role_id;
+        if (!valueMap || typeof valueMap !== 'object' || Array.isArray(valueMap)) {
+          toast.error(`Member "${member.label}" has an invalid answer-to-role mapping.`);
+          return;
+        }
+        for (const [answer, mappedRoleId] of Object.entries(valueMap)) {
+          if (!allowedValues.has(answer)) {
+            toast.error(`Member "${member.label}" maps an answer that is no longer available.`);
+            return;
+          }
+          if (mappedRoleId !== null && !roles.some(role => role.id === mappedRoleId)) {
+            toast.error(`Member "${member.label}" has a mapped role that is no longer available.`);
+            return;
+          }
+        }
+        if (roleAssignment.fallback === 'fixed'
+            && !roles.some(role => role.id === roleAssignment.fallback_role_id)) {
+          toast.error(`Member "${member.label}" must select a valid fallback role.`);
+          return;
+        }
       }
       for (const link of (member.related_records || [])) {
         const definition = structuredActionMetadata.relationships.find(item => item.id === link.relationship_definition_id);
@@ -10537,6 +10770,7 @@ export default function FormBuilderPage() {
                           label: isPrimary ? 'Primary Member' : `Additional Member ${members.length}`,
                           isPrimary,
                           role_id: null,
+                          role_assignment: { mode: 'fixed' },
                           uniqueness_key: 'email',
                           mappings: [],
                           login_enabled: null
@@ -10595,34 +10829,6 @@ export default function FormBuilderPage() {
                                 />
                                 <Select
                                   value={
-                                    memberConfig.role_id === "__clear__" ? "clear"
-                                      : (memberConfig.role_id === "__keep__" || !memberConfig.role_id) ? "keep"
-                                      : memberConfig.role_id
-                                  }
-                                  onValueChange={(value) => {
-                                    const updated = [...formData.entity_pipelines.members];
-                                    updated[memberIdx] = {
-                                      ...updated[memberIdx],
-                                      role_id: value === "keep" ? null : (value === "clear" ? "__clear__" : value)
-                                    };
-                                    setFormData(prev => ({ ...prev, entity_pipelines: { ...prev.entity_pipelines, members: updated } }));
-                                  }}
-                                >
-                                  <SelectTrigger className="h-8 w-48 text-xs" data-testid={`select-member-role-${memberIdx}`}>
-                                    <SelectValue placeholder="Select role..." />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    <SelectItem value="keep">-- Don't change role --</SelectItem>
-                                    <SelectItem value="clear" className="text-warning">Clear role (set to none)</SelectItem>
-                                    {roles.map(role => (
-                                      <SelectItem key={role.id} value={role.id}>
-                                        {role.name}
-                                      </SelectItem>
-                                    ))}
-                                  </SelectContent>
-                                </Select>
-                                <Select
-                                  value={
                                     memberConfig.login_enabled === true ? "enabled"
                                       : memberConfig.login_enabled === false ? "disabled"
                                       : "keep"
@@ -10665,6 +10871,21 @@ export default function FormBuilderPage() {
                                 <Trash2 className="w-4 h-4" />
                               </Button>
                             </div>
+
+                            <MemberRoleAssignmentEditor
+                              member={memberConfig}
+                              fields={formData.fields}
+                              roles={roles}
+                              memberIndex={memberIdx}
+                              onChange={(updatedMember) => {
+                                const updated = [...formData.entity_pipelines.members];
+                                updated[memberIdx] = updatedMember;
+                                setFormData(prev => ({
+                                  ...prev,
+                                  entity_pipelines: { ...prev.entity_pipelines, members: updated },
+                                }));
+                              }}
+                            />
                             
                             <FieldMappingSection
                               fields={formData.fields}

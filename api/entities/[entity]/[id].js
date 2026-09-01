@@ -67,6 +67,10 @@ import {
   StructuredActionContractError,
   validateStructuredActionsContract,
 } from '../../_lib/formStructuredActions.js';
+import {
+  authorizeAnswerDrivenMemberRoleWrite,
+  validateFormMemberRoleAssignments,
+} from '../../_lib/formMemberRoleAssignment.js';
 const entityToTable = {
   'Gallery': 'gallery',
   'GalleryPhoto': 'gallery_photo',
@@ -922,6 +926,43 @@ export default async function handler(req, res) {
             });
           }
           throw error;
+        }
+      }
+
+      if (entityNormalized === 'form'
+          && (Object.prototype.hasOwnProperty.call(sanitizedBody, 'entity_pipelines')
+            || Object.prototype.hasOwnProperty.call(sanitizedBody, 'fields'))) {
+        const { data: persistedRoleConfig, error: roleConfigError } = await supabase
+          .from('form')
+          .select('fields, entity_pipelines')
+          .eq('id', id)
+          .eq('tenant_id', tenantCtx.tenantId)
+          .maybeSingle();
+        if (roleConfigError || !persistedRoleConfig) {
+          return res.status(404).json({ error: 'Form not found' });
+        }
+        const effectiveEntityPipelines = Object.prototype.hasOwnProperty.call(sanitizedBody, 'entity_pipelines')
+          ? sanitizedBody.entity_pipelines
+          : persistedRoleConfig.entity_pipelines;
+        const roleWriteAccess = await authorizeAnswerDrivenMemberRoleWrite({
+          entityPipelines: effectiveEntityPipelines,
+          tenantCtx,
+          hasAdminAccess,
+          hasFeatureAccess,
+        });
+        if (!roleWriteAccess.ok) {
+          return res.status(roleWriteAccess.status).json({ error: roleWriteAccess.error });
+        }
+        const roleValidation = await validateFormMemberRoleAssignments({
+          supabase,
+          tenantId: tenantCtx.tenantId,
+          fields: Object.prototype.hasOwnProperty.call(sanitizedBody, 'fields')
+            ? sanitizedBody.fields
+            : persistedRoleConfig.fields,
+          entityPipelines: effectiveEntityPipelines,
+        });
+        if (!roleValidation.ok) {
+          return res.status(422).json(roleValidation);
         }
       }
 

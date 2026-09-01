@@ -67,6 +67,10 @@ import {
   StructuredActionContractError,
   validateStructuredActionsContract,
 } from '../../_lib/formStructuredActions.js';
+import {
+  authorizeAnswerDrivenMemberRoleWrite,
+  validateFormMemberRoleAssignments,
+} from '../../_lib/formMemberRoleAssignment.js';
 
 /**
  * Task #3100: support staff = tenant users (admin dashboard), tenant admins,
@@ -1335,6 +1339,27 @@ export default async function handler(req, res) {
             });
           }
           throw error;
+        }
+      }
+
+      if (entityNorm === 'form' && Object.prototype.hasOwnProperty.call(sanitizedBody, 'entity_pipelines')) {
+        const roleWriteAccess = await authorizeAnswerDrivenMemberRoleWrite({
+          entityPipelines: sanitizedBody.entity_pipelines,
+          tenantCtx,
+          hasAdminAccess,
+          hasFeatureAccess,
+        });
+        if (!roleWriteAccess.ok) {
+          return res.status(roleWriteAccess.status).json({ error: roleWriteAccess.error });
+        }
+        const roleValidation = await validateFormMemberRoleAssignments({
+          supabase,
+          tenantId: tenantCtx.effectiveTenantId || tenantCtx.tenantId,
+          fields: sanitizedBody.fields || [],
+          entityPipelines: sanitizedBody.entity_pipelines,
+        });
+        if (!roleValidation.ok) {
+          return res.status(422).json(roleValidation);
         }
       }
 

@@ -90,6 +90,30 @@ test('legacy existing-record reuse is ownership-gated before primary and additio
   assert.match(src, /error instanceof StructuredActionAuthorizationError/);
 });
 
+test('answer-driven roles use authoritative answers and remain create-only', () => {
+  assert.match(src, /resolveMemberRoleAssignment\(\{\s*pipeline: primaryMemberPipeline,\s*answers: form_values,/);
+  assert.match(src, /resolveMemberRoleAssignment\(\{\s*pipeline: memberConfig,\s*answers: form_values,/);
+
+  const primaryUpdateAt = idx('const effectiveRoleIdForUpdate = primaryMemberRoleAssignment.configured');
+  const primaryCreateAt = idx("roleSource = primaryMemberRoleAssignment.source;");
+  assert.ok(primaryUpdateAt < primaryCreateAt);
+  assert.match(
+    src.slice(primaryUpdateAt, primaryUpdateAt + 250),
+    /\? undefined\s*: \(memberData\.role_id !== undefined/,
+    'answer-driven primary roles must not mutate an existing member',
+  );
+
+  const additionalResolutionAt = idx('const additionalMemberRoleAssignment = resolveMemberRoleAssignment');
+  const additionalCreateAt = idx('additionalRoleSource = additionalMemberRoleAssignment.source;');
+  assert.ok(additionalResolutionAt < additionalCreateAt);
+  const additionalUpdateWindow = src.slice(additionalResolutionAt, additionalCreateAt);
+  assert.doesNotMatch(
+    additionalUpdateWindow,
+    /additionalMemberData\.role_id = additionalMemberRoleAssignment\.roleId/,
+    'answer-driven additional roles must not enter existing-member update data',
+  );
+});
+
 test('tenant is resolved exactly once and mismatch rejects with 403', () => {
   assert.equal(src.split('await resolveEffectiveEntityTenant(supabase,').length - 1, 1);
   const rejectBlock = src.slice(idx('tenantResolution.mismatch'), idx("code: 'TENANT_MISMATCH'"));
