@@ -30,6 +30,7 @@ import {
   pruneFormNotListedText,
   setFormNotListedText,
 } from "../../../../../shared/formNotListedChoice.js";
+import { useFormFieldPrefill } from "@/lib/useFormFieldPrefill";
 
 const formQuillModules = {
   toolbar: [
@@ -275,6 +276,13 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
     ? { __access: formError.errorData.access }
     : null);
   const formAccess = resolveFormAccess(accessPayload, !!memberInfo);
+  useFormFieldPrefill({
+    form,
+    formSlug,
+    formValues,
+    setFormValues,
+    enabled: !!form && !formAccess.restricted && defaultsInitialized,
+  });
 
   // Task #3336: authenticated fallback — when the form uses member/organisation
   // prefill and no explicit URL param is supplied, prefill from the logged-in

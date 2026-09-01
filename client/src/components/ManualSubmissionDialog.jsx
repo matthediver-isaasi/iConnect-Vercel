@@ -40,6 +40,7 @@ import {
   pruneFormNotListedText,
   setFormNotListedText,
 } from "../../../shared/formNotListedChoice.js";
+import { useFormFieldPrefill } from "@/lib/useFormFieldPrefill";
 
 function MultiCountrySelect({ value = [], onChange, fieldId }) {
   const [open, setOpen] = useState(false);
@@ -129,6 +130,13 @@ export default function ManualSubmissionDialog({ open, onOpenChange, form }) {
   const [submitterEmail, setSubmitterEmail] = useState("");
   const [fieldValidity, setFieldValidity] = useState({});
   const queryClient = useQueryClient();
+  useFormFieldPrefill({
+    form,
+    formSlug: form?.slug,
+    formValues,
+    setFormValues,
+    enabled: open,
+  });
 
   useEffect(() => {
     if (open && form) {

@@ -28,6 +28,7 @@ import {
   pruneFormNotListedText,
   setFormNotListedText,
 } from "../../../shared/formNotListedChoice.js";
+import { useFormFieldPrefill } from "@/lib/useFormFieldPrefill";
 
 // A `redirect_url` beginning with this prefix means the redirect target is driven
 // by the value the respondent submitted for the field whose id follows the prefix.
@@ -702,6 +703,13 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
   
   // Track if boolean defaults have been initialized for this form
   const [defaultsInitialized, setDefaultsInitialized] = useState(false);
+  useFormFieldPrefill({
+    form,
+    formSlug,
+    formValues,
+    setFormValues,
+    enabled: !!form && !formAccess.restricted && defaultsInitialized,
+  });
   
   // Reset page navigation state when form changes
   useEffect(() => {

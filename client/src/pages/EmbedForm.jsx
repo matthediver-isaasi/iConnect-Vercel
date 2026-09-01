@@ -26,6 +26,7 @@ import {
   pruneFormNotListedText,
   setFormNotListedText,
 } from "../../../shared/formNotListedChoice.js";
+import { useFormFieldPrefill } from "@/lib/useFormFieldPrefill";
 
 // Stable empty array so disabled custom-value queries don't create a fresh
 // default identity every render (which would re-trigger dependent effects).
@@ -273,6 +274,13 @@ export default function EmbedFormPage() {
     enabled: !!effectiveOrgIdForCustomFields && !!form?.prefill_source && form.prefill_source !== 'none'
   });
   const [defaultsInitialized, setDefaultsInitialized] = useState(false);
+  useFormFieldPrefill({
+    form,
+    formSlug: slug,
+    formValues,
+    setFormValues,
+    enabled: !!form && !formAccess.restricted && defaultsInitialized,
+  });
   const [prefillApplied, setPrefillApplied] = useState(false);
 
   useEffect(() => {

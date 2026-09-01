@@ -360,6 +360,35 @@ class PublicClient {
       }),
     });
   }
+
+  async getFormDropdownPrefill(formSlug, formId, recordId, sourceAnswers = {}) {
+    if ((!formSlug && !formId) || !recordId) return null;
+    return this._fetch('/api/public/form/dropdown-prefill', {
+      method: 'POST',
+      credentials: 'include',
+      body: JSON.stringify({
+        formSlug: formSlug || null,
+        formId: formId || null,
+        recordId,
+        sourceAnswers: sourceAnswers || {},
+      }),
+    });
+  }
+
+  async getFormFieldPrefill(formSlug, formId, sourceFieldId, recordId, sourceAnswers = {}) {
+    if ((!formSlug && !formId) || !sourceFieldId || !recordId) return null;
+    return this._fetch('/api/public/form/dropdown-prefill', {
+      method: 'POST',
+      credentials: 'include',
+      body: JSON.stringify({
+        formSlug: formSlug || null,
+        formId: formId || null,
+        sourceFieldId,
+        recordId,
+        sourceAnswers: sourceAnswers || {},
+      }),
+    });
+  }
   
   async getOrganization(id) {
     if (!id) return null;

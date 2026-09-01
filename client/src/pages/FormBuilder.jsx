@@ -72,6 +72,7 @@ import {
   FORM_NO_RELATIONSHIP_VALUE,
   formNoRelationshipLabel,
 } from "../../../shared/formNoRelationshipChoice.js";
+import { validateFormFieldPrefillConfig } from "@/lib/formFieldPrefill";
 import {
   isRepeatableRowField,
   normalizeRepeatableRowField,
@@ -447,6 +448,11 @@ const ORG_CORE_FIELDS = [
   { value: 'phone', label: 'Phone' },
   { value: 'website_url', label: 'Website URL' },
   { value: 'tags', label: 'Tags' },
+];
+const ORG_GROUP_PREFILL_FIELDS = [
+  { value: 'name', label: 'Group Name' },
+  { value: 'description', label: 'Description' },
+  { value: 'logo_url', label: 'Logo' },
 ];
 
 const STRUCTURED_ACTIONS_VERSION = 1;
@@ -5108,6 +5114,7 @@ function FieldCard({
   uniquenessChecks = [],
   onUniquenessChange,
   prefillSource = "none",
+  prefillSourceFieldId = null,
   isDrawerOpen = false,
   onOpenDrawer,
   onCloseDrawer,
@@ -5128,6 +5135,17 @@ function FieldCard({
   const comparisonMode = uniquenessCheck?.comparison_mode || 'equals_lowercase';
   const relationshipParents = getEligibleRelationshipParents(allFields, field.id);
   const fieldIndex = allFields.findIndex(candidate => candidate?.id === field.id);
+  const formFieldPrefillSource = allFields.find(candidate => candidate?.id === prefillSourceFieldId);
+  const formFieldPrefillSourceIndex = allFields.findIndex(candidate => candidate?.id === prefillSourceFieldId);
+  const isFormFieldPrefillTarget = prefillSource === 'form_field'
+    && formFieldPrefillSourceIndex >= 0
+    && fieldIndex > formFieldPrefillSourceIndex;
+  const isGroupFormFieldPrefill = formFieldPrefillSource?.type === 'organisation_group_dropdown';
+  const formFieldPrefillPrefixes = isGroupFormFieldPrefill
+    ? ['org_group:', 'organization_group:', 'organisation_group:', 'group:', 'org_group_custom:', 'organization_group_custom:', 'organisation_group_custom:', 'group_custom:']
+    : ['org:', 'organization:', 'organisation:', 'org_custom:', 'organization_custom:', 'organisation_custom:'];
+  const isFormFieldPrefillMappingCompatible = !field.prefill_field
+    || formFieldPrefillPrefixes.some(prefix => field.prefill_field.startsWith(prefix));
   const organisationGroupParents = (fieldIndex < 0 ? allFields : allFields.slice(0, fieldIndex))
     .filter(candidate => candidate?.type === 'organisation_group_dropdown' && candidate.id);
   const {
@@ -5821,7 +5839,7 @@ function FieldCard({
               })()}
 
               {/* Pre-fill Field Selection - When prefill is enabled */}
-              {prefillSource !== "none" && (
+              {prefillSource !== "none" && prefillSource !== 'form_field' && (
                 <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg space-y-2">
                   <Label className="text-xs font-medium text-blue-800">Pre-fill from {prefillSource === 'booking' ? 'Booking, Member or Organisation' : 'Member or Organisation'} data</Label>
                   <Select
@@ -5873,6 +5891,74 @@ function FieldCard({
                           {customFields.filter(cf => cf.entity_scope === 'organization').map(cf => (
                             <SelectItem key={`org_custom:${cf.id}`} value={`org_custom:${cf.id}`}>{cf.label}</SelectItem>
                           ))}
+                        </>
+                      )}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+              {prefillSource === 'form_field' && (isFormFieldPrefillTarget || field.prefill_field) && (
+                <div className={`p-3 border rounded-lg space-y-2 ${isFormFieldPrefillTarget && isFormFieldPrefillMappingCompatible ? 'bg-blue-50 border-blue-200' : 'bg-amber-50 border-amber-300'}`}>
+                  <Label className="text-xs font-medium">
+                    {isFormFieldPrefillTarget
+                      ? `Pre-fill from selected ${isGroupFormFieldPrefill ? 'organisation group' : 'organisation'}`
+                      : 'Unavailable pre-fill mapping'}
+                  </Label>
+                  {(!isFormFieldPrefillTarget || !isFormFieldPrefillMappingCompatible) && (
+                    <p className="text-xs text-amber-700">
+                      This saved mapping is stale because the source or mapping is incompatible, missing, or no longer before this field. Remove it below.
+                    </p>
+                  )}
+                  <Select
+                    value={field.prefill_field || "_none"}
+                    onValueChange={(value) => updateField(originalIndex, { prefill_field: value === "_none" ? null : value })}
+                  >
+                    <SelectTrigger className="h-8 text-xs" data-testid={`select-prefill-field-${field.id}`}>
+                      <SelectValue placeholder="Select data field…" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="_none">No pre-fill</SelectItem>
+                      {(!isFormFieldPrefillTarget || !isFormFieldPrefillMappingCompatible) && field.prefill_field && (
+                        <SelectItem value={field.prefill_field}>Unavailable: {field.prefill_field}</SelectItem>
+                      )}
+                      {isFormFieldPrefillTarget && (
+                        <>
+                          <div className="px-2 py-1 text-xs font-medium text-slate-500 bg-slate-50">
+                            {isGroupFormFieldPrefill ? 'Organisation Group Core Fields' : 'Organisation Core Fields'}
+                          </div>
+                          {(isGroupFormFieldPrefill ? ORG_GROUP_PREFILL_FIELDS : ORG_PREFILL_FIELDS).map(option => (
+                            <SelectItem
+                              key={`${isGroupFormFieldPrefill ? 'org_group' : 'org'}:${option.value}`}
+                              value={`${isGroupFormFieldPrefill ? 'org_group' : 'org'}:${option.value}`}
+                            >
+                              {option.label}
+                            </SelectItem>
+                          ))}
+                          {customFields.filter(customField => {
+                            const scope = customField.entity_scope || customField.target_entity || customField.entity_type;
+                            return customField.is_active !== false && (isGroupFormFieldPrefill
+                              ? ['organization_group', 'organisation_group'].includes(scope)
+                              : ['organization', 'organisation'].includes(scope));
+                          }).length > 0 && (
+                            <>
+                              <div className="px-2 py-1 text-xs font-medium text-slate-500 bg-slate-50">
+                                {isGroupFormFieldPrefill ? 'Organisation Group Custom Fields' : 'Organisation Custom Fields'}
+                              </div>
+                              {customFields.filter(customField => {
+                                const scope = customField.entity_scope || customField.target_entity || customField.entity_type;
+                                return customField.is_active !== false && (isGroupFormFieldPrefill
+                                  ? ['organization_group', 'organisation_group'].includes(scope)
+                                  : ['organization', 'organisation'].includes(scope));
+                              }).map(customField => (
+                                <SelectItem
+                                  key={`${isGroupFormFieldPrefill ? 'org_group_custom' : 'org_custom'}:${customField.id}`}
+                                  value={`${isGroupFormFieldPrefill ? 'org_group_custom' : 'org_custom'}:${customField.id}`}
+                                >
+                                  {customField.label || customField.name}
+                                </SelectItem>
+                              ))}
+                            </>
+                          )}
                         </>
                       )}
                     </SelectContent>
@@ -7971,7 +8057,8 @@ export default function FormBuilderPage() {
     submission_email_field_mapping: {}, // Maps template placeholders to form field IDs: { "customer_name": "field_123" }
     // New multi-email structure
     submission_emails: [], // [{id, template_id, recipient, cc, bcc, field_mapping}]
-    prefill_source: "none", // "none", "member", or "organization" - enables pre-populating form from entity data
+    prefill_source: "none", // Includes form_field for dropdown-driven record prefill
+    prefill_source_field_id: null,
     visibility_rules: [], // Conditional logic rules
     // Unified entity pipelines - replaces old member_entity_action, organization_entity_action, additional_member_creations
     entity_pipelines: {
@@ -8571,6 +8658,7 @@ export default function FormBuilderPage() {
               }] 
             : []),
         prefill_source: existingForm.prefill_source || "none",
+        prefill_source_field_id: existingForm.prefill_source_field_id || existingForm.prefill_field_id || null,
         is_job_posting: existingForm.is_job_posting || false,
         visibility_rules: (existingForm.visibility_rules || []).map(rule => ({
           ...rule,
@@ -9021,6 +9109,12 @@ export default function FormBuilderPage() {
     const invalidNotListedField = findInvalidNotListedField(formData.fields);
     if (invalidNotListedField) {
       toast.error(`“${invalidNotListedField.label || 'Untitled field'}” needs a label for its not-listed choice.`);
+      return;
+    }
+
+    const dynamicPrefillValidation = validateFormFieldPrefillConfig(formData);
+    if (!dynamicPrefillValidation.valid) {
+      toast.error(dynamicPrefillValidation.errors[0]);
       return;
     }
 
@@ -10201,7 +10295,11 @@ export default function FormBuilderPage() {
                   <Label className="text-sm font-medium">Pre-fill Form From</Label>
                   <Select
                     value={formData.prefill_source || "none"}
-                    onValueChange={(value) => setFormData({ ...formData, prefill_source: value })}
+                    onValueChange={(value) => setFormData({
+                      ...formData,
+                      prefill_source: value,
+                      prefill_source_field_id: value === 'form_field' ? formData.prefill_source_field_id : null,
+                    })}
                   >
                     <SelectTrigger className="w-[200px]" data-testid="select-prefill-source">
                       <SelectValue />
@@ -10211,15 +10309,66 @@ export default function FormBuilderPage() {
                       <SelectItem value="member">Member Data</SelectItem>
                       <SelectItem value="organization">Organisation Data</SelectItem>
                       <SelectItem value="booking">Event Attendee (Booking)</SelectItem>
+                      <SelectItem value="form_field">Organisation / Group Dropdown</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
-                {formData.prefill_source !== "none" && (
+                {formData.prefill_source !== "none" && formData.prefill_source !== 'form_field' && (
                   <p className="text-xs text-slate-500 self-end pb-2">
                     Form URL will accept ?{formData.prefill_source === "member" ? "member_id" : formData.prefill_source === "booking" ? "booking_id" : "organization_id"}=xxx to pre-populate fields
                   </p>
                 )}
               </div>
+              {formData.prefill_source === 'form_field' && (
+                <div className="max-w-xl space-y-2">
+                  <Label className="text-sm font-medium">Record source dropdown</Label>
+                  <Select
+                    value={formData.prefill_source_field_id || '_none'}
+                    onValueChange={(value) => setFormData({
+                      ...formData,
+                      prefill_source_field_id: value === '_none' ? null : value,
+                    })}
+                  >
+                    <SelectTrigger data-testid="select-prefill-source-field">
+                      <SelectValue placeholder="Choose an organisation or group dropdown…" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="_none">Choose a source field…</SelectItem>
+                      {(formData.fields || []).filter(field => (
+                        ['organisation_dropdown', 'organization_dropdown', 'organisation_group_dropdown'].includes(field.type)
+                        && !field.repeatable_field_id
+                        && !field.parent_repeatable_field_id
+                      )).map(field => (
+                        <SelectItem key={field.id} value={field.id}>
+                          {field.label || 'Untitled field'} — {field.type === 'organisation_group_dropdown' ? 'Organisation Group' : 'Organisation'}
+                        </SelectItem>
+                      ))}
+                      {formData.prefill_source_field_id
+                        && !(formData.fields || []).some(field => field.id === formData.prefill_source_field_id
+                          && ['organisation_dropdown', 'organization_dropdown', 'organisation_group_dropdown'].includes(field.type)) && (
+                          <SelectItem value={formData.prefill_source_field_id}>
+                            Unavailable source ({formData.prefill_source_field_id})
+                          </SelectItem>
+                      )}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-slate-500">
+                    Selecting a record will fill configured fields that appear later in the form. Move the source above a target to make it eligible.
+                  </p>
+                  {formData.prefill_source_field_id
+                    && !(formData.fields || []).some(field => field.id === formData.prefill_source_field_id
+                      && ['organisation_dropdown', 'organization_dropdown', 'organisation_group_dropdown'].includes(field.type)) && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setFormData({ ...formData, prefill_source_field_id: null })}
+                      >
+                        Remove unavailable source
+                      </Button>
+                  )}
+                </div>
+              )}
             </div>
             </CardContent>
           </Card>
@@ -11077,6 +11226,7 @@ export default function FormBuilderPage() {
                                       uniquenessChecks={formData.uniqueness_checks}
                                       onUniquenessChange={handleUniquenessChange}
                                       prefillSource={formData.prefill_source || "none"}
+                                      prefillSourceFieldId={formData.prefill_source_field_id}
                                       isDrawerOpen={editingFieldId === field.id}
                                       onOpenDrawer={() => setEditingFieldId(field.id)}
                                       onCloseDrawer={() => setEditingFieldId(null)}
@@ -11223,6 +11373,7 @@ export default function FormBuilderPage() {
                                                   uniquenessChecks={formData.uniqueness_checks}
                                                   onUniquenessChange={handleUniquenessChange}
                                                   prefillSource={formData.prefill_source || "none"}
+                                                  prefillSourceFieldId={formData.prefill_source_field_id}
                                                   isDrawerOpen={editingFieldId === field.id}
                                                   onOpenDrawer={() => setEditingFieldId(field.id)}
                                                   onCloseDrawer={() => setEditingFieldId(null)}
@@ -11286,6 +11437,7 @@ export default function FormBuilderPage() {
                               uniquenessChecks={formData.uniqueness_checks}
                               onUniquenessChange={handleUniquenessChange}
                               prefillSource={formData.prefill_source || "none"}
+                              prefillSourceFieldId={formData.prefill_source_field_id}
                               isDrawerOpen={editingFieldId === field.id}
                               onOpenDrawer={() => setEditingFieldId(field.id)}
                               onCloseDrawer={() => setEditingFieldId(null)}

@@ -9,7 +9,7 @@ import { isFormScheduleAvailable } from '../../_lib/formAvailability.js';
 const PUBLIC_FORM_FIELDS = [
   'id', 'name', 'slug', 'description', 'fields', 'is_active', 
   'layout_type', 'submit_button_text', 'success_message', 'redirect_url',
-  'send_email', 'email_templates', 'prefill_source',
+  'send_email', 'email_templates', 'prefill_source', 'prefill_source_field_id',
   'visibility_rules', 'pages',
   'deactivate_at', 'deactivate_timezone',
   'entity_pipelines',

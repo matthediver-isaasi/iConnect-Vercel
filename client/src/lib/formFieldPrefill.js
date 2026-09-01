@@ -1,3 +1,5 @@
+import { FORM_NOT_LISTED_VALUE } from '../../../shared/formNotListedChoice.js';
+
 // Shared helpers for form field validation/prefill logic.
 // Used by both the standalone FormView page and IEdit-embedded forms so that
 // fixes to either helper apply everywhere at once.
@@ -318,4 +320,180 @@ export const parseCustomFieldValue = (cfv, fieldType) => {
     }
   }
   return parsedValue;
+};
+
+// Task #3933: form-field-driven prefill configuration. These helpers are kept
+// pure so the builder, runtime hook and focused node tests share exactly the
+// same eligibility and ordering rules.
+export const FORM_FIELD_PREFILL_SOURCE_TYPES = new Set([
+  'organisation_dropdown',
+  'organization_dropdown',
+  'organisation_group_dropdown',
+]);
+
+export const getEligibleFormFieldPrefillSources = (fields = []) => (
+  fields.filter(field => field?.id
+    && FORM_FIELD_PREFILL_SOURCE_TYPES.has(field.type)
+    && !field.repeatable_field_id
+    && !field.parent_repeatable_field_id)
+);
+
+export const getFormFieldPrefillSource = (form) => {
+  if (form?.prefill_source !== 'form_field') return null;
+  const sourceId = form.prefill_source_field_id || form.prefill_field_id;
+  return getEligibleFormFieldPrefillSources(form?.fields || [])
+    .find(field => field.id === sourceId) || null;
+};
+
+export const formFieldPrefillKind = (source) => (
+  source?.type === 'organisation_group_dropdown' ? 'organization_group' : 'organization'
+);
+
+export const isEligibleFormFieldPrefillTarget = (form, field) => {
+  const source = getFormFieldPrefillSource(form);
+  if (!source || !field?.id || field.id === source.id) return false;
+  const fields = form?.fields || [];
+  return fields.findIndex(candidate => candidate.id === field.id)
+    > fields.findIndex(candidate => candidate.id === source.id);
+};
+
+export const validateFormFieldPrefillConfig = (form) => {
+  if (form?.prefill_source !== 'form_field') return { valid: true, errors: [] };
+  const fields = Array.isArray(form?.fields) ? form.fields : [];
+  const sourceId = form?.prefill_source_field_id || form?.prefill_field_id;
+  const sourceIndex = fields.findIndex(field => field?.id === sourceId);
+  const source = sourceIndex >= 0 ? fields[sourceIndex] : null;
+  const errors = [];
+  if (!sourceId) {
+    errors.push('Choose an Organisation or Organisation Group dropdown as the pre-fill source.');
+    return { valid: false, errors };
+  }
+  if (!source || !getEligibleFormFieldPrefillSources(fields).some(field => field.id === sourceId)) {
+    errors.push('The pre-fill source is missing, nested, or no longer an Organisation or Organisation Group dropdown.');
+    return { valid: false, errors };
+  }
+  const prefixes = source.type === 'organisation_group_dropdown'
+    ? ['org_group:', 'organization_group:', 'organisation_group:', 'group:',
+      'org_group_custom:', 'organization_group_custom:', 'organisation_group_custom:', 'group_custom:']
+    : ['org:', 'organization:', 'organisation:',
+      'org_custom:', 'organization_custom:', 'organisation_custom:'];
+  fields.forEach((field, index) => {
+    if (!field?.prefill_field) return;
+    if (index <= sourceIndex) {
+      errors.push(`“${field.label || 'Untitled field'}” must appear after the pre-fill source.`);
+    } else if (!prefixes.some(prefix => field.prefill_field.startsWith(prefix))) {
+      errors.push(`“${field.label || 'Untitled field'}” has a pre-fill mapping for the wrong record type.`);
+    }
+  });
+  return { valid: errors.length === 0, errors };
+};
+
+// Only answers before the source can affect whether the persisted dropdown
+// currently offers a record (conditional filters and group-parent filters).
+// Keeping the projection narrow avoids re-fetching when an auto-filled target
+// changes and prevents a response -> render -> request loop.
+export const getFormFieldPrefillSourceAnswers = (form, formValues = {}) => {
+  const source = getFormFieldPrefillSource(form);
+  if (!source) return {};
+  const sourceIndex = (form?.fields || []).findIndex(field => field?.id === source.id);
+  if (sourceIndex <= 0) return {};
+  return Object.fromEntries((form.fields || [])
+    .slice(0, sourceIndex)
+    .filter(field => field?.id && Object.prototype.hasOwnProperty.call(formValues, field.id))
+    .map(field => [field.id, formValues[field.id]]));
+};
+
+export const shouldClearFormFieldPrefillSelection = selectedRecordId => (
+  !selectedRecordId || selectedRecordId === FORM_NOT_LISTED_VALUE
+);
+
+// Resolver 4xx responses are authoritative outcomes for this persisted form
+// and selection. Network/5xx failures are transient and retain the last fill.
+export const shouldClearFormFieldPrefillError = error => (
+  Number.isInteger(error?.status)
+  && error.status >= 400
+  && error.status < 500
+  && error.status !== 429
+);
+
+const samePrefillValue = (left, right) => {
+  if (Object.is(left, right)) return true;
+  try { return JSON.stringify(left) === JSON.stringify(right); } catch { return false; }
+};
+
+const isBlankPrefillValue = value => value === undefined || value === null || value === '';
+
+// Applies a resolver response without trampling respondent input. A tracked
+// value is replaceable only while the answer still equals the last auto-fill.
+// Clearing the source consequently removes stale auto-fills, but preserves
+// unrelated values and answers edited after they were filled.
+export const mergeReactiveFormFieldPrefill = ({
+  currentValues = {},
+  resolvedValues = {},
+  trackedValues = {},
+  clear = false,
+}) => {
+  const nextValues = { ...currentValues };
+  const nextTracked = {};
+  for (const [fieldId, oldAutoValue] of Object.entries(trackedValues)) {
+    if (samePrefillValue(currentValues[fieldId], oldAutoValue)) {
+      delete nextValues[fieldId];
+    }
+  }
+  if (!clear) {
+    for (const [fieldId, value] of Object.entries(resolvedValues || {})) {
+      if (value === undefined || value === null) continue;
+      const wasTracked = Object.prototype.hasOwnProperty.call(trackedValues, fieldId);
+      const canApply = wasTracked
+        ? samePrefillValue(currentValues[fieldId], trackedValues[fieldId])
+        : isBlankPrefillValue(currentValues[fieldId]);
+      if (canApply) {
+        nextValues[fieldId] = value;
+        nextTracked[fieldId] = value;
+      }
+    }
+  }
+  return { values: nextValues, trackedValues: nextTracked };
+};
+
+export const normalizeFormFieldPrefillResponse = response => {
+  const candidate = response?.values
+    || response?.prefillValues
+    || response?.prefill_values
+    || response?.data
+    || {};
+  return candidate && typeof candidate === 'object' && !Array.isArray(candidate)
+    ? candidate
+    : {};
+};
+
+export const normalizeFormFieldPrefillValues = (form, response) => {
+  const values = normalizeFormFieldPrefillResponse(response);
+  const responseFieldTypes = response?.fieldTypes || response?.field_types || {};
+  const fieldsById = new Map((form?.fields || []).map(field => [String(field?.id), field]));
+  return Object.fromEntries(Object.entries(values).map(([fieldId, rawValue]) => {
+    const field = fieldsById.get(String(fieldId));
+    if (!field) return [fieldId, rawValue];
+    const effectiveType = field.type === 'custom_field'
+      ? (responseFieldTypes[fieldId] || field.custom_field_type || field.field_type || field.type)
+      : field.type;
+    if (effectiveType === 'boolean') {
+      if (typeof rawValue === 'boolean') return [fieldId, rawValue];
+      const normalized = String(rawValue).trim().toLowerCase();
+      if (['true', 'yes', 'y', 'on', '1'].includes(normalized)) return [fieldId, true];
+      if (['false', 'no', 'n', 'off', '0'].includes(normalized)) return [fieldId, false];
+    }
+    if (['list', 'countries', 'checkbox', 'checkboxes', 'picklist', 'category_multiselect'].includes(effectiveType)) {
+      return [fieldId, parseCustomFieldValue({ value: rawValue }, 'list')];
+    }
+    if (effectiveType === 'contact' && typeof rawValue === 'string') {
+      try {
+        const parsed = JSON.parse(rawValue);
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return [fieldId, parsed];
+      } catch {
+        // Keep the stored scalar when it is not a serialized contact object.
+      }
+    }
+    return [fieldId, rawValue];
+  }));
 };
