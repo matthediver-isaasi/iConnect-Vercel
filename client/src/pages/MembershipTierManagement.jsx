@@ -33,6 +33,7 @@ import {
   shouldBootstrapTierSelection,
   TIER_LIFECYCLE,
 } from "@/lib/membershipTierNavigation";
+import { parseFlatMembershipCost } from "../../../shared/membershipFlatCost.js";
 
 const MONTHS = [
   { value: 1, label: 'January' }, { value: 2, label: 'February' }, { value: 3, label: 'March' },
@@ -794,8 +795,9 @@ export default function MembershipTierManagement() {
             }
           }
         } else {
-          if (!config.flat_cost || parseFloat(config.flat_cost) <= 0) {
-            toast.error('Please enter a flat membership cost greater than 0');
+          const flatCost = parseFlatMembershipCost(config.flat_cost);
+          if (!flatCost.valid) {
+            toast.error(flatCost.error);
             return false;
           }
         }
@@ -851,6 +853,13 @@ export default function MembershipTierManagement() {
   const handleSave = () => {
     const isFlat = config.pricing_model === 'flat';
     const isImmediate = config.start_mode === 'immediate';
+    const parsedFlatCost = isFlat ? parseFlatMembershipCost(config.flat_cost) : null;
+
+    if (parsedFlatCost && !parsedFlatCost.valid) {
+      toast.error(parsedFlatCost.error);
+      setWizardStep(5);
+      return;
+    }
 
     if (ddTotalMismatch && !ddTotalConfirmed) {
       toast.error('The Direct Debit plan total differs from the annual cost. Tick the confirmation box in the Direct Debit settings to save.');
@@ -873,7 +882,7 @@ export default function MembershipTierManagement() {
         rollover_enabled: isImmediate ? false : config.rollover_enabled,
         pricing_model: config.pricing_model,
         start_mode: config.start_mode,
-        flat_cost: isFlat ? parseFloat(config.flat_cost) || 0 : undefined,
+        flat_cost: isFlat ? parsedFlatCost.value : undefined,
         flat_vat_rate: isFlat ? (config.flat_vat_rate || null) : null,
         nominal_code: isFlat ? ((config.nominal_code || '').trim() || null) : null,
       },
@@ -2597,6 +2606,7 @@ export default function MembershipTierManagement() {
               <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">{currencySymbol}</span>
               <Input
                 type="number"
+                min="0"
                 value={config.flat_cost ?? ''}
                 onChange={(e) => handleConfigChange('flat_cost', e.target.value === '' ? null : e.target.value)}
                 placeholder="0.00"

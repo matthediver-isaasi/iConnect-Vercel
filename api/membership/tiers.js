@@ -3,6 +3,7 @@ import { getTenantContext } from '../_lib/tenantContext.js';
 import { matchBand, isNumericFieldType, isTextFieldType, normalizeMatchValue } from '../_lib/tierBandMatcher.js';
 import { getRemindersForConfig, saveRemindersForConfig } from '../_lib/membershipReminders.js';
 import { normalizeInvoiceRecipients, validateInvoiceRecipientsShape } from '../_lib/membershipRecipientResolver.js';
+import { parseFlatMembershipCost } from '../../shared/membershipFlatCost.js';
 
 function todayStr() {
   return new Date().toISOString().split('T')[0];
@@ -638,6 +639,13 @@ async function handlePost(req, res, tenantId) {
     return res.status(400).json({ error: 'Effective from date is required' });
   }
 
+  const parsedFlatCost = config.pricing_model === 'flat'
+    ? parseFlatMembershipCost(config.flat_cost)
+    : null;
+  if (parsedFlatCost && !parsedFlatCost.valid) {
+    return res.status(400).json({ error: parsedFlatCost.error, field: 'flat_cost' });
+  }
+
   const feeLinkCheck = await validateFeeLinkEmailTemplate(tenantId, config.fee_link_email_template_id);
   if (!feeLinkCheck.ok) {
     return res.status(400).json({ error: feeLinkCheck.error, field: feeLinkCheck.field });
@@ -743,7 +751,7 @@ async function handlePost(req, res, tenantId) {
         structure_match_value: config.structure_match_value || null,
         structure_scope_type: config.structure_scope_type || 'organization',
         pricing_model: config.pricing_model || 'tiered',
-        flat_cost: config.pricing_model === 'flat' ? (parseFloat(config.flat_cost) || 0) : null,
+        flat_cost: config.pricing_model === 'flat' ? parsedFlatCost.value : null,
         flat_vat_rate: config.pricing_model === 'flat' ? (config.flat_vat_rate || null) : null,
         invoice_description: config.invoice_description || null,
         auto_approve_fees: config.auto_approve_fees ?? false,
@@ -889,7 +897,7 @@ async function handlePost(req, res, tenantId) {
       structure_match_value: structureMatchValue,
       structure_scope_type: config.structure_scope_type || 'organization',
       pricing_model: config.pricing_model || 'tiered',
-      flat_cost: config.pricing_model === 'flat' ? (parseFloat(config.flat_cost) || 0) : null,
+      flat_cost: config.pricing_model === 'flat' ? parsedFlatCost.value : null,
       flat_vat_rate: config.pricing_model === 'flat' ? (config.flat_vat_rate || null) : null,
       invoice_description: config.invoice_description || null,
       auto_approve_fees: config.auto_approve_fees ?? false,
