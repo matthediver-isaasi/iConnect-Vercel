@@ -319,6 +319,19 @@ export default function MemberDetail() {
     queryFn: () => base44.entities.Member.get(id)
   });
 
+  const { data: gocardlessMandate = null } = useQuery({
+    queryKey: ['member-gocardless-mandate', id],
+    enabled: isAccessReady && !!id,
+    queryFn: async () => {
+      const response = await fetch(`/api/admin/members/${id}/gocardless-mandate`, {
+        credentials: 'include'
+      });
+      if (response.status === 403 || response.status === 404) return null;
+      if (!response.ok) throw new Error('Failed to load GoCardless mandate');
+      return response.json();
+    }
+  });
+
   // Toast + refresh when this member is updated by an inbound Zoho sync.
   useZohoInboundUpdateNotifier({
     entityType: 'member',
@@ -1275,6 +1288,20 @@ export default function MemberDetail() {
     ) : null;
 
     switch (fieldKey) {
+      case 'gocardless_mandate_id':
+      case 'gocardless_mandate_status': {
+        const value = fieldKey === 'gocardless_mandate_id'
+          ? gocardlessMandate?.mandateId
+          : gocardlessMandate?.statusLabel;
+        return (
+          <div className="space-y-1">
+            <Label className="text-xs text-slate-500">{label}</Label>
+            <p className="text-sm font-medium" data-testid={`text-member-${fieldKey}`}>
+              {value || '-'}
+            </p>
+          </div>
+        );
+      }
       case 'first_name':
       case 'last_name':
       case 'mobile':

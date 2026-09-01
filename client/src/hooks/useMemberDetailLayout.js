@@ -1,5 +1,9 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { base44 } from "@/api/base44Client";
+import {
+  ensureMemberMandateLayoutFields,
+  MEMBER_MANDATE_LAYOUT_FIELDS,
+} from "@/lib/memberMandateLayout";
 
 const LAYOUT_SETTING_KEY = 'member_detail_layout_config';
 
@@ -27,6 +31,15 @@ const DEFAULT_LAYOUT = {
       ]
     },
     {
+      id: 'card-direct-debit',
+      title: 'Direct Debit',
+      columns: 2,
+      fields: MEMBER_MANDATE_LAYOUT_FIELDS.map((field, index) => ({
+        ...field,
+        columnIndex: index
+      }))
+    },
+    {
       id: 'card-custom',
       title: 'Custom Fields',
       columns: 2,
@@ -38,7 +51,7 @@ const DEFAULT_LAYOUT = {
 function migrateLayoutWithColumnIndex(layout) {
   if (!layout || !layout.cards) return DEFAULT_LAYOUT;
   
-  return {
+  return ensureMemberMandateLayoutFields({
     ...layout,
     cards: layout.cards.map(card => ({
       ...card,
@@ -47,7 +60,7 @@ function migrateLayoutWithColumnIndex(layout) {
         columnIndex: field.columnIndex !== undefined ? field.columnIndex : (idx % card.columns)
       }))
     }))
-  };
+  });
 }
 
 export const MEMBER_CORE_FIELDS = [
@@ -57,7 +70,9 @@ export const MEMBER_CORE_FIELDS = [
   { id: 'core:mobile', fieldKey: 'mobile', label: 'Mobile', type: 'text' },
   { id: 'core:landline', fieldKey: 'landline', label: 'Landline', type: 'text' },
   { id: 'core:job_title', fieldKey: 'job_title', label: 'Job Title', type: 'text' },
-  { id: 'core:biography', fieldKey: 'biography', label: 'Biography', type: 'textarea' }
+  { id: 'core:biography', fieldKey: 'biography', label: 'Biography', type: 'textarea' },
+  { id: 'core:gocardless_mandate_id', fieldKey: 'gocardless_mandate_id', label: 'GoCardless Mandate ID', type: 'text', readOnly: true, derived: true },
+  { id: 'core:gocardless_mandate_status', fieldKey: 'gocardless_mandate_status', label: 'GoCardless Mandate Status', type: 'text', readOnly: true, derived: true }
 ];
 
 export function useMemberDetailLayout({ enabled = true } = {}) {
