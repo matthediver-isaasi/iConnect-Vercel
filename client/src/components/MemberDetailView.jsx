@@ -94,6 +94,7 @@ import MemberActivityTimeline from "@/components/MemberActivityTimeline";
 import MemberMembershipTab from "@/components/MemberMembershipTab";
 import CrmTagInput from "@/components/crm/CrmTagInput";
 import { formatTermLength } from "@/lib/memberGroupTermSnapshot";
+import { normalizeMemberCategorySelections } from "@/lib/memberResourceCategories";
 import { RelatedRecordsPanel, useRelatedRecordDefinitions } from "@/pages/customObjects/RelatedRecordsPanel";
 import { labelForSide, relationshipTabValue } from "@/pages/customObjects/relationshipHelpers";
 import {
@@ -256,6 +257,11 @@ export default function MemberDetailView({
     show_in_directory: true,
       guest_expires_at: ''
   });
+
+  // Clear category selections immediately when changing the viewed member.
+  useEffect(() => {
+    setSelectedSubcategories([]);
+  }, [member?.id]);
 
   // Sync formData with member prop when it changes (for realtime updates)
   useEffect(() => {
@@ -665,12 +671,9 @@ export default function MemberDetailView({
       return;
     }
 
-    // Map backend data to local state format
-    const selections = memberCategorySelections.map(sel => ({
-      category_id: sel.resource_category_id,
-      subcategory_name: sel.subcategory_name
-    }));
-    setSelectedSubcategories(selections);
+    setSelectedSubcategories(
+      normalizeMemberCategorySelections(memberCategorySelections),
+    );
   }, [memberCategorySelections, selectionsLoading]);
 
   // Load opening balances from member data

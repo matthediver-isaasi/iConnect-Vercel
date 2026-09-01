@@ -62,6 +62,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Command, CommandInput, CommandList, CommandEmpty, CommandGroup, CommandItem } from "@/components/ui/command";
 import { ChevronsUpDown } from "lucide-react";
 import { listOrganizationsForAdmin } from '@/lib/adminOrgList';
+import { normalizeMemberCategorySelections } from '@/lib/memberResourceCategories';
 import { RelatedRecordsPanel, useRelatedRecordDefinitions } from "@/pages/customObjects/RelatedRecordsPanel";
 import { labelForSide, relationshipTabValue } from "@/pages/customObjects/relationshipHelpers";
 import {
@@ -778,15 +779,18 @@ export default function MemberDetail() {
     }
   }, [orgPrefValues, orgCustomFields]);
 
-  // Sync category selections when data loads
+  // Clear category selections immediately when navigating to another member,
+  // then replace them with the authoritative endpoint response.
   useEffect(() => {
-    if (memberCategorySelections.length > 0) {
-      setSelectedSubcategories(memberCategorySelections.map(s => ({
-        category_id: s.category_id,
-        subcategory_name: s.subcategory_name || null
-      })));
-    }
-  }, [memberCategorySelections]);
+    setSelectedSubcategories([]);
+  }, [id]);
+
+  useEffect(() => {
+    if (selectionsLoading) return;
+    setSelectedSubcategories(
+      normalizeMemberCategorySelections(memberCategorySelections),
+    );
+  }, [memberCategorySelections, selectionsLoading]);
 
   // Sync opening balances from member data
   useEffect(() => {
@@ -880,7 +884,7 @@ export default function MemberDetail() {
     setIsSavingCategories(true);
     try {
       const response = await fetch(`/api/members/${member.id}/categories`, {
-        method: 'PUT',
+        method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({ selections: selectedSubcategories })
