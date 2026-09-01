@@ -90,6 +90,10 @@ test('links the exact primary pipeline result and treats a retry as already link
     fields: [
       { id: 'org', type: 'organisation_dropdown' },
       {
+        id: 'stale-hidden-org', type: 'organisation_dropdown',
+        page_id: 'hidden-page', starts_hidden: false,
+      },
+      {
         id: 'department', type: 'relationship_dropdown', parent_field_id: 'org',
         relationship_definition_id: 'org-department', relationship_parent_kind: 'organization',
         relationship_parent_side: 'source', related_kind: 'custom_object',
@@ -97,12 +101,35 @@ test('links the exact primary pipeline result and treats a retry as already link
         related_primary_display_field_id: 'department-name',
       },
     ],
+    pages: [{ id: 'hidden-page', starts_hidden: true }],
     entity_pipelines: {
       members: [{ isPrimary: true, related_records: [{ id: 'department-link', relationship_definition_id: 'member-department', source_field_id: 'department' }] }],
       organisations: [],
     },
   };
-  const submission = { submission_data: { org: 'org-1', department: 'department-1' } };
+  // This reproduces the reported shape: an unrelated Organisation answer was
+  // retained on a page that conditional logic hid. The primary Related Records
+  // validator must receive persisted page metadata so that stale hidden answer
+  // cannot block the valid Department selection.
+  const submission = {
+    submission_data: {
+      org: 'org-1',
+      department: 'department-1',
+      'stale-hidden-org': 'unavailable-organization',
+    },
+  };
+  const missingPages = await processPrimaryPipelineRelatedRecords({
+    db,
+    tenantId,
+    form: { ...form, pages: undefined },
+    submission,
+    memberId: 'member-created',
+  });
+  assert.equal(missingPages.success, false);
+  assert.equal(missingPages.outcomes[0].reason, 'submitted_relationship_invalid');
+  assert.match(missingPages.outcomes[0].error, /Invalid organization selection/);
+  assert.equal(edges.some(edge => edge.relationship_definition_id === 'member-department'), false);
+
   const first = await processPrimaryPipelineRelatedRecords({ db, tenantId, form, submission, memberId: 'member-created' });
   assert.equal(first.success, true, JSON.stringify(first));
   assert.equal(first.outcomes[0].status, 'linked');
@@ -122,6 +149,37 @@ test('links the exact primary pipeline result and treats a retry as already link
   assert.equal(hidden.success, true);
   assert.equal(hidden.outcomes[0].reason, 'source_field_hidden');
   assert.equal(edges.some(edge => edge.source_record_id === 'member-hidden'), false);
+
+  rows.custom_object_record[0].archived_at = '2026-09-01T00:00:00.000Z';
+  const archived = await processPrimaryPipelineRelatedRecords({
+    db, tenantId, form, submission, memberId: 'member-archived',
+  });
+  assert.equal(archived.success, false);
+  assert.equal(archived.outcomes[0].reason, 'submitted_relationship_invalid');
+  assert.equal(edges.some(edge =>
+    edge.source_record_id === 'member-archived' && edge.target_record_id === 'department-1'), false);
+
+  rows.custom_object_record[0].archived_at = null;
+  rows.custom_object_record[0].tenant_id = 'other-tenant';
+  const crossTenant = await processPrimaryPipelineRelatedRecords({
+    db, tenantId, form, submission, memberId: 'member-cross-tenant',
+  });
+  assert.equal(crossTenant.success, false);
+  assert.equal(crossTenant.outcomes[0].reason, 'submitted_relationship_invalid');
+  assert.equal(edges.some(edge =>
+    edge.source_record_id === 'member-cross-tenant' && edge.target_record_id === 'department-1'), false);
+
+  rows.custom_object_record[0].tenant_id = tenantId;
+  rows.custom_object_relationship_definition[1].source_custom_object_id = 'other-object';
+  const incompatible = await processPrimaryPipelineRelatedRecords({
+    db, tenantId, form, submission, memberId: 'member-incompatible',
+  });
+  assert.equal(incompatible.success, false);
+  assert.equal(incompatible.outcomes[0].reason, 'relationship_link_failed');
+  assert.equal(incompatible.outcomes[0].source_field_id, 'department');
+  assert.match(incompatible.outcomes[0].error, /incompatible/);
+  assert.equal(edges.some(edge =>
+    edge.source_record_id === 'member-incompatible' && edge.target_record_id === 'department-1'), false);
 });
 
 test('malformed Related Records config is reported without throwing after primary persistence', async () => {

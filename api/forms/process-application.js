@@ -805,7 +805,7 @@ export default async function handler(req, res) {
     const [{ data: persistedSubmission, error: persistedSubmissionError }, { data: persistedForm, error: persistedFormError }] = await Promise.all([
       supabase.from('form_submission').select('id, form_id, tenant_id, submission_data, submitted_by_email, organization_id, created_member_id, created_organization_id, payment_reference, payment_status, payment_meta, processing_notes')
         .eq('id', submission_id).eq('form_id', form_id).eq('tenant_id', effectiveEntityTenantId).maybeSingle(),
-      supabase.from('form').select('id, tenant_id, visibility_rules, fields, field_mappings, application_level, create_entity_type, entity_action, member_entity_action, organization_entity_action, additional_member_creations, entity_pipelines, default_member_role_id')
+      supabase.from('form').select('id, tenant_id, pages, visibility_rules, fields, field_mappings, application_level, create_entity_type, entity_action, member_entity_action, organization_entity_action, additional_member_creations, entity_pipelines, default_member_role_id')
         .eq('id', form_id).eq('tenant_id', effectiveEntityTenantId).maybeSingle(),
     ]);
     if (persistedSubmissionError || !persistedSubmission || persistedFormError || !persistedForm) {

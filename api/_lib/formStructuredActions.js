@@ -432,7 +432,12 @@ export async function processPrimaryPipelineRelatedRecords({
   for (const [kind, pipeline] of configured) {
     const primaryId = kind === 'member' ? memberId : organizationId;
     for (const link of pipelineRelatedRecords(pipeline)) {
-      const base = { id: link.id, entity_type: kind, relationship_definition_id: link.relationship_definition_id };
+      const base = {
+        id: link.id,
+        entity_type: kind,
+        source_field_id: link.source_field_id,
+        relationship_definition_id: link.relationship_definition_id,
+      };
       if (!primaryId) {
         outcomes.push({ ...base, status: 'skipped', reason: 'primary_record_unavailable' });
         continue;
@@ -490,7 +495,12 @@ export async function processPrimaryPipelineRelatedRecords({
           outcomes.push({ ...base, status: existing ? 'already_linked' : 'linked', record_id: selectedId, primary_record_id: primaryId });
         }
       } catch (error) {
-        outcomes.push({ ...base, status: 'failed', error: error.message || String(error) });
+        outcomes.push({
+          ...base,
+          status: 'failed',
+          reason: 'relationship_link_failed',
+          error: error.message || String(error),
+        });
       }
     }
   }

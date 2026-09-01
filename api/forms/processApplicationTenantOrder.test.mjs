@@ -54,6 +54,14 @@ test('authorization, paid lifecycle, and stored submit-control all precede struc
   assert.match(src, /code:\s*'PROCESSING_AUTHORITY_MISMATCH'/);
 });
 
+test('authoritative form reload includes pages for hidden-field relationship validation', () => {
+  assert.match(
+    src,
+    /from\('form'\)\.select\('id, tenant_id, pages, visibility_rules, fields,/,
+    'persisted page visibility is required before validating Related Records selections',
+  );
+});
+
 test('legacy pipeline and action derivation happens only after persisted configuration replaces request copies', () => {
   const persistedPipelineAssignment = src.indexOf('entity_pipelines = hasPersistedLegacyFormEntityActions(persistedForm)');
   const pipelineNormalization = src.indexOf('const memberPipelines = entity_pipelines?.members || [];');
