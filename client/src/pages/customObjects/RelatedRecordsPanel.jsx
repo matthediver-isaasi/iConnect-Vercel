@@ -127,6 +127,7 @@ function RelationshipPanel({
   editSide,
   canEditRecord,
   includeArchived = false,
+  embedded = false,
 }) {
   const qc = useQueryClient();
   const [page, setPage] = useState(1);
@@ -183,7 +184,7 @@ function RelationshipPanel({
     onError: (error) => toast.error(error.status === 409 ? `This link changed elsewhere: ${error.message}` : error.message),
   });
   return (
-    <Card className="overflow-hidden">
+    <Card className={embedded ? "overflow-hidden border-slate-200 shadow-none" : "overflow-hidden"}>
       <CardContent className="p-0">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b bg-slate-50/70 px-5 py-4">
           <div><div className="flex items-center gap-2"><h3 className="font-semibold text-slate-900">{labelForSide(definition, editSide)}</h3><Badge variant="outline">{total}</Badge>{definition.status === "archived" && <Badge variant="outline">Archived definition</Badge>}</div><p className="mt-1 text-xs text-slate-500">{definition.cardinality?.replaceAll("_", " ")} relationship{includeArchived ? " history" : ""}</p></div>
@@ -211,7 +212,7 @@ function RelationshipPanel({
   );
 }
 
-export function RelatedRecordsPanel({ context, objectId, recordId, object, record, definition, side, showHeading = true }) {
+export function RelatedRecordsPanel({ context, objectId, recordId, object, record, definition, side, showHeading = true, embedded = false }) {
   const resolved = normalizeContext({ context, objectId, recordId });
   const includeArchived = resolved.kind === "custom_object"
     && Boolean(record?.archived_at || object?.status === "archived");
@@ -227,5 +228,5 @@ export function RelatedRecordsPanel({ context, objectId, recordId, object, recor
   if (!definition && definitionsQuery.isLoading) return <div className="mt-6 space-y-3"><div className="h-6 w-44 animate-pulse rounded bg-slate-200" /><div className="h-36 animate-pulse rounded-lg bg-slate-100" /></div>;
   if (!definition && definitionsQuery.error) return <Card className="mt-6 border-rose-200"><CardContent className="flex gap-3 p-5 text-sm text-rose-700"><CircleAlert className="h-5 w-5 shrink-0" />Relationship panels could not be loaded. {definitionsQuery.error.message}</CardContent></Card>;
   if (!panels.length) return null;
-  return <section className={showHeading ? "mt-8 border-t pt-7" : ""}>{showHeading && <div className="mb-4 flex items-center gap-2"><Link2 className="h-5 w-5 text-slate-500" /><h2 className="text-lg font-semibold text-slate-950">{includeArchived ? "Relationship history" : "Related records"}</h2></div>}<div className="grid gap-4 lg:grid-cols-2">{panels.map((panel) => <RelationshipPanel key={`${panel.definition.id}-${panel.side}`} context={resolved} definition={panel.definition} editSide={panel.side} canEditRecord={canEditRecord} includeArchived={includeArchived} />)}</div></section>;
+  return <section className={showHeading ? "mt-8 border-t pt-7" : ""}>{showHeading && <div className="mb-4 flex items-center gap-2"><Link2 className="h-5 w-5 text-slate-500" /><h2 className="text-lg font-semibold text-slate-950">{includeArchived ? "Relationship history" : "Related records"}</h2></div>}<div className={embedded ? "grid gap-4" : "grid gap-4 lg:grid-cols-2"}>{panels.map((panel) => <RelationshipPanel key={`${panel.definition.id}-${panel.side}`} context={resolved} definition={panel.definition} editSide={panel.side} canEditRecord={canEditRecord} includeArchived={includeArchived} embedded={embedded} />)}</div></section>;
 }

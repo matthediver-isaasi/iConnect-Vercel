@@ -75,6 +75,19 @@ export const MEMBER_CORE_FIELDS = [
   { id: 'core:gocardless_mandate_status', fieldKey: 'gocardless_mandate_status', label: 'GoCardless Mandate Status', type: 'text', readOnly: true, derived: true }
 ];
 
+export function memberRelationshipLayoutId(definitionId, side) {
+  return `relationship:${definitionId}:${side}`;
+}
+
+export function memberRelationshipLayoutElements(panels = []) {
+  return panels.map(({ definition, side }) => ({
+    id: memberRelationshipLayoutId(definition.id, side),
+    type: 'relationship',
+    definitionId: definition.id,
+    side,
+  }));
+}
+
 export function useMemberDetailLayout({ enabled = true } = {}) {
   const queryClient = useQueryClient();
 
@@ -136,15 +149,25 @@ const RIGHT_COLUMN_FIELD_KEYS = new Set([
   'organization_id', 'role_id', 'login_enabled', 'show_in_directory', 'created_on'
 ]);
 
-export function mergeLayoutWithCustomFields(layout, customFields) {
+export function mergeLayoutWithCustomFields(layout, customFields, relationshipPanels = null) {
   if (!layout || !layout.cards) return DEFAULT_LAYOUT;
+  const availableRelationshipIds = relationshipPanels === null
+    ? null
+    : new Set(memberRelationshipLayoutElements(relationshipPanels).map(element => element.id));
 
   const filteredLayout = {
     ...layout,
     cards: layout.cards
       .map(card => ({
         ...card,
-        fields: card.fields.filter(f => !(f.type === 'core' && RIGHT_COLUMN_FIELD_KEYS.has(f.fieldKey)))
+        fields: card.fields.filter(f =>
+          !(f.type === 'core' && RIGHT_COLUMN_FIELD_KEYS.has(f.fieldKey))
+          && (
+            f.type !== 'relationship'
+            || availableRelationshipIds === null
+            || availableRelationshipIds.has(f.id)
+          )
+        )
       }))
       .filter(card => card.fields.length > 0 || card.id === 'card-custom')
   };

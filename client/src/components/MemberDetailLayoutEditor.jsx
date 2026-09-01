@@ -35,6 +35,8 @@ function getFieldColorClass(type) {
     case 'org_core':
     case 'org_custom':
       return 'bg-purple-100 text-purple-700 border border-purple-200';
+    case 'relationship':
+      return 'bg-amber-100 text-amber-800 border border-amber-200';
     default:
       return 'bg-slate-100 text-slate-700 border border-slate-200';
   }
@@ -44,6 +46,7 @@ export default function MemberDetailLayoutEditor({
   layout, 
   customFields = [], 
   orgCustomFields = [],
+  relationshipPanels = [],
   onSave, 
   onCancel,
   isSaving 
@@ -88,6 +91,15 @@ export default function MemberDetailLayoutEditor({
       label: cf.label,
       type: 'org_custom',
       fieldType: cf.field_type
+    })),
+    ...relationshipPanels.map(({ definition, side }) => ({
+      id: `relationship:${definition.id}:${side}`,
+      definitionId: definition.id,
+      side,
+      label: side === 'source'
+        ? (definition.source_label || 'Related records')
+        : (definition.target_label || 'Related records'),
+      type: 'relationship'
     }))
   ];
 
@@ -139,7 +151,11 @@ export default function MemberDetailLayoutEditor({
               id: field.id,
               type: field.type,
               columnIndex: destParsed.columnIndex,
-              ...((field.type === 'core' || field.type === 'org_core') ? { fieldKey: field.fieldKey } : { fieldId: field.fieldId })
+              ...((field.type === 'core' || field.type === 'org_core')
+                ? { fieldKey: field.fieldKey }
+                : field.type === 'relationship'
+                  ? { definitionId: field.definitionId, side: field.side }
+                  : { fieldId: field.fieldId })
             };
             
             const insertAfterIndex = colFields[destination.index - 1]
@@ -236,6 +252,16 @@ export default function MemberDetailLayoutEditor({
   };
 
   const getFieldLabel = (field) => {
+    if (field.type === 'relationship') {
+      const panel = relationshipPanels.find(({ definition, side }) =>
+        String(definition.id) === String(field.definitionId) && side === field.side
+      );
+      return panel
+        ? (panel.side === 'source'
+          ? panel.definition.source_label
+          : panel.definition.target_label) || 'Related records'
+        : 'Unavailable relationship';
+    }
     if (field.type === 'core') {
       const coreField = MEMBER_CORE_FIELDS.find(f => f.fieldKey === field.fieldKey);
       return coreField?.label || field.fieldKey;
@@ -483,6 +509,7 @@ export default function MemberDetailLayoutEditor({
                           {(() => {
                             const memberGroup = unassignedFields.filter(f => f.type === 'core' || f.type === 'custom');
                             const orgGroup = unassignedFields.filter(f => f.type === 'org_core' || f.type === 'org_custom');
+                            const relationshipGroup = unassignedFields.filter(f => f.type === 'relationship');
                             const renderDraggable = (field) => (
                               <Draggable
                                 key={field.id}
@@ -521,6 +548,12 @@ export default function MemberDetailLayoutEditor({
                                     {orgGroup.map(renderDraggable)}
                                   </>
                                 )}
+                                {relationshipGroup.length > 0 && (
+                                  <>
+                                    <p className="text-xs font-medium text-amber-700 uppercase tracking-wide px-1 pt-2">Relationships</p>
+                                    {relationshipGroup.map(renderDraggable)}
+                                  </>
+                                )}
                               </>
                             );
                           })()}
@@ -540,6 +573,7 @@ export default function MemberDetailLayoutEditor({
                     <li>Blue = member core fields</li>
                     <li>Green = member custom fields</li>
                     <li>Purple = linked organisation fields</li>
+                    <li>Amber = Data Studio relationships</li>
                   </ul>
                 </div>
               </div>

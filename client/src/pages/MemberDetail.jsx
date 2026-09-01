@@ -455,8 +455,12 @@ export default function MemberDetail() {
   });
 
   const effectiveLayout = useMemo(() => 
-    mergeLayoutWithCustomFields(layoutConfig, memberCustomFields),
-    [layoutConfig, memberCustomFields]
+    mergeLayoutWithCustomFields(
+      layoutConfig,
+      memberCustomFields,
+      relatedRecords.isSuccess ? relatedRecords.panels : null
+    ),
+    [layoutConfig, memberCustomFields, relatedRecords.isSuccess, relatedRecords.panels]
   );
 
   const toggleSection = (cardId) => {
@@ -1423,6 +1427,24 @@ export default function MemberDetail() {
     const renderField = (field) => {
       if (hiddenFields.has(field.id)) return null;
       const isFieldLocked = isCardLocked || lockedFields.has(field.id);
+      if (field.type === 'relationship') {
+        const panel = relatedRecords.panels.find(({ definition, side }) =>
+          String(definition.id) === String(field.definitionId) && side === field.side
+        );
+        if (!panel) return null;
+        return (
+          <div key={field.id} className="md:col-span-full" data-testid={`member-layout-${field.id}`}>
+            <RelatedRecordsPanel
+              context={relatedRecords.context}
+              record={member}
+              definition={panel.definition}
+              side={panel.side}
+              showHeading={false}
+              embedded
+            />
+          </div>
+        );
+      }
       if (field.type === 'core') {
         return <div key={field.id}>{renderMemberCoreField(field.fieldKey, isFieldLocked)}</div>;
       }
@@ -2877,6 +2899,7 @@ export default function MemberDetail() {
           layout={effectiveLayout}
           customFields={memberCustomFields}
           orgCustomFields={orgCustomFields}
+          relationshipPanels={relatedRecords.panels}
           onSave={async (newLayout) => {
             await saveLayout(newLayout);
             setShowLayoutEditor(false);
@@ -2893,6 +2916,7 @@ export default function MemberDetail() {
         customFields={memberCustomFields}
         orgCustomFields={orgCustomFields}
         layoutCards={effectiveLayout?.cards || []}
+        relationshipPanels={relatedRecords.panels}
         onSave={saveRules}
         onCancel={() => setShowRulesEditor(false)}
         isSaving={isRulesSaving}

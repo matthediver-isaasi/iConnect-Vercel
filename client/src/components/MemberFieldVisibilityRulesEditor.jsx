@@ -37,6 +37,7 @@ export default function MemberFieldVisibilityRulesEditor({
   customFields = [],
   orgCustomFields = [],
   layoutCards = [],
+  relationshipPanels = [],
   onSave, 
   onCancel,
   isSaving 
@@ -92,10 +93,25 @@ export default function MemberFieldVisibilityRulesEditor({
       options: cf.options
     }));
 
-    return [...coreFieldsList, ...customFieldsList, ...orgCoreFieldsList, ...orgCustomFieldsList];
+    const placedRelationshipIds = new Set(
+      layoutCards.flatMap(card => card.fields || [])
+        .filter(field => field.type === 'relationship')
+        .map(field => field.id)
+    );
+    const relationshipFieldsList = relationshipPanels
+      .map(({ definition, side }) => ({
+        id: `relationship:${definition.id}:${side}`,
+        label: (side === 'source' ? definition.source_label : definition.target_label) || 'Related records',
+        type: 'relationship',
+        fieldType: 'relationship'
+      }))
+      .filter(field => placedRelationshipIds.has(field.id));
+
+    return [...coreFieldsList, ...customFieldsList, ...orgCoreFieldsList, ...orgCustomFieldsList, ...relationshipFieldsList];
   };
 
   const allFields = getAllFields();
+  const relationshipTargets = allFields.filter(field => field.fieldType === 'relationship');
 
   const getFieldLabel = (fieldId) => {
     const field = allFields.find(f => f.id === fieldId);
@@ -539,28 +555,44 @@ export default function MemberFieldVisibilityRulesEditor({
                                         <Eye className="w-3 h-3" /> Show
                                       </span>
                                     </SelectItem>
-                                    <SelectItem value="lock">
-                                      <span className="flex items-center gap-1">
-                                        <Lock className="w-3 h-3" /> Lock
-                                      </span>
-                                    </SelectItem>
-                                    <SelectItem value="unlock">
-                                      <span className="flex items-center gap-1">
-                                        <LockOpen className="w-3 h-3" /> Unlock
-                                      </span>
-                                    </SelectItem>
+                                    {action.target_type !== 'relationship' && (
+                                      <>
+                                        <SelectItem value="lock">
+                                          <span className="flex items-center gap-1">
+                                            <Lock className="w-3 h-3" /> Lock
+                                          </span>
+                                        </SelectItem>
+                                        <SelectItem value="unlock">
+                                          <span className="flex items-center gap-1">
+                                            <LockOpen className="w-3 h-3" /> Unlock
+                                          </span>
+                                        </SelectItem>
+                                      </>
+                                    )}
                                   </SelectContent>
                                 </Select>
 
                                 <Select
                                   value={action.target_type || 'field'}
-                                  onValueChange={(value) => updateAction(rule.id, action.id, { target_type: value, target_field_id: '', target_card_id: '' })}
+                                  onValueChange={(value) => updateAction(rule.id, action.id, {
+                                    target_type: value,
+                                    target_field_id: '',
+                                    target_card_id: '',
+                                    ...(
+                                      value === 'relationship' && ['lock', 'unlock'].includes(action.action_type)
+                                        ? { action_type: 'hide' }
+                                        : {}
+                                    )
+                                  })}
                                 >
                                   <SelectTrigger className="h-8 w-24" data-testid={`select-member-target-type-${ruleIndex}-${actionIndex}`}>
                                     <SelectValue />
                                   </SelectTrigger>
                                   <SelectContent>
                                     <SelectItem value="field">Field</SelectItem>
+                                    {relationshipTargets.length > 0 && (
+                                      <SelectItem value="relationship">Relationship</SelectItem>
+                                    )}
                                     <SelectItem value="card">
                                       <span className="flex items-center gap-1">
                                         <LayoutGrid className="w-3 h-3" /> Card
@@ -569,7 +601,23 @@ export default function MemberFieldVisibilityRulesEditor({
                                   </SelectContent>
                                 </Select>
 
-                                {(!action.target_type || action.target_type === 'field') ? (
+                                {action.target_type === 'relationship' ? (
+                                  <Select
+                                    value={action.target_field_id || undefined}
+                                    onValueChange={(value) => updateAction(rule.id, action.id, { target_field_id: value })}
+                                  >
+                                    <SelectTrigger className="h-8 flex-1 min-w-[140px]" data-testid={`select-member-action-relationship-target-${ruleIndex}-${actionIndex}`}>
+                                      <SelectValue placeholder="Select relationship..." />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      {relationshipTargets.map(field => (
+                                        <SelectItem key={field.id} value={field.id}>
+                                          {field.label}
+                                        </SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                ) : (!action.target_type || action.target_type === 'field') ? (
                                   <Select
                                     value={action.target_field_id || undefined}
                                     onValueChange={(value) => updateAction(rule.id, action.id, { target_field_id: value })}
