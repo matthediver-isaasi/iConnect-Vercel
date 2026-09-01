@@ -22,7 +22,7 @@ import {
 } from "@/components/ui/popover";
 import { toast } from "sonner";
 import {
-  Building2, Plus, Pencil, Trash2, Loader2, Search, X, SlidersHorizontal,
+  Building2, Plus, Pencil, Trash2, Loader2, Search, X, SlidersHorizontal, Download,
   RotateCcw, PanelLeft, PanelLeftClose, Columns3, Eye, EyeOff, GripVertical,
   LayoutList, LayoutGrid, ChevronLeft, ChevronRight, Calendar
 } from "lucide-react";
@@ -142,6 +142,7 @@ export default function OrganisationGroups() {
   const [editingGroup, setEditingGroup] = useState(null);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [form, setForm] = useState({ name: "", description: "" });
+  const [isExporting, setIsExporting] = useState(false);
 
   // CRM shell state
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -493,6 +494,34 @@ export default function OrganisationGroups() {
     saveStoredColumns(newColumns);
   };
 
+  const handleExportCSV = async () => {
+    if (isExporting) return;
+    setIsExporting(true);
+    try {
+      const response = await fetch('/api/admin/organisation-groups/export-hierarchy-csv', {
+        credentials: 'include',
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        throw new Error(body?.error || 'Could not export the hierarchy');
+      }
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `organisation_group_hierarchy_${new Date().toISOString().slice(0, 10)}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      toast.success('Organisation group hierarchy exported');
+    } catch (error) {
+      toast.error(`Export failed: ${error.message || 'Could not export the hierarchy'}`);
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
   if (!accessChecked) {
     return (
       <div className="flex items-center justify-center min-h-[40vh]">
@@ -837,6 +866,19 @@ export default function OrganisationGroups() {
               </div>
 
               <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  onClick={handleExportCSV}
+                  disabled={isExporting}
+                  data-testid="button-export-group-hierarchy"
+                >
+                  {isExporting ? (
+                    <Loader2 className="w-4 h-4 mr-1 animate-spin" />
+                  ) : (
+                    <Download className="w-4 h-4 mr-1" />
+                  )}
+                  {isExporting ? 'Exporting…' : 'Export CSV'}
+                </Button>
                 <Button onClick={openCreate} data-testid="button-create-group">
                   <Plus className="w-4 h-4 mr-1" /> New Group
                 </Button>
