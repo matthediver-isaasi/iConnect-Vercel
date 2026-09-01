@@ -202,8 +202,20 @@ export default function EmbedFormPage() {
     queryKey: ['prefill-member-embedform', prefillMemberId, !!authMember],
     queryFn: async () => {
       if (authMember) {
-        const member = await base44.entities.Member.get(prefillMemberId);
-        return { member, customValues: null };
+        const [member, resourceCategorySelections] = await Promise.all([
+          base44.entities.Member.get(prefillMemberId),
+          base44.entities.MemberResourceCategory.list({
+            filter: { member_id: prefillMemberId }
+          }).catch(error => {
+            console.error('[EmbedForm Prefill] Failed to load member resource categories:', error);
+            return [];
+          })
+        ]);
+        return {
+          member,
+          customValues: null,
+          resourceCategorySelections: resourceCategorySelections || []
+        };
       }
       return publicClient.getPrefillMember(prefillMemberId, slug);
     },
@@ -375,6 +387,7 @@ export default function EmbedFormPage() {
       primaryEntity,
       memberCustomValues: prefillMemberCustomValues,
       orgCustomValues: prefillOrgCustomValues,
+      memberResourceCategorySelections: prefillMemberData?.resourceCategorySelections || [],
       prefillOrgId,
     });
 
@@ -397,7 +410,7 @@ export default function EmbedFormPage() {
     // refetch could re-run prefill and overwrite values the user has since
     // typed into (then cleared/edited) blank fields.
     setPrefillApplied(true);
-  }, [form, prefillMember, prefillOrg, prefillMemberOrg, prefillMemberCustomValues, prefillOrgCustomValues, prefillApplied, defaultsInitialized, prefillOrgId, prefillMemberId, memberSourceOrgId, memberOrgLoading, prefillOrgLoading, effectiveOrgIdForCustomFields, authMember, memberCustomValuesLoading, orgCustomValuesLoading]);
+  }, [form, prefillMember, prefillMemberData?.resourceCategorySelections, prefillOrg, prefillMemberOrg, prefillMemberCustomValues, prefillOrgCustomValues, prefillApplied, defaultsInitialized, prefillOrgId, prefillMemberId, memberSourceOrgId, memberOrgLoading, prefillOrgLoading, effectiveOrgIdForCustomFields, authMember, memberCustomValuesLoading, orgCustomValuesLoading]);
 
   const originalValuesRef = useRef({});
   const activeSetValueActionsRef = useRef(new Set());

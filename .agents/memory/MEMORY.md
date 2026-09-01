@@ -144,3 +144,4 @@
 - [Department relationship replacement](department-relationship-replacement.md) — changing a member Organisation may auto-archive Department edges; pre-journal restoration and never hard-delete.
 - [Form processing authorization boundary](form-processing-authorization-boundary.md) — record side effects require trusted/authenticated identity and persisted lifecycle/config checks before execution.
 - [GoCardless account discovery isolation](gocardless-discovery-isolation.md) — account-wide discovery must require tenant-owned credentials; never use platform fallback or live billing mirrors.
+- [Member category form mappings](member-category-form-mappings.md) — category answers target explicit member categories; validate tenant definitions and diff only each mapped destination.

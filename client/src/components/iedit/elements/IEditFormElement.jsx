@@ -464,6 +464,17 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
     enabled: !!memberInfo && !!prefillMemberId && form?.prefill_source === 'member'
   });
 
+  const { data: prefillMemberResourceCategorySelections = [], isLoading: memberResourceCategoriesLoading } = useQuery({
+    queryKey: ['prefill-member-resource-categories-embed', prefillMemberId],
+    queryFn: async () => {
+      const values = await base44.entities.MemberResourceCategory.list({
+        filter: { member_id: prefillMemberId }
+      });
+      return values || [];
+    },
+    enabled: !!memberInfo && !!prefillMemberId && form?.prefill_source === 'member'
+  });
+
   // Prefill: Fetch org custom field values (from direct org prefill or member's org)
   const effectiveOrgIdForCustomFields = form?.prefill_source === 'organization'
     ? prefillOrgId
@@ -481,7 +492,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
   });
 
   const isPrefillLoading = form && form.prefill_source && form.prefill_source !== 'none' && !prefillApplied && !!memberInfo && (
-    (form.prefill_source === 'member' && (prefillMemberLoading || memberCustomValuesLoading)) ||
+    (form.prefill_source === 'member' && (prefillMemberLoading || memberCustomValuesLoading || memberResourceCategoriesLoading)) ||
     (form.prefill_source === 'organization' && prefillOrgLoading)
   );
 
@@ -604,6 +615,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
     if (!defaultsInitialized) return;
     if (prefillApplied) return;
     if (draftToken && !draftLoaded && !draftFetchError) return;
+    if (form.prefill_source === 'member' && memberResourceCategoriesLoading) return;
 
     // Wait for BOTH member and organisation custom values before applying —
     // the entity can resolve first, and applying then would latch
@@ -643,6 +655,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
       primaryEntity,
       memberCustomValues: prefillMemberCustomValues,
       orgCustomValues: prefillOrgCustomValues,
+      memberResourceCategorySelections: prefillMemberResourceCategorySelections,
       prefillOrgId,
     });
 
@@ -669,7 +682,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
     // refetch could re-run prefill and overwrite values the user has since
     // edited. Draft precedence is preserved by the merge above.
     setPrefillApplied(true);
-  }, [form, prefillMember, prefillOrg, prefillMemberOrg, prefillMemberCustomValues, prefillOrgCustomValues, prefillApplied, defaultsInitialized, prefillOrgId, prefillMemberId, memberSourceOrgId, memberOrgLoading, prefillOrgLoading, effectiveOrgIdForCustomFields, memberInfo, memberCustomValuesLoading, orgCustomValuesLoading, draftToken, draftLoaded, draftData, draftFetchError]);
+  }, [form, prefillMember, prefillOrg, prefillMemberOrg, prefillMemberCustomValues, prefillMemberResourceCategorySelections, prefillOrgCustomValues, prefillApplied, defaultsInitialized, prefillOrgId, prefillMemberId, memberSourceOrgId, memberOrgLoading, prefillOrgLoading, effectiveOrgIdForCustomFields, memberInfo, memberCustomValuesLoading, memberResourceCategoriesLoading, orgCustomValuesLoading, draftToken, draftLoaded, draftData, draftFetchError]);
 
   // Helper to evaluate a rule condition
   const evaluateSingleCondition = (triggerValue, operator, value) => {

@@ -48,17 +48,14 @@ const BOOLEAN_CORE_FIELDS = ['show_in_directory', 'login_enabled'];
 // Helper function to check if a value is "empty" (undefined, null, or empty string)
 const isEmptyValue = (value) => value === undefined || value === null || value === '';
 
-// Cross-tenant guard: verify a role belongs to the same tenant as the member
-// it is about to be written onto. Returns { ok: true } when the role is in
-// the expected tenant. Returns { ok: false, message } on mismatch / missing
-// role / lookup failure. Returns { ok: true, skipped: true } when either id
-// is missing — the caller is responsible for deciding whether to proceed.
-//
-// Treat mismatches as a hard internal error (FormBuilder is supposed to only
-// surface roles from the current tenant, so this branch should never fire in
-// normal operation; if it does, the form's pipeline / conditional logic is
-// referencing a stale cross-tenant role and we must not silently corrupt
-// member.role_id).
+export const isMemberResourceCategoryMapping = (mapping) => (
+  mapping?.target_type === 'resource_category'
+  && mapping?.target_entity === 'member'
+  && typeof mapping?.target_field === 'string'
+  && mapping.target_field.trim() !== ''
+  && typeof mapping?.source_field_id === 'string'
+  && mapping.source_field_id.trim() !== ''
+);
 const validateRoleTenant = async (supabaseClient, roleId, expectedTenantId) => {
   if (!roleId || !expectedTenantId) {
     return { ok: true, skipped: true };
@@ -1485,6 +1482,130 @@ export default async function handler(req, res) {
 
     let memberCustomFields = convertMapToArray(memberCustomFieldsMap);
 
+    // Persist only the destination categories explicitly named by the member
+    // pipeline.  Values are validated against active categories in the
+    // authoritative tenant; invalid category ids and subcategory values are
+    // skipped rather than being allowed to create cross-category associations.
+    const persistMappedMemberResourceCategories = async (memberId, pipelineEntry) => {
+      const intents = collectMemberResourceCategoryMappingIntents(pipelineEntry, form_values, fields);
+      if (!memberId || intents.size === 0) return;
+      if (!effectiveEntityTenantId) {
+        addProcessingNote({
+          kind: 'resource_category_mapping_skipped',
+          member_id: memberId,
+          message: 'Resource-category mapping skipped because no authoritative tenant was resolved',
+        });
+        return;
+      }
+
+      const destinationIds = [...intents.keys()];
+      const { data: categories, error: categoryError } = await supabase
+        .from('resource_category')
+        .select('id, subcategories')
+        .eq('tenant_id', effectiveEntityTenantId)
+        .eq('is_active', true)
+        .in('id', destinationIds);
+      if (categoryError) {
+        addProcessingNote({
+          kind: 'resource_category_validation_failed',
+          member_id: memberId,
+          message: categoryError.message,
+        });
+        return;
+      }
+
+      const categoryMap = new Map((categories || []).map(category => {
+        let subcategories = category.subcategories || [];
+        if (typeof subcategories === 'string') {
+          try {
+            subcategories = JSON.parse(subcategories);
+          } catch {
+            subcategories = [];
+          }
+        }
+        if (!Array.isArray(subcategories)) subcategories = [];
+        return [category.id, new Set(subcategories.map(value => String(value).trim()).filter(Boolean))];
+      }));
+
+      for (const [categoryId, submittedValues] of intents) {
+        const allowedValues = categoryMap.get(categoryId);
+        if (!allowedValues) {
+          addProcessingNote({
+            kind: 'resource_category_mapping_rejected',
+            member_id: memberId,
+            resource_category_id: categoryId,
+            message: 'Mapped resource category is not active in the form tenant',
+          });
+          continue;
+        }
+
+        const selectedValues = [...submittedValues].filter(value => allowedValues.has(value));
+        const invalidValues = [...submittedValues].filter(value => !allowedValues.has(value));
+        if (invalidValues.length > 0) {
+          addProcessingNote({
+            kind: 'resource_category_values_rejected',
+            member_id: memberId,
+            resource_category_id: categoryId,
+            rejected_values: invalidValues,
+            message: 'Submitted values do not belong to the mapped resource category',
+          });
+        }
+        // A non-empty, wholly invalid submission is ignored rather than being
+        // reinterpreted as an explicit clear.  A genuinely empty scalar/array
+        // still clears the mapped destination category.
+        if (submittedValues.size > 0 && selectedValues.length === 0) continue;
+
+        const { data: currentRows, error: currentError } = await supabase
+          .from('member_resource_category')
+          .select('id, resource_category_id, subcategory_name')
+          .eq('member_id', memberId)
+          .eq('resource_category_id', categoryId);
+        if (currentError) {
+          addProcessingNote({
+            kind: 'resource_category_current_lookup_failed',
+            member_id: memberId,
+            resource_category_id: categoryId,
+            message: currentError.message,
+          });
+          continue;
+        }
+
+        const { removeIds, toInsert } = buildMemberResourceCategoryDiff(currentRows || [], selectedValues);
+
+        if (removeIds.length > 0) {
+          const { error } = await supabase
+            .from('member_resource_category')
+            .delete()
+            .in('id', removeIds);
+          if (error) {
+            addProcessingNote({
+              kind: 'resource_category_delete_failed',
+              member_id: memberId,
+              resource_category_id: categoryId,
+              message: error.message,
+            });
+          }
+        }
+        if (toInsert.length > 0) {
+          const { error } = await supabase
+            .from('member_resource_category')
+            .insert(toInsert.map(subcategoryName => ({
+              member_id: memberId,
+              resource_category_id: categoryId,
+              subcategory_name: subcategoryName,
+            })));
+          if (error) {
+            addProcessingNote({
+              kind: 'resource_category_insert_failed',
+              member_id: memberId,
+              resource_category_id: categoryId,
+              message: error.message,
+            });
+          }
+        }
+      }
+    };
+
     // Helper function to process pipeline entry mappings (supports both new array format and legacy object format)
     const processPipelineMappings = (pipelineEntry, targetEntity, dataObj, customFieldsMap, coreFieldMappingConfig, customFieldsToClear) => {
       if (!pipelineEntry) return;
@@ -2510,12 +2631,46 @@ export default async function handler(req, res) {
 
       // Handle category_multiselect field values - save to member_resource_category table
       // Uses diff-based approach: only add/remove what changed
-      const categoryFields = fields.filter(f => f.type === 'category_multiselect' || f.type === 'resource_categories');
-      if (createdMemberId && categoryFields.length > 0) {
+      const primaryMemberPipeline = memberPipelines.find(m => m.isPrimary || m.is_primary);
+      const primaryPipelineCategoryMappings = (primaryMemberPipeline?.mappings || [])
+        .filter(isMemberResourceCategoryMapping);
+      const primaryPipelineCategoryIds = new Set(
+        primaryPipelineCategoryMappings.map(mapping => mapping.target_field)
+      );
+      // Some saved forms still execute the top-level field_mappings contract
+      // directly rather than its builder-migrated entity pipeline. Normalize
+      // those explicit member category mappings into the same persistence
+      // path. A pipeline mapping for the same destination wins.
+      const topLevelCategoryMappings = (field_mappings || [])
+        .filter(isMemberResourceCategoryMapping)
+        .filter(mapping => !primaryPipelineCategoryIds.has(mapping.target_field));
+      const effectivePrimaryCategoryPipeline = {
+        mappings: [...primaryPipelineCategoryMappings, ...topLevelCategoryMappings],
+      };
+      const explicitlyMappedCategoryFieldIds = new Set(
+        effectivePrimaryCategoryPipeline.mappings
+          .map(mapping => mapping.source_field_id)
+      );
+      const explicitlyMappedCategoryIds = new Set(
+        effectivePrimaryCategoryPipeline.mappings
+          .map(mapping => mapping.target_field)
+      );
+      await persistMappedMemberResourceCategories(createdMemberId, effectivePrimaryCategoryPipeline);
+
+      // Backwards compatibility: old forms had no explicit mapping and treated
+      // category multi-select fields as member categories.  Keep that behaviour
+      // for unmapped fields, but never query categories outside the resolved
+      // tenant and never process a field already covered by the explicit path.
+      const categoryFields = fields.filter(f => (
+        (f.type === 'category_multiselect' || f.type === 'resource_categories')
+        && !explicitlyMappedCategoryFieldIds.has(f.id)
+      ));
+      if (createdMemberId && effectiveEntityTenantId && categoryFields.length > 0) {
         // Get all resource categories to map subcategory names to category IDs
         const { data: resourceCategories } = await supabase
           .from('resource_category')
           .select('id, name, subcategories')
+          .eq('tenant_id', effectiveEntityTenantId)
           .eq('is_active', true);
         
         // Parse subcategories that might be stored as JSON strings and normalize
@@ -2541,7 +2696,9 @@ export default async function handler(req, res) {
           const allowedCatIds = field.allowed_category_ids?.length > 0 
             ? field.allowed_category_ids 
             : Array.from(categoryMap.keys());
-          allowedCatIds.forEach(id => formCategoryIds.add(id));
+          allowedCatIds
+            .filter(id => !explicitlyMappedCategoryIds.has(id))
+            .forEach(id => formCategoryIds.add(id));
         }
         
         // Build list of category selections from all category_multiselect fields
@@ -2561,7 +2718,7 @@ export default async function handler(req, res) {
             if (subcatName === FORM_NOT_LISTED_VALUE) continue;
             const normalizedSubcat = String(subcatName).trim();
             // Find which category this subcategory belongs to
-            for (const catId of allowedCategoryIds) {
+            for (const catId of allowedCategoryIds.filter(id => !explicitlyMappedCategoryIds.has(id))) {
               const subcats = categoryMap.get(catId);
               if (subcats && subcats.includes(normalizedSubcat)) {
                 categorySelections.push({
@@ -2719,7 +2876,7 @@ export default async function handler(req, res) {
     let memberCreationConfigs = [];
     if (memberPipelines.length > 0) {
       // New system: use entity_pipelines.members, skip primary (it's handled by existing field_mappings logic)
-      memberCreationConfigs = memberPipelines.filter(m => !m.isPrimary);
+      memberCreationConfigs = memberPipelines.filter(m => !m.isPrimary && !m.is_primary);
       console.log('[AppProcessor] Using entity_pipelines.members:', memberCreationConfigs.length, 'non-primary entries');
     } else if (additional_member_creations && Array.isArray(additional_member_creations) && additional_member_creations.length > 0) {
       // Legacy system: use additional_member_creations
@@ -3298,6 +3455,10 @@ export default async function handler(req, res) {
           }
         }
 
+        // Category mappings are association writes, not member columns.  Run
+        // after both create and update resolve the member id.
+        await persistMappedMemberResourceCategories(existingMemberId, memberConfig);
+
         // Task 3196: trigger record_create workflows for a newly created
         // additional member AFTER its custom-field values are saved, so
         // member_custom conditions evaluate against this submission's values.
@@ -3401,3 +3562,58 @@ export default async function handler(req, res) {
     res.status(500).json({ error: 'Failed to process application' });
   }
 }
+
+export const buildMemberResourceCategoryDiff = (existingRows, selectedValues) => {
+  const selected = [...new Set(selectedValues || [])];
+  const selectedSet = new Set(selected);
+  const currentSet = new Set((existingRows || []).map(row => row.subcategory_name).filter(Boolean));
+  return {
+    removeIds: (existingRows || [])
+      .filter(row => !selectedSet.has(row.subcategory_name))
+      .map(row => row.id),
+    toInsert: selected.filter(value => !currentSet.has(value)),
+  };
+};
+
+export const collectMemberResourceCategoryMappingIntents = (pipelineEntry, formValues = {}, formFields = null) => {
+  const intents = new Map();
+  if (!Array.isArray(pipelineEntry?.mappings) || !formValues || typeof formValues !== 'object') {
+    return intents;
+  }
+  const enforceSourceContract = Array.isArray(formFields);
+  const sourceFields = new Map((formFields || []).filter(field => field?.id).map(field => [field.id, field]));
+
+  for (const mapping of pipelineEntry.mappings) {
+    if (!isMemberResourceCategoryMapping(mapping)) continue;
+    const sourceFieldId = mapping.source_field_id.trim();
+    if (enforceSourceContract) {
+      const sourceField = sourceFields.get(sourceFieldId);
+      const destinationId = mapping.target_field.trim();
+      const isDropdownForDestination = (
+        sourceField?.type === 'category_dropdown'
+        && sourceField.category_id === destinationId
+      );
+      const allowedCategoryIds = Array.isArray(sourceField?.allowed_category_ids)
+        ? sourceField.allowed_category_ids
+        : [];
+      const isMultiForDestination = (
+        (sourceField?.type === 'category_multiselect' || sourceField?.type === 'resource_categories')
+        && (allowedCategoryIds.length === 0 || allowedCategoryIds.includes(destinationId))
+      );
+      if (!isDropdownForDestination && !isMultiForDestination) continue;
+    }
+    if (!Object.prototype.hasOwnProperty.call(formValues, sourceFieldId)) continue;
+
+    const categoryId = mapping.target_field.trim();
+    const rawValue = formValues[sourceFieldId];
+    const values = Array.isArray(rawValue) ? rawValue : [rawValue];
+    if (!intents.has(categoryId)) intents.set(categoryId, new Set());
+    const selected = intents.get(categoryId);
+    for (const value of values) {
+      if (value === null || value === undefined || value === '' || isFormNotListedValue(value)) continue;
+      const normalized = String(value).trim();
+      if (normalized) selected.add(normalized);
+    }
+  }
+  return intents;
+};

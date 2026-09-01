@@ -13,7 +13,7 @@ import { useFormPaymentReturn, FormPaymentReturnScreen } from "../components/for
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useLayoutContext } from "@/contexts/LayoutContext";
-import { isFieldValueFilled, parseCustomFieldValue, resolveEffectivePrefillIds, resolveMemberSourceOrgId, shouldFetchViewerBookingPrefill, shouldBlockForMissingViewerBooking, isViewerBookingResolutionPending, shouldWaitForPrefillCustomValues, shouldWaitForPrefillOrgEntity } from "@/lib/formFieldPrefill";
+import { buildMemberResourceCategoryPrefillValues, isFieldValueFilled, parseCustomFieldValue, resolveEffectivePrefillIds, resolveMemberSourceOrgId, shouldFetchViewerBookingPrefill, shouldBlockForMissingViewerBooking, isViewerBookingResolutionPending, shouldWaitForPrefillCustomValues, shouldWaitForPrefillOrgEntity } from "@/lib/formFieldPrefill";
 import { getFormPagination } from "@/lib/formPagination";
 import { resolveSubmitControl } from "../../../api/_lib/formSubmitControl.js";
 import { evaluateLmicCondition } from "../../../api/_lib/formLmicConditions.js";
@@ -389,8 +389,16 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
     queryKey: ['prefill-member', prefillMemberId, !!memberInfo],
     queryFn: async () => {
       if (memberInfo) {
-        const member = await base44.entities.Member.get(prefillMemberId);
-        return { member, customValues: null };
+        const [member, resourceCategorySelections] = await Promise.all([
+          base44.entities.Member.get(prefillMemberId),
+          base44.entities.MemberResourceCategory.list({
+            filter: { member_id: prefillMemberId }
+          }).catch(error => {
+            console.error('[FormView Prefill] Failed to load member resource categories:', error);
+            return [];
+          })
+        ]);
+        return { member, customValues: null, resourceCategorySelections: resourceCategorySelections || [] };
       }
       return publicClient.getPrefillMember(prefillMemberId, formSlug);
     },
@@ -887,6 +895,11 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
       form.fields?.filter(f => f.prefill_field).map(f => ({id: f.id, label: f.label, prefill_field: f.prefill_field})));
     
     const newValues = {};
+    const categoryValues = buildMemberResourceCategoryPrefillValues({
+      form,
+      memberResourceCategorySelections: prefillMemberData?.resourceCategorySelections || [],
+    });
+    Object.assign(newValues, categoryValues);
     for (const field of (form.fields || [])) {
       if (field.type === 'organisation_dropdown') {
         if (form.prefill_source === 'organization' && prefillOrgId) {
@@ -905,6 +918,13 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
           || memberEntity?.organization_group_id
           || orgEntity?.organization_group_id;
         if (groupId) newValues[field.id] = groupId;
+        continue;
+      }
+
+      // Saved member resource-category associations are authoritative for
+      // category fields. Do not let a legacy prefill_field overwrite them.
+      if (form.prefill_source === 'member'
+        && ['category_multiselect', 'resource_categories', 'category_dropdown'].includes(field.type)) {
         continue;
       }
       
@@ -975,7 +995,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
     // refetch could re-run prefill and overwrite values the user has since
     // edited.
     setPrefillApplied(true);
-  }, [form, prefillMember, effectiveOrgEntity, prefillMemberCustomValues, prefillOrgCustomValues, prefillApplied, defaultsInitialized, prefillOrgId, prefillMemberId, memberSourceOrgId, memberOrgLoading, prefillOrgLoading, effectiveOrgIdForCustomFields, orgCustomValuesLoading, memberCustomValuesLoading, draftToken, draftLoaded, prefillBooking, prefillBookingMember, prefillBookingOrg, prefillBookingMemberCustomValues, prefillBookingOrgCustomValues, bookingPrefillLoading]);
+  }, [form, prefillMember, prefillMemberData?.resourceCategorySelections, effectiveOrgEntity, prefillMemberCustomValues, prefillOrgCustomValues, prefillApplied, defaultsInitialized, prefillOrgId, prefillMemberId, memberSourceOrgId, memberOrgLoading, prefillOrgLoading, effectiveOrgIdForCustomFields, orgCustomValuesLoading, memberCustomValuesLoading, draftToken, draftLoaded, prefillBooking, prefillBookingMember, prefillBookingOrg, prefillBookingMemberCustomValues, prefillBookingOrgCustomValues, bookingPrefillLoading]);
 
   // Duplicate-submission guard: shared per-session idempotency key (sent on
   // every attempt, rotated only after a successful submit).

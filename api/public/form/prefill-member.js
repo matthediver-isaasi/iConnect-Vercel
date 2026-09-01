@@ -113,6 +113,15 @@ export default async function handler(req, res) {
       member,
     });
 
+    const { data: resourceCategorySelections, error: categorySelectionsError } = await supabase
+      .from('member_resource_category')
+      .select('resource_category_id, subcategory_name')
+      .eq('member_id', member_id);
+
+    if (categorySelectionsError) {
+      console.error('[Public Prefill Member] Error fetching resource category selections:', categorySelectionsError);
+    }
+
     const { data: allowedFields, error: fieldsError } = await supabase
       .from('preference_field')
       .select('id')
@@ -143,7 +152,8 @@ export default async function handler(req, res) {
 
     return res.json({
       member: publicMember,
-      customValues
+      customValues,
+      resourceCategorySelections: categorySelectionsError ? [] : (resourceCategorySelections || [])
     });
   } catch (error) {
     console.error('[Public Prefill Member] Error:', error);

@@ -883,6 +883,7 @@ function FieldMappingSection({
   applicationLevel = "member",
   customFields = [],
   communicationCategories = [],  // Communication categories for marketing preferences
+  resourceCategories = [],
   // New props for entity pipeline use
   fixedTargetEntity = null,  // 'member' or 'organization' - locks entity selection
   showHeader = true,         // Whether to show the header with title and add button
@@ -990,6 +991,16 @@ function FieldMappingSection({
         <div className="space-y-3">
           {fieldMappings.map((mapping, index) => {
             const sourceType = mapping.source_type || 'field';
+            const selectedSourceField = fields.find(f => f.id === mapping.source_field_id);
+            const isCategorySource = sourceType === 'field'
+              && ['category_dropdown', 'category_multiselect'].includes(selectedSourceField?.type);
+            const canTargetResourceCategory = isCategorySource
+              && (fixedTargetEntity || mapping.target_entity || effectiveEntity) === 'member';
+            const compatibleResourceCategories = selectedSourceField?.type === 'category_dropdown'
+              ? resourceCategories.filter(category => category.id === selectedSourceField.category_id)
+              : selectedSourceField?.allowed_category_ids?.length > 0
+                ? resourceCategories.filter(category => selectedSourceField.allowed_category_ids.includes(category.id))
+                : resourceCategories;
             const targetCustomField = mapping.target_type === 'custom' ? getCustomFieldById(mapping.target_field) : null;
             const hasOptions = targetCustomField && targetCustomField.options && targetCustomField.options.length > 0;
             
@@ -1006,10 +1017,14 @@ function FieldMappingSection({
                     <Label className="text-xs">Source</Label>
                     <Select
                       value={sourceType}
-                      onValueChange={(value) => updateMapping(mapping.id, { 
-                        source_type: value, 
+                      onValueChange={(value) => updateMapping(mapping.id, {
+                        source_type: value,
                         source_field_id: '',
                         source_category_id: '',
+                        target_type: mapping.target_type === 'resource_category' && value !== 'field'
+                          ? 'core'
+                          : mapping.target_type,
+                        target_field: mapping.target_type === 'resource_category' ? '' : mapping.target_field,
                         static_value: value === 'clear' ? '__clear__' : '',
                         transformation: value === 'current_date' ? 'current_date' : 'none'
                       })}
@@ -1040,6 +1055,12 @@ function FieldMappingSection({
                             const updates = { source_field_id: value };
                             if (selectedField?.type !== 'communication_preferences') {
                               updates.source_category_id = '';
+                            }
+                            if (mapping.target_type === 'resource_category') {
+                              updates.target_field = '';
+                              if (!['category_dropdown', 'category_multiselect'].includes(selectedField?.type)) {
+                                updates.target_type = 'core';
+                              }
                             }
                             updateMapping(mapping.id, updates);
                           }
@@ -1166,6 +1187,9 @@ function FieldMappingSection({
                         if (value === 'communication') {
                           updates.target_entity = 'member';
                         }
+                        if (value === 'resource_category') {
+                          updates.target_entity = 'member';
+                        }
                         updateMapping(mapping.id, updates);
                       }}
                     >
@@ -1178,6 +1202,9 @@ function FieldMappingSection({
                         {(mapping.target_entity === 'member' || effectiveEntity === 'member') && communicationCategories.length > 0 && (
                           <SelectItem value="communication">Communication</SelectItem>
                         )}
+                        {canTargetResourceCategory && (
+                          <SelectItem value="resource_category">Resource Category</SelectItem>
+                        )}
                       </SelectContent>
                     </Select>
                   </div>
@@ -1188,8 +1215,11 @@ function FieldMappingSection({
                       <Label className="text-xs">Entity</Label>
                       <Select
                         value={mapping.target_entity}
-                        onValueChange={(value) => updateMapping(mapping.id, { 
-                          target_entity: value, 
+                        onValueChange={(value) => updateMapping(mapping.id, {
+                          target_entity: value,
+                          target_type: mapping.target_type === 'resource_category' && value !== 'member'
+                            ? 'core'
+                            : mapping.target_type,
                           target_field: '',
                           static_value: ''
                         })}
@@ -1207,7 +1237,13 @@ function FieldMappingSection({
 
                   {/* Target Field */}
                   <div className="space-y-1 min-w-[140px] flex-1">
-                    <Label className="text-xs">{mapping.target_type === 'communication' ? 'Category' : 'Target Field'}</Label>
+                    <Label className="text-xs">
+                      {mapping.target_type === 'communication'
+                        ? 'Category'
+                        : mapping.target_type === 'resource_category'
+                          ? 'Resource Category'
+                          : 'Target Field'}
+                    </Label>
                     <Select
                       value={mapping.target_field || undefined}
                       onValueChange={(value) => {
@@ -1225,6 +1261,14 @@ function FieldMappingSection({
                           getAvailableCoreFields(mapping.target_entity).map(f => (
                             <SelectItem key={f.value} value={f.value}>{f.label}</SelectItem>
                           ))
+                        ) : mapping.target_type === 'resource_category' ? (
+                          compatibleResourceCategories.length === 0 ? (
+                            <SelectItem value="__none" disabled>No compatible resource categories available</SelectItem>
+                          ) : (
+                            compatibleResourceCategories.map(category => (
+                              <SelectItem key={category.id} value={category.id}>{category.name}</SelectItem>
+                            ))
+                          )
                         ) : mapping.target_type === 'communication' ? (
                           getAvailableCommunicationCategories().length === 0 ? (
                             <SelectItem value="__none" disabled>No communication categories available</SelectItem>
@@ -10633,6 +10677,7 @@ export default function FormBuilderPage() {
                               applicationLevel="member"
                               customFields={customFields}
                               communicationCategories={communicationCategories}
+                              resourceCategories={categories}
                               fixedTargetEntity="member"
                               showHeader={false}
                               compact={true}
@@ -10763,6 +10808,7 @@ export default function FormBuilderPage() {
                               applicationLevel="organization"
                               customFields={customFields}
                               communicationCategories={communicationCategories}
+                              resourceCategories={categories}
                               fixedTargetEntity="organization"
                               showHeader={false}
                               compact={true}

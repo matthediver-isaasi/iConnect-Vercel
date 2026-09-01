@@ -155,11 +155,34 @@ export const shouldWaitForPrefillCustomValues = ({
   return false;
 };
 
-// Task #3336: pure mapping from a form's field prefill config to form values,
-// for the member/organisation prefill sources. Returns an object of
-// fieldId -> value; an EMPTY object is a legitimate outcome (entity resolved
-// but nothing matched) and callers must STILL latch their one-time
-// prefill-applied flag, or later query refetches can overwrite user input.
+export const buildMemberResourceCategoryPrefillValues = ({
+  form,
+  memberResourceCategorySelections = [],
+}) => {
+  if (form?.prefill_source !== 'member') return {};
+
+  const values = {};
+  for (const field of (form.fields || [])) {
+    if (field.type === 'category_multiselect' || field.type === 'resource_categories') {
+      const allowedCategoryIds = Array.isArray(field.allowed_category_ids) && field.allowed_category_ids.length > 0
+        ? new Set(field.allowed_category_ids)
+        : null;
+      const selected = memberResourceCategorySelections
+        .filter(selection => !allowedCategoryIds || allowedCategoryIds.has(selection.resource_category_id))
+        .map(selection => selection.subcategory_name)
+        .filter(value => typeof value === 'string' && value.trim() !== '');
+      if (selected.length > 0) values[field.id] = [...new Set(selected)];
+    } else if (field.type === 'category_dropdown') {
+      const selection = memberResourceCategorySelections.find(item =>
+        item.resource_category_id === field.category_id
+        && typeof item.subcategory_name === 'string'
+        && item.subcategory_name.trim() !== ''
+      );
+      if (selection) values[field.id] = selection.subcategory_name;
+    }
+  }
+  return values;
+};
 export const buildPrefillValues = ({
   form,
   memberEntity,
@@ -167,10 +190,14 @@ export const buildPrefillValues = ({
   primaryEntity,
   memberCustomValues = [],
   orgCustomValues = [],
+  memberResourceCategorySelections = [],
   prefillOrgId = null,
   prefillOrganizationGroupId = null,
 }) => {
-  const newValues = {};
+  const newValues = buildMemberResourceCategoryPrefillValues({
+    form,
+    memberResourceCategorySelections,
+  });
   for (const field of (form?.fields || [])) {
     if (field.type === 'organisation_dropdown') {
       if (form.prefill_source === 'organization' && prefillOrgId) {
@@ -190,6 +217,9 @@ export const buildPrefillValues = ({
       if (groupId) newValues[field.id] = groupId;
       continue;
     }
+
+    if (form.prefill_source === 'member'
+      && ['category_multiselect', 'resource_categories', 'category_dropdown'].includes(field.type)) continue;
 
     if (!field.prefill_field) continue;
 

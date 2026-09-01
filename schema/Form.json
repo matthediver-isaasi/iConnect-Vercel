@@ -153,9 +153,10 @@
             "type": "string",
             "enum": [
               "core",
-              "custom"
+              "custom",
+              "resource_category"
             ],
-            "description": "Whether mapping to a core field or custom preference field"
+            "description": "Whether mapping to a core field, custom preference field, or an explicit member resource category. Resource-category mappings use target_field as the tenant resource-category ID and are valid only for member targets."
           },
           "target_entity": {
             "type": "string",
