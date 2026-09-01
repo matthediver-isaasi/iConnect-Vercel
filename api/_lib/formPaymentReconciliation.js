@@ -266,6 +266,47 @@ export async function reconcileFormPayments(supabase, {
     recordMonitoringFailure(results, 'membership-retry-sweep', err);
   }
 
+  // Retry subordinate primary-pipeline relationship links independently of
+  // membership creation. process-application persists this marker and clears
+  // it only after every configured link succeeds or reaches a safe skip.
+  try {
+    const { data: pendingRelatedRecords, error } = await supabase
+      .from('form_submission')
+      .select('*')
+      .or('payment_status.eq.paid,payment_status.eq.setup_complete')
+      .eq('payment_meta->related_records_pending', true)
+      .order('created_date', { ascending: true })
+      .order('id', { ascending: true })
+      .limit(20);
+    if (error) throw error;
+    for (const row of pendingRelatedRecords || []) {
+      const form = await loadForm(row.form_id, row.tenant_id);
+      if (!form || !hasFormPaymentAccessProof(row, form)) continue;
+      const rowBaseUrl = await resolveBaseUrl(row.tenant_id);
+      if (!rowBaseUrl) continue;
+      const pipelineOut = await runFormEntityPipelines({
+        supabase,
+        submission: row,
+        form,
+        baseUrl: rowBaseUrl,
+      });
+      if (pipelineOut.relatedRecords?.success) {
+        const { error: clearError } = await supabase.from('form_submission').update({
+          payment_meta: {
+            ...(row.payment_meta || {}),
+            related_records_pending: false,
+            related_records_result: pipelineOut.relatedRecords,
+          },
+        }).eq('id', row.id).eq('tenant_id', row.tenant_id);
+        if (clearError) throw clearError;
+        results.relatedRecordsReconciled = (results.relatedRecordsReconciled || 0) + 1;
+      }
+    }
+  } catch (err) {
+    console.warn('[formPaymentReconciliation] Related Records retry sweep failed:', err?.message);
+    recordMonitoringFailure(results, 'related-records-retry-sweep', err);
+  }
+
   // Fourth sweep (Task #3680): form_submission rows with
   // payment_provider='stripe_monthly_card' and payment_status='setup_complete'
   // whose finalisation is incomplete. Selects rows where monthly_card_state is:

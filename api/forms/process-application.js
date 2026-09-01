@@ -18,10 +18,12 @@ import {
 import {
   assertStructuredMutationAuthorized,
   processPersistedStructuredActions,
+  processPrimaryPipelineRelatedRecords,
   StructuredActionAuthorizationError,
   StructuredActionContractError,
 } from '../_lib/formStructuredActions.js';
 import {
+  canProcessPersistedPaymentStatus,
   resolveTrustedFormProcessingAdmin,
   verifyFormProcessingRequest,
 } from '../_lib/formProcessingAuth.js';
@@ -801,7 +803,7 @@ export default async function handler(req, res) {
       verifiedAdminAccess: verified_admin_access,
     });
     const [{ data: persistedSubmission, error: persistedSubmissionError }, { data: persistedForm, error: persistedFormError }] = await Promise.all([
-      supabase.from('form_submission').select('id, form_id, tenant_id, submission_data, submitted_by_email, organization_id, created_member_id, created_organization_id, payment_reference, payment_status, payment_meta')
+      supabase.from('form_submission').select('id, form_id, tenant_id, submission_data, submitted_by_email, organization_id, created_member_id, created_organization_id, payment_reference, payment_status, payment_meta, processing_notes')
         .eq('id', submission_id).eq('form_id', form_id).eq('tenant_id', effectiveEntityTenantId).maybeSingle(),
       supabase.from('form').select('id, tenant_id, visibility_rules, fields, field_mappings, application_level, create_entity_type, entity_action, member_entity_action, organization_entity_action, additional_member_creations, entity_pipelines, default_member_role_id')
         .eq('id', form_id).eq('tenant_id', effectiveEntityTenantId).maybeSingle(),
@@ -851,7 +853,7 @@ export default async function handler(req, res) {
     if (!trustedInternal && !authorizedAdmin && !authorizedSubmitter) {
       return res.status(403).json({ error: 'Application processing is restricted to trusted submission flows, the authenticated submitter, or tenant administrators', code: 'PROCESSING_FORBIDDEN' });
     }
-    if (persistedSubmission.payment_status && persistedSubmission.payment_status !== 'paid') {
+    if (!canProcessPersistedPaymentStatus(persistedSubmission.payment_status, { trustedInternal })) {
       return res.status(409).json({ error: 'Payment must be completed before application processing', code: 'PAYMENT_NOT_COMPLETED' });
     }
     const authoritativeAnswers = persistedSubmission.submission_data || {};
@@ -997,6 +999,33 @@ export default async function handler(req, res) {
         console.error('[AppProcessor] Failed to look up existing submission for idempotency:', existingErr);
       }
       if (existingSubmission && (existingSubmission.created_member_id || existingSubmission.created_organization_id)) {
+        const relatedRecords = await processPrimaryPipelineRelatedRecords({
+          db: supabase,
+          tenantId: effectiveEntityTenantId,
+          form: persistedForm,
+          submission: persistedSubmission,
+          memberId: existingSubmission.created_member_id,
+          organizationId: existingSubmission.created_organization_id,
+        });
+        for (const outcome of relatedRecords?.outcomes || []) {
+          addProcessingNote({ kind: 'primary_pipeline_related_record', ...outcome });
+        }
+        if (processingNotes.length > 0) {
+          const priorNotes = Array.isArray(persistedSubmission.processing_notes)
+            ? persistedSubmission.processing_notes : [];
+          const retryUpdate = { processing_notes: [...priorNotes, ...processingNotes] };
+          if (persistedSubmission.payment_status && relatedRecords) {
+            retryUpdate.payment_meta = {
+              ...(persistedSubmission.payment_meta || {}),
+              related_records_pending: relatedRecords.success === false,
+              related_records_result: relatedRecords,
+            };
+          }
+          const { error: noteError } = await supabase.from('form_submission')
+            .update(retryUpdate)
+            .eq('id', submission_id).eq('tenant_id', effectiveEntityTenantId);
+          if (noteError) console.error('[AppProcessor] Failed to persist retry relationship outcomes:', noteError);
+        }
         return res.json({
           success: structuredActionResult ? structuredActionResult.success : true,
           already_processed: true,
@@ -1004,6 +1033,7 @@ export default async function handler(req, res) {
           created_organization_id: existingSubmission.created_organization_id,
           organization_id: existingSubmission.created_organization_id,
           ...(structuredActionResult ? { structured_actions: structuredActionResult } : {}),
+          ...(relatedRecords ? { related_records: relatedRecords } : {}),
         });
       }
     }
@@ -3301,6 +3331,22 @@ export default async function handler(req, res) {
       console.log('[AppProcessor] Additional members processed:', additionalMemberIds.length);
     }
 
+    const structuredMemberId = structuredActionResult?.created_member_id || null;
+    const structuredOrganizationId = structuredActionResult?.created_organization_id || null;
+    const resolvedMemberId = createdMemberId || structuredMemberId || null;
+    const resolvedOrganizationId = createdOrganizationId || structuredOrganizationId || prefill_organization_id || null;
+    const relatedRecords = await processPrimaryPipelineRelatedRecords({
+      db: supabase,
+      tenantId: effectiveEntityTenantId,
+      form: persistedForm,
+      submission: persistedSubmission,
+      memberId: resolvedMemberId,
+      organizationId: resolvedOrganizationId,
+    });
+    for (const outcome of relatedRecords?.outcomes || []) {
+      addProcessingNote({ kind: 'primary_pipeline_related_record', ...outcome });
+    }
+
     // Persist processing notes (per-field outcomes from upsert/clear
     // helpers) to form_submission so silent failures become visible in
     // the submission viewer. Combined with the linkage update so we make
@@ -3312,8 +3358,6 @@ export default async function handler(req, res) {
     // silently. Dropping the bogus column lets the legitimate fields
     // (created_member_id, created_organization_id, organization_id, and
     // processing_notes) actually persist.
-    const structuredMemberId = structuredActionResult?.created_member_id || null;
-    const structuredOrganizationId = structuredActionResult?.created_organization_id || null;
     if (submission_id && (createdMemberId || createdOrganizationId || structuredMemberId || structuredOrganizationId || prefill_organization_id || processingNotes.length > 0)) {
       const finalOrganizationId = createdOrganizationId || structuredOrganizationId || prefill_organization_id || null;
       const updatePayload = {};
@@ -3321,6 +3365,13 @@ export default async function handler(req, res) {
       if (createdOrganizationId || structuredOrganizationId) updatePayload.created_organization_id = createdOrganizationId || structuredOrganizationId;
       if (finalOrganizationId) updatePayload.organization_id = finalOrganizationId;
       if (processingNotes.length > 0) updatePayload.processing_notes = processingNotes;
+      if (persistedSubmission.payment_status && relatedRecords) {
+        updatePayload.payment_meta = {
+          ...(persistedSubmission.payment_meta || {}),
+          related_records_pending: relatedRecords.success === false,
+          related_records_result: relatedRecords,
+        };
+      }
 
       const { error: subUpdateErr } = await supabase
         .from('form_submission')
@@ -3334,9 +3385,6 @@ export default async function handler(req, res) {
     }
 
     // Return the resolved organization_id (whether created or existing)
-    const resolvedMemberId = createdMemberId || structuredMemberId || null;
-    const resolvedOrganizationId = createdOrganizationId || structuredOrganizationId || prefill_organization_id || null;
-    
     return res.json({
       success: structuredActionResult ? structuredActionResult.success : true,
       created_member_id: resolvedMemberId,
@@ -3354,7 +3402,8 @@ export default async function handler(req, res) {
         : [],
       // Structured actions are additive: legacy pipelines/workflows above
       // retain their established ordering and their response remains intact.
-      ...(structuredActionResult ? { structured_actions: structuredActionResult } : {})
+      ...(structuredActionResult ? { structured_actions: structuredActionResult } : {}),
+      ...(relatedRecords ? { related_records: relatedRecords } : {})
     });
   } catch (error) {
     console.error('[AppProcessor] Error:', error);

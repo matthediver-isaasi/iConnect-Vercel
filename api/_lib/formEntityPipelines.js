@@ -17,7 +17,7 @@ import { getInternalApiBaseUrl } from './publicBaseUrl.js';
 import { hasPersistedFormEntityActions } from './formEntityActionMode.js';
 
 export async function runFormEntityPipelines({ supabase, submission, form, baseUrl: _legacyBaseUrl }) {
-  const result = { ran: false, memberId: null, organizationId: null, partial: false, structuredActions: null };
+  const result = { ran: false, memberId: null, organizationId: null, partial: false, structuredActions: null, relatedRecords: null };
   const hasEntityPipelines = hasPersistedFormEntityActions(form);
   if (!hasEntityPipelines) return result;
   // Security boundary: callers also use baseUrl for user-facing links, and
@@ -74,7 +74,8 @@ export async function runFormEntityPipelines({ supabase, submission, form, baseU
       try {
         const body = await pipelineResponse.json();
         result.structuredActions = body.structured_actions || null;
-        result.partial = body.structured_actions?.success === false;
+        result.relatedRecords = body.related_records || null;
+        result.partial = body.structured_actions?.success === false || body.related_records?.success === false;
         const resolvedOrgId = body.organization_id || body.created_organization_id;
         const resolvedMemberId = body.created_member_id || body.member_id;
         result.organizationId = resolvedOrgId || null;

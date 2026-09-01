@@ -8,7 +8,8 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { runFormEntityPipelines } from './formEntityPipelines.js';
-import { verifyFormProcessingRequest } from './formProcessingAuth.js';
+import { reconcileFormPayments } from './formPaymentReconciliation.js';
+import { verifyFormProcessingRequest, canProcessPersistedPaymentStatus } from './formProcessingAuth.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const read = (rel) => readFileSync(path.join(here, rel), 'utf8');
@@ -191,6 +192,9 @@ test('reconcile sweep resolves baseUrl per tenant so the cron path runs pipeline
   }
   assert.match(src, /finalizeFormMembership\(\{ supabase, submission: row, baseUrl: rowBaseUrl \}\)/, 'membership retry must use resolved baseUrl');
   assert.match(src, /entityMissing && rowBaseUrl/, 'pipeline re-run gate must use resolved baseUrl');
+  assert.match(src, /payment_meta->related_records_pending/, 'failed paid Related Records links must have an independent retry sweep');
+  assert.match(src, /payment_status\.eq\.paid,payment_status\.eq\.setup_complete/, 'the retry sweep must include one-off and monthly-card paid states');
+  assert.match(src, /pipelineOut\.relatedRecords\?\.success/, 'the retry sweep must observe successful relationship reconciliation');
 });
 
 test('pipeline runner fails loudly when baseUrl is missing (source contract)', () => {
@@ -230,4 +234,92 @@ test('paid creation and every async finalizer preserve the verified submitter id
       `${rel} must route through shared paid form finalization`,
     );
   }
+});
+
+test('reconciliation retries and clears pending Related Records for monthly-card submissions', async () => {
+  const row = {
+    id: 'submission-monthly',
+    form_id: 'form-monthly',
+    tenant_id: 'tenant-1',
+    payment_status: 'setup_complete',
+    payment_meta: { related_records_pending: true },
+    submission_data: {},
+  };
+  const form = {
+    id: row.form_id,
+    tenant_id: row.tenant_id,
+    access_policy: null,
+    entity_pipelines: { members: [{ id: 'primary', isPrimary: true }], organisations: [] },
+  };
+  const updates = [];
+  class Query {
+    constructor(table) { this.table = table; this.equals = []; this.ins = []; this.nots = []; this.filters = []; this.updatePayload = null; }
+    select() { return this; }
+    eq(column, value) { this.equals.push([column, value]); return this; }
+    in(column, values) { this.ins.push([column, values]); return this; }
+    not(...args) { this.nots.push(args); return this; }
+    filter(...args) { this.filters.push(args); return this; }
+    gte() { return this; }
+    lte() { return this; }
+    order() { return this; }
+    limit() { return this; }
+    or(expression) {
+      if (expression === 'payment_status.eq.paid,payment_status.eq.setup_complete') {
+        this.ins.push(['payment_status', ['paid', 'setup_complete']]);
+      }
+      return this;
+    }
+    update(payload) { this.updatePayload = payload; updates.push(payload); return this; }
+    async maybeSingle() {
+      if (this.table === 'form') return { data: form, error: null };
+      return { data: null, error: null };
+    }
+    then(resolve, reject) {
+      let data = [];
+      if (this.table === 'form_submission' && !this.updatePayload) {
+        const isRelatedSweep = this.ins.some(([column]) => column === 'payment_status')
+          && this.equals.some(([column, value]) => column === 'payment_meta->related_records_pending' && value === true);
+        data = isRelatedSweep ? [row] : [];
+      }
+      return Promise.resolve({ data, error: null }).then(resolve, reject);
+    }
+  }
+  const supabase = { from: table => new Query(table) };
+  const previousFetch = globalThis.fetch;
+  const previousAppUrl = process.env.APP_URL;
+  const previousSecret = process.env.SESSION_SECRET;
+  process.env.APP_URL = 'https://internal.example.test';
+  process.env.SESSION_SECRET = 'test-session-secret';
+  let processingCalls = 0;
+  globalThis.fetch = async () => {
+    processingCalls += 1;
+    return {
+      ok: true,
+      json: async () => ({
+        related_records: { success: true, outcomes: [{ status: 'already_linked' }] },
+      }),
+    };
+  };
+  try {
+    const result = await reconcileFormPayments(supabase, { baseUrl: 'https://tenant.example.test' });
+    assert.equal(processingCalls, 1);
+    assert.equal(result.relatedRecordsReconciled, 1);
+    assert.ok(updates.some(update => update.payment_meta?.related_records_pending === false));
+  } finally {
+    globalThis.fetch = previousFetch;
+    if (previousAppUrl === undefined) delete process.env.APP_URL;
+    else process.env.APP_URL = previousAppUrl;
+    if (previousSecret === undefined) delete process.env.SESSION_SECRET;
+    else process.env.SESSION_SECRET = previousSecret;
+  }
+});
+
+test('only trusted internal processing accepts the terminal monthly-card payment state', () => {
+  assert.equal(canProcessPersistedPaymentStatus(null), true);
+  assert.equal(canProcessPersistedPaymentStatus('paid'), true);
+  assert.equal(canProcessPersistedPaymentStatus('setup_complete'), false);
+  assert.equal(canProcessPersistedPaymentStatus('setup_complete', { trustedInternal: true }), true);
+  assert.equal(canProcessPersistedPaymentStatus('pending', { trustedInternal: true }), false);
+  const handler = read('../forms/process-application.js');
+  assert.match(handler, /canProcessPersistedPaymentStatus\(persistedSubmission\.payment_status, \{ trustedInternal \}\)/);
 });

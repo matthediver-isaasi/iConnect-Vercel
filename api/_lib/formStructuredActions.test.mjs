@@ -7,8 +7,142 @@ import {
   assertStructuredRelationshipParentAuthorized,
   expandStructuredActionInvocations,
   processPersistedStructuredActions,
+  processPrimaryPipelineRelatedRecords,
+  validatePrimaryPipelineRelatedRecordsContract,
   validateStructuredActionsContract,
 } from './formStructuredActions.js';
+
+test('validates subordinate Related Records configuration against persisted relationship fields', () => {
+  const valid = {
+    fields: [{ id: 'department', type: 'relationship_dropdown', related_kind: 'custom_object', related_custom_object_id: 'department-object' }],
+    entity_pipelines: {
+      members: [{ isPrimary: true, related_records: [{ id: 'department-link', relationship_definition_id: 'member-department', source_field_id: 'department' }] }],
+      organisations: [],
+    },
+  };
+  assert.equal(validatePrimaryPipelineRelatedRecordsContract(valid).length, 1);
+  assert.throws(() => validatePrimaryPipelineRelatedRecordsContract({
+    ...valid,
+    fields: [{ id: 'department', type: 'text' }],
+  }), /Related Records configuration/);
+});
+
+test('links the exact primary pipeline result and treats a retry as already linked', async () => {
+  const tenantId = 'tenant-1';
+  const edges = [{
+    id: 'org-department-edge',
+    tenant_id: tenantId,
+    relationship_definition_id: 'org-department',
+    source_record_id: 'org-1',
+    target_record_id: 'department-1',
+    archived_at: null,
+  }];
+  const rows = {
+    organization: [{ id: 'org-1', tenant_id: tenantId }],
+    custom_object_definition: [{
+      id: 'department-object', tenant_id: tenantId, status: 'active',
+      primary_display_field_id: 'department-name',
+    }],
+    preference_field: [{
+      id: 'department-name', tenant_id: tenantId, custom_object_id: 'department-object',
+      entity_scope: 'custom_object', is_active: true, name: 'name', field_type: 'text',
+    }],
+    custom_object_record: [{
+      id: 'department-1', tenant_id: tenantId, custom_object_id: 'department-object',
+      archived_at: null, data: { name: 'Radiology' },
+    }],
+    custom_object_relationship_definition: [
+      {
+        id: 'org-department', tenant_id: tenantId, status: 'active',
+        source_kind: 'organization', source_custom_object_id: null,
+        target_kind: 'custom_object', target_custom_object_id: 'department-object',
+        show_on_source: true,
+      },
+      {
+        id: 'member-department', tenant_id: tenantId, status: 'active',
+        source_kind: 'member', source_custom_object_id: null,
+        target_kind: 'custom_object', target_custom_object_id: 'department-object',
+      },
+    ],
+  };
+  class Query {
+    constructor(table) { this.table = table; this.filters = []; this.nullFilters = []; this.payload = null; }
+    select() { return this; }
+    eq(column, value) { this.filters.push([column, value]); return this; }
+    is(column, value) { this.nullFilters.push([column, value]); return this; }
+    insert(payload) { this.payload = payload; return this; }
+    matchingRows() {
+      const source = this.table === 'custom_object_relationship' ? edges : (rows[this.table] || []);
+      return source.filter(row => this.filters.every(([column, value]) => String(row[column]) === String(value))
+        && this.nullFilters.every(([column, value]) => row[column] === value));
+    }
+    async maybeSingle() { return { data: this.matchingRows()[0] || null, error: null }; }
+    then(resolve, reject) {
+      if (this.payload && this.table === 'custom_object_relationship') {
+        edges.push({ id: `edge-${edges.length + 1}`, archived_at: null, ...this.payload });
+        return Promise.resolve({ data: this.payload, error: null }).then(resolve, reject);
+      }
+      return Promise.resolve({ data: this.matchingRows(), error: null }).then(resolve, reject);
+    }
+  }
+  const db = { from: table => new Query(table) };
+  const form = {
+    fields: [
+      { id: 'org', type: 'organisation_dropdown' },
+      {
+        id: 'department', type: 'relationship_dropdown', parent_field_id: 'org',
+        relationship_definition_id: 'org-department', relationship_parent_kind: 'organization',
+        relationship_parent_side: 'source', related_kind: 'custom_object',
+        related_custom_object_id: 'department-object',
+        related_primary_display_field_id: 'department-name',
+      },
+    ],
+    entity_pipelines: {
+      members: [{ isPrimary: true, related_records: [{ id: 'department-link', relationship_definition_id: 'member-department', source_field_id: 'department' }] }],
+      organisations: [],
+    },
+  };
+  const submission = { submission_data: { org: 'org-1', department: 'department-1' } };
+  const first = await processPrimaryPipelineRelatedRecords({ db, tenantId, form, submission, memberId: 'member-created' });
+  assert.equal(first.success, true, JSON.stringify(first));
+  assert.equal(first.outcomes[0].status, 'linked');
+  assert.equal(edges.at(-1).source_record_id, 'member-created');
+  assert.equal(edges.at(-1).target_record_id, 'department-1');
+  const retry = await processPrimaryPipelineRelatedRecords({ db, tenantId, form, submission, memberId: 'member-created' });
+  assert.equal(retry.outcomes[0].status, 'already_linked');
+  assert.equal(edges.filter(edge => edge.relationship_definition_id === 'member-department').length, 1);
+
+  const hiddenForm = {
+    ...form,
+    fields: form.fields.map(field => field.id === 'department' ? { ...field, starts_hidden: true } : field),
+  };
+  const hidden = await processPrimaryPipelineRelatedRecords({
+    db, tenantId, form: hiddenForm, submission, memberId: 'member-hidden',
+  });
+  assert.equal(hidden.success, true);
+  assert.equal(hidden.outcomes[0].reason, 'source_field_hidden');
+  assert.equal(edges.some(edge => edge.source_record_id === 'member-hidden'), false);
+});
+
+test('malformed Related Records config is reported without throwing after primary persistence', async () => {
+  const result = await processPrimaryPipelineRelatedRecords({
+    db: { from() { throw new Error('database must not be reached'); } },
+    tenantId: 'tenant-1',
+    form: {
+      fields: [{ id: 'plain-text', type: 'text' }],
+      entity_pipelines: {
+        members: [{
+          isPrimary: true,
+          related_records: [{ id: 'bad-link', relationship_definition_id: 'stale', source_field_id: 'plain-text' }],
+        }],
+      },
+    },
+    submission: { submission_data: { 'plain-text': 'forged-record-id' } },
+    memberId: 'member-created',
+  });
+  assert.equal(result.success, false);
+  assert.equal(result.outcomes[0].reason, 'invalid_configuration');
+});
 
 const repeatable = {
   id: 'people',

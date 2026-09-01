@@ -569,6 +569,116 @@ const structuredRelationshipSide = (definition, action) => ['source', 'target'].
   && (action?.target?.kind !== 'custom_object'
     || definition?.[`${side}_custom_object_id`] === action?.target?.custom_object_id));
 
+function PipelineRelatedRecordsEditor({
+  entityKind,
+  pipeline,
+  fields,
+  relationshipDefinitions,
+  metadataLoading,
+  metadataError,
+  onChange,
+}) {
+  const links = Array.isArray(pipeline?.related_records) ? pipeline.related_records : [];
+  const referenceFields = (fields || []).filter(field =>
+    field?.type === 'relationship_dropdown' && Boolean(structuredFieldRecordDescriptor(field)));
+  const compatibleDefinitions = (relationshipDefinitions || []).filter(definition =>
+    relationshipSupportsTarget(definition, { target: { kind: entityKind } }));
+  const fieldSupportsDefinition = (field, definition) => {
+    const descriptor = structuredFieldRecordDescriptor(field);
+    const primarySide = ['source', 'target'].find(side =>
+      definition?.[`${side}_kind`] === entityKind && definition?.[`${side}_custom_object_id`] == null);
+    const relatedSide = primarySide === 'source' ? 'target' : primarySide === 'target' ? 'source' : null;
+    return descriptor && relatedSide
+      && descriptor.kind === definition?.[`${relatedSide}_kind`]
+      && String(descriptor.objectId || '') === String(definition?.[`${relatedSide}_custom_object_id`] || '');
+  };
+  const updateLink = (index, updates) => {
+    const next = links.map((link, linkIndex) => linkIndex === index ? { ...link, ...updates } : link);
+    onChange(next);
+  };
+  return (
+    <div className="mt-4 space-y-3 border-t border-slate-200 pt-4" data-testid={`related-records-${entityKind}`}>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <Label className="text-sm font-semibold">Related Records</Label>
+          <p className="mt-1 text-xs text-slate-500">
+            Link the exact primary {entityKind === 'member' ? 'Member' : 'Organisation'} created or updated above
+            to a record selected in this submission.
+          </p>
+        </div>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          disabled={metadataLoading || Boolean(metadataError) || compatibleDefinitions.length === 0}
+          onClick={() => onChange([...links, {
+            id: `related_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+            relationship_definition_id: null,
+            source_field_id: null,
+          }])}
+        >
+          <Plus className="mr-1 h-3.5 w-3.5" /> Add link
+        </Button>
+      </div>
+      {metadataError && <p className="text-xs text-red-600">Relationship metadata could not be loaded.</p>}
+      {!metadataLoading && !metadataError && compatibleDefinitions.length === 0 && (
+        <p className="text-xs text-slate-500">No active relationships are compatible with this record type.</p>
+      )}
+      {links.map((link, index) => {
+        const definition = compatibleDefinitions.find(item => item.id === link.relationship_definition_id);
+        const eligibleFields = definition
+          ? referenceFields.filter(field => fieldSupportsDefinition(field, definition))
+          : [];
+        return (
+          <div key={link.id || index} className="grid gap-3 rounded-md border border-slate-200 bg-white p-3 md:grid-cols-[1fr_1fr_auto]">
+            <div className="space-y-1">
+              <Label className="text-xs">Relationship</Label>
+              <Select
+                value={link.relationship_definition_id || ''}
+                onValueChange={relationship_definition_id => updateLink(index, {
+                  relationship_definition_id,
+                  source_field_id: null,
+                })}
+              >
+                <SelectTrigger><SelectValue placeholder="Select an active relationship…" /></SelectTrigger>
+                <SelectContent>
+                  {compatibleDefinitions.map(item => (
+                    <SelectItem key={item.id} value={item.id}>
+                      {item.source_label || item.relationship_key} ↔ {item.target_label || item.relationship_key}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Submitted related record field</Label>
+              <Select
+                value={link.source_field_id || ''}
+                disabled={!definition}
+                onValueChange={source_field_id => updateLink(index, { source_field_id })}
+              >
+                <SelectTrigger><SelectValue placeholder="Select a record field…" /></SelectTrigger>
+                <SelectContent>
+                  {eligibleFields.map(field => (
+                    <SelectItem key={field.id} value={field.id}>{field.label || field.name || field.id}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {definition && eligibleFields.length === 0 && (
+                <p className="text-xs text-amber-700">Add a compatible relationship field to this form first.</p>
+              )}
+            </div>
+            <Button type="button" variant="ghost" size="icon" className="self-end text-red-500"
+              onClick={() => onChange(links.filter((_, linkIndex) => linkIndex !== index))}>
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function StructuredRecordActionsEditor({
   value,
   onChange,
@@ -8988,6 +9098,19 @@ export default function FormBuilderPage() {
         toast.error(`Member "${member.label}" requires an email field mapping.`);
         return;
       }
+      for (const link of (member.related_records || [])) {
+        const definition = structuredActionMetadata.relationships.find(item => item.id === link.relationship_definition_id);
+        const field = formData.fields.find(item => item.id === link.source_field_id);
+        const descriptor = structuredFieldRecordDescriptor(field);
+        const primarySide = ['source', 'target'].find(side => definition?.[`${side}_kind`] === 'member');
+        const relatedSide = primarySide === 'source' ? 'target' : primarySide === 'target' ? 'source' : null;
+        if (!definition || !descriptor || !relatedSide
+          || descriptor.kind !== definition[`${relatedSide}_kind`]
+          || String(descriptor.objectId || '') !== String(definition[`${relatedSide}_custom_object_id`] || '')) {
+          toast.error(`Member "${member.label}" has an incomplete or incompatible Related Records link.`);
+          return;
+        }
+      }
     }
     
     // Validate organisation entries - each must have name mapped (uniqueness key)
@@ -9001,6 +9124,19 @@ export default function FormBuilderPage() {
         console.log('[FormBuilder] VALIDATION FAILED: Organisation entry missing name mapping:', org.label);
         toast.error(`Organisation "${org.label}" requires a name field mapping.`);
         return;
+      }
+      for (const link of (org.related_records || [])) {
+        const definition = structuredActionMetadata.relationships.find(item => item.id === link.relationship_definition_id);
+        const field = formData.fields.find(item => item.id === link.source_field_id);
+        const descriptor = structuredFieldRecordDescriptor(field);
+        const primarySide = ['source', 'target'].find(side => definition?.[`${side}_kind`] === 'organization');
+        const relatedSide = primarySide === 'source' ? 'target' : primarySide === 'target' ? 'source' : null;
+        if (!definition || !descriptor || !relatedSide
+          || descriptor.kind !== definition[`${relatedSide}_kind`]
+          || String(descriptor.objectId || '') !== String(definition[`${relatedSide}_custom_object_id`] || '')) {
+          toast.error(`Organisation "${org.label}" has an incomplete or incompatible Related Records link.`);
+          return;
+        }
       }
     }
 
@@ -10320,6 +10456,21 @@ export default function FormBuilderPage() {
                               showHeader={false}
                               compact={true}
                             />
+                            {memberConfig.isPrimary && (
+                              <PipelineRelatedRecordsEditor
+                                entityKind="member"
+                                pipeline={memberConfig}
+                                fields={formData.fields}
+                                relationshipDefinitions={structuredActionMetadata.relationships}
+                                metadataLoading={structuredActionMetadataLoading}
+                                metadataError={structuredActionMetadataError}
+                                onChange={(related_records) => {
+                                  const updated = [...formData.entity_pipelines.members];
+                                  updated[memberIdx] = { ...updated[memberIdx], related_records };
+                                  setFormData(prev => ({ ...prev, entity_pipelines: { ...prev.entity_pipelines, members: updated } }));
+                                }}
+                              />
+                            )}
                           </div>
                         );
                       })}
@@ -10435,6 +10586,21 @@ export default function FormBuilderPage() {
                               showHeader={false}
                               compact={true}
                             />
+                            {orgConfig.isPrimary && (
+                              <PipelineRelatedRecordsEditor
+                                entityKind="organization"
+                                pipeline={orgConfig}
+                                fields={formData.fields}
+                                relationshipDefinitions={structuredActionMetadata.relationships}
+                                metadataLoading={structuredActionMetadataLoading}
+                                metadataError={structuredActionMetadataError}
+                                onChange={(related_records) => {
+                                  const updated = [...formData.entity_pipelines.organisations];
+                                  updated[orgIdx] = { ...updated[orgIdx], related_records };
+                                  setFormData(prev => ({ ...prev, entity_pipelines: { ...prev.entity_pipelines, organisations: updated } }));
+                                }}
+                              />
+                            )}
                           </div>
                         );
                       })}

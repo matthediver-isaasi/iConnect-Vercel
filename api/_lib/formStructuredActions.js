@@ -336,6 +336,175 @@ function fieldRecordDescriptor(field) {
   return null;
 }
 
+function primaryPipelineFor(pipelines) {
+  if (!Array.isArray(pipelines) || pipelines.length === 0) return null;
+  return pipelines.find(pipeline => pipeline?.isPrimary || pipeline?.is_primary) || pipelines[0];
+}
+
+function pipelineRelatedRecords(pipeline) {
+  return Array.isArray(pipeline?.related_records) ? pipeline.related_records : [];
+}
+
+export function validatePrimaryPipelineRelatedRecordsContract(form) {
+  const errors = [];
+  const fields = Array.isArray(form?.fields) ? form.fields : [];
+  const definitions = [
+    ['member', primaryPipelineFor(form?.entity_pipelines?.members)],
+    ['organization', primaryPipelineFor(form?.entity_pipelines?.organisations)],
+  ];
+  for (const [kind, pipeline] of definitions) {
+    const ids = new Set();
+    for (const [index, link] of pipelineRelatedRecords(pipeline).entries()) {
+      const prefix = `${kind}.related_records[${index}]`;
+      if (!link?.id || ids.has(String(link.id))) errors.push(`${prefix}.id is required and must be unique`);
+      else ids.add(String(link.id));
+      if (!link?.relationship_definition_id) errors.push(`${prefix}.relationship_definition_id is required`);
+      const field = fields.find(candidate => String(candidate?.id) === String(link?.source_field_id));
+      if (!field || field.type !== 'relationship_dropdown' || !fieldRecordDescriptor(field)) {
+        errors.push(`${prefix}.source_field_id must identify a submitted Relationship Dropdown field`);
+      }
+    }
+  }
+  if (errors.length) {
+    throw new StructuredActionContractError('Invalid primary pipeline Related Records configuration', errors);
+  }
+  return definitions.filter(([, pipeline]) => pipelineRelatedRecords(pipeline).length > 0);
+}
+
+export async function processPrimaryPipelineRelatedRecords({
+  db,
+  tenantId,
+  form,
+  submission,
+  memberId = null,
+  organizationId = null,
+}) {
+  let configured;
+  try {
+    configured = validatePrimaryPipelineRelatedRecordsContract(form);
+  } catch (error) {
+    return {
+      success: false,
+      partial: false,
+      outcomes: [{ status: 'failed', error: error.message || String(error), details: error.details || [], reason: 'invalid_configuration' }],
+      linked_count: 0,
+      skipped_count: 0,
+      failed_count: 1,
+    };
+  }
+  if (configured.length === 0) return null;
+  const answers = submission?.submission_data || {};
+  const outcomes = [];
+  let visibilityOptions;
+  let hidden;
+  try {
+    visibilityOptions = rulesUseLmicOperators(form?.visibility_rules)
+      ? { lmicCodes: await loadTenantLmicCodes(db, tenantId) }
+      : {};
+    hidden = structuredHiddenFieldIds(form, answers, visibilityOptions);
+  } catch (error) {
+    return {
+      success: false,
+      partial: false,
+      outcomes: [{ status: 'failed', error: error.message || String(error), reason: 'visibility_resolution_failed' }],
+      linked_count: 0,
+      skipped_count: 0,
+      failed_count: 1,
+    };
+  }
+  try {
+    await createFormRelationshipService({ db, tenantId }).validateSubmission({
+      form,
+      submissionData: answers,
+      hiddenFieldIds: hidden,
+      visibilityOptions,
+    });
+  } catch (error) {
+    return {
+      success: false,
+      partial: false,
+      outcomes: [{ status: 'failed', error: error.message || String(error), reason: 'submitted_relationship_invalid' }],
+      linked_count: 0,
+      skipped_count: 0,
+      failed_count: 1,
+    };
+  }
+  for (const [kind, pipeline] of configured) {
+    const primaryId = kind === 'member' ? memberId : organizationId;
+    for (const link of pipelineRelatedRecords(pipeline)) {
+      const base = { id: link.id, entity_type: kind, relationship_definition_id: link.relationship_definition_id };
+      if (!primaryId) {
+        outcomes.push({ ...base, status: 'skipped', reason: 'primary_record_unavailable' });
+        continue;
+      }
+      const field = (form.fields || []).find(candidate => String(candidate?.id) === String(link.source_field_id));
+      const relatedDescriptor = fieldRecordDescriptor(field);
+      if (hidden.has(String(link.source_field_id))) {
+        outcomes.push({ ...base, status: 'skipped', reason: 'source_field_hidden' });
+        continue;
+      }
+      const selected = answers?.[link.source_field_id];
+      const selectedIds = (Array.isArray(selected) ? selected : [selected]).filter(Boolean);
+      if (selectedIds.length === 0) {
+        outcomes.push({ ...base, status: 'skipped', reason: 'relationship_selection_missing' });
+        continue;
+      }
+      try {
+        const { data: definition, error: definitionError } = await db
+          .from('custom_object_relationship_definition').select('*')
+          .eq('tenant_id', tenantId).eq('id', link.relationship_definition_id)
+          .eq('status', 'active').maybeSingle();
+        if (definitionError) throw definitionError;
+        const primarySide = ['source', 'target'].find(side =>
+          definition?.[`${side}_kind`] === kind && definition?.[`${side}_custom_object_id`] == null);
+        const relatedSide = primarySide === 'source' ? 'target' : primarySide === 'target' ? 'source' : null;
+        const compatible = definition && relatedSide
+          && definition[`${relatedSide}_kind`] === relatedDescriptor?.kind
+          && String(definition[`${relatedSide}_custom_object_id`] || '')
+            === String(relatedDescriptor?.customObjectId || '');
+        if (!compatible) throw new StructuredActionContractError('Related Records relationship is inactive, cross-tenant, or incompatible');
+        for (const selectedId of selectedIds) {
+          let endpointQuery = db.from(TABLES[relatedDescriptor.kind]).select('id')
+            .eq('tenant_id', tenantId).eq('id', selectedId);
+          if (relatedDescriptor.kind === 'custom_object') {
+            endpointQuery = endpointQuery.eq('custom_object_id', relatedDescriptor.customObjectId).is('archived_at', null);
+          }
+          const { data: endpoint, error: endpointError } = await endpointQuery.maybeSingle();
+          if (endpointError || !endpoint) throw new StructuredActionContractError('Submitted related record is unavailable');
+          const sourceId = primarySide === 'source' ? primaryId : selectedId;
+          const targetId = primarySide === 'target' ? primaryId : selectedId;
+          const { data: existing, error: existingError } = await db.from('custom_object_relationship')
+            .select('id').eq('tenant_id', tenantId).eq('relationship_definition_id', definition.id)
+            .eq('source_record_id', sourceId).eq('target_record_id', targetId)
+            .is('archived_at', null).maybeSingle();
+          if (existingError) throw existingError;
+          if (!existing) {
+            const { error } = await db.from('custom_object_relationship').insert({
+              tenant_id: tenantId,
+              relationship_definition_id: definition.id,
+              source_record_id: sourceId,
+              target_record_id: targetId,
+            });
+            if (error && error.code !== '23505') throw error;
+          }
+          outcomes.push({ ...base, status: existing ? 'already_linked' : 'linked', record_id: selectedId, primary_record_id: primaryId });
+        }
+      } catch (error) {
+        outcomes.push({ ...base, status: 'failed', error: error.message || String(error) });
+      }
+    }
+  }
+  const failed = outcomes.filter(outcome => outcome.status === 'failed');
+  return {
+    success: failed.length === 0,
+    partial: failed.length > 0 && outcomes.some(outcome => ['linked', 'already_linked'].includes(outcome.status)),
+    outcomes,
+    linked_count: outcomes.filter(outcome => outcome.status === 'linked').length,
+    skipped_count: outcomes.filter(outcome => ['skipped', 'already_linked'].includes(outcome.status)).length,
+    failed_count: failed.length,
+  };
+}
+
 function mappingFamily(field) {
   const descriptor = fieldRecordDescriptor(field);
   if (descriptor) return `reference:${descriptor.kind}`;

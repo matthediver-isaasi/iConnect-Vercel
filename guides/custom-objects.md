@@ -211,6 +211,8 @@ Submission data stores the related record UUID. Review, CSV/Word export, backgro
 
 The FormBuilder **Record Creation** card also provides Structured Record Actions. This editor is additive: existing Member and Organisation pipeline controls remain available and continue to round-trip unchanged.
 
+Primary Member and Organisation pipeline cards also have a subordinate **Related Records** section. Each link stores a stable relationship-definition ID and the ID of a submitted Relationship Dropdown field. After the primary pipeline creates or updates its exact result, processing re-loads the persisted form and submission, verifies the active tenant-owned relationship and compatible endpoint metadata, validates the submitted relationship selection, and inserts the canonical edge. Hidden source fields are skipped. Existing active edges are treated as already linked, so retries are safe. Link failures are returned under `related_records` and written to processing notes without changing a successful primary record operation into a failure. Paid submissions persist a pending marker for failed links; reconciliation retries them independently until the marker is cleared.
+
 Actions are persisted on the Form as `structured_actions`:
 
 ```json

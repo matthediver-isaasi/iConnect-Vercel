@@ -35,7 +35,7 @@ test('tenant resolution + mismatch rejection run before uniqueness validation', 
 
 test('authorization, paid lifecycle, and stored submit-control all precede structured side effects', () => {
   const auth = src.indexOf('verifyFormProcessingRequest(req');
-  const payment = src.indexOf("persistedSubmission.payment_status && persistedSubmission.payment_status !== 'paid'");
+  const payment = src.indexOf('canProcessPersistedPaymentStatus(persistedSubmission.payment_status, { trustedInternal })');
   const submitControl = src.indexOf('const authoritativeSubmitControl = resolveSubmitControl');
   const structured = src.indexOf('processPersistedStructuredActions({');
   assert.ok(auth > -1 && payment > auth && submitControl > payment && structured > submitControl);

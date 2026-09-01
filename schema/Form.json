@@ -192,6 +192,10 @@
       "default": [],
       "description": "Array of field mappings for application forms"
     },
+    "entity_pipelines": {
+      "type": "object",
+      "description": "Legacy rich Member and Organisation pipelines. The primary pipeline may include related_records entries with stable id, relationship_definition_id, and source_field_id; each entry links the exact primary pipeline result to submitted record-reference selections after persistence."
+    },
     "structured_actions": {
       "type": "object",
       "properties": {

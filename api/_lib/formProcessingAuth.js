@@ -38,3 +38,11 @@ export function verifyFormProcessingRequest(req, ids, now = Date.now()) {
 export function resolveTrustedFormProcessingAdmin({ trustedInternal, verifiedAdminAccess }) {
   return trustedInternal === true && verifiedAdminAccess === true;
 }
+
+export function canProcessPersistedPaymentStatus(paymentStatus, { trustedInternal = false } = {}) {
+  if (!paymentStatus || paymentStatus === 'paid') return true;
+  // Stripe monthly-card form checkout reaches its terminal state as
+  // setup_complete rather than paid. Only a signed internal replay may run
+  // pipelines in that state; browser/admin requests retain the paid-only gate.
+  return trustedInternal === true && paymentStatus === 'setup_complete';
+}
