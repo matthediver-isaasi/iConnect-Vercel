@@ -63,6 +63,19 @@ export const CORE_FIELDS = [
   { id: 'core:created_at', fieldKey: 'created_at', label: 'Created Date', type: 'date' }
 ];
 
+export function organisationRelationshipLayoutId(definitionId, side) {
+  return `relationship:${definitionId}:${side}`;
+}
+
+export function organisationRelationshipLayoutElements(panels = []) {
+  return panels.map(({ definition, side }) => ({
+    id: organisationRelationshipLayoutId(definition.id, side),
+    type: 'relationship',
+    definitionId: definition.id,
+    side,
+  }));
+}
+
 export function useOrgDetailLayout({ enabled = true } = {}) {
   const queryClient = useQueryClient();
 
@@ -120,11 +133,28 @@ export function useOrgDetailLayout({ enabled = true } = {}) {
   };
 }
 
-export function mergeLayoutWithCustomFields(layout, customFields) {
+export function mergeLayoutWithCustomFields(layout, customFields, relationshipPanels = null) {
   if (!layout || !layout.cards) return DEFAULT_LAYOUT;
+
+  const availableRelationshipIds = relationshipPanels === null
+    ? null
+    : new Set(organisationRelationshipLayoutElements(relationshipPanels).map(element => element.id));
+  const filteredLayout = {
+    ...layout,
+    cards: layout.cards
+      .map(card => ({
+        ...card,
+        fields: card.fields.filter(field =>
+          field.type !== 'relationship'
+          || availableRelationshipIds === null
+          || availableRelationshipIds.has(field.id)
+        )
+      }))
+      .filter(card => card.fields.length > 0 || card.id === 'card-custom')
+  };
   
   const existingCustomFieldIds = new Set();
-  layout.cards.forEach(card => {
+  filteredLayout.cards.forEach(card => {
     card.fields.forEach(f => {
       if (f.type === 'custom') {
         existingCustomFieldIds.add(f.fieldId);
@@ -134,9 +164,9 @@ export function mergeLayoutWithCustomFields(layout, customFields) {
 
   const unassignedCustomFields = customFields.filter(cf => !existingCustomFieldIds.has(cf.id));
   
-  if (unassignedCustomFields.length === 0) return layout;
+  if (unassignedCustomFields.length === 0) return filteredLayout;
 
-  const updatedCards = [...layout.cards];
+  const updatedCards = [...filteredLayout.cards];
   let customCard = updatedCards.find(c => c.id === 'card-custom');
   
   if (!customCard) {
@@ -164,5 +194,5 @@ export function mergeLayoutWithCustomFields(layout, customFields) {
     ]
   };
 
-  return { ...layout, cards: updatedCards };
+  return { ...filteredLayout, cards: updatedCards };
 }

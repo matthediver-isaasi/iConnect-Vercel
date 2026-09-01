@@ -25,9 +25,17 @@ function generateId() {
   return `card-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 }
 
+function getFieldColorClass(type) {
+  if (type === 'core') return 'bg-blue-100 text-blue-700 border border-blue-200';
+  if (type === 'custom') return 'bg-green-100 text-green-700 border border-green-200';
+  if (type === 'relationship') return 'bg-amber-100 text-amber-800 border border-amber-200';
+  return 'bg-slate-100 text-slate-700 border border-slate-200';
+}
+
 export default function OrgDetailLayoutEditor({ 
   layout, 
   customFields = [], 
+  relationshipPanels = [],
   onSave, 
   onCancel,
   isSaving,
@@ -61,6 +69,13 @@ export default function OrgDetailLayoutEditor({
       label: cf.label,
       type: 'custom',
       fieldType: cf.field_type
+    })),
+    ...relationshipPanels.map(({ definition, side }) => ({
+      id: `relationship:${definition.id}:${side}`,
+      definitionId: definition.id,
+      side,
+      label: (side === 'source' ? definition.source_label : definition.target_label) || 'Related records',
+      type: 'relationship'
     }))
   ];
 
@@ -112,7 +127,11 @@ export default function OrgDetailLayoutEditor({
               id: field.id,
               type: field.type,
               columnIndex: destParsed.columnIndex,
-              ...(field.type === 'core' ? { fieldKey: field.fieldKey } : { fieldId: field.fieldId })
+              ...(field.type === 'core'
+                ? { fieldKey: field.fieldKey }
+                : field.type === 'relationship'
+                  ? { definitionId: field.definitionId, side: field.side }
+                  : { fieldId: field.fieldId })
             };
             
             const insertAfterIndex = colFields[destination.index - 1]
@@ -209,6 +228,14 @@ export default function OrgDetailLayoutEditor({
   };
 
   const getFieldLabel = (field) => {
+    if (field.type === 'relationship') {
+      const panel = relationshipPanels.find(({ definition, side }) =>
+        String(definition.id) === String(field.definitionId) && side === field.side
+      );
+      return panel
+        ? (panel.side === 'source' ? panel.definition.source_label : panel.definition.target_label) || 'Related records'
+        : 'Unavailable relationship';
+    }
     if (field.type === 'core') {
       const coreField = coreFields.find(f => f.fieldKey === field.fieldKey);
       return coreField?.label || field.fieldKey;
@@ -398,7 +425,7 @@ export default function OrgDetailLayoutEditor({
                                                       {...provided.dragHandleProps}
                                                       className={`
                                                         px-3 py-2 rounded-md text-sm flex items-center gap-2
-                                                        ${field.type === 'core' ? 'bg-blue-100 text-blue-700 border border-blue-200' : 'bg-green-100 text-green-700 border border-green-200'}
+                                                         ${getFieldColorClass(field.type)}
                                                         ${snapshot.isDragging ? 'shadow-lg ring-2 ring-blue-400' : ''}
                                                         cursor-grab hover:shadow-sm transition-shadow
                                                       `}
@@ -444,33 +471,60 @@ export default function OrgDetailLayoutEditor({
                         <p className="text-xs text-slate-400 text-center py-4">
                           All fields assigned
                         </p>
-                      ) : (
-                        <div className="space-y-2">
-                          {unassignedFields.map((field, index) => (
-                            <Draggable 
-                              key={field.id} 
-                              draggableId={field.id} 
-                              index={index}
-                            >
-                              {(provided, snapshot) => (
-                                <div
-                                  ref={provided.innerRef}
-                                  {...provided.draggableProps}
-                                  {...provided.dragHandleProps}
-                                  className={`
-                                    px-3 py-2 rounded-md text-sm flex items-center gap-2
-                                    ${field.type === 'core' ? 'bg-blue-100 text-blue-700 border border-blue-200' : 'bg-green-100 text-green-700 border border-green-200'}
-                                    ${snapshot.isDragging ? 'shadow-lg ring-2 ring-blue-400' : ''}
-                                    cursor-grab hover:shadow-sm transition-shadow
-                                  `}
-                                >
-                                  <GripVertical className="w-3 h-3 opacity-50 flex-shrink-0" />
-                                  <span className="truncate">{field.label}</span>
-                                </div>
-                              )}
-                            </Draggable>
-                          ))}
-                        </div>
+                       ) : (
+                         <div className="space-y-2">
+                           {(() => {
+                             const coreGroup = unassignedFields.filter(f => f.type === 'core');
+                             const customGroup = unassignedFields.filter(f => f.type === 'custom');
+                             const relationshipGroup = unassignedFields.filter(f => f.type === 'relationship');
+                             const renderDraggable = (field) => (
+                               <Draggable
+                                 key={field.id}
+                                 draggableId={field.id}
+                                 index={unassignedFields.indexOf(field)}
+                               >
+                                 {(provided, snapshot) => (
+                                   <div
+                                     ref={provided.innerRef}
+                                     {...provided.draggableProps}
+                                     {...provided.dragHandleProps}
+                                     className={`
+                                       px-3 py-2 rounded-md text-sm flex items-center gap-2
+                                       ${getFieldColorClass(field.type)}
+                                       ${snapshot.isDragging ? 'shadow-lg ring-2 ring-blue-400' : ''}
+                                       cursor-grab hover:shadow-sm transition-shadow
+                                     `}
+                                   >
+                                     <GripVertical className="w-3 h-3 opacity-50 flex-shrink-0" />
+                                     <span className="truncate">{field.label}</span>
+                                   </div>
+                                 )}
+                               </Draggable>
+                             );
+                             return (
+                               <>
+                                 {coreGroup.length > 0 && (
+                                   <>
+                                     <p className="text-xs font-medium text-blue-600 uppercase tracking-wide px-1">Core Fields</p>
+                                     {coreGroup.map(renderDraggable)}
+                                   </>
+                                 )}
+                                 {customGroup.length > 0 && (
+                                   <>
+                                     <p className="text-xs font-medium text-green-600 uppercase tracking-wide px-1 pt-2">Custom Fields</p>
+                                     {customGroup.map(renderDraggable)}
+                                   </>
+                                 )}
+                                 {relationshipGroup.length > 0 && (
+                                   <>
+                                     <p className="text-xs font-medium text-amber-700 uppercase tracking-wide px-1 pt-2">Relationships</p>
+                                     {relationshipGroup.map(renderDraggable)}
+                                   </>
+                                 )}
+                               </>
+                             );
+                           })()}
+                         </div>
                       )}
                       {provided.placeholder}
                     </div>
@@ -485,6 +539,7 @@ export default function OrgDetailLayoutEditor({
                     <li>Click settings to edit card</li>
                     <li>Blue = core fields</li>
                     <li>Green = custom fields</li>
+                     <li>Amber = Data Studio relationships</li>
                   </ul>
                 </div>
               </div>

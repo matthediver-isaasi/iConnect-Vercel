@@ -85,13 +85,14 @@ export function evaluateVisibilityRules(rules, formData, customFields) {
   for (const rule of rules.rules) {
     if (!rule.actions) continue;
     for (const action of rule.actions) {
+      const isRelationshipTarget = action.target_type === 'relationship';
       if (action.action_type === 'show') {
         if (action.target_type === 'card' && action.target_card_id) {
           cardsWithShowRules.add(action.target_card_id);
         } else if (action.target_field_id) {
           fieldsWithShowRules.add(action.target_field_id);
         }
-      } else if (action.action_type === 'unlock') {
+      } else if (action.action_type === 'unlock' && !isRelationshipTarget) {
         if (action.target_type === 'card' && action.target_card_id) {
           cardsWithUnlockRules.add(action.target_card_id);
         } else if (action.target_field_id) {
@@ -129,7 +130,7 @@ export function evaluateVisibilityRules(rules, formData, customFields) {
           } else if (action.action_type === 'unlock') {
             unlockedCards.add(action.target_card_id);
           }
-        } else {
+        } else if (action.target_type !== 'relationship') {
           if (action.action_type === 'hide') {
             hiddenFields.add(action.target_field_id);
           } else if (action.action_type === 'show') {
@@ -139,6 +140,10 @@ export function evaluateVisibilityRules(rules, formData, customFields) {
           } else if (action.action_type === 'unlock') {
             unlockedFields.add(action.target_field_id);
           }
+        } else if (action.action_type === 'hide') {
+          hiddenFields.add(action.target_field_id);
+        } else if (action.action_type === 'show') {
+          shownFields.add(action.target_field_id);
         }
       }
     }

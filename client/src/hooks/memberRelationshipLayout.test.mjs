@@ -5,6 +5,11 @@ import {
   memberRelationshipLayoutId,
   mergeLayoutWithCustomFields,
 } from "./useMemberDetailLayout.js";
+import {
+  organisationRelationshipLayoutElements,
+  organisationRelationshipLayoutId,
+  mergeLayoutWithCustomFields as mergeOrganisationLayoutWithCustomFields,
+} from "./useOrgDetailLayout.js";
 import { evaluateVisibilityRules } from "./useOrgFieldVisibilityRules.js";
 
 const activePanel = {
@@ -103,4 +108,81 @@ test("relationship targets obey matching and non-matching existing field rules",
     evaluateVisibilityRules(rules, { job_title: "Member" }, []).hiddenFields.has(target),
     true,
   );
+});
+
+const organisationPanel = {
+  definition: { id: "organisation-department", source_label: "Departments" },
+  side: "source",
+};
+
+test("organisation relationship layout identity is stable across labels", () => {
+  assert.equal(
+    organisationRelationshipLayoutId("organisation-department", "source"),
+    "relationship:organisation-department:source",
+  );
+  assert.deepEqual(organisationRelationshipLayoutElements([organisationPanel]), [{
+    id: "relationship:organisation-department:source",
+    type: "relationship",
+    definitionId: "organisation-department",
+    side: "source",
+  }]);
+});
+
+test("organisation layouts preserve legacy fields and remove only stale relationships after resolution", () => {
+  const layout = {
+    cards: [{
+      id: "details",
+      title: "Details",
+      columns: 1,
+      fields: [
+        { id: "core:name", type: "core", fieldKey: "name", columnIndex: 0 },
+        {
+          id: "relationship:organisation-department:source",
+          type: "relationship",
+          definitionId: "organisation-department",
+          side: "source",
+          columnIndex: 0,
+        },
+        {
+          id: "relationship:archived:source",
+          type: "relationship",
+          definitionId: "archived",
+          side: "source",
+          columnIndex: 0,
+        },
+      ],
+    }],
+  };
+
+  assert.deepEqual(
+    mergeOrganisationLayoutWithCustomFields(layout, [], null).cards[0].fields,
+    layout.cards[0].fields,
+  );
+  assert.deepEqual(
+    mergeOrganisationLayoutWithCustomFields(layout, [], [organisationPanel]).cards[0].fields,
+    layout.cards[0].fields.slice(0, 2),
+  );
+  assert.deepEqual(
+    mergeOrganisationLayoutWithCustomFields(layout, [], []).cards[0].fields,
+    [layout.cards[0].fields[0]],
+  );
+});
+
+test("relationship lock and unlock actions never affect organisation relationship targets", () => {
+  const relationship = "relationship:organisation-department:source";
+  const locked = evaluateVisibilityRules({
+    rules: [{
+      conditions: [{ field_id: "core:name", operator: "equals", value: "Acme" }],
+      actions: [{ action_type: "lock", target_type: "relationship", target_field_id: relationship }],
+    }],
+  }, { name: "Acme" }, []);
+  assert.equal(locked.lockedFields.has(relationship), false);
+
+  const shown = evaluateVisibilityRules({
+    rules: [{
+      conditions: [{ field_id: "core:name", operator: "equals", value: "Acme" }],
+      actions: [{ action_type: "show", target_type: "relationship", target_field_id: relationship }],
+    }],
+  }, { name: "Other" }, []);
+  assert.equal(shown.hiddenFields.has(relationship), true);
 });

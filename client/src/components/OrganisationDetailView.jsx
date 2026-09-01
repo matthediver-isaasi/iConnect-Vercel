@@ -410,7 +410,13 @@ export default function OrganisationDetailView({
   
   const { layoutConfig, saveLayout, isSaving: isLayoutSaving, isLoading: isLayoutLoading } = useOrgDetailLayout({ enabled: isAccessReady });
   const { rulesConfig, saveRules, isSaving: isRulesSaving, isLoading: isRulesLoading } = useOrgFieldVisibilityRules({ enabled: isAccessReady });
-  const effectiveLayout = mergeLayoutWithCustomFields(layoutConfig, orgCustomFields);
+  const effectiveLayout = useMemo(() => (
+    mergeLayoutWithCustomFields(
+      layoutConfig,
+      orgCustomFields,
+      relatedRecords.isSuccess ? relatedRecords.panels : null
+    )
+  ), [layoutConfig, orgCustomFields, relatedRecords.isSuccess, relatedRecords.panels]);
 
   const { data: orgMembersRaw = [], isLoading: membersLoading } = useQuery({
     queryKey: ['org-detail-members', organization?.id],
@@ -1610,6 +1616,25 @@ export default function OrganisationDetailView({
       
       const isFieldLocked = isCardLocked || lockedFields.has(field.id);
       
+      if (field.type === 'relationship') {
+        const panel = relatedRecords.panels.find(({ definition, side }) =>
+          String(definition.id) === String(field.definitionId) && side === field.side
+        );
+        if (!panel) return null;
+        return (
+          <div key={field.id} className="md:col-span-full" data-testid={`organisation-layout-${field.id}`}>
+            <RelatedRecordsPanel
+              context={relatedRecords.context}
+              record={organization}
+              definition={panel.definition}
+              side={panel.side}
+              showHeading={false}
+              embedded
+            />
+          </div>
+        );
+      }
+
       if (field.type === 'core') {
         return (
           <div key={field.id}>
@@ -1856,6 +1881,7 @@ export default function OrganisationDetailView({
         <OrgDetailLayoutEditor
           layout={effectiveLayout}
           customFields={orgCustomFields}
+          relationshipPanels={relatedRecords.panels}
           onSave={async (newLayout) => {
             await saveLayout(newLayout);
             setShowLayoutEditor(false);
@@ -1871,6 +1897,7 @@ export default function OrganisationDetailView({
         rulesConfig={rulesConfig}
         customFields={orgCustomFields}
         layoutCards={effectiveLayout?.cards || []}
+        relationshipPanels={relatedRecords.panels}
         onSave={saveRules}
         onCancel={() => setShowRulesEditor(false)}
         isSaving={isRulesSaving}
