@@ -214,7 +214,10 @@ function PlanDetail({ planId, onBack }) {
   };
 
   if (isLoading) return <Skeleton className="h-64 w-full" />;
-  const { plan, agreement, payments = [], statusHistory = [], adminActions = [], cancellationRequests = [], refunds = [] } = data || {};
+  const {
+    plan, agreement, payments = [], statusHistory = [], adminActions = [],
+    cancellationRequests = [], refunds = [], retryAttempts = [],
+  } = data || {};
   if (!plan) return <Alert variant="destructive"><AlertDescription>Plan not found.</AlertDescription></Alert>;
   const dd = agreement?.metadata?.dd;
   const inArrears = ["payment_grace_period", "payment_overdue"].includes(plan.status);
@@ -250,6 +253,15 @@ function PlanDetail({ planId, onBack }) {
           <span data-testid="text-plan-grace">{fmtDate(plan.grace_expires_at, true)}</span>
           <span className="text-muted-foreground">Retry count</span>
           <span data-testid="text-plan-retries">{plan.retry_count || 0}</span>
+          <span className="text-muted-foreground">Automatic retries</span>
+          <span data-testid="text-plan-auto-retries">{plan.auto_retry_attempts || 0}</span>
+          <span className="text-muted-foreground">Next automatic retry</span>
+          <span data-testid="text-plan-auto-retry-next">{fmtDate(plan.auto_retry_next_at, true)}</span>
+          <span className="text-muted-foreground">Automatic retry outcome</span>
+          <span data-testid="text-plan-auto-retry-outcome">
+            {plan.auto_retry_last_outcome || "—"}
+            {plan.auto_retry_last_error ? ` — ${plan.auto_retry_last_error}` : ""}
+          </span>
           <span className="text-muted-foreground">Arrears policy applied</span>
           <span data-testid="text-plan-policy">{plan.arrears_policy_applied || "—"}</span>
           <span className="text-muted-foreground">Subscription</span>
@@ -276,6 +288,7 @@ function PlanDetail({ planId, onBack }) {
           <TabsTrigger value="payments" data-testid="tab-payments">Payments ({payments.length})</TabsTrigger>
           <TabsTrigger value="history" data-testid="tab-history">Status history ({statusHistory.length})</TabsTrigger>
           <TabsTrigger value="actions" data-testid="tab-actions">Admin log ({adminActions.length})</TabsTrigger>
+          <TabsTrigger value="retries" data-testid="tab-retry-attempts">Retry attempts ({retryAttempts.length})</TabsTrigger>
           <TabsTrigger value="cancellations" data-testid="tab-cancellations">Cancellation requests ({cancellationRequests.length})</TabsTrigger>
         </TabsList>
 
@@ -349,6 +362,28 @@ function PlanDetail({ planId, onBack }) {
               {a.details?.amountMinor ? ` — ${money(a.details.amountMinor, plan.currency)}` : ""}
               {a.details?.days ? ` — +${a.details.days} days` : ""}
             </p>
+          ))}
+        </TabsContent>
+
+        <TabsContent value="retries" className="space-y-2">
+          {retryAttempts.length === 0 && <p className="text-sm text-muted-foreground py-4">No retry attempts recorded.</p>}
+          {retryAttempts.map((attempt) => (
+            <Card key={attempt.id} data-testid={`card-retry-attempt-${attempt.id}`}>
+              <CardContent className="py-3 text-sm space-y-1">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <StatusBadge status={attempt.status} />
+                  <Badge variant="secondary">{attempt.mode}</Badge>
+                  <span>attempt {attempt.attempt_number}</span>
+                  <span className="text-muted-foreground text-xs">{fmtDate(attempt.created_at, true)}</span>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {attempt.gocardless_payment_id}
+                  {attempt.provider_status ? ` · provider ${attempt.provider_status}` : ""}
+                  {attempt.outcome ? ` · ${String(attempt.outcome).replace(/_/g, " ")}` : ""}
+                  {attempt.error_message ? ` · ${attempt.error_message}` : ""}
+                </p>
+              </CardContent>
+            </Card>
           ))}
         </TabsContent>
 

@@ -1,6 +1,7 @@
 import { getTenantContext, hasAdminAccess } from '../_lib/tenantContext.js';
 import { supabase } from '../_lib/database.js';
 import { getTrustedBaseUrlForTenant } from '../_lib/publicBaseUrl.js';
+import { normalizeAutoRetryPolicy, validateAutoRetryPolicy } from '../_lib/gocardlessAutoRetry.js';
 import crypto from 'crypto';
 
 const ENCRYPTION_KEY = process.env.INTEGRATION_ENCRYPTION_KEY || process.env.SESSION_SECRET;
@@ -43,7 +44,12 @@ function decrypt(encryptedText) {
   }
 }
 
-const NON_SECRET_FIELDS = ['region', 'accounts_domain', 'campaigns_domain', 'stripe_mode_forms', 'stripe_mode_events', 'stripe_mode_membership', 'stripe_mode_jobs', 'stripe_mode_fundraising', 'environment', 'country'];
+const NON_SECRET_FIELDS = [
+  'region', 'accounts_domain', 'campaigns_domain', 'stripe_mode_forms',
+  'stripe_mode_events', 'stripe_mode_membership', 'stripe_mode_jobs',
+  'stripe_mode_fundraising', 'environment', 'country',
+  'auto_retry_enabled', 'auto_retry_interval_days', 'auto_retry_max_attempts',
+];
 
 function encryptCredentials(credentials) {
   if (!credentials) return {};
@@ -143,6 +149,9 @@ export default async function handler(req, res) {
         return {
           ...integration,
           credentials: maskCredentials(decrypted),
+          ...(integration.integration_type === 'gocardless'
+            ? { auto_retry_policy: normalizeAutoRetryPolicy(decrypted) }
+            : {}),
           has_credentials: integration.integration_type === 'gocardless'
             ? !!decrypted.access_token
             : Object.keys(integration.credentials || {}).length > 0
@@ -174,6 +183,18 @@ export default async function handler(req, res) {
         return res.status(400).json({ error: 'Invalid integration type' });
       }
 
+      let autoRetryPolicy = null;
+      if (integration_type === 'gocardless'
+          && (req.body.auto_retry_policy !== undefined || req.body.gocardless_auto_retry !== undefined)) {
+        try {
+          autoRetryPolicy = validateAutoRetryPolicy(
+            req.body.auto_retry_policy ?? req.body.gocardless_auto_retry,
+          );
+        } catch (error) {
+          return res.status(400).json({ error: error.message });
+        }
+      }
+
       const { data: existing } = await supabase
         .from('tenant_integrations')
         .select('id, credentials')
@@ -183,9 +204,14 @@ export default async function handler(req, res) {
 
       let encryptedCreds = {};
       
-      if (credentials) {
+      if (credentials || autoRetryPolicy) {
         const existingDecrypted = existing ? decryptCredentials(existing.credentials) : {};
         const mergedCreds = mergeCredentialUpdates(existingDecrypted, credentials);
+        if (autoRetryPolicy) {
+          mergedCreds.auto_retry_enabled = autoRetryPolicy.enabled;
+          mergedCreds.auto_retry_interval_days = autoRetryPolicy.intervalDays;
+          mergedCreds.auto_retry_max_attempts = autoRetryPolicy.maxAttempts;
+        }
         encryptedCreds = encryptCredentials(mergedCreds);
       }
 
@@ -196,7 +222,7 @@ export default async function handler(req, res) {
           updated_at: new Date().toISOString()
         };
         
-        if (credentials && Object.keys(encryptedCreds).length > 0) {
+        if ((credentials || autoRetryPolicy) && Object.keys(encryptedCreds).length > 0) {
           updateData.credentials = encryptedCreds;
         }
         
@@ -239,6 +265,25 @@ export default async function handler(req, res) {
         if (retireError) throw retireError;
       }
 
+      if (integration_type === 'gocardless' && (autoRetryPolicy || is_enabled === false)) {
+        let retryStateUpdate = null;
+        if (is_enabled === false || !autoRetryPolicy?.enabled || autoRetryPolicy?.maxAttempts === 0) {
+          retryStateUpdate = {
+            auto_retry_next_at: null,
+            auto_retry_last_outcome: 'disabled_policy',
+            auto_retry_last_error: null,
+            updated_at: new Date().toISOString(),
+          };
+        }
+        if (retryStateUpdate) {
+          const { error: retryStateError } = await supabase
+            .from('membership_payment_plans')
+            .update(retryStateUpdate)
+            .eq('tenant_id', tenantId);
+          if (retryStateError) throw retryStateError;
+        }
+      }
+
       console.log('[Integrations] Saved:', integration_type, 'for tenant:', tenantId);
       
       const decryptedResult = decryptCredentials(result.credentials);
@@ -247,6 +292,9 @@ export default async function handler(req, res) {
         integration: {
           ...result,
           credentials: maskCredentials(decryptedResult),
+          ...(integration_type === 'gocardless'
+            ? { auto_retry_policy: normalizeAutoRetryPolicy(decryptedResult) }
+            : {}),
           has_credentials: integration_type === 'gocardless'
             ? !!decryptedResult.access_token
             : Object.keys(result.credentials || {}).length > 0
@@ -284,6 +332,20 @@ export default async function handler(req, res) {
           .eq('status', 'active');
         if (retireError) {
           return res.status(500).json({ error: 'Adzuna was disconnected but imported jobs could not be retired' });
+        }
+      }
+      if (integration_type === 'gocardless') {
+        const { error: retryStateError } = await supabase
+          .from('membership_payment_plans')
+          .update({
+            auto_retry_next_at: null,
+            auto_retry_last_outcome: 'disabled_policy',
+            auto_retry_last_error: null,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('tenant_id', tenantId);
+        if (retryStateError) {
+          return res.status(500).json({ error: 'GoCardless was disconnected but automatic retry schedules could not be cleared' });
         }
       }
 

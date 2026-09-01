@@ -207,6 +207,11 @@ export default function AdminIntegrations() {
   const [gcDiscoveryBatch, setGcDiscoveryBatch] = useState(null);
   const [gcDiscoveryLoading, setGcDiscoveryLoading] = useState(false);
   const [gcDiscoveryConfirmOpen, setGcDiscoveryConfirmOpen] = useState(false);
+  const [gcAutoRetry, setGcAutoRetry] = useState({
+    enabled: false,
+    intervalDays: 3,
+    maxAttempts: 3
+  });
 
   const [outlookSyncFrequency, setOutlookSyncFrequency] = useState(15);
   const [outlookConnectedAccounts, setOutlookConnectedAccounts] = useState(0);
@@ -446,11 +451,18 @@ export default function AdminIntegrations() {
               creditor_id: gcIntegration.credentials.creditor_id || ''
             });
           }
+          const retryPolicy = gcIntegration.auto_retry_policy || {};
+          setGcAutoRetry({
+            enabled: retryPolicy.enabled === true,
+            intervalDays: Number.isInteger(retryPolicy.intervalDays) ? retryPolicy.intervalDays : 3,
+            maxAttempts: Number.isInteger(retryPolicy.maxAttempts) ? retryPolicy.maxAttempts : 3
+          });
           fetchGcDiscovery();
         } else {
           setGcEnabled(false);
           setHasGcCredentials(false);
           setGcDiscoveryBatch(null);
+          setGcAutoRetry({ enabled: false, intervalDays: 3, maxAttempts: 3 });
         }
 
         fetchZohoStatus();
@@ -1373,6 +1385,11 @@ export default function AdminIntegrations() {
             environment: gcForm.environment === 'live' ? 'live' : 'sandbox',
             creditor_id: gcForm.creditor_id
           },
+          auto_retry_policy: {
+            enabled: gcAutoRetry.enabled,
+            intervalDays: Number(gcAutoRetry.intervalDays),
+            maxAttempts: Number(gcAutoRetry.maxAttempts)
+          },
           is_enabled: gcEnabled
         })
       });
@@ -1382,7 +1399,7 @@ export default function AdminIntegrations() {
       if (data.success) {
         toast({
           title: "Saved",
-          description: "GoCardless credentials saved successfully"
+          description: "GoCardless credentials and retry policy saved successfully"
         });
         setHasGcCredentials(true);
         fetchIntegrations();
@@ -1436,6 +1453,7 @@ export default function AdminIntegrations() {
         setGcForm({ access_token: '', webhook_secret: '', environment: 'sandbox', creditor_id: '' });
         setGcEnabled(false);
         setHasGcCredentials(false);
+        setGcAutoRetry({ enabled: false, intervalDays: 3, maxAttempts: 3 });
         toast({ title: "Removed", description: "GoCardless connection removed" });
         fetchIntegrations();
       } else {
@@ -3102,6 +3120,66 @@ export default function AdminIntegrations() {
                 </div>
               )}
 
+              <div
+                className="rounded-lg bg-slate-900/50 p-4 border border-slate-700 space-y-4"
+                data-testid="gocardless-auto-retry-settings"
+              >
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <h4 className="text-sm font-medium text-white">Automatic collection retries</h4>
+                    <p className="text-xs text-slate-400 mt-1">
+                      Ask iConnect to retry a failed membership collection automatically.
+                    </p>
+                  </div>
+                  <Switch
+                    checked={gcAutoRetry.enabled}
+                    onCheckedChange={(enabled) => setGcAutoRetry(prev => ({ ...prev, enabled }))}
+                    data-testid="switch-gocardless-auto-retries"
+                  />
+                </div>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="gocardless_auto_retry_interval" className="text-slate-300">
+                      Days between attempts
+                    </Label>
+                    <Input
+                      id="gocardless_auto_retry_interval"
+                      type="number"
+                      min="1"
+                      max="30"
+                      step="1"
+                      value={gcAutoRetry.intervalDays}
+                      onChange={(event) => setGcAutoRetry(prev => ({ ...prev, intervalDays: Number(event.target.value) }))}
+                      disabled={!gcAutoRetry.enabled}
+                      className="bg-slate-800 border-slate-600 text-white"
+                      data-testid="input-gocardless-auto-retry-interval"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="gocardless_auto_retry_max" className="text-slate-300">
+                      Maximum automatic retries
+                    </Label>
+                    <Input
+                      id="gocardless_auto_retry_max"
+                      type="number"
+                      min="0"
+                      max="10"
+                      step="1"
+                      value={gcAutoRetry.maxAttempts}
+                      onChange={(event) => setGcAutoRetry(prev => ({ ...prev, maxAttempts: Number(event.target.value) }))}
+                      disabled={!gcAutoRetry.enabled}
+                      className="bg-slate-800 border-slate-600 text-white"
+                      data-testid="input-gocardless-auto-retry-max"
+                    />
+                  </div>
+                </div>
+                <p className="text-xs text-slate-400">
+                  The maximum counts automatic retries after the original failed collection.
+                  Member and admin manual retries are not included. iConnect never requests a
+                  retry at or after the agreement&apos;s existing grace deadline.
+                </p>
+              </div>
+
               {hasGcCredentials && (
                 <div className="rounded-lg bg-slate-900/50 p-4 border border-slate-700 space-y-3">
                   <div className="flex flex-wrap items-center justify-between gap-3">
@@ -3175,7 +3253,7 @@ export default function AdminIntegrations() {
                   ) : (
                     <Save className="h-4 w-4 mr-2" />
                   )}
-                  Save Credentials
+                  Save GoCardless settings
                 </Button>
                 {hasGcCredentials && (
                   <Button

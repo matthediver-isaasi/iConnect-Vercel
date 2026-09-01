@@ -145,6 +145,10 @@
       "schedule": "45 */6 * * *"
     },
     {
+      "path": "/api/cron/gocardless-auto-retries",
+      "schedule": "*/15 * * * *"
+    },
+    {
       "path": "/api/cron/reconcile-stripe-card-plans",
       "schedule": "25 */6 * * *"
     },

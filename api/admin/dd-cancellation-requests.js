@@ -13,6 +13,12 @@ import { supabase } from '../_lib/database.js';
 import { getTenantContext, hasAdminAccess, hasFeatureAccess } from '../_lib/tenantContext.js';
 import { gocardlessForTenant } from '../_lib/gocardless.js';
 import { applyStatusTransition, STATUS } from '../_lib/gocardlessState.js';
+import {
+  claimPlanForCancellation,
+  closeAutomaticRetrySchedule,
+  releaseCancellationClaim,
+  completeCancellationClaim,
+} from '../_lib/gocardlessAutoRetry.js';
 import { sendDdLifecycleEmail } from '../_lib/gocardlessDdEmails.js';
 
 export default async function handler(req, res) {
@@ -73,14 +79,26 @@ export default async function handler(req, res) {
           .eq('tenant_id', tenantId)
           .maybeSingle();
         if (plan) {
-          const gc = await gocardlessForTenant(tenantId);
-          if (plan.gocardless_subscription_id) {
-            await gc.cancelSubscription(plan.gocardless_subscription_id);
-            details.push(`subscription ${plan.gocardless_subscription_id} cancelled`);
+          const cancellationClaim = await claimPlanForCancellation(plan, { actor: actorEmail || 'admin' });
+          if (!cancellationClaim) {
+            return res.status(409).json({ error: 'A payment retry is currently in progress; try approving the cancellation again shortly' });
           }
-          if (cancelScope === 'mandate' && plan.gocardless_mandate_id) {
-            await gc.cancelMandate(plan.gocardless_mandate_id);
-            details.push(`mandate ${plan.gocardless_mandate_id} cancelled`);
+          const gc = await gocardlessForTenant(tenantId);
+          let providerAccepted = false;
+          try {
+            if (plan.gocardless_subscription_id) {
+              await gc.cancelSubscription(plan.gocardless_subscription_id);
+              providerAccepted = true;
+              details.push(`subscription ${plan.gocardless_subscription_id} cancelled`);
+            }
+            if (cancelScope === 'mandate' && plan.gocardless_mandate_id) {
+              await gc.cancelMandate(plan.gocardless_mandate_id);
+              providerAccepted = true;
+              details.push(`mandate ${plan.gocardless_mandate_id} cancelled`);
+            }
+          } catch (error) {
+            if (!providerAccepted) await releaseCancellationClaim(plan, cancellationClaim);
+            throw error;
           }
           const result = await applyStatusTransition({
             entityType: 'payment_plan',
@@ -89,6 +107,8 @@ export default async function handler(req, res) {
             reason: `cancellation request approved by ${actorEmail || 'admin'}`,
             source: 'admin',
           });
+          await closeAutomaticRetrySchedule(plan, 'cancelled');
+          await completeCancellationClaim(plan, cancellationClaim);
           details.push(`plan: ${JSON.stringify(result)}`);
           if (plan.billing_agreement_id) {
             const { data: agreement } = await supabase

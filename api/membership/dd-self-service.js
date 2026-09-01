@@ -20,8 +20,8 @@
 import { supabase } from '../_lib/database.js';
 import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
 import { gocardlessForTenant, buildIdempotencyKey } from '../_lib/gocardless.js';
-import { assertRetryablePayment } from '../_lib/gocardlessArrears.js';
 import { applyStatusTransition, STATUS } from '../_lib/gocardlessState.js';
+import { retryPaymentSafely } from '../_lib/gocardlessAutoRetry.js';
 import { authorizeMemberAccess } from './payment-plan.js';
 
 export default async function handler(req, res) {
@@ -211,29 +211,29 @@ async function handlePost(req, res, member, ctx) {
     }
     const gc = await gocardlessForTenant(member.tenant_id);
 
-    // Is the mandate still usable?
     const mandateId = plan.gocardless_mandate_id || agreement.gocardless_mandate_id;
-    let mandateUsable = false;
-    if (mandateId) {
-      try {
-        const mandate = await gc.getMandate(mandateId);
-        mandateUsable = ['pending_submission', 'submitted', 'active'].includes(mandate?.status);
-      } catch { mandateUsable = false; }
-    }
+    const paymentId = lastFailedPayment?.gocardless_payment_id || plan.last_payment_id;
+    if (!paymentId) return res.status(409).json({ error: 'No failed payment found to retry — please contact us' });
+    const retry = await retryPaymentSafely({
+      tenantId: member.tenant_id,
+      plan,
+      agreement,
+      paymentId,
+      mode: 'manual',
+      actor: member.email || null,
+      gc,
+    });
 
-    if (mandateUsable) {
-      const paymentId = lastFailedPayment?.gocardless_payment_id || plan.last_payment_id;
-      if (!paymentId) return res.status(409).json({ error: 'No failed payment found to retry — please contact us' });
-      // Never-double-charge: GC must confirm 'failed', and the retry is
-      // idempotency-keyed on the payment id.
-      const current = await gc.getPayment(paymentId);
-      try {
-        assertRetryablePayment(current);
-      } catch (err) {
-        return res.status(409).json({ error: 'This payment cannot be retried right now — it may already be in progress', detail: err.message });
-      }
-      const retried = await gc.retryPayment(paymentId, { idempotencyKey: `dd-retry-${paymentId}` });
+    if (retry.ok) {
+      const retried = retry.payment;
       return res.json({ ok: true, mode: 'retry', payment: { id: retried?.id || paymentId, status: retried?.status || null } });
+    }
+    if (retry.reason !== 'mandate_unusable') {
+      return res.status(409).json({
+        error: 'This payment cannot be retried right now — it may already be in progress',
+        reason: retry.reason,
+        detail: retry.error || null,
+      });
     }
 
     // Mandate is dead — replacement-mandate flow via a fresh hosted flow.

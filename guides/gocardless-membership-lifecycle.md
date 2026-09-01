@@ -407,7 +407,20 @@ Most policies currently flag metadata/audit state; `cancel_at_period_end` does n
 
 ### Retry and Replacement Mandate
 
-Member and admin retry paths call `getPayment()` and `assertRetryablePayment()`. Only remote status `failed` permits the idempotency-keyed retry. If the mandate is unusable, self-service creates a replacement hosted flow and moves the plan to `mandate_pending` (`dd-self-service.js` lines 207–278).
+Tenant admins configure automatic retries on the GoCardless integration card. The default is **disabled**; when enabled, the interval is 1–30 whole days (default 3) and the maximum is 0–10 automatic retries (default 3). The maximum counts provider retry requests **after** the original collection. Member/admin retries have their own ledger sequence and never consume `auto_retry_attempts`.
+
+`scheduleAutomaticRetry()` runs only after a confirmed failed payment event. It calculates:
+
+```text
+next_due = failed_event_time + configured_interval_days
+eligible = next_due < snapshotted_grace_expires_at
+```
+
+Equality with the grace deadline is not eligible. The grace deadline comes from the agreement snapshot and is never extended or restarted by retries. Every later failed webhook uses the current tenant policy to schedule the next attempt, but keeps the original deadline. Disabled policy, zero/used allowance, recovery, cancellation, manual resolution, unusable mandate, or grace expiry closes eligibility.
+
+The 15-minute automatic retry sweep processes at most 100 plans for at most 45 seconds. `retryPaymentSafely()` reloads the tenant-owned plan/payment, checks mandate usability, current policy, due time, attempt limit and grace, takes a shared plan claim, then re-fetches GoCardless. Only live status exactly `failed` permits `retryPayment()`. The attempt-specific provider idempotency key and durable `gocardless_payment_retry_attempts` row make replay safe. Provider errors release the claim and schedule another check only when that due time is still strictly before grace.
+
+Member and admin actions call the same service in manual mode. They share the claim with cron but use a separate manual attempt sequence. If the mandate is unusable, self-service creates a replacement hosted flow and moves the plan to `mandate_pending`. Accounting posting retries are unrelated: they retry invoice/payment recording after a collection succeeds and never affect the collection retry allowance.
 
 ### Cancellation
 
@@ -454,12 +467,13 @@ Resource lookups in the processor are commonly by globally unique GoCardless ID 
 | `/api/cron/process-membership-renewals` | Hourly (`0 * * * *`) | Tenants run only at `membership_cron_time` hour; DD renewals sequential; API max duration 60s | Bearer `CRON_SECRET` only if env var is set |
 | `/api/cron/reconcile-gocardless` | Every 6 hours at minute 15 | Maximum 100 per reconciliation group; five groups; heartbeat | Same conditional check |
 | `/api/cron/gocardless-arrears` | Every 6 hours at minute 45 | Maximum 200 oldest eligible plans; no pagination in a run | Same conditional check |
+| `/api/cron/gocardless-auto-retries` | Every 15 minutes | Maximum 100 due plans and 45 seconds; ordered by due time then plan ID | Bearer `CRON_SECRET`, fail-closed when missing |
 
 Sources: `vercel.json` lines 34–162; cron handlers' `handler()` functions.
 
 **Cron assessment:**
 
-- Authentication is **fail-open** when `CRON_SECRET` is missing because each condition is `if (cronSecret && header !== ...)`.
+- The automatic retry cron is fail-closed when `CRON_SECRET` is missing. Older lifecycle crons remain fail-open because their condition is `if (cronSecret && header !== ...)`; that pre-existing operational risk is unchanged here.
 - Schedule declarations prove intended cadence, not scheduler delivery. Deployment logs/heartbeat evidence are required.
 - Membership processing gets one effective attempt per tenant/day because the hourly job gates to one UTC hour. A transient failure waits until the next day unless manually invoked.
 - Reconciliation caps each group at 100 and arrears at 200; old rows can backlog. DD renewal scans are uncapped and sequential, risking the shared 60-second duration.
@@ -600,6 +614,8 @@ Provider resources may be created before local agreement/history writes complete
 - individual renewal ledger;
 - migration funnel.
 
+`AdminIntegrations.jsx` adds an **Automatic collection retries** section to the GoCardless card. Saving calls `POST /api/admin/integrations` with the enabled flag, whole-day interval, and maximum. Server validation is authoritative. Disabling the policy (or the integration), or setting the maximum to zero, immediately clears tenant due schedules without changing the snapshotted grace deadline.
+
 ### Mutations
 
 | UI | Endpoint | Method | Purpose |
@@ -611,6 +627,7 @@ Provider resources may be created before local agreement/history writes complete
 | Admin console | `/api/admin/gocardless-dd` | POST | Audited plan/finance/migration actions |
 | Cancellation queue | `/api/admin/dd-cancellation-requests` | POST | Approve/reject request and cancellation scope |
 | Integration discovery | `/api/admin/gocardless-mandate-discovery` | POST | Run read-only staged discovery |
+| GoCardless integration | `/api/admin/integrations` | POST | Save credentials, enabled state, and tenant automatic retry policy |
 | Invoice repair | `/api/admin/membership-invoice-retry` | POST | Retry annual accounting invoice |
 
 ### Cache Invalidation
@@ -660,7 +677,20 @@ Types below summarize migrations; existing membership tables contain additional 
 | amount/currency/interval/day/year/start/next date/count | mixed | Collection schedule |
 | status/last payment/retry | mixed | Lifecycle |
 | grace extension/expiry/policy fields | mixed | Arrears |
+| `auto_retry_attempts`, `auto_retry_next_at`, `auto_retry_payment_id` | mixed | Automatic allowance consumed and current due payment |
+| `auto_retry_claimed_at`, `auto_retry_claim_token` | mixed | Shared cron/member/admin concurrency claim |
+| `auto_retry_last_outcome`, `auto_retry_last_error`, `auto_retry_exhausted_at` | mixed | Durable operational state |
 | `completed_at`, attention, environment, metadata, timestamps | mixed | Completion/operations |
+
+### `gocardless_payment_retry_attempts`
+
+| Column(s) | Type | Description |
+|-----------|------|-------------|
+| `tenant_id`, `plan_id`, `gocardless_payment_id` | UUID/TEXT | Tenant-owned collection linkage |
+| `attempt_number`, `mode` | INTEGER/TEXT | Separate automatic or manual sequence |
+| `status`, `outcome`, `error_message`, `provider_status` | TEXT | Claimed/requested/refused/failed/recovered audit |
+| `idempotency_key` | TEXT unique | Attempt-specific provider replay protection |
+| `claimed_at`, `completed_at`, timestamps | TIMESTAMPTZ | Timing and scheduler diagnosis |
 
 ### `gocardless_payments`
 
@@ -870,6 +900,9 @@ The accounting facade creates annual or instalment invoices and records confirme
 | `xero_gocardless_bank_account_code` | system settings | account code | none | GC Xero clearing account |
 | `quickbooks_gocardless_bank_account_id` | system settings | account ID | none | GC QBO clearing account |
 | GoCardless credentials | tenant integration | token, webhook secret, sandbox/live, creditor | platform env fallback | API/webhook identity |
+| Automatic retries enabled | GoCardless tenant integration | boolean | false | Allow iConnect collection retry requests |
+| Automatic retry interval | GoCardless tenant integration | 1–30 whole days | 3 | Delay from each confirmed failure; sweep precision is up to 15 minutes later |
+| Maximum automatic retries | GoCardless tenant integration | 0–10 | 3 | Automatic requests after the original collection; excludes manual retries |
 | `GOCARDLESS_*` | environment | credentials/environment/base URL | sandbox/no credential | Platform fallback |
 | `INTEGRATION_ENCRYPTION_KEY` / `SESSION_SECRET` | environment | secret | none | Tenant credential decryption |
 | `CRON_SECRET` | environment | secret | none | Cron bearer; missing currently disables auth |
@@ -1068,9 +1101,14 @@ Run with unique test members/organisations and retain redacted provider IDs, tim
 **Fix:** inspect history sync/error and notes, verify it is annual mode, use the admin invoice retry, and then reconcile payment. Add operational alert ownership.
 
 ### Problem: Retry is refused
-**Symptom:** HTTP 409 says payment may already be in progress.  
-**Cause:** GoCardless no longer reports exactly `failed`.  
-**Fix:** do not force a new collection; reconcile current remote state.
+**Symptom:** HTTP 409 says payment may already be in progress.
+**Cause:** GoCardless no longer reports exactly `failed`, the mandate is unusable, or another member/admin/cron retry owns the shared claim.
+**Fix:** inspect the plan's automatic retry outcome and attempt ledger. Do not force a new collection when live state is not `failed`; let a current claim finish or use replacement-mandate recovery when appropriate.
+
+### Problem: Automatic retry remains scheduled but is not requested
+**Symptom:** `auto_retry_next_at` is due, but no provider retry appears.
+**Cause:** the 15-minute sweep was delayed, policy/integration was disabled, allowance was exhausted, grace expired, the mandate changed, another retry claimed the plan, live payment recovered, or the provider returned an error.
+**Fix:** inspect `scheduled_task_log` for `gocardless_auto_retries`, plan `auto_retry_last_*` fields, and `gocardless_payment_retry_attempts`. Verify the tenant-owned integration is enabled. Never move `grace_expires_at` to make a retry eligible.
 
 ### Problem: Renewal notice did not send
 **Symptom:** no renewal ledger row at day -30.  

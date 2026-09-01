@@ -33,6 +33,12 @@ import {
   recoveryPlanUpdate,
   clearAgreementArrearsFlag,
 } from './gocardlessArrears.js';
+import {
+  scheduleAutomaticRetry,
+  clearAutomaticRetryForPlan,
+  closeAutomaticRetrySchedule,
+  completeCancellationClaim,
+} from './gocardlessAutoRetry.js';
 import { postDdInstalmentToAccounting } from './gocardlessAccounting.js';
 
 // Emails are best-effort: they must never fail the event (which would mark
@@ -413,6 +419,11 @@ async function processMandateEvent({ event, action, links, db, gc }) {
           source: 'webhook',
           eventId: event.id,
         }, { db });
+        await closeAutomaticRetrySchedule(plan, `mandate_${action}`, { db });
+        await completeCancellationClaim(plan, plan.auto_retry_claim_token, {
+          db,
+          outcome: `mandate_${action}`,
+        });
         details.push(`plan#${plan.id}: ${JSON.stringify(result)}`);
       }
     }
@@ -460,6 +471,11 @@ async function processSubscriptionEvent({ event, action, links, db, gc }) {
       source: 'webhook',
       eventId: event.id,
     }, { db });
+    await closeAutomaticRetrySchedule(plan, 'subscription_cancelled', { db });
+    await completeCancellationClaim(plan, plan.auto_retry_claim_token, {
+      db,
+      outcome: 'subscription_cancelled',
+    });
     if (result.applied && plan.billing_agreement_id) {
       const agreement = await findAgreementById(db, plan.billing_agreement_id);
       if (agreement?.metadata?.dd?.kind === 'monthly_direct_debit') {
@@ -481,6 +497,11 @@ async function processSubscriptionEvent({ event, action, links, db, gc }) {
       // plans (mandate stays active; membership stays valid).
       extraUpdate: { completed_at: new Date().toISOString() },
     }, { db });
+    await closeAutomaticRetrySchedule(plan, 'subscription_finished', { db });
+    await completeCancellationClaim(plan, plan.auto_retry_claim_token, {
+      db,
+      outcome: 'subscription_finished',
+    });
     if (result.applied && plan.billing_agreement_id) {
       const agreement = await findAgreementById(db, plan.billing_agreement_id);
       if (agreement?.metadata?.dd?.kind === 'monthly_direct_debit') {
@@ -591,6 +612,10 @@ async function processPaymentEvent({ event, action, links, db, gc, deps = {} }) 
         .eq('id', plan.id);
       if (clrErr) console.error('[GC Webhook] clear arrears bookkeeping failed:', clrErr.message);
     }
+    // A confirmed collection closes any automatic retry schedule and marks
+    // the plan recovered. This is deliberately separate from retry_count:
+    // that column is the arrears failure count, not the automatic allowance.
+    await clearAutomaticRetryForPlan(plan, { db, outcome: 'recovered' });
 
     // Finance mirror enrichment: fetch amount/description from the API
     // (best-effort — mirror already has status).
@@ -674,10 +699,17 @@ async function processPaymentEvent({ event, action, links, db, gc, deps = {} }) 
       .eq('id', plan.id);
     if (planUpdateErr.error) console.error('[GC Webhook] failure last-payment update failed:', planUpdateErr.error.message);
     const { toStatus, result, graceExpiresAt } = await handlePaymentFailure({ plan, agreement, event, action, db });
+    const autoRetry = await scheduleAutomaticRetry({
+      tenantId,
+      plan: { ...plan, status: toStatus, grace_expires_at: graceExpiresAt, last_payment_id: paymentId },
+      paymentId,
+      failedAt: new Date(),
+      db,
+    });
     if (result.applied && agreement?.metadata?.dd?.kind === 'monthly_direct_debit') {
       await safeDdEmail(toStatus === STATUS.PAYMENT_OVERDUE ? 'payment_overdue' : 'payment_failed', agreement, { db });
     }
-    return { handled: true, detail: `payment ${action}: ${JSON.stringify(result)} (grace expires ${graceExpiresAt})` };
+    return { handled: true, detail: `payment ${action}: ${JSON.stringify(result)} (grace expires ${graceExpiresAt}; auto retry ${autoRetry.reason || autoRetry.dueAt || 'scheduled'})` };
   }
 
   if (action === 'charged_back' || action === 'chargeback_settled') {

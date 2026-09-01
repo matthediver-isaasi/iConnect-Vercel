@@ -23,11 +23,17 @@ import { getTenantContext, hasAdminAccess, hasFeatureAccess } from '../_lib/tena
 import { gocardlessForTenant } from '../_lib/gocardless.js';
 import { applyStatusTransition, STATUS } from '../_lib/gocardlessState.js';
 import {
-  assertRetryablePayment,
   computeGraceExpiry,
   graceDaysForAgreement,
   recoveryPlanUpdate,
 } from '../_lib/gocardlessArrears.js';
+import {
+  retryPaymentSafely,
+  closeAutomaticRetrySchedule,
+  claimPlanForCancellation,
+  releaseCancellationClaim,
+  completeCancellationClaim,
+} from '../_lib/gocardlessAutoRetry.js';
 import { sendDdLifecycleEmail } from '../_lib/gocardlessDdEmails.js';
 import { createInvitation } from '../_lib/gocardlessDdInvitations.js';
 import { createMigrationInvite, buildMigrationFunnel } from '../_lib/gocardlessDdMigration.js';
@@ -227,11 +233,12 @@ async function planDetail(tenantId, planId, res) {
     ? (await supabase.from('membership_billing_agreements').select('*').eq('id', plan.billing_agreement_id).maybeSingle()).data
     : null;
 
-  const [paymentsRes, historyRes, actionsRes, cancellationsRes] = await Promise.all([
+  const [paymentsRes, historyRes, actionsRes, cancellationsRes, retryAttemptsRes] = await Promise.all([
     supabase.from('gocardless_payments').select('*').eq('plan_id', plan.id).order('created_at', { ascending: false }).limit(100),
     supabase.from('membership_payment_status_history').select('*').eq('entity_id', plan.id).order('created_at', { ascending: false }).limit(100),
     supabase.from('membership_dd_admin_actions').select('*').eq('plan_id', plan.id).order('created_at', { ascending: false }).limit(100),
     supabase.from('membership_dd_cancellation_requests').select('*').eq('plan_id', plan.id).order('created_at', { ascending: false }).limit(20),
+    supabase.from('gocardless_payment_retry_attempts').select('*').eq('plan_id', plan.id).eq('tenant_id', tenantId).order('created_at', { ascending: false }).limit(100),
   ]);
   const payments = paymentsRes.data || [];
   const paymentIds = payments.map((p) => p.gocardless_payment_id).filter(Boolean);
@@ -248,6 +255,7 @@ async function planDetail(tenantId, planId, res) {
     statusHistory: historyRes.data || [],
     adminActions: actionsRes.data || [],
     cancellationRequests: cancellationsRes.data || [],
+    retryAttempts: retryAttemptsRes.data || [],
     refunds,
   };
 }
@@ -449,18 +457,19 @@ async function handlePost(req, res, tenantId, actorEmail) {
 
   switch (action) {
     case 'retry': {
-      // Never-double-charge: the GC API must say the payment is 'failed'
-      // before we retry, and the retry itself is idempotency-keyed so a
-      // double-click can only ever produce one retry.
       const paymentId = req.body.paymentId || plan.last_payment_id;
       if (!paymentId) return res.status(400).json({ error: 'No failed payment to retry' });
-      const current = await gc.getPayment(paymentId);
-      try {
-        assertRetryablePayment(current);
-      } catch (err) {
-        return res.status(409).json({ error: err.message, gcStatus: current?.status });
+      const retry = await retryPaymentSafely({
+        tenantId, plan, agreement, paymentId, mode: 'manual', actor: actorEmail, gc,
+      });
+      if (!retry.ok) {
+        return res.status(409).json({
+          error: retry.error || `Payment cannot be retried (${retry.reason})`,
+          reason: retry.reason,
+          gcStatus: retry.gcStatus,
+        });
       }
-      const retried = await gc.retryPayment(paymentId, { idempotencyKey: `dd-retry-${paymentId}` });
+      const retried = retry.payment;
       await recordAdminAction(tenantId, { planId, agreementId: agreement?.id, paymentId, action: 'retry', actorEmail, details: { gcStatus: retried?.status } });
       if (agreement?.metadata?.dd?.kind === 'monthly_direct_debit') {
         await sendDdLifecycleEmail('retry_scheduled', agreement).catch(() => {});
@@ -515,16 +524,28 @@ async function handlePost(req, res, tenantId, actorEmail) {
 
     case 'cancel_subscription': {
       // Stops future collections; mandate stays usable for a new plan.
-      if (plan.gocardless_subscription_id) {
-        await gc.cancelSubscription(plan.gocardless_subscription_id);
+      const cancellationClaim = await claimPlanForCancellation(plan, { actor: actorEmail || 'admin' });
+      if (!cancellationClaim) return res.status(409).json({ error: 'A payment retry is currently in progress; try cancelling again shortly' });
+      let providerAccepted = !plan.gocardless_subscription_id;
+      let result;
+      try {
+        if (plan.gocardless_subscription_id) {
+          await gc.cancelSubscription(plan.gocardless_subscription_id);
+          providerAccepted = true;
+        }
+        result = await applyStatusTransition({
+          entityType: 'payment_plan',
+          entityId: plan.id,
+          toStatus: STATUS.PAYMENT_PLAN_CANCELLED,
+          reason: `admin cancelled subscription${req.body.reason ? `: ${req.body.reason}` : ''}`,
+          source: 'admin',
+        });
+        await closeAutomaticRetrySchedule(plan, 'cancelled');
+        await completeCancellationClaim(plan, cancellationClaim);
+      } catch (error) {
+        if (!providerAccepted) await releaseCancellationClaim(plan, cancellationClaim);
+        throw error;
       }
-      const result = await applyStatusTransition({
-        entityType: 'payment_plan',
-        entityId: plan.id,
-        toStatus: STATUS.PAYMENT_PLAN_CANCELLED,
-        reason: `admin cancelled subscription${req.body.reason ? `: ${req.body.reason}` : ''}`,
-        source: 'admin',
-      });
       await recordAdminAction(tenantId, { planId, agreementId: agreement?.id, action: 'cancel_subscription', actorEmail, details: { reason: req.body.reason || null, result } });
       if (agreement?.metadata?.dd?.kind === 'monthly_direct_debit') {
         await sendDdLifecycleEmail('plan_cancelled', agreement).catch(() => {});
@@ -536,9 +557,17 @@ async function handlePost(req, res, tenantId, actorEmail) {
       // Separate, more destructive action: kills the mandate itself.
       const mandateId = req.body.mandateId || plan.gocardless_mandate_id || agreement?.gocardless_mandate_id;
       if (!mandateId) return res.status(400).json({ error: 'No mandate on this plan' });
-      await gc.cancelMandate(mandateId);
+      const cancellationClaim = await claimPlanForCancellation(plan, { actor: actorEmail || 'admin' });
+      if (!cancellationClaim) return res.status(409).json({ error: 'A payment retry is currently in progress; try cancelling again shortly' });
+      try {
+        await gc.cancelMandate(mandateId);
+      } catch (error) {
+        await releaseCancellationClaim(plan, cancellationClaim);
+        throw error;
+      }
       // Local state is settled by the mandate-cancelled webhook (single
-      // source of truth); just audit here.
+      // source of truth). Keep the cancellation claim until that terminal
+      // webhook arrives so no retry can start while provider state propagates.
       await recordAdminAction(tenantId, { planId, agreementId: agreement?.id, action: 'cancel_mandate', actorEmail, details: { mandateId, reason: req.body.reason || null } });
       return res.json({ ok: true });
     }
@@ -614,6 +643,7 @@ async function handlePost(req, res, tenantId, actorEmail) {
     case 'manual_resolve': {
       // Admin confirms payment was resolved outside GC (or accepts the loss):
       // plan returns to active, arrears bookkeeping cleared.
+      await closeAutomaticRetrySchedule(plan, 'manually_resolved');
       const result = await applyStatusTransition({
         entityType: 'payment_plan',
         entityId: plan.id,

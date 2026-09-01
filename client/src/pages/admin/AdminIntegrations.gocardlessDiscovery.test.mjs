@@ -14,3 +14,17 @@ test('GoCardless card exposes guarded discovery control, confirmation, summary a
   assert.match(source, /ambiguous_count/);
   assert.match(source, /failed_count/);
 });
+
+test('GoCardless card exposes validated automatic retry policy controls and counting guidance', async () => {
+  const source = await readFile(new URL('./AdminIntegrations.jsx', import.meta.url), 'utf8');
+  assert.match(source, /data-testid="gocardless-auto-retry-settings"/);
+  assert.match(source, /data-testid="switch-gocardless-auto-retries"/);
+  assert.match(source, /data-testid="input-gocardless-auto-retry-interval"/);
+  assert.match(source, /min="1"[\s\S]*max="30"[\s\S]*step="1"/);
+  assert.match(source, /data-testid="input-gocardless-auto-retry-max"/);
+  assert.match(source, /min="0"[\s\S]*max="10"[\s\S]*step="1"/);
+  assert.match(source, /after the original failed collection/);
+  assert.match(source, /manual retries are not included/i);
+  assert.match(source, /never requests a[\s\S]*retry at or after[\s\S]*grace deadline/i);
+  assert.match(source, /auto_retry_policy/);
+});
