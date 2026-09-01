@@ -131,6 +131,9 @@ test('non-deferred member communication writes use the shared RBAC persistence b
   assert.match(src, /await persistFormCommunicationSubscriptions\(\{/);
   assert.match(src, /tenantId: effectiveEntityTenantId/);
   assert.match(src, /resolvedMemberId: createdMemberId/);
+  assert.match(src, /form: \{ id: form_id, fields \}/);
+  assert.match(src, /submissionData: form_values/);
+  assert.doesNotMatch(src, /combinedCommunicationSelections/);
   assert.ok(
     !src.includes(".from('member_communication_preference')"),
     'process-application must not bypass the shared communication eligibility guard',

@@ -2668,33 +2668,18 @@ export default async function handler(req, res) {
     // precedence without any direct preference-table writes.
     console.log(`[AppProcessor] Communication preferences path #1 check: createdMemberId=${createdMemberId}, fields=${fields ? fields.length + ' fields' : 'null/undefined'}, form_values keys=${form_values ? Object.keys(form_values).length : 'null'}`);
     if (createdMemberId && !defer_communication_subscriptions) {
-      const combinedCommunicationSelections = new Map();
-      const commPrefFields = (fields || []).filter((field) => field.type === 'communication_preferences');
-      for (const field of commPrefFields) {
-        const prefValues = form_values[field.id];
-        if (!prefValues || typeof prefValues !== 'object' || Array.isArray(prefValues)) continue;
-        for (const [categoryId, isSubscribed] of Object.entries(prefValues)) {
-          if (categoryId && !combinedCommunicationSelections.has(categoryId)) {
-            combinedCommunicationSelections.set(categoryId, Boolean(isSubscribed));
-          }
-        }
-      }
-      for (const [categoryId, isSubscribed] of memberCommunicationPrefsMap) {
-        combinedCommunicationSelections.set(categoryId, Boolean(isSubscribed));
-      }
-
-      if (combinedCommunicationSelections.size > 0) {
-        await persistFormCommunicationSubscriptions({
-          database: supabase,
-          tenantId: effectiveEntityTenantId,
-          form: { id: form_id, fields: [] },
-          submissionData: {},
-          mappedSelections: [...combinedCommunicationSelections].map(
-            ([category_id, is_subscribed]) => ({ category_id, is_subscribed })
-          ),
-          resolvedMemberId: createdMemberId,
-        });
-        console.log(`[AppProcessor] Saved ${combinedCommunicationSelections.size} role-authorized communication preferences for member ${createdMemberId}`);
+      const communicationResult = await persistFormCommunicationSubscriptions({
+        database: supabase,
+        tenantId: effectiveEntityTenantId,
+        form: { id: form_id, fields },
+        submissionData: form_values,
+        mappedSelections: [...memberCommunicationPrefsMap].map(
+          ([category_id, is_subscribed]) => ({ category_id, is_subscribed })
+        ),
+        resolvedMemberId: createdMemberId,
+      });
+      if (communicationResult.count > 0) {
+        console.log(`[AppProcessor] Saved ${communicationResult.count} role-authorized communication preferences for member ${createdMemberId}`);
       }
     }
 

@@ -292,6 +292,24 @@ test('merges explicit, preference-field, and mapped selections with mappings tak
   );
 });
 
+test('communication preference fields ignore submitted categories excluded by their configuration', () => {
+  const restrictedForm = {
+    id: 'restricted-form',
+    fields: [{
+      id: 'prefs',
+      type: 'communication_preferences',
+      allowed_category_ids: ['cat-news'],
+      default_selected_category_ids: ['cat-news'],
+    }],
+  };
+  assert.deepEqual(
+    [...collectFormCommunicationSelections(restrictedForm, {
+      prefs: { 'cat-news': false, 'cat-hidden': true },
+    })],
+    [['cat-news', false]],
+  );
+});
+
 test('member pipeline communication mappings are resolved centrally with exact boolean semantics', () => {
   const pipelines = {
     members: [{

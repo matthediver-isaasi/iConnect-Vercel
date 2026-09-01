@@ -141,7 +141,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
   const [schemaChangeMessage, setSchemaChangeMessage] = useState(null);
 
   // Fetch full member record to get job_title (for logged-in user)
-  const { data: memberRecord } = useQuery({
+  const { data: memberRecord, isLoading: memberRecordLoading } = useQuery({
     queryKey: ['member-record', memberInfo?.id],
     queryFn: async () => {
       if (memberInfo?.id) {
@@ -385,7 +385,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
     };
   }, [form?.entity_pipelines?.organisations]);
 
-  const { data: prefillMemberData } = useQuery({
+  const { data: prefillMemberData, isLoading: prefillMemberLoading } = useQuery({
     queryKey: ['prefill-member', prefillMemberId, !!memberInfo],
     queryFn: async () => {
       if (memberInfo) {
@@ -398,6 +398,9 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
   });
 
   const prefillMember = prefillMemberData?.member || null;
+  const communicationEligibilityReady = authResolved
+    && !(memberInfo?.id && memberRecordLoading)
+    && !(prefillMemberId && form?.prefill_source === 'member' && prefillMemberLoading);
 
   // Task #3357: effective org id for member-source forms — member entity's
   // own organization_id, else the authenticated fallback (prefillOrgId).
@@ -2660,6 +2663,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
                 formId={form?.id}
                 formSlug={form?.slug}
                 formMemberRoleId={prefillMember?.role_id || memberData?.role_id || null}
+                communicationEligibilityReady={communicationEligibilityReady}
                 allFormValues={formValues}
                 prefillData={prefillData}
                 allFields={form?.fields || []}
@@ -2944,6 +2948,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
                   formId={form?.id}
                   formSlug={form?.slug}
                   formMemberRoleId={prefillMember?.role_id || memberData?.role_id || null}
+                  communicationEligibilityReady={communicationEligibilityReady}
                   allFormValues={formValues}
                   prefillData={prefillData}
                   allFields={form?.fields || []}

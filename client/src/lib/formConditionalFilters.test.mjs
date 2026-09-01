@@ -12,6 +12,7 @@ import {
   removeInvalidConditionalValue,
   resolveConditionalFilters,
 } from './formConditionalFilters.js';
+import { initializeCommunicationPreferenceDefaults } from './formCommunicationPreferenceDefaults.js';
 
 const rule = (overrides = {}) => ({
   id: 'rule',
@@ -66,6 +67,65 @@ test('communication preference sources contain only true subscribed category IDs
     { news: false },
     sourceField,
   ), true);
+});
+
+test('communication preference renderer applies checked and unchecked defaults only to visible categories', () => {
+  assert.deepEqual(initializeCommunicationPreferenceDefaults({
+    value: {},
+    categories: [{ id: 'news' }, { id: 'events' }],
+    defaultSelectedCategoryIds: ['news', 'hidden'],
+  }), {
+    news: true,
+    events: false,
+  });
+});
+
+test('legacy communication preference fields default every visible category to unchecked', () => {
+  assert.deepEqual(initializeCommunicationPreferenceDefaults({
+    value: undefined,
+    categories: [{ id: 'news' }, { id: 'events' }],
+  }), {
+    news: false,
+    events: false,
+  });
+});
+
+test('communication preference initialization preserves user-entered answers', () => {
+  assert.equal(initializeCommunicationPreferenceDefaults({
+    value: { news: false, events: true },
+    categories: [{ id: 'news' }, { id: 'events' }],
+    defaultSelectedCategoryIds: ['news'],
+  }), null);
+});
+
+test('communication preference defaults are applied after renderer filtering', () => {
+  const source = readFileSync(new URL('../components/forms/FormRenderer.jsx', import.meta.url), 'utf8');
+  const component = source.match(/function CommunicationPreferencesField[\s\S]*?function FormRenderer/)?.[0] || '';
+  assert.match(component, /default_selected_category_ids/);
+  assert.match(component, /initializedDefaults\.current/);
+  assert.match(component, /initializeCommunicationPreferenceDefaults/);
+  assert.match(component, /intersectConditionalOptions\(staticallyFiltered/);
+  assert.doesNotMatch(component, /cat\.is_public === true\) return true/);
+  assert.match(component, /cat\.role_ids\.includes\(effectiveRoleId\)/);
+  assert.match(component, /\[allCategories, formMemberRoleId, memberInfo\?\.id, memberInfo\?\.role_id/);
+  assert.doesNotMatch(component, /if \(!conditionalResolution\?\.configured \|\| isLoading/);
+  assert.match(component, /if \(!communicationEligibilityReady \|\| initializedDefaults\.current/);
+});
+
+test('form view waits for member identity and prefill role before initializing communication defaults', () => {
+  const source = readFileSync(new URL('../pages/FormView.jsx', import.meta.url), 'utf8');
+  assert.match(source, /const communicationEligibilityReady = authResolved/);
+  assert.match(source, /memberInfo\?\.id && memberRecordLoading/);
+  assert.match(source, /prefillMemberId && form\?\.prefill_source === 'member' && prefillMemberLoading/);
+  assert.equal((source.match(/communicationEligibilityReady=\{communicationEligibilityReady\}/g) || []).length, 2);
+});
+
+test('communication preference builder keeps inclusion and default selection distinct', () => {
+  const source = readFileSync(new URL('../pages/FormBuilder.jsx', import.meta.url), 'utf8');
+  assert.match(source, /checkbox-commpref-allowed-/);
+  assert.match(source, /checkbox-commpref-default-/);
+  assert.match(source, /Selected by default/);
+  assert.match(source, /default_selected_category_ids: defaults/);
 });
 
 test('country sources match saved ISO codes and submitted names with server parity', () => {

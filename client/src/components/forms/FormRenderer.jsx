@@ -42,6 +42,7 @@ import {
   resolveConditionalFilters,
 } from "@/lib/formConditionalFilters";
 import { labelSpreadsheetControls } from "@/lib/repeatableRowsLayout";
+import { initializeCommunicationPreferenceDefaults } from "@/lib/formCommunicationPreferenceDefaults";
 import {
   FORM_NOT_LISTED_VALUE,
   FORM_NOT_LISTED_TEXT_MAX_LENGTH,
@@ -621,7 +622,8 @@ function MultiCountryCombobox({ countries, value = [], onChange, disabled, place
   );
 }
 
-function CommunicationPreferencesField({ field, value, onChange, disabled, memberInfo, formMemberRoleId, conditionalResolution }) {
+function CommunicationPreferencesField({ field, value, onChange, disabled, memberInfo, formMemberRoleId, communicationEligibilityReady, conditionalResolution }) {
+  const initializedDefaults = useRef(false);
   const { data: allCategories = [], isLoading } = useQuery({
     queryKey: ['public-communication-categories'],
     queryFn: async () => await publicClient.listCommunicationCategories() || [],
@@ -630,13 +632,17 @@ function CommunicationPreferencesField({ field, value, onChange, disabled, membe
 
   const allowedIds = Array.isArray(field.allowed_category_ids) ? field.allowed_category_ids : [];
   const allowedIdsKey = allowedIds.join(',');
+  const defaultSelectedIds = Array.isArray(field.default_selected_category_ids)
+    ? field.default_selected_category_ids
+    : [];
+  const defaultSelectedIdsKey = defaultSelectedIds.join(',');
 
   const categories = useMemo(() => {
     const effectiveRoleId = formMemberRoleId || memberInfo?.role_id;
     const roleFiltered = allCategories.filter(cat => {
+      if ((effectiveRoleId || memberInfo?.id) && cat.member_enabled === false) return false;
       const hasRoleScope = cat.role_ids && cat.role_ids.length > 0;
       if (!hasRoleScope) return true;
-      if (cat.is_public === true) return true;
       if (!effectiveRoleId) return false;
       return cat.role_ids.includes(effectiveRoleId);
     });
@@ -644,24 +650,25 @@ function CommunicationPreferencesField({ field, value, onChange, disabled, membe
       ? roleFiltered
       : roleFiltered.filter(cat => new Set(allowedIds).has(cat.id));
     return intersectConditionalOptions(staticallyFiltered, conditionalResolution, cat => cat.id);
-  }, [allCategories, formMemberRoleId, memberInfo?.role_id, allowedIdsKey, conditionalResolution]);
+  }, [allCategories, formMemberRoleId, memberInfo?.id, memberInfo?.role_id, allowedIdsKey, conditionalResolution]);
 
   useEffect(() => {
-    if (categories.length > 0 && (!value || Object.keys(value).length === 0)) {
-      const initialPrefs = {};
-      categories.forEach(cat => {
-        initialPrefs[cat.id] = false;
-      });
-      onChange(initialPrefs);
-    }
-  }, [categories]);
+    if (!communicationEligibilityReady || initializedDefaults.current || isLoading || categories.length === 0) return;
+    initializedDefaults.current = true;
+    const initialValue = initializeCommunicationPreferenceDefaults({
+      value,
+      categories,
+      defaultSelectedCategoryIds: defaultSelectedIds,
+    });
+    if (initialValue) onChange(initialValue);
+  }, [categories, communicationEligibilityReady, defaultSelectedIdsKey, isLoading, onChange, value]);
 
   useEffect(() => {
-    if (!conditionalResolution?.configured || isLoading || !value || typeof value !== 'object' || Array.isArray(value)) return;
+    if (isLoading || !value || typeof value !== 'object' || Array.isArray(value)) return;
     const allowed = new Set(categories.map((category) => category.id));
     const next = Object.fromEntries(Object.entries(value).filter(([id]) => allowed.has(id)));
     if (Object.keys(next).length !== Object.keys(value).length) onChange(next);
-  }, [categories, conditionalResolution, isLoading, value, onChange]);
+  }, [categories, isLoading, value, onChange]);
 
   if (isLoading) {
     return (
@@ -725,7 +732,7 @@ function CommunicationPreferencesField({ field, value, onChange, disabled, membe
   );
 }
 
-export default function FormRenderer({ field, value: suppliedValue, onChange, onFormNotListedTextChange, memberInfo, organizationInfo, selectedOrgGuestAccess = null, disabled = false, onValidityChange, onRelationshipEmptyStateChange, autoFocus = false, hideLabel = false, formId = null, formSlug = null, formMemberRoleId = null, allFormValues = {}, prefillData = null, allFields = [], membershipFeeQuote = null, notListedDisplayLabel = '', rootAllFields = null, rootAllFormValues = null, repeatableSiblingUniqueValues: siblingUniqueValues = [] }) {
+export default function FormRenderer({ field, value: suppliedValue, onChange, onFormNotListedTextChange, memberInfo, organizationInfo, selectedOrgGuestAccess = null, disabled = false, onValidityChange, onRelationshipEmptyStateChange, autoFocus = false, hideLabel = false, formId = null, formSlug = null, formMemberRoleId = null, communicationEligibilityReady = true, allFormValues = {}, prefillData = null, allFields = [], membershipFeeQuote = null, notListedDisplayLabel = '', rootAllFields = null, rootAllFormValues = null, repeatableSiblingUniqueValues: siblingUniqueValues = [] }) {
   const resolvedFieldValue = resolveFormRendererFieldValue({
     field,
     fields: allFields,
@@ -2502,6 +2509,7 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, on
             disabled={isFieldDisabled}
             memberInfo={memberInfo}
             formMemberRoleId={formMemberRoleId}
+            communicationEligibilityReady={communicationEligibilityReady}
             conditionalResolution={conditionalResolution}
           />
         );

@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { applyPublicCommunicationSubscription } from './subscribe.js';
+import { attachCommunicationCategoryRoleIds } from './communication-categories.js';
 
 function createDatabase({ category, member = null } = {}) {
   const writes = [];
@@ -48,6 +49,22 @@ const publicCategory = {
   is_public: true,
   member_enabled: true,
 };
+
+test('public communication category payload includes role restrictions for client filtering', () => {
+  assert.deepEqual(attachCommunicationCategoryRoleIds(
+    [
+      { id: 'category-1', name: 'News' },
+      { id: 'category-2', name: 'Events' },
+    ],
+    [
+      { category_id: 'category-1', role_id: 'role-1' },
+      { category_id: 'category-1', role_id: 'role-2' },
+    ],
+  ), [
+    { id: 'category-1', name: 'News', role_ids: ['role-1', 'role-2'] },
+    { id: 'category-2', name: 'Events', role_ids: [] },
+  ]);
+});
 
 async function subscribe(database, overrides = {}) {
   return applyPublicCommunicationSubscription({

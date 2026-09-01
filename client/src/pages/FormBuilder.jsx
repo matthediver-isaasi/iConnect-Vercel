@@ -6602,30 +6602,62 @@ function FieldCard({
                       <div className="p-2 bg-slate-50 border border-slate-200 rounded space-y-2 max-h-48 overflow-y-auto">
                         {communicationCategories.map((category) => {
                           const isSelected = (field.allowed_category_ids || []).includes(category.id);
+                          const isIncluded = (field.allowed_category_ids || []).length === 0 || isSelected;
+                          const isDefaultSelected = (field.default_selected_category_ids || []).includes(category.id);
                           return (
-                            <div key={category.id} className="flex items-start gap-2">
-                              <Checkbox
-                                id={`commpref-${field.id}-${category.id}`}
-                                checked={isSelected}
-                                onCheckedChange={(checked) => {
-                                  const currentIds = field.allowed_category_ids || [];
-                                  const newIds = checked
-                                    ? [...currentIds, category.id]
-                                    : currentIds.filter(id => id !== category.id);
-                                  updateField(originalIndex, { allowed_category_ids: newIds });
-                                }}
-                                data-testid={`checkbox-commpref-allowed-${field.id}-${category.id}`}
-                              />
+                            <div key={category.id} className="flex items-start justify-between gap-3">
                               <div className="flex-1">
-                                <Label
-                                  htmlFor={`commpref-${field.id}-${category.id}`}
-                                  className="text-xs font-medium cursor-pointer"
-                                >
-                                  {category.name}
-                                </Label>
+                                <p className="text-xs font-medium">{category.name}</p>
                                 {category.description && (
                                   <p className="text-xs text-slate-500">{category.description}</p>
                                 )}
+                              </div>
+                              <div className="flex shrink-0 items-center gap-3">
+                                <div className="flex items-center gap-1.5">
+                                  <Checkbox
+                                    id={`commpref-${field.id}-${category.id}`}
+                                    checked={isSelected}
+                                    onCheckedChange={(checked) => {
+                                      const currentIds = field.allowed_category_ids || [];
+                                      const newIds = checked
+                                        ? [...currentIds, category.id]
+                                        : currentIds.filter(id => id !== category.id);
+                                      const defaults = checked
+                                        ? (field.default_selected_category_ids || [])
+                                        : (field.default_selected_category_ids || []).filter(id => id !== category.id);
+                                      updateField(originalIndex, {
+                                        allowed_category_ids: newIds,
+                                        default_selected_category_ids: defaults,
+                                      });
+                                    }}
+                                    data-testid={`checkbox-commpref-allowed-${field.id}-${category.id}`}
+                                  />
+                                  <Label htmlFor={`commpref-${field.id}-${category.id}`} className="text-xs cursor-pointer">
+                                    Include
+                                  </Label>
+                                </div>
+                                <div className="flex items-center gap-1.5">
+                                  <Checkbox
+                                    id={`commpref-default-${field.id}-${category.id}`}
+                                    checked={isDefaultSelected}
+                                    disabled={!isIncluded}
+                                    onCheckedChange={(checked) => {
+                                      const currentIds = field.default_selected_category_ids || [];
+                                      updateField(originalIndex, {
+                                        default_selected_category_ids: checked
+                                          ? [...currentIds, category.id]
+                                          : currentIds.filter(id => id !== category.id),
+                                      });
+                                    }}
+                                    data-testid={`checkbox-commpref-default-${field.id}-${category.id}`}
+                                  />
+                                  <Label
+                                    htmlFor={`commpref-default-${field.id}-${category.id}`}
+                                    className={`text-xs ${isIncluded ? 'cursor-pointer' : 'text-slate-400'}`}
+                                  >
+                                    Selected by default
+                                  </Label>
+                                </div>
                               </div>
                             </div>
                           );
@@ -6634,7 +6666,7 @@ function FieldCard({
                       <p className="text-xs text-slate-500">
                         {(field.allowed_category_ids || []).length === 0
                           ? "No categories selected - all categories will be shown"
-                          : `${(field.allowed_category_ids || []).length} category(ies) selected`}
+                          : `${(field.allowed_category_ids || []).length} category(ies) included`}
                       </p>
                     </>
                   )}

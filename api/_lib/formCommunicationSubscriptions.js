@@ -17,8 +17,13 @@ export function collectFormCommunicationSelections(form, submissionData, mappedS
     if (!field || field.type !== 'communication_preferences') continue;
     const values = submissionData?.[field.id];
     if (!values || typeof values !== 'object' || Array.isArray(values)) continue;
+    const configuredIds = Array.isArray(field.allowed_category_ids) && field.allowed_category_ids.length > 0
+      ? new Set(field.allowed_category_ids)
+      : null;
     for (const [categoryId, isSubscribed] of Object.entries(values)) {
-      if (categoryId) selections.set(categoryId, Boolean(isSubscribed));
+      if (categoryId && (!configuredIds || configuredIds.has(categoryId))) {
+        selections.set(categoryId, Boolean(isSubscribed));
+      }
     }
   }
   const entries = mappedSelections instanceof Map
