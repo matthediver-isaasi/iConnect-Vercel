@@ -21,20 +21,11 @@
  *   node scripts/seed-help-articles.mjs --apply    # write changes
  */
 import { createClient } from '@supabase/supabase-js';
+import { pathToFileURL } from 'node:url';
 
 const APPLY = process.argv.includes('--apply');
 
-const url = process.env.DEST_SUPABASE_URL;
-const key = process.env.DEST_SUPABASE_KEY;
-
-if (!url || !key) {
-  console.error('DEST_SUPABASE_URL and DEST_SUPABASE_KEY must be set');
-  process.exit(1);
-}
-
-const supabase = createClient(url, key, { auth: { persistSession: false } });
-
-const ARTICLES = [
+export const ARTICLES = [
   // ------------------------------------------------------------------ Basics
   {
     slug: 'getting-started',
@@ -1436,6 +1427,244 @@ The page lists the members linked to your organisation, so you can check who's c
 Where used, you'll also see any awards your organisation holds and the email domains verified as belonging to it (used to recognise your colleagues automatically).`,
   },
 
+  {
+    slug: 'organisation-onboarding-for-administrators',
+    title: 'Organisation onboarding: an administrator\'s guide',
+    category: 'CRM',
+    summary: 'Review an organisation application, check fees and activation, and verify the configured follow-up actions.',
+    status: 'published',
+    sort_order: 30,
+    required_feature: 'crm.organisations',
+    body: `Use this guide to coordinate a typical organisation onboarding journey from first enquiry to an active portal account. Your tenant may use different form names, application statuses, membership periods, directory names and workflow actions. Treat the labels below as neutral descriptions and follow the names configured in your portal.
+
+## Before you start
+
+Confirm that you can access **CRM > Organisations**. Depending on your responsibilities, you may also need access to Form Submissions, membership fee controls and directory settings.
+
+Before processing a live application, check with your portal owner:
+
+- Which enquiry and application forms are used.
+- Which application and organisation statuses your team uses, and what each status is intended to trigger.
+- The applicable membership period, fee structure, tax treatment and approval rules.
+- Whether applicants can pay online, provide a purchase order, or use another configured method.
+- Which emails, invoices, account invitations and directory changes are automated.
+
+## 1. Review the initial enquiry
+
+{{feature: forms.submissions}}
+Open **Form Submissions**, select the relevant enquiry form and review the submission. Form names and statuses are configurable, so use your team's documented form and handling status.
+
+You can reply to the submitter from the submission, update answers where permitted, and change the submission status to show that it has been handled or is not relevant. See [Forms: finding, filtering and exporting submissions](/help/forms-managing-submissions) for the full submission workflow.
+
+{{screenshot: An organisation enquiry opened in Form Submissions}}
+{{/feature}}
+
+If you cannot access Form Submissions, ask a colleague with the appropriate role to review the enquiry and pass on the outcome.
+
+**Decision:** If the enquiry should not proceed, record the outcome using your tenant's process and send any required response. If it should proceed, send the applicant the configured application form or follow the next workflow step.
+
+## 2. Process the full application
+
+{{feature: forms.submissions}}
+When the fuller application arrives, review it in **Form Submissions**. Check required evidence and answers before marking it with the appropriate configured status.
+
+Forms can be configured to create or update CRM records and send messages when submitted, but those actions are not automatic for every form. Check the submission's processing notes and the organisation record rather than assuming that an update or email occurred. Use **re-run** only when you intend to repeat the configured processing and resend eligible emails.
+
+{{screenshot: A full organisation application with processing notes and status}}
+{{/feature}}
+
+## 3. Verify the organisation record
+
+Open **CRM > Organisations**, find the applicant and check the organisation's details against the accepted application. Verify the main contact, invoicing contact, address, website, organisation type and any tenant-specific fields used for fees or directory filters.
+
+Application statuses are tenant-defined. Changing one may prepare a communication or run a workflow in some tenants, while in others it is only a tracking value. Review any on-screen action before confirming it, then check the activity or workflow result.
+
+{{screenshot: The organisation CRM record with application details}}
+
+**Expected outcome:** The CRM record contains the approved information and the correct contact is linked to the organisation. If the form did not update the record, check its processing notes and update the CRM record using your normal correction process.
+
+## 4. Review the membership fee
+
+{{feature: commerce.membership}}
+Open the organisation's **Membership** tab. Select the applicable membership period and:
+
+1. Check the fee structure or tier, the input value used to calculate it, any pro-rata treatment, discounts, tax and final total.
+2. Use **Simulate** where available to refresh the calculation before committing it.
+3. If your policy allows an exception, use **Override** to select another structure, apply a discount or set a fixed price. Add a clear note explaining the decision.
+4. If fee approval is enabled, choose **Approve Fees** only after the amount has been checked.
+5. Use **Email Fees** where configured, and confirm the send succeeds.
+
+Membership dates and prices vary by tenant; do not infer the period from an example or a previous organisation.
+
+{{screenshot: The organisation Membership tab showing the calculated fee and approval controls}}
+
+### Payment and purchase-order decision
+
+The available route depends on the organisation and tenant configuration:
+
+- Online payment may process payment and invoicing when the contact pays.
+- Invoicing may be automatic, scheduled for a specified date, or manually triggered.
+- A purchase-order number may be optional, required by your internal process, or supplied later. Record only a genuine PO reference (or the configured pending value); do not invent one.
+
+**Expected outcome:** The agreed fee and invoicing mode are recorded for the correct membership period. An emailed fee notice is not proof that payment or invoicing completed, so verify those separately.
+{{/feature}}
+
+If you cannot see membership controls, ask a colleague with membership-fee access to complete and confirm this step.
+
+## 5. Activate the organisation
+
+Return to the organisation record and apply the status or action your tenant uses for activation. Before confirming, review any prepared communication or listed workflow actions.
+
+Activation can be configured to create an invoice, send emails, record fee history, enable portal access, or update other records. These are optional automations. After activation, verify each expected result individually:
+
+- The organisation has the intended active status.
+- The main contact received or can request the correct account activation or password setup route.
+- The fee appears in membership history when your process records it.
+- An invoice exists and was sent only if your invoicing configuration calls for one.
+- Any missing purchase order appears in the relevant report only if that reporting workflow is configured.
+
+{{screenshot: The organisation activation action and its listed outcomes}}
+
+{{feature: membership.organisation-directory}}
+## 6. Confirm directory publication
+
+Open the organisation directory and find the organisation. Publication depends on directory settings such as allowed application statuses, visible organisation types and explicit exclusions; changing an organisation to an active status does not guarantee that every tenant will publish it.
+
+Check the name, logo and public-facing fields. If it is missing, compare the organisation record with the directory settings rather than repeatedly changing its status.
+
+{{screenshot: The activated organisation in the organisation directory}}
+{{/feature}}
+
+## Final checks
+
+- The application decision and submission status are recorded.
+- The approved CRM details and main contact are correct.
+- The fee, payment route and invoicing state match the agreed membership period.
+- Every expected automation shows a successful outcome.
+- The contact can sign in and knows where to maintain their organisation information.
+- Directory visibility has been checked where your tenant uses an organisation directory.
+
+For the contact's next steps, share [Getting started as an organisation contact](/help/getting-started-organisation-contact).
+
+## Troubleshooting
+
+**A submission cannot be found:** Include inactive forms in the form filter, clear saved filters and search by the submitter's email. Confirm that the applicant used the expected form.
+
+**The CRM record did not update:** Check the submission's processing notes and whether the form is configured to create or update an organisation. Correct the record through the authorised CRM process.
+
+**The fee looks wrong:** Verify the membership period, calculation field, structure or tier, pro-rata rules, discounts and tax before using an override.
+
+**An email, invoice or directory entry is missing:** Check the relevant configuration and workflow result. A status change alone does not promise these outcomes.
+
+**The contact cannot sign in:** Confirm that the correct email is linked to an enabled member record, then use your tenant's approved invitation or password-reset process.`,
+  },
+
+  {
+    slug: 'getting-started-organisation-contact',
+    title: 'Getting started as an organisation contact',
+    category: 'Getting started',
+    summary: 'Sign in, maintain your organisation profile, use membership and events, and invite eligible colleagues.',
+    status: 'published',
+    sort_order: 2,
+    required_feature: 'organisation.my-organisation',
+    body: `This guide covers the first steps after your organisation has been accepted and you have been given portal access. Menu names, directory terminology, membership options and invitation rights can vary. You will only see areas included in your role.
+
+## Before you start
+
+You need an invitation or account email sent to the address held for you, and your organisation must have enabled your login. Keep the invitation link private.
+
+## 1. Set up your account and sign in
+
+Open the invitation or password setup link and follow the prompts. Then sign in at your organisation's portal using the same email address.
+
+If your link has expired, use **Forgot password** on the sign-in page or contact your portal administrator. See [Getting started with your member portal](/help/getting-started) for a tour of navigation and account basics.
+
+{{screenshot: The portal sign-in or password setup page}}
+
+## 2. Check your personal and organisation details
+
+Open **About Me** to check your name, contact details and communication preferences where those options are available.
+
+Open **My Organisation** to review the organisation profile. Keep its address, website, invoicing email, description, logo and any additional fields accurate. Some of these details may appear in an organisation directory or on invoices, depending on configuration. See [Managing your organisation's profile](/help/managing-your-organisation-profile).
+
+{{screenshot: My Organisation with profile and directory information}}
+
+{{feature: membership.organisation-directory}}
+## 3. Check the organisation directory
+
+Open the organisation directory and search for your organisation. The directory may use a tenant-specific name and may show only selected fields or organisations.
+
+If your organisation is missing or information does not update after saving, contact your portal administrator. Directory visibility is controlled by the tenant's publication settings, not only by your profile edits.
+
+{{screenshot: Your organisation's card in the organisation directory}}
+{{/feature}}
+
+{{feature: commerce.membership}}
+## 4. Review membership
+
+Open **Membership Fees** or the membership area available to your role to view the current period, amount and payment state.
+
+{{feature: commerce.membership.pay-online}}
+- If online payment is enabled, follow the on-screen payment option.
+{{/feature}}
+{{feature: commerce.membership.submit-po}}
+- If purchase-order submission is enabled, enter your genuine PO number as requested.
+{{/feature}}
+
+Membership dates, prices, approval stages and payment methods are set by your organisation. If the amount or period is not what you expected, contact the administrator before paying or submitting a PO.
+
+{{screenshot: The member-facing membership fee and payment options}}
+{{/feature}}
+
+{{feature: events.browse-events}}
+## 5. Find and book events
+
+Open **Events** to browse what is available to you. Eligibility, ticket types and payment methods vary by event and role. See [Browsing events and making a booking](/help/browsing-and-booking-events) before making your first booking.
+
+{{screenshot: The Events listing available to an organisation contact}}
+{{/feature}}
+
+{{feature: membership.team}}
+## 6. Invite eligible colleagues
+
+Open **Team** to see people linked to your organisation.
+
+{{feature: membership.team.invite-member}}
+If **Invite Member** is available:
+
+1. Enter the colleague's work email.
+2. Review the invitation subject and message.
+3. Send the invitation.
+4. Ask the colleague to use the email they receive to complete registration.
+
+Only invite people who are eligible under your organisation's rules. The number of colleagues, permitted email domains, available roles and whether an invitation needs approval are configuration-dependent; the portal will enforce the limits that apply to you.
+
+{{screenshot: The Invite Member dialog in Team}}
+{{/feature}}
+
+If you can view Team but cannot see **Invite Member**, your role does not include invitation rights. Ask an authorised colleague or portal administrator to send it.
+{{/feature}}
+
+## What success looks like
+
+- You can sign in with your registered email.
+- Your personal and organisation details are accurate.
+- You can see the membership, events, directory and Team areas included in your role.
+- Any colleague you invited received an invitation and completed their own registration.
+
+## Troubleshooting
+
+**I did not receive an account email:** Check spam or junk mail and confirm the administrator used the correct email address.
+
+**A menu item is missing:** Navigation follows your role and tenant configuration. Ask your portal administrator whether you should have access.
+
+**My organisation details are read-only:** Your role may allow viewing but not editing. Send corrections to an authorised organisation contact or administrator.
+
+**I cannot invite a colleague:** Check that you have invitation rights and that the colleague meets any domain, role or capacity rules. If a limit has been reached, contact your administrator.
+
+**My membership or directory information looks wrong:** Do not create a second account or organisation. Report the discrepancy so the existing record can be corrected.`,
+  },
+
   // ------------------------------------------------------------- Forms admin
   {
     slug: 'forms-managing-submissions',
@@ -1539,6 +1768,12 @@ Submissions on due diligence forms appear in this list too, but they're managed 
 ];
 
 async function run() {
+  const url = process.env.DEST_SUPABASE_URL;
+  const key = process.env.DEST_SUPABASE_KEY;
+  if (!url || !key) {
+    throw new Error('DEST_SUPABASE_URL and DEST_SUPABASE_KEY must be set');
+  }
+  const supabase = createClient(url, key, { auth: { persistSession: false } });
   console.log(`Help Center seed — ${APPLY ? 'APPLY' : 'DRY RUN'}`);
 
   const slugs = ARTICLES.map((a) => a.slug);
@@ -1573,7 +1808,9 @@ async function run() {
   console.log(`\nDone. ${APPLY ? 'Changes written.' : 'Re-run with --apply to write.'}`);
 }
 
-run().catch((err) => {
-  console.error('Seed failed:', err);
-  process.exit(1);
-});
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  run().catch((err) => {
+    console.error('Seed failed:', err);
+    process.exit(1);
+  });
+}

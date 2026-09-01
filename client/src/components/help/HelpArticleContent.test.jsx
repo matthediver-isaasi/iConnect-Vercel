@@ -5,6 +5,7 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import HelpArticleContent from "./HelpArticleContent.jsx";
+import { ARTICLES } from "../../../../scripts/seed-help-articles.mjs";
 
 /**
  * Regression coverage for the presentation-only RBAC section gate in
@@ -209,4 +210,60 @@ test("default access allows every gated section", () => {
   );
 
   assert.ok(html.includes("Preview-only gated content."));
+});
+
+test("safe internal Help links render as anchors", () => {
+  const html = render(
+    "Continue with [the next guide](/help/getting-started).",
+    () => true,
+  );
+
+  assert.ok(html.includes('href="/help/getting-started"'));
+  assert.ok(html.includes(">the next guide</a>"));
+});
+
+test("strong emphasis renders without allowing raw HTML", () => {
+  const html = render(
+    "Choose **Approve Fees** after checking <script>alert(1)</script>.",
+    () => true,
+  );
+
+  assert.ok(html.includes("<strong>Approve Fees</strong>"));
+  assert.ok(!html.includes("<script>"));
+  assert.ok(html.includes("&lt;script&gt;alert(1)&lt;/script&gt;"));
+});
+
+test("external and unsafe Markdown links stay escaped plain text", () => {
+  const html = render(
+    "Do not link [outside](https://example.com) or [scripts](javascript:alert(1)).",
+    () => true,
+  );
+
+  assert.ok(!html.includes("<a"));
+  assert.ok(html.includes("[outside](https://example.com)"));
+  assert.ok(html.includes("[scripts](javascript:alert(1))"));
+});
+
+test("partner onboarding article cross-links render as working Help links", () => {
+  const slugs = [
+    "organisation-onboarding-for-administrators",
+    "getting-started-organisation-contact",
+  ];
+  const html = slugs
+    .map((slug) => {
+      const article = ARTICLES.find((item) => item.slug === slug);
+      assert.ok(article, `missing seeded article ${slug}`);
+      return render(article.body, () => true);
+    })
+    .join("\n");
+
+  for (const href of [
+    "/help/forms-managing-submissions",
+    "/help/getting-started-organisation-contact",
+    "/help/getting-started",
+    "/help/managing-your-organisation-profile",
+    "/help/browsing-and-booking-events",
+  ]) {
+    assert.ok(html.includes(`href="${href}"`), `missing rendered link ${href}`);
+  }
 });

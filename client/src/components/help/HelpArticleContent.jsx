@@ -8,6 +8,9 @@ import { ImageIcon } from "lucide-react";
  *   # / ## / ###   → headings
  *   - text         → bullet list item
  *   blank line     → paragraph break
+ *   [label](/help/article-slug)
+ *                  → a safe internal Help Center link
+ *   **text**       → strong emphasis
  *   {{screenshot: Label | optional-image-url}}
  *                  → a labeled placeholder box until an image URL is supplied,
  *                    then the <img> itself. Swapping in a real screenshot needs
@@ -29,6 +32,39 @@ import { ImageIcon } from "lucide-react";
 const SCREENSHOT_RE = /\{\{\s*screenshot\s*:\s*([^}]*)\}\}/i;
 const FEATURE_OPEN_RE = /^\{\{\s*feature\s*:\s*([^}]*)\}\}$/i;
 const FEATURE_CLOSE_RE = /^\{\{\s*\/\s*feature\s*\}\}$/i;
+const INLINE_FORMAT_RE = /\[([^\]]+)\]\((\/help\/[a-z0-9-]+)\)|\*\*([^*]+)\*\*/gi;
+
+function renderInlineText(text) {
+  const parts = [];
+  let cursor = 0;
+  let match;
+  INLINE_FORMAT_RE.lastIndex = 0;
+
+  while ((match = INLINE_FORMAT_RE.exec(text)) !== null) {
+    if (match.index > cursor) {
+      parts.push(text.slice(cursor, match.index));
+    }
+    if (match[2]) {
+      parts.push(
+        <a
+          key={`${match.index}-${match[2]}`}
+          href={match[2]}
+          className="font-medium text-primary underline underline-offset-4 hover:text-primary/80"
+        >
+          {match[1]}
+        </a>,
+      );
+    } else {
+      parts.push(<strong key={`${match.index}-strong`}>{match[3]}</strong>);
+    }
+    cursor = match.index + match[0].length;
+  }
+
+  if (cursor < text.length) {
+    parts.push(text.slice(cursor));
+  }
+  return parts.length ? parts : text;
+}
 
 function parseScreenshotToken(line) {
   const match = line.match(SCREENSHOT_RE);
@@ -189,26 +225,26 @@ export default function HelpArticleContent({ body, canAccessFeature }) {
           case "h1":
             return (
               <h2 key={i} className="text-2xl font-semibold tracking-tight">
-                {block.text}
+                {renderInlineText(block.text)}
               </h2>
             );
           case "h2":
             return (
               <h3 key={i} className="text-xl font-semibold tracking-tight">
-                {block.text}
+                {renderInlineText(block.text)}
               </h3>
             );
           case "h3":
             return (
               <h4 key={i} className="text-lg font-semibold tracking-tight">
-                {block.text}
+                {renderInlineText(block.text)}
               </h4>
             );
           case "ul":
             return (
               <ul key={i} className="list-disc space-y-1 pl-6">
                 {block.items.map((item, j) => (
-                  <li key={j}>{item}</li>
+                  <li key={j}>{renderInlineText(item)}</li>
                 ))}
               </ul>
             );
@@ -218,7 +254,7 @@ export default function HelpArticleContent({ body, canAccessFeature }) {
           default:
             return (
               <p key={i} className="leading-relaxed text-foreground">
-                {block.text}
+                {renderInlineText(block.text)}
               </p>
             );
         }
