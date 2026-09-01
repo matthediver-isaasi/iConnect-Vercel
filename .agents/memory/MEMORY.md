@@ -143,3 +143,4 @@
 - [Stripe feature mode for shared payments](stripe-feature-payment-mode.md) — discovery, creation, and confirmation must use one persisted feature when a shared flow serves several products.
 - [Department relationship replacement](department-relationship-replacement.md) — changing a member Organisation may auto-archive Department edges; pre-journal restoration and never hard-delete.
 - [Form processing authorization boundary](form-processing-authorization-boundary.md) — record side effects require trusted/authenticated identity and persisted lifecycle/config checks before execution.
+- [GoCardless account discovery isolation](gocardless-discovery-isolation.md) — account-wide discovery must require tenant-owned credentials; never use platform fallback or live billing mirrors.

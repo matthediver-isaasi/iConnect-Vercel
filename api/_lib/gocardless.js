@@ -279,6 +279,17 @@ export function createGocardlessClient(creds) {
       return json.mandates;
     },
 
+    async listMandatesPage({ after = null, limit = 500 } = {}) {
+      const query = { limit: Math.min(Math.max(Number(limit) || 500, 1), 500) };
+      if (after) query.after = after;
+      if (creds.creditorId) query.creditor = creds.creditorId;
+      const json = await request('GET', '/mandates', { query });
+      return {
+        mandates: json.mandates || [],
+        after: json.meta?.cursors?.after || null,
+      };
+    },
+
     async cancelMandate(mandateId) {
       const json = await request('POST', `/mandates/${mandateId}/actions/cancel`, { body: {} });
       logGc(`cancelled mandate ${mandateId}`);

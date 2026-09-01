@@ -138,11 +138,16 @@ export default async function handler(req, res) {
         return res.status(500).json({ error: 'Failed to fetch integrations' });
       }
 
-      const maskedIntegrations = (integrations || []).map(integration => ({
-        ...integration,
-        credentials: maskCredentials(decryptCredentials(integration.credentials)),
-        has_credentials: Object.keys(integration.credentials || {}).length > 0
-      }));
+      const maskedIntegrations = (integrations || []).map(integration => {
+        const decrypted = decryptCredentials(integration.credentials);
+        return {
+          ...integration,
+          credentials: maskCredentials(decrypted),
+          has_credentials: integration.integration_type === 'gocardless'
+            ? !!decrypted.access_token
+            : Object.keys(integration.credentials || {}).length > 0
+        };
+      });
 
       // Tenant-scoped GoCardless webhook URL: admins register this in the
       // GoCardless dashboard so events are verified against THIS tenant's
@@ -236,12 +241,15 @@ export default async function handler(req, res) {
 
       console.log('[Integrations] Saved:', integration_type, 'for tenant:', tenantId);
       
-      res.json({ 
+      const decryptedResult = decryptCredentials(result.credentials);
+      res.json({
         success: true, 
         integration: {
           ...result,
-          credentials: maskCredentials(decryptCredentials(result.credentials)),
-          has_credentials: Object.keys(result.credentials || {}).length > 0
+          credentials: maskCredentials(decryptedResult),
+          has_credentials: integration_type === 'gocardless'
+            ? !!decryptedResult.access_token
+            : Object.keys(result.credentials || {}).length > 0
         }
       });
     } catch (error) {

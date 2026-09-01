@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 
-import { verifyWebhookSignature, buildIdempotencyKey, getGocardlessEnvironment } from './gocardless.js';
+import { verifyWebhookSignature, buildIdempotencyKey, getGocardlessEnvironment, createGocardlessClient } from './gocardless.js';
 
 const SECRET = 'test_webhook_secret_123';
 function sign(body, secret = SECRET) {
@@ -75,4 +75,30 @@ test('getGocardlessEnvironment defaults to sandbox', () => {
   assert.equal(getGocardlessEnvironment(), 'sandbox');
   if (prev === undefined) delete process.env.GOCARDLESS_ENVIRONMENT;
   else process.env.GOCARDLESS_ENVIRONMENT = prev;
+});
+
+test('listMandatesPage passes cursor and creditor and returns the next cursor', async () => {
+  const previousFetch = global.fetch;
+  global.fetch = async (url) => {
+    const parsed = new URL(url);
+    assert.equal(parsed.pathname, '/mandates');
+    assert.equal(parsed.searchParams.get('after'), 'MD-prev');
+    assert.equal(parsed.searchParams.get('creditor'), 'CR-owned');
+    assert.equal(parsed.searchParams.get('limit'), '500');
+    return new Response(JSON.stringify({
+      mandates: [{ id: 'MD-next' }],
+      meta: { cursors: { after: 'MD-next' } },
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+  };
+  try {
+    const client = createGocardlessClient({
+      source: 'tenant', tenantId: 'tenant-1', environment: 'sandbox',
+      accessToken: 'sandbox_test', creditorId: 'CR-owned',
+    });
+    assert.deepEqual(await client.listMandatesPage({ after: 'MD-prev' }), {
+      mandates: [{ id: 'MD-next' }], after: 'MD-next',
+    });
+  } finally {
+    global.fetch = previousFetch;
+  }
 });

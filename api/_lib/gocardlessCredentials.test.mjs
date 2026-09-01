@@ -4,7 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { getGocardlessCredentials, envGocardlessCredentials } from './gocardlessCredentials.js';
+import { getGocardlessCredentials, getTenantGocardlessCredentials, envGocardlessCredentials } from './gocardlessCredentials.js';
 import { createGocardlessClient } from './gocardless.js';
 
 const TENANT = '22222222-2222-2222-2222-222222222222';
@@ -52,6 +52,23 @@ test('integration row missing access_token falls back to platform env', async ()
   const db = fakeDb({ is_enabled: true, credentials: { webhook_secret: 'only-secret' } });
   const creds = await getGocardlessCredentials(TENANT, { db });
   assert.equal(creds.source, 'platform-env');
+});
+
+test('discovery credentials require an enabled tenant-owned connection and never fall back', async () => {
+  await assert.rejects(
+    () => getTenantGocardlessCredentials(TENANT, { db: fakeDb(null) }),
+    /tenant-specific GoCardless connection is required/,
+  );
+  await assert.rejects(
+    () => getTenantGocardlessCredentials(TENANT, { db: fakeDb({ is_enabled: false, credentials: { access_token: 'sandbox_x' } }) }),
+    /tenant-specific GoCardless connection is required/,
+  );
+  const creds = await getTenantGocardlessCredentials(TENANT, {
+    db: fakeDb({ is_enabled: true, credentials: { access_token: 'sandbox_owned', environment: 'sandbox' } }),
+  });
+  assert.equal(creds.source, 'tenant');
+  assert.equal(creds.tenantId, TENANT);
+  assert.equal(creds.accessToken, 'sandbox_owned');
 });
 
 test('no tenantId resolves platform env without touching the db', async () => {

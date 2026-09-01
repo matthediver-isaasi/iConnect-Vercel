@@ -204,6 +204,9 @@ export default function AdminIntegrations() {
   const [showGcSecrets, setShowGcSecrets] = useState(false);
   const [gcWebhookUrl, setGcWebhookUrl] = useState('');
   const [gcWebhookUrlCopied, setGcWebhookUrlCopied] = useState(false);
+  const [gcDiscoveryBatch, setGcDiscoveryBatch] = useState(null);
+  const [gcDiscoveryLoading, setGcDiscoveryLoading] = useState(false);
+  const [gcDiscoveryConfirmOpen, setGcDiscoveryConfirmOpen] = useState(false);
 
   const [outlookSyncFrequency, setOutlookSyncFrequency] = useState(15);
   const [outlookConnectedAccounts, setOutlookConnectedAccounts] = useState(0);
@@ -443,9 +446,11 @@ export default function AdminIntegrations() {
               creditor_id: gcIntegration.credentials.creditor_id || ''
             });
           }
+          fetchGcDiscovery();
         } else {
           setGcEnabled(false);
           setHasGcCredentials(false);
+          setGcDiscoveryBatch(null);
         }
 
         fetchZohoStatus();
@@ -1450,6 +1455,47 @@ export default function AdminIntegrations() {
       setTimeout(() => setGcWebhookUrlCopied(false), 2000);
     } catch {
       toast({ variant: "destructive", title: "Copy failed", description: "Could not copy to clipboard" });
+    }
+  };
+
+  const fetchGcDiscovery = async () => {
+    try {
+      const response = await adminFetch('/api/admin/gocardless-mandate-discovery', { credentials: 'include' });
+      if (response.ok) {
+        const data = await response.json();
+        setGcDiscoveryBatch(data.batch || null);
+      }
+    } catch (error) {
+      console.error('Failed to load GoCardless mandate discovery:', error);
+    }
+  };
+
+  const handleGcDiscovery = async () => {
+    setGcDiscoveryConfirmOpen(false);
+    setGcDiscoveryLoading(true);
+    try {
+      const response = await adminFetch('/api/admin/gocardless-mandate-discovery', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const data = await response.json();
+      if (data.batch) setGcDiscoveryBatch(data.batch);
+      if (!response.ok || data.batch?.status === 'failed') {
+        throw new Error(data.error || data.batch?.error_message || 'Mandate discovery failed');
+      }
+      toast({
+        title: data.batch?.status === 'complete' ? 'Mandate discovery complete' : 'Mandate discovery incomplete',
+        description: data.batch?.status === 'complete'
+          ? `${data.batch.total_count} mandates retrieved`
+          : (data.batch?.error_message || 'Some mandates could not be retrieved'),
+        variant: data.batch?.status === 'complete' ? undefined : 'destructive',
+      });
+    } catch (error) {
+      toast({ title: 'Mandate discovery failed', description: error.message, variant: 'destructive' });
+      await fetchGcDiscovery();
+    } finally {
+      setGcDiscoveryLoading(false);
     }
   };
 
@@ -3056,6 +3102,66 @@ export default function AdminIntegrations() {
                 </div>
               )}
 
+              {hasGcCredentials && (
+                <div className="rounded-lg bg-slate-900/50 p-4 border border-slate-700 space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <h4 className="text-sm font-medium text-white">Existing mandates</h4>
+                      <p className="text-xs text-slate-400">
+                        Retrieve and stage mandates for email matching only. This does not change live billing.
+                      </p>
+                    </div>
+                    <Button
+                      variant="outline"
+                      onClick={() => setGcDiscoveryConfirmOpen(true)}
+                      disabled={!gcEnabled || !hasGcCredentials || gcDiscoveryLoading || gcDiscoveryBatch?.status === 'running'}
+                      className="border-cyan-500/50 text-cyan-300 hover:bg-cyan-500/10"
+                      data-testid="button-sync-gocardless-mandates"
+                    >
+                      {gcDiscoveryLoading || gcDiscoveryBatch?.status === 'running'
+                        ? <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        : <RefreshCw className="h-4 w-4 mr-2" />}
+                      Sync existing mandates
+                    </Button>
+                  </div>
+                  {gcDiscoveryBatch && (
+                    <div
+                      className={`rounded-md border p-3 ${
+                        gcDiscoveryBatch.status === 'complete'
+                          ? 'border-green-500/30 bg-green-500/10'
+                          : 'border-amber-500/30 bg-amber-500/10'
+                      }`}
+                      data-testid="gocardless-discovery-summary"
+                    >
+                      <div className="flex items-center gap-2">
+                        {gcDiscoveryBatch.status === 'complete'
+                          ? <CheckCircle2 className="h-4 w-4 text-green-400" />
+                          : <AlertTriangle className="h-4 w-4 text-amber-400" />}
+                        <p className="text-sm font-medium text-white">
+                          {gcDiscoveryBatch.status === 'complete' ? 'Last sync complete'
+                            : gcDiscoveryBatch.status === 'running' ? 'Sync in progress'
+                            : gcDiscoveryBatch.status === 'partial' ? 'Last sync incomplete'
+                            : 'Last sync failed'}
+                        </p>
+                      </div>
+                      <p className="mt-2 text-xs text-slate-300">
+                        {gcDiscoveryBatch.total_count} retrieved · {gcDiscoveryBatch.matched_count} matched ·{' '}
+                        {gcDiscoveryBatch.unmatched_count} unmatched · {gcDiscoveryBatch.ambiguous_count} ambiguous ·{' '}
+                        {gcDiscoveryBatch.failed_count} failed
+                      </p>
+                      {gcDiscoveryBatch.error_message && (
+                        <p className="mt-2 text-xs text-amber-300" data-testid="gocardless-discovery-error">
+                          {gcDiscoveryBatch.error_message}
+                        </p>
+                      )}
+                    </div>
+                  )}
+                  {!gcEnabled && (
+                    <p className="text-xs text-amber-300">Enable this tenant-specific connection before syncing.</p>
+                  )}
+                </div>
+              )}
+
               <div className="flex items-center gap-3 pt-2">
                 <Button
                   onClick={handleSaveGocardless}
@@ -3117,6 +3223,24 @@ export default function AdminIntegrations() {
               )}
             </CardContent>
           </Card>
+
+          <Dialog open={gcDiscoveryConfirmOpen} onOpenChange={setGcDiscoveryConfirmOpen}>
+            <DialogContent className="bg-slate-900 border-slate-700 text-white">
+              <DialogHeader>
+                <DialogTitle>Sync existing GoCardless mandates?</DialogTitle>
+                <DialogDescription className="text-slate-400">
+                  This retrieves all mandates from this tenant’s connected account and stages email-based matches.
+                  It will not create plans, subscriptions, billing agreements, or membership records.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="flex justify-end gap-3">
+                <Button variant="outline" onClick={() => setGcDiscoveryConfirmOpen(false)}>Cancel</Button>
+                <Button onClick={handleGcDiscovery} data-testid="button-confirm-sync-gocardless-mandates">
+                  Start sync
+                </Button>
+              </div>
+            </DialogContent>
+          </Dialog>
 
           <Card className="bg-slate-800/50 border-slate-700">
             <CardHeader>

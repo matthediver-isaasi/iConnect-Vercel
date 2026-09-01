@@ -106,3 +106,35 @@ export async function getGocardlessCredentials(tenantId, { db = supabase } = {})
 
   return envGocardlessCredentials();
 }
+
+/**
+ * Discovery must never fall back to the platform account: it may only inspect
+ * an enabled credential set explicitly owned by this tenant.
+ */
+export async function getTenantGocardlessCredentials(tenantId, { db = supabase } = {}) {
+  if (!tenantId) throw new Error('Tenant is required for GoCardless discovery');
+  if (!db) throw new Error('Database not configured');
+  const { data: integration, error } = await db
+    .from('tenant_integrations')
+    .select('credentials, is_enabled')
+    .eq('tenant_id', tenantId)
+    .eq('integration_type', 'gocardless')
+    .maybeSingle();
+  if (error) throw new Error('Failed to fetch GoCardless credentials');
+  if (!integration?.is_enabled || !integration.credentials) {
+    throw new Error('An enabled tenant-specific GoCardless connection is required');
+  }
+  const creds = decryptCredentials(integration.credentials);
+  if (!creds.access_token) {
+    throw new Error('An enabled tenant-specific GoCardless connection is required');
+  }
+  return {
+    source: 'tenant',
+    tenantId,
+    environment: String(creds.environment || '').toLowerCase() === 'live' ? 'live' : 'sandbox',
+    accessToken: creds.access_token,
+    webhookSecret: creds.webhook_secret || null,
+    creditorId: creds.creditor_id || null,
+    redirectBaseUrl: process.env.GOCARDLESS_REDIRECT_BASE_URL || null,
+  };
+}
