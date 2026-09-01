@@ -873,6 +873,80 @@ For how members browse and filter what you publish, see "Finding resources and d
 
   // ---------------------------------------------------------------- Balances
   {
+    slug: 'gocardless-monthly-membership-invoicing',
+    title: 'GoCardless monthly membership invoicing',
+    category: 'Balances',
+    summary: 'Understand monthly Direct Debit collection, invoicing modes, accounting timing and missing-payment checks.',
+    status: 'published',
+    sort_order: 41,
+    required_feature: 'commerce.gocardless-dd',
+    body: `Monthly GoCardless membership plans collect an agreed amount by Direct Debit over a fixed number of instalments. This article explains when accounting records are created and how to investigate a missing invoice or payment.
+
+## The shared Direct Debit journey
+
+Both invoicing methods follow the same collection journey:
+
+1. The member or organisation accepts the monthly terms and authorises a Direct Debit mandate, unless an active mandate can be reused.
+2. Once the mandate is active, the monthly collection schedule is created with GoCardless.
+3. GoCardless requests each instalment through the banking system.
+4. When GoCardless changes the payment to **confirmed**, the application attempts the relevant Xero or QuickBooks accounting update.
+5. GoCardless later includes the collected funds in a payout to the organisation's bank account.
+
+{{screenshot: A monthly plan and its payment statuses in the Direct Debit Console}}
+
+Direct Debit timing is indicative, not guaranteed. Setup and collection commonly take several working days, and the first collection can take longer while a mandate is established. A scheduled or pending collection is not confirmed money.
+
+## Choose how monthly payments are invoiced
+
+Administrators can use one of two accounting methods. The selected method is saved when a plan starts. Changing the membership tier setting later affects new plans, not a plan already in progress.
+
+### Annual invoice with monthly part-payments
+
+In annual-invoice mode, the normal automatic, scheduled or manual membership invoicing process raises one invoice for the full annual commitment. The GoCardless setup does not raise that annual invoice.
+
+Each time a monthly collection reaches **confirmed**, its instalment amount is recorded as a part-payment against the same linked annual invoice. The invoice shows the overall membership charge and a reducing balance.
+
+The annual invoice must already exist and be linked to the correct membership year. If it is missing or unlinked when a collection is confirmed, the collection can still succeed in GoCardless but its accounting part-payment will be missing.
+
+### One invoice per monthly instalment
+
+In per-instalment mode, no annual invoice should be raised for that membership year. Nothing is invoiced merely because a payment is scheduled or submitted to the bank.
+
+When each payment reaches **confirmed**, the application creates one invoice for that instalment in Xero or QuickBooks and then records a matching accounting payment against it.
+
+An instalment invoice can occasionally exist without its matching payment, for example when the dedicated GoCardless bank account is not configured in the accounting connection. The invoice is retained so reconciliation can retry the payment without creating a duplicate invoice.
+
+## Compare the two methods
+
+- **Expected invoices:** annual mode has one invoice for the membership year; per-instalment mode has one invoice for each confirmed instalment.
+- **When invoicing happens:** the annual invoice is raised separately through membership invoicing; an instalment invoice is created only after its GoCardless payment is confirmed.
+- **What confirmation does:** annual mode applies a part-payment to the linked invoice; per-instalment mode creates an invoice and then records its matching payment.
+- **Annual invoice:** it should exist in annual mode and should not exist in per-instalment mode.
+- **Payout:** payout does not trigger invoicing in either mode.
+
+## Understand statuses and timing
+
+- **Scheduled or pending:** the collection is planned or moving through the banking process. It has not been confirmed.
+- **Confirmed:** GoCardless has confirmed collection. This is the status that triggers the Xero or QuickBooks accounting update.
+- **Paid out:** GoCardless has included the funds in a payout to the organisation's bank account. This normally happens after confirmation and does not create an invoice or accounting payment.
+
+Confirmation is not an irreversible guarantee. Refunds, reversals or chargebacks can still occur later and should follow the organisation's normal finance and GoCardless processes. Weekends, bank holidays, mandate setup and the Direct Debit scheme all affect timing, so do not promise a fixed collection date.
+
+## Troubleshoot a missing invoice or payment
+
+Check these points in order:
+
+1. **Check the GoCardless payment status.** If it is scheduled, pending or submitted, allow for the normal Direct Debit process. Accounting is attempted at **confirmed**.
+2. **Confirm the plan's invoicing method.** An existing plan keeps the method selected when it started, even if the tier setting has changed.
+3. **In annual mode, find the annual invoice.** Confirm it was raised by the expected membership invoicing process and linked to the correct membership year.
+4. **In per-instalment mode, look for both records.** A small invoice that remains unpaid usually indicates a payment-posting or bank-account configuration issue, not a need for another invoice.
+5. **Check the accounting connection.** Confirm the Xero or QuickBooks connection is active and the dedicated GoCardless bank account is configured.
+6. **Review reconciliation and error information.** Per-instalment failures can be retried by reconciliation. A missing annual-mode part-payment needs separate investigation if the annual invoice was absent at confirmation.
+7. **Compare the correct events.** Confirmation and payout happen at different times. Waiting for payout will not trigger a missing invoice.
+
+Avoid manually creating an invoice until you have checked the plan mode, existing accounting records and retry state.`,
+  },
+  {
     slug: 'balances-training-fund-vouchers',
     title: 'Your balances: training fund, vouchers and tickets',
     category: 'Balances',

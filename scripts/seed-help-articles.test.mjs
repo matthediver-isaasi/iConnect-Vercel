@@ -16,6 +16,7 @@ const canonicalGates = new Set([
   'events.browse-events',
   'membership.team',
   'membership.team.invite-member',
+  'commerce.gocardless-dd',
 ]);
 
 function article(slug) {
@@ -84,4 +85,43 @@ test('partner onboarding copy stays tenant-neutral and includes required guidanc
   assert.match(combined, /\{\{screenshot:/);
   assert.match(admin.body, /\/help\/forms-managing-submissions/);
   assert.match(contact.body, /\/help\/getting-started/);
+});
+
+test('GoCardless monthly invoicing has stable global publication metadata', () => {
+  const guide = article('gocardless-monthly-membership-invoicing');
+
+  assert.equal(guide.title, 'GoCardless monthly membership invoicing');
+  assert.equal(guide.category, 'Balances');
+  assert.equal(guide.status, 'published');
+  assert.equal(guide.sort_order, 41);
+  assert.equal(guide.required_feature, 'commerce.gocardless-dd');
+  assert.equal(
+    ARTICLES.filter((candidate) => candidate.slug === guide.slug).length,
+    1,
+    'stable slug must be seeded exactly once',
+  );
+  assert.ok(canonicalGates.has(guide.required_feature));
+});
+
+test('GoCardless monthly invoicing remains searchable and preserves key distinctions', () => {
+  const guide = article('gocardless-monthly-membership-invoicing');
+  const chunks = chunkArticleBody(guide.body, {
+    requiredFeature: guide.required_feature,
+  });
+
+  assert.ok(guide.summary.length > 20);
+  assert.ok(chunks.length > 5);
+  assert.ok(chunks.every((chunk) => chunk.featureGates.includes('commerce.gocardless-dd')));
+  assert.ok(chunks.every((chunk) => !chunk.content.includes('{{feature:')));
+  assert.doesNotMatch(guide.body, /<[^>]+>/, 'raw HTML is not indexing-safe');
+
+  assert.match(guide.body, /shared Direct Debit journey/i);
+  assert.match(guide.body, /Annual invoice with monthly part-payments/i);
+  assert.match(guide.body, /One invoice per monthly instalment/i);
+  assert.match(guide.body, /confirmed.*accounting update/is);
+  assert.match(guide.body, /payout does not trigger invoicing/i);
+  assert.match(guide.body, /annual invoice.*part-payment/is);
+  assert.match(guide.body, /invoice for that instalment.*matching accounting payment/is);
+  assert.match(guide.body, /Troubleshoot a missing invoice or payment/i);
+  assert.match(guide.body, /\{\{screenshot:/);
 });
