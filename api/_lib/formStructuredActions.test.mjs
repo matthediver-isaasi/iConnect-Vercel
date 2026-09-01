@@ -182,6 +182,132 @@ test('links the exact primary pipeline result and treats a retry as already link
     edge.source_record_id === 'member-incompatible' && edge.target_record_id === 'department-1'), false);
 });
 
+test('links a conditionally revealed Department to an already-created Member in Department-to-Member orientation', async () => {
+  const tenantId = 'tenant-1';
+  const edges = [{
+    id: 'org-department-edge',
+    tenant_id: tenantId,
+    relationship_definition_id: 'org-department',
+    source_record_id: 'department-1',
+    target_record_id: 'org-1',
+    archived_at: null,
+  }];
+  const rows = {
+    organization: [{ id: 'org-1', tenant_id: tenantId }],
+    custom_object_definition: [{
+      id: 'department-object', tenant_id: tenantId, status: 'active',
+      primary_display_field_id: 'department-name',
+    }],
+    preference_field: [{
+      id: 'department-name', tenant_id: tenantId, custom_object_id: 'department-object',
+      entity_scope: 'custom_object', is_active: true, name: 'name', field_type: 'text',
+    }],
+    custom_object_record: [{
+      id: 'department-1', tenant_id: tenantId, custom_object_id: 'department-object',
+      archived_at: null, data: { name: 'PET Centre' },
+    }],
+    custom_object_relationship_definition: [
+      {
+        id: 'org-department', tenant_id: tenantId, status: 'active',
+        source_kind: 'custom_object', source_custom_object_id: 'department-object',
+        target_kind: 'organization', target_custom_object_id: null,
+        show_on_target: true,
+      },
+      {
+        id: 'member-department', tenant_id: tenantId, status: 'active',
+        source_kind: 'custom_object', source_custom_object_id: 'department-object',
+        target_kind: 'member', target_custom_object_id: null,
+      },
+    ],
+  };
+  class Query {
+    constructor(table) { this.table = table; this.filters = []; this.nullFilters = []; this.payload = null; }
+    select() { return this; }
+    eq(column, value) { this.filters.push([column, value]); return this; }
+    is(column, value) { this.nullFilters.push([column, value]); return this; }
+    insert(payload) { this.payload = payload; return this; }
+    matchingRows() {
+      const source = this.table === 'custom_object_relationship' ? edges : (rows[this.table] || []);
+      return source.filter(row => this.filters.every(([column, value]) => String(row[column]) === String(value))
+        && this.nullFilters.every(([column, value]) => row[column] === value));
+    }
+    async maybeSingle() { return { data: this.matchingRows()[0] || null, error: null }; }
+    then(resolve, reject) {
+      if (this.payload && this.table === 'custom_object_relationship') {
+        edges.push({ id: `edge-${edges.length + 1}`, archived_at: null, ...this.payload });
+        return Promise.resolve({ data: this.payload, error: null }).then(resolve, reject);
+      }
+      return Promise.resolve({ data: this.matchingRows(), error: null }).then(resolve, reject);
+    }
+  }
+  const db = { from: table => new Query(table) };
+  const form = {
+    fields: [
+      { id: 'membership', type: 'select' },
+      { id: 'org', type: 'organisation_dropdown' },
+      {
+        id: 'department', type: 'relationship_dropdown', page_id: 'organization-page',
+        starts_hidden: true, parent_field_id: 'org',
+        relationship_definition_id: 'org-department', relationship_parent_kind: 'organization',
+        relationship_parent_side: 'target', related_kind: 'custom_object',
+        related_custom_object_id: 'department-object',
+        related_primary_display_field_id: 'department-name',
+      },
+    ],
+    pages: [{ id: 'organization-page', starts_hidden: true }],
+    visibility_rules: [
+      {
+        conditions: [{ field_id: 'membership', operator: 'not_equals', value: 'Student' }],
+        actions: [{
+          action_type: 'visibility',
+          field_states: { 'organization-page': { visible: true } },
+        }],
+      },
+      {
+        conditions: [{ field_id: 'org', operator: 'not_empty', value: '' }],
+        actions: [{
+          action_type: 'visibility',
+          field_states: { department: { visible: true } },
+        }],
+      },
+    ],
+    entity_pipelines: {
+      members: [{
+        isPrimary: true,
+        related_records: [{
+          id: 'department-link',
+          relationship_definition_id: 'member-department',
+          source_field_id: 'department',
+        }],
+      }],
+      organisations: [],
+    },
+  };
+  const submission = {
+    submission_data: {
+      membership: 'Full with NMC',
+      org: 'org-1',
+      department: 'department-1',
+    },
+  };
+
+  const first = await processPrimaryPipelineRelatedRecords({
+    db, tenantId, form, submission, memberId: 'member-created',
+  });
+  assert.equal(first.success, true, JSON.stringify(first));
+  assert.equal(first.outcomes[0].status, 'linked');
+  const memberEdge = edges.find(edge => edge.relationship_definition_id === 'member-department');
+  assert.equal(memberEdge.source_record_id, 'department-1');
+  assert.equal(memberEdge.target_record_id, 'member-created');
+
+  const retry = await processPrimaryPipelineRelatedRecords({
+    db, tenantId, form, submission, memberId: 'member-created',
+  });
+  assert.equal(retry.success, true);
+  assert.equal(retry.outcomes[0].status, 'already_linked');
+  assert.equal(edges.filter(edge => edge.relationship_definition_id === 'member-department').length, 1);
+});
+
 test('malformed Related Records config is reported without throwing after primary persistence', async () => {
   const result = await processPrimaryPipelineRelatedRecords({
     db: { from() { throw new Error('database must not be reached'); } },
