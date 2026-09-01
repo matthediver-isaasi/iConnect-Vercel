@@ -7,14 +7,27 @@ import {
 import { dropdownPrefillHandler } from '../public/form/dropdown-prefill.js';
 
 function fakeDb(seed) {
+  const tableColumns = {
+    organization_preference_value: new Set(['organization_id', 'field_id', 'value']),
+    organization_group_preference_value: new Set([
+      'tenant_id', 'organization_group_id', 'field_id', 'value',
+    ]),
+  };
   class Query {
     constructor(table) {
       this.table = table;
       this.filters = [];
       this.ids = [];
+      this.error = null;
     }
     select() { return this; }
     eq(column, value) {
+      if (tableColumns[this.table] && !tableColumns[this.table].has(column)) {
+        this.error = {
+          code: '42703',
+          message: `column ${this.table}.${column} does not exist`,
+        };
+      }
       this.filters.push(row => row[column] === value);
       return this;
     }
@@ -27,10 +40,15 @@ function fakeDb(seed) {
         .filter(row => this.filters.every(filter => filter(row)));
     }
     async maybeSingle() {
+      if (this.error) return { data: null, error: this.error };
       return { data: this.rows()[0] || null, error: null };
     }
     then(resolve) {
-      return Promise.resolve({ data: this.rows(), error: null }).then(resolve);
+      return Promise.resolve(
+        this.error
+          ? { data: null, error: this.error }
+          : { data: this.rows(), error: null },
+      ).then(resolve);
     }
   }
   return { from: table => new Query(table) };
@@ -82,7 +100,7 @@ test('organisation dropdown prefill returns only saved core and custom mappings'
       id: 'sector', tenant_id: 'tenant-a', entity_scope: 'organization', is_active: true,
     }],
     organization_preference_value: [{
-      tenant_id: 'tenant-a', organization_id: 'record-1', field_id: 'sector', value: 'Education',
+      organization_id: 'record-1', field_id: 'sector', value: 'Education',
     }],
   });
   assert.deepEqual(result, {
@@ -138,7 +156,7 @@ test('wrapped custom-field targets return their persisted underlying type', asyn
       },
     ],
     organization_preference_value: [{
-      tenant_id: 'tenant-a', organization_id: 'record-1',
+      organization_id: 'record-1',
       field_id: 'source-definition', value: '["A","B"]',
     }],
   });
@@ -208,7 +226,7 @@ test('organisation conditional, static status, parent, and not-listed eligibilit
       entity_scope: 'organization', is_active: true,
     }],
     organization_preference_value: [{
-      tenant_id: 'tenant-a', organization_id: 'record-1', field_id: 'status', value: 'approved',
+      organization_id: 'record-1', field_id: 'status', value: 'approved',
     }],
   };
   assert.deepEqual((await resolve(seed, {
@@ -238,6 +256,37 @@ test('selected records and custom values are tenant isolated', async () => {
   }), error => error.code === 'PREFILL_RECORD_NOT_FOUND');
 });
 
+test('organisation custom mappings cannot use another tenant field definition or record', async () => {
+  const saved = form(
+    { id: 'source', type: 'organisation_dropdown' },
+    [{ id: 'target', prefill_field: 'org_custom:foreign-field' }],
+  );
+  await assert.rejects(resolve({
+    form: [saved],
+    organization: [{
+      id: 'record-1', tenant_id: 'tenant-a', name: 'Local',
+    }],
+    preference_field: [{
+      id: 'foreign-field', tenant_id: 'tenant-b',
+      entity_scope: 'organization', is_active: true,
+    }],
+    organization_preference_value: [{
+      organization_id: 'record-1', field_id: 'foreign-field', value: 'Private',
+    }],
+  }), error => error.code === 'STALE_PREFILL_CONFIG');
+
+  await assert.rejects(resolve({
+    form: [saved],
+    organization: [{
+      id: 'record-1', tenant_id: 'tenant-b', name: 'Foreign',
+    }],
+    preference_field: [{
+      id: 'foreign-field', tenant_id: 'tenant-a',
+      entity_scope: 'organization', is_active: true,
+    }],
+  }), error => error.code === 'PREFILL_RECORD_NOT_FOUND');
+});
+
 test('form schedule and access policy are enforced before record lookup', async () => {
   const saved = form(
     { id: 'source', type: 'organisation_group_dropdown' },
@@ -257,7 +306,10 @@ test('form schedule and access policy are enforced before record lookup', async 
 test('public route resolves the request tenant and passes only persisted form lookup inputs', async () => {
   const saved = form(
     { id: 'source', type: 'organisation_dropdown' },
-    [{ id: 'target', type: 'text', prefill_field: 'org:name' }],
+    [
+      { id: 'target', type: 'text', prefill_field: 'org:name' },
+      { id: 'custom-target', type: 'text', prefill_field: 'org_custom:sector' },
+    ],
   );
   const req = {
     method: 'POST',
@@ -278,10 +330,18 @@ test('public route resolves the request tenant and passes only persisted form lo
     db: fakeDb({
       form: [saved],
       organization: [{ id: 'record-1', tenant_id: 'tenant-a', name: 'Allowed' }],
+      preference_field: [{
+        id: 'sector', tenant_id: 'tenant-a', entity_scope: 'organization', is_active: true,
+      }],
+      organization_preference_value: [{
+        organization_id: 'record-1', field_id: 'sector', value: 'Education',
+      }],
     }),
     resolveTenant: async () => ({ id: 'tenant-a' }),
     resolveAccess: allowAccess,
   });
   assert.equal(response.statusCode, 200);
-  assert.deepEqual(response.body, { values: { target: 'Allowed' } });
+  assert.deepEqual(response.body, {
+    values: { target: 'Allowed', 'custom-target': 'Education' },
+  });
 });

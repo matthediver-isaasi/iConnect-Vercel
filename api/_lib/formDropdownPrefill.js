@@ -87,13 +87,17 @@ async function loadCustomValues({ db, tenantId, sourceType, recordId, mappings }
     fail(400, 'The form has a stale prefill mapping', 'STALE_PREFILL_CONFIG');
   }
 
-  const table = sourceType !== 'organisation_group_dropdown'
-    ? 'organization_preference_value' : 'organization_group_preference_value';
-  const ownerColumn = sourceType !== 'organisation_group_dropdown'
-    ? 'organization_id' : 'organization_group_id';
-  const { data, error } = await db.from(table)
-    .select('field_id, value')
-    .eq('tenant_id', tenantId)
+  const isGroup = sourceType === 'organisation_group_dropdown';
+  const table = isGroup
+    ? 'organization_group_preference_value' : 'organization_preference_value';
+  const ownerColumn = isGroup ? 'organization_group_id' : 'organization_id';
+  let valueQuery = db.from(table)
+    .select('field_id, value');
+  // Organisation values have no tenant_id column. Their tenant boundary is the
+  // already tenant-validated organisation plus the definitions validated above.
+  // Group values do carry tenant_id, so retain that direct scope as defence in depth.
+  if (isGroup) valueQuery = valueQuery.eq('tenant_id', tenantId);
+  const { data, error } = await valueQuery
     .eq(ownerColumn, recordId)
     .in('field_id', ids);
   if (error) fail(500, 'Failed to resolve prefill values', 'PREFILL_LOOKUP_FAILED');
