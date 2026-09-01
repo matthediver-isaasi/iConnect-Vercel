@@ -77,7 +77,7 @@ test('getGocardlessEnvironment defaults to sandbox', () => {
   else process.env.GOCARDLESS_ENVIRONMENT = prev;
 });
 
-test('listMandatesPage passes cursor and creditor and returns the next cursor', async () => {
+test('listMandatesPage applies creditor pinning by default and returns cursor metadata', async () => {
   const previousFetch = global.fetch;
   global.fetch = async (url) => {
     const parsed = new URL(url);
@@ -96,7 +96,31 @@ test('listMandatesPage passes cursor and creditor and returns the next cursor', 
       accessToken: 'sandbox_test', creditorId: 'CR-owned',
     });
     assert.deepEqual(await client.listMandatesPage({ after: 'MD-prev' }), {
-      mandates: [{ id: 'MD-next' }], after: 'MD-next',
+      mandates: [{ id: 'MD-next' }], after: 'MD-next', cursorMetadataPresent: true,
+    });
+  } finally {
+    global.fetch = previousFetch;
+  }
+});
+
+test('account-wide mandate discovery omits an optional configured creditor', async () => {
+  const previousFetch = global.fetch;
+  global.fetch = async (url) => {
+    const parsed = new URL(url);
+    assert.equal(parsed.pathname, '/mandates');
+    assert.equal(parsed.searchParams.has('creditor'), false);
+    return new Response(JSON.stringify({
+      mandates: [],
+      meta: { cursors: { after: null } },
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+  };
+  try {
+    const client = createGocardlessClient({
+      source: 'tenant', tenantId: 'tenant-1', environment: 'sandbox',
+      accessToken: 'sandbox_test', creditorId: 'CR-owned',
+    });
+    assert.deepEqual(await client.listMandatesPage({ accountWide: true }), {
+      mandates: [], after: null, cursorMetadataPresent: true,
     });
   } finally {
     global.fetch = previousFetch;

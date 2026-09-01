@@ -279,14 +279,20 @@ export function createGocardlessClient(creds) {
       return json.mandates;
     },
 
-    async listMandatesPage({ after = null, limit = 500 } = {}) {
+    async listMandatesPage({ after = null, limit = 500, accountWide = false } = {}) {
       const query = { limit: Math.min(Math.max(Number(limit) || 500, 1), 500) };
       if (after) query.after = after;
-      if (creds.creditorId) query.creditor = creds.creditorId;
+      // Creditor pinning is useful for live billing operations, but mandate
+      // discovery must inspect the whole account exposed by this tenant token.
+      if (!accountWide && creds.creditorId) query.creditor = creds.creditorId;
       const json = await request('GET', '/mandates', { query });
+      const cursors = json.meta?.cursors;
+      const cursorMetadataPresent = !!cursors
+        && Object.prototype.hasOwnProperty.call(cursors, 'after');
       return {
-        mandates: json.mandates || [],
-        after: json.meta?.cursors?.after || null,
+        mandates: json.mandates,
+        after: cursors?.after ?? null,
+        cursorMetadataPresent,
       };
     },
 

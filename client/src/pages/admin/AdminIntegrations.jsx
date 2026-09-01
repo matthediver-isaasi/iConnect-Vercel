@@ -1487,7 +1487,7 @@ export default function AdminIntegrations() {
       toast({
         title: data.batch?.status === 'complete' ? 'Mandate discovery complete' : 'Mandate discovery incomplete',
         description: data.batch?.status === 'complete'
-          ? `${data.batch.total_count} mandates retrieved`
+          ? `${data.batch.total_count} mandates retrieved across the connected GoCardless account`
           : (data.batch?.error_message || 'Some mandates could not be retrieved'),
         variant: data.batch?.status === 'complete' ? undefined : 'destructive',
       });
@@ -3145,6 +3145,7 @@ export default function AdminIntegrations() {
                         </p>
                       </div>
                       <p className="mt-2 text-xs text-slate-300">
+                        {gcDiscoveryBatch.status === 'complete' ? 'Completed: ' : ''}
                         {gcDiscoveryBatch.total_count} retrieved · {gcDiscoveryBatch.matched_count} matched ·{' '}
                         {gcDiscoveryBatch.unmatched_count} unmatched · {gcDiscoveryBatch.ambiguous_count} ambiguous ·{' '}
                         {gcDiscoveryBatch.failed_count} failed

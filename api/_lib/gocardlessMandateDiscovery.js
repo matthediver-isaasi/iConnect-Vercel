@@ -14,6 +14,20 @@ function summaryFromRows(rows) {
   return summary;
 }
 
+function safeTerminalError(error) {
+  const message = String(error?.message || '');
+  if (/^GoCardless (pagination|returned a repeated pagination cursor)/.test(message)) {
+    return message.slice(0, 300);
+  }
+  if (/^GoCardless could not return mandate page \d+\./.test(message)) {
+    return message.slice(0, 300);
+  }
+  if (message.startsWith('Member matching could not be loaded.')) return message;
+  if (message.startsWith('Discovered mandates could not be staged.')) return message;
+  if (message.startsWith('The mandate discovery lease could not be maintained.')) return message;
+  return 'Mandate discovery stopped before every page was returned. Retry the sync; contact support if it fails again.';
+}
+
 async function mapWithConcurrency(items, limit, mapper) {
   const results = new Array(items.length);
   let next = 0;
@@ -34,7 +48,7 @@ async function loadMembersByEmail(db, tenantId) {
     const { data, error } = await db.from('member')
       .select('id, email').eq('tenant_id', tenantId)
       .order('id', { ascending: true }).range(from, from + pageSize - 1);
-    if (error) throw new Error(`Member matching failed: ${error.message}`);
+    if (error) throw new Error('Member matching could not be loaded. Retry the mandate sync.');
     members.push(...(data || []));
     if ((data || []).length < pageSize) break;
   }
@@ -53,7 +67,7 @@ export async function getLatestMandateDiscoveryBatch({ db, tenantId }) {
   const { data, error } = await db.from('gocardless_mandate_discovery_batch')
     .select('id, environment, status, total_count, matched_count, unmatched_count, ambiguous_count, failed_count, error_message, started_at, completed_at')
     .eq('tenant_id', tenantId).order('created_at', { ascending: false }).limit(1).maybeSingle();
-  if (error) throw new Error(`Could not load mandate discovery: ${error.message}`);
+  if (error) throw new Error('Could not load the latest mandate discovery result');
   return data || null;
 }
 
@@ -78,7 +92,7 @@ export async function runMandateDiscovery({
     .eq('tenant_id', tenantId)
     .eq('status', 'running')
     .lt('updated_at', staleBefore);
-  if (reclaimError) throw new Error(`Could not check active mandate discovery: ${reclaimError.message}`);
+  if (reclaimError) throw new Error('Could not check for an active mandate discovery sync');
 
   const { data: batch, error: batchError } = await db
     .from('gocardless_mandate_discovery_batch')
@@ -86,7 +100,7 @@ export async function runMandateDiscovery({
     .select().single();
   if (batchError) {
     if (batchError.code === '23505') throw new Error('A mandate discovery sync is already running');
-    throw new Error(`Could not start mandate discovery: ${batchError.message}`);
+    throw new Error('Could not start mandate discovery');
   }
 
   const gc = clientFactory(creds);
@@ -96,10 +110,41 @@ export async function runMandateDiscovery({
     const membersByEmail = await loadMembersByEmail(db, tenantId);
     let after = null;
     const seenCursors = new Set();
+    const seenMandateIds = new Set();
+    let pageNumber = 0;
     do {
-      if (after && seenCursors.has(after)) throw new Error('GoCardless returned a repeated pagination cursor');
       if (after) seenCursors.add(after);
-      const page = await gc.listMandatesPage({ after, limit: 100 });
+      pageNumber += 1;
+      let page;
+      try {
+        page = await gc.listMandatesPage({ after, limit: 500, accountWide: true });
+      } catch (error) {
+        throw new Error(`GoCardless could not return mandate page ${pageNumber}. Retry the sync`);
+      }
+      if (!page || !Array.isArray(page.mandates)) {
+        throw new Error(`GoCardless pagination was malformed on page ${pageNumber}: mandates were missing`);
+      }
+      if (page.cursorMetadataPresent !== true) {
+        throw new Error(`GoCardless pagination was incomplete on page ${pageNumber}: the next cursor was missing`);
+      }
+      if (page.after !== null && (typeof page.after !== 'string' || !page.after.trim())) {
+        throw new Error(`GoCardless pagination was malformed on page ${pageNumber}: invalid next cursor`);
+      }
+      if (page.after && (page.after === after || seenCursors.has(page.after))) {
+        throw new Error(`GoCardless returned a repeated pagination cursor on page ${pageNumber}`);
+      }
+      if (page.after && page.mandates.length === 0) {
+        throw new Error(`GoCardless pagination was incomplete on page ${pageNumber}: an empty page advertised more results`);
+      }
+      for (const mandate of page.mandates) {
+        if (!mandate?.id) {
+          throw new Error(`GoCardless pagination was malformed on page ${pageNumber}: a mandate ID was missing`);
+        }
+        if (seenMandateIds.has(mandate.id)) {
+          throw new Error(`GoCardless pagination repeated mandate data on page ${pageNumber}`);
+        }
+        seenMandateIds.add(mandate.id);
+      }
       const pageRows = await mapWithConcurrency(page.mandates, 10, async (mandate) => {
         const customerId = mandate.links?.customer || null;
         const base = {
@@ -125,19 +170,19 @@ export async function runMandateDiscovery({
         } catch (error) {
           return { ...base, customer_email: null,
             normalized_email: null, matched_member_id: null, match_outcome: 'failed',
-            error_message: error.message || 'Customer retrieval failed' };
+            error_message: 'The linked GoCardless customer could not be retrieved' };
         }
       });
       if (pageRows.length) {
         const { error: pageWriteError } = await db.from('gocardless_mandate_discovery_row')
           .upsert(pageRows, { onConflict: 'batch_id,gocardless_mandate_id' });
-        if (pageWriteError) throw new Error(`Could not stage discovered mandates: ${pageWriteError.message}`);
+        if (pageWriteError) throw new Error('Discovered mandates could not be staged. Retry the mandate sync.');
         rows.push(...pageRows);
       }
       const { error: heartbeatError } = await db.from('gocardless_mandate_discovery_batch')
         .update({ updated_at: new Date().toISOString() })
         .eq('id', batch.id).eq('tenant_id', tenantId);
-      if (heartbeatError) throw new Error(`Could not maintain mandate discovery lease: ${heartbeatError.message}`);
+      if (heartbeatError) throw new Error('The mandate discovery lease could not be maintained. Retry the mandate sync.');
       after = page.after;
     } while (after);
   } catch (error) {
@@ -148,12 +193,13 @@ export async function runMandateDiscovery({
   const status = terminalError ? (rows.length ? 'partial' : 'failed') : (counts.failed_count ? 'partial' : 'complete');
   const completed = {
     ...counts, status,
-    error_message: terminalError?.message || (counts.failed_count ? 'Some customer records could not be retrieved' : null),
+    error_message: terminalError ? safeTerminalError(terminalError)
+      : (counts.failed_count ? 'Some customer records could not be retrieved' : null),
     completed_at: new Date().toISOString(), updated_at: new Date().toISOString(),
   };
   const { data: finalBatch, error: updateError } = await db
     .from('gocardless_mandate_discovery_batch')
     .update(completed).eq('id', batch.id).eq('tenant_id', tenantId).select().single();
-  if (updateError) throw new Error(`Could not finalize mandate discovery: ${updateError.message}`);
+  if (updateError) throw new Error('Could not finalize mandate discovery');
   return finalBatch;
 }
