@@ -429,6 +429,7 @@ export default function MembershipFeePage() {
   }
 
   const breakdown = data?.costBreakdown || {};
+  const renewalBlocked = data?.renewalAvailable === false;
 
   return (
     <div className="min-h-screen bg-gray-50 p-4">
@@ -455,6 +456,12 @@ export default function MembershipFeePage() {
               <span className="text-sm text-gray-500">{data?.isMember ? 'Member' : 'Organisation'}</span>
               <span className="font-medium" data-testid="text-org-name">{data?.isMember ? (data?.memberName || data?.organizationName) : data?.organizationName}</span>
             </div>
+            {data?.renewalLifecycle && (
+              <div className="mt-2 text-xs text-gray-500">
+                Membership term: {data.renewalLifecycle.termStart} to {data.renewalLifecycle.termEnd}.
+                {data.renewalLifecycle.isEarly ? ` Payment is being scheduled for activation on ${data.renewalLifecycle.termStart}.` : ''}
+              </div>
+            )}
             <div className="flex items-center justify-between mb-1">
               <span className="text-sm text-gray-500">Period</span>
               <span className="font-medium" data-testid="text-period">{data?.membershipYear}</span>
@@ -539,8 +546,14 @@ export default function MembershipFeePage() {
             </div>
           </CardContent>
         </Card>
+        {renewalBlocked && (
+          <div className="flex items-start gap-2 p-3 rounded-md bg-amber-50 border border-amber-200" data-testid="banner-renewal-unavailable">
+            <AlertCircle className="w-4 h-4 text-amber-500 mt-0.5 shrink-0" />
+            <p className="text-sm text-amber-700">{data?.renewalMessage}</p>
+          </div>
+        )}
 
-        {!poSubmitted && paymentMode !== 'stripe' && (
+        {!renewalBlocked && !poSubmitted && paymentMode !== 'stripe' && (
           <Card>
             <CardContent className="pt-6">
               <div className="flex items-center gap-2 mb-3">

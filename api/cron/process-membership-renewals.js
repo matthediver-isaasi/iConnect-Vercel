@@ -21,6 +21,7 @@ import {
   zeroDuePaymentFields,
   fireNewZeroDueMembershipPaidWorkflow,
 } from '../_lib/zeroDueMembership.js';
+import { processTenantAnnualExpirySweep } from '../_lib/annualMembershipExpiryEnforcement.js';
 
 export default async function handler(req, res) {
   const authHeader = req.headers.authorization;
@@ -87,6 +88,16 @@ export default async function handler(req, res) {
       }
 
       for (const tenantId of tenantIds) {
+        // Annual expiry is deliberately hourly: it is access enforcement, not
+        // an invoice run, and must not be held behind a tenant billing hour.
+        try {
+          await processTenantAnnualExpirySweep(supabase, tenantId, results);
+        } catch (expiryErr) {
+          console.error(`[cron/process-membership-renewals] Annual expiry sweep failed for tenant ${tenantId}:`, expiryErr);
+          results.errors++;
+          results.details.push({ tenantId, error: `Annual expiry sweep: ${expiryErr.message}` });
+        }
+
         const scheduledHour = tenantCronHours[tenantId] ?? 6;
         if (scheduledHour !== currentHourUTC) {
           console.log(`[cron/process-membership-renewals] Skipping tenant ${tenantId} — scheduled for ${String(scheduledHour).padStart(2, '0')}:00 UTC, current hour is ${String(currentHourUTC).padStart(2, '0')}:00 UTC`);
@@ -95,6 +106,7 @@ export default async function handler(req, res) {
 
         try {
           await activateScheduledRecords(tenantId, results);
+          await activateScheduledMemberRecords(tenantId, results);
         } catch (activateErr) {
           console.error(`[cron/process-membership-renewals] Error activating scheduled records for tenant ${tenantId}:`, activateErr);
           results.errors++;
@@ -314,6 +326,52 @@ async function activateScheduledRecords(tenantId, results) {
   }
 }
 
+async function activateScheduledMemberRecords(tenantId, results) {
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const { data: rows, error } = await supabase
+    .from('member_membership_history')
+    .select('id, member_id, membership_year, payment_status, paid_at, final_cost, total_with_vat')
+    .eq('tenant_id', tenantId)
+    .eq('status', 'scheduled')
+    .lte('scheduled_activation_date', todayStr);
+
+  if (error) {
+    if (error.code === '42P01' || error.code === '42703') return;
+    throw error;
+  }
+  for (const row of rows || []) {
+    const isPaid = row.payment_status === 'paid'
+      || !!row.paid_at
+      || Number(row.total_with_vat ?? row.final_cost ?? 0) <= 0;
+    if (!isPaid) {
+      results.skipped++;
+      results.details.push({
+        tenantId,
+        memberId: row.member_id,
+        status: 'skipped',
+        reason: `Scheduled membership for ${row.membership_year} is not paid — not activated`,
+      });
+      continue;
+    }
+    const { data: updated, error: updateError } = await supabase
+      .from('member_membership_history')
+      .update({ status: 'active', annual_renewal_state: 'renewed', updated_at: new Date().toISOString() })
+      .eq('id', row.id)
+      .eq('tenant_id', tenantId)
+      .eq('status', 'scheduled')
+      .select('id');
+    if (updateError) throw updateError;
+    if (updated?.length) {
+      results.processed++;
+      results.details.push({
+        tenantId,
+        memberId: row.member_id,
+        status: 'processed',
+        reason: `Activated scheduled membership for ${row.membership_year}`,
+      });
+    }
+  }
+}
 async function processTenantRenewals(tenantId, results) {
   const today = new Date();
   today.setHours(0, 0, 0, 0);

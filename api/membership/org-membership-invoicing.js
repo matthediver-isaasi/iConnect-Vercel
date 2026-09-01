@@ -19,6 +19,7 @@ import {
   zeroDuePaymentFields,
   fireNewZeroDueMembershipPaidWorkflow,
 } from '../_lib/zeroDueMembership.js';
+import { resolveEntityAnnualRenewalEligibility, annualRecordSchedule } from '../_lib/annualRenewalPolicy.js';
 
 export default async function handler(req, res) {
   if (!supabase) {
@@ -257,7 +258,19 @@ async function handleManualRenewal(req, res, tenantId, tenantContext) {
   if (!simResult.success) {
     return res.status(400).json({ error: simResult.error || 'Simulation failed' });
   }
-
+  const renewalEligibility = await resolveEntityAnnualRenewalEligibility(supabase, {
+    tenantId,
+    organizationId,
+    config: simResult.config,
+    membershipYear: simResult.membershipYear,
+  });
+  if (!renewalEligibility.eligible) {
+    return res.status(409).json({
+      error: renewalEligibility.message,
+      code: renewalEligibility.code,
+      lifecycle: renewalEligibility.lifecycle,
+    });
+  }
   if (!simResult.goLiveDate) {
     return res.status(400).json({ error: 'Organisation does not have a Go Live date set. A go-live date is required before membership can be renewed.' });
   }
@@ -350,8 +363,8 @@ async function handleManualRenewal(req, res, tenantId, tenantContext) {
       free_period_days_applied: simResult.freePeriodDaysApplied || 0,
       override_applied: simResult.overrideApplied || false,
       override_type: simResult.overrideType || null,
-      status: 'active',
-      notes: `Manual renewal via admin action (year ${simResult.yearNumber}, go-live: ${simResult.goLiveDate})${addonLines.length > 0 ? `. ${addonLines.length} add-on line(s) invoiced.` : ''}`,
+       ...annualRecordSchedule(renewalEligibility),
+       notes: `Manual renewal via admin action (year ${simResult.yearNumber}, go-live: ${simResult.goLiveDate}). Term: ${renewalEligibility.lifecycle.termStart} to ${renewalEligibility.lifecycle.termEnd}.${addonLines.length > 0 ? ` ${addonLines.length} add-on line(s) invoiced.` : ''}`,
       ...(zeroDue ? zeroDuePaymentFields(paidAt) : {}),
     })
     .select()
@@ -504,6 +517,19 @@ async function handleAdvanceInvoice(req, res, tenantId, tenantContext) {
   if (!simResult.success) {
     return res.status(400).json({ error: simResult.error || 'Simulation failed' });
   }
+  const renewalEligibility = await resolveEntityAnnualRenewalEligibility(supabase, {
+    tenantId,
+    organizationId,
+    config: simResult.config,
+    membershipYear: simResult.membershipYear,
+  });
+  if (!renewalEligibility.eligible) {
+    return res.status(409).json({
+      error: renewalEligibility.message,
+      code: renewalEligibility.code,
+      lifecycle: renewalEligibility.lifecycle,
+    });
+  }
 
   if (!simResult.goLiveDate) {
     return res.status(400).json({ error: 'Organisation does not have a Go Live date set. A go-live date is required before membership can be invoiced.' });
@@ -604,8 +630,7 @@ async function handleAdvanceInvoice(req, res, tenantId, tenantContext) {
       free_period_days_applied: simResult.freePeriodDaysApplied || 0,
       override_applied: simResult.overrideApplied || false,
       override_type: simResult.overrideType || null,
-      status: 'scheduled',
-      scheduled_activation_date: activationDate,
+      ...annualRecordSchedule(renewalEligibility),
       notes: `Advance invoice (Invoice Now) via admin action (year ${simResult.yearNumber}, go-live: ${simResult.goLiveDate}). Membership activates on ${activationDate}.${addonLines.length > 0 ? ` ${addonLines.length} add-on line(s) invoiced.` : ''}`,
       ...(zeroDue ? zeroDuePaymentFields(paidAt) : {}),
     })

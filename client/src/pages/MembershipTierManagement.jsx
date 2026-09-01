@@ -309,6 +309,11 @@ export default function MembershipTierManagement() {
     dd_migration_enabled: false,
     card_monthly_enabled: false,
     dd_invoicing_mode: 'annual',
+    renewal_open_days: 0,
+    renewal_grace_days: 0,
+    renewal_disable_login: false,
+    renewal_change_role: false,
+    renewal_fallback_role_id: null,
   });
 
   const [selectedActiveConfigId, setSelectedActiveConfigId] = useState(null);
@@ -490,6 +495,7 @@ export default function MembershipTierManagement() {
         invoice_description: c.invoice_description || null,
         auto_approve_fees: c.auto_approve_fees ?? false,
         online_card_payment: c.online_card_payment ?? false,
+        ...renewalFieldsFromConfig(c),
         ...ddFieldsFromConfig(c),
         invoice_address_field: c.invoice_address_field_id || (c.invoice_address_field_name ? `core:${c.invoice_address_field_name}` : null),
         invoice_recipients: deriveInvoiceRecipients(c),
@@ -550,6 +556,7 @@ export default function MembershipTierManagement() {
       invoice_description: c.invoice_description || null,
       auto_approve_fees: c.auto_approve_fees ?? false,
       online_card_payment: c.online_card_payment ?? false,
+      ...renewalFieldsFromConfig(c),
       ...ddFieldsFromConfig(c),
       invoice_address_field: c.invoice_address_field_id || (c.invoice_address_field_name ? `core:${c.invoice_address_field_name}` : null),
       invoice_recipients: deriveInvoiceRecipients(c),
@@ -835,6 +842,8 @@ export default function MembershipTierManagement() {
   // below runs during render — referencing a const declared later throws
   // "Cannot access ... before initialization" (TDZ) and crashes the page.
   const isMemberScoped = config.structure_scope_type === 'member';
+  const isAnnualNonRecurring = config.billing_period === 'annual'
+    && !config.dd_enabled && !config.card_monthly_enabled;
 
   // Spec: when the Direct Debit plan total differs from the annual cost the
   // admin must EXPLICITLY confirm the difference before saving (not just see
@@ -877,6 +886,11 @@ export default function MembershipTierManagement() {
         dd_monthly_amount: (ddEnabled || (isMemberScoped && config.card_monthly_enabled)) && isFlat && config.dd_monthly_amount !== '' && config.dd_monthly_amount != null ? parseFloat(config.dd_monthly_amount) : null,
         dd_collection_day: parseInt(config.dd_collection_day, 10) || 1,
         dd_grace_days: parseInt(config.dd_grace_days, 10) || 0,
+        renewal_open_days: parseInt(config.renewal_open_days, 10),
+        renewal_grace_days: parseInt(config.renewal_grace_days, 10),
+        renewal_disable_login: config.renewal_disable_login === true,
+        renewal_change_role: config.renewal_change_role === true,
+        renewal_fallback_role_id: config.renewal_change_role ? config.renewal_fallback_role_id : null,
         id: isCreatingNew ? undefined : config.id,
         prorata_enabled: isImmediate ? false : config.prorata_enabled,
         rollover_enabled: isImmediate ? false : config.rollover_enabled,
@@ -983,6 +997,14 @@ export default function MembershipTierManagement() {
     dd_invoicing_mode: c?.dd_invoicing_mode === 'per_instalment' ? 'per_instalment' : 'annual',
   });
 
+  const renewalFieldsFromConfig = (c) => ({
+    renewal_open_days: c?.renewal_open_days ?? 0,
+    renewal_grace_days: c?.renewal_grace_days ?? 0,
+    renewal_disable_login: c?.renewal_disable_login === true,
+    renewal_change_role: c?.renewal_change_role === true,
+    renewal_fallback_role_id: c?.renewal_fallback_role_id || null,
+  });
+
   const handleCreateNew = () => {
     activeConfigRequestRef.current += 1;
     const currentConfig = config;
@@ -1015,6 +1037,7 @@ export default function MembershipTierManagement() {
       invoice_description: currentConfig?.invoice_description || null,
       auto_approve_fees: false,
       online_card_payment: false,
+      ...renewalFieldsFromConfig(null),
       ...ddFieldsFromConfig(null),
       invoice_address_field: null,
       invoice_recipients: { invoicing_email: true, primary_contact: true, role_ids: [] },
@@ -1108,6 +1131,7 @@ export default function MembershipTierManagement() {
         invoice_description: c.invoice_description || null,
         auto_approve_fees: c.auto_approve_fees ?? false,
         online_card_payment: c.online_card_payment ?? false,
+        ...renewalFieldsFromConfig(c),
         ...ddFieldsFromConfig(c),
         invoice_address_field: c.invoice_address_field_id || (c.invoice_address_field_name ? `core:${c.invoice_address_field_name}` : null),
         invoice_recipients: deriveInvoiceRecipients(c),
@@ -2023,6 +2047,94 @@ export default function MembershipTierManagement() {
             <p className="text-sm text-muted-foreground">
               Membership starts immediately upon creation. Pro-rata and rollover discount are not applicable.
             </p>
+          </div>
+        )}
+
+        {isAnnualNonRecurring && (
+          <div className="space-y-4 rounded-md border p-4">
+            <div>
+              <Label className="text-base">Annual renewal policy</Label>
+              <p className="text-sm text-muted-foreground mt-1">
+                Renewal opens on the renewal date minus the number of open days, inclusive. The grace period includes the renewal date and ends after the selected number of grace days, inclusive.
+              </p>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="renewal-open-days">Renewal open days</Label>
+                <Input
+                  id="renewal-open-days"
+                  type="number"
+                  min="0"
+                  max="366"
+                  step="1"
+                  value={config.renewal_open_days}
+                  onChange={(e) => handleConfigChange('renewal_open_days', e.target.value === '' ? '' : Number(e.target.value))}
+                  disabled={!isEditable}
+                  data-testid="input-renewal-open-days"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="renewal-grace-days">Renewal grace days</Label>
+                <Input
+                  id="renewal-grace-days"
+                  type="number"
+                  min="0"
+                  max="366"
+                  step="1"
+                  value={config.renewal_grace_days}
+                  onChange={(e) => handleConfigChange('renewal_grace_days', e.target.value === '' ? '' : Number(e.target.value))}
+                  disabled={!isEditable}
+                  data-testid="input-renewal-grace-days"
+                />
+              </div>
+            </div>
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <Label>Disable login after grace period</Label>
+                <p className="text-sm text-muted-foreground mt-0.5">Prevent access once the inclusive grace period has ended.</p>
+              </div>
+              <Switch
+                checked={config.renewal_disable_login}
+                onCheckedChange={(v) => handleConfigChange('renewal_disable_login', v)}
+                disabled={!isEditable}
+                data-testid="switch-renewal-disable-login"
+              />
+            </div>
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <Label>Change role after grace period</Label>
+                <p className="text-sm text-muted-foreground mt-0.5">Move the member to a fallback role when the inclusive grace period has ended.</p>
+              </div>
+              <Switch
+                checked={config.renewal_change_role}
+                onCheckedChange={(v) => {
+                  handleConfigChange('renewal_change_role', v);
+                  if (!v) handleConfigChange('renewal_fallback_role_id', null);
+                }}
+                disabled={!isEditable}
+                data-testid="switch-renewal-change-role"
+              />
+            </div>
+            {config.renewal_change_role && (
+              <div className="space-y-2">
+                <Label>Fallback role</Label>
+                <Select
+                  value={config.renewal_fallback_role_id || ''}
+                  onValueChange={(v) => handleConfigChange('renewal_fallback_role_id', v)}
+                  disabled={!isEditable}
+                >
+                  <SelectTrigger data-testid="select-renewal-fallback-role">
+                    <SelectValue placeholder="Select a role" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {invoiceRecipientRoles.map((role) => (
+                      <SelectItem key={role.id} value={role.id}>{role.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {fieldErrors.renewal_fallback_role_id && <p className="text-sm text-destructive">{fieldErrors.renewal_fallback_role_id}</p>}
+              </div>
+            )}
           </div>
         )}
       </CardContent>
@@ -3239,6 +3351,30 @@ export default function MembershipTierManagement() {
                   <div className="flex justify-between gap-2">
                     <span className="text-muted-foreground">Pro-rata</span>
                     <span className="font-medium">{config.prorata_enabled ? 'Enabled' : 'Disabled'}</span>
+                  </div>
+                </>
+              )}
+              {isAnnualNonRecurring && (
+                <>
+                  <div className="flex justify-between gap-2">
+                    <span className="text-muted-foreground">Renewal opens</span>
+                    <span className="font-medium">{config.renewal_open_days || 0} day{config.renewal_open_days === 1 ? '' : 's'} before renewal (inclusive)</span>
+                  </div>
+                  <div className="flex justify-between gap-2">
+                    <span className="text-muted-foreground">Grace period</span>
+                    <span className="font-medium">{config.renewal_grace_days || 0} day{config.renewal_grace_days === 1 ? '' : 's'} after renewal (inclusive)</span>
+                  </div>
+                  <div className="flex justify-between gap-2">
+                    <span className="text-muted-foreground">Disable login after grace</span>
+                    <span className="font-medium">{config.renewal_disable_login ? 'Enabled' : 'Disabled'}</span>
+                  </div>
+                  <div className="flex justify-between gap-2">
+                    <span className="text-muted-foreground">Role after grace</span>
+                    <span className="font-medium">
+                      {config.renewal_change_role
+                        ? (invoiceRecipientRoles.find((role) => role.id === config.renewal_fallback_role_id)?.name || 'Fallback role unavailable')
+                        : 'No change'}
+                    </span>
                   </div>
                 </>
               )}

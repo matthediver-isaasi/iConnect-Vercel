@@ -11,6 +11,7 @@ import {
   isZeroDueMembership,
   zeroDuePaymentFields,
 } from '../_lib/zeroDueMembership.js';
+import { resolveEntityAnnualRenewalEligibility, annualRecordSchedule } from '../_lib/annualRenewalPolicy.js';
 
 export default async function handler(req, res) {
   if (!supabase) {
@@ -105,6 +106,11 @@ async function handleGetOrgScoped(req, res, member, tenantId, organizationId, se
     : isZeroDueMembership(simResult, addonTotals);
   const tierHasOnlineCardPayment = !!simResult.config?.online_card_payment;
   const stripePublishableKey = !zeroDue && tierHasOnlineCardPayment ? await getStripePublishableKey(tenantId) : null;
+  const renewalLifecycleResult = await resolveEntityAnnualRenewalEligibility(supabase, {
+    tenantId, organizationId,
+    config: simResult.config, membershipYear: simResult.membershipYear,
+  });
+  const renewalLifecycle = renewalLifecycleResult.lifecycle;
 
   return res.json({
     organizationName: org?.name || 'Organisation',
@@ -130,6 +136,7 @@ async function handleGetOrgScoped(req, res, member, tenantId, organizationId, se
     } : null,
     approvalPending: approvalInfo.blocked || false,
     approvalMessage: approvalInfo.blocked ? approvalInfo.message : null,
+    renewalLifecycle,
   });
 }
 
@@ -171,6 +178,11 @@ async function handleGetMemberScoped(req, res, member, tenantId, sessionMember) 
   const zeroDue = isZeroDueMembership({ finalCost, totalWithVat });
   const tierHasOnlineCardPayment = !!simResult.config?.online_card_payment;
   const stripePublishableKey = !zeroDue && tierHasOnlineCardPayment ? await getStripePublishableKey(tenantId) : null;
+  const renewalLifecycleResult = await resolveEntityAnnualRenewalEligibility(supabase, {
+    tenantId, memberId: member.id,
+    config: simResult.config, membershipYear: simResult.membershipYear,
+  });
+  const renewalLifecycle = renewalLifecycleResult.lifecycle;
 
   return res.json({
     memberName,
@@ -197,6 +209,7 @@ async function handleGetMemberScoped(req, res, member, tenantId, sessionMember) 
     } : null,
     approvalPending: approvalInfo.blocked || false,
     approvalMessage: approvalInfo.blocked ? approvalInfo.message : null,
+    renewalLifecycle,
   });
 }
 
@@ -274,6 +287,13 @@ async function handlePostOrgScoped(req, res, member, tenantId, organizationId, s
 
     if (!simResult.success) {
       return res.status(400).json({ error: simResult.error || 'Could not calculate fees' });
+    }
+    const renewalEligibility = await resolveEntityAnnualRenewalEligibility(supabase, {
+      tenantId, organizationId,
+      config: simResult.config, membershipYear: simResult.membershipYear,
+    });
+    if (!renewalEligibility.eligible) {
+      return res.status(409).json({ error: renewalEligibility.message, code: renewalEligibility.code, lifecycle: renewalEligibility.lifecycle });
     }
     const addonLines = await loadAddonLines(tenantId, organizationId, simResult.membershipYear?.label);
     const addonTotals = computeAddonTotals(addonLines);
@@ -470,7 +490,10 @@ async function handlePostOrgScoped(req, res, member, tenantId, organizationId, s
           override_type: simResult.overrideType || null,
           payment_method: 'stripe',
           stripe_payment_intent_id: paymentIntentId,
-          status: 'active',
+          ...annualRecordSchedule(await resolveEntityAnnualRenewalEligibility(supabase, {
+            tenantId, organizationId,
+            config: simResult.config, membershipYear: simResult.membershipYear,
+          })),
           notes: `Payment received via Stripe (member portal). PI: ${paymentIntentId}. Member: ${sessionMember.id}`,
         });
 
@@ -682,6 +705,13 @@ async function handlePostMemberScoped(req, res, member, tenantId, sessionMember)
     if (!simResult.success) {
       return res.status(400).json({ error: simResult.error || 'Could not calculate fees' });
     }
+    const renewalEligibility = await resolveEntityAnnualRenewalEligibility(supabase, {
+      tenantId, memberId,
+      config: simResult.config, membershipYear: simResult.membershipYear,
+    });
+    if (!renewalEligibility.eligible) {
+      return res.status(409).json({ error: renewalEligibility.message, code: renewalEligibility.code, lifecycle: renewalEligibility.lifecycle });
+    }
 
     if (simResult.existingRecord) {
       return settleExistingPortalZeroDueMembership({
@@ -865,7 +895,10 @@ async function handlePostMemberScoped(req, res, member, tenantId, sessionMember)
           override_type: simResult.overrideType || null,
           payment_method: 'stripe',
           stripe_payment_intent_id: paymentIntentId,
-          status: 'active',
+          ...annualRecordSchedule(await resolveEntityAnnualRenewalEligibility(supabase, {
+            tenantId, memberId,
+            config: simResult.config, membershipYear: simResult.membershipYear,
+          })),
           notes: `Payment received via Stripe (member portal). PI: ${paymentIntentId}. Member: ${memberId}`,
         });
 

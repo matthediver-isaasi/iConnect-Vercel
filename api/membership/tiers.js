@@ -628,6 +628,56 @@ async function validateFeeLinkEmailTemplate(tenantId, templateId) {
   return { ok: true };
 }
 
+async function validateRenewalPolicy(tenantId, config) {
+  const integerDays = (field, fallback) => {
+    if (config[field] === undefined || config[field] === null) return { value: fallback };
+    if (typeof config[field] !== 'number' || !Number.isInteger(config[field]) || config[field] < 0 || config[field] > 366) {
+      return { error: `${field} must be an integer between 0 and 366`, field };
+    }
+    return { value: config[field] };
+  };
+
+  const openDays = integerDays('renewal_open_days', 0);
+  if (openDays.error) return openDays;
+  const graceDays = integerDays('renewal_grace_days', 0);
+  if (graceDays.error) return graceDays;
+
+  for (const field of ['renewal_disable_login', 'renewal_change_role']) {
+    if (config[field] !== undefined && config[field] !== null && typeof config[field] !== 'boolean') {
+      return { error: `${field} must be a boolean`, field };
+    }
+  }
+
+  const changeRole = config.renewal_change_role === true;
+  let fallbackRoleId = null;
+  if (changeRole) {
+    if (typeof config.renewal_fallback_role_id !== 'string' || !config.renewal_fallback_role_id.trim()) {
+      return { error: 'A fallback role is required when changing role after renewal', field: 'renewal_fallback_role_id' };
+    }
+    fallbackRoleId = config.renewal_fallback_role_id.trim();
+    const { data: role, error } = await supabase
+      .from('role')
+      .select('id')
+      .eq('id', fallbackRoleId)
+      .eq('tenant_id', tenantId)
+      .maybeSingle();
+    if (error || !role) {
+      return { error: 'Selected fallback role could not be found for this tenant', field: 'renewal_fallback_role_id' };
+    }
+  }
+
+  return {
+    ok: true,
+    fields: {
+      renewal_open_days: openDays.value,
+      renewal_grace_days: graceDays.value,
+      renewal_disable_login: config.renewal_disable_login === true,
+      renewal_change_role: changeRole,
+      renewal_fallback_role_id: fallbackRoleId,
+    },
+  };
+}
+
 async function handlePost(req, res, tenantId) {
   let { config, bands, discounts, vatOverrides, reminders } = req.body;
 
@@ -637,6 +687,11 @@ async function handlePost(req, res, tenantId) {
 
   if (!config.effective_from) {
     return res.status(400).json({ error: 'Effective from date is required' });
+  }
+
+  const renewalPolicy = await validateRenewalPolicy(tenantId, config);
+  if (!renewalPolicy.ok) {
+    return res.status(400).json({ error: renewalPolicy.error, field: renewalPolicy.field });
   }
 
   const parsedFlatCost = config.pricing_model === 'flat'
@@ -760,6 +815,7 @@ async function handlePost(req, res, tenantId) {
         invoice_address_field_name: parseInvoiceAddressFieldName(config.invoice_address_field),
         invoice_recipients: normalizedRecipients,
         fee_link_email_template_id: config.fee_link_email_template_id || null,
+        ...renewalPolicy.fields,
         ...(await checkConfigNominalCodeColumnExists()
           ? { nominal_code: config.pricing_model === 'flat' ? normalizeNominalCode(config.nominal_code) : null }
           : {}),
@@ -906,6 +962,7 @@ async function handlePost(req, res, tenantId) {
       invoice_address_field_name: parseInvoiceAddressFieldName(config.invoice_address_field),
       invoice_recipients: normalizedRecipients,
       fee_link_email_template_id: config.fee_link_email_template_id || null,
+      ...renewalPolicy.fields,
       ...(await checkConfigNominalCodeColumnExists()
         ? { nominal_code: config.pricing_model === 'flat' ? normalizeNominalCode(config.nominal_code) : null }
         : {}),

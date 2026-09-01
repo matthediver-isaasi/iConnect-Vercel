@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { resolveEntityAnnualRenewalEligibility } from '../../_lib/annualRenewalPolicy.js';
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -90,6 +91,20 @@ export default async function handler(req, res) {
         return false;
       }
     };
+    const annualRenewalGate = async () => {
+      const { simulateMembershipForOrg, simulateMembershipForMember } = await import('../../_lib/membershipSimulation.js');
+      const simulation = isMemberToken
+        ? await simulateMembershipForMember(feeToken.tenant_id, feeToken.member_id, { source: 'fee-token-renewal-gate', mode: 'manual', targetYear: feeToken.membership_year })
+        : await simulateMembershipForOrg(feeToken.tenant_id, feeToken.organization_id, { source: 'fee-token-renewal-gate', mode: 'manual', targetYear: feeToken.membership_year });
+      if (!simulation.success) return { eligible: false, error: simulation.error || 'Could not validate annual renewal eligibility', code: 'annual_renewal_unavailable' };
+      return resolveEntityAnnualRenewalEligibility(supabase, {
+        tenantId: feeToken.tenant_id,
+        memberId: isMemberToken ? feeToken.member_id : null,
+        organizationId: isMemberToken ? null : feeToken.organization_id,
+        config: simulation.config,
+        membershipYear: simulation.membershipYear,
+      });
+    };
 
     if (req.method === 'GET') {
       const { data: org } = isMemberToken
@@ -112,6 +127,7 @@ export default async function handler(req, res) {
 
       let stripePublishableKey = null;
       let tierConfig = null;
+      let renewalLifecycle = null;
       try {
         const { getConfigForOrganisation, getConfigForMember } = await import('../../_lib/membershipConfigResolver.js');
         tierConfig = isMemberToken
@@ -123,6 +139,24 @@ export default async function handler(req, res) {
           if (creds?.is_enabled && creds?.publishable_key) {
             stripePublishableKey = creds.publishable_key;
           }
+        }
+      } catch {}
+      // A token can live longer than its payment window. Resolve the same
+      // annual policy used by authenticated payment endpoints so the public
+      // surface explains why its payment controls are unavailable.
+      try {
+        const { simulateMembershipForOrg, simulateMembershipForMember } = await import('../../_lib/membershipSimulation.js');
+        const lifecycleSimulation = isMemberToken
+          ? await simulateMembershipForMember(feeToken.tenant_id, feeToken.member_id, { source: 'token-lifecycle', mode: 'manual', targetYear: feeToken.membership_year })
+          : await simulateMembershipForOrg(feeToken.tenant_id, feeToken.organization_id, { source: 'token-lifecycle', mode: 'manual', targetYear: feeToken.membership_year });
+        if (lifecycleSimulation.success) {
+          renewalLifecycle = await resolveEntityAnnualRenewalEligibility(supabase, {
+            tenantId: feeToken.tenant_id,
+            memberId: isMemberToken ? feeToken.member_id : null,
+            organizationId: isMemberToken ? null : feeToken.organization_id,
+            config: lifecycleSimulation.config,
+            membershipYear: lifecycleSimulation.membershipYear,
+          });
         }
       } catch {}
 
@@ -340,6 +374,9 @@ export default async function handler(req, res) {
         cardStatus,
         openPlan,
         renewal,
+        renewalLifecycle: renewalLifecycle?.lifecycle || null,
+        renewalAvailable: renewalLifecycle?.eligible !== false,
+        renewalMessage: renewalLifecycle?.eligible === false ? renewalLifecycle.error : null,
         organizationName: org?.name || 'Organisation',
         membershipYear: feeToken.membership_year,
         finalCost: parseFloat(feeToken.final_cost),
@@ -383,6 +420,10 @@ export default async function handler(req, res) {
       }
 
       if (action === 'submit_po') {
+        const annualEligibility = await annualRenewalGate();
+        if (!annualEligibility.eligible) {
+          return res.status(409).json({ error: annualEligibility.message, code: annualEligibility.code, lifecycle: annualEligibility.lifecycle });
+        }
         const { poNumber } = req.body;
         if (!poNumber || !poNumber.trim()) {
           return res.status(400).json({ error: 'Purchase order number is required' });
@@ -559,6 +600,10 @@ export default async function handler(req, res) {
         if (await checkApprovalBlocked()) {
           return res.status(400).json({ error: 'Fees have not yet been approved for payment. Please contact your administrator.' });
         }
+        const annualEligibility = await annualRenewalGate();
+        if (!annualEligibility.eligible) {
+          return res.status(409).json({ error: annualEligibility.message, code: annualEligibility.code, lifecycle: annualEligibility.lifecycle });
+        }
 
         // Double-payment guard (provider-independent): an open monthly plan
         // agreement (card OR Direct Debit) for this membership year blocks
@@ -651,6 +696,10 @@ export default async function handler(req, res) {
       }
 
       if (action === 'confirm_payment') {
+        const annualEligibility = await annualRenewalGate();
+        if (!annualEligibility.eligible) {
+          return res.status(409).json({ error: annualEligibility.message, code: annualEligibility.code, lifecycle: annualEligibility.lifecycle });
+        }
         // -----------------------------------------------------------------
         // Task #1112 — Hardened confirm_payment flow.
         //
