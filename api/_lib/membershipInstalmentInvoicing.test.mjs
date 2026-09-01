@@ -7,6 +7,7 @@ import {
   normalizeInvoicingMode,
   agreementInvoicingMode,
   isPerInstalmentAgreement,
+  resolveMembershipInvoiceAddress,
   shouldSuppressAnnualInvoice,
   annualInvoiceSuppressionDecision,
   postStripeInstalmentInvoice,
@@ -52,6 +53,54 @@ function fakeDb(handlers, log = []) {
     },
   };
 }
+
+test('annual Stripe monthly-card invoice uses immutable Checkout address snapshot', async () => {
+  const db = fakeDb({
+    membership_billing_agreements: () => ({
+      data: {
+        provider: 'stripe',
+        metadata: {
+          card: {
+            billing_address: {
+              line1: '1 Checkout Road',
+              city: 'London',
+              postal_code: 'SW1A 1AA',
+              country: 'GB',
+            },
+          },
+        },
+      },
+      error: null,
+    }),
+  });
+  const address = await resolveMembershipInvoiceAddress({
+    db,
+    row: { billing_agreement_id: 'ba_1' },
+    config: { invoice_address_field_id: 'mutable-field' },
+    entityId: 'member_1',
+    entityType: 'member',
+  });
+  assert.equal(address, '1 Checkout Road\nLondon\nSW1A 1AA\nGB');
+});
+
+test('annual Stripe monthly-card invoice fails closed without its snapshot', async () => {
+  const db = fakeDb({
+    membership_billing_agreements: () => ({
+      data: { provider: 'stripe', metadata: { card: {} } },
+      error: null,
+    }),
+  });
+  await assert.rejects(
+    resolveMembershipInvoiceAddress({
+      db,
+      row: { billing_agreement_id: 'ba_1' },
+      config: {},
+      entityId: 'member_1',
+      entityType: 'member',
+    }),
+    /snapshot is missing/,
+  );
+});
 
 const perInstalmentAgreement = (extra = {}) => ({
   id: 'ba_1',

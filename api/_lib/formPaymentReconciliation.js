@@ -19,6 +19,7 @@ import { getTrustedBaseUrlForTenant } from './publicBaseUrl.js';
 import { finalizeFormMonthlyCardCheckout, FINALIZE_CLAIM_TTL_MS } from './formMonthlyCardFinalize.js';
 import { findFormMonthlyCardAgreement } from './formMonthlyCardCheckout.js';
 import { hasFormPaymentAccessProof } from './formPaymentAccess.js';
+import { capturePaymentIntentBillingAddress } from './stripeInvoiceAddress.js';
 
 const FORM_COLUMNS = 'id, name, tenant_id, access_policy, fields, pages, visibility_rules, entity_pipelines, structured_actions, field_mappings, application_level, create_entity_type, entity_action, member_entity_action, organization_entity_action, additional_member_creations, submission_emails, submission_email_template_id, submission_email_recipient, submission_email_cc, submission_email_bcc, submission_email_field_mapping, form_type';
 
@@ -127,6 +128,27 @@ export async function reconcileFormPayments(supabase, {
           && pi.metadata?.tenant_id === String(row.tenant_id);
         if (!metadataMatches && row.payment_reference !== pi.id) continue;
         if (pi.status === 'succeeded') {
+          if (row.payment_meta?.membership && !row.payment_meta?.stripe_billing_address) {
+            const billingAddress = await capturePaymentIntentBillingAddress({
+              stripe: found.stripe,
+              paymentIntent: pi,
+            });
+            const { data: addressed, error: addressErr } = await supabase
+              .from('form_submission')
+              .update({
+                payment_meta: {
+                  ...(row.payment_meta || {}),
+                  stripe_billing_address: billingAddress,
+                },
+              })
+              .eq('id', row.id)
+              .select()
+              .maybeSingle();
+            if (addressErr || !addressed) {
+              throw new Error(`persist Stripe billing address snapshot failed: ${addressErr?.message || 'row not updated'}`);
+            }
+            row.payment_meta = addressed.payment_meta;
+          }
           const receivedMinor = pi.amount_received ?? pi.amount;
           const { updated, row: paidRow } = await markFormSubmissionPaid(supabase, row.id, {
             amount: receivedMinor != null ? receivedMinor / 100 : null,

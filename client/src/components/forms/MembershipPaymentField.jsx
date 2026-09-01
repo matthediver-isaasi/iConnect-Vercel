@@ -19,15 +19,6 @@ function isBelowStripeMinimum(amount, currency) {
   return parseFloat(amount || 0) < min;
 }
 
-function normalizeAddress(val) {
-  if (!val) return null;
-  if (typeof val === 'string') return val;
-  if (typeof val === 'object') {
-    return [val.line1, val.line2, val.city, val.state, val.postcode, val.country].filter(Boolean).join(', ');
-  }
-  return String(val);
-}
-
 export default function MembershipPaymentField({ value, onChange, disabled, field, allFormValues = {} }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -205,12 +196,6 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
     }
 
     const savedYear = sessionStorage.getItem('pending_form_membership_payment_year');
-    let savedInvoiceAddress = sessionStorage.getItem('pending_form_membership_invoice_address');
-    if (savedInvoiceAddress) {
-      try {
-        savedInvoiceAddress = normalizeAddress(JSON.parse(savedInvoiceAddress));
-      } catch (e) {}
-    }
     let savedOverrides = {};
     try {
       const raw = sessionStorage.getItem('pending_form_membership_field_overrides');
@@ -228,7 +213,6 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
             memberId,
             paymentIntentId: paymentIntentFromUrl,
             membershipYear: savedYear,
-            ...(savedInvoiceAddress ? { invoice_address: savedInvoiceAddress } : {}),
             ...savedOverrides,
           }),
         });
@@ -237,7 +221,6 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
           throw new Error(err.error || 'Your card payment was successful, but we could not finish updating your membership record. It will be reconciled automatically — please do NOT pay again.');
         }
         sessionStorage.removeItem('pending_form_membership_payment_year');
-        sessionStorage.removeItem('pending_form_membership_invoice_address');
         sessionStorage.removeItem('pending_form_membership_field_overrides');
         setPaymentComplete(true);
         if (onChange) {
@@ -292,12 +275,6 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
       if (yr) {
         sessionStorage.setItem('pending_form_membership_payment_year', yr);
       }
-      const formInvoiceAddr = field.invoice_address_field_id && allFormValues[field.invoice_address_field_id];
-      if (formInvoiceAddr) {
-        sessionStorage.setItem('pending_form_membership_invoice_address',
-          typeof formInvoiceAddr === 'object' ? JSON.stringify(formInvoiceAddr) : formInvoiceAddr
-        );
-      }
       if (Object.keys(overrideBody).length > 0) {
         sessionStorage.setItem('pending_form_membership_field_overrides', JSON.stringify(overrideBody));
       }
@@ -319,13 +296,16 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
       const elements = stripe.elements({ clientSecret });
       elementsRef.current = elements;
 
-      const cardElement = elements.create('payment');
+      const addressElement = elements.create('address', { mode: 'billing' });
+      const cardElement = elements.create('payment', {
+        fields: { billingDetails: { address: 'never' } },
+      });
 
       setTimeout(() => {
-        const container = document.getElementById(`form-stripe-payment-element-${field.id}`);
-        if (container) {
-          cardElement.mount(container);
-        }
+        const addressContainer = document.getElementById(`form-stripe-address-element-${field.id}`);
+        const paymentContainer = document.getElementById(`form-stripe-payment-element-${field.id}`);
+        if (addressContainer) addressElement.mount(addressContainer);
+        if (paymentContainer) cardElement.mount(paymentContainer);
       }, 100);
 
       setPaymentMode('stripe');
@@ -373,9 +353,6 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
             memberId,
             paymentIntentId: paymentIntent.id,
             membershipYear: paymentYear || data?.membershipYear,
-            ...(field.invoice_address_field_id && allFormValues[field.invoice_address_field_id]
-              ? { invoice_address: normalizeAddress(allFormValues[field.invoice_address_field_id]) }
-              : {}),
             ...confirmOverrides,
           }),
         });
@@ -909,6 +886,11 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
 
         {paymentMode === 'stripe' && (
           <div className="space-y-3">
+            <div
+              id={`form-stripe-address-element-${field.id}`}
+              className="min-h-[100px] rounded-md border p-3"
+              data-testid={`form-stripe-address-element-${field.id}`}
+            />
             <div
               id={`form-stripe-payment-element-${field.id}`}
               className="min-h-[100px] border rounded-md p-3"

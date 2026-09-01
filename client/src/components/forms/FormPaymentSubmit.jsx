@@ -205,12 +205,20 @@ export default function FormPaymentSubmit({
       stripeRef.current = stripe;
       const elements = stripe.elements({ clientSecret: json.clientSecret });
       elementsRef.current = elements;
-      const paymentElement = elements.create('payment');
+      const requiresStripeAddress = paymentPurpose === 'membership';
+      const addressElement = requiresStripeAddress
+        ? elements.create('address', { mode: 'billing' })
+        : null;
+      const paymentElement = requiresStripeAddress
+        ? elements.create('payment', { fields: { billingDetails: { address: 'never' } } })
+        : elements.create('payment');
       setSelectedProvider('stripe');
       setStripeMounted(true);
       setTimeout(() => {
-        const container = document.getElementById(`form-payment-element-${field.id}`);
-        if (container) paymentElement.mount(container);
+        const addressContainer = document.getElementById(`form-payment-address-element-${field.id}`);
+        const paymentContainer = document.getElementById(`form-payment-element-${field.id}`);
+        if (addressContainer && addressElement) addressElement.mount(addressContainer);
+        if (paymentContainer) paymentElement.mount(paymentContainer);
       }, 100);
     } catch (err) {
       setPaymentError(err.message);
@@ -352,6 +360,13 @@ export default function FormPaymentSubmit({
         </>
       ) : stripeMounted && selectedProvider === 'stripe' ? (
         <div className="w-full max-w-2xl space-y-4" data-testid={`form-payment-provider-content-${field.id}`}>
+          {paymentPurpose === 'membership' && (
+            <div
+              id={`form-payment-address-element-${field.id}`}
+              className="min-h-[100px] w-full rounded-md border p-3"
+              data-testid={`form-payment-stripe-address-element-${field.id}`}
+            />
+          )}
           <div
             id={`form-payment-element-${field.id}`}
             className="min-h-[100px] w-full rounded-md border p-3"

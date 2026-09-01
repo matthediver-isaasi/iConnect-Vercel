@@ -146,3 +146,4 @@
 - [GoCardless account discovery isolation](gocardless-discovery-isolation.md) — account-wide discovery must require tenant-owned credentials; never use platform fallback or live billing mirrors.
 - [Member category form mappings](member-category-form-mappings.md) — category answers target explicit member categories; validate tenant definitions and diff only each mapped destination.
 - [Form answer-driven role assignment](form-answer-driven-role-assignment.md) — answers select only persisted role mappings; configuring them requires role-assignment authority, and they are create-only.
+- [Stripe membership invoice addresses](stripe-membership-invoice-addresses.md) — Stripe form memberships invoice only from immutable payment-time snapshots; missing snapshots fail closed.

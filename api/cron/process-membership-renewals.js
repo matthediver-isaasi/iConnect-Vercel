@@ -4,13 +4,15 @@ import { loadAddonLines, computeAddonTotals, buildExtraLineItems, buildAddonDisp
 import { simulateMembershipForOrg, simulateMembershipForMember } from '../_lib/membershipSimulation.js';
 import { sendMembershipInvoiceEmail } from '../_lib/membershipInvoiceEmail.js';
 import { sendTenantEmail } from '../_lib/tenantEmailService.js';
-import { resolveInvoiceAddress } from '../_lib/invoiceAddressResolver.js';
 import { resolveMembershipNominalCode } from '../_lib/membershipNominalCode.js';
 import { processTenantReminders } from '../_lib/membershipReminders.js';
 import { processTenantDdRenewals } from '../_lib/gocardlessDdRenewals.js';
 import { processTenantCardRenewals } from '../_lib/stripeCardRenewals.js';
 import { getPausedMemberIdSet, processPauseAutoRestarts } from '../_lib/memberPause.js';
-import { shouldSuppressAnnualInvoice } from '../_lib/membershipInstalmentInvoicing.js';
+import {
+  resolveMembershipInvoiceAddress,
+  shouldSuppressAnnualInvoice,
+} from '../_lib/membershipInstalmentInvoicing.js';
 import { createHeartbeatReporter, HEARTBEAT_ENV_VARS } from '../_lib/heartbeat.js';
 import {
   canActivateScheduledMembershipWithoutInvoice,
@@ -512,7 +514,9 @@ async function invoiceExistingRecord(tenantId, orgId, simResult, results, invoic
     const xeroReference = poNumber
       ? `Membership ${record.membership_year} - PO: ${poNumber}`
       : `Membership ${record.membership_year}`;
-    const resolvedAddr = await resolveInvoiceAddress(supabase, simResult.config, orgId, 'organization');
+    const resolvedAddr = await resolveMembershipInvoiceAddress({
+      db: supabase, row: record, config: simResult.config, entityId: orgId, entityType: 'organization',
+    });
     xeroInvoice = await provider.createMembershipInvoice({
       appTenantId: tenantId,
       organizationName: org.name,
@@ -821,7 +825,9 @@ async function processOrgRenewal(tenantId, orgId, simResult, mode, createInvoice
       const xeroReference = poNumber
         ? `Membership ${membershipYear.label} - PO: ${poNumber}`
         : `Membership ${membershipYear.label}`;
-      const resolvedOrgAddr = await resolveInvoiceAddress(supabase, simResult.config, orgId, 'organization');
+      const resolvedOrgAddr = await resolveMembershipInvoiceAddress({
+        db: supabase, row: record, config: simResult.config, entityId: orgId, entityType: 'organization',
+      });
       const provider = await getAccountingProvider(tenantId);
       providerLabel = provider?.name === 'quickbooks' ? 'QuickBooks' : 'Xero';
       xeroInvoice = await provider.createMembershipInvoice({
@@ -1287,7 +1293,9 @@ async function processMemberRenewal(tenantId, memberId, simResult, mode, createI
       const xeroReference = poNumber
         ? `Membership ${membershipYear.label} - PO: ${poNumber}`
         : `Membership ${membershipYear.label}`;
-      const resolvedMemberAddr = await resolveInvoiceAddress(supabase, simResult.config, memberId, 'member');
+      const resolvedMemberAddr = await resolveMembershipInvoiceAddress({
+        db: supabase, row: record, config: simResult.config, entityId: memberId, entityType: 'member',
+      });
       const memberProvider = await getAccountingProvider(tenantId);
       memberProviderLabel = memberProvider?.name === 'quickbooks' ? 'QuickBooks' : 'Xero';
       xeroInvoice = await memberProvider.createMembershipInvoice({
@@ -1466,7 +1474,9 @@ async function invoiceExistingMemberRecord(tenantId, memberId, simResult, result
     const xeroReference = poNumber
       ? `Membership ${record.membership_year} - PO: ${poNumber}`
       : `Membership ${record.membership_year}`;
-    const resolvedMemberAddr2 = await resolveInvoiceAddress(supabase, simResult.config, memberId, 'member');
+    const resolvedMemberAddr2 = await resolveMembershipInvoiceAddress({
+      db: supabase, row: record, config: simResult.config, entityId: memberId, entityType: 'member',
+    });
     xeroInvoice = await memberProvider2.createMembershipInvoice({
       appTenantId: tenantId,
       organizationName: memberName,

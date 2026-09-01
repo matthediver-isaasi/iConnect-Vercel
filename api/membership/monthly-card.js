@@ -240,6 +240,11 @@ async function handlePost(req, res, resolvedTenantId) {
     name: [member.first_name, member.last_name].filter(Boolean).join(' ') || undefined,
     metadata: { tenant_id: tenantId, member_id: member.id },
   });
+  if (!customer?.id) {
+    return res.status(502).json({
+      error: 'Could not prepare a secure Stripe customer for this membership checkout.',
+    });
+  }
 
   const proto = req.headers['x-forwarded-proto'] || 'https';
   const host = req.headers['x-forwarded-host'] || req.headers.host;
@@ -250,8 +255,9 @@ async function handlePost(req, res, resolvedTenantId) {
   try {
     session = await stripe.checkout.sessions.create({
       mode: 'subscription',
-      customer: customer?.id || undefined,
-      customer_email: customer ? undefined : (member.email || undefined),
+      customer: customer.id,
+      billing_address_collection: 'required',
+      customer_update: { address: 'auto' },
       line_items: [{
         quantity: 1,
         price_data: {

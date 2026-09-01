@@ -14,6 +14,10 @@ import {
   isZeroDueMembership,
   zeroDuePaymentFields,
 } from '../_lib/zeroDueMembership.js';
+import {
+  capturePaymentIntentBillingAddress,
+  stripeInvoiceAddressFromSnapshot,
+} from '../_lib/stripeInvoiceAddress.js';
 
 export default async function handler(req, res) {
   if (!supabase) {
@@ -422,6 +426,11 @@ async function handlePost(req, res, resolvedTenantId) {
         ...(organizationId ? { organization_id: organizationId } : {}),
       },
     });
+    if (!stripeCustomer?.id) {
+      return res.status(502).json({
+        error: 'Could not prepare a secure Stripe customer for this membership payment.',
+      });
+    }
 
     const description = isMemberScoped
       ? `Membership fee for ${memberName || 'Member'} - ${simResult.membershipYear?.label}`
@@ -430,7 +439,7 @@ async function handlePost(req, res, resolvedTenantId) {
     const paymentIntent = await stripe.paymentIntents.create({
       amount,
       currency,
-      customer: stripeCustomer?.id || undefined,
+      customer: stripeCustomer.id,
       receipt_email: member.email || undefined,
       metadata: {
         member_id: member.id,
@@ -455,7 +464,7 @@ async function handlePost(req, res, resolvedTenantId) {
   }
 
   if (action === 'confirm_payment') {
-    const { paymentIntentId, membershipYear: confirmYear, invoice_address: formInvoiceAddress } = req.body;
+    const { paymentIntentId, membershipYear: confirmYear } = req.body;
     if (!paymentIntentId) {
       return res.status(400).json({ error: 'paymentIntentId is required' });
     }
@@ -500,6 +509,17 @@ async function handlePost(req, res, resolvedTenantId) {
 
     if (paymentIntent.status !== 'succeeded') {
       return res.status(400).json({ error: 'Payment has not been completed', status: paymentIntent.status });
+    }
+    let stripeBillingAddress;
+    try {
+      stripeBillingAddress = await capturePaymentIntentBillingAddress({ stripe, paymentIntent });
+    } catch (addressErr) {
+      return res.status(503).json({
+        error: 'Your card payment was successful, but Stripe billing address details could not be verified. The accounting sync will retry automatically — please do NOT pay again.',
+        paymentSucceeded: true,
+        retryable: true,
+        code: addressErr.code || 'STRIPE_BILLING_ADDRESS_REQUIRED',
+      });
     }
 
     // From here on the charge HAS succeeded — any rejection below must be
@@ -631,7 +651,7 @@ async function handlePost(req, res, resolvedTenantId) {
         if (isMemberScoped) {
           invoiceOrgName = memberName;
           invoicingEmail = member.email || null;
-          invoicingAddress = formInvoiceAddress || await resolveInvoiceAddress(supabase, simResult.config, member.id, 'member');
+          invoicingAddress = stripeInvoiceAddressFromSnapshot(stripeBillingAddress);
         } else {
           const { data: org } = await supabase
             .from('organization')
@@ -640,7 +660,7 @@ async function handlePost(req, res, resolvedTenantId) {
             .single();
           invoiceOrgName = org?.name || 'Organisation';
           invoicingEmail = org?.invoicing_email || null;
-          invoicingAddress = formInvoiceAddress || await resolveInvoiceAddress(supabase, simResult.config, organizationId, 'organization');
+          invoicingAddress = stripeInvoiceAddressFromSnapshot(stripeBillingAddress);
         }
 
         const reference = `Membership ${targetYear}`;

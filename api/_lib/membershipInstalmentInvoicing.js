@@ -39,6 +39,7 @@
 import { supabase } from './database.js';
 import { getAccountingProvider, PROVIDER_NONE, PROVIDER_XERO } from './accountingProvider.js';
 import { resolveInvoiceAddress } from './invoiceAddressResolver.js';
+import { stripeInvoiceAddressFromSnapshot } from './stripeInvoiceAddress.js';
 
 export const INVOICING_MODES = ['annual', 'per_instalment'];
 
@@ -90,6 +91,38 @@ export async function shouldSuppressAnnualInvoice(row, { db: dbArg } = {}) {
     throw new Error(`per-instalment suppression check failed: billing agreement ${agreementId} not found`);
   }
   return isPerInstalmentAgreement(agreement);
+}
+
+/**
+ * Resolve the address for an annual membership invoice. Stripe monthly-card
+ * rows use the immutable Checkout snapshot; other payment methods retain the
+ * existing configurable entity-field resolver.
+ */
+export async function resolveMembershipInvoiceAddress({
+  row,
+  config,
+  entityId,
+  entityType,
+  db: dbArg,
+}) {
+  const db = dbArg || supabase;
+  const stripeAddress = await resolveStripeAgreementInvoiceAddress(row, { db });
+  if (stripeAddress) return stripeAddress;
+  return config ? resolveInvoiceAddress(db, config, entityId, entityType) : null;
+}
+
+export async function resolveStripeAgreementInvoiceAddress(row, { db: dbArg } = {}) {
+  if (!row?.billing_agreement_id) return null;
+  const db = dbArg || supabase;
+  const { data: agreement, error } = await db
+    .from('membership_billing_agreements')
+    .select('provider, metadata')
+    .eq('id', row.billing_agreement_id)
+    .maybeSingle();
+  if (error) throw new Error(`billing agreement address lookup failed: ${error.message}`);
+  if (!agreement) throw new Error(`billing agreement ${row.billing_agreement_id} not found`);
+  if (agreement.provider !== 'stripe') return null;
+  return stripeInvoiceAddressFromSnapshot(agreement.metadata?.card?.billing_address);
 }
 
 /**
@@ -192,9 +225,13 @@ export async function resolveInstalmentInvoiceContext({ agreement, snapshot, db:
   }
 
   let invoicingAddress = null;
-  try {
-    invoicingAddress = config ? await resolveInvoiceAddress(db, config, entityId, entityType) : null;
-  } catch { /* non-fatal */ }
+  if (agreement.provider === 'stripe') {
+    invoicingAddress = stripeInvoiceAddressFromSnapshot(snapshot.billing_address);
+  } else {
+    try {
+      invoicingAddress = config ? await resolveInvoiceAddress(db, config, entityId, entityType) : null;
+    } catch { /* non-fatal */ }
+  }
 
   return {
     contactName,

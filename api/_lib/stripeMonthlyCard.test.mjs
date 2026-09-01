@@ -880,6 +880,7 @@ const conflictSession = {
 test('compensateFormMonthlyCardConflict: cancels sub, refunds paid invoice with stable idempotency, marks form failed + agreement cancelled', async () => {
   const invoice = { id: 'in_1', amount_paid: 1000, payment_intent: 'pi_1' };
   const stripe = conflictStripeStub({ subscriptionStatus: 'active', invoice });
+  stripe.customers = { update: async () => ({ id: 'cus_1' }) };
   const db = captureDb({ form_submission: { data: { payment_meta: { foo: 'bar' } }, error: null } });
 
   const out = await compensateFormMonthlyCardConflict({
@@ -1020,6 +1021,7 @@ test('processStripeCardPlanEvent: form-checkout membership conflict resolves via
   const db = captureDb(reads);
   const invoice = { id: 'in_1', amount_paid: 1000, payment_intent: 'pi_1' };
   const stripe = conflictStripeStub({ subscriptionStatus: 'active', invoice });
+  stripe.customers = { update: async () => ({ id: 'cus_1' }) };
 
   const event = {
     id: 'evt_conflict',
@@ -1030,6 +1032,15 @@ test('processStripeCardPlanEvent: form-checkout membership conflict resolves via
         mode: 'subscription',
         subscription: 'sub_1',
         invoice: 'in_1',
+        customer: 'cus_1',
+        customer_details: {
+          address: {
+            line1: '1 High Street',
+            city: 'London',
+            postal_code: 'SW1A 1AA',
+            country: 'GB',
+          },
+        },
         payment_status: 'paid',
         metadata: { kind: CARD_PLAN_KIND, agreement_id: 'a1', form_submission_id: 'fs1' },
       },

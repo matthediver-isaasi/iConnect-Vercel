@@ -14,7 +14,12 @@ import { getAccountingProvider, buildInvoiceColumnUpdate } from '../_lib/account
 import { reconcileMembershipInvoicePayment } from '../_lib/membershipPaymentReconciliation.js';
 import { resolveMembershipNominalCode } from '../_lib/membershipNominalCode.js';
 import { simulateMembershipForOrg, simulateMembershipForMember } from '../_lib/membershipSimulation.js';
-import { shouldSuppressAnnualInvoice } from '../_lib/membershipInstalmentInvoicing.js';
+import {
+  resolveStripeAgreementInvoiceAddress,
+  shouldSuppressAnnualInvoice,
+} from '../_lib/membershipInstalmentInvoicing.js';
+import { retrieveTenantPaymentIntent } from '../_lib/stripeCredentials.js';
+import { recoverPaymentIntentInvoiceAddress } from '../_lib/stripeInvoiceAddress.js';
 
 const ORG_TABLE = 'organisation_membership_history';
 const MEMBER_TABLE = 'member_membership_history';
@@ -100,6 +105,46 @@ export default async function handler(req, res) {
     }
   } catch (e) {
     console.warn('[admin/membership-invoice-retry] could not load contact info:', e.message);
+  }
+  if (row.billing_agreement_id) {
+    try {
+      const agreementAddress = await resolveStripeAgreementInvoiceAddress(row, { db: supabase });
+      if (agreementAddress) invoicingAddress = agreementAddress;
+    } catch (addressErr) {
+      await supabase.from(table).update({
+        accounting_sync_status: 'failed',
+        accounting_sync_error: `Stripe billing address unavailable: ${String(addressErr.message || addressErr).slice(0, 900)}`,
+      }).eq('id', row.id).eq('tenant_id', appTenantId);
+      return res.status(503).json({
+        error: 'Stripe billing address details are unavailable. No accounting invoice was created; this can be retried.',
+        retryable: true,
+      });
+    }
+  }
+  if (row.stripe_payment_intent_id) {
+    try {
+      const found = await retrieveTenantPaymentIntent(
+        appTenantId,
+        'membership',
+        row.stripe_payment_intent_id,
+      );
+      if (!found?.paymentIntent || found.paymentIntent.status !== 'succeeded') {
+        throw new Error('the succeeded Stripe PaymentIntent could not be verified');
+      }
+      invoicingAddress = await recoverPaymentIntentInvoiceAddress({
+        stripe: found.stripe,
+        paymentIntent: found.paymentIntent,
+      });
+    } catch (addressErr) {
+      await supabase.from(table).update({
+        accounting_sync_status: 'failed',
+        accounting_sync_error: `Stripe billing address unavailable: ${String(addressErr.message || addressErr).slice(0, 900)}`,
+      }).eq('id', row.id).eq('tenant_id', appTenantId);
+      return res.status(503).json({
+        error: 'Stripe billing address details are unavailable. No accounting invoice was created; this can be retried.',
+        retryable: true,
+      });
+    }
   }
 
   const reference = row.purchase_order_number

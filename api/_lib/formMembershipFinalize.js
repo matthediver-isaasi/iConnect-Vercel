@@ -64,6 +64,7 @@
 
 import { getConfigByIdDirect } from './membershipConfigResolver.js';
 import { resolveInvoiceAddress } from './invoiceAddressResolver.js';
+import { stripeInvoiceAddressFromSnapshot } from './stripeInvoiceAddress.js';
 
 // A workflow claim older than this is considered orphaned (crash between
 // claim and dispatch) and may be re-claimed by the cron sweep.
@@ -213,7 +214,9 @@ export async function finalizeFormMembership({ supabase, submission, baseUrl, me
             .maybeSingle();
           invoiceName = [member?.first_name, member?.last_name].filter(Boolean).join(' ') || 'Member';
           invoicingEmail = member?.email || submission.submitted_by_email || null;
-          invoicingAddress = await resolveInvoiceAddress(supabase, config, historyRow.member_id, 'member');
+          invoicingAddress = isStripe
+            ? stripeInvoiceAddressFromSnapshot(meta.stripe_billing_address)
+            : await resolveInvoiceAddress(supabase, config, historyRow.member_id, 'member');
         } else {
           const { data: org } = await supabase
             .from('organization')
@@ -222,7 +225,9 @@ export async function finalizeFormMembership({ supabase, submission, baseUrl, me
             .maybeSingle();
           invoiceName = org?.name || 'Organisation';
           invoicingEmail = org?.invoicing_email || submission.submitted_by_email || null;
-          invoicingAddress = await resolveInvoiceAddress(supabase, config, historyRow.organization_id, 'organization');
+          invoicingAddress = isStripe
+            ? stripeInvoiceAddressFromSnapshot(meta.stripe_billing_address)
+            : await resolveInvoiceAddress(supabase, config, historyRow.organization_id, 'organization');
         }
 
         const { getAccountingProvider, buildInvoiceColumnUpdate } = await import('./accountingProvider.js');

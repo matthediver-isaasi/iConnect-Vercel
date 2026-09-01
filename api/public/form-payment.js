@@ -61,6 +61,7 @@ import {
 } from '../_lib/formOrganisationGroups.js';
 import { validateRepeatableRowSubmission } from '../_lib/formRepeatableRowValidation.js';
 import { getSessionMember } from '../_lib/session.js';
+import { capturePaymentIntentBillingAddress } from '../_lib/stripeInvoiceAddress.js';
 const STRIPE_MINIMUMS = { GBP: 0.30, USD: 0.50, EUR: 0.50, AUD: 0.50, NZD: 0.50 };
 
 const FORM_COLUMNS = 'id, name, tenant_id, require_authentication, access_policy, fields, pages, visibility_rules, entity_pipelines, structured_actions, field_mappings, application_level, create_entity_type, entity_action, member_entity_action, organization_entity_action, additional_member_creations, deactivate_at, submission_emails, submission_email_template_id, submission_email_recipient, submission_email_cc, submission_email_bcc, submission_email_field_mapping, form_type';
@@ -683,10 +684,20 @@ async function handleCreateMonthlyCard(req, res, supabase, tenantData) {
   };
   let session;
   try {
+    const { findOrCreateStripeCustomer } = await import('../_lib/stripeCredentials.js');
+    const customer = await findOrCreateStripeCustomer(stripe, {
+      email: submission.submitted_by_email || applicantEmail,
+      metadata: { tenant_id: tenantData.id, form_submission_id: submission.id },
+    });
+    if (!customer?.id) {
+      return res.status(502).json({ error: 'Could not prepare a secure Stripe customer for this membership checkout.' });
+    }
     session = await stripe.checkout.sessions.create({
       mode: 'subscription',
       payment_method_types: ['card'],
-      customer_email: submission.submitted_by_email || undefined,
+      customer: customer.id,
+      billing_address_collection: 'required',
+      customer_update: { address: 'auto' },
       line_items: [{
         quantity: 1,
         price_data: {
@@ -967,6 +978,20 @@ async function handleCreate(req, res, supabase, tenantData) {
     }
     const Stripe = (await import('stripe')).default;
     const stripe = new Stripe(creds.secret_key);
+    let stripeCustomer = null;
+    if (membershipMeta) {
+      const { findOrCreateStripeCustomer } = await import('../_lib/stripeCredentials.js');
+      stripeCustomer = await findOrCreateStripeCustomer(stripe, {
+        email: submitterEmail,
+        metadata: {
+          tenant_id: tenantData.id,
+          form_submission_id: submissionRow.id,
+        },
+      });
+      if (!stripeCustomer?.id) {
+        return res.status(502).json({ error: 'Could not prepare a secure Stripe customer for this membership payment.' });
+      }
+    }
 
     // Same-key retry with an existing intent: REUSE it — never create a
     // second payable intent for the same submission (duplicate-charge
@@ -1010,6 +1035,7 @@ async function handleCreate(req, res, supabase, tenantData) {
     const paymentIntent = await stripe.paymentIntents.create({
       amount: amountMinor,
       currency: currency.toLowerCase(),
+      customer: stripeCustomer?.id || undefined,
       receipt_email: submitterEmail || undefined,
       description,
       metadata: {
@@ -1159,7 +1185,7 @@ async function handleConfirm(req, res, supabase, tenantData) {
   // before money was taken. Do not revoke finalisation if membership changes
   // while the provider is completing. Legacy rows without that proof are
   // checked against the live policy and fail closed.
-  if (!row.payment_meta?.access_authorized_at || !row.payment_meta?.verified_submitter_member_id) {
+  if (!row.payment_meta?.access_authorized_at) {
     if (!form) return res.status(404).json({ error: 'Form not found' });
     const access = await authorizePaymentStart(req, res, supabase, tenantData, form);
     if (!access) return;
@@ -1294,6 +1320,37 @@ async function handleConfirm(req, res, supabase, tenantData) {
     }
     if (pi.status !== 'succeeded') {
       return res.status(400).json({ error: `Payment has not completed (status: ${pi.status})`, code: 'PAYMENT_NOT_SUCCEEDED' });
+    }
+    if (row.payment_meta?.membership) {
+      let stripeBillingAddress;
+      try {
+        stripeBillingAddress = await capturePaymentIntentBillingAddress({
+          stripe: found.stripe,
+          paymentIntent: pi,
+        });
+      } catch (addressErr) {
+        return res.status(503).json({
+          error: 'Your payment succeeded, but Stripe billing address details could not be verified. We will retry automatically; please do not pay again.',
+          paymentSucceeded: true,
+          retryable: true,
+          code: addressErr.code || 'STRIPE_BILLING_ADDRESS_REQUIRED',
+        });
+      }
+      const paymentMeta = { ...(row.payment_meta || {}), stripe_billing_address: stripeBillingAddress };
+      const { data: snapRow, error: snapErr } = await supabase
+        .from('form_submission')
+        .update({ payment_meta: paymentMeta })
+        .eq('id', row.id)
+        .select()
+        .maybeSingle();
+      if (snapErr || !snapRow) {
+        return res.status(503).json({
+          error: 'Your payment succeeded, but its billing address could not be saved. We will retry automatically; please do not pay again.',
+          paymentSucceeded: true,
+          retryable: true,
+        });
+      }
+      row = snapRow;
     }
     const expectedMinor = Math.round(Number(row.payment_amount || 0) * 100);
     const receivedMinor = pi.amount_received ?? pi.amount;

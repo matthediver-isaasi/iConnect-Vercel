@@ -395,6 +395,14 @@ export async function recordSucceededMembershipPaymentIntent(
   // 3. Apply the payment to the attached accounting invoice (best-effort).
   let accountingApplied = false;
   const invoiceId = row.accounting_invoice_id || row.xero_invoice_id || feeToken?.xero_invoice_id || null;
+  if (!invoiceId && md.source === 'form-membership-payment') {
+    try {
+      await db.from(table).update({
+        accounting_sync_status: 'failed',
+        accounting_sync_error: 'Stripe payment recovered before its accounting invoice was created. Retry invoice creation from the membership record.',
+      }).eq('id', row.id);
+    } catch {}
+  }
   if (invoiceId) {
     try {
       const applyPayment = deps.applyPayment || (async () => {

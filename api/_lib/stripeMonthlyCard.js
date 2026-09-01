@@ -33,6 +33,7 @@ import { computeGraceExpiry, recoveryPlanUpdate } from './gocardlessArrears.js';
 import { fireWorkflowForPaidRow } from './membershipPaymentReconciliation.js';
 import { isPerInstalmentAgreement, postStripeInstalmentInvoice } from './membershipInstalmentInvoicing.js';
 import { finalizeFormMonthlyCardCheckout } from './formMonthlyCardFinalize.js';
+import { captureCheckoutBillingAddress } from './stripeInvoiceAddress.js';
 
 export const CARD_PLAN_KIND = 'monthly_card';
 
@@ -971,7 +972,6 @@ export async function processStripeCardPlanEvent(event, deps = {}) {
       agreement = await findCardAgreementById(db, object.metadata.agreement_id);
     }
     if (!agreement) return { handled: false, detail: `no agreement for checkout session ${object.id}` };
-
     // Task #3680: if this checkout was initiated from a form submission
     // (agreement.metadata.form_submission_id is set), finalize the form
     // BEFORE creating the payment plan. This marks the submission as
@@ -1003,6 +1003,46 @@ export async function processStripeCardPlanEvent(event, deps = {}) {
           detail: 'Existing membership conflict was already reversed',
         };
       }
+    }
+
+    if (!agreement.metadata?.card?.billing_address) {
+      const stripe = await getStripe();
+      const billingAddress = await captureCheckoutBillingAddress({ stripe, session: object });
+      const nextMetadata = {
+        ...(agreement.metadata || {}),
+        card: { ...(agreement.metadata?.card || {}), billing_address: billingAddress },
+      };
+      const { error: addressSaveErr } = await db
+        .from('membership_billing_agreements')
+        .update({ metadata: nextMetadata, updated_at: new Date().toISOString() })
+        .eq('id', agreement.id);
+      if (addressSaveErr) {
+        throw new Error(`persist Stripe billing address snapshot failed: ${addressSaveErr.message}`);
+      }
+      agreement = { ...agreement, metadata: nextMetadata };
+      const formSubmissionId = agreement.metadata?.form_submission_id
+        || object.metadata?.form_submission_id;
+      if (formSubmissionId) {
+        const { data: formRow, error: formReadErr } = await db
+          .from('form_submission')
+          .select('payment_meta')
+          .eq('id', formSubmissionId)
+          .maybeSingle();
+        if (formReadErr) throw new Error(`load form payment address context failed: ${formReadErr.message}`);
+        const { error: formSaveErr } = await db
+          .from('form_submission')
+          .update({
+            payment_meta: {
+              ...(formRow?.payment_meta || {}),
+              stripe_billing_address: billingAddress,
+            },
+          })
+          .eq('id', formSubmissionId);
+        if (formSaveErr) throw new Error(`persist form Stripe billing address snapshot failed: ${formSaveErr.message}`);
+      }
+    }
+
+    if (isFormCheckout) {
       const formResult = await finalizeFormMonthlyCardCheckout({
         db,
         agreement,

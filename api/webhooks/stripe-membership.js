@@ -32,6 +32,7 @@ import { supabase } from '../_lib/database.js';
 import { getStripeIntegrationCredentials } from '../_lib/stripeCredentials.js';
 import { recordSucceededMembershipPaymentIntent } from '../_lib/membershipPaymentReconciliation.js';
 import { processStripeCardPlanEvent, CARD_PLAN_KIND } from '../_lib/stripeMonthlyCard.js';
+import { capturePaymentIntentBillingAddress } from '../_lib/stripeInvoiceAddress.js';
 
 // Task #3620 — subscription/invoice events for monthly-card membership plans
 // are routed to the card-plan processor (same durable dedupe as PIs).
@@ -206,6 +207,16 @@ export default async function handler(req, res) {
   }
 
   try {
+    if (pi.metadata?.source === 'form-membership-payment') {
+      const chosenKey = event.livemode
+        ? (creds.secret_key || creds.test_secret_key)
+        : (creds.test_secret_key || creds.secret_key);
+      if (!chosenKey) throw new Error('Stripe membership API key is unavailable for this event mode');
+      await capturePaymentIntentBillingAddress({
+        stripe: new Stripe(chosenKey),
+        paymentIntent: pi,
+      });
+    }
     const baseUrl = req.headers.host
       ? `${req.headers['x-forwarded-proto'] || 'https'}://${req.headers.host}`
       : '';
