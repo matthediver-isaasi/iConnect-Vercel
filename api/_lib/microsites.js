@@ -1,3 +1,5 @@
+import { validateMicrositeHeaderLogoConfig } from '../../shared/micrositeHeaderLogo.js';
+
 /**
  * Task #2426: tenant microsites — shared server-side helpers.
  *
@@ -117,6 +119,36 @@ export function mergeMicrositeConfig(tenantConfig, micrositeConfig) {
   const merged = { ...base };
   for (const [key, value] of Object.entries(over)) {
     if (!isEmptyValue(value)) merged[key] = value;
+  }
+  return merged;
+}
+
+/**
+ * PATCH requests merge header_config by default so a focused update cannot
+ * erase unrelated chrome settings. The full microsite chrome editor opts into
+ * replacement because its Override switches intentionally remove managed keys.
+ */
+export function resolveMicrositeHeaderConfigUpdate(existingConfig, submittedConfig, replace = false) {
+  const existing = existingConfig && typeof existingConfig === 'object' && !Array.isArray(existingConfig)
+    ? existingConfig
+    : {};
+  const submitted = submittedConfig && typeof submittedConfig === 'object' && !Array.isArray(submittedConfig)
+    ? submittedConfig
+    : {};
+  if (replace) return { ...submitted };
+  const merged = { ...existing };
+  const nullableLogoKeys = new Set([
+    'logoHeight',
+    'logoWidth',
+    'logoShrinkOnScroll',
+    'logoScrolledHeight',
+  ]);
+  for (const [key, value] of Object.entries(submitted)) {
+    if (nullableLogoKeys.has(key) && (value === null || value === '')) {
+      delete merged[key];
+    } else {
+      merged[key] = value;
+    }
   }
   return merged;
 }
@@ -284,6 +316,8 @@ export function sanitizeMicrositeBrandingConfig(value) {
   }
   return out;
 }
+
+export { validateMicrositeHeaderLogoConfig };
 
 /**
  * Return the microsite's branding override for `key`, or null when the

@@ -11,6 +11,10 @@ import { useToast } from "@/components/ui/use-toast";
 import { adminFetch } from "@/lib/adminFetch";
 import { useInstalledFonts } from "@/lib/installedFonts";
 import {
+  validateMicrositeHeaderLogoConfig,
+  normalizePositiveLogoDimension,
+} from "@shared/micrositeHeaderLogo";
+import {
   Loader2, Palette, Image as ImageIcon, PanelTop, LogIn, UserCircle,
   Rows3, Share2, PanelBottom, AtSign, Upload,
 } from "lucide-react";
@@ -236,7 +240,11 @@ export default function MicrositeChromeEditor({ microsite }) {
       overrides: {
         colors: hasVal(bc.primary_color) || hasVal(bc.secondary_color),
         logo: hasVal(bc.logo_url),
-        headerLogo: hasVal(bc.header_logo_url),
+        headerLogo: hasVal(bc.header_logo_url)
+          || hasVal(hc.logoHeight)
+          || hasVal(hc.logoWidth)
+          || hasVal(hc.logoShrinkOnScroll)
+          || hasVal(hc.logoScrolledHeight),
         headerGradient: hasVal(hc.gradientStops) || hasVal(hc.gradientColors),
         topNav: hasVal(hc.topNavFontFamily) || hasVal(hc.topNavFontSize)
           || hasVal(hc.topNavFontWeight) || hasVal(hc.topNavTextColor)
@@ -276,6 +284,12 @@ export default function MicrositeChromeEditor({ microsite }) {
         secondaryBar: (hc.secondaryBar && typeof hc.secondaryBar === "object")
           ? hydrateSecondaryBarConfig(hc.secondaryBar)
           : {},
+        logoHeight: hc.logoHeight ?? "",
+        logoWidth: hc.logoWidth ?? "",
+        logoShrinkOnScroll: typeof hc.logoShrinkOnScroll === "boolean"
+          ? hc.logoShrinkOnScroll
+          : undefined,
+        logoScrolledHeight: hc.logoScrolledHeight ?? "",
       },
       footer: hydrateFooterConfig(fc, { withDefaults: false }),
     };
@@ -310,7 +324,17 @@ export default function MicrositeChromeEditor({ microsite }) {
     secondary_color: branding.secondary_color || tb.secondaryColor || "",
   });
   const seedLogo = () => setBranding({ logo_url: branding.logo_url || microsite.logo_url || tb.logoUrl || "" });
-  const seedHeaderLogo = () => setBranding({ header_logo_url: branding.header_logo_url || tb.headerLogoUrl || "" });
+  const seedHeaderLogo = () => {
+    setBranding({ header_logo_url: branding.header_logo_url || tb.headerLogoUrl || "" });
+    setHeader({
+      logoHeight: header.logoHeight || thc.logoHeight || "",
+      logoWidth: header.logoWidth || thc.logoWidth || "",
+      logoShrinkOnScroll: typeof header.logoShrinkOnScroll === "boolean"
+        ? header.logoShrinkOnScroll
+        : !!thc.logoShrinkOnScroll,
+      logoScrolledHeight: header.logoScrolledHeight || thc.logoScrolledHeight || "",
+    });
+  };
   const seedHeaderGradient = () => setHeader({
     gradientStops: header.gradientStops.length > 0
       ? header.gradientStops
@@ -387,6 +411,24 @@ export default function MicrositeChromeEditor({ microsite }) {
       if (prunedSecondaryBar !== undefined) headerOut.secondaryBar = prunedSecondaryBar;
       else delete headerOut.secondaryBar;
 
+      const logoConfigCheck = validateMicrositeHeaderLogoConfig({
+        logoHeight: overrides.headerLogo ? header.logoHeight : undefined,
+        logoWidth: overrides.headerLogo ? header.logoWidth : undefined,
+        logoShrinkOnScroll: overrides.headerLogo ? header.logoShrinkOnScroll : undefined,
+        logoScrolledHeight: overrides.headerLogo ? header.logoScrolledHeight : undefined,
+      }, thc);
+      if (!logoConfigCheck.ok) throw new Error(logoConfigCheck.error);
+      for (const key of ["logoHeight", "logoWidth", "logoShrinkOnScroll", "logoScrolledHeight"]) {
+        delete headerOut[key];
+      }
+      if (overrides.headerLogo) {
+        const { values } = logoConfigCheck;
+        if (values.logoHeight !== null) headerOut.logoHeight = values.logoHeight;
+        if (values.logoWidth !== null) headerOut.logoWidth = values.logoWidth;
+        if (values.logoShrinkOnScroll !== undefined) headerOut.logoShrinkOnScroll = values.logoShrinkOnScroll;
+        if (values.logoScrolledHeight !== null) headerOut.logoScrolledHeight = values.logoScrolledHeight;
+      }
+
       const footerOut = { ...(microsite.footer_config || {}) };
       for (const k of FOOTER_KEYS) {
         const pruned = overrides.footer ? pruneEmpty(footer[k]) : undefined;
@@ -416,6 +458,7 @@ export default function MicrositeChromeEditor({ microsite }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           header_config: headerOut,
+          replace_header_config: true,
           footer_config: footerOut,
           branding_config: brandingOut,
         }),
@@ -471,12 +514,73 @@ export default function MicrositeChromeEditor({ microsite }) {
       <ChromeCard
         icon={PanelTop}
         title="Header Logo"
-        description="Logo shown in the microsite page header. Falls back to the main logo if unset."
+        description="Logo, sizing and optional scroll-shrink behavior for the microsite page header."
         overridden={overrides.headerLogo}
         onToggle={(on) => toggleWithSeed("headerLogo", on, seedHeaderLogo)}
         testId="switch-override-header-logo"
       >
         <ImageField label="Header Logo" value={branding.header_logo_url} onChange={(v) => setBranding({ header_logo_url: v })} testIdPrefix="ms-header-logo" toast={toast} />
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="space-y-2">
+            <Label htmlFor="ms-header-logo-height">Logo Height (px)</Label>
+            <Input
+              id="ms-header-logo-height"
+              type="number"
+              min="1"
+              step="1"
+              value={header.logoHeight}
+              onChange={(e) => setHeader({ logoHeight: e.target.value })}
+              placeholder="Inherit tenant setting"
+              data-testid="input-ms-header-logo-height"
+            />
+            <p className="text-xs text-muted-foreground">Maximum height for the overlapping desktop header logo.</p>
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="ms-header-logo-width">Logo Width (px)</Label>
+            <Input
+              id="ms-header-logo-width"
+              type="number"
+              min="1"
+              step="1"
+              value={header.logoWidth}
+              onChange={(e) => setHeader({ logoWidth: e.target.value })}
+              placeholder="Inherit tenant setting"
+              data-testid="input-ms-header-logo-width"
+            />
+            <p className="text-xs text-muted-foreground">Maximum width. Leave blank to inherit the tenant setting.</p>
+          </div>
+        </div>
+        <div className="border-t pt-4 space-y-4">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <Label htmlFor="switch-ms-logo-shrink">Shrink logo on scroll</Label>
+              <p className="text-xs text-muted-foreground">Animate the desktop logo to a smaller height after the page is scrolled.</p>
+            </div>
+            <Switch
+              id="switch-ms-logo-shrink"
+              checked={!!header.logoShrinkOnScroll}
+              onCheckedChange={(checked) => setHeader({ logoShrinkOnScroll: checked })}
+              data-testid="switch-ms-logo-shrink-on-scroll"
+            />
+          </div>
+          {header.logoShrinkOnScroll && (
+            <div className="space-y-2">
+              <Label htmlFor="ms-header-logo-scrolled-height">Scrolled Logo Height (px)</Label>
+              <Input
+                id="ms-header-logo-scrolled-height"
+                type="number"
+                min="1"
+                step="1"
+                max={normalizePositiveLogoDimension(header.logoHeight) || normalizePositiveLogoDimension(thc.logoHeight) || undefined}
+                value={header.logoScrolledHeight}
+                onChange={(e) => setHeader({ logoScrolledHeight: e.target.value })}
+                placeholder="Inherit tenant setting"
+                data-testid="input-ms-header-logo-scrolled-height"
+              />
+              <p className="text-xs text-muted-foreground">Must be no larger than the full logo height. Leave blank to inherit the tenant setting.</p>
+            </div>
+          )}
+        </div>
       </ChromeCard>
 
       {/* 4. Header Gradient */}

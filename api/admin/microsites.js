@@ -6,7 +6,40 @@ import {
   sanitizeMicrositeBrandingConfig,
   normalizeSearchResultsBranding,
   resolveAllowedFontFamilies,
+  validateMicrositeHeaderLogoConfig,
+  resolveMicrositeHeaderConfigUpdate,
 } from '../_lib/microsites.js';
+
+async function getTenantHeaderConfig(tenantId) {
+  const { data, error } = await supabase
+    .from('tenant')
+    .select('header_config')
+    .eq('id', tenantId)
+    .maybeSingle();
+  if (error) throw error;
+  return data?.header_config || {};
+}
+
+async function validateHeaderConfig(headerConfig, tenantId) {
+  const tenantHeaderConfig = await getTenantHeaderConfig(tenantId);
+  return validateMicrositeHeaderLogoConfig(headerConfig, tenantHeaderConfig);
+}
+
+function normalizeHeaderLogoConfig(headerConfig, values) {
+  const normalized = { ...headerConfig };
+  for (const key of ['logoHeight', 'logoWidth', 'logoShrinkOnScroll', 'logoScrolledHeight']) {
+    delete normalized[key];
+  }
+  if (values.logoHeight !== null) normalized.logoHeight = values.logoHeight;
+  if (values.logoWidth !== null) normalized.logoWidth = values.logoWidth;
+  if (values.logoShrinkOnScroll !== undefined) {
+    normalized.logoShrinkOnScroll = values.logoShrinkOnScroll;
+  }
+  if (values.logoScrolledHeight !== null) {
+    normalized.logoScrolledHeight = values.logoScrolledHeight;
+  }
+  return normalized;
+}
 
 /**
  * Task #2426: admin CRUD for tenant microsites.
@@ -129,6 +162,9 @@ export default async function handler(req, res) {
         ),
         home_page_id: body.home_page_id || null,
       };
+      const logoConfigCheck = await validateHeaderConfig(insert.header_config, tenantId);
+      if (!logoConfigCheck.ok) return res.status(400).json({ error: logoConfigCheck.error });
+      insert.header_config = normalizeHeaderLogoConfig(insert.header_config, logoConfigCheck.values);
 
       const { data, error } = await supabase
         .from('microsite')
@@ -152,7 +188,7 @@ export default async function handler(req, res) {
       // Confirm ownership before writing.
       const { data: existing, error: fetchError } = await supabase
         .from('microsite')
-        .select('id, path_prefix')
+        .select('id, path_prefix, header_config')
         .eq('tenant_id', tenantId)
         .eq('id', id)
         .maybeSingle();
@@ -179,7 +215,13 @@ export default async function handler(req, res) {
       if (body.description !== undefined) update.description = body.description ? String(body.description) : null;
       if (body.is_active !== undefined) update.is_active = body.is_active !== false;
       if (body.logo_url !== undefined) update.logo_url = body.logo_url ? String(body.logo_url) : null;
-      if (body.header_config !== undefined) update.header_config = sanitizeConfigObject(body.header_config);
+      if (body.header_config !== undefined) {
+        update.header_config = resolveMicrositeHeaderConfigUpdate(
+          existing.header_config,
+          sanitizeConfigObject(body.header_config),
+          body.replace_header_config === true,
+        );
+      }
       if (body.footer_config !== undefined) update.footer_config = sanitizeConfigObject(body.footer_config);
       if (body.branding_config !== undefined) {
         update.branding_config = normalizeSearchResultsBranding(
@@ -188,6 +230,12 @@ export default async function handler(req, res) {
         );
       }
       if (body.home_page_id !== undefined) update.home_page_id = body.home_page_id || null;
+
+      if (update.header_config !== undefined) {
+        const logoConfigCheck = await validateHeaderConfig(update.header_config, tenantId);
+        if (!logoConfigCheck.ok) return res.status(400).json({ error: logoConfigCheck.error });
+        update.header_config = normalizeHeaderLogoConfig(update.header_config, logoConfigCheck.values);
+      }
 
       if (Object.keys(update).length === 0) {
         return res.status(400).json({ error: 'No valid fields to update' });

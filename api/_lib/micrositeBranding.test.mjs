@@ -1,11 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 
 import {
   mergeMicrositeConfig,
   sanitizeMicrositeBrandingConfig,
   micrositeBrandingValue,
   MICROSITE_BRANDING_KEYS,
+  validateMicrositeHeaderLogoConfig,
+  resolveMicrositeHeaderConfigUpdate,
 } from './microsites.js';
 
 /**
@@ -69,6 +72,122 @@ test('merge: tolerates null/undefined configs on either side', () => {
   assert.deepEqual(mergeMicrositeConfig(null, { a: 1 }), { a: 1 });
   assert.deepEqual(mergeMicrositeConfig({ a: 1 }, null), { a: 1 });
   assert.deepEqual(mergeMicrositeConfig(null, null), {});
+});
+
+// --- Header logo dimensions / scroll shrink ---------------------------------
+
+test('header logo config normalizes valid dimensions and preserves explicit false', () => {
+  const result = validateMicrositeHeaderLogoConfig({
+    logoHeight: '160',
+    logoWidth: 240,
+    logoShrinkOnScroll: false,
+    logoScrolledHeight: '80',
+  });
+  assert.deepEqual(result, {
+    ok: true,
+    values: {
+      logoHeight: 160,
+      logoWidth: 240,
+      logoScrolledHeight: 80,
+      logoShrinkOnScroll: false,
+    },
+  });
+});
+
+test('header logo config rejects non-positive and non-numeric dimensions', () => {
+  for (const bad of ['-1', '0', '12.5', '120px', Number.NaN]) {
+    const result = validateMicrositeHeaderLogoConfig({ logoHeight: bad });
+    assert.equal(result.ok, false, `expected ${String(bad)} to be rejected`);
+  }
+});
+
+test('header logo config rejects a scrolled height above local or inherited full height', () => {
+  assert.equal(validateMicrositeHeaderLogoConfig({
+    logoHeight: 100,
+    logoScrolledHeight: 101,
+  }).ok, false);
+  assert.equal(validateMicrositeHeaderLogoConfig({
+    logoScrolledHeight: 121,
+  }, {
+    logoHeight: 120,
+  }).ok, false);
+  assert.equal(validateMicrositeHeaderLogoConfig({
+    logoScrolledHeight: 159,
+  }).ok, false);
+});
+
+test('header logo config keeps empty dimensions as inherited values', () => {
+  assert.deepEqual(validateMicrositeHeaderLogoConfig({
+    logoHeight: '',
+    logoWidth: null,
+    logoShrinkOnScroll: true,
+    logoScrolledHeight: undefined,
+  }), {
+    ok: true,
+    values: {
+      logoHeight: null,
+      logoWidth: null,
+      logoScrolledHeight: null,
+      logoShrinkOnScroll: true,
+    },
+  });
+});
+
+test('microsite editor exposes and persists every header logo control', () => {
+  const source = readFileSync(
+    new URL('../../client/src/components/microsites/MicrositeChromeEditor.jsx', import.meta.url),
+    'utf8',
+  );
+  for (const marker of [
+    'input-ms-header-logo-height',
+    'input-ms-header-logo-width',
+    'switch-ms-logo-shrink-on-scroll',
+    'input-ms-header-logo-scrolled-height',
+    'validateMicrositeHeaderLogoConfig',
+  ]) {
+    assert.match(source, new RegExp(marker));
+  }
+  assert.match(source, /delete headerOut\[key\]/);
+  assert.match(source, /replace_header_config:\s*true/);
+});
+
+test('partial header config updates preserve unrelated settings unless replacement is explicit', () => {
+  const existing = {
+    gradientStops: [{ color: '#123456', position: 0 }],
+    secondaryBar: { enabled: true },
+    logoHeight: 120,
+  };
+  assert.deepEqual(resolveMicrositeHeaderConfigUpdate(existing, { logoWidth: 240 }), {
+    ...existing,
+    logoWidth: 240,
+  });
+  assert.deepEqual(resolveMicrositeHeaderConfigUpdate(existing, { logoWidth: 240 }, true), {
+    logoWidth: 240,
+  });
+});
+
+test('partial header config can clear shrink back to inheritance without losing unrelated settings', () => {
+  const existing = {
+    gradientStops: [{ color: '#123456', position: 0 }],
+    logoShrinkOnScroll: true,
+    logoScrolledHeight: 80,
+  };
+  const updated = resolveMicrositeHeaderConfigUpdate(existing, {
+    logoShrinkOnScroll: null,
+  });
+  assert.deepEqual(updated, {
+    gradientStops: existing.gradientStops,
+    logoScrolledHeight: 80,
+  });
+  assert.equal(validateMicrositeHeaderLogoConfig(updated).ok, true);
+  assert.deepEqual(validateMicrositeHeaderLogoConfig({ logoShrinkOnScroll: null }), {
+    ok: true,
+    values: {
+      logoHeight: null,
+      logoWidth: null,
+      logoScrolledHeight: null,
+    },
+  });
 });
 
 // --- sanitizeMicrositeBrandingConfig -----------------------------------------

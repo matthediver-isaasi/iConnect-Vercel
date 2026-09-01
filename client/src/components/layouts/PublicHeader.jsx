@@ -17,6 +17,7 @@ import IEditFormElement from "@/components/iedit/elements/IEditFormElement";
 import { resolveSearchResultsBranding } from "@/lib/searchResultsBranding";
 import { searchResultTypeIconMap, getSearchResultTypeLabel, useArticleDisplayName } from "@/lib/searchResultTypes";
 import { isPageLessParentMenu } from "@/lib/navigationItemDestination";
+import { DEFAULT_HEADER_LOGO_HEIGHT } from "@shared/micrositeHeaderLogo";
 
 // Icon mapping for commonly used Lucide icons
 const iconMap = {
@@ -310,7 +311,7 @@ export default function PublicHeader() {
 
   // Effective logo height (px). When shrink is active and the page is scrolled,
   // use the scrolled height; otherwise the configured/default full height.
-  const baseLogoHeightPx = headerLogoHeight ? parseInt(headerLogoHeight, 10) : 158;
+  const baseLogoHeightPx = headerLogoHeight ? parseInt(headerLogoHeight, 10) : DEFAULT_HEADER_LOGO_HEIGHT;
   const scrolledLogoHeightPx = logoScrolledHeight ? parseInt(logoScrolledHeight, 10) : baseLogoHeightPx;
   const isLogoShrunk = logoShrinkOnScroll && isLogoScrolled;
   const activeLogoHeightPx = isLogoShrunk ? scrolledLogoHeightPx : baseLogoHeightPx;
