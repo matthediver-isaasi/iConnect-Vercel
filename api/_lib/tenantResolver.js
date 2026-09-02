@@ -3,6 +3,21 @@ import { evaluateTenantOverride } from './tenantHostGuard.js';
 
 const tenantCache = new Map();
 const CACHE_TTL = 5 * 60 * 1000;
+export const TENANT_FIELDS = 'id, name, slug, domain, status, logo_url, header_logo_url, favicon_url, primary_color, secondary_color, tagline, description, social_image_url, header_config, footer_config, footer_source, canvas_footer_id, branding_config, platform_branding, settings';
+export const LEGACY_TENANT_FIELDS = 'id, name, slug, domain, status, logo_url, header_logo_url, favicon_url, primary_color, secondary_color, tagline, description, social_image_url, header_config, footer_config, branding_config, platform_branding, settings';
+
+export function isMissingCanvasFooterColumn(error) {
+  return error?.code === '42703'
+    && /(?:footer_source|canvas_footer_id)/i.test(error.message || '');
+}
+
+export async function selectTenantWithFooterFallback(database, applyFilters) {
+  let result = await applyFilters(database.from('tenant').select(TENANT_FIELDS));
+  if (isMissingCanvasFooterColumn(result?.error)) {
+    result = await applyFilters(database.from('tenant').select(LEGACY_TENANT_FIELDS));
+  }
+  return result;
+}
 
 export async function resolveTenantFromHost(hostname) {
   console.log('[TenantResolver] resolveTenantFromHost called with:', hostname);
@@ -77,12 +92,10 @@ export async function resolveTenantFromHost(hostname) {
 
     if (slug) {
       console.log('[TenantResolver] Looking up by slug:', slug);
-      const { data, error } = await supabase
-        .from('tenant')
-        .select('id, name, slug, domain, status, logo_url, header_logo_url, favicon_url, primary_color, secondary_color, tagline, description, social_image_url, header_config, footer_config, footer_source, canvas_footer_id, branding_config, platform_branding, settings')
+      const { data, error } = await selectTenantWithFooterFallback(supabase, (query) => query
         .eq('slug', slug)
         .eq('status', 'active')
-        .single();
+        .single());
 
       if (error) {
         console.log('[TenantResolver] Slug lookup error:', error.message);
@@ -93,12 +106,10 @@ export async function resolveTenantFromHost(hostname) {
       }
     } else if (customDomain) {
       console.log('[TenantResolver] Looking up by domain:', customDomain);
-      const { data, error } = await supabase
-        .from('tenant')
-        .select('id, name, slug, domain, status, logo_url, header_logo_url, favicon_url, primary_color, secondary_color, tagline, description, social_image_url, header_config, footer_config, footer_source, canvas_footer_id, branding_config, platform_branding, settings')
+      const { data, error } = await selectTenantWithFooterFallback(supabase, (query) => query
         .eq('domain', customDomain)
         .eq('status', 'active')
-        .single();
+        .single());
 
       if (error) {
         console.log('[TenantResolver] Domain lookup error:', error.message, 'code:', error.code);
@@ -132,8 +143,6 @@ export function getHostFromRequest(req) {
 }
 
 export async function resolveTenantFromRequest(req) {
-  const TENANT_FIELDS = 'id, name, slug, domain, status, logo_url, header_logo_url, favicon_url, primary_color, secondary_color, tagline, description, social_image_url, header_config, footer_config, footer_source, canvas_footer_id, branding_config, platform_branding, settings';
-  
   console.log('[TenantResolver] resolveTenantFromRequest called');
   
   if (!supabase) {
@@ -166,12 +175,10 @@ export async function resolveTenantFromRequest(req) {
   if (tenantParam) {
     console.log('[TenantResolver] Trying tenant param lookup:', tenantParam);
     // Try lookup by slug first
-    const { data: bySlug, error: slugError } = await supabase
-      .from('tenant')
-      .select(TENANT_FIELDS)
+    const { data: bySlug, error: slugError } = await selectTenantWithFooterFallback(supabase, (query) => query
       .eq('slug', tenantParam)
       .eq('status', 'active')
-      .single();
+      .single());
     
     if (bySlug) {
       console.log('[TenantResolver] Found by slug param:', bySlug.slug);
@@ -182,12 +189,10 @@ export async function resolveTenantFromRequest(req) {
     }
     
     // Fallback: try lookup by domain/subdomain
-    const { data: byDomain, error: domainError } = await supabase
-      .from('tenant')
-      .select(TENANT_FIELDS)
+    const { data: byDomain, error: domainError } = await selectTenantWithFooterFallback(supabase, (query) => query
       .eq('domain', tenantParam)
       .eq('status', 'active')
-      .single();
+      .single());
     
     if (byDomain) {
       console.log('[TenantResolver] Found by domain param:', byDomain.slug);
@@ -201,12 +206,10 @@ export async function resolveTenantFromRequest(req) {
   // Support explicit domain parameter
   if (domainParam) {
     console.log('[TenantResolver] Trying domain param lookup:', domainParam);
-    const { data: byDomain, error } = await supabase
-      .from('tenant')
-      .select(TENANT_FIELDS)
+    const { data: byDomain, error } = await selectTenantWithFooterFallback(supabase, (query) => query
       .eq('domain', domainParam)
       .eq('status', 'active')
-      .single();
+      .single());
     
     if (byDomain) {
       console.log('[TenantResolver] Found by domain param:', byDomain.slug);

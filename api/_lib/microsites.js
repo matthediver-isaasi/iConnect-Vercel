@@ -14,9 +14,24 @@ import { validateMicrositeHeaderLogoConfig } from '../../shared/micrositeHeaderL
  */
 
 const MISSING_SCHEMA_CODES = new Set(['42P01', '42703']);
+const MICROSITE_FIELDS = 'id, tenant_id, name, path_prefix, description, is_active, logo_url, header_config, footer_config, footer_source, canvas_footer_id, branding_config, home_page_id';
+const LEGACY_MICROSITE_FIELDS = 'id, tenant_id, name, path_prefix, description, is_active, logo_url, header_config, footer_config, branding_config, home_page_id';
 
 export function isMissingMicrositeSchema(error) {
   return !!error && MISSING_SCHEMA_CODES.has(error.code);
+}
+
+export function isMissingMicrositeCanvasFooterColumn(error) {
+  return error?.code === '42703'
+    && /(?:footer_source|canvas_footer_id)/i.test(error.message || '');
+}
+
+export async function selectMicrositeWithFooterFallback(supabase, applyFilters) {
+  let result = await applyFilters(supabase.from('microsite').select(MICROSITE_FIELDS));
+  if (isMissingMicrositeCanvasFooterColumn(result?.error)) {
+    result = await applyFilters(supabase.from('microsite').select(LEGACY_MICROSITE_FIELDS));
+  }
+  return result;
 }
 
 // Reserved first path segments that can never be used as a microsite prefix.
@@ -64,13 +79,11 @@ export function validateMicrositePrefix(prefix) {
  */
 export async function resolveMicrositeByPrefix(supabase, tenantId, prefix) {
   if (!supabase || !tenantId || !prefix) return null;
-  const { data, error } = await supabase
-    .from('microsite')
-    .select('id, tenant_id, name, path_prefix, description, is_active, logo_url, header_config, footer_config, footer_source, canvas_footer_id, branding_config, home_page_id')
+  const { data, error } = await selectMicrositeWithFooterFallback(supabase, (query) => query
     .eq('tenant_id', tenantId)
     .eq('path_prefix', String(prefix).toLowerCase())
     .eq('is_active', true)
-    .maybeSingle();
+    .maybeSingle());
   if (error) {
     if (!isMissingMicrositeSchema(error)) {
       console.error('[Microsites] prefix lookup failed:', error.message || error.code);
