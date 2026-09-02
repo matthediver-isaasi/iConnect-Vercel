@@ -19,6 +19,7 @@ import { useResolvedSocialIcons } from "@/hooks/useResolvedSocialIcons";
 import { useLayoutContext } from "@/contexts/LayoutContext";
 import { InstalledFontsLoader } from "@/lib/installedFonts";
 import CanvasPageRenderer from "@/components/canvas/CanvasPageRenderer";
+import PlatformBrandingStrip from "./PlatformBrandingStrip";
 
 // Map page names to portal page identifiers for banner matching
 // These identifiers must match the PORTAL_PAGES values in PageBannerManagement.jsx
@@ -429,6 +430,10 @@ export default function PublicLayout({ children, currentPageName }) {
                 id: branding.canvasFooter.id,
                 canvas_design: branding.canvasFooter.design,
               }}
+            />
+            <PlatformBrandingStrip
+              platformBranding={branding?.platformBranding}
+              platformDefaults={platformDefaults}
             />
           </footer>
         )}
@@ -946,32 +951,11 @@ export default function PublicLayout({ children, currentPageName }) {
                 </div>
               </div>
               
-              {/* Platform Branding */}
-              {(branding?.platformBranding?.showPlatformBranding !== false) && (
-                <div 
-                  className="text-center mt-8 py-4 -mx-4 sm:-mx-8 md:-mx-16 -mb-8 sm:-mb-12 md:-mb-16 px-4 sm:px-8 md:px-16"
-                  style={{ backgroundColor: branding?.platformBranding?.backgroundColor || '#000000' }}
-                >
-                  <a
-                    href={platformDefaults.platformBrandingUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-block hover:opacity-80 transition-opacity"
-                  >
-                    <img
-                      src="https://qtrypzzcjebvfcihiynt.supabase.co/storage/v1/object/public/base44-prod/public/68efc20f3e0a30fafad6dde7/fe03f7c5e_linked-aa.png"
-                      alt="Platform logo"
-                      className="w-[40px] mx-auto mb-2"
-                    />
-                  </a>
-                  <p 
-                    className="text-xs"
-                    style={{ color: branding?.platformBranding?.textColor || '#64748b' }}
-                  >
-                    {platformDefaults.platformBrandingText}
-                  </p>
-                </div>
-              )}
+              <PlatformBrandingStrip
+                platformBranding={branding?.platformBranding}
+                platformDefaults={platformDefaults}
+                contained
+              />
             </div>
           </div>
         </footer>
