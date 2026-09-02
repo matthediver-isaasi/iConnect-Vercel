@@ -25,6 +25,7 @@ import { getBlockDefinition, useTenantTypographyStylesState } from "./blocks/reg
 import { AccordionReflowProvider, useAccordionReflow } from "./AccordionReflowContext";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import CanvasFlowStage from "./CanvasFlowStage";
+import { CanvasEditorPageProvider } from "./CanvasEditorPageContext";
 
 // Phase 7 — Hooks that fetch the tenant Canvas theme and any referenced
 // symbols. Both are best-effort; failures degrade to "no theme" and
@@ -550,7 +551,7 @@ function CanvasPageStage({ children, lcpBlockId, forcedBreakpoint, windowBp, act
   );
 }
 
-export default function CanvasPageRenderer({ page, symbols, forceBreakpoint, embedded = false }) {
+function CanvasPageRendererContent({ page, symbols, forceBreakpoint, embedded = false }) {
   const baseDesign = useMemo(() => normalizeCanvasDesign(page?.canvas_design), [page?.canvas_design]);
   // Task #2570 — v2 (flow / auto-layout) documents take a separate render path
   // (CanvasFlowStage, driven by resolveFlowLayout). v1 (absolute) documents keep
@@ -826,5 +827,13 @@ export default function CanvasPageRenderer({ page, symbols, forceBreakpoint, emb
       </AccordionReflowProvider>
     </div>
     </TooltipProvider>
+  );
+}
+
+export default function CanvasPageRenderer({ micrositeId = null, ...props }) {
+  return (
+    <CanvasEditorPageProvider micrositeId={micrositeId}>
+      <CanvasPageRendererContent {...props} />
+    </CanvasEditorPageProvider>
   );
 }

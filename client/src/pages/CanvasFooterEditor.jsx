@@ -70,7 +70,7 @@ export default function CanvasFooterEditor() {
   return <div className="h-screen flex flex-col bg-slate-50">
     <header className="h-14 border-b bg-white px-3 flex items-center gap-2 shrink-0">
       <Button size="icon" variant="ghost" onClick={() => navigate(createPageUrl("CanvasFooterManagement"))}><ArrowLeft className="w-4 h-4" /></Button>
-      <div className="font-semibold truncate mr-auto">{footer.name}<span className="ml-2 text-xs font-normal text-slate-500">Reusable footer</span></div>
+      <div className="font-semibold truncate mr-auto">{footer.name}<span className="ml-2 text-xs font-normal text-slate-500">Reusable footer · {footer.microsite?.name || "Main site"}</span></div>
       {["desktop", "tablet", "mobile"].map((bp) => {
         const Icon = bp === "desktop" ? Monitor : bp === "tablet" ? Tablet : Smartphone;
         return <Button key={bp} size="icon" variant={breakpoint === bp ? "default" : "outline"} onClick={() => setBreakpoint(bp)} title={bp}><Icon className="w-4 h-4" /></Button>;
@@ -79,8 +79,8 @@ export default function CanvasFooterEditor() {
       <Button onClick={doSave} disabled={!dirty || save.isPending}><Save className="w-4 h-4 mr-2" />{save.isPending ? "Saving…" : "Save"}</Button>
     </header>
     <div className="flex-1 min-h-0">
-      <CanvasBuilder ref={canvasRef} initialDesign={initialDesign} breakpoint={breakpoint} onBreakpointChange={setBreakpoint} onSave={persistDesign} isSaving={save.isPending} isDirty={dirty} onDirtyChange={setDirty} />
+      <CanvasBuilder ref={canvasRef} initialDesign={initialDesign} breakpoint={breakpoint} onBreakpointChange={setBreakpoint} onSave={persistDesign} isSaving={save.isPending} isDirty={dirty} onDirtyChange={setDirty} micrositeId={footer.microsite_id} />
     </div>
-    <Dialog open={preview} onOpenChange={setPreview}><DialogContent className="max-w-[95vw] w-[95vw]"><DialogHeader><DialogTitle>Footer preview — {breakpoint}</DialogTitle></DialogHeader><div className="overflow-auto border bg-white"><CanvasPageRenderer embedded forceBreakpoint={breakpoint} page={{ id: footer.id, canvas_design: previewDesign }} /></div></DialogContent></Dialog>
+    <Dialog open={preview} onOpenChange={setPreview}><DialogContent className="max-w-[95vw] w-[95vw]"><DialogHeader><DialogTitle>Footer preview — {breakpoint}</DialogTitle></DialogHeader><div className="overflow-auto border bg-white"><CanvasPageRenderer embedded forceBreakpoint={breakpoint} micrositeId={footer.microsite_id} page={{ id: footer.id, canvas_design: previewDesign }} /></div></DialogContent></Dialog>
   </div>;
 }
