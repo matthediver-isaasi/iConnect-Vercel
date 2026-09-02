@@ -105,8 +105,9 @@ const WIZARD_STEPS = [
   { number: 3, label: 'Period', subtitle: 'Set membership year settings' },
   { number: 4, label: 'Discounts', subtitle: 'Configure discounts and free periods' },
   { number: 5, label: 'Pricing', subtitle: 'Set currency and pricing details' },
-  { number: 6, label: 'Reminders', subtitle: 'Configure renewal email reminders' },
-  { number: 7, label: 'Summary', subtitle: 'Review and save your configuration' },
+  { number: 6, label: 'Payment', subtitle: 'Configure payment settings' },
+  { number: 7, label: 'Reminders', subtitle: 'Configure renewal email reminders' },
+  { number: 8, label: 'Summary', subtitle: 'Review and save your configuration' },
 ];
 
 const REMINDER_OFFSET_UNITS = [
@@ -355,7 +356,7 @@ export default function MembershipTierManagement() {
   const [pageMode, setPageMode] = useState('list');
   const [structureSearch, setStructureSearch] = useState('');
   const [structureViewMode, setStructureViewMode] = useState('card');
-  const [wizardStep, setWizardStep] = useState(7);
+  const [wizardStep, setWizardStep] = useState(8);
   const [fieldErrors, setFieldErrors] = useState({});
   const [ddTotalConfirmed, setDdTotalConfirmed] = useState(false);
   const activeConfigRequestRef = useRef(0);
@@ -545,7 +546,7 @@ export default function MembershipTierManagement() {
       })));
       setHasChanges(false);
       setIsCreatingNew(false);
-      setWizardStep(7);
+      setWizardStep(8);
     }
   }, [viewingHistorical, historicalData]);
 
@@ -621,7 +622,7 @@ export default function MembershipTierManagement() {
       if (tierData.config) {
         loadConfigIntoState(tierData.config, tierData.bands, tierData.discounts, tierData.vatOverrides, tierData.reminders);
         setSelectedActiveConfigId(tierData.config.id);
-        setWizardStep(7);
+        setWizardStep(8);
       } else {
         setBands([]);
         setDiscounts([]);
@@ -803,8 +804,6 @@ export default function MembershipTierManagement() {
       case 4:
         return true;
       case 5:
-        return true;
-      case 6:
         if (config.pricing_model === 'tiered') {
           if (bands.length === 0) { toast.error('Please add at least one tier band'); return false; }
           if (isTextBasisField) {
@@ -835,7 +834,9 @@ export default function MembershipTierManagement() {
           }
         }
         return true;
+      case 6:
       case 7:
+      case 8:
         return true;
       default:
         return true;
@@ -844,7 +845,7 @@ export default function MembershipTierManagement() {
 
   const handleNext = () => {
     if (validateStep(wizardStep)) {
-      setWizardStep(prev => Math.min(prev + 1, 7));
+      setWizardStep(prev => Math.min(prev + 1, 8));
     }
   };
 
@@ -853,15 +854,7 @@ export default function MembershipTierManagement() {
   };
 
   const handleStepClick = (step) => {
-    if (step < wizardStep) {
-      setWizardStep(step);
-    } else if (step === wizardStep + 1) {
-      if (validateStep(wizardStep)) {
-        setWizardStep(step);
-      }
-    } else if (step <= wizardStep) {
-      setWizardStep(step);
-    }
+    setWizardStep(step);
   };
 
   // NOTE: declared here (not further down) because the ddTotalMismatch IIFE
@@ -1218,7 +1211,7 @@ export default function MembershipTierManagement() {
         setViewingHistorical(null);
         setIsCreatingNew(false);
         setPageMode('editor');
-        setWizardStep(7);
+      setWizardStep(8);
       }
     } catch (err) {
       toast.error('Failed to load this tier structure');
@@ -1231,7 +1224,7 @@ export default function MembershipTierManagement() {
     setIsCreatingNew(false);
     setPageMode('editor');
     setShowPreview(false);
-    setWizardStep(7);
+      setWizardStep(8);
   };
 
   const handleBackToStructureList = () => {
@@ -1507,36 +1500,6 @@ export default function MembershipTierManagement() {
           </div>
         </div>
 
-        <div className="border-t pt-4 mt-2 space-y-4">
-          <h3 className="text-sm font-medium mb-3">Invoice Address</h3>
-          <p className="text-sm text-muted-foreground">
-            Select which field to use as the invoice address when generating Xero invoices for this tier structure.
-          </p>
-          <div className="space-y-2">
-            <Label>Invoice Address Field</Label>
-            <Select
-              value={config.invoice_address_field || '__default'}
-              onValueChange={(v) => handleConfigChange('invoice_address_field', v === '__default' ? null : v)}
-              disabled={!isEditable}
-            >
-              <SelectTrigger data-testid="select-invoice-address-field">
-                <SelectValue placeholder="Default" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="__default">
-                  {config.structure_scope_type === 'member' ? 'None (no address)' : 'Default (Organisation Invoicing Address)'}
-                </SelectItem>
-                {invoiceAddressFields.map(field => (
-                  <SelectItem key={field.id} value={field.id} data-testid={`option-invoice-address-${field.name || field.id}`}>
-                    {field.label || field.name}
-                    {field.is_core && <span className="text-muted-foreground ml-1">(Core)</span>}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
-
         {config.structure_scope_type !== 'member' && (() => {
           const recipients = config.invoice_recipients || { invoicing_email: false, primary_contact: false, role_ids: [] };
           const roleIds = Array.isArray(recipients.role_ids) ? recipients.role_ids : [];
@@ -1620,7 +1583,23 @@ export default function MembershipTierManagement() {
           );
         })()}
 
-        <div className="border-t pt-4 mt-2 space-y-4">
+      </CardContent>
+    </Card>
+  );
+
+  const renderStep6 = () => (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-lg flex items-center gap-2">
+          <CreditCard className="w-5 h-5" />
+          Payment
+        </CardTitle>
+        <p className="text-sm text-muted-foreground">
+          Configure how membership fees are approved, invoiced, and collected.
+        </p>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="space-y-4">
             <h3 className="text-sm font-medium mb-3">Payment Settings</h3>
             <div className="flex items-center justify-between gap-3">
               <div>
@@ -3102,6 +3081,36 @@ export default function MembershipTierManagement() {
           </div>
         )}
 
+        <div className="border-t pt-4 mt-2 space-y-4">
+          <h3 className="text-sm font-medium mb-3">Invoice Address</h3>
+          <p className="text-sm text-muted-foreground">
+            Select which field to use as the invoice address when generating Xero invoices for this tier structure.
+          </p>
+          <div className="space-y-2">
+            <Label>Invoice Address Field</Label>
+            <Select
+              value={config.invoice_address_field || '__default'}
+              onValueChange={(v) => handleConfigChange('invoice_address_field', v === '__default' ? null : v)}
+              disabled={!isEditable}
+            >
+              <SelectTrigger data-testid="select-invoice-address-field">
+                <SelectValue placeholder="Default" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__default">
+                  {config.structure_scope_type === 'member' ? 'None (no address)' : 'Default (Organisation Invoicing Address)'}
+                </SelectItem>
+                {invoiceAddressFields.map(field => (
+                  <SelectItem key={field.id} value={field.id} data-testid={`option-invoice-address-${field.name || field.id}`}>
+                    {field.label || field.name}
+                    {field.is_core && <span className="text-muted-foreground ml-1">(Core)</span>}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+
         <div className="space-y-2 pt-4 border-t">
           <Label>Fee-link Email Template</Label>
           <p className="text-xs text-muted-foreground">
@@ -3178,7 +3187,7 @@ export default function MembershipTierManagement() {
     </div>
   );
 
-  const renderStep6 = () => (
+  const renderStep7 = () => (
     <Card>
       <CardHeader>
         <CardTitle className="text-lg flex items-center gap-2">
@@ -3360,7 +3369,7 @@ export default function MembershipTierManagement() {
     </Card>
   );
 
-  const renderStep7 = () => (
+  const renderStep8 = () => (
     <Card>
       <CardHeader>
         <CardTitle className="text-xl">Summary</CardTitle>
@@ -3428,14 +3437,6 @@ export default function MembershipTierManagement() {
                 </div>
               );
             })()}
-            <div className="flex justify-between gap-2">
-                  <span className="text-muted-foreground">Auto-approve fees</span>
-                  <span className="font-medium" data-testid="text-summary-auto-approve">{config.auto_approve_fees ? 'Enabled' : 'Disabled'}</span>
-                </div>
-                <div className="flex justify-between gap-2">
-                  <span className="text-muted-foreground">Online card payment</span>
-                  <span className="font-medium" data-testid="text-summary-online-card-payment">{config.online_card_payment ? 'Enabled' : 'Disabled'}</span>
-                </div>
           </>
         ))}
 
@@ -3497,32 +3498,6 @@ export default function MembershipTierManagement() {
                         : 'No change'}
                     </span>
                   </div>
-                </>
-              )}
-              {(config.dd_enabled || config.card_monthly_enabled) && (
-                <>
-                  <div className="flex justify-between gap-2">
-                    <span className="text-muted-foreground">After recurring-payment grace</span>
-                    <span className="font-medium">
-                      {config.dd_arrears_policy === 'restrict'
-                        ? 'Restrict portal features via role'
-                        : ({
-                            keep_active: 'Keep access active',
-                            suspend: 'Suspend portal access',
-                            manual_review: 'Keep access active and flag for review',
-                            cancel_at_period_end: 'Flag cancellation at paid-period end',
-                          }[config.dd_arrears_policy] || 'Keep access active and flag for review')}
-                    </span>
-                  </div>
-                  {config.dd_arrears_policy === 'restrict' && (
-                    <div className="flex justify-between gap-2">
-                      <span className="text-muted-foreground">Recurring-payment fallback role</span>
-                      <span className="font-medium">
-                        {invoiceRecipientRoles.find((role) => role.id === config.dd_arrears_fallback_role_id)?.name
-                          || 'Role required — configuration needs correction'}
-                      </span>
-                    </div>
-                  )}
                 </>
               )}
             </>
@@ -3595,12 +3570,61 @@ export default function MembershipTierManagement() {
                   })()}
                 </>
               )}
+              <div className="flex justify-between gap-2">
+                <span className="text-muted-foreground">Invoice Address</span>
+                <span className="font-medium">
+                  {config.invoice_address_field
+                    ? (invoiceAddressFields.find(field => field.id === config.invoice_address_field)?.label || 'Selected field')
+                    : (config.structure_scope_type === 'member' ? 'None' : 'Default organisation address')}
+                </span>
+              </div>
             </>
           ))}
         </div>
 
         <div className="pt-4">
-          {renderSummarySection('Reminders', 6, (
+          {renderSummarySection('Payment', 6, (
+            <>
+              <div className="flex justify-between gap-2">
+                <span className="text-muted-foreground">Auto-approve fees</span>
+                <span className="font-medium" data-testid="text-summary-auto-approve">{config.auto_approve_fees ? 'Enabled' : 'Disabled'}</span>
+              </div>
+              <div className="flex justify-between gap-2">
+                <span className="text-muted-foreground">Online card payment</span>
+                <span className="font-medium" data-testid="text-summary-online-card-payment">{config.online_card_payment ? 'Enabled' : 'Disabled'}</span>
+              </div>
+              {(config.dd_enabled || config.card_monthly_enabled) && (
+                <>
+                  <div className="flex justify-between gap-2">
+                    <span className="text-muted-foreground">After recurring-payment grace</span>
+                    <span className="font-medium">
+                      {config.dd_arrears_policy === 'restrict'
+                        ? 'Restrict portal features via role'
+                        : ({
+                            keep_active: 'Keep access active',
+                            suspend: 'Suspend portal access',
+                            manual_review: 'Keep access active and flag for review',
+                            cancel_at_period_end: 'Flag cancellation at paid-period end',
+                          }[config.dd_arrears_policy] || 'Keep access active and flag for review')}
+                    </span>
+                  </div>
+                  {config.dd_arrears_policy === 'restrict' && (
+                    <div className="flex justify-between gap-2">
+                      <span className="text-muted-foreground">Recurring-payment fallback role</span>
+                      <span className="font-medium">
+                        {invoiceRecipientRoles.find((role) => role.id === config.dd_arrears_fallback_role_id)?.name
+                          || 'Role required — configuration needs correction'}
+                      </span>
+                    </div>
+                  )}
+                </>
+              )}
+            </>
+          ))}
+        </div>
+
+        <div className="pt-4">
+          {renderSummarySection('Reminders', 7, (
             <div className="flex justify-between gap-2">
               <span className="text-muted-foreground">Renewal Reminders</span>
               <span className="font-medium" data-testid="text-summary-reminders">
@@ -3653,6 +3677,7 @@ export default function MembershipTierManagement() {
       case 5: return renderStep5();
       case 6: return renderStep6();
       case 7: return renderStep7();
+      case 8: return renderStep8();
       default: return null;
     }
   };
@@ -3978,7 +4003,7 @@ export default function MembershipTierManagement() {
           <>
             <StepIndicator currentStep={wizardStep} onStepClick={handleStepClick} />
             {renderWizardContent()}
-            {wizardStep < 7 && isEditable && (
+            {wizardStep < 8 && isEditable && (
               <div className="flex items-center justify-between gap-2 mt-6">
                 <Button
                   variant="outline"
@@ -3998,7 +4023,7 @@ export default function MembershipTierManagement() {
                 </Button>
               </div>
             )}
-            {wizardStep > 1 && wizardStep < 7 && !isEditable && (
+            {wizardStep > 1 && wizardStep < 8 && !isEditable && (
               <div className="flex items-center justify-between gap-2 mt-6">
                 <Button
                   variant="outline"
@@ -4009,7 +4034,7 @@ export default function MembershipTierManagement() {
                   Back
                 </Button>
                 <Button
-                  onClick={() => setWizardStep(prev => Math.min(prev + 1, 7))}
+                  onClick={() => setWizardStep(prev => Math.min(prev + 1, 8))}
                   data-testid="button-wizard-next"
                 >
                   Next

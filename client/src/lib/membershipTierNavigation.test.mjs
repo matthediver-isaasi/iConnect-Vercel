@@ -161,3 +161,39 @@ test('duplicate drafts retain Direct Debit settings and per-band monthly amounts
   assert.match(duplicateHandler, /\.\.\.ddFieldsFromConfig\(c\)/);
   assert.match(duplicateHandler, /dd_monthly_amount: b\.dd_monthly_amount != null/);
 });
+
+test('membership tier wizard uses the clarified eight-step order', () => {
+  const stepLabels = [...pageSource.matchAll(/\{ number: \d+, label: '([^']+)'/g)].map(match => match[1]);
+  assert.deepEqual(stepLabels, ['Scope', 'Tier Model', 'Period', 'Discounts', 'Pricing', 'Payment', 'Reminders', 'Summary']);
+  assert.match(pageSource, /const \[wizardStep, setWizardStep\] = useState\(8\)/);
+  assert.match(pageSource, /Math\.min\(prev \+ 1, 8\)/);
+  assert.match(pageSource, /wizardStep < 8/);
+  assert.match(pageSource, /case 8: return renderStep8\(\)/);
+});
+
+test('invoice address belongs to pricing and payment controls belong to the payment step', () => {
+  const step1 = pageSource.slice(pageSource.indexOf('const renderStep1'), pageSource.indexOf('const renderStep6'));
+  const payment = pageSource.slice(pageSource.indexOf('const renderStep6'), pageSource.indexOf('const renderStep2'));
+  const pricing = pageSource.slice(pageSource.indexOf('const renderStep5'), pageSource.indexOf('const renderSummarySection'));
+
+  assert.doesNotMatch(step1, /Invoice Address|Payment Settings|switch-auto-approve-fees|switch-online-card-payment/);
+  assert.match(pricing, /Nominal code/);
+  assert.match(pricing, /Invoice Address/);
+  assert.ok(pricing.indexOf('Nominal code') < pricing.indexOf('Invoice Address'));
+  assert.match(payment, /Payment/);
+  assert.match(payment, /switch-auto-approve-fees/);
+  assert.match(payment, /switch-online-card-payment/);
+  assert.match(payment, /switch-dd-enabled/);
+  assert.match(payment, /switch-card-monthly-enabled/);
+});
+
+test('wizard step clicks navigate directly without validating intermediate steps', () => {
+  const handler = pageSource.slice(
+    pageSource.indexOf('const handleStepClick'),
+    pageSource.indexOf('// NOTE: declared here'),
+  );
+  assert.match(handler, /const handleStepClick = \(step\) => \{\s*setWizardStep\(step\);\s*\}/);
+  assert.doesNotMatch(handler, /validateStep/);
+  assert.match(pageSource, /renderSummarySection\('Payment', 6/);
+  assert.match(pageSource, /renderSummarySection\('Reminders', 7/);
+});
