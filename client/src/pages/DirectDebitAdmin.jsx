@@ -46,6 +46,7 @@ const STATUS_VARIANTS = {
   restricted: "warning",
   completed: "secondary",
   cancelled: "outline",
+  pending_activation: "warning",
 };
 function StatusBadge({ status }) {
   if (!status) return null;
@@ -57,7 +58,7 @@ function StatusBadge({ status }) {
 }
 
 const PLAN_STATUS_FILTERS = [
-  "all", "active", "payment_grace_period", "payment_overdue", "suspended",
+  "all", "pending_activation", "active", "payment_grace_period", "payment_overdue", "suspended",
   "restricted", "mandate_pending", "completed", "cancelled",
 ];
 
@@ -84,6 +85,7 @@ async function api(url, opts) {
 // Action dialog — one generic confirm/param dialog for all plan actions.
 
 const ACTIONS = {
+  manual_activate: { label: "Activate membership", destructive: false, desc: "Approves this membership and grants access. This is available only when the tier requires manual activation and the membership is still awaiting approval." },
   retry: { label: "Retry failed payment", destructive: false, desc: "GoCardless is asked to re-collect the failed payment. The retry only happens if GoCardless confirms the payment is in a failed state — it can never double-charge." },
   refund: { label: "Issue refund", destructive: true, desc: "Refunds part or all of a collected payment back to the payer's bank account. This cannot be undone.", fields: ["amount", "reason"] },
   cancel_subscription: { label: "Cancel subscription", destructive: true, desc: "Stops all future collections on this plan. The bank mandate stays in place, so a new plan can be started without the payer re-authorising.", fields: ["reason"] },
@@ -216,13 +218,14 @@ function PlanDetail({ planId, onBack }) {
   if (isLoading) return <Skeleton className="h-64 w-full" />;
   const {
     plan, agreement, payments = [], statusHistory = [], adminActions = [],
-    cancellationRequests = [], refunds = [], retryAttempts = [],
+    cancellationRequests = [], refunds = [], retryAttempts = [], membershipActivation,
   } = data || {};
   if (!plan) return <Alert variant="destructive"><AlertDescription>Plan not found.</AlertDescription></Alert>;
   const dd = agreement?.metadata?.dd;
   const inArrears = ["payment_grace_period", "payment_overdue"].includes(plan.status);
 
   const actionButtons = [
+    membershipActivation?.status === "pending_activation" && "manual_activate",
     inArrears && "retry",
     inArrears && "remind",
     inArrears && "extend_grace",
@@ -242,6 +245,15 @@ function PlanDetail({ planId, onBack }) {
         <h2 className="text-lg font-semibold">Plan detail</h2>
         <StatusBadge status={plan.status} />
       </div>
+
+      {membershipActivation?.status === "pending_activation" && (
+        <Alert data-testid="alert-pending-membership-activation">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>
+            This membership is awaiting manual activation. Review the plan, then use Activate membership to grant access.
+          </AlertDescription>
+        </Alert>
+      )}
 
       <Card>
         <CardContent className="pt-6 grid grid-cols-2 md:grid-cols-4 gap-x-4 gap-y-2 text-sm">
@@ -270,6 +282,12 @@ function PlanDetail({ planId, onBack }) {
           <span data-testid="text-plan-grace-days">{dd?.grace_days ?? "—"}</span>
           <span className="text-muted-foreground">Membership year</span>
           <span data-testid="text-plan-year">{dd?.membership_year || "—"}</span>
+          <span className="text-muted-foreground">Activation rule</span>
+          <span data-testid="text-plan-activation-rule">{String(dd?.activation_rule || "—").replace(/_/g, " ")}</span>
+          <span className="text-muted-foreground">Membership status</span>
+          <span data-testid="text-membership-activation-status">
+            {String(membershipActivation?.status || "—").replace(/_/g, " ")}
+          </span>
         </CardContent>
       </Card>
 
@@ -821,8 +839,8 @@ export default function DirectDebitAdmin() {
         <PlanDetail planId={selectedPlan} onBack={() => setSelectedPlan(null)} />
       ) : (
         <>
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-            {summaryLoading ? Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-20" />) : (
+          <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
+            {summaryLoading ? Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-20" />) : (
               <>
                 <Card><CardContent className="pt-4">
                   <p className="text-2xl font-semibold" data-testid="stat-active">{byStatus.active || 0}</p>
@@ -831,6 +849,10 @@ export default function DirectDebitAdmin() {
                 <Card><CardContent className="pt-4">
                   <p className="text-2xl font-semibold" data-testid="stat-arrears">{(byStatus.payment_grace_period || 0) + (byStatus.payment_overdue || 0)}</p>
                   <p className="text-xs text-muted-foreground">In arrears</p>
+                </CardContent></Card>
+                <Card><CardContent className="pt-4">
+                  <p className="text-2xl font-semibold" data-testid="stat-pending-activations">{summary?.pendingActivations || 0}</p>
+                  <p className="text-xs text-muted-foreground">Awaiting activation</p>
                 </CardContent></Card>
                 <Card><CardContent className="pt-4">
                   <p className="text-2xl font-semibold" data-testid="stat-cancellations">{summary?.pendingCancellations || 0}</p>
@@ -882,6 +904,7 @@ export default function DirectDebitAdmin() {
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="font-medium">{p.payer_name || "Unknown payer"}</span>
                         <StatusBadge status={p.status} />
+                        {p.activation_pending && <StatusBadge status="pending_activation" />}
                         {p.arrears_policy_applied && <Badge variant="warning">{String(p.arrears_policy_applied).replace(/_/g, " ")}</Badge>}
                       </div>
                       <p className="text-xs text-muted-foreground">

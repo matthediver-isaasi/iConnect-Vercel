@@ -79,6 +79,7 @@
 - [Stripe monthly card plans](stripe-monthly-card-plans.md) — card plans twin GC DD plans: shared dd_* config, metadata.card snapshot, exactly-once settle, replay-through-one-processor reconcile, both-ways year guards.
 - [GoCardless DD membership plans](gocardless-dd-membership-plans.md) — DD offer derives from the sim result (band amount never falls back to config); terms snapshot at consent drives webhooks/activation, not tier config.
 - [GoCardless arrears & DD console](gocardless-arrears-phase4.md) — grace is a non-rolling snapshot; retry guard must throw fail-closed; arrears policy applies once; money-moving admin actions need server-side finance RBAC.
+- [Manual membership activation atomicity](manual-membership-activation-atomicity.md) — admin approval must lock the plan/agreement and commit membership activation with its audit record.
 - [v2 flow sections never run SectionRender](canvas-flow-section-backgrounds.md) — flow containers paint style-only; all content.bgType section features (image/gradient/overlay/fixed-crop) are v1-only.
 - [RBAC map-driven parent resolution](rbac-parent-resolution.md) — parent lookups via map nesting, never dot-prefix; enforcement is a UNION of hardcoded map + role_access_item DB overlay; legacy mapping is generated, never hand-copied.
 - [Form submission emails](form-submission-emails.md) — exactly-once via atomic claim on form_submission.submission_email_state; all send paths must use the shared guarded sender.

@@ -14,7 +14,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
   Layers, Plus, Trash2, Save, Building2, AlertCircle,
   Search, Download, History, CalendarDays, ChevronRight, ChevronDown, PlusCircle, Percent, Tag,
-  CheckCircle2, Check, ChevronsUpDown, Copy, Bell, Mail, Landmark, CreditCard, LayoutGrid, List
+  CheckCircle2, Check, ChevronsUpDown, Copy, Bell, Mail, Landmark, CreditCard, LayoutGrid, List, Info
 } from "lucide-react";
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "@/components/ui/collapsible";
 import { toast } from "sonner";
@@ -261,6 +261,29 @@ function CountryMultiSelect({ value, onChange, countries, disabled, testId }) {
             <p className="text-xs text-muted-foreground">{selectedLabels}</p>
           </div>
         )}
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function ScheduleSettingHelp({ label, children, testId }) {
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="h-6 w-6 text-muted-foreground"
+          aria-label={`About ${label}`}
+          data-testid={testId}
+        >
+          <Info className="h-4 w-4" aria-hidden="true" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-80 text-sm" align="start">
+        <p className="font-medium mb-1">{label}</p>
+        <div className="space-y-2 text-muted-foreground">{children}</div>
       </PopoverContent>
     </Popover>
   );
@@ -1664,7 +1687,13 @@ export default function MembershipTierManagement() {
                         </div>
                       )}
                       <div className="space-y-2">
-                        <Label>Grace period (days)</Label>
+                        <div className="flex items-center gap-1">
+                          <Label>Grace period (days)</Label>
+                          <ScheduleSettingHelp label="Grace period" testId="help-dd-grace-days">
+                            <p>This is the overall recovery window after a collection fails. It is not the delay between automatic retry attempts.</p>
+                            <p>Set retry timing and maximum attempts in <a className="font-medium text-primary underline" href="/admin/integrations">Admin integrations</a>.</p>
+                          </ScheduleSettingHelp>
+                        </div>
                         <Input
                           type="number"
                           min="0"
@@ -1677,7 +1706,13 @@ export default function MembershipTierManagement() {
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                       <div className="space-y-2">
-                        <Label>First collection</Label>
+                        <div className="flex items-center gap-1">
+                          <Label>First collection</Label>
+                          <ScheduleSettingHelp label="First collection" testId="help-dd-first-collection">
+                            <p>Controls the first eligible debit date after the mandate becomes active and the subscription is created.</p>
+                            <p>Choose the earliest available date, a nominated day from 1–28, or the membership anniversary. Bank processing can move the final collection date.</p>
+                          </ScheduleSettingHelp>
+                        </div>
                         <Select
                           value={config.dd_first_collection_rule || 'earliest'}
                           onValueChange={(v) => handleConfigChange('dd_first_collection_rule', v)}
@@ -1708,7 +1743,13 @@ export default function MembershipTierManagement() {
                         </div>
                       )}
                       <div className="space-y-2">
-                        <Label>Membership activates</Label>
+                        <div className="flex items-center gap-1">
+                          <Label>Membership activates</Label>
+                          <ScheduleSettingHelp label="Membership activation" testId="help-dd-activation-rule">
+                            <p>Choose whether access starts when the mandate becomes active, after the first successful payment, or only after an administrator approves it.</p>
+                            <p>Manual approvals appear in the Direct Debit Console.</p>
+                          </ScheduleSettingHelp>
+                        </div>
                         <Select
                           value={config.dd_activation_rule || 'first_payment'}
                           onValueChange={(v) => handleConfigChange('dd_activation_rule', v)}
@@ -1723,6 +1764,11 @@ export default function MembershipTierManagement() {
                             <SelectItem value="manual">Manual approval by an admin</SelectItem>
                           </SelectContent>
                         </Select>
+                        {config.dd_activation_rule === 'manual' && (
+                          <p className="text-xs text-muted-foreground" data-testid="text-dd-manual-activation-note">
+                            Memberships will wait for approval in the Direct Debit Console before becoming active.
+                          </p>
+                        )}
                       </div>
                     </div>
                     <div className="flex items-center justify-between gap-3">

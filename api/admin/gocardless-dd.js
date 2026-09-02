@@ -10,7 +10,7 @@
 //        retry | refund | cancel_subscription | cancel_mandate |
 //        pause_subscription | resume_subscription | reconcile |
 //        extend_grace | manual_resolve | remind | resend_link | note |
-//        new_mandate_link
+//        new_mandate_link | manual_activate
 //
 // Auth: tenant admin (getTenantContext + hasAdminAccess) PLUS server-side
 // feature RBAC: member-role admins must hold 'commerce.gocardless-dd' for any
@@ -166,12 +166,19 @@ async function buildSummary(tenantId) {
     .select('id', { count: 'exact', head: true })
     .eq('tenant_id', tenantId)
     .eq('chargeback_reversed_after_payout', true);
+  const [{ count: pendingMemberActivations }, { count: pendingOrganisationActivations }] = await Promise.all([
+    supabase.from('member_membership_history').select('id', { count: 'exact', head: true })
+      .eq('tenant_id', tenantId).eq('status', 'pending_activation').eq('payment_method', 'direct_debit'),
+    supabase.from('organisation_membership_history').select('id', { count: 'exact', head: true })
+      .eq('tenant_id', tenantId).eq('status', 'pending_activation').eq('payment_method', 'direct_debit'),
+  ]);
   return {
     byStatus,
     attention,
     pendingCancellations: pendingCancellations || 0,
     failedAccounting: failedAccounting || 0,
     chargebacksAfterPayout: chargebacksAfterPayout || 0,
+    pendingActivations: (pendingMemberActivations || 0) + (pendingOrganisationActivations || 0),
   };
 }
 
@@ -182,7 +189,7 @@ async function listPlans(tenantId, query) {
     .eq('tenant_id', tenantId)
     .order('updated_at', { ascending: false })
     .limit(200);
-  if (query.status) q = q.eq('status', query.status);
+  if (query.status && query.status !== 'pending_activation') q = q.eq('status', query.status);
   const { data: plans, error } = await q;
   if (error) throw new Error(`list plans failed: ${error.message}`);
 
@@ -195,6 +202,22 @@ async function listPlans(tenantId, query) {
   ]);
   const memberMap = new Map((membersRes.data || []).map((m) => [m.id, m]));
   const orgMap = new Map((orgsRes.data || []).map((o) => [o.id, o]));
+  const agreementIds = (plans || []).map((p) => p.billing_agreement_id).filter(Boolean);
+  const [memberHistoryRes, organisationHistoryRes] = await Promise.all([
+    agreementIds.length
+      ? supabase.from('member_membership_history').select('billing_agreement_id, status')
+        .eq('tenant_id', tenantId).in('billing_agreement_id', agreementIds)
+      : { data: [] },
+    agreementIds.length
+      ? supabase.from('organisation_membership_history').select('billing_agreement_id, status')
+        .eq('tenant_id', tenantId).in('billing_agreement_id', agreementIds)
+      : { data: [] },
+  ]);
+  const activationByAgreement = new Map(
+    [...(memberHistoryRes.data || []), ...(organisationHistoryRes.data || [])]
+      .filter((h) => h.billing_agreement_id)
+      .map((h) => [h.billing_agreement_id, h.status]),
+  );
 
   let rows = (plans || []).map((p) => {
     const ag = p.membership_billing_agreements;
@@ -204,10 +227,15 @@ async function listPlans(tenantId, query) {
       ...p,
       membership_billing_agreements: undefined,
       agreement: ag ? { id: ag.id, status: ag.status, member_id: ag.member_id, organization_id: ag.organization_id, dd: ag.metadata?.dd || null } : null,
+      activation_status: activationByAgreement.get(ag?.id) || null,
+      activation_pending: activationByAgreement.get(ag?.id) === 'pending_activation',
       payer_name: org?.name || (member ? `${member.first_name || ''} ${member.last_name || ''}`.trim() : null),
       payer_email: member?.email || null,
     };
   });
+  if (query.status === 'pending_activation') {
+    rows = rows.filter((r) => r.activation_pending);
+  }
   const qText = (query.q || '').toLowerCase().trim();
   if (qText) {
     rows = rows.filter((r) =>
@@ -230,15 +258,23 @@ async function planDetail(tenantId, planId, res) {
   if (!plan) { res.status(404); return { error: 'Plan not found' }; }
 
   const agreement = plan.billing_agreement_id
-    ? (await supabase.from('membership_billing_agreements').select('*').eq('id', plan.billing_agreement_id).maybeSingle()).data
+    ? (await supabase.from('membership_billing_agreements').select('*').eq('id', plan.billing_agreement_id).eq('tenant_id', tenantId).maybeSingle()).data
     : null;
+  const membershipHistoryTable = agreement?.member_id
+    ? 'member_membership_history'
+    : (agreement?.organization_id ? 'organisation_membership_history' : null);
+  const membershipActivationPromise = membershipHistoryTable
+    ? supabase.from(membershipHistoryTable).select('id, status, payment_status')
+      .eq('tenant_id', tenantId).eq('billing_agreement_id', agreement.id).maybeSingle()
+    : Promise.resolve({ data: null });
 
-  const [paymentsRes, historyRes, actionsRes, cancellationsRes, retryAttemptsRes] = await Promise.all([
+  const [paymentsRes, historyRes, actionsRes, cancellationsRes, retryAttemptsRes, membershipActivationRes] = await Promise.all([
     supabase.from('gocardless_payments').select('*').eq('plan_id', plan.id).order('created_at', { ascending: false }).limit(100),
     supabase.from('membership_payment_status_history').select('*').eq('entity_id', plan.id).order('created_at', { ascending: false }).limit(100),
     supabase.from('membership_dd_admin_actions').select('*').eq('plan_id', plan.id).order('created_at', { ascending: false }).limit(100),
     supabase.from('membership_dd_cancellation_requests').select('*').eq('plan_id', plan.id).order('created_at', { ascending: false }).limit(20),
     supabase.from('gocardless_payment_retry_attempts').select('*').eq('plan_id', plan.id).eq('tenant_id', tenantId).order('created_at', { ascending: false }).limit(100),
+    membershipActivationPromise,
   ]);
   const payments = paymentsRes.data || [];
   const paymentIds = payments.map((p) => p.gocardless_payment_id).filter(Boolean);
@@ -256,6 +292,7 @@ async function planDetail(tenantId, planId, res) {
     adminActions: actionsRes.data || [],
     cancellationRequests: cancellationsRes.data || [],
     retryAttempts: retryAttemptsRes.data || [],
+    membershipActivation: membershipActivationRes.data || null,
     refunds,
   };
 }
@@ -343,6 +380,7 @@ async function loadPlanForAction(tenantId, planId, res) {
       .from('membership_billing_agreements')
       .select('*')
       .eq('id', plan.billing_agreement_id)
+      .eq('tenant_id', tenantId)
       .maybeSingle();
     agreement = data;
   }
@@ -453,6 +491,20 @@ async function handlePost(req, res, tenantId, actorEmail) {
   const loaded = await loadPlanForAction(tenantId, planId, res);
   if (!loaded) return;
   const { plan, agreement } = loaded;
+  if (action === 'manual_activate') {
+    if (!agreement) return res.status(400).json({ error: 'No billing agreement on this plan' });
+    const { data: result, error } = await supabase.rpc('approve_manual_dd_membership_activation', {
+      p_tenant_id: tenantId,
+      p_plan_id: planId,
+      p_actor_email: actorEmail,
+    });
+    if (error) throw new Error(`manual membership activation failed: ${error.message}`);
+    if (!result?.ok) {
+      const status = result?.reason === 'not_found' ? 404 : 409;
+      return res.status(status).json({ error: result?.detail || 'Membership cannot be activated', result });
+    }
+    return res.json({ ok: true, result });
+  }
   const gc = await gocardlessForTenant(tenantId);
 
   switch (action) {
