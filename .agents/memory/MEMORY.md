@@ -149,3 +149,4 @@
 - [Form answer-driven role assignment](form-answer-driven-role-assignment.md) — answers select only persisted role mappings; configuring them requires role-assignment authority, and they are create-only.
 - [Stripe membership invoice addresses](stripe-membership-invoice-addresses.md) — Stripe form memberships invoice only from immutable payment-time snapshots; missing snapshots fail closed.
 - [Annual membership renewal lifecycle](annual-membership-renewal-lifecycle.md) — annual policy is a dated tier snapshot; next terms always start the day after the prior persisted end, while monthly agreements stay separate.
+- [Stable query fallbacks](usequery-default-array-loop.md) — disabled useQuery results used by sync effects need stable fallbacks and equality-preserving state updates or SPA navigation can freeze.

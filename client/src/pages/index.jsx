@@ -431,6 +431,7 @@ import PlanQuotaDialog from '@/components/PlanQuotaDialog';
 import { ArticleUrlProvider } from '@/contexts/ArticleUrlContext';
 import { MemberTerminologyProvider } from '@/contexts/MemberTerminologyContext';
 import { DynamicMemberRedirector } from '@/components/routing/DynamicMemberRedirector';
+import { memberPageForPath } from '@/lib/memberDetailState.mjs';
 import { useQuery } from '@tanstack/react-query';
 import { publicClient } from '@/api/publicClient';
 const CanvasPageRenderer = lazy(() => import('@/components/canvas/CanvasPageRenderer'));
@@ -857,12 +858,8 @@ function _getCurrentPage(url) {
     ) {
         return 'OrganisationDirectory';
     }
-    if (urlParts.length >= 2 && BUILTIN_MEMBER_ALIASES.includes(urlParts[0].toLowerCase())) {
-        return 'MemberDetail';
-    }
-    if (urlParts.length === 1 && urlParts[0].toLowerCase() !== 'members' && BUILTIN_MEMBER_ALIASES.includes(urlParts[0].toLowerCase())) {
-        return 'MembersList';
-    }
+    const memberPage = memberPageForPath(url);
+    if (memberPage) return memberPage;
     
     if (urlParts.length >= 2 && urlParts[0].toLowerCase() === 'events') {
         return 'EventDetails';

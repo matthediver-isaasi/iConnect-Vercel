@@ -1,4 +1,4 @@
-import { useParams, Link, useSearchParams } from "react-router-dom";
+import { useParams, Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { base44 } from "@/api/base44Client";
 import { useState, useEffect, useMemo } from "react";
@@ -70,6 +70,13 @@ import {
   fetchAdminMemberCommunicationPreferences,
   setAdminMemberCommunicationGlobalState,
 } from "@/lib/memberCommunicationPreferences";
+import {
+  EMPTY_QUERY_LIST,
+  memberTabFromSearch,
+  preferenceValuesToState,
+  preserveEqualState,
+  searchForMemberTab,
+} from "@/lib/memberDetailState.mjs";
 
 // Stable empty-array fallback for disabled/unloaded queries. Using an inline
 // `= []` destructure default creates a NEW array identity on every render,
@@ -78,9 +85,6 @@ import {
 // (org-less members: the org-pref-values query is disabled, so its data stays
 // undefined forever) that starved React Router's navigation transitions —
 // the URL changed but the page never repainted.
-const EMPTY_PREF_VALUES = [];
-const EMPTY_ORG_GROUPS = [];
-
 function MemberDetailCountryMultiSelect({ fieldId, selectedValues, availableCountries, onChange, label }) {
   const [open, setOpen] = useState(false);
 
@@ -155,6 +159,7 @@ function MemberDetailCountryMultiSelect({ fieldId, selectedValues, availableCoun
 
 export default function MemberDetail() {
   const { id } = useParams();
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { isAdmin, isAccessReady, isFeatureExcluded } = useMemberAccess();
   const { memberLabel, listPath } = useMemberTerminology();
@@ -175,7 +180,7 @@ export default function MemberDetail() {
   } = useWorkflowConfirmation();
   const [searchParams, setSearchParams] = useSearchParams();
   const [isEditing, setIsEditing] = useState(false);
-  const [activeTab, setActiveTab] = useState(() => searchParams.get('tab') || 'overview');
+  const [activeTab, setActiveTab] = useState(() => memberTabFromSearch(searchParams));
   const [deleteSubmissionId, setDeleteSubmissionId] = useState(null);
   const [deleteConfirmStep, setDeleteConfirmStep] = useState(0);
   const [formData, setFormData] = useState({
@@ -224,7 +229,8 @@ export default function MemberDetail() {
 
   // Keep browser back/forward navigation aligned with the route-backed tab.
   useEffect(() => {
-    setActiveTab(searchParams.get('tab') || 'overview');
+    const routeTab = memberTabFromSearch(searchParams);
+    setActiveTab((current) => current === routeTab ? current : routeTab);
   }, [searchParams]);
 
   // Delete member state
@@ -346,13 +352,13 @@ export default function MemberDetail() {
     ]
   });
 
-  const { data: organizations = [] } = useQuery({
+  const { data: organizations = EMPTY_QUERY_LIST } = useQuery({
     queryKey: ['organizations-for-member-detail'],
     enabled: isAccessReady,
     queryFn: () => listOrganizationsForAdmin('name')
   });
 
-  const { data: orgGroups = EMPTY_ORG_GROUPS } = useQuery({
+  const { data: orgGroups = EMPTY_QUERY_LIST } = useQuery({
     queryKey: ['org-groups-for-member-detail'],
     enabled: isAccessReady,
     queryFn: async () => {
@@ -364,7 +370,7 @@ export default function MemberDetail() {
     }
   });
 
-  const { data: roles = [] } = useQuery({
+  const { data: roles = EMPTY_QUERY_LIST } = useQuery({
     queryKey: ['roles-for-member-detail'],
     enabled: isAccessReady,
     queryFn: () => base44.entities.Role.list()
@@ -373,7 +379,7 @@ export default function MemberDetail() {
   const { layoutConfig, isLoading: isLayoutLoading, saveLayout, isSaving: isLayoutSaving } = useMemberDetailLayout({ enabled: isAccessReady });
   const { rulesConfig, saveRules, isSaving: isRulesSaving } = useMemberFieldVisibilityRules({ enabled: isAccessReady });
 
-  const { data: memberCustomFields = [] } = useQuery({
+  const { data: memberCustomFields = EMPTY_QUERY_LIST } = useQuery({
     queryKey: ['member-custom-fields-for-detail'],
     enabled: isAccessReady,
     queryFn: async () => {
@@ -397,7 +403,7 @@ export default function MemberDetail() {
     }
   });
 
-  const { data: memberPrefValues = EMPTY_PREF_VALUES } = useQuery({
+  const { data: memberPrefValues = EMPTY_QUERY_LIST } = useQuery({
     queryKey: ['member-pref-values', id],
     enabled: !!id && isAccessReady,
     queryFn: async () => {
@@ -413,7 +419,7 @@ export default function MemberDetail() {
   });
 
   // Linked organisation: custom field defs, the org record, and its preference values.
-  const { data: orgCustomFields = [] } = useQuery({
+  const { data: orgCustomFields = EMPTY_QUERY_LIST } = useQuery({
     queryKey: ['org-custom-fields-for-member-detail'],
     enabled: isAccessReady,
     queryFn: async () => {
@@ -441,7 +447,7 @@ export default function MemberDetail() {
     }
   });
 
-  const { data: orgPrefValues = EMPTY_PREF_VALUES } = useQuery({
+  const { data: orgPrefValues = EMPTY_QUERY_LIST } = useQuery({
     queryKey: ['org-detail-preference-values', member?.organization_id],
     enabled: !!member?.organization_id && isAccessReady,
     queryFn: async () => {
@@ -471,7 +477,7 @@ export default function MemberDetail() {
 
 
   // Categories tab queries
-  const { data: resourceCategories = [], isLoading: categoriesLoading } = useQuery({
+  const { data: resourceCategories = EMPTY_QUERY_LIST, isLoading: categoriesLoading } = useQuery({
     queryKey: ['resource-categories-for-member-detail'],
     enabled: activeTab === 'categories',
     queryFn: async () => {
@@ -486,7 +492,7 @@ export default function MemberDetail() {
     }
   });
 
-  const { data: memberCategorySelections = [], isLoading: selectionsLoading } = useQuery({
+  const { data: memberCategorySelections = EMPTY_QUERY_LIST, isLoading: selectionsLoading } = useQuery({
     queryKey: ['member-resource-categories', id],
     enabled: !!id && activeTab === 'categories',
     queryFn: async () => {
@@ -503,7 +509,7 @@ export default function MemberDetail() {
   });
 
   // Notes query
-  const { data: memberNotes = [], isLoading: notesLoading } = useQuery({
+  const { data: memberNotes = EMPTY_QUERY_LIST, isLoading: notesLoading } = useQuery({
     queryKey: ['member-notes', id],
     enabled: !!id && activeTab === 'notes',
     queryFn: async () => {
@@ -587,7 +593,7 @@ export default function MemberDetail() {
       setShowDeleteDialog(false);
       setDeleteConfirmText('');
       toast.success(`${memberLabel} deleted successfully`);
-      window.location.href = listPath;
+      navigate(listPath);
     },
     onError: (error) => {
       toast.error(error.message || `Could not delete ${memberLabel.toLowerCase()}. Please try again.`);
@@ -599,9 +605,9 @@ export default function MemberDetail() {
     enabled: !!id && (activeTab === 'communications' || activeTab === 'overview'),
     queryFn: () => fetchAdminMemberCommunicationPreferences(id),
   });
-  const availableCommCategories = communicationPreferenceData?.categories || [];
+  const availableCommCategories = communicationPreferenceData?.categories || EMPTY_QUERY_LIST;
 
-  const { data: memberFormSubmissions = [], isLoading: formSubmissionsLoading, isError: formSubmissionsError, refetch: refetchFormSubmissions } = useQuery({
+  const { data: memberFormSubmissions = EMPTY_QUERY_LIST, isLoading: formSubmissionsLoading, isError: formSubmissionsError, refetch: refetchFormSubmissions } = useQuery({
     queryKey: ['member-form-submissions', id, member?.email],
     enabled: !!id && !!member && activeTab === 'forms',
     queryFn: async () => {
@@ -730,26 +736,14 @@ export default function MemberDetail() {
   }, [member, isEditing]);
 
   useEffect(() => {
-    if (memberCustomFields.length > 0 && memberPrefValues.length >= 0) {
-      const vals = {};
-      memberPrefValues.forEach(pv => {
-        const field = memberCustomFields.find(f => f.id === pv.field_id);
-        if (field) {
-          if ((field.field_type === 'picklist' || field.field_type === 'list' || field.field_type === 'countries') && typeof pv.value === 'string') {
-            try { vals[field.id] = JSON.parse(pv.value); } catch { vals[field.id] = pv.value; }
-          } else {
-            vals[field.id] = pv.value;
-          }
-        }
-      });
-      setCustomFieldValues(vals);
-    }
+    const next = preferenceValuesToState(memberCustomFields, memberPrefValues);
+    setCustomFieldValues((previous) => preserveEqualState(previous, next));
   }, [memberPrefValues, memberCustomFields]);
 
   // Sync linked-organisation core form data
   useEffect(() => {
-    if (linkedOrg && !isEditing) {
-      setOrgFormData({
+    if (!isEditing) {
+      const next = linkedOrg ? {
         name: linkedOrg.name || '',
         description: linkedOrg.description || '',
         email: linkedOrg.email || '',
@@ -758,39 +752,27 @@ export default function MemberDetail() {
         website_url: linkedOrg.website_url || '',
         invoicing_address: linkedOrg.invoicing_address || '',
         created_at: linkedOrg.created_at || ''
-      });
+      } : {};
+      setOrgFormData((previous) => preserveEqualState(previous, next));
     }
   }, [linkedOrg, isEditing]);
 
   // Sync linked-organisation custom field values
   useEffect(() => {
-    if (orgCustomFields.length > 0 && orgPrefValues.length >= 0) {
-      const vals = {};
-      orgPrefValues.forEach(pv => {
-        const field = orgCustomFields.find(f => f.id === pv.field_id);
-        if (field) {
-          if ((field.field_type === 'picklist' || field.field_type === 'list' || field.field_type === 'countries') && typeof pv.value === 'string') {
-            try { vals[field.id] = JSON.parse(pv.value); } catch { vals[field.id] = pv.value; }
-          } else {
-            vals[field.id] = pv.value;
-          }
-        }
-      });
-      setOrgCustomFieldValues(vals);
-    }
+    const next = preferenceValuesToState(orgCustomFields, orgPrefValues);
+    setOrgCustomFieldValues((previous) => preserveEqualState(previous, next));
   }, [orgPrefValues, orgCustomFields]);
 
   // Clear category selections immediately when navigating to another member,
   // then replace them with the authoritative endpoint response.
   useEffect(() => {
-    setSelectedSubcategories([]);
+    setSelectedSubcategories((previous) => preserveEqualState(previous, []));
   }, [id]);
 
   useEffect(() => {
     if (selectionsLoading) return;
-    setSelectedSubcategories(
-      normalizeMemberCategorySelections(memberCategorySelections),
-    );
+    const next = normalizeMemberCategorySelections(memberCategorySelections);
+    setSelectedSubcategories((previous) => preserveEqualState(previous, next));
   }, [memberCategorySelections, selectionsLoading]);
 
   // Sync opening balances from member data
@@ -1631,10 +1613,8 @@ export default function MemberDetail() {
 
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={(tab) => {
-        setActiveTab(tab);
-        const next = new URLSearchParams(searchParams);
-        if (tab === 'overview') next.delete('tab');
-        else next.set('tab', tab);
+        setActiveTab((current) => current === tab ? current : tab);
+        const next = searchForMemberTab(searchParams, tab);
         setSearchParams(next, { replace: true });
       }}>
         <TabsList className="mb-6">
@@ -2837,7 +2817,7 @@ export default function MemberDetail() {
           // If the record we're viewing was the source and it got removed,
           // send the admin to the kept (target) record instead.
           if (sourceId === id && result?.summary?.sourceOutcome !== 'keep') {
-            window.location.href = `${listPath}/${targetId}`;
+            navigate(`${listPath}/${targetId}`);
           }
         }}
       />
