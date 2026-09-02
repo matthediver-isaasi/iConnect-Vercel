@@ -12,11 +12,54 @@ import { supabase } from '../_lib/database.js';
 import { applyArrearsPolicy } from '../_lib/gocardlessArrears.js';
 import { STATUS } from '../_lib/gocardlessState.js';
 import {
+  accrueFailedMonthlyPeriod,
+  executePostGraceCollection,
+} from '../_lib/monthlyArrearsCollection.js';
+import { gocardlessForTenant } from '../_lib/gocardless.js';
+import {
   sendDdLifecycleEmail,
   sendRecurringPaymentAdminEscalation,
 } from '../_lib/gocardlessDdEmails.js';
 
 const MAX_ROWS = 200;
+
+export async function runMonthlyCollectionSweep({
+  db = supabase, nowIso = new Date().toISOString(), maxRows = MAX_ROWS,
+  getGc = gocardlessForTenant, accrue = accrueFailedMonthlyPeriod,
+  execute = executePostGraceCollection,
+} = {}) {
+  const counters = { scanned: 0, created: 0, stopped: 0, errors: 0, details: [] };
+  const { data: plans, error } = await db.from('membership_payment_plans').select('*')
+    .in('status', [STATUS.PAYMENT_GRACE_PERIOD, STATUS.PAYMENT_OVERDUE])
+    .neq('provider', 'stripe').eq('interval_unit', 'monthly')
+    .not('grace_expires_at', 'is', null).lte('grace_expires_at', nowIso)
+    .order('grace_expires_at', { ascending: true }).order('id', { ascending: true })
+    .limit(maxRows);
+  if (error) throw new Error(`load monthly collection sweep failed: ${error.message}`);
+  for (const plan of plans || []) {
+    counters.scanned++;
+    try {
+      const { data: agreement, error: agreementError } = await db
+        .from('membership_billing_agreements').select('*')
+        .eq('id', plan.billing_agreement_id).eq('tenant_id', plan.tenant_id).maybeSingle();
+      if (agreementError || !agreement) throw new Error(agreementError?.message || 'billing agreement not found');
+      await accrue({
+        tenantId: plan.tenant_id, plan,
+        duePeriod: String(plan.failed_due_period || plan.grace_expires_at).slice(0, 10),
+        paymentReference: plan.last_payment_id || null, db,
+      });
+      const gc = await getGc(plan.tenant_id, { db });
+      const outcome = await execute({ plan, agreement, db, gc });
+      if (outcome.created) counters.created++;
+      if (outcome.stopped) counters.stopped++;
+      counters.details.push({ planId: plan.id, ...outcome });
+    } catch (err) {
+      counters.errors++;
+      counters.details.push({ planId: plan.id, error: err.message });
+    }
+  }
+  return counters;
+}
 
 export default async function handler(req, res) {
   const authHeader = req.headers.authorization;
@@ -28,7 +71,11 @@ export default async function handler(req, res) {
   if (!supabase) return res.status(500).json({ error: 'Database not configured' });
 
   const startTime = Date.now();
-  const results = { policiesApplied: 0, emailed: 0, skipped: 0, errors: 0, details: [] };
+  const results = {
+    policiesApplied: 0, emailed: 0, skipped: 0, errors: 0,
+    collectionScanned: 0, collectionCreated: 0, collectionStopped: 0, collectionErrors: 0,
+    details: [],
+  };
   const nowIso = new Date().toISOString();
 
   try {
@@ -123,6 +170,17 @@ export default async function handler(req, res) {
         results.details.push({ planId: plan.id, error: planErr.message });
       }
     }
+
+    // Money collection is deliberately a separate sweep. Access policy and
+    // notices above remain one-time; this sweep keeps retrying durable intents
+    // and later debt regardless of arrears_policy_applied.
+    const collection = await runMonthlyCollectionSweep({ db: supabase, nowIso });
+    results.collectionScanned += collection.scanned;
+    results.collectionCreated += collection.created;
+    results.collectionStopped += collection.stopped;
+    results.collectionErrors += collection.errors;
+    results.errors += collection.errors;
+    results.details.push(...collection.details.map((d) => ({ ...d, step: 'monthly-collection' })));
   } catch (err) {
     console.error('[cron/gocardless-arrears] fatal:', err);
     results.errors++;

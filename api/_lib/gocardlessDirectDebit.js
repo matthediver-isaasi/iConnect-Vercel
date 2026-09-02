@@ -24,6 +24,7 @@ import { applyStatusTransition, STATUS } from './gocardlessState.js';
 
 export const FIRST_COLLECTION_RULES = ['earliest', 'nominated_day', 'anniversary'];
 export const ACTIVATION_RULES = ['mandate', 'first_payment', 'manual'];
+export const MONTHLY_POST_GRACE_COLLECTION_POLICIES = ['stop_collecting', 'continue_catch_up'];
 
 export function toMinorUnits(amount) {
   const n = Number(amount);
@@ -71,6 +72,9 @@ export function resolveDdOffer(simResult) {
     // Task #3633: 'annual' (default) or 'per_instalment'. Snapshotted at
     // consent — later config edits never change an in-flight agreement.
     invoicingMode: config.dd_invoicing_mode === 'per_instalment' ? 'per_instalment' : 'annual',
+    monthlyPostGraceCollectionPolicy: MONTHLY_POST_GRACE_COLLECTION_POLICIES
+      .includes(config.monthly_post_grace_collection_policy)
+      ? config.monthly_post_grace_collection_policy : 'stop_collecting',
   };
 }
 
@@ -138,6 +142,9 @@ export function buildAgreementSnapshot({ offer, simResult, acceptedAt = new Date
     grace_days: offer.graceDays,
     terms_version: offer.termsVersion,
     invoicing_mode: offer.invoicingMode === 'per_instalment' ? 'per_instalment' : 'annual',
+    // Collection continuation is a consent-time term, unlike the separate
+    // dd_arrears_policy access/escalation behaviour.
+    monthly_post_grace_collection_policy: offer.monthlyPostGraceCollectionPolicy,
     accepted_at: acceptedAt,
     membership_year: simResult?.membershipYear?.label || null,
     membership_year_start: simResult?.membershipYear?.start

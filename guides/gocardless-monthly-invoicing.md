@@ -1,3 +1,11 @@
+## Arrears catch-up and invoices
+
+The post-grace collection policy is consent-snapshotted per agreement. Open
+arrears periods are tenant-scoped and settled oldest first. A catch-up payment
+does not change annual versus per-instalment accounting mode: annual plans
+retain their annual accounting semantics, while per-instalment plans retain a
+provider payment/invoice audit trail. Replayed webhooks must use the same
+payment reference and cannot create a second arrears period.
 # GoCardless Monthly Membership Invoicing
 
 **Author:** isaasi  

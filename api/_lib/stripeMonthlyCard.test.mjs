@@ -40,11 +40,119 @@ const {
   processStripeCardPlanEvent,
   compensateFormMonthlyCardConflict,
   settleCardPlanCompletion,
+  stripeInvoiceFailedDuePeriod,
+  validateStripeCatchUpInvoiceEconomics,
 } = await import('./stripeMonthlyCard.js');
 
 // ---------------------------------------------------------------------------
 // resolveCardMonthlyOffer
 // ---------------------------------------------------------------------------
+
+test('combined Stripe invoice failure derives only recurring line period, never catch-up item period', () => {
+  const due = stripeInvoiceFailedDuePeriod({
+    lines: { data: [
+      { metadata: { catch_up_intent_key: 'intent-old' }, period: { start: 1735689600 } },
+      { metadata: {}, period: { start: 1738368000 } },
+    ] },
+  });
+  assert.equal(due, '2025-02-01');
+});
+
+test('catch-up-only expanded Stripe failure never falls back to invoice period_start', () => {
+  assert.equal(stripeInvoiceFailedDuePeriod({
+    subscription: 'sub_1', billing_reason: 'subscription_cycle', period_start: 1735689600,
+    lines: { data: [{ metadata: { catch_up_intent_key: 'intent-only' }, period: { start: 1735689600 } }] },
+  }), null);
+});
+
+test('Stripe invoice period_start fallback requires no expanded lines and recurring representation', () => {
+  assert.equal(stripeInvoiceFailedDuePeriod({
+    subscription: 'sub_1', billing_reason: 'subscription_cycle', period_start: 1735689600, lines: { data: [] },
+  }), '2025-01-01');
+  assert.equal(stripeInvoiceFailedDuePeriod({ period_start: 1735689600, lines: { data: [] } }), null);
+});
+
+const economicIntent = {
+  intent_key: 'catch-1', provider_reference: 'ii-arrears',
+  arrears_amount_minor: 800, planned_amount_minor: 2000,
+};
+const exactEconomicInvoice = {
+  amount_paid: 2000, amount_remaining: 0, starting_balance: 0, ending_balance: 0,
+  discounts: [], total_discount_amounts: [], total_tax_amounts: [],
+  lines: { has_more: false, data: [
+    { id: 'il-current', amount: 1200, metadata: {} },
+    { id: 'il-arrears', invoice_item: 'ii-arrears', amount: 800, metadata: { catch_up_intent_key: 'catch-1' } },
+  ] },
+};
+
+test('Stripe catch-up economics accepts only exact full cash settlement', () => {
+  assert.deepEqual(validateStripeCatchUpInvoiceEconomics(exactEconomicInvoice, economicIntent), {
+    arrearsAmountMinor: 800, recurringAmountMinor: 1200,
+  });
+});
+
+for (const [name, mutate, pattern] of [
+  ['discount lowers cash paid', (i) => ({ ...i, amount_paid: 1900, discounts: [{ coupon: 'x' }] }), /cash-paid|credits/],
+  ['customer balance credit', (i) => ({ ...i, starting_balance: -100 }), /credits/],
+  ['partial amount remaining', (i) => ({ ...i, amount_paid: 1900, amount_remaining: 100 }), /cash-paid/],
+  ['catch-up line mismatch', (i) => ({ ...i, lines: { ...i.lines, data: [i.lines.data[0], { ...i.lines.data[1], amount: 700 }] } }), /catch-up line/],
+  ['recurring line mismatch', (i) => ({ ...i, lines: { ...i.lines, data: [{ ...i.lines.data[0], amount: 1100 }, i.lines.data[1]] } }), /recurring line/],
+]) {
+  test(`Stripe catch-up economics rejects ${name} before mutation`, () => {
+    const invoice = mutate(exactEconomicInvoice);
+    assert.throws(() => validateStripeCatchUpInvoiceEconomics(invoice, economicIntent), pattern);
+    assert.throws(() => validateStripeCatchUpInvoiceEconomics(invoice, economicIntent), pattern);
+  });
+}
+
+function processorEconomicsDb(mutations) {
+  const plan = {
+    id: 'plan-econ', tenant_id: 'tenant-econ', provider: 'stripe',
+    stripe_subscription_id: 'sub-econ', billing_agreement_id: 'agreement-econ',
+    amount_minor: 1200, instalments_total: 12, instalments_paid: 1, metadata: {},
+  };
+  const agreement = { id: 'agreement-econ', tenant_id: 'tenant-econ', metadata: { card: {} } };
+  const intent = {
+    id: 'intent-econ', tenant_id: 'tenant-econ', plan_id: 'plan-econ',
+    intent_key: 'catch-1', provider_reference: 'ii-arrears',
+    status: 'created', arrears_amount_minor: 800, planned_amount_minor: 2000,
+    period_ids: ['period-1'],
+  };
+  return {
+    rpc: async (name) => { mutations.push(`rpc:${name}`); return { data: [], error: null }; },
+    from(table) {
+      const chain = {
+        select() { return chain; }, eq() { return chain; }, or() { return chain; }, order() { return chain; },
+        update() { mutations.push(`update:${table}`); return chain; },
+        insert() { mutations.push(`insert:${table}`); return chain; },
+        maybeSingle: async () => ({ data: table === 'membership_payment_plans' ? plan
+          : table === 'membership_billing_agreements' ? agreement : null, error: null }),
+        then(resolve) {
+          return Promise.resolve({
+            data: table === 'membership_monthly_collection_intent' ? [intent] : [], error: null,
+          }).then(resolve);
+        },
+      };
+      return chain;
+    },
+  };
+}
+
+for (const [name, mutate] of [
+  ['line mismatch', (i) => ({ ...i, lines: { ...i.lines, data: [{ ...i.lines.data[0], amount: 1100 }, i.lines.data[1]] } })],
+  ['discount or customer credit', (i) => ({ ...i, amount_paid: 1900, starting_balance: -100 })],
+  ['partial amount remaining', (i) => ({ ...i, amount_paid: 1900, amount_remaining: 100 })],
+]) {
+  test(`processor invoice.paid ${name} rejects with zero mutation including replay`, async () => {
+    const mutations = [];
+    const invoice = { ...mutate(exactEconomicInvoice), id: 'in-econ', subscription: 'sub-econ', currency: 'gbp' };
+    const event = { id: `evt-${name}`, type: 'invoice.paid', data: { object: invoice } };
+    const db = processorEconomicsDb(mutations);
+    await assert.rejects(processStripeCardPlanEvent(event, { db }), /mismatch|cash-paid|credits/);
+    await assert.rejects(processStripeCardPlanEvent({ ...event, id: `${event.id}-replay` }, { db }), /mismatch|cash-paid|credits/);
+    assert.deepEqual(mutations, []);
+  });
+}
 
 const flatSim = (overrides = {}, configOverrides = {}) => ({
   success: true,

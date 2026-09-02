@@ -102,6 +102,12 @@ function DirectDebitPlansAdminCard() {
                   <span className="text-xs text-muted-foreground">
                     Next: {fmtDate(plan.nextChargeDate)}
                   </span>
+                   {plan.arrearsCount > 0 && (
+                     <span className="text-xs text-destructive" data-testid={`text-dd-plan-arrears-${plan.id}`}>
+                       Arrears: {plan.arrearsCount} / {fmtMoney(plan.arrearsAmount, plan.currency)}
+                     </span>
+                   )}
+                   {plan.collectionStopped && <Badge variant="destructive">Collection stopped</Badge>}
                   <Badge variant={DD_STATUS_VARIANTS[plan.status] || 'outline'} data-testid={`badge-dd-plan-status-${plan.id}`}>
                     {(plan.status || 'pending').replace(/_/g, ' ')}
                   </Badge>

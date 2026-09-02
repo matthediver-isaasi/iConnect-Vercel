@@ -37,6 +37,7 @@ import {
 import { sendDdLifecycleEmail } from './gocardlessDdEmails.js';
 import { STATUS } from './gocardlessState.js';
 import { getPausedMemberIdSet } from './memberPause.js';
+import { assertNoOpenMonthlyArrears } from './monthlyArrearsCollection.js';
 
 export const RENEWAL_NOTICE_DAYS = 30;
 
@@ -316,6 +317,18 @@ export async function processTenantDdRenewals(tenantId, results, deps = {}) {
         .order('created_at', { ascending: false })
         .limit(1);
       const planStatus = plans?.[0]?.status || null;
+      // Fail closed before notices or renewal creation: a query failure and
+      // genuine debt are both blockers, never permission to renew.
+      if (!plans?.[0]?.id) {
+        results.details.push({ tenantId, agreementId: agreement.id, step: 'dd-renewals', status: 'blocked', reason: 'missing payment plan' });
+        continue;
+      }
+      try {
+        await assertNoOpenMonthlyArrears({ tenantId, planId: plans[0].id, db });
+      } catch (arrearsErr) {
+        results.details.push({ tenantId, agreementId: agreement.id, step: 'dd-renewals', status: 'blocked', reason: arrearsErr.message });
+        continue;
+      }
 
       const renewalYear = deriveNextYearLabel(snapshot.membership_year) || `after ${snapshot.membership_year}`;
 

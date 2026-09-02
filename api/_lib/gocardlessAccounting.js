@@ -37,6 +37,29 @@ const BANK_SETTING_KEYS = {
   quickbooks: 'quickbooks_gocardless_bank_account_id',
 };
 
+// Catch-up payments are split into exact arrears periods by the shared
+// accounting ledger, so this helper intentionally has no aggregate payment-row
+// claim. The caller owns the per-period CAS and supplies a deterministic key.
+export async function postDdArrearsPeriodToAccounting({
+  agreement, amountMinor, externalReference,
+}, deps = {}) {
+  if (!isPerInstalmentAgreement(agreement)) return { status: 'skipped', reason: 'agreement is not per-instalment' };
+  const db = deps.db || supabase;
+  const provider = await (deps.getProvider || getAccountingProvider)(agreement.tenant_id);
+  if (!provider || provider.name === PROVIDER_NONE) return { status: 'skipped', reason: 'no accounting provider connected' };
+  const snapshot = agreement.metadata?.dd;
+  const outcome = await mintOrPayInstalmentInvoice({
+    provider, agreement, snapshot, amountMinor,
+    reference: `Membership ${snapshot?.membership_year || ''} - DD arrears ${externalReference}`.trim(),
+    paymentReference: `GoCardless DD arrears: ${externalReference}`,
+    idempotencyKey: `mii-gc-arrears-${externalReference}`,
+    bankAccountSettingKey: BANK_SETTING_KEYS[provider.name] || null,
+    strictBankAccount: true, db,
+  });
+  if (!outcome.paymentRecorded) throw new Error('arrears invoice created but payment not recorded');
+  return { status: 'posted', invoiceId: outcome.invoiceId || null };
+}
+
 async function setSyncStatus(db, paymentRowId, patch) {
   const { error } = await db
     .from('gocardless_payments')

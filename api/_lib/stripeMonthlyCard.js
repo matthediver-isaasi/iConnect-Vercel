@@ -27,6 +27,7 @@ import { randomUUID } from 'node:crypto';
 import {
   toMinorUnits,
   ACTIVATION_RULES,
+  MONTHLY_POST_GRACE_COLLECTION_POLICIES,
   membershipHistoryTableForAgreement,
 } from './gocardlessDirectDebit.js';
 import {
@@ -35,6 +36,13 @@ import {
   clearAgreementArrearsFlag,
   restoreArrearsRoleAssignments,
 } from './gocardlessArrears.js';
+import {
+  accrueFailedMonthlyPeriod,
+  failMonthlyCollectionIntent,
+  settleMonthlyArrears,
+  postSettledArrearsPeriods,
+  completeMonthlyCollectionIntent,
+} from './monthlyArrearsCollection.js';
 import { sendDdLifecycleEmail } from './gocardlessDdEmails.js';
 import { fireWorkflowForPaidRow } from './membershipPaymentReconciliation.js';
 import { isPerInstalmentAgreement, postStripeInstalmentInvoice } from './membershipInstalmentInvoicing.js';
@@ -81,6 +89,9 @@ export function resolveCardMonthlyOffer(simResult) {
     termsVersion: config.dd_terms_version || 'v1',
     // Task #3633: shared with DD — 'annual' (default) or 'per_instalment'.
     invoicingMode: config.dd_invoicing_mode === 'per_instalment' ? 'per_instalment' : 'annual',
+    monthlyPostGraceCollectionPolicy: MONTHLY_POST_GRACE_COLLECTION_POLICIES
+      .includes(config.monthly_post_grace_collection_policy)
+      ? config.monthly_post_grace_collection_policy : 'stop_collecting',
   };
 }
 
@@ -109,6 +120,7 @@ export function buildCardAgreementSnapshot({ offer, simResult, acceptedAt = new 
     grace_days: offer.graceDays,
     terms_version: offer.termsVersion,
     invoicing_mode: offer.invoicingMode === 'per_instalment' ? 'per_instalment' : 'annual',
+    monthly_post_grace_collection_policy: offer.monthlyPostGraceCollectionPolicy,
     accepted_at: acceptedAt,
     membership_year: simResult?.membershipYear?.label || null,
     membership_year_start: simResult?.membershipYear?.start
@@ -170,17 +182,64 @@ export function cardPlanNeedsSettlement(plan) {
   return true;
 }
 
-export function cardPlanCompletionDecision({ plan, invoiceId }) {
+export function cardPlanCompletionDecision({ plan, invoiceId, periodsSettled = 0 }) {
   const paidIds = Array.isArray(plan?.metadata?.paid_invoice_ids) ? plan.metadata.paid_invoice_ids : [];
   if (invoiceId && paidIds.includes(invoiceId)) return { duplicate: true };
   const total = Number(plan?.instalments_total) || 0;
-  const instalmentsPaid = (Number(plan?.instalments_paid) || 0) + 1;
+  const instalmentsPaid = (Number(plan?.instalments_paid) || 0) + 1 + Math.max(0, Number(periodsSettled) || 0);
   return {
     duplicate: false,
     instalmentsPaid,
     complete: total > 0 && instalmentsPaid >= total,
     paidInvoiceIds: invoiceId ? [...paidIds, invoiceId] : paidIds,
   };
+}
+
+export function stripeInvoiceFailedDuePeriod(invoice) {
+  const lines = invoice?.lines?.data || [];
+  const starts = lines
+    // Our one-off arrears invoice item is not a recurring instalment period.
+    .filter((line) => !line?.metadata?.catch_up_intent_key)
+    .map((line) => Number(line?.period?.start))
+    .filter((value) => Number.isFinite(value) && value > 0);
+  if (lines.length) return starts.length ? new Date(Math.min(...starts) * 1000).toISOString().slice(0, 10) : null;
+  // Invoice-level period_start is only meaningful for a known recurring
+  // subscription invoice when expanded line data was unavailable.
+  const recurring = ['subscription_cycle', 'subscription_create', 'subscription_update']
+    .includes(invoice?.billing_reason) || !!invoice?.subscription;
+  const epoch = recurring ? Number(invoice?.period_start) : NaN;
+  return Number.isFinite(epoch) && epoch > 0
+    ? new Date(epoch * 1000).toISOString().slice(0, 10) : null;
+}
+
+export function validateStripeCatchUpInvoiceEconomics(invoice, intent) {
+  const arrears = Number(intent?.arrears_amount_minor);
+  const planned = Number(intent?.planned_amount_minor ?? intent?.amount_minor);
+  if (!Number.isInteger(arrears) || !Number.isInteger(planned) || planned < arrears) {
+    throw new Error('catch-up intent has invalid planned economics');
+  }
+  const lines = invoice?.lines?.data;
+  if (!Array.isArray(lines) || !invoice?.lines || invoice.lines.has_more) {
+    throw new Error('Stripe catch-up invoice lines are not fully expanded');
+  }
+  const catchUp = lines.filter((line) =>
+    line.metadata?.catch_up_intent_key === intent.intent_key
+    || line.invoice_item === intent.provider_reference || line.id === intent.provider_reference);
+  const recurring = lines.filter((line) => !catchUp.includes(line));
+  const sum = (items) => items.reduce((total, line) => total + (Number(line.amount) || 0), 0);
+  if (sum(catchUp) !== arrears) throw new Error('Stripe catch-up line amount mismatch');
+  if (sum(recurring) !== planned - arrears) throw new Error('Stripe recurring line amount mismatch');
+  if (Number(invoice.amount_paid) !== planned || Number(invoice.amount_remaining) !== 0) {
+    throw new Error('Stripe invoice is not fully cash-paid at planned amount');
+  }
+  if ((invoice.discounts?.length || 0) || (invoice.total_discount_amounts?.length || 0)
+    || (invoice.total_tax_amounts?.length || 0) || Number(invoice.tax || 0) !== 0
+    || Number(invoice.starting_balance || 0) !== 0 || Number(invoice.ending_balance || 0) !== 0
+    || Number(invoice.pre_payment_credit_notes_amount || 0) !== 0
+    || Number(invoice.post_payment_credit_notes_amount || 0) !== 0) {
+    throw new Error('Stripe catch-up invoice contains unvalidated credits, discounts, balance, or tax');
+  }
+  return { arrearsAmountMinor: arrears, recurringAmountMinor: planned - arrears };
 }
 
 const COMPLETION_WORKFLOW_LEASE_MS = 5 * 60 * 1000;
@@ -518,6 +577,18 @@ export async function settleCardPlanCompletion({ plan, agreement, stripe = null,
   const db = dbArg || supabase;
   const historyTable = membershipHistoryTableForAgreement(agreement);
   let workflowFired = false;
+  // Never mark a fixed plan complete merely because its regular instalment
+  // counter is exhausted: later/open catch-up ledger debt remains payable.
+  try {
+    const { count, error } = await db.from('membership_monthly_arrears_period')
+      .select('id', { count: 'exact', head: true })
+      .eq('tenant_id', plan.tenant_id).eq('plan_id', plan.id).is('settled_at', null);
+    if (!error && (count || 0) > 0) {
+      return { transition: { applied: false, skippedReason: 'unresolved-monthly-arrears' }, workflowFired: false, concluded: false };
+    }
+  } catch (err) {
+    if (err?.code !== '42P01') throw err;
+  }
 
   if (historyTable) {
     const workflowClaim = await claimCompletionWorkflow({
@@ -724,6 +795,18 @@ export async function handleCardPaymentFailure({ plan, agreement, eventId = null
       .update({ retry_count: retryCount, grace_expires_at: graceExpiresAt.toISOString(), updated_at: now.toISOString() })
       .eq('id', plan.id);
     if (error) console.error('[StripeCard] failure bookkeeping update failed:', error.message);
+  }
+  if (plan.interval_unit === 'monthly') {
+    if (!plan.failed_due_period || !plan.failed_provider_reference) {
+      throw new Error('authoritative failed due period/reference required for immediate Stripe arrears accrual');
+    }
+    await accrueFailedMonthlyPeriod({
+      tenantId: plan.tenant_id,
+      plan,
+      duePeriod: plan.failed_due_period,
+      paymentReference: plan.failed_provider_reference,
+      db,
+    });
   }
   return { toStatus, result, graceExpiresAt: graceExpiresAt.toISOString(), retryCount };
 }
@@ -1132,6 +1215,45 @@ export async function processStripeCardPlanEvent(event, deps = {}) {
     if (plan.provider !== 'stripe') return { handled: false, detail: 'plan is not a stripe plan' };
     const agreement = plan.billing_agreement_id ? await findCardAgreementById(db, plan.billing_agreement_id) : null;
     if (!agreement) return { handled: false, detail: 'plan has no billing agreement' };
+    const invoiceLines = object.lines?.data || [];
+    const intentKeys = [...new Set(invoiceLines.map((line) => line.metadata?.catch_up_intent_key).filter(Boolean))].sort();
+    const itemIds = [...new Set(invoiceLines.flatMap((line) => [line.id, line.invoice_item]).filter(Boolean))].sort();
+    let catchUpIntent = null;
+    if (intentKeys.length || itemIds.length) {
+      const clauses = [];
+      if (intentKeys.length) clauses.push(`intent_key.in.(${intentKeys.join(',')})`);
+      if (itemIds.length) clauses.push(`provider_reference.in.(${itemIds.join(',')})`);
+      const { data: intents, error: intentError } = await db.from('membership_monthly_collection_intent')
+        .select('*').eq('tenant_id', plan.tenant_id).eq('plan_id', plan.id)
+        .or(clauses.join(',')).order('created_at');
+      if (intentError) throw new Error(`load immutable Stripe catch-up intent failed: ${intentError.message}`);
+      if ((intents || []).length > 1) throw new Error('multiple catch-up intents on one Stripe invoice are not supported');
+      catchUpIntent = intents?.[0] || null;
+      if (catchUpIntent) validateStripeCatchUpInvoiceEconomics(object, catchUpIntent);
+      // Split-window recovery: invoice item was created but the worker lost
+      // its atomic provider-reference write. The trusted Stripe invoice line
+      // supplies the immutable key/item; bind only the exact creating intent.
+      if (catchUpIntent?.status === 'creating') {
+        const providerItem = invoiceLines.find((line) =>
+          line.metadata?.catch_up_intent_key === catchUpIntent.intent_key
+          || line.invoice_item === catchUpIntent.provider_reference)?.invoice_item
+          || invoiceLines.find((line) => line.metadata?.catch_up_intent_key === catchUpIntent.intent_key)?.invoice_item;
+        const lineAmount = invoiceLines.filter((line) =>
+          line.metadata?.catch_up_intent_key === catchUpIntent.intent_key).reduce((sum, line) => sum + (Number(line.amount) || 0), 0);
+        if (!providerItem || lineAmount !== Number(catchUpIntent.arrears_amount_minor)) {
+          throw new Error('Stripe catch-up recovery item/amount mismatch');
+        }
+        const { data: recovered, error: recoverError } = await db.rpc('recover_membership_monthly_collection_provider_ref', {
+          p_tenant_id: plan.tenant_id, p_plan_id: plan.id, p_intent_key: catchUpIntent.intent_key,
+          p_provider_reference: providerItem, p_provider_charge_date: null,
+        });
+        if (recoverError) throw new Error(`recover Stripe catch-up provider reference failed: ${recoverError.message}`);
+        catchUpIntent = Array.isArray(recovered) ? recovered[0] : recovered;
+      }
+    }
+    const hasCatchUpItem = !!catchUpIntent && invoiceLines.some((line) =>
+      line.id === catchUpIntent.provider_reference || line.invoice_item === catchUpIntent.provider_reference
+      || line.metadata?.catch_up_intent_key === catchUpIntent.intent_key);
 
     // Zero-amount invoices (proration artefacts) don't advance instalments.
     if (Number(object.amount_paid) === 0 && Number(object.amount_due) === 0) {
@@ -1152,7 +1274,10 @@ export async function processStripeCardPlanEvent(event, deps = {}) {
           agreement,
           plan,
           stripeInvoiceId: object.id,
-          amountMinor: Number.isInteger(object.amount_paid) ? object.amount_paid : null,
+          // The ordinary current instalment keeps its existing invoice; the
+          // arrears lines are fanned out separately below.
+          amountMinor: hasCatchUpItem ? plan.amount_minor
+            : (Number.isInteger(object.amount_paid) ? object.amount_paid : null),
           currency: (object.currency || '').toUpperCase() || null,
         }, { db, getProvider: deps.getProvider });
       } catch (err) {
@@ -1161,7 +1286,28 @@ export async function processStripeCardPlanEvent(event, deps = {}) {
     }
 
     // Idempotent instalment advance: CAS on instalments_paid + invoice-id dedupe.
-    let decision = cardPlanCompletionDecision({ plan, invoiceId: object.id });
+    // A subscription invoice also contains its ordinary monthly line. Only
+    // the durable catch-up item may settle ledger debt; never allocate the
+    // whole invoice (which could consume a later missed period).
+    const arrearsAmount = hasCatchUpItem ? (Number(catchUpIntent.arrears_amount_minor) || 0) : 0;
+    const arrearsSettlement = arrearsAmount ? await settleMonthlyArrears({
+      tenantId: plan.tenant_id, planId: plan.id, amountMinor: arrearsAmount,
+      settlementReference: object.id, periodIds: catchUpIntent.period_ids || null, db,
+    }) : { settled_count: 0, settled_amount_minor: 0 };
+    if (arrearsAmount) {
+      await postSettledArrearsPeriods({
+        tenantId: plan.tenant_id, planId: plan.id, providerReference: object.id,
+        agreement, db,
+        postPeriod: ({ amountMinor, externalReference }) =>
+          (deps.postInstalmentInvoice || postStripeInstalmentInvoice)({
+            agreement, plan, stripeInvoiceId: externalReference, amountMinor,
+            currency: (object.currency || '').toUpperCase() || null,
+          }, { db, getProvider: deps.getProvider }),
+      });
+      await completeMonthlyCollectionIntent({ plan, intent: catchUpIntent, providerReference: catchUpIntent.provider_reference, db });
+    }
+    const periodsSettled = Number(arrearsSettlement?.settled_count) || 0;
+    let decision = cardPlanCompletionDecision({ plan, invoiceId: object.id, periodsSettled });
     if (decision.duplicate) {
       // Resumable completion: the counter committed on a previous attempt but
       // settlement failed afterwards — retry settlement, don't exit silently.
@@ -1198,6 +1344,8 @@ export async function processStripeCardPlanEvent(event, deps = {}) {
       // Lost the race — refetch and re-decide (may now be a duplicate).
       plan = await findCardPlanBySubscription(db, subscriptionId);
       if (!plan) return { handled: false, detail: 'plan disappeared during instalment advance' };
+      // A concurrent winner may have allocated the ledger periods already;
+      // invoice-id dedupe then guarantees no second instalment advancement.
       decision = cardPlanCompletionDecision({ plan, invoiceId: object.id });
       if (decision.duplicate) {
         if (cardPlanNeedsSettlement(plan)) {
@@ -1240,6 +1388,31 @@ export async function processStripeCardPlanEvent(event, deps = {}) {
     return { handled: true, detail: `instalment ${decision.instalmentsPaid}/${plan.instalments_total} paid; activation: ${activation.detail}` };
   }
 
+  if (type === 'invoice.voided' || type === 'invoice.marked_uncollectible') {
+    const subscriptionId = typeof object.subscription === 'string'
+      ? object.subscription : (object.subscription?.id || object.parent?.subscription_details?.subscription || null);
+    if (!subscriptionId) return { handled: false, detail: 'terminal invoice has no subscription' };
+    const plan = await findCardPlanBySubscription(db, subscriptionId);
+    if (!plan) return { handled: false, detail: 'terminal invoice has no local plan' };
+    const refs = [...new Set((object.lines?.data || []).flatMap((line) => [
+      line.metadata?.catch_up_intent_key, line.id, line.invoice_item,
+    ]).filter(Boolean))];
+    if (refs.length) {
+      const { data: intents, error } = await db.from('membership_monthly_collection_intent').select('*')
+        .eq('tenant_id', plan.tenant_id).eq('plan_id', plan.id)
+        .or(`intent_key.in.(${refs.join(',')}),provider_reference.in.(${refs.join(',')})`);
+      if (error) throw new Error(`load terminal Stripe catch-up intent failed: ${error.message}`);
+      if ((intents || []).length > 1) throw new Error('multiple terminal catch-up intents on one Stripe invoice');
+      if (intents?.[0]) {
+        await failMonthlyCollectionIntent({
+          plan, intent: intents[0], providerReference: intents[0].provider_reference,
+          providerOutcome: type, errorMessage: `Stripe invoice terminal outcome: ${type}`, db,
+        });
+      }
+    }
+    return { handled: true, detail: `Stripe terminal invoice ${type} processed` };
+  }
+
   if (type === 'invoice.payment_failed') {
     const subscriptionId = typeof object.subscription === 'string'
       ? object.subscription
@@ -1255,6 +1428,36 @@ export async function processStripeCardPlanEvent(event, deps = {}) {
       };
     }
     const agreement = plan.billing_agreement_id ? await findCardAgreementById(db, plan.billing_agreement_id) : null;
+    const failedLines = object.lines?.data || [];
+    const failedKeys = [...new Set(failedLines.map((line) => line.metadata?.catch_up_intent_key).filter(Boolean))];
+    const failedRefs = [...new Set(failedLines.flatMap((line) => [line.id, line.invoice_item]).filter(Boolean))];
+    let matchedFailedCatchUp = false;
+    if (failedKeys.length || failedRefs.length) {
+      const clauses = [];
+      if (failedKeys.length) clauses.push(`intent_key.in.(${failedKeys.join(',')})`);
+      if (failedRefs.length) clauses.push(`provider_reference.in.(${failedRefs.join(',')})`);
+      const { data: failedIntents, error: failedIntentError } = await db.from('membership_monthly_collection_intent')
+        .select('*').eq('tenant_id', plan.tenant_id).eq('plan_id', plan.id).or(clauses.join(','));
+      if (failedIntentError) throw new Error(`load failed Stripe catch-up intent failed: ${failedIntentError.message}`);
+      if ((failedIntents || []).length > 1) throw new Error('multiple failed catch-up intents on one Stripe invoice');
+      if (failedIntents?.[0]) {
+        matchedFailedCatchUp = true;
+      }
+    }
+    // invoice.payment_failed is non-terminal in Stripe: retain the immutable
+    // catch-up item/intent for a later invoice.paid. Process only the normal
+    // recurring subscription line's failure and never create a replacement.
+    const duePeriod = stripeInvoiceFailedDuePeriod(object);
+    if (!duePeriod && matchedFailedCatchUp) {
+      return { handled: true, detail: 'Stripe catch-up-only invoice payment failure retained pending' };
+    }
+    if (!duePeriod) throw new Error('Stripe recurring failure has no authoritative billing period');
+    const { error: periodError } = await db.from('membership_payment_plans').update({
+      failed_due_period: duePeriod, failed_provider_reference: object.id, updated_at: new Date().toISOString(),
+    }).eq('id', plan.id).eq('tenant_id', plan.tenant_id);
+    if (periodError) throw new Error(`persist Stripe failed due period failed: ${periodError.message}`);
+    plan.failed_due_period = duePeriod;
+    plan.failed_provider_reference = object.id;
     const failure = await handleCardPaymentFailure({ plan, agreement, eventId: event.id, action: 'failed', db });
     if (failure.result.applied && agreement?.metadata?.card?.kind === CARD_PLAN_KIND) {
       await sendDdLifecycleEmail(

@@ -506,6 +506,8 @@ test('recoveryPlanUpdate clears all arrears bookkeeping', () => {
     grace_expires_at: null,
     arrears_policy_applied: null,
     arrears_policy_applied_at: null,
+    failed_due_period: null,
+    failed_provider_reference: null,
   });
 });
 

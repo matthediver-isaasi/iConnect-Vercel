@@ -42,6 +42,7 @@ import { resolveDdEmailRecipients } from './gocardlessDdEmails.js';
 import { sendTenantEmail } from './tenantEmailService.js';
 import { STATUS } from './gocardlessState.js';
 import { getPausedMemberIdSet } from './memberPause.js';
+import { assertNoOpenMonthlyArrears } from './monthlyArrearsCollection.js';
 
 // ---------------------------------------------------------------------------
 // Card renewal lifecycle emails (card-flavoured twins of the DD renewal set;
@@ -517,6 +518,16 @@ export async function processTenantCardRenewals(tenantId, results, deps = {}) {
         .order('created_at', { ascending: false })
         .limit(1);
       const planStatus = plans?.[0]?.status || null;
+      if (!plans?.[0]?.id) {
+        results.details.push({ tenantId, agreementId: agreement.id, step: 'card-renewals', status: 'blocked', reason: 'missing payment plan' });
+        continue;
+      }
+      try {
+        await assertNoOpenMonthlyArrears({ tenantId, planId: plans[0].id, db });
+      } catch (arrearsErr) {
+        results.details.push({ tenantId, agreementId: agreement.id, step: 'card-renewals', status: 'blocked', reason: arrearsErr.message });
+        continue;
+      }
 
       const renewalYear = deriveNextYearLabel(snapshot.membership_year) || `after ${snapshot.membership_year}`;
 

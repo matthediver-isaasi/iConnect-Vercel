@@ -190,6 +190,18 @@ export default function DirectDebitPlanCard({ memberId }) {
 
           <span className="text-muted-foreground">Next collection</span>
           <span className="font-medium text-right" data-testid="text-dd-next-collection">{fmtDate(plan.nextChargeDate)}</span>
+          <span className="text-muted-foreground">Next planned amount</span>
+          <span className="font-medium text-right" data-testid="text-dd-next-planned-amount">{fmt(plan.nextPlannedCollectionAmount, plan.currency)}</span>
+          {plan.arrearsCount > 0 && (
+            <>
+              <span className="text-muted-foreground">Outstanding instalments</span>
+              <span className="font-medium text-right" data-testid="text-dd-arrears">{plan.arrearsCount} ({fmt(plan.arrearsAmount, plan.currency)})</span>
+            </>
+          )}
+          <span className="text-muted-foreground">After grace</span>
+          <span className="font-medium text-right" data-testid="text-dd-post-grace-policy">
+            {plan.collectionStopped ? 'Collection stopped' : plan.monthlyPostGraceCollectionPolicy === 'continue_catch_up' ? 'Catch up next collection' : 'Stop and resolve manually'}
+          </span>
 
           {plan.membershipYear && (
             <>

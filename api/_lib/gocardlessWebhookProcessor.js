@@ -40,7 +40,8 @@ import {
   closeAutomaticRetrySchedule,
   completeCancellationClaim,
 } from './gocardlessAutoRetry.js';
-import { postDdInstalmentToAccounting } from './gocardlessAccounting.js';
+import { postDdInstalmentToAccounting, postDdArrearsPeriodToAccounting } from './gocardlessAccounting.js';
+import { settleMonthlyArrears, postSettledArrearsPeriods, completeMonthlyCollectionIntent, failMonthlyCollectionIntent } from './monthlyArrearsCollection.js';
 
 // Emails are best-effort: they must never fail the event (which would mark
 // it 'failed' and trigger redelivery/reprocessing of a correct state change).
@@ -58,6 +59,20 @@ function defaultDeps(deps) {
     db: deps.db || supabase,
     gc: deps.gc || gocardless,
   };
+}
+
+export function validateConfirmedCatchUpAmount(actualAmount, expectedAmount) {
+  if (!Number.isInteger(actualAmount) || actualAmount <= 0) {
+    throw new Error('confirmed catch-up payment has no valid authoritative amount');
+  }
+  if (!Number.isInteger(expectedAmount) || expectedAmount <= 0 || actualAmount !== expectedAmount) {
+    throw new Error(`confirmed catch-up amount mismatch: expected ${expectedAmount}, got ${actualAmount}`);
+  }
+  return actualAmount;
+}
+
+export function isCatchUpTerminalFailureAction(action) {
+  return ['failed', 'cancelled', 'charged_back', 'late_failure_settled', 'chargeback_settled'].includes(action);
 }
 
 async function checkedUpsert(db, table, payload, onConflict) {
@@ -487,6 +502,28 @@ async function processSubscriptionEvent({ event, action, links, db, gc }) {
   }
 
   if (action === 'finished') {
+    // A fixed subscription finishing is not membership-plan completion while
+    // monthly arrears remain. Keep it recoverable for manual/catch-up action.
+    try {
+      const { count, error: arrearsError } = await db
+        .from('membership_monthly_arrears_period')
+        .select('id', { count: 'exact', head: true })
+        .eq('tenant_id', plan.tenant_id)
+        .eq('plan_id', plan.id)
+        .is('settled_at', null);
+      if (!arrearsError && (count || 0) > 0) {
+        const { error: flagError } = await db.from('membership_payment_plans').update({
+          needs_attention: true,
+          attention_reason: 'Fixed subscription finished with unresolved monthly arrears.',
+          updated_at: new Date().toISOString(),
+        }).eq('id', plan.id).eq('tenant_id', plan.tenant_id);
+        if (flagError) throw new Error(`flag unresolved completion arrears failed: ${flagError.message}`);
+        return { handled: true, detail: 'subscription finished but unresolved arrears prevent completion' };
+      }
+    } catch (err) {
+      // Pre-ledger environments retain historical completion behaviour.
+      if (err?.code !== '42P01') throw err;
+    }
     const result = await applyStatusTransition({
       entityType: 'payment_plan',
       entityId: plan.id,
@@ -540,7 +577,135 @@ async function processPaymentEvent({ event, action, links, db, gc, deps = {} }) 
   if (!paymentId) return { handled: false, detail: 'no payment link' };
 
   const subscriptionId = links.subscription || null;
-  const plan = subscriptionId ? await findPlanBySubscription(db, subscriptionId) : null;
+  let plan = subscriptionId ? await findPlanBySubscription(db, subscriptionId) : null;
+  const { data: immutableIntentMatch, error: immutableIntentError } = await db
+    .from('membership_monthly_collection_intent').select('*')
+    .eq('provider_reference', paymentId).maybeSingle();
+  if (immutableIntentError && !['42P01', '42703'].includes(immutableIntentError.code)) {
+    throw new Error(`load immutable payment intent failed: ${immutableIntentError.message}`);
+  }
+  let matchedCollectionIntent = immutableIntentMatch || null;
+  if (plan && matchedCollectionIntent
+    && (plan.id !== matchedCollectionIntent.plan_id || plan.tenant_id !== matchedCollectionIntent.tenant_id)) {
+    throw new Error('catch-up intent does not belong to resolved payment plan');
+  }
+  // Catch-up one-off payments intentionally have no subscription link. Resolve
+  // only through a tenant-owned mirror or the persisted provider intent.
+  if (!plan) {
+    const { data: mirrored } = await db.from('gocardless_payments')
+      .select('plan_id, membership_payment_plans(*)')
+      .eq('gocardless_payment_id', paymentId).maybeSingle();
+    plan = mirrored?.membership_payment_plans || null;
+    if (!plan) {
+      const immutableIntent = matchedCollectionIntent;
+      if (immutableIntent?.tenant_id && immutableIntent?.plan_id) {
+        const { data: intentPlan } = await db.from('membership_payment_plans').select('*')
+          .eq('id', immutableIntent.plan_id).eq('tenant_id', immutableIntent.tenant_id).maybeSingle();
+        plan = intentPlan || null;
+      }
+    }
+  }
+
+  if (!plan && action === 'confirmed') {
+    const authoritative = await gc.getPayment(paymentId);
+    const meta = authoritative?.metadata || {};
+    const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    if (!meta.catch_up_intent_key || !uuid.test(meta.tenant_id || '') || !uuid.test(meta.plan_id || '')) {
+      throw new Error('GoCardless catch-up recovery metadata is missing or invalid');
+    }
+    const { data: metadataPlan, error: metadataPlanError } = await db.from('membership_payment_plans')
+      .select('*').eq('id', meta.plan_id).eq('tenant_id', meta.tenant_id).maybeSingle();
+    if (metadataPlanError || !metadataPlan) throw new Error(metadataPlanError?.message || 'GoCardless recovery plan not found');
+    if (metadataPlan.provider === 'stripe' || metadataPlan.interval_unit !== 'monthly') {
+      throw new Error('GoCardless recovery plan provider/interval mismatch');
+    }
+    const { data: creatingIntent, error: creatingError } = await db.from('membership_monthly_collection_intent')
+      .select('*').eq('tenant_id', meta.tenant_id).eq('plan_id', meta.plan_id)
+      .eq('intent_key', meta.catch_up_intent_key).eq('status', 'creating').maybeSingle();
+    if (creatingError || !creatingIntent) throw new Error(creatingError?.message || 'recoverable GoCardless intent not found');
+    const fingerprint = (creatingIntent.period_ids || []).join(',');
+    if (Number(authoritative.amount) !== Number(creatingIntent.arrears_amount_minor)
+      || String(authoritative.currency || '').toUpperCase() !== String(metadataPlan.currency || '').toUpperCase()
+      || meta.arrears_period_ids !== fingerprint
+      || Number(meta.arrears_amount_minor) !== Number(creatingIntent.arrears_amount_minor)) {
+      throw new Error('GoCardless catch-up recovery amount/currency/period fingerprint mismatch');
+    }
+    const { data: recovered, error: recoverError } = await db.rpc('recover_membership_monthly_collection_provider_ref', {
+      p_tenant_id: meta.tenant_id, p_plan_id: meta.plan_id, p_intent_key: meta.catch_up_intent_key,
+      p_provider_reference: paymentId, p_provider_charge_date: authoritative.charge_date || null,
+    });
+    if (recoverError) throw new Error(`recover GC catch-up provider reference failed: ${recoverError.message}`);
+    plan = metadataPlan;
+    matchedCollectionIntent = Array.isArray(recovered) ? recovered[0] : recovered;
+  }
+
+  // Split-window repair: provider mutation succeeded but atomic local
+  // reference recording did not. Trust metadata only after retrieving the
+  // authoritative GoCardless payment and bind it to the tenant-owned plan.
+  if (action === 'confirmed' && plan && !matchedCollectionIntent) {
+    const authoritative = await gc.getPayment(paymentId);
+    const meta = authoritative?.metadata || {};
+    if (meta.catch_up_intent_key) {
+      if (meta.tenant_id !== plan.tenant_id || meta.plan_id !== plan.id) {
+        throw new Error('GoCardless catch-up metadata tenant/plan mismatch');
+      }
+      const { data: creatingIntent, error: creatingError } = await db
+        .from('membership_monthly_collection_intent').select('*')
+        .eq('tenant_id', plan.tenant_id).eq('plan_id', plan.id)
+        .eq('intent_key', meta.catch_up_intent_key).eq('status', 'creating').maybeSingle();
+      if (creatingError) throw new Error(`load recoverable GC catch-up intent failed: ${creatingError.message}`);
+      if (creatingIntent) {
+        if (authoritative.amount !== creatingIntent.arrears_amount_minor
+          || (authoritative.currency && creatingIntent.currency && authoritative.currency !== creatingIntent.currency)) {
+          throw new Error('GoCardless catch-up recovery amount/currency mismatch');
+        }
+        const { data: recovered, error: recoverError } = await db.rpc('recover_membership_monthly_collection_provider_ref', {
+          p_tenant_id: plan.tenant_id, p_plan_id: plan.id, p_intent_key: creatingIntent.intent_key,
+          p_provider_reference: paymentId, p_provider_charge_date: authoritative.charge_date || null,
+        });
+        if (recoverError) throw new Error(`recover GC catch-up provider reference failed: ${recoverError.message}`);
+        matchedCollectionIntent = Array.isArray(recovered) ? recovered[0] : recovered;
+      }
+    }
+  }
+
+  // Catch-up confirmation preflight MUST precede every local mutation. The
+  // immutable intent, not the mutable plan pointer, classifies this payment.
+  const preflightCatchUpIntent = action === 'confirmed' ? matchedCollectionIntent : null;
+  const isPreflightCatchUp = !!preflightCatchUpIntent
+    && paymentId === preflightCatchUpIntent.provider_reference;
+  if (isPreflightCatchUp && preflightCatchUpIntent.status === 'completed') {
+    return { handled: true, detail: 'duplicate completed GoCardless catch-up confirmation' };
+  }
+  let preflightPayment = null;
+  let authoritativeCatchUpAmountMinor = null;
+  if (isPreflightCatchUp) {
+    preflightPayment = await gc.getPayment(paymentId);
+    authoritativeCatchUpAmountMinor = validateConfirmedCatchUpAmount(
+      preflightPayment?.amount,
+      Number(preflightCatchUpIntent.arrears_amount_minor),
+    );
+  }
+  const isMatchedCatchUpFailure = !!matchedCollectionIntent && !!plan && isCatchUpTerminalFailureAction(action);
+  if (isMatchedCatchUpFailure) {
+    await failMonthlyCollectionIntent({
+      plan, intent: matchedCollectionIntent, providerReference: paymentId,
+      providerOutcome: action, errorMessage: `GoCardless catch-up payment ${action}`, db,
+    });
+  }
+  if (!matchedCollectionIntent && plan && isCatchUpTerminalFailureAction(action)) {
+    const failedPayment = await gc.getPayment(paymentId);
+    const failedDuePeriod = /^\d{4}-\d{2}-\d{2}$/.test(failedPayment?.charge_date || '')
+      ? failedPayment.charge_date : null;
+    if (!failedDuePeriod) throw new Error('GoCardless recurring failure has no authoritative charge_date');
+    const { error: failedPeriodError } = await db.from('membership_payment_plans').update({
+      failed_due_period: failedDuePeriod, failed_provider_reference: paymentId,
+      updated_at: new Date().toISOString(),
+    }).eq('id', plan.id).eq('tenant_id', plan.tenant_id);
+    if (failedPeriodError) throw new Error(`persist GoCardless failed due period failed: ${failedPeriodError.message}`);
+    plan.failed_due_period = failedDuePeriod;
+    plan.failed_provider_reference = paymentId;
+  }
 
   const mappedStatus = {
     created: 'pending_submission',
@@ -581,6 +746,9 @@ async function processPaymentEvent({ event, action, links, db, gc, deps = {} }) 
       mirror.charged_back_at = new Date().toISOString();
     }
     await checkedUpsert(db, 'gocardless_payments', mirror, 'gocardless_payment_id');
+  }
+  if (isMatchedCatchUpFailure) {
+    return { handled: true, detail: `GoCardless catch-up payment ${action} recorded for retry` };
   }
 
   if (!plan) {
@@ -627,11 +795,18 @@ async function processPaymentEvent({ event, action, links, db, gc, deps = {} }) 
     // that column is the arrears failure count, not the automatic allowance.
     await clearAutomaticRetryForPlan(plan, { db, outcome: 'recovered' });
 
+    const catchUpIntent = preflightCatchUpIntent;
+    const isCatchUpPayment = isPreflightCatchUp;
+    const expectedCatchUpAmountMinor = isCatchUpPayment ? Number(catchUpIntent.arrears_amount_minor) : null;
+
     // Finance mirror enrichment: fetch amount/description from the API
     // (best-effort — mirror already has status).
     let paymentRowForAccounting = null;
     try {
-      const current = await gc.getPayment(paymentId);
+      const current = preflightPayment || await gc.getPayment(paymentId);
+      if (isCatchUpPayment) {
+        authoritativeCatchUpAmountMinor = validateConfirmedCatchUpAmount(current?.amount, expectedCatchUpAmountMinor);
+      }
       if (current?.amount != null) {
         const { data: updatedRows, error: amtErr } = await db
           .from('gocardless_payments')
@@ -649,6 +824,48 @@ async function processPaymentEvent({ event, action, links, db, gc, deps = {} }) 
       }
     } catch (err) {
       console.error('[GC Webhook] fetch payment for enrichment failed:', err.message);
+      // Ordinary subscription enrichment remains best-effort. A matched
+      // catch-up is financial completion work, so acknowledgement is unsafe:
+      // force webhook/reconcile replay instead.
+      if (isCatchUpPayment) throw new Error(`catch-up payment enrichment failed: ${err.message}`);
+    }
+    // The DB function is idempotent by open period state and locks the plan;
+    // a confirmed catch-up payment settles debt oldest-first. It deliberately
+    // does not alter access policy or the provider's in-grace retry timing.
+    if (isCatchUpPayment) {
+      const expectedAmountMinor = expectedCatchUpAmountMinor;
+      if (!Number.isInteger(expectedAmountMinor) || expectedAmountMinor <= 0) {
+        throw new Error('matched catch-up intent has no valid arrears amount');
+      }
+      // Confirm the authoritative provider amount is durably present. It was
+      // validated above; immutable expected data is never written over a
+      // differing provider amount.
+      const { data: repairedRows, error: repairError } = await db.from('gocardless_payments').update({
+        amount_minor: authoritativeCatchUpAmountMinor,
+        updated_at: new Date().toISOString(),
+      }).eq('gocardless_payment_id', paymentId).eq('tenant_id', plan.tenant_id).select('*');
+      if (repairError) throw new Error(`persist catch-up payment amount failed: ${repairError.message}`);
+      paymentRowForAccounting = repairedRows?.[0] || paymentRowForAccounting;
+      if (!paymentRowForAccounting) throw new Error('persisted catch-up payment mirror not found');
+      const catchUpAgreement = recoveryAgreement || await findAgreementById(db, plan.billing_agreement_id);
+      await settleMonthlyArrears({
+        tenantId: plan.tenant_id,
+        planId: plan.id,
+        amountMinor: expectedAmountMinor,
+        settlementReference: paymentId,
+        periodIds: catchUpIntent.period_ids || null,
+        db,
+      });
+      await postSettledArrearsPeriods({
+        tenantId: plan.tenant_id, planId: plan.id, providerReference: paymentId,
+        agreement: catchUpAgreement, db,
+        postPeriod: ({ amountMinor, externalReference }) =>
+          (deps.postArrearsPeriod || postDdArrearsPeriodToAccounting)(
+            { agreement: catchUpAgreement, amountMinor, externalReference },
+            { db },
+          ),
+      });
+      await completeMonthlyCollectionIntent({ plan, intent: catchUpIntent, providerReference: paymentId, db });
     }
     // Reflect on the agreement too (first successful collection activates it).
     if (plan.billing_agreement_id) {
@@ -677,7 +894,7 @@ async function processPaymentEvent({ event, action, links, db, gc, deps = {} }) 
         }
         // Post the confirmed instalment to accounting (best-effort; records
         // its own posted/failed/skipped status on the payment row).
-        if (action === 'confirmed' && paymentRowForAccounting) {
+        if (action === 'confirmed' && paymentRowForAccounting && !isCatchUpPayment) {
           const postFn = deps.postToAccounting || postDdInstalmentToAccounting;
           try {
             await postFn({ agreement, paymentRow: paymentRowForAccounting }, { db });

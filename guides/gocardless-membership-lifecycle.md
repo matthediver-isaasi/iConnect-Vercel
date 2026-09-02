@@ -1,3 +1,12 @@
+## Monthly post-grace collection
+
+For new monthly plans, `monthly_post_grace_collection_policy` is snapshotted in
+the accepted agreement. `stop_collecting` stops later automated collections
+after grace and leaves the period balance for manual recovery.
+`continue_catch_up` records each missed due period once and requires the next
+eligible collection to include unpaid periods plus the current instalment.
+This is deliberately separate from `dd_arrears_policy`, which controls access
+and escalation only; it does not change GoCardless's in-grace retry timing.
 # GoCardless Membership Lifecycle
 
 **Author:** isaasi  

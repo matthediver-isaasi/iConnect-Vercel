@@ -728,6 +728,14 @@ export async function validateArrearsPolicy(tenantId, config, db = supabase) {
   };
 }
 
+export function validateMonthlyPostGraceCollectionPolicy(config) {
+  const policy = config.monthly_post_grace_collection_policy;
+  if (policy !== undefined && !['stop_collecting', 'continue_catch_up'].includes(policy)) {
+    return { error: 'monthly_post_grace_collection_policy must be stop_collecting or continue_catch_up', field: 'monthly_post_grace_collection_policy' };
+  }
+  return { ok: true, fields: { monthly_post_grace_collection_policy: policy || 'stop_collecting' } };
+}
+
 async function handlePost(req, res, tenantId) {
   let { config, bands, discounts, vatOverrides, reminders } = req.body;
 
@@ -748,6 +756,8 @@ async function handlePost(req, res, tenantId) {
   if (!arrearsPolicy.ok) {
     return res.status(400).json({ error: arrearsPolicy.error, field: arrearsPolicy.field });
   }
+  const collectionPolicy = validateMonthlyPostGraceCollectionPolicy(config);
+  if (!collectionPolicy.ok) return res.status(400).json({ error: collectionPolicy.error, field: collectionPolicy.field });
 
   const parsedFlatCost = config.pricing_model === 'flat'
     ? parseFlatMembershipCost(config.flat_cost)
@@ -872,6 +882,7 @@ async function handlePost(req, res, tenantId) {
         fee_link_email_template_id: config.fee_link_email_template_id || null,
         ...renewalPolicy.fields,
         ...arrearsPolicy.fields,
+        ...collectionPolicy.fields,
         ...(await checkConfigNominalCodeColumnExists()
           ? { nominal_code: config.pricing_model === 'flat' ? normalizeNominalCode(config.nominal_code) : null }
           : {}),
@@ -1020,6 +1031,7 @@ async function handlePost(req, res, tenantId) {
       fee_link_email_template_id: config.fee_link_email_template_id || null,
       ...renewalPolicy.fields,
       ...arrearsPolicy.fields,
+      ...collectionPolicy.fields,
       ...(await checkConfigNominalCodeColumnExists()
         ? { nominal_code: config.pricing_model === 'flat' ? normalizeNominalCode(config.nominal_code) : null }
         : {}),
@@ -1094,6 +1106,8 @@ function ddConfigFields(config) {
     && config.dd_arrears_fallback_role_id.trim()
     ? config.dd_arrears_fallback_role_id.trim()
     : null;
+  const collectionPolicy = ['stop_collecting', 'continue_catch_up'].includes(config.monthly_post_grace_collection_policy)
+    ? config.monthly_post_grace_collection_policy : 'stop_collecting';
   if (!enabled) {
     // Columns from the Phase 2 migration are NOT NULL with defaults, so the
     // disabled path must write those schema defaults (writing null raises
@@ -1110,6 +1124,7 @@ function ddConfigFields(config) {
       dd_grace_days: 7,
       dd_arrears_policy: arrearsPolicy,
       dd_arrears_fallback_role_id: arrearsFallbackRoleId,
+      monthly_post_grace_collection_policy: collectionPolicy,
       dd_terms_version: null,
       dd_migration_enabled: false,
       dd_invoicing_mode: 'annual',
@@ -1139,6 +1154,7 @@ function ddConfigFields(config) {
       ? Math.max(0, parseInt(config.dd_grace_days, 10)) : 7,
     dd_arrears_policy: arrearsPolicy,
     dd_arrears_fallback_role_id: arrearsFallbackRoleId,
+    monthly_post_grace_collection_policy: collectionPolicy,
     dd_terms_version: config.dd_terms_version || 'v1',
     dd_migration_enabled: config.dd_migration_enabled === true,
     // Task #3633: 'annual' (single annual invoice, default) or

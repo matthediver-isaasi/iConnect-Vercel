@@ -6,7 +6,27 @@ import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 
 import { canTransition, applyStatusTransition, STATUS } from './gocardlessState.js';
-import { processGocardlessEvent } from './gocardlessWebhookProcessor.js';
+import { processGocardlessEvent, validateConfirmedCatchUpAmount, isCatchUpTerminalFailureAction } from './gocardlessWebhookProcessor.js';
+
+test('confirmed GC catch-up amount mismatch rejects before period allocation or intent completion', () => {
+  const periods = [{ id: 'period-1', settled_at: null }];
+  const intent = { intent_key: 'catch-1', status: 'created', arrears_amount_minor: 2500 };
+  assert.throws(() => validateConfirmedCatchUpAmount(2000, intent.arrears_amount_minor), /amount mismatch/);
+  assert.equal(periods[0].settled_at, null);
+  assert.equal(intent.status, 'created');
+});
+
+test('matching confirmed GC catch-up amount validates identically on replay', () => {
+  assert.equal(validateConfirmedCatchUpAmount(2500, 2500), 2500);
+  assert.equal(validateConfirmedCatchUpAmount(2500, 2500), 2500);
+  assert.throws(() => validateConfirmedCatchUpAmount(null, 2500), /authoritative amount/);
+});
+
+for (const action of ['failed', 'cancelled', 'charged_back', 'late_failure_settled', 'chargeback_settled']) {
+  test(`GC catch-up terminal action ${action} retires immutable intent`, () => {
+    assert.equal(isCatchUpTerminalFailureAction(action), true);
+  });
+}
 
 // ---------------------------------------------------------------------------
 // Minimal in-memory supabase-shaped fake
@@ -33,6 +53,7 @@ function makeFakeDb(initial = {}) {
     update(payload) { this.op = 'update'; this.payload = payload; return this; }
     upsert(payload, opts) { this.op = 'upsert'; this.payload = payload; this.upsertOpts = opts || {}; return this; }
     eq(col, val) { this.filters.push((r) => r[col] === val); return this; }
+    filter() { return this; }
     is(col, val) { this.filters.push((r) => (val === null ? r[col] == null : r[col] === val)); return this; }
     in(col, vals) { this.filters.push((r) => vals.includes(r[col])); return this; }
     not() { return this; }
@@ -195,7 +216,7 @@ function gcStub(overrides = {}) {
     getBillingRequest: async () => { throw new Error('unexpected getBillingRequest'); },
     getMandate: async () => { throw new Error('unexpected getMandate'); },
     getSubscription: async () => { throw new Error('unexpected getSubscription'); },
-    getPayment: async () => { throw new Error('unexpected getPayment'); },
+    getPayment: async (id) => ({ id, amount: 1000, currency: 'GBP', charge_date: '2026-01-01' }),
     ...overrides,
   };
 }
@@ -323,6 +344,161 @@ test('payment confirmed: plan + agreement -> active, retry count reset, payment 
   assert.equal(db.tables.membership_billing_agreements[0].status, STATUS.ACTIVE);
   assert.equal(db.tables.gocardless_payments.length, 1);
   assert.equal(db.tables.gocardless_payments[0].status, 'confirmed');
+});
+
+test('matched catch-up confirmation mismatch fails preflight with zero local mutation', async () => {
+  const db = makeFakeDb({
+    membership_billing_agreements: [{ id: 'agr-1', tenant_id: TENANT, status: STATUS.PAYMENT_OVERDUE }],
+    membership_payment_plans: [{
+      id: 'plan-1', tenant_id: TENANT, billing_agreement_id: 'agr-1',
+      status: STATUS.PAYMENT_OVERDUE, gocardless_subscription_id: 'SB1', retry_count: 3,
+    }],
+    membership_monthly_collection_intent: [{
+      id: 'intent-1', tenant_id: TENANT, plan_id: 'plan-1', intent_key: 'catch-1',
+      provider_reference: 'PM-CATCH', arrears_amount_minor: 2500, period_ids: ['period-1'], status: 'created',
+    }],
+    membership_monthly_arrears_period: [{ id: 'period-1', tenant_id: TENANT, plan_id: 'plan-1', amount_minor: 2500, settled_at: null }],
+    gocardless_payments: [],
+    membership_payment_status_history: [],
+  });
+  const event = {
+    id: 'EV_CATCH_BAD', resource_type: 'payments', action: 'confirmed',
+    links: { payment: 'PM-CATCH', subscription: 'SB1' },
+  };
+  await assert.rejects(processGocardlessEvent(event, {
+    db,
+    gc: gcStub({ getPayment: async () => ({ id: 'PM-CATCH', amount: 2000, status: 'confirmed' }) }),
+  }), /amount mismatch/);
+  assert.equal(db.tables.gocardless_payments.length, 0);
+  assert.equal(db.tables.membership_payment_plans[0].status, STATUS.PAYMENT_OVERDUE);
+  assert.equal(db.tables.membership_payment_plans[0].retry_count, 3);
+  assert.equal(db.tables.membership_billing_agreements[0].status, STATUS.PAYMENT_OVERDUE);
+  assert.equal(db.tables.membership_monthly_arrears_period[0].settled_at, null);
+  assert.equal(db.tables.membership_monthly_collection_intent[0].status, 'created');
+  assert.equal(db.tables.membership_payment_status_history.length, 0);
+});
+
+for (const action of ['failed', 'late_failure_settled']) {
+  test(`matched catch-up ${action} exits before recurring arrears/retry control flow and replay is idempotent`, async () => {
+    const db = makeFakeDb({
+      membership_billing_agreements: [{ id: 'agr-1', tenant_id: TENANT, status: STATUS.PAYMENT_OVERDUE }],
+      membership_payment_plans: [{
+        id: 'plan-1', tenant_id: TENANT, billing_agreement_id: 'agr-1',
+        status: STATUS.PAYMENT_OVERDUE, gocardless_subscription_id: 'SB1',
+        interval_unit: 'monthly', grace_expires_at: '2026-01-20', retry_count: 2,
+        metadata: { catch_up_intent: { key: 'catch-fail', provider_reference: 'PM-CATCH', status: 'created' } },
+      }],
+      membership_monthly_collection_intent: [{
+        id: 'intent-1', tenant_id: TENANT, plan_id: 'plan-1', intent_key: 'catch-fail',
+        provider_reference: 'PM-CATCH', arrears_amount_minor: 2500,
+        period_ids: ['period-1'], status: 'created',
+      }],
+      membership_monthly_arrears_period: [{
+        id: 'period-1', tenant_id: TENANT, plan_id: 'plan-1',
+        due_period: '2026-01-01', amount_minor: 2500, settled_at: null,
+      }],
+      membership_payment_status_history: [],
+      membership_payment_retry_schedule: [],
+      gocardless_payments: [],
+    });
+    const event = {
+      id: `EV-CATCH-${action}`, resource_type: 'payments', action,
+      links: { payment: 'PM-CATCH', subscription: 'SB1' },
+    };
+    const first = await processGocardlessEvent(event, { db, gc: gcStub() });
+    assert.equal(first.handled, true);
+    assert.match(first.detail, /catch-up payment/);
+    assert.equal(db.tables.membership_monthly_collection_intent[0].status, 'failed');
+    assert.equal(db.tables.membership_monthly_arrears_period.length, 1);
+    assert.equal(db.tables.membership_monthly_arrears_period[0].settled_at, null);
+    assert.equal(db.tables.membership_payment_plans[0].status, STATUS.PAYMENT_OVERDUE);
+    assert.equal(db.tables.membership_payment_plans[0].grace_expires_at, '2026-01-20');
+    assert.equal(db.tables.membership_payment_plans[0].retry_count, 2);
+    assert.equal(db.tables.membership_payment_status_history.length, 0);
+    assert.equal(db.tables.membership_payment_retry_schedule.length, 0);
+    assert.equal(db.tables.gocardless_payments.length, 1);
+    const replay = await processGocardlessEvent({ ...event, id: `${event.id}-REPLAY` }, { db, gc: gcStub() });
+    assert.equal(replay.handled, true);
+    assert.equal(db.tables.membership_monthly_arrears_period.length, 1);
+    assert.equal(db.tables.membership_payment_status_history.length, 0);
+    assert.equal(db.tables.membership_payment_retry_schedule.length, 0);
+    assert.equal(db.tables.gocardless_payments.length, 1);
+  });
+}
+
+test('confirmed subscription-less GC split-window recovery settles and accounts once; duplicate is no-op', async () => {
+  const splitTenant = '11111111-1111-4111-8111-111111111111';
+  const planId = '22222222-2222-4222-8222-222222222222';
+  const periodId = '33333333-3333-4333-8333-333333333333';
+  const intentKey = `monthly-catch-up:${planId}:${periodId}`;
+  const db = makeFakeDb({
+    membership_billing_agreements: [{
+      id: 'agr-split', tenant_id: splitTenant, status: STATUS.ACTIVE,
+      metadata: { dd: { invoicing_mode: 'per_instalment' } },
+    }],
+    membership_payment_plans: [{
+      id: planId, tenant_id: splitTenant, billing_agreement_id: 'agr-split',
+      provider: 'gocardless', interval_unit: 'monthly', currency: 'GBP',
+      status: STATUS.ACTIVE, metadata: { catch_up_intent: { key: intentKey, status: 'creating' } },
+    }],
+    membership_monthly_collection_intent: [{
+      id: 'intent-split', tenant_id: splitTenant, plan_id: planId, intent_key: intentKey,
+      status: 'creating', period_ids: [periodId], arrears_amount_minor: 2500,
+    }],
+    membership_monthly_arrears_period: [{
+      id: periodId, tenant_id: splitTenant, plan_id: planId, due_period: '2026-01-01',
+      amount_minor: 2500, settled_at: null, settlement_reference: null,
+    }],
+    membership_monthly_arrears_accounting: [{
+      id: 'acct-claim', tenant_id: splitTenant, plan_id: planId, arrears_period_id: periodId,
+      provider_payment_reference: 'PM-SPLIT', amount_minor: 2500, accounting_status: 'pending',
+    }],
+    gocardless_payments: [],
+    membership_payment_status_history: [],
+  });
+  const calls = { recover: [], settle: [], accounting: 0 };
+  db.rpc = async (name, args) => {
+    if (name === 'recover_membership_monthly_collection_provider_ref') {
+      calls.recover.push(args);
+      const intent = db.tables.membership_monthly_collection_intent[0];
+      Object.assign(intent, { status: 'created', provider_reference: 'PM-SPLIT', provider_charge_date: '2026-03-01' });
+      return { data: [{ ...intent }], error: null };
+    }
+    if (name === 'settle_membership_monthly_arrears') {
+      calls.settle.push(args);
+      const period = db.tables.membership_monthly_arrears_period[0];
+      if (!period.settled_at) Object.assign(period, { settled_at: '2026-03-02', settlement_reference: args.p_settlement_reference });
+      return { data: [{ settled_count: 1, settled_amount_minor: 2500 }], error: null };
+    }
+    throw new Error(`unexpected rpc ${name}`);
+  };
+  const payment = {
+    id: 'PM-SPLIT', amount: 2500, currency: 'GBP', charge_date: '2026-03-01',
+    metadata: {
+      catch_up_intent_key: intentKey, tenant_id: splitTenant, plan_id: planId,
+      arrears_amount_minor: '2500', arrears_period_ids: periodId,
+    },
+  };
+  const event = { id: 'EV-SPLIT', resource_type: 'payments', action: 'confirmed', links: { payment: 'PM-SPLIT' } };
+  const deps = {
+    db, gc: gcStub({ getPayment: async () => payment }),
+    postArrearsPeriod: async () => { calls.accounting++; return { status: 'posted', invoiceId: 'acct-1' }; },
+  };
+  assert.equal((await processGocardlessEvent(event, deps)).handled, true);
+  assert.equal(calls.recover.length, 1);
+  assert.deepEqual(calls.recover[0], {
+    p_tenant_id: splitTenant, p_plan_id: planId, p_intent_key: intentKey,
+    p_provider_reference: 'PM-SPLIT', p_provider_charge_date: '2026-03-01',
+  });
+  assert.equal(calls.settle.length, 1);
+  assert.deepEqual(calls.settle[0].p_period_ids, [periodId]);
+  assert.equal(calls.settle[0].p_amount_minor, 2500);
+  assert.equal(calls.accounting, 1);
+  assert.equal(db.tables.membership_monthly_collection_intent[0].status, 'completed');
+  assert.equal((await processGocardlessEvent({ ...event, id: 'EV-SPLIT-REPLAY' }, deps)).handled, true);
+  assert.equal(calls.recover.length, 1);
+  assert.equal(calls.settle.length, 1);
+  assert.equal(calls.accounting, 1);
 });
 
 test('payment failures escalate: grace period first (time-based), overdue when grace expired', async () => {

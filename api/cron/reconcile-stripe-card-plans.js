@@ -30,6 +30,7 @@ import { postStripeInstalmentInvoice } from '../_lib/membershipInstalmentInvoici
 import { getTrustedBaseUrlForTenant } from '../_lib/publicBaseUrl.js';
 import { releaseExpiredFormMonthlyCardCheckout } from '../_lib/formMonthlyCardCheckout.js';
 import { createHeartbeatReporter, HEARTBEAT_ENV_VARS } from '../_lib/heartbeat.js';
+import { executePostGraceCollection, accrueFailedMonthlyPeriod } from '../_lib/monthlyArrearsCollection.js';
 
 const CHECKOUT_PENDING_STALE_HOURS = 6;
 const PLAN_STALE_DAYS = 2;
@@ -93,6 +94,7 @@ export default async function handler(req, res) {
     await reconcileFormConflictCompensations(results);
     await reconcileStaleCheckouts(results);
     await reconcileStalePlans(results);
+    await reconcilePostGraceCatchUps(results);
     await retryFailedInstalmentInvoices(results);
   } catch (err) {
     console.error('[cron/reconcile-stripe-card-plans] fatal:', err);
@@ -118,6 +120,41 @@ export default async function handler(req, res) {
   console.log(`[cron/reconcile-stripe-card-plans] done in ${duration}ms: repaired=${results.repaired} flagged=${results.flagged} errors=${results.errors}`);
   await reportHeartbeat(results.errors === 0);
   return res.status(200).json({ ok: true, duration_ms: duration, ...results });
+}
+
+// Provider-side catch-up safety net. Intent is persisted before invoice-item
+// creation, and the service re-fetches the subscription before every mutation.
+export async function reconcilePostGraceCatchUps(results, {
+  db = supabase, nowIso = new Date().toISOString(), maxRows = MAX_ROWS_PER_GROUP,
+  getCreds = credsFor, makeClients = stripeClients, accrue = accrueFailedMonthlyPeriod,
+  execute = executePostGraceCollection,
+} = {}) {
+  const { data: plans, error } = await db.from('membership_payment_plans')
+    .select('*, membership_billing_agreements!billing_agreement_id(*)')
+    .eq('provider', 'stripe')
+    .eq('interval_unit', 'monthly')
+    .in('status', [STATUS.PAYMENT_GRACE_PERIOD, STATUS.PAYMENT_OVERDUE])
+    .not('grace_expires_at', 'is', null)
+    .lte('grace_expires_at', nowIso)
+    .order('grace_expires_at', { ascending: true }).order('id', { ascending: true })
+    .limit(maxRows);
+  if (error) throw new Error(`load Stripe post-grace plans failed: ${error.message}`);
+  for (const plan of plans || []) {
+    try {
+      const clients = makeClients(await getCreds(plan.tenant_id));
+      if (!clients.length) throw new Error('Stripe credentials unavailable');
+      const duePeriod = String(plan.failed_due_period || plan.grace_expires_at).slice(0, 10);
+      await accrue({ tenantId: plan.tenant_id, plan, duePeriod, paymentReference: plan.last_payment_id || null, db });
+      const outcome = await execute({
+        plan, agreement: plan.membership_billing_agreements, db, stripe: clients[0],
+      });
+      if (outcome.created || outcome.stopped) results.repaired++;
+      else results.skipped++;
+    } catch (err) {
+      results.errors++;
+      await flagAttention('membership_payment_plans', plan.id, `Post-grace Stripe collection requires review: ${err.message}`);
+    }
+  }
 }
 
 async function flagAttention(table, id, reason) {

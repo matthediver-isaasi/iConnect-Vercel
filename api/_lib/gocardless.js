@@ -258,6 +258,20 @@ export function createGocardlessClient(creds) {
       return json.subscriptions;
     },
 
+    // A catch-up collection is a deliberate one-off against an existing,
+    // active mandate; callers must first fence the regular subscription.
+    async createPayment({ mandateId, amountMinor, currency = 'GBP', chargeDate = null, description, metadata = {}, idempotencyKey }) {
+      if (!mandateId || !Number.isInteger(amountMinor) || amountMinor <= 0 || !idempotencyKey) {
+        throw new Error('mandateId, positive integer amountMinor and idempotencyKey are required for createPayment');
+      }
+      const payments = { amount: amountMinor, currency, description, metadata, links: { mandate: mandateId } };
+      if (chargeDate) payments.charge_date = chargeDate;
+      if (creds.creditorId) payments.links.creditor = creds.creditorId;
+      const json = await request('POST', '/payments', { body: { payments }, idempotencyKey });
+      logGc(`created one-off payment ${json.payments?.id} on mandate ${mandateId}`);
+      return json.payments;
+    },
+
     async pauseSubscription(subscriptionId, { pauseCycles = null } = {}) {
       const body = { data: {} };
       if (pauseCycles != null) body.data.pause_cycles = pauseCycles;
@@ -405,6 +419,7 @@ export const createBillingRequest = (args) => envClient().createBillingRequest(a
 export const getBillingRequest = (id) => envClient().getBillingRequest(id);
 export const createBillingRequestFlow = (args) => envClient().createBillingRequestFlow(args);
 export const createSubscription = (args) => envClient().createSubscription(args);
+export const createPayment = (args) => envClient().createPayment(args);
 export const getSubscription = (id) => envClient().getSubscription(id);
 export const cancelSubscription = (id) => envClient().cancelSubscription(id);
 export const pauseSubscription = (id, opts) => envClient().pauseSubscription(id, opts);

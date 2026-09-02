@@ -41,6 +41,15 @@ export default async function handler(req, res) {
 }
 
 function shapePlan(plan) {
+  const terms = plan.membership_billing_agreements?.metadata?.dd
+    || plan.membership_billing_agreements?.metadata?.card || {};
+  const arrears = Array.isArray(plan.membership_monthly_arrears_period)
+    ? plan.membership_monthly_arrears_period.filter((p) => !p.settled_at) : [];
+  const arrearsAmountMinor = arrears.reduce((sum, p) => sum + (Number(p.amount_minor) || 0), 0);
+  const collectionPolicy = terms.monthly_post_grace_collection_policy || 'stop_collecting';
+  const collectionStopped = !!plan.collection_stopped_at;
+  const activeCatchUp = plan.metadata?.catch_up_intent?.status === 'created'
+    ? plan.metadata.catch_up_intent : null;
   return {
     id: plan.id,
     status: plan.status,
@@ -56,6 +65,15 @@ function shapePlan(plan) {
     lastPaymentStatus: plan.last_payment_status,
     lastPaymentAt: plan.last_payment_at,
     retryCount: plan.retry_count,
+    arrearsCount: arrears.length,
+    arrearsAmount: arrearsAmountMinor / 100,
+    monthlyPostGraceCollectionPolicy: collectionPolicy,
+    collectionStopped,
+    nextPlannedCollectionAmount: !collectionStopped && collectionPolicy === 'continue_catch_up'
+      ? ((Number(plan.amount_minor) || 0) + arrearsAmountMinor) / 100
+      : (collectionStopped ? null : (plan.amount_minor != null ? plan.amount_minor / 100 : null)),
+    nextPlannedCollectionDate: collectionStopped ? null
+      : (activeCatchUp?.provider_charge_date || (arrears.length ? null : plan.next_charge_date)),
   };
 }
 
@@ -127,7 +145,7 @@ async function handleMemberView(req, res) {
 
   const { data: plans, error } = await supabase
     .from('membership_payment_plans')
-    .select('*, membership_billing_agreements!billing_agreement_id(id, status, metadata)')
+    .select('*, membership_billing_agreements!billing_agreement_id(id, status, metadata), membership_monthly_arrears_period(due_period, amount_minor, settled_at)')
     .eq('tenant_id', member.tenant_id)
     .eq('member_id', member.id)
     .order('created_at', { ascending: false })
@@ -177,7 +195,7 @@ async function handleAdminList(req, res) {
   // Both individual (member) and organisational plans.
   const { data: plans, error } = await supabase
     .from('membership_payment_plans')
-    .select('*, member!member_id(id, first_name, last_name, email), organization!organization_id(id, name), membership_billing_agreements!billing_agreement_id(id, dd_payer, billing_contact_name, billing_contact_email, mandate_completed_by)')
+    .select('*, member!member_id(id, first_name, last_name, email), organization!organization_id(id, name), membership_billing_agreements!billing_agreement_id(id, dd_payer, billing_contact_name, billing_contact_email, mandate_completed_by, metadata), membership_monthly_arrears_period(due_period, amount_minor, settled_at)')
     .eq('tenant_id', context.tenantId)
     .order('created_at', { ascending: false })
     .limit(200);

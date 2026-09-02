@@ -332,6 +332,7 @@ export default function MembershipTierManagement() {
     dd_grace_days: 7,
     dd_arrears_policy: 'manual_review',
     dd_arrears_fallback_role_id: null,
+    monthly_post_grace_collection_policy: 'stop_collecting',
     dd_terms_version: 'v1',
     dd_migration_enabled: false,
     card_monthly_enabled: false,
@@ -908,6 +909,7 @@ export default function MembershipTierManagement() {
         dd_arrears_fallback_role_id: config.dd_arrears_policy === 'restrict'
           ? config.dd_arrears_fallback_role_id
           : null,
+        monthly_post_grace_collection_policy: config.monthly_post_grace_collection_policy || 'stop_collecting',
         renewal_open_days: parseInt(config.renewal_open_days, 10),
         renewal_grace_days: parseInt(config.renewal_grace_days, 10),
         renewal_disable_login: config.renewal_disable_login === true,
@@ -1016,6 +1018,8 @@ export default function MembershipTierManagement() {
     dd_arrears_policy: ['keep_active', 'restrict', 'suspend', 'manual_review', 'cancel_at_period_end'].includes(c?.dd_arrears_policy)
       ? c.dd_arrears_policy : 'manual_review',
     dd_arrears_fallback_role_id: c?.dd_arrears_fallback_role_id || null,
+    monthly_post_grace_collection_policy: ['stop_collecting', 'continue_catch_up'].includes(c?.monthly_post_grace_collection_policy)
+      ? c.monthly_post_grace_collection_policy : 'stop_collecting',
     dd_terms_version: c?.dd_terms_version || 'v1',
     dd_migration_enabled: c?.dd_migration_enabled === true,
     card_monthly_enabled: c?.card_monthly_enabled === true,
@@ -1905,6 +1909,22 @@ export default function MembershipTierManagement() {
                       <p className="text-sm text-muted-foreground">
                         Suspend blocks member portal entry until payment recovers or an administrator resolves the arrears. Restrict changes the member role instead. Manual review and cancellation flags remain visible for administrator action and never cancel a plan immediately.
                       </p>
+                    </div>
+                    <div className="space-y-2 rounded-md border p-4">
+                      <div className="flex items-center gap-1">
+                        <Label>Collections after grace expires</Label>
+                        <ScheduleSettingHelp label="Monthly collection continuation" testId="help-monthly-post-grace-collection">
+                          <p>This is separate from the access action above. It is saved into each new Direct Debit or card plan when accepted.</p>
+                          <p>Stop collecting leaves the missed balance visible for manual recovery. Continue and catch up adds unpaid monthly instalments to the next eligible collection.</p>
+                        </ScheduleSettingHelp>
+                      </div>
+                      <Select value={config.monthly_post_grace_collection_policy || 'stop_collecting'} onValueChange={(v) => handleConfigChange('monthly_post_grace_collection_policy', v)} disabled={!isEditable}>
+                        <SelectTrigger data-testid="select-monthly-post-grace-collection-policy"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="stop_collecting">Stop future collections; resolve balance manually</SelectItem>
+                          <SelectItem value="continue_catch_up">Continue next month and collect unpaid instalments</SelectItem>
+                        </SelectContent>
+                      </Select>
                     </div>
                   </div>
                 )}

@@ -15,6 +15,9 @@
 
 import { supabase } from './database.js';
 import { applyStatusTransition, STATUS } from './gocardlessState.js';
+import {
+  accrueFailedMonthlyPeriod,
+} from './monthlyArrearsCollection.js';
 
 export const DEFAULT_GRACE_DAYS = 7;
 
@@ -282,6 +285,21 @@ export async function handlePaymentFailure({ plan, agreement, event, action, db:
       .eq('id', plan.id);
     if (error) console.error('[gocardlessArrears] failure bookkeeping update failed:', error.message);
   }
+  // A later failed collection must retain the original grace deadline but,
+  // under the snapshotted catch-up contract, gets its own idempotent period.
+  // The unique tenant/plan/due-period RPC makes replay safe.
+  if (plan.interval_unit === 'monthly') {
+    if (!plan.failed_due_period || !plan.failed_provider_reference) {
+      throw new Error('authoritative failed due period/reference required for immediate GC arrears accrual');
+    }
+    await accrueFailedMonthlyPeriod({
+      tenantId: plan.tenant_id,
+      plan,
+      duePeriod: plan.failed_due_period,
+      paymentReference: plan.failed_provider_reference,
+      db,
+    });
+  }
 
   return { toStatus, result, graceExpiresAt: graceExpiresAt.toISOString(), retryCount };
 }
@@ -381,6 +399,8 @@ export function recoveryPlanUpdate() {
     grace_expires_at: null,
     arrears_policy_applied: null,
     arrears_policy_applied_at: null,
+    failed_due_period: null,
+    failed_provider_reference: null,
   };
 }
 
