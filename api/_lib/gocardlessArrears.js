@@ -64,6 +64,161 @@ export function resolveArrearsPolicy(tierConfig) {
   return ARREARS_POLICIES.includes(policy) ? policy : 'manual_review';
 }
 
+async function markMissingRestrictionRole(db, plan, reason) {
+  if (!plan?.id) return;
+  const update = {
+    needs_attention: true,
+    attention_reason: reason,
+    updated_at: new Date().toISOString(),
+  };
+  let query = db.from('membership_payment_plans').update(update).eq('id', plan.id);
+  if (plan.tenant_id) query = query.eq('tenant_id', plan.tenant_id);
+  const { error } = await query;
+  if (error) throw new Error(`record arrears fallback-role issue failed: ${error.message}`);
+}
+
+async function loadRestrictionCandidates(db, plan, agreement, tenantId) {
+  const memberId = agreement?.member_id || plan?.member_id || null;
+  const organizationId = agreement?.organization_id || plan?.organization_id || null;
+  let query = db
+    .from('member')
+    .select('id, tenant_id, organization_id, role_id')
+    .eq('tenant_id', tenantId);
+  if (memberId) {
+    query = query.eq('id', memberId);
+  } else if (organizationId) {
+    query = query.eq('organization_id', organizationId);
+  } else {
+    return [];
+  }
+  const { data, error } = await query;
+  if (error) throw new Error(`load arrears restriction members failed: ${error.message}`);
+  return data || [];
+}
+
+/**
+ * Assign the configured tenant role to the member(s) affected by an overdue
+ * recurring plan. One immutable audit row per plan/member stores the prior
+ * role. Role updates use a compare-and-set so a concurrent administrator edit
+ * is never overwritten.
+ */
+export async function applyArrearsRestrictionRole({
+  plan,
+  agreement,
+  tierConfig,
+  db: dbArg,
+} = {}) {
+  const db = dbArg || supabase;
+  const tenantId = plan?.tenant_id || agreement?.tenant_id || null;
+  const fallbackRoleId = tierConfig?.dd_arrears_fallback_role_id || null;
+  if (!tenantId || !plan?.id) {
+    return { assigned: 0, skipped: 0, reason: 'missing-plan-tenant' };
+  }
+  if (!fallbackRoleId) {
+    await markMissingRestrictionRole(
+      db,
+      plan,
+      'Recurring-payment restriction requires a fallback role in the membership tier configuration.',
+    );
+    return { assigned: 0, skipped: 0, reason: 'missing-fallback-role' };
+  }
+
+  const { data: fallbackRole, error: fallbackError } = await db
+    .from('role')
+    .select('id, name, is_tenant_admin')
+    .eq('id', fallbackRoleId)
+    .eq('tenant_id', tenantId)
+    .maybeSingle();
+  if (fallbackError) throw new Error(`validate arrears fallback role failed: ${fallbackError.message}`);
+  if (!fallbackRole || fallbackRole.is_tenant_admin) {
+    await markMissingRestrictionRole(
+      db,
+      plan,
+      fallbackRole?.is_tenant_admin
+        ? 'Tenant administrator roles cannot be used as a recurring-payment fallback role.'
+        : 'The recurring-payment fallback role is missing or belongs to another tenant.',
+    );
+    return {
+      assigned: 0,
+      skipped: 0,
+      reason: fallbackRole?.is_tenant_admin ? 'tenant-admin-fallback-role' : 'invalid-fallback-role',
+    };
+  }
+
+  const members = await loadRestrictionCandidates(db, plan, agreement, tenantId);
+  let assigned = 0;
+  let skipped = 0;
+  for (const member of members) {
+    const { data: rpcRows, error: rpcError } = await db.rpc(
+      'apply_membership_arrears_fallback_role',
+      {
+        p_tenant_id: tenantId,
+        p_plan_id: plan.id,
+        p_member_id: member.id,
+        p_config_id: tierConfig?.id || null,
+        p_assigned_role_id: fallbackRoleId,
+      },
+    );
+    if (rpcError) throw new Error(`atomically assign arrears fallback role failed: ${rpcError.message}`);
+    const status = (Array.isArray(rpcRows) ? rpcRows[0] : rpcRows)?.result_status;
+    if (status === 'applied') assigned++;
+    else skipped++;
+  }
+
+  if (
+    assigned > 0
+    && typeof plan.attention_reason === 'string'
+    && plan.attention_reason.startsWith('Recurring-payment restriction requires a fallback role')
+  ) {
+    const { error: clearError } = await db
+      .from('membership_payment_plans')
+      .update({ needs_attention: false, attention_reason: null, updated_at: new Date().toISOString() })
+      .eq('id', plan.id)
+      .eq('tenant_id', tenantId);
+    if (clearError) throw new Error(`clear arrears fallback-role issue failed: ${clearError.message}`);
+  }
+
+  return {
+    assigned,
+    skipped,
+    roleId: fallbackRole.id,
+    roleName: fallbackRole.name || null,
+  };
+}
+
+/**
+ * Restore roles changed by applyArrearsRestrictionRole. A role is restored
+ * only while the member still has the exact fallback role assigned by this
+ * plan. Later administrator edits are marked as preserved and never replaced.
+ */
+export async function restoreArrearsRoleAssignments({ plan, agreement, db: dbArg } = {}) {
+  const db = dbArg || supabase;
+  const tenantId = plan?.tenant_id || agreement?.tenant_id || null;
+  if (!tenantId || !plan?.id) return { restored: 0, preserved: 0 };
+
+  const { data: actions, error } = await db
+    .from('membership_arrears_role_action')
+    .select('*')
+    .eq('tenant_id', tenantId)
+    .eq('plan_id', plan.id)
+    .is('restored_at', null);
+  if (error) throw new Error(`load arrears role recovery actions failed: ${error.message}`);
+
+  let restored = 0;
+  let preserved = 0;
+  for (const action of actions || []) {
+    const { data: rpcRows, error: rpcError } = await db.rpc(
+      'restore_membership_arrears_fallback_role',
+      { p_tenant_id: tenantId, p_action_id: action.id },
+    );
+    if (rpcError) throw new Error(`atomically restore arrears fallback role failed: ${rpcError.message}`);
+    const restorationStatus = (Array.isArray(rpcRows) ? rpcRows[0] : rpcRows)?.result_status;
+    if (restorationStatus === 'restored') restored++;
+    else if (restorationStatus !== 'already_completed') preserved++;
+  }
+  return { restored, preserved };
+}
+
 /**
  * Never-double-charge guard. Given the CURRENT payment resource fetched from
  * the GoCardless API, decide whether a retry may be issued.
@@ -149,7 +304,16 @@ export async function applyArrearsPolicy({ plan, agreement, tierConfig, source =
   const nowIso = new Date().toISOString();
 
   if (plan.arrears_policy_applied) {
-    return { applied: false, policy: plan.arrears_policy_applied, result: { skippedReason: 'already-applied' } };
+    const roleAssignment = plan.arrears_policy_applied === 'restrict'
+      ? await applyArrearsRestrictionRole({ plan, agreement, tierConfig, db })
+      : null;
+    return {
+      applied: false,
+      policy: plan.arrears_policy_applied,
+      roleAssignment,
+      fallbackRoleName: roleAssignment?.roleName || null,
+      result: { skippedReason: 'already-applied' },
+    };
   }
 
   const result = await applyStatusTransition({
@@ -193,7 +357,17 @@ export async function applyArrearsPolicy({ plan, agreement, tierConfig, source =
     if (error) console.error('[gocardlessArrears] flag agreement arrears state failed:', error.message);
   }
 
-  return { applied: true, policy, result };
+  const roleAssignment = policy === 'restrict'
+    ? await applyArrearsRestrictionRole({ plan, agreement, tierConfig, db })
+    : null;
+
+  return {
+    applied: true,
+    policy,
+    result,
+    roleAssignment,
+    fallbackRoleName: roleAssignment?.roleName || null,
+  };
 }
 
 /**

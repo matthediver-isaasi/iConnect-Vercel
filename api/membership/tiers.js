@@ -1,5 +1,5 @@
 import { supabase } from '../_lib/database.js';
-import { getTenantContext } from '../_lib/tenantContext.js';
+import { getTenantContext, hasAdminAccess } from '../_lib/tenantContext.js';
 import { matchBand, isNumericFieldType, isTextFieldType, normalizeMatchValue } from '../_lib/tierBandMatcher.js';
 import { getRemindersForConfig, saveRemindersForConfig } from '../_lib/membershipReminders.js';
 import { normalizeInvoiceRecipients, validateInvoiceRecipientsShape } from '../_lib/membershipRecipientResolver.js';
@@ -39,7 +39,13 @@ export default async function handler(req, res) {
 
     if (req.method === 'GET') {
       return handleGet(req, res, tenantId);
-    } else if (req.method === 'POST') {
+    }
+
+    if (!tenantContext.isAuthenticated || !(await hasAdminAccess(tenantContext))) {
+      return res.status(403).json({ error: 'Tenant administrator access required' });
+    }
+
+    if (req.method === 'POST') {
       return handlePost(req, res, tenantId);
     } else if (req.method === 'PUT') {
       return handlePut(req, res, tenantId);
@@ -657,7 +663,7 @@ async function validateRenewalPolicy(tenantId, config) {
     fallbackRoleId = config.renewal_fallback_role_id.trim();
     const { data: role, error } = await supabase
       .from('role')
-      .select('id')
+      .select('id, is_tenant_admin')
       .eq('id', fallbackRoleId)
       .eq('tenant_id', tenantId)
       .maybeSingle();
@@ -678,6 +684,50 @@ async function validateRenewalPolicy(tenantId, config) {
   };
 }
 
+export async function validateArrearsPolicy(tenantId, config, db = supabase) {
+  const allowedPolicies = ['keep_active', 'restrict', 'suspend', 'manual_review', 'cancel_at_period_end'];
+  const policy = allowedPolicies.includes(config.dd_arrears_policy)
+    ? config.dd_arrears_policy
+    : 'manual_review';
+  let fallbackRoleId = null;
+
+  if (policy === 'restrict') {
+    if (typeof config.dd_arrears_fallback_role_id !== 'string' || !config.dd_arrears_fallback_role_id.trim()) {
+      return {
+        error: 'A fallback role is required when restricting portal access after recurring-payment grace',
+        field: 'dd_arrears_fallback_role_id',
+      };
+    }
+    fallbackRoleId = config.dd_arrears_fallback_role_id.trim();
+    const { data: role, error } = await db
+      .from('role')
+      .select('id, is_tenant_admin')
+      .eq('id', fallbackRoleId)
+      .eq('tenant_id', tenantId)
+      .maybeSingle();
+    if (error || !role) {
+      return {
+        error: 'Selected arrears fallback role could not be found for this tenant',
+        field: 'dd_arrears_fallback_role_id',
+      };
+    }
+    if (role.is_tenant_admin) {
+      return {
+        error: 'Tenant administrator roles cannot be used as an arrears fallback role',
+        field: 'dd_arrears_fallback_role_id',
+      };
+    }
+  }
+
+  return {
+    ok: true,
+    fields: {
+      dd_arrears_policy: policy,
+      dd_arrears_fallback_role_id: fallbackRoleId,
+    },
+  };
+}
+
 async function handlePost(req, res, tenantId) {
   let { config, bands, discounts, vatOverrides, reminders } = req.body;
 
@@ -692,6 +742,11 @@ async function handlePost(req, res, tenantId) {
   const renewalPolicy = await validateRenewalPolicy(tenantId, config);
   if (!renewalPolicy.ok) {
     return res.status(400).json({ error: renewalPolicy.error, field: renewalPolicy.field });
+  }
+
+  const arrearsPolicy = await validateArrearsPolicy(tenantId, config);
+  if (!arrearsPolicy.ok) {
+    return res.status(400).json({ error: arrearsPolicy.error, field: arrearsPolicy.field });
   }
 
   const parsedFlatCost = config.pricing_model === 'flat'
@@ -816,6 +871,7 @@ async function handlePost(req, res, tenantId) {
         invoice_recipients: normalizedRecipients,
         fee_link_email_template_id: config.fee_link_email_template_id || null,
         ...renewalPolicy.fields,
+        ...arrearsPolicy.fields,
         ...(await checkConfigNominalCodeColumnExists()
           ? { nominal_code: config.pricing_model === 'flat' ? normalizeNominalCode(config.nominal_code) : null }
           : {}),
@@ -963,6 +1019,7 @@ async function handlePost(req, res, tenantId) {
       invoice_recipients: normalizedRecipients,
       fee_link_email_template_id: config.fee_link_email_template_id || null,
       ...renewalPolicy.fields,
+      ...arrearsPolicy.fields,
       ...(await checkConfigNominalCodeColumnExists()
         ? { nominal_code: config.pricing_model === 'flat' ? normalizeNominalCode(config.nominal_code) : null }
         : {}),
@@ -1031,9 +1088,12 @@ function ddConfigFields(config) {
   const cardMonthlyEnabled = config.card_monthly_enabled === true;
   const enabled = config.dd_enabled === true || cardMonthlyEnabled;
   const arrearsPolicy = ['keep_active', 'restrict', 'suspend', 'manual_review', 'cancel_at_period_end']
-    .includes(config.dd_arrears_policy)
-    ? config.dd_arrears_policy
-    : 'manual_review';
+    .includes(config.dd_arrears_policy) ? config.dd_arrears_policy : 'manual_review';
+  const arrearsFallbackRoleId = arrearsPolicy === 'restrict'
+    && typeof config.dd_arrears_fallback_role_id === 'string'
+    && config.dd_arrears_fallback_role_id.trim()
+    ? config.dd_arrears_fallback_role_id.trim()
+    : null;
   if (!enabled) {
     // Columns from the Phase 2 migration are NOT NULL with defaults, so the
     // disabled path must write those schema defaults (writing null raises
@@ -1049,6 +1109,7 @@ function ddConfigFields(config) {
       dd_auto_renew: true,
       dd_grace_days: 7,
       dd_arrears_policy: arrearsPolicy,
+      dd_arrears_fallback_role_id: arrearsFallbackRoleId,
       dd_terms_version: null,
       dd_migration_enabled: false,
       dd_invoicing_mode: 'annual',
@@ -1077,6 +1138,7 @@ function ddConfigFields(config) {
     dd_grace_days: Number.isInteger(parseInt(config.dd_grace_days, 10))
       ? Math.max(0, parseInt(config.dd_grace_days, 10)) : 7,
     dd_arrears_policy: arrearsPolicy,
+    dd_arrears_fallback_role_id: arrearsFallbackRoleId,
     dd_terms_version: config.dd_terms_version || 'v1',
     dd_migration_enabled: config.dd_migration_enabled === true,
     // Task #3633: 'annual' (single annual invoice, default) or

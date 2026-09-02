@@ -6,9 +6,6 @@ export const DEFAULT_GATE_BLOCKED_MESSAGE =
 export const MEMBER_PORTAL_GATE_BLOCKED_MESSAGE =
   'Access to the member portal is currently unavailable';
 
-export const RECURRING_PAYMENT_RESTRICTED_MESSAGE =
-  'Member portal access is restricted because a recurring membership payment is overdue. Please contact your administrator.';
-
 export const RECURRING_PAYMENT_SUSPENDED_MESSAGE =
   'Member portal access is suspended because recurring membership payments are overdue. Please contact your administrator.';
 
@@ -186,7 +183,7 @@ export async function evaluateMemberPortalLoginGate({
     // restores access immediately without overwriting an administrator's
     // independent login/pause choice. Both member-owned and organisation-owned
     // recurring agreements are tenant-scoped here.
-    const arrearsPolicies = ['restrict', 'suspend'];
+    const arrearsPolicies = ['suspend'];
     const loadArrearsPlan = async (column, value) => {
       if (!value) return null;
       const { data, error } = await supabase
@@ -217,14 +214,6 @@ export async function evaluateMemberPortalLoginGate({
         reason: 'RECURRING_PAYMENT_SUSPENDED',
       };
     }
-    if (appliedPolicies.includes('restrict')) {
-      return {
-        blocked: true,
-        message: RECURRING_PAYMENT_RESTRICTED_MESSAGE,
-        reason: 'RECURRING_PAYMENT_RESTRICTED',
-      };
-    }
-
     const { data: tenant, error: tenantError } = await supabase
       .from('tenant')
       .select('id, settings')

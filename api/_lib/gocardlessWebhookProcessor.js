@@ -32,6 +32,7 @@ import {
   handlePaymentFailure,
   recoveryPlanUpdate,
   clearAgreementArrearsFlag,
+  restoreArrearsRoleAssignments,
 } from './gocardlessArrears.js';
 import {
   scheduleAutomaticRetry,
@@ -596,6 +597,12 @@ async function processPaymentEvent({ event, action, links, db, gc, deps = {} }) 
     const recoveredFromArrears = plan.status === STATUS.PAYMENT_GRACE_PERIOD
       || plan.status === STATUS.PAYMENT_OVERDUE
       || !!plan.arrears_policy_applied;
+    const recoveryAgreement = recoveredFromArrears && plan.billing_agreement_id
+      ? await findAgreementById(db, plan.billing_agreement_id)
+      : null;
+    if (recoveredFromArrears) {
+      await restoreArrearsRoleAssignments({ plan, agreement: recoveryAgreement, db });
+    }
     const result = await applyStatusTransition({
       entityType: 'payment_plan',
       entityId: plan.id,
@@ -657,7 +664,7 @@ async function processPaymentEvent({ event, action, links, db, gc, deps = {} }) 
       // Phase 2: first confirmed collection — apply the tier's activation
       // rule, mark the membership row's payment progress, and send the
       // first-payment email exactly once (on the actual state transition).
-      const agreement = await findAgreementById(db, plan.billing_agreement_id);
+      const agreement = recoveryAgreement || await findAgreementById(db, plan.billing_agreement_id);
       if (agreement?.metadata?.dd?.kind === 'monthly_direct_debit') {
         const actResult = await activateMembershipForAgreement(agreement, { trigger: 'first_payment_confirmed', db });
         await recordDdPaymentProgress(agreement, { db });

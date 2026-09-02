@@ -39,7 +39,7 @@ export default async function handler(req, res) {
 
       const { data, error } = await supabase
         .from('role')
-        .select('id, name')
+        .select('id, name, is_tenant_admin')
         .eq('tenant_id', tenantId)
         .in('id', roleIds)
         .order('name', { ascending: true });
@@ -53,7 +53,7 @@ export default async function handler(req, res) {
 
     const { data, error } = await supabase
       .from('role')
-      .select('id, name')
+      .select('id, name, is_tenant_admin')
       .eq('tenant_id', tenantId)
       .order('name', { ascending: true });
 

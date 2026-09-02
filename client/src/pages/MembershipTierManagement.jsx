@@ -330,6 +330,7 @@ export default function MembershipTierManagement() {
     dd_auto_renew: true,
     dd_grace_days: 7,
     dd_arrears_policy: 'manual_review',
+    dd_arrears_fallback_role_id: null,
     dd_terms_version: 'v1',
     dd_migration_enabled: false,
     card_monthly_enabled: false,
@@ -911,6 +912,9 @@ export default function MembershipTierManagement() {
         dd_collection_day: parseInt(config.dd_collection_day, 10) || 1,
         dd_grace_days: parseInt(config.dd_grace_days, 10) || 0,
         dd_arrears_policy: config.dd_arrears_policy || 'manual_review',
+        dd_arrears_fallback_role_id: config.dd_arrears_policy === 'restrict'
+          ? config.dd_arrears_fallback_role_id
+          : null,
         renewal_open_days: parseInt(config.renewal_open_days, 10),
         renewal_grace_days: parseInt(config.renewal_grace_days, 10),
         renewal_disable_login: config.renewal_disable_login === true,
@@ -1018,6 +1022,7 @@ export default function MembershipTierManagement() {
     dd_grace_days: c?.dd_grace_days ?? 7,
     dd_arrears_policy: ['keep_active', 'restrict', 'suspend', 'manual_review', 'cancel_at_period_end'].includes(c?.dd_arrears_policy)
       ? c.dd_arrears_policy : 'manual_review',
+    dd_arrears_fallback_role_id: c?.dd_arrears_fallback_role_id || null,
     dd_terms_version: c?.dd_terms_version || 'v1',
     dd_migration_enabled: c?.dd_migration_enabled === true,
     card_monthly_enabled: c?.card_monthly_enabled === true,
@@ -1868,7 +1873,10 @@ export default function MembershipTierManagement() {
                       </div>
                       <Select
                         value={config.dd_arrears_policy || 'manual_review'}
-                        onValueChange={(v) => handleConfigChange('dd_arrears_policy', v)}
+                        onValueChange={(v) => {
+                          handleConfigChange('dd_arrears_policy', v);
+                          if (v !== 'restrict') handleConfigChange('dd_arrears_fallback_role_id', null);
+                        }}
                         disabled={!isEditable}
                       >
                         <SelectTrigger data-testid="select-dd-arrears-policy">
@@ -1877,13 +1885,46 @@ export default function MembershipTierManagement() {
                         <SelectContent>
                           <SelectItem value="keep_active">Keep access active</SelectItem>
                           <SelectItem value="manual_review">Keep access active and flag for review</SelectItem>
-                          <SelectItem value="restrict">Restrict member portal access</SelectItem>
+                          <SelectItem value="restrict">Restrict portal features via role</SelectItem>
                           <SelectItem value="suspend">Suspend member portal access</SelectItem>
                           <SelectItem value="cancel_at_period_end">Flag cancellation at the paid-period end</SelectItem>
                         </SelectContent>
                       </Select>
+                      {config.dd_arrears_policy === 'restrict' && (
+                        <div className="space-y-2 border-t pt-3">
+                          <Label>Role after grace period</Label>
+                          <Select
+                            value={config.dd_arrears_fallback_role_id || ''}
+                            onValueChange={(v) => handleConfigChange('dd_arrears_fallback_role_id', v)}
+                            disabled={!isEditable}
+                          >
+                            <SelectTrigger data-testid="select-dd-arrears-fallback-role">
+                              <SelectValue placeholder="Select a tenant role" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {invoiceRecipientRoles.filter((role) => !role.is_tenant_admin).map((role) => (
+                                <SelectItem key={role.id} value={role.id}>{role.name}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          {fieldErrors.dd_arrears_fallback_role_id && (
+                            <p className="text-sm text-destructive">{fieldErrors.dd_arrears_fallback_role_id}</p>
+                          )}
+                          {!config.dd_arrears_fallback_role_id && (
+                            <Alert variant="destructive" data-testid="alert-dd-arrears-role-required">
+                              <AlertCircle className="h-4 w-4" />
+                              <AlertDescription>
+                                This legacy restriction policy has no fallback role. Choose a tenant role before saving; no role will be assigned until it is corrected.
+                              </AlertDescription>
+                            </Alert>
+                          )}
+                          <p className="text-sm text-muted-foreground">
+                            After grace expires, affected members are moved to this role. Their available portal features come from the role&apos;s normal permissions, and they can still sign in.
+                          </p>
+                        </div>
+                      )}
                       <p className="text-sm text-muted-foreground">
-                        Restrict and suspend block member portal entry until payment recovers or an administrator resolves the arrears. Manual review and cancellation flags remain visible for administrator action and never cancel a plan immediately.
+                        Suspend blocks member portal entry until payment recovers or an administrator resolves the arrears. Restrict changes the member role instead. Manual review and cancellation flags remain visible for administrator action and never cancel a plan immediately.
                       </p>
                     </div>
                   </div>
@@ -3456,6 +3497,32 @@ export default function MembershipTierManagement() {
                         : 'No change'}
                     </span>
                   </div>
+                </>
+              )}
+              {(config.dd_enabled || config.card_monthly_enabled) && (
+                <>
+                  <div className="flex justify-between gap-2">
+                    <span className="text-muted-foreground">After recurring-payment grace</span>
+                    <span className="font-medium">
+                      {config.dd_arrears_policy === 'restrict'
+                        ? 'Restrict portal features via role'
+                        : ({
+                            keep_active: 'Keep access active',
+                            suspend: 'Suspend portal access',
+                            manual_review: 'Keep access active and flag for review',
+                            cancel_at_period_end: 'Flag cancellation at paid-period end',
+                          }[config.dd_arrears_policy] || 'Keep access active and flag for review')}
+                    </span>
+                  </div>
+                  {config.dd_arrears_policy === 'restrict' && (
+                    <div className="flex justify-between gap-2">
+                      <span className="text-muted-foreground">Recurring-payment fallback role</span>
+                      <span className="font-medium">
+                        {invoiceRecipientRoles.find((role) => role.id === config.dd_arrears_fallback_role_id)?.name
+                          || 'Role required — configuration needs correction'}
+                      </span>
+                    </div>
+                  )}
                 </>
               )}
             </>

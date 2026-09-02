@@ -3,7 +3,6 @@ import assert from 'node:assert/strict';
 import {
   evaluateMemberPortalLoginGate,
   MEMBER_PORTAL_GATE_BLOCKED_MESSAGE,
-  RECURRING_PAYMENT_RESTRICTED_MESSAGE,
   RECURRING_PAYMENT_SUSPENDED_MESSAGE,
 } from './organisationLoginGate.js';
 
@@ -103,7 +102,7 @@ test('member portal login defaults to enabled for missing tenant, settings, or v
   }
 });
 
-test('overdue recurring policy restricts or suspends the matching member without rewriting member flags', async () => {
+test('role-based recurring restriction allows login while suspension blocks it', async () => {
   const restricted = supabaseMock({
     paymentPlans: [{
       id: 'plan-restrict',
@@ -116,9 +115,9 @@ test('overdue recurring policy restricts or suspends the matching member without
     }],
   });
   assert.deepEqual(await evaluate(restricted), {
-    blocked: true,
-    message: RECURRING_PAYMENT_RESTRICTED_MESSAGE,
-    reason: 'RECURRING_PAYMENT_RESTRICTED',
+    blocked: false,
+    message: null,
+    reason: 'ENABLED',
   });
   assert.deepEqual(restricted.writes, []);
 

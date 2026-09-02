@@ -33,6 +33,7 @@ import {
   computeGraceExpiry,
   recoveryPlanUpdate,
   clearAgreementArrearsFlag,
+  restoreArrearsRoleAssignments,
 } from './gocardlessArrears.js';
 import { sendDdLifecycleEmail } from './gocardlessDdEmails.js';
 import { fireWorkflowForPaidRow } from './membershipPaymentReconciliation.js';
@@ -453,7 +454,13 @@ async function progressCardPlanAfterPaidInvoice({
   const recoveredFromArrears = plan.status === STATUS.PAYMENT_GRACE_PERIOD
     || plan.status === STATUS.PAYMENT_OVERDUE
     || !!plan.arrears_policy_applied
-    || !!agreement?.metadata?.dd?.arrears_state;
+    || !!agreement?.metadata?.dd?.arrears_state
+    || !!agreement?.metadata?.card?.arrears_state;
+  if (recoveredFromArrears) {
+    // Restore before clearing plan arrears state so a transient recovery error
+    // remains retryable and cannot strand an audit action indefinitely.
+    await restoreArrearsRoleAssignments({ plan, agreement, db });
+  }
   // The first invoice may also be the final invoice (a supported one-instalment
   // plan). Always run first-payment progression before completion settlement,
   // and make it safe to replay if the counter committed but a later step failed.

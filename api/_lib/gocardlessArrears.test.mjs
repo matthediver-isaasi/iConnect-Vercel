@@ -15,9 +15,12 @@ import {
   assertRetryablePayment,
   handlePaymentFailure,
   applyArrearsPolicy,
+  applyArrearsRestrictionRole,
+  restoreArrearsRoleAssignments,
   recoveryPlanUpdate,
   clearAgreementArrearsFlag,
 } from './gocardlessArrears.js';
+import { validateArrearsPolicy } from '../membership/tiers.js';
 
 // ---------------------------------------------------------------------------
 // Minimal in-memory supabase-shaped fake (mirrors webhook processor tests)
@@ -71,7 +74,93 @@ function makeFakeDb(initial = {}) {
     }
   }
 
-  return { tables, from(table) { return new Query(table); } };
+  return {
+    tables,
+    from(table) { return new Query(table); },
+    async rpc(name, args) {
+      if (name === 'apply_membership_arrears_fallback_role') {
+        const plan = ensure('membership_payment_plans').find((row) => (
+          row.id === args.p_plan_id && row.tenant_id === args.p_tenant_id
+        ));
+        if (!plan) return { data: null, error: { message: 'invalid payment plan tenant' } };
+        const role = ensure('role').find((row) => (
+          row.id === args.p_assigned_role_id && row.tenant_id === args.p_tenant_id
+        ));
+        if (!role || role.is_tenant_admin) {
+          return { data: null, error: { message: 'invalid fallback role' } };
+        }
+        const member = ensure('member').find((row) => (
+          row.id === args.p_member_id && row.tenant_id === args.p_tenant_id
+        ));
+        if (!member) return { data: [{ result_status: 'member_missing' }], error: null };
+        const isPlanTarget = plan.member_id
+          ? member.id === plan.member_id
+          : !!plan.organization_id && member.organization_id === plan.organization_id;
+        if (!isPlanTarget) return { data: null, error: { message: 'invalid payment plan target' } };
+        const currentRole = ensure('role').find((row) => (
+          row.id === member.role_id && row.tenant_id === args.p_tenant_id
+        ));
+        if (currentRole?.is_tenant_admin) {
+          return { data: [{ result_status: 'tenant_admin_protected' }], error: null };
+        }
+        const existing = ensure('membership_arrears_role_action').find((row) => (
+          row.tenant_id === args.p_tenant_id
+          && row.plan_id === args.p_plan_id
+          && row.member_id === args.p_member_id
+          && row.restored_at == null
+        ));
+        if (existing) return { data: [{ result_status: 'already_applied' }], error: null };
+        if (member.role_id === args.p_assigned_role_id) {
+          return { data: [{ result_status: 'already_has_role' }], error: null };
+        }
+        const action = {
+          id: crypto.randomUUID(),
+          tenant_id: args.p_tenant_id,
+          plan_id: args.p_plan_id,
+          member_id: args.p_member_id,
+          config_id: args.p_config_id,
+          previous_role_id: member.role_id,
+          assigned_role_id: args.p_assigned_role_id,
+          applied_at: new Date().toISOString(),
+          restored_at: null,
+          restoration_status: null,
+        };
+        ensure('membership_arrears_role_action').push(action);
+        member.role_id = args.p_assigned_role_id;
+        return {
+          data: [{
+            result_status: 'applied',
+            original_role_id: action.previous_role_id,
+            assigned_role_name: role.name,
+            role_action_id: action.id,
+          }],
+          error: null,
+        };
+      }
+      if (name === 'restore_membership_arrears_fallback_role') {
+        const action = ensure('membership_arrears_role_action').find((row) => (
+          row.id === args.p_action_id && row.tenant_id === args.p_tenant_id
+        ));
+        if (!action || action.restored_at != null) {
+          return { data: [{ result_status: 'already_completed' }], error: null };
+        }
+        const member = ensure('member').find((row) => (
+          row.id === action.member_id && row.tenant_id === args.p_tenant_id
+        ));
+        let status = 'member_missing';
+        if (member?.role_id === action.assigned_role_id) {
+          member.role_id = action.previous_role_id;
+          status = 'restored';
+        } else if (member) {
+          status = 'manual_change_preserved';
+        }
+        action.restored_at = new Date().toISOString();
+        action.restoration_status = status;
+        return { data: [{ result_status: status }], error: null };
+      }
+      return { data: null, error: { message: `unexpected rpc ${name}` } };
+    },
+  };
 }
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -114,6 +203,42 @@ test('resolveArrearsPolicy collapses unknowns to manual_review', () => {
   assert.equal(resolveArrearsPolicy({ dd_arrears_policy: 'keep_active' }), 'keep_active');
   assert.equal(resolveArrearsPolicy({ dd_arrears_policy: 'nuke' }), 'manual_review');
   assert.equal(resolveArrearsPolicy(null), 'manual_review');
+});
+
+test('recurring restriction configuration requires a role from the same tenant', async () => {
+  const db = makeFakeDb({
+    role: [
+      { id: 'role-local', tenant_id: 'tenant-1' },
+      { id: 'role-foreign', tenant_id: 'tenant-2' },
+      { id: 'role-admin', tenant_id: 'tenant-1', is_tenant_admin: true },
+    ],
+  });
+  const missing = await validateArrearsPolicy('tenant-1', {
+    dd_arrears_policy: 'restrict',
+    dd_arrears_fallback_role_id: null,
+  }, db);
+  assert.equal(missing.field, 'dd_arrears_fallback_role_id');
+
+  const foreign = await validateArrearsPolicy('tenant-1', {
+    dd_arrears_policy: 'restrict',
+    dd_arrears_fallback_role_id: 'role-foreign',
+  }, db);
+  assert.equal(foreign.field, 'dd_arrears_fallback_role_id');
+
+  const admin = await validateArrearsPolicy('tenant-1', {
+    dd_arrears_policy: 'restrict',
+    dd_arrears_fallback_role_id: 'role-admin',
+  }, db);
+  assert.equal(admin.field, 'dd_arrears_fallback_role_id');
+
+  const valid = await validateArrearsPolicy('tenant-1', {
+    dd_arrears_policy: 'restrict',
+    dd_arrears_fallback_role_id: 'role-local',
+  }, db);
+  assert.deepEqual(valid.fields, {
+    dd_arrears_policy: 'restrict',
+    dd_arrears_fallback_role_id: 'role-local',
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -218,6 +343,157 @@ test('keep_active policy records but never flags the agreement', async () => {
   assert.equal(out.applied, true);
   assert.equal(out.policy, 'keep_active');
   assert.equal(db.tables.membership_billing_agreements[0].metadata.dd.arrears_state, undefined);
+});
+
+test('restriction assigns and idempotently restores a member-owned plan role', async () => {
+  const db = makeFakeDb({
+    role: [
+      { id: 'role-member', tenant_id: 'tenant-1', name: 'Member', is_tenant_admin: false },
+      { id: 'role-limited', tenant_id: 'tenant-1', name: 'Limited Access', is_tenant_admin: false },
+    ],
+    member: [{
+      id: 'member-1',
+      tenant_id: 'tenant-1',
+      organization_id: null,
+      role_id: 'role-member',
+    }],
+    membership_payment_plans: [planRow({ tenant_id: 'tenant-1', member_id: 'member-1' })],
+    membership_arrears_role_action: [],
+  });
+  const plan = db.tables.membership_payment_plans[0];
+  const agreement = { id: 'ag-role-1', tenant_id: 'tenant-1', member_id: 'member-1' };
+  const tierConfig = {
+    id: 'config-1',
+    dd_arrears_policy: 'restrict',
+    dd_arrears_fallback_role_id: 'role-limited',
+  };
+
+  const applied = await applyArrearsRestrictionRole({ plan, agreement, tierConfig, db });
+  assert.equal(applied.assigned, 1);
+  assert.equal(applied.roleName, 'Limited Access');
+  assert.equal(db.tables.member[0].role_id, 'role-limited');
+  assert.equal(db.tables.membership_arrears_role_action.length, 1);
+  assert.equal(db.tables.membership_arrears_role_action[0].previous_role_id, 'role-member');
+
+  const duplicate = await applyArrearsRestrictionRole({ plan, agreement, tierConfig, db });
+  assert.equal(duplicate.assigned, 0);
+  assert.equal(db.tables.membership_arrears_role_action.length, 1);
+
+  const restored = await restoreArrearsRoleAssignments({ plan, agreement, db });
+  assert.deepEqual(restored, { restored: 1, preserved: 0 });
+  assert.equal(db.tables.member[0].role_id, 'role-member');
+  assert.equal(db.tables.membership_arrears_role_action[0].restoration_status, 'restored');
+  assert.deepEqual(
+    await restoreArrearsRoleAssignments({ plan, agreement, db }),
+    { restored: 0, preserved: 0 },
+  );
+
+  const reapplied = await applyArrearsRestrictionRole({ plan, agreement, tierConfig, db });
+  assert.equal(reapplied.assigned, 1);
+  assert.equal(db.tables.membership_arrears_role_action.length, 2);
+});
+
+test('organisation restriction fans out, protects tenant admins, and preserves manual role changes', async () => {
+  const db = makeFakeDb({
+    role: [
+      { id: 'role-member', tenant_id: 'tenant-1', name: 'Member', is_tenant_admin: false },
+      { id: 'role-admin', tenant_id: 'tenant-1', name: 'Admin', is_tenant_admin: true },
+      { id: 'role-limited', tenant_id: 'tenant-1', name: 'Limited', is_tenant_admin: false },
+      { id: 'role-manual', tenant_id: 'tenant-1', name: 'Manual', is_tenant_admin: false },
+    ],
+    member: [
+      { id: 'member-1', tenant_id: 'tenant-1', organization_id: 'org-1', role_id: 'role-member' },
+      { id: 'member-2', tenant_id: 'tenant-1', organization_id: 'org-1', role_id: 'role-admin' },
+      { id: 'foreign-member', tenant_id: 'tenant-2', organization_id: 'org-1', role_id: 'role-member' },
+    ],
+    membership_payment_plans: [planRow({
+      tenant_id: 'tenant-1',
+      member_id: null,
+      organization_id: 'org-1',
+    })],
+    membership_arrears_role_action: [],
+  });
+  const plan = db.tables.membership_payment_plans[0];
+  const agreement = { id: 'ag-role-2', tenant_id: 'tenant-1', organization_id: 'org-1' };
+  const tierConfig = {
+    id: 'config-1',
+    dd_arrears_policy: 'restrict',
+    dd_arrears_fallback_role_id: 'role-limited',
+  };
+
+  const applied = await applyArrearsRestrictionRole({ plan, agreement, tierConfig, db });
+  assert.equal(applied.assigned, 1);
+  assert.equal(applied.skipped, 1);
+  assert.equal(db.tables.member.find((row) => row.id === 'member-1').role_id, 'role-limited');
+  assert.equal(db.tables.member.find((row) => row.id === 'member-2').role_id, 'role-admin');
+  assert.equal(db.tables.member.find((row) => row.id === 'foreign-member').role_id, 'role-member');
+
+  db.tables.member.find((row) => row.id === 'member-1').role_id = 'role-manual';
+  const recovered = await restoreArrearsRoleAssignments({ plan, agreement, db });
+  assert.deepEqual(recovered, { restored: 0, preserved: 1 });
+  assert.equal(db.tables.member.find((row) => row.id === 'member-1').role_id, 'role-manual');
+  assert.equal(db.tables.membership_arrears_role_action[0].restoration_status, 'manual_change_preserved');
+});
+
+test('restriction fails closed for missing or cross-tenant fallback roles', async () => {
+  const db = makeFakeDb({
+    role: [{ id: 'role-foreign', tenant_id: 'tenant-2', name: 'Foreign role' }],
+    member: [{ id: 'member-1', tenant_id: 'tenant-1', role_id: 'role-member' }],
+    membership_payment_plans: [planRow({ tenant_id: 'tenant-1', member_id: 'member-1' })],
+    membership_arrears_role_action: [],
+  });
+  const plan = db.tables.membership_payment_plans[0];
+  const agreement = { tenant_id: 'tenant-1', member_id: 'member-1' };
+
+  const missing = await applyArrearsRestrictionRole({
+    plan,
+    agreement,
+    tierConfig: { dd_arrears_policy: 'restrict', dd_arrears_fallback_role_id: null },
+    db,
+  });
+  assert.equal(missing.reason, 'missing-fallback-role');
+  assert.equal(db.tables.member[0].role_id, 'role-member');
+  assert.match(plan.attention_reason, /requires a fallback role/);
+
+  const foreign = await applyArrearsRestrictionRole({
+    plan,
+    agreement,
+    tierConfig: { dd_arrears_policy: 'restrict', dd_arrears_fallback_role_id: 'role-foreign' },
+    db,
+  });
+  assert.equal(foreign.reason, 'invalid-fallback-role');
+  assert.equal(db.tables.member[0].role_id, 'role-member');
+  assert.equal(db.tables.membership_arrears_role_action.length, 0);
+});
+
+test('atomic restriction rejects a member who is not the payment plan target', async () => {
+  const db = makeFakeDb({
+    role: [
+      { id: 'role-member', tenant_id: 'tenant-1', name: 'Member', is_tenant_admin: false },
+      { id: 'role-limited', tenant_id: 'tenant-1', name: 'Limited', is_tenant_admin: false },
+    ],
+    member: [
+      { id: 'member-1', tenant_id: 'tenant-1', organization_id: 'org-1', role_id: 'role-member' },
+      { id: 'member-2', tenant_id: 'tenant-1', organization_id: 'org-2', role_id: 'role-member' },
+    ],
+    membership_payment_plans: [planRow({
+      tenant_id: 'tenant-1',
+      member_id: null,
+      organization_id: 'org-1',
+    })],
+    membership_arrears_role_action: [],
+  });
+
+  const { error } = await db.rpc('apply_membership_arrears_fallback_role', {
+    p_tenant_id: 'tenant-1',
+    p_plan_id: 'plan-1',
+    p_member_id: 'member-2',
+    p_config_id: 'config-1',
+    p_assigned_role_id: 'role-limited',
+  });
+  assert.match(error.message, /invalid payment plan target/);
+  assert.equal(db.tables.member[1].role_id, 'role-member');
+  assert.equal(db.tables.membership_arrears_role_action.length, 0);
 });
 
 // ---------------------------------------------------------------------------

@@ -36,7 +36,7 @@ export default async function handler(req, res) {
       .from('membership_payment_plans')
       .select('*')
       .in('status', [STATUS.PAYMENT_GRACE_PERIOD, STATUS.PAYMENT_OVERDUE])
-      .is('arrears_policy_applied', null)
+      .or('arrears_policy_applied.is.null,arrears_policy_applied.eq.restrict')
       .not('grace_expires_at', 'is', null)
       .lte('grace_expires_at', nowIso)
       .order('grace_expires_at', { ascending: true })
@@ -63,31 +63,45 @@ export default async function handler(req, res) {
         if (configId) {
           const { data } = await supabase
             .from('membership_tier_config')
-            .select('id, dd_arrears_policy')
+            .select('id, tenant_id, dd_arrears_policy, dd_arrears_fallback_role_id')
             .eq('id', configId)
+            .eq('tenant_id', plan.tenant_id)
             .maybeSingle();
           tierConfig = data;
         }
 
         const outcome = await applyArrearsPolicy({ plan, agreement, tierConfig, source: 'system' });
-        if (outcome.applied) {
+        const restrictionRoleAssigned = outcome.policy === 'restrict'
+          && (outcome.roleAssignment?.assigned || 0) > 0;
+        if (outcome.applied || restrictionRoleAssigned) {
           results.policiesApplied++;
-          results.details.push({ planId: plan.id, policy: outcome.policy });
+          results.details.push({
+            planId: plan.id,
+            policy: outcome.policy,
+            roleAssignment: outcome.roleAssignment || null,
+          });
           if (agreement) {
-            try {
-              const policyEvent = {
-                restrict: 'payment_access_restricted',
-                suspend: 'payment_access_suspended',
-                manual_review: 'payment_manual_review',
-                cancel_at_period_end: 'payment_cancel_at_period_end',
-                keep_active: 'payment_overdue',
-              }[outcome.policy] || 'payment_overdue';
-              const sent = await sendDdLifecycleEmail(policyEvent, agreement);
-              if (sent?.sent) results.emailed++;
-            } catch (emailErr) {
-              console.error(`[cron/gocardless-arrears] escalation email failed for plan ${plan.id}:`, emailErr.message);
+            // Legacy restrict rows with no role must not tell a member that
+            // their role changed. A corrected row is emailed on the later run
+            // that actually performs the assignment.
+            if (outcome.policy !== 'restrict' || restrictionRoleAssigned) {
+              try {
+                const policyEvent = {
+                  restrict: 'payment_access_restricted',
+                  suspend: 'payment_access_suspended',
+                  manual_review: 'payment_manual_review',
+                  cancel_at_period_end: 'payment_cancel_at_period_end',
+                  keep_active: 'payment_overdue',
+                }[outcome.policy] || 'payment_overdue';
+                const sent = await sendDdLifecycleEmail(policyEvent, agreement, {
+                  extraContext: { fallbackRoleName: outcome.fallbackRoleName || null },
+                });
+                if (sent?.sent) results.emailed++;
+              } catch (emailErr) {
+                console.error(`[cron/gocardless-arrears] escalation email failed for plan ${plan.id}:`, emailErr.message);
+              }
             }
-            if (outcome.policy !== 'keep_active') {
+            if (outcome.applied && outcome.policy !== 'keep_active') {
               try {
                 const adminSent = await sendRecurringPaymentAdminEscalation({
                   agreement,

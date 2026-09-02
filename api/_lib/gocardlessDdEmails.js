@@ -123,11 +123,11 @@ const EVENTS = {
       <p>Your membership benefits may be restricted or suspended until payments are brought up to date. Please contact us or resolve the payment problem from your membership page as soon as possible.</p>`,
   },
   payment_access_restricted: {
-    subject: () => `Membership portal access restricted`,
+    subject: () => `Membership portal access updated`,
     body: (c) => `
       <p>Hi ${c.firstName},</p>
-      <p>Your recurring membership payment is still overdue after the grace period, so access to the member portal has been restricted.</p>
-      <p>Access will be restored when the payment recovers or an administrator resolves the arrears. Please contact us for help.</p>`,
+      <p>Your recurring membership payment is still overdue after the grace period, so your member role has been changed${c.fallbackRoleName ? ` to <strong>${c.fallbackRoleName}</strong>` : ''}.</p>
+      <p>You can still sign in, but the portal features available to you now follow that role's permissions. Your previous role will be restored when the payment recovers unless an administrator changes it first.</p>`,
   },
   payment_access_suspended: {
     subject: () => `Membership portal access suspended`,
@@ -155,7 +155,7 @@ const EVENTS = {
     body: (c) => `
       <p>Hi ${c.firstName},</p>
       <p>Your recurring membership payment has now been resolved.</p>
-      <p>Any portal restriction or suspension caused by the overdue payment has been removed.</p>`,
+      <p>Any suspension caused by the overdue payment has been removed. If your role was automatically restricted, your previous role has been restored unless an administrator changed it while the payment was overdue.</p>`,
   },
   plan_cancelled: {
     subject: (c) => `Your membership Direct Debit has been cancelled`,

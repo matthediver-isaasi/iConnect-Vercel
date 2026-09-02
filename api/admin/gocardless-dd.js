@@ -27,6 +27,7 @@ import {
   graceDaysForAgreement,
   recoveryPlanUpdate,
   clearAgreementArrearsFlag,
+  restoreArrearsRoleAssignments,
 } from '../_lib/gocardlessArrears.js';
 import {
   retryPaymentSafely,
@@ -678,6 +679,13 @@ async function handlePost(req, res, tenantId, actorEmail) {
       }
       const base = plan.grace_expires_at ? new Date(plan.grace_expires_at) : computeGraceExpiry(new Date(), graceDaysForAgreement(agreement));
       const extended = new Date(base.getTime() + days * 86_400_000);
+      // Extending grace withdraws any role restriction already applied. Do
+      // this before clearing policy state so a transient failure is retryable.
+      const roleRecovery = await restoreArrearsRoleAssignments({
+        plan,
+        agreement,
+        db: supabase,
+      });
       const { error } = await supabase
         .from('membership_payment_plans')
         .update({
@@ -692,13 +700,18 @@ async function handlePost(req, res, tenantId, actorEmail) {
       if (agreement?.metadata?.dd?.arrears_state) {
         await clearAgreementArrearsFlag(agreement);
       }
-      await recordAdminAction(tenantId, { planId, agreementId: agreement?.id, action: 'extend_grace', actorEmail, details: { days, graceExpiresAt: extended.toISOString() } });
-      return res.json({ ok: true, graceExpiresAt: extended.toISOString() });
+      await recordAdminAction(tenantId, { planId, agreementId: agreement?.id, action: 'extend_grace', actorEmail, details: { days, graceExpiresAt: extended.toISOString(), roleRecovery } });
+      return res.json({ ok: true, graceExpiresAt: extended.toISOString(), roleRecovery });
     }
 
     case 'manual_resolve': {
       // Admin confirms payment was resolved outside GC (or accepts the loss):
       // plan returns to active, arrears bookkeeping cleared.
+      const roleRecovery = await restoreArrearsRoleAssignments({
+        plan,
+        agreement,
+        db: supabase,
+      });
       await closeAutomaticRetrySchedule(plan, 'manually_resolved');
       const result = await applyStatusTransition({
         entityType: 'payment_plan',
@@ -714,8 +727,8 @@ async function handlePost(req, res, tenantId, actorEmail) {
       if (agreement && result.applied) {
         await sendDdLifecycleEmail('payment_recovered', agreement);
       }
-      await recordAdminAction(tenantId, { planId, agreementId: agreement?.id, action: 'manual_resolve', actorEmail, details: { note: req.body.note || null, result } });
-      return res.json({ ok: true, result });
+      await recordAdminAction(tenantId, { planId, agreementId: agreement?.id, action: 'manual_resolve', actorEmail, details: { note: req.body.note || null, result, roleRecovery } });
+      return res.json({ ok: true, result, roleRecovery });
     }
 
     case 'remind': {
