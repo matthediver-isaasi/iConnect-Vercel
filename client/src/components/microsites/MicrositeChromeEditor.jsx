@@ -1,5 +1,6 @@
 import { useState, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -14,6 +15,7 @@ import {
   validateMicrositeHeaderLogoConfig,
   normalizePositiveLogoDimension,
 } from "@shared/micrositeHeaderLogo";
+import { buildMicrositeFooterSourcePayload } from "@/lib/micrositeFooterSource";
 import {
   Loader2, Palette, Image as ImageIcon, PanelTop, LogIn, UserCircle,
   Rows3, Share2, PanelBottom, AtSign, Upload,
@@ -100,7 +102,16 @@ function OverrideToggle({ checked, onChange, testId }) {
   );
 }
 
-function ChromeCard({ icon: Icon, title, description, overridden, onToggle, testId, children }) {
+function ChromeCard({
+  icon: Icon,
+  title,
+  description,
+  overridden,
+  onToggle,
+  testId,
+  inheritedMessage = "Inheriting the tenant branding for this section.",
+  children,
+}) {
   return (
     <Card>
       <CardHeader>
@@ -119,7 +130,7 @@ function ChromeCard({ icon: Icon, title, description, overridden, onToggle, test
         <CardContent className="space-y-4">{children}</CardContent>
       ) : (
         <CardContent>
-          <p className="text-sm text-muted-foreground">Inheriting the tenant branding for this section.</p>
+          <p className="text-sm text-muted-foreground">{inheritedMessage}</p>
         </CardContent>
       )}
     </Card>
@@ -471,8 +482,7 @@ export default function MicrositeChromeEditor({ microsite }) {
           header_config: headerOut,
           replace_header_config: true,
           footer_config: footerOut,
-          footer_source: footerSource,
-          canvas_footer_id: footerSource === "canvas" ? canvasFooterId : null,
+          ...buildMicrositeFooterSourcePayload(footerSource, canvasFooterId),
           branding_config: brandingOut,
         }),
         credentials: "include",
@@ -840,29 +850,83 @@ export default function MicrositeChromeEditor({ microsite }) {
       </ChromeCard>
 
       {/* 9. Footer */}
-      <ChromeCard
-        icon={PanelBottom}
-        title="Footer source"
-        description="Inherit the main-site footer, keep this microsite's configured override, or use a reusable Canvas footer."
-      >
-        <div className="space-y-3">
-          <Select value={footerSource} onValueChange={(value) => setState((s) => ({ ...s, footerSource: value }))}>
-            <SelectTrigger data-testid="select-microsite-footer-source"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="inherit">Inherit main-site footer</SelectItem>
-              <SelectItem value="configured">Configured microsite footer</SelectItem>
-              <SelectItem value="canvas">Reusable Canvas footer</SelectItem>
-            </SelectContent>
-          </Select>
-          {footerSource === "canvas" && (
-            <Select value={canvasFooterId} onValueChange={(value) => setState((s) => ({ ...s, canvasFooterId: value }))}>
-              <SelectTrigger data-testid="select-microsite-canvas-footer"><SelectValue placeholder="Select a footer" /></SelectTrigger>
-              <SelectContent>{canvasFooters.map((item) => <SelectItem key={item.id} value={item.id}>{item.name}</SelectItem>)}</SelectContent>
+      <Card data-testid="card-microsite-footer-source">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <PanelBottom className="w-5 h-5" />
+            Footer source
+          </CardTitle>
+          <CardDescription>
+            Choose which footer appears on this microsite. The configured footer values are kept when another source is active.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="select-microsite-footer-source">Active footer</Label>
+            <Select value={footerSource} onValueChange={(value) => setState((s) => ({ ...s, footerSource: value }))}>
+              <SelectTrigger id="select-microsite-footer-source" data-testid="select-microsite-footer-source"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="inherit">Inherit main-site footer</SelectItem>
+                <SelectItem value="configured">Configured microsite footer</SelectItem>
+                <SelectItem value="canvas">Reusable Canvas footer</SelectItem>
+              </SelectContent>
             </Select>
+          </div>
+          {footerSource === "inherit" && (
+            <p className="text-sm text-muted-foreground" data-testid="text-microsite-footer-inherited">
+              This microsite uses the main site's effective footer, including a reusable Canvas footer if the main site is configured to use one.
+            </p>
           )}
-          <p className="text-xs text-muted-foreground">Switching modes does not erase the configured footer values below.</p>
-        </div>
-      </ChromeCard>
+          {footerSource === "configured" && (
+            <p className="text-sm text-muted-foreground" data-testid="text-microsite-footer-configured">
+              This microsite uses its configured footer when the Footer Configuration override below is enabled.
+            </p>
+          )}
+          {footerSource === "canvas" && (
+            <div className="space-y-3 rounded-md border bg-muted/30 p-3" data-testid="panel-microsite-canvas-footer">
+              <div className="space-y-2">
+                <Label htmlFor="select-microsite-canvas-footer">Reusable Canvas footer</Label>
+                {canvasFooters.length > 0 ? (
+                  <div className="flex items-center gap-2">
+                    <Select value={canvasFooterId} onValueChange={(value) => setState((s) => ({ ...s, canvasFooterId: value }))}>
+                      <SelectTrigger id="select-microsite-canvas-footer" className="flex-1" data-testid="select-microsite-canvas-footer">
+                        <SelectValue placeholder="Select a footer" />
+                      </SelectTrigger>
+                      <SelectContent>{canvasFooters.map((item) => <SelectItem key={item.id} value={item.id}>{item.name}</SelectItem>)}</SelectContent>
+                    </Select>
+                    {canvasFooterId && (
+                      <Link to={`/CanvasFooterEditor?footerId=${encodeURIComponent(canvasFooterId)}`}>
+                        <Button type="button" variant="outline" data-testid="button-edit-microsite-canvas-footer">Edit</Button>
+                      </Link>
+                    )}
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <p className="text-sm text-muted-foreground" data-testid="text-no-microsite-canvas-footers">
+                      No reusable Canvas footers are available for this tenant yet.
+                    </p>
+                    <Link to="/CanvasFooterManagement">
+                      <Button type="button" variant="outline" data-testid="button-manage-microsite-canvas-footers">
+                        Create a Canvas footer
+                      </Button>
+                    </Link>
+                  </div>
+                )}
+              </div>
+              {canvasFooters.length > 0 && !canvasFooterId && (
+                <p className="text-sm text-amber-700" data-testid="text-microsite-canvas-footer-required">
+                  Select a reusable footer before saving this source.
+                </p>
+              )}
+              {canvasFooterId && (
+                <p className="text-xs text-muted-foreground">
+                  This microsite will render the selected Canvas footer. Changes made in the footer editor apply here automatically.
+                </p>
+              )}
+            </div>
+          )}
+        </CardContent>
+      </Card>
       {footerSource === "configured" && (overrides.footer ? (
         <FooterControls
           value={footer}
@@ -880,6 +944,7 @@ export default function MicrositeChromeEditor({ microsite }) {
           description="Columns, colors, address, contact details and legal text of the footer on microsite pages."
           overridden={false}
           onToggle={(on) => toggleWithSeed("footer", on, seedFooter)}
+          inheritedMessage="Inheriting the tenant's configured footer for this microsite."
           testId="switch-override-footer"
         />
       ))}
@@ -911,7 +976,11 @@ export default function MicrositeChromeEditor({ microsite }) {
         </div>
       </ChromeCard>
 
-      <Button onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending} data-testid="button-save-chrome">
+      <Button
+        onClick={() => saveMutation.mutate()}
+        disabled={saveMutation.isPending || (footerSource === "canvas" && !canvasFooterId)}
+        data-testid="button-save-chrome"
+      >
         {saveMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
         Save branding
       </Button>
