@@ -8,6 +8,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import CanvasBuilder from "@/components/canvas/CanvasBuilder";
 import CanvasPageRenderer from "@/components/canvas/CanvasPageRenderer";
 import { normalizeCanvasDesign } from "@/lib/canvasDesign";
+import { createCanvasFooterInitialDesignResolver } from "@/lib/canvasFooterEditorState";
 import { adminFetch } from "@/lib/adminFetch";
 import { createPageUrl } from "@/utils";
 
@@ -23,6 +24,10 @@ export default function CanvasFooterEditor() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const canvasRef = useRef(null);
+  const initialDesignResolverRef = useRef(null);
+  if (!initialDesignResolverRef.current) {
+    initialDesignResolverRef.current = createCanvasFooterInitialDesignResolver(normalizeCanvasDesign);
+  }
   const [breakpoint, setBreakpoint] = useState("desktop");
   const [dirty, setDirty] = useState(false);
   const [preview, setPreview] = useState(false);
@@ -32,6 +37,7 @@ export default function CanvasFooterEditor() {
     enabled: !!id,
   });
   const footer = data?.footer;
+  const initialDesign = initialDesignResolverRef.current(footer);
   const save = useMutation({
     mutationFn: (design) => request(`/api/admin/canvas-footers?id=${encodeURIComponent(id)}`, {
       method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ design }),
@@ -44,10 +50,14 @@ export default function CanvasFooterEditor() {
     },
     onError: (error) => toast.error(error.message),
   });
-  const doSave = useCallback(() => {
-    const design = canvasRef.current?.getDesign?.();
-    if (design) return save.mutateAsync(design);
-  }, [save]);
+  const persistDesign = useCallback(
+    (design) => save.mutateAsync(design),
+    [save.mutateAsync],
+  );
+  const doSave = useCallback(
+    () => canvasRef.current?.saveNow?.(),
+    [],
+  );
   useEffect(() => {
     const warn = (e) => { if (dirty) { e.preventDefault(); e.returnValue = ""; } };
     window.addEventListener("beforeunload", warn);
@@ -69,7 +79,7 @@ export default function CanvasFooterEditor() {
       <Button onClick={doSave} disabled={!dirty || save.isPending}><Save className="w-4 h-4 mr-2" />{save.isPending ? "Saving…" : "Save"}</Button>
     </header>
     <div className="flex-1 min-h-0">
-      <CanvasBuilder ref={canvasRef} initialDesign={normalizeCanvasDesign(footer.design)} breakpoint={breakpoint} onBreakpointChange={setBreakpoint} onSave={doSave} isSaving={save.isPending} isDirty={dirty} onDirtyChange={setDirty} />
+      <CanvasBuilder ref={canvasRef} initialDesign={initialDesign} breakpoint={breakpoint} onBreakpointChange={setBreakpoint} onSave={persistDesign} isSaving={save.isPending} isDirty={dirty} onDirtyChange={setDirty} />
     </div>
     <Dialog open={preview} onOpenChange={setPreview}><DialogContent className="max-w-[95vw] w-[95vw]"><DialogHeader><DialogTitle>Footer preview — {breakpoint}</DialogTitle></DialogHeader><div className="overflow-auto border bg-white"><CanvasPageRenderer embedded forceBreakpoint={breakpoint} page={{ id: footer.id, canvas_design: previewDesign }} /></div></DialogContent></Dialog>
   </div>;

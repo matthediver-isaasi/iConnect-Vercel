@@ -3567,7 +3567,10 @@ export function setRootChildren(design, children) {
     ...d,
     root: {
       ...d.root,
-      sections: [{ ...d.root.sections[0], id: d.root.sections[0]?.id || 'root-section', children }],
+      sections: [
+        { ...d.root.sections[0], id: d.root.sections[0]?.id || 'root-section', children },
+        ...d.root.sections.slice(1),
+      ],
     },
   };
 }
