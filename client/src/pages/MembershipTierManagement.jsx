@@ -329,6 +329,7 @@ export default function MembershipTierManagement() {
     dd_activation_rule: 'first_payment',
     dd_auto_renew: true,
     dd_grace_days: 7,
+    dd_arrears_policy: 'manual_review',
     dd_terms_version: 'v1',
     dd_migration_enabled: false,
     card_monthly_enabled: false,
@@ -909,6 +910,7 @@ export default function MembershipTierManagement() {
         dd_monthly_amount: (ddEnabled || (isMemberScoped && config.card_monthly_enabled)) && isFlat && config.dd_monthly_amount !== '' && config.dd_monthly_amount != null ? parseFloat(config.dd_monthly_amount) : null,
         dd_collection_day: parseInt(config.dd_collection_day, 10) || 1,
         dd_grace_days: parseInt(config.dd_grace_days, 10) || 0,
+        dd_arrears_policy: config.dd_arrears_policy || 'manual_review',
         renewal_open_days: parseInt(config.renewal_open_days, 10),
         renewal_grace_days: parseInt(config.renewal_grace_days, 10),
         renewal_disable_login: config.renewal_disable_login === true,
@@ -1014,6 +1016,8 @@ export default function MembershipTierManagement() {
       ? c.dd_activation_rule : 'first_payment',
     dd_auto_renew: c?.dd_auto_renew ?? true,
     dd_grace_days: c?.dd_grace_days ?? 7,
+    dd_arrears_policy: ['keep_active', 'restrict', 'suspend', 'manual_review', 'cancel_at_period_end'].includes(c?.dd_arrears_policy)
+      ? c.dd_arrears_policy : 'manual_review',
     dd_terms_version: c?.dd_terms_version || 'v1',
     dd_migration_enabled: c?.dd_migration_enabled === true,
     card_monthly_enabled: c?.card_monthly_enabled === true,
@@ -1834,24 +1838,54 @@ export default function MembershipTierManagement() {
                   />
                 </div>
                 {(config.dd_enabled || config.card_monthly_enabled) && (
-                  <div className="space-y-2">
-                    <Label>Monthly invoicing</Label>
-                    <Select
-                      value={config.dd_invoicing_mode === 'per_instalment' ? 'per_instalment' : 'annual'}
-                      onValueChange={(v) => handleConfigChange('dd_invoicing_mode', v)}
-                      disabled={!isEditable}
-                    >
-                      <SelectTrigger data-testid="select-dd-invoicing-mode">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="annual">Single annual invoice (payments applied monthly)</SelectItem>
-                        <SelectItem value="per_instalment">Invoice per instalment (one paid invoice per collection)</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <p className="text-sm text-muted-foreground">
-                      Applies to both Direct Debit and monthly card plans. Changing this only affects newly started plans — existing plans keep the mode they signed up with.
-                    </p>
+                  <div className="space-y-4">
+                    <div className="space-y-2">
+                      <Label>Monthly invoicing</Label>
+                      <Select
+                        value={config.dd_invoicing_mode === 'per_instalment' ? 'per_instalment' : 'annual'}
+                        onValueChange={(v) => handleConfigChange('dd_invoicing_mode', v)}
+                        disabled={!isEditable}
+                      >
+                        <SelectTrigger data-testid="select-dd-invoicing-mode">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="annual">Single annual invoice (payments applied monthly)</SelectItem>
+                          <SelectItem value="per_instalment">Invoice per instalment (one paid invoice per collection)</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <p className="text-sm text-muted-foreground">
+                        Applies to both Direct Debit and monthly card plans. Changing this only affects newly started plans — existing plans keep the mode they signed up with.
+                      </p>
+                    </div>
+                    <div className="space-y-2 rounded-md border p-4">
+                      <div className="flex items-center gap-1">
+                        <Label>After the payment grace period</Label>
+                        <ScheduleSettingHelp label="Post-grace action" testId="help-dd-arrears-policy">
+                          <p>This action is applied when a recurring monthly payment is still unresolved after the plan's saved grace period ends.</p>
+                          <p>It applies to both Direct Debit and monthly card plans. GoCardless retry timing remains configured separately in Admin integrations.</p>
+                        </ScheduleSettingHelp>
+                      </div>
+                      <Select
+                        value={config.dd_arrears_policy || 'manual_review'}
+                        onValueChange={(v) => handleConfigChange('dd_arrears_policy', v)}
+                        disabled={!isEditable}
+                      >
+                        <SelectTrigger data-testid="select-dd-arrears-policy">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="keep_active">Keep access active</SelectItem>
+                          <SelectItem value="manual_review">Keep access active and flag for review</SelectItem>
+                          <SelectItem value="restrict">Restrict member portal access</SelectItem>
+                          <SelectItem value="suspend">Suspend member portal access</SelectItem>
+                          <SelectItem value="cancel_at_period_end">Flag cancellation at the paid-period end</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <p className="text-sm text-muted-foreground">
+                        Restrict and suspend block member portal entry until payment recovers or an administrator resolves the arrears. Manual review and cancellation flags remain visible for administrator action and never cancel a plan immediately.
+                      </p>
+                    </div>
                   </div>
                 )}
                 {config.card_monthly_enabled && !config.dd_enabled && (

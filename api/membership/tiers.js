@@ -1030,6 +1030,10 @@ function ddConfigFields(config) {
   // monthly option is enabled. dd_enabled itself stays strictly DD.
   const cardMonthlyEnabled = config.card_monthly_enabled === true;
   const enabled = config.dd_enabled === true || cardMonthlyEnabled;
+  const arrearsPolicy = ['keep_active', 'restrict', 'suspend', 'manual_review', 'cancel_at_period_end']
+    .includes(config.dd_arrears_policy)
+    ? config.dd_arrears_policy
+    : 'manual_review';
   if (!enabled) {
     // Columns from the Phase 2 migration are NOT NULL with defaults, so the
     // disabled path must write those schema defaults (writing null raises
@@ -1044,6 +1048,7 @@ function ddConfigFields(config) {
       dd_activation_rule: 'first_payment',
       dd_auto_renew: true,
       dd_grace_days: 7,
+      dd_arrears_policy: arrearsPolicy,
       dd_terms_version: null,
       dd_migration_enabled: false,
       dd_invoicing_mode: 'annual',
@@ -1071,6 +1076,7 @@ function ddConfigFields(config) {
     dd_auto_renew: config.dd_auto_renew !== false,
     dd_grace_days: Number.isInteger(parseInt(config.dd_grace_days, 10))
       ? Math.max(0, parseInt(config.dd_grace_days, 10)) : 7,
+    dd_arrears_policy: arrearsPolicy,
     dd_terms_version: config.dd_terms_version || 'v1',
     dd_migration_enabled: config.dd_migration_enabled === true,
     // Task #3633: 'annual' (single annual invoice, default) or

@@ -79,6 +79,13 @@ const EVENTS = {
       <p>A monthly membership payment of ${c.currency} ${c.monthlyAmount} could not be collected from your bank account.</p>
       <p>The payment will be retried automatically. Please make sure funds are available, or contact us if your bank details have changed.</p>`,
   },
+  card_payment_failed: {
+    subject: () => `Membership card payment problem — action may be needed`,
+    body: (c) => `
+      <p>Hi ${c.firstName},</p>
+      <p>A monthly membership card payment of ${c.currency} ${c.monthlyAmount} could not be collected.</p>
+      <p>Please update or verify your card details, or contact us, before the payment grace period ends.</p>`,
+  },
   payment_overdue: {
     subject: (c) => `Membership payments overdue`,
     body: (c) => `
@@ -114,6 +121,41 @@ const EVENTS = {
       <p>Hi ${c.firstName},</p>
       <p>We still haven't been able to collect your monthly membership payments and the grace period has now ended.</p>
       <p>Your membership benefits may be restricted or suspended until payments are brought up to date. Please contact us or resolve the payment problem from your membership page as soon as possible.</p>`,
+  },
+  payment_access_restricted: {
+    subject: () => `Membership portal access restricted`,
+    body: (c) => `
+      <p>Hi ${c.firstName},</p>
+      <p>Your recurring membership payment is still overdue after the grace period, so access to the member portal has been restricted.</p>
+      <p>Access will be restored when the payment recovers or an administrator resolves the arrears. Please contact us for help.</p>`,
+  },
+  payment_access_suspended: {
+    subject: () => `Membership portal access suspended`,
+    body: (c) => `
+      <p>Hi ${c.firstName},</p>
+      <p>Your recurring membership payments remain overdue after the grace period, so access to the member portal has been suspended.</p>
+      <p>Access will be restored when the payment recovers or an administrator resolves the arrears. Please contact us for help.</p>`,
+  },
+  payment_manual_review: {
+    subject: () => `Membership payment needs review`,
+    body: (c) => `
+      <p>Hi ${c.firstName},</p>
+      <p>Your recurring membership payment is still overdue after the grace period and has been referred to an administrator for review.</p>
+      <p>Your portal access remains active for now. Please contact us to resolve the payment.</p>`,
+  },
+  payment_cancel_at_period_end: {
+    subject: () => `Membership payment plan marked for cancellation review`,
+    body: (c) => `
+      <p>Hi ${c.firstName},</p>
+      <p>Your recurring membership payment is still overdue after the grace period. The payment plan has been flagged for cancellation at the end of the paid period.</p>
+      <p>No immediate cancellation has taken place. Please contact us to resolve the payment or discuss the plan.</p>`,
+  },
+  payment_recovered: {
+    subject: () => `Membership payment recovered`,
+    body: (c) => `
+      <p>Hi ${c.firstName},</p>
+      <p>Your recurring membership payment has now been resolved.</p>
+      <p>Any portal restriction or suspension caused by the overdue payment has been removed.</p>`,
   },
   plan_cancelled: {
     subject: (c) => `Your membership Direct Debit has been cancelled`,
@@ -159,7 +201,9 @@ const EVENTS = {
 export const DD_EMAIL_EVENTS = Object.freeze(Object.keys(EVENTS));
 
 function contextFromAgreement(agreement, member) {
-  const snap = agreement?.metadata?.dd || {};
+  const snap = agreement?.metadata?.dd?.kind
+    ? agreement.metadata.dd
+    : (agreement?.metadata?.card || agreement?.metadata?.dd || {});
   return {
     firstName: member?.first_name || (agreement?.organization_id ? 'there' : 'Member'),
     yearLabel: snap.membership_year || 'this year',
@@ -168,6 +212,49 @@ function contextFromAgreement(agreement, member) {
     currency: snap.currency || 'GBP',
     firstChargeDate: null,
   };
+}
+
+export async function sendRecurringPaymentAdminEscalation({
+  agreement,
+  plan,
+  policy,
+  db = supabase,
+  send = sendTenantEmail,
+} = {}) {
+  try {
+    if (!agreement?.tenant_id || !plan?.id || !policy) {
+      return { sent: false, reason: 'missing agreement, plan, or policy' };
+    }
+    const { data: admins, error } = await db
+      .from('tenant_user')
+      .select('email, first_name, role')
+      .eq('tenant_id', agreement.tenant_id)
+      .eq('status', 'active')
+      .in('role', ['owner', 'admin']);
+    if (error) return { sent: false, reason: error.message };
+    const recipients = Array.from(new Set(
+      (admins || []).map((row) => String(row.email || '').trim().toLowerCase()).filter(Boolean),
+    ));
+    if (!recipients.length) return { sent: false, reason: 'no active tenant administrators' };
+
+    const snap = agreement.metadata?.dd?.kind ? agreement.metadata.dd : (agreement.metadata?.card || {});
+    const subject = `Recurring membership payment escalated — ${policy.replaceAll('_', ' ')}`;
+    const html = `
+      <p>A recurring membership payment remains overdue after its grace period.</p>
+      <p><strong>Policy:</strong> ${policy.replaceAll('_', ' ')}</p>
+      <p><strong>Membership year:</strong> ${snap.membership_year || plan.membership_year || 'Not recorded'}</p>
+      <p><strong>Plan:</strong> ${plan.id}</p>
+      <p>Review the payment plan in the Direct Debit administration console. Stripe monthly plans appear in the same recurring-plan records but do not use GoCardless automatic retries.</p>`;
+    let sentAny = false;
+    for (const to of recipients) {
+      const result = await send({ tenantId: agreement.tenant_id, to, subject, html });
+      if (!result || result.success !== false) sentAny = true;
+    }
+    return sentAny ? { sent: true } : { sent: false, reason: 'send failed' };
+  } catch (err) {
+    console.error(`[DD Emails] admin escalation failed for agreement ${agreement?.id}:`, err.message);
+    return { sent: false, reason: err.message };
+  }
 }
 
 /**

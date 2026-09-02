@@ -26,6 +26,7 @@ import {
   computeGraceExpiry,
   graceDaysForAgreement,
   recoveryPlanUpdate,
+  clearAgreementArrearsFlag,
 } from '../_lib/gocardlessArrears.js';
 import {
   retryPaymentSafely,
@@ -688,6 +689,9 @@ async function handlePost(req, res, tenantId, actorEmail) {
         })
         .eq('id', plan.id);
       if (error) return res.status(500).json({ error: error.message });
+      if (agreement?.metadata?.dd?.arrears_state) {
+        await clearAgreementArrearsFlag(agreement);
+      }
       await recordAdminAction(tenantId, { planId, agreementId: agreement?.id, action: 'extend_grace', actorEmail, details: { days, graceExpiresAt: extended.toISOString() } });
       return res.json({ ok: true, graceExpiresAt: extended.toISOString() });
     }
@@ -704,6 +708,12 @@ async function handlePost(req, res, tenantId, actorEmail) {
         source: 'admin',
         extraUpdate: recoveryPlanUpdate(),
       });
+      if (agreement?.metadata?.dd?.arrears_state) {
+        await clearAgreementArrearsFlag(agreement);
+      }
+      if (agreement && result.applied) {
+        await sendDdLifecycleEmail('payment_recovered', agreement);
+      }
       await recordAdminAction(tenantId, { planId, agreementId: agreement?.id, action: 'manual_resolve', actorEmail, details: { note: req.body.note || null, result } });
       return res.json({ ok: true, result });
     }

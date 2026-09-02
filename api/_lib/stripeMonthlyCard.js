@@ -29,7 +29,12 @@ import {
   ACTIVATION_RULES,
   membershipHistoryTableForAgreement,
 } from './gocardlessDirectDebit.js';
-import { computeGraceExpiry, recoveryPlanUpdate } from './gocardlessArrears.js';
+import {
+  computeGraceExpiry,
+  recoveryPlanUpdate,
+  clearAgreementArrearsFlag,
+} from './gocardlessArrears.js';
+import { sendDdLifecycleEmail } from './gocardlessDdEmails.js';
 import { fireWorkflowForPaidRow } from './membershipPaymentReconciliation.js';
 import { isPerInstalmentAgreement, postStripeInstalmentInvoice } from './membershipInstalmentInvoicing.js';
 import { finalizeFormMonthlyCardCheckout } from './formMonthlyCardFinalize.js';
@@ -445,6 +450,10 @@ async function progressCardPlanAfterPaidInvoice({
   eventId,
   db,
 }) {
+  const recoveredFromArrears = plan.status === STATUS.PAYMENT_GRACE_PERIOD
+    || plan.status === STATUS.PAYMENT_OVERDUE
+    || !!plan.arrears_policy_applied
+    || !!agreement?.metadata?.dd?.arrears_state;
   // The first invoice may also be the final invoice (a supported one-instalment
   // plan). Always run first-payment progression before completion settlement,
   // and make it safe to replay if the counter committed but a later step failed.
@@ -472,6 +481,12 @@ async function progressCardPlanAfterPaidInvoice({
     { trigger: 'first_payment_confirmed', db },
   );
   await recordCardPaymentProgress(agreement, { db });
+  if (agreement?.metadata?.dd?.arrears_state) {
+    await clearAgreementArrearsFlag(agreement, { db });
+  }
+  if (recoveredFromArrears) {
+    await sendDdLifecycleEmail('payment_recovered', agreement, { db });
+  }
   return activation;
 }
 
@@ -1234,6 +1249,13 @@ export async function processStripeCardPlanEvent(event, deps = {}) {
     }
     const agreement = plan.billing_agreement_id ? await findCardAgreementById(db, plan.billing_agreement_id) : null;
     const failure = await handleCardPaymentFailure({ plan, agreement, eventId: event.id, action: 'failed', db });
+    if (failure.result.applied && agreement?.metadata?.card?.kind === CARD_PLAN_KIND) {
+      await sendDdLifecycleEmail(
+        failure.toStatus === STATUS.PAYMENT_OVERDUE ? 'payment_overdue' : 'card_payment_failed',
+        agreement,
+        { db },
+      );
+    }
     return { handled: true, detail: `card payment failed -> ${failure.toStatus} (grace expires ${failure.graceExpiresAt})` };
   }
 

@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import {
   evaluateMemberPortalLoginGate,
   MEMBER_PORTAL_GATE_BLOCKED_MESSAGE,
+  RECURRING_PAYMENT_RESTRICTED_MESSAGE,
+  RECURRING_PAYMENT_SUSPENDED_MESSAGE,
 } from './organisationLoginGate.js';
 
 const TENANT_ID = 'tenant-1';
@@ -10,6 +12,7 @@ const TENANT_ID = 'tenant-1';
 function supabaseMock({
   tenant = { id: TENANT_ID, settings: {} },
   organizations = [],
+  paymentPlans = [],
   failures = {},
 } = {}) {
   const calls = [];
@@ -33,6 +36,10 @@ function supabaseMock({
             filters.push((row) => row?.[column] === value);
             return query;
           },
+          in(column, values) {
+            filters.push((row) => values.includes(row?.[column]));
+            return query;
+          },
           order(column, options) {
             orderedBy = { column, ascending: options?.ascending !== false };
             return query;
@@ -51,7 +58,7 @@ function supabaseMock({
 
             let rows = table === 'tenant'
               ? (tenant ? [tenant] : [])
-              : organizations;
+              : (table === 'membership_payment_plans' ? paymentPlans : organizations);
             rows = rows.filter((row) => filters.every((filter) => filter(row)));
             if (orderedBy) {
               const direction = orderedBy.ascending ? 1 : -1;
@@ -94,6 +101,60 @@ test('member portal login defaults to enabled for missing tenant, settings, or v
     const result = await evaluate(supabaseMock({ tenant }));
     assert.deepEqual(result, { blocked: false, message: null, reason: 'ENABLED' });
   }
+});
+
+test('overdue recurring policy restricts or suspends the matching member without rewriting member flags', async () => {
+  const restricted = supabaseMock({
+    paymentPlans: [{
+      id: 'plan-restrict',
+      tenant_id: TENANT_ID,
+      member_id: 'member-1',
+      organization_id: null,
+      status: 'payment_overdue',
+      arrears_policy_applied: 'restrict',
+      arrears_policy_applied_at: '2026-09-01T00:00:00Z',
+    }],
+  });
+  assert.deepEqual(await evaluate(restricted), {
+    blocked: true,
+    message: RECURRING_PAYMENT_RESTRICTED_MESSAGE,
+    reason: 'RECURRING_PAYMENT_RESTRICTED',
+  });
+  assert.deepEqual(restricted.writes, []);
+
+  const suspended = supabaseMock({
+    paymentPlans: [{
+      id: 'plan-suspend',
+      tenant_id: TENANT_ID,
+      member_id: null,
+      organization_id: 'org-primary',
+      status: 'payment_overdue',
+      arrears_policy_applied: 'suspend',
+      arrears_policy_applied_at: '2026-09-01T00:00:00Z',
+    }],
+  });
+  assert.deepEqual(await evaluate(suspended), {
+    blocked: true,
+    message: RECURRING_PAYMENT_SUSPENDED_MESSAGE,
+    reason: 'RECURRING_PAYMENT_SUSPENDED',
+  });
+});
+
+test('recurring arrears lookup is tenant-scoped and recovery restores access', async () => {
+  const plan = {
+    id: 'plan-foreign',
+    tenant_id: 'tenant-2',
+    member_id: 'member-1',
+    status: 'payment_overdue',
+    arrears_policy_applied: 'suspend',
+  };
+  const mock = supabaseMock({ paymentPlans: [plan] });
+  assert.equal((await evaluate(mock)).blocked, false);
+
+  plan.tenant_id = TENANT_ID;
+  plan.status = 'active';
+  plan.arrears_policy_applied = null;
+  assert.equal((await evaluate(mock)).blocked, false);
 });
 
 test('disabled portal blocks non-primary and missing organizations with fixed message', async () => {

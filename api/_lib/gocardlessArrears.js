@@ -166,12 +166,21 @@ export async function applyArrearsPolicy({ plan, agreement, tierConfig, source =
 
   // If already overdue the transition no-ops; still record the policy once.
   if (!result.applied) {
-    const { error } = await db
+    const { data: claimed, error } = await db
       .from('membership_payment_plans')
       .update({ arrears_policy_applied: policy, arrears_policy_applied_at: nowIso, updated_at: nowIso })
       .eq('id', plan.id)
-      .is('arrears_policy_applied', null);
+      .is('arrears_policy_applied', null)
+      .select('id')
+      .maybeSingle();
     if (error) console.error('[gocardlessArrears] record arrears policy failed:', error.message);
+    if (error || !claimed) {
+      return {
+        applied: false,
+        policy,
+        result: { ...result, skippedReason: error ? 'claim-failed' : 'already-applied' },
+      };
+    }
   }
 
   if (policy !== 'keep_active' && agreement) {

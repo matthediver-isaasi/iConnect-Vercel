@@ -6,6 +6,12 @@ export const DEFAULT_GATE_BLOCKED_MESSAGE =
 export const MEMBER_PORTAL_GATE_BLOCKED_MESSAGE =
   'Access to the member portal is currently unavailable';
 
+export const RECURRING_PAYMENT_RESTRICTED_MESSAGE =
+  'Member portal access is restricted because a recurring membership payment is overdue. Please contact your administrator.';
+
+export const RECURRING_PAYMENT_SUSPENDED_MESSAGE =
+  'Member portal access is suspended because recurring membership payments are overdue. Please contact your administrator.';
+
 const ALLOWED_CORE_FIELDS = new Set([
   'is_active',
   'status',
@@ -175,6 +181,50 @@ export async function evaluateMemberPortalLoginGate({
   }
 
   try {
+    // Recurring-payment access policy is evaluated dynamically rather than
+    // rewriting member.login_enabled or membership_paused. Recovery therefore
+    // restores access immediately without overwriting an administrator's
+    // independent login/pause choice. Both member-owned and organisation-owned
+    // recurring agreements are tenant-scoped here.
+    const arrearsPolicies = ['restrict', 'suspend'];
+    const loadArrearsPlan = async (column, value) => {
+      if (!value) return null;
+      const { data, error } = await supabase
+        .from('membership_payment_plans')
+        .select('id, arrears_policy_applied, arrears_policy_applied_at')
+        .eq('tenant_id', tenantId)
+        .eq(column, value)
+        .eq('status', 'payment_overdue')
+        .in('arrears_policy_applied', arrearsPolicies)
+        .order('arrears_policy_applied_at', { ascending: false, nullsFirst: false })
+        .limit(1)
+        .maybeSingle();
+      if (error) throw error;
+      return data || null;
+    };
+
+    const [memberArrears, organisationArrears] = await Promise.all([
+      loadArrearsPlan('member_id', member?.id),
+      loadArrearsPlan('organization_id', organizationId ?? member?.organization_id),
+    ]);
+    const appliedPolicies = [memberArrears, organisationArrears]
+      .map((row) => row?.arrears_policy_applied)
+      .filter(Boolean);
+    if (appliedPolicies.includes('suspend')) {
+      return {
+        blocked: true,
+        message: RECURRING_PAYMENT_SUSPENDED_MESSAGE,
+        reason: 'RECURRING_PAYMENT_SUSPENDED',
+      };
+    }
+    if (appliedPolicies.includes('restrict')) {
+      return {
+        blocked: true,
+        message: RECURRING_PAYMENT_RESTRICTED_MESSAGE,
+        reason: 'RECURRING_PAYMENT_RESTRICTED',
+      };
+    }
+
     const { data: tenant, error: tenantError } = await supabase
       .from('tenant')
       .select('id, settings')

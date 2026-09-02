@@ -593,6 +593,9 @@ async function processPaymentEvent({ event, action, links, db, gc, deps = {} }) 
   };
 
   if (action === 'confirmed' || action === 'paid_out') {
+    const recoveredFromArrears = plan.status === STATUS.PAYMENT_GRACE_PERIOD
+      || plan.status === STATUS.PAYMENT_OVERDUE
+      || !!plan.arrears_policy_applied;
     const result = await applyStatusTransition({
       entityType: 'payment_plan',
       entityId: plan.id,
@@ -661,6 +664,9 @@ async function processPaymentEvent({ event, action, links, db, gc, deps = {} }) 
         // Recovery: clear any arrears flag stamped on the agreement.
         if (agreement.metadata?.dd?.arrears_state) {
           await clearAgreementArrearsFlag(agreement, { db });
+        }
+        if (recoveredFromArrears && action === 'confirmed') {
+          await safeDdEmail('payment_recovered', agreement, { db });
         }
         // Post the confirmed instalment to accounting (best-effort; records
         // its own posted/failed/skipped status on the payment row).

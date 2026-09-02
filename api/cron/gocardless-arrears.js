@@ -11,7 +11,10 @@
 import { supabase } from '../_lib/database.js';
 import { applyArrearsPolicy } from '../_lib/gocardlessArrears.js';
 import { STATUS } from '../_lib/gocardlessState.js';
-import { sendDdLifecycleEmail } from '../_lib/gocardlessDdEmails.js';
+import {
+  sendDdLifecycleEmail,
+  sendRecurringPaymentAdminEscalation,
+} from '../_lib/gocardlessDdEmails.js';
 
 const MAX_ROWS = 200;
 
@@ -54,7 +57,9 @@ export default async function handler(req, res) {
 
         // Live tier config (policy is operational, unlike snapshot grace).
         let tierConfig = null;
-        const configId = agreement?.metadata?.dd?.config_id || null;
+        const configId = agreement?.metadata?.dd?.config_id
+          || agreement?.metadata?.card?.config_id
+          || null;
         if (configId) {
           const { data } = await supabase
             .from('membership_tier_config')
@@ -68,12 +73,31 @@ export default async function handler(req, res) {
         if (outcome.applied) {
           results.policiesApplied++;
           results.details.push({ planId: plan.id, policy: outcome.policy });
-          if (agreement?.metadata?.dd?.kind === 'monthly_direct_debit') {
+          if (agreement) {
             try {
-              const sent = await sendDdLifecycleEmail('at_risk_of_suspension', agreement);
+              const policyEvent = {
+                restrict: 'payment_access_restricted',
+                suspend: 'payment_access_suspended',
+                manual_review: 'payment_manual_review',
+                cancel_at_period_end: 'payment_cancel_at_period_end',
+                keep_active: 'payment_overdue',
+              }[outcome.policy] || 'payment_overdue';
+              const sent = await sendDdLifecycleEmail(policyEvent, agreement);
               if (sent?.sent) results.emailed++;
             } catch (emailErr) {
               console.error(`[cron/gocardless-arrears] escalation email failed for plan ${plan.id}:`, emailErr.message);
+            }
+            if (outcome.policy !== 'keep_active') {
+              try {
+                const adminSent = await sendRecurringPaymentAdminEscalation({
+                  agreement,
+                  plan,
+                  policy: outcome.policy,
+                });
+                if (adminSent?.sent) results.emailed++;
+              } catch (adminEmailErr) {
+                console.error(`[cron/gocardless-arrears] admin escalation failed for plan ${plan.id}:`, adminEmailErr.message);
+              }
             }
           }
         } else {
