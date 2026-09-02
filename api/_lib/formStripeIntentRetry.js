@@ -18,6 +18,7 @@ export async function inspectPriorFormStripeIntent({
   paymentIntentId,
   amountMinor,
   currency,
+  requireCustomer = false,
   retrievePaymentIntent = retrieveTenantPaymentIntent,
 }) {
   if (!paymentIntentId) return { kind: 'none' };
@@ -39,6 +40,14 @@ export async function inspectPriorFormStripeIntent({
   if (REUSABLE_INTENT_STATUSES.has(intent.status)
       && intent.amount === amountMinor
       && intent.currency === currency.toLowerCase()) {
+    if (requireCustomer && !intent.customer) {
+      try {
+        await found.stripe.paymentIntents.cancel(intent.id);
+      } catch (error) {
+        return { kind: 'blocked', intent, error };
+      }
+      return { kind: 'replace', intent };
+    }
     if (!found.publishableKey) {
       return {
         kind: 'blocked',

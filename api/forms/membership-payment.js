@@ -397,7 +397,7 @@ async function handlePost(req, res, resolvedTenantId) {
       }
     }
 
-    const { getStripeCredentials, findOrCreateStripeCustomer } = await import('../_lib/stripeCredentials.js');
+    const { getStripeCredentials, prepareRequiredStripeCustomer } = await import('../_lib/stripeCredentials.js');
     const Stripe = (await import('stripe')).default;
 
     const stripeCredentials = await getStripeCredentials(tenantId, 'membership');
@@ -417,20 +417,23 @@ async function handlePost(req, res, resolvedTenantId) {
     }
 
     const memberName = [member.first_name, member.last_name].filter(Boolean).join(' ') || undefined;
-    const stripeCustomer = await findOrCreateStripeCustomer(stripe, {
+    const customerResult = await prepareRequiredStripeCustomer(stripe, {
       email: member.email,
       name: memberName,
+      idempotencyKey: `membership-form-customer:${tenantId}:${member.id}`,
       metadata: {
         tenant_id: tenantId,
         member_id: member.id,
         ...(organizationId ? { organization_id: organizationId } : {}),
       },
     });
-    if (!stripeCustomer?.id) {
-      return res.status(502).json({
+    if (!customerResult.ok) {
+      return res.status(customerResult.status).json({
         error: 'Could not prepare a secure Stripe customer for this membership payment.',
+        code: customerResult.code,
       });
     }
+    const stripeCustomer = customerResult.customer;
 
     const description = isMemberScoped
       ? `Membership fee for ${memberName || 'Member'} - ${simResult.membershipYear?.label}`
@@ -440,7 +443,7 @@ async function handlePost(req, res, resolvedTenantId) {
       amount,
       currency,
       customer: stripeCustomer.id,
-      receipt_email: member.email || undefined,
+      receipt_email: customerResult.email || undefined,
       metadata: {
         member_id: member.id,
         ...(organizationId ? { organization_id: organizationId } : {}),

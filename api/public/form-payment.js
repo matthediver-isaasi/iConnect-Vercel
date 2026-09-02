@@ -979,18 +979,25 @@ async function handleCreate(req, res, supabase, tenantData) {
     const Stripe = (await import('stripe')).default;
     const stripe = new Stripe(creds.secret_key);
     let stripeCustomer = null;
+    let stripeReceiptEmail = submitterEmail || undefined;
     if (membershipMeta) {
-      const { findOrCreateStripeCustomer } = await import('../_lib/stripeCredentials.js');
-      stripeCustomer = await findOrCreateStripeCustomer(stripe, {
+      const { prepareRequiredStripeCustomer } = await import('../_lib/stripeCredentials.js');
+      const customerResult = await prepareRequiredStripeCustomer(stripe, {
         email: submitterEmail,
+        idempotencyKey: `form-membership-customer:${tenantData.id}:${submissionRow.id}`,
         metadata: {
           tenant_id: tenantData.id,
           form_submission_id: submissionRow.id,
         },
       });
-      if (!stripeCustomer?.id) {
-        return res.status(502).json({ error: 'Could not prepare a secure Stripe customer for this membership payment.' });
+      if (!customerResult.ok) {
+        return res.status(customerResult.status).json({
+          error: 'Could not prepare a secure Stripe customer for this membership payment.',
+          code: customerResult.code,
+        });
       }
+      stripeCustomer = customerResult.customer;
+      stripeReceiptEmail = customerResult.email || undefined;
     }
 
     // Same-key retry with an existing intent: REUSE it — never create a
@@ -1007,6 +1014,7 @@ async function handleCreate(req, res, supabase, tenantData) {
           paymentIntentId: priorStripeReference,
           amountMinor,
           currency,
+          requireCustomer: !!membershipMeta,
         });
         if (prior.kind === 'succeeded') {
           return res.status(200).json({ alreadyPaid: true, submissionId: submissionRow.id });
@@ -1036,7 +1044,7 @@ async function handleCreate(req, res, supabase, tenantData) {
       amount: amountMinor,
       currency: currency.toLowerCase(),
       customer: stripeCustomer?.id || undefined,
-      receipt_email: submitterEmail || undefined,
+      receipt_email: stripeReceiptEmail,
       description,
       metadata: {
         type: 'form_payment',

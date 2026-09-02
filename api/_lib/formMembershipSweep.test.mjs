@@ -335,3 +335,38 @@ test('same-key membership retry after a mode flip reuses the sole payable intent
   assert.equal(cancellations, 0);
   assert.equal(creations, 0);
 });
+
+test('membership retry cancels and replaces a legacy payable intent without a Customer', async () => {
+  let cancellations = 0;
+  const originalIntent = {
+    id: 'pi_pre_customer_requirement',
+    status: 'requires_payment_method',
+    amount: 12500,
+    currency: 'gbp',
+    customer: null,
+  };
+  const result = await inspectPriorFormStripeIntent({
+    tenantId: 'tenant-1',
+    stripeFeature: 'membership',
+    paymentIntentId: originalIntent.id,
+    amountMinor: 12500,
+    currency: 'GBP',
+    requireCustomer: true,
+    retrievePaymentIntent: async () => ({
+      paymentIntent: originalIntent,
+      publishableKey: 'pk_original_mode',
+      stripe: {
+        paymentIntents: {
+          cancel: async (id) => {
+            assert.equal(id, originalIntent.id);
+            cancellations += 1;
+          },
+        },
+      },
+    }),
+  });
+
+  assert.equal(result.kind, 'replace');
+  assert.equal(result.intent, originalIntent);
+  assert.equal(cancellations, 1);
+});

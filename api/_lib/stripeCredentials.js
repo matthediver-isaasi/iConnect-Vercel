@@ -198,40 +198,110 @@ export async function retrieveTenantPaymentIntent(tenantId, feature, paymentInte
   }
 }
 
-export async function findOrCreateStripeCustomer(stripe, { email, name, metadata = {} }) {
-  if (!email) return null;
+function normalizedCustomerEmail(email) {
+  if (typeof email !== 'string') return null;
+  const value = email.trim().toLowerCase();
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value) ? value : null;
+}
 
-  try {
+function stripeCustomerMetadata(metadata) {
+  return Object.fromEntries(
+    Object.entries(metadata || {})
+      .filter(([, value]) => value !== null && value !== undefined && value !== '')
+      .map(([key, value]) => [key, String(value)]),
+  );
+}
+
+async function findOrCreateStripeCustomerUnsafe(
+  stripe,
+  { email, name, metadata = {}, idempotencyKey = null, allowMissingEmail = false },
+) {
+  const normalizedEmail = normalizedCustomerEmail(email);
+  if (!normalizedEmail && !allowMissingEmail) return null;
+
+  const safeMetadata = stripeCustomerMetadata(metadata);
+  if (normalizedEmail) {
     const existing = await stripe.customers.list({
-      email: email.toLowerCase(),
+      email: normalizedEmail,
       limit: 1,
     });
 
     if (existing.data.length > 0) {
       const customer = existing.data[0];
       const updates = {};
-      if (name && !customer.name) {
-        updates.name = name;
+      if (name && !customer.name) updates.name = name;
+      if (Object.keys(safeMetadata).length > 0) {
+        updates.metadata = { ...(customer.metadata || {}), ...safeMetadata };
       }
-      if (metadata && Object.keys(metadata).length > 0) {
-        const mergedMeta = { ...customer.metadata, ...metadata };
-        updates.metadata = mergedMeta;
-      }
-      if (Object.keys(updates).length > 0) {
-        return await stripe.customers.update(customer.id, updates);
-      }
-      return customer;
+      return Object.keys(updates).length > 0
+        ? stripe.customers.update(customer.id, updates)
+        : customer;
     }
+  }
 
-    const newCustomer = await stripe.customers.create({
-      email: email.toLowerCase(),
-      name: name || undefined,
-      metadata,
-    });
+  const params = {
+    email: normalizedEmail || undefined,
+    name: name || undefined,
+    metadata: safeMetadata,
+  };
+  return idempotencyKey
+    ? stripe.customers.create(params, { idempotencyKey })
+    : stripe.customers.create(params);
+}
 
-    return newCustomer;
+export async function findOrCreateStripeCustomer(stripe, options) {
+  if (!options?.email) return null;
+  try {
+    return await findOrCreateStripeCustomerUnsafe(stripe, options);
   } catch (err) {
     console.error('[Stripe] Error finding/creating customer:', err.message);
     return null;
+  }
+}
+
+/**
+ * Membership PaymentIntents require a Customer so the verified billing
+ * address can be attached after payment. Public application forms do not
+ * always collect an email, and Stripe Customers do not require one, so this
+ * path deliberately creates an address-ready Customer without an email rather
+ * than failing before Elements can open.
+ */
+export async function prepareRequiredStripeCustomer(stripe, options = {}) {
+  const normalizedEmail = normalizedCustomerEmail(options.email);
+  try {
+    const customer = await findOrCreateStripeCustomerUnsafe(stripe, {
+      ...options,
+      email: normalizedEmail,
+      allowMissingEmail: true,
+    });
+    if (!customer?.id) {
+      return {
+        ok: false,
+        code: 'STRIPE_CUSTOMER_UNAVAILABLE',
+        status: 502,
+      };
+    }
+    return {
+      ok: true,
+      customer,
+      email: normalizedEmail,
+      emailOmitted: !normalizedEmail,
+    };
+  } catch (err) {
+    console.error('[Stripe] Required customer preparation failed:', {
+      code: err?.code || null,
+      type: err?.type || null,
+      statusCode: err?.statusCode || null,
+      requestId: err?.requestId || err?.request_id || null,
+      tenantId: options.metadata?.tenant_id || null,
+      memberId: options.metadata?.member_id || null,
+      formSubmissionId: options.metadata?.form_submission_id || null,
+      message: err?.message || 'Unknown Stripe error',
+    });
+    return {
+      ok: false,
+      code: 'STRIPE_CUSTOMER_PROVIDER_ERROR',
+      status: 502,
+    };
   }
 }
