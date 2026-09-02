@@ -172,3 +172,4 @@ test('decideMembershipActivation: rule/trigger matrix', () => {
   // unknown rule defaults to first_payment behaviour
   assert.equal(decideMembershipActivation({ activationRule: undefined, trigger: 'first_payment_confirmed' }), true);
 });
+

@@ -95,6 +95,7 @@ import MemberMembershipTab from "@/components/MemberMembershipTab";
 import CrmTagInput from "@/components/crm/CrmTagInput";
 import { formatTermLength } from "@/lib/memberGroupTermSnapshot";
 import { normalizeMemberCategorySelections } from "@/lib/memberResourceCategories";
+import { shouldShowMemberMembershipTab } from "@/lib/memberMembershipVisibility";
 import { RelatedRecordsPanel, useRelatedRecordDefinitions } from "@/pages/customObjects/RelatedRecordsPanel";
 import { labelForSide, relationshipTabValue } from "@/pages/customObjects/relationshipHelpers";
 import {
@@ -1198,7 +1199,7 @@ export default function MemberDetailView({
               <Mail className="w-4 h-4" />
               Communications
             </TabsTrigger>
-            {!member?.organization_id && !isNew && (
+            {shouldShowMemberMembershipTab({ member, isNew }) && (
               <TabsTrigger value="membership" className="gap-1" data-testid="tab-member-membership">
                 <Wallet className="w-4 h-4" />
                 Membership
@@ -2646,7 +2647,7 @@ export default function MemberDetailView({
             </Card>
           </TabsContent>
 
-          {!member?.organization_id && !isNew && (
+          {shouldShowMemberMembershipTab({ member, isNew }) && (
             <TabsContent value="membership" className="space-y-6">
               <MemberMembershipTab memberId={member?.id} memberEmail={member?.email} />
             </TabsContent>

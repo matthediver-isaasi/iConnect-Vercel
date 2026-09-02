@@ -63,6 +63,7 @@ import { Command, CommandInput, CommandList, CommandEmpty, CommandGroup, Command
 import { ChevronsUpDown } from "lucide-react";
 import { listOrganizationsForAdmin } from '@/lib/adminOrgList';
 import { normalizeMemberCategorySelections } from '@/lib/memberResourceCategories';
+import { shouldShowMemberMembershipTab } from '@/lib/memberMembershipVisibility';
 import { RelatedRecordsPanel, useRelatedRecordDefinitions } from "@/pages/customObjects/RelatedRecordsPanel";
 import { labelForSide, relationshipTabValue } from "@/pages/customObjects/relationshipHelpers";
 import {
@@ -1673,7 +1674,7 @@ export default function MemberDetail() {
             <ClipboardCheck className="w-4 h-4" />
             Forms
           </TabsTrigger>
-          {!member?.organization_id && (
+          {shouldShowMemberMembershipTab({ member }) && (
             <TabsTrigger value="membership" className="gap-1" data-testid="tab-member-membership">
               <Wallet className="w-4 h-4" />
               Membership
@@ -2791,7 +2792,7 @@ export default function MemberDetail() {
             </Card>
           </TabsContent>
 
-          {!member?.organization_id && (
+          {shouldShowMemberMembershipTab({ member }) && (
             <TabsContent value="membership" className="space-y-6">
               <MemberMembershipTab memberId={member?.id} memberEmail={member?.email} />
             </TabsContent>
