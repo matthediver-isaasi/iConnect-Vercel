@@ -6,6 +6,7 @@ import {
   findProjectHoldingDomain,
   reclaimDomainFromOtherProject,
   friendlyVercelError,
+  isPlatformOwnedDomain,
 } from './vercelDomains.js';
 
 const DOMAIN = 'bnms.org.uk';
@@ -61,6 +62,23 @@ test('detachDomainFromProject deletes from the given project only', async () => 
   const res = await detachDomainFromProject(config(fetchImpl), DOMAIN, OTHER);
   assert.equal(res.ok, true);
   assert.equal(calls.length, 1);
+});
+
+test('platform-owned domains include the apex, wildcard, and every subdomain', () => {
+  assert.equal(isPlatformOwnedDomain('iconn.app'), true);
+  assert.equal(isPlatformOwnedDomain('*.dev.iconn.app'), true);
+  assert.equal(isPlatformOwnedDomain('gfi.dev.iconn.app'), true);
+  assert.equal(isPlatformOwnedDomain('ICONN.APP.'), true);
+  assert.equal(isPlatformOwnedDomain('noticonn.app'), false);
+  assert.equal(isPlatformOwnedDomain('bnms.org.uk'), false);
+});
+
+test('reclaim refuses platform-owned domains before making a Vercel request', async () => {
+  const calls = [];
+  const result = await reclaimDomainFromOtherProject(config(mockFetch([], calls)), 'gfi.dev.iconn.app');
+  assert.equal(result.reclaimed, false);
+  assert.equal(result.reason, 'platform_domain_protected');
+  assert.equal(calls.length, 0);
 });
 
 test('findProjectHoldingDomain traverses pagination to find owner on a later page', async () => {

@@ -1,11 +1,12 @@
 import { supabase } from '../_lib/database.js';
 import { getTenantContext } from '../_lib/tenantContext.js';
 import { getSessionTenantUser } from '../_lib/session.js';
-import { attachDomainToProject, reclaimDomainFromOtherProject, friendlyVercelError } from '../_lib/vercelDomains.js';
+import { attachDomainToProject, reclaimDomainFromOtherProject, friendlyVercelError, isPlatformOwnedDomain } from '../_lib/vercelDomains.js';
 
 const VERCEL_TOKEN = process.env.VERCEL_API_TOKEN;
 const VERCEL_PROJECT_ID = process.env.VERCEL_PROJECT_ID;
 const VERCEL_TEAM_ID = process.env.VERCEL_TEAM_ID;
+const PLATFORM_DOMAIN = process.env.APP_DOMAIN || 'iconn.app';
 
 async function isAdministrator(ctx, req) {
   if (ctx.isSuperAdmin) return true;
@@ -53,6 +54,12 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'Invalid domain format' });
   }
 
+  if (isPlatformOwnedDomain(cleanDomain, PLATFORM_DOMAIN)) {
+    return res.status(400).json({
+      error: `Domains under ${PLATFORM_DOMAIN} are managed by the platform and cannot be added as custom domains.`,
+    });
+  }
+
   try {
     const ctx = await getTenantContext(req);
     if (!ctx.isAuthenticated) {
@@ -82,7 +89,12 @@ export default async function handler(req, res) {
 
     if (VERCEL_TOKEN && VERCEL_PROJECT_ID) {
       try {
-        const vercelConfig = { token: VERCEL_TOKEN, projectId: VERCEL_PROJECT_ID, teamId: VERCEL_TEAM_ID };
+        const vercelConfig = {
+          token: VERCEL_TOKEN,
+          projectId: VERCEL_PROJECT_ID,
+          teamId: VERCEL_TEAM_ID,
+          platformDomain: PLATFORM_DOMAIN,
+        };
         const attach = await attachDomainToProject(vercelConfig, cleanDomain);
         const errorCode = attach.json?.error?.code;
 

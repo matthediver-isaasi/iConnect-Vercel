@@ -1,10 +1,12 @@
 import { supabase } from '../_lib/database.js';
 import { getTenantContext } from '../_lib/tenantContext.js';
 import { getSessionTenantUser } from '../_lib/session.js';
+import { isPlatformOwnedDomain } from '../_lib/vercelDomains.js';
 
 const VERCEL_TOKEN = process.env.VERCEL_API_TOKEN;
 const VERCEL_PROJECT_ID = process.env.VERCEL_PROJECT_ID;
 const VERCEL_TEAM_ID = process.env.VERCEL_TEAM_ID;
+const PLATFORM_DOMAIN = process.env.APP_DOMAIN || 'iconn.app';
 
 async function isAdministrator(ctx, req) {
   if (ctx.isSuperAdmin) return true;
@@ -72,7 +74,10 @@ export default async function handler(req, res) {
       return res.status(404).json({ error: 'Domain not found for this workspace' });
     }
 
-    if (VERCEL_TOKEN && VERCEL_PROJECT_ID) {
+    const isPlatformDomain = isPlatformOwnedDomain(domain, PLATFORM_DOMAIN);
+    if (isPlatformDomain) {
+      console.warn(`[Remove Domain] Clearing tenant reference without detaching platform-owned domain ${domain}`);
+    } else if (VERCEL_TOKEN && VERCEL_PROJECT_ID) {
       try {
         const vercelUrl = VERCEL_TEAM_ID 
           ? `https://api.vercel.com/v9/projects/${VERCEL_PROJECT_ID}/domains/${domain}?teamId=${VERCEL_TEAM_ID}`

@@ -7,6 +7,13 @@ function buildUrl(config, path) {
   return config.teamId ? `${base}${path.includes('?') ? '&' : '?'}teamId=${config.teamId}` : base;
 }
 
+export function isPlatformOwnedDomain(domain, platformDomain = 'iconn.app') {
+  const normalizedDomain = String(domain || '').trim().toLowerCase().replace(/\.$/, '').replace(/^\*\./, '');
+  const normalizedPlatformDomain = String(platformDomain || 'iconn.app').trim().toLowerCase().replace(/\.$/, '').replace(/^\*\./, '');
+  return normalizedDomain === normalizedPlatformDomain
+    || normalizedDomain.endsWith(`.${normalizedPlatformDomain}`);
+}
+
 async function vercelFetch(config, path, options = {}) {
   const doFetch = config.fetchImpl || fetch;
   const response = await doFetch(buildUrl(config, path), {
@@ -83,6 +90,10 @@ export async function findProjectHoldingDomain(config, domain) {
 export async function reclaimDomainFromOtherProject(config, domain) {
   const log = config.log || console.log;
   const logError = config.logError || console.error;
+  if (isPlatformOwnedDomain(domain, config.platformDomain)) {
+    logError(`[Vercel Domains] Refusing to reclaim platform-owned domain ${domain}`);
+    return { reclaimed: false, reason: 'platform_domain_protected' };
+  }
   try {
     const { project: owningProject, error: findError } = await findProjectHoldingDomain(config, domain);
     if (findError) {
