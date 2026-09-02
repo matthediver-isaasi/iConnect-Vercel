@@ -31,6 +31,7 @@ import {
   isHistoricalTierSelection,
   isTierSelectionReadOnly,
   shouldBootstrapTierSelection,
+  isAnnualTierStructure,
   TIER_LIFECYCLE,
 } from "@/lib/membershipTierNavigation";
 import { parseFlatMembershipCost } from "../../../shared/membershipFlatCost.js";
@@ -842,8 +843,7 @@ export default function MembershipTierManagement() {
   // below runs during render — referencing a const declared later throws
   // "Cannot access ... before initialization" (TDZ) and crashes the page.
   const isMemberScoped = config.structure_scope_type === 'member';
-  const isAnnualNonRecurring = config.billing_period === 'annual'
-    && !config.dd_enabled && !config.card_monthly_enabled;
+  const isAnnualStructure = isAnnualTierStructure(config);
 
   // Spec: when the Direct Debit plan total differs from the annual cost the
   // admin must EXPLICITLY confirm the difference before saving (not just see
@@ -2050,12 +2050,12 @@ export default function MembershipTierManagement() {
           </div>
         )}
 
-        {isAnnualNonRecurring && (
+        {isAnnualStructure && (
           <div className="space-y-4 rounded-md border p-4">
             <div>
               <Label className="text-base">Annual renewal policy</Label>
               <p className="text-sm text-muted-foreground mt-1">
-                Renewal opens on the renewal date minus the number of open days, inclusive. The grace period includes the renewal date and ends after the selected number of grace days, inclusive.
+                This policy applies to annual, non-recurring memberships. Renewal opens on the renewal date minus the number of open days, inclusive. The grace period includes the renewal date and ends after the selected number of grace days, inclusive. Members on an active recurring agreement continue through the recurring lifecycle.
               </p>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -3354,7 +3354,7 @@ export default function MembershipTierManagement() {
                   </div>
                 </>
               )}
-              {isAnnualNonRecurring && (
+              {isAnnualStructure && (
                 <>
                   <div className="flex justify-between gap-2">
                     <span className="text-muted-foreground">Renewal opens</span>

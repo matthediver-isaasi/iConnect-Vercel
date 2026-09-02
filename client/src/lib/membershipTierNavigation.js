@@ -67,3 +67,7 @@ export function isTierSelectionReadOnly(selectedId, items) {
 export function shouldBootstrapTierSelection({ selectedId, viewingHistorical, isCreatingNew }) {
   return !selectedId && !viewingHistorical && !isCreatingNew;
 }
+
+export function isAnnualTierStructure(record = {}) {
+  return String(record?.billing_period || '').toLowerCase() === 'annual';
+}

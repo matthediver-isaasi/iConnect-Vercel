@@ -10,6 +10,7 @@ import {
   isHistoricalTierSelection,
   isTierSelectionReadOnly,
   shouldBootstrapTierSelection,
+  isAnnualTierStructure,
 } from './membershipTierNavigation.js';
 
 const date = value => value ? value.replaceAll('-', '/') : '';
@@ -102,6 +103,22 @@ test('tier list refetches do not replace an explicit editor selection', () => {
     viewingHistorical: null,
     isCreatingNew: true,
   }), false);
+});
+
+test('annual renewal visibility is based on the structure period, not payment rails', () => {
+  assert.equal(isAnnualTierStructure({ billing_period: 'annual' }), true);
+  assert.equal(isAnnualTierStructure({ billing_period: 'annual', dd_enabled: true }), true);
+  assert.equal(isAnnualTierStructure({ billing_period: 'annual', card_monthly_enabled: true }), true);
+  assert.equal(isAnnualTierStructure({ billing_period: 'monthly' }), false);
+  assert.equal(isAnnualTierStructure({ billing_period: 'quarterly' }), false);
+});
+
+test('membership tier editor uses the annual structure boundary for policy controls and summary', () => {
+  assert.match(pageSource, /const isAnnualStructure = isAnnualTierStructure\(config\)/);
+  assert.equal((pageSource.match(/\{isAnnualStructure && \(/g) || []).length, 2);
+  assert.match(pageSource, /This policy applies to annual, non-recurring memberships/);
+  assert.match(pageSource, /active recurring agreement continue through the recurring lifecycle/);
+  assert.doesNotMatch(pageSource, /isAnnualNonRecurring/);
 });
 
 test('page enters the structure browser first and editor renders only the loaded card', () => {
