@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useNavigate, Link } from "react-router-dom";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -48,6 +48,16 @@ import {
 export default function AdminBranding() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const { data: canvasFooterData } = useQuery({
+    queryKey: ['canvas-footers'],
+    queryFn: async () => {
+      const res = await adminFetch('/api/admin/canvas-footers', { credentials: 'include' });
+      if (!res.ok) return { footers: [] };
+      return res.json();
+    },
+    staleTime: 30_000,
+  });
+  const canvasFooters = canvasFooterData?.footers || [];
   const { toast } = useToast();
   const { options: installedFontOptions } = useInstalledFonts();
   const [loading, setLoading] = useState(true);
@@ -332,6 +342,8 @@ export default function AdminBranding() {
       termsAndConditionsUrl: '',
       privacyPolicyUrl: ''
     },
+    footer_source: 'configured',
+    canvas_footer_id: null,
     branding_config: {
       footerLogoHeight: '',
       footerLogoWidth: '',
@@ -535,6 +547,8 @@ export default function AdminBranding() {
                 termsAndConditionsUrl: t?.footer_config?.termsAndConditionsUrl || '',
                 privacyPolicyUrl: t?.footer_config?.privacyPolicyUrl || ''
               },
+              footer_source: t?.footer_source === 'canvas' ? 'canvas' : 'configured',
+              canvas_footer_id: t?.canvas_footer_id || null,
               branding_config: {
                 footerLogoHeight: t?.branding_config?.footerLogoHeight || '',
                 footerLogoWidth: t?.branding_config?.footerLogoWidth || '',
@@ -3977,6 +3991,54 @@ export default function AdminBranding() {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
+              <div className="rounded-lg border border-slate-700 bg-slate-900/40 p-4 space-y-3">
+                <div className="space-y-2">
+                  <Label className="text-slate-200">Footer source</Label>
+                  <Select
+                    value={formData.footer_source || 'configured'}
+                    onValueChange={(value) => setFormData((prev) => ({
+                      ...prev,
+                      footer_source: value,
+                      canvas_footer_id: value === 'canvas' ? prev.canvas_footer_id : null,
+                    }))}
+                  >
+                    <SelectTrigger className="bg-slate-900/50 border-slate-600 text-white" data-testid="select-main-footer-source">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="configured">Configured footer</SelectItem>
+                      <SelectItem value="canvas">Reusable Canvas footer</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                {formData.footer_source === 'canvas' && (
+                  <div className="space-y-2">
+                    <Label className="text-slate-200">Canvas footer</Label>
+                    <div className="flex gap-2">
+                      <Select
+                        value={formData.canvas_footer_id || ''}
+                        onValueChange={(value) => setFormData((prev) => ({ ...prev, canvas_footer_id: value }))}
+                      >
+                        <SelectTrigger className="bg-slate-900/50 border-slate-600 text-white flex-1" data-testid="select-main-canvas-footer">
+                          <SelectValue placeholder="Select a footer" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {canvasFooters.map((footer) => <SelectItem key={footer.id} value={footer.id}>{footer.name}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                      {formData.canvas_footer_id && (
+                        <Link to={`/CanvasFooterEditor?footerId=${encodeURIComponent(formData.canvas_footer_id)}`}>
+                          <Button type="button" variant="outline" className="border-slate-600 text-slate-200">Edit</Button>
+                        </Link>
+                      )}
+                    </div>
+                    {canvasFooters.length === 0 && <p className="text-sm text-amber-300">Create a Canvas footer in Page Editor → Footers first.</p>}
+                  </div>
+                )}
+                <p className="text-xs text-slate-400">
+                  The configured footer below remains saved and is used automatically if a Canvas selection becomes unavailable.
+                </p>
+              </div>
               <div className="space-y-2">
                 <Label className="text-slate-200">Number of Footer Columns</Label>
                 <p className="text-slate-400 text-sm">How many navigation columns to display in the footer (configured in Portal Navigation Management)</p>

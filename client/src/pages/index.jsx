@@ -122,6 +122,8 @@ import IEditTemplateManagement from "./IEditTemplateManagement";
 import IEditPageEditor from "./IEditPageEditor";
 
 import CanvasPageEditor from "./CanvasPageEditor";
+import CanvasFooterManagement from "./CanvasFooterManagement";
+import CanvasFooterEditor from "./CanvasFooterEditor";
 
 import testpage from "./testpage";
 
@@ -607,6 +609,8 @@ const PAGES = {
     IEditPageEditor: IEditPageEditor,
     
     CanvasPageEditor: CanvasPageEditor,
+    CanvasFooterManagement: CanvasFooterManagement,
+    CanvasFooterEditor: CanvasFooterEditor,
     
     testpage: testpage,
     
@@ -1084,6 +1088,8 @@ function PagesContent() {
                 <Route path="/IEditPageEditor" element={<IEditPageEditor />} />
                 
                 <Route path="/CanvasPageEditor" element={<CanvasPageEditor />} />
+                <Route path="/CanvasFooterManagement" element={<CanvasFooterManagement />} />
+                <Route path="/CanvasFooterEditor" element={<CanvasFooterEditor />} />
                 
                 <Route path="/testpage" element={<testpage />} />
                 

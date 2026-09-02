@@ -40,6 +40,8 @@ export const PAGE_NAMES = [
   "MyJobPostings",
   "PageBannerManagement",
   "IEditPageManagement",
+  "CanvasFooterManagement",
+  "CanvasFooterEditor",
   "IEditTemplateManagement",
   "IEditPageEditor",
   "Inbox",

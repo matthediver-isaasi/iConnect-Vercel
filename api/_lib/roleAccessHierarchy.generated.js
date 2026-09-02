@@ -780,6 +780,8 @@ export const LEGACY_TO_NEW_MAPPING = {
   "page_JobBoardAdmin": "jobs",
   "page_PageBuilder": "site-builder",
   "page_IEditPageManagement": "site-builder.pages",
+  "page_CanvasFooterManagement": "site-builder.pages",
+  "page_CanvasFooterEditor": "site-builder.page-editor",
   "page_IEditTemplateManagement": "site-builder.templates",
   "page_NavigationManagement": "site-builder.navigation",
   "page_MicrositeManagement": "site-builder.micro-sites",

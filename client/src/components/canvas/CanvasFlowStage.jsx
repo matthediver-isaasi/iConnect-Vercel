@@ -37,8 +37,8 @@ function breakpointForWidth(width) {
   return "desktop";
 }
 
-function tagForNode(node) {
-  const landmark = getSectionLandmarkTag(node?.type, node?.a11y?.role);
+function tagForNode(node, embedded = false) {
+  const landmark = embedded ? null : getSectionLandmarkTag(node?.type, node?.a11y?.role);
   if (landmark) return landmark;
   if (node?.type === BLOCK_TYPES.SECTION) return "section";
   return "div";
@@ -68,15 +68,15 @@ function collectUnionPlacedNodes(design) {
   return out;
 }
 
-function FlowNode({ node, box, breakpoint, isAuto, isPriority, hydrated, registerRef }) {
+function FlowNode({ node, box, breakpoint, isAuto, isPriority, hydrated, registerRef, embedded = false }) {
   const def = getBlockDefinition(node.type);
   const Renderer = def?.Renderer;
   const isContainer = isFlowContainerType(node.type);
   const { style = {}, a11y = {} } = node;
-  const Tag = tagForNode(node);
+  const Tag = tagForNode(node, embedded);
 
-  const usedLandmark = getSectionLandmarkTag(node?.type, a11y?.role);
-  const explicitRole = a11y?.role && !usedLandmark ? a11y.role : undefined;
+  const usedLandmark = embedded ? null : getSectionLandmarkTag(node?.type, a11y?.role);
+  const explicitRole = embedded ? undefined : (a11y?.role && !usedLandmark ? a11y.role : undefined);
 
   // Auto-height leaves size to their content (measured back into the engine);
   // everything else uses the engine-resolved height.
@@ -152,7 +152,7 @@ function FlowNode({ node, box, breakpoint, isAuto, isPriority, hydrated, registe
   );
 }
 
-export default function CanvasFlowStage({ design, forceBreakpoint, lcpBlockId }) {
+export default function CanvasFlowStage({ design, forceBreakpoint, lcpBlockId, embedded = false }) {
   const stageRef = useRef(null);
   const nodeRefs = useRef({});
   const [measured, setMeasured] = useState({});
@@ -292,11 +292,12 @@ export default function CanvasFlowStage({ design, forceBreakpoint, lcpBlockId })
       }
     : { maxWidth: BREAKPOINT_WIDTHS.desktop };
 
+  const StageTag = embedded ? "div" : "main";
   return (
-    <main
-      id="canvas-main-content"
+    <StageTag
+      id={embedded ? undefined : "canvas-main-content"}
       ref={stageRef}
-      tabIndex={-1}
+      tabIndex={embedded ? undefined : -1}
       className="canvas-stage focus:outline-none"
       style={{
         position: "relative",
@@ -327,9 +328,10 @@ export default function CanvasFlowStage({ design, forceBreakpoint, lcpBlockId })
               if (el) nodeRefs.current[node.id] = el;
               else delete nodeRefs.current[node.id];
             }}
+            embedded={embedded}
           />
         );
       })}
-    </main>
+    </StageTag>
   );
 }

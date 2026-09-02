@@ -66,7 +66,7 @@ export async function resolveMicrositeByPrefix(supabase, tenantId, prefix) {
   if (!supabase || !tenantId || !prefix) return null;
   const { data, error } = await supabase
     .from('microsite')
-    .select('id, tenant_id, name, path_prefix, description, is_active, logo_url, header_config, footer_config, branding_config, home_page_id')
+    .select('id, tenant_id, name, path_prefix, description, is_active, logo_url, header_config, footer_config, footer_source, canvas_footer_id, branding_config, home_page_id')
     .eq('tenant_id', tenantId)
     .eq('path_prefix', String(prefix).toLowerCase())
     .eq('is_active', true)

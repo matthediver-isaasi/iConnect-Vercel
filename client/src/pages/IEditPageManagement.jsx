@@ -16,7 +16,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { FileEdit, Plus, Search, LayoutGrid, List, ArrowUpDown, FileText, Loader2, CheckCircle2, XCircle, MinusCircle, TrendingDown, TrendingUp, Minus, Globe, AlertCircle, AlertTriangle, Sparkles } from "lucide-react";
+import { FileEdit, Plus, Search, LayoutGrid, List, ArrowUpDown, FileText, Loader2, CheckCircle2, XCircle, MinusCircle, TrendingDown, TrendingUp, Minus, Globe, AlertCircle, AlertTriangle, Sparkles, PanelBottom } from "lucide-react";
 import {
   DndContext,
   DragOverlay,
@@ -1231,6 +1231,14 @@ export default function IEditPageManagementPage() {
             </p>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
+            <Button
+              variant="outline"
+              onClick={() => navigate(createPageUrl("CanvasFooterManagement"))}
+              data-testid="button-manage-canvas-footers"
+            >
+              <PanelBottom className="w-4 h-4 mr-2" />
+              Footers
+            </Button>
             <Button
               variant="outline"
               onClick={() => setShowDocDialog(true)}

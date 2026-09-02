@@ -18,6 +18,7 @@ import { useMicrosite, usePublicChromeBranding } from "@/contexts/MicrositeConte
 import { useResolvedSocialIcons } from "@/hooks/useResolvedSocialIcons";
 import { useLayoutContext } from "@/contexts/LayoutContext";
 import { InstalledFontsLoader } from "@/lib/installedFonts";
+import CanvasPageRenderer from "@/components/canvas/CanvasPageRenderer";
 
 // Map page names to portal page identifiers for banner matching
 // These identifiers must match the PORTAL_PAGES values in PageBannerManagement.jsx
@@ -420,7 +421,18 @@ export default function PublicLayout({ children, currentPageName }) {
         </main>
 
         {/* Public Footer */}
-        {showFooter && (
+        {showFooter && branding?.footerSource === "canvas" && branding?.canvasFooter?.design && (
+          <footer data-testid="canvas-site-footer">
+            <CanvasPageRenderer
+              embedded
+              page={{
+                id: branding.canvasFooter.id,
+                canvas_design: branding.canvasFooter.design,
+              }}
+            />
+          </footer>
+        )}
+        {showFooter && branding?.footerSource !== "canvas" && (
         <footer 
           style={{ 
             backgroundColor: tenantFooterConfig.backgroundColor || '#000000',

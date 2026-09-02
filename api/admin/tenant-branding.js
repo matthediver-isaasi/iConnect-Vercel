@@ -300,7 +300,7 @@ export default async function handler(req, res) {
     try {
       const { data: tenant, error } = await supabase
         .from('tenant')
-        .select('id, primary_color, secondary_color, tagline, description, social_image_url, logo_url, header_logo_url, header_config, footer_config, branding_config, platform_branding')
+        .select('id, primary_color, secondary_color, tagline, description, social_image_url, logo_url, header_logo_url, header_config, footer_config, footer_source, canvas_footer_id, branding_config, platform_branding')
         .eq('id', tenantId)
         .single();
 
@@ -321,6 +321,7 @@ export default async function handler(req, res) {
       return res.status(403).json({ error: 'Access denied' });
     }
     try {
+      const body = req.body || {};
       const allowedFields = [
         'primary_color',
         'secondary_color', 
@@ -337,14 +338,35 @@ export default async function handler(req, res) {
       
       const updates = {};
       for (const field of allowedFields) {
-        if (req.body[field] !== undefined) {
-          updates[field] = req.body[field];
+        if (body[field] !== undefined) {
+          updates[field] = body[field];
         }
       }
 
       // Font-family values (nav / secondary bar / base portal font) are validated
       // against the tenant's installed fonts plus the always-on system/base stacks.
       const allowedFontFamilies = await resolveAllowedFontFamilies(tenantId);
+
+      if (body.footer_source !== undefined || body.canvas_footer_id !== undefined) {
+        const source = body.footer_source ?? 'configured';
+        if (!['configured', 'canvas'].includes(source)) {
+          return res.status(400).json({ error: 'Invalid footer source' });
+        }
+        updates.footer_source = source;
+        updates.canvas_footer_id = null;
+        if (source === 'canvas') {
+          const footerId = body.canvas_footer_id;
+          const { data: footer, error: footerError } = await supabase
+            .from('canvas_footer')
+            .select('id')
+            .eq('id', footerId)
+            .eq('tenant_id', tenantId)
+            .maybeSingle();
+          if (footerError) return res.status(500).json({ error: 'Failed to validate Canvas footer' });
+          if (!footer) return res.status(400).json({ error: 'Select a Canvas footer owned by this tenant' });
+          updates.canvas_footer_id = footer.id;
+        }
+      }
 
       if (updates.primary_color) {
         const normalized = normalizeHexColor(updates.primary_color);
@@ -665,6 +687,10 @@ export default async function handler(req, res) {
         }
       }
 
+      if (updates.footer_source === 'canvas' && !updates.canvas_footer_id) {
+        return res.status(400).json({ error: 'Select a Canvas footer' });
+      }
+
       if (Object.keys(updates).length === 0) {
         return res.status(400).json({ error: 'No valid fields to update' });
       }
@@ -732,7 +758,7 @@ export default async function handler(req, res) {
         .from('tenant')
         .update(updates)
         .eq('id', tenantId)
-        .select('id, slug, domain, primary_color, secondary_color, tagline, description, social_image_url, logo_url, header_logo_url, header_config, footer_config, branding_config, platform_branding')
+        .select('id, slug, domain, primary_color, secondary_color, tagline, description, social_image_url, logo_url, header_logo_url, header_config, footer_config, footer_source, canvas_footer_id, branding_config, platform_branding')
         .single();
 
       if (error) {

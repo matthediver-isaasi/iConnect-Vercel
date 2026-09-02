@@ -58,7 +58,19 @@ function normalizeHeaderLogoConfig(headerConfig, values) {
  */
 
 const MICROSITE_COLUMNS =
-  'id, tenant_id, name, path_prefix, description, is_active, logo_url, header_config, footer_config, branding_config, home_page_id, created_at, updated_at';
+  'id, tenant_id, name, path_prefix, description, is_active, logo_url, header_config, footer_config, footer_source, canvas_footer_id, branding_config, home_page_id, created_at, updated_at';
+
+async function validateCanvasFooterId(tenantId, footerId) {
+  if (!footerId) return false;
+  const { data, error } = await supabase
+    .from('canvas_footer')
+    .select('id')
+    .eq('id', footerId)
+    .eq('tenant_id', tenantId)
+    .maybeSingle();
+  if (error) throw error;
+  return !!data;
+}
 
 function sanitizeConfigObject(value) {
   // Header/footer configs are free-form JSON objects edited by the microsite
@@ -156,12 +168,22 @@ export default async function handler(req, res) {
         logo_url: body.logo_url ? String(body.logo_url) : null,
         header_config: sanitizeConfigObject(body.header_config),
         footer_config: sanitizeConfigObject(body.footer_config),
+        footer_source: ['inherit', 'configured', 'canvas'].includes(body.footer_source)
+          ? body.footer_source
+          : 'configured',
+        canvas_footer_id: null,
         branding_config: normalizeSearchResultsBranding(
           sanitizeMicrositeBrandingConfig(body.branding_config),
           await resolveAllowedFontFamilies(supabase, tenantId),
         ),
         home_page_id: body.home_page_id || null,
       };
+      if (insert.footer_source === 'canvas') {
+        if (!(await validateCanvasFooterId(tenantId, body.canvas_footer_id))) {
+          return res.status(400).json({ error: 'Select a Canvas footer owned by this tenant' });
+        }
+        insert.canvas_footer_id = body.canvas_footer_id;
+      }
       const logoConfigCheck = await validateHeaderConfig(insert.header_config, tenantId);
       if (!logoConfigCheck.ok) return res.status(400).json({ error: logoConfigCheck.error });
       insert.header_config = normalizeHeaderLogoConfig(insert.header_config, logoConfigCheck.values);
@@ -223,6 +245,20 @@ export default async function handler(req, res) {
         );
       }
       if (body.footer_config !== undefined) update.footer_config = sanitizeConfigObject(body.footer_config);
+      if (body.footer_source !== undefined || body.canvas_footer_id !== undefined) {
+        const source = body.footer_source ?? 'configured';
+        if (!['inherit', 'configured', 'canvas'].includes(source)) {
+          return res.status(400).json({ error: 'Invalid footer source' });
+        }
+        update.footer_source = source;
+        update.canvas_footer_id = null;
+        if (source === 'canvas') {
+          if (!(await validateCanvasFooterId(tenantId, body.canvas_footer_id))) {
+            return res.status(400).json({ error: 'Select a Canvas footer owned by this tenant' });
+          }
+          update.canvas_footer_id = body.canvas_footer_id;
+        }
+      }
       if (body.branding_config !== undefined) {
         update.branding_config = normalizeSearchResultsBranding(
           sanitizeMicrositeBrandingConfig(body.branding_config),

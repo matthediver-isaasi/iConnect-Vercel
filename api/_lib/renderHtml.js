@@ -5,7 +5,7 @@ import { resolveEntityMeta } from './entityMeta.js';
 import { supabase } from './database.js';
 import { resolveMicrositeByPrefix, micrositeBrandingValue } from './microsites.js';
 import { resolveScopedTypographyStyles } from './typographyScope.js';
-import { buildTenantBrandingPayload } from './tenantBranding.js';
+import { resolveTenantBrandingPayload } from './tenantBranding.js';
 import { buildGoogleFontsHref } from './installedFontsShared.js';
 
 let cachedTemplate = null;
@@ -246,7 +246,7 @@ function injectTypographyStyles(html, styles) {
 // (window.__MICROSITE_CONTEXT__), mirroring the typography-styles injection.
 // Only emitted on microsite routes when a tenant resolved server-side, so the
 // default site and tenant-less hosts keep the legacy client-fetch path.
-function injectMicrositeChrome(html, chrome, tenantData) {
+async function injectMicrositeChrome(html, chrome, tenantData) {
   if (!chrome?.microsite || !tenantData) return html;
   const { microsite, homeSlug } = chrome;
   const payload = {
@@ -261,7 +261,7 @@ function injectMicrositeChrome(html, chrome, tenantData) {
       home_slug: homeSlug || null,
     },
     // Byte-identical to what /api/public/tenant-branding?microsite=prefix returns.
-    branding: buildTenantBrandingPayload(tenantData, microsite),
+    branding: await resolveTenantBrandingPayload(tenantData, microsite),
   };
   const tag = `<script>window.__MICROSITE_CONTEXT__=${serializeForScript(payload)}</script>`;
   return html.replace('</head>', `    ${tag}\n  </head>`);
@@ -471,7 +471,7 @@ export async function renderTenantHtml(req) {
   // request is under an active microsite prefix. The default site and
   // tenant-less hosts leave the global absent and keep the client-fetch path.
   if (tenant && micrositeChrome?.microsite) {
-    out = injectMicrositeChrome(out, micrositeChrome, tenant);
+    out = await injectMicrositeChrome(out, micrositeChrome, tenant);
   }
   return out;
 }

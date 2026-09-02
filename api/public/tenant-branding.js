@@ -1,7 +1,7 @@
 import { supabase } from '../_lib/database.js';
 import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
 import { resolveMicrositeByPrefix } from '../_lib/microsites.js';
-import { buildTenantBrandingPayload } from '../_lib/tenantBranding.js';
+import { resolveTenantBrandingPayload } from '../_lib/tenantBranding.js';
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -43,7 +43,7 @@ export default async function handler(req, res) {
 
     res.json({
       success: true,
-      branding: buildTenantBrandingPayload(tenantData, microsite),
+      branding: await resolveTenantBrandingPayload(tenantData, microsite),
     });
   } catch (error) {
     console.error('[Tenant Branding] Error:', error);

@@ -231,12 +231,23 @@ export default function MicrositeChromeEditor({ microsite }) {
     },
     staleTime: 60_000,
   });
+  const { data: footerLibrary } = useQuery({
+    queryKey: ["canvas-footers"],
+    queryFn: async () => {
+      const res = await adminFetch("/api/admin/canvas-footers", { credentials: "include" });
+      return readJson(res);
+    },
+    staleTime: 30_000,
+  });
+  const canvasFooters = footerLibrary?.footers || [];
 
   const buildInitial = (ms) => {
     const bc = ms.branding_config || {};
     const hc = ms.header_config || {};
     const fc = ms.footer_config || {};
     return {
+      footerSource: ["inherit", "canvas"].includes(ms.footer_source) ? ms.footer_source : "configured",
+      canvasFooterId: ms.canvas_footer_id || "",
       overrides: {
         colors: hasVal(bc.primary_color) || hasVal(bc.secondary_color),
         logo: hasVal(bc.logo_url),
@@ -302,7 +313,7 @@ export default function MicrositeChromeEditor({ microsite }) {
     setLastLoadedId(microsite.id);
   }
 
-  const { overrides, branding, header, footer } = state;
+  const { overrides, branding, header, footer, footerSource, canvasFooterId } = state;
   const setOverride = (key, on) => setState((s) => ({ ...s, overrides: { ...s.overrides, [key]: on } }));
   const setBranding = (patch) => setState((s) => ({ ...s, branding: { ...s.branding, ...patch } }));
   const setHeader = (patch) => setState((s) => ({ ...s, header: { ...s.header, ...patch } }));
@@ -460,6 +471,8 @@ export default function MicrositeChromeEditor({ microsite }) {
           header_config: headerOut,
           replace_header_config: true,
           footer_config: footerOut,
+          footer_source: footerSource,
+          canvas_footer_id: footerSource === "canvas" ? canvasFooterId : null,
           branding_config: brandingOut,
         }),
         credentials: "include",
@@ -827,7 +840,30 @@ export default function MicrositeChromeEditor({ microsite }) {
       </ChromeCard>
 
       {/* 9. Footer */}
-      {overrides.footer ? (
+      <ChromeCard
+        icon={PanelBottom}
+        title="Footer source"
+        description="Inherit the main-site footer, keep this microsite's configured override, or use a reusable Canvas footer."
+      >
+        <div className="space-y-3">
+          <Select value={footerSource} onValueChange={(value) => setState((s) => ({ ...s, footerSource: value }))}>
+            <SelectTrigger data-testid="select-microsite-footer-source"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="inherit">Inherit main-site footer</SelectItem>
+              <SelectItem value="configured">Configured microsite footer</SelectItem>
+              <SelectItem value="canvas">Reusable Canvas footer</SelectItem>
+            </SelectContent>
+          </Select>
+          {footerSource === "canvas" && (
+            <Select value={canvasFooterId} onValueChange={(value) => setState((s) => ({ ...s, canvasFooterId: value }))}>
+              <SelectTrigger data-testid="select-microsite-canvas-footer"><SelectValue placeholder="Select a footer" /></SelectTrigger>
+              <SelectContent>{canvasFooters.map((item) => <SelectItem key={item.id} value={item.id}>{item.name}</SelectItem>)}</SelectContent>
+            </Select>
+          )}
+          <p className="text-xs text-muted-foreground">Switching modes does not erase the configured footer values below.</p>
+        </div>
+      </ChromeCard>
+      {footerSource === "configured" && (overrides.footer ? (
         <FooterControls
           value={footer}
           onChange={(fc) => setState((s) => ({ ...s, footer: fc }))}
@@ -846,7 +882,7 @@ export default function MicrositeChromeEditor({ microsite }) {
           onToggle={(on) => toggleWithSeed("footer", on, seedFooter)}
           testId="switch-override-footer"
         />
-      )}
+      ))}
 
       {/* 10. Social Icon Colors */}
       <ChromeCard

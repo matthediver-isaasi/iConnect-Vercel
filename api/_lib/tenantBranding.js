@@ -1,4 +1,5 @@
 import { mergeMicrositeConfig, micrositeBrandingValue } from './microsites.js';
+import { resolveEffectiveCanvasFooter } from './canvasFooters.js';
 
 /**
  * Build the public tenant-branding payload (the `branding` object returned by
@@ -10,7 +11,7 @@ import { mergeMicrositeConfig, micrositeBrandingValue } from './microsites.js';
  * reads from the injected global is byte-identical to what it would otherwise
  * fetch (no second repaint when the real fetch lands).
  */
-export function buildTenantBrandingPayload(tenantData, microsite = null) {
+export function buildTenantBrandingPayload(tenantData, microsite = null, effectiveFooter = null) {
   const buttonStyles = tenantData.branding_config?.button_styles || {};
 
   const tenantSettings = tenantData.settings || {};
@@ -20,8 +21,12 @@ export function buildTenantBrandingPayload(tenantData, microsite = null) {
   const headerConfig = microsite
     ? mergeMicrositeConfig(tenantData.header_config, microsite.header_config)
     : (tenantData.header_config || {});
+  // Explicit inheritance means the main configured footer byte-for-byte, even
+  // when a microsite retains an old configured override for later reuse.
   const footerConfig = microsite
-    ? mergeMicrositeConfig(tenantData.footer_config, microsite.footer_config)
+    ? (microsite.footer_source === 'inherit'
+      ? (tenantData.footer_config || {})
+      : mergeMicrositeConfig(tenantData.footer_config, microsite.footer_config))
     : (tenantData.footer_config || {});
 
   const msBrand = (key) => micrositeBrandingValue(microsite, key);
@@ -60,6 +65,8 @@ export function buildTenantBrandingPayload(tenantData, microsite = null) {
     socialImageUrl: msBrand('social_image_url') || tenantData.social_image_url || null,
     headerConfig,
     footerConfig,
+    footerSource: effectiveFooter?.source === 'canvas' ? 'canvas' : 'configured',
+    canvasFooter: effectiveFooter?.source === 'canvas' ? effectiveFooter.footer : null,
     microsite: microsite ? {
       id: microsite.id,
       name: microsite.name,
@@ -73,4 +80,13 @@ export function buildTenantBrandingPayload(tenantData, microsite = null) {
     allowSearchIndexing: allowSearchIndexing,
     ga4MeasurementId: ga4MeasurementId,
   };
+}
+
+/**
+ * Async public/SSR entry point. Canvas footer resolution is kept beside the
+ * legacy branding merge so both delivery paths make the same fallback choice.
+ */
+export async function resolveTenantBrandingPayload(tenantData, microsite = null) {
+  const effectiveFooter = await resolveEffectiveCanvasFooter(tenantData, microsite);
+  return buildTenantBrandingPayload(tenantData, microsite, effectiveFooter);
 }

@@ -150,3 +150,4 @@
 - [Stripe membership invoice addresses](stripe-membership-invoice-addresses.md) — Stripe form memberships invoice only from immutable payment-time snapshots; missing snapshots fail closed.
 - [Annual membership renewal lifecycle](annual-membership-renewal-lifecycle.md) — annual policy is a dated tier snapshot; next terms always start the day after the prior persisted end, while monthly agreements stay separate.
 - [Stable query fallbacks](usequery-default-array-loop.md) — disabled useQuery results used by sync effects need stable fallbacks and equality-preserving state updates or SPA navigation can freeze.
+- [Reusable Canvas footer fallback](canvas-footer-fallback.md) — explicit source modes retain dormant legacy config; inherit must ignore microsite overrides, while invalid Canvas choices fall back safely.

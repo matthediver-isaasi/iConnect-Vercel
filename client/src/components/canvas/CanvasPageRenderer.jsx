@@ -144,23 +144,23 @@ function useWindowBreakpoint() {
   return bp;
 }
 
-function tagForBlock(block) {
+function tagForBlock(block, embedded = false) {
   // Landmark elements are only emitted for section-type blocks — this
   // prevents invalid HTML and nested-<main> landmarks when a non-section
   // block (image, button, text…) is mis-assigned a landmark role. The
   // <main> landmark is never emitted at block level: the stage wrapper
   // already owns the top-level <main>.
-  const landmark = getSectionLandmarkTag(block?.type, block?.a11y?.role);
+  const landmark = embedded ? null : getSectionLandmarkTag(block?.type, block?.a11y?.role);
   if (landmark) return landmark;
   if (block?.type === BLOCK_TYPES.SECTION) return 'section';
   return 'div';
 }
 
-function CanvasBlockRender({ block, lcpBlockId, forcedBreakpoint, windowBp, pinStageWidth }) {
+function CanvasBlockRender({ block, lcpBlockId, forcedBreakpoint, windowBp, pinStageWidth, embedded = false }) {
   const def = getBlockDefinition(block.type);
   const Renderer = def?.Renderer;
   const { style, a11y } = block;
-  const Tag = tagForBlock(block);
+  const Tag = tagForBlock(block, embedded);
   const isSection = block.type === BLOCK_TYPES.SECTION;
   // Box (and future background-style shapes) behave like a section for growth:
   // when a block sitting on top of them grows taller, the background grows to
@@ -257,8 +257,8 @@ function CanvasBlockRender({ block, lcpBlockId, forcedBreakpoint, windowBp, pinS
   // If we upgraded the wrapper to a semantic landmark tag, drop the
   // redundant role attribute. Otherwise carry the role through as an
   // attribute so screen readers still receive the author's intent.
-  const usedLandmark = getSectionLandmarkTag(block?.type, a11y?.role);
-  const explicitRole = a11y?.role && !usedLandmark ? a11y.role : undefined;
+  const usedLandmark = embedded ? null : getSectionLandmarkTag(block?.type, a11y?.role);
+  const explicitRole = embedded ? undefined : (a11y?.role && !usedLandmark ? a11y.role : undefined);
 
   // In CSS-layout mode (no forcedBreakpoint), positioning comes from the
   // stylesheet. For reflow we override `top` via inline style when there is
@@ -500,7 +500,7 @@ function useAnchorSmoothScroll(containerRef, enabled) {
  * The CSS stylesheet sets an explicit `height:` on .canvas-stage; we override
  * it via `minHeight` so blocks that are pushed down are never clipped.
  */
-function CanvasPageStage({ children, lcpBlockId, forcedBreakpoint, windowBp, activeBp, pinStageWidth }) {
+function CanvasPageStage({ children, lcpBlockId, forcedBreakpoint, windowBp, activeBp, pinStageWidth, embedded = false }) {
   const reflow = useAccordionReflow();
   // Baseline stage height at the active breakpoint from stored geometry.
   const baseHeight = useMemo(
@@ -526,10 +526,11 @@ function CanvasPageStage({ children, lcpBlockId, forcedBreakpoint, windowBp, act
     ? { width: BREAKPOINT_WIDTHS[forcedBreakpoint], maxWidth: BREAKPOINT_WIDTHS[forcedBreakpoint] }
     : null;
 
+  const StageTag = embedded ? 'div' : 'main';
   return (
-    <main
-      id="canvas-main-content"
-      tabIndex={-1}
+    <StageTag
+      id={embedded ? undefined : "canvas-main-content"}
+      tabIndex={embedded ? undefined : -1}
       className="canvas-stage focus:outline-none"
       style={{ ...(forcedWidthStyle || {}), ...(stageStyle || {}) }}
       data-testid="canvas-page-stage"
@@ -542,13 +543,14 @@ function CanvasPageStage({ children, lcpBlockId, forcedBreakpoint, windowBp, act
           forcedBreakpoint={forcedBreakpoint}
           windowBp={windowBp}
           pinStageWidth={pinStageWidth}
+          embedded={embedded}
         />
       ))}
-    </main>
+    </StageTag>
   );
 }
 
-export default function CanvasPageRenderer({ page, symbols, forceBreakpoint }) {
+export default function CanvasPageRenderer({ page, symbols, forceBreakpoint, embedded = false }) {
   const baseDesign = useMemo(() => normalizeCanvasDesign(page?.canvas_design), [page?.canvas_design]);
   // Task #2570 — v2 (flow / auto-layout) documents take a separate render path
   // (CanvasFlowStage, driven by resolveFlowLayout). v1 (absolute) documents keep
@@ -701,26 +703,22 @@ export default function CanvasPageRenderer({ page, symbols, forceBreakpoint }) {
           data-testid={`canvas-page-${page?.slug || ''}`}
           data-canvas-version={design.version}
         >
-          <a
+          {!embedded && <a
             href="#canvas-main-content"
             className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[9999] focus:px-3 focus:py-2 focus:rounded-md focus:bg-primary focus:text-primary-foreground focus:shadow-md"
             data-testid="link-skip-to-content"
           >
             Skip to content
-          </a>
+          </a>}
           <style>{A11Y_DEFAULTS_CSS}</style>
-          <main
-            id="canvas-main-content"
-            tabIndex={-1}
-            className="min-h-[40vh] flex items-center justify-center focus:outline-none"
-            data-testid="canvas-page-empty"
-          >
-            <div className="text-center px-6">
-              <p className="text-slate-600">
-                This page is currently being built. Please check back soon.
-              </p>
-            </div>
-          </main>
+          {React.createElement(embedded ? 'div' : 'main', {
+            id: embedded ? undefined : 'canvas-main-content',
+            tabIndex: embedded ? undefined : -1,
+            className: "min-h-[40vh] flex items-center justify-center focus:outline-none",
+            "data-testid": "canvas-page-empty",
+          },
+            <div className="text-center px-6"><p className="text-slate-600">{embedded ? "This footer is empty." : "This page is currently being built. Please check back soon."}</p></div>
+          )}
         </div>
       );
     }
@@ -733,13 +731,13 @@ export default function CanvasPageRenderer({ page, symbols, forceBreakpoint }) {
           data-testid={`canvas-page-${page?.slug || ''}`}
           data-canvas-version={design.version}
         >
-          <a
+          {!embedded && <a
             href="#canvas-main-content"
             className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[9999] focus:px-3 focus:py-2 focus:rounded-md focus:bg-primary focus:text-primary-foreground focus:shadow-md"
             data-testid="link-skip-to-content"
           >
             Skip to content
-          </a>
+          </a>}
           <style>{A11Y_DEFAULTS_CSS}</style>
           {themeCss && (
             <style dangerouslySetInnerHTML={{ __html: `#${scopeId}{${themeCss}}` }} />
@@ -749,6 +747,7 @@ export default function CanvasPageRenderer({ page, symbols, forceBreakpoint }) {
             design={design}
             forceBreakpoint={forcedBreakpoint}
             lcpBlockId={null}
+            embedded={embedded}
           />
         </div>
       </TooltipProvider>
@@ -762,26 +761,20 @@ export default function CanvasPageRenderer({ page, symbols, forceBreakpoint }) {
         data-testid={`canvas-page-${page?.slug || ''}`}
         data-canvas-version={design.version}
       >
-        <a
+        {!embedded && <a
           href="#canvas-main-content"
           className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[9999] focus:px-3 focus:py-2 focus:rounded-md focus:bg-primary focus:text-primary-foreground focus:shadow-md"
           data-testid="link-skip-to-content"
         >
           Skip to content
-        </a>
+        </a>}
         <style>{A11Y_DEFAULTS_CSS}</style>
-        <main
-          id="canvas-main-content"
-          tabIndex={-1}
-          className="min-h-[40vh] flex items-center justify-center focus:outline-none"
-          data-testid="canvas-page-empty"
-        >
-          <div className="text-center px-6">
-            <p className="text-slate-600">
-              This page is currently being built. Please check back soon.
-            </p>
-          </div>
-        </main>
+        {React.createElement(embedded ? 'div' : 'main', {
+          id: embedded ? undefined : 'canvas-main-content',
+          tabIndex: embedded ? undefined : -1,
+          className: "min-h-[40vh] flex items-center justify-center focus:outline-none",
+          "data-testid": "canvas-page-empty",
+        }, <div className="text-center px-6"><p className="text-slate-600">{embedded ? "This footer is empty." : "This page is currently being built. Please check back soon."}</p></div>)}
       </div>
     );
   }
@@ -796,13 +789,13 @@ export default function CanvasPageRenderer({ page, symbols, forceBreakpoint }) {
       data-canvas-version={design.version}
     >
       {/* Skip-to-content link — visually hidden until focused. */}
-      <a
+      {!embedded && <a
         href="#canvas-main-content"
         className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[9999] focus:px-3 focus:py-2 focus:rounded-md focus:bg-primary focus:text-primary-foreground focus:shadow-md"
         data-testid="link-skip-to-content"
       >
         Skip to content
-      </a>
+      </a>}
       <style>{A11Y_DEFAULTS_CSS}</style>
       {themeCss && (
         <style dangerouslySetInnerHTML={{ __html: `#${scopeId}{${themeCss}}` }} />
@@ -828,6 +821,7 @@ export default function CanvasPageRenderer({ page, symbols, forceBreakpoint }) {
           windowBp={windowBp}
           activeBp={forcedBreakpoint || windowBp || 'desktop'}
           pinStageWidth={!!forceBreakpoint}
+          embedded={embedded}
         />
       </AccordionReflowProvider>
     </div>

@@ -17,6 +17,8 @@ export const tenant = pgTable("tenant", {
   tagline: text("tagline"),
   header_config: jsonb("header_config").default({}),
   footer_config: jsonb("footer_config").default({}),
+  footer_source: varchar("footer_source", { length: 20 }).notNull().default("configured"),
+  canvas_footer_id: uuid("canvas_footer_id"),
   branding_config: jsonb("branding_config").default({}),
   platform_branding: jsonb("platform_branding").default({}),
   subscription_plan: varchar("subscription_plan", { length: 50 }).default('free'),
@@ -37,6 +39,28 @@ export const insertTenantSchema = createInsertSchema(tenant).omit({
 
 export type InsertTenant = z.infer<typeof insertTenantSchema>;
 export type Tenant = typeof tenant.$inferSelect;
+
+export const canvasFooter = pgTable("canvas_footer", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenant_id: text("tenant_id").notNull(),
+  name: text("name").notNull(),
+  design: jsonb("design").notNull().default({ version: 1, root: { background: null, sections: [] } }),
+  created_by: text("created_by"),
+  updated_by: text("updated_by"),
+  created_at: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updated_at: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  tenantUpdatedIdx: index("idx_canvas_footer_tenant_updated").on(table.tenant_id, table.updated_at),
+}));
+
+export const insertCanvasFooterSchema = createInsertSchema(canvasFooter).omit({
+  id: true,
+  created_at: true,
+  updated_at: true,
+});
+
+export type InsertCanvasFooter = z.infer<typeof insertCanvasFooterSchema>;
+export type CanvasFooter = typeof canvasFooter.$inferSelect;
 
 // Sales foundation. Amounts in downstream Sales records are signed bigint
 // minor units and each commercial document owns one ISO-4217 currency.
