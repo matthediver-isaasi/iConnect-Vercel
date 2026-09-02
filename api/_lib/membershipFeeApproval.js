@@ -61,8 +61,8 @@ export async function resolveMemberFeeApproval(client, {
   };
 }
 
-async function upsertApproval(table, matchColumn, tenantId, targetId, yearLabel) {
-  const { data: existing, error: selectError } = await supabase
+async function upsertApproval(client, table, matchColumn, tenantId, targetId, yearLabel, approved = true) {
+  const { data: existing, error: selectError } = await client
     .from(table)
     .select('id, fees_approved')
     .eq('tenant_id', tenantId)
@@ -75,25 +75,26 @@ async function upsertApproval(table, matchColumn, tenantId, targetId, yearLabel)
     return { approved: false, error: selectError };
   }
 
-  if (existing?.fees_approved) {
-    return { approved: true };
+  if (existing && existing.fees_approved === approved) {
+    return { approved, changed: false };
   }
 
   let writeError = null;
   if (existing) {
-    const { error } = await supabase
+    const { error } = await client
       .from(table)
-      .update({ fees_approved: true })
-      .eq('id', existing.id);
+      .update({ fees_approved: approved, updated_at: new Date().toISOString() })
+      .eq('id', existing.id)
+      .eq('tenant_id', tenantId);
     writeError = error;
   } else {
-    const { error } = await supabase
+    const { error } = await client
       .from(table)
       .insert({
         tenant_id: tenantId,
         [matchColumn]: targetId,
         membership_year: yearLabel,
-        fees_approved: true,
+        fees_approved: approved,
         // 'automatic' (the resolver's fallback), NOT 'manual': approval must
         // never change the effective invoicing mode, or auto-approval
         // deadlocks the Create Membership workflow action (Task #3244).
@@ -105,12 +106,57 @@ async function upsertApproval(table, matchColumn, tenantId, targetId, yearLabel)
   }
 
   if (writeError) {
+    // A concurrent approval can win the insert between the read and write.
+    // Re-read the tenant/year row before reporting failure so a replay is
+    // idempotent even when two admin actions race.
+    if (writeError.code === '23505') {
+      const { data: raced, error: raceReadError } = await client
+        .from(table)
+        .select('id, fees_approved')
+        .eq('tenant_id', tenantId)
+        .eq(matchColumn, targetId)
+        .eq('membership_year', yearLabel)
+        .maybeSingle();
+      if (!raceReadError && raced?.fees_approved === approved) {
+        return { approved, changed: false, raced: true };
+      }
+    }
     console.error(`[FeeApproval] Failed to auto-approve fees on ${table} for ${matchColumn}=${targetId}:`, writeError.message);
     return { approved: false, error: writeError };
   }
 
-  console.log(`[FeeApproval] Auto-approved membership fees on ${table} for ${matchColumn}=${targetId}, year ${yearLabel}`);
-  return { approved: true };
+  console.log(`[FeeApproval] Set membership fee approval=${approved} on ${table} for ${matchColumn}=${targetId}, year ${yearLabel}`);
+  return { approved, changed: true };
+}
+
+/**
+ * Persist the same year-specific approval used by the Membership tab.
+ *
+ * Keeping this operation injectable is important for bounded batch jobs:
+ * callers can use the same Supabase client for the tenant they selected
+ * instead of reaching for a process-global client.
+ */
+export async function setMemberFeeApproval(client = supabase, {
+  tenantId,
+  memberId,
+  membershipYear,
+  approved = true,
+}) {
+  if (!client) throw new Error('Database not configured');
+  if (!tenantId || !memberId || !membershipYear) {
+    throw new Error('tenantId, memberId, and membershipYear are required');
+  }
+  const result = await upsertApproval(
+    client,
+    'member_membership_invoicing',
+    'member_id',
+    tenantId,
+    memberId,
+    membershipYear,
+    approved,
+  );
+  if (result.error) throw result.error;
+  return result;
 }
 
 // Materialise auto-approval for a member covered by a member-scoped config.
@@ -127,7 +173,7 @@ export async function autoApproveMemberFees(tenantId, memberId, options = {}) {
     return { applies: false, approved: false, yearLabel: null };
   }
   const yearLabel = options.yearLabel || calculateMembershipYearWindow(config).label;
-  const result = await upsertApproval('member_membership_invoicing', 'member_id', tenantId, memberId, yearLabel);
+  const result = await upsertApproval(supabase, 'member_membership_invoicing', 'member_id', tenantId, memberId, yearLabel);
   return { applies: true, approved: result.approved, yearLabel };
 }
 
@@ -141,6 +187,6 @@ export async function autoApproveOrgFees(tenantId, organizationId, options = {})
     return { applies: false, approved: false, yearLabel: null };
   }
   const yearLabel = options.yearLabel || calculateMembershipYearWindow(config).label;
-  const result = await upsertApproval('organisation_membership_invoicing', 'organization_id', tenantId, organizationId, yearLabel);
+  const result = await upsertApproval(supabase, 'organisation_membership_invoicing', 'organization_id', tenantId, organizationId, yearLabel);
   return { applies: true, approved: result.approved, yearLabel };
 }

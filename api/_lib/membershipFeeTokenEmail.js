@@ -203,6 +203,7 @@ export async function sendMembershipFeeTokenEmail({
   xeroInvoiceNumber = null,
   xeroOnlineInvoiceUrl = null,
   historyRecordId = null,
+  requireAtomicMemberClaim = false,
 }) {
   if (!client) return { success: false, error: 'Database not configured' };
   if (!organizationId && !memberId) {
@@ -257,24 +258,77 @@ export async function sendMembershipFeeTokenEmail({
   let token = null;
   let tokenId = null;
   let expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+  let atomicallyClaimed = false;
+
+  if (memberId) {
+    const candidateToken = crypto.randomBytes(32).toString('hex');
+    const snapshot = {
+      final_cost: finalCost,
+      currency,
+      tier_label: tierLabel,
+      cost_breakdown: costBreakdown || {},
+      po_number: poNumber,
+      recipient_email: toEmails.join(', '),
+      xero_invoice_id: xeroInvoiceId,
+      xero_invoice_number: xeroInvoiceNumber,
+      xero_online_invoice_url: xeroOnlineInvoiceUrl,
+      history_record_id: historyRecordId,
+    };
+    const { data: claim, error: claimError } = await client.rpc('claim_member_fee_token_for_email', {
+      p_tenant_id: tenantId,
+      p_member_id: memberId,
+      p_membership_year: membershipYear,
+      p_candidate_token: candidateToken,
+      p_expires_at: expiresAt.toISOString(),
+      p_snapshot: snapshot,
+    });
+    if (!claimError && claim?.outcome === 'claimed') {
+      token = claim.token;
+      tokenId = claim.id;
+      expiresAt = new Date(claim.expires_at);
+      atomicallyClaimed = true;
+    } else if (!claimError && claim?.outcome !== 'claimed') {
+      const messages = {
+        already_recorded: 'A membership record already exists for this year',
+        po_submitted: 'A Purchase Order has already been submitted for this year',
+        terminal: 'A completed payment token already exists for this year',
+        duplicate_active: 'Multiple active payment tokens require reconciliation',
+      };
+      return {
+        success: false,
+        code: `membership_fee_token_${claim?.outcome || 'blocked'}`,
+        error: messages[claim?.outcome] || 'Member fee token claim was blocked',
+      };
+    } else if (requireAtomicMemberClaim) {
+      console.error('[FeeTokenEmail] Atomic member token claim failed:', claimError?.message || 'unknown error');
+      return {
+        success: false,
+        code: 'membership_fee_token_atomic_claim_unavailable',
+        error: 'Atomic member fee token claim is unavailable; no email was sent',
+      };
+    }
+  }
+
   try {
-    let existingQuery = client
-      .from('membership_fee_token')
-      .select('id, token, expires_at, status')
-      .eq('tenant_id', tenantId)
-      .eq('membership_year', membershipYear);
-    existingQuery = memberId
-      ? existingQuery.eq('member_id', memberId)
-      : existingQuery.eq('organization_id', organizationId);
-    const { data: existing } = await existingQuery
-      .in('status', ['pending', 'po_submitted'])
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    if (existing && existing.status === 'pending' && new Date(existing.expires_at) > new Date()) {
-      token = existing.token;
-      tokenId = existing.id;
-      expiresAt = new Date(existing.expires_at);
+    if (!atomicallyClaimed) {
+      let existingQuery = client
+        .from('membership_fee_token')
+        .select('id, token, expires_at, status')
+        .eq('tenant_id', tenantId)
+        .eq('membership_year', membershipYear);
+      existingQuery = memberId
+        ? existingQuery.eq('member_id', memberId)
+        : existingQuery.eq('organization_id', organizationId);
+      const { data: existing } = await existingQuery
+        .in('status', ['pending', 'po_submitted'])
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (existing && existing.status === 'pending' && new Date(existing.expires_at) > new Date()) {
+        token = existing.token;
+        tokenId = existing.id;
+        expiresAt = new Date(existing.expires_at);
+      }
     }
   } catch {}
 
@@ -330,7 +384,7 @@ export async function sendMembershipFeeTokenEmail({
     } else {
       tokenId = inserted?.id || null;
     }
-  } else {
+  } else if (!atomicallyClaimed) {
     // Reusing an existing pending token: refresh the snapshotted cost fields
     // to the freshly-computed values so the public PO page (which reads cost
     // straight off the token row) always matches the latest email body.

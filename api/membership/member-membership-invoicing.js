@@ -13,7 +13,7 @@ import {
   fireNewZeroDueMembershipPaidWorkflow,
 } from '../_lib/zeroDueMembership.js';
 import { resolveEntityAnnualRenewalEligibility, annualRecordSchedule } from '../_lib/annualRenewalPolicy.js';
-import { resolveMemberFeeApproval } from '../_lib/membershipFeeApproval.js';
+import { resolveMemberFeeApproval, setMemberFeeApproval } from '../_lib/membershipFeeApproval.js';
 
 export default async function handler(req, res) {
   if (!supabase) {
@@ -550,42 +550,28 @@ async function handleApproval(req, res, tenantId) {
 
   const approved = action === 'approve';
 
-  const { data: existing } = await supabase
-    .from('member_membership_invoicing')
+  const { data: member, error: memberError } = await supabase
+    .from('member')
     .select('id')
+    .eq('id', memberId)
     .eq('tenant_id', tenantId)
-    .eq('member_id', memberId)
-    .eq('membership_year', membershipYear)
     .maybeSingle();
+  if (memberError) {
+    console.error('[Member Invoicing] Error resolving approval member:', memberError);
+    return res.status(500).json({ error: 'Failed to resolve member' });
+  }
+  if (!member) return res.status(404).json({ error: 'Member not found' });
 
-  if (existing) {
-    const { error } = await supabase
-      .from('member_membership_invoicing')
-      .update({ fees_approved: approved, updated_at: new Date().toISOString() })
-      .eq('id', existing.id);
-
-    if (error) {
-      console.error('[Member Invoicing] Error updating approval:', error);
-      return res.status(500).json({ error: 'Failed to update approval status' });
-    }
-  } else {
-    const { error } = await supabase
-      .from('member_membership_invoicing')
-      .insert({
-        tenant_id: tenantId,
-        member_id: memberId,
-        membership_year: membershipYear,
-        // 'automatic' (the resolver's fallback), NOT 'manual': fee approval
-        // must not change the effective invoicing mode (Task #3244).
-        invoicing_mode: 'automatic',
-        fees_approved: approved,
-        updated_at: new Date().toISOString(),
-      });
-
-    if (error) {
-      console.error('[Member Invoicing] Error creating approval record:', error);
-      return res.status(500).json({ error: 'Failed to create approval record' });
-    }
+  try {
+    await setMemberFeeApproval(supabase, {
+      tenantId,
+      memberId,
+      membershipYear,
+      approved,
+    });
+  } catch (error) {
+    console.error('[Member Invoicing] Error updating approval:', error);
+    return res.status(500).json({ error: 'Failed to update approval status' });
   }
 
   return res.json({ success: true, fees_approved: approved });
