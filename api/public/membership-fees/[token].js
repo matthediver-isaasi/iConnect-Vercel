@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { resolveEntityAnnualRenewalEligibility } from '../../_lib/annualRenewalPolicy.js';
+import { resolveMemberFeeApproval } from '../../_lib/membershipFeeApproval.js';
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -70,6 +71,19 @@ export default async function handler(req, res) {
     // Shared approval gate: when membership_require_approval is on, fees
     // must be approved on the entity's invoicing row before payment.
     const checkApprovalBlocked = async () => {
+      if (isMemberToken) {
+        try {
+          const approval = await resolveMemberFeeApproval(supabase, {
+            tenantId: feeToken.tenant_id,
+            memberId: feeToken.member_id,
+            membershipYear: feeToken.membership_year,
+          });
+          return approval.required && !approval.approved;
+        } catch (error) {
+          console.error('[Public Fee] Member approval check failed:', error);
+          return true;
+        }
+      }
       try {
         const { data: approvalSetting } = await supabase
           .from('system_settings')
@@ -78,13 +92,12 @@ export default async function handler(req, res) {
           .eq('tenant_id', feeToken.tenant_id)
           .maybeSingle();
         if (approvalSetting?.setting_value !== 'true') return false;
-        const table = isMemberToken ? 'member_membership_invoicing' : 'organisation_membership_invoicing';
         let q = supabase
-          .from(table)
+          .from('organisation_membership_invoicing')
           .select('fees_approved')
           .eq('tenant_id', feeToken.tenant_id)
           .eq('membership_year', feeToken.membership_year);
-        q = isMemberToken ? q.eq('member_id', feeToken.member_id) : q.eq('organization_id', feeToken.organization_id);
+        q = q.eq('organization_id', feeToken.organization_id);
         const { data: invoicing } = await q.maybeSingle();
         return !invoicing?.fees_approved;
       } catch {

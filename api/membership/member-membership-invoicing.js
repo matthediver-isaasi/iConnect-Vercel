@@ -13,6 +13,7 @@ import {
   fireNewZeroDueMembershipPaidWorkflow,
 } from '../_lib/zeroDueMembership.js';
 import { resolveEntityAnnualRenewalEligibility, annualRecordSchedule } from '../_lib/annualRenewalPolicy.js';
+import { resolveMemberFeeApproval } from '../_lib/membershipFeeApproval.js';
 
 export default async function handler(req, res) {
   if (!supabase) {
@@ -180,36 +181,6 @@ async function handlePut(req, res, tenantId, tenantContext) {
   return res.json(result);
 }
 
-async function checkApprovalRequired(tenantId, memberId, membershipYear) {
-  const { data: setting } = await supabase
-    .from('system_settings')
-    .select('setting_value')
-    .eq('setting_key', 'membership_require_approval')
-    .eq('tenant_id', tenantId)
-    .maybeSingle();
-
-  if (setting?.setting_value !== 'true') return { required: false };
-
-  let approvalQuery = supabase
-    .from('member_membership_invoicing')
-    .select('fees_approved, membership_year')
-    .eq('tenant_id', tenantId)
-    .eq('member_id', memberId);
-
-  if (membershipYear) {
-    approvalQuery = approvalQuery.or(`membership_year.eq.${membershipYear},membership_year.is.null`);
-  }
-
-  const { data: invoicingRows } = await approvalQuery;
-  if (!invoicingRows || invoicingRows.length === 0) return { required: true, approved: false };
-
-  const yearSpecific = invoicingRows.find(r => r.membership_year === membershipYear);
-  const fallback = invoicingRows.find(r => !r.membership_year);
-  const invoicing = yearSpecific || fallback;
-
-  return { required: true, approved: !!invoicing?.fees_approved };
-}
-
 async function handleManualRenewal(req, res, tenantId, tenantContext) {
   const { memberId, membershipYear: requestedYear } = req.body;
 
@@ -256,7 +227,11 @@ async function handleManualRenewal(req, res, tenantId, tenantContext) {
     return res.status(400).json({ error: `A membership record for ${simResult.membershipYear.label} already exists` });
   }
 
-  const approval = await checkApprovalRequired(tenantId, memberId, simResult.membershipYear.label);
+  const approval = await resolveMemberFeeApproval(supabase, {
+    tenantId,
+    memberId,
+    membershipYear: simResult.membershipYear.label,
+  });
   if (approval.required && !approval.approved) {
     return res.status(400).json({ error: 'Fees must be approved before renewal can be processed. Use the Approve Fees button first.' });
   }

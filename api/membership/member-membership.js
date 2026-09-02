@@ -114,7 +114,7 @@ async function handleGet(req, res, tenantId) {
 
   if (!config) {
     return res.json({
-      member: { id: member.id, name: `${member.first_name || ''} ${member.last_name || ''}`.trim() },
+      member: { id: member.id, name: `${member.first_name || ''} ${member.last_name || ''}`.trim(), email: member.email || null },
       config: null,
       currentYearCost: null,
       nextYearPreview: null,
@@ -215,7 +215,7 @@ async function handleGet(req, res, tenantId) {
   }
 
   return res.json({
-    member: { id: member.id, name: `${member.first_name || ''} ${member.last_name || ''}`.trim() },
+    member: { id: member.id, name: `${member.first_name || ''} ${member.last_name || ''}`.trim(), email: member.email || null },
     config: {
       id: config.id,
       name: config.name,

@@ -87,6 +87,9 @@ function MemberYearCostSection({
   onRemoveOverride,
   removeOverridePending,
   onlineCardPayment,
+  onEmailFees,
+  emailFeesPending,
+  memberEmail,
 }) {
   const [poUnlocked, setPoUnlocked] = useState(false);
   const isPoLocked = poSuppliedByMember && !poUnlocked;
@@ -101,6 +104,15 @@ function MemberYearCostSection({
             <Wallet className="w-3 h-3" />
             {yearLabel}
           </p>
+          {!currentYearRecorded && (
+            <Badge
+              variant="outline"
+              className="text-xs text-amber-700 border-amber-300 dark:text-amber-400 dark:border-amber-700"
+              data-testid={`badge-member-preview-${testIdPrefix}`}
+            >
+              Calculated preview
+            </Badge>
+          )}
           {approvalRequired && feesApproved && (
             <Badge variant="outline" className="text-xs text-green-700 border-green-300 dark:text-green-400 dark:border-green-700" data-testid={`badge-member-approved-${testIdPrefix}`}>
               <ShieldCheck className="w-3 h-3 mr-1" />
@@ -109,6 +121,21 @@ function MemberYearCostSection({
           )}
         </div>
         <div className="flex items-center gap-1 flex-wrap">
+          {!currentYearRecorded && onEmailFees && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => onEmailFees(yearData.membershipYear)}
+              disabled={emailFeesPending || !memberEmail || (approvalRequired && !feesApproved) || yearData.finalCost == null}
+              title={!memberEmail
+                ? 'Add an email address before sending fees'
+                : (approvalRequired && !feesApproved ? 'Approve fees before sending' : 'Email the calculated fee')}
+              data-testid={`button-member-email-fees-${testIdPrefix}`}
+            >
+              {emailFeesPending ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Mail className="w-3 h-3 mr-1" />}
+              Email Fees
+            </Button>
+          )}
           {!currentYearRecorded && !feesApproved && (
             <Button
               size="sm"
@@ -212,7 +239,7 @@ function MemberYearCostSection({
         )}
         <div className="flex items-center justify-between text-sm border-t pt-1">
           <span className="text-muted-foreground font-medium">
-            {showRecordFee && currentYearRecorded ? 'Recorded Cost' : 'Final Cost'}
+            {showRecordFee && currentYearRecorded ? 'Recorded Cost' : currentYearRecorded ? 'Final Cost' : 'Preview Cost'}
           </span>
           <span className="font-semibold">{formatCost(yearData.finalCost, currency)}</span>
         </div>
@@ -229,6 +256,18 @@ function MemberYearCostSection({
           </>
         )}
       </div>
+      {!currentYearRecorded && !memberEmail && (
+        <p className="text-xs text-warning mt-2 flex items-center gap-1" data-testid={`text-member-email-missing-${testIdPrefix}`}>
+          <AlertTriangle className="w-3 h-3" />
+          Add an email address before sending this fee preview.
+        </p>
+      )}
+      {!currentYearRecorded && approvalRequired && !feesApproved && (
+        <p className="text-xs text-warning mt-2 flex items-center gap-1" data-testid={`text-member-email-approval-required-${testIdPrefix}`}>
+          <ShieldAlert className="w-3 h-3" />
+          Fees must be approved before the fee email can be sent.
+        </p>
+      )}
 
       {currentYearRecorded ? (
         <>
@@ -452,6 +491,8 @@ export default function MemberMembershipTab({ memberId, memberEmail }) {
   const [purchaseOrderNumbers, setPurchaseOrderNumbers] = useState({});
   const [poSuppliedByMemberMap, setPoSuppliedByMemberMap] = useState({});
   const [feesApprovedMap, setFeesApprovedMap] = useState({});
+  const [emailFeesTargetYear, setEmailFeesTargetYear] = useState(null);
+  const [emailFeesDialogOpen, setEmailFeesDialogOpen] = useState(false);
 
   const [overrideModalOpen, setOverrideModalOpen] = useState(false);
   const [overrideTargetYear, setOverrideTargetYear] = useState(null);
@@ -724,6 +765,28 @@ export default function MemberMembershipTab({ memberId, memberEmail }) {
       queryClient.invalidateQueries({ queryKey: ['member-membership-invoicing-settings', memberId] });
       setFeesApprovedMap(prev => ({ ...prev, [variables.membershipYear]: result.fees_approved }));
       toast.success(result.fees_approved ? 'Fees approved' : 'Fees unapproved');
+    },
+    onError: (error) => {
+      toast.error(error.message);
+    },
+  });
+
+  const emailFeesMutation = useMutation({
+    mutationFn: async ({ membershipYear }) => {
+      const response = await fetch('/api/membership/email-fees', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ memberId, membershipYear }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || 'Failed to send fee email');
+      return result;
+    },
+    onSuccess: (result) => {
+      setEmailFeesDialogOpen(false);
+      setEmailFeesTargetYear(null);
+      toast.success(result.message || 'Fee email sent');
     },
     onError: (error) => {
       toast.error(error.message);
@@ -1050,6 +1113,15 @@ export default function MemberMembershipTab({ memberId, memberEmail }) {
   const currentYearRecorded = currentYearData
     ? history.find(h => h.membership_year === currentYearData.membershipYear)
     : null;
+  const nextYearRecorded = nextYearData
+    ? history.find(h => h.membership_year === nextYearData.membershipYear)
+    : null;
+  const effectiveMemberEmail = data?.member?.email || memberEmail || '';
+
+  const openEmailFeesDialog = (membershipYear) => {
+    setEmailFeesTargetYear(membershipYear);
+    setEmailFeesDialogOpen(true);
+  };
 
   const hasOverrideForYear = (membershipYear) => {
     if (membershipYear === currentYearData?.membershipYear) {
@@ -1091,6 +1163,8 @@ export default function MemberMembershipTab({ memberId, memberEmail }) {
   const makeInvoicingHandlers = (yearData, testIdPrefix) => {
     if (!yearData) return {};
     const year = yearData.membershipYear;
+    const savedSetting = invoicingData?.settings?.[year] || invoicingData?.settings?._legacy || null;
+    const hasLocalApproval = Object.prototype.hasOwnProperty.call(feesApprovedMap, year);
     return {
       invoicingMode: invoicingModes[year] || 'manual',
       invoiceDate: invoiceDates[year] || '',
@@ -1118,7 +1192,7 @@ export default function MemberMembershipTab({ memberId, memberEmail }) {
       onPurchaseOrderChange: (val) => setPurchaseOrderNumbers(prev => ({ ...prev, [year]: val })),
       poSuppliedByMember: !!poSuppliedByMemberMap[year],
       approvalRequired: !!membershipSettings?.require_approval,
-      feesApproved: !!feesApprovedMap[year],
+      feesApproved: hasLocalApproval ? !!feesApprovedMap[year] : !!savedSetting?.fees_approved,
       onApprove: () => approvalMutation.mutate({ membershipYear: year, action: 'approve' }),
       onUnapprove: () => approvalMutation.mutate({ membershipYear: year, action: 'unapprove' }),
       approvePending: approvalMutation.isPending,
@@ -1183,6 +1257,9 @@ export default function MemberMembershipTab({ memberId, memberEmail }) {
                 periodLabel={periodLabel}
                 showRecordFee={true}
                 currentYearRecorded={currentYearRecorded}
+                memberEmail={effectiveMemberEmail}
+                onEmailFees={openEmailFeesDialog}
+                emailFeesPending={emailFeesMutation.isPending && emailFeesTargetYear === currentYearData?.membershipYear}
                 testIdPrefix="current-year"
                 onManualRenewal={() => manualRenewalMutation.mutate({ membershipYear: currentYearData?.membershipYear })}
                 manualRenewalPending={manualRenewalMutation.isPending}
@@ -1217,14 +1294,17 @@ export default function MemberMembershipTab({ memberId, memberEmail }) {
                 yearLabel={nextYearData?.yearNumber ? `Year ${nextYearData.yearNumber}` : 'Next Year'}
                 currency={currency}
                 periodLabel={periodLabel}
-                showRecordFee={false}
-                currentYearRecorded={null}
+                showRecordFee={true}
+                currentYearRecorded={nextYearRecorded}
+                memberEmail={effectiveMemberEmail}
+                onEmailFees={openEmailFeesDialog}
+                emailFeesPending={emailFeesMutation.isPending && emailFeesTargetYear === nextYearData?.membershipYear}
                 testIdPrefix="next-year"
                 onManualRenewal={modeBlocksWorkflow(nextYearData?.membershipYear)
                   ? () => manualRenewalMutation.mutate({ membershipYear: nextYearData?.membershipYear })
                   : null}
                 manualRenewalPending={manualRenewalMutation.isPending}
-                hideInvoicing={!currentYearRecorded && !modeBlocksWorkflow(nextYearData?.membershipYear)}
+                hideInvoicing={!nextYearRecorded && !modeBlocksWorkflow(nextYearData?.membershipYear)}
                 onSimulate={(membershipYear) => { setSimulatingYear(membershipYear); simulateRenewalMutation.mutate({ mode: invoicingModes[nextYearData?.membershipYear] || 'manual', targetYear: membershipYear }); }}
                 simulatePending={simulateRenewalMutation.isPending && simulatingYear === nextYearData?.membershipYear}
                 onOpenOverride={handleOpenOverrideModal}
@@ -1624,6 +1704,55 @@ export default function MemberMembershipTab({ memberId, memberEmail }) {
             >
               {overrideMutation.isPending && <Loader2 className="w-3 h-3 mr-1 animate-spin" />}
               Save Override
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={emailFeesDialogOpen}
+        onOpenChange={(open) => {
+          setEmailFeesDialogOpen(open);
+          if (!open && !emailFeesMutation.isPending) setEmailFeesTargetYear(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Mail className="w-4 h-4" />
+              Email Membership Fees
+            </DialogTitle>
+            <DialogDescription>
+              Send the calculated {emailFeesTargetYear || ''} fee to {effectiveMemberEmail || 'this member'}.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="rounded-md border bg-muted/40 p-3 space-y-2 text-sm">
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-muted-foreground">Recipient</span>
+              <span className="font-medium break-all text-right" data-testid="text-member-email-fees-recipient">
+                {effectiveMemberEmail || 'No email address'}
+              </span>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              The email links to the member payment page, where the payment, Direct Debit, and purchase-order options configured for this membership tier are shown. Sending does not create a membership record.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setEmailFeesDialogOpen(false)}
+              disabled={emailFeesMutation.isPending}
+              data-testid="button-member-email-fees-cancel"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={() => emailFeesMutation.mutate({ membershipYear: emailFeesTargetYear })}
+              disabled={emailFeesMutation.isPending || !emailFeesTargetYear || !effectiveMemberEmail}
+              data-testid="button-member-email-fees-confirm"
+            >
+              {emailFeesMutation.isPending ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <Send className="w-4 h-4 mr-1" />}
+              Send Fee Email
             </Button>
           </DialogFooter>
         </DialogContent>

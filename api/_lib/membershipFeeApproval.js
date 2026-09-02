@@ -15,6 +15,52 @@ import { supabase } from './database.js';
 import { getConfigForMember, getConfigForOrganisation } from './membershipConfigResolver.js';
 import { calculateMembershipYearWindow } from './membershipYear.js';
 
+/**
+ * Read the effective member approval without mutating it. A year-specific row
+ * takes precedence over the legacy all-years row, including when the
+ * year-specific row explicitly unapproves the fee.
+ */
+export async function resolveMemberFeeApproval(client, {
+  tenantId,
+  memberId,
+  membershipYear,
+}) {
+  const { data: setting, error: settingError } = await client
+    .from('system_settings')
+    .select('setting_value')
+    .eq('setting_key', 'membership_require_approval')
+    .eq('tenant_id', tenantId)
+    .maybeSingle();
+
+  if (settingError) throw settingError;
+  if (setting?.setting_value !== 'true') {
+    return { required: false, approved: true, source: 'not_required' };
+  }
+
+  let approvalQuery = client
+    .from('member_membership_invoicing')
+    .select('fees_approved, membership_year')
+    .eq('tenant_id', tenantId)
+    .eq('member_id', memberId);
+
+  if (membershipYear) {
+    approvalQuery = approvalQuery.or(`membership_year.eq.${membershipYear},membership_year.is.null`);
+  }
+
+  const { data: rows, error: approvalError } = await approvalQuery;
+  if (approvalError) throw approvalError;
+
+  const yearSpecific = (rows || []).find((row) => row.membership_year === membershipYear);
+  const legacy = (rows || []).find((row) => !row.membership_year);
+  const resolved = yearSpecific || legacy || null;
+
+  return {
+    required: true,
+    approved: !!resolved?.fees_approved,
+    source: yearSpecific ? 'year' : legacy ? 'legacy' : 'missing',
+  };
+}
+
 async function upsertApproval(table, matchColumn, tenantId, targetId, yearLabel) {
   const { data: existing, error: selectError } = await supabase
     .from(table)
