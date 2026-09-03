@@ -59,7 +59,14 @@ export default function PublicLayout({ children, currentPageName }) {
   // `chromeReady` is false while the page query is in-flight; we suppress
   // header/footer until we know the correct value to prevent a flicker where
   // the default 'both' paints for one frame before being hidden.
-  const { publicChrome, chromeReady } = useLayoutContext();
+  const {
+    publicChrome,
+    chromeReady,
+    memberInfo,
+    organizationInfo,
+    authResolved,
+    sessionValidated,
+  } = useLayoutContext();
   const showHeader = chromeReady && (publicChrome === 'both' || publicChrome === 'header');
   const showFooter = chromeReady && (publicChrome === 'both' || publicChrome === 'footer');
   const { getPublicArticlesUrl, articleDisplayName, urlSlug, publicSlug, isCustomSlug, isLoading: articleUrlLoading } = useArticleUrl();
@@ -964,6 +971,10 @@ export default function PublicLayout({ children, currentPageName }) {
         {/* Floater Display for Public Pages */}
         <FloaterDisplay
           location="public"
+          memberInfo={memberInfo}
+          organizationInfo={organizationInfo}
+          authResolved={authResolved}
+          sessionValidated={sessionValidated}
           activeMicrositeId={activeMicrosite?.id || null}
           publicSiteContextReady={micrositesLoaded}
         />

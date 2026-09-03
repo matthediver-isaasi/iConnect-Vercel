@@ -68,6 +68,8 @@ export default function FloaterManagementPage() {
     popup_width: 800,
     popup_height: 600,
     display_location: "both",
+    device_target: "both",
+    audience_target: "both",
     position: "bottom-right",
     offset_x: 20,
     offset_y: 20,
@@ -192,6 +194,8 @@ export default function FloaterManagementPage() {
         popup_width: floater.popup_width || 800,
         popup_height: floater.popup_height || 600,
         display_location: floater.display_location || "both",
+        device_target: ['desktop', 'mobile', 'both'].includes(floater.device_target) ? floater.device_target : "both",
+        audience_target: ['authenticated', 'public', 'both'].includes(floater.audience_target) ? floater.audience_target : "both",
         position: floater.position || "bottom-right",
         offset_x: floater.offset_x ?? 20,
         offset_y: floater.offset_y ?? 20,
@@ -217,6 +221,8 @@ export default function FloaterManagementPage() {
         popup_width: 800,
         popup_height: 600,
         display_location: "both",
+        device_target: "both",
+        audience_target: "both",
         position: "bottom-right",
         offset_x: 20,
         offset_y: 20,
@@ -247,6 +253,8 @@ export default function FloaterManagementPage() {
       popup_width: 800,
       popup_height: 600,
       display_location: "both",
+      device_target: "both",
+      audience_target: "both",
       position: "bottom-right",
       offset_x: 20,
       offset_y: 20,
@@ -319,6 +327,8 @@ export default function FloaterManagementPage() {
       popup_width: Number(formData.popup_width),
       popup_height: Number(formData.popup_height),
       display_location: formData.display_location,
+      device_target: formData.device_target,
+      audience_target: formData.audience_target,
       position: formData.position,
       offset_x: Number(formData.offset_x),
       offset_y: Number(formData.offset_y),
@@ -494,6 +504,17 @@ export default function FloaterManagementPage() {
                     <div className="flex items-center justify-between text-sm">
                       <span className="text-slate-600">Position:</span>
                       <Badge variant="secondary">{floater.position}</Badge>
+                    </div>
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-slate-600">Devices:</span>
+                      <Badge variant="secondary" className="capitalize">{floater.device_target || 'both'}</Badge>
+                    </div>
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-slate-600">Audience:</span>
+                      <Badge variant="secondary">
+                        {floater.audience_target === 'authenticated' ? 'Authenticated users' :
+                         floater.audience_target === 'public' ? 'Public viewers' : 'Both'}
+                      </Badge>
                     </div>
                     <div className="flex items-center justify-between text-sm">
                       <span className="text-slate-600">Size:</span>
@@ -753,6 +774,45 @@ export default function FloaterManagementPage() {
                     <SelectItem value="top-left">Top Left</SelectItem>
                   </SelectContent>
                 </Select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="device_target">Devices *</Label>
+                <Select
+                  value={formData.device_target}
+                  onValueChange={(value) => setFormData({ ...formData, device_target: value })}
+                >
+                  <SelectTrigger id="device_target">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="desktop">Desktop</SelectItem>
+                    <SelectItem value="mobile">Mobile</SelectItem>
+                    <SelectItem value="both">Both</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="audience_target">Viewer Audience *</Label>
+                <Select
+                  value={formData.audience_target}
+                  onValueChange={(value) => setFormData({ ...formData, audience_target: value })}
+                >
+                  <SelectTrigger id="audience_target">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="authenticated">Authenticated users</SelectItem>
+                    <SelectItem value="public">Public viewers</SelectItem>
+                    <SelectItem value="both">Both</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-slate-500">
+                  Uses the viewer's validated login session on portal and public pages.
+                </p>
               </div>
             </div>
 

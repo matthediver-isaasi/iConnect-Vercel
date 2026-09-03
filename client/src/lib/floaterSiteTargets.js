@@ -64,14 +64,49 @@ export function filterFloatersForPublicSite(floaters, activeMicrositeId = null) 
     .filter((floater) => isFloaterVisibleOnPublicSite(floater, activeMicrositeId));
 }
 
+export function normalizeFloaterDeviceTarget(value) {
+  return ['desktop', 'mobile', 'both'].includes(value) ? value : 'both';
+}
+
+export function normalizeFloaterAudienceTarget(value) {
+  return ['authenticated', 'public', 'both'].includes(value) ? value : 'both';
+}
+
+export function isFloaterEligibleForViewer(floater, {
+  isMobile = false,
+  authResolved = false,
+  sessionValidated = false,
+} = {}) {
+  // Do not classify a viewer as public while the validated session check is pending.
+  if (!authResolved) return false;
+
+  const deviceTarget = normalizeFloaterDeviceTarget(floater?.device_target);
+  if (deviceTarget !== 'both' && deviceTarget !== (isMobile ? 'mobile' : 'desktop')) {
+    return false;
+  }
+
+  const audienceTarget = normalizeFloaterAudienceTarget(floater?.audience_target);
+  const viewerAudience = sessionValidated ? 'authenticated' : 'public';
+  return audienceTarget === 'both' || audienceTarget === viewerAudience;
+}
+
 export function resolveDisplayedFloaters({
   floaters,
   location = 'portal',
   activeMicrositeId = null,
   publicSiteContextReady = true,
+  isMobile = false,
+  authResolved = false,
+  sessionValidated = false,
 }) {
   const rows = Array.isArray(floaters) ? floaters : [];
-  if (location !== 'public') return rows;
-  if (!publicSiteContextReady) return [];
-  return filterFloatersForPublicSite(rows, activeMicrositeId);
+  if (location === 'public' && !publicSiteContextReady) return [];
+  const siteEligibleRows = location === 'public'
+    ? filterFloatersForPublicSite(rows, activeMicrositeId)
+    : rows;
+  return siteEligibleRows.filter((floater) => isFloaterEligibleForViewer(floater, {
+    isMobile,
+    authResolved,
+    sessionValidated,
+  }));
 }

@@ -67,6 +67,18 @@
         "default": "both",
         "description": "Where this floater should appear"
       },
+      "device_target": {
+        "type": "string",
+        "enum": ["desktop", "mobile", "both"],
+        "default": "both",
+        "description": "Device class on which this floater should appear"
+      },
+      "audience_target": {
+        "type": "string",
+        "enum": ["authenticated", "public", "both"],
+        "default": "both",
+        "description": "Validated viewer audience for which this floater should appear"
+      },
        "site_targets": {
          "type": "object",
          "description": "Public-site targets: { main_site: boolean, microsite_ids: string[] }. Omit for legacy visibility on all public sites."

@@ -1725,7 +1725,13 @@ useEffect(() => {
   }, [memberInfo, setContextRefreshOrganizationInfo]);
 
   // Get layout context for dynamic pages that need to force public layout
-  const { forcePublicLayout, forceBlankLayout, chromeReady, authResolved } = useLayoutContext();
+  const {
+    forcePublicLayout,
+    forceBlankLayout,
+    chromeReady,
+    authResolved,
+    sessionValidated,
+  } = useLayoutContext();
 
   useEffect(() => {
     // Reset the per-session guard whenever the signed-in member changes so a new
@@ -1791,12 +1797,20 @@ useEffect(() => {
   };
 
   useEffect(() => {
+    let cancelled = false;
+    const authController = new AbortController();
+
     // Check server session first for multi-tab persistence
     const checkServerSession = async () => {
       try {
-        const response = await fetch('/api/auth/me', { credentials: 'include' });
+        const response = await fetch('/api/auth/me', {
+          credentials: 'include',
+          signal: authController.signal,
+        });
+        if (cancelled) return { valid: false, serverResponded: false, cancelled: true };
         if (response.ok) {
           const member = await response.json();
+          if (cancelled) return { valid: false, serverResponded: false, cancelled: true };
           // API returns member directly (not wrapped in data.member)
           if (member && member.id) {
             console.log('[Layout] Server session found:', member.email);
@@ -1831,6 +1845,7 @@ useEffect(() => {
         }
         return { valid: false, serverResponded: false }; // Other server errors (500, network issues)
       } catch (error) {
+        if (cancelled) return { valid: false, serverResponded: false, cancelled: true };
         console.log('[Layout] Server session check failed, falling back to sessionStorage');
         return { valid: false, serverResponded: false };
       }
@@ -1845,24 +1860,15 @@ useEffect(() => {
       // Get dynamic visibility for the current page
       const visibility = getPageVisibility(currentPageName);
       
-      // Handle truly public pages - no auth required
-      if (visibility === 'public') {
-        // SECURITY: Mark auth as resolved for public pages (no auth needed)
-        setAuthResolved(true);
-        return;
-      }
-
-      // For portal pages: reset auth resolution so the flash-prevention render gate
-      // re-fires on each navigation. Without this, authResolved stays true from a
-      // previous public/portal page and the gate is bypassed on subsequent navigations.
-      // Authenticated users are unaffected: the gate checks localStorage and skips
-      // hiding their content even while authResolved is momentarily false.
-      if (visibility !== 'hybrid') {
-        setAuthResolved(false);
-      }
+      // Every layout needs validated viewer state for audience-targeted content.
+      // Reset both flags before the request so stale authenticated state cannot
+      // briefly classify a guest as authenticated after logout/session expiry.
+      setAuthResolved(false);
+      setSessionValidated(false);
 
       // Try server session first (for password-based auth with cross-tab persistence)
       const sessionResult = await checkServerSession();
+      if (cancelled || sessionResult.cancelled) return;
       
       // If server explicitly said the session is invalid (e.g., member deleted/disabled)
       // and we have cached data in localStorage, we need to clear it and log out
@@ -1881,18 +1887,22 @@ useEffect(() => {
           setAuthResolved(true);
           
           // For portal pages, redirect to login with return path so user lands back here after login
-          if (visibility !== 'hybrid') {
+          if (visibility !== 'hybrid' && visibility !== 'public') {
             window.location.href = `/login?returnTo=${encodeURIComponent(location.pathname)}`;
           }
           return;
         }
         // No stored member but server says session invalid
         // For portal pages, redirect guests to login with return path
-        if (visibility !== 'hybrid') {
+        setMemberInfo(null);
+        setOrganizationInfo(null);
+        setSessionValidated(false);
+        if (visibility !== 'hybrid' && visibility !== 'public') {
           window.location.href = `/login?returnTo=${encodeURIComponent(location.pathname)}`;
           return;
         }
         setAuthResolved(true);
+        return;
       }
       
       if (sessionResult.valid) {
@@ -1901,16 +1911,18 @@ useEffect(() => {
         return; // Already authenticated via server session
       }
 
-      // Handle hybrid pages - check sessionStorage
-      if (visibility === 'hybrid') {
+      // Public and hybrid pages allow a confirmed guest to continue.
+      if (visibility === 'hybrid' || visibility === 'public') {
         const storedMember = localStorage.getItem('agcas_member');
         if (!storedMember) {
-          // No member logged in, treat as public
-          // SECURITY: Mark auth as resolved (confirmed guest)
+          setMemberInfo(null);
+          setOrganizationInfo(null);
+          setSessionValidated(false);
           setAuthResolved(true);
           return;
         }
-        // Member is logged in via sessionStorage, continue to validate
+        // Cached member data may keep non-sensitive UI usable during a server
+        // outage, but it never counts as a validated authenticated audience.
       }
 
       // Fall back to sessionStorage for backward compatibility (only if server didn't respond)
@@ -1921,12 +1933,33 @@ useEffect(() => {
           return;
         }
 
-        const member = JSON.parse(storedMember);
+        let member;
+        try {
+          member = JSON.parse(storedMember);
+        } catch {
+          localStorage.removeItem('agcas_member');
+          setMemberInfo(null);
+          setOrganizationInfo(null);
+          setSessionValidated(false);
+          if (visibility !== 'hybrid' && visibility !== 'public') {
+            window.location.href = `/login?returnTo=${encodeURIComponent(location.pathname)}`;
+            return;
+          }
+          setAuthResolved(true);
+          return;
+        }
 
         if (member.sessionExpiry && new Date(member.sessionExpiry) < new Date()) {
           localStorage.removeItem('agcas_member');
           clearInboxPopupSessionFlags();
-          window.location.href = `/login?returnTo=${encodeURIComponent(location.pathname)}`;
+          setMemberInfo(null);
+          setOrganizationInfo(null);
+          setSessionValidated(false);
+          if (visibility !== 'hybrid' && visibility !== 'public') {
+            window.location.href = `/login?returnTo=${encodeURIComponent(location.pathname)}`;
+            return;
+          }
+          setAuthResolved(true);
           return;
         }
 
@@ -1943,14 +1976,18 @@ useEffect(() => {
           setOrganizationInfo(null);
         }
         
-        // SECURITY: Mark auth as resolved even in fallback mode
-        // While we can't fully validate the session, auth check is complete
-        // This allows the UI to proceed (queries will use localStorage data)
+        // The server could not validate this cached session. Finish resolution
+        // without treating it as an authenticated floater audience.
+        setSessionValidated(false);
         setAuthResolved(true);
       }
     };
 
     handleAuth();
+    return () => {
+      cancelled = true;
+      authController.abort();
+    };
   }, [visibilitySettingsFetched, pageVisibilitySettings, location.pathname]); // Run on visibility settings load AND on every navigation
 
   // Update last_activity on navigation (throttled to once every 10 minutes)
@@ -3201,7 +3238,13 @@ useEffect(() => {
           
           {/* Floater Display for Portal Pages */}
           {!isFeatureExcluded('element_FloatersDisplay') && (
-            <FloaterDisplay location="portal" memberInfo={memberInfo} organizationInfo={organizationInfo} />
+            <FloaterDisplay
+              location="portal"
+              memberInfo={memberInfo}
+              organizationInfo={organizationInfo}
+              authResolved={authResolved}
+              sessionValidated={sessionValidated}
+            />
           )}
         </div>
       </SidebarProvider>

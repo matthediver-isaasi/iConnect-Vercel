@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import { supabase } from "@/api/supabaseClient";
 import { publicClient, getTenantSlugFromLocation } from "@/api/publicClient";
 import { resolveDisplayedFloaters } from "@/lib/floaterSiteTargets";
+import { useIsMobile } from "@/hooks/use-mobile";
 import {
   pruneFormNotListedText,
   setFormNotListedText,
@@ -19,7 +20,10 @@ export default function FloaterDisplay({
   organizationInfo,
   activeMicrositeId = null,
   publicSiteContextReady = true,
+  authResolved = false,
+  sessionValidated = false,
 }) {
+  const isMobile = useIsMobile();
   // Get tenant_id for filtering - from memberInfo if authenticated, otherwise resolve from tenant slug or host
   const [tenantId, setTenantId] = useState(memberInfo?.tenant_id || null);
   
@@ -165,7 +169,10 @@ export default function FloaterDisplay({
     location,
     activeMicrositeId,
     publicSiteContextReady,
-  }), [floaters, location, activeMicrositeId, publicSiteContextReady]);
+    isMobile,
+    authResolved,
+    sessionValidated,
+  }), [floaters, location, activeMicrositeId, publicSiteContextReady, isMobile, authResolved, sessionValidated]);
 
   // Fetch forms (was base44.entities.Form.list)
   // SECURITY: Filter by tenant_id for proper tenant isolation

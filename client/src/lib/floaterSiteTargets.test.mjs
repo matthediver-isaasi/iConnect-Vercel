@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   buildFloaterSiteTargets,
   filterFloatersForPublicSite,
+  isFloaterEligibleForViewer,
   isFloaterVisibleOnPublicSite,
   resolveDisplayedFloaters,
   selectedFloaterTargetIds,
@@ -77,10 +78,84 @@ test('public floaters wait for site resolution while portal floaters remain unch
     publicSiteContextReady: false,
   }), []);
 
-  assert.strictEqual(resolveDisplayedFloaters({
+  assert.deepEqual(resolveDisplayedFloaters({
     floaters: rows,
     location: 'portal',
     activeMicrositeId: MICROSITE_B,
     publicSiteContextReady: false,
+    authResolved: true,
+    sessionValidated: true,
   }), rows);
+});
+
+test('legacy targeting values remain visible to authenticated and public viewers on both devices', () => {
+  const legacyFloater = {};
+  for (const isMobile of [false, true]) {
+    assert.equal(isFloaterEligibleForViewer(legacyFloater, {
+      isMobile,
+      authResolved: true,
+      sessionValidated: false,
+    }), true);
+    assert.equal(isFloaterEligibleForViewer(legacyFloater, {
+      isMobile,
+      authResolved: true,
+      sessionValidated: true,
+    }), true);
+  }
+});
+
+test('device targeting follows the current responsive breakpoint classification', () => {
+  const desktop = { device_target: 'desktop' };
+  const mobile = { device_target: 'mobile' };
+  assert.equal(isFloaterEligibleForViewer(desktop, { authResolved: true, isMobile: false }), true);
+  assert.equal(isFloaterEligibleForViewer(desktop, { authResolved: true, isMobile: true }), false);
+  assert.equal(isFloaterEligibleForViewer(mobile, { authResolved: true, isMobile: false }), false);
+  assert.equal(isFloaterEligibleForViewer(mobile, { authResolved: true, isMobile: true }), true);
+});
+
+test('audience targeting uses validated auth and suppresses all floaters while auth is pending', () => {
+  const authenticated = { audience_target: 'authenticated' };
+  const publicViewer = { audience_target: 'public' };
+
+  assert.equal(isFloaterEligibleForViewer(authenticated, {
+    authResolved: false,
+    sessionValidated: true,
+  }), false);
+  assert.equal(isFloaterEligibleForViewer(publicViewer, {
+    authResolved: false,
+    sessionValidated: false,
+  }), false);
+  assert.equal(isFloaterEligibleForViewer(authenticated, {
+    authResolved: true,
+    sessionValidated: true,
+  }), true);
+  assert.equal(isFloaterEligibleForViewer(publicViewer, {
+    authResolved: true,
+    sessionValidated: true,
+  }), false);
+  assert.equal(isFloaterEligibleForViewer(publicViewer, {
+    authResolved: true,
+    sessionValidated: false,
+  }), true);
+});
+
+test('public and portal rendering apply the same viewer targeting after site filtering', () => {
+  const authenticated = {
+    id: 'authenticated',
+    audience_target: 'authenticated',
+    site_targets: { main_site: true, microsite_ids: [] },
+  };
+  const publicViewer = {
+    id: 'public',
+    audience_target: 'public',
+    site_targets: { main_site: true, microsite_ids: [] },
+  };
+  const options = { floaters: [authenticated, publicViewer], authResolved: true, sessionValidated: true };
+
+  assert.deepEqual(resolveDisplayedFloaters({ ...options, location: 'portal' }), [authenticated]);
+  assert.deepEqual(resolveDisplayedFloaters({
+    ...options,
+    location: 'public',
+    publicSiteContextReady: true,
+  }), [authenticated]);
 });
