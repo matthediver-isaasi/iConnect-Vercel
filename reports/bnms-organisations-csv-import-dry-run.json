@@ -1,11 +1,11 @@
 {
-  "generatedAt": "2026-09-03T15:18:30.817Z",
+  "generatedAt": "2026-09-03T17:37:10.984Z",
   "mode": "dry-run",
   "tenant": {
     "id": "ff2df806-b321-4254-b651-3af11fccf1db",
     "name": "BNMS"
   },
-  "sourceFile": "attached_assets/Organisations_to_import_02.09.26_v3_to_import_1788448225012.csv",
+  "sourceFile": "attached_assets/Organisations_to_import_03.09.26_1788456776714.csv",
   "sourceEncoding": "UTF-8",
   "exactHeaders": [
     "Organisation name",
@@ -14,10 +14,10 @@
     "Town / City",
     "BNMS Region"
   ],
-  "sourceRows": 45,
+  "sourceRows": 29,
   "distinctSourceValues": {
-    "type": 4,
-    "country": 22,
+    "type": 3,
+    "country": 11,
     "region": 7
   },
   "mapping": [
@@ -76,53 +76,17 @@
   "totals": {
     "organizationsCreated": 0,
     "organizationsUpdated": 0,
-    "organizationsUnchanged": 45,
+    "organizationsUnchanged": 29,
     "customCreated": 0,
     "customUpdated": 0,
-    "customUnchanged": 179,
-    "blankValuesSkipped": 1
+    "customUnchanged": 116,
+    "blankValuesSkipped": 0
   },
   "rows": [
     {
       "sourceRow": 2,
-      "name": "Aarhus University Hospital",
-      "organizationId": "8c12495a-d71f-4595-883c-3bfac03f2988",
-      "action": "unchanged",
-      "custom": [
-        {
-          "field": "organisation_type",
-          "liveFieldName": "organisation_type",
-          "current": "Public hospital or clinical site",
-          "desired": "Public hospital or clinical site",
-          "action": "unchanged"
-        },
-        {
-          "field": "country",
-          "liveFieldName": "org_country",
-          "current": "Denmark",
-          "desired": "Denmark",
-          "action": "unchanged"
-        },
-        {
-          "field": "town_city",
-          "liveFieldName": "org_town_city",
-          "current": "Aarhus",
-          "desired": "Aarhus",
-          "action": "unchanged"
-        },
-        {
-          "field": "region",
-          "liveFieldName": "region",
-          "current": "Overseas",
-          "desired": "Overseas",
-          "action": "unchanged"
-        }
-      ]
-    },
-    {
-      "sourceRow": 3,
-      "name": "ABX advanced biochemical compounds GmbH",
-      "organizationId": "9ba2df9e-f411-432e-9d74-7351b17542d2",
+      "name": "Berthold Technologies GmbH & Co. KG",
+      "organizationId": "f6426b5c-e6ec-4e8c-843a-9cd1f5ce48a1",
       "action": "unchanged",
       "custom": [
         {
@@ -142,8 +106,8 @@
         {
           "field": "town_city",
           "liveFieldName": "org_town_city",
-          "current": "Radeberg",
-          "desired": "Radeberg",
+          "current": "Bad Wildbad",
+          "desired": "Bad Wildbad",
           "action": "unchanged"
         },
         {
@@ -151,50 +115,86 @@
           "liveFieldName": "region",
           "current": "Overseas",
           "desired": "Overseas",
+          "action": "unchanged"
+        }
+      ]
+    },
+    {
+      "sourceRow": 3,
+      "name": "Bicycle Therapeutics",
+      "organizationId": "328f21ab-59a7-48db-969a-cb9e64159862",
+      "action": "unchanged",
+      "custom": [
+        {
+          "field": "organisation_type",
+          "liveFieldName": "organisation_type",
+          "current": "Commercial or industry organisation",
+          "desired": "Commercial or industry organisation",
+          "action": "unchanged"
+        },
+        {
+          "field": "country",
+          "liveFieldName": "org_country",
+          "current": "United Kingdom",
+          "desired": "United Kingdom",
+          "action": "unchanged"
+        },
+        {
+          "field": "town_city",
+          "liveFieldName": "org_town_city",
+          "current": "Cambridge",
+          "desired": "Cambridge",
+          "action": "unchanged"
+        },
+        {
+          "field": "region",
+          "liveFieldName": "region",
+          "current": "East of England",
+          "desired": "East of England",
           "action": "unchanged"
         }
       ]
     },
     {
       "sourceRow": 4,
-      "name": "Alfred Health",
-      "organizationId": "13677219-634a-4354-bad7-a17ebddce63b",
+      "name": "British Nuclear Medicine Society",
+      "organizationId": "efa4d302-9ceb-4085-9e38-8510c16d8206",
       "action": "unchanged",
       "custom": [
         {
           "field": "organisation_type",
           "liveFieldName": "organisation_type",
-          "current": "Commercial or industry organisation",
-          "desired": "Commercial or industry organisation",
+          "current": "Research or charitable organisation",
+          "desired": "Research or charitable organisation",
           "action": "unchanged"
         },
         {
           "field": "country",
           "liveFieldName": "org_country",
-          "current": "Australia",
-          "desired": "Australia",
+          "current": "United Kingdom",
+          "desired": "United Kingdom",
           "action": "unchanged"
         },
         {
           "field": "town_city",
           "liveFieldName": "org_town_city",
-          "current": "Melbourne",
-          "desired": "Melbourne",
+          "current": "Derby",
+          "desired": "Derby",
           "action": "unchanged"
         },
         {
           "field": "region",
           "liveFieldName": "region",
-          "current": "Overseas",
-          "desired": "Overseas",
+          "current": "East Midlands",
+          "desired": "East Midlands",
           "action": "unchanged"
         }
       ]
     },
     {
       "sourceRow": 5,
-      "name": "Alto Imaging",
-      "organizationId": "07978414-403b-41f4-a641-8fce8131ff2e",
+      "name": "Comecer S.p.A.",
+      "organizationId": "57d5d258-6bf7-4405-b72d-bb5b4be7de47",
       "action": "unchanged",
       "custom": [
         {
@@ -207,15 +207,15 @@
         {
           "field": "country",
           "liveFieldName": "org_country",
-          "current": "Australia",
-          "desired": "Australia",
+          "current": "Italy",
+          "desired": "Italy",
           "action": "unchanged"
         },
         {
           "field": "town_city",
           "liveFieldName": "org_town_city",
-          "current": "East Maitland",
-          "desired": "East Maitland",
+          "current": "Castel Bolognese",
+          "desired": "Castel Bolognese",
           "action": "unchanged"
         },
         {
@@ -229,29 +229,29 @@
     },
     {
       "sourceRow": 6,
-      "name": "Amsterdam University Medical Center (VUmc)",
-      "organizationId": "215be57d-42b2-4361-90eb-dc54626638e1",
+      "name": "European Association of Nuclear Medicine (EANM)",
+      "organizationId": "2f5ff3d2-b29f-4205-9249-e16d4458963a",
       "action": "unchanged",
       "custom": [
         {
           "field": "organisation_type",
           "liveFieldName": "organisation_type",
-          "current": "Public hospital or clinical site",
-          "desired": "Public hospital or clinical site",
+          "current": "Research or charitable organisation",
+          "desired": "Research or charitable organisation",
           "action": "unchanged"
         },
         {
           "field": "country",
           "liveFieldName": "org_country",
-          "current": "Netherlands",
-          "desired": "Netherlands",
+          "current": "Austria",
+          "desired": "Austria",
           "action": "unchanged"
         },
         {
           "field": "town_city",
           "liveFieldName": "org_town_city",
-          "current": "Amsterdam",
-          "desired": "Amsterdam",
+          "current": "Vienna",
+          "desired": "Vienna",
           "action": "unchanged"
         },
         {
@@ -265,29 +265,65 @@
     },
     {
       "sourceRow": 7,
-      "name": "APHP Tenon Hospital",
-      "organizationId": "e050cb0f-6e4d-4ff3-ad78-761f8f93d66e",
+      "name": "Extract Technology",
+      "organizationId": "261a9162-ce09-4004-9122-d8d2a0323b22",
       "action": "unchanged",
       "custom": [
         {
           "field": "organisation_type",
           "liveFieldName": "organisation_type",
-          "current": "Public hospital or clinical site",
-          "desired": "Public hospital or clinical site",
+          "current": "Commercial or industry organisation",
+          "desired": "Commercial or industry organisation",
           "action": "unchanged"
         },
         {
           "field": "country",
           "liveFieldName": "org_country",
-          "current": "France",
-          "desired": "France",
+          "current": "United Kingdom",
+          "desired": "United Kingdom",
           "action": "unchanged"
         },
         {
           "field": "town_city",
           "liveFieldName": "org_town_city",
-          "current": "Paris",
-          "desired": "Paris",
+          "current": "Huddersfield",
+          "desired": "Huddersfield",
+          "action": "unchanged"
+        },
+        {
+          "field": "region",
+          "liveFieldName": "region",
+          "current": "Yorkshire and the Humber",
+          "desired": "Yorkshire and the Humber",
+          "action": "unchanged"
+        }
+      ]
+    },
+    {
+      "sourceRow": 8,
+      "name": "German Cancer Research Center (DKFZ)",
+      "organizationId": "f44e39ce-90db-4852-b692-17126759becd",
+      "action": "unchanged",
+      "custom": [
+        {
+          "field": "organisation_type",
+          "liveFieldName": "organisation_type",
+          "current": "Research or charitable organisation",
+          "desired": "Research or charitable organisation",
+          "action": "unchanged"
+        },
+        {
+          "field": "country",
+          "liveFieldName": "org_country",
+          "current": "Germany",
+          "desired": "Germany",
+          "action": "unchanged"
+        },
+        {
+          "field": "town_city",
+          "liveFieldName": "org_town_city",
+          "current": "Heidelberg",
+          "desired": "Heidelberg",
           "action": "unchanged"
         },
         {
@@ -300,52 +336,16 @@
       ]
     },
     {
-      "sourceRow": 8,
-      "name": "Aquila Nuclear Engineering Ltd",
-      "organizationId": "27e16a5e-d280-4a58-8d4f-1073e628bf19",
-      "action": "unchanged",
-      "custom": [
-        {
-          "field": "organisation_type",
-          "liveFieldName": "organisation_type",
-          "current": "Commercial or industry organisation",
-          "desired": "Commercial or industry organisation",
-          "action": "unchanged"
-        },
-        {
-          "field": "country",
-          "liveFieldName": "org_country",
-          "current": "United Kingdom",
-          "desired": "United Kingdom",
-          "action": "unchanged"
-        },
-        {
-          "field": "town_city",
-          "liveFieldName": "org_town_city",
-          "current": "Twyford",
-          "desired": "Twyford",
-          "action": "unchanged"
-        },
-        {
-          "field": "region",
-          "liveFieldName": "region",
-          "current": "South East & Wessex",
-          "desired": "South East & Wessex",
-          "action": "unchanged"
-        }
-      ]
-    },
-    {
       "sourceRow": 9,
-      "name": "Atlas Diagnostics Ltd",
-      "organizationId": "b2b5873e-76a7-43f9-8b7c-f579c5898d40",
+      "name": "Institute of Physics and Engineering in Medicine (IPEM)",
+      "organizationId": "5a74f826-f8cf-4c50-b3cb-ba0309e9a24a",
       "action": "unchanged",
       "custom": [
         {
           "field": "organisation_type",
           "liveFieldName": "organisation_type",
-          "current": "Commercial or industry organisation",
-          "desired": "Commercial or industry organisation",
+          "current": "Research or charitable organisation",
+          "desired": "Research or charitable organisation",
           "action": "unchanged"
         },
         {
@@ -358,23 +358,23 @@
         {
           "field": "town_city",
           "liveFieldName": "org_town_city",
-          "current": "",
-          "desired": "",
-          "action": "blank"
+          "current": "York",
+          "desired": "York",
+          "action": "unchanged"
         },
         {
           "field": "region",
           "liveFieldName": "region",
-          "current": "North West",
-          "desired": "North West",
+          "current": "Yorkshire and the Humber",
+          "desired": "Yorkshire and the Humber",
           "action": "unchanged"
         }
       ]
     },
     {
       "sourceRow": 10,
-      "name": "Bank of Cyprus Oncology Centre",
-      "organizationId": "5d23f389-8f12-4603-a532-4271f244862a",
+      "name": "INVIA Medical Imaging Solutions",
+      "organizationId": "00608218-8a05-4e71-972a-73695f967632",
       "action": "unchanged",
       "custom": [
         {
@@ -387,15 +387,15 @@
         {
           "field": "country",
           "liveFieldName": "org_country",
-          "current": "Cyprus",
-          "desired": "Cyprus",
+          "current": "United States",
+          "desired": "United States",
           "action": "unchanged"
         },
         {
           "field": "town_city",
           "liveFieldName": "org_town_city",
-          "current": "Nicosia",
-          "desired": "Nicosia",
+          "current": "Ann Arbor",
+          "desired": "Ann Arbor",
           "action": "unchanged"
         },
         {
@@ -409,8 +409,8 @@
     },
     {
       "sourceRow": 11,
-      "name": "Bayer",
-      "organizationId": "2c62cc41-26ed-4b4d-b7d6-c87080d26957",
+      "name": "Lemer Pax",
+      "organizationId": "cd0ba430-1160-4e4f-b2cc-7aaa3bb20d99",
       "action": "unchanged",
       "custom": [
         {
@@ -423,102 +423,30 @@
         {
           "field": "country",
           "liveFieldName": "org_country",
-          "current": "United Kingdom",
-          "desired": "United Kingdom",
+          "current": "France",
+          "desired": "France",
           "action": "unchanged"
         },
         {
           "field": "town_city",
           "liveFieldName": "org_town_city",
-          "current": "Reading",
-          "desired": "Reading",
+          "current": "Carquefou",
+          "desired": "Carquefou",
           "action": "unchanged"
         },
         {
           "field": "region",
           "liveFieldName": "region",
-          "current": "Oxfordshire, Berkshire & Buckinghamshire",
-          "desired": "Oxfordshire, Berkshire & Buckinghamshire",
+          "current": "Overseas",
+          "desired": "Overseas",
           "action": "unchanged"
         }
       ]
     },
     {
       "sourceRow": 12,
-      "name": "Beaumont Hospital",
-      "organizationId": "32463818-22bc-45d4-9cf9-22a99b0bf0af",
-      "action": "unchanged",
-      "custom": [
-        {
-          "field": "organisation_type",
-          "liveFieldName": "organisation_type",
-          "current": "Public hospital or clinical site",
-          "desired": "Public hospital or clinical site",
-          "action": "unchanged"
-        },
-        {
-          "field": "country",
-          "liveFieldName": "org_country",
-          "current": "Ireland",
-          "desired": "Ireland",
-          "action": "unchanged"
-        },
-        {
-          "field": "town_city",
-          "liveFieldName": "org_town_city",
-          "current": "Dublin",
-          "desired": "Dublin",
-          "action": "unchanged"
-        },
-        {
-          "field": "region",
-          "liveFieldName": "region",
-          "current": "Overseas",
-          "desired": "Overseas",
-          "action": "unchanged"
-        }
-      ]
-    },
-    {
-      "sourceRow": 13,
-      "name": "Best Cyclotron Systems / Best Theratronics Ltd",
-      "organizationId": "00915d30-66e9-48f9-a0b2-0282a424595e",
-      "action": "unchanged",
-      "custom": [
-        {
-          "field": "organisation_type",
-          "liveFieldName": "organisation_type",
-          "current": "Commercial or industry organisation",
-          "desired": "Commercial or industry organisation",
-          "action": "unchanged"
-        },
-        {
-          "field": "country",
-          "liveFieldName": "org_country",
-          "current": "Canada",
-          "desired": "Canada",
-          "action": "unchanged"
-        },
-        {
-          "field": "town_city",
-          "liveFieldName": "org_town_city",
-          "current": "Ottawa",
-          "desired": "Ottawa",
-          "action": "unchanged"
-        },
-        {
-          "field": "region",
-          "liveFieldName": "region",
-          "current": "Overseas",
-          "desired": "Overseas",
-          "action": "unchanged"
-        }
-      ]
-    },
-    {
-      "sourceRow": 14,
-      "name": "Bracco UK",
-      "organizationId": "73b4307f-d129-48b9-88f3-89fb07318cc7",
+      "name": "Mirada Medical Ltd",
+      "organizationId": "64da1678-d20e-4e06-b665-004fd0461f69",
       "action": "unchanged",
       "custom": [
         {
@@ -552,9 +480,9 @@
       ]
     },
     {
-      "sourceRow": 15,
-      "name": "Childrens Health Ireland at Temple Street",
-      "organizationId": "eedaf624-5538-49d7-9620-e80a8239e967",
+      "sourceRow": 13,
+      "name": "Mirion Medical",
+      "organizationId": "f2549114-11a6-48fa-b12d-62866c35e94c",
       "action": "unchanged",
       "custom": [
         {
@@ -567,15 +495,87 @@
         {
           "field": "country",
           "liveFieldName": "org_country",
-          "current": "Ireland",
-          "desired": "Ireland",
+          "current": "United Kingdom",
+          "desired": "United Kingdom",
           "action": "unchanged"
         },
         {
           "field": "town_city",
           "liveFieldName": "org_town_city",
-          "current": "Dublin",
-          "desired": "Dublin",
+          "current": "Farnborough",
+          "desired": "Farnborough",
+          "action": "unchanged"
+        },
+        {
+          "field": "region",
+          "liveFieldName": "region",
+          "current": "South East & Wessex",
+          "desired": "South East & Wessex",
+          "action": "unchanged"
+        }
+      ]
+    },
+    {
+      "sourceRow": 14,
+      "name": "OncoBeta GmbH",
+      "organizationId": "b7af8e56-8fd7-40b2-b85a-00ea511e01a0",
+      "action": "unchanged",
+      "custom": [
+        {
+          "field": "organisation_type",
+          "liveFieldName": "organisation_type",
+          "current": "Commercial or industry organisation",
+          "desired": "Commercial or industry organisation",
+          "action": "unchanged"
+        },
+        {
+          "field": "country",
+          "liveFieldName": "org_country",
+          "current": "Germany",
+          "desired": "Germany",
+          "action": "unchanged"
+        },
+        {
+          "field": "town_city",
+          "liveFieldName": "org_town_city",
+          "current": "Garching",
+          "desired": "Garching",
+          "action": "unchanged"
+        },
+        {
+          "field": "region",
+          "liveFieldName": "region",
+          "current": "Overseas",
+          "desired": "Overseas",
+          "action": "unchanged"
+        }
+      ]
+    },
+    {
+      "sourceRow": 15,
+      "name": "OncoSil Medical Ltd",
+      "organizationId": "fa9e005f-b591-4f68-a9f9-9378c364f35a",
+      "action": "unchanged",
+      "custom": [
+        {
+          "field": "organisation_type",
+          "liveFieldName": "organisation_type",
+          "current": "Commercial or industry organisation",
+          "desired": "Commercial or industry organisation",
+          "action": "unchanged"
+        },
+        {
+          "field": "country",
+          "liveFieldName": "org_country",
+          "current": "Australia",
+          "desired": "Australia",
+          "action": "unchanged"
+        },
+        {
+          "field": "town_city",
+          "liveFieldName": "org_town_city",
+          "current": "Macquarie Park",
+          "desired": "Macquarie Park",
           "action": "unchanged"
         },
         {
@@ -589,44 +589,8 @@
     },
     {
       "sourceRow": 16,
-      "name": "Clinic for Radiology and Nuclear Medicine",
-      "organizationId": "7c04bf0c-5b02-49a0-a53b-ee2ab46e8235",
-      "action": "unchanged",
-      "custom": [
-        {
-          "field": "organisation_type",
-          "liveFieldName": "organisation_type",
-          "current": "Public hospital or clinical site",
-          "desired": "Public hospital or clinical site",
-          "action": "unchanged"
-        },
-        {
-          "field": "country",
-          "liveFieldName": "org_country",
-          "current": "Bosnia and Herzegovina",
-          "desired": "Bosnia and Herzegovina",
-          "action": "unchanged"
-        },
-        {
-          "field": "town_city",
-          "liveFieldName": "org_town_city",
-          "current": "Tuzla",
-          "desired": "Tuzla",
-          "action": "unchanged"
-        },
-        {
-          "field": "region",
-          "liveFieldName": "region",
-          "current": "Overseas",
-          "desired": "Overseas",
-          "action": "unchanged"
-        }
-      ]
-    },
-    {
-      "sourceRow": 17,
-      "name": "Cyclife Aquila Nuclear",
-      "organizationId": "e655cea0-8d0c-493f-b21e-65bed4e70694",
+      "name": "Phoenix Dosimetry Limited",
+      "organizationId": "7ea194f7-048c-4057-87d4-3f0dc9a78170",
       "action": "unchanged",
       "custom": [
         {
@@ -646,8 +610,80 @@
         {
           "field": "town_city",
           "liveFieldName": "org_town_city",
-          "current": "Winchester",
-          "desired": "Winchester",
+          "current": "Sandhurst",
+          "desired": "Sandhurst",
+          "action": "unchanged"
+        },
+        {
+          "field": "region",
+          "liveFieldName": "region",
+          "current": "Oxfordshire, Berkshire & Buckinghamshire",
+          "desired": "Oxfordshire, Berkshire & Buckinghamshire",
+          "action": "unchanged"
+        }
+      ]
+    },
+    {
+      "sourceRow": 17,
+      "name": "Royston Lead Limited",
+      "organizationId": "20ff526e-62d1-4133-99ba-6ac37ddcb87c",
+      "action": "unchanged",
+      "custom": [
+        {
+          "field": "organisation_type",
+          "liveFieldName": "organisation_type",
+          "current": "Commercial or industry organisation",
+          "desired": "Commercial or industry organisation",
+          "action": "unchanged"
+        },
+        {
+          "field": "country",
+          "liveFieldName": "org_country",
+          "current": "United Kingdom",
+          "desired": "United Kingdom",
+          "action": "unchanged"
+        },
+        {
+          "field": "town_city",
+          "liveFieldName": "org_town_city",
+          "current": "Barnsley",
+          "desired": "Barnsley",
+          "action": "unchanged"
+        },
+        {
+          "field": "region",
+          "liveFieldName": "region",
+          "current": "Yorkshire and the Humber",
+          "desired": "Yorkshire and the Humber",
+          "action": "unchanged"
+        }
+      ]
+    },
+    {
+      "sourceRow": 18,
+      "name": "Scitech Engineering Ltd",
+      "organizationId": "7aaf26ca-9a53-46a1-9102-224159c878e1",
+      "action": "unchanged",
+      "custom": [
+        {
+          "field": "organisation_type",
+          "liveFieldName": "organisation_type",
+          "current": "Commercial or industry organisation",
+          "desired": "Commercial or industry organisation",
+          "action": "unchanged"
+        },
+        {
+          "field": "country",
+          "liveFieldName": "org_country",
+          "current": "United Kingdom",
+          "desired": "United Kingdom",
+          "action": "unchanged"
+        },
+        {
+          "field": "town_city",
+          "liveFieldName": "org_town_city",
+          "current": "Godalming",
+          "desired": "Godalming",
           "action": "unchanged"
         },
         {
@@ -660,9 +696,9 @@
       ]
     },
     {
-      "sourceRow": 18,
-      "name": "Diagnostic Healthcare",
-      "organizationId": "5050450a-71c0-4092-93ff-15f01eb7e656",
+      "sourceRow": 19,
+      "name": "Serac Healthcare Limited",
+      "organizationId": "9f186fb6-01f1-4092-b57c-6d630e557a17",
       "action": "unchanged",
       "custom": [
         {
@@ -682,80 +718,44 @@
         {
           "field": "town_city",
           "liveFieldName": "org_town_city",
-          "current": "Manchester",
-          "desired": "Manchester",
+          "current": "London",
+          "desired": "London",
           "action": "unchanged"
         },
         {
           "field": "region",
           "liveFieldName": "region",
-          "current": "North West",
-          "desired": "North West",
-          "action": "unchanged"
-        }
-      ]
-    },
-    {
-      "sourceRow": 19,
-      "name": "Faculty of Medicine, Khon Kaen University",
-      "organizationId": "338c10b0-758e-4319-82ee-f51a07f8bb27",
-      "action": "unchanged",
-      "custom": [
-        {
-          "field": "organisation_type",
-          "liveFieldName": "organisation_type",
-          "current": "University",
-          "desired": "University",
-          "action": "unchanged"
-        },
-        {
-          "field": "country",
-          "liveFieldName": "org_country",
-          "current": "Thailand",
-          "desired": "Thailand",
-          "action": "unchanged"
-        },
-        {
-          "field": "town_city",
-          "liveFieldName": "org_town_city",
-          "current": "Khon Kaen",
-          "desired": "Khon Kaen",
-          "action": "unchanged"
-        },
-        {
-          "field": "region",
-          "liveFieldName": "region",
-          "current": "Overseas",
-          "desired": "Overseas",
+          "current": "North Thames",
+          "desired": "North Thames",
           "action": "unchanged"
         }
       ]
     },
     {
       "sourceRow": 20,
-      "name": "Haukeland University Hospital",
-      "organizationId": "c9abc338-6db2-4320-8b86-bebca1c1e230",
+      "name": "Sirtex Medical",
+      "organizationId": "816826f8-c41b-4837-b87f-5223cb0224c4",
       "action": "unchanged",
       "custom": [
         {
           "field": "organisation_type",
           "liveFieldName": "organisation_type",
-          "current": "Public hospital or clinical site",
-          "desired": "Public hospital or clinical site",
+          "current": "Commercial or industry organisation",
+          "desired": "Commercial or industry organisation",
           "action": "unchanged"
         },
         {
           "field": "country",
           "liveFieldName": "org_country",
-          "current": "Norway",
-          "desired": "Norway",
+          "current": "Germany",
+          "desired": "Germany",
           "action": "unchanged"
         },
         {
           "field": "town_city",
           "liveFieldName": "org_town_city",
-          "current": "Bergen",
-          "desired": "Bergen",
+          "current": "Bonn",
+          "desired": "Bonn",
           "action": "unchanged"
         },
         {
@@ -769,65 +769,65 @@
     },
     {
       "sourceRow": 21,
-      "name": "Hermes Medical Solutions",
-      "organizationId": "5d7ba0b7-058f-4db7-a0a1-a9b12947bcbd",
+      "name": "Society of Nuclear Medicine and Molecular Imaging (SNMMI)",
+      "organizationId": "aa715e2c-ef0a-4083-9f47-ec32bfdd269e",
       "action": "unchanged",
       "custom": [
         {
           "field": "organisation_type",
           "liveFieldName": "organisation_type",
-          "current": "Commercial or industry organisation",
-          "desired": "Commercial or industry organisation",
+          "current": "Research or charitable organisation",
+          "desired": "Research or charitable organisation",
           "action": "unchanged"
         },
         {
           "field": "country",
           "liveFieldName": "org_country",
-          "current": "United Kingdom",
-          "desired": "United Kingdom",
+          "current": "United States",
+          "desired": "United States",
           "action": "unchanged"
         },
         {
           "field": "town_city",
           "liveFieldName": "org_town_city",
-          "current": "London",
-          "desired": "London",
+          "current": "Reston",
+          "desired": "Reston",
           "action": "unchanged"
         },
         {
           "field": "region",
           "liveFieldName": "region",
-          "current": "North Thames",
-          "desired": "North Thames",
+          "current": "Overseas",
+          "desired": "Overseas",
           "action": "unchanged"
         }
       ]
     },
     {
       "sourceRow": 22,
-      "name": "Hospital da Luz - Lisboa",
-      "organizationId": "3433824b-7556-49bd-af2a-cfed2020d591",
+      "name": "Society of Nuclear Medicine India",
+      "organizationId": "c07a7eb5-0f80-47c4-807e-3aa919aba422",
       "action": "unchanged",
       "custom": [
         {
           "field": "organisation_type",
           "liveFieldName": "organisation_type",
-          "current": "Public hospital or clinical site",
-          "desired": "Public hospital or clinical site",
+          "current": "Research or charitable organisation",
+          "desired": "Research or charitable organisation",
           "action": "unchanged"
         },
         {
           "field": "country",
           "liveFieldName": "org_country",
-          "current": "Portugal",
-          "desired": "Portugal",
+          "current": "India",
+          "desired": "India",
           "action": "unchanged"
         },
         {
           "field": "town_city",
           "liveFieldName": "org_town_city",
-          "current": "Lisbon",
-          "desired": "Lisbon",
+          "current": "Mumbai",
+          "desired": "Mumbai",
           "action": "unchanged"
         },
         {
@@ -841,152 +841,44 @@
     },
     {
       "sourceRow": 23,
-      "name": "Humanitas University",
-      "organizationId": "8a2caacc-27b4-429f-8025-4042701b4d5e",
+      "name": "Southern Scientific Limited",
+      "organizationId": "a012fbbf-0ad9-4011-ac94-b3b835695a5c",
       "action": "unchanged",
       "custom": [
         {
           "field": "organisation_type",
           "liveFieldName": "organisation_type",
-          "current": "University",
-          "desired": "University",
+          "current": "Commercial or industry organisation",
+          "desired": "Commercial or industry organisation",
           "action": "unchanged"
         },
         {
           "field": "country",
           "liveFieldName": "org_country",
-          "current": "Italy",
-          "desired": "Italy",
+          "current": "United Kingdom",
+          "desired": "United Kingdom",
           "action": "unchanged"
         },
         {
           "field": "town_city",
           "liveFieldName": "org_town_city",
-          "current": "Pieve Emanuele",
-          "desired": "Pieve Emanuele",
+          "current": "Henfield",
+          "desired": "Henfield",
           "action": "unchanged"
         },
         {
           "field": "region",
           "liveFieldName": "region",
-          "current": "Overseas",
-          "desired": "Overseas",
+          "current": "South East & Wessex",
+          "desired": "South East & Wessex",
           "action": "unchanged"
         }
       ]
     },
     {
       "sourceRow": 24,
-      "name": "IAEA",
-      "organizationId": "941b2cc5-7e56-4687-981b-1da57b159bf2",
-      "action": "unchanged",
-      "custom": [
-        {
-          "field": "organisation_type",
-          "liveFieldName": "organisation_type",
-          "current": "Research or charitable organisation",
-          "desired": "Research or charitable organisation",
-          "action": "unchanged"
-        },
-        {
-          "field": "country",
-          "liveFieldName": "org_country",
-          "current": "Austria",
-          "desired": "Austria",
-          "action": "unchanged"
-        },
-        {
-          "field": "town_city",
-          "liveFieldName": "org_town_city",
-          "current": "Vienna",
-          "desired": "Vienna",
-          "action": "unchanged"
-        },
-        {
-          "field": "region",
-          "liveFieldName": "region",
-          "current": "Overseas",
-          "desired": "Overseas",
-          "action": "unchanged"
-        }
-      ]
-    },
-    {
-      "sourceRow": 25,
-      "name": "Institut Jantung Negara",
-      "organizationId": "96f5b5b8-c924-47a8-9128-f0ed8dc19c45",
-      "action": "unchanged",
-      "custom": [
-        {
-          "field": "organisation_type",
-          "liveFieldName": "organisation_type",
-          "current": "Commercial or industry organisation",
-          "desired": "Commercial or industry organisation",
-          "action": "unchanged"
-        },
-        {
-          "field": "country",
-          "liveFieldName": "org_country",
-          "current": "Malaysia",
-          "desired": "Malaysia",
-          "action": "unchanged"
-        },
-        {
-          "field": "town_city",
-          "liveFieldName": "org_town_city",
-          "current": "Kuala Lumpur",
-          "desired": "Kuala Lumpur",
-          "action": "unchanged"
-        },
-        {
-          "field": "region",
-          "liveFieldName": "region",
-          "current": "Overseas",
-          "desired": "Overseas",
-          "action": "unchanged"
-        }
-      ]
-    },
-    {
-      "sourceRow": 26,
-      "name": "Instituto Mexicano del Seguro Social",
-      "organizationId": "13f62f79-ff91-472b-8072-46617d8a74e3",
-      "action": "unchanged",
-      "custom": [
-        {
-          "field": "organisation_type",
-          "liveFieldName": "organisation_type",
-          "current": "Commercial or industry organisation",
-          "desired": "Commercial or industry organisation",
-          "action": "unchanged"
-        },
-        {
-          "field": "country",
-          "liveFieldName": "org_country",
-          "current": "Mexico",
-          "desired": "Mexico",
-          "action": "unchanged"
-        },
-        {
-          "field": "town_city",
-          "liveFieldName": "org_town_city",
-          "current": "Monterrey",
-          "desired": "Monterrey",
-          "action": "unchanged"
-        },
-        {
-          "field": "region",
-          "liveFieldName": "region",
-          "current": "Overseas",
-          "desired": "Overseas",
-          "action": "unchanged"
-        }
-      ]
-    },
-    {
-      "sourceRow": 27,
-      "name": "Invicro",
-      "organizationId": "b74ef17c-425e-4ffa-ae2f-804f0ca355fd",
+      "name": "Spectrum Dynamics Medical UK Limited",
+      "organizationId": "d57c7ad1-0fa9-4b4b-9e63-0291e8952a95",
       "action": "unchanged",
       "custom": [
         {
@@ -1020,52 +912,16 @@
       ]
     },
     {
-      "sourceRow": 28,
-      "name": "King Hussein Cancer Center",
-      "organizationId": "40d2afc2-f75b-435d-aea8-b0ee5e399949",
+      "sourceRow": 25,
+      "name": "The Royal College of Radiologists",
+      "organizationId": "a2f5b506-0bb9-4eda-afc5-028cf64af2a1",
       "action": "unchanged",
       "custom": [
         {
           "field": "organisation_type",
           "liveFieldName": "organisation_type",
-          "current": "Public hospital or clinical site",
-          "desired": "Public hospital or clinical site",
-          "action": "unchanged"
-        },
-        {
-          "field": "country",
-          "liveFieldName": "org_country",
-          "current": "Jordan",
-          "desired": "Jordan",
-          "action": "unchanged"
-        },
-        {
-          "field": "town_city",
-          "liveFieldName": "org_town_city",
-          "current": "Amman",
-          "desired": "Amman",
-          "action": "unchanged"
-        },
-        {
-          "field": "region",
-          "liveFieldName": "region",
-          "current": "Overseas",
-          "desired": "Overseas",
-          "action": "unchanged"
-        }
-      ]
-    },
-    {
-      "sourceRow": 29,
-      "name": "LabLogic Systems, Ltd.",
-      "organizationId": "4ffe4070-210a-4ebc-b614-bdea6b36ec61",
-      "action": "unchanged",
-      "custom": [
-        {
-          "field": "organisation_type",
-          "liveFieldName": "organisation_type",
-          "current": "Commercial or industry organisation",
-          "desired": "Commercial or industry organisation",
+          "current": "Research or charitable organisation",
+          "desired": "Research or charitable organisation",
           "action": "unchanged"
         },
         {
@@ -1078,152 +934,8 @@
         {
           "field": "town_city",
           "liveFieldName": "org_town_city",
-          "current": "Sheffield",
-          "desired": "Sheffield",
-          "action": "unchanged"
-        },
-        {
-          "field": "region",
-          "liveFieldName": "region",
-          "current": "Yorkshire and the Humber",
-          "desired": "Yorkshire and the Humber",
-          "action": "unchanged"
-        }
-      ]
-    },
-    {
-      "sourceRow": 30,
-      "name": "Landspitali",
-      "organizationId": "36818bdc-234c-4418-a361-fd3766fb6f83",
-      "action": "unchanged",
-      "custom": [
-        {
-          "field": "organisation_type",
-          "liveFieldName": "organisation_type",
-          "current": "Commercial or industry organisation",
-          "desired": "Commercial or industry organisation",
-          "action": "unchanged"
-        },
-        {
-          "field": "country",
-          "liveFieldName": "org_country",
-          "current": "Iceland",
-          "desired": "Iceland",
-          "action": "unchanged"
-        },
-        {
-          "field": "town_city",
-          "liveFieldName": "org_town_city",
-          "current": "Reykjavik",
-          "desired": "Reykjavik",
-          "action": "unchanged"
-        },
-        {
-          "field": "region",
-          "liveFieldName": "region",
-          "current": "Overseas",
-          "desired": "Overseas",
-          "action": "unchanged"
-        }
-      ]
-    },
-    {
-      "sourceRow": 31,
-      "name": "Leiden University Medical Center",
-      "organizationId": "6d03a907-faea-4728-ace2-dbffd51f61d0",
-      "action": "unchanged",
-      "custom": [
-        {
-          "field": "organisation_type",
-          "liveFieldName": "organisation_type",
-          "current": "Public hospital or clinical site",
-          "desired": "Public hospital or clinical site",
-          "action": "unchanged"
-        },
-        {
-          "field": "country",
-          "liveFieldName": "org_country",
-          "current": "Netherlands",
-          "desired": "Netherlands",
-          "action": "unchanged"
-        },
-        {
-          "field": "town_city",
-          "liveFieldName": "org_town_city",
-          "current": "Leiden",
-          "desired": "Leiden",
-          "action": "unchanged"
-        },
-        {
-          "field": "region",
-          "liveFieldName": "region",
-          "current": "Overseas",
-          "desired": "Overseas",
-          "action": "unchanged"
-        }
-      ]
-    },
-    {
-      "sourceRow": 32,
-      "name": "Life Molecular Imaging Ltd.",
-      "organizationId": "8e53b3aa-535c-4091-a835-ff80b0402afc",
-      "action": "unchanged",
-      "custom": [
-        {
-          "field": "organisation_type",
-          "liveFieldName": "organisation_type",
-          "current": "Commercial or industry organisation",
-          "desired": "Commercial or industry organisation",
-          "action": "unchanged"
-        },
-        {
-          "field": "country",
-          "liveFieldName": "org_country",
-          "current": "United Kingdom",
-          "desired": "United Kingdom",
-          "action": "unchanged"
-        },
-        {
-          "field": "town_city",
-          "liveFieldName": "org_town_city",
-          "current": "Guildford",
-          "desired": "Guildford",
-          "action": "unchanged"
-        },
-        {
-          "field": "region",
-          "liveFieldName": "region",
-          "current": "South East & Wessex",
-          "desired": "South East & Wessex",
-          "action": "unchanged"
-        }
-      ]
-    },
-    {
-      "sourceRow": 33,
-      "name": "Ludlum Systems",
-      "organizationId": "865a4284-1ecf-4095-a193-10555dc3d96a",
-      "action": "unchanged",
-      "custom": [
-        {
-          "field": "organisation_type",
-          "liveFieldName": "organisation_type",
-          "current": "Commercial or industry organisation",
-          "desired": "Commercial or industry organisation",
-          "action": "unchanged"
-        },
-        {
-          "field": "country",
-          "liveFieldName": "org_country",
-          "current": "United Kingdom",
-          "desired": "United Kingdom",
-          "action": "unchanged"
-        },
-        {
-          "field": "town_city",
-          "liveFieldName": "org_town_city",
-          "current": "Uxbridge",
-          "desired": "Uxbridge",
+          "current": "London",
+          "desired": "London",
           "action": "unchanged"
         },
         {
@@ -1236,81 +948,9 @@
       ]
     },
     {
-      "sourceRow": 34,
-      "name": "Mater Dei Hospital",
-      "organizationId": "5c17174a-33a2-46e4-83e3-1e70ced559d9",
-      "action": "unchanged",
-      "custom": [
-        {
-          "field": "organisation_type",
-          "liveFieldName": "organisation_type",
-          "current": "Public hospital or clinical site",
-          "desired": "Public hospital or clinical site",
-          "action": "unchanged"
-        },
-        {
-          "field": "country",
-          "liveFieldName": "org_country",
-          "current": "Malta",
-          "desired": "Malta",
-          "action": "unchanged"
-        },
-        {
-          "field": "town_city",
-          "liveFieldName": "org_town_city",
-          "current": "Msida",
-          "desired": "Msida",
-          "action": "unchanged"
-        },
-        {
-          "field": "region",
-          "liveFieldName": "region",
-          "current": "Overseas",
-          "desired": "Overseas",
-          "action": "unchanged"
-        }
-      ]
-    },
-    {
-      "sourceRow": 35,
-      "name": "Medical University of Vienna",
-      "organizationId": "6ef51a5d-f46b-4b80-bf9d-78bd9cdf16b4",
-      "action": "unchanged",
-      "custom": [
-        {
-          "field": "organisation_type",
-          "liveFieldName": "organisation_type",
-          "current": "University",
-          "desired": "University",
-          "action": "unchanged"
-        },
-        {
-          "field": "country",
-          "liveFieldName": "org_country",
-          "current": "Austria",
-          "desired": "Austria",
-          "action": "unchanged"
-        },
-        {
-          "field": "town_city",
-          "liveFieldName": "org_town_city",
-          "current": "Vienna",
-          "desired": "Vienna",
-          "action": "unchanged"
-        },
-        {
-          "field": "region",
-          "liveFieldName": "region",
-          "current": "Overseas",
-          "desired": "Overseas",
-          "action": "unchanged"
-        }
-      ]
-    },
-    {
-      "sourceRow": 36,
-      "name": "Medicines Discovery Catapult",
-      "organizationId": "0a6753dd-d662-4d7a-a08d-a3e4402bae8d",
+      "sourceRow": 26,
+      "name": "TheraMed Nuclear",
+      "organizationId": "fc2cbd05-bdfc-4408-b661-6dad7ec8e182",
       "action": "unchanged",
       "custom": [
         {
@@ -1323,6 +963,78 @@
         {
           "field": "country",
           "liveFieldName": "org_country",
+          "current": "South Africa",
+          "desired": "South Africa",
+          "action": "unchanged"
+        },
+        {
+          "field": "town_city",
+          "liveFieldName": "org_town_city",
+          "current": "Pretoria",
+          "desired": "Pretoria",
+          "action": "unchanged"
+        },
+        {
+          "field": "region",
+          "liveFieldName": "region",
+          "current": "Overseas",
+          "desired": "Overseas",
+          "action": "unchanged"
+        }
+      ]
+    },
+    {
+      "sourceRow": 27,
+      "name": "Trasis",
+      "organizationId": "c3063eec-b7f3-4efe-a01a-584b0db71fdd",
+      "action": "unchanged",
+      "custom": [
+        {
+          "field": "organisation_type",
+          "liveFieldName": "organisation_type",
+          "current": "Commercial or industry organisation",
+          "desired": "Commercial or industry organisation",
+          "action": "unchanged"
+        },
+        {
+          "field": "country",
+          "liveFieldName": "org_country",
+          "current": "Belgium",
+          "desired": "Belgium",
+          "action": "unchanged"
+        },
+        {
+          "field": "town_city",
+          "liveFieldName": "org_town_city",
+          "current": "Ans",
+          "desired": "Ans",
+          "action": "unchanged"
+        },
+        {
+          "field": "region",
+          "liveFieldName": "region",
+          "current": "Overseas",
+          "desired": "Overseas",
+          "action": "unchanged"
+        }
+      ]
+    },
+    {
+      "sourceRow": 28,
+      "name": "UK Health Security Agency (UKHSA)",
+      "organizationId": "166b1adc-4b1a-4a0a-9b15-4160c1b2cd73",
+      "action": "unchanged",
+      "custom": [
+        {
+          "field": "organisation_type",
+          "liveFieldName": "organisation_type",
+          "current": "Research or charitable organisation",
+          "desired": "Research or charitable organisation",
+          "action": "unchanged"
+        },
+        {
+          "field": "country",
+          "liveFieldName": "org_country",
           "current": "United Kingdom",
           "desired": "United Kingdom",
           "action": "unchanged"
@@ -1330,23 +1042,23 @@
         {
           "field": "town_city",
           "liveFieldName": "org_town_city",
-          "current": "Alderley Edge",
-          "desired": "Alderley Edge",
+          "current": "London",
+          "desired": "London",
           "action": "unchanged"
         },
         {
           "field": "region",
           "liveFieldName": "region",
-          "current": "North West",
-          "desired": "North West",
+          "current": "North Thames",
+          "desired": "North Thames",
           "action": "unchanged"
         }
       ]
     },
     {
-      "sourceRow": 37,
-      "name": "MIM Software Inc.",
-      "organizationId": "45db1981-9fe4-41fa-9c19-512203d7dbcc",
+      "sourceRow": 29,
+      "name": "Voximetry, Inc.",
+      "organizationId": "fffbe6ad-d7f0-4c75-a2d2-135d50016e06",
       "action": "unchanged",
       "custom": [
         {
@@ -1366,8 +1078,8 @@
         {
           "field": "town_city",
           "liveFieldName": "org_town_city",
-          "current": "Cleveland",
-          "desired": "Cleveland",
+          "current": "Middleton",
+          "desired": "Middleton",
           "action": "unchanged"
         },
         {
@@ -1380,81 +1092,9 @@
       ]
     },
     {
-      "sourceRow": 38,
-      "name": "Neuroendocrine Cancer UK",
-      "organizationId": "08459583-89b6-437a-ac34-920e6f24b6d7",
-      "action": "unchanged",
-      "custom": [
-        {
-          "field": "organisation_type",
-          "liveFieldName": "organisation_type",
-          "current": "Research or charitable organisation",
-          "desired": "Research or charitable organisation",
-          "action": "unchanged"
-        },
-        {
-          "field": "country",
-          "liveFieldName": "org_country",
-          "current": "United Kingdom",
-          "desired": "United Kingdom",
-          "action": "unchanged"
-        },
-        {
-          "field": "town_city",
-          "liveFieldName": "org_town_city",
-          "current": "Leamington Spa",
-          "desired": "Leamington Spa",
-          "action": "unchanged"
-        },
-        {
-          "field": "region",
-          "liveFieldName": "region",
-          "current": "West Midlands",
-          "desired": "West Midlands",
-          "action": "unchanged"
-        }
-      ]
-    },
-    {
-      "sourceRow": 39,
-      "name": "NUVIA",
-      "organizationId": "bb3aa611-1780-4884-9cd0-a79f133cc171",
-      "action": "unchanged",
-      "custom": [
-        {
-          "field": "organisation_type",
-          "liveFieldName": "organisation_type",
-          "current": "Commercial or industry organisation",
-          "desired": "Commercial or industry organisation",
-          "action": "unchanged"
-        },
-        {
-          "field": "country",
-          "liveFieldName": "org_country",
-          "current": "United Kingdom",
-          "desired": "United Kingdom",
-          "action": "unchanged"
-        },
-        {
-          "field": "town_city",
-          "liveFieldName": "org_town_city",
-          "current": "Warrington",
-          "desired": "Warrington",
-          "action": "unchanged"
-        },
-        {
-          "field": "region",
-          "liveFieldName": "region",
-          "current": "North West",
-          "desired": "North West",
-          "action": "unchanged"
-        }
-      ]
-    },
-    {
-      "sourceRow": 40,
-      "name": "Peter MacCallum Cancer Centre",
-      "organizationId": "c863aaee-4103-4082-bbe1-fcb22dc6706a",
+      "sourceRow": 30,
+      "name": "Waitemata District",
+      "organizationId": "6b71cb4d-a561-47b3-a10b-025155b919bc",
       "action": "unchanged",
       "custom": [
         {
@@ -1467,231 +1107,15 @@
         {
           "field": "country",
           "liveFieldName": "org_country",
-          "current": "Australia",
-          "desired": "Australia",
+          "current": "New Zealand",
+          "desired": "New Zealand",
           "action": "unchanged"
         },
         {
           "field": "town_city",
           "liveFieldName": "org_town_city",
-          "current": "Melbourne",
-          "desired": "Melbourne",
-          "action": "unchanged"
-        },
-        {
-          "field": "region",
-          "liveFieldName": "region",
-          "current": "Overseas",
-          "desired": "Overseas",
-          "action": "unchanged"
-        }
-      ]
-    },
-    {
-      "sourceRow": 41,
-      "name": "Seoul National University College of Medicine",
-      "organizationId": "e5acb06e-3a58-4247-b4f5-7a40a59e5607",
-      "action": "unchanged",
-      "custom": [
-        {
-          "field": "organisation_type",
-          "liveFieldName": "organisation_type",
-          "current": "University",
-          "desired": "University",
-          "action": "unchanged"
-        },
-        {
-          "field": "country",
-          "liveFieldName": "org_country",
-          "current": "Korea (South)",
-          "desired": "Korea (South)",
-          "action": "unchanged"
-        },
-        {
-          "field": "town_city",
-          "liveFieldName": "org_town_city",
-          "current": "Seoul",
-          "desired": "Seoul",
-          "action": "unchanged"
-        },
-        {
-          "field": "region",
-          "liveFieldName": "region",
-          "current": "Overseas",
-          "desired": "Overseas",
-          "action": "unchanged"
-        }
-      ]
-    },
-    {
-      "sourceRow": 42,
-      "name": "Serac Imaging Systems",
-      "organizationId": "6de86e55-6c54-4661-a0ef-c2a988a2fc28",
-      "action": "unchanged",
-      "custom": [
-        {
-          "field": "organisation_type",
-          "liveFieldName": "organisation_type",
-          "current": "Commercial or industry organisation",
-          "desired": "Commercial or industry organisation",
-          "action": "unchanged"
-        },
-        {
-          "field": "country",
-          "liveFieldName": "org_country",
-          "current": "United Kingdom",
-          "desired": "United Kingdom",
-          "action": "unchanged"
-        },
-        {
-          "field": "town_city",
-          "liveFieldName": "org_town_city",
-          "current": "London",
-          "desired": "London",
-          "action": "unchanged"
-        },
-        {
-          "field": "region",
-          "liveFieldName": "region",
-          "current": "North Thames",
-          "desired": "North Thames",
-          "action": "unchanged"
-        }
-      ]
-    },
-    {
-      "sourceRow": 43,
-      "name": "St. Vincent's University Hospital, Dublin",
-      "organizationId": "fbe796f9-aa2b-458c-84a4-81c07d5dd49d",
-      "action": "unchanged",
-      "custom": [
-        {
-          "field": "organisation_type",
-          "liveFieldName": "organisation_type",
-          "current": "Public hospital or clinical site",
-          "desired": "Public hospital or clinical site",
-          "action": "unchanged"
-        },
-        {
-          "field": "country",
-          "liveFieldName": "org_country",
-          "current": "Ireland",
-          "desired": "Ireland",
-          "action": "unchanged"
-        },
-        {
-          "field": "town_city",
-          "liveFieldName": "org_town_city",
-          "current": "Dublin",
-          "desired": "Dublin",
-          "action": "unchanged"
-        },
-        {
-          "field": "region",
-          "liveFieldName": "region",
-          "current": "Overseas",
-          "desired": "Overseas",
-          "action": "unchanged"
-        }
-      ]
-    },
-    {
-      "sourceRow": 44,
-      "name": "Telix Pharmaceuticals",
-      "organizationId": "b1c1dd49-8739-4129-b87c-aef6db4e034a",
-      "action": "unchanged",
-      "custom": [
-        {
-          "field": "organisation_type",
-          "liveFieldName": "organisation_type",
-          "current": "Commercial or industry organisation",
-          "desired": "Commercial or industry organisation",
-          "action": "unchanged"
-        },
-        {
-          "field": "country",
-          "liveFieldName": "org_country",
-          "current": "United Kingdom",
-          "desired": "United Kingdom",
-          "action": "unchanged"
-        },
-        {
-          "field": "town_city",
-          "liveFieldName": "org_town_city",
-          "current": "London",
-          "desired": "London",
-          "action": "unchanged"
-        },
-        {
-          "field": "region",
-          "liveFieldName": "region",
-          "current": "North Thames",
-          "desired": "North Thames",
-          "action": "unchanged"
-        }
-      ]
-    },
-    {
-      "sourceRow": 45,
-      "name": "The Copenhagen University Hospital, Rigshospitalet",
-      "organizationId": "d47b9f68-6fc7-481f-868b-d8f876ed5fb0",
-      "action": "unchanged",
-      "custom": [
-        {
-          "field": "organisation_type",
-          "liveFieldName": "organisation_type",
-          "current": "Public hospital or clinical site",
-          "desired": "Public hospital or clinical site",
-          "action": "unchanged"
-        },
-        {
-          "field": "country",
-          "liveFieldName": "org_country",
-          "current": "Denmark",
-          "desired": "Denmark",
-          "action": "unchanged"
-        },
-        {
-          "field": "town_city",
-          "liveFieldName": "org_town_city",
-          "current": "Copenhagen",
-          "desired": "Copenhagen",
-          "action": "unchanged"
-        },
-        {
-          "field": "region",
-          "liveFieldName": "region",
-          "current": "Overseas",
-          "desired": "Overseas",
-          "action": "unchanged"
-        }
-      ]
-    },
-    {
-      "sourceRow": 46,
-      "name": "University Medical Center Groningen",
-      "organizationId": "ed693c3c-b202-40b9-a1c0-8a0c14f4c9d7",
-      "action": "unchanged",
-      "custom": [
-        {
-          "field": "organisation_type",
-          "liveFieldName": "organisation_type",
-          "current": "Public hospital or clinical site",
-          "desired": "Public hospital or clinical site",
-          "action": "unchanged"
-        },
-        {
-          "field": "country",
-          "liveFieldName": "org_country",
-          "current": "Netherlands",
-          "desired": "Netherlands",
-          "action": "unchanged"
-        },
-        {
-          "field": "town_city",
-          "liveFieldName": "org_town_city",
-          "current": "Groningen",
-          "desired": "Groningen",
+          "current": "Auckland",
+          "desired": "Auckland",
           "action": "unchanged"
         },
         {

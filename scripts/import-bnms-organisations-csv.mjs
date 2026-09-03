@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Strict, destination-only import of the 45 BNMS Organisations CSV.
+ * Strict, destination-only import of the 29 additional BNMS Organisations CSV.
  *
  * Usage:
  *   node scripts/import-bnms-organisations-csv.mjs
@@ -14,13 +14,13 @@ import { fileURLToPath } from 'node:url';
 import { COUNTRIES, resolveCountryToIso2 } from '../shared/countries.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const SOURCE_FILE = path.join(ROOT, 'attached_assets', 'Organisations_to_import_02.09.26_v3_to_import_1788448225012.csv');
+const SOURCE_FILE = path.join(ROOT, 'attached_assets', 'Organisations_to_import_03.09.26_1788456776714.csv');
 const DRY_RUN_REPORT_FILE = path.join(ROOT, 'reports', 'bnms-organisations-csv-import-dry-run.json');
 const APPLY_REPORT_FILE = path.join(ROOT, 'reports', 'bnms-organisations-csv-import.json');
 const TENANT_ID = 'ff2df806-b321-4254-b651-3af11fccf1db';
-const EXPECTED_ROWS = 45;
+const EXPECTED_ROWS = 29;
 const HEADERS = ['Organisation name', 'Type', 'Country', 'Town / City', 'BNMS Region'];
-const EXPECTED_DISTINCT = { type: 4, country: 22, region: 7 };
+const EXPECTED_DISTINCT = { type: 3, country: 11, region: 7 };
 const FIELD_SPECS = [
   { header: 'Type', key: 'type', names: ['organisation_type'], canonicalName: 'organisation_type',
     label: 'Type', fieldType: 'dropdown' },
