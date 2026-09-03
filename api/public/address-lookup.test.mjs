@@ -7,6 +7,10 @@ const migration = await readFile(
   new URL('../../supabase/migrations/20260903_ideal_postcodes_rate_limit.sql', import.meta.url),
   'utf8',
 );
+const migrationRunner = await readFile(
+  new URL('../../scripts/apply-ideal-postcodes-rate-limit.mjs', import.meta.url),
+  'utf8',
+);
 
 test('address lookup derives tenant and form context instead of trusting a tenant id', () => {
   assert.match(source, /resolveTenantFromRequest\(req\)/);
@@ -50,7 +54,19 @@ test('address lookup consumes a durable tenant, form, and client rate limit befo
 test('durable lookup rate limit is atomic, hashed, and service-role only', () => {
   assert.match(migration, /PRIMARY KEY \(tenant_id, form_id, client_key_hash\)/);
   assert.match(migration, /ON CONFLICT \(tenant_id, form_id, client_key_hash\) DO UPDATE/);
-  assert.match(migration, /digest\(coalesce\(p_client_key, 'unknown'\), 'sha256'\)/);
+  assert.match(migration, /extensions\.digest\(coalesce\(p_client_key, 'unknown'\), 'sha256'\)/);
   assert.match(migration, /REVOKE ALL ON FUNCTION[\s\S]*FROM PUBLIC, anon, authenticated/);
   assert.match(migration, /GRANT EXECUTE ON FUNCTION[\s\S]*TO service_role/);
+  assert.match(migration, /NOTIFY pgrst, 'reload schema'/);
+});
+
+test('rate-limit migration runner is destination-bound and verifies before commit', () => {
+  assert.match(migrationRunner, /DEST_DATABASE_URL/);
+  assert.match(migrationRunner, /DEST_SUPABASE_URL/);
+  assert.match(migrationRunner, /isApprovedDestinationSupabaseTarget/);
+  assert.match(migrationRunner, /row_security_enabled/);
+  assert.ok(
+    migrationRunner.indexOf("client.query('COMMIT')") > migrationRunner.indexOf('schema verification failed'),
+    'schema verification must happen before commit',
+  );
 });

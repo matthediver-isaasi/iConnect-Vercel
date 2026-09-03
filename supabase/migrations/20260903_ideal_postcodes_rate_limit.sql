@@ -23,7 +23,7 @@ SET search_path = public, pg_temp
 AS $$
 DECLARE
   v_now timestamptz := clock_timestamp();
-  v_hash text := encode(digest(coalesce(p_client_key, 'unknown'), 'sha256'), 'hex');
+  v_hash text := encode(extensions.digest(coalesce(p_client_key, 'unknown'), 'sha256'), 'hex');
   v_count integer;
 BEGIN
   IF p_tenant_id IS NULL OR p_form_id IS NULL
@@ -61,3 +61,5 @@ REVOKE ALL ON FUNCTION public.consume_address_lookup_rate_limit(uuid, uuid, text
   FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.consume_address_lookup_rate_limit(uuid, uuid, text, integer, integer)
   TO service_role;
+
+NOTIFY pgrst, 'reload schema';
