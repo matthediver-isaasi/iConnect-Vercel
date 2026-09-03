@@ -64,6 +64,9 @@ function mockDb(seed = {}) {
       if (operator === 'cs') {
         const excluded = JSON.parse(value);
         this.filters.push((row) => !excluded.some((item) => (this.value(row, column) || []).includes(item)));
+      } else if (operator === 'in') {
+        const excluded = value.slice(1, -1).split(',').map((item) => JSON.parse(item));
+        this.filters.push((row) => !excluded.includes(this.value(row, column)));
       } else if (operator === 'is') {
         this.filters.push((row) => this.value(row, column) !== value);
       }
@@ -1907,8 +1910,8 @@ test('core relationship rows use primary labels, paginate, enforce edit flags, p
   const picker = await service.coreEntityPicker('member', 'member-1', {
     definitionId, page: '1', pageSize: '1',
   });
-  assert.equal(picker.total, 2);
-  assert.equal(picker.data[0].primary_label, 'First Aid');
+  assert.equal(picker.total, 0);
+  assert.deepEqual(picker.data, []);
   await assert.rejects(
     () => service.listCoreRelationshipDefinitions('member', 'foreign-member'),
     (error) => error.status === 404,
@@ -1986,4 +1989,253 @@ test('unrelated relationship pickers retain generic candidates, including a non-
     definitionId, recordId: 'record-a', side: 'source',
   });
   assert.deepEqual(picker.data.map(row => row.id).sort(), ['member-a', 'member-b']);
+});
+
+test('custom-routed pickers exclude linked and cardinality-exhausted candidates before pagination', async () => {
+  const definitionId = 'picker-one-many';
+  const db = mockDb({
+    custom_object_definition: [object()],
+    custom_object_record: [{ id: 'department-1', tenant_id: tenantId, custom_object_id: objectId, archived_at: null }],
+    custom_object_relationship_definition: [{
+      id: definitionId, tenant_id: tenantId, status: 'active', cardinality: 'one_to_many',
+      source_kind: 'custom_object', source_custom_object_id: objectId,
+      target_kind: 'member', target_custom_object_id: null,
+      show_on_source: true, edit_from_source: true,
+    }],
+    member: [
+      { id: 'available-a', tenant_id: tenantId, first_name: 'A', last_name: 'Alpha' },
+      { id: 'available-b', tenant_id: tenantId, first_name: 'B', last_name: 'Beta' },
+      { id: 'linked-pair', tenant_id: tenantId, first_name: 'C', last_name: 'Charlie' },
+      { id: 'exhausted', tenant_id: tenantId, first_name: 'D', last_name: 'Delta' },
+    ],
+    custom_object_relationship: [
+      { tenant_id: tenantId, relationship_definition_id: definitionId, source_record_id: 'department-1', target_record_id: 'linked-pair', archived_at: null },
+      { tenant_id: tenantId, relationship_definition_id: definitionId, source_record_id: 'department-2', target_record_id: 'exhausted', archived_at: null },
+    ],
+  });
+  const result = await createCustomObjectService({ db, context: context(), isAdmin: true }).entityPicker(objectId, {
+    definitionId, recordId: 'department-1', side: 'source', page: '2', pageSize: '1',
+  });
+  assert.equal(result.total, 2);
+  assert.deepEqual(result.data.map((row) => row.id), ['available-b']);
+});
+
+test('many-to-many picker excludes only an existing pair, not candidates linked elsewhere', async () => {
+  const definitionId = 'picker-many-many';
+  const db = mockDb({
+    custom_object_definition: [object()],
+    custom_object_record: [{ id: 'department-1', tenant_id: tenantId, custom_object_id: objectId, archived_at: null }],
+    custom_object_relationship_definition: [{
+      id: definitionId, tenant_id: tenantId, status: 'active', cardinality: 'many_to_many',
+      source_kind: 'custom_object', source_custom_object_id: objectId,
+      target_kind: 'organization', target_custom_object_id: null,
+      show_on_source: true, edit_from_source: true,
+    }],
+    organization: [
+      { id: 'linked-pair', tenant_id: tenantId, name: 'Alpha' },
+      { id: 'linked-elsewhere', tenant_id: tenantId, name: 'Beta' },
+      { id: 'available', tenant_id: tenantId, name: 'Gamma' },
+    ],
+    custom_object_relationship: [
+      { tenant_id: tenantId, relationship_definition_id: definitionId, source_record_id: 'department-1', target_record_id: 'linked-pair', archived_at: null },
+      { tenant_id: tenantId, relationship_definition_id: definitionId, source_record_id: 'department-2', target_record_id: 'linked-elsewhere', archived_at: null },
+    ],
+  });
+  const result = await createCustomObjectService({ db, context: context(), isAdmin: true }).entityPicker(objectId, {
+    definitionId, recordId: 'department-1', side: 'source',
+  });
+  assert.equal(result.total, 2);
+  assert.deepEqual(result.data.map((row) => row.id), ['linked-elsewhere', 'available']);
+});
+
+test('core-routed pickers apply pair and candidate cardinality exclusions', async () => {
+  const definitionId = 'core-picker-one-many';
+  const db = mockDb({
+    member: [{ id: 'member-1', tenant_id: tenantId, first_name: 'Ada' }],
+    custom_object_definition: [object()],
+    preference_field: [field({ id: 'name-field', name: 'name', field_type: 'text', is_required: false })],
+    custom_object_relationship_definition: [{
+      id: definitionId, tenant_id: tenantId, status: 'active', cardinality: 'one_to_many',
+      source_kind: 'member', source_custom_object_id: null,
+      target_kind: 'custom_object', target_custom_object_id: objectId,
+      show_on_source: true, edit_from_source: true,
+    }],
+    custom_object_record: [
+      { id: 'available-a', tenant_id: tenantId, custom_object_id: objectId, archived_at: null, created_at: '2026-01-01', data: { name: 'A' } },
+      { id: 'available-b', tenant_id: tenantId, custom_object_id: objectId, archived_at: null, created_at: '2026-01-02', data: { name: 'B' } },
+      { id: 'linked-pair', tenant_id: tenantId, custom_object_id: objectId, archived_at: null, created_at: '2026-01-03', data: { name: 'C' } },
+      { id: 'exhausted', tenant_id: tenantId, custom_object_id: objectId, archived_at: null, created_at: '2026-01-04', data: { name: 'D' } },
+    ],
+    custom_object_relationship: [
+      { tenant_id: tenantId, relationship_definition_id: definitionId, source_record_id: 'member-1', target_record_id: 'linked-pair', archived_at: null },
+      { tenant_id: tenantId, relationship_definition_id: definitionId, source_record_id: 'member-2', target_record_id: 'exhausted', archived_at: null },
+    ],
+  });
+  const result = await createCustomObjectService({ db, context: context(), isAdmin: true }).coreEntityPicker('member', 'member-1', {
+    definitionId, page: '2', pageSize: '1',
+  });
+  assert.equal(result.total, 2);
+  assert.deepEqual(result.data.map((row) => row.id), ['available-b']);
+});
+
+test('pickers filter pairs and candidate cardinality on every cardinality and routed side', async () => {
+  const sourceObjectId = objectId;
+  const targetObjectId = 'picker-target-object';
+  const cases = [
+    ['one_to_one', 'source', true, true],
+    ['one_to_one', 'target', true, true],
+    ['one_to_many', 'source', true, false],
+    ['one_to_many', 'target', false, true],
+    ['many_to_one', 'source', false, true],
+    ['many_to_one', 'target', true, false],
+    ['many_to_many', 'source', false, false],
+    ['many_to_many', 'target', false, false],
+  ];
+
+  for (const [cardinality, routedSide, candidateHasSingleEdge, routedHasSingleEdge] of cases) {
+    const definitionId = `${cardinality}-${routedSide}`;
+    const routedObjectId = routedSide === 'source' ? sourceObjectId : targetObjectId;
+    const candidateObjectId = routedSide === 'source' ? targetObjectId : sourceObjectId;
+    const candidateRows = ['linked-pair', 'shared', 'available-a', 'available-b'].map((id, index) => ({
+      id,
+      tenant_id: tenantId,
+      custom_object_id: candidateObjectId,
+      archived_at: null,
+      created_at: `2026-01-0${index + 1}`,
+    }));
+    const db = mockDb({
+      custom_object_definition: [
+        object({ id: sourceObjectId }),
+        object({ id: targetObjectId, object_key: 'picker_targets' }),
+      ],
+      custom_object_relationship_definition: [{
+        id: definitionId, tenant_id: tenantId, status: 'active', cardinality,
+        source_kind: 'custom_object', source_custom_object_id: sourceObjectId,
+        target_kind: 'custom_object', target_custom_object_id: targetObjectId,
+        show_on_source: true, show_on_target: true, edit_from_source: true, edit_from_target: true,
+      }],
+      custom_object_record: [
+        {
+          id: routedSide === 'source' ? 'source-route' : 'target-route',
+          tenant_id: tenantId,
+          custom_object_id: routedObjectId,
+          archived_at: null,
+        },
+        ...candidateRows,
+      ],
+      custom_object_relationship: routedSide === 'source' ? [
+        { id: 'edge-pair', tenant_id: tenantId, relationship_definition_id: definitionId, source_record_id: 'source-route', target_record_id: 'linked-pair', archived_at: null },
+        { id: 'edge-shared', tenant_id: tenantId, relationship_definition_id: definitionId, source_record_id: 'source-other', target_record_id: 'shared', archived_at: null },
+      ] : [
+        { id: 'edge-pair', tenant_id: tenantId, relationship_definition_id: definitionId, source_record_id: 'linked-pair', target_record_id: 'target-route', archived_at: null },
+        { id: 'edge-shared', tenant_id: tenantId, relationship_definition_id: definitionId, source_record_id: 'shared', target_record_id: 'target-other', archived_at: null },
+      ],
+    });
+    const service = createCustomObjectService({ db, context: context(), isAdmin: true });
+    const all = await service.entityPicker(routedObjectId, {
+      definitionId,
+      recordId: routedSide === 'source' ? 'source-route' : 'target-route',
+      side: routedSide,
+      pageSize: '10',
+    });
+    const pageTwo = await service.entityPicker(routedObjectId, {
+      definitionId,
+      recordId: routedSide === 'source' ? 'source-route' : 'target-route',
+      side: routedSide,
+      page: '2',
+      pageSize: '1',
+    });
+    assert.equal(all.total, routedHasSingleEdge ? 0 : (candidateHasSingleEdge ? 2 : 3), `${cardinality}/${routedSide}`);
+    assert.equal(all.data.some((row) => row.id === 'linked-pair'), false, `${cardinality}/${routedSide} pair`);
+    assert.equal(
+      all.data.some((row) => row.id === 'shared'),
+      !routedHasSingleEdge && !candidateHasSingleEdge,
+      `${cardinality}/${routedSide} shared`,
+    );
+    assert.deepEqual(
+      pageTwo.data.map((row) => row.id),
+      routedHasSingleEdge ? [] : [candidateHasSingleEdge ? 'available-b' : 'available-a'],
+      `${cardinality}/${routedSide} page two`,
+    );
+  }
+});
+
+test('picker edge exclusion reads page two for every cardinality and routed side', async () => {
+  const sourceObjectId = objectId;
+  const targetObjectId = 'large-picker-target-object';
+  const cases = [
+    ['one_to_one', 'source', true, true],
+    ['one_to_one', 'target', true, true],
+    ['one_to_many', 'source', true, false],
+    ['one_to_many', 'target', false, true],
+    ['many_to_one', 'source', false, true],
+    ['many_to_one', 'target', true, false],
+    ['many_to_many', 'source', false, false],
+    ['many_to_many', 'target', false, false],
+  ];
+
+  for (const [cardinality, routedSide, candidateHasSingleEdge, routedHasSingleEdge] of cases) {
+    const definitionId = `large-${cardinality}-${routedSide}`;
+    const routedObjectId = routedSide === 'source' ? sourceObjectId : targetObjectId;
+    const candidateObjectId = routedSide === 'source' ? targetObjectId : sourceObjectId;
+    const edges = Array.from({ length: 1000 }, (_, index) => ({
+      id: `edge-${String(index).padStart(4, '0')}`,
+      tenant_id: tenantId,
+      relationship_definition_id: definitionId,
+      source_record_id: `other-source-${index}`,
+      target_record_id: `other-target-${index}`,
+      archived_at: null,
+    }));
+    // A bounded candidate is exhausted by an edge elsewhere. An unlimited
+    // candidate instead relies on the duplicate-pair rule. In both cases this
+    // is the first relevant edge and is deliberately on page two.
+    edges.push({
+      id: 'edge-1000',
+      tenant_id: tenantId,
+      relationship_definition_id: definitionId,
+      source_record_id: routedSide === 'source'
+        ? (routedHasSingleEdge || !candidateHasSingleEdge ? 'source-route' : 'different-source')
+        : 'excluded-on-second-page',
+      target_record_id: routedSide === 'target'
+        ? (routedHasSingleEdge || !candidateHasSingleEdge ? 'target-route' : 'different-target')
+        : 'excluded-on-second-page',
+      archived_at: null,
+    });
+    const db = mockDb({
+      custom_object_definition: [
+        object({ id: sourceObjectId }),
+        object({ id: targetObjectId, object_key: 'large_picker_targets' }),
+      ],
+      custom_object_relationship_definition: [{
+        id: definitionId, tenant_id: tenantId, status: 'active', cardinality,
+        source_kind: 'custom_object', source_custom_object_id: sourceObjectId,
+        target_kind: 'custom_object', target_custom_object_id: targetObjectId,
+        show_on_source: true, show_on_target: true, edit_from_source: true, edit_from_target: true,
+      }],
+      custom_object_record: [
+        {
+          id: routedSide === 'source' ? 'source-route' : 'target-route',
+          tenant_id: tenantId, custom_object_id: routedObjectId, archived_at: null,
+        },
+        {
+          id: 'excluded-on-second-page',
+          tenant_id: tenantId, custom_object_id: candidateObjectId, archived_at: null,
+        },
+        {
+          id: 'available',
+          tenant_id: tenantId, custom_object_id: candidateObjectId, archived_at: null,
+        },
+      ],
+      custom_object_relationship: edges,
+    });
+    const result = await createCustomObjectService({ db, context: context(), isAdmin: true }).entityPicker(routedObjectId, {
+      definitionId,
+      recordId: routedSide === 'source' ? 'source-route' : 'target-route',
+      side: routedSide,
+    });
+    assert.equal(result.total, routedHasSingleEdge ? 0 : 1, `${cardinality}/${routedSide}`);
+    assert.deepEqual(result.data.map((row) => row.id), routedHasSingleEdge ? [] : ['available'], `${cardinality}/${routedSide}`);
+    assert.ok(db.calls.some((call) => call.table === 'custom_object_relationship'
+      && call.type === 'order' && call.column === 'id'), `${cardinality}/${routedSide}`);
+  }
 });

@@ -154,3 +154,4 @@
 - [Automatic-group source invalidation](automatic-group-source-invalidation.md) — source writes must generation-fence workers; custom values need direct statement triggers to avoid per-row churn.
 - [Legacy transition-row types](legacy-transition-row-types.md) — never materialize whole transition rows on long-lived tables; dropped attributes can break composites only on the real schema.
 - [Gallery visibility and storage](gallery-visibility-storage.md) — gallery public/private transitions must be server-owned and ordered with bucket moves so policy changes cannot leave public objects exposed.
+- [Pinned import identity vs matching](pinned-import-identity-matching.md) — make live-name matching legacy-encoding tolerant without changing historical identity-hash normalization.

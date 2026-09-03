@@ -972,6 +972,48 @@ export function createCustomObjectService({
     return null;
   }
 
+  // The relationship trigger remains the authority for cardinality, but a
+  // picker must not offer a choice that the trigger will necessarily reject.
+  // Read active edges once so this works identically for Custom Object and
+  // every core endpoint table.
+  async function pickerExcludedRecordIds(definition, routedSide, routedRecordId) {
+    const candidateSide = routedSide === 'source' ? 'target' : 'source';
+    const routedHasSingleEdge = routedSide === 'source'
+      ? ['one_to_one', 'many_to_one'].includes(definition.cardinality)
+      : ['one_to_one', 'one_to_many'].includes(definition.cardinality);
+    const candidateHasSingleEdge = candidateSide === 'source'
+      ? ['one_to_one', 'many_to_one'].includes(definition.cardinality)
+      : ['one_to_one', 'one_to_many'].includes(definition.cardinality);
+    const excluded = new Set();
+    let routedSaturated = false;
+    for (let from = 0;; from += 1000) {
+      const { data, error } = await db.from('custom_object_relationship')
+        .select('source_record_id, target_record_id')
+        .eq('tenant_id', tenantId)
+        .eq('relationship_definition_id', definition.id)
+        .is('archived_at', null)
+        .order('id', { ascending: true })
+        .range(from, from + 999);
+      throwDb(error);
+      const edges = data || [];
+      for (const edge of edges) {
+        // A duplicate pair is never useful, including for many-to-many.
+        if (edge[`${routedSide}_record_id`] === routedRecordId) {
+          excluded.add(edge[`${candidateSide}_record_id`]);
+          if (routedHasSingleEdge) routedSaturated = true;
+        }
+        // Only exclude candidates whose own endpoint has reached its limit.
+        if (candidateHasSingleEdge) excluded.add(edge[`${candidateSide}_record_id`]);
+      }
+      if (edges.length < 1000) return { excluded, routedSaturated };
+    }
+  }
+
+  function applyPickerExclusions(q, eligibility) {
+    if (eligibility.excluded.size === 0) return q;
+    return q.not('id', 'in', `(${[...eligibility.excluded].map(quotePostgrestValue).join(',')})`);
+  }
+
   async function listCoreRelationshipDefinitions(kind, recordId) {
     requireCoreKind(kind);
     if (!recordId) throw new CustomObjectHttpError(400, 'kind and recordId are required');
@@ -1105,6 +1147,11 @@ export function createCustomObjectService({
       const key = getCustomObjectFieldMetadata(primary).key;
       if (key) q = q.filter(`data->>${key}`, 'ilike', `*${search}*`);
     }
+    const eligibility = await pickerExcludedRecordIds(definition, side, recordId);
+    if (eligibility.routedSaturated) {
+      return { data: [], total: 0, page: p.page, pageSize: p.pageSize };
+    }
+    q = applyPickerExclusions(q, eligibility);
     q = q.order('created_at', { ascending: true }).order('id', { ascending: true });
     const { data, error, count } = await q.range(p.from, p.to);
     throwDb(error);
@@ -1233,6 +1280,11 @@ export function createCustomObjectService({
         if (key) q = q.filter(`data->>${key}`, 'ilike', `*${search}*`);
       }
     }
+    const eligibility = await pickerExcludedRecordIds(definition, side, recordId);
+    if (eligibility.routedSaturated) {
+      return { data: [], total: 0, page: p.page, pageSize: p.pageSize };
+    }
+    q = applyPickerExclusions(q, eligibility);
     q = q.order(kind === 'member' ? 'last_name' : (kind === 'custom_object' ? 'created_at' : 'name'), { ascending: true })
       .order('id', { ascending: true });
     const { data, error, count } = await q.range(p.from, p.to);

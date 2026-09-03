@@ -1,7 +1,7 @@
 # Custom Objects
 
 **Author:** Replit Agent  
-**Last Updated:** August 2026  
+**Last Updated:** September 2026
 **Module:** Admin Data / Custom Objects
 
 ---
@@ -62,6 +62,8 @@ Administrators configure draft schemas, select a primary display field, activate
 | `client/src/lib/relationshipDisplayLabels.js` | Safe relationship-value formatting for review and export surfaces |
 | `supabase/migrations/20260825_custom_object_foundation.sql` | Generic storage, constraints, RLS, audit triggers, and cardinality guard |
 | `supabase/migrations/20260826_custom_object_relationship_runtime.sql` | Required-edge and archive propagation guarantees |
+| `supabase/migrations/20260924_bnms_department_type_normalization.sql` | Pinned, idempotent BNMS Department Type schema setup |
+| `scripts/import-bnms-organisation-hierarchy.mjs` | Dry-run-first BNMS Department Type classification and preservation verification |
 
 ### Design Principles
 
@@ -184,6 +186,37 @@ Region "North West"
 “Departments” on the Region and “Region” on the Department come from the two labels on one definition. They do not justify special React components, SQL tables, API routes, or conditional branches.
 
 Cardinality is enforced atomically in the database under an advisory transaction lock. Active pair uniqueness rejects duplicate edges. `one_to_one` limits both source and target; `one_to_many` limits reuse of a target; `many_to_one` limits reuse of a source; `many_to_many` limits only duplicate pairs. All endpoint rows must exist, be active, match the declared kind/object, and belong to the tenant.
+
+Entity pickers apply the same matrix before pagination. They always exclude an
+already-linked pair. They also exclude a candidate whose endpoint is already
+occupied when that endpoint is limited to one active edge. A candidate linked
+elsewhere remains available for `many_to_many`, and remains available on the
+unlimited side of `one_to_many` or `many_to_one`. The database guard remains the
+final concurrency authority if another request creates an edge after the picker
+response is returned.
+
+### BNMS Department Type normalization
+
+BNMS Departments remain organisation-specific records. The reusable
+classification is a separate active `department_type` Custom Object with a
+required text `name` primary field. One required `many_to_one` relationship
+links each Department to one Department Type, so many Departments can share a
+type while a Department can have only one active type.
+
+The tenant-pinned migration creates or validates only that schema. It fails
+closed if an object, field, or relationship with the stable keys already exists
+in an incompatible shape. The hierarchy importer then:
+
+1. reads the approved 310-row hierarchy sheet and pins the six source totals;
+2. resolves every Department by its existing Organisation edge and normalized
+   Department name;
+3. refuses missing, duplicate, archived, or conflicting records before writes;
+4. creates or reuses the six Type records and adds only missing Type edges; and
+5. verifies 310 Department IDs/data payloads, 231 Organisations, all pre-existing
+   non-Type relationships, and their audit rows are unchanged.
+
+Apply mode is serialized with a transaction advisory lock. A successful second
+run plans zero object, type, or edge creation.
 
 ### Form relationship dropdowns
 
@@ -447,8 +480,8 @@ Phase 2 must consume stable generic contracts rather than inspect JSON or add ex
 
 ### Problem: Related record is missing
 **Symptom:** Picker omits it or relationship read reports an unavailable endpoint.  
-**Cause:** The endpoint is archived, outside the tenant/object, hidden, or inaccessible to the current role.  
-**Fix:** Check definition side, endpoint lifecycle, object grant, and tenant ownership.
+**Cause:** The endpoint is archived, outside the tenant/object, hidden, inaccessible to the current role, already linked to the routed record, or has exhausted its candidate-side cardinality.
+**Fix:** Check definition side, endpoint lifecycle, object grant, tenant ownership, existing active pairs, and the cardinality matrix.
 
 ### Problem: Relationship creation returns conflict
 **Symptom:** HTTP 409 mentions duplicate or cardinality.  

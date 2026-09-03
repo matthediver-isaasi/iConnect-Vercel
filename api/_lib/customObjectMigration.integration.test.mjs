@@ -18,6 +18,9 @@ const relationshipRuntimeMigrationPath = fileURLToPath(
 const hardeningMigrationPath = fileURLToPath(
   new URL('../../supabase/migrations/20260827_custom_object_hardening.sql', import.meta.url),
 );
+const bnmsDepartmentTypeMigrationPath = fileURLToPath(
+  new URL('../../supabase/migrations/20260924_bnms_department_type_normalization.sql', import.meta.url),
+);
 
 function findExecutable(name) {
   const result = spawnSync('sh', ['-c', `command -v ${name}`], { encoding: 'utf8' });
@@ -132,6 +135,7 @@ test('migration replays and persists every supported Custom Object field type', 
         field_type varchar(50) NOT NULL,
         entity_scope varchar(30),
         is_active boolean NOT NULL DEFAULT true,
+        is_required boolean NOT NULL DEFAULT false,
         display_order integer NOT NULL DEFAULT 0,
         CONSTRAINT preference_field_name_key UNIQUE (name),
         CONSTRAINT preference_field_entity_scope_check
@@ -170,6 +174,115 @@ test('migration replays and persists every supported Custom Object field type', 
     run(psql, [...connectionArgs, '-f', relationshipRuntimeMigrationPath]);
     run(psql, [...connectionArgs, '-f', hardeningMigrationPath]);
     run(psql, [...connectionArgs, '-f', hardeningMigrationPath]);
+
+    run(psql, connectionArgs, {
+      input: `
+        INSERT INTO public.tenant(id)
+        VALUES ('ff2df806-b321-4254-b651-3af11fccf1db');
+        INSERT INTO public.custom_object_definition(
+          id, tenant_id, object_key, singular_label, plural_label
+        ) VALUES (
+          '00000000-0000-4000-8000-000000000099',
+          'ff2df806-b321-4254-b651-3af11fccf1db',
+          'org_department', 'Department', 'Departments'
+        );
+        INSERT INTO public.preference_field(
+          id, tenant_id, name, label, field_type, entity_scope,
+          custom_object_id, is_active
+        ) VALUES (
+          '10000000-0000-4000-8000-000000000099',
+          'ff2df806-b321-4254-b651-3af11fccf1db',
+          'name', 'Name', 'text', 'custom_object',
+          '00000000-0000-4000-8000-000000000099', true
+        );
+        UPDATE public.custom_object_definition
+        SET primary_display_field_id = '10000000-0000-4000-8000-000000000099',
+            status = 'active'
+        WHERE id = '00000000-0000-4000-8000-000000000099';
+      `,
+    });
+    runFailure(
+      psql,
+      connectionArgs,
+      /Existing active BNMS Department Type object has no approved name field/,
+      {
+        input: `
+          BEGIN;
+          INSERT INTO public.custom_object_definition(
+            id, tenant_id, object_key, singular_label, plural_label
+          ) VALUES (
+            '00000000-0000-4000-8000-000000000098',
+            'ff2df806-b321-4254-b651-3af11fccf1db',
+            'department_type', 'Department Type', 'Department Types'
+          );
+          INSERT INTO public.preference_field(
+            id, tenant_id, name, label, field_type, entity_scope,
+            custom_object_id, is_active
+          ) VALUES (
+            '10000000-0000-4000-8000-000000000098',
+            'ff2df806-b321-4254-b651-3af11fccf1db',
+            'code', 'Code', 'text', 'custom_object',
+            '00000000-0000-4000-8000-000000000098', true
+          );
+          UPDATE public.custom_object_definition
+          SET primary_display_field_id = '10000000-0000-4000-8000-000000000098',
+              status = 'active'
+          WHERE id = '00000000-0000-4000-8000-000000000098';
+          \\i '${bnmsDepartmentTypeMigrationPath}'
+        `,
+      },
+    );
+    run(psql, [...connectionArgs, '-f', bnmsDepartmentTypeMigrationPath]);
+    run(psql, [...connectionArgs, '-f', bnmsDepartmentTypeMigrationPath]);
+    for (const mismatch of [
+      'show_on_source = false',
+      'show_on_target = false',
+      'edit_from_source = false',
+      'edit_from_target = false',
+      `configuration = '{"picker_scope":{"unexpected":true}}'::jsonb`,
+    ]) {
+      runFailure(
+        psql,
+        connectionArgs,
+        /Existing BNMS Department Type relationship is incompatible/,
+        {
+          input: `
+            BEGIN;
+            UPDATE public.custom_object_relationship_definition
+            SET ${mismatch}
+            WHERE tenant_id = 'ff2df806-b321-4254-b651-3af11fccf1db'
+              AND relationship_key = 'department_type';
+            \\i '${bnmsDepartmentTypeMigrationPath}'
+          `,
+        },
+      );
+    }
+    const normalizedSchema = run(psql, [...connectionArgs, '-t', '-A'], {
+      input: `
+        SELECT
+          count(DISTINCT object_definition.id) || ':' ||
+          count(DISTINCT field.id) || ':' ||
+          count(DISTINCT relationship.id)
+        FROM public.custom_object_definition object_definition
+        JOIN public.preference_field field
+          ON field.tenant_id = object_definition.tenant_id
+         AND field.custom_object_id = object_definition.id
+         AND field.name = 'name'
+         AND field.is_active
+        JOIN public.custom_object_relationship_definition relationship
+          ON relationship.tenant_id = object_definition.tenant_id
+         AND relationship.relationship_key = 'department_type'
+         AND relationship.target_custom_object_id = object_definition.id
+         AND relationship.cardinality = 'many_to_one'
+         AND relationship.is_required
+         AND relationship.status = 'active'
+        WHERE object_definition.tenant_id = 'ff2df806-b321-4254-b651-3af11fccf1db'
+          AND object_definition.object_key = 'department_type'
+          AND object_definition.status = 'active'
+          AND object_definition.primary_display_field_id = field.id;
+      `,
+    });
+    assert.equal(normalizedSchema.trim(), '1:1:1');
 
     const fieldTypes = [
       'text',
