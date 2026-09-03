@@ -24,15 +24,23 @@ export const relationshipRequest = async (path, options = {}) => {
 
 export const relationshipRoutes = {
   definitions: (objectId, includeArchived = false) => `/api/custom-objects/${objectId}/relationship-definitions${includeArchived ? "?includeArchived=true" : ""}`,
+  definitionPage: (objectId, page = 1, pageSize = 100) =>
+    `/api/custom-objects/${objectId}/relationship-definitions?${new URLSearchParams({ page, pageSize })}`,
   definition: (objectId, definitionId) =>
     `/api/custom-objects/${objectId}/relationship-definitions/${definitionId}`,
   objects: (page = 1, pageSize = 100) =>
     `/api/custom-objects?${new URLSearchParams({ status: "active", page, pageSize })}`,
   picker: (objectId, params) =>
     `/api/custom-objects/${objectId}/entity-picker?${new URLSearchParams(params)}`,
+  initialRelationshipCandidates: (objectId, params) =>
+    `/api/custom-objects/${objectId}/initial-relationship-candidates?${new URLSearchParams(params)}`,
   edges: (objectId, params) =>
     `/api/custom-objects/${objectId}/relationships?${new URLSearchParams(params)}`,
   createEdge: (objectId) => `/api/custom-objects/${objectId}/relationships`,
+  // The records route selects its transactional create path when relationship
+  // data is present; keeping this named route prevents callers treating it as
+  // an ordinary record creation.
+  createWithRelationships: (objectId) => `/api/custom-objects/${objectId}/records`,
   deleteEdge: (objectId, edgeId) => `/api/custom-objects/${objectId}/relationships/${edgeId}`,
   coreDefinitions: ({ kind, recordId }) =>
     `/api/custom-objects/core/relationship-definitions?${new URLSearchParams({ kind, recordId })}`,
@@ -65,4 +73,23 @@ export const loadActiveRelationshipObjects = async (
     ...first,
     data: [first, ...additional].flatMap((result) => result.data || []),
   };
+};
+
+export const loadRelationshipDefinitions = async (
+  objectId,
+  request = relationshipRequest,
+  pageSize = 100,
+) => {
+  const first = await request(relationshipRoutes.definitionPage(objectId, 1, pageSize));
+  const total = Number(first.total);
+  // Older endpoints return an array. It is already a complete response.
+  if (!Number.isFinite(total)) return first;
+  const pageCount = Math.max(1, Math.ceil(total / pageSize));
+  if (pageCount > 100)
+    throw new Error("There are too many relationship definitions to load safely.");
+  const additional = await Promise.all(Array.from(
+    { length: pageCount - 1 },
+    (_, index) => request(relationshipRoutes.definitionPage(objectId, index + 2, pageSize)),
+  ));
+  return { ...first, data: [first, ...additional].flatMap((result) => result.data || []) };
 };

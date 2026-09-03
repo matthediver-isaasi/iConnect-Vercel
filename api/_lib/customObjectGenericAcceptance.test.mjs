@@ -165,6 +165,20 @@ test('generic implementation has no Department or Region branches, tables, or ro
   }
 });
 
+test('generic record creation supports relationship initialization without object-specific branches', async () => {
+  const [service, route, migration] = await Promise.all([
+    readFile(new URL('./customObjectService.js', import.meta.url), 'utf8'),
+    readFile(new URL('./customObjectRoute.js', import.meta.url), 'utf8'),
+    readFile(new URL('../../supabase/migrations/20260925_custom_object_record_relationship_create.sql', import.meta.url), 'utf8'),
+  ]);
+  assert.match(service, /createRecordWithRelationships/);
+  assert.match(service, /create_custom_object_record_with_relationships/);
+  assert.match(route, /createRecordWithRelationships/);
+  assert.match(migration, /p_relationships jsonb/);
+  assert.match(migration, /routed_side = 'source'/);
+  assert.match(migration, /routed_side = 'target'/);
+});
+
 test('generic API route entry points remain registered and non-public', async () => {
   const entries = [
     ['../custom-objects/index.js', 'collection'],

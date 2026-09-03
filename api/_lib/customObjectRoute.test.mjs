@@ -92,6 +92,43 @@ test('dedicated nested route dispatches object-scoped record reads', async () =>
   assert.deepEqual(res.payload, { objectId: 'object-1', recordId: 'record-1' });
 });
 
+test('record route selects atomic create when initial relationships are supplied', async () => {
+  const handler = createCustomObjectRouteHandler('resource', {
+    getTenantContext: async () => ({ isAuthenticated: true, tenantId: 'tenant-1', roleId: 'role-1' }),
+    hasAdminAccess: async () => false,
+    hasFeatureAccess: async () => false,
+    createCustomObjectService: () => ({
+      createRecordWithRelationships: async (objectId, body) => ({ objectId, atomic: true, body }),
+    }),
+  });
+  const res = response();
+  await handler({
+    method: 'POST',
+    query: { objectId: 'object-1', resource: 'records' },
+    body: { data: {}, initial_relationships: [] },
+  }, res);
+  assert.equal(res.statusCode, 201);
+  assert.equal(res.payload.atomic, true);
+});
+
+test('initial relationship candidate route dispatches the new-record side contract', async () => {
+  const handler = createCustomObjectRouteHandler('resource', {
+    getTenantContext: async () => ({ isAuthenticated: true, tenantId: 'tenant-1', roleId: 'role-1' }),
+    hasAdminAccess: async () => false,
+    hasFeatureAccess: async () => false,
+    createCustomObjectService: () => ({
+      initialRelationshipCandidates: async (objectId, query) => ({ objectId, side: query.newRecordSide }),
+    }),
+  });
+  const res = response();
+  await handler({
+    method: 'GET',
+    query: { objectId: 'object-1', resource: 'initial-relationship-candidates', definitionId: 'definition-1', newRecordSide: 'target' },
+  }, res);
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(res.payload, { objectId: 'object-1', side: 'target' });
+});
+
 test('collection reads reach service record-grant fallback when schema view is unavailable', async () => {
   const checked = [];
   const handler = createCustomObjectRouteHandler('collection', {

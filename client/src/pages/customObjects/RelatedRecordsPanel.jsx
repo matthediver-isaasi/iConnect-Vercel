@@ -9,7 +9,8 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { relationshipRequest, relationshipRoutes } from "./relationshipApi";
-import { canEditDefinitionFrom, cardinalityLimitReached, labelForSide, oppositeKindFor, relatedRecordPath, relationshipCreatePayload, relationshipPanels } from "./relationshipHelpers";
+import { canEditDefinitionFrom, cardinalityLimitReached, contextualCreateEligibility, labelForSide, oppositeKindFor, relatedRecordPath, relationshipCreatePayload, relationshipPanels } from "./relationshipHelpers";
+import { ContextualRecordCreateDialog } from "./ContextualRecordCreateDialog";
 
 const normalizeContext = ({ context, objectId, recordId }) =>
   context || { kind: "custom_object", objectId, recordId };
@@ -151,6 +152,17 @@ function RelationshipPanel({
     && definition.status !== "archived"
     && canEditDefinitionFrom(definition, editSide, editPermission);
   const constrained = cardinalityLimitReached(definition, editSide, total);
+  const endpoint = oppositeKindFor(definition, editSide);
+  const oppositeObject = useQuery({
+    queryKey: ["custom-objects", endpoint.customObjectId],
+    queryFn: () => relationshipRequest(`/api/custom-objects/${endpoint.customObjectId}`),
+    enabled: editable && endpoint.kind === "custom_object" && Boolean(endpoint.customObjectId),
+  });
+  const contextualCreate = contextualCreateEligibility({
+    definition,
+    side: editSide,
+    object: oppositeObject.data,
+  });
   const create = useMutation({
     mutationFn: (entity) => relationshipRequest(routes.create(), {
       method: "POST",
@@ -188,7 +200,7 @@ function RelationshipPanel({
       <CardContent className="p-0">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b bg-slate-50/70 px-5 py-4">
           <div><div className="flex items-center gap-2"><h3 className="font-semibold text-slate-900">{labelForSide(definition, editSide)}</h3><Badge variant="outline">{total}</Badge>{definition.status === "archived" && <Badge variant="outline">Archived definition</Badge>}</div><p className="mt-1 text-xs text-slate-500">{definition.cardinality?.replaceAll("_", " ")} relationship{includeArchived ? " history" : ""}</p></div>
-          {editable && <EntityPicker context={context} definition={definition} editSide={editSide} disabled={constrained || create.isPending} onPick={(entity) => create.mutate(entity)} />}
+          {editable && <div className="flex gap-2"><EntityPicker context={context} definition={definition} editSide={editSide} disabled={constrained || create.isPending} onPick={(entity) => create.mutate(entity)} />{contextualCreate && <ContextualRecordCreateDialog originContext={context} originDefinition={definition} originSide={editSide} targetObject={oppositeObject.data} disabled={constrained} />}</div>}
         </div>
         {constrained && editable && <div className="border-b bg-amber-50 px-5 py-2 text-xs text-amber-800">This side has reached its configured relationship limit.</div>}
         {query.isLoading ? <div className="space-y-3 p-5">{[1, 2].map((x) => <div key={x} className="h-10 animate-pulse rounded bg-slate-100" />)}</div>

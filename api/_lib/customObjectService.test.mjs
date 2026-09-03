@@ -164,6 +164,17 @@ function mockDb(seed = {}) {
           }));
           return { data: counts, error: null };
         }
+        if (name === 'create_custom_object_record_with_relationships') {
+          const record = {
+            id: `custom_object_record-${(tables.custom_object_record || []).length + 1}`,
+            tenant_id: args.p_tenant_id,
+            custom_object_id: args.p_custom_object_id,
+            data: structuredClone(args.p_data),
+            created_by: args.p_created_by,
+            updated_by: args.p_created_by,
+          };
+          return { data: { record, relationships: [] }, error: null };
+        }
         if (name !== 'archive_custom_object_relationship') {
           return { data: null, error: { message: 'Unknown RPC' } };
         }
@@ -281,6 +292,93 @@ test('record creation coerces typed JSONB, rejects invalid values, and authors m
     () => service.createRecord(objectId, { data: { headcount: '4.2' } }),
     (error) => error.status === 400 && error.details[0].field === 'headcount',
   );
+});
+
+test('atomic record creation routes an originating edge and additional edges through the tenant RPC', async () => {
+  const relatedObjectId = '44444444-4444-4444-8444-444444444444';
+  const definitionId = '55555555-5555-4555-8555-555555555555';
+  const db = mockDb({
+    custom_object_definition: [object(), object({ id: relatedObjectId, object_key: 'regions' })],
+    preference_field: [field()],
+    custom_object_role_permission: [
+      { tenant_id: tenantId, custom_object_id: objectId, role_id: roleId, can_view_records: true, can_create_records: true, can_edit_records: true },
+      { tenant_id: tenantId, custom_object_id: relatedObjectId, role_id: roleId, can_view_records: true, can_edit_records: true },
+    ],
+    custom_object_relationship_definition: [{
+      id: definitionId, tenant_id: tenantId, status: 'active', cardinality: 'many_to_many',
+      source_kind: 'custom_object', source_custom_object_id: relatedObjectId,
+      target_kind: 'custom_object', target_custom_object_id: objectId,
+      show_on_source: true, show_on_target: true, edit_from_source: true, edit_from_target: true,
+    }],
+    custom_object_record: [{ id: 'region-1', tenant_id: tenantId, custom_object_id: relatedObjectId, archived_at: null }],
+  });
+  const result = await createCustomObjectService({ db, context: context() }).createRecordWithRelationships(objectId, {
+    data: { headcount: 4 },
+    originating_relationship: {
+      relationship_definition_id: definitionId, routed_side: 'target', related_record_id: 'region-1',
+    },
+  });
+  assert.equal(result.record.data.headcount, 4);
+  const rpc = db.calls.find((call) => call.type === 'rpc' && call.name === 'create_custom_object_record_with_relationships');
+  assert.equal(rpc.args.p_tenant_id, tenantId);
+  assert.deepEqual(rpc.args.p_relationships, [{
+    relationship_definition_id: definitionId, routed_side: 'target', related_record_id: 'region-1', originating: true,
+  }]);
+});
+
+test('originating relationship uses the existing core card metadata, not the new record metadata', async () => {
+  const definitionId = '66666666-6666-4666-8666-666666666666';
+  const db = mockDb({
+    custom_object_definition: [object()],
+    preference_field: [field()],
+    custom_object_relationship_definition: [{
+      id: definitionId, tenant_id: tenantId, status: 'active', cardinality: 'many_to_many',
+      source_kind: 'custom_object', source_custom_object_id: objectId,
+      target_kind: 'organization', target_custom_object_id: null,
+      show_on_source: true, edit_from_source: false, show_on_target: true, edit_from_target: true,
+    }],
+    organization: [{ id: 'organization-1', tenant_id: tenantId, name: 'Existing card' }],
+  });
+  await createCustomObjectService({ db, context: context(), isAdmin: true }).createRecordWithRelationships(objectId, {
+    data: { headcount: 4 },
+    originating_relationship: {
+      relationship_definition_id: definitionId, routed_side: 'source', related_record_id: 'organization-1',
+    },
+  });
+  assert.ok(db.calls.some((call) => call.type === 'rpc'
+    && call.name === 'create_custom_object_record_with_relationships'));
+});
+
+test('initial relationship candidate picker excludes saturated opposite endpoints without a routed record', async () => {
+  const relatedObjectId = '77777777-7777-4777-8777-777777777777';
+  const definitionId = '88888888-8888-4888-8888-888888888888';
+  const db = mockDb({
+    custom_object_definition: [object(), object({ id: relatedObjectId, object_key: 'regions' })],
+    preference_field: [field(), field({ id: 'region-name', custom_object_id: relatedObjectId, name: 'headcount', is_required: false })],
+    custom_object_role_permission: [
+      { tenant_id: tenantId, custom_object_id: objectId, role_id: roleId, can_view_records: true, can_create_records: true, can_edit_records: true },
+      { tenant_id: tenantId, custom_object_id: relatedObjectId, role_id: roleId, can_view_records: true, can_edit_records: true },
+    ],
+    custom_object_relationship_definition: [{
+      id: definitionId, tenant_id: tenantId, status: 'active', cardinality: 'one_to_many',
+      source_kind: 'custom_object', source_custom_object_id: objectId,
+      target_kind: 'custom_object', target_custom_object_id: relatedObjectId,
+      show_on_source: true, edit_from_source: true, show_on_target: true, edit_from_target: true,
+    }],
+    custom_object_record: [
+      { id: 'available', tenant_id: tenantId, custom_object_id: relatedObjectId, data: { headcount: 2 }, archived_at: null },
+      { id: 'saturated', tenant_id: tenantId, custom_object_id: relatedObjectId, data: { headcount: 3 }, archived_at: null },
+    ],
+    custom_object_relationship: [{
+      tenant_id: tenantId, relationship_definition_id: definitionId, source_record_id: 'old-source',
+      target_record_id: 'saturated', archived_at: null,
+    }],
+  });
+  const result = await createCustomObjectService({ db, context: context() }).initialRelationshipCandidates(objectId, {
+    definitionId, newRecordSide: 'source',
+  });
+  assert.deepEqual(result.data.map((row) => row.id), ['available']);
+  assert.equal(result.data[0].kind, 'custom_object');
 });
 
 test('newly required fields preserve historical records until that field is supplied', async () => {

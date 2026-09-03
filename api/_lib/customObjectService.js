@@ -241,6 +241,7 @@ function throwDb(error, fallback = 'Database operation failed') {
     }
     throw new CustomObjectHttpError(400, error.message || fallback);
   }
+  if (error.code === '22P02') throw new CustomObjectHttpError(400, error.message || fallback);
   throw new CustomObjectHttpError(500, error.message || fallback);
 }
 
@@ -642,6 +643,162 @@ export function createCustomObjectService({
     const { data, error } = await db.from('custom_object_record').insert(payload).select('*').single();
     throwDb(error);
     return data;
+  }
+
+  // Creates the record and all of its first edges in one database transaction.
+  // The relationship entries are deliberately expressed from the new record's
+  // routed side: this works equally for a Custom Object on either definition
+  // side and avoids accepting client-supplied source/target identities.
+  async function createRecordWithRelationships(objectId, body = {}) {
+    const definition = await activeObject(objectId, 'Records can only be created for active Custom Objects');
+    await requireCapability(objectId, 'create_records');
+    const validation = validateCustomObjectRecordData({
+      data: body.data,
+      fields: await fields(objectId, true),
+      mode: 'create',
+    });
+    if (!validation.ok) throw new CustomObjectHttpError(400, 'Invalid record data', validation.errors);
+    if (typeof db.rpc !== 'function') {
+      throw new CustomObjectHttpError(503, 'Record relationship transaction is unavailable');
+    }
+
+    const originating = body.originating_relationship ?? body.originatingRelationship ?? null;
+    const additional = body.initial_relationships ?? body.initialRelationships ?? body.relationships ?? [];
+    if (originating !== null && (!originating || typeof originating !== 'object' || Array.isArray(originating))) {
+      throw new CustomObjectHttpError(400, 'originating_relationship must be an object');
+    }
+    if (!Array.isArray(additional)) {
+      throw new CustomObjectHttpError(400, 'initial_relationships must be an array');
+    }
+    const entries = [...(originating ? [{ ...originating, _originating: true }] : []), ...additional];
+    const seen = new Set();
+    const relationships = [];
+    for (const entry of entries) {
+      if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+        throw new CustomObjectHttpError(400, 'Each initial relationship must be an object');
+      }
+      const relationshipDefinitionId = entry.relationship_definition_id ?? entry.relationshipDefinitionId;
+      const relatedRecordId = entry.related_record_id ?? entry.relatedRecordId;
+      if (!relationshipDefinitionId || !relatedRecordId) {
+        throw new CustomObjectHttpError(400, 'Each initial relationship requires relationship_definition_id and related_record_id');
+      }
+      const relationship = await one('custom_object_relationship_definition', relationshipDefinitionId);
+      if (relationship.status !== 'active') throw new CustomObjectHttpError(409, 'Relationship definition is not active');
+      const matchingSides = ['source', 'target'].filter((side) =>
+        relationship[`${side}_kind`] === 'custom_object'
+        && relationship[`${side}_custom_object_id`] === objectId);
+      const side = entry.routed_side ?? entry.routedSide ?? (matchingSides.length === 1 ? matchingSides[0] : null);
+      if (!['source', 'target'].includes(side) || !matchingSides.includes(side)) {
+        throw new CustomObjectHttpError(400, 'routed_side must identify the new record side of the relationship');
+      }
+      // An originating edge is initiated from the existing card, not the new
+      // record.  `routed_side` still describes where the new row belongs.
+      const initiatedSide = entry._originating ? (side === 'source' ? 'target' : 'source') : side;
+      if (relationship[`show_on_${initiatedSide}`] === false) {
+        throw new CustomObjectHttpError(403, 'This relationship is hidden on the routed side');
+      }
+      if (relationship[`edit_from_${initiatedSide}`] === false) {
+        throw new CustomObjectHttpError(403, 'This relationship cannot be edited from the routed side');
+      }
+      await requireRelationshipCapabilities(relationship, 'edit_records');
+      const relatedSide = side === 'source' ? 'target' : 'source';
+      const related = await endpoint(relationship[`${relatedSide}_kind`], relatedRecordId);
+      domainGuard(() => validateCustomObjectRelationshipEndpoints({
+        tenantId,
+        definition: relationship,
+        source: side === 'source'
+          ? { tenant_id: tenantId, kind: 'custom_object', custom_object_id: objectId, archived_at: null }
+          : related,
+        target: side === 'target'
+          ? { tenant_id: tenantId, kind: 'custom_object', custom_object_id: objectId, archived_at: null }
+          : related,
+      }));
+      const key = `${relationshipDefinitionId}:${side}:${relatedRecordId}`;
+      if (seen.has(key)) throw new CustomObjectHttpError(400, 'Initial relationships must not contain duplicates');
+      seen.add(key);
+      relationships.push({
+        relationship_definition_id: relationshipDefinitionId,
+        routed_side: side,
+        related_record_id: relatedRecordId,
+        originating: entry._originating === true,
+      });
+    }
+    const { data, error } = await db.rpc('create_custom_object_record_with_relationships', {
+      p_tenant_id: tenantId,
+      p_custom_object_id: objectId,
+      p_data: validation.data,
+      p_relationships: relationships,
+      p_created_by: currentActorReference,
+    }).single();
+    throwDb(error);
+    return data;
+  }
+
+  async function initialRelationshipCandidates(objectId, query = {}) {
+    await activeObject(objectId, 'Initial relationship candidates are only available for active Custom Objects');
+    await requireCapability(objectId, 'create_records');
+    const definitionId = query.definitionId;
+    const side = query.newRecordSide ?? query.new_record_side ?? query.side;
+    if (!definitionId || !['source', 'target'].includes(side)) {
+      throw new CustomObjectHttpError(400, 'definitionId and newRecordSide are required');
+    }
+    const definition = await one('custom_object_relationship_definition', definitionId);
+    if (definition.status !== 'active') throw new CustomObjectHttpError(409, 'Relationship definition is not active');
+    if (
+      definition[`${side}_kind`] !== 'custom_object'
+      || definition[`${side}_custom_object_id`] !== objectId
+    ) {
+      throw new CustomObjectHttpError(400, 'newRecordSide does not match the new Custom Object');
+    }
+    if (definition[`show_on_${side}`] === false || definition[`edit_from_${side}`] === false) {
+      throw new CustomObjectHttpError(403, 'This relationship is not visible and editable from the new record side');
+    }
+    await requireRelationshipCapabilities(definition, 'edit_records');
+    const candidateSide = side === 'source' ? 'target' : 'source';
+    const kind = definition[`${candidateSide}_kind`];
+    const table = {
+      custom_object: 'custom_object_record', member: 'member',
+      organization: 'organization', organization_group: 'organization_group',
+    }[kind];
+    if (!table) throw new CustomObjectHttpError(400, 'Unsupported relationship endpoint kind');
+    const customObjectId = kind === 'custom_object' ? definition[`${candidateSide}_custom_object_id`] : null;
+    let endpointDefinition = null;
+    let endpointFields = [];
+    if (kind === 'custom_object') {
+      endpointDefinition = await activeObject(customObjectId);
+      await requireCapability(customObjectId, 'view_records');
+      endpointFields = await fields(customObjectId, true);
+    }
+    const p = pagination(query);
+    let q = db.from(table).select('*', { count: 'exact' }).eq('tenant_id', tenantId);
+    if (kind === 'custom_object') q = q.eq('custom_object_id', customObjectId).is('archived_at', null);
+    const search = typeof query.search === 'string' ? query.search.trim() : '';
+    if (search) {
+      if (kind === 'member') {
+        const pattern = quotePostgrestValue(`*${search}*`);
+        q = q.or(`first_name.ilike.${pattern},last_name.ilike.${pattern},email.ilike.${pattern}`);
+      } else if (kind !== 'custom_object') q = q.ilike('name', `%${search}%`);
+      else {
+        const primary = endpointFields.find((field) => field.id === endpointDefinition.primary_display_field_id);
+        const key = getCustomObjectFieldMetadata(primary).key;
+        if (key) q = q.filter(`data->>${key}`, 'ilike', `*${search}*`);
+      }
+    }
+    // There is no routed record yet: only candidates whose own cardinality is
+    // already full are excluded. Passing an impossible id avoids considering
+    // routed saturation while retaining the shared generic calculation.
+    q = applyPickerExclusions(q, await pickerExcludedRecordIds(definition, side, '__new_record__'));
+    q = q.order(kind === 'member' ? 'last_name' : (kind === 'custom_object' ? 'created_at' : 'name'), { ascending: true })
+      .order('id', { ascending: true });
+    const { data, error, count } = await q.range(p.from, p.to);
+    throwDb(error);
+    return {
+      data: (data || []).map((row) => ({
+        id: row.id, kind, custom_object_id: customObjectId,
+        ...endpointLabel(kind, row, endpointDefinition, endpointFields),
+      })),
+      total: count || 0, page: p.page, pageSize: p.pageSize,
+    };
   }
 
   async function getRecord(objectId, recordId) {
@@ -1530,7 +1687,7 @@ export function createCustomObjectService({
 
   return {
     listObjects, createObject, getObject, updateObject, listFields, createField,
-    updateField, listRecords, createRecord, getRecord, updateRecord,
+    updateField, listRecords, createRecord, createRecordWithRelationships, initialRelationshipCandidates, getRecord, updateRecord,
     listRelationshipDefinitions, createRelationshipDefinition,
     updateRelationshipDefinition, entityPicker, listRelationships, createRelationship,
     archiveRelationship, listPermissions, upsertPermission, listAudit,

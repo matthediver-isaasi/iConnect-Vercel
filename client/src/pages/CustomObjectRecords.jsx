@@ -54,6 +54,7 @@ import {
   validateRecordValues,
 } from "./customObjects/recordHelpers";
 import { RelatedRecordsPanel } from "./customObjects/RelatedRecordsPanel";
+import { RecordFieldControl } from "./customObjects/RecordFieldControls";
 
 class ApiError extends Error {
   constructor(status, message, details) {
@@ -437,7 +438,7 @@ export function CustomObjectRecordList() {
   );
 }
 
-function MultiValueControl({ field, value, onChange, countries = false }) {
+/*function MultiValueControl({ field, value, onChange, countries = false }) {
   const selected = arrayValue(value);
   const options = countries
     ? (field.all_countries !== false ? COUNTRIES : COUNTRIES.filter((item) => arrayValue(field.selected_countries).includes(item.code))).map((item) => ({ value: item.code, label: item.name }))
@@ -475,6 +476,7 @@ function FieldControl({ field, value, onChange, disabled = false }) {
   }
   return <Input disabled={disabled} type={type === "email" ? "email" : type === "url" ? "url" : type === "date" ? "date" : ["number", "decimal"].includes(type) ? "number" : "text"} step={type === "decimal" ? "any" : type === "number" ? "1" : undefined} minLength={field.min_length ?? undefined} maxLength={field.max_length ?? undefined} value={value ?? ""} onChange={(event) => onChange(event.target.value)} />;
 }
+*/
 
 export function CustomObjectRecordForm() {
   const { objectId, recordId } = useParams();
@@ -539,7 +541,7 @@ export function CustomObjectRecordForm() {
             {activeFields.map((field) => (
               <div key={field.id}>
                 <Label htmlFor={`field-${field.id}`}>{field.label}{field.is_required && <span className="ml-1 text-rose-600">*</span>}</Label>
-                <div className="mt-2"><FieldControl field={field} value={values[field.name]} onChange={(value) => { setValues((current) => ({ ...current, [field.name]: value })); setErrors((current) => ({ ...current, [field.name]: undefined })); }} /></div>
+                <div className="mt-2"><RecordFieldControl field={field} value={values[field.name]} onChange={(value) => { setValues((current) => ({ ...current, [field.name]: value })); setErrors((current) => ({ ...current, [field.name]: undefined })); }} /></div>
                 {errors[field.name] && <p className="mt-1 text-sm text-rose-600">{errors[field.name]}</p>}
               </div>
             ))}

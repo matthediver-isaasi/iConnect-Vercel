@@ -21,6 +21,13 @@ const relationshipRuntimeSql = await readFile(
   ),
   'utf8',
 );
+const atomicCreateSql = await readFile(
+  new URL(
+    '../../supabase/migrations/20260925_custom_object_record_relationship_create.sql',
+    import.meta.url,
+  ),
+  'utf8',
+);
 
 test('migration uses shared generic tables instead of tenant-specific tables', () => {
   for (const table of [
@@ -110,4 +117,20 @@ test('forward migration transactionally protects required final edges under the 
   assert.match(relationshipRuntimeSql, /archive_custom_object_relationship_definition_edges/);
   assert.match(relationshipRuntimeSql, /relationship\.relationship_definition_id = NEW\.id/);
   assert.match(relationshipRuntimeSql, /REVOKE ALL ON FUNCTION public\.archive_custom_object_definition_relationships\(\)[\s\S]*PUBLIC, anon, authenticated/);
+});
+
+test('dated atomic-create migration validates routed metadata and rolls record and edges back together', () => {
+  assert.match(atomicCreateSql, /create_custom_object_record_with_relationships/);
+  assert.match(atomicCreateSql, /SECURITY DEFINER/);
+  assert.match(atomicCreateSql, /pg_advisory_xact_lock\(hashtext\(p_custom_object_id::text\)\)/);
+  assert.match(atomicCreateSql, /definition\.source_kind <> 'custom_object'/);
+  assert.match(atomicCreateSql, /definition\.target_kind <> 'custom_object'/);
+  assert.match(atomicCreateSql, /show_on_source.*edit_from_source/s);
+  assert.match(atomicCreateSql, /show_on_target.*edit_from_target/s);
+  assert.match(atomicCreateSql, /item->>'originating'/);
+  assert.match(atomicCreateSql, /routed_side = 'source'[\s\S]*show_on_target[\s\S]*edit_from_target/);
+  assert.match(atomicCreateSql, /routed_side = 'target'[\s\S]*show_on_source[\s\S]*edit_from_source/);
+  assert.match(atomicCreateSql, /custom_object_endpoint_exists/);
+  assert.match(atomicCreateSql, /custom_object_required_relationship_create/);
+  assert.match(atomicCreateSql, /REVOKE ALL ON FUNCTION public\.create_custom_object_record_with_relationships/);
 });

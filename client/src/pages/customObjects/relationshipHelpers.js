@@ -86,6 +86,54 @@ export const oppositeKindFor = (definition, side) =>
     ? { kind: definition.target_kind, customObjectId: definition.target_custom_object_id }
     : { kind: definition.source_kind, customObjectId: definition.source_custom_object_id };
 
+const createCapability = (object = {}) => {
+  const capabilities = object.capabilities || object.permissions;
+  if (!capabilities) return true;
+  if (Array.isArray(capabilities))
+    return capabilities.includes("create_records") || capabilities.includes("create");
+  return capabilities.create_records ?? capabilities.can_create_records ?? capabilities.create ?? true;
+};
+
+// A relationship panel can only offer contextual creation for an active Custom
+// Object at its opposite endpoint. Core records deliberately never qualify.
+export const contextualCreateEligibility = ({ definition, side, object }) => {
+  const endpoint = oppositeKindFor(definition, side);
+  if (endpoint.kind !== "custom_object" || !endpoint.customObjectId) return null;
+  if (!object || String(object.id) !== String(endpoint.customObjectId)) return null;
+  return object.status === "active" && createCapability(object)
+    ? { objectId: endpoint.customObjectId, endpoint }
+    : null;
+};
+
+export const initialRelationshipSelectors = (payload, context) =>
+  relationshipPanels(payload, context)
+    .filter(({ definition, side }) =>
+      definition.status === "active" && canEditDefinitionFrom(definition, side))
+    .map(({ definition, side }) => ({ definition, side }));
+
+export const relationshipSelectorKey = (definitionId, side) =>
+  `${definitionId}:${side}`;
+
+// SQL only enforces a required relationship where the newly-created record is
+// the source endpoint. A target-side/inbound definition must stay optional.
+export const isRequiredInitialRelationship = (definition, newRecordSide) =>
+  definition.is_required === true && newRecordSide === "source";
+
+export const contextualRelationshipPayload = ({
+  definitionId, originContext, originSide, relatedRecordId,
+}) => {
+  const originIsSource = originSide === "source";
+  return {
+    relationship_definition_id: definitionId,
+    source_record_id: originIsSource ? originContext.recordId : relatedRecordId,
+    target_record_id: originIsSource ? relatedRecordId : originContext.recordId,
+    source_kind: originIsSource ? originContext.kind : "custom_object",
+    target_kind: originIsSource ? "custom_object" : originContext.kind,
+    routed_side: originSide,
+    routed_record_id: originContext.recordId,
+  };
+};
+
 export const labelForSide = (definition, side) =>
   (side === "source" ? definition.source_label : definition.target_label) ||
   (side === "source" ? "Related records" : "Related records");

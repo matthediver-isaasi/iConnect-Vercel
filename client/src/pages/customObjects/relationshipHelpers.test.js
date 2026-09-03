@@ -13,7 +13,12 @@ import {
   definitionPayload,
   relationshipSourceName,
   resolveRelationshipSourceObject,
+  contextualCreateEligibility,
+  initialRelationshipSelectors,
+  isRequiredInitialRelationship,
+  relationshipSelectorKey,
 } from "./relationshipHelpers.js";
+import { loadRelationshipDefinitions, relationshipRoutes } from "./relationshipApi.js";
 
 test("identifies the configured side without recursive lookups", () => {
   assert.equal(
@@ -75,6 +80,74 @@ test("builds the core create payload expected by the core relationship service",
       related_record_id: 14,
     },
   );
+});
+
+test("only allows contextual creation at an active, creatable Custom Object endpoint", () => {
+  const definition = {
+    source_kind: "member",
+    target_kind: "custom_object",
+    target_custom_object_id: "target-1",
+  };
+  assert.deepEqual(
+    contextualCreateEligibility({
+      definition,
+      side: "source",
+      object: { id: "target-1", status: "active", capabilities: { create_records: true } },
+    })?.objectId,
+    "target-1",
+  );
+  assert.equal(contextualCreateEligibility({
+    definition,
+    side: "source",
+    object: { id: "target-1", status: "archived", capabilities: { create_records: true } },
+  }), null);
+  assert.equal(contextualCreateEligibility({
+    definition: { ...definition, target_kind: "organization" },
+    side: "source",
+    object: { id: "target-1", status: "active" },
+  }), null);
+});
+
+test("initial selectors include only active, visible and editable sides", () => {
+  const selectors = initialRelationshipSelectors({ data: [
+    { id: "visible", status: "active", source_kind: "custom_object", source_custom_object_id: "one", show_on_source: true, edit_from_source: true },
+    { id: "hidden", status: "active", source_kind: "custom_object", source_custom_object_id: "one", show_on_source: false },
+    { id: "locked", status: "active", source_kind: "custom_object", source_custom_object_id: "one", edit_from_source: false },
+    { id: "archived", status: "archived", source_kind: "custom_object", source_custom_object_id: "one" },
+  ] }, { kind: "custom_object", objectId: "one" });
+  assert.deepEqual(selectors.map((item) => item.definition.id), ["visible"]);
+});
+
+test("initial relationship candidates use their dedicated route without a record id", () => {
+  const route = relationshipRoutes.initialRelationshipCandidates("object-1", {
+    definitionId: "definition-1", side: "source",
+  });
+  assert.match(route, /initial-relationship-candidates/);
+  assert.doesNotMatch(route, /recordId/);
+});
+
+test("required initial relationships only apply when the new record is source", () => {
+  const definition = { is_required: true };
+  assert.equal(isRequiredInitialRelationship(definition, "source"), true);
+  assert.equal(isRequiredInitialRelationship(definition, "target"), false);
+});
+
+test("self relationship selector keys preserve each legal side", () => {
+  assert.notEqual(
+    relationshipSelectorKey("self-definition", "source"),
+    relationshipSelectorKey("self-definition", "target"),
+  );
+});
+
+test("loads all relationship definition pages beyond the default page size", async () => {
+  const calls = [];
+  const result = await loadRelationshipDefinitions("object-1", async (path) => {
+    calls.push(path);
+    const page = Number(new URL(`https://example.test${path}`).searchParams.get("page"));
+    return { total: 26, data: [{ id: page }] };
+  }, 25);
+  assert.equal(calls.length, 2);
+  assert.deepEqual(result.data, [{ id: 1 }, { id: 2 }]);
 });
 
 test("no relationship metadata produces no dynamic tabs", () => {

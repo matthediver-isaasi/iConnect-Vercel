@@ -56,12 +56,15 @@ Administrators configure draft schemas, select a primary display field, activate
 | `client/src/pages/CustomObjectRecords.jsx` | Generated record list, detail, form, and permission editor |
 | `client/src/pages/customObjects/RelationshipDefinitions.jsx` | Generic relationship-definition editor |
 | `client/src/pages/customObjects/RelatedRecordsPanel.jsx` | Definition-driven related-record UI |
+| `client/src/pages/customObjects/ContextualRecordCreateDialog.jsx` | Metadata-driven form for creating and linking an opposite Custom Object record in context |
+| `client/src/pages/customObjects/RecordFieldControls.jsx` | Shared generated controls used by normal and contextual record creation |
 | `client/src/pages/FormBuilder.jsx` | Relationship-dropdown configuration against earlier organisation fields |
 | `client/src/components/forms/FormRenderer.jsx` | Shared dependent relationship dropdown used by public, embedded, preview, and manual forms |
 | `client/src/lib/formRelationshipDropdown.js` | Pure builder and stale-selection rules |
 | `client/src/lib/relationshipDisplayLabels.js` | Safe relationship-value formatting for review and export surfaces |
 | `supabase/migrations/20260825_custom_object_foundation.sql` | Generic storage, constraints, RLS, audit triggers, and cardinality guard |
 | `supabase/migrations/20260826_custom_object_relationship_runtime.sql` | Required-edge and archive propagation guarantees |
+| `supabase/migrations/20260925_custom_object_record_relationship_create.sql` | Atomic record-plus-initial-relationships transaction |
 | `supabase/migrations/20260924_bnms_department_type_normalization.sql` | Pinned, idempotent BNMS Department Type schema setup |
 | `scripts/import-bnms-organisation-hierarchy.mjs` | Dry-run-first BNMS Department Type classification and preservation verification |
 
@@ -119,6 +122,7 @@ Required fields are enforced on create. On edit, a required field is enforced wh
 | `GET/POST .../relationships` | List or create canonical edges |
 | `DELETE .../relationships/{edgeId}` | Archive an edge |
 | `GET .../entity-picker` | Search the endpoint derived from definition and side |
+| `GET .../initial-relationship-candidates` | Search eligible opposite endpoints before the new record exists |
 | `GET/POST/PUT .../permissions` | List or upsert role grants |
 | `GET .../audit` | List scoped audit events |
 | `GET/POST /api/custom-objects/core/...` | Generic Core Object relationship adapters |
@@ -144,6 +148,30 @@ All paginated catalogue, field, record, relationship, picker, permission, and au
 `page` defaults to 1. `pageSize` defaults to 25, is at least 1, and is capped at 100. `total` is the count before the requested range. Non-paginated discovery responses use `{ "data": [] }`; item and mutation responses return the resource directly. Errors use `{ "error": "message" }` and may include `details`.
 
 Record lists accept `search`, `sortField`, `sortDir`, `filters`, `page`, `pageSize`, and `includeArchived`. Filters are keyed by field UUID, never by caller-provided JSON paths. Relationship list/picker requests must identify `definitionId`, `recordId`, and the routed `side` where required. Endpoint kind and target object are derived from the relationship definition.
+
+`POST .../records` also accepts a transactional contextual-create shape:
+
+```json
+{
+  "data": {
+    "name": "Example record"
+  },
+  "originating_relationship": {
+    "relationship_definition_id": "definition-uuid",
+    "routed_side": "source",
+    "related_record_id": "existing-origin-uuid"
+  },
+  "initial_relationships": [
+    {
+      "relationship_definition_id": "other-definition-uuid",
+      "routed_side": "target",
+      "related_record_id": "selected-candidate-uuid"
+    }
+  ]
+}
+```
+
+Here **routed_side** always identifies the side occupied by the new Custom Object record. The originating entry is authorized from the opposite, existing card side; additional entries are authorized from the new record side. The route selects the atomic service path only when relationship initialization is present, so ordinary record creation remains backward compatible.
 
 ---
 
@@ -194,6 +222,23 @@ elsewhere remains available for `many_to_many`, and remains available on the
 unlimited side of `one_to_many` or `many_to_one`. The database guard remains the
 final concurrency authority if another request creates an edge after the picker
 response is returned.
+
+### Contextual record creation
+
+A relationship card offers **Create {singular label}** only when all of the following are true:
+
+1. the card and relationship definition are active, visible, and editable from the current record side;
+2. the opposite endpoint is a Custom Object, not a Member, Organisation, Organisation Group, or another core kind;
+3. the opposite Custom Object is active and grants `create_records`;
+4. the current side has not reached its configured cardinality limit.
+
+The dialog loads only active fields and uses the target object's configured singular label. Field defaults, types, required rules, options, country restrictions, file settings, and length/selection limits use the same generated controls and validation as the full-page record form.
+
+The originating relationship is fixed and cannot be changed. Other active relationships visible and editable from the new record's side appear as metadata-driven selectors. Required source relationships must be selected before submission. Candidate reads use `initial-relationship-candidates`, which does not require a record ID because the record does not exist yet; it still excludes archived, cross-tenant, inaccessible, and candidate-side-cardinality-saturated endpoints.
+
+**Boundary:** contextual creation creates only the opposite Custom Object record. Core records can be the existing origin or an additional selected endpoint, but this flow never creates a Member, Organisation, Organisation Group, or other core record.
+
+Saving calls one database RPC. The RPC inserts the record and every initial edge in one transaction, while the existing relationship triggers enforce endpoint validity, duplicate prevention, and cardinality under transaction-scoped advisory locks. Active required source relationships are checked before commit. Any validation, permission, endpoint, required-relationship, duplicate, or cardinality failure aborts the transaction, including its audit-trigger writes, so no orphan record or partial edge set remains. A corrected retry is therefore safe.
 
 ### BNMS Department Type normalization
 
@@ -321,6 +366,20 @@ Cross-tenant resources are deliberately indistinguishable from missing resources
 4. Coerce and validate typed JSON data.
 5. Add server-authored identity/timestamps and persist the generic record.
 
+### Contextual record-and-relationship creation
+
+**Files:** `client/src/pages/customObjects/ContextualRecordCreateDialog.jsx`, `api/_lib/customObjectService.js`, `supabase/migrations/20260925_custom_object_record_relationship_create.sql`
+**Trigger:** A user selects **Create {singular label}** on an eligible relationship card.
+
+1. Resolve the opposite Custom Object and its `create_records` capability.
+2. Load active field definitions and visible/editable relationship definitions.
+3. Pre-bind the originating relationship and load eligible candidates for other initial relationships.
+4. Validate generated field values and required selectors in the browser.
+5. Revalidate object lifecycle, capabilities, relationship orientation, side permissions, and endpoint eligibility in the service.
+6. Call `create_custom_object_record_with_relationships`.
+7. Insert the record and all edges in one transaction; database triggers enforce concurrency-safe invariants and write audit rows.
+8. On success, close the dialog and invalidate the originating card plus affected record/list queries. On failure, retain entered values and show field or relationship errors.
+
 ### Relationship mutation
 
 1. Resolve the definition and routed side.
@@ -369,6 +428,10 @@ Invalid field metadata, unknown incoming record keys, malformed filters, inactiv
 
 Database triggers propagate archives so active relationships are not silently orphaned. The relationship archive RPC serializes removals and performs the final-edge required check in the same transaction.
 
+### Atomic contextual creation
+
+The `create_custom_object_record_with_relationships` function is `SECURITY DEFINER`, has a fixed `search_path`, and is executable only by `service_role`. It derives the new record endpoint from the trusted object ID and accepts only a definition ID, new-record side, and related record ID for each edge. A failed insert or final required-relationship check rolls back the record, all earlier edges, and their trigger-created audit events.
+
 ### Public disclosure
 
 Public preference-value routes first build a tenant-scoped allowlist excluding Custom Object fields, then constrain value reads to those IDs. Regression coverage lives in `api/_lib/publicCustomObjectDisclosure.test.mjs`; generic route registration and authentication are covered by `api/_lib/customObjectGenericAcceptance.test.mjs`.
@@ -377,7 +440,7 @@ Public preference-value routes first build a tenant-scoped allowlist excluding C
 
 ## Frontend UI
 
-`CustomObjectsAdmin.jsx` shows the tenant catalogue and generated schema controls. `CustomObjectRecords.jsx` renders lists, add/edit forms, details, archive actions, and permissions from object and field metadata. Relationship panels and pickers derive labels, endpoint kinds, visibility, and edit controls from definitions. FormBuilder's Structured Record Actions editor uses the same active metadata and stores its configuration under a versioned Form property.
+`CustomObjectsAdmin.jsx` shows the tenant catalogue and generated schema controls. `CustomObjectRecords.jsx` renders lists, add/edit forms, details, archive actions, and permissions from object and field metadata. Relationship panels and pickers derive labels, endpoint kinds, visibility, and edit controls from definitions. Eligible cards place **Create {singular label}** beside **Add link** and open the contextual dialog without navigation. FormBuilder's Structured Record Actions editor uses the same active metadata and stores its configuration under a versioned Form property.
 
 FormBuilder offers a **Relationship Dropdown** field type. The field settings show an earlier organisation-field picker and an eligible active-relationship picker. The shared `FormRenderer` supplies the respondent experience across normal public forms, embedded forms, builder/iEdit previews, and manual submissions.
 
@@ -386,11 +449,12 @@ FormBuilder offers a **Relationship Dropdown** field type. The field settings sh
 | POST/PATCH/DELETE object | `/api/custom-objects/...` | Create, configure, archive |
 | POST/PATCH/DELETE field | `.../fields/...` | Create, configure, deactivate |
 | POST/PATCH/DELETE record | `.../records/...` | Create, edit, archive |
+| POST contextual record | `.../records` | Atomically create one Custom Object record and its initial edges |
 | POST/PATCH/DELETE relationship definition | `.../relationship-definitions/...` | Configure or archive |
 | POST/DELETE relationship | `.../relationships/...` | Add or archive an edge |
 | POST/PUT permission | `.../permissions` | Upsert role capabilities |
 
-React Query keys are object-ID based (`custom-objects`, object, fields, records, relationship definitions/rows). Mutations invalidate the affected catalogue/detail/resource keys so counts and related panels refresh. No cache key depends on “Department” or “Region”.
+React Query keys are object-ID based (`custom-objects`, object, fields, records, relationship definitions/rows). Contextual creation invalidates the target object's record lists, the originating relationship rows and definition counts, and the originating record detail. The dialog closes only after success; failures leave field and relationship state in place. No cache key depends on “Department” or “Region”.
 
 ---
 
@@ -428,6 +492,17 @@ Open Region "North West"
       → query canonical edges by tenant + definition + Region record
         → resolve opposite Department endpoints
           → display "Departments: Radiology"
+```
+
+```text
+Open an eligible relationship card
+  → resolve opposite active Custom Object and singular label
+    → load active fields and initial relationship metadata
+      → fix the existing record as the originating relationship
+        → select any required additional endpoints
+          → validate and call one atomic RPC
+            → record + all edges + audit events commit together
+            → any failure rolls the entire transaction back
 ```
 
 ---
@@ -487,6 +562,16 @@ Phase 2 must consume stable generic contracts rather than inspect JSON or add ex
 **Symptom:** HTTP 409 mentions duplicate or cardinality.  
 **Cause:** The active pair already exists or one side exceeds the configured cardinality.  
 **Fix:** Reuse the existing edge, archive/replace it safely, or correct the definition.
+
+### Problem: Create action is missing from a relationship card
+**Symptom:** The card offers **Add link** but not **Create**.
+**Cause:** The opposite endpoint is a core entity, the opposite Custom Object is inactive or not creatable, the card side is hidden/read-only, or the current side has reached its cardinality limit.
+**Fix:** Check endpoint kind, object status and `create_records`, side visibility/editability, and current active edge count.
+
+### Problem: Contextual creation cannot be saved
+**Symptom:** The dialog retains its values and shows a field, relationship, permission, or conflict error.
+**Cause:** Required metadata is incomplete, a selected endpoint became unavailable, permissions changed, or a concurrent request consumed cardinality after candidates loaded.
+**Fix:** Correct the highlighted value or reload/reselect the candidate. No record or partial relationships were retained, so the same form can be retried safely.
 
 ### Problem: Historic field value appears but cannot be edited
 **Symptom:** Read retains a key that write rejects.  

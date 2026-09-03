@@ -21,6 +21,9 @@ const hardeningMigrationPath = fileURLToPath(
 const bnmsDepartmentTypeMigrationPath = fileURLToPath(
   new URL('../../supabase/migrations/20260924_bnms_department_type_normalization.sql', import.meta.url),
 );
+const atomicRecordCreateMigrationPath = fileURLToPath(
+  new URL('../../supabase/migrations/20260925_custom_object_record_relationship_create.sql', import.meta.url),
+);
 
 function findExecutable(name) {
   const result = spawnSync('sh', ['-c', `command -v ${name}`], { encoding: 'utf8' });
@@ -174,6 +177,8 @@ test('migration replays and persists every supported Custom Object field type', 
     run(psql, [...connectionArgs, '-f', relationshipRuntimeMigrationPath]);
     run(psql, [...connectionArgs, '-f', hardeningMigrationPath]);
     run(psql, [...connectionArgs, '-f', hardeningMigrationPath]);
+    run(psql, [...connectionArgs, '-f', atomicRecordCreateMigrationPath]);
+    run(psql, [...connectionArgs, '-f', atomicRecordCreateMigrationPath]);
 
     run(psql, connectionArgs, {
       input: `
@@ -631,6 +636,153 @@ test('migration replays and persists every supported Custom Object field type', 
     assert.notEqual(secondResult.status, 0, 'concurrent cardinality insert unexpectedly succeeded');
     assert.match(secondResult.stderr, /Source record exceeds relationship cardinality/);
 
+    // The atomic-create RPC uses generic Custom Object fixtures, rather than
+    // the BNMS schema above. It must accept both endpoint orientations and
+    // apply originating-card edit rules while creating all initial edges.
+    const atomicTenant = '00000000-0000-4000-8000-000000000001';
+    const atomicAsset = '00000000-0000-4000-8000-000000000041';
+    const atomicLocation = '00000000-0000-4000-8000-000000000042';
+    const atomicRequired = '30000000-0000-4000-8000-000000000041';
+    const atomicReverse = '30000000-0000-4000-8000-000000000042';
+    const atomicOriginating = '30000000-0000-4000-8000-000000000043';
+    const atomicCardinality = '30000000-0000-4000-8000-000000000044';
+    const atomicTargets = [
+      '20000000-0000-4000-8000-000000000041',
+      '20000000-0000-4000-8000-000000000042',
+      '20000000-0000-4000-8000-000000000043',
+      '20000000-0000-4000-8000-000000000044',
+    ];
+    const atomicSeed = '20000000-0000-4000-8000-000000000045';
+    run(psql, connectionArgs, {
+      input: `
+        INSERT INTO public.custom_object_definition(id, tenant_id, object_key, singular_label, plural_label)
+        VALUES
+          ('${atomicAsset}', '${atomicTenant}', 'atomic_asset', 'Atomic asset', 'Atomic assets'),
+          ('${atomicLocation}', '${atomicTenant}', 'atomic_location', 'Atomic location', 'Atomic locations');
+        INSERT INTO public.preference_field(
+          id, tenant_id, name, label, field_type, entity_scope, custom_object_id
+        ) VALUES
+          ('10000000-0000-4000-8000-000000000041', '${atomicTenant}', 'atomic_asset_name', 'Name', 'text', 'custom_object', '${atomicAsset}'),
+          ('10000000-0000-4000-8000-000000000042', '${atomicTenant}', 'atomic_location_name', 'Name', 'text', 'custom_object', '${atomicLocation}');
+        UPDATE public.custom_object_definition
+        SET primary_display_field_id = CASE id
+              WHEN '${atomicAsset}' THEN '10000000-0000-4000-8000-000000000041'::uuid
+              ELSE '10000000-0000-4000-8000-000000000042'::uuid
+            END,
+            status = 'active'
+        WHERE id IN ('${atomicAsset}', '${atomicLocation}');
+        INSERT INTO public.custom_object_record(id, tenant_id, custom_object_id, data)
+        VALUES
+          ('${atomicTargets[0]}', '${atomicTenant}', '${atomicLocation}', '{"atomic_location_name":"L1"}'),
+          ('${atomicTargets[1]}', '${atomicTenant}', '${atomicLocation}', '{"atomic_location_name":"L2"}'),
+          ('${atomicTargets[2]}', '${atomicTenant}', '${atomicLocation}', '{"atomic_location_name":"L3"}'),
+          ('${atomicTargets[3]}', '${atomicTenant}', '${atomicLocation}', '{"atomic_location_name":"L4"}'),
+          ('${atomicSeed}', '${atomicTenant}', '${atomicAsset}', '{"atomic_asset_name":"seed"}');
+        INSERT INTO public.custom_object_relationship_definition(
+          id, tenant_id, relationship_key, source_kind, source_custom_object_id,
+          target_kind, target_custom_object_id, cardinality, source_label, target_label,
+          is_required, show_on_source, show_on_target, edit_from_source, edit_from_target, status
+        ) VALUES
+          ('${atomicRequired}', '${atomicTenant}', 'atomic_required', 'custom_object', '${atomicAsset}', 'custom_object', '${atomicLocation}', 'many_to_many', 'Locations', 'Assets', true, true, true, true, false, 'active'),
+          ('${atomicReverse}', '${atomicTenant}', 'atomic_reverse', 'custom_object', '${atomicLocation}', 'custom_object', '${atomicAsset}', 'many_to_many', 'Assets', 'Locations', false, true, true, true, false, 'active'),
+          ('${atomicOriginating}', '${atomicTenant}', 'atomic_originating', 'custom_object', '${atomicAsset}', 'custom_object', '${atomicLocation}', 'many_to_many', 'Origin locations', 'Origin assets', false, true, true, true, true, 'active'),
+          ('${atomicCardinality}', '${atomicTenant}', 'atomic_cardinality', 'custom_object', '${atomicAsset}', 'custom_object', '${atomicLocation}', 'one_to_many', 'Single location', 'Assets', false, true, true, true, false, 'active');
+        INSERT INTO public.custom_object_relationship(
+          tenant_id, relationship_definition_id, source_record_id, target_record_id, created_by
+        ) VALUES (
+          '${atomicTenant}', '${atomicCardinality}', '${atomicSeed}', '${atomicTargets[0]}', 'atomic-seed'
+        );
+      `,
+    });
+
+    const atomicSuccess = run(psql, [...connectionArgs, '-t', '-A'], {
+      input: `
+        SELECT jsonb_array_length(result->'relationships') || ':' ||
+               (result->'record'->>'created_by')
+        FROM public.create_custom_object_record_with_relationships(
+          '${atomicTenant}', '${atomicAsset}', '{"atomic_asset_name":"complete"}',
+          '[
+            {"relationship_definition_id":"${atomicRequired}","related_record_id":"${atomicTargets[0]}","routed_side":"source"},
+            {"relationship_definition_id":"${atomicReverse}","related_record_id":"${atomicTargets[1]}","routed_side":"target","originating":true},
+            {"relationship_definition_id":"${atomicOriginating}","related_record_id":"${atomicTargets[2]}","routed_side":"source","originating":true}
+          ]'::jsonb, 'atomic-success'
+        ) result;
+      `,
+    });
+    assert.equal(atomicSuccess.trim(), '3:atomic-success');
+
+    const mutationCounts = () => run(psql, [...connectionArgs, '-t', '-A'], {
+      input: `
+        SELECT
+          (SELECT count(*) FROM public.custom_object_record WHERE data ? 'atomic_attempt') || ':' ||
+          (SELECT count(*) FROM public.custom_object_relationship WHERE created_by IN ('atomic-missing', 'atomic-cardinality')) || ':' ||
+          (SELECT count(*) FROM public.custom_object_audit_event WHERE actor_id IN ('atomic-missing', 'atomic-cardinality'));
+      `,
+    }).trim();
+    const beforeFailures = mutationCounts();
+    runFailure(psql, connectionArgs, /A required relationship must be supplied/, {
+      input: `
+        SELECT public.create_custom_object_record_with_relationships(
+          '${atomicTenant}', '${atomicAsset}', '{"atomic_attempt":"missing"}',
+          '[{"relationship_definition_id":"${atomicOriginating}","related_record_id":"${atomicTargets[1]}","routed_side":"source"}]'::jsonb,
+          'atomic-missing'
+        );
+      `,
+    });
+    assert.equal(mutationCounts(), beforeFailures, 'missing required edge must roll back records, edges, and audit rows');
+
+    runFailure(psql, connectionArgs, /Target record exceeds relationship cardinality/, {
+      input: `
+        SELECT public.create_custom_object_record_with_relationships(
+          '${atomicTenant}', '${atomicAsset}', '{"atomic_attempt":"cardinality"}',
+          '[
+            {"relationship_definition_id":"${atomicRequired}","related_record_id":"${atomicTargets[1]}","routed_side":"source"},
+            {"relationship_definition_id":"${atomicCardinality}","related_record_id":"${atomicTargets[0]}","routed_side":"source"}
+          ]'::jsonb, 'atomic-cardinality'
+        );
+      `,
+    });
+    assert.equal(mutationCounts(), beforeFailures, 'a later invalid edge must roll back preceding mutations');
+
+    const retryAfterFailure = run(psql, [...connectionArgs, '-t', '-A'], {
+      input: `
+        SELECT jsonb_array_length(result->'relationships')
+        FROM public.create_custom_object_record_with_relationships(
+          '${atomicTenant}', '${atomicAsset}', '{"atomic_attempt":"retry"}',
+          '[
+            {"relationship_definition_id":"${atomicRequired}","related_record_id":"${atomicTargets[1]}","routed_side":"source"},
+            {"relationship_definition_id":"${atomicCardinality}","related_record_id":"${atomicTargets[2]}","routed_side":"source"}
+          ]'::jsonb, 'atomic-cardinality'
+        ) result;
+      `,
+    });
+    assert.equal(retryAfterFailure.trim(), '2');
+
+    // Concurrent requests serialize on the new record's object and the edge
+    // cardinality lock; only the first may claim this one-to-many target.
+    const concurrentAtomicOne = runAsync(psql, connectionArgs, {
+      input: `BEGIN; SELECT public.create_custom_object_record_with_relationships(
+        '${atomicTenant}', '${atomicAsset}', '{"atomic_attempt":"concurrent-one"}',
+        '[{"relationship_definition_id":"${atomicRequired}","related_record_id":"${atomicTargets[3]}","routed_side":"source"},{"relationship_definition_id":"${atomicCardinality}","related_record_id":"${atomicTargets[3]}","routed_side":"source"}]'::jsonb,
+        'atomic-concurrent-one'
+      ); SELECT pg_sleep(1); COMMIT;`,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    const concurrentAtomicTwo = runAsync(psql, connectionArgs, {
+      input: `SELECT public.create_custom_object_record_with_relationships(
+        '${atomicTenant}', '${atomicAsset}', '{"atomic_attempt":"concurrent-two"}',
+        '[{"relationship_definition_id":"${atomicRequired}","related_record_id":"${atomicTargets[2]}","routed_side":"source"},{"relationship_definition_id":"${atomicCardinality}","related_record_id":"${atomicTargets[3]}","routed_side":"source"}]'::jsonb,
+        'atomic-concurrent-two'
+      );`,
+    });
+    const [concurrentAtomicOneResult, concurrentAtomicTwoResult] = await Promise.all([
+      concurrentAtomicOne,
+      concurrentAtomicTwo,
+    ]);
+    assert.equal(concurrentAtomicOneResult.status, 0, concurrentAtomicOneResult.stderr);
+    assert.notEqual(concurrentAtomicTwoResult.status, 0, 'concurrent atomic cardinality request unexpectedly succeeded');
+    assert.match(concurrentAtomicTwoResult.stderr, /Target record exceeds relationship cardinality/);
+
     // Archiving an endpoint object atomically retires every incident definition
     // and active edge while preserving both kinds of rows for audit review.
     run(psql, connectionArgs, {
@@ -727,6 +879,13 @@ test('migration replays and persists every supported Custom Object field type', 
     });
     assert.equal(auditCount.trim(), 't');
 
+    const recordCountBeforeRejectedAudit = run(psql, [...connectionArgs, '-t', '-A'], {
+      input: `
+        SELECT count(*)
+        FROM public.custom_object_record
+        WHERE tenant_id = '00000000-0000-4000-8000-000000000001';
+      `,
+    }).trim();
     run(psql, connectionArgs, {
       input: `
         ALTER TABLE public.custom_object_audit_event
@@ -758,7 +917,7 @@ test('migration replays and persists every supported Custom Object field type', 
         WHERE tenant_id = '00000000-0000-4000-8000-000000000001';
       `,
     });
-    assert.equal(rolledBack.trim(), '7');
+    assert.equal(rolledBack.trim(), recordCountBeforeRejectedAudit);
   } finally {
     if (started) {
       spawnSync(pgCtl, ['-D', dataDir, '-m', 'immediate', 'stop'], {
