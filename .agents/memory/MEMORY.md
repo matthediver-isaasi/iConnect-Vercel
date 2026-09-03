@@ -151,3 +151,5 @@
 - [Annual membership renewal lifecycle](annual-membership-renewal-lifecycle.md) — annual policy is a dated tier snapshot; next terms always start the day after the prior persisted end, while monthly agreements stay separate.
 - [Stable query fallbacks](usequery-default-array-loop.md) — disabled useQuery results used by sync effects need stable fallbacks and equality-preserving state updates or SPA navigation can freeze.
 - [Reusable Canvas footer fallback](canvas-footer-fallback.md) — explicit source modes retain dormant legacy config; inherit must ignore microsite overrides, while invalid Canvas choices fall back safely.
+- [Automatic-group source invalidation](automatic-group-source-invalidation.md) — source writes must generation-fence workers; custom values need direct statement triggers to avoid per-row churn.
+- [Legacy transition-row types](legacy-transition-row-types.md) — never materialize whole transition rows on long-lived tables; dropped attributes can break composites only on the real schema.
