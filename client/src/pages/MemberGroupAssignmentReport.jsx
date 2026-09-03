@@ -10,6 +10,13 @@ import { Users, Calendar, AlertTriangle, Clock, Search, FileText, Loader2 } from
 import { format, addDays, isBefore, isAfter } from "date-fns";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
+import {
+  assignmentMatchesRole,
+  buildAssignmentRoleOptions,
+} from "@/lib/memberGroupAssignmentRoleFilter.mjs";
+
+const ALL_ROLES_VALUE = '__assignment_report_all_roles__';
+const roleSelectValue = role => `role:${encodeURIComponent(role)}`;
 
 export default function MemberGroupAssignmentReportPage() {
   const { isFeatureExcluded, isAccessReady } = useMemberAccess();
@@ -27,6 +34,7 @@ export default function MemberGroupAssignmentReportPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [expiryFilter, setExpiryFilter] = useState('all');
   const [groupFilter, setGroupFilter] = useState('all');
+  const [roleFilter, setRoleFilter] = useState(null);
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 20;
 
@@ -94,6 +102,11 @@ export default function MemberGroupAssignmentReportPage() {
     });
   }, [assignments, members, guests, groups]);
 
+  const roleOptions = useMemo(
+    () => buildAssignmentRoleOptions(assignments),
+    [assignments]
+  );
+
   const filteredAssignments = useMemo(() => {
     let filtered = enrichedAssignments;
 
@@ -118,6 +131,11 @@ export default function MemberGroupAssignmentReportPage() {
       filtered = filtered.filter(a => a.group_id === groupFilter);
     }
 
+    // Role filter
+    if (roleFilter !== null) {
+      filtered = filtered.filter(a => assignmentMatchesRole(a, roleFilter));
+    }
+
     // Sort by expiry date (expired first, then expiring soon, then by date)
     filtered.sort((a, b) => {
       const statusOrder = { 'expired': 0, 'expiring-soon': 1, 'active': 2, 'no-expiry': 3 };
@@ -131,7 +149,7 @@ export default function MemberGroupAssignmentReportPage() {
     });
 
     return filtered;
-  }, [enrichedAssignments, searchQuery, expiryFilter, groupFilter]);
+  }, [enrichedAssignments, searchQuery, expiryFilter, groupFilter, roleFilter]);
 
   // Stats
   const stats = useMemo(() => {
@@ -150,7 +168,7 @@ export default function MemberGroupAssignmentReportPage() {
 
   React.useEffect(() => {
     setCurrentPage(1);
-  }, [searchQuery, expiryFilter, groupFilter]);
+  }, [searchQuery, expiryFilter, groupFilter, roleFilter]);
 
   const getStatusBadge = (status) => {
     switch (status) {
@@ -289,6 +307,28 @@ export default function MemberGroupAssignmentReportPage() {
                   </SelectContent>
                 </Select>
               </div>
+              <div className="w-full md:w-48">
+                <Select
+                  value={roleFilter === null ? ALL_ROLES_VALUE : roleSelectValue(roleFilter)}
+                  onValueChange={value => setRoleFilter(
+                    value === ALL_ROLES_VALUE
+                      ? null
+                      : decodeURIComponent(value.slice('role:'.length))
+                  )}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={ALL_ROLES_VALUE}>All Roles</SelectItem>
+                    {roleOptions.map(role => (
+                      <SelectItem key={role.toLocaleLowerCase()} value={roleSelectValue(role)}>
+                        {role}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
             {filteredAssignments.length > 0 && (
               <p className="text-sm text-slate-600 mt-3">
@@ -315,7 +355,7 @@ export default function MemberGroupAssignmentReportPage() {
               <FileText className="w-16 h-16 text-slate-300 mx-auto mb-4" />
               <h3 className="text-xl font-semibold text-slate-900 mb-2">No Assignments Found</h3>
               <p className="text-slate-600">
-                {searchQuery || expiryFilter !== 'all' || groupFilter !== 'all' 
+                {searchQuery || expiryFilter !== 'all' || groupFilter !== 'all' || roleFilter !== null
                   ? 'Try adjusting your filters'
                   : 'No member group assignments exist yet'}
               </p>
