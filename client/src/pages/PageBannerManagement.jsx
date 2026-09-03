@@ -20,6 +20,7 @@ import { createPageUrl } from "@/utils";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import IEditHeroElement, { IEditHeroElementEditor } from "@/components/iedit/elements/IEditHeroElement";
 import { getHeroThumbnailBackgroundStyle, resolveHeroImageFocus } from "@/lib/heroImageFocus";
+import { richTextToPlainText } from "@/lib/pageBannerTypography";
 
 const fontFamilies = [
   'Poppins',
@@ -482,7 +483,9 @@ export default function PageBannerManagementPage() {
                         >
                           <div className="text-center p-4" style={{ color: banner.hero_content?.text_color || '#ffffff' }}>
                             <Sparkles className="w-8 h-8 mx-auto mb-2 opacity-80" />
-                            <p className="font-bold text-lg line-clamp-2">{banner.hero_content?.heading || 'Hero Element'}</p>
+                            <p className="font-bold text-lg line-clamp-2">
+                              {richTextToPlainText(banner.hero_content?.heading, 'Hero Element')}
+                            </p>
                           </div>
                         </div>
                       ) : (

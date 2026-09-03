@@ -1,9 +1,13 @@
 import React from "react";
 import DOMPurify from 'dompurify';
 import { useIsMobile } from "@/hooks/use-mobile";
+import { useTypographyStyles } from "@/components/iedit/TypographyStyleSelector";
+import { resolveTypographyColor } from "@/lib/pageBannerTypography";
 
 export default function PageBannerDisplay({ banner }) {
   const isMobile = useIsMobile();
+  const { getStyleById } = useTypographyStyles();
+  const headerTypographyStyle = getStyleById(banner?.header_typography_style_id);
   
   if (!banner || !banner.image_url) return null;
 
@@ -80,7 +84,7 @@ export default function PageBannerDisplay({ banner }) {
       fontFamily: banner.header_font_family || 'Poppins',
       fontSize: `${fontSize}px`,
       fontWeight: banner.header_font_weight || 700,
-      color: banner.header_color || '#ffffff',
+      color: resolveTypographyColor(headerTypographyStyle, banner.header_color || '#ffffff'),
       lineHeight: banner.header_line_height || 1.2,
       letterSpacing: `${banner.header_letter_spacing || 0}px`,
       textAlign: banner.header_text_align || 'center'
@@ -94,7 +98,9 @@ export default function PageBannerDisplay({ banner }) {
         <div 
           className="w-full py-3 md:py-4"
           style={getHeaderStyle()}
-          dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(banner.header_title) }}
+          dangerouslySetInnerHTML={{
+            __html: DOMPurify.sanitize(banner.header_title, { FORBID_ATTR: ['style'] }),
+          }}
         />
       )}
       

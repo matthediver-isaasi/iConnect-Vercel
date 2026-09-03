@@ -14,6 +14,7 @@ import {
   normalizeHeroImageFocus,
   resolveHeroImageFocus,
 } from "@/lib/heroImageFocus";
+import { resolveHeroTypographyColors } from "@/lib/pageBannerTypography";
 
 const heroQuillModules = {
   toolbar: [
@@ -401,6 +402,16 @@ export default function IEditHeroElement({ content, variant, settings, previewVi
   const effectiveContentFontWeight = contentTypographyStyle?.font_weight || undefined;
   const effectiveContentLetterSpacing = contentTypographyStyle?.letter_spacing ?? content_letter_spacing;
   const effectiveContentLineHeight = contentTypographyStyle?.line_height || content_line_height;
+  const typographyColors = resolveHeroTypographyColors({
+    headingStyle: headingTypographyStyle,
+    subheadingStyle: subheadingTypographyStyle,
+    contentStyle: contentTypographyStyle,
+    textColor: text_color,
+    subheadingColor: subheading_color,
+    contentColor: content_color,
+    mobileCustomTypography: mobile_custom_typography,
+    mobileTextColor: mobile_text_color,
+  });
 
   // Auto-scaled default values for mobile (fallback only)
   const defaultMobileHeadingSize = Math.max(28, Math.round(effectiveHeadingFontSize * 0.6));
@@ -568,7 +579,7 @@ export default function IEditHeroElement({ content, variant, settings, previewVi
       ${effectiveHeadingFontWeight ? `font-weight: ${effectiveHeadingFontWeight};` : ''}
       line-height: ${effectiveHeadingLineHeight};
       letter-spacing: ${effectiveHeadingLetterSpacing}px;
-      color: ${text_color};
+      color: ${typographyColors.desktop.heading};
       text-align: ${effectiveHeadingAlign};
     }
     
@@ -585,7 +596,7 @@ export default function IEditHeroElement({ content, variant, settings, previewVi
       ${effectiveSubheadingFontWeight ? `font-weight: ${effectiveSubheadingFontWeight};` : ''}
       line-height: ${effectiveSubheadingLineHeight};
       letter-spacing: ${effectiveSubheadingLetterSpacing}px;
-      color: ${subheading_color || text_color};
+      color: ${typographyColors.desktop.subheading};
       text-align: ${effectiveSubheadingAlign};
     }
     
@@ -595,11 +606,13 @@ export default function IEditHeroElement({ content, variant, settings, previewVi
       ${effectiveContentFontWeight ? `font-weight: ${effectiveContentFontWeight};` : ''}
       line-height: ${effectiveContentLineHeight};
       letter-spacing: ${effectiveContentLetterSpacing}px;
-      color: ${content_color || text_color};
+      color: ${typographyColors.desktop.content};
       margin-top: ${content_top_margin}px;
       text-align: ${effectiveContentAlign};
     }
     
+    .${instanceId} .hero-heading *,
+    .${instanceId} .hero-subheading *,
     .${instanceId} .hero-content-text p,
     .${instanceId} .hero-content-text span,
     .${instanceId} .hero-content-text li,
@@ -662,7 +675,7 @@ export default function IEditHeroElement({ content, variant, settings, previewVi
         line-height: ${mobileHeadingLineHeight};
         letter-spacing: ${mobileHeadingLetterSpacing}px;
         text-align: ${mobileTextAlign};
-        color: ${effectiveMobileTextColor};
+        color: ${typographyColors.mobile.heading};
       }
       
       .${instanceId} .hero-underline {
@@ -676,14 +689,14 @@ export default function IEditHeroElement({ content, variant, settings, previewVi
         font-size: ${mobileSubheadingFontSize}px;
         line-height: ${mobileSubheadingLineHeight};
         text-align: ${mobileTextAlign};
-        color: ${effectiveMobileTextColor};
+        color: ${typographyColors.mobile.subheading};
       }
       
       .${instanceId} .hero-content-text {
         font-size: ${mobileContentFontSize}px;
         line-height: ${mobileContentLineHeight};
         text-align: ${mobileTextAlign};
-        color: ${effectiveMobileTextColor};
+        color: ${typographyColors.mobile.content};
       }
       
       .${instanceId} .hero-content-text p,
@@ -723,7 +736,7 @@ export default function IEditHeroElement({ content, variant, settings, previewVi
       line-height: ${mobileHeadingLineHeight};
       letter-spacing: ${mobileHeadingLetterSpacing}px;
       text-align: ${mobileTextAlign};
-      color: ${effectiveMobileTextColor};
+      color: ${typographyColors.mobile.heading};
     }
     
     .${instanceId}.mobile-preview .hero-underline {
@@ -737,14 +750,14 @@ export default function IEditHeroElement({ content, variant, settings, previewVi
       font-size: ${mobileSubheadingFontSize}px;
       line-height: ${mobileSubheadingLineHeight};
       text-align: ${mobileTextAlign};
-      color: ${effectiveMobileTextColor};
+      color: ${typographyColors.mobile.subheading};
     }
     
     .${instanceId}.mobile-preview .hero-content-text {
       font-size: ${mobileContentFontSize}px;
       line-height: ${mobileContentLineHeight};
       text-align: ${mobileTextAlign};
-      color: ${effectiveMobileTextColor};
+      color: ${typographyColors.mobile.content};
     }
     
     .${instanceId}.mobile-preview .hero-content-text p,
