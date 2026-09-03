@@ -33,6 +33,7 @@ import { useMemberGroupSettings } from "@/hooks/useMemberGroupSettings";
 import { buildTermSnapshot } from "@/lib/memberGroupTermSnapshot";
 import { roleNameKey, canonicalizeRoleName, collectTenantRoleNames, isEmptyRoleHtml, isEmptyRoleTermDef } from "@/lib/memberGroupRoleNames";
 import { resolveHideOnGroupPage } from "@/lib/memberGroupDirectory";
+import { buildAssignmentEditForm, buildAssignmentEditPayload, getAssignmentEditError } from "@/lib/memberGroupAssignmentEdit";
 import { createPageUrl } from "@/utils";
 import EventImageUpload from "@/components/events/EventImageUpload";
 import SimpleRichTextEditor from "@/components/SimpleRichTextEditor";
@@ -75,6 +76,9 @@ export default function MemberGroupManagementPage() {
   const [accessChecked, setAccessChecked] = useState(false);
   const [showGroupDialog, setShowGroupDialog] = useState(false);
   const [showAssignDialog, setShowAssignDialog] = useState(false);
+  const [editingAssignment, setEditingAssignment] = useState(null);
+  const [assignmentEditForm, setAssignmentEditForm] = useState(null);
+  const [assignmentEditError, setAssignmentEditError] = useState('');
   const [showInviteDialog, setShowInviteDialog] = useState(false);
   const [inviteGroup, setInviteGroup] = useState(null);
   const [inviteForm, setInviteForm] = useState({ member_id: '', role: '' });
@@ -503,6 +507,25 @@ export default function MemberGroupManagementPage() {
     onError: (error) => {
       toast.error('Failed to update group admin: ' + error.message);
     }
+  });
+
+  const updateAssignmentMutation = useMutation({
+    mutationFn: ({ id, data }) => base44.entities.MemberGroupAssignment.update(id, data),
+    onSuccess: async (updatedAssignment) => {
+      queryClient.setQueryData(['member-group-assignments'], (current = []) =>
+        current.map((assignment) =>
+          assignment.id === updatedAssignment.id ? { ...assignment, ...updatedAssignment } : assignment
+        )
+      );
+      await queryClient.invalidateQueries({ queryKey: ['member-group-assignments'] });
+      setEditingAssignment(null);
+      setAssignmentEditForm(null);
+      setAssignmentEditError('');
+      toast.success('Assignment details updated');
+    },
+    onError: (error) => {
+      setAssignmentEditError(getAssignmentEditError(error));
+    },
   });
 
   const { data: inviteData, isLoading: loadingInvites } = useQuery({
@@ -1315,6 +1338,22 @@ export default function MemberGroupManagementPage() {
     assignMemberMutation.mutate(data);
   };
 
+  const openAssignmentEdit = (assignment) => {
+    setEditingAssignment(assignment);
+    setAssignmentEditForm(buildAssignmentEditForm(assignment));
+    setAssignmentEditError('');
+  };
+
+  const handleUpdateAssignment = () => {
+    const result = buildAssignmentEditPayload(assignmentEditForm);
+    if (result.error) {
+      setAssignmentEditError(result.error);
+      return;
+    }
+    setAssignmentEditError('');
+    updateAssignmentMutation.mutate({ id: editingAssignment.id, data: result.payload });
+  };
+
   const openInviteDialog = (group) => {
     setInviteGroup(group);
     setInviteForm({ member_id: '', role: '' });
@@ -1527,7 +1566,7 @@ export default function MemberGroupManagementPage() {
   };
 
   const renderAssignmentRow = (assignment) => (
-    <div key={assignment.id} className="flex items-center justify-between text-xs bg-slate-50 p-2 rounded">
+    <div key={assignment.id} className="flex flex-wrap items-center justify-between gap-2 text-xs bg-slate-50 p-2 rounded">
       <div>
         <div className="font-medium text-slate-900 flex items-center gap-1">
           {getAssigneeName(assignment)}
@@ -1552,6 +1591,16 @@ export default function MemberGroupManagementPage() {
         )}
       </div>
       <div className="flex items-center gap-2">
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => openAssignmentEdit(assignment)}
+          className="h-7 px-2"
+          data-testid={`button-edit-assignment-${assignment.id}`}
+        >
+          <Pencil className="mr-1 h-3 w-3" />
+          Edit
+        </Button>
         <div className="flex items-center gap-1" title="Group Admin">
           <span className="text-slate-500">Admin</span>
           <Switch
@@ -3790,6 +3839,121 @@ export default function MemberGroupManagementPage() {
                 className="bg-blue-600 hover:bg-blue-700"
               >
                 Assign Member
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Edit Assignment Dialog */}
+        <Dialog
+          open={!!editingAssignment}
+          onOpenChange={(open) => {
+            if (!open && !updateAssignmentMutation.isPending) {
+              setEditingAssignment(null);
+              setAssignmentEditForm(null);
+              setAssignmentEditError('');
+            }
+          }}
+        >
+          <DialogContent className="max-w-lg">
+            <DialogHeader>
+              <DialogTitle>Edit assignment</DialogTitle>
+            </DialogHeader>
+            {editingAssignment && assignmentEditForm && (
+              <div className="space-y-4 py-2">
+                <div className="rounded-md bg-slate-50 p-3">
+                  <div className="font-medium text-slate-900">{getAssigneeName(editingAssignment)}</div>
+                  <div className="text-xs text-slate-500">
+                    {isAssignmentGuest(editingAssignment) ? 'Guest' : 'Member'} · Assignment details
+                  </div>
+                </div>
+                {assignmentEditError && (
+                  <div
+                    role="alert"
+                    className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700"
+                    data-testid="assignment-edit-error"
+                  >
+                    {assignmentEditError}
+                  </div>
+                )}
+                <div className="space-y-2">
+                  <Label>Role *</Label>
+                  <Select
+                    value={assignmentEditForm.group_role}
+                    onValueChange={(group_role) => setAssignmentEditForm({ ...assignmentEditForm, group_role })}
+                  >
+                    <SelectTrigger data-testid="select-edit-assignment-role">
+                      <SelectValue placeholder="Choose a role..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {(groups.find((group) => group.id === editingAssignment.group_id)?.roles || []).map((role) => (
+                        <SelectItem key={role} value={role}>{role}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="edit-assignment-expiry">Expiry date (optional)</Label>
+                  <div className="flex gap-2">
+                    <Input
+                      id="edit-assignment-expiry"
+                      type="date"
+                      value={assignmentEditForm.expires_at}
+                      onChange={(event) => setAssignmentEditForm({ ...assignmentEditForm, expires_at: event.target.value })}
+                      data-testid="input-edit-assignment-expiry"
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => setAssignmentEditForm({ ...assignmentEditForm, expires_at: '' })}
+                      disabled={!assignmentEditForm.expires_at}
+                    >
+                      Clear
+                    </Button>
+                  </div>
+                </div>
+                <div className="rounded-md border border-slate-200 p-3 space-y-3">
+                  <div>
+                    <Label>Recorded term details (optional)</Label>
+                    <p className="text-xs text-slate-500">These values belong to this assignment and do not change the role definition.</p>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <Label htmlFor="edit-assignment-term-start">Term start date</Label>
+                      <Input id="edit-assignment-term-start" type="date" value={assignmentEditForm.term_start_date}
+                        onChange={(event) => setAssignmentEditForm({ ...assignmentEditForm, term_start_date: event.target.value })} />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="edit-assignment-term-end">Term end date</Label>
+                      <Input id="edit-assignment-term-end" type="date" value={assignmentEditForm.term_end_date}
+                        onChange={(event) => setAssignmentEditForm({ ...assignmentEditForm, term_end_date: event.target.value })} />
+                    </div>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="edit-assignment-term-number">Term number</Label>
+                    <Input id="edit-assignment-term-number" className="w-28" type="number" min="1" step="1"
+                      value={assignmentEditForm.term_number}
+                      onChange={(event) => setAssignmentEditForm({ ...assignmentEditForm, term_number: event.target.value })} />
+                  </div>
+                </div>
+                <div className="flex items-center justify-between rounded-md border border-slate-200 p-3">
+                  <div>
+                    <Label htmlFor="edit-assignment-admin">Group Admin</Label>
+                    <p className="text-xs text-slate-500">Allow this person to administer the group.</p>
+                  </div>
+                  <Switch id="edit-assignment-admin" checked={assignmentEditForm.is_group_admin}
+                    onCheckedChange={(is_group_admin) => setAssignmentEditForm({ ...assignmentEditForm, is_group_admin })} />
+                </div>
+              </div>
+            )}
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setEditingAssignment(null)} disabled={updateAssignmentMutation.isPending}>
+                Cancel
+              </Button>
+              <Button onClick={handleUpdateAssignment}
+                disabled={updateAssignmentMutation.isPending || !assignmentEditForm?.group_role}
+                data-testid="button-save-assignment">
+                {updateAssignmentMutation.isPending ? 'Saving…' : 'Save changes'}
               </Button>
             </DialogFooter>
           </DialogContent>

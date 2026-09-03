@@ -11,6 +11,7 @@ import { checkBadgeWriteAccess } from '../../_lib/badgeAccess.js';
 import { isResourceEntity, authorizeGroupAdminResourceWrite } from '../../_lib/groupAdminResourceWrite.js';
 import { normalizeTenantFormResourceTarget } from '../../_lib/resourceFormTarget.js';
 import { isMemberGroupAssignmentEntity, authorizeMemberGroupAdminAssignmentChange } from '../../_lib/groupAdminAssignmentLeave.js';
+import { validateMemberGroupAssignmentPatch } from '../../_lib/memberGroupAssignmentValidation.js';
 import { getCallerGroupManageAccess, canManageGroup } from '../../_lib/memberGroupAdminAccess.js';
 import { getSession } from '../../_lib/session.js';
 import { getSessionPlatformOwner } from '../../_lib/platformSession.js';
@@ -1552,6 +1553,13 @@ export default async function handler(req, res) {
           if (Object.keys(sanitizedBody).length === 0) {
             return res.status(400).json({ error: 'No editable fields supplied' });
           }
+        }
+      }
+
+      if (isMemberGroupAssignmentEntity(entity)) {
+        const assignmentValidation = validateMemberGroupAssignmentPatch(sanitizedBody);
+        if (!assignmentValidation.ok) {
+          return res.status(400).json({ error: assignmentValidation.error });
         }
       }
 
