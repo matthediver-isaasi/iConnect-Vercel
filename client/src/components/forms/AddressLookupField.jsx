@@ -70,13 +70,13 @@ export default function AddressLookupField({ field, value, onChange, disabled, f
 
     const controller = new AbortController();
     abortRef.current = controller;
+    setLoading(true);
+    setError('');
+    setLookupUnavailable(false);
+    setResults([]);
+    setActiveIndex(-1);
     const timer = window.setTimeout(async () => {
       if (requestGeneration.current !== generation || controller.signal.aborted) return;
-      setLoading(true);
-      setError('');
-      setLookupUnavailable(false);
-      setResults([]);
-      setActiveIndex(-1);
       try {
         const response = await fetch('/api/public/address-lookup', {
           method: 'POST',
@@ -92,7 +92,11 @@ export default function AddressLookupField({ field, value, onChange, disabled, f
         });
         const body = await response.json().catch(() => ({}));
         if (requestGeneration.current !== generation || controller.signal.aborted) return;
-        if (!response.ok) throw new Error(body.error || 'Address lookup is currently unavailable.');
+        if (!response.ok) {
+          const responseError = new Error(body.error || 'Address lookup is currently unavailable.');
+          responseError.code = body.code;
+          throw responseError;
+        }
         const addresses = responseAddresses(body);
         resultsCache.current.set(normalizedPostcode, addresses);
         setResults(addresses);
@@ -105,7 +109,7 @@ export default function AddressLookupField({ field, value, onChange, disabled, f
           || controller.signal.aborted
         ) return;
         setError(lookupError.message || 'Address lookup is currently unavailable.');
-        setLookupUnavailable(true);
+        setLookupUnavailable(lookupError.code === 'ADDRESS_LOOKUP_UNAVAILABLE');
       } finally {
         if (
           abortRef.current === controller
@@ -116,7 +120,7 @@ export default function AddressLookupField({ field, value, onChange, disabled, f
           setLoading(false);
         }
       }
-    }, 350);
+    }, 100);
 
     return () => {
       window.clearTimeout(timer);
@@ -152,6 +156,16 @@ export default function AddressLookupField({ field, value, onChange, disabled, f
       setResults(cached);
       setActiveIndex(0);
     }
+  };
+  const enterManualAddress = () => {
+    requestGeneration.current += 1;
+    abortRef.current?.abort();
+    abortRef.current = null;
+    setLoading(false);
+    setResults([]);
+    setActiveIndex(-1);
+    if (postcode.trim() && !answer.postcode) update('postcode', postcode.trim());
+    setManual(true);
   };
   const handleKeyDown = event => {
     if (event.key === 'Enter' && normalizeUkPostcode(postcode)) {
@@ -195,11 +209,12 @@ export default function AddressLookupField({ field, value, onChange, disabled, f
           role="combobox"
           aria-autocomplete="list"
           aria-expanded={results.length > 0}
+          aria-busy={loading}
           aria-controls={results.length > 0 ? listboxId : undefined}
           aria-activedescendant={activeIndex >= 0 ? `${listboxId}-option-${activeIndex}` : undefined}
           data-testid={`input-address-lookup-postcode-${field.id}`}
         />
-        {loading && <Loader2 className="absolute right-3 top-2.5 h-4 w-4 animate-spin text-slate-400" aria-label="Looking up addresses" />}
+        {loading && <Loader2 className="absolute right-3 top-2.5 h-4 w-4 animate-spin text-slate-400" aria-hidden="true" />}
         {results.length > 0 && (
           <div
             id={listboxId}
@@ -231,13 +246,16 @@ export default function AddressLookupField({ field, value, onChange, disabled, f
           </div>
         )}
       </div>
+      {loading && (
+        <p className="flex items-center gap-2 text-sm text-slate-600" role="status" aria-live="polite">
+          <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+          Finding addresses…
+        </p>
+      )}
       {error && <p className="text-sm text-slate-500" role="status">{error}</p>}
       {manualAllowed && !manual && (
-        <Button type="button" variant="link" className="h-auto p-0 text-sm" onClick={() => {
-          if (postcode.trim() && !answer.postcode) update('postcode', postcode.trim());
-          setManual(true);
-        }} disabled={disabled}>
-          Enter address manually
+        <Button type="button" variant="link" className="h-auto p-0 text-sm" onClick={enterManualAddress} disabled={disabled}>
+          {loading ? 'Enter address manually instead' : 'Enter address manually'}
         </Button>
       )}
       {(manual || Object.values(answer).some(Boolean)) && (

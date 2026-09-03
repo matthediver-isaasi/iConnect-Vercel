@@ -20,6 +20,7 @@ test('address lookup derives tenant and form context instead of trusting a tenan
   assert.doesNotMatch(source, /req\.body\?\.tenant_id|req\.query\?\.tenant_id/);
   assert.match(source, /field\?\.type === 'address_lookup'/);
   assert.match(source, /String\(field\?\.id\) === fieldId/);
+  assert.match(source, /hasAuthCredentials\(req\) \? await getTenantContext\(req\) : null/);
 });
 
 test('address lookup rejects missing platform configuration and disabled tenants', () => {
@@ -32,7 +33,7 @@ test('address lookup rejects missing platform configuration and disabled tenants
 
 test('address lookup passes the secret only to the fixed provider helper and returns normalized data', () => {
   assert.match(source, /lookupIdealPostcodes\(postcode, process\.env\.IDEAL_POSTCODES_API_KEY\)/);
-  assert.match(source, /return res\.status\(200\)\.json\(\{ addresses \}\)/);
+  assert.match(source, /return respondJson\(200, \{ addresses \}, 'success'\)/);
   assert.doesNotMatch(source, /json\([^)]*IDEAL_POSTCODES_API_KEY/);
   assert.doesNotMatch(source, /return res\.[\s\S]{0,80}(?:error\?\.stack|error\?\.response|error\?\.url)/);
 });
@@ -42,13 +43,40 @@ test('address lookup consumes a durable tenant, form, and client rate limit befo
   assert.match(source, /p_tenant_id: tenantId/);
   assert.match(source, /p_form_id: form\.id/);
   assert.match(source, /p_client_key: trustedClientAddress\(req\)/);
-  assert.match(source, /status\(429\)/);
+  assert.match(source, /respondJson\(429/);
   assert.ok(
     source.indexOf('consume_address_lookup_rate_limit') < source.indexOf('lookupIdealPostcodes(postcode'),
     'rate limit must be consumed before the billable provider call',
   );
   assert.match(source, /req\.headers\['x-vercel-forwarded-for'\]/);
   assert.doesNotMatch(source, /req\.headers\['x-forwarded-for'\]|req\.headers\['x-real-ip'\]/);
+});
+
+test('independent access and integration checks run together before rate limiting', () => {
+  assert.match(source, /Promise\.all\(\[/);
+  assert.ok(
+    source.indexOf('Promise.all([') < source.indexOf('consume_address_lookup_rate_limit'),
+    'access and integration checks must complete before rate limiting',
+  );
+  assert.ok(
+    source.indexOf('consume_address_lookup_rate_limit') < source.indexOf('lookupIdealPostcodes(postcode'),
+    'provider access must remain behind the durable rate limit',
+  );
+});
+
+test('privacy-safe stage timing excludes request and address values', () => {
+  assert.match(source, /\[Address lookup timing\]/);
+  assert.match(source, /Server-Timing/);
+  assert.match(source, /timings\.provider/);
+  assert.match(source, /timings\.rateLimit/);
+  const timingLog = source.match(/console\.info\('\[Address lookup timing\]'[^\n]+/)?.[0] || '';
+  assert.match(timingLog, /\.\.\.timings, totalMs, outcome/);
+  assert.doesNotMatch(timingLog, /postcode|client_key|formId|tenantId/i);
+  assert.match(source, /respondJson\(429,[\s\S]*'rate_limited'\)/);
+  assert.match(source, /reportTimings\('access_denied'\)/);
+  assert.match(source, /respondJson\(403,[\s\S]*'integration_disabled'\)/);
+  assert.match(source, /respondJson\(200, \{ addresses \}, 'success'\)/);
+  assert.match(source, /respondJson\(502,[\s\S]*'unavailable'\)/);
 });
 
 test('durable lookup rate limit is atomic, hashed, and service-role only', () => {
