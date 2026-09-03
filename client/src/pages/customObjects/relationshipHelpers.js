@@ -119,6 +119,21 @@ export const relationshipSelectorKey = (definitionId, side) =>
 export const isRequiredInitialRelationship = (definition, newRecordSide) =>
   definition.is_required === true && newRecordSide === "source";
 
+// Relationship labels describe what is shown while viewing that endpoint.
+// Contextual creation therefore uses the new record's routed-side label, not
+// the opposite endpoint's label.
+export const initialRelationshipLabel = (definition, newRecordSide) =>
+  (newRecordSide === "source" ? definition.source_label : definition.target_label)
+  || "Related records";
+
+export const initialRelationshipAllowsMultiple = (definition, newRecordSide) => {
+  const cardinality = definition.cardinality || "many_to_many";
+  if (cardinality === "one_to_one") return false;
+  if (cardinality === "many_to_one") return newRecordSide === "target";
+  if (cardinality === "one_to_many") return newRecordSide === "source";
+  return true;
+};
+
 export const contextualRelationshipPayload = ({
   definitionId, originContext, originSide, relatedRecordId,
 }) => {

@@ -245,6 +245,19 @@ function throwDb(error, fallback = 'Database operation failed') {
   throw new CustomObjectHttpError(500, error.message || fallback);
 }
 
+function throwAtomicCreateDb(error) {
+  if (
+    error?.code === 'PGRST202'
+    || /create_custom_object_record_with_relationships.*(schema cache|could not find|does not exist)/i.test(error?.message || '')
+  ) {
+    throw new CustomObjectHttpError(
+      503,
+      'Contextual record creation is not available because the atomic database function is missing. Apply migration 20260925_custom_object_record_relationship_create.sql to the destination database and reload the PostgREST schema cache.',
+    );
+  }
+  throwDb(error);
+}
+
 function domainGuard(fn) {
   try {
     return fn();
@@ -730,7 +743,7 @@ export function createCustomObjectService({
       p_relationships: relationships,
       p_created_by: currentActorReference,
     }).single();
-    throwDb(error);
+    throwAtomicCreateDb(error);
     return data;
   }
 

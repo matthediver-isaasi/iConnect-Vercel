@@ -15,6 +15,8 @@ import {
   resolveRelationshipSourceObject,
   contextualCreateEligibility,
   initialRelationshipSelectors,
+  initialRelationshipLabel,
+  initialRelationshipAllowsMultiple,
   isRequiredInitialRelationship,
   relationshipSelectorKey,
 } from "./relationshipHelpers.js";
@@ -130,6 +132,21 @@ test("required initial relationships only apply when the new record is source", 
   const definition = { is_required: true };
   assert.equal(isRequiredInitialRelationship(definition, "source"), true);
   assert.equal(isRequiredInitialRelationship(definition, "target"), false);
+});
+
+test("initial relationship labels follow the new record side for both orientations", () => {
+  const definition = { source_label: "Members", target_label: "Organisation Department" };
+  assert.equal(initialRelationshipLabel(definition, "source"), "Members");
+  assert.equal(initialRelationshipLabel(definition, "target"), "Organisation Department");
+});
+
+test("initial relationship selection count follows cardinality from the new record side", () => {
+  assert.equal(initialRelationshipAllowsMultiple({ cardinality: "one_to_one" }, "source"), false);
+  assert.equal(initialRelationshipAllowsMultiple({ cardinality: "many_to_one" }, "source"), false);
+  assert.equal(initialRelationshipAllowsMultiple({ cardinality: "many_to_one" }, "target"), true);
+  assert.equal(initialRelationshipAllowsMultiple({ cardinality: "one_to_many" }, "source"), true);
+  assert.equal(initialRelationshipAllowsMultiple({ cardinality: "one_to_many" }, "target"), false);
+  assert.equal(initialRelationshipAllowsMultiple({ cardinality: "many_to_many" }, "target"), true);
 });
 
 test("self relationship selector keys preserve each legal side", () => {

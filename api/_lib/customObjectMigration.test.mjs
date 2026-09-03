@@ -133,4 +133,6 @@ test('dated atomic-create migration validates routed metadata and rolls record a
   assert.match(atomicCreateSql, /custom_object_endpoint_exists/);
   assert.match(atomicCreateSql, /custom_object_required_relationship_create/);
   assert.match(atomicCreateSql, /REVOKE ALL ON FUNCTION public\.create_custom_object_record_with_relationships/);
+  assert.match(atomicCreateSql, /GRANT EXECUTE ON FUNCTION public\.create_custom_object_record_with_relationships\(uuid, uuid, jsonb, jsonb, text\)[\s\S]*TO service_role/);
+  assert.match(atomicCreateSql, /NOTIFY pgrst, 'reload schema'/);
 });

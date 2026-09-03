@@ -326,6 +326,55 @@ test('atomic record creation routes an originating edge and additional edges thr
   }]);
 });
 
+test('missing atomic create RPC returns an actionable service error without non-transactional fallback', async () => {
+  const definitionId = '55555555-5555-4555-8555-555555555555';
+  const db = mockDb({
+    custom_object_definition: [object()],
+    preference_field: [field()],
+    custom_object_role_permission: [{
+      tenant_id: tenantId, custom_object_id: objectId, role_id: roleId,
+      can_view_records: true, can_create_records: true, can_edit_records: true,
+    }],
+    custom_object_relationship_definition: [{
+      id: definitionId, tenant_id: tenantId, status: 'active', cardinality: 'many_to_many',
+      source_kind: 'custom_object', source_custom_object_id: objectId,
+      target_kind: 'member', target_custom_object_id: null,
+      show_on_source: true, edit_from_source: true,
+    }],
+    member: [{ id: 'member-2', tenant_id: tenantId }],
+  });
+  const originalRpc = db.rpc;
+  db.rpc = (name, args) => {
+    if (name !== 'create_custom_object_record_with_relationships') return originalRpc(name, args);
+    db.calls.push({ type: 'rpc', name, args });
+    return {
+      async single() {
+        return {
+          data: null,
+          error: {
+            code: 'PGRST202',
+            message: 'Could not find the function public.create_custom_object_record_with_relationships in the schema cache',
+          },
+        };
+      },
+    };
+  };
+
+  await assert.rejects(
+    () => createCustomObjectService({ db, context: context(), isAdmin: true }).createRecordWithRelationships(objectId, {
+      data: { headcount: 4 },
+      initial_relationships: [{
+        relationship_definition_id: definitionId,
+        routed_side: 'source',
+        related_record_id: 'member-2',
+      }],
+    }),
+    (error) => error.status === 503
+      && /20260925_custom_object_record_relationship_create\.sql/.test(error.message),
+  );
+  assert.equal(db.tables.custom_object_record?.length || 0, 0);
+});
+
 test('originating relationship uses the existing core card metadata, not the new record metadata', async () => {
   const definitionId = '66666666-6666-4666-8666-666666666666';
   const db = mockDb({

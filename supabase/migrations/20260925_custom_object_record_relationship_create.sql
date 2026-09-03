@@ -142,3 +142,6 @@ REVOKE ALL ON FUNCTION public.create_custom_object_record_with_relationships(uui
   FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.create_custom_object_record_with_relationships(uuid, uuid, jsonb, jsonb, text)
   TO service_role;
+
+-- Make the newly created signature immediately discoverable by PostgREST.
+NOTIFY pgrst, 'reload schema';

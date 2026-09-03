@@ -3,13 +3,13 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { RecordFieldControl } from "./RecordFieldControls";
 import { buildRecordPayload, validateRecordValues } from "./recordHelpers";
 import { loadRelationshipDefinitions, relationshipRequest, relationshipRoutes } from "./relationshipApi";
-import { initialRelationshipSelectors, isRequiredInitialRelationship, oppositeSide, relationshipSelectorKey } from "./relationshipHelpers";
+import { initialRelationshipAllowsMultiple, initialRelationshipLabel, initialRelationshipSelectors, isRequiredInitialRelationship, oppositeSide, relationshipSelectorKey } from "./relationshipHelpers";
 
 const defaultsFor = (fields) => Object.fromEntries(fields.map((field) => [
   field.name,
@@ -37,10 +37,13 @@ function InitialRelationshipSelector({ selector, objectId, value, onChange, erro
     enabled: !fixed,
   });
   const entries = query.data?.data || [];
-  const label = side === "source" ? definition.target_label : definition.source_label;
-  if (fixed) return <p className="rounded-md border bg-slate-50 px-3 py-2 text-sm text-slate-600">{label || "Origin record"} will be linked when this record is created.</p>;
-  return <div><Label>{label || "Related record"}{required && <span className="ml-1 text-rose-600">*</span>}</Label><Select disabled={query.isLoading || query.isError || !entries.length} value={value || undefined} onValueChange={onChange}><SelectTrigger className="mt-2"><SelectValue placeholder={query.isLoading ? "Loading eligible records…" : query.isError ? "Records could not be loaded" : !entries.length ? "No eligible records" : "Choose a record"} /></SelectTrigger><SelectContent>{entries.map((entry) => <SelectItem key={entry.id} value={String(entry.id)}>{entry.primary_label || entry.display_value || entry.name || "Untitled record"}</SelectItem>)}</SelectContent></Select>{query.isLoading && <p className="mt-1 text-sm text-slate-500">Loading eligible records…</p>}{query.error && <p className="mt-1 text-sm text-rose-600">{query.error.message} <button className="underline" type="button" onClick={() => query.refetch()}>Retry</button></p>}{!query.isLoading && !query.error && !entries.length && <p className="mt-1 text-sm text-slate-500">No eligible records are available for this relationship.</p>}{error && <p className="mt-1 text-sm text-rose-600">{error}</p>}</div>;
+  const label = initialRelationshipLabel(definition, side);
+  const allowsMultiple = initialRelationshipAllowsMultiple(definition, side);
+  if (fixed) return <div className="rounded-md border bg-slate-50 px-3 py-2"><p className="text-sm font-medium text-slate-800">{label}</p><p className="mt-1 text-sm text-slate-600">This parent relationship is fixed and will be linked when the new record is created.</p></div>;
+  const selected = Array.isArray(value) ? value : [];
+  return <div><div className="flex items-center gap-2"><Label>{label}{required && <span className="ml-1 text-rose-600">*</span>}</Label><span className="text-xs text-slate-500">{required ? "Required" : "Optional"}</span></div><p className="mt-1 text-sm text-slate-500">{required ? `Choose ${allowsMultiple ? "at least one record" : "one record"} to create this required relationship.` : `Optionally select ${allowsMultiple ? "records" : "a record"} to link as initial ${label.toLowerCase()}. You can leave this empty.`}</p>{query.isLoading ? <p className="mt-2 text-sm text-slate-500">Loading eligible records…</p> : query.error ? <p className="mt-2 text-sm text-rose-600">{query.error.message} <button className="underline" type="button" onClick={() => query.refetch()}>Retry</button></p> : !entries.length ? <p className="mt-2 text-sm text-slate-500">No eligible records are available for this relationship.</p> : <div className="mt-2 max-h-48 space-y-1 overflow-y-auto rounded-md border p-2">{entries.map((entry) => { const id = String(entry.id); const checked = selected.includes(id); return <label key={id} className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-slate-50"><Checkbox checked={checked} onCheckedChange={(next) => onChange(next ? (allowsMultiple ? [...selected, id] : [id]) : selected.filter((item) => item !== id))} /><span>{entry.primary_label || entry.display_value || entry.name || "Untitled record"}</span></label>; })}</div>}{error && <p className="mt-1 text-sm text-rose-600">{error}</p>}</div>;
 }
+
 
 export function ContextualRecordCreateDialog({ originContext, originDefinition, originSide, targetObject, disabled = false }) {
   const [open, setOpen] = useState(false);
@@ -81,8 +84,8 @@ export function ContextualRecordCreateDialog({ originContext, originDefinition, 
     const fieldErrors = validateRecordValues(fields, values);
     for (const selector of selectors) {
       const key = relationshipSelectorKey(selector.definition.id, selector.side);
-      if (!selector.fixed && isRequiredInitialRelationship(selector.definition, selector.side) && !relationships[key])
-        fieldErrors[`relationship:${key}`] = `${selector.definition.source_label || selector.definition.target_label || "Relationship"} is required`;
+      if (!selector.fixed && isRequiredInitialRelationship(selector.definition, selector.side) && !(relationships[key]?.length))
+        fieldErrors[`relationship:${key}`] = `${initialRelationshipLabel(selector.definition, selector.side)} is required`;
     }
     setErrors(fieldErrors);
     if (Object.keys(fieldErrors).length) return;
@@ -94,7 +97,12 @@ export function ContextualRecordCreateDialog({ originContext, originDefinition, 
         related_record_id: originContext.recordId,
       },
       initial_relationships: [
-        ...selectors.filter((item) => !item.fixed && relationships[relationshipSelectorKey(item.definition.id, item.side)]).map(({ definition, side }) => ({ relationship_definition_id: definition.id, routed_side: side, related_record_id: relationships[relationshipSelectorKey(definition.id, side)] })),
+        ...selectors.filter((item) => !item.fixed).flatMap(({ definition, side }) =>
+          (relationships[relationshipSelectorKey(definition.id, side)] || []).map((relatedRecordId) => ({
+            relationship_definition_id: definition.id,
+            routed_side: side,
+            related_record_id: relatedRecordId,
+          }))),
       ],
     });
   };
@@ -103,5 +111,7 @@ export function ContextualRecordCreateDialog({ originContext, originDefinition, 
     if (fieldsQuery.error) fieldsQuery.refetch();
     if (definitionsQuery.error) definitionsQuery.refetch();
   };
-  return <Dialog open={open} onOpenChange={setOpen}><Button size="sm" variant="outline" disabled={disabled} onClick={() => setOpen(true)}><Plus className="mr-2 h-4 w-4" />Create {targetObject.singular_label || "record"}</Button><DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto"><DialogHeader><DialogTitle>Create {targetObject.singular_label || "record"}</DialogTitle><DialogDescription>The new record will be linked to this record.</DialogDescription></DialogHeader>{fieldsQuery.isLoading || definitionsQuery.isLoading ? <div className="grid h-40 place-items-center"><Loader2 className="h-5 w-5 animate-spin" /></div> : metadataError ? <div className="space-y-3 py-6 text-sm text-rose-700"><p>Creation details could not be loaded. {metadataError.message}</p><Button type="button" variant="outline" onClick={retryMetadata}>Retry</Button></div> : <form onSubmit={submit} className="space-y-5">{fields.map((field) => <div key={field.id}><Label>{field.label}{field.is_required && <span className="ml-1 text-rose-600">*</span>}</Label><div className="mt-2"><RecordFieldControl field={field} value={values[field.name]} onChange={(value) => { setValues((current) => ({ ...current, [field.name]: value })); setErrors((current) => ({ ...current, [field.name]: undefined })); }} /></div>{errors[field.name] && <p className="mt-1 text-sm text-rose-600">{errors[field.name]}</p>}</div>)}{errors._relationships && <p className="text-sm text-rose-600">{errors._relationships}</p>}{selectors.map((selector) => { const key = relationshipSelectorKey(selector.definition.id, selector.side); return <InitialRelationshipSelector key={key} selector={selector} objectId={targetObject.id} fixed={selector.fixed} value={relationships[key]} onChange={(value) => { setRelationships((current) => ({ ...current, [key]: value })); setErrors((current) => ({ ...current, [`relationship:${key}`]: undefined, _relationships: undefined })); }} error={errors[`relationship:${key}`]} />; })}<DialogFooter><Button type="button" variant="outline" onClick={() => setOpen(false)}>Cancel</Button><Button type="submit" disabled={create.isPending}>{create.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Create</Button></DialogFooter></form>}</DialogContent></Dialog>;
+  const fixedSelector = selectors.find((selector) => selector.fixed);
+  const additionalSelectors = selectors.filter((selector) => !selector.fixed);
+  return <Dialog open={open} onOpenChange={setOpen}><Button size="sm" variant="outline" disabled={disabled} onClick={() => setOpen(true)}><Plus className="mr-2 h-4 w-4" />Create {targetObject.singular_label || "record"}</Button><DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto"><DialogHeader><DialogTitle>Create {targetObject.singular_label || "record"}</DialogTitle><DialogDescription>Add the record details, then choose any initial relationships.</DialogDescription></DialogHeader>{fieldsQuery.isLoading || definitionsQuery.isLoading ? <div className="grid h-40 place-items-center"><Loader2 className="h-5 w-5 animate-spin" /></div> : metadataError ? <div className="space-y-3 py-6 text-sm text-rose-700"><p>Creation details could not be loaded. {metadataError.message}</p><Button type="button" variant="outline" onClick={retryMetadata}>Retry</Button></div> : <form onSubmit={submit} className="space-y-6"><section className="space-y-4"><div><h3 className="font-medium text-slate-900">Record details</h3><p className="text-sm text-slate-500">Fields stored on the new {targetObject.singular_label || "record"}.</p></div>{fields.map((field) => <div key={field.id}><Label>{field.label}{field.is_required && <span className="ml-1 text-rose-600">*</span>}</Label><div className="mt-2"><RecordFieldControl field={field} value={values[field.name]} onChange={(value) => { setValues((current) => ({ ...current, [field.name]: value })); setErrors((current) => ({ ...current, [field.name]: undefined })); }} /></div>{errors[field.name] && <p className="mt-1 text-sm text-rose-600">{errors[field.name]}</p>}</div>)}</section><section className="space-y-4 border-t pt-5"><div><h3 className="font-medium text-slate-900">Parent relationship</h3><p className="text-sm text-slate-500">The record you started from is linked automatically.</p></div>{fixedSelector && <InitialRelationshipSelector selector={fixedSelector} objectId={targetObject.id} fixed value={[]} onChange={() => {}} />}</section>{additionalSelectors.length > 0 && <section className="space-y-4 border-t pt-5"><div><h3 className="font-medium text-slate-900">Additional relationships</h3><p className="text-sm text-slate-500">These links are created at the same time as the new record.</p></div>{errors._relationships && <p className="text-sm text-rose-600">{errors._relationships}</p>}{additionalSelectors.map((selector) => { const key = relationshipSelectorKey(selector.definition.id, selector.side); return <InitialRelationshipSelector key={key} selector={selector} objectId={targetObject.id} value={relationships[key] || []} onChange={(value) => { setRelationships((current) => ({ ...current, [key]: value })); setErrors((current) => ({ ...current, [`relationship:${key}`]: undefined, _relationships: undefined })); }} error={errors[`relationship:${key}`]} />; })}</section>}<DialogFooter><Button type="button" variant="outline" onClick={() => setOpen(false)}>Cancel</Button><Button type="submit" disabled={create.isPending}>{create.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Create</Button></DialogFooter></form>}</DialogContent></Dialog>;
 }

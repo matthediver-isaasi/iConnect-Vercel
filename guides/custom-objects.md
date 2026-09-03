@@ -234,7 +234,7 @@ A relationship card offers **Create {singular label}** only when all of the foll
 
 The dialog loads only active fields and uses the target object's configured singular label. Field defaults, types, required rules, options, country restrictions, file settings, and length/selection limits use the same generated controls and validation as the full-page record form.
 
-The originating relationship is fixed and cannot be changed. Other active relationships visible and editable from the new record's side appear as metadata-driven selectors. Required source relationships must be selected before submission. Candidate reads use `initial-relationship-candidates`, which does not require a record ID because the record does not exist yet; it still excludes archived, cross-tenant, inaccessible, and candidate-side-cardinality-saturated endpoints.
+The dialog separates **Record details**, **Parent relationship**, and **Additional relationships**. The originating parent relationship is fixed, named with the label configured for the new record's routed side, and cannot be changed. Additional selectors use that same current-side label rule, are explicitly marked **Required** or **Optional**, and may select multiple initial links. Optional selectors—including a Department's **Members** selector—may remain empty; selected people are initial links and are not stored as the Department field value. Required source relationships must contain at least one selection before submission. Candidate reads use `initial-relationship-candidates`, which does not require a record ID because the record does not exist yet; it still excludes archived, cross-tenant, inaccessible, and candidate-side-cardinality-saturated endpoints.
 
 **Boundary:** contextual creation creates only the opposite Custom Object record. Core records can be the existing origin or an additional selected endpoint, but this flow never creates a Member, Organisation, Organisation Group, or other core record.
 
@@ -430,7 +430,7 @@ Database triggers propagate archives so active relationships are not silently or
 
 ### Atomic contextual creation
 
-The `create_custom_object_record_with_relationships` function is `SECURITY DEFINER`, has a fixed `search_path`, and is executable only by `service_role`. It derives the new record endpoint from the trusted object ID and accepts only a definition ID, new-record side, and related record ID for each edge. A failed insert or final required-relationship check rolls back the record, all earlier edges, and their trigger-created audit events.
+The `create_custom_object_record_with_relationships(uuid, uuid, jsonb, jsonb, text)` function is `SECURITY DEFINER`, has a fixed `search_path`, and is executable only by `service_role`. The dated migration is replay-safe and notifies PostgREST to reload its schema cache. It derives the new record endpoint from the trusted object ID and accepts only a definition ID, new-record side, and related record ID for each edge. A failed insert or final required-relationship check rolls back the record, all earlier edges, and their trigger-created audit events. The service never falls back to separate inserts: a missing RPC returns an actionable 503 so operators can apply the destination migration without risking orphan records.
 
 ### Public disclosure
 
@@ -572,6 +572,11 @@ Phase 2 must consume stable generic contracts rather than inspect JSON or add ex
 **Symptom:** The dialog retains its values and shows a field, relationship, permission, or conflict error.
 **Cause:** Required metadata is incomplete, a selected endpoint became unavailable, permissions changed, or a concurrent request consumed cardinality after candidates loaded.
 **Fix:** Correct the highlighted value or reload/reselect the candidate. No record or partial relationships were retained, so the same form can be retried safely.
+
+### Problem: Contextual creation reports a missing atomic database function
+**Symptom:** Saving returns HTTP 503 and names `20260925_custom_object_record_relationship_create.sql`.
+**Cause:** The destination database has not received the atomic-create migration, or PostgREST has not refreshed the five-argument function signature in its schema cache.
+**Fix:** Apply the dated migration to the destination database and verify `create_custom_object_record_with_relationships(uuid, uuid, jsonb, jsonb, text)` is executable by `service_role`. Do not replace it with client-side or server-side sequential inserts.
 
 ### Problem: Historic field value appears but cannot be edited
 **Symptom:** Read retains a key that write rejects.  
