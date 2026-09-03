@@ -36,6 +36,7 @@ import ArticleEditor from "./ArticleEditor";
 import ArticleView from "./ArticleView";
 
 import GalleryView from "./GalleryView";
+import GalleryDirectory from "./GalleryDirectory";
 
 import PublicAbout from "./PublicAbout";
 
@@ -514,6 +515,7 @@ const PAGES = {
     ArticleView: ArticleView,
     
     GalleryView: GalleryView,
+    GalleryDirectory: GalleryDirectory,
     
     PublicAbout: PublicAbout,
     
@@ -882,6 +884,9 @@ function _getCurrentPage(url) {
     if (urlParts.length >= 2 && urlParts[0].toLowerCase() === 'gallery') {
         return 'GalleryView';
     }
+    if (urlParts.length === 1 && urlParts[0]?.toLowerCase() === 'galleries') {
+        return 'GalleryDirectory';
+    }
     
     if (urlParts.length >= 2 && urlParts[0].toLowerCase() === 'help') {
         return 'HelpArticleView';
@@ -987,6 +992,7 @@ function PagesContent() {
                 <Route path="/articleeditor" element={<ArticleEditor />} />
                 
                 <Route path="/ArticleView" element={<ArticleView />} />
+                <Route path="/galleries" element={<GalleryDirectory />} />
                 <Route path="/gallery/:slug" element={<GalleryView />} />
                 
                 <Route path="/PublicAbout" element={<PublicAbout />} />

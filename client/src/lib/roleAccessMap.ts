@@ -376,6 +376,7 @@ export const ROLE_ACCESS_MAP: Module[] = [
         id: "content.gallery",
         label: "Photo Galleries",
         features: [
+          { id: "content.gallery.directory", label: "View Gallery Directory" },
           { id: "content.gallery.manage", label: "Create & Edit Galleries" },
           { id: "content.gallery.upload", label: "Upload Photos" },
           { id: "content.gallery.delete", label: "Delete Galleries & Photos" }
@@ -1373,6 +1374,8 @@ export const LEGACY_TO_NEW_MAPPING: Record<string, string> = {
   "page_admin_BriefSettings": "content.brief-settings",
   "page_PhotoGalleries": "content.gallery",
   "page_admin_PhotoGalleries": "content.gallery",
+  "page_GalleryDirectory": "content.gallery.directory",
+  "page_user_GalleryDirectory": "content.gallery.directory",
   "page_admin_CanvasLinksManager": "admin.canvas-links-manager",
   "membership.volunteer-board": "jobs.volunteer-board"
 };

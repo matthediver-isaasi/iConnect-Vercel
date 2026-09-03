@@ -13,7 +13,9 @@ CREATE TABLE IF NOT EXISTS gallery (
   tenant_id uuid NOT NULL,
   title text NOT NULL,
   description text,
+  slug text,
   is_public boolean NOT NULL DEFAULT false,
+  access_policy jsonb,
   cover_photo_id uuid,
   display_order integer NOT NULL DEFAULT 0,
   created_at timestamptz NOT NULL DEFAULT now(),
@@ -22,6 +24,7 @@ CREATE TABLE IF NOT EXISTS gallery (
 
 CREATE INDEX IF NOT EXISTS idx_gallery_tenant_id ON gallery(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_gallery_tenant_public ON gallery(tenant_id, is_public);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_gallery_tenant_slug ON gallery(tenant_id, slug) WHERE slug IS NOT NULL;
 
 ALTER TABLE gallery ENABLE ROW LEVEL SECURITY;
 

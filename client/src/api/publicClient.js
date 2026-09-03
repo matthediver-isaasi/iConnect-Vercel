@@ -746,6 +746,18 @@ class PublicClient {
     return this._fetch('/api/public/galleries');
   }
 
+  // Authorized gallery-directory feed. Access (including nested gallery
+  // audience rules) is decided by the server from the current session, never
+  // by a client-side filter.
+  async listGalleryDirectory(search = '') {
+    const params = new URLSearchParams();
+    if (typeof search === 'string' && search.trim()) params.set('search', search.trim());
+    const suffix = params.toString() ? `?${params.toString()}` : '';
+    return this._fetch(`/api/public/gallery-directory${suffix}`, {
+      credentials: 'include',
+    });
+  }
+
   // Single shareable gallery by URL handle (task #1456). Public galleries
   // return their photos plus a resolved `cover_photo` (from cover_photo_id,
   // falling back to the first photo by display order); private galleries
@@ -753,7 +765,9 @@ class PublicClient {
   async getGallery(slug, page = 1, limit = 24) {
     if (!slug) return null;
     const params = new URLSearchParams({ page: String(page), limit: String(limit) });
-    return this._fetch(`/api/public/gallery/${encodeURIComponent(slug)}?${params.toString()}`);
+    return this._fetch(`/api/public/gallery/${encodeURIComponent(slug)}?${params.toString()}`, {
+      credentials: 'include',
+    });
   }
 
   async listComplexEvents() {

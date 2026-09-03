@@ -1,10 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams, Link, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { base44 } from "@/api/base44Client";
 import { publicClient } from "@/api/publicClient";
 import { useLayoutContext } from "@/contexts/LayoutContext";
-import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useScreenReader } from "@/contexts/ScreenReaderContext";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -20,43 +18,22 @@ const PAGE_SIZE = 24;
 export default function GalleryViewPage() {
   const { slug } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { authResolved, sessionValidated } = useLayoutContext();
-  const { memberInfo } = useMemberAccess();
+  const { authResolved } = useLayoutContext();
   const { optimised: srOptimised } = useScreenReader();
-
-  const isAuthenticated = sessionValidated && !!memberInfo;
 
   const page = Math.max(1, parseInt(searchParams.get("page"), 10) || 1);
 
   const [openGallery, setOpenGallery] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
 
-  // Hybrid loading: logged-in viewers use the authenticated entity API (which
-  // returns public AND private galleries they may view); anonymous viewers use
-  // the public endpoint, which hides photos for private galleries and tells us
-  // where to send the visitor to log in. Both paths fetch only the current
-  // page of photos plus an exact total count so we can render page controls.
+  // The gallery endpoint is authoritative for both anonymous and signed-in
+  // viewers. In particular, do not infer access from a client-side entity
+  // listing: audience rules are evaluated by the endpoint using the session.
   const { data, isLoading, isFetching } = useQuery({
-    queryKey: ["gallery-by-slug", slug, isAuthenticated, page],
+    queryKey: ["gallery-by-slug", slug, page],
     enabled: authResolved && !!slug,
     placeholderData: (prev) => prev,
     queryFn: async () => {
-      if (isAuthenticated) {
-        const galleries = (await base44.entities.Gallery.list("display_order")) || [];
-        const gallery = galleries.find((g) => g.slug === slug);
-        if (!gallery) return { gallery: null, isLocked: false, totalPhotos: 0 };
-        const result = await base44.entities.GalleryPhoto.list({
-          filter: { gallery_id: gallery.id },
-          sort: { display_order: "asc", created_at: "asc" },
-          limit: PAGE_SIZE,
-          offset: (page - 1) * PAGE_SIZE,
-          queryParams: { count: "exact" },
-        });
-        const photos = Array.isArray(result?.data) ? result.data : [];
-        const totalPhotos = Number.isFinite(result?.count) ? result.count : photos.length;
-        return { gallery: { ...gallery, photos }, isLocked: false, totalPhotos };
-      }
-
       try {
         const result = await publicClient.getGallery(slug, page, PAGE_SIZE);
         if (!result) return { gallery: null, isLocked: false, totalPhotos: 0 };

@@ -61,6 +61,7 @@ export default async function handler(req, res) {
         .from('gallery_photo')
         .select('id, gallery_id, file_url, storage_path, bucket, caption, alt_text, display_order, created_at')
         .in('gallery_id', galleryIds)
+        .eq('tenant_id', tenant.id)
         .order('display_order', { ascending: true })
         .order('created_at', { ascending: true })
         .range(offset, offset + PHOTO_PAGE_SIZE - 1);
@@ -101,7 +102,8 @@ export default async function handler(req, res) {
       const { data: coverRows, error: cErr } = await supabase
         .from('gallery_photo')
         .select('id, gallery_id, file_url, storage_path, bucket, caption, alt_text, display_order, created_at')
-        .in('id', coverPhotoIds);
+        .in('id', coverPhotoIds)
+        .eq('tenant_id', tenant.id);
       if (cErr) {
         console.error('[Public Galleries] Cover photos query error:', cErr);
       } else {

@@ -42,6 +42,7 @@ const LEGACY_ID_SNAPSHOT: Record<string, string> = {
   page_BriefManagement: "publications.briefmanagement",
   page_BriefSettings: "content.brief-settings",
   page_PhotoGalleries: "content.gallery",
+  page_GalleryDirectory: "content.gallery.directory",
   page_EventCheckIn: "events.event-checkin",
   page_user_CPDCertificateTemplates: "cpd.certificate-templates",
   page_admin_CPDCertificateTemplates: "cpd.certificate-templates",
@@ -119,6 +120,14 @@ test("CPD certificate templates are a dedicated main portal capability", () => {
     true,
     "excluding the CPD portal module must gate certificate-template management",
   );
+});
+
+test("gallery directory is a separately controllable gallery capability", () => {
+  const content = ROLE_ACCESS_MAP.find((module) => module.id === "content");
+  const gallery = content?.pages.find((page) => page.id === "content.gallery");
+  assert.ok(gallery?.features?.some((feature) => feature.id === "content.gallery.directory"));
+  assert.equal(migrateLegacyFeatureId("page_GalleryDirectory"), "content.gallery.directory");
+  assert.equal(migrateLegacyFeatureId("page_user_GalleryDirectory"), "content.gallery.directory");
 });
 
 test("every LEGACY_TO_NEW_MAPPING target is a real resource in ROLE_ACCESS_MAP", () => {

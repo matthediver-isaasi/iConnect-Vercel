@@ -1,8 +1,10 @@
 import { supabase } from '../../_lib/database.js';
 import { resolveTenantFromRequest } from '../../_lib/tenantResolver.js';
+import { getTenantContext, hasFeatureAccess } from '../../_lib/tenantContext.js';
+import { evaluateGalleryAccessPolicy } from '../../_lib/galleryAccessPolicy.js';
 
 const PUBLIC_GALLERY_COLUMNS =
-  'id, title, description, slug, is_public, cover_photo_id, display_order, tenant_id';
+  'id, title, description, slug, is_public, cover_photo_id, display_order, tenant_id, access_policy';
 const PUBLIC_PHOTO_COLUMNS =
   'id, gallery_id, file_url, storage_path, bucket, caption, alt_text, display_order, created_at';
 
@@ -62,6 +64,31 @@ export default async function handler(req, res) {
       return res.status(404).json({ error: 'Gallery not found' });
     }
 
+    // A public slug is public. A members-only slug is evaluated against the
+    // current session before *any* gallery metadata/photos are returned.
+    const tenantContext = await getTenantContext(req);
+    if (tenantContext.tenantMismatch) return res.status(404).json({ error: 'Gallery not found' });
+    const isManager = !!tenantContext.tenantUserId
+      || (tenantContext.roleId && await hasFeatureAccess(tenantContext.roleId, 'content.gallery.manage'));
+    if (!gallery.is_public) {
+      if (!tenantContext.isAuthenticated) {
+        const tenantDomain = tenant.domain || `${tenant.slug}.iconn.app`;
+        return res.json({
+          is_locked: true,
+          photos: [],
+          total_photos: 0,
+          login_redirect_url: `https://${tenantDomain}/login?returnTo=${encodeURIComponent(`/gallery/${encodeURIComponent(String(slug))}`)}`,
+        });
+      }
+      const access = await evaluateGalleryAccessPolicy({
+        supabase, tenantId: tenant.id, memberId: tenantContext.memberId,
+        roleId: tenantContext.roleId, policy: gallery.access_policy, isManager,
+      });
+      // Deliberately indistinguishable from a missing slug to avoid private
+      // title/description/cover metadata discovery by authenticated members.
+      if (!access.allowed) return res.status(404).json({ error: 'Gallery not found' });
+    }
+
     const base = {
       id: gallery.id,
       title: gallery.title,
@@ -71,25 +98,11 @@ export default async function handler(req, res) {
       cover_photo_id: gallery.cover_photo_id,
     };
 
-    // Private gallery: don't return photos to anonymous viewers. The client
-    // sends them to login and back via the authenticated path.
-    if (!gallery.is_public) {
-      const tenantDomain = tenant.domain || `${tenant.slug}.iconn.app`;
-      return res.json({
-        ...base,
-        is_locked: true,
-        photos: [],
-        total_photos: 0,
-        login_redirect_url: `https://${tenantDomain}/login?returnTo=${encodeURIComponent(
-          `/gallery/${gallery.slug}`
-        )}`,
-      });
-    }
-
     const { data: photos, error: pErr, count } = await supabase
       .from('gallery_photo')
       .select(PUBLIC_PHOTO_COLUMNS, { count: 'exact' })
       .eq('gallery_id', gallery.id)
+      .eq('tenant_id', tenant.id)
       .order('display_order', { ascending: true })
       .order('created_at', { ascending: true })
       .range(from, to);
@@ -113,6 +126,7 @@ export default async function handler(req, res) {
           .from('gallery_photo')
           .select(PUBLIC_PHOTO_COLUMNS)
           .eq('gallery_id', gallery.id)
+          .eq('tenant_id', tenant.id)
           .eq('id', gallery.cover_photo_id)
           .maybeSingle();
         cover_photo = coverRow || null;
@@ -124,6 +138,7 @@ export default async function handler(req, res) {
         .from('gallery_photo')
         .select(PUBLIC_PHOTO_COLUMNS)
         .eq('gallery_id', gallery.id)
+        .eq('tenant_id', tenant.id)
         .order('display_order', { ascending: true })
         .order('created_at', { ascending: true })
         .limit(1)

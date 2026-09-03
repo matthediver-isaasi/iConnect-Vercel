@@ -247,6 +247,7 @@ export const FEATURE_TO_PAGE = {
   "content.briefs.upload-draft": "content.briefs",
   "content.briefs.review-comments": "content.briefs",
   "content.briefs.delete": "content.briefs",
+  "content.gallery.directory": "content.gallery",
   "content.gallery.manage": "content.gallery",
   "content.gallery.upload": "content.gallery",
   "content.gallery.delete": "content.gallery",
@@ -424,6 +425,7 @@ export const RESOURCE_TO_MODULE = {
   "content.briefs.delete": "content",
   "content.brief-settings": "content",
   "content.gallery": "content",
+  "content.gallery.directory": "content",
   "content.gallery.manage": "content",
   "content.gallery.upload": "content",
   "content.gallery.delete": "content",
@@ -834,6 +836,8 @@ export const LEGACY_TO_NEW_MAPPING = {
   "page_admin_BriefSettings": "content.brief-settings",
   "page_PhotoGalleries": "content.gallery",
   "page_admin_PhotoGalleries": "content.gallery",
+  "page_GalleryDirectory": "content.gallery.directory",
+  "page_user_GalleryDirectory": "content.gallery.directory",
   "page_admin_CanvasLinksManager": "admin.canvas-links-manager",
   "membership.volunteer-board": "jobs.volunteer-board"
 };

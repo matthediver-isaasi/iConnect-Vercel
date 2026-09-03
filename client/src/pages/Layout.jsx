@@ -1441,7 +1441,7 @@ useEffect(() => {
   // Hybrid pages that work both as public (for non-members) and portal (for members)
   // "_DynamicPage" is a special marker for CMS pages (e.g. /homely) that handle their own auth
   // "HomePageRedirect" handles the root path "/" and can show either a public IEdit page or Events
-  const hybridPages = ["PostJob", "ArticleView", "GalleryView", "NewsView", "icontent", "ViewPage", "OrganisationDirectory", "JobBoard", "JobDetails", "JobPostSuccess", "_DynamicPage", "HomePageRedirect", "Events", "EventDetails", "ComplexEventDetail", "FormView", "Resources"];
+  const hybridPages = ["PostJob", "ArticleView", "GalleryDirectory", "GalleryView", "NewsView", "icontent", "ViewPage", "OrganisationDirectory", "JobBoard", "JobDetails", "JobPostSuccess", "_DynamicPage", "HomePageRedirect", "Events", "EventDetails", "ComplexEventDetail", "FormView", "Resources"];
   
   const adminPages = ["AdminSetup", "RoleManagement", "RoleAccessConfigManagement", "MemberRoleAssignment", "TeamMemberManagement", "CustomObjectsAdmin", "DiscountCodeManagement", "EventSettings", "CancellationRequests", "TicketSalesAnalytics", "PendingPurchaseOrdersReport", "MonthlyFinanceReport", "EventRegistrationReport", "EventBudgetReport", "SurveyReports", "OrganisationEngagementReport", "AIReports", "AccessibilityAudits", "MembershipTierManagement", "MembershipSettings", "ResourceSettings", "ResourceManagement", "TagManagement", "ResourceAuthorSettings", "TourManagement", "FileManagement", "JobPostingManagement", "JobBoardSettings", "IEditPageManagement", "IEditTemplateManagement", "PageBannerManagement", "NavigationManagement", "MemberHandleManagement", "ButtonElements", "ButtonStyleManagement", "AwardManagement", "WallOfFameManagement", "TeamInviteSettings", "FormManagement", "FormSubmissions", "FloaterManagement", "MemberDirectorySettings", "SupportManagement", "PageVisibilitySettings", "CreateComplexEvent", "PhotoGalleries", "EventCheckIn", "EventCheckInDashboard", "CanvasLinksManager"];
 
@@ -1610,6 +1610,7 @@ useEffect(() => {
     'ForumManagement': 'page_admin_ForumManagement',
     'CreateComplexEvent': 'page_admin_ComplexEvents',
     'PhotoGalleries': 'page_admin_PhotoGalleries',
+    'GalleryDirectory': 'content.gallery.directory',
   };
 
   // Helper function to check if current page is excluded

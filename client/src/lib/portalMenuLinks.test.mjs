@@ -155,6 +155,23 @@ test('external permission fallback is stable and title-based', () => {
   );
 });
 
+test('gallery directory is available as a built-in portal destination', () => {
+  const source = readFileSync(path.join(here, '../pages/PortalMenuManagement.jsx'), 'utf8');
+  assert.match(
+    source,
+    /\{\s*value:\s*"GalleryDirectory",\s*label:\s*"Gallery Directory"\s*\}/,
+  );
+});
+
+test('gallery directory is registered and classified as a hybrid route', () => {
+  const pageRegistry = readFileSync(path.join(here, '../pages/index.jsx'), 'utf8');
+  const layout = readFileSync(path.join(here, '../pages/Layout.jsx'), 'utf8');
+  assert.match(pageRegistry, /GalleryDirectory:\s*GalleryDirectory/);
+  assert.match(pageRegistry, /<Route path="\/galleries" element=\{<GalleryDirectory \/>}/);
+  assert.match(layout, /hybridPages = \[[^\]]*"GalleryDirectory"/);
+  assert.match(layout, /'GalleryDirectory': 'content\.gallery\.directory'/);
+});
+
 test('every portal sidebar leaf renderer uses the shared destination-aware link', () => {
   const layoutSource = readFileSync(path.join(here, '../pages/Layout.jsx'), 'utf8');
   const topLevelUses = layoutSource.match(/<PortalNavLink\s+[^>]*destination=\{item\}/g) || [];

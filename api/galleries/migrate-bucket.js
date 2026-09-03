@@ -13,7 +13,7 @@
  */
 
 import { supabase } from '../_lib/database.js';
-import { getTenantContext } from '../_lib/tenantContext.js';
+import { getTenantContext, hasFeatureAccess } from '../_lib/tenantContext.js';
 
 const BUCKETS = {
   PUBLIC: 'public-assets',
@@ -61,7 +61,13 @@ async function migratePhoto(photo, targetBucket) {
     .remove([path]);
 
   if (delErr) {
-    console.warn('[GalleryMigrate] Failed to delete source object:', delErr.message);
+    // Never advance the database row or gallery visibility while the source
+    // object still exists. This is security-critical for public-to-private
+    // transitions because an orphan in public-assets remains directly
+    // reachable even after the gallery policy becomes restricted. The copied
+    // target is safe to leave in place: a retry treats "already exists" as a
+    // successful copy and retries this source deletion.
+    return { error: delErr.message || 'source delete failed' };
   }
 
   const newUrl =
@@ -99,6 +105,9 @@ export default async function handler(req, res) {
     if (!tenantContext.isAuthenticated || !tenantContext.tenantId) {
       return res.status(401).json({ error: 'Authentication required' });
     }
+    const canManageGallery = !!tenantContext.tenantUserId
+      || (tenantContext.roleId && await hasFeatureAccess(tenantContext.roleId, 'content.gallery.manage'));
+    if (!canManageGallery) return res.status(403).json({ error: 'Gallery management access required' });
 
     const { gallery_id, target_is_public } = req.body || {};
     if (!gallery_id) {
@@ -119,16 +128,34 @@ export default async function handler(req, res) {
       return res.status(403).json({ error: 'Access denied' });
     }
 
-    // Caller may pass an explicit target so we can migrate BEFORE flipping
-    // is_public on the gallery row (leak-safe ordering for public->private).
-    const effectiveIsPublic =
-      typeof target_is_public === 'boolean' ? target_is_public : gallery.is_public;
+    if (typeof target_is_public !== 'boolean') {
+      return res.status(400).json({ error: 'target_is_public must be a boolean' });
+    }
+    const effectiveIsPublic = target_is_public;
     const targetBucket = effectiveIsPublic ? BUCKETS.PUBLIC : BUCKETS.PRIVATE;
+    const changingVisibility = gallery.is_public !== effectiveIsPublic;
+
+    // Private -> public is deliberately flipped first. Any failed copy leaves
+    // an intended-public photo unavailable behind secure storage, rather than
+    // exposing a restricted photo. Re-running this endpoint resumes the moves.
+    if (changingVisibility && effectiveIsPublic) {
+      const { data: updatedGallery, error: visibilityError } = await supabase
+        .from('gallery')
+        .update({ is_public: true, access_policy: null })
+        .eq('id', gallery_id)
+        .eq('tenant_id', tenantContext.tenantId)
+        .select('id, tenant_id, is_public, access_policy')
+        .single();
+      if (visibilityError || !updatedGallery) {
+        return res.status(500).json({ error: 'Failed to make gallery public; no photos were moved' });
+      }
+    }
 
     const { data: photos, error: pErr } = await supabase
       .from('gallery_photo')
       .select('id, bucket, storage_path')
-      .eq('gallery_id', gallery_id);
+      .eq('gallery_id', gallery_id)
+      .eq('tenant_id', tenantContext.tenantId);
 
     if (pErr) {
       return res.status(500).json({ error: 'Failed to load photos' });
@@ -149,8 +176,54 @@ export default async function handler(req, res) {
       }
     }
 
+    if (failed) {
+      return res.status(409).json({
+        error: `Migration incomplete: ${failed} photo${failed === 1 ? '' : 's'} could not be moved. Retry to resume.`,
+        success: false,
+        visibility_changed: changingVisibility && effectiveIsPublic,
+        target_bucket: targetBucket,
+        total: photos?.length || 0,
+        migrated,
+        skipped,
+        failed,
+        errors,
+      });
+    }
+
+    // Public -> private is flipped only after every photo is private. If this
+    // update fails, the gallery remains public while some files are withheld;
+    // it never becomes private while public assets remain, and retry is safe.
+    let resultingGallery = gallery;
+    if (changingVisibility && !effectiveIsPublic) {
+      const { data: updatedGallery, error: visibilityError } = await supabase
+        .from('gallery')
+        .update({ is_public: false })
+        .eq('id', gallery_id)
+        .eq('tenant_id', tenantContext.tenantId)
+        .select('id, tenant_id, is_public, access_policy')
+        .single();
+      if (visibilityError || !updatedGallery) {
+        return res.status(409).json({
+          error: 'Photos were secured but gallery visibility could not be updated. Retry to complete the transition.',
+          success: false,
+          visibility_changed: false,
+          target_bucket: targetBucket,
+          total: photos?.length || 0,
+          migrated,
+          skipped,
+          failed: 0,
+          errors: [],
+        });
+      }
+      resultingGallery = updatedGallery;
+    } else if (changingVisibility) {
+      resultingGallery = { ...gallery, is_public: true, access_policy: null };
+    }
+
     return res.json({
-      success: failed === 0,
+      success: true,
+      gallery: resultingGallery,
+      visibility_changed: changingVisibility,
       target_bucket: targetBucket,
       total: photos?.length || 0,
       migrated,

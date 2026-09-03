@@ -153,3 +153,4 @@
 - [Reusable Canvas footer fallback](canvas-footer-fallback.md) — explicit source modes retain dormant legacy config; inherit must ignore microsite overrides, while invalid Canvas choices fall back safely.
 - [Automatic-group source invalidation](automatic-group-source-invalidation.md) — source writes must generation-fence workers; custom values need direct statement triggers to avoid per-row churn.
 - [Legacy transition-row types](legacy-transition-row-types.md) — never materialize whole transition rows on long-lived tables; dropped attributes can break composites only on the real schema.
+- [Gallery visibility and storage](gallery-visibility-storage.md) — gallery public/private transitions must be server-owned and ordered with bucket moves so policy changes cannot leave public objects exposed.

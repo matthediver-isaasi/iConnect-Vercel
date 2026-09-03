@@ -71,6 +71,7 @@ import {
   authorizeAnswerDrivenMemberRoleWrite,
   validateFormMemberRoleAssignments,
 } from '../../_lib/formMemberRoleAssignment.js';
+import { evaluateGalleryAccessPolicy, validateGalleryAccessPolicy } from '../../_lib/galleryAccessPolicy.js';
 
 /**
  * Task #3100: support staff = tenant users (admin dashboard), tenant admins,
@@ -315,6 +316,15 @@ export default async function handler(req, res) {
 
   // Get tenant context from session
   const tenantCtx = await getTenantContext(req);
+
+  // Gallery configuration and files change who can view private media. This
+  // is a server authorization boundary, not a client page/role-map concern.
+  if ((entityNorm === 'gallery' || entityNorm === 'galleryphoto') && req.method !== 'GET') {
+    if (!tenantCtx.isAuthenticated) return res.status(401).json({ error: 'Authentication required' });
+    const canManageGallery = !!tenantCtx.tenantUserId
+      || (tenantCtx.roleId && await hasFeatureAccess(tenantCtx.roleId, 'content.gallery.manage'));
+    if (!canManageGallery) return res.status(403).json({ error: 'Gallery management access required' });
+  }
 
   if (entityNorm === 'role' && req.method !== 'GET') {
     const roleAccess = await checkRoleMutationAccess(tenantCtx, hasAdminAccess);
@@ -634,6 +644,32 @@ export default async function handler(req, res) {
       let query = supabase
         .from(tableName)
         .select(expand || '*', wantsCount ? { count: 'exact' } : undefined);
+
+      // Resolve gallery access before adding pagination/count clauses. Applying
+      // this boundary after fetching would expose an incorrect total and could
+      // produce empty pages containing only rows the member cannot read.
+      if (entityNorm === 'gallery' || entityNorm === 'galleryphoto') {
+        const galleryTenantId = tenantCtx.effectiveTenantId || tenantCtx.tenantId;
+        const isManager = !!tenantCtx.tenantUserId
+          || (tenantCtx.roleId && await hasFeatureAccess(tenantCtx.roleId, 'content.gallery.manage'));
+        const galleryLookup = await supabase.from('gallery').select('id, access_policy')
+          .eq('tenant_id', galleryTenantId);
+        if (galleryLookup.error) return res.status(500).json({ error: 'Failed to validate gallery access' });
+        const allowedGalleryIds = [];
+        for (const gallery of galleryLookup.data || []) {
+          const access = await evaluateGalleryAccessPolicy({
+            supabase, tenantId: galleryTenantId, memberId: tenantCtx.memberId,
+            roleId: tenantCtx.roleId, policy: gallery.access_policy, isManager,
+          });
+          if (access.allowed) allowedGalleryIds.push(gallery.id);
+        }
+        // Supabase's in() cannot represent an empty list safely. Return the
+        // normal exact-count shape without ever issuing an unscoped query.
+        if (!allowedGalleryIds.length) {
+          return wantsCount ? res.json({ data: [], count: 0 }) : res.json([]);
+        }
+        query = query.in(entityNorm === 'gallery' ? 'id' : 'gallery_id', allowedGalleryIds);
+      }
 
       // Existing core-field callers must not gain an implicit schema-discovery
       // path for Custom Objects. Dedicated object services apply permissions.
@@ -1273,6 +1309,17 @@ export default async function handler(req, res) {
       const sanitizedBody = entityNorm === 'jobposting'
         ? stripManagedJobProvenance(req.body)
         : { ...req.body };
+
+      if (entityNorm === 'gallery' && Object.prototype.hasOwnProperty.call(sanitizedBody, 'access_policy')) {
+        const policy = await validateGalleryAccessPolicy({
+          supabase,
+          tenantId: tenantCtx.effectiveTenantId || tenantCtx.tenantId,
+          policy: sanitizedBody.access_policy,
+        });
+        if (!policy.ok) return res.status(400).json({ error: policy.error });
+        // Persist only the canonical, validated representation.
+        sanitizedBody.access_policy = policy.policy;
+      }
 
       if (entityNorm === 'role'
         && Object.prototype.hasOwnProperty.call(sanitizedBody, 'assignable_role_ids')) {

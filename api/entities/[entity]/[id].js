@@ -71,6 +71,7 @@ import {
   authorizeAnswerDrivenMemberRoleWrite,
   validateFormMemberRoleAssignments,
 } from '../../_lib/formMemberRoleAssignment.js';
+import { evaluateGalleryAccessPolicy, validateGalleryAccessPolicy } from '../../_lib/galleryAccessPolicy.js';
 const entityToTable = {
   'Gallery': 'gallery',
   'GalleryPhoto': 'gallery_photo',
@@ -243,6 +244,21 @@ export default async function handler(req, res) {
   let allowsTenantWideAccess = false;
 
   const entityNorm = entity.replace(/[-_]/g, '').toLowerCase();
+  if ((entityNorm === 'gallery' || entityNorm === 'galleryphoto') && req.method !== 'GET') {
+    if (!tenantCtx.isAuthenticated) return res.status(401).json({ error: 'Authentication required' });
+    const canManageGallery = !!tenantCtx.tenantUserId
+      || (tenantCtx.roleId && await hasFeatureAccess(tenantCtx.roleId, 'content.gallery.manage'));
+    if (!canManageGallery) return res.status(403).json({ error: 'Gallery management access required' });
+  }
+  // Visibility and storage location are a single server-authoritative
+  // transition. A generic write could make a private gallery point at public
+  // assets, so it must never change this flag.
+  if (entityNorm === 'gallery' && (req.method === 'PATCH' || req.method === 'PUT')
+    && Object.prototype.hasOwnProperty.call(req.body || {}, 'is_public')) {
+    return res.status(400).json({
+      error: 'Gallery visibility must be changed with /api/galleries/migrate-bucket',
+    });
+  }
   if (entityNorm === 'role' && req.method !== 'GET') {
     const roleAccess = await checkRoleMutationAccess(tenantCtx, hasAdminAccess);
     if (!roleAccess.ok) {
@@ -566,6 +582,23 @@ export default async function handler(req, res) {
         }
       }
 
+      if (entityNorm === 'gallery' || entityNorm === 'galleryphoto') {
+        const isManager = !!tenantCtx.tenantUserId
+          || (tenantCtx.roleId && await hasFeatureAccess(tenantCtx.roleId, 'content.gallery.manage'));
+        let galleryRow = data;
+        if (entityNorm === 'galleryphoto') {
+          const lookup = await supabase.from('gallery').select('id, access_policy')
+            .eq('id', data.gallery_id).eq('tenant_id', tenantCtx.effectiveTenantId || tenantCtx.tenantId).maybeSingle();
+          galleryRow = lookup.data;
+        }
+        const access = await evaluateGalleryAccessPolicy({
+          supabase, tenantId: tenantCtx.effectiveTenantId || tenantCtx.tenantId,
+          memberId: tenantCtx.memberId, roleId: tenantCtx.roleId,
+          policy: galleryRow?.access_policy, isManager,
+        });
+        if (!galleryRow || !access.allowed) return res.status(404).json({ error: 'Not found' });
+      }
+
       // SECURITY (Task #1421): group-linked forum categories/threads/posts are
       // private to their group's members. Deny by-id access to non-privileged
       // callers who are not in the owning group. Mirrors the list-endpoint guard.
@@ -621,6 +654,14 @@ export default async function handler(req, res) {
     } else if (req.method === 'PATCH') {
       // Normalize entity name for comparison (handles both PascalCase and slug-case)
       const entityNormalized = entity.replace(/[-_]/g, '').toLowerCase();
+
+      if (entityNormalized === 'gallery' && Object.prototype.hasOwnProperty.call(req.body || {}, 'access_policy')) {
+        const policy = await validateGalleryAccessPolicy({
+          supabase, tenantId: tenantCtx.effectiveTenantId || tenantCtx.tenantId, policy: req.body.access_policy,
+        });
+        if (!policy.ok) return res.status(400).json({ error: policy.error });
+        req.body.access_policy = policy.policy;
+      }
 
       // Feed-owned job postings are updated only by their synchronizer. Keeping
       // this guard in the entity API prevents stale clients from entering an

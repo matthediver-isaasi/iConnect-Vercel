@@ -170,6 +170,7 @@ const builtInPages = [
   { value: "organisations", label: "Organisations (CRM)" },
   { value: "PageBannerManagement", label: "Page Banners" },
   { value: "PhotoGalleries", label: "Photo Galleries" },
+  { value: "GalleryDirectory", label: "Gallery Directory" },
   { value: "PageVisibilitySettings", label: "Page Visibility Settings" },
   { value: "PortalMenuManagement", label: "Portal Menu Management" },
   { value: "PortalNavigationManagement", label: "Portal Navigation Management" },

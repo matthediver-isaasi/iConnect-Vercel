@@ -12,6 +12,8 @@
 import { supabase } from '../_lib/database.js';
 import { getTenantContext } from '../_lib/tenantContext.js';
 import { loadOpportunityAccess } from '../_lib/opportunityService.js';
+import { evaluateGalleryAccessPolicy } from '../_lib/galleryAccessPolicy.js';
+import { hasFeatureAccess } from '../_lib/tenantContext.js';
 
 const BUCKETS = {
   PUBLIC: 'public-assets',
@@ -119,6 +121,34 @@ export default async function handler(req, res) {
         error: 'Access denied',
         message: 'You do not have permission to access this file'
       });
+    }
+
+    // Gallery media has a second authorization boundary: merely belonging to
+    // the tenant does not grant access to a private gallery's audience.
+    if (targetBucket === BUCKETS.PRIVATE) {
+      try {
+        const { data: photo, error: photoError } = await supabase.from('gallery_photo')
+          .select('gallery_id, gallery!inner(id, tenant_id, is_public, access_policy)')
+          .eq('tenant_id', userTenantId).eq('bucket', targetBucket).eq('storage_path', storagePath).maybeSingle();
+        if (photoError) return res.status(404).json({ error: 'File not found' });
+        if (!photo && storagePath.split('/')[1] === 'galleries') {
+          return res.status(404).json({ error: 'File not found' });
+        }
+        if (photo) {
+          const gallery = photo.gallery;
+          const isManager = !!tenantContext.tenantUserId
+            || (tenantContext.roleId && await hasFeatureAccess(tenantContext.roleId, 'content.gallery.manage'));
+          const access = await evaluateGalleryAccessPolicy({
+            supabase, tenantId: userTenantId, memberId: tenantContext.memberId,
+            roleId: tenantContext.roleId, policy: gallery.access_policy, isManager,
+          });
+          if (!access.allowed) return res.status(404).json({ error: 'File not found' });
+        }
+      } catch {
+        // Only fail closed when this is a gallery path. Other established
+        // private storage paths retain their own endpoint-specific policies.
+        if (storagePath.split('/')[1] === 'galleries') return res.status(404).json({ error: 'File not found' });
+      }
     }
 
     // Opportunity files are more restrictive than ordinary tenant files:
