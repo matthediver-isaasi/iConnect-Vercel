@@ -13,6 +13,18 @@ export const ADDRESS_LOOKUP_COMPONENTS = Object.freeze([
 
 const componentSet = new Set(ADDRESS_LOOKUP_COMPONENTS);
 
+// BS 7666 postcode shapes, including GIR 0AA. Keep this shared so the client
+// only triggers billable lookup requests for values the server will accept.
+const UK_POSTCODE = /^(?:GIR 0AA|(?:(?:[A-PR-UWYZ][0-9]{1,2})|(?:[A-PR-UWYZ][A-HK-Y][0-9]{1,2})|(?:[A-PR-UWYZ][0-9][A-HJKSTUW])|(?:[A-PR-UWYZ][A-HK-Y][0-9][ABEHMNPRVWXY])) [0-9][ABD-HJLNP-UW-Z]{2})$/;
+
+export function normalizeUkPostcode(value) {
+  if (typeof value !== 'string') return null;
+  const compact = value.trim().replace(/\s+/g, '').toUpperCase();
+  if (compact.length < 5 || compact.length > 7) return null;
+  const normalized = `${compact.slice(0, -3)} ${compact.slice(-3)}`;
+  return UK_POSTCODE.test(normalized) ? normalized : null;
+}
+
 export function isAddressLookupComponent(value) {
   return typeof value === 'string' && componentSet.has(value);
 }

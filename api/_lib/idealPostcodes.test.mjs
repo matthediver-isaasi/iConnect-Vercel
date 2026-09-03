@@ -7,9 +7,21 @@ import {
 } from './idealPostcodes.js';
 
 test('normalizes and validates UK postcode input', () => {
-  assert.equal(normalizeUkPostcode(' sw1a 1aa '), 'SW1A 1AA');
-  assert.equal(normalizeUkPostcode('not a postcode'), null);
-  assert.equal(normalizeUkPostcode('SW1A 1AA&api_key=leak'), null);
+  const accepted = {
+    ' m1 1ae ': 'M1 1AE',
+    'M60 1NW': 'M60 1NW',
+    'cr2 6xh': 'CR2 6XH',
+    'DN55 1PT': 'DN55 1PT',
+    'W1A 1HQ': 'W1A 1HQ',
+    'EC1A1BB': 'EC1A 1BB',
+    'gir0aa': 'GIR 0AA',
+  };
+  for (const [input, expected] of Object.entries(accepted)) {
+    assert.equal(normalizeUkPostcode(input), expected, input);
+  }
+  for (const invalid of ['', 'SW1', 'SW1A 1A', 'Q1 1AA', 'W1P 1AA', 'not a postcode', 'SW1A 1AA&api_key=leak']) {
+    assert.equal(normalizeUkPostcode(invalid), null, invalid);
+  }
 });
 
 test('provider lookup returns only normalized address components', async () => {

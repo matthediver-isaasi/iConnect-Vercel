@@ -2,18 +2,10 @@ import {
   addressLookupVisibleComponents,
   addressLookupRequiredComponents,
   normalizeAddressLookupAddress,
+  normalizeUkPostcode,
 } from '../../shared/formAddressLookup.js';
 
-// Accept normal UK postcodes while rejecting arbitrary upstream search input.
-// The outward-code alternative includes the historic GIR 0AA postcode.
-const UK_POSTCODE = /^(?:GIR ?0AA|(?:[A-PR-UWYZ][0-9][0-9A-HJKSTUW]?|[A-PR-UWYZ][A-HK-Y][0-9][ABEHMNPRVWXY]|[A-PR-UWYZ][0-9][A-HJKSTUW]?)[ ]?[0-9][ABD-HJLNP-UW-Z]{2})$/i;
-
-export function normalizeUkPostcode(value) {
-  if (typeof value !== 'string') return null;
-  const compact = value.trim().replace(/\s+/g, '').toUpperCase();
-  if (!UK_POSTCODE.test(compact)) return null;
-  return `${compact.slice(0, -3)} ${compact.slice(-3)}`;
-}
+export { normalizeUkPostcode };
 
 export function normalizeIdealPostcodesAddress(result) {
   const address = normalizeAddressLookupAddress({
