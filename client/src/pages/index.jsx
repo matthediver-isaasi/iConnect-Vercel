@@ -993,6 +993,7 @@ function PagesContent() {
                 
                 <Route path="/ArticleView" element={<ArticleView />} />
                 <Route path="/galleries" element={<GalleryDirectory />} />
+                <Route path="/GalleryDirectory" element={<GalleryDirectory />} />
                 <Route path="/gallery/:slug" element={<GalleryView />} />
                 
                 <Route path="/PublicAbout" element={<PublicAbout />} />

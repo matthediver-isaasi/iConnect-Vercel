@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { renderToStaticMarkup } from 'react-dom/server';
 import PortalNavLink from '../components/navigation/PortalNavLink.jsx';
+import { createPageUrl } from '../utils/index.ts';
 import {
   getPortalMenuFallbackFeatureId,
   getPortalMenuLinkType,
@@ -161,6 +162,7 @@ test('gallery directory is available as a built-in portal destination', () => {
     source,
     /\{\s*value:\s*"GalleryDirectory",\s*label:\s*"Gallery Directory"\s*\}/,
   );
+  assert.equal(createPageUrl('GalleryDirectory'), '/GalleryDirectory');
 });
 
 test('gallery directory is registered and classified as a hybrid route', () => {
@@ -168,6 +170,12 @@ test('gallery directory is registered and classified as a hybrid route', () => {
   const layout = readFileSync(path.join(here, '../pages/Layout.jsx'), 'utf8');
   assert.match(pageRegistry, /GalleryDirectory:\s*GalleryDirectory/);
   assert.match(pageRegistry, /<Route path="\/galleries" element=\{<GalleryDirectory \/>}/);
+  assert.match(pageRegistry, /<Route path="\/GalleryDirectory" element=\{<GalleryDirectory \/>}/);
+  assert.ok(
+    pageRegistry.indexOf('<Route path="/GalleryDirectory" element={<GalleryDirectory />} />')
+      < pageRegistry.indexOf('<Route path="/:slug" element={<DynamicPage />} />'),
+    'the saved portal destination must be registered before the dynamic page fallback',
+  );
   assert.match(layout, /hybridPages = \[[^\]]*"GalleryDirectory"/);
   assert.match(layout, /'GalleryDirectory': 'content\.gallery\.directory'/);
 });
