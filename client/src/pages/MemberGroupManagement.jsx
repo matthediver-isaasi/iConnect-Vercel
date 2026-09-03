@@ -193,7 +193,7 @@ export default function MemberGroupManagementPage() {
 
   const { data: assignments = [], isLoading: loadingAssignments } = useQuery({
     queryKey: ['member-group-assignments'],
-    queryFn: () => base44.entities.MemberGroupAssignment.list(),
+    queryFn: () => base44.entities.MemberGroupAssignment.listAll(),
     staleTime: 0,
     refetchOnMount: true,
   });
