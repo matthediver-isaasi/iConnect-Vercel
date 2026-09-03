@@ -156,3 +156,4 @@
 - [Gallery visibility and storage](gallery-visibility-storage.md) — gallery public/private transitions must be server-owned and ordered with bucket moves so policy changes cannot leave public objects exposed.
 - [Pinned import identity vs matching](pinned-import-identity-matching.md) — make live-name matching legacy-encoding tolerant without changing historical identity-hash normalization.
 - [Contextual Custom Object creation](contextual-custom-object-create.md) — create a record and initial edges in one RPC; requiredness follows the new record’s source side.
+- [Platform-managed tenant integrations](platform-managed-tenant-integrations.md) — shared secrets stay server-only; tenants store only enablement and receive boolean availability.

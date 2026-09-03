@@ -7,6 +7,8 @@ import {
   validateFormOrganisationGroupAnswers,
   validateOrganisationGroupDependentOrganizationAnswers,
 } from '../_lib/formOrganisationGroups.js';
+import { invalidRequiredAddressLookupFields } from '../_lib/idealPostcodes.js';
+import { computeHiddenFieldIds } from '../_lib/formFieldVisibility.js';
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
@@ -66,13 +68,26 @@ export default async function handler(req, res) {
 
     const { data: form, error: formError } = await supabase
       .from('form')
-      .select('id, name, tenant_id, due_diligence_required, fields')
+      .select('id, name, tenant_id, due_diligence_required, fields, pages, visibility_rules')
       .eq('id', form_id)
       .eq('tenant_id', tenantId)
       .single();
 
     if (formError || !form) {
       return res.status(404).json({ error: 'Form not found or not accessible' });
+    }
+    const hiddenFieldIds = computeHiddenFieldIds(form, submission_data || {});
+    const invalidAddressFields = invalidRequiredAddressLookupFields(
+      form.fields || [],
+      submission_data || {},
+      hiddenFieldIds,
+    );
+    if (invalidAddressFields.length) {
+      return res.status(400).json({
+        error: 'Required address information is missing',
+        code: 'ADDRESS_COMPONENTS_REQUIRED',
+        fields: invalidAddressFields,
+      });
     }
 
     try {

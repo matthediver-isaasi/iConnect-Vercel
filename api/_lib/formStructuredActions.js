@@ -6,6 +6,10 @@ import { coercePreferenceValueForStorage } from './preferenceValueStorage.js';
 import { repeatableRowChildren, isRepeatableRowEmpty } from '../../shared/formRepeatableRows.js';
 import { createHash } from 'node:crypto';
 import { validateCustomObjectRecordData } from './customObjectDomain.js';
+import {
+  addressLookupVisibleComponents,
+  isAddressLookupComponent,
+} from '../../shared/formAddressLookup.js';
 
 export const STRUCTURED_ACTIONS_VERSION = 1;
 
@@ -194,6 +198,16 @@ export function validateStructuredActionsContract(input, fields = []) {
       if (mapping?.source_field_id && !sourceField) {
         errors.push(`${mp}.source_field_id is not in the persisted action source scope`);
       }
+      if (mapping?.source_component !== undefined) {
+        if (!sourceField || sourceField.type !== 'address_lookup' || !isAddressLookupComponent(mapping.source_component)) {
+          errors.push(`${mp}.source_component must be a valid address_lookup component`);
+        } else if (!addressLookupVisibleComponents(sourceField).includes(mapping.source_component)) {
+          errors.push(`${mp}.source_component must identify a visible address_lookup component`);
+        }
+      }
+      if (sourceField?.type === 'address_lookup' && mapping?.source_component === undefined) {
+        errors.push(`${mp}.source_component is required for an address_lookup source`);
+      }
       if (sourceField && isRelationshipField(sourceField)) {
         const permitted = ['organisation_dropdown', 'organization_dropdown'].includes(sourceField.type)
           ? entity === 'member' && targetType === 'core' && targetField(mapping) === 'organization_id'
@@ -241,6 +255,11 @@ function sourceValue(mapping, values) {
   let value = mapping.source_type === 'static' || mapping.static_value !== undefined
     ? mapping.static_value
     : values?.[mapping.source_field_id];
+  if (mapping.source_component !== undefined) {
+    value = value && typeof value === 'object' && !Array.isArray(value)
+      ? value[mapping.source_component]
+      : undefined;
+  }
   if (mapping.source_category_id && value && typeof value === 'object' && !Array.isArray(value)) {
     value = value[mapping.source_category_id];
   }
@@ -519,6 +538,7 @@ function mappingFamily(field) {
   const descriptor = fieldRecordDescriptor(field);
   if (descriptor) return `reference:${descriptor.kind}`;
   const type = String(field?.type || field?.field_type || '').toLowerCase();
+  if (type === 'address_lookup') return 'text';
   if (['text', 'textarea', 'url', 'tel', 'phone', 'contact'].includes(type)) return 'text';
   if (type === 'email') return 'email';
   if (['number', 'percentage', 'currency', 'decimal'].includes(type)) return 'number';

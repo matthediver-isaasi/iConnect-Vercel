@@ -32,6 +32,7 @@ import { validateRepeatableRowSubmission } from '../_lib/formRepeatableRowValida
 import { buildFormProcessingHeaders } from '../_lib/formProcessingAuth.js';
 import { getInternalApiBaseUrl } from '../_lib/publicBaseUrl.js';
 import { hasPersistedFormEntityActions } from '../_lib/formEntityActionMode.js';
+import { invalidRequiredAddressLookupFields } from '../_lib/idealPostcodes.js';
 
 export default async function handler(req, res) {
   console.log('[Public Form Submission] === ENDPOINT CALLED ===');
@@ -332,6 +333,18 @@ export default async function handler(req, res) {
       submission_data || {},
       submissionVisibilityOptions,
     );
+    const invalidAddressFields = invalidRequiredAddressLookupFields(
+      relationshipForm.fields || [],
+      submission_data || {},
+      hiddenRelationshipFieldIds,
+    );
+    if (invalidAddressFields.length) {
+      return res.status(400).json({
+        error: 'Required address information is missing',
+        code: 'ADDRESS_COMPONENTS_REQUIRED',
+        fields: invalidAddressFields,
+      });
+    }
 
     // Relationship dropdowns store record IDs. Validate those IDs against the
     // saved field, its submitted organisation parent, active relationship edge,

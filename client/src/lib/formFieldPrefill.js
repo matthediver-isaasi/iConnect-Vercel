@@ -1,10 +1,15 @@
 import { FORM_NOT_LISTED_VALUE } from '../../../shared/formNotListedChoice.js';
+import { isAddressLookupAnswerFilled } from '../../../shared/formAddressLookup.js';
 
 // Shared helpers for form field validation/prefill logic.
 // Used by both the standalone FormView page and IEdit-embedded forms so that
 // fixes to either helper apply everywhere at once.
 
 export const isFieldValueFilled = (field, value) => {
+  if (field.type === 'address_lookup') {
+    return isAddressLookupAnswerFilled(field, value);
+  }
+
   if (field.type === 'grouped_question') {
     const subQuestions = Array.isArray(field.sub_questions) ? field.sub_questions : [];
     const rawMin = Number(field.min_completed);

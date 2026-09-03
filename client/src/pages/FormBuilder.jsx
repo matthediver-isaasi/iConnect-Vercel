@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { base44 } from "@/api/base44Client";
 import { publicClient } from "@/api/publicClient";
+import { adminFetch } from "@/lib/adminFetch";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -119,6 +120,7 @@ const STANDARD_FIELD_TYPES = [
   { value: 'percentage', label: 'Percentage' },
   { value: 'currency', label: 'Currency' },
   { value: 'contact', label: 'Contact (Composite)' },
+  { value: 'address_lookup', label: 'UK Postcode Address Lookup' },
   { value: 'grouped_question', label: 'Grouped Question' },
   { value: 'repeatable_rows', label: 'Repeatable Rows' },
   { value: 'instructions', label: 'Instructions (Display Only)' },
@@ -399,6 +401,34 @@ const SCORE_STYLE_OPTIONS = [
 ];
 
 const FIELD_TYPES = [...STANDARD_FIELD_TYPES, ...PREPOPULATE_FIELD_TYPES, ...AUTO_FIELD_TYPES, ...PAYMENT_FIELD_TYPES, ...SURVEY_FIELD_TYPES];
+const ADDRESS_LOOKUP_COMPONENTS = [
+  { value: 'line_1', label: 'Address line 1' },
+  { value: 'line_2', label: 'Address line 2' },
+  { value: 'line_3', label: 'Address line 3' },
+  { value: 'post_town', label: 'City / town' },
+  { value: 'county', label: 'County / region' },
+  { value: 'postcode', label: 'Postcode' },
+  { value: 'country', label: 'Country' },
+];
+const ADDRESS_LOOKUP_COMPONENT_VALUES = new Set(ADDRESS_LOOKUP_COMPONENTS.map(component => component.value));
+const addressLookupVisibleComponents = (field) => {
+  const configured = Array.isArray(field?.visible_components)
+    ? field.visible_components.filter(component => ADDRESS_LOOKUP_COMPONENT_VALUES.has(component))
+    : ADDRESS_LOOKUP_COMPONENTS.map(component => component.value);
+  return [...new Set(configured)];
+};
+const addressLookupRequiredComponents = (field) => {
+  const visible = new Set(addressLookupVisibleComponents(field));
+  return [...new Set(Array.isArray(field?.required_components) ? field.required_components : [])]
+    .filter(component => visible.has(component) && ADDRESS_LOOKUP_COMPONENT_VALUES.has(component));
+};
+const addressLookupDefaults = {
+  label: 'Address',
+  placeholder: 'Enter a UK postcode',
+  visible_components: ADDRESS_LOOKUP_COMPONENTS.map(component => component.value),
+  required_components: ['line_1', 'post_town', 'postcode'],
+  manual_entry: true,
+};
 const relationshipSelectionKey = (relationship) => `${relationship.id}:${relationship.relationship_parent_side || relationship.organization_side || relationship.side || 'default'}`;
 
 const getFieldTypeCategory = (fieldType) => {
@@ -704,6 +734,17 @@ const isCompatibleStructuredMapping = (source, target) => {
   if (targetFamily === 'text') return ['text', 'email', 'choice'].includes(sourceFamily);
   if (targetFamily === 'choice') return ['text', 'email', 'choice'].includes(sourceFamily);
   return sourceFamily === targetFamily;
+};
+const structuredMappingSource = (field, mapping) => {
+  if (field?.type !== 'address_lookup') return field;
+  const component = mapping?.source_component;
+  return addressLookupVisibleComponents(field).includes(component)
+    ? { ...field, type: 'text' }
+    : null;
+};
+const structuredMappingSourceLabel = (field, mapping) => {
+  const component = ADDRESS_LOOKUP_COMPONENTS.find(item => item.value === mapping?.source_component);
+  return component ? `${field.label || field.id} — ${component.label}` : (field.label || field.id);
 };
 const structuredUpsertFields = (action, fields) => {
   const kind = action?.target?.kind;
@@ -1026,9 +1067,42 @@ function StructuredRecordActionsEditor({
               </div>
               {(action.mappings || []).map((mapping, mappingIndex) => (
                 <div className="grid grid-cols-[1fr_auto_1fr_auto] gap-2 items-center" key={mapping.id || mappingIndex}>
-                  <Select value={mapping.source_field_id || ''} onValueChange={source_field_id => { const mappings = [...action.mappings]; mappings[mappingIndex] = { ...mapping, source_field_id, target_field_id: '', target_type: 'core' }; updateAction(actionIndex, { mappings }); }}><SelectTrigger><SelectValue placeholder="Source field…" /></SelectTrigger><SelectContent>{sourceFields.filter(source => targetFields.some(target => isCompatibleStructuredMapping(source, target))).map(field => <SelectItem key={field.id} value={field.id}>{field.label || field.id}</SelectItem>)}</SelectContent></Select>
+                  <div className="space-y-2">
+                    <Select value={mapping.source_field_id || ''} onValueChange={source_field_id => {
+                      const selectedField = sourceFields.find(source => source.id === source_field_id);
+                      const firstComponent = selectedField?.type === 'address_lookup'
+                        ? addressLookupVisibleComponents(selectedField)[0] || null
+                        : null;
+                      const mappings = [...action.mappings];
+                      mappings[mappingIndex] = {
+                        ...mapping,
+                        source_field_id,
+                        source_component: firstComponent,
+                        target_field_id: '',
+                        target_type: 'core',
+                      };
+                      updateAction(actionIndex, { mappings });
+                    }}><SelectTrigger><SelectValue placeholder="Source field…" /></SelectTrigger><SelectContent>{sourceFields.filter(source => {
+                      const candidates = source.type === 'address_lookup'
+                        ? addressLookupVisibleComponents(source).map(component => ({ ...source, type: 'text', source_component: component }))
+                        : [source];
+                      return candidates.some(candidate => targetFields.some(target => isCompatibleStructuredMapping(candidate, target)));
+                    }).map(field => <SelectItem key={field.id} value={field.id}>{structuredMappingSourceLabel(field, mapping)}</SelectItem>)}</SelectContent></Select>
+                    {sourceFields.find(source => source.id === mapping.source_field_id)?.type === 'address_lookup' && (
+                      <Select value={mapping.source_component || ''} onValueChange={source_component => {
+                        const mappings = [...action.mappings];
+                        mappings[mappingIndex] = { ...mapping, source_component, target_field_id: '', target_type: 'core' };
+                        updateAction(actionIndex, { mappings });
+                      }}>
+                        <SelectTrigger><SelectValue placeholder="Address component…" /></SelectTrigger>
+                        <SelectContent>{ADDRESS_LOOKUP_COMPONENTS
+                          .filter(component => addressLookupVisibleComponents(sourceFields.find(source => source.id === mapping.source_field_id)).includes(component.value))
+                          .map(component => <SelectItem key={component.value} value={component.value}>{component.label}</SelectItem>)}</SelectContent>
+                      </Select>
+                    )}
+                  </div>
                   <ArrowRight className="w-4 h-4 text-slate-400" />
-                  <Select value={mapping.target_field_id || ''} onValueChange={target_field_id => { const selected = targetFields.find(field => field.value === target_field_id); const mappings = [...action.mappings]; mappings[mappingIndex] = { ...mapping, target_field_id, target_type: selected?.target_type || 'custom' }; updateAction(actionIndex, { mappings }); }}><SelectTrigger><SelectValue placeholder="Target field…" /></SelectTrigger><SelectContent>{targetFields.filter(field => isCompatibleStructuredMapping(sourceFields.find(source => source.id === mapping.source_field_id), field)).map(field => <SelectItem key={`${field.target_type}:${field.value}`} value={field.value}>{field.target_type === 'custom' ? 'Custom: ' : ''}{field.label}</SelectItem>)}</SelectContent></Select>
+                  <Select value={mapping.target_field_id || ''} onValueChange={target_field_id => { const selected = targetFields.find(field => field.value === target_field_id); const mappings = [...action.mappings]; mappings[mappingIndex] = { ...mapping, target_field_id, target_type: selected?.target_type || 'custom' }; updateAction(actionIndex, { mappings }); }}><SelectTrigger><SelectValue placeholder="Target field…" /></SelectTrigger><SelectContent>{targetFields.filter(field => isCompatibleStructuredMapping(structuredMappingSource(sourceFields.find(source => source.id === mapping.source_field_id), mapping), field)).map(field => <SelectItem key={`${field.target_type}:${field.value}`} value={field.value}>{field.target_type === 'custom' ? 'Custom: ' : ''}{field.label}</SelectItem>)}</SelectContent></Select>
                   <Button type="button" variant="ghost" size="icon" className="text-red-500" onClick={() => updateAction(actionIndex, { mappings: action.mappings.filter((_, index) => index !== mappingIndex) })}><Trash2 className="w-4 h-4" /></Button>
                 </div>
               ))}
@@ -5370,7 +5444,9 @@ function FieldCard({
   allFields = [],
   formType = 'standard',
   scoringLocked = false,
-  formId = null
+  formId = null,
+  idealPostcodesAvailable = false,
+  idealPostcodesLoading = false,
 }) {
   const isEmailType = field.type === 'email' || field.type === 'user_email';
   const isSurveyForm = formType === 'survey';
@@ -5619,6 +5695,9 @@ function FieldCard({
                             updates.add_row_label = 'Add row';
                             updates.layout = REPEATABLE_ROW_LAYOUT_CARDS;
                           }
+                          if (value === 'address_lookup' && field.type !== 'address_lookup') {
+                            Object.assign(updates, addressLookupDefaults);
+                          }
                           updateField(originalIndex, updates);
                         }
                       }}
@@ -5627,8 +5706,8 @@ function FieldCard({
                         <SelectValue placeholder="Select..." />
                       </SelectTrigger>
                       <SelectContent className="max-h-60 overflow-y-auto">
-                        {STANDARD_FIELD_TYPES.map(type => (
-                          <SelectItem key={type.value} value={type.value}>
+                          {STANDARD_FIELD_TYPES.map(type => (
+                            <SelectItem key={type.value} value={type.value} disabled={type.value === 'address_lookup' && !idealPostcodesAvailable}>
                             {type.label}
                           </SelectItem>
                         ))}
@@ -5752,6 +5831,83 @@ function FieldCard({
                   rows={2}
                 />
               </div>
+
+              {field.type === 'address_lookup' && (() => {
+                const visibleComponents = addressLookupVisibleComponents(field);
+                const requiredComponents = new Set(addressLookupRequiredComponents(field));
+                const updateComponent = (component, updates) => {
+                  const isVisible = updates.visible ?? visibleComponents.includes(component);
+                  const nextVisible = isVisible
+                    ? [...new Set([...visibleComponents, component])]
+                    : visibleComponents.filter(value => value !== component);
+                  const nextRequired = updates.required === true && isVisible
+                    ? [...new Set([...requiredComponents, component])]
+                    : updates.required === false || !isVisible
+                      ? [...requiredComponents].filter(value => value !== component)
+                      : [...requiredComponents];
+                  updateField(originalIndex, {
+                    visible_components: nextVisible,
+                    required_components: nextRequired,
+                  });
+                };
+                return (
+                  <div className="space-y-3 rounded-lg border border-slate-200 bg-slate-50 p-4" data-testid={`address-lookup-config-${field.id}`}>
+                    <div>
+                      <h4 className="text-sm font-semibold text-slate-700">Address lookup settings</h4>
+                      <p className="text-xs text-slate-500">Choose which editable address values to collect after postcode lookup.</p>
+                    </div>
+                    {!idealPostcodesAvailable && !idealPostcodesLoading && (
+                      <p className="rounded border border-amber-200 bg-amber-50 p-2 text-xs text-amber-800">
+                        Ideal Postcodes is currently disabled. This field remains configurable but lookup will be unavailable until it is enabled.
+                      </p>
+                    )}
+                    {ADDRESS_LOOKUP_COMPONENTS.map(component => {
+                      const visible = visibleComponents.includes(component.value);
+                      const required = requiredComponents.has(component.value);
+                      return (
+                        <div key={component.value} className="grid grid-cols-[minmax(9rem,1fr)_auto_auto] items-end gap-3">
+                          <div className="space-y-1">
+                            <Label className="text-xs">{component.label} label</Label>
+                            <Input
+                              value={field.component_labels?.[component.value] || component.label}
+                              onChange={event => updateField(originalIndex, {
+                                component_labels: {
+                                  ...(field.component_labels || {}),
+                                  [component.value]: event.target.value,
+                                },
+                              })}
+                              className="h-8"
+                              data-testid={`input-address-label-${field.id}-${component.value}`}
+                            />
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            <Switch
+                              checked={visible}
+                              disabled={component.value === 'postcode'}
+                              onCheckedChange={checked => updateComponent(component.value, { visible: checked })}
+                            />
+                            <span className="text-xs text-slate-500">Visible</span>
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            <Switch checked={required} disabled={!visible} onCheckedChange={checked => updateComponent(component.value, { required: checked })} />
+                            <span className="text-xs text-slate-500">Required</span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                    <div className="flex items-center gap-2 border-t border-slate-200 pt-3">
+                      <Switch
+                        id={`address-manual-entry-${field.id}`}
+                        checked={field.manual_entry !== false && field.allow_manual_entry !== false}
+                        onCheckedChange={manual_entry => updateField(originalIndex, { manual_entry })}
+                      />
+                      <Label htmlFor={`address-manual-entry-${field.id}`} className="text-xs">
+                        Allow manual address entry when lookup is unavailable or unsuitable
+                      </Label>
+                    </div>
+                  </div>
+                );
+              })()}
 
               {supportsFormNotListedChoice(field) && (
                 <div className="space-y-3 rounded-lg border border-slate-200 bg-slate-50 p-3" data-testid={`not-listed-config-${field.id}`}>
@@ -8440,6 +8596,19 @@ export default function FormBuilderPage() {
     queryFn: async () => await publicClient.listResourceCategories() || []
   });
 
+  const { data: idealPostcodesIntegration, isLoading: idealPostcodesLoading } = useQuery({
+    queryKey: ['admin-integrations', 'ideal-postcodes'],
+    queryFn: async () => {
+      const response = await adminFetch('/api/admin/integrations', { credentials: 'include' });
+      if (!response.ok) throw new Error('Unable to load integration status');
+      const data = await response.json();
+      return (data.integrations || []).find(integration => integration.integration_type === 'ideal_postcodes') || null;
+    },
+    staleTime: 60_000,
+  });
+  const idealPostcodesAvailable = idealPostcodesIntegration?.is_enabled === true
+    && idealPostcodesIntegration?.platform_configured === true;
+
   // Fetch custom fields (PreferenceField) for CRM mapping
   const { data: emailTemplates = [] } = useQuery({
     queryKey: ['email-templates-active'],
@@ -9048,6 +9217,26 @@ export default function FormBuilderPage() {
     setFormData({ ...formData, fields: [...formData.fields, newField] });
   };
 
+  const addAddressLookupField = (pageId = null, columnIndex = 0) => {
+    if (!idealPostcodesAvailable) {
+      toast.error('Enable the Ideal Postcodes integration before adding an address lookup field.');
+      return;
+    }
+    setFormData({
+      ...formData,
+      fields: [...formData.fields, {
+        id: `field_${Date.now()}`,
+        type: 'address_lookup',
+        required: false,
+        options: [],
+        allow_other: false,
+        page_id: pageId,
+        column_index: columnIndex,
+        ...addressLookupDefaults,
+      }],
+    });
+  };
+
   // Page management functions (for standard layout only)
   const addPage = () => {
     const pageNumber = formData.pages.length + 1;
@@ -9386,6 +9575,23 @@ export default function FormBuilderPage() {
       return;
     }
 
+    for (const field of formData.fields.filter(item => item.type === 'address_lookup')) {
+      const visible = field.visible_components;
+      const required = field.required_components;
+      if (!Array.isArray(visible) || visible.length === 0
+        || visible.some(component => !ADDRESS_LOOKUP_COMPONENT_VALUES.has(component))
+        || new Set(visible).size !== visible.length) {
+        toast.error(`Address lookup field "${field.label || 'Address'}" must have at least one valid visible component.`);
+        return;
+      }
+      if (!Array.isArray(required)
+        || required.some(component => !ADDRESS_LOOKUP_COMPONENT_VALUES.has(component) || !visible.includes(component))
+        || new Set(required).size !== required.length) {
+        toast.error(`Address lookup field "${field.label || 'Address'}" can only require visible address components.`);
+        return;
+      }
+    }
+
     const invalidNotListedField = findInvalidNotListedField(formData.fields);
     if (invalidNotListedField) {
       toast.error(`“${invalidNotListedField.label || 'Untitled field'}” needs a label for its not-listed choice.`);
@@ -9644,12 +9850,21 @@ export default function FormBuilderPage() {
           toast.error(`${actionName}, mapping ${mappingIndex + 1}, needs a source field from its selected scope.`);
           return;
         }
+        const mappedField = sourceFields.find(field => field.id === mapping.source_field_id);
+        if (mappedField?.type === 'address_lookup'
+          && !addressLookupVisibleComponents(mappedField).includes(mapping.source_component)) {
+          toast.error(`${actionName}, mapping ${mappingIndex + 1}, must select a visible address component.`);
+          return;
+        }
         const target = targetFields.find(field => field.value === mapping.target_field_id);
         if (!target || target.target_type !== mapping.target_type) {
           toast.error(`${actionName}, mapping ${mappingIndex + 1}, needs an active supported target field.`);
           return;
         }
-        const source = sourceFields.find(field => field.id === mapping.source_field_id);
+        const source = structuredMappingSource(
+          sourceFields.find(field => field.id === mapping.source_field_id),
+          mapping,
+        );
         if (!isCompatibleStructuredMapping(source, target)) {
           toast.error(`${actionName}, mapping ${mappingIndex + 1}, maps incompatible field types.`);
           return;
@@ -11472,10 +11687,23 @@ export default function FormBuilderPage() {
               <CardHeader>
                 <div className="flex items-center justify-between">
                   <CardTitle className="text-lg">Form Fields</CardTitle>
-                  <Button onClick={() => addField(null)} size="sm" variant="outline">
-                    <Plus className="w-4 h-4 mr-2" />
-                    Add Field
-                  </Button>
+                  <div className="flex gap-2">
+                    <Button
+                      onClick={() => addAddressLookupField(null)}
+                      size="sm"
+                      variant="outline"
+                      disabled={!idealPostcodesAvailable}
+                      title={idealPostcodesAvailable ? 'Add UK postcode address lookup' : 'Enable Ideal Postcodes in Integrations first'}
+                      data-testid="button-add-address-lookup"
+                    >
+                      <Building2 className="w-4 h-4 mr-2" />
+                      Address Lookup
+                    </Button>
+                    <Button onClick={() => addField(null)} size="sm" variant="outline">
+                      <Plus className="w-4 h-4 mr-2" />
+                      Add Field
+                    </Button>
+                  </div>
                 </div>
               </CardHeader>
               <CardContent>
@@ -11534,6 +11762,8 @@ export default function FormBuilderPage() {
                                       formType={formData.form_type}
                                       scoringLocked={hasResponses && formData.form_type === 'survey'}
                                       formId={formId}
+                                       idealPostcodesAvailable={idealPostcodesAvailable}
+                                       idealPostcodesLoading={idealPostcodesLoading}
                                     />
                                   ))}
                                 {provided.placeholder}
@@ -11681,6 +11911,8 @@ export default function FormBuilderPage() {
                                       formType={formData.form_type}
                                       scoringLocked={hasResponses && formData.form_type === 'survey'}
                                       formId={formId}
+                                       idealPostcodesAvailable={idealPostcodesAvailable}
+                                       idealPostcodesLoading={idealPostcodesLoading}
                                                 />
                                               ))
                                             )}
@@ -11745,6 +11977,8 @@ export default function FormBuilderPage() {
                                       formType={formData.form_type}
                                       scoringLocked={hasResponses && formData.form_type === 'survey'}
                                       formId={formId}
+                                       idealPostcodesAvailable={idealPostcodesAvailable}
+                                       idealPostcodesLoading={idealPostcodesLoading}
                             />
                           ))}
                           {provided.placeholder}

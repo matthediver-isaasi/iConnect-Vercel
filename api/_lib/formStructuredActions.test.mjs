@@ -735,3 +735,42 @@ test('rejects direct record IDs, incomplete repeatable scope, and missing mappin
     actions: [{ ...base.actions[0], mappings: [{ source_field_id: 'email', target_field_id: 'email', target_type: 'core' }] }],
   }, [{ id: 'email', type: 'email' }]), /Invalid persisted/);
 });
+
+test('address lookup mappings require a valid persisted component', () => {
+  const action = {
+    version: 1,
+    actions: [{
+      id: 'address-action',
+      source: { scope: 'top_level' },
+      target: { kind: 'organization' },
+      operation: 'create',
+      mappings: [{
+        id: 'town-map',
+        source_field_id: 'address',
+        source_component: 'post_town',
+        target_field_id: 'name',
+        target_type: 'core',
+      }],
+    }],
+  };
+  assert.doesNotThrow(() => validateStructuredActionsContract(action, [
+    { id: 'address', type: 'address_lookup' },
+  ]));
+  assert.throws(() => validateStructuredActionsContract(action, [
+    { id: 'address', type: 'address_lookup', visible_components: ['line_1', 'postcode', 'country'] },
+  ]), /Invalid persisted/);
+  assert.throws(() => validateStructuredActionsContract({
+    ...action,
+    actions: [{
+      ...action.actions[0],
+      mappings: [{ ...action.actions[0].mappings[0], source_component: 'uprn' }],
+    }],
+  }, [{ id: 'address', type: 'address_lookup' }]), /Invalid persisted/);
+  assert.throws(() => validateStructuredActionsContract({
+    ...action,
+    actions: [{
+      ...action.actions[0],
+      mappings: [{ ...action.actions[0].mappings[0], source_component: undefined }],
+    }],
+  }, [{ id: 'address', type: 'address_lookup' }]), /Invalid persisted/);
+});

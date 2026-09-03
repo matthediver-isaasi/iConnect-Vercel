@@ -41,6 +41,7 @@ import {
   setFormNotListedText,
 } from "../../../shared/formNotListedChoice.js";
 import { useFormFieldPrefill } from "@/lib/useFormFieldPrefill";
+import { isFieldValueFilled } from "@/lib/formFieldPrefill";
 
 function MultiCountrySelect({ value = [], onChange, fieldId }) {
   const [open, setOpen] = useState(false);
@@ -178,11 +179,7 @@ export default function ManualSubmissionDialog({ open, onOpenChange, form }) {
     
     for (const field of requiredFields) {
       const value = formValues[field.id];
-      const isEmpty = value === undefined || value === null || value === '' || 
-        (Array.isArray(value) && value.length === 0) ||
-        (typeof value === 'object' && !Array.isArray(value) && Object.keys(value).length === 0);
-      
-      if (isEmpty) {
+      if (!isFieldValueFilled(field, value)) {
         missingFields.push(field.label);
       }
     }

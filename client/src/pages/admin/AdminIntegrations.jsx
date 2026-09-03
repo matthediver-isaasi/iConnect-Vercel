@@ -230,6 +230,9 @@ export default function AdminIntegrations() {
   const [ga4SavedId, setGa4SavedId] = useState('');
   const [ga4Saving, setGa4Saving] = useState(false);
   const [ga4Loaded, setGa4Loaded] = useState(false);
+  const [idealPostcodesEnabled, setIdealPostcodesEnabled] = useState(false);
+  const [idealPostcodesPlatformConfigured, setIdealPostcodesPlatformConfigured] = useState(false);
+  const [idealPostcodesSaving, setIdealPostcodesSaving] = useState(false);
 
   const ZOHO_REGIONS = [
     { value: 'us', label: 'United States', accountsDomain: 'https://accounts.zoho.com', campaignsDomain: 'https://campaigns.zoho.com' },
@@ -375,6 +378,10 @@ export default function AdminIntegrations() {
             });
           }
         }
+
+        const idealPostcodesIntegration = data.integrations?.find(i => i.integration_type === 'ideal_postcodes');
+        setIdealPostcodesEnabled(idealPostcodesIntegration?.is_enabled === true);
+        setIdealPostcodesPlatformConfigured(idealPostcodesIntegration?.platform_configured === true);
 
         const zohoIntegration = data.integrations?.find(i => i.integration_type === 'zoho_campaigns');
         if (zohoIntegration) {
@@ -729,6 +736,39 @@ export default function AdminIntegrations() {
       });
     } catch (err) {
       console.error('Failed to toggle zoom:', err);
+    }
+  };
+
+  const handleToggleIdealPostcodes = async (enabled) => {
+    if (!idealPostcodesPlatformConfigured) return;
+    setIdealPostcodesSaving(true);
+    try {
+      const response = await adminFetch('/api/admin/integrations', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ integration_type: 'ideal_postcodes', is_enabled: enabled })
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'Failed to update Ideal Postcodes');
+      }
+      setIdealPostcodesEnabled(enabled);
+      toast({
+        title: enabled ? 'Ideal Postcodes enabled' : 'Ideal Postcodes disabled',
+        description: enabled
+          ? 'Address lookup is now available to form authors.'
+          : 'Address lookup is no longer available for new form fields.'
+      });
+      fetchIntegrations();
+    } catch (error) {
+      toast({
+        title: 'Unable to update Ideal Postcodes',
+        description: error.message || 'Please try again.',
+        variant: 'destructive'
+      });
+    } finally {
+      setIdealPostcodesSaving(false);
     }
   };
 
@@ -1573,6 +1613,52 @@ export default function AdminIntegrations() {
 
       <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="space-y-6">
+          <Card className="bg-slate-800/50 border-slate-700">
+            <CardHeader>
+              <div className="flex items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-lg bg-violet-500/10 flex items-center justify-center">
+                    <Building2 className="h-5 w-5 text-violet-400" />
+                  </div>
+                  <div>
+                    <CardTitle className="text-white">Ideal Postcodes</CardTitle>
+                    <CardDescription className="text-slate-400">
+                      UK postcode address lookup for forms
+                    </CardDescription>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3">
+                  <Badge className={idealPostcodesPlatformConfigured
+                    ? (idealPostcodesEnabled ? "bg-green-500/20 text-green-400 border-green-500/30" : "")
+                    : "bg-amber-500/20 text-amber-300 border-amber-500/30"}
+                  >
+                    {!idealPostcodesPlatformConfigured ? 'Unavailable' : idealPostcodesEnabled ? 'Enabled' : 'Disabled'}
+                  </Badge>
+                  <Switch
+                    checked={idealPostcodesEnabled}
+                    onCheckedChange={handleToggleIdealPostcodes}
+                    disabled={!idealPostcodesPlatformConfigured || idealPostcodesSaving}
+                    data-testid="switch-ideal-postcodes-enabled"
+                  />
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {idealPostcodesPlatformConfigured ? (
+                <p className="text-sm text-slate-400">
+                  This platform-managed service does not require tenant credentials. Enable it to let form authors add an editable postcode address lookup field.
+                </p>
+              ) : (
+                <div className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3">
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-300" />
+                  <p className="text-sm text-amber-100">
+                    Address lookup is unavailable because the platform Ideal Postcodes key has not been configured.
+                  </p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
           <Card className="bg-slate-800/50 border-slate-700">
             <CardHeader>
               <div className="flex items-center justify-between gap-4">

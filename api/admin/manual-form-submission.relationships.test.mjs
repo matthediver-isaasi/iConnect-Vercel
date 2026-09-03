@@ -31,3 +31,13 @@ test('manual submissions snapshot repeatable not-listed labels before persistenc
     /submission_data: snapshotFormNotListedLabels\(form\.fields \|\| \[\], submission_data \|\| \{\}\)/,
   );
 });
+
+test('manual submission UI delegates address lookup to the shared structured renderer', async () => {
+  const dialogSource = readFileSync(
+    path.join(here, '../../client/src/components/ManualSubmissionDialog.jsx'),
+    'utf8',
+  );
+  assert.match(dialogSource, /if \(!\['file', 'signature'\]\.includes\(field\.type\)\)/);
+  assert.match(dialogSource, /<FormRenderer[\s\S]*field=\{field\}/);
+  assert.match(dialogSource, /isFieldValueFilled\(field, value\)/);
+});

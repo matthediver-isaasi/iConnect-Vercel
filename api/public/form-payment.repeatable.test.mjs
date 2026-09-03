@@ -103,6 +103,35 @@ test('paid validation ignores an initialized invalid repeatable row hidden by pe
   assert.equal(response.statusCode, null);
 });
 
+test('paid validation rejects an incomplete required address before provider work', async () => {
+  const response = {
+    statusCode: null,
+    status(code) { this.statusCode = code; return this; },
+    json(payload) { this.payload = payload; return this; },
+  };
+  const form = {
+    id: 'paid-form',
+    fields: [{
+      id: 'address',
+      type: 'address_lookup',
+      required: true,
+      visible_components: ['line_1', 'post_town', 'postcode', 'country'],
+      required_components: ['line_1', 'post_town', 'postcode', 'country'],
+    }],
+  };
+  const valid = await validatePaymentRelationships(
+    response,
+    { from() { throw new Error('invalid address must fail before database/provider work'); } },
+    { id: 'tenant-1' },
+    form,
+    { address: { line_1: '1 Road', postcode: 'AB1 2CD' } },
+  );
+  assert.equal(valid, false);
+  assert.equal(response.statusCode, 400);
+  assert.equal(response.payload.code, 'ADDRESS_COMPONENTS_REQUIRED');
+  assert.deepEqual(response.payload.fields, ['address']);
+});
+
 test('provider discovery validates payment purpose and selects matching Stripe credentials', async () => {
   const source = await readFile(new URL('./form-payment-providers.js', import.meta.url), 'utf8');
   assert.match(source, /const purpose = req\.query\?\.purpose \|\| 'forms'/);

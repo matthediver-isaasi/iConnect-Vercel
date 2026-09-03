@@ -12,6 +12,7 @@ import CustomFieldFileUpload from "@/components/CustomFieldFileUpload";
 import SignatureField from "@/components/forms/SignatureField";
 import ScoreField from "@/components/forms/ScoreField";
 import MembershipPaymentField from "@/components/forms/MembershipPaymentField";
+import AddressLookupField from "@/components/forms/AddressLookupField";
 import {
   Select,
   SelectContent,
@@ -1387,6 +1388,18 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, on
             disabled={isFieldDisabled}
             autoFocus={autoFocus}
             className={isFieldDisabled ? 'bg-slate-100 cursor-not-allowed opacity-60' : ''}
+          />
+        );
+
+      case 'address_lookup':
+        return (
+          <AddressLookupField
+            field={field}
+            value={value}
+            onChange={onChange}
+            disabled={isFieldDisabled}
+            formId={formId}
+            formSlug={formSlug}
           />
         );
 

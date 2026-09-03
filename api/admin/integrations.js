@@ -149,6 +149,9 @@ export default async function handler(req, res) {
         return {
           ...integration,
           credentials: maskCredentials(decrypted),
+          ...(integration.integration_type === 'ideal_postcodes'
+            ? { platform_configured: Boolean(process.env.IDEAL_POSTCODES_API_KEY), has_credentials: false }
+            : {}),
           ...(integration.integration_type === 'gocardless'
             ? { auto_retry_policy: normalizeAutoRetryPolicy(decrypted) }
             : {}),
@@ -157,6 +160,18 @@ export default async function handler(req, res) {
             : Object.keys(integration.credentials || {}).length > 0
         };
       });
+      // It is an enable-only, platform-managed integration. Return its status
+      // even before a tenant has saved a toggle row so clients never need the
+      // platform secret to determine whether enabling is possible.
+      if (!maskedIntegrations.some(item => item.integration_type === 'ideal_postcodes')) {
+        maskedIntegrations.push({
+          integration_type: 'ideal_postcodes',
+          credentials: {},
+          is_enabled: false,
+          has_credentials: false,
+          platform_configured: Boolean(process.env.IDEAL_POSTCODES_API_KEY),
+        });
+      }
 
       // Tenant-scoped GoCardless webhook URL: admins register this in the
       // GoCardless dashboard so events are verified against THIS tenant's
@@ -178,9 +193,17 @@ export default async function handler(req, res) {
         return res.status(400).json({ error: 'integration_type is required' });
       }
 
-      const validTypes = ['zoom', 'zoho_campaigns', 'xero', 'stripe', 'quickbooks', 'gocardless', 'adzuna'];
+      const validTypes = ['zoom', 'zoho_campaigns', 'xero', 'stripe', 'quickbooks', 'gocardless', 'adzuna', 'ideal_postcodes'];
       if (!validTypes.includes(integration_type)) {
         return res.status(400).json({ error: 'Invalid integration type' });
+      }
+      if (integration_type === 'ideal_postcodes') {
+        if (credentials && Object.keys(credentials).length) {
+          return res.status(400).json({ error: 'Ideal Postcodes uses platform-managed credentials' });
+        }
+        if (is_enabled === true && !process.env.IDEAL_POSTCODES_API_KEY) {
+          return res.status(503).json({ error: 'Ideal Postcodes is not configured on this platform', code: 'PLATFORM_CONFIGURATION_REQUIRED' });
+        }
       }
 
       let autoRetryPolicy = null;
@@ -292,6 +315,9 @@ export default async function handler(req, res) {
         integration: {
           ...result,
           credentials: maskCredentials(decryptedResult),
+          ...(integration_type === 'ideal_postcodes'
+            ? { platform_configured: Boolean(process.env.IDEAL_POSTCODES_API_KEY), has_credentials: false }
+            : {}),
           ...(integration_type === 'gocardless'
             ? { auto_retry_policy: normalizeAutoRetryPolicy(decryptedResult) }
             : {}),

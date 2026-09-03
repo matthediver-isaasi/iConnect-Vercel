@@ -60,6 +60,7 @@ import {
   validateOrganisationGroupDependentOrganizationAnswers,
 } from '../_lib/formOrganisationGroups.js';
 import { validateRepeatableRowSubmission } from '../_lib/formRepeatableRowValidation.js';
+import { invalidRequiredAddressLookupFields } from '../_lib/idealPostcodes.js';
 import { getSessionMember } from '../_lib/session.js';
 import { capturePaymentIntentBillingAddress } from '../_lib/stripeInvoiceAddress.js';
 const STRIPE_MINIMUMS = { GBP: 0.30, USD: 0.50, EUR: 0.50, AUD: 0.50, NZD: 0.50 };
@@ -190,6 +191,19 @@ export async function validatePaymentRelationships(res, supabase, tenantData, fo
       evalOptions.lmicCodes = await loadTenantLmicCodes(supabase, tenantData.id);
     }
     const hiddenFieldIds = computeHiddenFieldIds(form, values, evalOptions);
+    const invalidAddressFields = invalidRequiredAddressLookupFields(
+      form.fields || [],
+      values,
+      hiddenFieldIds,
+    );
+    if (invalidAddressFields.length) {
+      res.status(400).json({
+        error: 'Required address information is missing',
+        code: 'ADDRESS_COMPONENTS_REQUIRED',
+        fields: invalidAddressFields,
+      });
+      return false;
+    }
     await validateRepeatableRowSubmission({
       db: supabase,
       tenantId: tenantData.id,
