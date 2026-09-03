@@ -360,16 +360,12 @@ function PerBreakpointColumns({ value = {}, onChange }) {
   );
 }
 
-function ListSkeleton({ count = 3, columns = 3, gap = 16 }) {
+function ListSkeleton({ count = 3, columns = 3, gap = 16, responsive = false }) {
   const items = Array.from({ length: count });
   return (
     <div
       className="w-full"
-      style={{
-        display: 'grid',
-        gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
-        gap,
-      }}
+      style={responsive ? undefined : gridStyle(columns, gap)}
       aria-busy="true"
       data-testid="skeleton-list"
     >
@@ -435,15 +431,23 @@ function isEditorPreviewBreakpoint(breakpoint) {
   return breakpoint === 'desktop' || breakpoint === 'tablet' || breakpoint === 'mobile';
 }
 
+function escapeCssAttributeValue(value) {
+  return Array.from(String(value || ''), (char) => (
+    /[A-Za-z0-9_-]/.test(char)
+      ? char
+      : `\\${char.codePointAt(0).toString(16)} `
+  )).join('');
+}
+
 function buildResponsiveListGridCss(blockId, content, gap, { testId, forceSingle = false } = {}) {
-  const safeId = String(blockId || '').replace(/["\\]/g, '');
-  if (!safeId) return '';
+  const escapedBlockId = escapeCssAttributeValue(blockId);
+  if (!escapedBlockId) return '';
   const desk = forceSingle ? 1 : columnsForBreakpoint(content, 'desktop');
   const tab = forceSingle ? 1 : columnsForBreakpoint(content, 'tablet');
   const mob = forceSingle ? 1 : columnsForBreakpoint(content, 'mobile');
   const sel = testId
-    ? `[data-cb="${safeId}"] [data-testid="${testId}"]`
-    : `[data-cb="${safeId}"] [data-list-grid]`;
+    ? `[data-cb="${escapedBlockId}"] [data-testid="${testId}"]`
+    : `[data-cb="${escapedBlockId}"] [data-list-grid]`;
   const g = Number.isFinite(Number(gap)) ? Number(gap) : 16;
   const parts = [
     `${sel}{display:grid;gap:${g}px;grid-template-columns:repeat(${desk},minmax(0,1fr));}`,
@@ -6127,6 +6131,13 @@ function DirectoryPickerField({ value, onChange, testId, entityType }) {
 function DirectoryCardsRender({ block, breakpoint, asEditor, icon: Icon, fallbackTitle }) {
   const c = block.content || {};
   const cols = columnsForBreakpoint(c, breakpoint);
+  const isPreview = isEditorPreviewBreakpoint(breakpoint);
+  const responsiveGridCss = !isPreview
+    ? [
+        buildResponsiveListGridCss(block.id, c, c.gap, { testId: 'skeleton-list' }),
+        buildResponsiveListGridCss(block.id, c, c.gap, { testId: 'directory-list' }),
+      ].join('')
+    : '';
   const pageSize = Math.max(1, Math.min(c.limit || 12, 50));
 
   const [searchInput, setSearchInput] = useState('');
@@ -6179,6 +6190,7 @@ function DirectoryCardsRender({ block, breakpoint, asEditor, icon: Icon, fallbac
   return (
     <TooltipProvider>
       <div className="w-full h-full overflow-auto" aria-label={block.a11y?.ariaLabel || c.title || fallbackTitle}>
+        {responsiveGridCss ? <style dangerouslySetInnerHTML={{ __html: responsiveGridCss }} /> : null}
         {c.title ? <Heading level={c.headingLevel || 2}>{c.title}</Heading> : null}
 
         <div className="flex flex-wrap items-center gap-3 mb-4" {...editorGuard}>
@@ -6205,7 +6217,12 @@ function DirectoryCardsRender({ block, breakpoint, asEditor, icon: Icon, fallbac
         </div>
 
         {isLoading ? (
-          <ListSkeleton count={Math.min(pageSize, 6)} columns={cols} gap={c.gap} />
+          <ListSkeleton
+            count={Math.min(pageSize, 6)}
+            columns={cols}
+            gap={c.gap}
+            responsive={!isPreview}
+          />
         ) : isError ? (
           <ErrorState message={String(error?.message || "Couldn't load directory right now.")} />
         ) : records.length === 0 ? (
@@ -6214,7 +6231,7 @@ function DirectoryCardsRender({ block, breakpoint, asEditor, icon: Icon, fallbac
           <>
             <ul
               className="list-none m-0 p-0"
-              style={gridStyle(cols, c.gap)}
+              style={isPreview ? gridStyle(cols, c.gap) : undefined}
               data-testid="directory-list"
             >
               {records.map((r) => (
