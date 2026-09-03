@@ -68,6 +68,7 @@ import {
 } from "@/lib/tbcEventsBanner";
 import { listAllOrganizationsForAdmin } from '@/lib/adminOrgList';
 import { resolveEventCtaLabel } from '@/lib/eventCtaLabel';
+import { canUseEventsPageTour } from '@/lib/eventsTourEligibility';
 import { 
   createFilterTagKey, 
   parseFilterTagKey, 
@@ -202,8 +203,11 @@ export default function EventsPage({
   const [complexImportSendConfirmations, setComplexImportSendConfirmations] = useState(true);
   const [complexImportTicketClasses, setComplexImportTicketClasses] = useState([]);
 
-  // Determine if tours should be shown for this user based on role setting
-  const shouldShowTours = resolvedMemberRole?.show_tours !== false;
+  // Fail closed for guests and while member role data is unresolved.
+  const shouldShowTours = canUseEventsPageTour({
+    memberInfo,
+    memberRole: resolvedMemberRole,
+  });
 
   // Check if user has seen this page's tour
   const hasSeenTour = memberInfo?.page_tours_seen?.Events === true;
