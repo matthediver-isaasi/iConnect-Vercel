@@ -6,7 +6,7 @@
  *   node scripts/import-bnms-overseas-members.mjs
  *   node scripts/import-bnms-overseas-members.mjs --apply
  */
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -185,13 +185,32 @@ export async function loadState(db, source) {
 
 const same = (actual, desired) => clean(actual) === clean(desired);
 export function makePlan(source, state, mappings, focusArea) {
-  const organizations = new Map(state.organizations.map((row) => [row.id, row]));
+  const organizations = new Map();
+  for (const organization of state.organizations) {
+    if (organizations.has(organization.id)) fail(`Duplicate destination Organisation id "${organization.id}".`);
+    organizations.set(organization.id, organization);
+  }
   for (const row of source.rows.filter((item) => item.values[19])) {
     if (organizations.get(row.values[19])?.tenant_id !== TENANT_ID) fail(`Row ${row.sourceRow}: Organisation is missing or outside BNMS.`);
   }
-  const membersByEmail = new Map(state.members.map((member) => [emailKey(member.email), member]));
-  const prefs = new Map(state.preferenceValues.map((value) => [`${value.member_id}|${value.field_id}`, value]));
-  const areas = new Set(state.memberCategories.map((value) => `${value.member_id}|${value.subcategory_name}`));
+  const membersByEmail = new Map();
+  for (const member of state.members) {
+    const key = emailKey(member.email);
+    if (membersByEmail.has(key)) fail(`Ambiguous destination Member email "${key}".`);
+    membersByEmail.set(key, member);
+  }
+  const prefs = new Map();
+  for (const value of state.preferenceValues) {
+    const key = `${value.member_id}|${value.field_id}`;
+    if (prefs.has(key)) fail(`Duplicate destination preference value for "${key}".`);
+    prefs.set(key, value);
+  }
+  const areas = new Set();
+  for (const value of state.memberCategories) {
+    const key = `${value.member_id}|${value.resource_category_id}|${clean(value.subcategory_name)}`;
+    if (areas.has(key)) fail(`Duplicate destination Focus Area for "${key}".`);
+    areas.add(key);
+  }
   return { items: source.rows.map((row) => {
     const member = membersByEmail.get(row.email) || null;
     const patch = {};
@@ -213,7 +232,7 @@ export function makePlan(source, state, mappings, focusArea) {
       return [{ mapping, desired, existing, action: !existing ? 'insert' : same(existing.value, desired) ? 'unchanged' : 'update' }];
     });
     const focusAreas = row.values[focusArea.column].split('|').map(clean).filter(Boolean).map((name) => ({
-      name, action: member && areas.has(`${member.id}|${name}`) ? 'unchanged' : 'insert',
+      name, action: member && areas.has(`${member.id}|${focusArea.id}|${name}`) ? 'unchanged' : 'insert',
     }));
     return {
       row, member, patch, action: member ? (Object.keys(patch).length ? 'update' : 'unchanged') : 'insert',
@@ -223,32 +242,39 @@ export function makePlan(source, state, mappings, focusArea) {
   }) };
 }
 
+export async function writeFocusAreas(db, plan, focusArea, journal) {
+  const members = await fetchAll(db, 'member', 'id,tenant_id,email', (q) => q.eq('tenant_id', TENANT_ID));
+  const byEmail = new Map(members.map((member) => [emailKey(member.email), member]));
+  let categoryWrites = 0;
+  for (const item of plan.items) {
+    const member = byEmail.get(item.row.email);
+    const writes = item.focusAreas.filter((area) => area.action === 'insert').map((area) => ({
+      id: randomUUID(), member_id: member.id, resource_category_id: focusArea.id, subcategory_name: area.name,
+    }));
+    if (!writes.length) continue;
+    const ids = writes.map((row) => row.id);
+    journal.push({
+      label: `delete Focus Areas for ${member.id}`,
+      rollback: async () => {
+        const { error: rollbackError } = await db.from('member_resource_category').delete().in('id', ids).select('id');
+        check(rollbackError, 'Focus Area delete failed');
+        const { data: remaining, error: verifyError } = await db.from('member_resource_category').select('id').in('id', ids);
+        check(verifyError, 'Focus Area rollback verification failed');
+        if ((remaining || []).length) fail('Focus Area rollback was incomplete.');
+      },
+    });
+    const { data, error } = await db.from('member_resource_category').insert(writes).select('id,member_id,resource_category_id,subcategory_name');
+    check(error, `Could not write Focus Areas for "${item.row.email}"`);
+    validateReturnedRows(data, writes, ['id', 'member_id', 'resource_category_id', 'subcategory_name'], 'Focus Area insert');
+    categoryWrites += writes.length;
+  }
+  return categoryWrites;
+}
+
 async function applyImport(db, plan, focusArea) {
   const result = await applyPlan(db, plan, { memberDefinition: { id: 'unused' } });
   try {
-    const members = await fetchAll(db, 'member', 'id,tenant_id,email', (q) => q.eq('tenant_id', TENANT_ID));
-    const byEmail = new Map(members.map((member) => [emailKey(member.email), member]));
-    let categoryWrites = 0;
-    for (const item of plan.items) {
-      const member = byEmail.get(item.row.email);
-      const writes = item.focusAreas.filter((area) => area.action === 'insert').map((area) => ({
-        member_id: member.id, resource_category_id: focusArea.id, subcategory_name: area.name,
-      }));
-      if (!writes.length) continue;
-      const { data, error } = await db.from('member_resource_category').insert(writes).select('id,member_id,resource_category_id,subcategory_name');
-      check(error, `Could not write Focus Areas for "${item.row.email}"`);
-      validateReturnedRows(data, writes, ['member_id', 'resource_category_id', 'subcategory_name'], 'Focus Area insert');
-      const ids = data.map((row) => row.id);
-      result.journal.push({
-        label: `delete Focus Areas for ${member.id}`,
-        rollback: async () => {
-          const { data: deleted, error: rollbackError } = await db.from('member_resource_category').delete().in('id', ids).select('id');
-          check(rollbackError, 'Focus Area delete failed');
-          if ((deleted || []).length !== ids.length) fail('Focus Area rollback was incomplete.');
-        },
-      });
-      categoryWrites += writes.length;
-    }
+    const categoryWrites = await writeFocusAreas(db, plan, focusArea, result.journal);
     return { ...result, categoryWrites };
   } catch (error) {
     await verifyOrCompensate(result.journal, async () => { throw error; });
