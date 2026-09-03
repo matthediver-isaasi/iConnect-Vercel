@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   PUBLIC_SELECTED_GROUP_SELECT,
-  PUBLIC_SELF_JOIN_GROUP_SELECT,
+  PUBLIC_DIRECTORY_GROUP_SELECT,
   handlePublicMemberGroups,
   parseRequestedGroupIds,
 } from './member-groups.js';
@@ -54,10 +54,11 @@ function fakeSupabase(rows) {
 }
 
 const groups = [
-  { id: 'other', tenant_id: 'tenant-2', name: 'Other tenant', is_active: true, allow_self_join: false },
-  { id: 'inactive', tenant_id: 'tenant-1', name: 'Inactive', is_active: false, allow_self_join: false },
-  { id: 'managed', tenant_id: 'tenant-1', name: 'Managed', is_active: true, allow_self_join: false, automatic_membership_enabled: true },
-  { id: 'self-join', tenant_id: 'tenant-1', name: 'Alpha', is_active: true, allow_self_join: true },
+  { id: 'other', tenant_id: 'tenant-2', name: 'Other tenant', is_active: true, allow_self_join: false, hide_on_group_page: false },
+  { id: 'inactive', tenant_id: 'tenant-1', name: 'Inactive', is_active: false, allow_self_join: false, hide_on_group_page: false },
+  { id: 'managed', tenant_id: 'tenant-1', name: 'Managed', is_active: true, allow_self_join: false, hide_on_group_page: false, automatic_membership_enabled: true },
+  { id: 'hidden', tenant_id: 'tenant-1', name: 'Hidden', is_active: true, allow_self_join: true, hide_on_group_page: true },
+  { id: 'self-join', tenant_id: 'tenant-1', name: 'Alpha', is_active: true, allow_self_join: true, hide_on_group_page: false },
 ];
 
 test('explicit selected group ids are de-duplicated and bounded', () => {
@@ -65,11 +66,11 @@ test('explicit selected group ids are de-duplicated and bounded', () => {
   assert.equal(parseRequestedGroupIds(Array.from({ length: 25 }, (_, index) => `group-${index}`)).length, 24);
 });
 
-test('legacy request keeps the self-join query and presentation fields', async () => {
+test('directory request returns visible active groups regardless of self-join', async () => {
   const supabase = fakeSupabase(groups);
   const res = response();
   await handlePublicMemberGroups({ query: {} }, res, { supabase, tenant: { id: 'tenant-1' } });
-  assert.deepEqual(res.body.map((group) => group.id), ['self-join']);
+  assert.deepEqual(res.body.map((group) => group.id), ['self-join', 'managed']);
   assert.match(supabase.query.selectValue, /who_is_it_for/);
   assert.equal(supabase.query.inValues, null);
 });
@@ -97,5 +98,5 @@ test('selected request permits active managed groups but filters inactive and cr
   assert.ok(!PUBLIC_SELECTED_GROUP_SELECT.includes('automatic_membership'));
   assert.ok(!PUBLIC_SELECTED_GROUP_SELECT.includes('default_self_join_role'));
   assert.ok(!PUBLIC_SELECTED_GROUP_SELECT.includes('who_is_it_for'));
-  assert.ok(PUBLIC_SELF_JOIN_GROUP_SELECT.includes('who_is_it_for'));
+  assert.ok(PUBLIC_DIRECTORY_GROUP_SELECT.includes('who_is_it_for'));
 });

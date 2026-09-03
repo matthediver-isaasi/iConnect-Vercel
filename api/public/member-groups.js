@@ -1,7 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
 
-export const PUBLIC_SELF_JOIN_GROUP_SELECT = `
+export const PUBLIC_DIRECTORY_GROUP_SELECT = `
   id,
   name,
   description,
@@ -55,7 +55,7 @@ export async function handlePublicMemberGroups(req, res, { supabase, tenant }) {
 
   let query = supabase
     .from('member_group')
-    .select(requestedSelectedGroups ? PUBLIC_SELECTED_GROUP_SELECT : PUBLIC_SELF_JOIN_GROUP_SELECT)
+    .select(requestedSelectedGroups ? PUBLIC_SELECTED_GROUP_SELECT : PUBLIC_DIRECTORY_GROUP_SELECT)
     .eq('tenant_id', tenant.id)
     .neq('is_active', false);
 
@@ -63,7 +63,7 @@ export async function handlePublicMemberGroups(req, res, { supabase, tenant }) {
     query = query.in('id', selectedGroupIds);
   } else {
     query = query
-      .eq('allow_self_join', true)
+      .eq('hide_on_group_page', false)
       .order('name', { ascending: true });
   }
 

@@ -32,6 +32,7 @@ import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useMemberGroupSettings } from "@/hooks/useMemberGroupSettings";
 import { buildTermSnapshot } from "@/lib/memberGroupTermSnapshot";
 import { roleNameKey, canonicalizeRoleName, collectTenantRoleNames, isEmptyRoleHtml, isEmptyRoleTermDef } from "@/lib/memberGroupRoleNames";
+import { resolveHideOnGroupPage } from "@/lib/memberGroupDirectory";
 import { createPageUrl } from "@/utils";
 import EventImageUpload from "@/components/events/EventImageUpload";
 import SimpleRichTextEditor from "@/components/SimpleRichTextEditor";
@@ -118,6 +119,7 @@ export default function MemberGroupManagementPage() {
     is_active: true,
     header_image_url: '',
     allow_self_join: false,
+    hide_on_group_page: false,
     default_self_join_role: '',
     projects_enabled: false,
     projects_enabled_roles: [],
@@ -665,6 +667,7 @@ export default function MemberGroupManagementPage() {
       is_active: true,
       header_image_url: '',
       allow_self_join: false,
+      hide_on_group_page: false,
       default_self_join_role: '',
       projects_enabled: false,
       projects_enabled_roles: [],
@@ -710,6 +713,7 @@ export default function MemberGroupManagementPage() {
       is_active: group.is_active,
       header_image_url: group.header_image_url || '',
       allow_self_join: !!group.allow_self_join,
+      hide_on_group_page: resolveHideOnGroupPage(group),
       default_self_join_role: group.default_self_join_role || '',
       projects_enabled: !!group.projects_enabled,
       projects_enabled_roles: Array.isArray(group.projects_enabled_roles) ? group.projects_enabled_roles : [],
@@ -753,6 +757,7 @@ export default function MemberGroupManagementPage() {
       is_active: group.is_active,
       header_image_url: group.header_image_url || '',
       allow_self_join: !!group.allow_self_join,
+      hide_on_group_page: resolveHideOnGroupPage(group),
       default_self_join_role: group.default_self_join_role || '',
       projects_enabled: !!group.projects_enabled,
       projects_enabled_roles: Array.isArray(group.projects_enabled_roles) ? [...group.projects_enabled_roles] : [],
@@ -2538,7 +2543,7 @@ export default function MemberGroupManagementPage() {
                 <div className="flex items-center justify-between gap-3">
                   <div className="flex flex-col gap-1">
                     <Label htmlFor="allow_self_join" className="cursor-pointer">Allow members to self-join</Label>
-                    <span className="text-xs text-slate-500">Members will see this group on the {featureName} page and can join with one click</span>
+                    <span className="text-xs text-slate-500">Members can join this group themselves when it is visible on the {featureName} page</span>
                   </div>
                   <Switch
                     id="allow_self_join"
@@ -2549,6 +2554,19 @@ export default function MemberGroupManagementPage() {
                       default_self_join_role: checked ? groupForm.default_self_join_role : ''
                     })}
                     data-testid="switch-allow-self-join"
+                  />
+                </div>
+
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex flex-col gap-1">
+                    <Label htmlFor="hide_on_group_page" className="cursor-pointer">Hide on group page</Label>
+                    <span className="text-xs text-slate-500">Keep this group off the {featureName} page without changing who can join it</span>
+                  </div>
+                  <Switch
+                    id="hide_on_group_page"
+                    checked={!!groupForm.hide_on_group_page}
+                    onCheckedChange={(checked) => setGroupForm({ ...groupForm, hide_on_group_page: checked })}
+                    data-testid="switch-hide-on-group-page"
                   />
                 </div>
 

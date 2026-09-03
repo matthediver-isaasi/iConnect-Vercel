@@ -8,6 +8,7 @@ import { useMemberGroupSettings } from "@/hooks/useMemberGroupSettings";
 import { createPageUrl } from "@/utils";
 import MemberGroupCard from "@/components/member-groups/MemberGroupCard";
 import { useMemberGroupCardsData } from "@/hooks/useMemberGroupCards";
+import { isMemberGroupDirectoryVisible } from "@/lib/memberGroupDirectory";
 
 export default function MemberGroupsPage() {
   const memberGroupData = useMemberGroupCardsData();
@@ -50,10 +51,11 @@ export default function MemberGroupsPage() {
     const onlyManaged = isAuthenticated && showAdminGroups;
     return groups
       .filter((g) => {
+        if (!isMemberGroupDirectoryVisible(g)) return false;
         if (onlyManaged) {
           return groupAdminIds.has(g.id);
         }
-        return g.allow_self_join && g.is_active !== false;
+        return true;
       })
       .filter((g) => {
         if (!isAuthenticated || !showOnlyJoined) return true;
@@ -93,11 +95,11 @@ export default function MemberGroupsPage() {
             {featureName || 'Member Groups'}
           </h1>
           <p className="text-slate-600">
-            Browse and join groups that are open to all members
+            Browse member groups and join those open to self-registration
           </p>
         </div>
 
-        {groups.filter((g) => g.allow_self_join && g.is_active !== false).length > 0 && (
+        {groups.some(isMemberGroupDirectoryVisible) && (
           <Card className="mb-4">
             <CardContent className="p-4">
               <Input
@@ -159,7 +161,7 @@ export default function MemberGroupsPage() {
                     ? "You don't manage any groups."
                     : showOnlyJoined
                       ? "You haven't joined any groups yet."
-                      : 'There are no member groups open for self-join right now.'}
+                      : 'There are no member groups available right now.'}
               </p>
             </CardContent>
           </Card>
