@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Strict, destination-only import of the 29 additional BNMS Organisations CSV.
+ * Strict, destination-only import of the 26 BNMS guest Organisations CSV.
  *
  * Usage:
  *   node scripts/import-bnms-organisations-csv.mjs
@@ -14,19 +14,19 @@ import { fileURLToPath } from 'node:url';
 import { COUNTRIES, resolveCountryToIso2 } from '../shared/countries.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const SOURCE_FILE = path.join(ROOT, 'attached_assets', 'Organisations_to_import_03.09.26_1788456776714.csv');
+const SOURCE_FILE = path.join(ROOT, 'attached_assets', 'Guest_Organisations_DEFINITELY_to_Import_04.09.26_1788518455672.csv');
 const DRY_RUN_REPORT_FILE = path.join(ROOT, 'reports', 'bnms-organisations-csv-import-dry-run.json');
 const APPLY_REPORT_FILE = path.join(ROOT, 'reports', 'bnms-organisations-csv-import.json');
 const TENANT_ID = 'ff2df806-b321-4254-b651-3af11fccf1db';
-const EXPECTED_ROWS = 29;
-const HEADERS = ['Organisation name', 'Type', 'Country', 'Town / City', 'BNMS Region'];
-const EXPECTED_DISTINCT = { type: 3, country: 11, region: 7 };
+const EXPECTED_ROWS = 26;
+const HEADERS = ['Organisation name', 'Organisation type', 'Country', 'Town / city', 'BNMS Region'];
+const EXPECTED_DISTINCT = { type: 2, country: 4, region: 8 };
 const FIELD_SPECS = [
-  { header: 'Type', key: 'type', names: ['organisation_type'], canonicalName: 'organisation_type',
+  { header: 'Organisation type', key: 'type', names: ['organisation_type'], canonicalName: 'organisation_type',
     label: 'Type', fieldType: 'dropdown' },
   { header: 'Country', key: 'country', names: ['country', 'org_country'], canonicalName: 'country',
     label: 'Country', fieldType: 'country' },
-  { header: 'Town / City', key: 'townCity', names: ['town_city', 'org_town_city'], canonicalName: 'town_city',
+  { header: 'Town / city', key: 'townCity', names: ['town_city', 'org_town_city'], canonicalName: 'town_city',
     labels: ['Town/city', 'Town / city', 'Town / City'], fieldType: 'text' },
   { header: 'BNMS Region', key: 'region', names: ['region'], canonicalName: 'region',
     label: 'Region', fieldType: 'dropdown' },
@@ -72,13 +72,12 @@ function readSource() {
   if (headers.length !== HEADERS.length || headers.some((header, index) => header !== HEADERS[index])) {
     fail(`Headers must be exactly: ${HEADERS.join(' | ')}. Found: ${headers.join(' | ') || '(none)'}.`);
   }
-  if (grid.length !== EXPECTED_ROWS) fail(`CSV must contain exactly ${EXPECTED_ROWS} populated rows; found ${grid.length}.`);
   const seen = new Map();
-  const rows = grid.map((raw, index) => {
+  const rows = grid.flatMap((raw, index) => {
     const sourceRow = index + 2;
     if (raw.length !== HEADERS.length) fail(`Source row ${sourceRow} has ${raw.length} columns; expected ${HEADERS.length}.`);
     const values = raw.map((value) => String(value ?? '').trim());
-    if (values.every((value) => !value)) fail(`Source row ${sourceRow} is blank.`);
+    if (values.every((value) => !value)) return [];
     if (values.some((value) => /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/.test(value))) {
       fail(`Source row ${sourceRow} contains a control character.`);
     }
@@ -87,8 +86,9 @@ function readSource() {
     const normalized = canonicalKey(name);
     if (seen.has(normalized)) fail(`Duplicate normalized source name "${name}" at rows ${seen.get(normalized)} and ${sourceRow}.`);
     seen.set(normalized, sourceRow);
-    return { sourceRow, name, type, country, townCity, region };
+    return [{ sourceRow, name, type, country, townCity, region }];
   });
+  if (rows.length !== EXPECTED_ROWS) fail(`CSV must contain exactly ${EXPECTED_ROWS} populated rows; found ${rows.length}.`);
   for (const [key, expected] of Object.entries(EXPECTED_DISTINCT)) {
     const actual = new Set(rows.map((row) => row[key]).filter(Boolean)).size;
     if (actual !== expected) fail(`Expected ${expected} distinct ${key} values; found ${actual}.`);
