@@ -13,7 +13,7 @@ import { resolveMembershipMatch, membershipQuoteKey } from './formPaymentQuote';
 
 export function useMembershipFeeQuote({ form, formValues, prefillOrganizationId = null, enabled = true }) {
   const match = useMemo(() => resolveMembershipMatch(form, formValues), [form, formValues]);
-  const key = useMemo(() => membershipQuoteKey(match, formValues), [match, formValues]);
+  const key = useMemo(() => membershipQuoteKey(match, formValues, form), [match, formValues, form]);
 
   const query = useQuery({
     queryKey: ['membership-fee-quote', form?.id, key, prefillOrganizationId || null],

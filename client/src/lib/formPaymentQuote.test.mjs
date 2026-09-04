@@ -64,6 +64,123 @@ test('key changes only when mapped answers change', () => {
   assert.notEqual(k1, k3);
 });
 
+test('key refreshes after a relationship parent transition normalizes its dependent answer', () => {
+  const relationshipForm = {
+    ...form,
+    fields: [
+      { id: 'university', type: 'organisation_dropdown', not_listed_choice: { enabled: true, label: 'Not listed' } },
+      {
+        id: 'department',
+        type: 'relationship_dropdown',
+        parent_field_id: 'university',
+        not_listed_choice: { enabled: true, label: 'Not listed' },
+      },
+      { id: 'unrelated', type: 'text' },
+    ],
+  };
+  const match = resolveMembershipMatch(relationshipForm, { field_class: 'Full member' });
+  const stale = {
+    field_class: 'Full member',
+    university: '__form_not_listed__',
+    department: 'stale-record',
+    __not_listed_choice_text: { university: 'Example University' },
+  };
+  const normalized = { ...stale, department: '__form_not_listed__' };
+  assert.notEqual(
+    membershipQuoteKey(match, stale, relationshipForm),
+    membershipQuoteKey(match, normalized, relationshipForm),
+  );
+});
+
+test('key refreshes when required not-listed text is corrected but ignores unrelated edits', () => {
+  const relationshipForm = {
+    ...form,
+    fields: [
+      { id: 'university', type: 'organisation_dropdown', not_listed_choice: { enabled: true, label: 'Not listed' } },
+      { id: 'unrelated', type: 'text' },
+    ],
+  };
+  const match = resolveMembershipMatch(relationshipForm, { field_class: 'Full member' });
+  const missing = { field_class: 'Full member', university: '__form_not_listed__', unrelated: 'a' };
+  const corrected = {
+    ...missing,
+    __not_listed_choice_text: { university: 'Example University' },
+  };
+  assert.notEqual(
+    membershipQuoteKey(match, missing, relationshipForm),
+    membershipQuoteKey(match, corrected, relationshipForm),
+  );
+  assert.equal(
+    membershipQuoteKey(match, corrected, relationshipForm),
+    membershipQuoteKey(match, { ...corrected, unrelated: 'b' }, relationshipForm),
+  );
+});
+
+test('visibility rules for unrelated fields do not destabilize the quote key', () => {
+  const relationshipForm = {
+    ...form,
+    fields: [
+      { id: 'university', type: 'organisation_dropdown' },
+      { id: 'newsletter', type: 'checkbox' },
+      { id: 'newsletter_details', type: 'text' },
+    ],
+    visibility_rules: [
+      ...form.visibility_rules,
+      {
+        trigger_field_id: 'newsletter',
+        operator: 'equals',
+        value: true,
+        action: 'show',
+        target_field_ids: ['newsletter_details'],
+      },
+    ],
+  };
+  const match = resolveMembershipMatch(relationshipForm, { field_class: 'Full member' });
+  const first = { field_class: 'Full member', university: 'university-1', newsletter: false };
+  const second = { ...first, newsletter: true };
+  assert.equal(
+    membershipQuoteKey(match, first, relationshipForm),
+    membershipQuoteKey(match, second, relationshipForm),
+  );
+});
+
+test('key refreshes when a required address is completed after quote validation fails', () => {
+  const addressForm = {
+    ...form,
+    fields: [
+      { id: 'billing_address', type: 'address_lookup', required: true },
+      { id: 'unrelated', type: 'text' },
+    ],
+  };
+  const match = resolveMembershipMatch(addressForm, { field_class: 'Full member' });
+  const incomplete = {
+    field_class: 'Full member',
+    billing_address: { line_1: '', city: '', postcode: '' },
+  };
+  const complete = {
+    ...incomplete,
+    billing_address: { line_1: '1 High Street', city: 'London', postcode: 'SW1A 1AA' },
+  };
+  assert.notEqual(
+    membershipQuoteKey(match, incomplete, addressForm),
+    membershipQuoteKey(match, complete, addressForm),
+  );
+  assert.equal(
+    membershipQuoteKey(match, complete, addressForm),
+    membershipQuoteKey(match, { ...complete, unrelated: 'changed' }, addressForm),
+  );
+});
+
+test('hosted and embedded forms pass the form-aware answers through the shared quote hook', () => {
+  const hook = readFileSync(join(repoRoot, 'client', 'src', 'lib', 'useMembershipFeeQuote.js'), 'utf8');
+  assert.match(hook, /membershipQuoteKey\(match, formValues, form\)/);
+  for (const page of ['FormView.jsx', 'EmbedForm.jsx']) {
+    const source = readFileSync(join(repoRoot, 'client', 'src', 'pages', page), 'utf8');
+    assert.match(source, /useMembershipFeeQuote\(\{/);
+    assert.match(source, /\bformValues,/, 'both surfaces must supply their current normalized answers');
+  }
+});
+
 // ---------- resolveEffectivePayment ----------
 
 test('no membership match: derived (price-source) amount, never blocked', () => {
@@ -118,6 +235,19 @@ test('server form-payment endpoint wires the quote action through the shared res
   assert.ok(!/req\.body[^\n]*amount/.test(quoteBody), 'quote must never read an amount from the client');
   const createBody = src.slice(src.indexOf('async function handleCreate'));
   assert.match(createBody, /resolvePayableCharge/, 'create must use the shared resolver');
+});
+
+test('quote and payment creation retain the same authoritative relationship validation', () => {
+  const src = readFileSync(join(repoRoot, 'api', 'public', 'form-payment.js'), 'utf8');
+  const quote = src.slice(src.indexOf('async function handleQuote'), src.indexOf('async function handleCreateMonthlyCard'));
+  const monthly = src.slice(src.indexOf('async function handleCreateMonthlyCard'), src.indexOf('async function handleCreate('));
+  const create = src.slice(src.indexOf('async function handleCreate('), src.indexOf('async function handleConfirm'));
+  for (const [name, body] of [['quote', quote], ['monthly create', monthly], ['create', create]]) {
+    const validationIndex = body.indexOf('validatePaymentRelationships(');
+    const chargeIndex = body.indexOf('resolvePayableCharge(');
+    assert.ok(validationIndex > -1, `${name} must validate visible relationship selections`);
+    assert.ok(chargeIndex > validationIndex, `${name} must validate relationships before deriving a charge`);
+  }
 });
 
 test('handleCreate checks submit-control BEFORE resolving the charge (pre-existing ordering)', () => {

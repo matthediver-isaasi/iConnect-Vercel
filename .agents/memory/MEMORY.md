@@ -2,7 +2,6 @@
 - [Supabase realtime publication](supabase-realtime-publication.md) — realtime subscriptions silently get no events until the table is added to the supabase_realtime publication.
 - [Membership tier scheduling](membership-tier-scheduling.md) — a config is "in effect" by date range, not just effective_to IS NULL; switch-over caps the old config to newStart-1.
 - [base44 new field needs a DB column](base44-new-field-migration.md) — adding a new property to an existing base44 entity requires a migration; the column-per-field table does not auto-create columns.
-- [complex_event draft fields](complex-event-draft-fields.md) — complex_event has TWO independent draft signals (status vs event_state); public list hides event_state=draft, so admin features must use the authenticated entity API.
 - [Canvas block overflow clipping](canvas-block-overflow.md) — every canvas block box is overflow:hidden in both renderers; dropdowns/popovers need an allowOverflow flag in the registry or they render invisibly clipped.
 - [Canvas full-width vs full-bleed](canvas-fullwidth-vs-fullbleed.md) — fullWidth=100% (fills centered stage only), fullBleed=100vw (true screen edge); gate duplicated in canvasDesign.js geomRule callers + CanvasPageRenderer.
 - [Per-attendee flag surfaces](attendee-flag-surfaces.md) — a booking boolean (buddy/badge) must be wired through ~8 places across both booking tables; default-true reads as `x !== false` everywhere, not `!!x`.
@@ -29,7 +28,6 @@
 - [Count-based ticket availability & oversell guard](ticket-capacity-count-based.md) — available_count is a fixed max; derive remaining from confirmed bookings; oversell needs a DB advisory-lock guard, not a stored decrement.
 - [getTenantIdFromSession only checks membership](tenant-session-admin-gate.md) — admin-only /api endpoints must use getTenantContext + hasAdminAccess; getTenantIdFromSession verifies tenant membership only, not admin role.
 - [Redacted group-admin data surfaces](redacted-group-admin-surfaces.md) — give group admins a tenant-wide signal (count/boolean) by branching the RESPONSE not just auth; redact every success branch so other groups private details never leak.
-- [member_group_assignment has no join timestamp](member-group-assignment-no-timestamp.md) — table has no created/joined column; activity "joined" backfills must use now(), true historical dates unrecoverable.
 - [PostgREST range pagination needs ORDER BY](postgrest-pagination-order.md) — .range() paging without .order(unique col) silently skips/repeats rows; totals vary run to run.
 - [Import idempotency & the 1000-row cap](import-idempotency-1000-cap.md) — resource import scripts match existing rows by target_url, but the existing-rows fetch is capped at 1000 by PostgREST; on tenants with >1000 rows you MUST paginate or re-runs duplicate.
 - [Guest-rendering an auth-only page](guest-public-admin-page.md) — 4 moves: guest endpoint + gate every auth query (watch TDZ) + render-gate admin affordances + loading gate on authResolved to stop "Not Found" flash.
@@ -44,10 +42,8 @@
 - [Canvas spatial reflow lanes](canvas-spatial-reflow-lanes.md) — V1 blocks move only on visible collision; lanes stay independent and spanning targets follow the deepest path.
 - [Baking auto-height reflow into stored geom](canvas-autoheight-commit.md) — committing an auto-height block's measured h must ALSO push blocks below + grow containing sections by the delta, else getOffset→0 and blocks below overlap; scoped to non-cardGrow blocks (Text/Accordion), cards use runtime row-equalization.
 - [Microsite path-prefix surfaces](microsite-prefix-surfaces.md) — rows with microsite_id serve only at /{prefix}/{slug}; page-by-slug, nav, branding, entityMeta, sitemap must all exclude them from the default site.
-- [DD file-upload payload shape](dd-file-upload-payload-shape.md) — file values store a RELATIVE secure-url + storage_path with NO bucket key; consumers must parse bucket/path from the secure-url query.
 - [Canvas mobile stage clamp](canvas-mobile-stage-clamp.md) — editor tablet/mobile geoms are clamped for display only; interactions/inspector read raw frames, and the public CSS path has no clamp.
 - [Serverless chunk time budget](serverless-chunk-time-budget.md) — record-count chunking still 504s when matches drive cost; budget wall-clock per invocation with an exact per-record resume cursor.
-- [Dashboard widget series split](dashboard-widget-series-split.md) — stacked 2-dim widgets use config.seriesBy (Active/Inactive only) with `value` total kept per row; ref-level from/to params must be whitelisted in zod or silently stripped.
 - [Microsite branding overrides](microsite-branding-overrides.md) — a new overridable key needs whitelist + tenant-branding merge + SSR renderHtml + editor card; SSR and the branding endpoint are separate resolution paths.
 - [Canvas flow (auto-layout) model](canvas-flow-model.md) — v2 flow doc coexists with v1 via isFlowDesign branch; ONE pure resolveFlowLayout drives builder+page; nullable flow props must dodge Number(null)===0 or re-save drifts to 0.
 - [Typography styles microsite scoping](typography-microsite-scope.md) — a style is scoped to main-site OR one microsite; effective default per style_type = microsite default ?? main-site default; is_default unique per (scope,type) app-level only.
@@ -65,14 +61,12 @@
 - [AI V2 retry carry-forward](ai-code-v2-retry-carry.md) — carry a passing HTML/CSS side between retries only when ALL real gate errors sit on the other side; heuristics alone trap loops.
 - [Complex event reminders per-day](complex-reminders-per-day.md) — relative reminders schedule once per calendar day via shared helper; dedupe reuses session_id as the deterministic day-anchor session.
 - [Session Zoom ID conventions](session-zoom-id-conventions.md) — session cols hold EXTERNAL Zoom IDs (event table holds local PKs); saved-session Zoom changes must route through change-zoom, the PATCH strips them.
-- [complex_event_session FK column](complex-event-session-fk.md) — parent FK is complex_event_id (NOT event_id, despite some code querying that); session start column is start_time.
 - [Accounting provider dual invoice columns](accounting-provider-dual-columns.md) — QBO rows fill only accounting_invoice_id/number; queries filtering xero_* alone silently miss them; keep xero_invoice_id strictly Xero for API calls.
 - [Pending-PO Xero reference heuristic](pending-po-reference-heuristic.md) — descriptive Xero References ('Training Fund top-up', 'Membership …') must be blacklisted or the PO report hides rows; PostgREST .or() fails on UPDATE.
 - [Member group role name canonicalisation](member-group-role-name-canonicalisation.md) — role names are free text duplicated across ~9 surfaces incl. role-keyed JSONB maps; rename/merge must rewrite all together.
 - [Membership invoice add-on lines](membership-invoice-addons.md) — add-on lines stored at fee-approval; EVERY org invoice path (manual, advance, cron x2) must pass extraLineItems + bake totals + run training-fund processing.
 - [Job posting payment legacy pitfalls](job-posting-payment-legacy.md) — non-member postings have NULL tenant_id; legacy admin-notify filter mass-emails the whole tenant, use is_admin roles + hard cap.
 - [Public form submission idempotency](public-form-idempotency.md) — dup guard = client key + unique index returning the ORIGINAL success payload + keyless 10s backstop; test endpoint in-process against DEST (local DB is pre-tenant).
-- [Vercel env access](vercel-env-access.md) — workspace VERCEL_API_TOKEN is invalid (403); prod env vars like CRON_SECRET must be set via Vercel dashboard; cron guard fails open when unset.
 - [Country name resolution & LMIC surfaces](country-name-resolution.md) — stored countries include WB-style names; always resolve via resolveCountryToIso2 (+aliases); LMIC needs element-level pruning on measure AND group-by paths.
 - [Stripe membership reconcile safety net](stripe-membership-reconcile.md) — webhook + idempotent recorder back up the client confirm; PI lookups must tolerate test/live mode flips; post-charge rejections must say "charge succeeded, will be reconciled".
 - [Membership-paid workflow paths](membership-paid-workflow-paths.md) — any path settling a membership invoice as paid must insert the row paid AND fire the shared fireWorkflowForPaidRow helper (on payment success, exactly once).
@@ -86,10 +80,8 @@
 - [Widget click-through drilldown](widget-drilldown-clickthrough.md) — big id lists POST in a body (never URL); toggle enforced server-side; Recharts click key via entry.key ?? payload.key ?? name.
 - [Member-driven membership fee tokens](member-fee-tokens.md) — fee tokens carry org_id OR member_id; every consumer must branch (history/invoicing/notes/sim); token DD adopts unpaid workflow rows.
 - [Outlook busy-time handling](outlook-busy-times.md) — Graph calendarview returns naive datetimes in the Prefer tz; never offset-detect via includes('-'); paginate nextLink; flag connection on failure.
-- [Fee approval must not set invoicing_mode](fee-approval-invoicing-mode.md) — side-effect invoicing rows must be 'automatic' (org column NOT NULL) or the Create Membership workflow guard deadlocks; log status must surface skipped actions.
 - [Cron email delivery model](speaker-award-notifications.md) — one-off notification emails need lease+delivered timestamp pairs (CAS everywhere) and a retry sweep independent of the parent's done-stamp; a claim is not delivery.
 - [Resource category & subcategory role access](resource-category-role-access.md) — name-level visible-wins hiding via one shared helper; ~6 surfaces must strip access fields + trim hidden names or roles leak.
-- [Org directory filters vs admin surfaces](org-directory-filter-admin.md) — non-tenant-admin Organization lists are directory-filtered unless skipDirectoryFilters=true; admin pages use adminOrgList helpers.
 - [record_create workflows & custom fields](workflow-record-create-custom-fields.md) — trigger AFTER preference values persist or custom-field conditions see empty; workflow_log status check allows success|partial|failed|skipped.
 - [Form prefill logged-in fallback](form-prefill-fallback.md) — prefill target: URL param > authed member/org via shared resolver; prefill effect must wait for member AND org custom values; embed iframe resolves auth via /api/auth/me itself.
 - [Event hard-delete vs booking rows](event-delete-booking-detach.md) — bookings survive event deletion detached (event_id NULL + event_name snapshot); surfaces must fall back to booking.event_name.
@@ -102,9 +94,7 @@
 - [Form processor tenant scoping](form-processor-tenant-scope.md) — body tenant_id is client-controlled; resolve tenant from persisted form/submission BEFORE any tenant-scoped query, reject mismatches 403.
 - [SECURITY DEFINER RPC grants](security-definer-rpc-grants.md) — new Postgres functions are PUBLIC-executable by default; server-only RPCs must revoke PUBLIC + validate inputs in SQL.
 - [Member membership pause](member-membership-pause.md) — pause blocks access via its own flag (login_enabled never rewritten); GC resume only touches subs pause recorded; all reads 42703-tolerant.
-- [member_note column contract](member-note-columns.md) — notes key via target_member_id/author_member_id (+attachments); member_id/created_by inserts fail silently — always check {error}.
 - [Organisation Group CRM parity](org-group-crm-parity.md) — preference_field.entity_scope is CHECK-constrained; org layout/rules editors take a coreFields prop, rule eval is entity-agnostic.
-- [Demo tenant seed framework](demo-seed-framework.md) — demo-seeds/ engine+definitions; RNG plan-then-persist, manifest in system_settings (string!), member deletes need tiny batches.
 - [Per-instalment monthly invoicing](per-instalment-invoicing.md) — mode snapshotted at consent; idempotency via invoice linkage (GC row cols / Stripe unique table); annual paths must call shouldSuppressAnnualInvoice.
 - [Form membership auto-resolve](form-membership-auto-resolve.md) — membership action resolve_mode='auto' picks the structure from the mapped answer vs match values; no-match = descriptive error, never £0; tierless classes hide the payment field.
 - [GoCardless Drop-in modal](gocardless-dropin.md) — DD start endpoints return flowId+environment; shared GoCardlessDropinFlow wrapper opens modal, onLoadFailure falls back to hosted redirect.
@@ -120,7 +110,6 @@
 - [Authoritative empty feeds](authoritative-empty-feeds.md) — destructive consumers need confirmed-empty vs load-failure states; never collapse backend errors into [].
 - [Email preference consent serialization](email-preference-consent-serialization.md) — global and category consent writes must share one recipient lock and commit subscription+ledger changes atomically.
 - [Directory-owned member scope](directory-owned-member-scope.md) — organisation contact views must stay inside the source directory; never let Member Directory query params switch authorization scope.
-- [Organisation preference tenant scope](organisation-preference-tenant-scope.md) — DEST custom-value rows have no tenant_id; scope writes through tenant-owned organisations and fields.
 - [Communication category member RBAC](communication-category-member-rbac.md) — enforce applicable roles on every member opt-in path; public affects externals only, while role-loss unsubscribe stays allowed.
 - [Membership invoice PO contract](membership-invoice-po-contract.md) — provider PO/reference fields must contain a genuine PO alone, or exactly TBC; never a membership-year description.
 - [Advisory locks through transaction poolers](transaction-pool-advisory-locks.md) — hold an explicit transaction and use xact locks; session locks can leak across pooled backends.
@@ -157,3 +146,4 @@
 - [Pinned import identity vs matching](pinned-import-identity-matching.md) — make live-name matching legacy-encoding tolerant without changing historical identity-hash normalization.
 - [Contextual Custom Object creation](contextual-custom-object-create.md) — create a record and initial edges in one RPC; requiredness follows the new record’s source side.
 - [Platform-managed tenant integrations](platform-managed-tenant-integrations.md) — shared secrets stay server-only; tenants store only enablement and receive boolean availability.
+- [Payment quote cache authority](payment-quote-cache-authority.md) — quote keys must include validation-changing answers, not only price inputs, or transient validation errors can stick.
