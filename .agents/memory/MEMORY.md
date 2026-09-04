@@ -149,3 +149,4 @@
 - [Platform-managed tenant integrations](platform-managed-tenant-integrations.md) — shared secrets stay server-only; tenants store only enablement and receive boolean availability.
 - [Payment quote cache authority](payment-quote-cache-authority.md) — quote keys must include validation-changing answers, not only price inputs, or transient validation errors can stick.
 - [PostgREST large IN filters](postgrest-large-in-filters.md) — hundreds of UUIDs in one `.in()` can fail at fetch/URL level; batch ID-filtered verification reads.
+- [Long-running pinned imports](long-running-pinned-imports.md) — sequential compensated imports may outlive interactive shells; resume idempotently and require a zero-write replay.
