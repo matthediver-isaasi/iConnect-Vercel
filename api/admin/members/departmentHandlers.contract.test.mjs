@@ -34,6 +34,42 @@ test('admin list and CSV share departmentId parsing and only apply resolved non-
   assert.match(paginated, /enrichMembersWithDepartments\(supabase, tenantId, memberRows\)/);
 });
 
+test('member select-all CSV mirrors every list scope and validates the displayed total', () => {
+  const membersList = read('../../../client/src/pages/MembersList.jsx');
+  for (const param of [
+    'search', 'organizationId', 'departmentId', 'roleId', 'status',
+    'customFilters', 'organizationFilters', 'coreFilters',
+  ]) {
+    assert.match(membersList, new RegExp(`params\\.set\\('${param}'`));
+  }
+  assert.match(membersList, /body\.drillIds = drillIdsParam/);
+  assert.match(membersList, /body\.expectedTotal = pagination\.total/);
+  assert.match(membersList, /method: 'POST'/);
+  assert.match(exported, /req\.body\?\.drillIds/);
+  assert.match(exported, /if \(drillIds\.length > 0\) q = q\.in\('id', drillIds\)/);
+  assert.match(exported, /firstPage\.count/);
+  assert.match(exported, /memberExportCountError\(expectedTotal, actualTotal\)/);
+});
+
+test('member CSV rejects genuine empty and mismatched exports instead of returning headers', () => {
+  const firstPageFetch = exported.indexOf('const firstPage = await buildMemberQuery');
+  const headers = exported.indexOf("res.setHeader('Content-Type'");
+  assert.ok(firstPageFetch >= 0 && headers > firstPageFetch);
+  assert.match(exported, /res\.status\(409\)\.json\(\{ error: message, expectedTotal, actualTotal \}\)/);
+  assert.match(exported, /shouldRejectEmptyMemberExport\(req\.method, actualTotal\)/);
+  assert.match(exported, /res\.status\(422\)\.json\(\{ error: 'There are no members to export/);
+  const membersList = read('../../../client/src/pages/MembersList.jsx');
+  assert.match(membersList, /await response\.json\(\)\.catch/);
+  assert.match(membersList, /detail\?\.error \|\| 'Export failed'/);
+});
+
+test('explicit member CSV selection uses a POST body and carries its expected row count', () => {
+  const membersList = read('../../../client/src/pages/MembersList.jsx');
+  assert.match(membersList, /body\.selectedIds = selectedMembers/);
+  assert.match(membersList, /body\.expectedTotal = selectedMembers\.length/);
+  assert.match(exported, /req\.body\?\.selectedIds/);
+});
+
 test('passive list/export enrichment delegates optional-schema compatibility to helper', () => {
   // `enrichMembersWithDepartments` is intentionally called without a
   // department filter; its tested optional schema contract returns null fields

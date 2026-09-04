@@ -9,6 +9,11 @@ import {
   stripFilterJoinAliases,
 } from '../../_lib/memberListFilters.js';
 import { resolveDepartmentMemberIds, enrichMembersWithDepartments, MemberDepartmentError } from '../../_lib/memberDepartments.js';
+import {
+  memberExportCountError,
+  parseExpectedMemberExportTotal,
+  shouldRejectEmptyMemberExport,
+} from '../../_lib/memberExportContract.js';
 
 function formatDate(dateStr) {
   if (!dateStr) return '';
@@ -67,7 +72,7 @@ function resolvePicklistValue(rawValue, field) {
 }
 
 export default async function handler(req, res) {
-  if (req.method !== 'GET') {
+  if (req.method !== 'GET' && req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
@@ -94,13 +99,20 @@ export default async function handler(req, res) {
       coreFilters = ''
     } = req.query;
 
+    const rawSelectedIds = req.method === 'POST' ? req.body?.selectedIds : ids;
     let idList = null;
-    if (ids) {
-      idList = ids.split(',').map(id => id.trim()).filter(Boolean);
+    if (rawSelectedIds) {
+      idList = (Array.isArray(rawSelectedIds) ? rawSelectedIds : String(rawSelectedIds).split(','))
+        .map(id => String(id).trim()).filter(Boolean);
       if (idList.length === 0) {
         return res.status(400).json({ error: 'No valid IDs provided' });
       }
     }
+    const rawDrillIds = req.method === 'POST' ? req.body?.drillIds : '';
+    const drillIds = (Array.isArray(rawDrillIds) ? rawDrillIds : String(rawDrillIds || '').split(','))
+      .map(id => String(id).trim()).filter(Boolean).slice(0, 2000);
+    const expectedTotalRaw = req.method === 'POST' ? req.body?.expectedTotal : null;
+    const expectedTotal = parseExpectedMemberExportTotal(req.method, expectedTotalRaw);
 
     // Same filter contract as /api/admin/members/paginated (shared module), so
     // "export all filtered" always exports exactly the population the list
@@ -112,7 +124,7 @@ export default async function handler(req, res) {
       ? await resolveDepartmentMemberIds(supabase, tenantId, filterCtx.departmentIds) : null;
     const hasNoDepartmentMatches = departmentMemberIds !== null && departmentMemberIds.length === 0;
 
-    const buildMemberQuery = (from, pageSize) => {
+    const buildMemberQuery = (from, pageSize, withCount = false) => {
       let selectClause = `
           id, first_name, last_name, email, handle, job_title, biography,
           mobile, landline, login_enabled, show_in_directory, status,
@@ -126,13 +138,14 @@ export default async function handler(req, res) {
 
       let q = supabase
         .from('member')
-        .select(selectClause)
+        .select(selectClause, withCount ? { count: 'exact' } : undefined)
         .eq('tenant_id', tenantId)
         .not('email', 'like', 'deleted_%@deleted.local');
 
       if (idList) {
         q = q.in('id', idList);
       } else {
+        if (drillIds.length > 0) q = q.in('id', drillIds);
         q = applyMemberListFilters(q, filterCtx, { tenantId });
         // Do not send `in.()` to PostgREST for an empty resolved edge set.
         // A nil UUID is an impossible member ID and keeps normal CSV header/
@@ -246,10 +259,19 @@ export default async function handler(req, res) {
 
     // Fetch the first page before committing to a streamed 200 response so any
     // query error still surfaces as a proper HTTP error status.
-    const firstPage = await buildMemberQuery(0, PAGE_SIZE);
+    const firstPage = await buildMemberQuery(0, PAGE_SIZE, true);
     if (firstPage.error) {
       console.error('[MemberExportCSV] Query error:', firstPage.error);
       return res.status(500).json({ error: 'Failed to fetch members' });
+    }
+    const actualTotal = firstPage.count ?? (firstPage.data || []).length;
+    const countError = memberExportCountError(expectedTotal, actualTotal);
+    if (countError) {
+      const message = countError;
+      return res.status(409).json({ error: message, expectedTotal, actualTotal });
+    }
+    if (shouldRejectEmptyMemberExport(req.method, actualTotal)) {
+      return res.status(422).json({ error: 'There are no members to export for the current selection.' });
     }
 
     const today = new Date().toISOString().split('T')[0];

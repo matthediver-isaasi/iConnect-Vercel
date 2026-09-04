@@ -770,6 +770,7 @@ export default function MembersListPage() {
     setIsExporting(true);
     try {
       const params = new URLSearchParams();
+      const body = {};
       if (selectAllFiltered) {
         // Mirror the list query's filter params exactly so the export matches
         // the filtered population, including operator-driven coreFilters
@@ -782,13 +783,22 @@ export default function MembersListPage() {
         if (customFiltersParam && customFiltersParam !== '{}') params.set('customFilters', customFiltersParam);
         if (organizationFiltersParam && organizationFiltersParam !== '{}') params.set('organizationFilters', organizationFiltersParam);
         if (coreFiltersParam) params.set('coreFilters', coreFiltersParam);
+        if (drillIdsParam) body.drillIds = drillIdsParam;
+        body.expectedTotal = pagination.total;
       } else {
-        params.set('ids', selectedMembers.join(','));
+        body.selectedIds = selectedMembers;
+        body.expectedTotal = selectedMembers.length;
       }
       const response = await fetch(`/api/admin/members/export-csv?${params}`, {
-        credentials: 'include'
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
       });
-      if (!response.ok) throw new Error('Export failed');
+      if (!response.ok) {
+        const detail = await response.json().catch(() => null);
+        throw new Error(detail?.error || 'Export failed');
+      }
       const blob = await response.blob();
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
@@ -797,7 +807,7 @@ export default function MembersListPage() {
       link.download = `members_export_${today}.csv`;
       link.click();
       URL.revokeObjectURL(url);
-      toast({ title: "Export complete", description: `CSV file downloaded successfully.` });
+      toast({ title: "Export complete", description: `Exported ${body.expectedTotal} members.` });
     } catch (err) {
       toast({ title: "Export failed", description: err.message || "Could not export members.", variant: "destructive" });
     } finally {
