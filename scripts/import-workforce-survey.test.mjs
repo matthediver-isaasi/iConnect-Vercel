@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import {
   EXPECTED_SHA256, FILE, SURVEY_OBJECT_ID, TENANT_ID,
-  auditContract, makePlan, naturalRowKey, parseWorkbookBytes,
+  auditContract, makePlan, naturalRowKey, parseWorkbookBytes, verify,
 } from './import-workforce-survey.mjs';
 
 function fixture() {
@@ -46,9 +46,9 @@ function fixture() {
     {
       id: 'rd', tenant_id: TENANT_ID, relationship_key: 'workforce_survey_department',
       source_kind: 'custom_object', target_kind: 'custom_object',
-      source_custom_object_id: row.id, target_custom_object_id: department.id,
+      source_custom_object_id: survey.id, target_custom_object_id: department.id,
       cardinality: 'many_to_one', is_required: true, source_label: 'Department',
-      target_label: 'Workforce Survey Rows', show_on_source: true, edit_from_source: true,
+      target_label: 'Workforce Surveys', show_on_source: true, edit_from_source: true,
       status: 'active',
     },
   ];
@@ -72,12 +72,13 @@ test('workbook contract drift and duplicate natural keys fail closed', () => {
   assert.equal(new Set(source.rows.map(naturalRowKey)).size, 8);
 });
 
-test('valid metadata and Departments produce one survey and eight creates', () => {
+test('valid metadata and Departments produce three surveys and eight creates', () => {
   const { source, state } = fixture();
   const contract = auditContract(source, state);
   assert.deepEqual(contract.blockers, []);
   const plan = makePlan(source, state, contract);
-  assert.equal(plan.survey.action, 'create');
+  assert.equal(plan.surveys.length, 3);
+  assert.ok(plan.surveys.every((survey) => survey.action === 'create'));
   assert.equal(plan.rows.filter((row) => row.action === 'create').length, 8);
 });
 
@@ -104,21 +105,25 @@ test('missing or cross-tenant Departments and metadata/option drift block writes
   assert.equal(makePlan(source, state, contract).blocked, true);
 });
 
-test('rerun reconciliation reuses the survey, rows, and both edge sets', () => {
+test('rerun reconciliation reuses three Department surveys and their rows', () => {
   const { source, state } = fixture();
   const contract = auditContract(source, state);
-  const surveyRecord = { id: 'survey-record', custom_object_id: SURVEY_OBJECT_ID, archived_at: null, data: { survey_name: '2025/26' } };
-  state.records.push(surveyRecord);
+  const surveys = new Map();
+  [...new Set(source.rows.map((row) => row.departmentId))].forEach((departmentId, index) => {
+    const surveyRecord = { id: `survey-${index}`, custom_object_id: SURVEY_OBJECT_ID, archived_at: null, data: { survey_name: '2025/26' } };
+    surveys.set(departmentId, surveyRecord);
+    state.records.push(surveyRecord);
+    state.edges.push({ id: `d-${index}`, relationship_definition_id: contract.surveyDepartmentDefinition.id,
+      source_record_id: surveyRecord.id, target_record_id: departmentId, archived_at: null });
+  });
   source.rows.forEach((sourceRow, index) => {
     const id = `row-${index}`;
     state.records.push({ id, custom_object_id: contract.rowObject.id, archived_at: null, data: sourceRow.data });
-    state.edges.push(
-      { id: `s-${index}`, relationship_definition_id: contract.rowSurveyDefinition.id, source_record_id: id, target_record_id: surveyRecord.id, archived_at: null },
-      { id: `d-${index}`, relationship_definition_id: contract.rowDepartmentDefinition.id, source_record_id: id, target_record_id: sourceRow.departmentId, archived_at: null },
-    );
+    state.edges.push({ id: `s-${index}`, relationship_definition_id: contract.rowSurveyDefinition.id,
+      source_record_id: id, target_record_id: surveys.get(sourceRow.departmentId).id, archived_at: null });
   });
   const plan = makePlan(source, state, contract);
-  assert.equal(plan.survey.action, 'reuse');
+  assert.ok(plan.surveys.every((survey) => survey.action === 'reuse'));
   assert.ok(plan.rows.every((row) => row.action === 'reuse' && row.edgeAction === 'reuse'));
 });
 
@@ -126,19 +131,86 @@ test('duplicate destination rows fail reconciliation instead of duplicating', ()
   const { source, state } = fixture();
   const contract = auditContract(source, state);
   const sourceRow = source.rows[0];
+  const surveyRecord = { id: 'survey-duplicate', custom_object_id: SURVEY_OBJECT_ID, archived_at: null, data: { survey_name: '2025/26' } };
+  state.records.push(surveyRecord);
+  state.edges.push({ id: 'department-survey-duplicate', relationship_definition_id: contract.surveyDepartmentDefinition.id,
+    source_record_id: surveyRecord.id, target_record_id: sourceRow.departmentId, archived_at: null });
   for (const id of ['duplicate-a', 'duplicate-b']) {
     state.records.push({ id, custom_object_id: contract.rowObject.id, archived_at: null, data: sourceRow.data });
-    state.edges.push({ id: `edge-${id}`, relationship_definition_id: contract.rowDepartmentDefinition.id, source_record_id: id, target_record_id: sourceRow.departmentId, archived_at: null });
+    state.edges.push({ id: `edge-${id}`, relationship_definition_id: contract.rowSurveyDefinition.id,
+      source_record_id: id, target_record_id: surveyRecord.id, archived_at: null });
   }
   assert.throws(() => makePlan(source, state, contract), /natural key is ambiguous/);
 });
 
-test('a data-identical row with a missing Department edge blocks reconciliation', () => {
+test('a data-identical row without a survey parent blocks reconciliation', () => {
   const { source, state } = fixture();
   const contract = auditContract(source, state);
   state.records.push({
     id: 'malformed-row', custom_object_id: contract.rowObject.id,
     archived_at: null, data: source.rows[0].data,
   });
-  assert.throws(() => makePlan(source, state, contract), /0 active Department edges/);
+  assert.throws(() => makePlan(source, state, contract), /0 active Survey edges/);
+});
+
+test('the same reporting year is isolated by Department', () => {
+  const { source, state } = fixture();
+  const contract = auditContract(source, state);
+  const departmentIds = [...new Set(source.rows.map((row) => row.departmentId))];
+  departmentIds.forEach((departmentId, index) => {
+    state.records.push({ id: `survey-${index}`, custom_object_id: SURVEY_OBJECT_ID, archived_at: null, data: { survey_name: '2025/26' } });
+    state.edges.push({ id: `edge-${index}`, relationship_definition_id: contract.surveyDepartmentDefinition.id,
+      source_record_id: `survey-${index}`, target_record_id: departmentId, archived_at: null });
+  });
+  const plan = makePlan(source, state, contract);
+  assert.equal(plan.surveys.length, 3);
+  assert.ok(plan.surveys.every((survey) => survey.action === 'reuse'));
+});
+
+test('verification rejects an extra row on a Department survey', () => {
+  const { source, state } = fixture();
+  const contract = auditContract(source, state);
+  const surveys = new Map();
+  [...new Set(source.rows.map((row) => row.departmentId))].forEach((departmentId, index) => {
+    const survey = { id: `survey-${index}`, custom_object_id: SURVEY_OBJECT_ID, archived_at: null, data: { survey_name: '2025/26' } };
+    surveys.set(departmentId, survey);
+    state.records.push(survey);
+    state.edges.push({ id: `department-${index}`, relationship_definition_id: contract.surveyDepartmentDefinition.id,
+      source_record_id: survey.id, target_record_id: departmentId, archived_at: null });
+  });
+  source.rows.forEach((row, index) => {
+    state.records.push({ id: `row-${index}`, custom_object_id: contract.rowObject.id, archived_at: null, data: row.data });
+    state.edges.push({ id: `survey-row-${index}`, relationship_definition_id: contract.rowSurveyDefinition.id,
+      source_record_id: `row-${index}`, target_record_id: surveys.get(row.departmentId).id, archived_at: null });
+  });
+  state.records.push({ id: 'extra-row', custom_object_id: contract.rowObject.id, archived_at: null, data: { row_name: 'extra' } });
+  state.edges.push({ id: 'extra-edge', relationship_definition_id: contract.rowSurveyDefinition.id,
+    source_record_id: 'extra-row', target_record_id: surveys.get(source.rows[0].departmentId).id, archived_at: null });
+  assert.throws(() => verify(source, state, contract), /9\/8 total rows/);
+});
+
+test('verification rejects direct Row to Department links', () => {
+  const { source, state } = fixture();
+  const contract = auditContract(source, state);
+  const surveys = new Map();
+  [...new Set(source.rows.map((row) => row.departmentId))].forEach((departmentId, index) => {
+    const survey = { id: `survey-${index}`, custom_object_id: SURVEY_OBJECT_ID, archived_at: null, data: { survey_name: '2025/26' } };
+    surveys.set(departmentId, survey);
+    state.records.push(survey);
+    state.edges.push({ id: `department-${index}`, relationship_definition_id: contract.surveyDepartmentDefinition.id,
+      source_record_id: survey.id, target_record_id: departmentId, archived_at: null });
+  });
+  source.rows.forEach((row, index) => {
+    state.records.push({ id: `row-${index}`, custom_object_id: contract.rowObject.id, archived_at: null, data: row.data });
+    state.edges.push({ id: `survey-row-${index}`, relationship_definition_id: contract.rowSurveyDefinition.id,
+      source_record_id: `row-${index}`, target_record_id: surveys.get(row.departmentId).id, archived_at: null });
+  });
+  state.definitions.push({
+    id: 'direct-department', tenant_id: TENANT_ID, status: 'active',
+    source_custom_object_id: contract.rowObject.id,
+    target_custom_object_id: state.departmentObject.id,
+  });
+  state.edges.push({ id: 'forbidden-direct-edge', relationship_definition_id: 'direct-department',
+    source_record_id: 'row-0', target_record_id: source.rows[0].departmentId, archived_at: null });
+  assert.throws(() => verify(source, state, contract), /direct Workforce Survey Row/);
 });

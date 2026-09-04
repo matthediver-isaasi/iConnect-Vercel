@@ -160,13 +160,13 @@ export function auditContract(source, state) {
   }
   const departmentDefs = state.definitions.filter((definition) =>
     definition.status === 'active' && definition.relationship_key === 'workforce_survey_department');
-  const rowDepartment = departmentDefs.find((definition) =>
-    definition.source_custom_object_id === rowObject?.id
+  const surveyDepartment = departmentDefs.find((definition) =>
+    definition.source_custom_object_id === SURVEY_OBJECT_ID
     && definition.target_custom_object_id === state.departmentObject?.id);
-  if (departmentDefs.length !== 1 || !rowDepartment || rowDepartment.cardinality !== 'many_to_one'
-    || rowDepartment.source_kind !== 'custom_object' || rowDepartment.target_kind !== 'custom_object'
-    || !rowDepartment.is_required || !rowDepartment.show_on_source || !rowDepartment.edit_from_source) {
-    blockers.push('Department must be one required many-to-one Workforce Survey Row → Department relationship.');
+  if (departmentDefs.length !== 1 || !surveyDepartment || surveyDepartment.cardinality !== 'many_to_one'
+    || surveyDepartment.source_kind !== 'custom_object' || surveyDepartment.target_kind !== 'custom_object'
+    || !surveyDepartment.is_required || !surveyDepartment.show_on_source || !surveyDepartment.edit_from_source) {
+    blockers.push('Department must be one required many-to-one Workforce Survey → Department relationship.');
   }
   const departments = new Map(state.departments.map((department) => [department.id, department]));
   for (const row of source.rows) {
@@ -189,47 +189,75 @@ export function auditContract(source, state) {
   return {
     blockers: [...new Set(blockers)],
     object, rowObject, surveyFields: surveyFieldMap, rowFields: rowFieldMap,
-    rowSurveyDefinition: rowSurvey || null, rowDepartmentDefinition: rowDepartment || null,
+    rowSurveyDefinition: rowSurvey || null, surveyDepartmentDefinition: surveyDepartment || null,
     canonicalRows,
   };
 }
 
 export function makePlan(source, state, contract) {
-  if (contract.blockers.length) return { blocked: true, survey: null, rows: [] };
-  const surveys = state.records.filter((record) => record.custom_object_id === SURVEY_OBJECT_ID
+  if (contract.blockers.length) return { blocked: true, surveys: [], rows: [] };
+  const departmentIds = [...new Set(contract.canonicalRows.map((row) => row.departmentId))];
+  const surveyRecords = state.records.filter((record) => record.custom_object_id === SURVEY_OBJECT_ID
     && !record.archived_at && record.data?.survey_name === source.reportingYear);
-  if (surveys.length > 1) fail(`Natural survey key "${source.reportingYear}" is ambiguous (${surveys.length} records).`);
-  const survey = surveys[0] || null;
   const rowRecords = state.records.filter((record) => record.custom_object_id === contract.rowObject.id && !record.archived_at);
   const edges = state.edges.filter((edge) => !edge.archived_at);
-  const rows = contract.canonicalRows.map((row) => {
-    const dataMatches = rowRecords.filter((record) =>
-      Object.entries(row.data).every(([key, value]) => record.data?.[key] === value)
-      && Object.keys(record.data || {}).every((key) => Object.hasOwn(row.data, key)));
-    for (const record of dataMatches) {
+  const surveys = departmentIds.map((departmentId) => {
+    const candidates = surveyRecords.filter((record) => edges.some((edge) =>
+      edge.relationship_definition_id === contract.surveyDepartmentDefinition.id
+      && edge.source_record_id === record.id && edge.target_record_id === departmentId));
+    if (candidates.length > 1) fail(`Natural survey key "${source.reportingYear}|${departmentId}" is ambiguous (${candidates.length} records).`);
+    const record = candidates[0] || null;
+    if (record) {
       const departmentEdges = edges.filter((edge) =>
-        edge.relationship_definition_id === contract.rowDepartmentDefinition.id
+        edge.relationship_definition_id === contract.surveyDepartmentDefinition.id
         && edge.source_record_id === record.id);
-      if (departmentEdges.length !== 1) {
-        fail(`Row ${row.sourceRow} matches record ${record.id}, which has ${departmentEdges.length} active Department edges.`);
+      if (departmentEdges.length !== 1) fail(`Survey ${record.id} has ${departmentEdges.length} active Department edges.`);
+    }
+    return { departmentId, record, action: record ? 'reuse' : 'create' };
+  });
+  const matchedSurveyIds = new Set(surveys.map((survey) => survey.record?.id).filter(Boolean));
+  const unmatchedSurveys = surveyRecords.filter((record) => !matchedSurveyIds.has(record.id));
+  if (unmatchedSurveys.length) {
+    fail(`Reporting year "${source.reportingYear}" has ${unmatchedSurveys.length} active survey record(s) outside the supplied Departments.`);
+  }
+  const rows = contract.canonicalRows.map((row) => {
+    const survey = surveys.find((item) => item.departmentId === row.departmentId);
+    const dataMatches = rowRecords.filter((record) =>
+      naturalRowKey({ departmentId: '', data: record.data })
+      === naturalRowKey({ departmentId: '', data: row.data }));
+    for (const dataMatch of dataMatches) {
+      const parentEdges = edges.filter((edge) =>
+        edge.relationship_definition_id === contract.rowSurveyDefinition.id
+        && edge.source_record_id === dataMatch.id);
+      if (parentEdges.length !== 1) {
+        fail(`Row ${row.sourceRow} matches record ${dataMatch.id}, which has ${parentEdges.length} active Survey edges.`);
+      }
+      const parentDepartmentEdges = edges.filter((edge) =>
+        edge.relationship_definition_id === contract.surveyDepartmentDefinition.id
+        && edge.source_record_id === parentEdges[0].target_record_id);
+      if (parentDepartmentEdges.length !== 1) {
+        fail(`Row ${row.sourceRow} matches record ${dataMatch.id}, whose survey has ${parentDepartmentEdges.length} active Department edges.`);
       }
     }
-    const candidates = rowRecords.filter((record) => naturalRowKey({
-      departmentId: edges.find((edge) => edge.relationship_definition_id === contract.rowDepartmentDefinition.id
-        && edge.source_record_id === record.id)?.target_record_id || '',
-      data: record.data,
-    }) === naturalRowKey(row));
+    const candidates = rowRecords.filter((record) => {
+      if (naturalRowKey({ departmentId: row.departmentId, data: record.data }) !== naturalRowKey(row)) return false;
+      const surveyEdge = edges.find((edge) => edge.relationship_definition_id === contract.rowSurveyDefinition.id
+        && edge.source_record_id === record.id);
+      if (!surveyEdge) return false;
+      return edges.some((edge) => edge.relationship_definition_id === contract.surveyDepartmentDefinition.id
+        && edge.source_record_id === surveyEdge.target_record_id && edge.target_record_id === row.departmentId);
+    });
     if (candidates.length > 1) fail(`Row ${row.sourceRow} natural key is ambiguous (${candidates.length} records).`);
     const record = candidates[0] || null;
     const surveyEdges = record ? edges.filter((edge) => edge.relationship_definition_id === contract.rowSurveyDefinition.id
       && edge.source_record_id === record.id) : [];
     if (surveyEdges.length > 1) fail(`Row ${row.sourceRow} has duplicate active Survey edges.`);
-    if (record && survey && surveyEdges[0]?.target_record_id !== survey.id) {
+    if (record && survey.record && surveyEdges[0]?.target_record_id !== survey.record.id) {
       fail(`Row ${row.sourceRow} already belongs to a different survey.`);
     }
-    return { source: row, record, action: record ? 'reuse' : 'create', edgeAction: record && surveyEdges.length ? 'reuse' : 'create' };
+    return { source: row, survey, record, action: record ? 'reuse' : 'create', edgeAction: record && surveyEdges.length ? 'reuse' : 'create' };
   });
-  return { blocked: false, survey: { record: survey, action: survey ? 'reuse' : 'create' }, rows };
+  return { blocked: false, surveys, rows };
 }
 
 async function loadState(db, source) {
@@ -270,7 +298,7 @@ export async function applyPlan(db, source, contract, plan) {
     p_survey_object_id: SURVEY_OBJECT_ID,
     p_row_object_id: contract.rowObject.id,
     p_survey_relationship_id: contract.rowSurveyDefinition.id,
-    p_department_relationship_id: contract.rowDepartmentDefinition.id,
+    p_department_relationship_id: contract.surveyDepartmentDefinition.id,
     p_reporting_year: source.reportingYear,
     p_rows: contract.canonicalRows.map((row) => ({ department_id: row.departmentId, data: row.data })),
     p_actor: 'system:workforce-survey-import',
@@ -281,11 +309,31 @@ export async function applyPlan(db, source, contract, plan) {
 
 export function verify(source, state, contract) {
   const plan = makePlan(source, state, contract);
-  if (plan.blocked || !plan.survey?.record || plan.rows.some((row) => !row.record || row.edgeAction !== 'reuse')) {
+  if (plan.blocked || plan.surveys.length !== 3 || plan.surveys.some((survey) => !survey.record)
+    || plan.rows.some((row) => !row.record || row.edgeAction !== 'reuse')) {
     fail('Post-import verification failed: survey, rows, values, or links do not exactly match the workbook.');
   }
   if (plan.rows.length !== ROW_COUNT) fail(`Post-import verification found ${plan.rows.length}/${ROW_COUNT} rows.`);
-  return { surveys: 1, rows: ROW_COUNT, departmentLinks: ROW_COUNT, surveyLinks: ROW_COUNT };
+  const targetSurveyIds = new Set(plan.surveys.map((survey) => survey.record.id));
+  const actualSurveyLinks = state.edges.filter((edge) =>
+    !edge.archived_at && edge.relationship_definition_id === contract.rowSurveyDefinition.id
+    && targetSurveyIds.has(edge.target_record_id));
+  if (actualSurveyLinks.length !== ROW_COUNT) {
+    fail(`Post-import verification found ${actualSurveyLinks.length}/${ROW_COUNT} total rows across the Department surveys.`);
+  }
+  const plannedRowIds = new Set(plan.rows.map((row) => row.record.id));
+  if (actualSurveyLinks.some((edge) => !plannedRowIds.has(edge.source_record_id))) {
+    fail('Post-import verification found rows outside the supplied workbook.');
+  }
+  const rowDepartmentDefinitionIds = new Set(state.definitions.filter((definition) =>
+    definition.status === 'active'
+    && definition.source_custom_object_id === contract.rowObject.id
+    && definition.target_custom_object_id === state.departmentObject?.id).map((definition) => definition.id));
+  const directDepartmentLinks = state.edges.filter((edge) =>
+    !edge.archived_at && rowDepartmentDefinitionIds.has(edge.relationship_definition_id)
+    && plannedRowIds.has(edge.source_record_id));
+  if (directDepartmentLinks.length) fail('Post-import verification found direct Workforce Survey Row → Department links.');
+  return { surveys: 3, rows: ROW_COUNT, departmentLinks: 3, surveyLinks: ROW_COUNT, directRowDepartmentLinks: 0 };
 }
 
 async function main() {
@@ -306,12 +354,16 @@ async function main() {
       surveyFields: Object.fromEntries(Object.entries(contract.surveyFields).map(([key, field]) => [key, field?.id || null])),
       rowFields: Object.fromEntries(Object.entries(contract.rowFields).map(([key, field]) => [key, field?.id || null])),
       rowSurveyRelationship: contract.rowSurveyDefinition?.id || null,
-      rowDepartmentRelationship: contract.rowDepartmentDefinition?.id || null,
+       surveyDepartmentRelationship: contract.surveyDepartmentDefinition?.id || null,
       departments: state.departments.map((item) => ({ id: item.id, name: item.data?.name })),
     },
     blockers: contract.blockers,
     intended: plan.blocked ? null : {
-      survey: plan.survey.action,
+       surveys: plan.surveys.map((survey) => ({
+         departmentId: survey.departmentId,
+         action: survey.action,
+         rows: plan.rows.filter((row) => row.source.departmentId === survey.departmentId).length,
+       })),
       rowsCreate: plan.rows.filter((item) => item.action === 'create').length,
       rowsReuse: plan.rows.filter((item) => item.action === 'reuse').length,
     },
