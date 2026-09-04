@@ -100,6 +100,16 @@ test('spreadsheet repeatable rows render one header, aligned rows, and icon-only
   );
 });
 
+test('repeatable renderer normalizes missing controlled answers before canonicalization', () => {
+  assert.match(
+    renderer,
+    /const controlledRows = useMemo\(\(\) => \(Array\.isArray\(value\) \? value : \[\]\), \[value\]\)/,
+  );
+  assert.match(renderer, /if \(!initializedRows\.current && controlledRows\.length === 0\)/);
+  assert.match(renderer, /incomingRows\.length !== controlledRows\.length/);
+  assert.doesNotMatch(renderer, /incomingRows\.length !== value\.length/);
+});
+
 test('card mode retains row numbers and the existing remove action', () => {
   assert.match(renderer, /\) : rows\.map\(\(row, rowIndex\) => \{[\s\S]*?aria-hidden="true">Row \{rowIndex \+ 1\}<\/p>/);
   assert.match(renderer, /<X className="mr-1 h-4 w-4" \/> Remove/);

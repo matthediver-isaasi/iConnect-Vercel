@@ -37,6 +37,13 @@ test('preserves stable row IDs and canonical child keys', () => {
   assert.match(createRepeatableRowId(() => 0.5, () => 1), /^row_/);
 });
 
+test('normalizes absent, null, empty, and non-array answers to empty rows', () => {
+  assert.deepEqual(ensureRepeatableRowIds(undefined), []);
+  assert.deepEqual(ensureRepeatableRowIds(null), []);
+  assert.deepEqual(ensureRepeatableRowIds([]), []);
+  assert.deepEqual(ensureRepeatableRowIds('not-an-array'), []);
+});
+
 test('keeps queued sibling changes through stale controlled-value renders', () => {
   const original = [{ _row_id: 'row-1', org: '', department: '' }];
   const parentQueued = [{
