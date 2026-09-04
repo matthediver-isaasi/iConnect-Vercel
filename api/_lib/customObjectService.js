@@ -1769,7 +1769,7 @@ export function createCustomObjectService({
         .eq('custom_object_id', objectId).order('created_at', { ascending: false })
         .order('id', { ascending: false })
         .range(p.from, p.to),
-      db.from('role').select('id,name,label,is_system')
+      db.from('role').select('id,name,is_system')
         .eq('tenant_id', tenantId).order('name', { ascending: true }),
     ]);
     throwDb(permissionResult.error);

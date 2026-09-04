@@ -25,7 +25,11 @@ function mockDb(seed = {}) {
       this.orders = [];
     }
 
-    select(_columns, options = {}) { this.wantCount = options.count === 'exact'; return this; }
+    select(columns, options = {}) {
+      this.wantCount = options.count === 'exact';
+      calls.push({ table: this.table, type: 'select', columns });
+      return this;
+    }
     eq(column, value) { this.filters.push((row) => row[column] === value); calls.push({ table: this.table, type: 'eq', column, value }); return this; }
     neq(column, value) {
       this.filters.push((row) => this.value(row, column) !== value);
@@ -1273,8 +1277,8 @@ test('permission listing includes every tenant role and never returns another te
   const db = mockDb({
     custom_object_definition: [object()],
     role: [
-      { id: 'role-z', tenant_id: tenantId, name: 'Zeta', label: 'Zeta role', is_system: false },
-      { id: 'role-a', tenant_id: tenantId, name: 'Alpha', label: 'Alpha role', is_system: true },
+      { id: 'role-z', tenant_id: tenantId, name: 'Zeta', is_system: false },
+      { id: 'role-a', tenant_id: tenantId, name: 'Alpha', is_system: true },
       { id: 'foreign-role', tenant_id: 'other-tenant', name: 'Foreign', is_system: false },
     ],
     custom_object_role_permission: [
@@ -1302,6 +1306,14 @@ test('permission listing includes every tenant role and never returns another te
   assert.deepEqual(result.data.map((permission) => permission.id), ['permission-1']);
   assert.equal(result.total, 1);
   assert.deepEqual(result.roles.map((role) => role.id), ['role-a', 'role-z']);
+  assert.ok(db.calls.some((call) =>
+    call.table === 'role'
+    && call.type === 'select'
+    && call.columns === 'id,name,is_system'));
+  assert.equal(db.calls.some((call) =>
+    call.table === 'role'
+    && call.type === 'select'
+    && call.columns.includes('label')), false);
   assert.ok(db.calls.some((call) =>
     call.table === 'role'
     && call.type === 'eq'
