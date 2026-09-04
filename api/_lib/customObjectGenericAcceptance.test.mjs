@@ -277,3 +277,31 @@ test('Data Studio uses one canonical page permission across routes and menu cata
     /\{ name: "CustomObjectsAdmin", label: "Data Studio" \}/,
   );
 });
+
+test('Presentation editor wires the shared Checkbox into each ordered field picker', async () => {
+  const adminPage = await readFile(
+    new URL('../../client/src/pages/CustomObjectsAdmin.jsx', import.meta.url),
+    'utf8',
+  );
+
+  assert.match(
+    adminPage,
+    /import\s+\{\s*Checkbox\s*\}\s+from\s+["']@\/components\/ui\/checkbox["']/,
+  );
+  assert.match(
+    adminPage,
+    /function OrderedFieldPicker[\s\S]*<Checkbox\b[\s\S]*onCheckedChange=/,
+  );
+  assert.match(
+    adminPage,
+    /Default list columns[\s\S]*<OrderedFieldPicker\b/,
+  );
+  assert.match(
+    adminPage,
+    /Detail sections[\s\S]*<OrderedFieldPicker\b/,
+  );
+  assert.match(
+    adminPage,
+    /<Button[^>]*onClick=\{\(\) => save\.mutate\(\)\}[\s\S]*Save presentation<\/Button>/,
+  );
+});
