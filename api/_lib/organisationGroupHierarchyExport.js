@@ -35,20 +35,37 @@ export function buildOrganisationGroupHierarchyRows(groups, organisations, depar
   for (const group of groups) {
     const groupOrganisations = organisationsByGroup.get(group.id) || [];
     if (!groupOrganisations.length) {
-      rows.push({ group: group.name || '', organisation: '', department: '' });
+      rows.push({
+        group: group.name || '',
+        groupId: group.id || '',
+        organisation: '',
+        organisationId: '',
+        department: '',
+        departmentId: '',
+      });
       continue;
     }
     for (const organisation of groupOrganisations) {
       const organisationDepartments = departmentsByOrganisation.get(organisation.id) || [];
       if (!organisationDepartments.length) {
-        rows.push({ group: group.name || '', organisation: organisation.name || '', department: '' });
+        rows.push({
+          group: group.name || '',
+          groupId: group.id || '',
+          organisation: organisation.name || '',
+          organisationId: organisation.id || '',
+          department: '',
+          departmentId: '',
+        });
         continue;
       }
       for (const department of organisationDepartments) {
         rows.push({
           group: group.name || '',
+          groupId: group.id || '',
           organisation: organisation.name || '',
+          organisationId: organisation.id || '',
           department: department.name || '',
+          departmentId: department.id || '',
         });
       }
     }
@@ -61,8 +78,16 @@ export function buildOrganisationGroupHierarchyRows(groups, organisations, depar
 
 export function renderOrganisationGroupHierarchyCsv(rows) {
   const lines = [
-    ['Group', 'Organisation', 'Department'].map(escapeCsvCell).join(','),
-    ...rows.map(row => [row.group, row.organisation, row.department].map(escapeCsvCell).join(',')),
+    ['Group', 'Group UUID', 'Organisation', 'Organisation UUID', 'Department', 'Department UUID']
+      .map(escapeCsvCell).join(','),
+    ...rows.map(row => [
+      row.group,
+      row.groupId,
+      row.organisation,
+      row.organisationId,
+      row.department,
+      row.departmentId,
+    ].map(escapeCsvCell).join(',')),
   ];
   return CSV_BOM + lines.join(CSV_ROW_SEPARATOR);
 }
@@ -128,6 +153,7 @@ export async function loadOrganisationGroupHierarchy(db, tenantId, { pageSize = 
     const record = recordsById.get(edge.source_record_id);
     if (!record) return [];
     return [{
+      id: record.id,
       organization_id: edge.target_record_id,
       name: displayFieldName ? record.data?.[displayFieldName] || '' : '',
     }];

@@ -50,24 +50,35 @@ test('rows preserve empty descendants, expand departments, and sort by all three
       { id: 'o3', name: 'Only Org', organization_group_id: 'g2' },
     ],
     [
-      { organization_id: 'o2', name: 'Second' },
-      { organization_id: 'o2', name: 'First' },
+      { id: 'd2', organization_id: 'o2', name: 'Second' },
+      { id: 'd1', organization_id: 'o2', name: 'First' },
     ],
   );
   assert.deepEqual(rows, [
-    { group: 'Alpha', organisation: 'Alpha Org', department: '' },
-    { group: 'Alpha', organisation: 'Beta', department: 'First' },
-    { group: 'Alpha', organisation: 'Beta', department: 'Second' },
-    { group: 'Empty', organisation: '', department: '' },
-    { group: 'Zulu', organisation: 'Only Org', department: '' },
+    { group: 'Alpha', groupId: 'g1', organisation: 'Alpha Org', organisationId: 'o1', department: '', departmentId: '' },
+    { group: 'Alpha', groupId: 'g1', organisation: 'Beta', organisationId: 'o2', department: 'First', departmentId: 'd1' },
+    { group: 'Alpha', groupId: 'g1', organisation: 'Beta', organisationId: 'o2', department: 'Second', departmentId: 'd2' },
+    { group: 'Empty', groupId: 'g3', organisation: '', organisationId: '', department: '', departmentId: '' },
+    { group: 'Zulu', groupId: 'g2', organisation: 'Only Org', organisationId: 'o3', department: '', departmentId: '' },
   ]);
 });
 
 test('CSV is Excel-friendly UTF-8 and uses shared escaping protections', () => {
   const csv = renderOrganisationGroupHierarchyCsv([
-    { group: 'Grüp, "One"', organisation: '=SUM(A1)', department: 'Line\nbreak' },
+    {
+      group: 'Grüp, "One"',
+      groupId: 'g-1',
+      organisation: '=SUM(A1)',
+      organisationId: 'o-1',
+      department: 'Line\nbreak',
+      departmentId: 'd-1',
+    },
   ]);
-  assert.equal(csv, '\ufeffGroup,Organisation,Department\r\n"Grüp, ""One""",\'=SUM(A1),Line break');
+  assert.equal(
+    csv,
+    '\ufeffGroup,Group UUID,Organisation,Organisation UUID,Department,Department UUID\r\n'
+      + '"Grüp, ""One""",g-1,\'=SUM(A1),o-1,Line break,d-1',
+  );
 });
 
 test('loader pages all data, stays tenant scoped, and excludes archived departments and edges', async () => {
@@ -103,7 +114,14 @@ test('loader pages all data, stays tenant scoped, and excludes archived departme
   });
   const rows = await loadOrganisationGroupHierarchy(db, 'tenant-a', { pageSize: 2 });
   assert.equal(rows.length, 3);
-  assert.deepEqual(rows[0], { group: 'A', organisation: 'One', department: 'Active' });
+  assert.deepEqual(rows[0], {
+    group: 'A',
+    groupId: 'g1',
+    organisation: 'One',
+    organisationId: 'o1',
+    department: 'Active',
+    departmentId: 'd1',
+  });
   assert.equal(JSON.stringify(rows).includes('Leaked'), false);
   assert.equal(JSON.stringify(rows).includes('Archived'), false);
 });
@@ -113,7 +131,14 @@ test('loader exports group and organisation levels when Department schema is abs
     organization_group: [{ id: 'g1', tenant_id: 'tenant-a', name: 'Group' }],
     organization: [{ id: 'o1', tenant_id: 'tenant-a', name: 'Org', organization_group_id: 'g1' }],
   }), 'tenant-a', { pageSize: 2 });
-  assert.deepEqual(rows, [{ group: 'Group', organisation: 'Org', department: '' }]);
+  assert.deepEqual(rows, [{
+    group: 'Group',
+    groupId: 'g1',
+    organisation: 'Org',
+    organisationId: 'o1',
+    department: '',
+    departmentId: '',
+  }]);
 });
 
 test('endpoint enforces authenticated admin feature access and never accepts a tenant parameter', async () => {
