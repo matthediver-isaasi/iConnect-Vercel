@@ -176,10 +176,12 @@ export function createFormRelationshipService({ db, tenantId }) {
       } catch (error) { if (error instanceof FormRelationshipError) throw error; throwDb(error); }
     }
     for (const field of fields.filter(x => x?.type === 'relationship_dropdown')) {
-      const recordId = fieldValue(submissionData, field);
-      if (recordId == null || recordId === '' || isFormNotListedValue(recordId)) continue;
-      if (isFormNoRelationshipValue(recordId)
-          || (typeof recordId !== 'string' && typeof recordId !== 'number')) {
+      const selected = fieldValue(submissionData, field);
+      if (selected == null || selected === '' || isFormNotListedValue(selected)) continue;
+      const recordIds = [...new Set((Array.isArray(selected) ? selected : [selected]).filter(Boolean))];
+      if (recordIds.length === 0 || recordIds.some(recordId =>
+        isFormNoRelationshipValue(recordId)
+          || (typeof recordId !== 'string' && typeof recordId !== 'number'))) {
         throw new FormRelationshipError(400, 'Invalid relationship selection');
       }
       const saved = savedRelationshipField(form, field.id, {
@@ -200,37 +202,39 @@ export function createFormRelationshipService({ db, tenantId }) {
         rootForm: rootForm || form,
         containerFieldId,
       });
-      const key = [
-        containerFieldId || 'root',
-        field.id,
-        state.definition.id,
-        state.parentSide,
-        saved.parent.kind,
-        saved.parent.custom_object_id || '',
-        saved.related.kind,
-        saved.related.custom_object_id || '',
-        parentRecordId,
-        recordId,
-      ].join(':');
-      if (cache.get(key)) continue;
-      const { data: edge, error } = await db.from('custom_object_relationship')
-        .select('id')
-        .eq('tenant_id', tenantId)
-        .eq('relationship_definition_id', state.definition.id)
-        .eq(`${state.parentSide}_record_id`, parentRecordId)
-        .eq(`${state.relatedSide}_record_id`, recordId)
-        .is('archived_at', null)
-        .maybeSingle();
-      throwDb(error);
-      const record = await loadEndpoint(
-        saved.related.kind,
-        recordId,
-        saved.related.custom_object_id,
-      );
-      if (!edge || !record) {
-        throw new FormRelationshipError(400, 'Invalid relationship selection');
+      for (const recordId of recordIds) {
+        const key = [
+          containerFieldId || 'root',
+          field.id,
+          state.definition.id,
+          state.parentSide,
+          saved.parent.kind,
+          saved.parent.custom_object_id || '',
+          saved.related.kind,
+          saved.related.custom_object_id || '',
+          parentRecordId,
+          recordId,
+        ].join(':');
+        if (cache.get(key)) continue;
+        const { data: edge, error } = await db.from('custom_object_relationship')
+          .select('id')
+          .eq('tenant_id', tenantId)
+          .eq('relationship_definition_id', state.definition.id)
+          .eq(`${state.parentSide}_record_id`, parentRecordId)
+          .eq(`${state.relatedSide}_record_id`, recordId)
+          .is('archived_at', null)
+          .maybeSingle();
+        throwDb(error);
+        const record = await loadEndpoint(
+          saved.related.kind,
+          recordId,
+          saved.related.custom_object_id,
+        );
+        if (!edge || !record) {
+          throw new FormRelationshipError(400, 'Invalid relationship selection');
+        }
+        cache.set(key, true);
       }
-      cache.set(key, true);
     }
   }
   return { loadForm, eligibleDefinitions, relationshipOptions, validateSubmission };

@@ -8,6 +8,7 @@ const paginated = read('./paginated.js');
 const exported = read('./export-csv.js');
 const options = read('./departments.js');
 const directory = read('../../dynamic-directory/members.js');
+const entityById = read('../../entities/[entity]/[id].js');
 
 test('admin list and CSV share departmentId parsing and only apply resolved non-empty IDs', () => {
   const context = parseMemberListFilters({
@@ -27,6 +28,8 @@ test('admin list and CSV share departmentId parsing and only apply resolved non-
   assert.match(exported, /if \(hasNoDepartmentMatches\) q = q\.eq\('id', '00000000-0000-0000-0000-000000000000'\)/);
   assert.match(exported, /if \(departmentMemberIds\) q = q\.in\('id', departmentMemberIds\)/);
   assert.match(exported, /'department_name'/);
+  assert.match(exported, /member\.departments \|\| \[\]/);
+  assert.match(exported, /\.join\('; '\)/);
   assert.match(exported, /enrichMembersWithDepartments\(supabase, tenantId, pageData\)/);
   assert.match(paginated, /enrichMembersWithDepartments\(supabase, tenantId, memberRows\)/);
 });
@@ -72,4 +75,11 @@ test('authenticated organisation scope retains filtering, options, and enrichmen
   assert.match(directory, /resolveDepartmentMemberIds\(supabase, tenantId, requestedDepartmentIds\)/);
   assert.match(directory, /listDepartmentOptions\(supabase, tenantId, \[organizationId\]\)/);
   assert.match(directory, /organizationId\s*\?\s*await enrichMembersWithDepartments/);
+});
+
+test('generic member detail API returns the complete department collection', () => {
+  assert.match(entityById, /import \{ enrichMembersWithDepartments, MemberDepartmentError \}/);
+  assert.match(entityById, /if \(entityNorm === 'member'\)/);
+  assert.match(entityById, /enrichMembersWithDepartments\([\s\S]*supabase,[\s\S]*\[data\]/);
+  assert.match(entityById, /departmentError instanceof MemberDepartmentError/);
 });

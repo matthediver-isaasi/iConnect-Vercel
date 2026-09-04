@@ -125,6 +125,7 @@
 - [Catalogue event references](catalogue-event-references.md) — derive ticket delegate capacity live; revalidate links on restore, and replace bundle composition atomically.
 - [Deactivating referenced workflow states](workflow-state-deactivation-races.md) — assignment and deactivation must serialize on the same database row; an existence check is raceable.
 - [Immutable child re-parenting](immutable-child-reparenting.md) — child immutability triggers must validate both OLD and NEW parents or updates can move data out of locked snapshots.
+- [Custom Object cardinality migrations](custom-object-cardinality-migrations.md) — widen with a new pinned migration; preserve definition history and global legacy-trigger behavior.
 - [Commercial Event capacity](commercial-event-capacity.md) — unused sale allocations and confirmed delegate rows share one locked capacity equation; reconciliation/cancellation must be atomic.
 - [Quote delivery bearer safety](quote-delivery-bearer-safety.md) — quote links stay inactive until delivery is durably recorded; never persist token-bearing referrers or return broad snapshots publicly.
 - [Commercial sale invoice conversion](commercial-sale-invoice-conversion.md) — invoice only from the accepted quote snapshot; claim per sale/provider and preserve exact accepted arithmetic.

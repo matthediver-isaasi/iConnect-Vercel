@@ -212,7 +212,9 @@ export default async function handler(req, res) {
         if (field === 'role_name') {
           return member.role?.name || '';
         }
-        if (field === 'department_name') return member.department?.name || '';
+        // Semicolon is the documented separator for this single multi-value
+        // cell; department enrichment has already applied stable name ordering.
+        if (field === 'department_name') return (member.departments || []).map(department => department.name).join('; ');
         if (field === 'created_on' || field === 'last_activity' || field === 'role_effective_from') {
           return formatDate(member[field]);
         }

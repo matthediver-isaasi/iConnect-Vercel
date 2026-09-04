@@ -3,9 +3,10 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import RoleBadge from "@/components/RoleBadge";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { Building2, User, Users, FileText, Calendar, Trophy, Linkedin, Pencil, Trash2 } from "lucide-react";
+import { Building2, User, Users, FileText, Calendar, Trophy, Linkedin, Pencil, Trash2, FolderTree } from "lucide-react";
 import { safeLogoSrc } from "@/lib/safeLogoSrc";
 import { isVisibleOnFront, isFieldVisibleOnFrontFor, getDirectoryOrderedFields, hasDirectoryFieldValue } from "@/utils/directorySettings";
+import { normalizeMemberDepartments } from "@/lib/memberListColumnUtils.mjs";
 
 /**
  * Shared directory card "atoms".
@@ -28,6 +29,7 @@ export function DirectoryMemberCard({
   isGuest,
   onView,
 }) {
+  const departments = normalizeMemberDepartments(member);
   return (
     <Card
       className={`border-slate-200 hover:shadow-lg transition-shadow${onView ? ' cursor-pointer' : ''}`}
@@ -69,6 +71,14 @@ export function DirectoryMemberCard({
           <div className="flex items-start gap-2">
             <Building2 className="w-4 h-4 text-slate-400 mt-0.5 flex-shrink-0" />
             <span className="text-sm text-slate-700">{organization.name}</span>
+          </div>
+        )}
+        {departments.length > 0 && (
+          <div className="flex items-start gap-2" data-testid={`card-member-departments-${member.id}`}>
+            <FolderTree className="w-4 h-4 text-slate-400 mt-0.5 flex-shrink-0" />
+            <span className="text-sm text-slate-700">
+              {departments.map((department) => department.name).join(', ')}
+            </span>
           </div>
         )}
         {isVisibleOnFront(displaySettings, 'show_linkedin') && member.linkedin_url && (

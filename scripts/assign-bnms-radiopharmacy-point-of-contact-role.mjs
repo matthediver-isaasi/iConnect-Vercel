@@ -78,7 +78,7 @@ async function auditDepartmentModel(db) {
   const members = definitions.filter((row) => row.relationship_key === 'members'
     && row.source_kind === 'custom_object' && row.source_custom_object_id === objects[0].id
     && row.target_kind === 'member' && row.target_custom_object_id === null
-    && row.cardinality === 'one_to_many' && !row.is_required);
+    && row.cardinality === 'many_to_many' && !row.is_required);
   if (parents.length !== 1 || members.length !== 1) {
     fail(`BNMS Department relationship model is unavailable (${parents.length} parent, ${members.length} member definitions).`);
   }
@@ -87,7 +87,6 @@ async function auditDepartmentModel(db) {
 
 async function loadState(db, source, model) {
   const memberIds = source.rows.map((row) => row.memberId);
-  const departmentIds = source.rows.map((row) => row.departmentId);
   const [allMembers, importedMembers, parentEdges, memberEdges] = await Promise.all([
     fetchAll(db, 'member', 'id, role_id', (query) => query.eq('tenant_id', TENANT_ID)),
     fetchAll(db, 'member',
@@ -96,7 +95,7 @@ async function loadState(db, source, model) {
     fetchAll(db, 'custom_object_relationship',
       'id, source_record_id, target_record_id, archived_at',
       (query) => query.eq('tenant_id', TENANT_ID).eq('relationship_definition_id', model.parentDefinitionId)
-        .in('source_record_id', departmentIds)),
+        .is('archived_at', null)),
     fetchAll(db, 'custom_object_relationship',
       'id, source_record_id, target_record_id, archived_at',
       (query) => query.eq('tenant_id', TENANT_ID).eq('relationship_definition_id', model.memberDefinitionId)
@@ -114,7 +113,7 @@ export function makePlan(source, state) {
   const items = source.rows.map((row) => {
     const member = byId.get(row.memberId);
     if (!member || member.tenant_id !== TENANT_ID
-      || emailKey(member.email) !== row.email
+      || emailKey(member.email) !== emailKey(row.email)
       || member.first_name !== row.firstName
       || member.last_name !== row.lastName
       || member.login_enabled !== true
@@ -122,14 +121,25 @@ export function makePlan(source, state) {
       || member.is_guest !== false) {
       fail(`Imported Member invariant failed at source row ${row.sourceRow}.`);
     }
-    const activeParents = state.parentEdges.filter((edge) => edge.source_record_id === row.departmentId && edge.archived_at === null);
-    if (activeParents.length !== 1 || activeParents[0].target_record_id !== member.organization_id) {
-      fail(`Department-to-Organisation invariant failed at source row ${row.sourceRow}.`);
+    const related = state.memberEdges.filter((edge) => edge.target_record_id === member.id && edge.archived_at === null);
+    const byDepartment = new Map();
+    for (const edge of related) {
+      if (edge.tenant_id != null && edge.tenant_id !== TENANT_ID) {
+        fail(`Department-to-Member invariant failed at source row ${row.sourceRow}: wrong tenant.`);
+      }
+      const matches = byDepartment.get(edge.source_record_id) || [];
+      matches.push(edge);
+      byDepartment.set(edge.source_record_id, matches);
+      if (matches.length > 1) {
+        fail(`Department-to-Member invariant failed at source row ${row.sourceRow}: duplicate assignment.`);
+      }
+      const parents = state.parentEdges.filter((parent) => parent.source_record_id === edge.source_record_id
+        && parent.archived_at === null);
+      if (parents.length !== 1 || parents[0].target_record_id !== member.organization_id) {
+        fail(`Department-to-Organisation invariant failed at source row ${row.sourceRow}.`);
+      }
     }
-    const related = state.memberEdges.filter((edge) => edge.target_record_id === member.id);
-    const exactActive = related.filter((edge) => edge.source_record_id === row.departmentId && edge.archived_at === null);
-    const conflicts = related.filter((edge) => edge.source_record_id !== row.departmentId || edge.archived_at !== null);
-    if (exactActive.length !== 1 || conflicts.length) {
+    if ((byDepartment.get(row.departmentId) || []).length !== 1) {
       fail(`Department-to-Member invariant failed at source row ${row.sourceRow}.`);
     }
     if (member.role_id !== null && member.role_id !== ROLE_ID) {
@@ -153,7 +163,8 @@ function report(source, audit, state, plan) {
   console.log(`  Tenant:                           ${audit.tenant.name} (${TENANT_ID})`);
   console.log(`  Role:                             ${audit.role.name} (${audit.role.id})`);
   console.log(`  Exact imported Members:           ${state.importedMembers.length}/${ROW_COUNT}`);
-  console.log(`  Exact Department relationships:   ${state.memberEdges.filter((row) => row.archived_at === null).length}/${ROW_COUNT}`);
+  console.log(`  Required source Department links: ${ROW_COUNT}/${ROW_COUNT}`);
+  console.log(`  Total active Department links:    ${state.memberEdges.filter((row) => row.archived_at === null).length}`);
   console.log(`  Total BNMS Members incl. Sharon:  ${state.allMembers.length}/56`);
   console.log('\n--- Planned totals ---');
   console.log(`  Role assignments:                 ${plan.assignments}`);
@@ -186,9 +197,9 @@ async function verify(db, source, model, sharonRoleBefore) {
   if (state.sharon.role_id !== sharonRoleBefore) fail('Sharon role changed unexpectedly.');
   console.log('\n--- Post-assignment verification ---');
   console.log(`  Point of Contact assignments:     ${plan.unchanged}/${ROW_COUNT}`);
-  console.log('  Member profile invariants:         55/55');
-  console.log('  Organisation assignments:         55/55');
-  console.log('  Department relationships:         55/55');
+  console.log(`  Member profile invariants:         ${ROW_COUNT}/${ROW_COUNT}`);
+  console.log(`  Organisation assignments:         ${ROW_COUNT}/${ROW_COUNT}`);
+  console.log(`  Required Department relationships:${ROW_COUNT}/${ROW_COUNT} (additional valid links preserved)`);
   console.log('  Sharon role:                       unchanged');
   console.log('  Total BNMS Members incl. Sharon:   56/56');
   console.log('  Idempotent re-run:                 0 writes');

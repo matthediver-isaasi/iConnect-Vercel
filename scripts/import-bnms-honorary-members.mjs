@@ -145,7 +145,7 @@ export function auditHierarchy(source, state) {
     && item.cardinality === 'many_to_one' && item.is_required === true && item.status === 'active');
   const memberDefs = definitions.filter((item) => item.relationship_key === 'members' && item.tenant_id === TENANT_ID
     && item.source_kind === 'custom_object' && item.target_kind === 'member'
-    && item.cardinality === 'one_to_many' && item.is_required === false && item.status === 'active');
+    && item.cardinality === 'many_to_many' && item.is_required === false && item.status === 'active');
   if (parentDefs.length !== 1 || memberDefs.length !== 1 || parentDefs[0].source_custom_object_id !== memberDefs[0].source_custom_object_id) {
     fail(`Department relationship model requires exactly one compatible "organisation" and "members" definition; found ${parentDefs.length}/${memberDefs.length}.`);
   }
@@ -209,7 +209,10 @@ export function makePlan(source, state, mappings, hierarchy) {
         : member && sameValue(member[mapping.destination], desired);
       if (!matches) patch[mapping.destination] = desired;
     }
-    const departmentId = row.values[20] || null;
+    // Model the desired relationships as a set even though this pinned source
+    // has a single Department column.
+    const departmentIds = [...new Set([row.values[20]].filter(Boolean))];
+    const departmentId = departmentIds[0] || null;
     const organizationId = row.values[19] || (departmentId ? hierarchy.departmentParents.get(departmentId) : null);
     if (organizationId && member?.organization_id !== organizationId) patch.organization_id = organizationId;
     const preferences = mappings.flatMap((mapping) => {
@@ -222,15 +225,28 @@ export function makePlan(source, state, mappings, hierarchy) {
     });
     const relatedEdges = member ? (state.memberEdges || []).filter((edge) => edge.target_record_id === member.id
       && edge.relationship_definition_id === hierarchy.memberDefinition.id && edge.archived_at == null) : [];
-    const exactEdges = departmentId ? relatedEdges.filter((edge) => edge.source_record_id === departmentId) : [];
-    if (exactEdges.length > 1) fail(`Member "${row.email}" has duplicate active Department member edges.`);
+    for (const edge of relatedEdges) {
+      if (edge.tenant_id != null && edge.tenant_id !== TENANT_ID) {
+        fail(`Member "${row.email}" has an active Department edge outside BNMS.`);
+      }
+    }
+    const activeByDepartment = new Map();
+    for (const edge of relatedEdges) {
+      const matches = activeByDepartment.get(edge.source_record_id) || [];
+      matches.push(edge);
+      activeByDepartment.set(edge.source_record_id, matches);
+      if (matches.length > 1) fail(`Member "${row.email}" has duplicate active Department member edges for ${edge.source_record_id}.`);
+    }
+    const exactEdges = departmentIds.flatMap((id) => activeByDepartment.get(id) || []);
     const conflictingEdges = organizationId ? relatedEdges.filter((edge) => !departmentId || edge.source_record_id !== departmentId) : [];
     let edgeAction = 'none';
     if (departmentId) edgeAction = exactEdges.length ? (conflictingEdges.length ? 'archive' : 'unchanged') : (conflictingEdges.length ? 'replace' : 'insert');
     else if (organizationId && conflictingEdges.length) edgeAction = 'archive';
     return {
       row, member, patch, action: member ? (Object.keys(patch).length ? 'update' : 'unchanged') : 'insert',
-      preferences, departmentId, edgeAction, conflictingEdges, exactEdges, activeDepartmentEdges: relatedEdges,
+      preferences, departmentId, departmentIds,
+      departmentAssignmentMode: organizationId ? 'replace' : 'preserve',
+      edgeAction, conflictingEdges, exactEdges, activeDepartmentEdges: relatedEdges,
     };
   }) };
 }

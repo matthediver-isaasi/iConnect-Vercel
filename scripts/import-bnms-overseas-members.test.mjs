@@ -129,6 +129,8 @@ test('plans a zero-write replay and rejects duplicate destination preference/cat
   const state = replayState(row);
   const replay = makePlan({ ...source, rows: [row] }, state, mappings, focusArea);
   assert.equal(replay.items[0].action, 'unchanged');
+  assert.equal(replay.items[0].departmentAssignmentMode, 'preserve');
+  assert.deepEqual(replay.items[0].departmentIds, []);
   assert.ok(replay.items[0].preferences.every((item) => item.action === 'unchanged'));
   assert.ok(replay.items[0].focusAreas.every((item) => item.action === 'unchanged'));
   assert.throws(() => makePlan({ ...source, rows: [row] }, {

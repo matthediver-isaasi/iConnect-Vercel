@@ -73,6 +73,7 @@ import {
   validateFormMemberRoleAssignments,
 } from '../../_lib/formMemberRoleAssignment.js';
 import { evaluateGalleryAccessPolicy, validateGalleryAccessPolicy } from '../../_lib/galleryAccessPolicy.js';
+import { enrichMembersWithDepartments, MemberDepartmentError } from '../../_lib/memberDepartments.js';
 const entityToTable = {
   'Gallery': 'gallery',
   'GalleryPhoto': 'gallery_photo',
@@ -649,6 +650,21 @@ export default async function handler(req, res) {
             ? await hasFeatureAccess(tenantCtx.roleId, 'support.management')
             : false);
         if (!isStaff) return res.status(404).json({ error: 'Not found' });
+      }
+      if (entityNorm === 'member') {
+        try {
+          const [member] = await enrichMembersWithDepartments(
+            supabase,
+            tenantCtx.effectiveTenantId || tenantCtx.tenantId || data.tenant_id,
+            [data],
+          );
+          return res.json(member);
+        } catch (departmentError) {
+          if (departmentError instanceof MemberDepartmentError) {
+            return res.status(departmentError.status).json({ error: departmentError.message });
+          }
+          throw departmentError;
+        }
       }
       return res.json(data);
 

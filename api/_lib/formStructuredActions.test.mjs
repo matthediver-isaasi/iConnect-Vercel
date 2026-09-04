@@ -192,6 +192,13 @@ test('links a conditionally revealed Department to an already-created Member in 
     source_record_id: 'department-1',
     target_record_id: 'org-1',
     archived_at: null,
+  }, {
+    id: 'org-department-edge-2',
+    tenant_id: tenantId,
+    relationship_definition_id: 'org-department',
+    source_record_id: 'department-2',
+    target_record_id: 'org-1',
+    archived_at: null,
   }];
   const rows = {
     organization: [{ id: 'org-1', tenant_id: tenantId }],
@@ -203,10 +210,16 @@ test('links a conditionally revealed Department to an already-created Member in 
       id: 'department-name', tenant_id: tenantId, custom_object_id: 'department-object',
       entity_scope: 'custom_object', is_active: true, name: 'name', field_type: 'text',
     }],
-    custom_object_record: [{
-      id: 'department-1', tenant_id: tenantId, custom_object_id: 'department-object',
-      archived_at: null, data: { name: 'PET Centre' },
-    }],
+    custom_object_record: [
+      {
+        id: 'department-1', tenant_id: tenantId, custom_object_id: 'department-object',
+        archived_at: null, data: { name: 'PET Centre' },
+      },
+      {
+        id: 'department-2', tenant_id: tenantId, custom_object_id: 'department-object',
+        archived_at: null, data: { name: 'Radiopharmacy' },
+      },
+    ],
     custom_object_relationship_definition: [
       {
         id: 'org-department', tenant_id: tenantId, status: 'active',
@@ -288,7 +301,7 @@ test('links a conditionally revealed Department to an already-created Member in 
     submission_data: {
       membership: 'Full with NMC',
       org: 'org-1',
-      department: 'department-1',
+      department: ['department-1', 'department-2', 'department-1'],
     },
   };
 
@@ -296,17 +309,17 @@ test('links a conditionally revealed Department to an already-created Member in 
     db, tenantId, form, submission, memberId: 'member-created',
   });
   assert.equal(first.success, true, JSON.stringify(first));
-  assert.equal(first.outcomes[0].status, 'linked');
-  const memberEdge = edges.find(edge => edge.relationship_definition_id === 'member-department');
-  assert.equal(memberEdge.source_record_id, 'department-1');
-  assert.equal(memberEdge.target_record_id, 'member-created');
+  assert.deepEqual(first.outcomes.map(outcome => outcome.status), ['linked', 'linked']);
+  const memberEdges = edges.filter(edge => edge.relationship_definition_id === 'member-department');
+  assert.deepEqual(memberEdges.map(edge => edge.source_record_id), ['department-1', 'department-2']);
+  assert.ok(memberEdges.every(edge => edge.target_record_id === 'member-created'));
 
   const retry = await processPrimaryPipelineRelatedRecords({
     db, tenantId, form, submission, memberId: 'member-created',
   });
   assert.equal(retry.success, true);
-  assert.equal(retry.outcomes[0].status, 'already_linked');
-  assert.equal(edges.filter(edge => edge.relationship_definition_id === 'member-department').length, 1);
+  assert.deepEqual(retry.outcomes.map(outcome => outcome.status), ['already_linked', 'already_linked']);
+  assert.equal(edges.filter(edge => edge.relationship_definition_id === 'member-department').length, 2);
 });
 
 test('malformed Related Records config is reported without throwing after primary persistence', async () => {

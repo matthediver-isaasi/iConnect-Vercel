@@ -46,7 +46,7 @@ const fields = CUSTOM_MAPPINGS.map((mapping) => ({
 }));
 const definitions = [
   { id: 'parent-def', tenant_id: TENANT_ID, relationship_key: 'organisation', source_kind: 'custom_object', source_custom_object_id: 'department-object', target_kind: 'organization', cardinality: 'many_to_one', is_required: true, status: 'active' },
-  { id: 'member-def', tenant_id: TENANT_ID, relationship_key: 'members', source_kind: 'custom_object', source_custom_object_id: 'department-object', target_kind: 'member', cardinality: 'one_to_many', is_required: false, status: 'active' },
+  { id: 'member-def', tenant_id: TENANT_ID, relationship_key: 'members', source_kind: 'custom_object', source_custom_object_id: 'department-object', target_kind: 'member', cardinality: 'many_to_many', is_required: false, status: 'active' },
 ];
 const organizationIds = [...new Set(source.rows.map((row) => row.values[19]).filter(Boolean))];
 const departmentIds = [...new Set(source.rows.map((row) => row.values[20]).filter(Boolean))];
@@ -158,7 +158,39 @@ test('plans exact Department links and replay proposes zero writes', () => {
   assert.equal(replay.items[0].action, 'unchanged');
   assert.ok(replay.items[0].preferences.every((item) => item.action === 'unchanged'));
   assert.equal(replay.items[0].edgeAction, 'unchanged');
+  assert.deepEqual(replay.items[0].departmentIds, [row.values[20]]);
   assert.throws(() => makePlan({ ...source, rows: [row] }, { members: [member], preferenceValues: [...values, { ...values[0], id: 'dup' }], memberEdges }, mappings, hierarchy), /Duplicate preference values/);
+});
+
+test('explicit Department input replaces a many-assignment set without arbitrary selection', () => {
+  const row = source.rows.find((item) => item.values[20]);
+  const member = {
+    id: 'member-many', tenant_id: TENANT_ID, email: row.email,
+    organization_id: hierarchy.departmentParents.get(row.values[20]),
+  };
+  const desired = {
+    id: 'desired', tenant_id: TENANT_ID, relationship_definition_id: 'member-def',
+    source_record_id: row.values[20], target_record_id: member.id, archived_at: null,
+  };
+  const extras = ['extra-a', 'extra-b'].map((id) => ({
+    id, tenant_id: TENANT_ID, relationship_definition_id: 'member-def',
+    source_record_id: id, target_record_id: member.id, archived_at: null,
+  }));
+  const plan = makePlan(
+    { ...source, rows: [row] },
+    { members: [member], preferenceValues: [], memberEdges: [desired, ...extras] },
+    mappings,
+    hierarchy,
+  );
+  assert.equal(plan.items[0].edgeAction, 'archive');
+  assert.deepEqual(plan.items[0].exactEdges, [desired]);
+  assert.deepEqual(plan.items[0].conflictingEdges, extras);
+  assert.throws(() => makePlan(
+    { ...source, rows: [row] },
+    { members: [member], preferenceValues: [], memberEdges: [{ ...desired, tenant_id: 'foreign' }] },
+    mappings,
+    hierarchy,
+  ), /outside BNMS/);
 });
 
 test('new unassigned members do not receive an invented relationship', () => {

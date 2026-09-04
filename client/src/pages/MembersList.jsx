@@ -97,7 +97,12 @@ import { useMemberTerminology } from "@/contexts/MemberTerminologyContext";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useWidgetDrill, WidgetDrillChip } from "@/components/dashboard/widgetDrill";
 import { listAllOrganizationsForAdmin } from '@/lib/adminOrgList';
-import { appendMissingColumns } from '@/lib/memberListColumnUtils.mjs';
+import {
+  appendMissingColumns,
+  formatMemberDepartments,
+  normalizeMemberDepartments,
+  uniqueMemberRows,
+} from '@/lib/memberListColumnUtils.mjs';
 
 const DEFAULT_COLUMNS = [
   { id: 'name', label: 'Member', visible: true, locked: true },
@@ -275,7 +280,7 @@ export default function MembersListPage() {
       counts[name] = (counts[name] || 0) + 1;
       return counts;
     }, {});
-    return departments.map((department) => ({
+    return normalizeMemberDepartments({ departments }).map((department) => ({
       value: department.id,
       label: nameCounts[department.name || ''] > 1 && department.organization_name
         ? `${department.name} (${department.organization_name})`
@@ -497,7 +502,10 @@ export default function MembersListPage() {
     }
   });
 
-  const members = membersData?.members || [];
+  const members = useMemo(
+    () => uniqueMemberRows(membersData?.members),
+    [membersData?.members]
+  );
   const pagination = membersData?.pagination || { page: 1, limit: 50, total: 0, totalPages: 0 };
   const totalPages = pagination.totalPages;
 
@@ -1435,7 +1443,7 @@ export default function MembersListPage() {
         const org = orgMap[member.organization_id];
         return org?.name || '-';
       case 'department':
-        return member.department?.name || '-';
+        return formatMemberDepartments(member) || '-';
       case 'job_title':
         return member.job_title || '-';
       case 'mobile':
@@ -2002,9 +2010,9 @@ export default function MembersListPage() {
                                 {org.name}
                               </p>
                             )}
-                            {member.department?.name && (
+                            {formatMemberDepartments(member) && (
                               <p className="text-sm text-slate-500 truncate">
-                                {member.department.name}
+                                {formatMemberDepartments(member)}
                               </p>
                             )}
                           </div>

@@ -107,6 +107,7 @@ import {
   preferenceValuesToState,
   preserveEqualState,
 } from "@/lib/memberDetailState.mjs";
+import { normalizeMemberDepartments } from "@/lib/memberListColumnUtils.mjs";
 
 // Stable empty-array fallback for disabled/unloaded useQuery data.
 // Inline `= []` defaults create a fresh array identity every render, which
@@ -450,6 +451,10 @@ export default function MemberDetailView({
 
   // Get the member's organization ID
   const memberOrgId = formData.organization_id || member?.organization_id;
+  const memberDepartments = useMemo(
+    () => normalizeMemberDepartments(member),
+    [member?.departments]
+  );
 
   // Fetch the organization's preference values to get the segmentation field value
   const { data: orgPreferenceValues = EMPTY_QUERY_LIST } = useQuery({
@@ -1379,6 +1384,30 @@ export default function MemberDetailView({
                     )}
                   </CardContent>
                 </Card>
+
+                {!isNew && (
+                  <Card>
+                    <CardHeader className="py-3">
+                      <CardTitle className="text-base flex items-center gap-2">
+                        <FolderTree className="w-4 h-4 text-blue-600" />
+                        Departments
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="py-3">
+                      {memberDepartments.length > 0 ? (
+                        <div className="flex flex-wrap gap-2" data-testid="member-departments">
+                          {memberDepartments.map((department) => (
+                            <Badge key={department.id || department.name} variant="secondary">
+                              {department.name}
+                            </Badge>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-sm text-slate-500">No departments assigned</p>
+                      )}
+                    </CardContent>
+                  </Card>
+                )}
 
                 {/* Group card: derived from org when member has one, manual selector otherwise */}
                 <Card>

@@ -27,8 +27,8 @@ function db(seed) {
 const base = () => ({
   custom_object_definition: [{ id: 'dept-object', tenant_id: tenant, object_key: 'org_department', status: 'active', primary_display_field_id: 'name-field' }],
   custom_object_relationship_definition: [
-    { id: 'member-def', tenant_id: tenant, relationship_key: 'members', status: 'active', source_kind: 'custom_object', source_custom_object_id: 'dept-object', target_kind: 'member', target_custom_object_id: null, cardinality: 'one_to_many' },
-    { id: 'org-def', tenant_id: tenant, relationship_key: 'organisation', status: 'active', is_required: true, source_kind: 'custom_object', source_custom_object_id: 'dept-object', target_kind: 'organization' },
+    { id: 'member-def', tenant_id: tenant, relationship_key: 'members', status: 'active', source_kind: 'custom_object', source_custom_object_id: 'dept-object', target_kind: 'member', target_custom_object_id: null, cardinality: 'many_to_many' },
+    { id: 'org-def', tenant_id: tenant, relationship_key: 'organisation', status: 'active', is_required: true, source_kind: 'custom_object', source_custom_object_id: 'dept-object', target_kind: 'organization', target_custom_object_id: null, cardinality: 'many_to_one' },
   ],
   custom_object_record: [{ id: 'dept-1', tenant_id: tenant, custom_object_id: 'dept-object', archived_at: null, data: { name: 'Operations' } }],
   custom_object_relationship: [
@@ -37,12 +37,13 @@ const base = () => ({
   ],
   preference_field: [{ id: 'name-field', tenant_id: tenant, name: 'name' }],
   organization: [{ id: 'org-1', tenant_id: tenant, name: 'Acme' }],
+  member: [{ id: 'member-1', tenant_id: tenant, organization_id: 'org-1' }],
 });
 
 test('optional schema resolution preserves legacy tenants', async () => {
   const client = db({ custom_object_definition: [], custom_object_relationship_definition: [] });
   assert.equal(await resolveMemberDepartmentDefinition(client, tenant), null);
-  assert.deepEqual(await enrichMembersWithDepartments(client, tenant, [{ id: 'm' }]), [{ id: 'm', department: null, department_id: null }]);
+  assert.deepEqual(await enrichMembersWithDepartments(client, tenant, [{ id: 'm' }]), [{ id: 'm', departments: [], department_ids: [] }]);
   assert.deepEqual(await listDepartmentOptions(client, tenant), []);
   await assert.rejects(() => validateDepartmentIds(client, tenant, ['x']), MemberDepartmentError);
 });
@@ -52,8 +53,21 @@ test('schema ambiguity and malformed matching relationship fail closed', async (
   ambiguous.custom_object_definition.push({ ...ambiguous.custom_object_definition[0], id: 'two' });
   await assert.rejects(() => resolveMemberDepartmentDefinition(db(ambiguous), tenant), MemberDepartmentError);
   const malformed = base();
-  malformed.custom_object_relationship_definition[0].cardinality = 'many_to_many';
+  malformed.custom_object_relationship_definition[0].cardinality = 'many_to_one';
   await assert.rejects(() => resolveMemberDepartmentDefinition(db(malformed), tenant), MemberDepartmentError);
+});
+
+test('legacy one-to-many Department schemas remain readable', async () => {
+  const seed = base();
+  seed.custom_object_relationship_definition[0].cardinality = 'one_to_many';
+  const schema = await resolveMemberDepartmentDefinition(db(seed), tenant, { required: true });
+  assert.equal(schema.definitionId, 'member-def');
+  const members = await enrichMembersWithDepartments(
+    db(seed),
+    tenant,
+    [{ id: 'member-1', organization_id: 'org-1' }],
+  );
+  assert.deepEqual(members[0].department_ids, ['dept-1']);
 });
 
 test('department ID validation rejects cross-tenant IDs and resolves member IDs', async () => {
@@ -64,15 +78,53 @@ test('department ID validation rejects cross-tenant IDs and resolves member IDs'
   assert.deepEqual(await resolveDepartmentMemberIds(client, tenant, ['dept-1']), ['member-1']);
 });
 
-test('options filter by parent organisation and enrichment is batched', async () => {
-  const client = db(base());
-  assert.deepEqual(await listDepartmentOptions(client, tenant, ['org-1']), [{
-    id: 'dept-1', name: 'Operations', organization_id: 'org-1', organization_name: 'Acme',
-  }]);
+test('department filtering uses ANY semantics once per member and ignores invalid historical edges', async () => {
+  const seed = base();
+  seed.custom_object_record.push(
+    { id: 'dept-2', tenant_id: tenant, custom_object_id: 'dept-object', archived_at: null, data: { name: 'Imaging' } },
+    { id: 'dept-wrong-org', tenant_id: tenant, custom_object_id: 'dept-object', archived_at: null, data: { name: 'Wrong org' } },
+  );
+  seed.custom_object_relationship.push(
+    { tenant_id: tenant, relationship_definition_id: 'member-def', source_record_id: 'dept-2', target_record_id: 'member-1', archived_at: null },
+    { tenant_id: tenant, relationship_definition_id: 'member-def', source_record_id: 'dept-wrong-org', target_record_id: 'member-1', archived_at: null },
+    { tenant_id: tenant, relationship_definition_id: 'member-def', source_record_id: 'dept-wrong-org', target_record_id: 'member-stale', archived_at: null },
+    { tenant_id: tenant, relationship_definition_id: 'org-def', source_record_id: 'dept-2', target_record_id: 'org-1', archived_at: null },
+    { tenant_id: tenant, relationship_definition_id: 'org-def', source_record_id: 'dept-wrong-org', target_record_id: 'org-2', archived_at: null },
+  );
+  seed.member.push({ id: 'member-stale', tenant_id: tenant, organization_id: 'org-1' });
+  assert.deepEqual(
+    await resolveDepartmentMemberIds(db(seed), tenant, ['dept-1', 'dept-2', 'dept-wrong-org']),
+    ['member-1'],
+  );
+  assert.deepEqual(
+    await resolveDepartmentMemberIds(db(seed), tenant, ['dept-wrong-org']),
+    [],
+  );
+});
+
+test('options filter by parent organisation and enrichment returns every department in name order', async () => {
+  const seed = base();
+  seed.custom_object_record.push(
+    { id: 'dept-2', tenant_id: tenant, custom_object_id: 'dept-object', archived_at: null, data: { name: 'Imaging' } },
+    { id: 'dept-foreign-org', tenant_id: tenant, custom_object_id: 'dept-object', archived_at: null, data: { name: 'Wrong org' } },
+  );
+  seed.custom_object_relationship.push(
+    { tenant_id: tenant, relationship_definition_id: 'member-def', source_record_id: 'dept-2', target_record_id: 'member-1', archived_at: null },
+    { tenant_id: tenant, relationship_definition_id: 'member-def', source_record_id: 'dept-foreign-org', target_record_id: 'member-1', archived_at: null },
+    { tenant_id: tenant, relationship_definition_id: 'org-def', source_record_id: 'dept-2', target_record_id: 'org-1', archived_at: null },
+    { tenant_id: tenant, relationship_definition_id: 'org-def', source_record_id: 'dept-foreign-org', target_record_id: 'org-2', archived_at: null },
+  );
+  seed.organization.push({ id: 'org-2', tenant_id: tenant, name: 'Other' });
+  const client = db(seed);
+  assert.deepEqual(await listDepartmentOptions(client, tenant, ['org-1']), [
+    { id: 'dept-2', name: 'Imaging', organization_id: 'org-1', organization_name: 'Acme' },
+    { id: 'dept-1', name: 'Operations', organization_id: 'org-1', organization_name: 'Acme' },
+  ]);
   assert.deepEqual(await listDepartmentOptions(client, tenant, ['other']), []);
   const rows = await enrichMembersWithDepartments(client, tenant, [
     { id: 'member-1', organization_id: 'org-1' }, { id: 'member-2', organization_id: 'org-1' },
   ]);
-  assert.deepEqual(rows.map(row => row.department_id), ['dept-1', null]);
-  assert.equal(rows[0].department.name, 'Operations');
+  assert.deepEqual(rows.map(row => row.department_ids), [['dept-2', 'dept-1'], []]);
+  assert.deepEqual(rows[0].departments.map(department => department.name), ['Imaging', 'Operations']);
+  assert.equal(rows[0].departments.some(department => department.id === 'dept-foreign-org'), false);
 });

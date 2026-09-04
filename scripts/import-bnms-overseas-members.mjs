@@ -236,7 +236,8 @@ export function makePlan(source, state, mappings, focusArea) {
     }));
     return {
       row, member, patch, action: member ? (Object.keys(patch).length ? 'update' : 'unchanged') : 'insert',
-      preferences, focusAreas, departmentId: null, edgeAction: 'none',
+      preferences, focusAreas, departmentId: null, departmentIds: [],
+      departmentAssignmentMode: 'preserve', edgeAction: 'none',
       conflictingEdges: [], exactEdges: [], activeDepartmentEdges: [],
     };
   }) };

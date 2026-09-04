@@ -8,7 +8,18 @@ import {
 import { ROW_COUNT, TENANT_ID, readSource } from './import-bnms-radiopharmacy-members.mjs';
 
 function fixture(roleId = null) {
-  const source = readSource();
+  const importedSource = readSource();
+  const source = {
+    ...importedSource,
+    rows: importedSource.rows.map((row, index) => ({
+      ...row,
+      memberId: row.id,
+      departmentId: `40000000-0000-4000-8000-${String(index + 1).padStart(12, '0')}`,
+      email: `radiopharmacy-${index + 1}@example.test`,
+      firstName: `First${index + 1}`,
+      lastName: `Last${index + 1}`,
+    })),
+  };
   const importedMembers = [];
   const parentEdges = [];
   const memberEdges = [];
@@ -28,11 +39,13 @@ function fixture(roleId = null) {
       is_guest: false,
     });
     parentEdges.push({
+      tenant_id: TENANT_ID,
       source_record_id: row.departmentId,
       target_record_id: organizationId,
       archived_at: null,
     });
     memberEdges.push({
+      tenant_id: TENANT_ID,
       source_record_id: row.departmentId,
       target_record_id: row.memberId,
       archived_at: null,
@@ -78,4 +91,34 @@ test('Member and Department mapping drift fails closed', () => {
   const departmentDrift = fixture();
   departmentDrift.state.parentEdges[0].target_record_id = '30000000-0000-4000-8000-000000000000';
   assert.throws(() => makePlan(departmentDrift.source, departmentDrift.state), /Department-to-Organisation invariant/);
+});
+
+test('additional same-Organisation Departments are accepted without choosing a primary', () => {
+  const extra = fixture();
+  const member = extra.state.importedMembers[0];
+  const departmentId = '50000000-0000-4000-8000-000000000001';
+  extra.state.memberEdges.push({
+    tenant_id: TENANT_ID, source_record_id: departmentId, target_record_id: member.id, archived_at: null,
+  });
+  extra.state.parentEdges.push({
+    tenant_id: TENANT_ID, source_record_id: departmentId, target_record_id: member.organization_id, archived_at: null,
+  });
+  assert.equal(makePlan(extra.source, extra.state).assignments, ROW_COUNT);
+});
+
+test('duplicate and wrong-Organisation Department assignments fail closed', () => {
+  const duplicate = fixture();
+  duplicate.state.memberEdges.push({ ...duplicate.state.memberEdges[0], id: 'duplicate' });
+  assert.throws(() => makePlan(duplicate.source, duplicate.state), /duplicate assignment/);
+
+  const foreign = fixture();
+  const member = foreign.state.importedMembers[0];
+  const departmentId = '50000000-0000-4000-8000-000000000002';
+  foreign.state.memberEdges.push({
+    tenant_id: TENANT_ID, source_record_id: departmentId, target_record_id: member.id, archived_at: null,
+  });
+  foreign.state.parentEdges.push({
+    tenant_id: TENANT_ID, source_record_id: departmentId, target_record_id: 'foreign-organization', archived_at: null,
+  });
+  assert.throws(() => makePlan(foreign.source, foreign.state), /Department-to-Organisation invariant/);
 });

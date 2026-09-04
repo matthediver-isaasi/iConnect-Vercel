@@ -34,6 +34,37 @@
         "type": "string",
         "description": "Reference to Organization entity"
       },
+      "department_ids": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "default": [],
+        "description": "References to every Department assigned to the member; assignments have no primary ordering"
+      },
+      "departments": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "organization_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "name"
+          ]
+        },
+        "default": [],
+        "description": "All assigned Departments, returned in deterministic name order with no primary Department"
+      },
       "organization_group_id": {
         "type": "string",
         "description": "Direct Organisation Group assignment for a member without an Organisation"

@@ -42,7 +42,7 @@ const fields = CUSTOM_MAPPINGS.map((mapping) => ({
 }));
 const relationshipDefinitions = [
   { id: 'parent-def', tenant_id: TENANT_ID, relationship_key: 'organisation', source_kind: 'custom_object', source_custom_object_id: 'department-object', target_kind: 'organization', target_custom_object_id: null, cardinality: 'many_to_one', is_required: true, status: 'active' },
-  { id: 'member-def', tenant_id: TENANT_ID, relationship_key: 'members', source_kind: 'custom_object', source_custom_object_id: 'department-object', target_kind: 'member', target_custom_object_id: null, cardinality: 'one_to_many', is_required: false, status: 'active' },
+  { id: 'member-def', tenant_id: TENANT_ID, relationship_key: 'members', source_kind: 'custom_object', source_custom_object_id: 'department-object', target_kind: 'member', target_custom_object_id: null, cardinality: 'many_to_many', is_required: false, status: 'active' },
 ];
 const ids = (column) => [...new Set(source.rows.map((row) => row.values[column]).filter(Boolean))];
 const groups = ids(26).map((id) => ({ id, tenant_id: TENANT_ID }));
@@ -362,6 +362,45 @@ test('plans an explicit Department edge replacement when the pinned source diffe
   );
   assert.equal(plan.items[0].edgeAction, 'replace');
   assert.deepEqual(plan.items[0].conflictingEdges, [existing]);
+  assert.deepEqual(plan.items[0].departmentIds, [row.values[28]]);
+});
+
+test('Department replacement reconciles many existing assignments and rejects duplicate or foreign edges', () => {
+  const row = source.rows.find((item) => item.values[28]);
+  const member = {
+    id: 'member-many', tenant_id: TENANT_ID, email: row.email,
+    organization_id: hierarchy.departmentParents.get(row.values[28]), organization_group_id: null,
+  };
+  const desired = {
+    id: 'desired', tenant_id: TENANT_ID, relationship_definition_id: 'member-def',
+    source_record_id: row.values[28], target_record_id: member.id, archived_at: null,
+  };
+  const extras = ['extra-a', 'extra-b'].map((id) => ({
+    id, tenant_id: TENANT_ID, relationship_definition_id: 'member-def',
+    source_record_id: id, target_record_id: member.id, archived_at: null,
+  }));
+  const plan = makePlan(
+    { ...source, rows: [row] },
+    { members: [member], preferenceValues: [], memberEdges: [desired, ...extras] },
+    mappings,
+    hierarchy,
+  );
+  assert.equal(plan.items[0].edgeAction, 'archive');
+  assert.deepEqual(plan.items[0].conflictingEdges, extras);
+  assert.deepEqual(plan.items[0].exactEdges, [desired]);
+
+  assert.throws(() => makePlan(
+    { ...source, rows: [row] },
+    { members: [member], preferenceValues: [], memberEdges: [desired, { ...desired, id: 'duplicate' }] },
+    mappings,
+    hierarchy,
+  ), /duplicate active Department member edges/);
+  assert.throws(() => makePlan(
+    { ...source, rows: [row] },
+    { members: [member], preferenceValues: [], memberEdges: [{ ...desired, tenant_id: 'foreign' }] },
+    mappings,
+    hierarchy,
+  ), /outside BNMS/);
 });
 
 test('mixed insert/update/unchanged preferences replay to exactly zero writes', () => {

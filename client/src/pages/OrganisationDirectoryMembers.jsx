@@ -6,32 +6,33 @@ import { DirectoryMemberCard } from "@/components/directory/DirectoryCards";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import MultiSelectFilter from "@/components/MultiSelectFilter";
+import { normalizeMemberDepartments, uniqueMemberRows } from "@/lib/memberListColumnUtils.mjs";
 
 export default function OrganisationDirectoryMembers({ dynamic = false }) {
   const { slug, organizationId } = useParams();
   const navigate = useNavigate();
   const [search, setSearch] = useState("");
-  const [departmentId, setDepartmentId] = useState("all");
+  const [departmentIds, setDepartmentIds] = useState([]);
   const [page, setPage] = useState(1);
   const pageSize = 12;
 
   useEffect(() => {
     setPage(1);
-  }, [search, departmentId, organizationId, slug]);
+  }, [search, departmentIds, organizationId, slug]);
 
   useEffect(() => {
-    setDepartmentId("all");
+    setDepartmentIds([]);
   }, [organizationId, slug]);
 
   const { data, isLoading, error } = useQuery({
-    queryKey: ["organisation-directory-members", dynamic ? slug : "standard", organizationId, search, departmentId, page],
+    queryKey: ["organisation-directory-members", dynamic ? slug : "standard", organizationId, search, departmentIds, page],
     queryFn: async () => {
       const params = new URLSearchParams({ organization_id: organizationId });
       if (dynamic) params.set("slug", slug);
       else params.set("source", "standard");
       if (search.trim()) params.set("search", search.trim());
-      if (departmentId !== "all") params.set("department_id", departmentId);
+      if (departmentIds.length > 0) params.set("department_id", departmentIds.join(","));
       params.set("page", String(page));
       params.set("limit", String(pageSize));
       const response = await fetch(`/api/dynamic-directory/members?${params}`, { credentials: "include" });
@@ -62,6 +63,8 @@ export default function OrganisationDirectoryMembers({ dynamic = false }) {
 
   const backUrl = dynamic ? `/directory/${encodeURIComponent(slug)}` : "/OrganisationDirectory";
   const totalPages = Math.max(1, Math.ceil(data.total / data.pageSize));
+  const directoryMembers = uniqueMemberRows(data.members);
+  const departmentOptions = normalizeMemberDepartments({ departments: data.departments });
   return (
     <div className="min-h-screen p-4 md:p-8">
       <div className="max-w-7xl mx-auto">
@@ -82,28 +85,26 @@ export default function OrganisationDirectoryMembers({ dynamic = false }) {
               <Input className="pl-10" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search members..." />
             </div>
             {data.departments?.length > 0 && (
-              <Select value={departmentId} onValueChange={setDepartmentId}>
-                <SelectTrigger className="sm:w-56" data-testid="select-directory-department">
-                  <SelectValue placeholder="All departments" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All departments</SelectItem>
-                  {data.departments.map((department) => (
-                    <SelectItem key={department.id} value={department.id}>
-                      {department.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <MultiSelectFilter
+                className="sm:w-56"
+                options={departmentOptions.map((department) => ({
+                  value: department.id,
+                  label: department.name,
+                }))}
+                selected={departmentIds}
+                onChange={setDepartmentIds}
+                placeholder="All departments"
+                data-testid="select-directory-department"
+              />
             )}
           </div>
         </CardContent></Card>
-        {data.members.length === 0 ? (
+        {directoryMembers.length === 0 ? (
           <Card><CardContent className="p-12 text-center text-slate-600">No eligible members found</CardContent></Card>
         ) : (
           <>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {data.members.map((member) => (
+              {directoryMembers.map((member) => (
                 <DirectoryMemberCard
                   key={member.id}
                   member={member}

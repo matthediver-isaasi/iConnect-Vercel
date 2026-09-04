@@ -2085,7 +2085,7 @@ test('Department-member pickers are constrained to the Department organisation o
     custom_object_relationship_definition: [{
       id: memberDefinitionId, tenant_id: tenantId, relationship_key: 'members', status: 'active',
       source_kind: 'custom_object', source_custom_object_id: departmentObjectId,
-      target_kind: 'member', target_custom_object_id: null, cardinality: 'one_to_many',
+      target_kind: 'member', target_custom_object_id: null, cardinality: 'many_to_many',
       configuration: { picker_scope: { via_relationship_key: 'organisation', routed_core_field: 'organization_id' } },
       show_on_source: true, show_on_target: true, edit_from_source: true, edit_from_target: true,
     }, {
@@ -2095,6 +2095,7 @@ test('Department-member pickers are constrained to the Department organisation o
     }],
     custom_object_record: [
       { id: 'dept-a', tenant_id: tenantId, custom_object_id: departmentObjectId, archived_at: null, data: { name: 'A' } },
+      { id: 'dept-c', tenant_id: tenantId, custom_object_id: departmentObjectId, archived_at: null, data: { name: 'C' } },
       { id: 'dept-b', tenant_id: tenantId, custom_object_id: departmentObjectId, archived_at: null, data: { name: 'B' } },
     ],
     member: [
@@ -2103,16 +2104,42 @@ test('Department-member pickers are constrained to the Department organisation o
     ],
     custom_object_relationship: [
       { id: 'parent-a', tenant_id: tenantId, relationship_definition_id: parentDefinitionId, source_record_id: 'dept-a', target_record_id: 'org-a', archived_at: null },
+      { id: 'parent-c', tenant_id: tenantId, relationship_definition_id: parentDefinitionId, source_record_id: 'dept-c', target_record_id: 'org-a', archived_at: null },
       { id: 'parent-b', tenant_id: tenantId, relationship_definition_id: parentDefinitionId, source_record_id: 'dept-b', target_record_id: 'org-b', archived_at: null },
     ],
   };
-  const service = createCustomObjectService({ db: mockDb(seed), context: context(), isAdmin: true });
+  const legacySeed = structuredClone(seed);
+  legacySeed.custom_object_relationship_definition[0].cardinality = 'one_to_many';
+  const legacyPicker = await createCustomObjectService({
+    db: mockDb(legacySeed),
+    context: context(),
+    isAdmin: true,
+  }).coreEntityPicker('member', 'member-a', { definitionId: memberDefinitionId });
+  assert.deepEqual(legacyPicker.data.map(row => row.id), ['dept-a', 'dept-c']);
+
+  const db = mockDb(seed);
+  const service = createCustomObjectService({ db, context: context(), isAdmin: true });
   const fromMember = await service.coreEntityPicker('member', 'member-a', { definitionId: memberDefinitionId });
-  assert.deepEqual(fromMember.data.map(row => row.id), ['dept-a']);
+  assert.deepEqual(fromMember.data.map(row => row.id), ['dept-a', 'dept-c']);
   const fromDepartment = await service.entityPicker(departmentObjectId, {
     definitionId: memberDefinitionId, recordId: 'dept-a', side: 'source',
   });
   assert.deepEqual(fromDepartment.data.map(row => row.id), ['member-a']);
+  await service.createCoreRelationship('member', 'member-a', {
+    relationship_definition_id: memberDefinitionId, related_record_id: 'dept-a',
+  });
+  await service.createCoreRelationship('member', 'member-a', {
+    relationship_definition_id: memberDefinitionId, related_record_id: 'dept-c',
+  });
+  assert.equal(db.tables.custom_object_relationship.filter(edge =>
+    edge.relationship_definition_id === memberDefinitionId
+      && edge.target_record_id === 'member-a').length, 2);
+  await assert.rejects(
+    () => service.createCoreRelationship('member', 'member-a', {
+      relationship_definition_id: memberDefinitionId, related_record_id: 'dept-b',
+    }),
+    (error) => error.status === 400 && /picker scope/.test(error.message),
+  );
 });
 
 test('unrelated relationship pickers retain generic candidates, including a non-Department members key', async () => {

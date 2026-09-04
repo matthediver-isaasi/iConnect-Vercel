@@ -54,6 +54,8 @@ test('plans mixed inserts, updates, unchanged values and preserves Member object
     { id: 'b', member_id: first.id, field_id: mappings[1].id, value: 'old' },
   ];
   const plan = makePlan(source, members, values, mappings);
+  assert.equal(plan.departmentAssignmentMode, 'preserve');
+  assert.equal(plan.departmentIds, null);
   assert.equal(plan.items.filter((item) => item.action === 'unchanged').length, 1);
   assert.equal(plan.items.filter((item) => item.action === 'update').length, 1);
   assert.equal(plan.items.filter((item) => item.action === 'insert').length, ROW_COUNT * 4 - 2);

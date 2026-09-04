@@ -24,6 +24,12 @@ const bnmsDepartmentTypeMigrationPath = fileURLToPath(
 const atomicRecordCreateMigrationPath = fileURLToPath(
   new URL('../../supabase/migrations/20260925_custom_object_record_relationship_create.sql', import.meta.url),
 );
+const bnmsDepartmentMembersBaseMigrationPath = fileURLToPath(
+  new URL('../../supabase/migrations/20260905_bnms_department_members.sql', import.meta.url),
+);
+const bnmsDepartmentMembersUpgradeMigrationPath = fileURLToPath(
+  new URL('../../supabase/migrations/20260926_bnms_member_departments_many_to_many.sql', import.meta.url),
+);
 
 function findExecutable(name) {
   const result = spawnSync('sh', ['-c', `command -v ${name}`], { encoding: 'utf8' });
@@ -120,7 +126,8 @@ test('migration replays and persists every supported Custom Object field type', 
       );
       CREATE TABLE public.member (
         id uuid PRIMARY KEY,
-        tenant_id uuid NOT NULL REFERENCES public.tenant(id) ON DELETE CASCADE
+        tenant_id uuid NOT NULL REFERENCES public.tenant(id) ON DELETE CASCADE,
+        organization_id uuid
       );
       CREATE TABLE public.organization (
         id uuid PRIMARY KEY,
@@ -206,6 +213,306 @@ test('migration replays and persists every supported Custom Object field type', 
         WHERE id = '00000000-0000-4000-8000-000000000099';
       `,
     });
+    run(psql, connectionArgs, {
+      input: `
+        INSERT INTO public.organization(id, tenant_id)
+        VALUES
+          ('20000000-0000-4000-8000-000000000001', 'ff2df806-b321-4254-b651-3af11fccf1db'),
+          ('20000000-0000-4000-8000-000000000002', 'ff2df806-b321-4254-b651-3af11fccf1db');
+        INSERT INTO public.member(id, tenant_id, organization_id)
+        VALUES (
+          '30000000-0000-4000-8000-000000000001',
+          'ff2df806-b321-4254-b651-3af11fccf1db',
+          '20000000-0000-4000-8000-000000000001'
+        );
+        INSERT INTO public.custom_object_relationship_definition(
+          id, tenant_id, relationship_key, source_kind, source_custom_object_id,
+          target_kind, cardinality, source_label, target_label, is_required,
+          edit_from_source, edit_from_target, status
+        ) VALUES
+          (
+            '40000000-0000-4000-8000-000000000001',
+            'ff2df806-b321-4254-b651-3af11fccf1db',
+            'organisation', 'custom_object',
+            '00000000-0000-4000-8000-000000000099',
+            'organization', 'many_to_one', 'Organisation', 'Departments',
+            true, true, true, 'active'
+          ),
+          (
+            '40000000-0000-4000-8000-000000000002',
+            'ff2df806-b321-4254-b651-3af11fccf1db',
+            'members', 'custom_object',
+            '00000000-0000-4000-8000-000000000099',
+            'member', 'one_to_many', 'Members', 'Organisation Department',
+            false, true, true, 'active'
+          );
+        INSERT INTO public.custom_object_record(id, tenant_id, custom_object_id, data)
+        VALUES
+          (
+            '50000000-0000-4000-8000-000000000001',
+            'ff2df806-b321-4254-b651-3af11fccf1db',
+            '00000000-0000-4000-8000-000000000099',
+            '{"name":"Imaging"}'
+          ),
+          (
+            '50000000-0000-4000-8000-000000000002',
+            'ff2df806-b321-4254-b651-3af11fccf1db',
+            '00000000-0000-4000-8000-000000000099',
+            '{"name":"Operations"}'
+          ),
+          (
+            '50000000-0000-4000-8000-000000000003',
+            'ff2df806-b321-4254-b651-3af11fccf1db',
+            '00000000-0000-4000-8000-000000000099',
+            '{"name":"Other organisation"}'
+          );
+        INSERT INTO public.custom_object_relationship(
+          id, tenant_id, relationship_definition_id, source_record_id, target_record_id
+        ) VALUES
+          (
+            '60000000-0000-4000-8000-000000000001',
+            'ff2df806-b321-4254-b651-3af11fccf1db',
+            '40000000-0000-4000-8000-000000000001',
+            '50000000-0000-4000-8000-000000000001',
+            '20000000-0000-4000-8000-000000000001'
+          ),
+          (
+            '60000000-0000-4000-8000-000000000002',
+            'ff2df806-b321-4254-b651-3af11fccf1db',
+            '40000000-0000-4000-8000-000000000001',
+            '50000000-0000-4000-8000-000000000002',
+            '20000000-0000-4000-8000-000000000001'
+          ),
+          (
+            '60000000-0000-4000-8000-000000000003',
+            'ff2df806-b321-4254-b651-3af11fccf1db',
+            '40000000-0000-4000-8000-000000000001',
+            '50000000-0000-4000-8000-000000000003',
+            '20000000-0000-4000-8000-000000000002'
+          ),
+          (
+            '60000000-0000-4000-8000-000000000004',
+            'ff2df806-b321-4254-b651-3af11fccf1db',
+            '40000000-0000-4000-8000-000000000002',
+            '50000000-0000-4000-8000-000000000001',
+            '30000000-0000-4000-8000-000000000001'
+          );
+      `,
+    });
+    run(psql, connectionArgs, {
+      input: `
+        -- A second tenant retains the deployed one-to-many Department model.
+        -- The BNMS-only widening must not weaken its global trigger protection.
+        INSERT INTO public.tenant(id)
+        VALUES ('aaaaaaaa-0000-4000-8000-000000000001');
+        INSERT INTO public.custom_object_definition(
+          id, tenant_id, object_key, singular_label, plural_label
+        ) VALUES (
+          'a0000000-0000-4000-8000-000000000001',
+          'aaaaaaaa-0000-4000-8000-000000000001',
+          'org_department', 'Department', 'Departments'
+        );
+        INSERT INTO public.preference_field(
+          id, tenant_id, name, label, field_type, entity_scope,
+          custom_object_id, is_active
+        ) VALUES (
+          'a1000000-0000-4000-8000-000000000001',
+          'aaaaaaaa-0000-4000-8000-000000000001',
+          'name', 'Name', 'text', 'custom_object',
+          'a0000000-0000-4000-8000-000000000001', true
+        );
+        UPDATE public.custom_object_definition
+        SET primary_display_field_id = 'a1000000-0000-4000-8000-000000000001',
+            status = 'active'
+        WHERE id = 'a0000000-0000-4000-8000-000000000001';
+
+        INSERT INTO public.organization(id, tenant_id)
+        VALUES
+          ('a2000000-0000-4000-8000-000000000001', 'aaaaaaaa-0000-4000-8000-000000000001'),
+          ('a2000000-0000-4000-8000-000000000002', 'aaaaaaaa-0000-4000-8000-000000000001');
+        INSERT INTO public.member(id, tenant_id, organization_id)
+        VALUES
+          (
+            'a3000000-0000-4000-8000-000000000001',
+            'aaaaaaaa-0000-4000-8000-000000000001',
+            'a2000000-0000-4000-8000-000000000001'
+          ),
+          (
+            'a3000000-0000-4000-8000-000000000002',
+            'aaaaaaaa-0000-4000-8000-000000000001',
+            'a2000000-0000-4000-8000-000000000001'
+          );
+        INSERT INTO public.custom_object_relationship_definition(
+          id, tenant_id, relationship_key, source_kind, source_custom_object_id,
+          target_kind, cardinality, source_label, target_label, is_required,
+          edit_from_source, edit_from_target, status, configuration
+        ) VALUES
+          (
+            'a4000000-0000-4000-8000-000000000001',
+            'aaaaaaaa-0000-4000-8000-000000000001',
+            'organisation', 'custom_object',
+            'a0000000-0000-4000-8000-000000000001',
+            'organization', 'many_to_one', 'Organisation', 'Departments',
+            true, true, true, 'active', '{}'::jsonb
+          ),
+          (
+            'a4000000-0000-4000-8000-000000000002',
+            'aaaaaaaa-0000-4000-8000-000000000001',
+            'members', 'custom_object',
+            'a0000000-0000-4000-8000-000000000001',
+            'member', 'one_to_many', 'Members', 'Organisation Department',
+            false, true, true, 'active',
+            '{"picker_scope":{"via_relationship_key":"organisation","routed_core_field":"organization_id"}}'::jsonb
+          );
+        INSERT INTO public.custom_object_record(id, tenant_id, custom_object_id, data)
+        VALUES
+          (
+            'a5000000-0000-4000-8000-000000000001',
+            'aaaaaaaa-0000-4000-8000-000000000001',
+            'a0000000-0000-4000-8000-000000000001',
+            '{"name":"Legacy One"}'
+          ),
+          (
+            'a5000000-0000-4000-8000-000000000002',
+            'aaaaaaaa-0000-4000-8000-000000000001',
+            'a0000000-0000-4000-8000-000000000001',
+            '{"name":"Legacy Two"}'
+          );
+        INSERT INTO public.custom_object_relationship(
+          id, tenant_id, relationship_definition_id, source_record_id, target_record_id
+        ) VALUES
+          (
+            'a6000000-0000-4000-8000-000000000001',
+            'aaaaaaaa-0000-4000-8000-000000000001',
+            'a4000000-0000-4000-8000-000000000001',
+            'a5000000-0000-4000-8000-000000000001',
+            'a2000000-0000-4000-8000-000000000001'
+          ),
+          (
+            'a6000000-0000-4000-8000-000000000002',
+            'aaaaaaaa-0000-4000-8000-000000000001',
+            'a4000000-0000-4000-8000-000000000001',
+            'a5000000-0000-4000-8000-000000000002',
+            'a2000000-0000-4000-8000-000000000002'
+          ),
+          (
+            'a6000000-0000-4000-8000-000000000003',
+            'aaaaaaaa-0000-4000-8000-000000000001',
+            'a4000000-0000-4000-8000-000000000002',
+            'a5000000-0000-4000-8000-000000000001',
+            'a3000000-0000-4000-8000-000000000001'
+          );
+      `,
+    });
+    // Exercise the deployed upgrade path: first replay the immutable historical
+    // migration, then apply and replay the new cardinality-widening migration.
+    run(psql, [...connectionArgs, '-f', bnmsDepartmentMembersBaseMigrationPath]);
+    run(psql, [...connectionArgs, '-f', bnmsDepartmentMembersUpgradeMigrationPath]);
+    run(psql, [...connectionArgs, '-f', bnmsDepartmentMembersUpgradeMigrationPath]);
+    const departmentMemberMigration = run(psql, [...connectionArgs, '-t', '-A'], {
+      input: `
+        SELECT
+          cardinality || ':' ||
+          target_label || ':' ||
+          (configuration->'picker_scope'->>'routed_core_field') || ':' ||
+          (SELECT count(*) FROM public.custom_object_relationship
+           WHERE id = '60000000-0000-4000-8000-000000000004'
+             AND archived_at IS NULL)
+        FROM public.custom_object_relationship_definition
+        WHERE id = '40000000-0000-4000-8000-000000000002';
+      `,
+    });
+    assert.equal(
+      departmentMemberMigration.trim(),
+      'many_to_many:Organisation Departments:organization_id:1',
+    );
+    const legacyDepartmentState = run(psql, [...connectionArgs, '-t', '-A'], {
+      input: `
+        SELECT
+          cardinality || ':' ||
+          (SELECT count(*) FROM public.custom_object_relationship
+           WHERE id = 'a6000000-0000-4000-8000-000000000003'
+             AND archived_at IS NULL)
+        FROM public.custom_object_relationship_definition
+        WHERE id = 'a4000000-0000-4000-8000-000000000002';
+      `,
+    });
+    assert.equal(legacyDepartmentState.trim(), 'one_to_many:1');
+    runFailure(psql, connectionArgs, /Department member organisation must match/, {
+      input: `
+        INSERT INTO public.custom_object_relationship(
+          tenant_id, relationship_definition_id, source_record_id, target_record_id
+        ) VALUES (
+          'aaaaaaaa-0000-4000-8000-000000000001',
+          'a4000000-0000-4000-8000-000000000002',
+          'a5000000-0000-4000-8000-000000000002',
+          'a3000000-0000-4000-8000-000000000002'
+        );
+      `,
+    });
+    const legacyArchivedAfterMove = run(psql, [...connectionArgs, '-t', '-A'], {
+      input: `
+        UPDATE public.member
+        SET organization_id = 'a2000000-0000-4000-8000-000000000002'
+        WHERE id = 'a3000000-0000-4000-8000-000000000001';
+        SELECT count(*)
+        FROM public.custom_object_relationship
+        WHERE id = 'a6000000-0000-4000-8000-000000000003'
+          AND archived_at IS NOT NULL;
+      `,
+    });
+    assert.equal(legacyArchivedAfterMove.trim(), '1');
+
+    run(psql, connectionArgs, {
+      input: `
+        INSERT INTO public.custom_object_relationship(
+          id, tenant_id, relationship_definition_id, source_record_id, target_record_id
+        ) VALUES (
+          '60000000-0000-4000-8000-000000000005',
+          'ff2df806-b321-4254-b651-3af11fccf1db',
+          '40000000-0000-4000-8000-000000000002',
+          '50000000-0000-4000-8000-000000000002',
+          '30000000-0000-4000-8000-000000000001'
+        );
+      `,
+    });
+    runFailure(psql, connectionArgs, /custom_object_relationship_active_pair_unique/, {
+      input: `
+        INSERT INTO public.custom_object_relationship(
+          tenant_id, relationship_definition_id, source_record_id, target_record_id
+        ) VALUES (
+          'ff2df806-b321-4254-b651-3af11fccf1db',
+          '40000000-0000-4000-8000-000000000002',
+          '50000000-0000-4000-8000-000000000002',
+          '30000000-0000-4000-8000-000000000001'
+        );
+      `,
+    });
+    runFailure(psql, connectionArgs, /Department member organisation must match/, {
+      input: `
+        INSERT INTO public.custom_object_relationship(
+          tenant_id, relationship_definition_id, source_record_id, target_record_id
+        ) VALUES (
+          'ff2df806-b321-4254-b651-3af11fccf1db',
+          '40000000-0000-4000-8000-000000000002',
+          '50000000-0000-4000-8000-000000000003',
+          '30000000-0000-4000-8000-000000000001'
+        );
+      `,
+    });
+    const archivedAfterMove = run(psql, [...connectionArgs, '-t', '-A'], {
+      input: `
+        UPDATE public.member
+        SET organization_id = '20000000-0000-4000-8000-000000000002'
+        WHERE id = '30000000-0000-4000-8000-000000000001';
+        SELECT count(*)
+        FROM public.custom_object_relationship
+        WHERE relationship_definition_id = '40000000-0000-4000-8000-000000000002'
+          AND target_record_id = '30000000-0000-4000-8000-000000000001'
+          AND archived_at IS NOT NULL;
+      `,
+    });
+    assert.equal(archivedAfterMove.trim(), '2');
     runFailure(
       psql,
       connectionArgs,

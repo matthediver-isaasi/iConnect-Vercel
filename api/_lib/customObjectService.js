@@ -1079,7 +1079,7 @@ export function createCustomObjectService({
       || !/^[a-z][a-z0-9_]{0,99}$/.test(scope.routed_core_field)
       || definition.source_kind !== 'custom_object' || !definition.source_custom_object_id
       || definition.target_kind !== 'member' || definition.target_custom_object_id !== null
-      || definition.cardinality !== 'one_to_many') {
+      || !['one_to_many', 'many_to_many'].includes(definition.cardinality)) {
       throw new CustomObjectHttpError(409, 'Configured picker scope schema is malformed');
     }
     const sourceObject = await one('custom_object_definition', definition.source_custom_object_id);
@@ -1352,6 +1352,10 @@ export function createCustomObjectService({
     const source = await endpoint(definition.source_kind, sourceId);
     const target = await endpoint(definition.target_kind, targetId);
     domainGuard(() => validateCustomObjectRelationshipEndpoints({ tenantId, definition, source, target }));
+    const pickerScope = await configuredPickerScope(definition, null, target.id);
+    if (pickerScope && !pickerScope.sourceRecordIds.includes(source.id)) {
+      throw new CustomObjectHttpError(400, 'Related record is outside the configured picker scope');
+    }
     const { data, error } = await db.from('custom_object_relationship').insert({
       tenant_id: tenantId,
       relationship_definition_id: definition.id,
@@ -1566,6 +1570,10 @@ export function createCustomObjectService({
     const source = await endpoint(definition.source_kind, body?.source_record_id);
     const target = await endpoint(definition.target_kind, body?.target_record_id);
     domainGuard(() => validateCustomObjectRelationshipEndpoints({ tenantId, definition, source, target }));
+    const pickerScope = await configuredPickerScope(definition, null, target.id);
+    if (pickerScope && !pickerScope.sourceRecordIds.includes(source.id)) {
+      throw new CustomObjectHttpError(400, 'Related record is outside the configured picker scope');
+    }
     const payload = {
       tenant_id: tenantId, relationship_definition_id: definition.id,
       source_record_id: source.id, target_record_id: target.id, ...authored('created'),

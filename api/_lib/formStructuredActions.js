@@ -480,7 +480,7 @@ export async function processPrimaryPipelineRelatedRecords({
         continue;
       }
       const selected = answers?.[link.source_field_id];
-      const selectedIds = (Array.isArray(selected) ? selected : [selected]).filter(Boolean);
+      const selectedIds = [...new Set((Array.isArray(selected) ? selected : [selected]).filter(Boolean))];
       if (selectedIds.length === 0) {
         outcomes.push({ ...base, status: 'skipped', reason: 'relationship_selection_missing' });
         continue;

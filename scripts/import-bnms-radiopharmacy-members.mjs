@@ -120,7 +120,9 @@ export function makePlan(source, members, values, mappings) {
       items.push({ memberId: row.id, fieldId: mapping.id, source: mapping.source, desired, existing: existing[0] || null, action: existing[0]?.value === desired ? 'unchanged' : existing.length ? 'update' : 'insert' });
     }
   }
-  return { items };
+  // This maintenance import owns preference values only. Department
+  // assignments are an unmanaged set and are always preserved.
+  return { items, departmentAssignmentMode: 'preserve', departmentIds: null };
 }
 
 function destinationClient() {
@@ -211,6 +213,7 @@ function report(source, state, mappings, plan) {
   const exceptions = plan.items.filter((item) => !['insert', 'update', 'unchanged'].includes(item.action));
   console.log(`  Row-level exceptions:             ${exceptions.length}`);
   console.log(`  Total writes:                     ${plan.items.filter((item) => item.action !== 'unchanged').length}`);
+  console.log('  Department assignment set:        preserved (unmanaged)');
   console.log('  Member rows/relationships/roles:  read-only');
 }
 
