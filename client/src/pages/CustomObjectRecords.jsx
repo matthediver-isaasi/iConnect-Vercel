@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Archive,
@@ -54,6 +54,7 @@ import {
   validateRecordValues,
 } from "./customObjects/recordHelpers";
 import { RelatedRecordsPanel } from "./customObjects/RelatedRecordsPanel";
+import { relationshipBackPath } from "./customObjects/relationshipHelpers";
 import { RecordFieldControl } from "./customObjects/RecordFieldControls";
 
 class ApiError extends Error {
@@ -144,20 +145,21 @@ function useSchema(objectId) {
   };
 }
 
-function Workspace({ children, object, backToRecords = false }) {
+function Workspace({ children, object, backToRecords = false, backTo }) {
   return (
     <main className="min-h-screen bg-slate-50/70 p-4 md:p-8">
       <div className="mx-auto max-w-7xl">
         <Link
           to={
-            backToRecords
+            backTo ||
+            (backToRecords
               ? recordsPath(object?.id)
-              : `/CustomObjectsAdmin/${object?.id}`
+              : `/CustomObjectsAdmin/${object?.id}`)
           }
           className="mb-5 inline-flex items-center text-sm font-medium text-slate-600 hover:text-slate-900"
         >
           <ArrowLeft className="mr-2 h-4 w-4" />
-          {backToRecords ? `All ${object?.plural_label || "records"}` : "Object setup"}
+          {backTo ? "Back" : backToRecords ? `All ${object?.plural_label || "records"}` : "Object setup"}
         </Link>
         {children}
       </div>
@@ -559,6 +561,7 @@ export function CustomObjectRecordForm() {
 
 export function CustomObjectRecordDetail() {
   const { objectId, recordId } = useParams();
+  const location = useLocation();
   const navigate = useNavigate();
   const qc = useQueryClient();
   const { objectQuery, fieldsQuery, object, fields } = useSchema(objectId);
@@ -592,6 +595,7 @@ export function CustomObjectRecordDetail() {
   if (error?.status === 403) return <Workspace object={{ id: objectId }} backToRecords><PageState title="Permission denied" message="You do not have permission to view this record." /></Workspace>;
   if (error) return <Workspace object={{ id: objectId }} backToRecords><PageState title="Record could not be loaded" message={error.message} retry={recordQuery.refetch} /></Workspace>;
   const record = recordQuery.data;
+  const backTo = relationshipBackPath(location.state, recordsPath(objectId));
   const canEdit =
     !record.archived_at && capability(record.capabilities ? record : object, "edit_records");
   const canArchive =
@@ -599,7 +603,7 @@ export function CustomObjectRecordDetail() {
     !archiveDenied &&
     capability(record.capabilities ? record : object, "archive_records");
   return (
-    <Workspace object={object} backToRecords>
+    <Workspace object={object} backToRecords backTo={backTo}>
       <div className="mx-auto max-w-4xl">
         <header className="mb-5 flex flex-wrap items-start justify-between gap-4 border-b pb-5">
           <div><div className="flex items-center gap-2"><h1 className="text-3xl font-semibold">{record.display_value}</h1>{record.archived_at && <Badge variant="outline">Archived</Badge>}</div><p className="mt-2 text-sm text-slate-500">Updated {record.updated_at ? new Date(record.updated_at).toLocaleString() : "—"}</p></div>

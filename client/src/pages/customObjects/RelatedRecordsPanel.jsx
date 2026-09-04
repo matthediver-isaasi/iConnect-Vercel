@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronLeft, ChevronRight, CircleAlert, Link2, Loader2, Plus, Search, Trash2 } from "lucide-react";
 import { toast } from "sonner";
@@ -9,7 +9,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { relationshipRequest, relationshipRoutes } from "./relationshipApi";
-import { canEditDefinitionFrom, cardinalityLimitReached, contextualCreateEligibility, labelForSide, oppositeKindFor, relatedRecordPath, relationshipCreatePayload, relationshipPanels } from "./relationshipHelpers";
+import { canEditDefinitionFrom, cardinalityLimitReached, contextualCreateEligibility, labelForSide, oppositeKindFor, relatedRecordPath, relationshipCreatePayload, relationshipLinkState, relationshipPanels } from "./relationshipHelpers";
 import { ContextualRecordCreateDialog } from "./ContextualRecordCreateDialog";
 
 const normalizeContext = ({ context, objectId, recordId }) =>
@@ -130,6 +130,8 @@ function RelationshipPanel({
   includeArchived = false,
   embedded = false,
 }) {
+  const location = useLocation();
+  const linkState = relationshipLinkState(location);
   const qc = useQueryClient();
   const [page, setPage] = useState(1);
   const routes = routesFor(context, definition, editSide);
@@ -216,7 +218,7 @@ function RelationshipPanel({
                 const path = relatedRecordPath(related);
                 const label = related.primary_label || "Untitled record";
                 const text = <><p className="truncate text-sm font-medium text-slate-900">{label}</p>{related.secondary_text && <p className="truncate text-xs text-slate-500">{related.secondary_text}</p>}</>;
-                return <div key={edge.relationship_id} className="group flex items-center justify-between gap-3 border-b px-5 py-3 last:border-0 hover:bg-slate-50">{path ? <Link to={path} className="min-w-0 flex-1 hover:underline">{text}</Link> : <div className="min-w-0">{text}</div>}{edge.archived_at && <Badge variant="outline">Archived link</Badge>}{editable && <Button variant="ghost" size="icon" className="opacity-0 transition-opacity group-hover:opacity-100 focus:opacity-100" disabled={remove.isPending} aria-label="Remove relationship" onClick={() => { if (window.confirm(`Remove the link to ${label}?`)) remove.mutate(edge.relationship_id); }}><Trash2 className="h-4 w-4 text-rose-600" /></Button>}</div>;
+                return <div key={edge.relationship_id} className="group flex items-center justify-between gap-3 border-b px-5 py-3 last:border-0 hover:bg-slate-50">{path ? <Link to={path} state={linkState} className="min-w-0 flex-1 hover:underline">{text}</Link> : <div className="min-w-0">{text}</div>}{edge.archived_at && <Badge variant="outline">Archived link</Badge>}{editable && <Button variant="ghost" size="icon" className="opacity-0 transition-opacity group-hover:opacity-100 focus:opacity-100" disabled={remove.isPending} aria-label="Remove relationship" onClick={() => { if (window.confirm(`Remove the link to ${label}?`)) remove.mutate(edge.relationship_id); }}><Trash2 className="h-4 w-4 text-rose-600" /></Button>}</div>;
               })}</div>}
         {pages > 1 && <div className="flex items-center justify-between border-t px-5 py-3 text-xs text-slate-500"><span>Page {page} of {pages}</span><div className="flex gap-1"><Button size="icon" variant="ghost" disabled={page === 1} onClick={() => setPage((x) => x - 1)}><ChevronLeft className="h-4 w-4" /></Button><Button size="icon" variant="ghost" disabled={page === pages} onClick={() => setPage((x) => x + 1)}><ChevronRight className="h-4 w-4" /></Button></div></div>}
       </CardContent>

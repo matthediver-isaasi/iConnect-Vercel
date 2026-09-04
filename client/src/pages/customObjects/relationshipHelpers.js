@@ -53,6 +53,30 @@ export const relatedRecordPath = (related = {}) => {
   return objectId ? `/CustomObjectsAdmin/${objectId}/records/${id}` : null;
 };
 
+export const safeInAppPath = (value) => {
+  if (typeof value !== "string" || !value.startsWith("/") || value.startsWith("//")) return null;
+  if (value.includes("\\") || /[\u0000-\u001f\u007f]/.test(value)) return null;
+  try {
+    const parsed = new URL(value, "https://app.local");
+    return parsed.origin === "https://app.local"
+      ? `${parsed.pathname}${parsed.search}${parsed.hash}`
+      : null;
+  } catch {
+    return null;
+  }
+};
+
+export const relationshipOriginPath = (location = {}) =>
+  safeInAppPath(`${location.pathname || ""}${location.search || ""}${location.hash || ""}`);
+
+export const relationshipLinkState = (location) => {
+  const returnTo = relationshipOriginPath(location);
+  return returnTo ? { relationshipReturnTo: returnTo } : undefined;
+};
+
+export const relationshipBackPath = (state, fallback) =>
+  safeInAppPath(state?.relationshipReturnTo) || fallback;
+
 export const isDefinitionVisible = (definition, side) =>
   side === "source" ? definition.show_on_source !== false : definition.show_on_target !== false;
 

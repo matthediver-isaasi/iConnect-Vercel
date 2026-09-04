@@ -19,6 +19,10 @@ import {
   initialRelationshipAllowsMultiple,
   isRequiredInitialRelationship,
   relationshipSelectorKey,
+  relationshipBackPath,
+  relationshipLinkState,
+  relationshipOriginPath,
+  safeInAppPath,
 } from "./relationshipHelpers.js";
 import { loadRelationshipDefinitions, relationshipRoutes } from "./relationshipApi.js";
 
@@ -222,6 +226,44 @@ test("builds links for core and custom related records", () => {
     relatedRecordPath({ kind: "custom_object", custom_object_id: "8", id: "2" }),
     "/CustomObjectsAdmin/8/records/2",
   );
+});
+
+test("relationship links retain the complete in-app organisation origin", () => {
+  const location = {
+    pathname: "/organisations/org-12",
+    search: "?tab=relationship-7-source",
+    hash: "#related",
+  };
+  assert.equal(
+    relationshipOriginPath(location),
+    "/organisations/org-12?tab=relationship-7-source#related",
+  );
+  assert.deepEqual(relationshipLinkState(location), {
+    relationshipReturnTo: "/organisations/org-12?tab=relationship-7-source#related",
+  });
+});
+
+test("relationship origins work for member, organisation-group and custom-object details", () => {
+  [
+    "/members/member-3",
+    "/OrganisationGroups/group-4",
+    "/CustomObjectsAdmin/object-8/records/record-2",
+  ].forEach((pathname) => {
+    assert.equal(relationshipBackPath(
+      relationshipLinkState({ pathname }),
+      "/CustomObjectsAdmin/target/records",
+    ), pathname);
+  });
+});
+
+test("direct record access and unsafe return state fall back to the records list", () => {
+  const fallback = "/CustomObjectsAdmin/object-8/records";
+  assert.equal(relationshipBackPath(undefined, fallback), fallback);
+  assert.equal(relationshipBackPath({}, fallback), fallback);
+  assert.equal(relationshipBackPath({ relationshipReturnTo: "https://evil.test/path" }, fallback), fallback);
+  assert.equal(relationshipBackPath({ relationshipReturnTo: "//evil.test/path" }, fallback), fallback);
+  assert.equal(relationshipBackPath({ relationshipReturnTo: "/\\evil.test/path" }, fallback), fallback);
+  assert.equal(safeInAppPath("/members/member-3?tab=details#top"), "/members/member-3?tab=details#top");
 });
 
 test("uses the current object label for a fixed relationship source", () => {
