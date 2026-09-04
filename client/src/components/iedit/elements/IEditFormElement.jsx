@@ -31,6 +31,7 @@ import {
   setFormNotListedText,
 } from "../../../../../shared/formNotListedChoice.js";
 import { useFormFieldPrefill } from "@/lib/useFormFieldPrefill";
+import { applyFormFieldValueChange } from "@/lib/formFieldValueChange";
 
 const formQuillModules = {
   toolbar: [
@@ -1310,9 +1311,11 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
   }, []);
 
   const handleFieldChange = useCallback((fieldId, newValue) => {
-    setFormValues(prev => pruneFormNotListedText(form?.fields, {
-      ...prev,
-      [fieldId]: newValue,
+    setFormValues(prev => applyFormFieldValueChange({
+      fields: form?.fields,
+      currentValues: prev,
+      fieldId,
+      value: newValue,
     }));
   }, [form?.fields]);
 

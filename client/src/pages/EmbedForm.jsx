@@ -27,6 +27,7 @@ import {
   setFormNotListedText,
 } from "../../../shared/formNotListedChoice.js";
 import { useFormFieldPrefill } from "@/lib/useFormFieldPrefill";
+import { applyFormFieldValueChange } from "@/lib/formFieldValueChange";
 
 // Stable empty array so disabled custom-value queries don't create a fresh
 // default identity every render (which would re-trigger dependent effects).
@@ -68,9 +69,11 @@ export default function EmbedFormPage() {
   };
 
   const handleFieldChange = (fieldId, value) => {
-    setFormValues(prev => pruneFormNotListedText(form?.fields, {
-      ...prev,
-      [fieldId]: value,
+    setFormValues(prev => applyFormFieldValueChange({
+      fields: form?.fields,
+      currentValues: prev,
+      fieldId,
+      value,
     }));
     notifyParentResize();
   };

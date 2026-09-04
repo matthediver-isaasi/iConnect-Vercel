@@ -24,3 +24,11 @@ test('manual entry gates reactive requests to the open dialog', async () => {
   );
   assert.match(source, /useFormFieldPrefill\s*\(\s*\{[\s\S]*?enabled:\s*open[\s\S]*?\}\s*\)/);
 });
+
+test('hosted, iframe, and page-builder runtimes share visibility-safe field changes', async () => {
+  for (const relativePath of surfaces.slice(0, 3)) {
+    const source = await readFile(new URL(relativePath, import.meta.url), 'utf8');
+    assert.match(source, /import\s+\{\s*applyFormFieldValueChange\s*\}/);
+    assert.match(source, /applyFormFieldValueChange\s*\(\s*\{/);
+  }
+});

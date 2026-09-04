@@ -28,6 +28,7 @@ import {
   pruneFormNotListedText,
   setFormNotListedText,
 } from "../../../shared/formNotListedChoice.js";
+import { applyFormFieldValueChange } from "@/lib/formFieldValueChange";
 import { useFormFieldPrefill } from "@/lib/useFormFieldPrefill";
 
 // A `redirect_url` beginning with this prefix means the redirect target is driven
@@ -1438,88 +1439,6 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
     }
   }, [visiblePagesForClamp, currentPageIndex]);
 
-  // Build a dependency map: trigger field ID -> Set of target field IDs affected by that trigger
-  const triggerDependencyMap = useMemo(() => {
-    const dependencyMap = new Map(); // triggerId -> Set of targetIds
-    if (!form?.visibility_rules) return dependencyMap;
-    
-    // Helper to get all trigger field IDs from a rule
-    const getTriggerIds = (rule) => {
-      const triggerIds = [];
-      if (rule.conditions && Array.isArray(rule.conditions)) {
-        for (const condition of rule.conditions) {
-          if (condition.field_id) triggerIds.push(condition.field_id);
-        }
-      }
-      if (rule.trigger_field_id) {
-        triggerIds.push(rule.trigger_field_id);
-      }
-      return triggerIds;
-    };
-    
-    // Helper to get all target field IDs from a rule
-    const getTargetIds = (rule) => {
-      const targetIds = [];
-      // New format: actions array
-      if (rule.actions && Array.isArray(rule.actions)) {
-        for (const action of rule.actions) {
-          if (action.action_type === 'visibility' && action.field_states) {
-            targetIds.push(...Object.keys(action.field_states));
-          }
-          if (action.target_field_ids) {
-            targetIds.push(...action.target_field_ids);
-          }
-        }
-      }
-      // Legacy format: direct target_field_ids
-      if (rule.target_field_ids) {
-        targetIds.push(...rule.target_field_ids);
-      }
-      return targetIds;
-    };
-    
-    for (const rule of form.visibility_rules) {
-      const triggerIds = getTriggerIds(rule);
-      const targetIds = getTargetIds(rule);
-      
-      for (const triggerId of triggerIds) {
-        if (!dependencyMap.has(triggerId)) {
-          dependencyMap.set(triggerId, new Set());
-        }
-        for (const targetId of targetIds) {
-          dependencyMap.get(triggerId).add(targetId);
-        }
-      }
-    }
-    
-    return dependencyMap;
-  }, [form?.visibility_rules]);
-
-  // Get all fields affected by a trigger, including cascading dependencies
-  const getAffectedFields = (triggerId, visited = new Set()) => {
-    const affected = new Set();
-    if (visited.has(triggerId)) return affected; // Prevent infinite loops
-    visited.add(triggerId);
-    
-    const directTargets = triggerDependencyMap.get(triggerId);
-    if (!directTargets) return affected;
-    
-    for (const targetId of directTargets) {
-      affected.add(targetId);
-      // If the target is also a trigger, cascade to its dependents
-      if (triggerDependencyMap.has(targetId)) {
-        const cascadeTargets = getAffectedFields(targetId, visited);
-        for (const cascadeTarget of cascadeTargets) {
-          affected.add(cascadeTarget);
-        }
-      }
-    }
-    
-    return affected;
-  };
-
-  // Handler for field value changes that clears dependent fields when a trigger field changes
-  // This ensures conditional logic paths are properly reset when navigating backwards
   const NON_INPUT_FIELD_TYPES = new Set(['instructions', 'image', 'section_header', 'heading', 'paragraph', 'divider', 'spacer', 'html']);
 
   const autoSubmitTimerRef = useRef(null);
@@ -1579,42 +1498,12 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
   }, [formValues, form, submitted, submitFormMutation.isPending]);
 
   const handleFieldChange = (fieldId, newValue) => {
-    // Check if this field is a trigger for any visibility rules
-    const isTriggerField = triggerDependencyMap.has(fieldId);
-    
-    if (!isTriggerField) {
-      // Not a trigger field - just update the value
-      setFormValues(prev => pruneFormNotListedText(form?.fields, {
-        ...prev,
-        [fieldId]: newValue,
-      }));
-      return;
-    }
-    
-    // For trigger fields, always clear dependent fields when value changes
-    // This is safer than trying to detect exact value changes (handles File objects, complex types, etc.)
-    // Get all fields affected by this trigger (including cascading dependencies)
-    const affectedFieldIds = getAffectedFields(fieldId);
-    const clearedValues = {};
-    
-    for (const affectedId of affectedFieldIds) {
-      // Only clear if the field currently has a value
-      if (formValues[affectedId] !== undefined) {
-        clearedValues[affectedId] = undefined;
-      }
-    }
-    
-    // Set the new value and clear dependent fields in one update
-    setFormValues(prev => pruneFormNotListedText(form?.fields, {
-      ...prev,
-      ...clearedValues,
-      [fieldId]: newValue,
+    setFormValues(prev => applyFormFieldValueChange({
+      fields: form?.fields,
+      currentValues: prev,
+      fieldId,
+      value: newValue,
     }));
-    
-    if (Object.keys(clearedValues).length > 0) {
-      console.log('[FormView] Trigger field changed, cleared dependent fields:', 
-        Object.keys(clearedValues));
-    }
   };
 
   const handleFormNotListedTextChange = (fieldId, text) => {
