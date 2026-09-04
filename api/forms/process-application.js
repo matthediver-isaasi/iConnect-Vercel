@@ -35,6 +35,11 @@ import {
 } from '../_lib/formProcessingPolicy.js';
 import { hasPersistedLegacyFormEntityActions, resolveFormEntityActions } from '../_lib/formEntityActionMode.js';
 import { resolveMemberRoleAssignment } from '../_lib/formMemberRoleAssignment.js';
+import { computeHiddenFieldIds } from '../_lib/formFieldVisibility.js';
+import {
+  assertValidExplicitFallbackGroups,
+  coalesceExplicitFallbackMappings,
+} from '../_lib/formMappingFallbacks.js';
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
@@ -909,6 +914,7 @@ export default async function handler(req, res) {
         code: 'SUBMIT_DISABLED_BY_RULE',
       });
     }
+    const hiddenSubmissionFieldIds = computeHiddenFieldIds(persistedForm, authoritativeAnswers, submitControlOptions);
     if (!authenticatedSubmitterMember && trustedInternal && verified_submitter_member_id) {
       const { data: submitterMember } = await supabase.from('member')
         .select('id, tenant_id, email, organization_id')
@@ -1272,8 +1278,14 @@ export default async function handler(req, res) {
     // Skip fields that are mapped in entity_pipelines (those take precedence even if undefined)
     if (field_mappings && Array.isArray(field_mappings) && field_mappings.length > 0) {
       console.log('[AppProcessor] Using field_mappings:', field_mappings.length, 'mappings');
+      assertValidExplicitFallbackGroups(field_mappings);
       
-      for (const mapping of field_mappings) {
+      const effectiveFieldMappings = coalesceExplicitFallbackMappings(
+        field_mappings,
+        form_values,
+        hiddenSubmissionFieldIds,
+      );
+      for (const mapping of effectiveFieldMappings) {
         const { source_type, source_field_id, source_category_id, static_value, target_type, target_entity, target_field, transformation } = mapping;
         
         // Skip if no target field
@@ -1298,7 +1310,10 @@ export default async function handler(req, res) {
         let sourceFieldKeyPresent = false;
         
         // Handle current_date source type or transformation - doesn't need a source value
-        if (source_type === 'current_date' || transformation === 'current_date') {
+        if (source_type === 'clear') {
+          value = '__clear__';
+          sourceFieldKeyPresent = true;
+        } else if (source_type === 'current_date' || transformation === 'current_date') {
           value = applyTransformation('', 'current_date');
           sourceFieldKeyPresent = true;
           console.log('[AppProcessor] Current date mapping:', target_field, '=', value);
@@ -1341,6 +1356,11 @@ export default async function handler(req, res) {
         }
         
         if (target_type === 'core') {
+          if (value === '__clear__') {
+            const targetData = target_entity === 'organization' ? orgData : memberData;
+            targetData[target_field] = null;
+            continue;
+          }
           if (target_entity === 'member') {
             // Guard: a member_dropdown stores the selected member's UUID
             // as its value. Writing that into memberData.email / .full_name
@@ -1613,6 +1633,7 @@ export default async function handler(req, res) {
       
       // Check for new mappings array format first
       if (pipelineEntry.mappings && Array.isArray(pipelineEntry.mappings)) {
+        assertValidExplicitFallbackGroups(pipelineEntry.mappings);
         console.log(`[AppProcessor] Processing ${targetEntity} from entity_pipelines (new format):`, pipelineEntry.label, 'mappings:', pipelineEntry.mappings.length);
         console.log(`[AppProcessor] ${pipelineEntry.label} mappings detail:`, JSON.stringify(pipelineEntry.mappings, null, 2));
         
@@ -1624,13 +1645,21 @@ export default async function handler(req, res) {
           }
         }
         
-        for (const mapping of pipelineEntry.mappings) {
+        const effectiveMappings = coalesceExplicitFallbackMappings(
+          pipelineEntry.mappings,
+          form_values,
+          hiddenSubmissionFieldIds,
+        );
+        for (const mapping of effectiveMappings) {
           if (!mapping.target_field) continue;
           
           // Get value from form or static value
           let value;
           let sourceFieldKeyPresent = false;
-          if (mapping.source_type === 'static') {
+          if (mapping.source_type === 'clear') {
+            value = '__clear__';
+            sourceFieldKeyPresent = true;
+          } else if (mapping.source_type === 'static') {
             value = resolveStaticTodayToken(mapping.static_value);
             sourceFieldKeyPresent = true;
           } else if (mapping.transformation === 'current_date') {
@@ -2947,15 +2976,26 @@ export default async function handler(req, res) {
         
         if (memberConfig.mappings && Array.isArray(memberConfig.mappings)) {
           // New format: process mappings array
-          const emailMapping = memberConfig.mappings.find(m => m.target_field === 'email' && m.target_type === 'core');
+          assertValidExplicitFallbackGroups(memberConfig.mappings);
+          const effectiveMemberMappings = coalesceExplicitFallbackMappings(
+            memberConfig.mappings,
+            form_values,
+            hiddenSubmissionFieldIds,
+          );
+          const emailMapping = effectiveMemberMappings.find(m => m.target_field === 'email' && m.target_type === 'core');
           if (!emailMapping) {
             console.log('[AppProcessor] Skipping additional member - no email mapping:', memberConfig.label);
             continue;
           }
           
           // Get email value
-          if (emailMapping.source_type === 'static') {
+          if (emailMapping.source_type === 'clear') {
+            console.log('[AppProcessor] Skipping additional member - email fallback resolved to explicit clear:', memberConfig.label);
+            continue;
+          } else if (emailMapping.source_type === 'static') {
             memberEmail = emailMapping.static_value;
+          } else if (emailMapping.source_type === 'current_date' || emailMapping.transformation === 'current_date') {
+            memberEmail = new Date().toISOString().split('T')[0];
           } else if (emailMapping.source_field_id) {
             memberEmail = form_values[emailMapping.source_field_id];
           }
@@ -2966,11 +3006,13 @@ export default async function handler(req, res) {
           }
           
           // Process all mappings
-          for (const mapping of memberConfig.mappings) {
+          for (const mapping of effectiveMemberMappings) {
             if (!mapping.target_field || mapping.target_field === 'email') continue;
             
             let value;
-            if (mapping.source_type === 'current_date' || mapping.transformation === 'current_date') {
+            if (mapping.source_type === 'clear') {
+              value = '__clear__';
+            } else if (mapping.source_type === 'current_date' || mapping.transformation === 'current_date') {
               value = new Date().toISOString().split('T')[0];
             } else if (mapping.source_type === 'static') {
               value = resolveStaticTodayToken(mapping.static_value);

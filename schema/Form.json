@@ -187,6 +187,15 @@
             ],
             "default": "none",
             "description": "Transformation to apply to the value"
+          },
+          "fallback_group": {
+            "type": "object",
+            "properties": {
+              "version": { "type": "number", "enum": [1] },
+              "id": { "type": "string" }
+            },
+            "required": ["version", "id"],
+            "description": "Explicit opt-in ordered fallback group. Mappings sharing an id and destination resolve the first visible, non-empty source."
           }
         }
       },
@@ -267,6 +276,14 @@
                     "target_type": {
                       "type": "string",
                       "enum": ["core", "custom"]
+                    },
+                    "fallback_group": {
+                      "type": "object",
+                      "properties": {
+                        "version": { "type": "number", "enum": [1] },
+                        "id": { "type": "string" }
+                      },
+                      "required": ["version", "id"]
                     }
                   },
                   "required": ["id", "source_field_id", "target_field_id", "target_type"]

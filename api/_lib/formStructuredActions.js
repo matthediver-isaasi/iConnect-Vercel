@@ -10,6 +10,11 @@ import {
   addressLookupVisibleComponents,
   isAddressLookupComponent,
 } from '../../shared/formAddressLookup.js';
+import {
+  coalesceExplicitFallbackMappings,
+  isExplicitFallbackMapping,
+  validateExplicitFallbackGroups,
+} from './formMappingFallbacks.js';
 
 export const STRUCTURED_ACTIONS_VERSION = 1;
 
@@ -179,7 +184,9 @@ export function validateStructuredActionsContract(input, fields = []) {
         errors.push(`${prefix}.relationship_parent_field_id must identify a record field in the action source scope`);
       }
     }
-    for (const [mappingIndex, mapping] of actionMappings(action).entries()) {
+    const mappings = actionMappings(action);
+    for (const detail of validateExplicitFallbackGroups(mappings)) errors.push(`${prefix}.${detail}`);
+    for (const [mappingIndex, mapping] of mappings.entries()) {
       const mp = `${prefix}.mappings[${mappingIndex}]`;
       if (!mapping?.id || mappingIds.has(String(mapping.id))) {
         errors.push(`${mp}.id is required and must be unique within the action`);
@@ -188,10 +195,10 @@ export function validateStructuredActionsContract(input, fields = []) {
       }
       const targetType = mapping?.target_type || 'core';
       const mappedTargetKey = `${targetType}:${targetField(mapping) || ''}`;
-      if (mappedTargets.has(mappedTargetKey)) errors.push(`${mp} duplicates another target mapping`);
+      if (mappedTargets.has(mappedTargetKey) && !isExplicitFallbackMapping(mapping)) errors.push(`${mp} duplicates another target mapping`);
       else mappedTargets.add(mappedTargetKey);
       if (!targetField(mapping)) errors.push(`${mp}.target_field_id is required`);
-      if (!mapping?.source_field_id && mapping?.source_type !== 'static' && mapping?.static_value === undefined) {
+      if (!mapping?.source_field_id && !['static', 'clear'].includes(mapping?.source_type) && mapping?.static_value === undefined) {
         errors.push(`${mp}.source_field_id is required`);
       }
       const sourceField = sourceFields.find(field => String(field?.id) === String(mapping?.source_field_id));
@@ -225,7 +232,10 @@ export function validateStructuredActionsContract(input, fields = []) {
       if (!action.uniqueness_field) errors.push(`${prefix}.uniqueness_field is required for upsert`);
       const uniqueMappings = actionMappings(action).filter(mapping =>
         String(targetField(mapping)) === String(action.uniqueness_field));
-      if (uniqueMappings.length !== 1) {
+      const uniqueGroups = new Set(uniqueMappings.map(mapping => isExplicitFallbackMapping(mapping)
+        ? `group:${mapping.fallback_group.id}`
+        : `mapping:${mapping.id}`));
+      if (uniqueGroups.size !== 1) {
         errors.push(`${prefix}.uniqueness_field must identify exactly one mapped target field`);
       }
       if (entity === 'member' && action.uniqueness_field !== 'email') {
@@ -252,7 +262,9 @@ export function validateStructuredActionsContract(input, fields = []) {
 }
 
 function sourceValue(mapping, values) {
-  let value = mapping.source_type === 'static' || mapping.static_value !== undefined
+  let value = mapping.source_type === 'clear'
+    ? '__clear__'
+    : mapping.source_type === 'static' || mapping.static_value !== undefined
     ? mapping.static_value
     : values?.[mapping.source_field_id];
   if (mapping.source_component !== undefined) {
@@ -634,11 +646,16 @@ async function loadPreferenceFields(db, tenantId) {
   return new Map((data || []).map(field => [String(field.id), field]));
 }
 
-function mappedPayload(invocation, entity, preferenceFields) {
+export function mappedPayload(invocation, entity, preferenceFields) {
   const core = {};
   const custom = {};
+  const clearCustom = new Set();
   const match = [];
-  for (const mapping of actionMappings(invocation.action)) {
+  const mappings = coalesceExplicitFallbackMappings(
+    actionMappings(invocation.action),
+    invocation.values,
+  );
+  for (const mapping of mappings) {
     const value = sourceValue(mapping, invocation.values);
     if (value === undefined) continue;
     const targetType = mapping.target_type || (entity === 'custom_object' ? 'custom' : 'core');
@@ -648,9 +665,14 @@ function mappedPayload(invocation, entity, preferenceFields) {
       const key = entity === 'custom_object'
         ? (field?.field_key || field?.name || mappedTarget)
         : mappedTarget;
-      custom[key] = value;
+      if (value === '__clear__') {
+        clearCustom.add(key);
+        delete custom[key];
+      } else {
+        custom[key] = value;
+      }
     } else {
-      core[targetField(mapping)] = value;
+      core[targetField(mapping)] = value === '__clear__' ? null : value;
     }
     if (mapping.is_match === true || mapping.match === true
       || invocation.action.uniqueness_field === targetField(mapping)
@@ -660,14 +682,30 @@ function mappedPayload(invocation, entity, preferenceFields) {
           || preferenceFields.get(String(targetField(mapping)))?.name
           || targetField(mapping))
         : targetField(mapping);
-      match.push({ targetType, field: matchField, value });
+      match.push({
+        targetType,
+        field: matchField,
+        targetFieldId: targetField(mapping),
+        value: value === '__clear__' ? null : value,
+      });
     }
   }
   if (match.length === 0) {
     const fallback = entity === 'member' ? 'email' : entity === 'custom_object' ? null : 'name';
     if (fallback && core[fallback] != null && core[fallback] !== '') match.push({ targetType: 'core', field: fallback, value: core[fallback] });
   }
-  return { core, custom, match };
+  const uniquenessMappings = actionMappings(invocation.action).filter(mapping =>
+    targetField(mapping) === invocation.action.uniqueness_field);
+  if (invocation.action.operation === 'upsert'
+    && uniquenessMappings.some(isExplicitFallbackMapping)
+    && !match.some(item => item.targetFieldId === invocation.action.uniqueness_field
+      && item.value !== undefined
+      && item.value !== null
+      && item.value !== ''
+      && !(Array.isArray(item.value) && item.value.length === 0))) {
+    throw new StructuredActionContractError('Upsert fallback uniqueness field has no visible, non-empty value');
+  }
+  return { core, custom, clearCustom, match };
 }
 
 async function findExisting(db, tenantId, entity, action, payload) {
@@ -694,10 +732,18 @@ async function findExisting(db, tenantId, entity, action, payload) {
   return data?.[0] || null;
 }
 
-async function writePreferences(db, tenantId, entity, recordId, values, preferenceFields) {
+async function writePreferences(db, tenantId, entity, recordId, values, preferenceFields, clearFields = new Set()) {
   const target = PREF_TABLES[entity];
   if (!target) return;
   const [table, parentColumn] = target;
+  for (const fieldId of clearFields) {
+    const field = preferenceFields.get(String(fieldId));
+    if (!field || field.entity_scope !== entity || String(field.tenant_id) !== String(tenantId)) {
+      throw new StructuredActionContractError(`Custom field ${fieldId} is not active for ${entity}`);
+    }
+    const { error } = await db.from(table).delete().eq(parentColumn, recordId).eq('field_id', fieldId);
+    if (error) throw error;
+  }
   for (const [fieldId, value] of Object.entries(values)) {
     const field = preferenceFields.get(String(fieldId));
     if (!field || field.entity_scope !== entity || String(field.tenant_id) !== String(tenantId)) {
@@ -820,7 +866,7 @@ async function executeInvocation(
     if (recoveredError) throw recoveredError;
     if (recovered) {
       if (entity !== 'custom_object') {
-        await writePreferences(db, tenantId, entity, recovered.id, payload.custom, preferenceFields);
+        await writePreferences(db, tenantId, entity, recovered.id, payload.custom, preferenceFields, payload.clearCustom);
       }
       await ensureRelationshipLink(db, tenantId, invocation, recovered.id, relationshipDefinition, authorization);
       return { status: 'completed', record_id: recovered.id, operation: 'created', recovered: true, entity_type: entity };
@@ -843,10 +889,12 @@ async function executeInvocation(
       const objectFields = [...preferenceFields.values()].filter(field =>
         field.entity_scope === 'custom_object'
         && String(field.custom_object_id) === String(actionObjectId(action)));
+      const existingDataForValidation = { ...(existing.data || {}) };
+      for (const key of payload.clearCustom) delete existingDataForValidation[key];
       const validation = validateCustomObjectRecordData({
         data: payload.custom,
         fields: objectFields,
-        existingData: existing.data || {},
+        existingData: existingDataForValidation,
         mode: 'update',
       });
       if (!validation.ok) {
@@ -886,7 +934,7 @@ async function executeInvocation(
     if (error) throw error;
     record = data;
   }
-  if (entity !== 'custom_object') await writePreferences(db, tenantId, entity, record.id, payload.custom, preferenceFields);
+  if (entity !== 'custom_object') await writePreferences(db, tenantId, entity, record.id, payload.custom, preferenceFields, payload.clearCustom);
   await ensureRelationshipLink(db, tenantId, invocation, record.id, relationshipDefinition, authorization);
   return { status: 'completed', record_id: record.id, operation: existing ? 'updated' : 'created', entity_type: entity };
 }

@@ -79,6 +79,12 @@ import {
 } from "../../../api/_lib/formMemberRoleAssignment.js";
 import { validateFormFieldPrefillConfig } from "@/lib/formFieldPrefill";
 import {
+  FORM_MAPPING_FALLBACK_VERSION,
+  isExplicitFallbackMapping,
+  mappingTargetKey,
+  validateExplicitFallbackGroups,
+} from "../../../api/_lib/formMappingFallbacks.js";
+import {
   isRepeatableRowField,
   normalizeRepeatableRowField,
   repeatableRowChildren,
@@ -1068,7 +1074,7 @@ function StructuredRecordActionsEditor({
               {(action.mappings || []).map((mapping, mappingIndex) => (
                 <div className="grid grid-cols-[1fr_auto_1fr_auto] gap-2 items-center" key={mapping.id || mappingIndex}>
                   <div className="space-y-2">
-                    <Select value={mapping.source_field_id || ''} onValueChange={source_field_id => {
+                    <Select disabled={mapping.source_type === 'clear'} value={mapping.source_field_id || ''} onValueChange={source_field_id => {
                       const selectedField = sourceFields.find(source => source.id === source_field_id);
                       const firstComponent = selectedField?.type === 'address_lookup'
                         ? addressLookupVisibleComponents(selectedField)[0] || null
@@ -1082,7 +1088,7 @@ function StructuredRecordActionsEditor({
                         target_type: 'core',
                       };
                       updateAction(actionIndex, { mappings });
-                    }}><SelectTrigger><SelectValue placeholder="Source field…" /></SelectTrigger><SelectContent>{sourceFields.filter(source => {
+                    }}><SelectTrigger><SelectValue placeholder={mapping.source_type === 'clear' ? 'Explicit clear' : 'Source field…'} /></SelectTrigger><SelectContent>{sourceFields.filter(source => {
                       const candidates = source.type === 'address_lookup'
                         ? addressLookupVisibleComponents(source).map(component => ({ ...source, type: 'text', source_component: component }))
                         : [source];
@@ -1104,6 +1110,57 @@ function StructuredRecordActionsEditor({
                   <ArrowRight className="w-4 h-4 text-slate-400" />
                   <Select value={mapping.target_field_id || ''} onValueChange={target_field_id => { const selected = targetFields.find(field => field.value === target_field_id); const mappings = [...action.mappings]; mappings[mappingIndex] = { ...mapping, target_field_id, target_type: selected?.target_type || 'custom' }; updateAction(actionIndex, { mappings }); }}><SelectTrigger><SelectValue placeholder="Target field…" /></SelectTrigger><SelectContent>{targetFields.filter(field => isCompatibleStructuredMapping(structuredMappingSource(sourceFields.find(source => source.id === mapping.source_field_id), mapping), field)).map(field => <SelectItem key={`${field.target_type}:${field.value}`} value={field.value}>{field.target_type === 'custom' ? 'Custom: ' : ''}{field.label}</SelectItem>)}</SelectContent></Select>
                   <Button type="button" variant="ghost" size="icon" className="text-red-500" onClick={() => updateAction(actionIndex, { mappings: action.mappings.filter((_, index) => index !== mappingIndex) })}><Trash2 className="w-4 h-4" /></Button>
+                  <div className="col-span-4 flex flex-wrap items-center justify-between gap-2 border-t pt-2">
+                    <div className="flex items-center gap-2">
+                      <Switch
+                        checked={isExplicitFallbackMapping(mapping)}
+                        disabled={!mapping.target_field_id}
+                        onCheckedChange={(checked) => {
+                          const groupId = mapping.fallback_group?.id;
+                          const matchingMappings = action.mappings.filter(item =>
+                            item.target_type === mapping.target_type
+                              && item.target_field_id === mapping.target_field_id);
+                          if (checked && matchingMappings.length < 2) {
+                            toast.error('Add at least two mappings to the same destination before enabling an ordered fallback.');
+                            return;
+                          }
+                          const mappings = action.mappings.map(item => {
+                            const sameTarget = item.target_type === mapping.target_type
+                              && item.target_field_id === mapping.target_field_id;
+                            if (!checked) {
+                              return item.fallback_group?.id === groupId
+                                ? { ...item, fallback_group: undefined }
+                                : item;
+                            }
+                            if (item.id !== mapping.id && !sameTarget) return item;
+                            return { ...item, fallback_group: { version: FORM_MAPPING_FALLBACK_VERSION, id: `fallback:${mapping.target_type}:${mapping.target_field_id}` } };
+                          });
+                          updateAction(actionIndex, { mappings });
+                        }}
+                        data-testid={`switch-structured-fallback-${actionIndex}-${mappingIndex}`}
+                      />
+                      <span className="text-[11px] text-slate-500">Ordered fallback: first visible, non-empty source wins</span>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <Button type="button" variant="ghost" size="icon" disabled={mappingIndex === 0} onClick={() => {
+                        const mappings = [...action.mappings];
+                        [mappings[mappingIndex - 1], mappings[mappingIndex]] = [mappings[mappingIndex], mappings[mappingIndex - 1]];
+                        updateAction(actionIndex, { mappings });
+                      }} aria-label="Move mapping earlier"><ChevronUp className="w-4 h-4" /></Button>
+                      <Button type="button" variant="ghost" size="icon" disabled={mappingIndex === action.mappings.length - 1} onClick={() => {
+                        const mappings = [...action.mappings];
+                        [mappings[mappingIndex + 1], mappings[mappingIndex]] = [mappings[mappingIndex], mappings[mappingIndex + 1]];
+                        updateAction(actionIndex, { mappings });
+                      }} aria-label="Move mapping later"><ChevronDown className="w-4 h-4" /></Button>
+                      <Button type="button" variant="ghost" size="sm" onClick={() => {
+                        const mappings = [...action.mappings];
+                        mappings[mappingIndex] = mapping.source_type === 'clear'
+                          ? { ...mapping, source_type: 'field' }
+                          : { ...mapping, source_type: 'clear', source_field_id: '', source_component: undefined };
+                        updateAction(actionIndex, { mappings });
+                      }}>{mapping.source_type === 'clear' ? 'Use field' : 'Clear'}</Button>
+                    </div>
+                  </div>
                 </div>
               ))}
               {!(action.mappings || []).length && <p className="text-xs text-slate-400">Add at least one mapping from a field in the selected source scope.</p>}
@@ -1201,6 +1258,28 @@ function FieldMappingSection({
     onMappingsChange(fieldMappings.filter(m => m.id !== mappingId));
   };
 
+  const toggleFallback = (mapping, enabled) => {
+    if (!enabled) {
+      const groupId = mapping.fallback_group?.id;
+      onMappingsChange(fieldMappings.map(item => (
+        item.fallback_group?.id === groupId ? { ...item, fallback_group: undefined } : item
+      )));
+      return;
+    }
+    const targetKey = mappingTargetKey(mapping);
+    const matchingMappings = fieldMappings.filter(item => mappingTargetKey(item) === targetKey);
+    if (matchingMappings.length < 2) {
+      toast.error('Add at least two mappings to the same destination before enabling an ordered fallback.');
+      return;
+    }
+    const groupId = `fallback:${targetKey}`;
+    onMappingsChange(fieldMappings.map(item => (
+      item.id === mapping.id || mappingTargetKey(item) === targetKey
+        ? { ...item, fallback_group: { version: FORM_MAPPING_FALLBACK_VERSION, id: groupId } }
+        : item
+    )));
+  };
+
   const getAvailableCoreFields = (targetEntity) => {
     return targetEntity === 'member' ? MEMBER_CORE_FIELDS : ORG_CORE_FIELDS;
   };
@@ -1288,6 +1367,18 @@ function FieldMappingSection({
                 className="p-4 bg-slate-50 border border-slate-200 rounded-lg space-y-3"
                 data-testid={`mapping-row-${index}`}
               >
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <Label className="text-xs">Ordered fallback</Label>
+                    <p className="text-[11px] text-slate-500">For matching destinations, the first visible, non-empty source wins. Empty groups do not clear data.</p>
+                  </div>
+                  <Switch
+                    checked={isExplicitFallbackMapping(mapping)}
+                    disabled={!mapping.target_field}
+                    onCheckedChange={(checked) => toggleFallback(mapping, checked)}
+                    data-testid={`switch-mapping-fallback-${index}`}
+                  />
+                </div>
                 {/* First row: Source Type Selection + Source Value */}
                 <div className="flex flex-wrap items-end gap-3">
                   {/* Source Type */}
@@ -9661,6 +9752,11 @@ export default function FormBuilderPage() {
         }
       }
     }
+    const fallbackErrors = validateExplicitFallbackGroups(mappings);
+    if (fallbackErrors.length) {
+      toast.error(`Invalid fallback mapping: ${fallbackErrors[0]}`);
+      return;
+    }
     console.log('[FormBuilder] All mappings validated successfully');
 
     // Validate entity_pipelines when configured
@@ -9669,6 +9765,11 @@ export default function FormBuilderPage() {
     // Validate member entries - each must have email mapped (uniqueness key)
     for (const member of (pipelines.members || [])) {
       const memberMappings = member.mappings || [];
+      const memberFallbackErrors = validateExplicitFallbackGroups(memberMappings);
+      if (memberFallbackErrors.length) {
+        toast.error(`Member "${member.label}" has an invalid fallback group: ${memberFallbackErrors[0]}`);
+        return;
+      }
       const hasEmailMapping = memberMappings.some(m => 
         m.target_field === 'email' && m.target_type === 'core' && 
         (m.source_field_id || m.static_value)
@@ -9725,6 +9826,11 @@ export default function FormBuilderPage() {
     // Validate organisation entries - each must have name mapped (uniqueness key)
     for (const org of (pipelines.organisations || [])) {
       const orgMappings = org.mappings || [];
+      const orgFallbackErrors = validateExplicitFallbackGroups(orgMappings);
+      if (orgFallbackErrors.length) {
+        toast.error(`Organisation "${org.label}" has an invalid fallback group: ${orgFallbackErrors[0]}`);
+        return;
+      }
       const hasNameMapping = orgMappings.some(m => 
         m.target_field === 'name' && m.target_type === 'core' && 
         (m.source_field_id || m.static_value)
@@ -9837,6 +9943,11 @@ export default function FormBuilderPage() {
         toast.error(`${actionName} needs at least one field mapping.`);
         return;
       }
+      const structuredFallbackErrors = validateExplicitFallbackGroups(mappingsForAction);
+      if (structuredFallbackErrors.length) {
+        toast.error(`${actionName} has an invalid fallback group: ${structuredFallbackErrors[0]}`);
+        return;
+      }
       const mappedTargets = new Set();
       const mappingIds = new Set();
       for (let mappingIndex = 0; mappingIndex < mappingsForAction.length; mappingIndex += 1) {
@@ -9846,7 +9957,7 @@ export default function FormBuilderPage() {
           return;
         }
         mappingIds.add(mapping.id);
-        if (!sourceFields.some(field => field.id === mapping.source_field_id)) {
+        if (mapping.source_type !== 'clear' && !sourceFields.some(field => field.id === mapping.source_field_id)) {
           toast.error(`${actionName}, mapping ${mappingIndex + 1}, needs a source field from its selected scope.`);
           return;
         }
@@ -9861,7 +9972,7 @@ export default function FormBuilderPage() {
           toast.error(`${actionName}, mapping ${mappingIndex + 1}, needs an active supported target field.`);
           return;
         }
-        const source = structuredMappingSource(
+        const source = mapping.source_type === 'clear' ? { type: 'text' } : structuredMappingSource(
           sourceFields.find(field => field.id === mapping.source_field_id),
           mapping,
         );
@@ -9870,7 +9981,13 @@ export default function FormBuilderPage() {
           return;
         }
         const targetKey = `${mapping.target_type}:${mapping.target_field_id}`;
-        if (mappedTargets.has(targetKey)) {
+        const previousTargetMapping = mappingsForAction
+          .slice(0, mappingIndex)
+          .find(item => `${item.target_type}:${item.target_field_id}` === targetKey);
+        if (mappedTargets.has(targetKey)
+          && (!isExplicitFallbackMapping(mapping)
+            || !isExplicitFallbackMapping(previousTargetMapping)
+            || previousTargetMapping.fallback_group.id !== mapping.fallback_group.id)) {
           toast.error(`${actionName} maps the same target field more than once.`);
           return;
         }

@@ -6,6 +6,7 @@ import {
   assertStructuredMutationAuthorized,
   assertStructuredRelationshipParentAuthorized,
   expandStructuredActionInvocations,
+  mappedPayload,
   processPersistedStructuredActions,
   processPrimaryPipelineRelatedRecords,
   validatePrimaryPipelineRelatedRecordsContract,
@@ -506,6 +507,82 @@ test('forged hidden top-level and repeatable child answers are excluded before m
   assert.equal(expandStructuredActionInvocations(rowContract, { fields: [hiddenChildRepeatable] }, {
     people: [{ _row_id: 'forged-row', email: 'forged@example.test' }],
   }).length, 0);
+});
+
+test('custom-object fallback uniqueness matches by target id while querying by field key', () => {
+  const action = {
+    id: 'company-upsert',
+    target: { kind: 'custom_object', custom_object_id: 'company-object' },
+    operation: 'upsert',
+    uniqueness_field: 'field-uuid',
+    mappings: [
+      { id: 'primary', source_field_id: 'primary-code', target_type: 'custom', target_field_id: 'field-uuid', fallback_group: { version: 1, id: 'code-fallback' } },
+      { id: 'alternate', source_field_id: 'alternate-code', target_type: 'custom', target_field_id: 'field-uuid', fallback_group: { version: 1, id: 'code-fallback' } },
+    ],
+  };
+  const preferenceFields = new Map([['field-uuid', {
+    id: 'field-uuid',
+    field_key: 'company_code',
+  }]]);
+  const payload = mappedPayload(
+    { action, values: { 'primary-code': '', 'alternate-code': 'ACME-42' } },
+    'custom_object',
+    preferenceFields,
+  );
+  assert.deepEqual(payload.custom, { company_code: 'ACME-42' });
+  assert.deepEqual(payload.match, [{
+    targetType: 'custom',
+    field: 'company_code',
+    targetFieldId: 'field-uuid',
+    value: 'ACME-42',
+  }]);
+  assert.throws(() => mappedPayload(
+    { action, values: { 'primary-code': '', 'alternate-code': '' } },
+    'custom_object',
+    preferenceFields,
+  ), /fallback uniqueness field has no visible, non-empty value/);
+});
+
+test('fallback upsert uniqueness rejects an explicit clear winner', () => {
+  const baseAction = {
+    id: 'member-upsert',
+    target: { kind: 'member' },
+    operation: 'upsert',
+    uniqueness_field: 'email',
+  };
+  const clear = {
+    id: 'clear-email',
+    source_type: 'clear',
+    target_type: 'core',
+    target_field_id: 'email',
+    fallback_group: { version: 1, id: 'email-fallback' },
+  };
+  const alternate = {
+    id: 'alternate-email',
+    source_field_id: 'alternate',
+    target_type: 'core',
+    target_field_id: 'email',
+    fallback_group: { version: 1, id: 'email-fallback' },
+  };
+  assert.throws(() => mappedPayload(
+    { action: { ...baseAction, mappings: [clear, alternate] }, values: { alternate: 'later@example.test' } },
+    'member',
+    new Map(),
+  ), /fallback uniqueness field has no visible, non-empty value/);
+  assert.throws(() => mappedPayload(
+    {
+      action: {
+        ...baseAction,
+        mappings: [
+          { ...alternate, id: 'empty-email', source_field_id: 'empty' },
+          clear,
+        ],
+      },
+      values: { empty: '' },
+    },
+    'member',
+    new Map(),
+  ), /fallback uniqueness field has no visible, non-empty value/);
 });
 
 test('rejects relationship selectors mapped into arbitrary fields and requires exact update selector', () => {
