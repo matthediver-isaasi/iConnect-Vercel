@@ -15,6 +15,18 @@ const pageRows = async (queryFactory, size = 1000) => {
   }
 };
 
+const ID_FILTER_BATCH_SIZE = 100;
+
+const pageRowsByIds = async (ids, queryFactory, batchSize = ID_FILTER_BATCH_SIZE) => {
+  const uniqueIds = [...new Set((ids || []).filter(Boolean))];
+  const rows = [];
+  for (let offset = 0; offset < uniqueIds.length; offset += batchSize) {
+    const batch = uniqueIds.slice(offset, offset + batchSize);
+    rows.push(...await pageRows((from, to) => queryFactory(batch, from, to)));
+  }
+  return rows;
+};
+
 export async function resolveMemberDepartmentDefinition(db, tenantId, { required = false } = {}) {
   const { data: objects, error: objectError } = await db.from('custom_object_definition')
     .select('id, primary_display_field_id').eq('tenant_id', tenantId)
@@ -43,9 +55,9 @@ export async function validateDepartmentIds(db, tenantId, ids) {
   const unique = [...new Set((ids || []).filter(Boolean))];
   if (!unique.length) return [];
   const schema = await resolveMemberDepartmentDefinition(db, tenantId, { required: true });
-  const rows = await pageRows((from, to) => db.from('custom_object_record').select('id')
+  const rows = await pageRowsByIds(unique, (batch, from, to) => db.from('custom_object_record').select('id')
     .eq('tenant_id', tenantId).eq('custom_object_id', schema.departmentObjectId).is('archived_at', null)
-    .in('id', unique).range(from, to));
+    .in('id', batch).range(from, to));
   if (rows.length !== unique.length) throw new MemberDepartmentError('One or more department IDs are invalid', 400);
   return unique;
 }
@@ -65,14 +77,14 @@ export async function resolveDepartmentMemberIds(db, tenantId, departmentIds) {
     throw new MemberDepartmentError('Department organisation schema is unavailable', 409);
   }
   const [edges, parentEdges] = await Promise.all([
-    pageRows((from, to) => db.from('custom_object_relationship')
+    pageRowsByIds(ids, (batch, from, to) => db.from('custom_object_relationship')
       .select('source_record_id, target_record_id').eq('tenant_id', tenantId)
       .eq('relationship_definition_id', definitionId).is('archived_at', null)
-      .in('source_record_id', ids).range(from, to)),
-    pageRows((from, to) => db.from('custom_object_relationship')
+      .in('source_record_id', batch).range(from, to)),
+    pageRowsByIds(ids, (batch, from, to) => db.from('custom_object_relationship')
       .select('source_record_id, target_record_id').eq('tenant_id', tenantId)
       .eq('relationship_definition_id', parentDefinitions[0].id).is('archived_at', null)
-      .in('source_record_id', ids).range(from, to)),
+      .in('source_record_id', batch).range(from, to)),
   ]);
   const parentsByDepartment = new Map();
   for (const edge of parentEdges) {
@@ -82,8 +94,8 @@ export async function resolveDepartmentMemberIds(db, tenantId, departmentIds) {
   }
   const memberIds = [...new Set(edges.map(edge => edge.target_record_id))];
   if (!memberIds.length) return [];
-  const members = await pageRows((from, to) => db.from('member').select('id, organization_id')
-    .eq('tenant_id', tenantId).in('id', memberIds).range(from, to));
+  const members = await pageRowsByIds(memberIds, (batch, from, to) => db.from('member').select('id, organization_id')
+    .eq('tenant_id', tenantId).in('id', batch).range(from, to));
   const organizationByMember = new Map(members.map(member => [member.id, member.organization_id]));
   return [...new Set(edges.filter(edge => {
     const parentIds = parentsByDepartment.get(edge.source_record_id);
@@ -99,14 +111,14 @@ export async function enrichMembersWithDepartments(db, tenantId, members) {
   if (!schema) return members.map(row => ({ ...row, departments: [], department_ids: [] }));
   const { definitionId, departmentObjectId, primaryDisplayFieldId } = schema;
   const memberIds = members.map(row => row.id);
-  const edges = await pageRows((from, to) => db.from('custom_object_relationship').select('source_record_id, target_record_id')
+  const edges = await pageRowsByIds(memberIds, (batch, from, to) => db.from('custom_object_relationship').select('source_record_id, target_record_id')
     .eq('tenant_id', tenantId).eq('relationship_definition_id', definitionId).is('archived_at', null)
-    .in('target_record_id', memberIds).range(from, to));
+    .in('target_record_id', batch).range(from, to));
   const departmentIds = [...new Set(edges.map(row => row.source_record_id))];
   if (!departmentIds.length) return members.map(row => ({ ...row, departments: [], department_ids: [] }));
   const [departments, fields, parentDefinitions] = await Promise.all([
-    pageRows((from, to) => db.from('custom_object_record').select('id, data').eq('tenant_id', tenantId)
-      .eq('custom_object_id', departmentObjectId).is('archived_at', null).in('id', departmentIds).range(from, to)),
+    pageRowsByIds(departmentIds, (batch, from, to) => db.from('custom_object_record').select('id, data').eq('tenant_id', tenantId)
+      .eq('custom_object_id', departmentObjectId).is('archived_at', null).in('id', batch).range(from, to)),
     primaryDisplayFieldId ? db.from('preference_field').select('id, name').eq('tenant_id', tenantId).eq('id', primaryDisplayFieldId).maybeSingle() : Promise.resolve({ data: null, error: null }),
     db.from('custom_object_relationship_definition').select('id, cardinality, target_custom_object_id')
       .eq('tenant_id', tenantId).eq('relationship_key', 'organisation').eq('status', 'active')
@@ -119,14 +131,14 @@ export async function enrichMembersWithDepartments(db, tenantId, members) {
     || parentDefinitions.data[0].target_custom_object_id !== null) {
     throw new MemberDepartmentError('Department organisation schema is unavailable', 409);
   }
-  const parentEdges = await pageRows((from, to) => db.from('custom_object_relationship')
+  const parentEdges = await pageRowsByIds(departmentIds, (batch, from, to) => db.from('custom_object_relationship')
     .select('source_record_id, target_record_id').eq('tenant_id', tenantId)
     .eq('relationship_definition_id', parentDefinitions.data[0].id).is('archived_at', null)
-    .in('source_record_id', departmentIds).range(from, to));
+    .in('source_record_id', batch).range(from, to));
   const nameKey = fields.data?.name;
   const orgIds = [...new Set(members.map(row => row.organization_id).filter(Boolean))];
-  const organizations = orgIds.length ? await pageRows((from, to) => db.from('organization').select('id, name')
-    .eq('tenant_id', tenantId).in('id', orgIds).range(from, to)) : [];
+  const organizations = orgIds.length ? await pageRowsByIds(orgIds, (batch, from, to) => db.from('organization').select('id, name')
+    .eq('tenant_id', tenantId).in('id', batch).range(from, to)) : [];
   const names = new Map(departments.map(row => [row.id, nameKey ? row.data?.[nameKey] : null]));
   const orgNames = new Map(organizations.map(row => [row.id, row.name]));
   const parentsByDepartment = new Map();
@@ -188,11 +200,13 @@ export async function listDepartmentOptions(db, tenantId, organizationIds = []) 
     .map(rows => rows[0])
     .filter(edge => !requested.size || requested.has(edge.target_record_id));
   if (!relevant.length) return [];
-  const records = await pageRows((from, to) => db.from('custom_object_record').select('id, data').eq('tenant_id', tenantId)
-    .eq('custom_object_id', schema.departmentObjectId).is('archived_at', null).in('id', relevant.map(e => e.source_record_id)).range(from, to));
+  const records = await pageRowsByIds(relevant.map(edge => edge.source_record_id), (batch, from, to) =>
+    db.from('custom_object_record').select('id, data').eq('tenant_id', tenantId)
+      .eq('custom_object_id', schema.departmentObjectId).is('archived_at', null).in('id', batch).range(from, to));
   const field = schema.primaryDisplayFieldId ? await db.from('preference_field').select('name').eq('tenant_id', tenantId).eq('id', schema.primaryDisplayFieldId).maybeSingle() : { data: null };
-  const orgs = await pageRows((from, to) => db.from('organization').select('id, name').eq('tenant_id', tenantId)
-    .in('id', [...new Set(relevant.map(e => e.target_record_id))]).range(from, to));
+  const orgs = await pageRowsByIds(relevant.map(edge => edge.target_record_id), (batch, from, to) =>
+    db.from('organization').select('id, name').eq('tenant_id', tenantId)
+      .in('id', batch).range(from, to));
   const recordMap = new Map(records.map(r => [r.id, r])); const orgMap = new Map(orgs.map(o => [o.id, o.name]));
   return relevant.map(e => ({ id: e.source_record_id, name: recordMap.get(e.source_record_id)?.data?.[field.data?.name] || '', organization_id: e.target_record_id, organization_name: orgMap.get(e.target_record_id) || '' }))
     .filter(row => recordMap.has(row.id))

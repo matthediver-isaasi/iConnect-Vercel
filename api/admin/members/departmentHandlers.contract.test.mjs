@@ -53,8 +53,10 @@ test('member select-all CSV mirrors every list scope and validates the displayed
 
 test('member CSV rejects genuine empty and mismatched exports instead of returning headers', () => {
   const firstPageFetch = exported.indexOf('const firstPage = await buildMemberQuery');
+  const firstPageEnrichment = exported.indexOf('pageData = await enrichMembersWithDepartments');
   const headers = exported.indexOf("res.setHeader('Content-Type'");
   assert.ok(firstPageFetch >= 0 && headers > firstPageFetch);
+  assert.ok(firstPageEnrichment > firstPageFetch && headers > firstPageEnrichment);
   assert.match(exported, /res\.status\(409\)\.json\(\{ error: message, expectedTotal, actualTotal \}\)/);
   assert.match(exported, /shouldRejectEmptyMemberExport\(req\.method, actualTotal\)/);
   assert.match(exported, /res\.status\(422\)\.json\(\{ error: 'There are no members to export/);

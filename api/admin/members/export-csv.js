@@ -274,6 +274,9 @@ export default async function handler(req, res) {
       return res.status(422).json({ error: 'There are no members to export for the current selection.' });
     }
 
+    let pageData = firstPage.data || [];
+    pageData = await enrichMembersWithDepartments(supabase, tenantId, pageData);
+
     const today = new Date().toISOString().split('T')[0];
     const filename = `members_export_${today}.csv`;
 
@@ -287,13 +290,15 @@ export default async function handler(req, res) {
     res.write(CSV_BOM + headerRow);
 
     try {
-      let pageData = firstPage.data || [];
       let pageFrom = 0;
+      let pageIsEnriched = true;
       while (true) {
         if (pageData.length > 0) {
           const memberIds = pageData.map(m => m.id);
           const pagePrefMap = await loadPrefValuesForMembers(memberIds);
-          pageData = await enrichMembersWithDepartments(supabase, tenantId, pageData);
+          if (!pageIsEnriched) {
+            pageData = await enrichMembersWithDepartments(supabase, tenantId, pageData);
+          }
           let chunk = '';
           for (const member of pageData) {
             chunk += CSV_ROW_SEPARATOR + buildMemberRow(member, pagePrefMap);
@@ -309,6 +314,7 @@ export default async function handler(req, res) {
           throw new Error(`Members query failed: ${next.error.message}`);
         }
         pageData = next.data || [];
+        pageIsEnriched = false;
       }
       return res.end();
     } catch (streamErr) {

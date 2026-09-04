@@ -6,12 +6,16 @@ import {
 } from './memberDepartments.js';
 
 const tenant = 'tenant-a';
-function db(seed) {
+function db(seed, onIn = () => {}) {
   class Query {
     constructor(table) { this.table = table; this.filters = []; this.slice = null; }
     select() { return this; }
     eq(key, value) { this.filters.push(row => row[key] === value); return this; }
-    in(key, values) { this.filters.push(row => values.includes(row[key])); return this; }
+    in(key, values) {
+      onIn({ table: this.table, key, values: [...values] });
+      this.filters.push(row => values.includes(row[key]));
+      return this;
+    }
     is(key, value) { this.filters.push(row => row[key] === value); return this; }
     range(from, to) { this.slice = [from, to + 1]; return this; }
     result() {
@@ -127,4 +131,101 @@ test('options filter by parent organisation and enrichment returns every departm
   assert.deepEqual(rows.map(row => row.department_ids), [['dept-2', 'dept-1'], []]);
   assert.deepEqual(rows[0].departments.map(department => department.name), ['Imaging', 'Operations']);
   assert.equal(rows[0].departments.some(department => department.id === 'dept-foreign-org'), false);
+});
+
+test('export-sized member enrichment batches UUID filters and paginates every batch', async () => {
+  const seed = base();
+  const members = Array.from({ length: 925 }, (_, index) => ({
+    id: `member-${index + 1}`,
+    organization_id: 'org-1',
+  }));
+  seed.member = members.map(member => ({ ...member, tenant_id: tenant }));
+
+  const departmentCount = 11;
+  seed.custom_object_record = Array.from({ length: departmentCount }, (_, index) => ({
+    id: `dept-${index + 1}`,
+    tenant_id: tenant,
+    custom_object_id: 'dept-object',
+    archived_at: null,
+    data: { name: `Department ${String(index + 1).padStart(2, '0')}` },
+  }));
+  seed.custom_object_relationship = [
+    ...seed.custom_object_record.map(department => ({
+      tenant_id: tenant,
+      relationship_definition_id: 'org-def',
+      source_record_id: department.id,
+      target_record_id: 'org-1',
+      archived_at: null,
+    })),
+    ...members.slice(0, 100).flatMap(member => seed.custom_object_record.map(department => ({
+      tenant_id: tenant,
+      relationship_definition_id: 'member-def',
+      source_record_id: department.id,
+      target_record_id: member.id,
+      archived_at: null,
+    }))),
+  ];
+
+  const inCalls = [];
+  const enriched = await enrichMembersWithDepartments(
+    db(seed, call => inCalls.push(call)),
+    tenant,
+    members,
+  );
+
+  const memberEdgeCalls = inCalls.filter(call =>
+    call.table === 'custom_object_relationship'
+    && call.key === 'target_record_id');
+  assert.equal(memberEdgeCalls.length, 11);
+  assert.ok(memberEdgeCalls.every(call => call.values.length <= 100));
+  assert.deepEqual(memberEdgeCalls[0].values, memberEdgeCalls[1].values);
+  const distinctMemberBatches = [...new Map(
+    memberEdgeCalls.map(call => [JSON.stringify(call.values), call.values]),
+  ).values()];
+  assert.equal(distinctMemberBatches.length, 10);
+  distinctMemberBatches.forEach((batch, index) => {
+    assert.deepEqual(batch, members.slice(index * 100, (index + 1) * 100).map(member => member.id));
+  });
+  assert.deepEqual(
+    new Set(memberEdgeCalls.flatMap(call => call.values)),
+    new Set(members.map(member => member.id)),
+  );
+  assert.ok(enriched.slice(0, 100).every(member => member.departments.length === departmentCount));
+  assert.deepEqual(enriched[100].departments, []);
+});
+
+test('large Department option sets batch record and organisation filters', async () => {
+  const seed = base();
+  const optionCount = 205;
+  seed.custom_object_record = Array.from({ length: optionCount }, (_, index) => ({
+    id: `dept-${index + 1}`,
+    tenant_id: tenant,
+    custom_object_id: 'dept-object',
+    archived_at: null,
+    data: { name: `Department ${String(index + 1).padStart(3, '0')}` },
+  }));
+  seed.organization = Array.from({ length: optionCount }, (_, index) => ({
+    id: `org-${index + 1}`,
+    tenant_id: tenant,
+    name: `Organisation ${String(index + 1).padStart(3, '0')}`,
+  }));
+  seed.custom_object_relationship = seed.custom_object_record.map((department, index) => ({
+    tenant_id: tenant,
+    relationship_definition_id: 'org-def',
+    source_record_id: department.id,
+    target_record_id: seed.organization[index].id,
+    archived_at: null,
+  }));
+
+  const inCalls = [];
+  const options = await listDepartmentOptions(db(seed, call => inCalls.push(call)), tenant);
+  const recordCalls = inCalls.filter(call => call.table === 'custom_object_record' && call.key === 'id');
+  const organisationCalls = inCalls.filter(call => call.table === 'organization' && call.key === 'id');
+
+  assert.equal(options.length, optionCount);
+  assert.equal(recordCalls.length, 3);
+  assert.equal(organisationCalls.length, 3);
+  assert.ok([...recordCalls, ...organisationCalls].every(call => call.values.length <= 100));
+  assert.equal(new Set(recordCalls.flatMap(call => call.values)).size, optionCount);
+  assert.equal(new Set(organisationCalls.flatMap(call => call.values)).size, optionCount);
 });
