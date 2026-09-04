@@ -28,6 +28,13 @@ const atomicCreateSql = await readFile(
   ),
   'utf8',
 );
+const viewsAndPermissionsSql = await readFile(
+  new URL(
+    '../../supabase/migrations/20260927_custom_object_views_and_field_permissions.sql',
+    import.meta.url,
+  ),
+  'utf8',
+);
 
 test('migration uses shared generic tables instead of tenant-specific tables', () => {
   for (const table of [
@@ -135,4 +142,12 @@ test('dated atomic-create migration validates routed metadata and rolls record a
   assert.match(atomicCreateSql, /REVOKE ALL ON FUNCTION public\.create_custom_object_record_with_relationships/);
   assert.match(atomicCreateSql, /GRANT EXECUTE ON FUNCTION public\.create_custom_object_record_with_relationships\(uuid, uuid, jsonb, jsonb, text\)[\s\S]*TO service_role/);
   assert.match(atomicCreateSql, /NOTIFY pgrst, 'reload schema'/);
+});
+
+test('pinned field permission migration is tenant and object scoped with fail-safe access levels', () => {
+  assert.match(viewsAndPermissionsSql, /CREATE TABLE IF NOT EXISTS public\.custom_object_field_role_permission/);
+  assert.match(viewsAndPermissionsSql, /access_level IN \('none', 'read', 'edit'\)/);
+  assert.match(viewsAndPermissionsSql, /custom_object_field_role_permission_field_owner/);
+  assert.match(viewsAndPermissionsSql, /ENABLE ROW LEVEL SECURITY/);
+  assert.match(viewsAndPermissionsSql, /NOTIFY pgrst, 'reload schema'/);
 });

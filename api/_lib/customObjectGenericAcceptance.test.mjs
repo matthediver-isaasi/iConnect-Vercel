@@ -83,6 +83,47 @@ test('Department and Region are metadata-driven Custom Object acceptance scenari
   }
 });
 
+test('a Workforce Survey-shaped record uses the same field and display contracts', () => {
+  const surveyTitle = fieldDefinition(
+    departmentId,
+    '99999999-9999-4999-8999-999999999999',
+    'survey_title',
+    'Survey title',
+  );
+  const responseCount = {
+    ...fieldDefinition(
+      departmentId,
+      'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      'response_count',
+      'Response count',
+    ),
+    field_type: 'number',
+    is_required: false,
+  };
+  const survey = objectDefinition(
+    departmentId,
+    'staff_feedback',
+    'Workforce Survey',
+    surveyTitle.id,
+  );
+
+  const validated = validateCustomObjectRecordData({
+    data: { survey_title: 'Autumn engagement', response_count: '42' },
+    fields: [surveyTitle, responseCount],
+    mode: 'create',
+  });
+  assert.deepEqual(validated, {
+    ok: true,
+    data: { survey_title: 'Autumn engagement', response_count: 42 },
+    errors: [],
+  });
+  assert.equal(resolveCustomObjectDisplayValue({
+    objectDefinition: survey,
+    record: { id: 'survey-record', data: validated.data },
+    fields: [surveyTitle, responseCount],
+  }), 'Autumn engagement');
+});
+
 test('one Region to many Departments uses one generic bidirectional definition', () => {
   const relationship = {
     id: '66666666-6666-4666-8666-666666666666',
@@ -141,7 +182,7 @@ test('one Region to many Departments uses one generic bidirectional definition',
   ]);
 });
 
-test('generic implementation has no Department or Region branches, tables, or routes', async () => {
+test('record presentation implementation has no Workforce Survey, Department, or Region rendering branch', async () => {
   const paths = [
     './customObjectDomain.js',
     './customObjectService.js',
@@ -154,14 +195,18 @@ test('generic implementation has no Department or Region branches, tables, or ro
     '../../client/src/pages/CustomObjectRecords.jsx',
     '../../client/src/pages/customObjects/RelationshipDefinitions.jsx',
     '../../client/src/pages/customObjects/RelatedRecordsPanel.jsx',
+    '../../client/src/pages/customObjects/ContextualRecordCreateDialog.jsx',
+    '../../client/src/pages/customObjects/RecordFieldControls.jsx',
+    '../../client/src/pages/customObjects/recordHelpers.js',
+    '../../client/src/pages/customObjects/relationshipHelpers.js',
   ];
   const sources = await Promise.all(paths.map(async (path) => ({
     path,
     source: await readFile(new URL(path, import.meta.url), 'utf8'),
   })));
   for (const { path, source } of sources) {
-    assert.doesNotMatch(source, /\b(?:department|region)s?\b/i, path);
-    assert.doesNotMatch(source, /(?:if|switch)\s*\([^)]*(?:object|kind)[^)]*\)[^{]*\{[^}]*(?:department|region)/i, path);
+    assert.doesNotMatch(source, /\b(?:workforce(?:[_\s-]?survey)?|department|region)s?\b/i, path);
+    assert.doesNotMatch(source, /(?:if|switch)\s*\([^)]*(?:object|kind)[^)]*\)[^{]*\{[^}]*(?:workforce|department|region)/i, path);
   }
 });
 

@@ -12,17 +12,18 @@
 2. [Architecture](#architecture)
 3. [Supported Field Matrix](#supported-field-matrix)
 4. [API and Service Contracts](#api-and-service-contracts)
-5. [Lifecycle, Archive, and Audit Guarantees](#lifecycle-archive-and-audit-guarantees)
-6. [Relationships](#relationships)
-7. [Security and Tenant Boundaries](#security-and-tenant-boundaries)
-8. [Code Paths and Entry Points](#code-paths-and-entry-points)
-9. [Safeguards and Error Handling](#safeguards-and-error-handling)
-10. [Frontend UI](#frontend-ui)
-11. [Database Tables](#database-tables)
-12. [Data Flow Diagrams](#data-flow-diagrams)
-13. [MVP Limitations and Phase 2 Handoff Contracts](#mvp-limitations-and-phase-2-handoff-contracts)
-14. [Configuration Reference](#configuration-reference)
-15. [Troubleshooting](#troubleshooting)
+5. [Presentation and Field Authorization Contracts](#presentation-and-field-authorization-contracts)
+6. [Lifecycle, Archive, and Audit Guarantees](#lifecycle-archive-and-audit-guarantees)
+7. [Relationships](#relationships)
+8. [Security and Tenant Boundaries](#security-and-tenant-boundaries)
+9. [Code Paths and Entry Points](#code-paths-and-entry-points)
+10. [Safeguards and Error Handling](#safeguards-and-error-handling)
+11. [Frontend UI](#frontend-ui)
+12. [Database Tables](#database-tables)
+13. [Data Flow Diagrams](#data-flow-diagrams)
+14. [MVP Limitations and Phase 2 Handoff Contracts](#mvp-limitations-and-phase-2-handoff-contracts)
+15. [Configuration Reference](#configuration-reference)
+16. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -172,6 +173,179 @@ Record lists accept `search`, `sortField`, `sortDir`, `filters`, `page`, `pageSi
 ```
 
 Here **routed_side** always identifies the side occupied by the new Custom Object record. The originating entry is authorized from the opposite, existing card side; additional entries are authorized from the new record side. The route selects the atomic service path only when relationship initialization is present, so ordinary record creation remains backward compatible.
+
+---
+
+## Presentation and Field Authorization Contracts
+
+Task 4053 extends the generated record experience with two related, metadata-only
+contracts: a shared **presentation contract** and a per-field **authorization
+contract**. They apply to every Custom Object. A Workforce Survey may be useful
+as a fixture when exercising the contracts, but it has no privileged object key,
+component, route, table, or rendering path.
+
+### Presentation contract
+
+The primary display field remains the canonical identity of a record. It is the
+label used for record links, headings, relationship pickers, and any fallback
+where a richer configured representation cannot be resolved. Presentation
+metadata adds supporting context; it must never replace identity or cause a
+caller-provided label to become authoritative.
+
+Object-level presentation is versioned metadata on the object definition. Its
+logical shape is:
+
+```json
+{
+  "version": 1,
+  "list": {
+    "field_ids": ["field-uuid-a", "field-uuid-b"]
+  },
+  "detail": {
+    "sections": [{
+      "id": "section-stable-key",
+      "label": "Record details",
+      "field_ids": ["field-uuid-a", "field-uuid-b"]
+    }]
+  }
+}
+```
+
+- **List fields** are the administrator-defined, ordered shared default. They
+  are field UUIDs belonging to the object, not field labels, JSON keys, or
+  object-specific names.
+- **Detail sections** preserve both administrator-selected section order and
+  field order. A field should occur no more than once in an effective detail
+  layout. Section IDs are stable within the presentation document so a later
+  label edit does not change the layout identity.
+- The administrator's shared list default is not a user's saved list choice.
+  A personal list-column selection may override it for that user and object,
+  but saving or clearing that selection must not mutate shared metadata. With
+  no personal selection, the shared default is used.
+- An object with no presentation metadata retains legacy generated behavior:
+  active fields supply the list/detail fallback in their normal metadata
+  order. This is the compatibility baseline for existing objects.
+
+Relationship definitions carry side-aware compact-preview metadata. Each side
+describes fields of the *opposite* Custom Object records it displays, in order.
+For example, a definition viewed from `source` may configure fields from its
+target Custom Object; viewed from `target`, it may configure fields from its
+source Custom Object. A compact preview is therefore defined by routed side and
+field UUIDs, not by a relationship label or by a named object.
+
+```json
+{
+  "version": 1,
+  "compact_preview": {
+    "source": { "field_ids": ["target-field-uuid"] },
+    "target": { "field_ids": ["source-field-uuid"] }
+  }
+}
+```
+
+The exact persisted container may evolve additively, but these semantics are
+stable: entries are ordered IDs, each selected field belongs to the opposite
+active Custom Object, and the primary label is rendered separately. Core
+endpoints have no Custom Object field inventory, so their existing safe
+core-label representation remains in force unless a future core contract says
+otherwise.
+
+### Presentation validation and drift
+
+The service is the authority for validating and resolving presentation
+metadata. On write it must reject a malformed version, duplicate IDs, a field
+from another tenant/object, or a compact field assigned to the wrong
+relationship side. UI selection controls are convenience only and must offer
+only active fields from the relevant object.
+
+On read, configuration can legitimately drift after an administrator archives a
+field, changes access, or archives an object. Resolution must be safe rather
+than brittle:
+
+```text
+resolve configured field
+  → does the UUID belong to the expected active object? no → omit it
+  → may this caller read it? no → omit it
+  → otherwise render its metadata-formatted value
+
+resolve compact card
+  → render canonical primary label if readable and available
+  → append resolved, authorized configured values in configured order
+  → no usable configured values → render the primary label only
+  → no usable primary label → use the existing non-sensitive unavailable fallback
+```
+
+Configured missing, archived, unauthorized, blank, or duplicate fields are
+omitted; the server must not substitute their raw JSON keys, IDs, or historic
+values. A field that becomes unavailable does not invalidate the whole record,
+section, list, card, or picker. Empty sections are hidden. An archived object
+uses its existing archive/read policy and does not regain edit controls through
+presentation metadata.
+
+### Field authorization contract
+
+Object capabilities continue to answer whether a role can access the record
+surface at all. Field authorization answers what that role may do with an
+individual active field after object access has been established. A field grant
+is scoped by:
+
+```text
+tenant_id + custom_object_id + preference_field_id + role_id
+```
+
+The effective access vocabulary is deliberately small:
+
+| Effective access | Read response | Create/update request | Generated UI |
+|------------------|---------------|-----------------------|--------------|
+| `none` | Field definition, label, value, filter option, and compact text are omitted | Supplying the field is rejected | Hidden |
+| `read` | Metadata and value may be returned where the record is otherwise visible | Supplying the field is rejected | Visible, with no editable control |
+| `write` | Same as `read` | Value is accepted and normal type/required validation applies | Visible and editable |
+
+`write` includes read. Invalid permission metadata and an unresolved field grant
+fail closed to `none`; a caller must not receive a value merely because a UI
+forgot to hide it. Tenant administrators retain the documented administrative
+bypass only where the authorization service explicitly grants it. Schema
+administration remains separate from record-data access: `manage-data-model`
+does not itself grant record field reads or writes.
+
+For backwards compatibility, an object without restrictive field-permission
+metadata preserves its pre-existing object-capability behavior: a caller who
+can read the object can read its active fields, and a caller who can create/edit
+the object can write them. Once an administrator configures restrictive
+field-level access for an object, effective access is resolved per role and
+field according to the stored grants; it is not inferred from labels or client
+state.
+
+### Enforcement surfaces
+
+The API resolves effective field access before reading or validating record
+data. This same resolved set is used consistently by the list, record detail,
+create/edit, search, filters, export, relationship rows, entity pickers, and
+contextual-create endpoints.
+
+```text
+request
+  → authenticate and resolve tenant + object capability
+  → load active object fields and role-scoped field grants
+  → calculate readable and writable field sets
+  → read: prune inaccessible metadata, values, and configured presentation
+  → write: reject keys outside writable set, then type/required validate
+  → filter/search/export: allow only readable eligible fields
+  → serialize only authorized labels, values, and secondary text
+```
+
+Required validation is evaluated only for fields the caller may write. A
+required field that is readable but not writable must not make a create/edit
+form impossible; administrators must adjust the schema/field grant before
+making such a field mandatory for that role. Conversely, an inaccessible value
+is never accepted as a hidden preserved write. Existing historic JSON may stay
+stored, but it is not a disclosure exception.
+
+**Important:** field authorization is server-side. Client controls must reflect
+the resolved access for usability, but neither omitted inputs nor personal
+column settings are an authorization mechanism. All response shapes, including
+secondary relationship text and export headers, must be pruned before leaving
+the service boundary.
 
 ---
 
@@ -340,6 +514,8 @@ For repeatable rows, `_row_id` is the stable retry identity. Runtime execution m
 10. Picker endpoint types are definition-derived, preventing arbitrary table selection.
 11. Public form relationship options are constrained by the persisted form field, parent organisation, definition, object, lifecycle, visibility, and active edge; callers cannot turn the route into a general record browser.
 12. Form submission handlers revalidate relationship UUIDs before writes or side effects, and output label lookups omit unavailable records rather than exposing identifiers.
+13. Field permissions are resolved tenant-, object-, field-, and role-scoped at the service boundary; inaccessible field definitions, values, filter choices, export columns, and relationship secondary text are pruned before serialization.
+14. Presentation metadata is validated against active field ownership when saved and is resolved again with lifecycle and field-read access when rendered, so stale configuration cannot disclose data.
 
 Cross-tenant resources are deliberately indistinguishable from missing resources where appropriate. RLS and grants restrict direct table access; the service remains responsible for application-level permission and object checks.
 
@@ -440,7 +616,17 @@ Public preference-value routes first build a tenant-scoped allowlist excluding C
 
 ## Frontend UI
 
-`CustomObjectsAdmin.jsx` shows the tenant catalogue and generated schema controls. `CustomObjectRecords.jsx` renders lists, add/edit forms, details, archive actions, and permissions from object and field metadata. Relationship panels and pickers derive labels, endpoint kinds, visibility, and edit controls from definitions. Eligible cards place **Create {singular label}** beside **Add link** and open the contextual dialog without navigation. FormBuilder's Structured Record Actions editor uses the same active metadata and stores its configuration under a versioned Form property.
+`CustomObjectsAdmin.jsx` shows the tenant catalogue, schema controls, shared
+presentation defaults, and role field-access editor. `CustomObjectRecords.jsx`
+renders lists, add/edit forms, details, archive actions, and permissions from
+resolved object and field metadata. A user's saved list columns override the
+shared list default only for that user. Relationship panels and pickers derive
+labels, endpoint kinds, side-aware compact fields, visibility, and edit controls
+from definitions. They render only the server-authorized primary/secondary data.
+Eligible cards place **Create {singular label}** beside **Add link** and open
+the contextual dialog without navigation. FormBuilder's Structured Record
+Actions editor uses the same active metadata and stores its configuration under
+a versioned Form property.
 
 FormBuilder offers a **Relationship Dropdown** field type. The field settings show an earlier organisation-field picker and an eligible active-relationship picker. The shared `FormRenderer` supplies the respondent experience across normal public forms, embedded forms, builder/iEdit previews, and manual submissions.
 
@@ -538,6 +724,10 @@ Phase 2 must consume stable generic contracts rather than inspect JSON or add ex
 | Pagination | query | page ≥ 1, pageSize 1–100 | 1 / 25 | Server-side range |
 | Include archived | query | `"true"` or omitted | omitted | Include archived resources |
 | Record capabilities | role permission | five booleans | false | Per-object authorization |
+| Shared list fields | object presentation metadata | ordered active field UUIDs | legacy active-field order | Administrator default; a personal saved column set overrides it locally |
+| Detail sections | object presentation metadata | ordered section IDs/labels and active field UUIDs | legacy generated detail | Shared record-detail representation |
+| Relationship compact preview | relationship configuration | ordered opposite-object field UUIDs per routed side | primary label only | Supporting values for cards and Custom Object pickers |
+| Field role access | field permission | `none`, `read`, `write` per role/field | inherited legacy object capability | Server-enforced read/write visibility after object access |
 | Form relationship parent | form field | earlier `organisation_dropdown` field UUID | none | Direct dependency source |
 | Form relationship definition | form field | eligible active relationship UUID | none | Constrains related options |
 | Structured action source | `Form.structured_actions.actions[]` | `top_level`, `repeatable_row` | `top_level` | Selects one submission or each row; repeatable scope also requires `repeatable_field_id` |

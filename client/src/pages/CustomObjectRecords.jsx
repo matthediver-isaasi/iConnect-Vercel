@@ -8,6 +8,7 @@ import {
   ChevronRight,
   CircleAlert,
   Columns3,
+  Download,
   Loader2,
   Pencil,
   Plus,
@@ -48,10 +49,15 @@ import {
   applyRecordPermissionToggle,
   arrayValue,
   buildRecordPayload,
+  detailSections,
+  fieldAccess,
   formatRecordValue,
   normalizeRecordPermissions,
   optionValues,
+  readableFields,
+  sharedListFields,
   validateRecordValues,
+  writableFields,
 } from "./customObjects/recordHelpers";
 import { RelatedRecordsPanel } from "./customObjects/RelatedRecordsPanel";
 import { relationshipBackPath } from "./customObjects/relationshipHelpers";
@@ -107,6 +113,14 @@ const capability = (source, name) => {
   );
 };
 const recordsPath = (objectId) => `/CustomObjectsAdmin/${objectId}/records`;
+const csvCell = (value) => {
+  const text = value == null
+    ? ""
+    : typeof value === "object"
+      ? JSON.stringify(value)
+      : String(value);
+  return `"${text.replaceAll('"', '""')}"`;
+};
 
 function PageState({ title, message, retry }) {
   return (
@@ -261,11 +275,11 @@ export function CustomObjectRecordList() {
       return null;
     }
   });
-  const activeFields = fields.filter((field) => field.is_active !== false);
+  const activeFields = readableFields(fields);
   useEffect(() => {
     if (!visibleIds && activeFields.length)
-      setVisibleIds(activeFields.slice(0, 5).map((field) => field.id));
-  }, [fieldsQuery.data]); // eslint-disable-line react-hooks/exhaustive-deps
+      setVisibleIds(sharedListFields(object, fields).map((field) => field.id));
+  }, [fieldsQuery.data, object]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (visibleIds) localStorage.setItem(storageKey, JSON.stringify(visibleIds));
   }, [storageKey, visibleIds]);
@@ -300,10 +314,47 @@ export function CustomObjectRecordList() {
   const records = recordsQuery.data?.data || [];
   const total = recordsQuery.data?.total || 0;
   const pages = Math.max(1, Math.ceil(total / pageSize));
-  const visibleFields = fields.filter((field) => visibleIds?.includes(field.id));
+  const visibleFields = activeFields.filter((field) => visibleIds?.includes(field.id));
   const canCreate =
     object?.status === "active" &&
     capability(object, "create_records");
+  const exportRecords = useMutation({
+    mutationFn: async () => {
+      const exportParams = new URLSearchParams(queryString);
+      exportParams.set("page", "1");
+      exportParams.set("pageSize", "1000");
+      const first = await request(`/api/custom-objects/${objectId}/export?${exportParams}`);
+      const allRows = [...(first.data || [])];
+      const total = first.total || allRows.length;
+      const pages = Math.ceil(total / 1000);
+      for (let exportPage = 2; exportPage <= pages; exportPage += 1) {
+        exportParams.set("page", String(exportPage));
+        const next = await request(`/api/custom-objects/${objectId}/export?${exportParams}`);
+        allRows.push(...(next.data || []));
+      }
+      return { ...first, data: allRows, total };
+    },
+    onSuccess: (payload) => {
+      const columns = payload.columns || [];
+      const rows = payload.data || [];
+      const csv = [
+        ["Name", ...columns.map((column) => column.label || column.key)].map(csvCell).join(","),
+        ...rows.map((record) => [
+          record.display_value,
+          ...columns.map((column) => record.data?.[column.key]),
+        ].map(csvCell).join(",")),
+      ].join("\r\n");
+      const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `${object.object_key || "custom-object"}-records.csv`;
+      link.click();
+      URL.revokeObjectURL(url);
+      toast.success(`${rows.length} record${rows.length === 1 ? "" : "s"} exported`);
+    },
+    onError: (error) => toast.error(error.message),
+  });
   const updateFilter = (field, patch) => {
     setPage(1);
     setFilters((current) => ({
@@ -348,12 +399,18 @@ export function CustomObjectRecordList() {
               <Button type="submit" variant="outline" className="rounded-l-none border-l-0" aria-label="Search"><Search className="h-4 w-4" /></Button>
             </form>
             <div className="flex items-center gap-2 text-sm"><Switch checked={includeArchived} onCheckedChange={(checked) => { setPage(1); setIncludeArchived(checked); }} />Show archived</div>
+            {capability(object, "export_records") && (
+              <Button variant="outline" disabled={exportRecords.isPending} onClick={() => exportRecords.mutate()}>
+                {exportRecords.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
+                Export
+              </Button>
+            )}
             <Dialog open={columnsOpen} onOpenChange={setColumnsOpen}>
               <DialogTrigger asChild><Button variant="outline"><Columns3 className="mr-2 h-4 w-4" />Columns</Button></DialogTrigger>
               <DialogContent>
                 <DialogHeader><DialogTitle>Visible columns</DialogTitle></DialogHeader>
                 <div className="max-h-80 space-y-3 overflow-auto py-2">
-                  {fields.map((field) => (
+                  {activeFields.map((field) => (
                     <label key={field.id} className="flex items-center gap-3 text-sm">
                       <Checkbox checked={visibleIds?.includes(field.id)} onCheckedChange={(checked) => setVisibleIds((current = []) => checked ? [...new Set([...current, field.id])] : current.filter((id) => id !== field.id))} />
                       {field.label}{field.is_active === false && <Badge variant="outline">Archived field</Badge>}
@@ -492,7 +549,8 @@ export function CustomObjectRecordForm() {
     enabled: editing,
     retry: false,
   });
-  const activeFields = fields.filter((field) => field.is_active !== false);
+  const activeFields = readableFields(fields);
+  const editableFields = writableFields(fields);
   const [values, setValues] = useState({});
   const [errors, setErrors] = useState({});
   const [permissionDenied, setPermissionDenied] = useState(false);
@@ -529,10 +587,10 @@ export function CustomObjectRecordForm() {
   if (object.status !== "active" && !editing) return <Workspace object={object} backToRecords><PageState title="Records cannot be added" message="Only active custom objects accept new records." /></Workspace>;
   const submit = (event) => {
     event.preventDefault();
-    const nextErrors = validateRecordValues(activeFields, values, { partial: editing });
+    const nextErrors = validateRecordValues(editableFields, values, { partial: editing });
     setErrors(nextErrors);
     if (Object.keys(nextErrors).length) return;
-    save.mutate(buildRecordPayload(activeFields, values, { partial: editing }));
+    save.mutate(buildRecordPayload(editableFields, values, { partial: editing }));
   };
   return (
     <Workspace object={object} backToRecords>
@@ -543,14 +601,14 @@ export function CustomObjectRecordForm() {
             {activeFields.map((field) => (
               <div key={field.id}>
                 <Label htmlFor={`field-${field.id}`}>{field.label}{field.is_required && <span className="ml-1 text-rose-600">*</span>}</Label>
-                <div className="mt-2"><RecordFieldControl field={field} value={values[field.name]} onChange={(value) => { setValues((current) => ({ ...current, [field.name]: value })); setErrors((current) => ({ ...current, [field.name]: undefined })); }} /></div>
+                <div className="mt-2"><RecordFieldControl disabled={fieldAccess(field) !== "write"} field={field} value={values[field.name]} onChange={(value) => { setValues((current) => ({ ...current, [field.name]: value })); setErrors((current) => ({ ...current, [field.name]: undefined })); }} /></div>
                 {errors[field.name] && <p className="mt-1 text-sm text-rose-600">{errors[field.name]}</p>}
               </div>
             ))}
             {activeFields.length === 0 && <p className="text-sm text-slate-600">This object has no active fields.</p>}
             <div className="flex justify-end gap-3 border-t pt-5">
               <Button type="button" variant="outline" onClick={() => navigate(-1)}>Cancel</Button>
-              <Button type="submit" disabled={save.isPending || !activeFields.length}>{save.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Save {object.singular_label}</Button>
+              <Button type="submit" disabled={save.isPending || !editableFields.length}>{save.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Save {object.singular_label}</Button>
             </div>
           </form>
         </CardContent></Card>
@@ -612,14 +670,14 @@ export function CustomObjectRecordDetail() {
             {canArchive && <Button variant="outline" className="text-rose-700" onClick={() => setArchiveOpen(true)}><Archive className="mr-2 h-4 w-4" />Archive</Button>}
           </div>
         </header>
-        <Card><CardHeader><CardTitle className="text-lg">{object.singular_label} details</CardTitle></CardHeader><CardContent className="grid gap-x-8 gap-y-6 sm:grid-cols-2">
-          {fields.map((field) => (
+        <div className="space-y-5">{detailSections(object, fields).map((section) => <Card key={section.id}><CardHeader><CardTitle className="text-lg">{section.label}</CardTitle></CardHeader><CardContent className="grid gap-x-8 gap-y-6 sm:grid-cols-2">
+          {section.fields.map((field) => (
             <div key={field.id} className={field.field_type === "textarea" || field.field_type === "file" ? "sm:col-span-2" : ""}>
               <div className="mb-1 flex items-center gap-2"><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{field.label}</p>{field.is_active === false && <Badge variant="outline">Archived field</Badge>}</div>
               {field.field_type === "file" ? <CustomFieldFileDisplay value={fileDisplayValue(record.data?.[field.name])} /> : <p className="whitespace-pre-wrap text-sm text-slate-900">{formatRecordValue(field, record.data?.[field.name], countriesByCode)}</p>}
             </div>
           ))}
-        </CardContent></Card>
+        </CardContent></Card>)}</div>
         <RelatedRecordsPanel
           objectId={objectId}
           recordId={recordId}
@@ -706,14 +764,15 @@ export function CustomObjectPermissionsEditor({ objectId, canManage, archived = 
   if (permissionsQuery.error)
     return <PageState title="Permissions could not be loaded" message={permissionsQuery.error.message} retry={permissionsQuery.refetch} />;
   return (
+    <div className="space-y-5">
     <Card>
-      <CardHeader><CardTitle className="text-lg">Record permissions by role</CardTitle><p className="text-sm text-slate-600">These capabilities control record work only. Manage Data Model remains a separate role feature. Export is reserved for a future release.</p></CardHeader>
+      <CardHeader><CardTitle className="text-lg">Record permissions by role</CardTitle><p className="text-sm text-slate-600">These capabilities control record work only. Manage Data Model remains a separate role feature.</p></CardHeader>
       <CardContent className="overflow-x-auto">
         <table className="w-full min-w-[680px] text-sm">
           <thead><tr className="border-b text-left text-xs uppercase text-slate-500"><th className="p-3">Role</th>{permissionColumns.map(([key, label]) => <th key={key} className="p-3 text-center">{label}</th>)}</tr></thead>
            <tbody>{visibleRoles.map((role) => {
             const permission = normalizeRecordPermissions(byRole[role.id]);
-            return <tr key={role.id} className="border-b last:border-0"><td className="p-3 font-medium">{role.name || role.label}</td>{permissionColumns.map(([key]) => <td key={key} className="p-3 text-center"><Checkbox disabled={!canManage || archived || save.isPending || key === "can_export_records"} checked={permission[key]} onCheckedChange={(checked) => save.mutate({ role, key, checked: Boolean(checked) })} /></td>)}</tr>;
+            return <tr key={role.id} className="border-b last:border-0"><td className="p-3 font-medium">{role.name || role.label}</td>{permissionColumns.map(([key]) => <td key={key} className="p-3 text-center"><Checkbox disabled={!canManage || archived || save.isPending} checked={permission[key]} onCheckedChange={(checked) => save.mutate({ role, key, checked: Boolean(checked) })} /></td>)}</tr>;
           })}</tbody>
         </table>
         {!roles.length && <p className="py-8 text-center text-sm text-slate-500">No roles are available.</p>}
@@ -729,5 +788,34 @@ export function CustomObjectPermissionsEditor({ objectId, canManage, archived = 
         )}
       </CardContent>
     </Card>
+    <CustomObjectFieldPermissionsEditor objectId={objectId} canManage={canManage} archived={archived} />
+    </div>
   );
+}
+
+export function CustomObjectFieldPermissionsEditor({ objectId, canManage, archived = false }) {
+  const qc = useQueryClient();
+  const schema = useQuery({ queryKey: ["custom-objects", objectId, "record-fields"], queryFn: () => request(`/api/custom-objects/${objectId}/fields?includeInactive=false&pageSize=100`), retry: false });
+  const permissions = useQuery({ queryKey: ["custom-objects", objectId, "field-permissions"], queryFn: () => request(`/api/custom-objects/${objectId}/field-permissions?pageSize=100`), retry: false });
+  const rolesQuery = useQuery({ queryKey: ["custom-objects", objectId, "permissions", "roles"], queryFn: () => request(`/api/custom-objects/${objectId}/permissions?pageSize=100`), retry: false });
+  const fields = readableFields(schema.data?.data || schema.data || []);
+  const rows = permissions.data?.data || [];
+  const roles = rolesQuery.data?.roles || [];
+  const accessFor = (fieldId, roleId) => {
+    const row = rows.find((item) => String(item.field_id) === String(fieldId) && String(item.role_id) === String(roleId));
+    const access = row?.access || row?.access_level || row?.permission || "edit";
+    return access === "edit" || access === "write" ? "write" : access;
+  };
+  const save = useMutation({
+    mutationFn: ({ fieldId, roleId, access }) => request(`/api/custom-objects/${objectId}/field-permissions`, {
+      method: "PUT", body: JSON.stringify({ field_id: fieldId, role_id: roleId, access_level: access === "write" ? "edit" : access }),
+    }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["custom-objects", objectId, "field-permissions"] }); toast.success("Field permission updated"); },
+    onError: (error) => toast.error(error.message),
+  });
+  if (schema.isLoading || permissions.isLoading || rolesQuery.isLoading) return <Card><CardContent className="grid h-28 place-items-center"><Loader2 className="h-5 w-5 animate-spin" /></CardContent></Card>;
+  if (schema.error || permissions.error || rolesQuery.error) return <Card className="border-rose-200"><CardContent className="py-5 text-sm text-rose-700">Field permissions could not be loaded. {(schema.error || permissions.error || rolesQuery.error).message}</CardContent></Card>;
+  return <Card><CardHeader><CardTitle className="text-lg">Field access by role</CardTitle><p className="text-sm text-slate-600">No access hides a field; Read-only shows it without allowing changes; Edit allows changes. Fields without a rule retain legacy edit access.</p></CardHeader><CardContent className="overflow-x-auto">
+    {!fields.length || !roles.length ? <p className="py-4 text-sm text-slate-500">Add active fields and roles to configure field access.</p> : <table className="w-full min-w-[700px] text-sm"><thead><tr className="border-b text-left text-xs uppercase text-slate-500"><th className="p-3">Field</th>{roles.map((role) => <th key={role.id} className="p-3">{role.name || role.label}</th>)}</tr></thead><tbody>{fields.map((field) => <tr key={field.id} className="border-b last:border-0"><td className="p-3 font-medium">{field.label}</td>{roles.map((role) => <td key={role.id} className="p-3"><Select disabled={!canManage || archived || save.isPending} value={accessFor(field.id, role.id)} onValueChange={(access) => save.mutate({ fieldId: field.id, roleId: role.id, access })}><SelectTrigger className="w-28"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="none">No access</SelectItem><SelectItem value="read">Read-only</SelectItem><SelectItem value="write">Edit</SelectItem></SelectContent></Select></td>)}</tr>)}</tbody></table>}
+  </CardContent></Card>;
 }

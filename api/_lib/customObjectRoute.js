@@ -7,7 +7,7 @@ const VIEW_SCHEMA_FEATURE = 'admin.data-studio';
 const MANAGE_SCHEMA_FEATURE = 'data.custom-objects.manage-data-model';
 
 function schemaAccessRequired(level, resource, method) {
-  if (['records', 'relationships', 'entity-picker', 'initial-relationship-candidates'].includes(resource)) return null;
+  if (['records', 'export', 'relationships', 'entity-picker', 'initial-relationship-candidates'].includes(resource)) return null;
   if (level === 'resource' && resource === 'relationship-definitions') return method === 'GET' ? 'view' : 'manage';
   if (
     method === 'GET'
@@ -19,7 +19,7 @@ function schemaAccessRequired(level, resource, method) {
   if (method === 'GET') return 'view';
   if (
     ['collection', 'object'].includes(level)
-    || ['fields', 'relationship-definitions', 'permissions'].includes(resource)
+    || ['fields', 'relationship-definitions', 'permissions', 'field-permissions'].includes(resource)
   ) return 'manage';
   return null;
 }
@@ -99,6 +99,7 @@ export function createCustomObjectRouteHandler(level, dependencies = {}) {
         } else if (resource === 'fields' && req.method === 'GET') data = await service.listFields(objectId, req.query);
         else if (resource === 'fields' && req.method === 'POST') data = await service.createField(objectId, req.body);
         else if (resource === 'records' && req.method === 'GET') data = await service.listRecords(objectId, req.query);
+        else if (resource === 'export' && req.method === 'GET') data = await service.exportRecords(objectId, req.query);
         else if (resource === 'records' && req.method === 'POST') {
           data = req.body?.originating_relationship !== undefined
             || req.body?.originatingRelationship !== undefined
@@ -116,6 +117,8 @@ export function createCustomObjectRouteHandler(level, dependencies = {}) {
         else if (resource === 'relationships' && req.method === 'POST') data = await service.createRelationship(objectId, req.body);
         else if (resource === 'permissions' && req.method === 'GET') data = await service.listPermissions(objectId, req.query);
         else if (resource === 'permissions' && ['POST', 'PUT'].includes(req.method)) data = await service.upsertPermission(objectId, req.body);
+        else if (resource === 'field-permissions' && req.method === 'GET') data = await service.listFieldPermissions(objectId, req.query);
+        else if (resource === 'field-permissions' && ['POST', 'PUT'].includes(req.method)) data = await service.upsertFieldPermission(objectId, req.body);
         else if (resource === 'audit' && req.method === 'GET') data = await service.listAudit(objectId, req.query);
         else return methodNotAllowed(res, ['GET', 'POST', 'PUT']);
       } else if (level === 'item') {

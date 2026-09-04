@@ -4,10 +4,14 @@ import {
   assertImmutableInternalKey,
   coerceCustomObjectFieldValue,
   getCustomObjectFieldMetadata,
+  projectCustomObjectRecordData,
+  resolveCustomObjectFieldAccess,
   resolveCustomObjectDisplayValue,
   resolveCustomObjectLifecycleUpdate,
   resolveCustomObjectPermission,
   validateCustomObjectFieldDefinition,
+  validateCustomObjectRelationshipPreviewConfiguration,
+  validateCustomObjectViewConfiguration,
   validateCustomObjectRecordData,
   validateCustomObjectRelationshipDefinition,
   validateCustomObjectRelationshipEndpoints,
@@ -330,6 +334,55 @@ export function createCustomObjectService({
     return data || null;
   }
 
+  async function fieldAccess(objectId, definitions) {
+    const ids = (definitions || []).map((field) => String(field.id));
+    const access = new Map(ids.map((id) => [id, 'edit']));
+    if (isAdmin || !context.roleId || ids.length === 0) return access;
+    const { data, error } = await db.from('custom_object_field_role_permission').select('*')
+      .eq('tenant_id', tenantId).eq('custom_object_id', objectId)
+      .eq('role_id', context.roleId).in('field_id', ids);
+    throwDb(error);
+    for (const row of data || []) access.set(String(row.field_id), resolveCustomObjectFieldAccess({ permission: row }));
+    return access;
+  }
+
+  function allowedFields(definitions, access, minimum = 'read') {
+    return definitions.filter((field) => {
+      const value = access.get(String(field.id));
+      return minimum === 'edit' ? value === 'edit' : value !== 'none';
+    });
+  }
+
+  function projectRecord(definition, record, definitions, access) {
+    const visible = allowedFields(definitions, access);
+    const projected = { ...record, data: projectCustomObjectRecordData({
+      data: record.data, fields: definitions, accessByFieldId: access,
+    }) };
+    return {
+      ...projected,
+      display_value: resolveCustomObjectDisplayValue({
+        objectDefinition: definition, record: projected, fields: visible,
+      }),
+    };
+  }
+
+  async function validateRecordWrite(objectId, bodyData, existingData = null, mode = 'create') {
+    const definitions = await fields(objectId, true);
+    const access = await fieldAccess(objectId, definitions);
+    const writable = allowedFields(definitions, access, 'edit');
+    for (const key of Object.keys(bodyData || {})) {
+      const definition = definitions.find((field) => getCustomObjectFieldMetadata(field).key === key);
+      if (definition && access.get(String(definition.id)) !== 'edit') {
+        throw new CustomObjectHttpError(403, `Field is read-only or unavailable: ${key}`);
+      }
+    }
+    const validation = validateCustomObjectRecordData({
+      data: bodyData, fields: writable, existingData, mode,
+    });
+    if (!validation.ok) throw new CustomObjectHttpError(400, 'Invalid record data', validation.errors);
+    return validation;
+  }
+
   function projectCapabilities(definition, permissionRow = null) {
     return Object.fromEntries(Object.entries(RECORD_CAPABILITY_KEYS).map(([name, capability]) => [
       name,
@@ -428,6 +481,20 @@ export function createCustomObjectService({
       throw new CustomObjectHttpError(400, 'Primary display field has an invalid field definition', validation.errors);
     }
     return data;
+  }
+
+  async function validateRelationshipPreview(definition) {
+    const fieldsBySide = {};
+    for (const side of ['source', 'target']) {
+      fieldsBySide[side] = definition[`${side}_kind`] === 'custom_object'
+        ? await fields(definition[`${side}_custom_object_id`])
+        : [];
+    }
+    const validation = validateCustomObjectRelationshipPreviewConfiguration(
+      definition.configuration,
+      fieldsBySide,
+    );
+    if (!validation.ok) throw new CustomObjectHttpError(400, 'Invalid compact preview configuration', validation.errors);
   }
 
   async function listObjects(query) {
@@ -540,6 +607,10 @@ export function createCustomObjectService({
       throw new CustomObjectHttpError(409, 'Archived Custom Objects cannot be modified or reactivated');
     }
     const payload = pick(body, OBJECT_COLUMNS);
+    if (payload.configuration !== undefined) {
+      const validation = validateCustomObjectViewConfiguration(payload.configuration, await fields(objectId));
+      if (!validation.ok) throw new CustomObjectHttpError(400, 'Invalid view configuration', validation.errors);
+    }
     if (payload.object_key !== undefined) domainGuard(() => assertImmutableInternalKey(before.object_key, payload.object_key, 'Object key'));
     const nextStatus = archive ? 'archived' : (payload.status || before.status);
     if (nextStatus === 'active' && (
@@ -577,7 +648,12 @@ export function createCustomObjectService({
     if (query?.includeInactive !== 'true') q = q.eq('is_active', true);
     const { data, error, count } = await q.range(p.from, p.to);
     throwDb(error);
-    return { data: data || [], total: count || 0, page: p.page, pageSize: p.pageSize };
+    const access = await fieldAccess(objectId, data || []);
+    return {
+      data: (data || []).filter((field) => canViewSchema || canManageSchema || access.get(String(field.id)) !== 'none')
+        .map((field) => ({ ...field, field_access: access.get(String(field.id)) || 'none' })),
+      total: count || 0, page: p.page, pageSize: p.pageSize,
+    };
   }
 
   async function createField(objectId, body) {
@@ -627,8 +703,10 @@ export function createCustomObjectService({
     const definition = await object(objectId);
     await requireCapability(objectId, 'view_records');
     const definitions = await fields(objectId);
+    const access = await fieldAccess(objectId, definitions);
+    const readableDefinitions = allowedFields(definitions, access);
     const p = pagination(query);
-    const plan = buildRecordQueryPlan(query, definitions);
+    const plan = buildRecordQueryPlan(query, readableDefinitions);
     let q = db.from('custom_object_record').select('*', { count: 'exact' })
       .eq('tenant_id', tenantId).eq('custom_object_id', objectId);
     if (query?.includeArchived !== 'true') q = q.is('archived_at', null);
@@ -636,11 +714,49 @@ export function createCustomObjectService({
     const { data, error, count } = await q.range(p.from, p.to);
     throwDb(error);
     return {
-      data: (data || []).map((record) => ({
-        ...record,
-        display_value: resolveCustomObjectDisplayValue({ objectDefinition: definition, record, fields: definitions }),
-      })),
+      data: (data || []).map((record) => projectRecord(definition, record, definitions, access)),
       total: count || 0, page: p.page, pageSize: p.pageSize,
+    };
+  }
+
+  // Export pages are bounded per request, while clients paginate to the exact
+  // filtered total. This avoids both oversized responses and silent truncation.
+  async function exportRecords(objectId, query) {
+    const definition = await object(objectId);
+    await requireCapability(objectId, 'export_records');
+    const definitions = await fields(objectId);
+    const access = await fieldAccess(objectId, definitions);
+    const readable = allowedFields(definitions, access);
+    const plan = buildRecordQueryPlan(query, readable);
+    const requestedPage = Number.parseInt(query?.page, 10);
+    const requestedPageSize = Number.parseInt(query?.pageSize, 10);
+    const page = Math.max(Number.isFinite(requestedPage) ? requestedPage : 1, 1);
+    const pageSize = Math.min(Math.max(Number.isFinite(requestedPageSize) ? requestedPageSize : 500, 1), 1000);
+    const from = (page - 1) * pageSize;
+    let q = db.from('custom_object_record').select('*', { count: 'exact' })
+      .eq('tenant_id', tenantId).eq('custom_object_id', objectId);
+    if (query?.includeArchived !== 'true') q = q.is('archived_at', null);
+    q = applyRecordQueryPlan(q, plan);
+    const { data, error, count } = await q.range(from, from + pageSize - 1);
+    throwDb(error);
+    return {
+      columns: readable.map((field) => {
+        const metadata = getCustomObjectFieldMetadata(field);
+        return { field_id: field.id, key: metadata.key, label: metadata.label, field_type: metadata.type };
+      }),
+      data: (data || []).map((record) => {
+        const projected = projectRecord(definition, record, definitions, access);
+        return {
+          id: projected.id,
+          display_value: projected.display_value,
+          created_at: projected.created_at,
+          updated_at: projected.updated_at,
+          data: projected.data,
+        };
+      }),
+      total: count || 0,
+      page,
+      pageSize,
     };
   }
 
@@ -650,8 +766,7 @@ export function createCustomObjectService({
     if (definition.status !== 'active') {
       throw new CustomObjectHttpError(409, 'Records can only be created for active Custom Objects');
     }
-    const validation = validateCustomObjectRecordData({ data: body?.data, fields: await fields(objectId, true), mode: 'create' });
-    if (!validation.ok) throw new CustomObjectHttpError(400, 'Invalid record data', validation.errors);
+    const validation = await validateRecordWrite(objectId, body?.data, null, 'create');
     const payload = { tenant_id: tenantId, custom_object_id: objectId, data: validation.data, ...authored('created'), ...authored() };
     const { data, error } = await db.from('custom_object_record').insert(payload).select('*').single();
     throwDb(error);
@@ -665,12 +780,7 @@ export function createCustomObjectService({
   async function createRecordWithRelationships(objectId, body = {}) {
     const definition = await activeObject(objectId, 'Records can only be created for active Custom Objects');
     await requireCapability(objectId, 'create_records');
-    const validation = validateCustomObjectRecordData({
-      data: body.data,
-      fields: await fields(objectId, true),
-      mode: 'create',
-    });
-    if (!validation.ok) throw new CustomObjectHttpError(400, 'Invalid record data', validation.errors);
+    const validation = await validateRecordWrite(objectId, body.data, null, 'create');
     if (typeof db.rpc !== 'function') {
       throw new CustomObjectHttpError(503, 'Record relationship transaction is unavailable');
     }
@@ -777,10 +887,12 @@ export function createCustomObjectService({
     const customObjectId = kind === 'custom_object' ? definition[`${candidateSide}_custom_object_id`] : null;
     let endpointDefinition = null;
     let endpointFields = [];
+    let endpointAccess = null;
     if (kind === 'custom_object') {
       endpointDefinition = await activeObject(customObjectId);
       await requireCapability(customObjectId, 'view_records');
       endpointFields = await fields(customObjectId, true);
+      endpointAccess = await fieldAccess(customObjectId, endpointFields);
     }
     const p = pagination(query);
     let q = db.from(table).select('*', { count: 'exact' }).eq('tenant_id', tenantId);
@@ -792,7 +904,8 @@ export function createCustomObjectService({
         q = q.or(`first_name.ilike.${pattern},last_name.ilike.${pattern},email.ilike.${pattern}`);
       } else if (kind !== 'custom_object') q = q.ilike('name', `%${search}%`);
       else {
-        const primary = endpointFields.find((field) => field.id === endpointDefinition.primary_display_field_id);
+        const primary = endpointFields.find((field) => field.id === endpointDefinition.primary_display_field_id
+          && endpointAccess.get(String(field.id)) !== 'none');
         const key = getCustomObjectFieldMetadata(primary).key;
         if (key) q = q.filter(`data->>${key}`, 'ilike', `*${search}*`);
       }
@@ -808,7 +921,10 @@ export function createCustomObjectService({
     return {
       data: (data || []).map((row) => ({
         id: row.id, kind, custom_object_id: customObjectId,
-        ...endpointLabel(kind, row, endpointDefinition, endpointFields),
+        ...endpointLabel(
+          kind, row, endpointDefinition, endpointFields, endpointAccess,
+          configuredCompactPreviewFieldIds(definition, candidateSide),
+        ),
       })),
       total: count || 0, page: p.page, pageSize: p.pageSize,
     };
@@ -819,7 +935,7 @@ export function createCustomObjectService({
     await requireCapability(objectId, 'view_records');
     const record = await one('custom_object_record', recordId, { custom_object_id: objectId });
     const definitions = await fields(objectId);
-    return { ...record, display_value: resolveCustomObjectDisplayValue({ objectDefinition: definition, record, fields: definitions }) };
+    return projectRecord(definition, record, definitions, await fieldAccess(objectId, definitions));
   }
 
   async function updateRecord(objectId, recordId, body, archive = false) {
@@ -835,17 +951,15 @@ export function createCustomObjectService({
       payload = { archived_at: before.archived_at || now(), archived_by: currentActorReference, archive_reason: body?.archive_reason || null, ...authored() };
     } else {
       if (before.archived_at) throw new CustomObjectHttpError(409, 'Archived records cannot be edited');
-      const validation = validateCustomObjectRecordData({
-        data: body?.data, fields: await fields(objectId, true), existingData: before.data, mode: 'update',
-      });
-      if (!validation.ok) throw new CustomObjectHttpError(400, 'Invalid record data', validation.errors);
+      const validation = await validateRecordWrite(objectId, body?.data, before.data, 'update');
       payload = { data: validation.data, ...authored() };
     }
     const { data, error } = await db.from('custom_object_record').update(payload)
       .eq('tenant_id', tenantId).eq('custom_object_id', objectId).eq('id', recordId)
       .select('*').single();
     throwDb(error);
-    return data;
+    const definitions = await fields(objectId);
+    return projectRecord(definition, data, definitions, await fieldAccess(objectId, definitions));
   }
 
   async function listRelationshipDefinitions(objectId, query) {
@@ -921,6 +1035,7 @@ export function createCustomObjectService({
     }
     const validation = validateCustomObjectRelationshipDefinition(payload);
     if (!validation.ok) throw new CustomObjectHttpError(400, 'Invalid relationship definition', validation.errors);
+    await validateRelationshipPreview(payload);
     if (payload.status !== 'draft') Object.assign(payload, domainGuard(() => resolveCustomObjectLifecycleUpdate({ currentStatus: 'draft', nextStatus: payload.status, hasPrimaryDisplayField: true, now: now() })));
     const { data, error } = await db.from('custom_object_relationship_definition').insert(payload).select('*').single();
     throwDb(error);
@@ -950,6 +1065,7 @@ export function createCustomObjectService({
     for (const relatedObjectId of relationshipObjectIds(candidate)) await activeObject(relatedObjectId);
     const validation = validateCustomObjectRelationshipDefinition(candidate);
     if (!validation.ok) throw new CustomObjectHttpError(400, 'Invalid relationship definition', validation.errors);
+    await validateRelationshipPreview(candidate);
     if (archive || payload.status !== undefined) Object.assign(payload, domainGuard(() => resolveCustomObjectLifecycleUpdate({
       currentStatus: before.status, nextStatus: archive ? 'archived' : payload.status,
       currentArchivedAt: before.archived_at, hasPrimaryDisplayField: true, now: now(),
@@ -971,7 +1087,7 @@ export function createCustomObjectService({
     return { ...(await one(table, id)), kind };
   }
 
-  function endpointLabel(kind, row, definition = null, endpointFields = []) {
+  function endpointLabel(kind, row, definition = null, endpointFields = [], access = null, previewFieldIds = []) {
     if (kind === 'member') {
       return {
         primary_label: [row.first_name, row.last_name].filter(Boolean).join(' ').trim()
@@ -985,15 +1101,32 @@ export function createCustomObjectService({
     if (kind === 'organization_group') {
       return { primary_label: row.name || row.id, secondary_text: row.description || null };
     }
+    const readableFields = access ? allowedFields(endpointFields, access) : endpointFields;
+    const preview = previewFieldIds.map(String)
+      .map((id) => readableFields.find((field) => String(field.id) === id))
+      .filter(Boolean)
+      .map((field) => {
+        const metadata = getCustomObjectFieldMetadata(field);
+        return { field_id: field.id, key: metadata.key, label: metadata.label, value: row.data?.[metadata.key] ?? null };
+      });
     return {
       primary_label: resolveCustomObjectDisplayValue({
-        objectDefinition: definition, record: row, fields: endpointFields,
+        objectDefinition: definition, record: row, fields: readableFields,
       }),
-      secondary_text: definition?.singular_label || null,
+      secondary_text: preview.map((item) => String(item.value ?? '')).filter(Boolean).join(' · ') || null,
+      compact_fields: preview,
     };
   }
 
-  async function resolveEndpointRows(kind, customObjectId, ids, { includeArchived = false } = {}) {
+  function configuredCompactPreviewFieldIds(definition, side) {
+    const preview = definition?.configuration?.compact_preview
+      ?? definition?.configuration?.compact_preview_fields
+      ?? {};
+    const ids = preview[`${side}_field_ids`] ?? preview[side] ?? [];
+    return Array.isArray(ids) ? ids : [];
+  }
+
+  async function resolveEndpointRows(kind, customObjectId, ids, { includeArchived = false, previewFieldIds = [] } = {}) {
     const uniqueIds = [...new Set(ids.filter(Boolean))];
     if (uniqueIds.length === 0) return new Map();
     const table = {
@@ -1003,12 +1136,14 @@ export function createCustomObjectService({
     if (!table) throw new CustomObjectHttpError(400, 'Unsupported relationship endpoint kind');
     let endpointDefinition = null;
     let endpointFields = [];
+    let endpointAccess = null;
     if (kind === 'custom_object') {
       endpointDefinition = includeArchived
         ? await object(customObjectId)
         : await activeObject(customObjectId);
       await requireCapability(customObjectId, 'view_records');
       endpointFields = await fields(customObjectId, true);
+      endpointAccess = await fieldAccess(customObjectId, endpointFields);
     }
     let q = db.from(table).select('*').eq('tenant_id', tenantId).in('id', uniqueIds);
     if (kind === 'custom_object') {
@@ -1018,7 +1153,7 @@ export function createCustomObjectService({
     const { data, error } = await q;
     throwDb(error);
     return new Map((data || []).map((row) => {
-      const labels = endpointLabel(kind, row, endpointDefinition, endpointFields);
+      const labels = endpointLabel(kind, row, endpointDefinition, endpointFields, endpointAccess, previewFieldIds);
       return [row.id, {
         id: row.id,
         kind,
@@ -1430,10 +1565,12 @@ export function createCustomObjectService({
       : null;
     let endpointDefinition = null;
     let endpointFields = [];
+    let endpointAccess = null;
     if (kind === 'custom_object') {
       endpointDefinition = await activeObject(customObjectId);
       await requireCapability(customObjectId, 'view_records');
       endpointFields = await fields(customObjectId, true);
+      endpointAccess = await fieldAccess(customObjectId, endpointFields);
     }
     const p = pagination(query);
     let q = db.from(table).select('*', { count: 'exact' }).eq('tenant_id', tenantId);
@@ -1449,7 +1586,8 @@ export function createCustomObjectService({
       }
       else if (kind !== 'custom_object') q = q.ilike('name', `%${search}%`);
       else {
-        const primary = endpointFields.find((field) => field.id === endpointDefinition.primary_display_field_id);
+        const primary = endpointFields.find((field) => field.id === endpointDefinition.primary_display_field_id
+          && endpointAccess.get(String(field.id)) !== 'none');
         const key = getCustomObjectFieldMetadata(primary).key;
         if (key) q = q.filter(`data->>${key}`, 'ilike', `*${search}*`);
       }
@@ -1468,7 +1606,10 @@ export function createCustomObjectService({
         id: row.id,
         kind,
         custom_object_id: kind === 'custom_object' ? customObjectId : null,
-        ...endpointLabel(kind, row, endpointDefinition, endpointFields),
+        ...endpointLabel(
+          kind, row, endpointDefinition, endpointFields, endpointAccess,
+          configuredCompactPreviewFieldIds(definition, oppositeSide),
+        ),
       })),
       page: p.page,
       pageSize: p.pageSize,
@@ -1526,7 +1667,10 @@ export function createCustomObjectService({
       definition[`${relatedSide}_kind`],
       definition[`${relatedSide}_custom_object_id`],
       rows.map((edge) => edge[`${relatedSide}_record_id`]),
-      { includeArchived },
+      {
+        includeArchived,
+        previewFieldIds: configuredCompactPreviewFieldIds(definition, relatedSide),
+      },
     );
     if (resolved.size !== new Set(rows.map((edge) => edge[`${relatedSide}_record_id`])).size) {
       throw new CustomObjectHttpError(409, 'A related endpoint is missing, archived, or unavailable');
@@ -1687,6 +1831,41 @@ export function createCustomObjectService({
     return data;
   }
 
+  async function listFieldPermissions(objectId, query) {
+    requireSchemaViewer();
+    await object(objectId);
+    const p = pagination(query);
+    let q = db.from('custom_object_field_role_permission').select('*', { count: 'exact' })
+      .eq('tenant_id', tenantId).eq('custom_object_id', objectId)
+      .order('created_at', { ascending: false }).order('id', { ascending: false });
+    if (query?.roleId) q = q.eq('role_id', query.roleId);
+    const { data, error, count } = await q.range(p.from, p.to);
+    throwDb(error);
+    return { data: data || [], total: count || 0, page: p.page, pageSize: p.pageSize };
+  }
+
+  async function upsertFieldPermission(objectId, body) {
+    requireSchemaManager();
+    requireMutableObject(await object(objectId));
+    if (!body?.role_id || !body?.field_id) {
+      throw new CustomObjectHttpError(400, 'role_id and field_id are required');
+    }
+    const accessLevel = body.access_level ?? body.access;
+    if (!['none', 'read', 'edit'].includes(accessLevel)) {
+      throw new CustomObjectHttpError(400, 'access_level must be none, read, or edit');
+    }
+    await one('role', body.role_id);
+    await one('preference_field', body.field_id, { custom_object_id: objectId });
+    const payload = {
+      tenant_id: tenantId, custom_object_id: objectId, field_id: body.field_id,
+      role_id: body.role_id, access_level: accessLevel, ...authored('created'), ...authored(),
+    };
+    const { data, error } = await db.from('custom_object_field_role_permission')
+      .upsert(payload, { onConflict: 'tenant_id,custom_object_id,field_id,role_id' }).select('*').single();
+    throwDb(error);
+    return data;
+  }
+
   async function listAudit(objectId, query) {
     requireSchemaViewer();
     await object(objectId);
@@ -1708,10 +1887,10 @@ export function createCustomObjectService({
 
   return {
     listObjects, createObject, getObject, updateObject, listFields, createField,
-    updateField, listRecords, createRecord, createRecordWithRelationships, initialRelationshipCandidates, getRecord, updateRecord,
+    updateField, listRecords, exportRecords, createRecord, createRecordWithRelationships, initialRelationshipCandidates, getRecord, updateRecord,
     listRelationshipDefinitions, createRelationshipDefinition,
     updateRelationshipDefinition, entityPicker, listRelationships, createRelationship,
-    archiveRelationship, listPermissions, upsertPermission, listAudit,
+    archiveRelationship, listPermissions, upsertPermission, listFieldPermissions, upsertFieldPermission, listAudit,
     listCoreRelationshipDefinitions, listCoreRelationships, coreEntityPicker,
     createCoreRelationship, archiveCoreRelationship,
   };

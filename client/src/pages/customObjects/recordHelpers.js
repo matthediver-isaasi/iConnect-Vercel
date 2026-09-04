@@ -217,6 +217,79 @@ export const formatRecordValue = (field, value, countryNames = {}) => {
   return String(value);
 };
 
+// Field access is deliberately tolerant of the API's compact and expanded
+// metadata forms.  Absence means the legacy, backwards-compatible write access.
+export const fieldAccess = (field = {}) => {
+  const raw = field.access ?? field.field_access ?? field.permission?.access
+    ?? field.permissions?.access ?? field.permission;
+  if (raw === false || ["none", "no_access", "hidden", "deny"].includes(String(raw).toLowerCase()))
+    return "none";
+  if (["read", "readonly", "read_only", "view"].includes(String(raw).toLowerCase()))
+    return "read";
+  if (raw && typeof raw === "object") {
+    if (raw.can_view === false || raw.view === false || raw.read === false) return "none";
+    if (raw.can_edit === false || raw.write === false || raw.edit === false) return "read";
+  }
+  return "write";
+};
+
+export const readableFields = (fields = []) =>
+  fields.filter((field) => field.is_active !== false && fieldAccess(field) !== "none");
+
+export const writableFields = (fields = []) =>
+  readableFields(fields).filter((field) => fieldAccess(field) === "write");
+
+const configuredIds = (value) => (Array.isArray(value) ? value : [])
+  .map((item) => typeof item === "object" ? item.field_id || item.id : item)
+  .filter(Boolean)
+  .map(String);
+
+export const objectPresentation = (object = {}) =>
+  object.presentation || object.view_configuration || object.view_config
+  || object.configuration?.presentation || object.configuration?.views || {};
+
+// Discard stale, archived and inaccessible configured fields; then append a
+// sensible metadata-driven fallback without ever exposing hidden fields.
+export const orderedPresentationFields = (fields, configured, fallback = fields) => {
+  const allowed = readableFields(fields);
+  const byId = new Map(allowed.map((field) => [String(field.id), field]));
+  const selected = configuredIds(configured).map((id) => byId.get(id)).filter(Boolean);
+  return selected.length
+    ? selected
+    : readableFields(fallback).filter((field) => byId.has(String(field.id)));
+};
+
+export const sharedListFields = (object, fields) => {
+  const presentation = objectPresentation(object);
+  return orderedPresentationFields(fields,
+    presentation.list_fields || presentation.list?.fields || presentation.list?.field_ids || presentation.list?.default_field_ids,
+    readableFields(fields).slice(0, 5));
+};
+
+export const detailSections = (object, fields) => {
+  const presentation = objectPresentation(object);
+  const sections = presentation.detail_sections || presentation.detail?.sections;
+  if (!Array.isArray(sections) || !sections.length)
+    return [{ id: "details", label: `${object?.singular_label || "Record"} details`, fields: readableFields(fields) }];
+  return sections.map((section, index) => ({
+    id: section.id || `section-${index}`,
+    label: section.label || section.title || `Section ${index + 1}`,
+    fields: orderedPresentationFields(fields, section.fields || section.field_ids, []),
+  })).filter((section) => section.fields.length);
+};
+
+export const compactPreviewFields = (definition, side, fields) => {
+  const config = definition?.configuration || {};
+  const preview = config.compact_preview || config.compactPreview || config.preview || {};
+  // `side` is the viewed endpoint; persisted metadata is keyed by the
+  // opposite endpoint because those are the fields being rendered.
+  const relatedSide = side === "source" ? "target" : "source";
+  return orderedPresentationFields(fields,
+    preview[`${relatedSide}_field_ids`] || preview[relatedSide]?.fields || preview[relatedSide]?.field_ids
+      || preview[relatedSide] || config[`${relatedSide}_compact_fields`],
+    []);
+};
+
 export const RECORD_PERMISSION_KEYS = [
   "can_view_records",
   "can_create_records",

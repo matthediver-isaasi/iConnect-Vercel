@@ -5,9 +5,12 @@ import {
   arrayValue,
   buildRecordPayload,
   coerceRecordValue,
+  detailSections,
+  fieldAccess,
   formatRecordValue,
   normalizeRecordPermissions,
   optionValues,
+  sharedListFields,
   validateRecordValues,
 } from "./recordHelpers.js";
 
@@ -343,4 +346,20 @@ test("permissions returned in an unusable state are normalized for display and r
       can_export_records: false,
     },
   );
+});
+
+test("configured views retain order while excluding hidden and archived fields", () => {
+  const fields = [
+    field("name", "text"),
+    field("private", "text", { field_access: "none" }),
+    field("state", "text", { field_access: "read" }),
+    field("old", "text", { is_active: false }),
+  ];
+  const object = { singular_label: "Item", configuration: { views: {
+    list: { field_ids: ["state-id", "private-id", "old-id", "name-id"] },
+    detail: { sections: [{ label: "Summary", field_ids: ["state-id", "private-id"] }] },
+  } } };
+  assert.equal(fieldAccess(fields[2]), "read");
+  assert.deepEqual(sharedListFields(object, fields).map((item) => item.name), ["state", "name"]);
+  assert.deepEqual(detailSections(object, fields).map((section) => section.fields.map((item) => item.name)), [["state"]]);
 });

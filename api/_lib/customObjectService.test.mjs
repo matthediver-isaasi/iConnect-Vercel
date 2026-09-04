@@ -224,6 +224,102 @@ function field(overrides = {}) {
   };
 }
 
+test('field ACLs prune active and archived definitions while retaining only unknown legacy keys', async () => {
+  const archived = field({ id: 'field-archived', name: 'retired_secret', is_active: false });
+  const denied = field({ id: 'field-denied', name: 'secret', is_required: false });
+  const visible = field({ id: 'field-visible', name: 'title', field_type: 'text', is_required: false });
+  const db = mockDb({
+    custom_object_definition: [object({ primary_display_field_id: visible.id })],
+    custom_object_role_permission: [{ tenant_id: tenantId, custom_object_id: objectId, role_id: roleId, can_view_records: true }],
+    custom_object_field_role_permission: [
+      { tenant_id: tenantId, custom_object_id: objectId, role_id: roleId, field_id: denied.id, access_level: 'none' },
+      { tenant_id: tenantId, custom_object_id: objectId, role_id: roleId, field_id: archived.id, access_level: 'none' },
+    ],
+    preference_field: [visible, denied, archived],
+    custom_object_record: [{ id: 'record-1', tenant_id: tenantId, custom_object_id: objectId, data: {
+      title: 'Visible', secret: 'Denied', retired_secret: 'Denied historic', unknown_legacy: 'kept',
+    } }],
+  });
+  const record = await createCustomObjectService({ db, context: context() }).getRecord(objectId, 'record-1');
+  assert.deepEqual(record.data, { title: 'Visible', unknown_legacy: 'kept' });
+});
+
+test('field permissions reject denied query and writes and ignore required read-only fields', async () => {
+  const readOnly = field({ id: 'field-read', name: 'required_read_only', field_type: 'text', is_required: true });
+  const denied = field({ id: 'field-denied', name: 'secret', is_required: false });
+  const writable = field({ id: 'field-write', name: 'title', field_type: 'text', is_required: false });
+  const db = mockDb({
+    custom_object_definition: [object()],
+    custom_object_role_permission: [{
+      tenant_id: tenantId, custom_object_id: objectId, role_id: roleId,
+      can_view_records: true, can_create_records: true, can_edit_records: true,
+    }],
+    custom_object_field_role_permission: [
+      { tenant_id: tenantId, custom_object_id: objectId, role_id: roleId, field_id: readOnly.id, access_level: 'read' },
+      { tenant_id: tenantId, custom_object_id: objectId, role_id: roleId, field_id: denied.id, access_level: 'none' },
+    ],
+    preference_field: [readOnly, denied, writable],
+    custom_object_record: [{ id: 'record-1', tenant_id: tenantId, custom_object_id: objectId, data: { title: 'Old', secret: 'x' } }],
+  });
+  const service = createCustomObjectService({ db, context: context() });
+  await service.createRecord(objectId, { data: { title: 'New' } });
+  await assert.rejects(() => service.listRecords(objectId, { filters: JSON.stringify({ [denied.id]: { op: 'equals', value: 'x' } }) }), /Unknown or inactive filter field/);
+  await assert.rejects(() => service.listRecords(objectId, { sortField: denied.id }), /sortField/);
+  await assert.rejects(() => service.updateRecord(objectId, 'record-1', { data: { secret: 'no' } }), /read-only or unavailable/);
+  await assert.rejects(() => service.updateRecord(objectId, 'record-1', { data: { required_read_only: 'no' } }), /read-only or unavailable/);
+});
+
+test('export requires its object capability and returns only readable fields', async () => {
+  const visible = field({ id: 'field-visible', name: 'title', field_type: 'text', is_required: false });
+  const denied = field({ id: 'field-denied', name: 'secret', field_type: 'text', is_required: false });
+  const seed = {
+    custom_object_definition: [object({ primary_display_field_id: visible.id })],
+    preference_field: [visible, denied],
+    custom_object_field_role_permission: [{ tenant_id: tenantId, custom_object_id: objectId, role_id: roleId, field_id: denied.id, access_level: 'none' }],
+    custom_object_record: [{ id: 'record-1', tenant_id: tenantId, custom_object_id: objectId, archived_at: null, data: { title: 'Public', secret: 'Private' } }],
+  };
+  const deniedExport = createCustomObjectService({ db: mockDb({
+    ...seed,
+    custom_object_role_permission: [{ tenant_id: tenantId, custom_object_id: objectId, role_id: roleId, can_view_records: true }],
+  }), context: context() });
+  await assert.rejects(() => deniedExport.exportRecords(objectId, {}), /Access denied/);
+  const allowed = createCustomObjectService({ db: mockDb({
+    ...seed,
+    custom_object_role_permission: [{ tenant_id: tenantId, custom_object_id: objectId, role_id: roleId, can_view_records: true, can_export_records: true }],
+  }), context: context() });
+  const result = await allowed.exportRecords(objectId, {});
+  assert.deepEqual(result.columns.map((column) => column.key), ['title']);
+  assert.equal(result.data[0].display_value, 'Public');
+  assert.deepEqual(result.data[0].data, { title: 'Public' });
+  assert.equal(result.total, 1);
+  assert.equal(result.page, 1);
+  assert.equal(result.pageSize, 500);
+});
+
+test('field permission listing and upsert require schema access and enforce object-owned fields', async () => {
+  const controlled = field({ id: 'field-controlled', is_required: false });
+  const seed = {
+    custom_object_definition: [object()],
+    preference_field: [controlled],
+    role: [{ id: roleId, tenant_id: tenantId, name: 'portal' }],
+    custom_object_field_role_permission: [],
+  };
+  const reader = createCustomObjectService({ db: mockDb(seed), context: context() });
+  await assert.rejects(() => reader.listFieldPermissions(objectId, {}), /catalogue access required/);
+  await assert.rejects(() => reader.upsertFieldPermission(objectId, {
+    role_id: roleId, field_id: controlled.id, access_level: 'read',
+  }), /management access required/);
+  const db = mockDb(seed);
+  const manager = createCustomObjectService({
+    db, context: context(), canViewSchema: true, canManageSchema: true,
+  });
+  const saved = await manager.upsertFieldPermission(objectId, {
+    role_id: roleId, field_id: controlled.id, access_level: 'read',
+  });
+  assert.equal(saved.access_level, 'read');
+  assert.equal((await manager.listFieldPermissions(objectId, {})).data[0].field_id, controlled.id);
+});
+
 test('service denies unauthenticated, mismatched, and missing-tenant contexts', () => {
   const db = mockDb();
   assert.throws(
@@ -1370,6 +1466,42 @@ test('entity picker paginates and projects stable labels for every endpoint shap
     pageSize: 1,
     total: 2,
   });
+});
+
+test('configured compact previews follow the opposite endpoint in both picker directions', async () => {
+  const sourceId = objectId;
+  const targetId = '44444444-4444-4444-8444-444444444444';
+  const definitionId = '55555555-5555-4555-8555-555555555555';
+  const sourceField = field({ id: 'field-source', name: 'source_note', field_type: 'text', is_required: false });
+  const targetField = field({ id: 'field-target', custom_object_id: targetId, name: 'target_note', field_type: 'text', is_required: false });
+  const db = mockDb({
+    custom_object_definition: [object({ id: sourceId }), object({ id: targetId, object_key: 'targets' })],
+    preference_field: [sourceField, targetField],
+    custom_object_record: [
+      { id: 'source-record', tenant_id: tenantId, custom_object_id: sourceId, archived_at: null, data: { source_note: 'Source preview' } },
+      { id: 'target-record', tenant_id: tenantId, custom_object_id: targetId, archived_at: null, data: { target_note: 'Target preview' } },
+    ],
+    custom_object_relationship_definition: [{
+      id: definitionId, tenant_id: tenantId, status: 'active', cardinality: 'many_to_many',
+      source_kind: 'custom_object', source_custom_object_id: sourceId,
+      target_kind: 'custom_object', target_custom_object_id: targetId,
+      show_on_source: true, show_on_target: true, edit_from_source: true, edit_from_target: true,
+      configuration: { compact_preview: { source_field_ids: [sourceField.id], target_field_ids: [targetField.id] } },
+    }],
+    custom_object_role_permission: [
+      { tenant_id: tenantId, custom_object_id: sourceId, role_id: roleId, can_view_records: true, can_create_records: true, can_edit_records: true },
+      { tenant_id: tenantId, custom_object_id: targetId, role_id: roleId, can_view_records: true, can_create_records: true, can_edit_records: true },
+    ],
+  });
+  const service = createCustomObjectService({ db, context: context() });
+  const fromSource = await service.entityPicker(sourceId, { definitionId, recordId: 'source-record', side: 'source' });
+  const fromTarget = await service.entityPicker(targetId, { definitionId, recordId: 'target-record', side: 'target' });
+  const initialFromSource = await service.initialRelationshipCandidates(sourceId, { definitionId, newRecordSide: 'source' });
+  const initialFromTarget = await service.initialRelationshipCandidates(targetId, { definitionId, newRecordSide: 'target' });
+  assert.equal(fromSource.data[0].compact_fields[0].value, 'Target preview');
+  assert.equal(fromTarget.data[0].compact_fields[0].value, 'Source preview');
+  assert.equal(initialFromSource.data[0].compact_fields[0].value, 'Target preview');
+  assert.equal(initialFromTarget.data[0].compact_fields[0].value, 'Source preview');
 });
 
 test('record-scoped related query supports reverse display and resolves one level only', async () => {

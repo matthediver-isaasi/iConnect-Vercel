@@ -44,7 +44,9 @@ export const CUSTOM_OBJECT_AUDIT_ENTITY_TYPES = Object.freeze([
   'custom_object_relationship_definition',
   'custom_object_relationship',
   'custom_object_role_permission',
+  'custom_object_field_role_permission',
 ]);
+export const CUSTOM_OBJECT_FIELD_ACCESS_LEVELS = Object.freeze(['none', 'read', 'edit']);
 
 const INTERNAL_KEY_RE = /^[a-z][a-z0-9_]{0,99}$/;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -73,6 +75,77 @@ export class CustomObjectDomainError extends Error {
 
 function isPlainObject(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function configuredFieldIds(value, label, errors) {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.some((id) => typeof id !== 'string' || !id)) {
+    errors.push(`${label} must be an array of field ids`);
+    return [];
+  }
+  if (new Set(value).size !== value.length) errors.push(`${label} cannot contain duplicate fields`);
+  return value;
+}
+
+// Shared presentation is deliberately metadata only: consumers may choose their
+// own rendering, but cannot accidentally configure fields outside this object.
+export function validateCustomObjectViewConfiguration(configuration = {}, fields = []) {
+  const errors = [];
+  if (!isPlainObject(configuration)) return { ok: false, errors: ['Object configuration must be an object'] };
+  const views = configuration.views;
+  if (views === undefined) return { ok: true, errors: [] };
+  if (!isPlainObject(views)) return { ok: false, errors: ['views must be an object'] };
+  const activeIds = new Set((fields || []).filter((field) => getCustomObjectFieldMetadata(field).active)
+    .map((field) => String(field.id)));
+  const validateIds = (ids, label) => {
+    for (const id of ids) if (!activeIds.has(id)) errors.push(`${label} includes an unknown or archived field`);
+  };
+  if (views.list !== undefined) {
+    if (!isPlainObject(views.list)) errors.push('views.list must be an object');
+    else validateIds(configuredFieldIds(views.list.field_ids ?? views.list.default_field_ids, 'views.list.field_ids', errors), 'views.list.field_ids');
+  }
+  if (views.detail !== undefined) {
+    if (!isPlainObject(views.detail) || !Array.isArray(views.detail.sections)) errors.push('views.detail.sections must be an array');
+    else views.detail.sections.forEach((section, index) => {
+      if (!isPlainObject(section)) errors.push(`views.detail.sections[${index}] must be an object`);
+      else validateIds(configuredFieldIds(section.field_ids ?? section.fields, `views.detail.sections[${index}].field_ids`, errors), `views.detail.sections[${index}].field_ids`);
+    });
+  }
+  return { ok: errors.length === 0, errors };
+}
+
+export function validateCustomObjectRelationshipPreviewConfiguration(configuration = {}, fieldsBySide = {}) {
+  const errors = [];
+  if (!isPlainObject(configuration)) return { ok: false, errors: ['Relationship configuration must be an object'] };
+  const preview = configuration.compact_preview ?? configuration.compact_preview_fields;
+  if (preview === undefined) return { ok: true, errors: [] };
+  if (!isPlainObject(preview)) return { ok: false, errors: ['compact_preview must be an object'] };
+  for (const side of ['source', 'target']) {
+    const ids = configuredFieldIds(preview[`${side}_field_ids`] ?? preview[side], `compact_preview.${side}`, errors);
+    const activeIds = new Set((fieldsBySide[side] || []).filter((field) => getCustomObjectFieldMetadata(field).active)
+      .map((field) => String(field.id)));
+    for (const id of ids) if (!activeIds.has(id)) errors.push(`compact_preview.${side} includes an unknown or archived field`);
+  }
+  return { ok: errors.length === 0, errors };
+}
+
+export function resolveCustomObjectFieldAccess({ permission = null, isTenantAdmin = false } = {}) {
+  if (isTenantAdmin) return 'edit';
+  // No row is the compatibility contract for objects created before field ACLs.
+  if (!permission) return 'edit';
+  const access = permission.access_level ?? permission.access;
+  return CUSTOM_OBJECT_FIELD_ACCESS_LEVELS.includes(access) ? access : 'none';
+}
+
+export function projectCustomObjectRecordData({ data, fields, accessByFieldId = new Map() }) {
+  // Keep truly unknown historic keys. A known field is always governed by its
+  // ACL, including a definition that has since been archived.
+  const output = isPlainObject(data) ? structuredClone(data) : {};
+  for (const field of fields || []) {
+    const metadata = getCustomObjectFieldMetadata(field);
+    if (accessByFieldId.get(String(field.id)) === 'none') delete output[metadata.key];
+  }
+  return output;
 }
 
 function isBlank(value) {

@@ -8,11 +8,14 @@ import {
   buildCustomObjectAuditEvent,
   coerceCustomObjectFieldValue,
   resolveCustomObjectDisplayValue,
+  resolveCustomObjectFieldAccess,
   resolveCustomObjectLifecycleUpdate,
   resolveCustomObjectPermission,
   validateCustomObjectFieldDefinition,
   validateCustomObjectRecordData,
   validateCustomObjectRelationshipEndpoints,
+  validateCustomObjectRelationshipPreviewConfiguration,
+  validateCustomObjectViewConfiguration,
 } from './customObjectDomain.js';
 import {
   isCustomObjectFieldWrite,
@@ -235,6 +238,30 @@ test('display resolution uses option labels and primary field metadata', () => {
     record: { id: 'record-1', data: { type: 'clinical' } },
     fields: [primary],
   }), 'Clinical');
+});
+
+test('generic view and side-aware compact preview metadata only permit active owner fields', () => {
+  const primary = field({ id: '33333333-3333-4333-8333-333333333333' });
+  const inactive = field({ id: '44444444-4444-4444-8444-444444444444', is_active: false });
+  assert.equal(validateCustomObjectViewConfiguration({
+    views: { list: { field_ids: [primary.id] }, detail: { sections: [{ field_ids: [primary.id] }] } },
+  }, [primary, inactive]).ok, true);
+  assert.equal(validateCustomObjectViewConfiguration({
+    views: { list: { field_ids: [inactive.id] } },
+  }, [primary, inactive]).ok, false);
+  assert.equal(validateCustomObjectRelationshipPreviewConfiguration({
+    compact_preview: { source_field_ids: [primary.id], target_field_ids: [] },
+  }, { source: [primary], target: [] }).ok, true);
+  assert.equal(validateCustomObjectRelationshipPreviewConfiguration({
+    compact_preview: { target_field_ids: [primary.id] },
+  }, { source: [primary], target: [] }).ok, false);
+});
+
+test('field access defaults preserve legacy editability and invalid rows fail closed', () => {
+  assert.equal(resolveCustomObjectFieldAccess(), 'edit');
+  assert.equal(resolveCustomObjectFieldAccess({ permission: { access_level: 'read' } }), 'read');
+  assert.equal(resolveCustomObjectFieldAccess({ permission: { access_level: 'unexpected' } }), 'none');
+  assert.equal(resolveCustomObjectFieldAccess({ permission: { access_level: 'none' }, isTenantAdmin: true }), 'edit');
 });
 
 test('lifecycle archive defaults are server-authored and archive is terminal', () => {

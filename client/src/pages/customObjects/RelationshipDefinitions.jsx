@@ -87,7 +87,7 @@ function DirectionFields({ side, form, update, objects, objectsQuery, currentObj
     sourceObjectId: form.source_custom_object_id,
     objects: activeObjects,
   }) : null;
-  return <div className="grid gap-3 sm:grid-cols-[150px_minmax(0,1fr)_minmax(0,1fr)]">
+  return <><div className="grid gap-3 sm:grid-cols-[150px_minmax(0,1fr)_minmax(0,1fr)]">
     <div><Label>Record type</Label><Select disabled={Boolean(lockedKind || immutable)} value={form[kindKey]} onValueChange={(value) => update(kindKey, value)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{ENTITY_KINDS.map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectContent></Select></div>
     <div>{form[kindKey] === "custom_object" ? isFixedSource ? <><Label>Custom object</Label>{sourceObject ? <div className="flex h-9 items-center rounded-md border bg-white px-3 text-sm font-medium text-slate-700">{relationshipSourceName(sourceObject)}</div> : objectsQuery.isLoading ? <div className="flex h-9 items-center gap-2 rounded-md border bg-white px-3 text-sm text-slate-500"><Loader2 className="h-4 w-4 animate-spin" />Loading source object…</div> : objectsQuery.error ? <div className="rounded-md border border-rose-200 bg-rose-50 p-2 text-xs text-rose-700"><p>{objectsQuery.error.message}</p><Button type="button" variant="outline" size="sm" className="mt-2" onClick={() => objectsQuery.refetch()}>Try again</Button></div> : <div className="rounded-md border border-amber-200 bg-amber-50 p-2 text-xs text-amber-800">The source Custom Object is no longer available.</div>}<p className="mt-1 text-xs text-slate-500">The source endpoint is fixed for this relationship.</p></> : <><Label>Custom object</Label>{objectsQuery.isLoading ? <div className="flex h-9 items-center gap-2 rounded-md border bg-white px-3 text-sm text-slate-500"><Loader2 className="h-4 w-4 animate-spin" />Loading active objects…</div> : objectsQuery.error ? <div className="rounded-md border border-rose-200 bg-rose-50 p-2 text-xs text-rose-700"><p>{objectsQuery.error.message}</p><Button type="button" variant="outline" size="sm" className="mt-2" onClick={() => objectsQuery.refetch()}>Try again</Button></div> : activeObjects.length === 0 ? <div className="rounded-md border border-amber-200 bg-amber-50 p-2 text-xs text-amber-800">No active Custom Objects are available. Activate a target object or check your access.</div> : <Select disabled={immutable} value={String(form[objectKey] || "")} onValueChange={(value) => update(objectKey, value)}><SelectTrigger><SelectValue placeholder="Choose active object" /></SelectTrigger><SelectContent>{activeObjects.map((item) => <SelectItem key={item.id} value={String(item.id)}>{item.plural_label}</SelectItem>)}</SelectContent></Select>}</> : <><Label>Endpoint</Label><div className="flex h-9 items-center rounded-md border bg-white px-3 text-sm text-slate-600">{kindName(form[kindKey])}</div></>}</div>
     <div><Label>Panel label</Label><Input value={form[labelKey]} onChange={(e) => update(labelKey, e.target.value)} placeholder={side === "source" ? "Members" : "Committees"} /></div>
@@ -95,7 +95,27 @@ function DirectionFields({ side, form, update, objects, objectsQuery, currentObj
       <Toggle label={`Show ${side === "source" ? "this" : otherSide} panel`} hint="Visible on this endpoint's record page." checked={side === "source" ? form.show_on_source : form.show_on_target} onChange={(value) => update(side === "source" ? "show_on_source" : "show_on_target", value)} />
       <Toggle label={`Allow editing here`} hint="Administrators may add or remove links from this side." checked={side === "source" ? form.edit_from_source : form.edit_from_target} onChange={(value) => update(side === "source" ? "edit_from_source" : "edit_from_target", value)} />
     </div>
-  </div>;
+  </div><CompactPreviewSettings side={side} form={form} update={update} /></>;
+}
+
+// The configured side is the page being viewed; consequently its selected
+// fields always belong to the *opposite* custom-object endpoint.
+function CompactPreviewSettings({ side, form, update }) {
+  const opposite = side === "source" ? "target" : "source";
+  const objectId = form[`${opposite}_kind`] === "custom_object" ? form[`${opposite}_custom_object_id`] : null;
+  const query = useQuery({
+    queryKey: ["custom-objects", objectId, "compact-preview-fields"],
+    queryFn: () => relationshipRequest(`/api/custom-objects/${objectId}/fields?includeInactive=false&pageSize=100`),
+    enabled: Boolean(objectId),
+  });
+  if (!objectId) return <p className="mt-3 border-t pt-3 text-xs text-slate-500">Compact previews for {side} are supplied by the connected {kindName(form[`${opposite}_kind`])} record type.</p>;
+  const fields = (query.data?.data || query.data || []).filter((field) => field.is_active !== false);
+  const selected = form.configuration?.compact_preview?.[`${opposite}_field_ids`] || form.configuration?.compact_preview?.[opposite] || [];
+  const setSelected = (fieldIds) => update("configuration", {
+    ...form.configuration,
+    compact_preview: { ...form.configuration?.compact_preview, [`${opposite}_field_ids`]: fieldIds },
+  });
+  return <div className="mt-3 border-t pt-3"><p className="text-sm font-medium text-slate-800">Related record preview</p><p className="mt-1 text-xs text-slate-500">Supporting values shown beneath the primary record label when viewing this side.</p>{query.isLoading ? <p className="mt-2 text-xs text-slate-500">Loading fields…</p> : query.error ? <p className="mt-2 text-xs text-rose-600">Preview fields could not be loaded.</p> : <div className="mt-2 grid gap-1 sm:grid-cols-2">{fields.map((field) => <label key={field.id} className="flex items-center gap-2 text-sm"><input type="checkbox" checked={selected.map(String).includes(String(field.id))} onChange={(event) => setSelected(event.target.checked ? [...selected, String(field.id)] : selected.filter((id) => String(id) !== String(field.id)))} />{field.label}</label>)}</div>}</div>;
 }
 
 function Toggle({ label, hint, checked, onChange }) {

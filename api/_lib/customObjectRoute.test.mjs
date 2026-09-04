@@ -129,6 +129,32 @@ test('initial relationship candidate route dispatches the new-record side contra
   assert.deepEqual(res.payload, { objectId: 'object-1', side: 'target' });
 });
 
+test('export is a record-data route and field permission resources remain schema-managed', async () => {
+  const calls = [];
+  const dependencies = {
+    getTenantContext: async () => ({ isAuthenticated: true, tenantId: 'tenant-1', roleId: 'role-1' }),
+    hasAdminAccess: async () => false,
+    hasFeatureAccess: async (_roleId, feature) => feature === 'admin.data-studio',
+    createCustomObjectService: () => ({
+      exportRecords: async (objectId, query) => { calls.push(['export', objectId, query]); return { columns: [] }; },
+      listFieldPermissions: async (objectId) => { calls.push(['list-fields', objectId]); return { data: [] }; },
+    }),
+  };
+  const exportRes = response();
+  await createCustomObjectRouteHandler('resource', dependencies)({
+    method: 'GET', query: { objectId: 'object-1', resource: 'export', search: 'safe' },
+  }, exportRes);
+  assert.equal(exportRes.statusCode, 200);
+  assert.deepEqual(calls[0], ['export', 'object-1', { objectId: 'object-1', resource: 'export', search: 'safe' }]);
+
+  const fieldRes = response();
+  await createCustomObjectRouteHandler('resource', dependencies)({
+    method: 'GET', query: { objectId: 'object-1', resource: 'field-permissions' },
+  }, fieldRes);
+  assert.equal(fieldRes.statusCode, 200);
+  assert.deepEqual(calls[1], ['list-fields', 'object-1']);
+});
+
 test('collection reads reach service record-grant fallback when schema view is unavailable', async () => {
   const checked = [];
   const handler = createCustomObjectRouteHandler('collection', {

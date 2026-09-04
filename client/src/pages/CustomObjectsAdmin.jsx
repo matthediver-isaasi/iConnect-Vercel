@@ -70,6 +70,7 @@ import {
 import { RelationshipDefinitions } from "./customObjects/RelationshipDefinitions";
 import { AuditHistory } from "./customObjects/AuditHistory";
 import { CustomObjectPermissionsEditor } from "./CustomObjectRecords";
+import { detailSections, objectPresentation, sharedListFields } from "./customObjects/recordHelpers";
 const ICONS = [
   { key: "Boxes", Icon: Boxes },
   { key: "Database", Icon: Database },
@@ -614,6 +615,7 @@ function Detail() {
               </span>
             </TabsTrigger>
             <TabsTrigger value="permissions">Permissions</TabsTrigger>
+            <TabsTrigger value="presentation">Presentation</TabsTrigger>
             <TabsTrigger value="audit">Audit history</TabsTrigger>
           </TabsList>
           <TabsContent value="overview" className="mt-5">
@@ -673,6 +675,9 @@ function Detail() {
               archived={object.status === "archived"}
             />
           </TabsContent>
+          <TabsContent value="presentation" className="mt-5">
+            <PresentationEditor object={object} fields={fields} canManage={canManage && object.status !== "archived"} onSaved={invalidate} />
+          </TabsContent>
           <TabsContent value="audit" className="mt-5">
             <AuditHistory objectId={objectId} request={api} />
           </TabsContent>
@@ -680,6 +685,61 @@ function Detail() {
       </div>
     </main>
   );
+}
+
+function OrderedFieldPicker({ fields, value, onChange, disabled }) {
+  const ids = value.map(String);
+  const move = (id, amount) => {
+    const index = ids.indexOf(String(id));
+    const next = [...ids];
+    const [item] = next.splice(index, 1);
+    next.splice(index + amount, 0, item);
+    onChange(next);
+  };
+  return <div className="space-y-2 rounded-md border p-3">{fields.map((field) => {
+    const selected = ids.includes(String(field.id));
+    const index = ids.indexOf(String(field.id));
+    return <div key={field.id} className="flex items-center gap-2 text-sm">
+      <Checkbox disabled={disabled} checked={selected} onCheckedChange={(checked) => onChange(checked ? [...ids, String(field.id)] : ids.filter((id) => id !== String(field.id)))} />
+      <span className="min-w-0 flex-1 truncate">{field.label}</span>
+      {selected && <div className="flex gap-1"><Button type="button" variant="ghost" size="sm" disabled={disabled || index === 0} onClick={() => move(field.id, -1)}>↑</Button><Button type="button" variant="ghost" size="sm" disabled={disabled || index === ids.length - 1} onClick={() => move(field.id, 1)}>↓</Button></div>}
+    </div>;
+  })}</div>;
+}
+
+function PresentationEditor({ object, fields, canManage, onSaved }) {
+  const active = fields.filter((field) => field.is_active !== false);
+  const presentation = objectPresentation(object);
+  const [list, setList] = useState(() => sharedListFields(object, fields).map((field) => String(field.id)));
+  const [sections, setSections] = useState(() => detailSections(object, fields).map((section) => ({ label: section.label, field_ids: section.fields.map((field) => String(field.id)) })));
+  useEffect(() => {
+    setList(sharedListFields(object, fields).map((field) => String(field.id)));
+    setSections(detailSections(object, fields).map((section) => ({ label: section.label, field_ids: section.fields.map((field) => String(field.id)) })));
+  }, [object, fields]);
+  const save = useMutation({
+    mutationFn: () => api(`/api/custom-objects/${object.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({
+        configuration: {
+          ...(object.configuration || {}),
+          views: {
+            ...presentation,
+            list: { ...(presentation.list || {}), field_ids: list },
+            detail: { ...(presentation.detail || {}), sections },
+          },
+        },
+      }),
+    }),
+    onSuccess: () => { toast.success("Shared record presentation saved"); onSaved(); },
+    onError: (error) => toast.error(error.message),
+  });
+  return <Card><CardHeader><CardTitle className="text-lg">Shared record presentation</CardTitle><CardDescription>Choose the default columns and the ordered sections shown to everyone. People can still personalise their own list columns.</CardDescription></CardHeader><CardContent className="space-y-6">
+    <section><h3 className="mb-2 text-sm font-semibold">Default list columns</h3><OrderedFieldPicker fields={active} value={list} onChange={setList} disabled={!canManage} /></section>
+    <section className="space-y-3"><div className="flex items-center justify-between"><h3 className="text-sm font-semibold">Detail sections</h3><Button type="button" variant="outline" size="sm" disabled={!canManage} onClick={() => setSections((current) => [...current, { label: `Section ${current.length + 1}`, field_ids: [] }])}>Add section</Button></div>
+      {sections.map((section, index) => <div key={index} className="rounded-lg border p-4"><div className="mb-3 flex gap-2"><Input disabled={!canManage} value={section.label} onChange={(e) => setSections((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, label: e.target.value } : item))} placeholder="Section title" /><Button type="button" variant="ghost" disabled={!canManage || sections.length === 1} onClick={() => setSections((current) => current.filter((_, itemIndex) => itemIndex !== index))}>Remove</Button></div><OrderedFieldPicker fields={active} value={section.field_ids} onChange={(field_ids) => setSections((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, field_ids } : item))} disabled={!canManage} /></div>)}
+    </section>
+    <div className="flex justify-end"><Button disabled={!canManage || save.isPending} onClick={() => save.mutate()}>{save.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Save presentation</Button></div>
+  </CardContent></Card>;
 }
 
 function Overview({
