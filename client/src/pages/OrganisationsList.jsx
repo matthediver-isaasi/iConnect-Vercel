@@ -467,6 +467,7 @@ export default function OrganisationsListPage() {
 
   const organizations = orgsData?.organizations || [];
   const pagination = orgsData?.pagination || { page: 1, limit: itemsPerPage, total: 0, totalPages: 0 };
+  const selectableTotal = pagination.selectableTotal ?? pagination.total;
 
   const { data: directOrg, isLoading: directOrgLoading, isFetched: directOrgFetched } = useQuery({
     queryKey: ['organization-direct', urlOrgId],
@@ -751,20 +752,31 @@ export default function OrganisationsListPage() {
     setIsExporting(true);
     try {
       const params = new URLSearchParams();
+      const body = {};
       if (selectAllFiltered) {
-        if (searchQuery.trim()) params.set('search', searchQuery.trim());
+        if (debouncedSearch.trim()) params.set('search', debouncedSearch.trim());
         params.set('excludePrimary', 'true');
+        if (groupFilter && groupFilter !== 'all') params.set('group', groupFilter);
         if (coreFiltersParam) params.set('coreFilters', coreFiltersParam);
         if (customFiltersParam && customFiltersParam !== '{}') {
           params.set('customFieldFilters', customFiltersParam);
         }
+        if (drillIdsParam) body.drillIds = drillIdsParam;
+        body.expectedTotal = selectableTotal;
       } else {
-        params.set('ids', selectedOrgs.join(','));
+        body.selectedIds = selectedOrgs;
+        body.expectedTotal = selectedOrgs.length;
       }
       const response = await fetch(`/api/admin/organisations/export-csv?${params}`, {
-        credentials: 'include'
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
       });
-      if (!response.ok) throw new Error('Export failed');
+      if (!response.ok) {
+        const detail = await response.json().catch(() => null);
+        throw new Error(detail?.error || 'Export failed');
+      }
       const blob = await response.blob();
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
@@ -773,7 +785,7 @@ export default function OrganisationsListPage() {
       link.download = `organisations_export_${today}.csv`;
       link.click();
       URL.revokeObjectURL(url);
-      toast({ title: "Export complete", description: `CSV file downloaded successfully.` });
+      toast({ title: "Export complete", description: `Exported ${body.expectedTotal} organisations.` });
     } catch (err) {
       toast({ title: "Export failed", description: err.message || "Could not export organisations.", variant: "destructive" });
     } finally {
@@ -1566,7 +1578,7 @@ export default function OrganisationsListPage() {
                       ) : (
                         <Download className="w-4 h-4" />
                       )}
-                      Export CSV {selectAllFiltered ? `(${pagination.total})` : `(${selectedOrgs.length})`}
+                      Export CSV {selectAllFiltered ? `(${selectableTotal})` : `(${selectedOrgs.length})`}
                     </Button>
                     {selectedOrgs.length > 0 && (
                       <Button 
@@ -1702,7 +1714,7 @@ export default function OrganisationsListPage() {
             <div className="bg-blue-50 border-b border-blue-200 px-6 py-2 text-sm text-blue-700 flex items-center justify-center gap-2" data-testid="banner-select-all-orgs">
               {selectAllFiltered ? (
                 <>
-                  All {pagination.total} organisations are selected.
+                  All {selectableTotal} organisations are selected.
                   <button 
                     className="font-semibold underline"
                     onClick={() => { setSelectAllFiltered(false); setSelectedOrgs([]); }}
@@ -1719,7 +1731,7 @@ export default function OrganisationsListPage() {
                     onClick={() => setSelectAllFiltered(true)}
                     data-testid="button-select-all-filtered-orgs"
                   >
-                    Select all {pagination.total} organisations
+                    Select all {selectableTotal} organisations
                   </button>
                 </>
               )}

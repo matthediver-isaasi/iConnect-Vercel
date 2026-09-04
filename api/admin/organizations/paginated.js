@@ -284,6 +284,19 @@ export default async function handler(req, res) {
       pageOrgs.forEach((o) => { o.member_count = memberCounts[o.id] || 0; });
     }
 
+    // The primary organisation is visible in the list but cannot be selected.
+    // Report the selectable population separately so bulk actions and exports
+    // can validate against the exact scope they operate on.
+    let selectableCountQuery = supabase
+      .from('organization')
+      .select(buildSelect('id'), { count: 'exact', head: true });
+    selectableCountQuery = applyFilters(selectableCountQuery).neq('is_primary', true);
+    const { count: selectableCount, error: selectableCountError } = await selectableCountQuery;
+    if (selectableCountError) {
+      console.error('[OrgsPaginated] selectable count error:', selectableCountError);
+      return res.status(500).json({ error: 'Failed to count selectable organisations' });
+    }
+
     // Fetch custom field values for just this page of orgs so columns populate
     // on every page without a capped global fetch. Limit to requested fields.
     const orgIds = pageOrgs.map((o) => o.id);
@@ -342,6 +355,7 @@ export default async function handler(req, res) {
         page: pageNum,
         limit: limitNum,
         total: totalCount,
+        selectableTotal: selectableCount || 0,
         totalPages
       }
     });

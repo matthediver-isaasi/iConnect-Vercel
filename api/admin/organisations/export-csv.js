@@ -7,6 +7,11 @@ import {
   applyDirectColumnFilter,
 } from '../../_lib/prefValueOptionFilter.js';
 import { escapeCsvCell as escapeCSV, CSV_BOM, CSV_ROW_SEPARATOR } from '../../_lib/csvCell.js';
+import {
+  organisationExportCountError,
+  parseExpectedOrganisationExportTotal,
+  shouldRejectEmptyOrganisationExport,
+} from '../../_lib/organisationExportContract.js';
 
 // Direct organization columns filterable through the coreFilters param
 // (mirrors /api/admin/organizations/paginated).
@@ -170,7 +175,7 @@ export function matchesNormalizedEntry(orgFieldValue, entry) {
 }
 
 export default async function handler(req, res) {
-  if (req.method !== 'GET') {
+  if (req.method !== 'GET' && req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
@@ -193,29 +198,40 @@ export default async function handler(req, res) {
       website_url = '',
       invoicing_email = '',
       invoicing_address = '',
+      group = '',
       coreFilters = '',
       customFieldFilters: customFieldFiltersParam = ''
     } = req.query;
 
     const coreFilterEntries = parseCoreFilters(coreFilters, CORE_FILTER_COLUMNS);
 
+    const rawSelectedIds = req.method === 'POST' ? req.body?.selectedIds : ids;
     let idList = null;
-    if (ids) {
-      idList = ids.split(',').map(id => id.trim()).filter(Boolean);
+    if (rawSelectedIds) {
+      idList = (Array.isArray(rawSelectedIds) ? rawSelectedIds : String(rawSelectedIds).split(','))
+        .map(id => String(id).trim()).filter(Boolean);
       if (idList.length === 0) {
         return res.status(400).json({ error: 'No valid IDs provided' });
       }
     }
+    const rawDrillIds = req.method === 'POST' ? req.body?.drillIds : '';
+    const drillIds = (Array.isArray(rawDrillIds) ? rawDrillIds : String(rawDrillIds || '').split(','))
+      .map(id => String(id).trim()).filter(Boolean).slice(0, 2000);
+    const expectedTotal = parseExpectedOrganisationExportTotal(
+      req.method,
+      req.method === 'POST' ? req.body?.expectedTotal : null,
+    );
 
-    const buildOrgQuery = (from, pageSize) => {
+    const buildOrgQuery = (from, pageSize, withCount = false) => {
       let q = supabase
         .from('organization')
-        .select('*')
+        .select('*', withCount ? { count: 'exact' } : undefined)
         .eq('tenant_id', tenantId);
 
       if (idList) {
         q = q.in('id', idList);
       } else {
+        if (drillIds.length > 0) q = q.in('id', drillIds);
         if (search && search.trim()) {
           const searchTerm = `%${search.trim().toLowerCase()}%`;
           q = q.or(`name.ilike.${searchTerm},invoicing_email.ilike.${searchTerm},phone.ilike.${searchTerm},website_url.ilike.${searchTerm}`);
@@ -235,6 +251,11 @@ export default async function handler(req, res) {
         }
         for (const coreEntry of coreFilterEntries) {
           q = applyDirectColumnFilter(q, coreEntry);
+        }
+        if (group === 'none') {
+          q = q.is('organization_group_id', null);
+        } else if (group) {
+          q = q.eq('organization_group_id', group);
         }
       }
 
@@ -403,10 +424,39 @@ export default async function handler(req, res) {
 
     // Fetch the first page before committing to a streamed 200 response so any
     // query error still surfaces as a proper HTTP error status.
-    const firstPage = await buildOrgQuery(0, PAGE_SIZE);
+    const firstPage = await buildOrgQuery(0, PAGE_SIZE, true);
     if (firstPage.error) {
       console.error('[OrgExportCSV] Query error:', firstPage.error);
       return res.status(500).json({ error: 'Failed to fetch organisations' });
+    }
+
+    let actualTotal = firstPage.count ?? (firstPage.data || []).length;
+    if (hasCustomFilters) {
+      actualTotal = 0;
+      let countPage = firstPage.data || [];
+      let countFrom = 0;
+      while (true) {
+        const orgIds = countPage.map(org => org.id);
+        const { pagePrefMap } = await loadPrefValuesForOrgs(orgIds);
+        actualTotal += countPage.filter(org => normalizedCustomFilters.every(
+          ([fieldId, entry]) => matchesNormalizedEntry(pagePrefMap[org.id]?.[fieldId], entry),
+        )).length;
+        if (countPage.length < PAGE_SIZE) break;
+        countFrom += PAGE_SIZE;
+        const nextCountPage = await buildOrgQuery(countFrom, PAGE_SIZE);
+        if (nextCountPage.error) {
+          return res.status(500).json({ error: 'Failed to count organisations for export' });
+        }
+        countPage = nextCountPage.data || [];
+      }
+    }
+
+    const countError = organisationExportCountError(expectedTotal, actualTotal);
+    if (countError) {
+      return res.status(409).json({ error: countError, expectedTotal, actualTotal });
+    }
+    if (shouldRejectEmptyOrganisationExport(req.method, actualTotal)) {
+      return res.status(422).json({ error: 'There are no organisations to export for the current selection.' });
     }
 
     const today = new Date().toISOString().split('T')[0];
