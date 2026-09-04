@@ -162,7 +162,7 @@ test('plans exact Department links and replay proposes zero writes', () => {
   assert.throws(() => makePlan({ ...source, rows: [row] }, { members: [member], preferenceValues: [...values, { ...values[0], id: 'dup' }], memberEdges }, mappings, hierarchy), /Duplicate preference values/);
 });
 
-test('explicit Department input replaces a many-assignment set without arbitrary selection', () => {
+test('explicit Department input preserves a many-assignment set without arbitrary selection', () => {
   const row = source.rows.find((item) => item.values[20]);
   const member = {
     id: 'member-many', tenant_id: TENANT_ID, email: row.email,
@@ -182,9 +182,10 @@ test('explicit Department input replaces a many-assignment set without arbitrary
     mappings,
     hierarchy,
   );
-  assert.equal(plan.items[0].edgeAction, 'archive');
+  assert.equal(plan.items[0].edgeAction, 'unchanged');
   assert.deepEqual(plan.items[0].exactEdges, [desired]);
-  assert.deepEqual(plan.items[0].conflictingEdges, extras);
+  assert.deepEqual(plan.items[0].conflictingEdges, []);
+  assert.deepEqual(plan.items[0].activeDepartmentEdges, [desired, ...extras]);
   assert.throws(() => makePlan(
     { ...source, rows: [row] },
     { members: [member], preferenceValues: [], memberEdges: [{ ...desired, tenant_id: 'foreign' }] },

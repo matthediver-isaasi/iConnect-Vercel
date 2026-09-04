@@ -360,19 +360,15 @@ export function makePlan(source, state, mappings, hierarchy) {
     }
     const exactEdges = departmentIds.flatMap((id) => activeByDepartment.get(id) || []);
     const hasHierarchyReference = Boolean(groupId || organizationId || departmentId);
-    const conflictingEdges = hasHierarchyReference ? relatedEdges.filter((edge) => edge.relationship_definition_id === hierarchy.memberDefinition.id
-      && edge.archived_at == null && (!departmentId || edge.source_record_id !== departmentId)) : [];
-    let edgeAction = 'none';
-    if (departmentId) {
-      if (exactEdges.length === 1) edgeAction = conflictingEdges.length ? 'archive' : 'unchanged';
-      else edgeAction = conflictingEdges.length ? 'replace' : 'insert';
-    } else if (hasHierarchyReference && conflictingEdges.length) {
-      edgeAction = 'archive';
-    }
+    // A legacy Department column is additive under the many-to-many model.
+    // Organisation changes may let the database retire genuinely invalid
+    // edges, but this importer never removes other valid memberships itself.
+    const conflictingEdges = [];
+    const edgeAction = departmentId ? (exactEdges.length === 1 ? 'unchanged' : 'insert') : 'none';
     return {
       row, member, patch, action: member ? (Object.keys(patch).length ? 'update' : 'unchanged') : 'insert',
       preferences, departmentId, departmentIds,
-      departmentAssignmentMode: hasHierarchyReference ? 'replace' : 'preserve',
+      departmentAssignmentMode: hasHierarchyReference ? 'ensure' : 'preserve',
       edgeAction, conflictingEdges, exactEdges, activeDepartmentEdges,
     };
   });

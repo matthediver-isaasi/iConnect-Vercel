@@ -154,7 +154,7 @@ test('direct group assignment plans organization_group_id and missing support fa
   );
 });
 
-test('direct group assignment clears stale Organisation and archives stale Department edges', () => {
+test('direct group assignment leaves Department retirement to the organization-change guard', () => {
   const row = source.rows.find((item) => item.values[26]);
   const member = {
     id: 'member-group-replace', tenant_id: TENANT_ID, email: row.email,
@@ -174,8 +174,9 @@ test('direct group assignment clears stale Organisation and archives stale Depar
   );
   assert.equal(plan.items[0].patch.organization_group_id, row.values[26]);
   assert.equal(plan.items[0].patch.organization_id, null);
-  assert.equal(plan.items[0].edgeAction, 'archive');
-  assert.deepEqual(plan.items[0].conflictingEdges, [staleEdge]);
+  assert.equal(plan.items[0].edgeAction, 'none');
+  assert.deepEqual(plan.items[0].conflictingEdges, []);
+  assert.deepEqual(plan.items[0].activeDepartmentEdges, [staleEdge]);
 });
 
 test('Organisation and Department assignments clear stale direct Group values', () => {
@@ -347,7 +348,7 @@ test('later failure restores an exact Department edge archived during Organisati
   assert.equal(state.edge.archived_by, null);
 });
 
-test('plans an explicit Department edge replacement when the pinned source differs', () => {
+test('plans an additive Department edge when the pinned source differs', () => {
   const row = source.rows.find((item) => item.values[28]);
   const member = { id: 'member-conflict', tenant_id: TENANT_ID, email: row.email, organization_id: null, organization_group_id: null };
   const existing = {
@@ -360,12 +361,13 @@ test('plans an explicit Department edge replacement when the pinned source diffe
     mappings,
     hierarchy,
   );
-  assert.equal(plan.items[0].edgeAction, 'replace');
-  assert.deepEqual(plan.items[0].conflictingEdges, [existing]);
+  assert.equal(plan.items[0].edgeAction, 'insert');
+  assert.deepEqual(plan.items[0].conflictingEdges, []);
+  assert.deepEqual(plan.items[0].activeDepartmentEdges, [existing]);
   assert.deepEqual(plan.items[0].departmentIds, [row.values[28]]);
 });
 
-test('Department replacement reconciles many existing assignments and rejects duplicate or foreign edges', () => {
+test('Department reconciliation preserves many existing assignments and rejects duplicate or foreign edges', () => {
   const row = source.rows.find((item) => item.values[28]);
   const member = {
     id: 'member-many', tenant_id: TENANT_ID, email: row.email,
@@ -385,8 +387,9 @@ test('Department replacement reconciles many existing assignments and rejects du
     mappings,
     hierarchy,
   );
-  assert.equal(plan.items[0].edgeAction, 'archive');
-  assert.deepEqual(plan.items[0].conflictingEdges, extras);
+  assert.equal(plan.items[0].edgeAction, 'unchanged');
+  assert.deepEqual(plan.items[0].conflictingEdges, []);
+  assert.deepEqual(plan.items[0].activeDepartmentEdges, [desired, ...extras]);
   assert.deepEqual(plan.items[0].exactEdges, [desired]);
 
   assert.throws(() => makePlan(

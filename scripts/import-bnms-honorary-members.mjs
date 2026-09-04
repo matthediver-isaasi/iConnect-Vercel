@@ -238,14 +238,14 @@ export function makePlan(source, state, mappings, hierarchy) {
       if (matches.length > 1) fail(`Member "${row.email}" has duplicate active Department member edges for ${edge.source_record_id}.`);
     }
     const exactEdges = departmentIds.flatMap((id) => activeByDepartment.get(id) || []);
-    const conflictingEdges = organizationId ? relatedEdges.filter((edge) => !departmentId || edge.source_record_id !== departmentId) : [];
-    let edgeAction = 'none';
-    if (departmentId) edgeAction = exactEdges.length ? (conflictingEdges.length ? 'archive' : 'unchanged') : (conflictingEdges.length ? 'replace' : 'insert');
-    else if (organizationId && conflictingEdges.length) edgeAction = 'archive';
+    // A legacy Department column is additive under the many-to-many model.
+    // Preserve every other active membership and only ensure the supplied one.
+    const conflictingEdges = [];
+    const edgeAction = departmentId ? (exactEdges.length ? 'unchanged' : 'insert') : 'none';
     return {
       row, member, patch, action: member ? (Object.keys(patch).length ? 'update' : 'unchanged') : 'insert',
       preferences, departmentId, departmentIds,
-      departmentAssignmentMode: organizationId ? 'replace' : 'preserve',
+      departmentAssignmentMode: organizationId ? 'ensure' : 'preserve',
       edgeAction, conflictingEdges, exactEdges, activeDepartmentEdges: relatedEdges,
     };
   }) };
