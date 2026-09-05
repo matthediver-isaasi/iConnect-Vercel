@@ -31,6 +31,13 @@ import {
   relationshipEndpointsMatch,
   resolveRelationshipPickerPath,
   safeInAppPath,
+  relationshipFields,
+  relationshipFieldsForSide,
+  relationshipFieldsAreValid,
+  relationshipFieldCanEdit,
+  relationshipFieldUpdatePayload,
+  relationshipFieldValue,
+  withRelationshipFieldValue,
 } from "./relationshipHelpers.js";
 import { loadRelationshipDefinitions, relationshipRoutes } from "./relationshipApi.js";
 
@@ -147,6 +154,107 @@ test("builds the core create payload expected by the core relationship service",
       related_record_id: 14,
     },
   );
+});
+
+test("normalizes displayed boolean relationship fields and reads edge values by stable id or key", () => {
+  const definition = { configuration: { relationship_fields: [{
+    id: "primary-id",
+    key: "is_primary",
+    label: "Primary",
+    type: "boolean",
+    default: false,
+    display: true,
+    edit_from_source: true,
+    edit_from_target: false,
+  }] } };
+  const [field] = relationshipFields(definition);
+  assert.equal(field.id, "primary-id");
+  assert.equal(relationshipFieldValue({ field_values: { is_primary: true } }, field), true);
+  assert.equal(relationshipFieldValue({
+    relationship_field_values: [{ field_id: "primary-id", value: "true" }],
+  }, field), true);
+  assert.equal(relationshipFieldValue({}, field), false);
+});
+
+test("keeps relationship field visibility independent on each routed side", () => {
+  const definition = { configuration: { relationship_fields: [{
+    id: "source-only",
+    key: "source_only",
+    label: "Source only",
+    type: "boolean",
+    display_on_source: true,
+    display_on_target: false,
+  }, {
+    id: "target-only",
+    key: "target_only",
+    label: "Target only",
+    type: "boolean",
+    display_on_source: false,
+    display_on_target: true,
+  }] } };
+
+  assert.deepEqual(
+    relationshipFieldsForSide(definition, "source").map((field) => field.id),
+    ["source-only"],
+  );
+  assert.deepEqual(
+    relationshipFieldsForSide(definition, "target").map((field) => field.id),
+    ["target-only"],
+  );
+});
+
+test("relationship field edits require the configured side and an active edge", () => {
+  const field = { edit_from_source: true, edit_from_target: false };
+  assert.equal(relationshipFieldCanEdit({ field, side: "source", editable: true, edge: {} }), true);
+  assert.equal(relationshipFieldCanEdit({ field, side: "target", editable: true, edge: {} }), false);
+  assert.equal(relationshipFieldCanEdit({
+    field, side: "source", editable: true, edge: { archived_at: "2026-01-01" },
+  }), false);
+});
+
+test("builds partial edge field PATCH payload and optimistic edge value", () => {
+  const field = { id: "primary-id", key: "is_primary" };
+  assert.deepEqual(relationshipFieldUpdatePayload({
+    field, value: true, side: "target", recordId: "record-1",
+  }), {
+    field_values: { is_primary: true },
+    routed_side: "target",
+    routed_record_id: "record-1",
+  });
+  assert.equal(
+    relationshipFieldValue(withRelationshipFieldValue({ field_values: {} }, field, true), field),
+    true,
+  );
+});
+
+test("validates relationship field stable keys and preserves them in definition payload", () => {
+  const form = {
+    ...defaultDefinitionForm("object-1"),
+    configuration: { relationship_fields: [
+      { id: "one", key: "approved", label: "Approved", type: "boolean" },
+      { id: "two", key: "approved", label: "Duplicate", type: "boolean" },
+    ] },
+  };
+  assert.equal(relationshipFieldsAreValid(form), false);
+  form.configuration.relationship_fields[1].key = "reviewed";
+  assert.equal(relationshipFieldsAreValid(form), true);
+  assert.deepEqual(
+    definitionPayload(form).configuration.relationship_fields.map(({ id, key }) => ({ id, key })),
+    [{ id: "one", key: "approved" }, { id: "two", key: "reviewed" }],
+  );
+});
+
+test("rejects relationship field keys that the API cannot store", () => {
+  assert.equal(relationshipFieldsAreValid({
+    configuration: {
+      relationship_fields: [{
+        id: "field-1",
+        key: "123 starts with a number",
+        label: "Invalid key",
+        type: "boolean",
+      }],
+    },
+  }), false);
 });
 
 test("only allows contextual creation at an active, creatable Custom Object endpoint", () => {

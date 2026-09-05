@@ -456,6 +456,10 @@ test('existing generic routes dispatch core relationship discovery, rows, picker
         calls.push(['create', kind, recordId, body.related_record_id]);
         return { id: 'edge-1' };
       },
+      updateCoreRelationship: async (kind, recordId, edgeId, body) => {
+        calls.push(['update', kind, recordId, edgeId, body.field_values]);
+        return { id: edgeId, field_values: body.field_values };
+      },
       archiveCoreRelationship: async (kind, recordId, edgeId) => {
         calls.push(['archive', kind, recordId, edgeId]);
         return { id: edgeId };
@@ -469,6 +473,7 @@ test('existing generic routes dispatch core relationship discovery, rows, picker
     { handler: resourceHandler, request: { method: 'GET', query: { objectId: 'core', resource: 'relationships', kind: 'member', recordId: 'member-1', definitionId: 'definition-1' } } },
     { handler: resourceHandler, request: { method: 'GET', query: { objectId: 'core', resource: 'entity-picker', kind: 'member', recordId: 'member-1', definitionId: 'definition-1' } } },
     { handler: resourceHandler, request: { method: 'POST', query: { objectId: 'core', resource: 'relationships', kind: 'member', recordId: 'member-1' }, body: { related_record_id: 'record-1' } } },
+    { handler: itemHandler, request: { method: 'PATCH', query: { objectId: 'core', resource: 'relationships', resourceId: 'edge-1', kind: 'member', recordId: 'member-1' }, body: { field_values: { active: true } } } },
     { handler: itemHandler, request: { method: 'DELETE', query: { objectId: 'core', resource: 'relationships', resourceId: 'edge-1', kind: 'member', recordId: 'member-1' } } },
   ];
   for (const { handler, request } of requests) {
@@ -481,8 +486,42 @@ test('existing generic routes dispatch core relationship discovery, rows, picker
     ['rows', 'member', 'member-1', 'definition-1'],
     ['picker', 'member', 'member-1', 'definition-1'],
     ['create', 'member', 'member-1', 'record-1'],
+    ['update', 'member', 'member-1', 'edge-1', { active: true }],
     ['archive', 'member', 'member-1', 'edge-1'],
   ]);
+});
+
+test('custom relationship item PATCH dispatches routed edge field values', async () => {
+  const handler = createCustomObjectRouteHandler('item', {
+    getTenantContext: async () => ({
+      isAuthenticated: true, tenantId: 'tenant-1', roleId: 'role-1',
+    }),
+    hasAdminAccess: async () => false,
+    hasFeatureAccess: async () => false,
+    createCustomObjectService: () => ({
+      updateRelationship: async (objectId, edgeId, body) => ({
+        objectId, edgeId, field_values: body.field_values,
+      }),
+    }),
+  });
+  const res = response();
+  await handler({
+    method: 'PATCH',
+    query: {
+      objectId: 'object-1', resource: 'relationships', resourceId: 'edge-1',
+    },
+    body: {
+      routed_side: 'source',
+      routed_record_id: 'record-1',
+      field_values: { is_primary: true },
+    },
+  }, res);
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(res.payload, {
+    objectId: 'object-1',
+    edgeId: 'edge-1',
+    field_values: { is_primary: true },
+  });
 });
 
 test('relationship definition graph route dispatches the schema-managed tenant graph', async () => {

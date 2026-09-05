@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   loadActiveRelationshipObjects,
   loadCustomObjectFields,
+  relationshipRoutes,
 } from "./relationshipApi.js";
 
 test("loads and flattens every page of active relationship objects", async () => {
@@ -67,4 +68,21 @@ test("loads and flattens every page of Custom Object fields", async () => {
   assert.deepEqual(result.data.map((item) => item.id), ["field-1", "field-2"]);
   assert.equal(requested.length, 2);
   assert.ok(requested.every((path) => path.includes("includeInactive=true")));
+});
+
+test("uses the existing edge resource for custom and core PATCH operations", () => {
+  assert.equal(
+    relationshipRoutes.updateEdge("object-1", "edge-1"),
+    "/api/custom-objects/object-1/relationships/edge-1",
+  );
+  const core = relationshipRoutes.updateCoreEdge("edge-1", {
+    kind: "member",
+    recordId: "member-1",
+    definitionId: "definition-1",
+    side: "source",
+  });
+  assert.match(core, /^\/api\/custom-objects\/core\/relationships\/edge-1\?/);
+  const params = new URL(core, "https://example.test").searchParams;
+  assert.equal(params.get("kind"), "member");
+  assert.equal(params.get("side"), "source");
 });

@@ -264,6 +264,97 @@ export const relationshipCreatePayload = ({
       related_record_id: entityId,
     };
 
+const booleanValue = (value) => value === true || value === "true";
+
+export const relationshipFields = (definition = {}) => {
+  const configuration = definition.configuration || {};
+  const configured = configuration.relationship_fields
+    || configuration.relationshipFields
+    || definition.relationship_fields
+    || [];
+  if (!Array.isArray(configured)) return [];
+  return configured.flatMap((field, index) => {
+    if (!field || (field.type && field.type !== "boolean")
+      || (field.field_type && field.field_type !== "boolean")) return [];
+    const key = String(field.key || field.name || "").trim();
+    const id = String(field.id || key || `relationship-field-${index}`);
+    const label = String(field.label || "").trim();
+    if (!key || !label) return [];
+    return [{
+      ...field,
+      id,
+      key,
+      label,
+      type: "boolean",
+      default: booleanValue(field.default ?? field.default_value),
+      required: Boolean(field.required ?? field.is_required),
+      display_on_source: (field.display_on_source ?? field.show_on_source
+        ?? field.display?.source ?? field.display ?? field.is_displayed) !== false,
+      display_on_target: (field.display_on_target ?? field.show_on_target
+        ?? field.display?.target ?? field.display ?? field.is_displayed) !== false,
+      edit_from_source: (field.edit_from_source ?? field.editFromSource ?? field.editable) !== false,
+      edit_from_target: Boolean(field.edit_from_target ?? field.editFromTarget ?? field.editable),
+    }];
+  });
+};
+
+export const relationshipFieldsForSide = (definition = {}, side) =>
+  relationshipFields(definition).filter((field) =>
+    ["source", "target"].includes(side) && field[`display_on_${side}`]);
+
+export const relationshipFieldsAreValid = (definition = {}) => {
+  const configured = definition.configuration?.relationship_fields || [];
+  if (!Array.isArray(configured)) return false;
+  const keys = configured.map((field) =>
+    String(field?.key || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, ""));
+  return configured.every((field, index) =>
+    field?.id
+    && String(field.label || "").trim()
+    && /^[a-z][a-z0-9_]{0,99}$/.test(keys[index])
+    && keys.indexOf(keys[index]) === index);
+};
+
+export const relationshipFieldValue = (edge = {}, field = {}) => {
+  const values = edge.field_values || edge.relationship_field_values
+    || edge.values || edge.relationship_values || {};
+  if (Array.isArray(values)) {
+    const entry = values.find((item) =>
+      String(item.field_id || item.id || "") === String(field.id)
+      || String(item.field_key || item.key || "") === String(field.key));
+    return booleanValue(entry?.value ?? entry?.field_value ?? field.default);
+  }
+  const value = values?.[field.id] ?? values?.[field.key];
+  return booleanValue(value ?? field.default);
+};
+
+export const withRelationshipFieldValue = (edge, field, value) => ({
+  ...edge,
+  field_values: {
+    ...(!Array.isArray(edge?.field_values) && edge?.field_values),
+    [field.key]: Boolean(value),
+  },
+});
+
+export const relationshipFieldUpdatePayload = ({
+  field,
+  value,
+  side,
+  recordId,
+}) => ({
+  field_values: { [field.key]: Boolean(value) },
+  routed_side: side,
+  routed_record_id: recordId,
+});
+
+export const relationshipFieldCanEdit = ({ field, side, editable, edge }) =>
+  Boolean(
+    editable
+    && !edge?.archived_at
+    && edge?.is_active !== false
+    && !["archived", "inactive", "deleted"].includes(edge?.status)
+    && (side === "source" ? field.edit_from_source : field.edit_from_target),
+  );
+
 export const defaultDefinitionForm = (objectId) => ({
   relationship_key: "",
   source_kind: "custom_object",
@@ -303,7 +394,23 @@ export const definitionPayload = (form) => ({
   relationship_key: form.relationship_key.trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, ""),
   source_custom_object_id: form.source_kind === "custom_object" ? form.source_custom_object_id : null,
   target_custom_object_id: form.target_kind === "custom_object" ? form.target_custom_object_id : null,
-  configuration: form.configuration || {},
+  configuration: {
+    ...(form.configuration || {}),
+    ...(Object.hasOwn(form.configuration || {}, "relationship_fields")
+      ? { relationship_fields: relationshipFields(form).map((field) => ({
+          id: field.id,
+          key: field.key.trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, ""),
+          label: field.label.trim(),
+          type: "boolean",
+          default_value: field.default,
+          required: field.required,
+          display_on_source: field.display_on_source,
+          display_on_target: field.display_on_target,
+          edit_from_source: field.edit_from_source,
+          edit_from_target: field.edit_from_target,
+        })) }
+      : {}),
+  },
 });
 
 export const relationshipEndpoint = (definition, side) => ({

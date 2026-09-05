@@ -154,3 +154,4 @@
 - [Saved list metadata reconciliation](saved-list-metadata-reconciliation.md) — defer saved-ID reconciliation until authorized server metadata resolves; manual choices must outrank defaults.
 - [Relationship picker graph scopes](relationship-picker-graph-scopes.md) — constrain direct links by intersecting bounded source/target relationship paths; active graph only, fail closed.
 - [Relationship preview config aliases](relationship-preview-config-aliases.md) — compact_preview and legacy compact_preview_fields may coexist; merge and dedupe field IDs across both.
+- [Relationship edge metadata enforcement](relationship-edge-metadata-enforcement.md) — generic edge writes bypass the interactive service; defaults and required/type rules need DB enforcement too.

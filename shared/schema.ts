@@ -375,10 +375,13 @@ export const customObjectRelationship = pgTable("custom_object_relationship", {
   relationship_definition_id: uuid("relationship_definition_id").notNull(),
   source_record_id: uuid("source_record_id").notNull(),
   target_record_id: uuid("target_record_id").notNull(),
+  field_values: jsonb("field_values").notNull().default({}),
   created_by: text("created_by"),
+  updated_by: text("updated_by"),
   archived_at: timestamp("archived_at", { withTimezone: true }),
   archived_by: text("archived_by"),
   created_at: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updated_at: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => ({
   tenantDefinitionIdx: index("idx_custom_object_relationship_tenant_definition_all")
     .on(table.tenant_id, table.relationship_definition_id, table.id),

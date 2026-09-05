@@ -53,6 +53,7 @@ export const relationshipRoutes = {
   // an ordinary record creation.
   createWithRelationships: (objectId) => `/api/custom-objects/${objectId}/records`,
   deleteEdge: (objectId, edgeId) => `/api/custom-objects/${objectId}/relationships/${edgeId}`,
+  updateEdge: (objectId, edgeId) => `/api/custom-objects/${objectId}/relationships/${edgeId}`,
   coreDefinitions: ({ kind, recordId }) =>
     `/api/custom-objects/core/relationship-definitions?${new URLSearchParams({ kind, recordId })}`,
   corePicker: (params) =>
@@ -62,6 +63,8 @@ export const relationshipRoutes = {
   createCoreEdge: ({ kind, recordId, definitionId, side }) =>
     `/api/custom-objects/core/relationships?${new URLSearchParams({ kind, recordId, definitionId, side })}`,
   deleteCoreEdge: (edgeId, { kind, recordId, definitionId, side }) =>
+    `/api/custom-objects/core/relationships/${edgeId}?${new URLSearchParams({ kind, recordId, definitionId, side })}`,
+  updateCoreEdge: (edgeId, { kind, recordId, definitionId, side }) =>
     `/api/custom-objects/core/relationships/${edgeId}?${new URLSearchParams({ kind, recordId, definitionId, side })}`,
 };
 

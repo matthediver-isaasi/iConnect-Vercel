@@ -69,6 +69,132 @@ const RELATIONSHIP_FILTER_OPERATORS = new Set([
 ]);
 const LIST_RELATIONSHIP_PROJECTION_LIMIT = 100;
 const ENDPOINT_ID_BATCH_SIZE = 200;
+const RELATIONSHIP_FIELD_TYPES = new Set(['boolean']);
+
+function relationshipFieldDefinitions(definition) {
+  const configuration = definition?.configuration;
+  if (!configuration || typeof configuration !== 'object' || Array.isArray(configuration)) return [];
+  const raw = configuration.relationship_fields ?? configuration.relationshipFields ?? [];
+  if (!Array.isArray(raw)) {
+    throw new CustomObjectHttpError(400, 'Relationship fields must be an array');
+  }
+  const ids = new Set();
+  const keys = new Set();
+  return raw.map((item, index) => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) {
+      throw new CustomObjectHttpError(400, `Relationship field ${index + 1} must be an object`);
+    }
+    const id = String(item.id ?? item.field_id ?? '').trim();
+    const key = String(item.key ?? item.name ?? '').trim();
+    const type = String(item.type ?? item.field_type ?? '').trim();
+    const label = String(item.label ?? key).trim();
+    if (!id || !SAFE_JSON_KEY.test(key) || !label || !RELATIONSHIP_FIELD_TYPES.has(type)) {
+      throw new CustomObjectHttpError(400, `Relationship field ${index + 1} has invalid typed metadata`);
+    }
+    if (ids.has(id) || keys.has(key)) {
+      throw new CustomObjectHttpError(400, 'Relationship field IDs and keys must be unique');
+    }
+    ids.add(id);
+    keys.add(key);
+    return {
+      id, key, label, type,
+      required: item.required ?? item.is_required ?? false,
+      default_value: item.default_value ?? item.defaultValue ?? item.default,
+      display_on_source: item.display_on_source ?? item.show_on_source
+        ?? item.display?.source ?? item.display ?? true,
+      display_on_target: item.display_on_target ?? item.show_on_target
+        ?? item.display?.target ?? item.display ?? true,
+      edit_from_source: item.edit_from_source ?? item.editFromSource
+        ?? item.editable?.source ?? item.editable ?? true,
+      edit_from_target: item.edit_from_target ?? item.editFromTarget
+        ?? item.editable?.target ?? item.editable ?? false,
+    };
+  }).map((field) => {
+    for (const property of [
+      'required', 'display_on_source', 'display_on_target',
+      'edit_from_source', 'edit_from_target',
+    ]) {
+      if (typeof field[property] !== 'boolean') {
+        throw new CustomObjectHttpError(400, `Relationship field ${field.key} ${property} must be a boolean`);
+      }
+    }
+    if (field.default_value !== undefined && typeof field.default_value !== 'boolean') {
+      throw new CustomObjectHttpError(400, `Relationship field ${field.key} default must be a boolean`);
+    }
+    if (field.required && field.default_value === undefined) {
+      throw new CustomObjectHttpError(400, `Required relationship field ${field.key} must have a default`);
+    }
+    return field;
+  });
+}
+
+function normalizeRelationshipValues(definition, supplied, {
+  side, existing = {}, create = false,
+} = {}) {
+  if (supplied === undefined) supplied = {};
+  if (!supplied || typeof supplied !== 'object' || Array.isArray(supplied)) {
+    throw new CustomObjectHttpError(400, 'Relationship values must be an object');
+  }
+  const fields = relationshipFieldDefinitions(definition);
+  const byReference = new Map();
+  for (const field of fields) {
+    byReference.set(field.id, field);
+    byReference.set(field.key, field);
+  }
+  const output = { ...(existing && typeof existing === 'object' && !Array.isArray(existing) ? existing : {}) };
+  for (const [reference, value] of Object.entries(supplied)) {
+    const field = byReference.get(reference);
+    if (!field) throw new CustomObjectHttpError(400, `Unknown relationship field: ${reference}`);
+    if (!field[`edit_from_${side}`]) {
+      throw new CustomObjectHttpError(403, `Relationship field ${field.label} cannot be edited from the routed side`);
+    }
+    if (value !== null && typeof value !== 'boolean') {
+      throw new CustomObjectHttpError(400, `Relationship field ${field.label} must be a boolean`);
+    }
+    if (value === null) delete output[field.key];
+    else output[field.key] = value;
+  }
+  if (create) {
+    for (const field of fields) {
+      if (!Object.hasOwn(output, field.key) && field.default_value !== undefined) {
+        output[field.key] = field.default_value;
+      }
+    }
+  }
+  // Never retain caller-forged or stale keys. Values are definition-bound.
+  const configuredKeys = new Set(fields.map((field) => field.key));
+  for (const key of Object.keys(output)) if (!configuredKeys.has(key)) delete output[key];
+  for (const field of fields) {
+    if (field.required && !Object.hasOwn(output, field.key)) {
+      throw new CustomObjectHttpError(400, `Relationship field ${field.label} is required`);
+    }
+  }
+  return output;
+}
+
+function projectRelationshipValues(definition, edge, side) {
+  const fields = relationshipFieldDefinitions(definition)
+    .filter((field) => field[`display_on_${side}`]);
+  const values = {};
+  for (const field of fields) {
+    if (Object.hasOwn(edge?.field_values || {}, field.key)) {
+      values[field.key] = edge.field_values[field.key];
+    }
+  }
+  return {
+    field_values: values,
+    relationship_fields: fields.map((field) => ({
+      id: field.id,
+      key: field.key,
+      label: field.label,
+      type: field.type,
+      required: field.required,
+      default_value: field.default_value,
+      editable: field[`edit_from_${side}`],
+      value: Object.hasOwn(values, field.key) ? values[field.key] : null,
+    })),
+  };
+}
 
 function listFieldOperators(type) {
   if (TEXT_FILTER_TYPES.has(type)) return ['contains', 'equals', 'is_empty', 'is_not_empty'];
@@ -1693,6 +1819,7 @@ export function createCustomObjectService({
     }
     const validation = validateCustomObjectRelationshipDefinition(payload);
     if (!validation.ok) throw new CustomObjectHttpError(400, 'Invalid relationship definition', validation.errors);
+    relationshipFieldDefinitions(payload);
     await validateRelationshipPreview(payload);
     await pickerScopeV2Schema(payload);
     if (payload.status !== 'draft') Object.assign(payload, domainGuard(() => resolveCustomObjectLifecycleUpdate({ currentStatus: 'draft', nextStatus: payload.status, hasPrimaryDisplayField: true, now: now() })));
@@ -1724,6 +1851,7 @@ export function createCustomObjectService({
     for (const relatedObjectId of relationshipObjectIds(candidate)) await activeObject(relatedObjectId);
     const validation = validateCustomObjectRelationshipDefinition(candidate);
     if (!validation.ok) throw new CustomObjectHttpError(400, 'Invalid relationship definition', validation.errors);
+    relationshipFieldDefinitions(candidate);
     await validateRelationshipPreview(candidate);
     if (!archive) await pickerScopeV2Schema(candidate);
     if (archive || payload.status !== undefined) Object.assign(payload, domainGuard(() => resolveCustomObjectLifecycleUpdate({
@@ -2412,6 +2540,7 @@ export function createCustomObjectService({
       data: rows.map((edge) => ({
         relationship_id: edge.id,
         relationship_definition_id: edge.relationship_definition_id,
+        ...projectRelationshipValues(definition, edge, side),
         related: resolved.get(edge[`${relatedSide}_record_id`]),
       })),
       total: count || 0,
@@ -2515,6 +2644,11 @@ export function createCustomObjectService({
       relationship_definition_id: definition.id,
       source_record_id: source.id,
       target_record_id: target.id,
+      field_values: normalizeRelationshipValues(
+        definition, body?.field_values ?? body?.values, {
+        side, create: true,
+        },
+      ),
       ...authored('created'),
     }).select('*').single();
     throwDb(error);
@@ -2725,6 +2859,7 @@ export function createCustomObjectService({
         relationship_definition_id: edge.relationship_definition_id,
         source_record_id: edge.source_record_id,
         target_record_id: edge.target_record_id,
+        ...projectRelationshipValues(definition, edge, side),
         ...(includeArchived ? { archived_at: edge.archived_at || null } : {}),
         related: resolved.get(edge[`${relatedSide}_record_id`]) || null,
       })),
@@ -2746,6 +2881,9 @@ export function createCustomObjectService({
   async function createRelationship(objectId, body) {
     await activeObject(objectId, 'Relationships are only available for active Custom Objects');
     const definition = await one('custom_object_relationship_definition', body?.relationship_definition_id);
+    if (definition.status !== 'active') {
+      throw new CustomObjectHttpError(409, 'Relationship definition is not active');
+    }
     if (definition.source_custom_object_id !== objectId && definition.target_custom_object_id !== objectId) throw new CustomObjectHttpError(404, 'Resource not found');
     const routedSide = routedRelationshipSide(definition, objectId, body?.routed_side);
     if (definition[`show_on_${routedSide}`] === false) {
@@ -2769,6 +2907,11 @@ export function createCustomObjectService({
     const payload = {
       tenant_id: tenantId, relationship_definition_id: definition.id,
       source_record_id: source.id, target_record_id: target.id, ...authored('created'),
+      field_values: normalizeRelationshipValues(
+        definition, body?.field_values ?? body?.values, {
+        side: routedSide, create: true,
+        },
+      ),
     };
     const { data, error } = await db.from('custom_object_relationship').insert(payload).select('*').single();
     throwDb(error);
@@ -2808,6 +2951,63 @@ export function createCustomObjectService({
     }).single();
     throwDb(error);
     return data;
+  }
+
+  async function updateRelationship(objectId, id, body = {}) {
+    await activeObject(objectId, 'Relationships are only available for active Custom Objects');
+    const before = await one('custom_object_relationship', id);
+    if (before.archived_at) throw new CustomObjectHttpError(409, 'Archived relationship edges cannot be edited');
+    const definition = await one('custom_object_relationship_definition', before.relationship_definition_id);
+    if (definition.status !== 'active') throw new CustomObjectHttpError(409, 'Relationship definition is not active');
+    if (definition.source_custom_object_id !== objectId && definition.target_custom_object_id !== objectId) {
+      throw new CustomObjectHttpError(404, 'Resource not found');
+    }
+    const routedSide = routedRelationshipSide(definition, objectId, body?.routed_side);
+    if (definition[`show_on_${routedSide}`] === false) {
+      throw new CustomObjectHttpError(403, 'This relationship is hidden on the routed side');
+    }
+    if (!body?.routed_record_id || body.routed_record_id !== before[`${routedSide}_record_id`]) {
+      throw new CustomObjectHttpError(400, 'routed_record_id does not match this relationship edge');
+    }
+    await requireRelationshipCapabilities(definition, 'edit_records');
+    if (definition[`edit_from_${routedSide}`] === false) {
+      throw new CustomObjectHttpError(403, 'This relationship cannot be edited from the routed Custom Object');
+    }
+    const fieldValues = normalizeRelationshipValues(
+      definition, body?.field_values ?? body?.values, {
+      side: routedSide, existing: before.field_values,
+    });
+    const { data, error } = await db.from('custom_object_relationship').update({
+      field_values: fieldValues, ...authored(), updated_at: now(),
+    })
+      .eq('tenant_id', tenantId).eq('id', id).is('archived_at', null)
+      .select('*').single();
+    throwDb(error);
+    return { ...data, ...projectRelationshipValues(definition, data, routedSide) };
+  }
+
+  async function updateCoreRelationship(kind, recordId, edgeId, body = {}) {
+    if (!edgeId) throw new CustomObjectHttpError(400, 'relationshipId is required');
+    const before = await one('custom_object_relationship', edgeId);
+    if (before.archived_at) throw new CustomObjectHttpError(409, 'Archived relationship edges cannot be edited');
+    const { definition, side } = await coreRelationshipContext(
+      kind, recordId, before.relationship_definition_id, 'edit_records',
+    );
+    if (before[`${side}_record_id`] !== recordId) throw new CustomObjectHttpError(404, 'Resource not found');
+    if (definition[`edit_from_${side}`] === false) {
+      throw new CustomObjectHttpError(403, 'This relationship cannot be edited from the routed side');
+    }
+    const fieldValues = normalizeRelationshipValues(
+      definition, body?.field_values ?? body?.values, {
+      side, existing: before.field_values,
+    });
+    const { data, error } = await db.from('custom_object_relationship').update({
+      field_values: fieldValues, ...authored(), updated_at: now(),
+    })
+      .eq('tenant_id', tenantId).eq('id', edgeId).is('archived_at', null)
+      .select('*').single();
+    throwDb(error);
+    return { ...data, ...projectRelationshipValues(definition, data, side) };
   }
 
   async function listPermissions(objectId, query) {
@@ -2941,8 +3141,8 @@ export function createCustomObjectService({
     updateField, listRecords, exportRecords, relationshipFilterOptions, createRecord, createRecordWithRelationships, initialRelationshipCandidates, getRecord, updateRecord,
     listRelationshipDefinitions, relationshipDefinitionGraph, createRelationshipDefinition,
     updateRelationshipDefinition, entityPicker, listRelationships, createRelationship,
-    archiveRelationship, listPermissions, upsertPermission, listFieldPermissions, upsertFieldPermission, listAudit,
+    updateRelationship, archiveRelationship, listPermissions, upsertPermission, listFieldPermissions, upsertFieldPermission, listAudit,
     listCoreRelationshipDefinitions, listCoreRelationships, coreEntityPicker,
-    createCoreRelationship, archiveCoreRelationship,
+    createCoreRelationship, updateCoreRelationship, archiveCoreRelationship,
   };
 }

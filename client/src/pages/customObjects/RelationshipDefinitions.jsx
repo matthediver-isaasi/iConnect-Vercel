@@ -28,6 +28,8 @@ import {
   labelForSide,
   relationshipEndpoint,
   relationshipEndpointsMatch,
+  relationshipFields,
+  relationshipFieldsAreValid,
   relationshipSourceName,
   resolveRelationshipPickerPath,
   resolveRelationshipSourceObject,
@@ -49,7 +51,18 @@ function DefinitionDialog({ objectId, object, definition, open, onOpenChange }) 
     enabled: open,
   });
   useEffect(() => {
-    setForm(definition ? { ...defaultDefinitionForm(objectId), ...definition, configuration: definition.configuration || {} } : defaultDefinitionForm(objectId));
+    if (!definition) {
+      setForm(defaultDefinitionForm(objectId));
+      return;
+    }
+    setForm({
+      ...defaultDefinitionForm(objectId),
+      ...definition,
+      configuration: {
+        ...(definition.configuration || {}),
+        relationship_fields: relationshipFields(definition),
+      },
+    });
   }, [definition, objectId, open]);
   const save = useMutation({
     mutationFn: () => relationshipRequest(
@@ -94,7 +107,7 @@ function DefinitionDialog({ objectId, object, definition, open, onOpenChange }) 
   const valid = form.relationship_key.trim() && form.source_label.trim() && form.target_label.trim() &&
     (form.source_kind !== "custom_object" || form.source_custom_object_id) &&
     (form.target_kind !== "custom_object" || form.target_custom_object_id) &&
-    scopeValid;
+    scopeValid && relationshipFieldsAreValid(form);
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[92dvh] max-w-3xl overflow-y-auto">
@@ -130,11 +143,77 @@ function DefinitionDialog({ objectId, object, definition, open, onOpenChange }) 
             sourcePath={sourcePath}
             targetPath={targetPath}
           />
+          <RelationshipFieldsEditor form={form} update={update} definition={definition} />
           <div><Label>Administrator note</Label><Textarea value={form.configuration?.note || ""} onChange={(e) => update("configuration", { ...form.configuration, note: e.target.value })} placeholder="Optional guidance for future model editors" /></div>
         </div>
         <DialogFooter><Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button><Button disabled={!valid || save.isPending} onClick={() => save.mutate()}>{save.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}{definition ? "Save changes" : "Create relationship"}</Button></DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+const newRelationshipFieldId = () =>
+  globalThis.crypto?.randomUUID?.()
+  || `relationship-field-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+function RelationshipFieldsEditor({ form, update, definition }) {
+  const configuredFields = form.configuration?.relationship_fields;
+  const fields = Array.isArray(configuredFields)
+    ? configuredFields
+    : relationshipFields(form);
+  const setFields = (relationship_fields) => update("configuration", {
+    ...form.configuration,
+    relationship_fields,
+  });
+  const updateField = (id, key, value) => setFields(fields.map((field) =>
+    field.id === id ? { ...field, [key]: value } : field));
+  const existingIds = new Set(relationshipFields(definition).map((field) => field.id));
+  const addField = () => setFields([...fields, {
+    id: newRelationshipFieldId(),
+    key: "",
+    label: "",
+    type: "boolean",
+    default: false,
+    required: false,
+    display_on_source: true,
+    display_on_target: true,
+    edit_from_source: true,
+    edit_from_target: false,
+  }]);
+  return (
+    <div className="rounded-lg border border-slate-200 p-4">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <p className="text-sm font-medium text-slate-800">Relationship fields</p>
+          <p className="mt-1 text-xs text-slate-500">Store boolean details on each link itself. Field IDs remain stable when labels change.</p>
+        </div>
+        <Button type="button" variant="outline" size="sm" onClick={addField}><Plus className="mr-2 h-4 w-4" />Add field</Button>
+      </div>
+      {!fields.length ? (
+        <p className="mt-4 rounded-md bg-slate-50 p-3 text-xs text-slate-500">No relationship fields configured.</p>
+      ) : (
+        <div className="mt-4 space-y-4">
+          {fields.map((field, index) => (
+            <div key={field.id} className="rounded-md border bg-slate-50/70 p-3">
+              <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)_auto]">
+                <div><Label htmlFor={`relationship-field-key-${field.id}`}>Stable key</Label><Input id={`relationship-field-key-${field.id}`} disabled={existingIds.has(field.id)} value={field.key} onChange={(event) => updateField(field.id, "key", event.target.value)} placeholder="is_primary" aria-invalid={!field.key.trim()} /></div>
+                <div><Label htmlFor={`relationship-field-label-${field.id}`}>Label</Label><Input id={`relationship-field-label-${field.id}`} value={field.label} onChange={(event) => updateField(field.id, "label", event.target.value)} placeholder="Primary relationship" aria-invalid={!field.label.trim()} /></div>
+                <Button type="button" variant="ghost" size="icon" className="mt-6" aria-label={`Delete relationship field ${index + 1}`} onClick={() => setFields(fields.filter((item) => item.id !== field.id))}><Trash2 className="h-4 w-4 text-rose-600" /></Button>
+              </div>
+              <p className="mt-1 text-[11px] text-slate-400">ID: {field.id}</p>
+              <div className="mt-3 grid gap-3 border-t pt-3 sm:grid-cols-2 lg:grid-cols-3">
+                <Toggle label="Default" hint="Initial value." checked={field.default} onChange={(value) => updateField(field.id, "default", value)} />
+                <Toggle label="Required" hint="Must have a value." checked={field.required} onChange={(value) => updateField(field.id, "required", value)} />
+                <Toggle label="Display at source" hint="Show from source records." checked={field.display_on_source} onChange={(value) => updateField(field.id, "display_on_source", value)} />
+                <Toggle label="Display at target" hint="Show from target records." checked={field.display_on_target} onChange={(value) => updateField(field.id, "display_on_target", value)} />
+                <Toggle label="Edit at source" hint="Editable from source." checked={field.edit_from_source} onChange={(value) => updateField(field.id, "edit_from_source", value)} />
+                <Toggle label="Edit at target" hint="Editable from target." checked={field.edit_from_target} onChange={(value) => updateField(field.id, "edit_from_target", value)} />
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 

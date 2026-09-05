@@ -132,7 +132,9 @@ export function createCustomObjectRouteHandler(level, dependencies = {}) {
         else if (resource === 'audit' && req.method === 'GET') data = await service.listAudit(objectId, req.query);
         else return methodNotAllowed(res, ['GET', 'POST', 'PUT']);
       } else if (level === 'item') {
-        if (objectId === 'core' && resource === 'relationships' && req.method === 'DELETE') {
+        if (objectId === 'core' && resource === 'relationships' && req.method === 'PATCH') {
+          data = await service.updateCoreRelationship(req.query.kind, req.query.recordId, resourceId, req.body);
+        } else if (objectId === 'core' && resource === 'relationships' && req.method === 'DELETE') {
           data = await service.archiveCoreRelationship(req.query.kind, req.query.recordId, resourceId);
         } else if (resource === 'fields' && req.method === 'PATCH') data = await service.updateField(objectId, resourceId, req.body);
         else if (resource === 'fields' && req.method === 'DELETE') data = await service.updateField(objectId, resourceId, req.body, true);
@@ -141,6 +143,7 @@ export function createCustomObjectRouteHandler(level, dependencies = {}) {
         else if (resource === 'records' && req.method === 'DELETE') data = await service.updateRecord(objectId, resourceId, req.body, true);
         else if (resource === 'relationship-definitions' && req.method === 'PATCH') data = await service.updateRelationshipDefinition(objectId, resourceId, req.body);
         else if (resource === 'relationship-definitions' && req.method === 'DELETE') data = await service.updateRelationshipDefinition(objectId, resourceId, req.body, true);
+        else if (resource === 'relationships' && req.method === 'PATCH') data = await service.updateRelationship(objectId, resourceId, req.body);
         else if (resource === 'relationships' && req.method === 'DELETE') data = await service.archiveRelationship(objectId, resourceId, req.body);
         else return methodNotAllowed(res, ['GET', 'PATCH', 'DELETE']);
       }
