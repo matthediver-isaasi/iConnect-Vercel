@@ -15,7 +15,11 @@ import {
 } from "./relationshipApi";
 import { canEditDefinitionFrom, cardinalityLimitReached, contextualCreateEligibility, labelForSide, oppositeKindFor, relatedRecordPath, relationshipCreatePayload, relationshipLinkState, relationshipPanels } from "./relationshipHelpers";
 import { ContextualRecordCreateDialog } from "./ContextualRecordCreateDialog";
-import { compactPreviewColumns, relationshipCardColumnLayoutClasses } from "./recordHelpers";
+import {
+  compactPreviewColumns,
+  relationshipCardColumnLayoutClasses,
+  relationshipScalarDisplayValue,
+} from "./recordHelpers";
 
 const normalizeContext = ({ context, objectId, recordId }) =>
   context || { kind: "custom_object", objectId, recordId };
@@ -138,6 +142,7 @@ function RelationshipPanel({
   canEditRecord,
   includeArchived = false,
   embedded = false,
+  displayMode = "columns",
 }) {
   const location = useLocation();
   const linkState = relationshipLinkState(location);
@@ -179,6 +184,7 @@ function RelationshipPanel({
     side: editSide,
     object: oppositeObject.data,
   });
+  const resolvedDisplayMode = displayMode === "cards" ? "cards" : "columns";
   const create = useMutation({
     mutationFn: (entity) => relationshipRequest(routes.create(), {
       method: "POST",
@@ -222,7 +228,7 @@ function RelationshipPanel({
         {query.isLoading ? <div className="space-y-3 p-5">{[1, 2].map((x) => <div key={x} className="h-10 animate-pulse rounded bg-slate-100" />)}</div>
           : query.error ? <div className="p-5 text-sm text-rose-700"><CircleAlert className="mr-2 inline h-4 w-4" />{query.error.message} <button type="button" className="ml-2 underline" onClick={() => query.refetch()}>Retry</button></div>
             : !edges.length ? <div className="p-7 text-center text-sm text-slate-500">No {labelForSide(definition, editSide).toLowerCase()} linked yet.</div>
-              : <div>{previewColumns.length > 0 && <div className={`${relationshipCardColumnLayoutClasses.header} border-b bg-slate-50 px-5 py-2 text-xs font-semibold uppercase tracking-wide text-slate-500`}><span>{endpoint.kind === "custom_object" ? "Record" : labelForSide(definition, editSide)}</span>{previewColumns.map((column, index) => <span key={`${column.type}-${column.field_id || column.relationship_definition_id}-${index}`}>{column.label}</span>)}<span className="w-9" /></div>}{edges.map((edge) => {
+              : <div className={resolvedDisplayMode === "columns" ? "overflow-x-auto" : ""}>{resolvedDisplayMode === "columns" && <table className={relationshipCardColumnLayoutClasses.table}><thead><tr className="border-b bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500"><th className="w-48 px-5 py-2">{endpoint.kind === "custom_object" ? "Record" : labelForSide(definition, editSide)}</th>{previewColumns.map((column, index) => <th className="px-4 py-2" key={`${column.type}-${column.field_id || column.relationship_definition_id}-${index}`}>{column.label}</th>)}<th className="w-16 px-4 py-2"><span className="sr-only">Actions</span></th></tr></thead><tbody>{edges.map((edge) => {
                 const related = {
                   kind: edge.related_kind,
                   custom_object_id: edge.related_custom_object_id,
@@ -242,15 +248,26 @@ function RelationshipPanel({
                     && item.side === column.side) || [];
                 });
                 const primary = path ? <Link to={path} state={linkState} className="min-w-0 hover:underline">{text}</Link> : <div className="min-w-0">{text}</div>;
-                return <div key={edge.relationship_id} className={`group border-b px-5 py-3 last:border-0 hover:bg-slate-50 ${previewColumns.length ? relationshipCardColumnLayoutClasses.row : "flex items-center justify-between gap-3"}`}><div className="min-w-0 flex-1">{primary}</div>{previewColumns.map((column, index) => <div key={`${column.type}-${column.field_id || column.relationship_definition_id}-${index}`} className="min-w-0 text-sm text-slate-700"><span className={relationshipCardColumnLayoutClasses.mobileLabel}>{column.label}:</span>{Array.isArray(values[index]) ? values[index].length ? values[index].map((item, valueIndex) => { const valuePath = relatedRecordPath(item.value); return <React.Fragment key={`${item.value.id}-${valueIndex}`}>{valueIndex > 0 && ", "}{valuePath ? <Link to={valuePath} state={linkState} className="hover:underline">{item.value.primary_label}</Link> : item.value.primary_label}</React.Fragment>; }) : "—" : values[index] || "—"}</div>)}{edge.archived_at && <Badge variant="outline">Archived link</Badge>}{editable && <Button variant="ghost" size="icon" className="opacity-0 transition-opacity group-hover:opacity-100 focus:opacity-100" disabled={remove.isPending} aria-label="Remove relationship" onClick={() => { if (window.confirm(`Remove the link to ${label}?`)) remove.mutate(edge.relationship_id); }}><Trash2 className="h-4 w-4 text-rose-600" /></Button>}</div>;
-              })}</div>}
+                 const renderValue = (value) => Array.isArray(value) ? value.length ? value.map((item, valueIndex) => { const valuePath = relatedRecordPath(item.value); return <React.Fragment key={`${item.value.id}-${valueIndex}`}>{valueIndex > 0 && ", "}{valuePath ? <Link to={valuePath} state={linkState} className="hover:underline">{item.value.primary_label}</Link> : item.value.primary_label}</React.Fragment>; }) : "—" : relationshipScalarDisplayValue(value);
+                 const action = editable && <Button variant="ghost" size="icon" className="opacity-0 transition-opacity group-hover:opacity-100 focus:opacity-100" disabled={remove.isPending} aria-label="Remove relationship" onClick={() => { if (window.confirm(`Remove the link to ${label}?`)) remove.mutate(edge.relationship_id); }}><Trash2 className="h-4 w-4 text-rose-600" /></Button>;
+                 return <tr key={edge.relationship_id} className="group border-b last:border-0 hover:bg-slate-50"><td className="px-5 py-3 align-top">{primary}{edge.archived_at && <Badge variant="outline" className="mt-2">Archived link</Badge>}</td>{previewColumns.map((column, index) => <td key={`${column.type}-${column.field_id || column.relationship_definition_id}-${index}`} className="px-4 py-3 align-top text-sm text-slate-700">{renderValue(values[index])}</td>)}<td className="px-4 py-2 text-right align-top">{action}</td></tr>;
+               })}</tbody></table>}{resolvedDisplayMode === "cards" && <div className={relationshipCardColumnLayoutClasses.cardGrid}>{edges.map((edge) => {
+                 const related = { kind: edge.related_kind, custom_object_id: edge.related_custom_object_id, record_id: edge.related_record_id, ...(edge.related || {}) };
+                 const path = relatedRecordPath(related);
+                 const label = related.primary_label || "Untitled record";
+                 const primary = path ? <Link to={path} state={linkState} className="font-semibold text-slate-900 hover:underline">{label}</Link> : <span className="font-semibold text-slate-900">{label}</span>;
+                 const values = previewColumns.map((column) => column.type === "field"
+                   ? related.compact_fields?.find((item) => String(item.field_id) === column.field_id)?.value
+                   : related.relationship_columns?.filter((item) => String(item.relationship_definition_id) === column.relationship_definition_id && item.side === column.side) || []);
+                 return <article key={edge.relationship_id} className={relationshipCardColumnLayoutClasses.card}><div className="flex items-start justify-between gap-3"><div className="min-w-0">{primary}{edge.archived_at && <Badge variant="outline" className="mt-2 block w-fit">Archived link</Badge>}</div>{editable && <Button variant="ghost" size="icon" className="shrink-0 opacity-0 transition-opacity group-hover:opacity-100 focus:opacity-100" disabled={remove.isPending} aria-label="Remove relationship" onClick={() => { if (window.confirm(`Remove the link to ${label}?`)) remove.mutate(edge.relationship_id); }}><Trash2 className="h-4 w-4 text-rose-600" /></Button>}</div>{previewColumns.length > 0 && <dl className="mt-4 space-y-3">{previewColumns.map((column, index) => <div key={`${column.type}-${column.field_id || column.relationship_definition_id}-${index}`}><dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">{column.label}</dt><dd className="mt-1 text-sm text-slate-700">{Array.isArray(values[index]) ? values[index].length ? values[index].map((item, valueIndex) => { const valuePath = relatedRecordPath(item.value); return <React.Fragment key={`${item.value.id}-${valueIndex}`}>{valueIndex > 0 && ", "}{valuePath ? <Link to={valuePath} state={linkState} className="hover:underline">{item.value.primary_label}</Link> : item.value.primary_label}</React.Fragment>; }) : "—" : relationshipScalarDisplayValue(values[index])}</dd></div>)}</dl>}</article>;
+               })}</div>}</div>}
         {pages > 1 && <div className="flex items-center justify-between border-t px-5 py-3 text-xs text-slate-500"><span>Page {page} of {pages}</span><div className="flex gap-1"><Button size="icon" variant="ghost" disabled={page === 1} onClick={() => setPage((x) => x - 1)}><ChevronLeft className="h-4 w-4" /></Button><Button size="icon" variant="ghost" disabled={page === pages} onClick={() => setPage((x) => x + 1)}><ChevronRight className="h-4 w-4" /></Button></div></div>}
       </CardContent>
     </Card>
   );
 }
 
-export function RelatedRecordsPanel({ context, objectId, recordId, object, record, definition, side, showHeading = true, embedded = false }) {
+export function RelatedRecordsPanel({ context, objectId, recordId, object, record, definition, side, showHeading = true, embedded = false, displayMode = "columns" }) {
   const resolved = normalizeContext({ context, objectId, recordId });
   const includeArchived = resolved.kind === "custom_object"
     && Boolean(record?.archived_at || object?.status === "archived");
@@ -266,5 +283,5 @@ export function RelatedRecordsPanel({ context, objectId, recordId, object, recor
   if (!definition && definitionsQuery.isLoading) return <div className="mt-6 space-y-3"><div className="h-6 w-44 animate-pulse rounded bg-slate-200" /><div className="h-36 animate-pulse rounded-lg bg-slate-100" /></div>;
   if (!definition && definitionsQuery.error) return <Card className="mt-6 border-rose-200"><CardContent className="flex gap-3 p-5 text-sm text-rose-700"><CircleAlert className="h-5 w-5 shrink-0" />Relationship panels could not be loaded. {definitionsQuery.error.message}</CardContent></Card>;
   if (!panels.length) return null;
-  return <section className={showHeading ? "mt-8 border-t pt-7" : ""}>{showHeading && <div className="mb-4 flex items-center gap-2"><Link2 className="h-5 w-5 text-slate-500" /><h2 className="text-lg font-semibold text-slate-950">{includeArchived ? "Relationship history" : "Related records"}</h2></div>}<div className={embedded ? "grid gap-4" : "grid gap-4 lg:grid-cols-2"}>{panels.map((panel) => <RelationshipPanel key={`${panel.definition.id}-${panel.side}`} context={resolved} record={record} definition={panel.definition} editSide={panel.side} canEditRecord={canEditRecord} includeArchived={includeArchived} embedded={embedded} />)}</div></section>;
+  return <section className={showHeading ? "mt-8 border-t pt-7" : ""}>{showHeading && <div className="mb-4 flex items-center gap-2"><Link2 className="h-5 w-5 text-slate-500" /><h2 className="text-lg font-semibold text-slate-950">{includeArchived ? "Relationship history" : "Related records"}</h2></div>}<div className={embedded ? "grid gap-4" : "grid gap-4 lg:grid-cols-2"}>{panels.map((panel) => <RelationshipPanel key={`${panel.definition.id}-${panel.side}`} context={resolved} record={record} definition={panel.definition} editSide={panel.side} canEditRecord={canEditRecord} includeArchived={includeArchived} embedded={embedded} displayMode={displayMode} />)}</div></section>;
 }

@@ -4,11 +4,13 @@ import {
   memberRelationshipLayoutElements,
   memberRelationshipLayoutId,
   mergeLayoutWithCustomFields,
+  normalizeRelationshipDisplayMode,
 } from "./useMemberDetailLayout.js";
 import {
   organisationRelationshipLayoutElements,
   organisationRelationshipLayoutId,
   mergeLayoutWithCustomFields as mergeOrganisationLayoutWithCustomFields,
+  normalizeOrganisationRelationshipDisplayMode,
 } from "./useOrgDetailLayout.js";
 import { evaluateVisibilityRules } from "./useOrgFieldVisibilityRules.js";
 
@@ -27,7 +29,25 @@ test("relationship layout identity is stable across labels", () => {
     type: "relationship",
     definitionId: "department",
     side: "source",
+    displayMode: "columns",
   }]);
+});
+
+test("relationship display modes default safely and preserve cards", () => {
+  assert.equal(normalizeRelationshipDisplayMode(), "columns");
+  assert.equal(normalizeRelationshipDisplayMode("invalid"), "columns");
+  assert.equal(normalizeRelationshipDisplayMode("cards"), "cards");
+  const layout = { cards: [{ id: "relationships", columns: 1, fields: [{
+    id: "relationship:department:source",
+    type: "relationship",
+    definitionId: "department",
+    side: "source",
+    display_mode: "cards",
+  }] }] };
+  assert.equal(
+    mergeLayoutWithCustomFields(layout, [], [activePanel]).cards[0].fields[0].displayMode,
+    "cards",
+  );
 });
 
 test("existing layouts remain unchanged when they contain no relationship elements", () => {
@@ -67,7 +87,10 @@ test("available relationship elements retain position and stale elements fail sa
     }],
   };
   const merged = mergeLayoutWithCustomFields(layout, [], [activePanel]);
-  assert.deepEqual(merged.cards[0].fields, [layout.cards[0].fields[0]]);
+  assert.deepEqual(merged.cards[0].fields, [{
+    ...layout.cards[0].fields[0],
+    displayMode: "columns",
+  }]);
 });
 
 test("unresolved relationship metadata never deletes persisted placements", () => {
@@ -86,7 +109,10 @@ test("unresolved relationship metadata never deletes persisted placements", () =
       fields: [relationship],
     }],
   };
-  assert.deepEqual(mergeLayoutWithCustomFields(layout, [], null).cards[0].fields, [relationship]);
+  assert.deepEqual(mergeLayoutWithCustomFields(layout, [], null).cards[0].fields, [{
+    ...relationship,
+    displayMode: "columns",
+  }]);
   assert.deepEqual(mergeLayoutWithCustomFields(layout, [], []).cards, []);
 });
 
@@ -125,7 +151,25 @@ test("organisation relationship layout identity is stable across labels", () => 
     type: "relationship",
     definitionId: "organisation-department",
     side: "source",
+    displayMode: "columns",
   }]);
+});
+
+test("organisation relationship modes default safely and preserve cards", () => {
+  assert.equal(normalizeOrganisationRelationshipDisplayMode(), "columns");
+  assert.equal(normalizeOrganisationRelationshipDisplayMode("cards"), "cards");
+  const relationship = {
+    id: "relationship:organisation-department:source",
+    type: "relationship",
+    definitionId: "organisation-department",
+    side: "source",
+    displayMode: "cards",
+  };
+  const layout = { cards: [{ id: "relationships", columns: 1, fields: [relationship] }] };
+  assert.equal(
+    mergeOrganisationLayoutWithCustomFields(layout, [], [organisationPanel]).cards[0].fields[0].displayMode,
+    "cards",
+  );
 });
 
 test("organisation layouts preserve legacy fields and remove only stale relationships after resolution", () => {
@@ -156,11 +200,16 @@ test("organisation layouts preserve legacy fields and remove only stale relation
 
   assert.deepEqual(
     mergeOrganisationLayoutWithCustomFields(layout, [], null).cards[0].fields,
-    layout.cards[0].fields,
+    layout.cards[0].fields.map(field => field.type === "relationship"
+      ? { ...field, displayMode: "columns" }
+      : field),
   );
   assert.deepEqual(
     mergeOrganisationLayoutWithCustomFields(layout, [], [organisationPanel]).cards[0].fields,
-    layout.cards[0].fields.slice(0, 2),
+    [
+      layout.cards[0].fields[0],
+      { ...layout.cards[0].fields[1], displayMode: "columns" },
+    ],
   );
   assert.deepEqual(
     mergeOrganisationLayoutWithCustomFields(layout, [], []).cards[0].fields,

@@ -2,6 +2,11 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { base44 } from "@/api/base44Client";
 
 const LAYOUT_SETTING_KEY = 'org_detail_layout_config';
+export const DEFAULT_ORGANISATION_RELATIONSHIP_DISPLAY_MODE = 'columns';
+
+export function normalizeOrganisationRelationshipDisplayMode(value) {
+  return value === 'cards' ? 'cards' : DEFAULT_ORGANISATION_RELATIONSHIP_DISPLAY_MODE;
+}
 
 const DEFAULT_LAYOUT = {
   cards: [
@@ -45,7 +50,10 @@ function migrateLayoutWithColumnIndex(layout) {
       ...card,
       fields: card.fields.map((field, idx) => ({
         ...field,
-        columnIndex: field.columnIndex !== undefined ? field.columnIndex : (idx % card.columns)
+        columnIndex: field.columnIndex !== undefined ? field.columnIndex : (idx % card.columns),
+        ...(field.type === 'relationship'
+          ? { displayMode: normalizeOrganisationRelationshipDisplayMode(field.displayMode ?? field.display_mode) }
+          : {})
       }))
     }))
   };
@@ -73,6 +81,7 @@ export function organisationRelationshipLayoutElements(panels = []) {
     type: 'relationship',
     definitionId: definition.id,
     side,
+    displayMode: DEFAULT_ORGANISATION_RELATIONSHIP_DISPLAY_MODE,
   }));
 }
 
@@ -148,7 +157,14 @@ export function mergeLayoutWithCustomFields(layout, customFields, relationshipPa
           field.type !== 'relationship'
           || availableRelationshipIds === null
           || availableRelationshipIds.has(field.id)
-        )
+        ).map(field => field.type === 'relationship'
+          ? {
+              ...field,
+              displayMode: normalizeOrganisationRelationshipDisplayMode(
+                field.displayMode ?? field.display_mode
+              ),
+            }
+          : field)
       }))
       .filter(card => card.fields.length > 0 || card.id === 'card-custom')
   };

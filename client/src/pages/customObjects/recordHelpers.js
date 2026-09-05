@@ -287,6 +287,8 @@ const columnFor = (value, fallback, columns) => {
   const parsed = Number(value);
   return Math.min(columns - 1, Math.max(0, Number.isFinite(parsed) ? parsed : fallback));
 };
+export const normalizeRelationshipLayoutDisplayMode = (value) =>
+  value === "cards" ? "cards" : "columns";
 
 // Normalises both the original section contract and the CRM card contract. IDs
 // refer to schema IDs (never mutable field names), so renames are harmless.
@@ -350,7 +352,15 @@ export function customObjectDetailLayout(object, fields, relationshipPanels = []
         );
         if (!relationshipsById.has(id) || assigned.has(id)) return [];
         assigned.add(id);
-        return [{ ...element, id, type, definitionId: String(element.definitionId ?? element.definition_id), side: element.side, columnIndex: columnFor(element.columnIndex, 0, columns) }];
+        return [{
+          ...element,
+          id,
+          type,
+          definitionId: String(element.definitionId ?? element.definition_id),
+          side: element.side,
+          columnIndex: columnFor(element.columnIndex, 0, columns),
+          displayMode: normalizeRelationshipLayoutDisplayMode(element.displayMode ?? element.display_mode),
+        }];
       }
       const fieldId = String(element.fieldId ?? element.field_id ?? element.id?.replace(/^custom:/, "") ?? "");
       const id = customObjectFieldLayoutId(fieldId);
@@ -518,10 +528,13 @@ export const compactPreviewColumns = (definition, side, projectedFields = []) =>
 };
 
 export const relationshipCardColumnLayoutClasses = {
-  header: "hidden grid-cols-[minmax(10rem,1.2fr)_repeat(auto-fit,minmax(8rem,1fr))_auto] gap-4 sm:grid",
-  row: "grid gap-2 sm:grid-cols-[minmax(10rem,1.2fr)_repeat(auto-fit,minmax(8rem,1fr))_auto] sm:items-center sm:gap-4",
-  mobileLabel: "mr-2 text-xs font-semibold text-slate-500 sm:hidden",
+  table: "min-w-[42rem] w-full table-fixed border-collapse",
+  cardGrid: "grid gap-4 p-4 sm:grid-cols-2",
+  card: "group min-w-0 rounded-lg border border-slate-200 bg-white p-4 shadow-sm",
 };
+
+export const relationshipScalarDisplayValue = (value) =>
+  value === null || value === undefined || value === "" ? "—" : String(value);
 
 export const RECORD_PERMISSION_KEYS = [
   "can_view_records",

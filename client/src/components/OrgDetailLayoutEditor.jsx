@@ -18,7 +18,11 @@ import {
   ChevronDown,
   ChevronUp
 } from "lucide-react";
-import { CORE_FIELDS } from "@/hooks/useOrgDetailLayout";
+import {
+  CORE_FIELDS,
+  DEFAULT_ORGANISATION_RELATIONSHIP_DISPLAY_MODE,
+  normalizeOrganisationRelationshipDisplayMode,
+} from "@/hooks/useOrgDetailLayout";
 import { toast } from "sonner";
 
 function generateId() {
@@ -130,7 +134,11 @@ export default function OrgDetailLayoutEditor({
               ...(field.type === 'core'
                 ? { fieldKey: field.fieldKey }
                 : field.type === 'relationship'
-                  ? { definitionId: field.definitionId, side: field.side }
+                  ? {
+                      definitionId: field.definitionId,
+                      side: field.side,
+                      displayMode: DEFAULT_ORGANISATION_RELATIONSHIP_DISPLAY_MODE,
+                    }
                   : { fieldId: field.fieldId })
             };
             
@@ -431,7 +439,30 @@ export default function OrgDetailLayoutEditor({
                                                       `}
                                                     >
                                                       <GripVertical className="w-3 h-3 opacity-50 flex-shrink-0" />
-                                                      <span className="truncate">{getFieldLabel(field)}</span>
+                                                      <span className="min-w-0 flex-1 truncate">{getFieldLabel(field)}</span>
+                                                      {field.type === 'relationship' && (
+                                                        <Select
+                                                          value={normalizeOrganisationRelationshipDisplayMode(field.displayMode)}
+                                                          onValueChange={(displayMode) => {
+                                                            const fields = card.fields.map(item =>
+                                                              item.id === field.id ? { ...item, displayMode } : item
+                                                            );
+                                                            updateCard(card.id, { fields });
+                                                          }}
+                                                        >
+                                                          <SelectTrigger
+                                                            className="h-7 w-24 bg-white text-xs"
+                                                            onPointerDown={(event) => event.stopPropagation()}
+                                                            data-testid={`select-relationship-display-${field.id}`}
+                                                          >
+                                                            <SelectValue />
+                                                          </SelectTrigger>
+                                                          <SelectContent>
+                                                            <SelectItem value="columns">Columns</SelectItem>
+                                                            <SelectItem value="cards">Cards</SelectItem>
+                                                          </SelectContent>
+                                                        </Select>
+                                                      )}
                                                     </div>
                                                   )}
                                                 </Draggable>

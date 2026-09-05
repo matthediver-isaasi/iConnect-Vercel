@@ -6,6 +6,11 @@ import {
 } from "@/lib/memberMandateLayout";
 
 const LAYOUT_SETTING_KEY = 'member_detail_layout_config';
+export const DEFAULT_RELATIONSHIP_DISPLAY_MODE = 'columns';
+
+export function normalizeRelationshipDisplayMode(value) {
+  return value === 'cards' ? 'cards' : DEFAULT_RELATIONSHIP_DISPLAY_MODE;
+}
 
 const DEFAULT_LAYOUT = {
   cards: [
@@ -57,7 +62,10 @@ function migrateLayoutWithColumnIndex(layout) {
       ...card,
       fields: card.fields.map((field, idx) => ({
         ...field,
-        columnIndex: field.columnIndex !== undefined ? field.columnIndex : (idx % card.columns)
+        columnIndex: field.columnIndex !== undefined ? field.columnIndex : (idx % card.columns),
+        ...(field.type === 'relationship'
+          ? { displayMode: normalizeRelationshipDisplayMode(field.displayMode ?? field.display_mode) }
+          : {})
       }))
     }))
   });
@@ -85,6 +93,7 @@ export function memberRelationshipLayoutElements(panels = []) {
     type: 'relationship',
     definitionId: definition.id,
     side,
+    displayMode: DEFAULT_RELATIONSHIP_DISPLAY_MODE,
   }));
 }
 
@@ -167,7 +176,9 @@ export function mergeLayoutWithCustomFields(layout, customFields, relationshipPa
             || availableRelationshipIds === null
             || availableRelationshipIds.has(f.id)
           )
-        )
+        ).map(f => f.type === 'relationship'
+          ? { ...f, displayMode: normalizeRelationshipDisplayMode(f.displayMode ?? f.display_mode) }
+          : f)
       }))
       .filter(card => card.fields.length > 0 || card.id === 'card-custom')
   };

@@ -1286,7 +1286,7 @@ export function CustomObjectRecordDetail() {
                       if (element.type === "relationship") {
                         const panel = relationshipsQuery.panels.find((item) =>
                           String(item.definition.id) === String(element.definitionId) && item.side === element.side);
-                        return panel ? <RelatedRecordsPanel key={element.id} objectId={objectId} recordId={recordId} object={object} record={record} definition={panel.definition} side={panel.side} showHeading={false} embedded /> : null;
+                        return panel ? <RelatedRecordsPanel key={element.id} objectId={objectId} recordId={recordId} object={object} record={record} definition={panel.definition} side={panel.side} showHeading={false} embedded displayMode={element.displayMode} /> : null;
                       }
                       const field = fields.find((item) => String(item.id) === String(element.fieldId));
                       if (!field) return null;

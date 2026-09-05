@@ -12,9 +12,11 @@ import {
   fieldAccess,
   formatRecordValue,
   normalizeRecordPermissions,
+  normalizeRelationshipLayoutDisplayMode,
   optionValues,
   sharedListFields,
   relationshipCardColumnLayoutClasses,
+  relationshipScalarDisplayValue,
   unplacedRelationshipPanels,
   validateRecordValues,
 } from "./recordHelpers.js";
@@ -385,7 +387,29 @@ test("CRM detail layouts reconcile stable field and relationship IDs", () => {
   assert.deepEqual(layout.cards[0].fields.map((item) => item.id), [
     "custom:name-id", "relationship:rel-1:target", "custom:new_field-id",
   ]);
+  assert.equal(layout.cards[0].fields[1].displayMode, "columns");
   assert.deepEqual(unplacedRelationshipPanels(layout, panels), [panels[1]]);
+});
+
+test("custom object relationship layout modes normalize and preserve cards", () => {
+  assert.equal(normalizeRelationshipLayoutDisplayMode(), "columns");
+  assert.equal(normalizeRelationshipLayoutDisplayMode("cards"), "cards");
+  const panels = [{ definition: { id: "rel-1" }, side: "target" }];
+  const object = { configuration: { views: { detail: { cards: [{
+    id: "relationships",
+    columns: 1,
+    fields: [{
+      id: "relationship:rel-1:target",
+      type: "relationship",
+      definitionId: "rel-1",
+      side: "target",
+      display_mode: "cards",
+    }],
+  }] } } } };
+  assert.equal(
+    customObjectDetailLayout(object, [], panels).cards[0].fields[0].displayMode,
+    "cards",
+  );
 });
 
 test("CRM visibility rules use stable field IDs and fail safely for stale conditions", () => {
@@ -478,10 +502,17 @@ test("relationship-card columns normalize stable field and direct relationship m
   assert.deepEqual(compactPreviewColumns({}, "source"), []);
 });
 
-test("relationship-card column layouts keep shared headers desktop-only and labels mobile-only", () => {
-  assert.match(relationshipCardColumnLayoutClasses.header, /hidden/);
-  assert.match(relationshipCardColumnLayoutClasses.header, /sm:grid/);
-  assert.match(relationshipCardColumnLayoutClasses.row, /^grid /);
-  assert.match(relationshipCardColumnLayoutClasses.row, /sm:grid-cols/);
-  assert.match(relationshipCardColumnLayoutClasses.mobileLabel, /sm:hidden/);
+test("relationship display layouts provide a scrollable table and responsive card grid", () => {
+  assert.match(relationshipCardColumnLayoutClasses.table, /min-w-/);
+  assert.match(relationshipCardColumnLayoutClasses.table, /table-fixed/);
+  assert.match(relationshipCardColumnLayoutClasses.cardGrid, /grid/);
+  assert.match(relationshipCardColumnLayoutClasses.cardGrid, /sm:grid-cols-2/);
+  assert.match(relationshipCardColumnLayoutClasses.card, /border/);
+});
+
+test("relationship preview scalars preserve valid falsy values in both display modes", () => {
+  assert.equal(relationshipScalarDisplayValue(0), "0");
+  assert.equal(relationshipScalarDisplayValue(false), "false");
+  assert.equal(relationshipScalarDisplayValue(""), "—");
+  assert.equal(relationshipScalarDisplayValue(null), "—");
 });

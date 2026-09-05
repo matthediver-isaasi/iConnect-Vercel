@@ -1630,6 +1630,7 @@ export default function OrganisationDetailView({
               side={panel.side}
               showHeading={false}
               embedded
+              displayMode={field.displayMode}
             />
           </div>
         );

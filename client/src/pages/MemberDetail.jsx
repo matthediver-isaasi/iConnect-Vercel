@@ -1428,6 +1428,7 @@ export default function MemberDetail() {
               side={panel.side}
               showHeading={false}
               embedded
+              displayMode={field.displayMode}
             />
           </div>
         );
