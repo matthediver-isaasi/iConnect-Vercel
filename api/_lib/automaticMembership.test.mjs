@@ -21,9 +21,208 @@ import {
   ALLOWED_OPERATORS,
   normalizePreferenceFieldType,
   authorizeAutomaticMembershipPolicyWrite,
+  buildAutomaticMembershipReconciliationBatch,
 } from './automaticMembership.js';
 
-import { shouldIncludeMissingPreferenceValue } from './automaticMembershipQuery.js';
+import { runFilterQuery, shouldIncludeMissingPreferenceValue } from './automaticMembershipQuery.js';
+
+function createCappedSupabase(tables, cap = 1000) {
+  class Query {
+    constructor(table) {
+      this.table = table;
+      this.filters = [];
+      this.orderField = null;
+      this.requestedLimit = Infinity;
+      this.selected = '*';
+    }
+    select(columns) { this.selected = columns; return this; }
+    eq(field, value) { this.filters.push(row => row[field] === value); return this; }
+    neq(field, value) { this.filters.push(row => row[field] !== value); return this; }
+    gt(field, value) { this.filters.push(row => row[field] > value); return this; }
+    in(field, values) { const set = new Set(values); this.filters.push(row => set.has(row[field])); return this; }
+    not(field, operator, value) {
+      if (operator === 'ilike') {
+        const regex = new RegExp(`^${String(value).replace(/[.+?^${}()|[\]\\]/g, '\\$&').replaceAll('%', '.*').replaceAll('_', '.')}$`, 'i');
+        this.filters.push(row => !regex.test(String(row[field] ?? '')));
+      } else if (operator === 'is') {
+        this.filters.push(row => row[field] !== value);
+      }
+      return this;
+    }
+    order(field) { this.orderField = field; return this; }
+    limit(value) { this.requestedLimit = value; return this; }
+    then(resolve) {
+      let rows = [...(tables[this.table] || [])];
+      for (const filter of this.filters) rows = rows.filter(filter);
+      if (this.orderField) rows.sort((a, b) => String(a[this.orderField]).localeCompare(String(b[this.orderField])));
+      rows = rows.slice(0, Math.min(cap, this.requestedLimit));
+      const columns = this.selected.split(',').map(column => column.trim());
+      if (this.selected !== '*') {
+        rows = rows.map(row => Object.fromEntries(columns.map(column => [column, row[column]])));
+      }
+      return Promise.resolve({ data: rows, error: null }).then(resolve);
+    }
+  }
+  return { from: table => new Query(table) };
+}
+
+function automaticMembershipFixture() {
+  const tenantId = 'tenant-a';
+  const organizationId = 'org-a';
+  const members = Array.from({ length: 1205 }, (_, index) => ({
+    id: `member-${String(index).padStart(4, '0')}`,
+    tenant_id: tenantId,
+    organization_id: organizationId,
+    email: `member${index}@example.test`,
+  }));
+  members.push(
+    { id: 'member-deleted', tenant_id: tenantId, organization_id: organizationId, email: 'deleted_x@deleted.local' },
+    { id: 'member-foreign', tenant_id: 'tenant-b', organization_id: organizationId, email: 'foreign@example.test' },
+  );
+  return {
+    tenantId,
+    expectedIds: members.slice(0, 1205).map(member => member.id),
+    tables: {
+      member: members,
+      organization: [
+        { id: organizationId, tenant_id: tenantId, name: 'Qualifying org', status: 'active' },
+        { id: 'org-b', tenant_id: 'tenant-b', name: 'Qualifying org', status: 'active' },
+      ],
+      organization_preference_value: [
+        { id: 'pref-1', organization_id: organizationId, field_id: 'org-kind', value: 'eligible' },
+        { id: 'pref-2', organization_id: organizationId, field_id: 'org-kind', value: 'eligible' },
+        { id: 'pref-3', organization_id: 'org-b', field_id: 'org-kind', value: 'eligible' },
+      ],
+      member_preference_value: members.map((member, index) => ({
+        id: `member-pref-${String(index).padStart(4, '0')}`,
+        member_id: member.id,
+        field_id: 'member-kind',
+        value: 'eligible',
+      })),
+    },
+  };
+}
+
+test('runFilterQuery paginates organisation-core member expansion beyond the API cap', async () => {
+  const fixture = automaticMembershipFixture();
+  const result = await runFilterQuery({
+    supabase: createCappedSupabase(fixture.tables),
+    tenantId: fixture.tenantId,
+    filterGroups: [{
+      conditions: [{
+        entity_scope: 'organization',
+        field_type: 'core',
+        field_key: 'status',
+        operator: 'equals',
+        value: 'active',
+      }],
+    }],
+    allowedCustomFieldIdsByScope: { member: new Set(), organization: new Set() },
+  });
+  assert.equal(result.length, 1205);
+  assert.deepEqual(result, fixture.expectedIds);
+});
+
+test('runFilterQuery paginates organisation-custom expansion and deduplicates tenant members', async () => {
+  const fixture = automaticMembershipFixture();
+  const result = await runFilterQuery({
+    supabase: createCappedSupabase(fixture.tables),
+    tenantId: fixture.tenantId,
+    filterGroups: [{
+      conditions: [{
+        entity_scope: 'organization',
+        field_type: 'custom',
+        field_key: 'org-kind',
+        operator: 'equals',
+        value: 'eligible',
+      }],
+    }],
+    allowedCustomFieldIdsByScope: {
+      member: new Set(),
+      organization: new Set(['org-kind']),
+      memberTypes: new Map(),
+      organizationTypes: new Map([['org-kind', { data_type: 'text', options: null }]]),
+    },
+  });
+  assert.equal(result.length, 1205);
+  assert.deepEqual(result, fixture.expectedIds);
+});
+
+test('runFilterQuery keeps combined member-core and custom matches complete above the API cap', async () => {
+  const fixture = automaticMembershipFixture();
+  const result = await runFilterQuery({
+    supabase: createCappedSupabase(fixture.tables),
+    tenantId: fixture.tenantId,
+    filterGroups: [{
+      conditions: [
+        {
+          entity_scope: 'member',
+          field_type: 'core',
+          field_key: 'email',
+          operator: 'is_not_empty',
+        },
+        {
+          entity_scope: 'member',
+          field_type: 'custom',
+          field_key: 'member-kind',
+          operator: 'equals',
+          value: 'eligible',
+        },
+      ],
+    }],
+    allowedCustomFieldIdsByScope: {
+      member: new Set(['member-kind']),
+      organization: new Set(),
+      memberTypes: new Map([['member-kind', { data_type: 'text', options: null }]]),
+      organizationTypes: new Map(),
+    },
+  });
+  assert.equal(result.length, 1205);
+  assert.deepEqual(result, fixture.expectedIds);
+});
+
+test('runFilterQuery keeps member-custom matches tenant-scoped and excludes deleted members', async () => {
+  const fixture = automaticMembershipFixture();
+  const result = await runFilterQuery({
+    supabase: createCappedSupabase(fixture.tables),
+    tenantId: fixture.tenantId,
+    filterGroups: [{
+      conditions: [{
+        entity_scope: 'member',
+        field_type: 'custom',
+        field_key: 'member-kind',
+        operator: 'equals',
+        value: 'eligible',
+      }],
+    }],
+    allowedCustomFieldIdsByScope: {
+      member: new Set(['member-kind']),
+      organization: new Set(),
+      memberTypes: new Map([['member-kind', { data_type: 'text', options: null }]]),
+      organizationTypes: new Map(),
+    },
+  });
+  assert.equal(result.length, 1205);
+  assert.deepEqual(result, fixture.expectedIds);
+});
+
+test('reconciliation batches keep the same complete target set through the final 500-member batch', () => {
+  const fullTargetIds = Array.from({ length: 1205 }, (_, index) => `member-${String(index).padStart(4, '0')}`);
+  const first = buildAutomaticMembershipReconciliationBatch(fullTargetIds, null);
+  const second = buildAutomaticMembershipReconciliationBatch(fullTargetIds, first.nextCursor);
+  const final = buildAutomaticMembershipReconciliationBatch(fullTargetIds, second.nextCursor);
+
+  assert.deepEqual(
+    [first.batchMemberIds.length, second.batchMemberIds.length, final.batchMemberIds.length],
+    [500, 500, 205],
+  );
+  assert.deepEqual([first.isFinalBatch, second.isFinalBatch, final.isFinalBatch], [false, false, true]);
+  assert.deepEqual([first.matchCount, second.matchCount, final.matchCount], [1205, 1205, 1205]);
+  assert.strictEqual(first.fullTargetIds, fullTargetIds);
+  assert.strictEqual(second.fullTargetIds, fullTargetIds);
+  assert.strictEqual(final.fullTargetIds, fullTargetIds);
+  assert.equal(final.nextCursor, null);
+});
 
 // ---------------------------------------------------------------------------
 // resolveCanonicalType
@@ -600,20 +799,18 @@ test('validateAutomaticMembershipSettings: NaN number value rejected', async () 
 // ---------------------------------------------------------------------------
 
 test('fetchAllowedCustomFieldIdsByScope: splits by scope with metadata', async () => {
+  const resultRows = [
+    { id: 'mf-1', entity_scope: 'member',       field_type: 'text',   options: null },
+    { id: 'mf-2', entity_scope: 'member',       field_type: 'number', options: null },
+    { id: 'of-1', entity_scope: 'organization', field_type: 'select', options: [{ value: 'a' }] },
+  ];
   const fakeClient = {
     from: () => ({
-      select: () => ({
-        eq: () => ({
-          eq: () => ({
-            data: [
-              { id: 'mf-1', entity_scope: 'member',       field_type: 'text',   options: null },
-              { id: 'mf-2', entity_scope: 'member',       field_type: 'number', options: null },
-              { id: 'of-1', entity_scope: 'organization', field_type: 'select', options: [{ value: 'a' }] },
-            ],
-            error: null,
-          }),
-        }),
-      }),
+      select() { return this; },
+      eq() { return this; },
+      order() { return this; },
+      limit() { return this; },
+      then(resolve) { return Promise.resolve({ data: resultRows, error: null }).then(resolve); },
     }),
   };
   const result = await fetchAllowedCustomFieldIdsByScope(fakeClient, 'tenant-1');
@@ -628,14 +825,45 @@ test('fetchAllowedCustomFieldIdsByScope: splits by scope with metadata', async (
   assert.deepEqual(result.organizationTypes.get('of-1')?.options, [{ value: 'a' }]);
 });
 
+test('fetchAllowedCustomFieldIdsByScope paginates active field metadata beyond the API cap', async () => {
+  const fields = Array.from({ length: 1205 }, (_, index) => ({
+    id: `field-${String(index).padStart(4, '0')}`,
+    tenant_id: 'tenant-1',
+    is_active: true,
+    entity_scope: index % 2 === 0 ? 'member' : 'organization',
+    field_type: 'text',
+    options: null,
+  }));
+  fields.push({
+    id: 'foreign-field',
+    tenant_id: 'tenant-2',
+    is_active: true,
+    entity_scope: 'member',
+    field_type: 'text',
+    options: null,
+  });
+
+  const result = await fetchAllowedCustomFieldIdsByScope(
+    createCappedSupabase({ preference_field: fields }),
+    'tenant-1',
+  );
+  assert.equal(result.member.size, 603);
+  assert.equal(result.organization.size, 602);
+  assert.equal(result.member.has('foreign-field'), false);
+  assert.equal(result.organization.has('field-1203'), true);
+  assert.equal(result.member.has('field-1204'), true);
+});
+
 test('fetchAllowedCustomFieldIdsByScope: returns empty on DB error', async () => {
   const fakeClient = {
     from: () => ({
-      select: () => ({
-        eq: () => ({
-          eq: () => ({ data: null, error: { message: 'connection error' } }),
-        }),
-      }),
+      select() { return this; },
+      eq() { return this; },
+      order() { return this; },
+      limit() { return this; },
+      then(resolve) {
+        return Promise.resolve({ data: null, error: { message: 'connection error' } }).then(resolve);
+      },
     }),
   };
   const result = await fetchAllowedCustomFieldIdsByScope(fakeClient, 'tenant-1');

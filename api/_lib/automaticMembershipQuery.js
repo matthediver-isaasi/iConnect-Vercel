@@ -331,6 +331,7 @@ async function intersectWithTenantMemberIds(supabase, tenantId, idSet) {
       .from('member')
       .select('id')
       .eq('tenant_id', tenantId)
+      .not('email', 'ilike', 'deleted_%@deleted.local')
       .in('id', slice);
     if (error) throw new Error(`tenant member intersection failed: ${error.message}`);
     if (data) data.forEach(r => tenantOwned.add(r.id));
@@ -365,14 +366,20 @@ async function fetchMemberIdsByOrgIds(supabase, tenantId, orgIdArr) {
   const result = new Set();
   for (let i = 0; i < orgIdArr.length; i += 500) {
     const slice = orgIdArr.slice(i, i + 500);
-    const { data, error } = await supabase
-      .from('member')
-      .select('id')
-      .eq('tenant_id', tenantId)
-      .in('organization_id', slice)
-      .not('email', 'ilike', 'deleted_%@deleted.local');
-    if (error) throw new Error(`org-member lookup failed: ${error.message}`);
-    if (data) data.forEach(m => result.add(m.id));
+    const makeQuery = (afterId) => {
+      let q = supabase
+        .from('member')
+        .select('id')
+        .eq('tenant_id', tenantId)
+        .in('organization_id', slice)
+        .not('email', 'ilike', 'deleted_%@deleted.local')
+        .order('id')
+        .limit(PAGE);
+      if (afterId) q = q.gt('id', afterId);
+      return q;
+    };
+    const ids = await fetchAllKeyset(makeQuery, 'id');
+    ids.forEach(id => result.add(id));
   }
   return result;
 }
@@ -390,6 +397,9 @@ async function buildIsEmptySet({ supabase, tenantId, entityTable, entityIdField,
       .eq('tenant_id', tenantId)
       .order(entityIdField)
       .limit(PAGE);
+    if (entityTable === 'member') {
+      q = q.not('email', 'ilike', 'deleted_%@deleted.local');
+    }
     if (afterId) q = q.gt(entityIdField, afterId);
     return q;
   };

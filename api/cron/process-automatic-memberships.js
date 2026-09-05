@@ -31,6 +31,7 @@ import {
   validateAutomaticMembershipSettings,
   fetchAllowedCustomFieldIdsByScope,
   buildFieldMeta,
+  buildAutomaticMembershipReconciliationBatch,
   roleExistsInGroup,
 } from '../_lib/automaticMembership.js';
 import { runFilterQuery } from '../_lib/automaticMembershipQuery.js';
@@ -281,11 +282,12 @@ async function processGroup(group) {
       return { groupId, status: 'error', error: filterErr.message };
     }
 
-    const cursorIndex  = parseCursor(expectedCursor);
-    const batchSlice   = fullTargetIds.slice(cursorIndex, cursorIndex + BATCH_SIZE);
-    const nextIndex    = cursorIndex + batchSlice.length;
-    const isFinalBatch = nextIndex >= fullTargetIds.length;
-    const nextCursor   = isFinalBatch ? null : String(nextIndex);
+    const {
+      batchMemberIds,
+      isFinalBatch,
+      nextCursor,
+      matchCount,
+    } = buildAutomaticMembershipReconciliationBatch(fullTargetIds, expectedCursor, BATCH_SIZE);
 
     const { data: rpcResult, error: rpcError } = await supabase.rpc(
       'reconcile_automatic_membership',
@@ -293,11 +295,11 @@ async function processGroup(group) {
         p_group_id:            groupId,
         p_tenant_id:           tenantId,
         p_role:                group.automatic_membership_role,
-        p_batch_member_ids:    batchSlice,
+        p_batch_member_ids:    batchMemberIds,
         p_full_target_ids:     fullTargetIds,
         p_is_final_batch:      isFinalBatch,
         p_next_cursor:         nextCursor,
-        p_full_match_count:    fullTargetIds.length,
+        p_full_match_count:    matchCount,
         p_expected_generation: expectedGeneration,
         p_expected_cursor:     expectedCursor,
       }
@@ -339,7 +341,7 @@ async function processGroup(group) {
       status: isFinalBatch ? 'idle' : 'running',
       inserted: rpcResult.inserted || 0,
       deleted: rpcResult.deleted || 0,
-      matchCount: fullTargetIds.length,
+      matchCount,
       hasMore: !isFinalBatch,
     };
   } catch (err) {
@@ -356,10 +358,4 @@ async function processGroup(group) {
     } catch (_) { /* best-effort */ }
     return { groupId, status: 'error', error: err.message || String(err) };
   }
-}
-
-function parseCursor(cursor) {
-  if (!cursor) return 0;
-  const n = parseInt(cursor, 10);
-  return isNaN(n) ? 0 : n;
 }

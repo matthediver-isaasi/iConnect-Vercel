@@ -31,6 +31,7 @@ import {
   fetchAllowedCustomFieldIdsByScope,
   buildFieldMeta,
   roleExistsInGroup,
+  buildAutomaticMembershipReconciliationBatch,
   ALLOWED_CORE_MEMBER_KEYS,
   ALLOWED_CORE_ORG_KEYS,
 } from '../_lib/automaticMembership.js';
@@ -300,11 +301,12 @@ async function handleReconcile(req, res, tenantCtx, groupId, allowedCustomFieldI
     return res.status(500).json({ error: err.message });
   }
 
-  const cursorIndex  = parseCursor(expectedCursor);
-  const batchSlice   = fullTargetIds.slice(cursorIndex, cursorIndex + BATCH_SIZE);
-  const nextIndex    = cursorIndex + batchSlice.length;
-  const isFinalBatch = nextIndex >= fullTargetIds.length;
-  const nextCursor   = isFinalBatch ? null : String(nextIndex);
+  const {
+    batchMemberIds,
+    isFinalBatch,
+    nextCursor,
+    matchCount,
+  } = buildAutomaticMembershipReconciliationBatch(fullTargetIds, expectedCursor, BATCH_SIZE);
 
   const { data: rpcResult, error: rpcError } = await supabase.rpc(
     'reconcile_automatic_membership',
@@ -312,11 +314,11 @@ async function handleReconcile(req, res, tenantCtx, groupId, allowedCustomFieldI
       p_group_id:            group.id,
       p_tenant_id:           tenantCtx.tenantId,
       p_role:                group.automatic_membership_role,
-      p_batch_member_ids:    batchSlice,
+      p_batch_member_ids:    batchMemberIds,
       p_full_target_ids:     fullTargetIds,
       p_is_final_batch:      isFinalBatch,
       p_next_cursor:         nextCursor,
-      p_full_match_count:    fullTargetIds.length,
+      p_full_match_count:    matchCount,
       p_expected_generation: expectedGeneration,
       p_expected_cursor:     expectedCursor,
     }
@@ -348,7 +350,7 @@ async function handleReconcile(req, res, tenantCtx, groupId, allowedCustomFieldI
     syncStatus: isFinalBatch ? 'idle' : 'running',
     inserted: rpcResult.inserted || 0,
     deleted: rpcResult.deleted || 0,
-    matchCount: fullTargetIds.length,
+    matchCount,
     hasMore: !isFinalBatch,
     nextCursor,
   });
@@ -357,12 +359,6 @@ async function handleReconcile(req, res, tenantCtx, groupId, allowedCustomFieldI
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-function parseCursor(cursor) {
-  if (!cursor) return 0;
-  const n = parseInt(cursor, 10);
-  return isNaN(n) ? 0 : n;
-}
 
 function normaliseConfig(cfg) {
   if (!cfg || typeof cfg !== 'object') return {};

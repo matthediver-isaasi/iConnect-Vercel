@@ -546,20 +546,32 @@ export function checkAllowMembersToLeave({ allowMembersToLeave, isAdmin, isSelf 
  * @param {string} tenantId
  */
 export async function fetchAllowedCustomFieldIdsByScope(supabaseClient, tenantId) {
-  const { data, error } = await supabaseClient
-    .from('preference_field')
-    .select('id, entity_scope, field_type, options')
-    .eq('tenant_id', tenantId)
-    .eq('is_active', true);
+  const data = [];
+  let afterId = null;
+  while (true) {
+    let query = supabaseClient
+      .from('preference_field')
+      .select('id, entity_scope, field_type, options')
+      .eq('tenant_id', tenantId)
+      .eq('is_active', true)
+      .order('id')
+      .limit(1000);
+    if (afterId) query = query.gt('id', afterId);
 
-  if (error) {
-    console.error('[automaticMembership] fetchAllowedCustomFieldIdsByScope error:', error.message);
-    return {
-      member: new Set(),
-      organization: new Set(),
-      memberTypes: new Map(),
-      organizationTypes: new Map(),
-    };
+    const { data: batch, error } = await query;
+    if (error) {
+      console.error('[automaticMembership] fetchAllowedCustomFieldIdsByScope error:', error.message);
+      return {
+        member: new Set(),
+        organization: new Set(),
+        memberTypes: new Map(),
+        organizationTypes: new Map(),
+      };
+    }
+    if (!batch || batch.length === 0) break;
+    data.push(...batch);
+    if (batch.length < 1000) break;
+    afterId = batch[batch.length - 1].id;
   }
 
   const member       = new Set();
@@ -567,7 +579,7 @@ export async function fetchAllowedCustomFieldIdsByScope(supabaseClient, tenantId
   const memberTypes  = new Map();
   const organizationTypes = new Map();
 
-  for (const r of data || []) {
+  for (const r of data) {
     if (r.entity_scope === 'member') {
       member.add(r.id);
       memberTypes.set(r.id, {
@@ -597,6 +609,25 @@ export function buildFieldMeta(scopeResult) {
   return {
     member: scopeResult.memberTypes instanceof Map ? scopeResult.memberTypes : new Map(),
     organization: scopeResult.organizationTypes instanceof Map ? scopeResult.organizationTypes : new Map(),
+  };
+}
+
+/**
+ * Build one reconciliation write batch while preserving the complete target
+ * set for final-batch stale-assignment deletion.
+ */
+export function buildAutomaticMembershipReconciliationBatch(fullTargetIds, cursor, batchSize = 500) {
+  const parsedCursor = cursor ? parseInt(cursor, 10) : 0;
+  const cursorIndex = Number.isFinite(parsedCursor) && parsedCursor >= 0 ? parsedCursor : 0;
+  const batchMemberIds = fullTargetIds.slice(cursorIndex, cursorIndex + batchSize);
+  const nextIndex = cursorIndex + batchMemberIds.length;
+  const isFinalBatch = nextIndex >= fullTargetIds.length;
+  return {
+    batchMemberIds,
+    fullTargetIds,
+    isFinalBatch,
+    nextCursor: isFinalBatch ? null : String(nextIndex),
+    matchCount: fullTargetIds.length,
   };
 }
 
