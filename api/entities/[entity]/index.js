@@ -368,6 +368,15 @@ export default async function handler(req, res) {
       error: 'Custom Object fields must be managed through the Custom Object service',
     });
   }
+  if (
+    entityNorm === 'systemsettings'
+    && req.method === 'POST'
+    && String(req.body?.setting_key || '').startsWith('relationship_columns_')
+  ) {
+    return res.status(403).json({
+      error: 'Relationship panel preferences must be managed through their dedicated endpoint',
+    });
+  }
 
   const tenantScope = getEntityTenantScope(entity);
   
@@ -675,6 +684,9 @@ export default async function handler(req, res) {
       // path for Custom Objects. Dedicated object services apply permissions.
       if (entityNorm === 'preferencefield') {
         query = query.or('entity_scope.is.null,entity_scope.neq.custom_object');
+      }
+      if (entityNorm === 'systemsettings') {
+        query = query.not('setting_key', 'like', 'relationship_columns_%');
       }
       
       // Apply tenant isolation filter (always applied for non-global entities)

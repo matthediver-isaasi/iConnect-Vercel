@@ -56,6 +56,11 @@ export const relationshipRoutes = {
   updateEdge: (objectId, edgeId) => `/api/custom-objects/${objectId}/relationships/${edgeId}`,
   coreDefinitions: ({ kind, recordId }) =>
     `/api/custom-objects/core/relationship-definitions?${new URLSearchParams({ kind, recordId })}`,
+  relationshipPanelPreference: ({ definitionId, side }) =>
+    `/api/custom-objects/core/relationship-panel-preference?${new URLSearchParams({
+      definitionId,
+      side,
+    })}`,
   corePicker: (params) =>
     `/api/custom-objects/core/entity-picker?${new URLSearchParams(params)}`,
   coreEdges: (params) =>

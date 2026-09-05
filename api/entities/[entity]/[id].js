@@ -282,6 +282,32 @@ export default async function handler(req, res) {
     }
   }
 
+  // Relationship panel settings are personal rows whose owner is derived by
+  // the Custom Object service. Never expose or mutate them by generic row ID.
+  if (entityNorm === 'systemsettings') {
+    if (String(req.body?.setting_key || '').startsWith('relationship_columns_')) {
+      return res.status(403).json({
+        error: 'Relationship panel preferences must be managed through their dedicated endpoint',
+      });
+    }
+    const { data: existingPersonalSetting, error: personalSettingError } = await supabase
+      .from('system_settings')
+      .select('setting_key')
+      .eq('id', id)
+      .eq('tenant_id', tenantCtx.tenantId)
+      .maybeSingle();
+    if (personalSettingError) {
+      return res.status(500).json({ error: 'Failed to validate setting ownership' });
+    }
+    if (String(existingPersonalSetting?.setting_key || '').startsWith('relationship_columns_')) {
+      return req.method === 'GET'
+        ? res.status(404).json({ error: 'Not found' })
+        : res.status(403).json({
+            error: 'Relationship panel preferences must be managed through their dedicated endpoint',
+          });
+    }
+  }
+
   // Protect the server-owned organisation member disclosure policy on update.
   if (req.method === 'PATCH' || req.method === 'PUT') {
     let writesViewMembersPolicy = entityNorm === 'dynamicdirectory'

@@ -2695,6 +2695,359 @@ test('member relationship cards project owning organisations for duplicate depar
   ]);
 });
 
+test('relationship list sorting is global, case-insensitive, stable, and paginated afterwards', async () => {
+  const definitionId = 'sorted-custom-relationships';
+  const title = field({
+    id: 'field-title',
+    name: 'title',
+    label: 'Title',
+    field_type: 'text',
+    is_required: false,
+  });
+  const db = mockDb({
+    custom_object_definition: [object({ primary_display_field_id: title.id })],
+    preference_field: [title],
+    custom_object_record: [
+      { id: 'origin', tenant_id: tenantId, custom_object_id: objectId, archived_at: null, data: { title: 'Origin' } },
+      { id: 'target-a', tenant_id: tenantId, custom_object_id: objectId, archived_at: null, data: { title: 'alpha' } },
+      { id: 'target-b', tenant_id: tenantId, custom_object_id: objectId, archived_at: null, data: { title: 'Alpha' } },
+      { id: 'target-c', tenant_id: tenantId, custom_object_id: objectId, archived_at: null, data: { title: 'Beta' } },
+      { id: 'target-d', tenant_id: tenantId, custom_object_id: objectId, archived_at: null, data: { title: '' } },
+      { id: 'owner-a', tenant_id: tenantId, custom_object_id: objectId, archived_at: null, data: { title: 'aardvark' } },
+      { id: 'owner-b', tenant_id: tenantId, custom_object_id: objectId, archived_at: null, data: { title: 'Zebra' } },
+    ],
+    custom_object_relationship_definition: [
+      {
+        id: definitionId,
+        tenant_id: tenantId,
+        status: 'active',
+        source_kind: 'custom_object',
+        source_custom_object_id: objectId,
+        target_kind: 'custom_object',
+        target_custom_object_id: objectId,
+        show_on_source: true,
+        configuration: {
+          relationship_fields: [{
+            id: 'featured',
+            key: 'is_featured',
+            label: 'Featured',
+            type: 'boolean',
+            default_value: true,
+            display_on_source: true,
+          }],
+          compact_preview: {
+            target_columns: [
+              { type: 'field', field_id: title.id, label: 'Title' },
+              {
+                type: 'relationship',
+                relationship_definition_id: 'direct-owner',
+                side: 'source',
+                label: 'Owner',
+              },
+            ],
+          },
+        },
+      },
+      {
+        id: 'direct-owner',
+        tenant_id: tenantId,
+        status: 'active',
+        source_kind: 'custom_object',
+        source_custom_object_id: objectId,
+        target_kind: 'custom_object',
+        target_custom_object_id: objectId,
+        show_on_source: true,
+      },
+    ],
+    custom_object_relationship: [
+      { id: 'edge-d', tenant_id: tenantId, relationship_definition_id: definitionId, source_record_id: 'origin', target_record_id: 'target-d', field_values: {}, archived_at: null, created_at: '2026-01-04' },
+      { id: 'edge-c', tenant_id: tenantId, relationship_definition_id: definitionId, source_record_id: 'origin', target_record_id: 'target-c', field_values: {}, archived_at: null, created_at: '2026-01-03' },
+      { id: 'edge-b', tenant_id: tenantId, relationship_definition_id: definitionId, source_record_id: 'origin', target_record_id: 'target-b', field_values: { is_featured: false }, archived_at: null, created_at: '2026-01-02' },
+      { id: 'edge-a', tenant_id: tenantId, relationship_definition_id: definitionId, source_record_id: 'origin', target_record_id: 'target-a', field_values: { is_featured: true }, archived_at: null, created_at: '2026-01-01' },
+      { id: 'direct-a', tenant_id: tenantId, relationship_definition_id: 'direct-owner', source_record_id: 'target-a', target_record_id: 'owner-b', archived_at: null, created_at: '2026-01-01' },
+      { id: 'direct-b', tenant_id: tenantId, relationship_definition_id: 'direct-owner', source_record_id: 'target-b', target_record_id: 'owner-a', archived_at: null, created_at: '2026-01-01' },
+    ],
+  });
+  const service = createCustomObjectService({ db, context: context(), isAdmin: true });
+  const result = await service.listRelationships(objectId, {
+    definitionId,
+    recordId: 'origin',
+    side: 'source',
+    sortField: `field:${title.id}`,
+    sortDir: 'asc',
+    page: '2',
+    pageSize: '2',
+  });
+  assert.equal(result.total, 4);
+  assert.deepEqual(result.data.map((row) => row.relationship_id), ['edge-c', 'edge-d']);
+  assert.deepEqual(
+    db.calls.filter((call) => call.table === 'custom_object_relationship' && call.type === 'range')
+      .map(({ from, to }) => [from, to]),
+    [[0, 999]],
+  );
+  const descending = await service.listRelationships(objectId, {
+    definitionId,
+    recordId: 'origin',
+    side: 'source',
+    sortField: `field:${title.id}`,
+    sortDir: 'desc',
+    pageSize: '10',
+  });
+  assert.deepEqual(
+    descending.data.map((row) => row.relationship_id),
+    ['edge-c', 'edge-a', 'edge-b', 'edge-d'],
+  );
+  const booleans = await service.listRelationships(objectId, {
+    definitionId,
+    recordId: 'origin',
+    side: 'source',
+    sortField: 'relationship_field:featured',
+    sortDir: 'asc',
+    pageSize: '10',
+  });
+  assert.deepEqual(
+    booleans.data.map((row) => row.relationship_id),
+    ['edge-b', 'edge-a', 'edge-c', 'edge-d'],
+  );
+  const directRelationships = await service.listRelationships(objectId, {
+    definitionId,
+    recordId: 'origin',
+    side: 'source',
+    sortField: 'relationship:direct-owner:source',
+    sortDir: 'desc',
+    pageSize: '10',
+  });
+  assert.deepEqual(
+    directRelationships.data.map((row) => row.relationship_id),
+    ['edge-a', 'edge-b', 'edge-c', 'edge-d'],
+  );
+  await assert.rejects(
+    () => service.listRelationships(objectId, {
+      definitionId, recordId: 'origin', side: 'source',
+      sortField: 'field:not-configured', sortDir: 'asc',
+    }),
+    (error) => error.status === 400 && /sort field/.test(error.message),
+  );
+  await assert.rejects(
+    () => service.listRelationships(objectId, {
+      definitionId, recordId: 'origin', side: 'source',
+      sortField: 'record', sortDir: 'sideways',
+    }),
+    (error) => error.status === 400 && /sortDir/.test(error.message),
+  );
+});
+
+test('relationship sorting reads every edge batch before stable pagination', async () => {
+  const definitionId = 'large-sorted-relationships';
+  const title = field({
+    id: 'large-title',
+    name: 'title',
+    label: 'Title',
+    field_type: 'text',
+    is_required: false,
+  });
+  const records = Array.from({ length: 1001 }, (_, index) => ({
+    id: `target-${String(index).padStart(4, '0')}`,
+    tenant_id: tenantId,
+    custom_object_id: objectId,
+    archived_at: null,
+    data: { title: `Label ${String(1000 - index).padStart(4, '0')}` },
+  }));
+  const db = mockDb({
+    custom_object_definition: [object({ primary_display_field_id: title.id })],
+    preference_field: [title],
+    custom_object_record: [
+      { id: 'origin', tenant_id: tenantId, custom_object_id: objectId, archived_at: null, data: { title: 'Origin' } },
+      ...records,
+    ],
+    custom_object_relationship_definition: [{
+      id: definitionId,
+      tenant_id: tenantId,
+      status: 'active',
+      source_kind: 'custom_object',
+      source_custom_object_id: objectId,
+      target_kind: 'custom_object',
+      target_custom_object_id: objectId,
+      show_on_source: true,
+    }],
+    custom_object_relationship: records.map((record, index) => ({
+      id: `edge-${String(index).padStart(4, '0')}`,
+      tenant_id: tenantId,
+      relationship_definition_id: definitionId,
+      source_record_id: 'origin',
+      target_record_id: record.id,
+      archived_at: null,
+      created_at: `2026-01-${String((index % 28) + 1).padStart(2, '0')}`,
+    })),
+  });
+  const service = createCustomObjectService({ db, context: context(), isAdmin: true });
+  const result = await service.listRelationships(objectId, {
+    definitionId,
+    recordId: 'origin',
+    side: 'source',
+    sortField: 'record',
+    sortDir: 'asc',
+    page: '2',
+    pageSize: '1',
+  });
+  assert.equal(result.total, 1001);
+  assert.equal(result.data[0].related.primary_label, 'Label 0001');
+  assert.deepEqual(
+    db.calls.filter((call) =>
+      call.table === 'custom_object_relationship' && call.type === 'range')
+      .map(({ from, to }) => [from, to]),
+    [[0, 999], [1000, 1999]],
+  );
+});
+
+test('core relationship sorting uses the full set and validates scoped column IDs', async () => {
+  const definitionId = 'sorted-core-relationships';
+  const title = field({
+    id: 'field-title-core',
+    name: 'title',
+    label: 'Title',
+    field_type: 'text',
+    is_required: false,
+  });
+  const db = mockDb({
+    custom_object_definition: [object({ primary_display_field_id: title.id })],
+    preference_field: [title],
+    member: [{ id: 'member-1', tenant_id: tenantId, first_name: 'Ada', last_name: 'Lovelace' }],
+    custom_object_record: [
+      { id: 'target-z', tenant_id: tenantId, custom_object_id: objectId, archived_at: null, data: { title: 'Zulu' } },
+      { id: 'target-a2', tenant_id: tenantId, custom_object_id: objectId, archived_at: null, data: { title: 'alpha' } },
+      { id: 'target-a1', tenant_id: tenantId, custom_object_id: objectId, archived_at: null, data: { title: 'Alpha' } },
+    ],
+    custom_object_relationship_definition: [{
+      id: definitionId,
+      tenant_id: tenantId,
+      status: 'active',
+      source_kind: 'member',
+      source_custom_object_id: null,
+      target_kind: 'custom_object',
+      target_custom_object_id: objectId,
+      show_on_source: true,
+      configuration: {
+        compact_preview: {
+          target_columns: [{ type: 'field', field_id: title.id, label: 'Title' }],
+        },
+      },
+    }],
+    custom_object_relationship: [
+      { id: 'edge-z', tenant_id: tenantId, relationship_definition_id: definitionId, source_record_id: 'member-1', target_record_id: 'target-z', archived_at: null, created_at: '2026-01-03' },
+      { id: 'edge-a2', tenant_id: tenantId, relationship_definition_id: definitionId, source_record_id: 'member-1', target_record_id: 'target-a2', archived_at: null, created_at: '2026-01-02' },
+      { id: 'edge-a1', tenant_id: tenantId, relationship_definition_id: definitionId, source_record_id: 'member-1', target_record_id: 'target-a1', archived_at: null, created_at: '2026-01-01' },
+    ],
+  });
+  const service = createCustomObjectService({ db, context: context(), isAdmin: true });
+  const result = await service.listCoreRelationships('member', 'member-1', {
+    definitionId,
+    sortField: 'record',
+    sortDir: 'asc',
+    page: '2',
+    pageSize: '1',
+  });
+  assert.equal(result.total, 3);
+  assert.equal(result.data[0].relationship_id, 'edge-a2');
+  await assert.rejects(
+    () => service.listCoreRelationships('member', 'member-1', {
+      definitionId,
+      sortField: 'relationship:another-definition:source',
+      sortDir: 'desc',
+    }),
+    (error) => error.status === 400,
+  );
+});
+
+test('relationship panel preferences are normalized and isolated by server actor', async () => {
+  const definitionId = 'personal-panel-definition';
+  const db = mockDb({
+    custom_object_relationship_definition: [{
+      id: definitionId,
+      tenant_id: tenantId,
+      status: 'active',
+      source_kind: 'member',
+      target_kind: 'custom_object',
+      target_custom_object_id: objectId,
+      configuration: {
+        relationship_fields: [{
+          id: 'primary',
+          key: 'is_primary',
+          label: 'Primary',
+          type: 'boolean',
+          display_on_source: true,
+        }],
+        compact_preview: {
+          target_columns: [{ type: 'field', field_id: 'field-title', label: 'Title' }],
+        },
+      },
+    }],
+    system_settings: [],
+  });
+  const first = createCustomObjectService({
+    db,
+    context: context({ tenantUserId: 'admin-a' }),
+    isAdmin: true,
+  });
+  const saved = await first.saveRelationshipPanelPreference({
+    definitionId,
+    side: 'source',
+  }, {
+    order: ['field:field-title', 'stale-column'],
+    widths: { 'field:field-title': 999, record: 10 },
+    sortField: 'field:field-title',
+    sortDir: 'desc',
+  });
+  assert.deepEqual(saved.preference, {
+    order: ['field:field-title', 'record', 'relationship-field:primary'],
+    widths: {
+      'field:field-title': 480,
+      record: 120,
+      'relationship-field:primary': 180,
+    },
+    sortField: 'field:field-title',
+    sortDir: 'desc',
+  });
+  assert.deepEqual(
+    (await first.getRelationshipPanelPreference({
+      definitionId,
+      side: 'source',
+    })).preference,
+    saved.preference,
+  );
+
+  const second = createCustomObjectService({
+    db,
+    context: context({ tenantUserId: 'admin-b' }),
+    isAdmin: true,
+  });
+  assert.equal(
+    (await second.getRelationshipPanelPreference({
+      definitionId,
+      side: 'source',
+    })).preference.sortField,
+    '',
+  );
+  const settingKeys = db.calls
+    .filter((call) =>
+      call.table === 'system_settings'
+      && call.type === 'eq'
+      && call.column === 'setting_key')
+    .map((call) => call.value);
+  assert.ok(settingKeys.some((key) => key.includes('tenant_user_admin-a')));
+  assert.ok(settingKeys.some((key) => key.includes('tenant_user_admin-b')));
+
+  const nonAdmin = createCustomObjectService({
+    db,
+    context: context({ memberId: 'ordinary-member', tenantUserId: null }),
+    isAdmin: false,
+  });
+  await assert.rejects(
+    () => nonAdmin.getRelationshipPanelPreference({ definitionId, side: 'source' }),
+    (error) => error.status === 403,
+  );
+});
+
 test('inaccessible direct relationship columns are omitted without hiding the base row', async () => {
   const targetId = '44444444-4444-4444-8444-444444444444';
   const restrictedId = '77777777-7777-4777-8777-777777777777';

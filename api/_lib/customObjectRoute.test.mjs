@@ -491,6 +491,49 @@ test('existing generic routes dispatch core relationship discovery, rows, picker
   ]);
 });
 
+test('relationship panel preference route dispatches owner-derived reads and writes', async () => {
+  const calls = [];
+  const handler = createCustomObjectRouteHandler('resource', {
+    getTenantContext: async () => ({
+      isAuthenticated: true,
+      tenantId: 'tenant-1',
+      tenantUserId: 'admin-1',
+    }),
+    hasAdminAccess: async () => true,
+    hasFeatureAccess: async () => false,
+    createCustomObjectService: () => ({
+      getRelationshipPanelPreference: async (query) => {
+        calls.push(['get', query.definitionId, query.side]);
+        return { preference: { order: ['record'] } };
+      },
+      saveRelationshipPanelPreference: async (query, body) => {
+        calls.push(['save', query.definitionId, query.side, body.preference.sortDir]);
+        return { preference: body.preference };
+      },
+    }),
+  });
+  const query = {
+    objectId: 'core',
+    resource: 'relationship-panel-preference',
+    definitionId: 'definition-1',
+    side: 'source',
+  };
+  const getResponse = response();
+  await handler({ method: 'GET', query }, getResponse);
+  assert.equal(getResponse.statusCode, 200);
+  const patchResponse = response();
+  await handler({
+    method: 'PATCH',
+    query,
+    body: { preference: { sortDir: 'desc' } },
+  }, patchResponse);
+  assert.equal(patchResponse.statusCode, 200);
+  assert.deepEqual(calls, [
+    ['get', 'definition-1', 'source'],
+    ['save', 'definition-1', 'source', 'desc'],
+  ]);
+});
+
 test('custom relationship item PATCH dispatches routed edge field values', async () => {
   const handler = createCustomObjectRouteHandler('item', {
     getTenantContext: async () => ({

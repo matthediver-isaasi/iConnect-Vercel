@@ -1938,6 +1938,287 @@ export function createCustomObjectService({
     }));
   }
 
+  async function relationshipListSort(definition, side, relatedSide, query) {
+    const sortField = query?.sortField;
+    if (query?.sortDir !== undefined && !['asc', 'desc'].includes(query.sortDir)) {
+      throw new CustomObjectHttpError(400, 'sortDir must be asc or desc');
+    }
+    if (sortField === undefined || sortField === null || sortField === '') return null;
+    if (typeof sortField !== 'string') {
+      throw new CustomObjectHttpError(400, 'Unsupported relationship sort field');
+    }
+    const direction = query?.sortDir ?? 'asc';
+    if (!['asc', 'desc'].includes(direction)) {
+      throw new CustomObjectHttpError(400, 'sortDir must be asc or desc');
+    }
+    if (sortField === 'record') return { kind: 'record', ascending: direction === 'asc' };
+
+    const relationshipFieldMatch = sortField.match(/^relationship_field:(.+)$/);
+    if (relationshipFieldMatch) {
+      const field = relationshipFieldDefinitions(definition).find((candidate) =>
+        String(candidate.id) === relationshipFieldMatch[1]
+        && candidate[`display_on_${side}`]);
+      if (!field) throw new CustomObjectHttpError(400, 'Unsupported relationship sort field');
+      return {
+        kind: 'relationship_field',
+        field,
+        ascending: direction === 'asc',
+      };
+    }
+
+    const previewFieldMatch = sortField.match(/^field:(.+)$/);
+    if (previewFieldMatch) {
+      const configured = configuredCompactPreviewFieldIds(definition, relatedSide)
+        .includes(previewFieldMatch[1]);
+      if (!configured || definition[`${relatedSide}_kind`] !== 'custom_object') {
+        throw new CustomObjectHttpError(400, 'Unsupported relationship sort field');
+      }
+      const endpointFields = await fields(definition[`${relatedSide}_custom_object_id`], true);
+      const access = await fieldAccess(definition[`${relatedSide}_custom_object_id`], endpointFields);
+      const field = allowedFields(endpointFields, access)
+        .find((candidate) => String(candidate.id) === previewFieldMatch[1]);
+      if (!field || !LIST_FIELD_TYPES.has(getCustomObjectFieldMetadata(field).type)) {
+        throw new CustomObjectHttpError(400, 'Unsupported relationship sort field');
+      }
+      return {
+        kind: 'field',
+        fieldId: previewFieldMatch[1],
+        ascending: direction === 'asc',
+      };
+    }
+
+    const relationshipMatch = sortField.match(/^relationship:([^:]+):(source|target)$/);
+    if (relationshipMatch) {
+      const [, relationshipDefinitionId, routedSide] = relationshipMatch;
+      const configured = configuredCompactPreviewColumns(definition, relatedSide)
+        .some((column) => column?.type === 'relationship'
+          && String(column.relationship_definition_id) === relationshipDefinitionId
+          && column.side === routedSide);
+      if (!configured || definition[`${relatedSide}_kind`] !== 'custom_object') {
+        throw new CustomObjectHttpError(400, 'Unsupported relationship sort field');
+      }
+      let directDefinition;
+      try {
+        directDefinition = await one(
+          'custom_object_relationship_definition',
+          relationshipDefinitionId,
+        );
+      } catch (error) {
+        if (error instanceof CustomObjectHttpError && error.status === 404) {
+          throw new CustomObjectHttpError(400, 'Unsupported relationship sort field');
+        }
+        throw error;
+      }
+      if (
+        directDefinition.status !== 'active'
+        || directDefinition[`${routedSide}_kind`] !== 'custom_object'
+        || String(directDefinition[`${routedSide}_custom_object_id`])
+          !== String(definition[`${relatedSide}_custom_object_id`])
+      ) {
+        throw new CustomObjectHttpError(400, 'Unsupported relationship sort field');
+      }
+      await requireRelationshipCapabilities(directDefinition, 'view_records');
+      return {
+        kind: 'relationship',
+        relationshipDefinitionId,
+        side: routedSide,
+        ascending: direction === 'asc',
+      };
+    }
+    throw new CustomObjectHttpError(400, 'Unsupported relationship sort field');
+  }
+
+  function sortRelationshipListRows(rows, sort) {
+    const valueFor = (row) => {
+      if (sort.kind === 'record') return row.related?.primary_label;
+      if (sort.kind === 'relationship_field') {
+        return Object.hasOwn(row.field_values || {}, sort.field.key)
+          ? row.field_values[sort.field.key]
+          : (sort.field.default_value ?? null);
+      }
+      if (sort.kind === 'field') {
+        return row.related?.compact_fields?.find((item) =>
+          String(item.field_id) === sort.fieldId)?.value;
+      }
+      const labels = (row.related?.relationship_columns || [])
+        .filter((item) =>
+          String(item.relationship_definition_id) === sort.relationshipDefinitionId
+          && item.side === sort.side)
+        .map((item) => item.value?.primary_label)
+        .filter((value) => value !== null && value !== undefined && String(value).trim() !== '')
+        .map(String)
+        .sort((left, right) => left.localeCompare(right, undefined, { sensitivity: 'base' }));
+      return labels.length ? labels.join(', ') : null;
+    };
+    const blank = (value) =>
+      value === null || value === undefined || (typeof value === 'string' && value.trim() === '');
+    rows.sort((left, right) => {
+      const a = valueFor(left);
+      const b = valueFor(right);
+      if (blank(a) || blank(b)) {
+        if (blank(a) !== blank(b)) return blank(a) ? 1 : -1;
+      } else {
+        let comparison;
+        if (typeof a === 'number' && typeof b === 'number') comparison = a - b;
+        else if (typeof a === 'boolean' && typeof b === 'boolean') comparison = Number(a) - Number(b);
+        else comparison = String(a).localeCompare(String(b), undefined, {
+          sensitivity: 'base',
+          numeric: true,
+        });
+        if (comparison) return sort.ascending ? comparison : -comparison;
+      }
+      return String(left.relationship_id).localeCompare(String(right.relationship_id));
+    });
+    return rows;
+  }
+
+  async function relationshipPanelPreferenceContext(query) {
+    if (!isAdmin) {
+      throw new CustomObjectHttpError(
+        403,
+        'Tenant administrator access is required for relationship panel preferences',
+      );
+    }
+    if (!currentActorReference) {
+      throw new CustomObjectHttpError(401, 'Authenticated administrator identity is required');
+    }
+    const definitionId = query?.definitionId;
+    const side = query?.side;
+    if (!definitionId || !['source', 'target'].includes(side)) {
+      throw new CustomObjectHttpError(400, 'definitionId and side are required');
+    }
+    const definition = await one('custom_object_relationship_definition', definitionId);
+    if (!definition[`${side}_kind`]) {
+      throw new CustomObjectHttpError(400, 'Side does not belong to the relationship definition');
+    }
+    const relatedSide = side === 'source' ? 'target' : 'source';
+    const columns = [
+      { id: 'record', sortField: 'record', defaultWidth: 240 },
+      ...relationshipFieldDefinitions(definition)
+        .filter((field) => field[`display_on_${side}`])
+        .map((field) => ({
+          id: `relationship-field:${field.id}`,
+          sortField: `relationship_field:${field.id}`,
+          defaultWidth: 180,
+        })),
+      ...configuredCompactPreviewFieldIds(definition, relatedSide).map((fieldId) => ({
+        id: `field:${fieldId}`,
+        sortField: `field:${fieldId}`,
+        defaultWidth: 180,
+      })),
+      ...configuredCompactPreviewColumns(definition, relatedSide)
+        .filter((column) =>
+          column?.type === 'relationship'
+          && column.relationship_definition_id
+          && ['source', 'target'].includes(column.side))
+        .map((column) => ({
+          id: `relationship:${column.relationship_definition_id}:${column.side}`,
+          sortField: `relationship:${column.relationship_definition_id}:${column.side}`,
+          defaultWidth: 220,
+        })),
+    ].filter((column, index, all) =>
+      all.findIndex((candidate) => candidate.id === column.id) === index);
+    const actorKey = `${currentActor.type}_${currentActor.id}`;
+    return {
+      definition,
+      side,
+      columns,
+      settingKey: `relationship_columns_${actorKey}_${definition.id}_${side}`,
+    };
+  }
+
+  function normalizeRelationshipPanelPreference(raw, columns) {
+    const supplied = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+    const available = new Map(columns.map((column) => [column.id, column]));
+    const savedOrder = Array.isArray(supplied.order)
+      ? [...new Set(supplied.order.map(String))].filter((id) => available.has(id))
+      : [];
+    const order = [...savedOrder, ...columns.map(({ id }) => id)
+      .filter((id) => !savedOrder.includes(id))];
+    const widths = Object.fromEntries(order.map((id) => {
+      const parsed = Number(supplied.widths?.[id]);
+      const fallback = available.get(id).defaultWidth;
+      return [id, Math.round(Math.max(120, Math.min(480,
+        Number.isFinite(parsed) ? parsed : fallback)))];
+    }));
+    const sortFields = new Set(columns.map(({ sortField }) => sortField));
+    return {
+      order,
+      widths,
+      sortField: sortFields.has(supplied.sortField) ? supplied.sortField : '',
+      sortDir: supplied.sortDir === 'desc' ? 'desc' : 'asc',
+    };
+  }
+
+  async function getRelationshipPanelPreference(query) {
+    const preferenceContext = await relationshipPanelPreferenceContext(query);
+    const { data, error } = await db.from('system_settings')
+      .select('id, setting_value')
+      .eq('tenant_id', tenantId)
+      .eq('setting_key', preferenceContext.settingKey)
+      .maybeSingle();
+    throwDb(error);
+    let saved = null;
+    try {
+      saved = data?.setting_value ? JSON.parse(data.setting_value) : null;
+    } catch {
+      saved = null;
+    }
+    return {
+      preference: normalizeRelationshipPanelPreference(saved, preferenceContext.columns),
+    };
+  }
+
+  async function saveRelationshipPanelPreference(query, body) {
+    const preferenceContext = await relationshipPanelPreferenceContext(query);
+    const preference = normalizeRelationshipPanelPreference(
+      body?.preference ?? body,
+      preferenceContext.columns,
+    );
+    const payload = {
+      tenant_id: tenantId,
+      setting_key: preferenceContext.settingKey,
+      setting_value: JSON.stringify(preference),
+      description: 'Personal related-record column configuration',
+    };
+    const existing = await db.from('system_settings')
+      .select('id')
+      .eq('tenant_id', tenantId)
+      .eq('setting_key', preferenceContext.settingKey)
+      .maybeSingle();
+    throwDb(existing.error);
+    let write;
+    if (existing.data?.id) {
+      write = await db.from('system_settings')
+        .update({
+          setting_value: payload.setting_value,
+          description: payload.description,
+        })
+        .eq('tenant_id', tenantId)
+        .eq('setting_key', preferenceContext.settingKey)
+        .eq('id', existing.data.id)
+        .select('id')
+        .single();
+    } else {
+      write = await db.from('system_settings').insert(payload).select('id').single();
+      // The partial unique index makes simultaneous first saves deterministic:
+      // if another request inserted first, this request updates that one row.
+      if (write.error?.code === '23505') {
+        write = await db.from('system_settings')
+          .update({
+            setting_value: payload.setting_value,
+            description: payload.description,
+          })
+          .eq('tenant_id', tenantId)
+          .eq('setting_key', preferenceContext.settingKey)
+          .select('id')
+          .single();
+      }
+    }
+    throwDb(write.error);
+    return { preference };
+  }
+
   async function projectDirectRelationshipColumns(endpointRows, definition, relatedSide) {
     const columns = configuredCompactPreviewColumns(definition, relatedSide)
       .filter((column) => column?.type === 'relationship');
@@ -1961,19 +2242,23 @@ export function createCustomObjectService({
         ) continue;
         await requireRelationshipCapabilities(directDefinition, 'view_records');
         const oppositeSide = routedSide === 'source' ? 'target' : 'source';
-        let q = db.from('custom_object_relationship').select('*')
-          .eq('tenant_id', tenantId)
-          .eq('relationship_definition_id', directDefinition.id)
-          .is('archived_at', null)
-          .in(`${routedSide}_record_id`, recordIds);
-        const { data: edges, error } = await q;
-        throwDb(error);
+        const edges = [];
+        for (let offset = 0; offset < recordIds.length; offset += ENDPOINT_ID_BATCH_SIZE) {
+          const batchIds = recordIds.slice(offset, offset + ENDPOINT_ID_BATCH_SIZE);
+          const { data, error } = await db.from('custom_object_relationship').select('*')
+            .eq('tenant_id', tenantId)
+            .eq('relationship_definition_id', directDefinition.id)
+            .is('archived_at', null)
+            .in(`${routedSide}_record_id`, batchIds);
+          throwDb(error);
+          edges.push(...(data || []));
+        }
         const resolved = await resolveEndpointRows(
           directDefinition[`${oppositeSide}_kind`],
           directDefinition[`${oppositeSide}_custom_object_id`],
-          (edges || []).map((edge) => edge[`${oppositeSide}_record_id`]),
+          edges.map((edge) => edge[`${oppositeSide}_record_id`]),
         );
-        for (const edge of edges || []) {
+        for (const edge of edges) {
           const value = resolved.get(edge[`${oppositeSide}_record_id`]);
           if (!value) continue;
           projectedByRecord.get(String(edge[`${routedSide}_record_id`]))?.push({
@@ -2512,6 +2797,7 @@ export function createCustomObjectService({
       kind, recordId, query?.definitionId, 'view_records',
     );
     const p = pagination(query);
+    const sort = await relationshipListSort(definition, side, relatedSide, query);
     let q = db.from('custom_object_relationship').select('*', { count: 'exact' })
       .eq('tenant_id', tenantId)
       .eq('relationship_definition_id', definition.id)
@@ -2519,9 +2805,25 @@ export function createCustomObjectService({
       .is('archived_at', null)
       .order('created_at', { ascending: false })
       .order('id', { ascending: false });
-    const { data, error, count } = await q.range(p.from, p.to);
+    const { data, error, count } = await q.range(sort ? 0 : p.from, sort ? 999 : p.to);
     throwDb(error);
-    const rows = data || [];
+    const rows = [...(data || [])];
+    if (sort) {
+      for (let from = 1000; rows.length === from; from += 1000) {
+        const { data: batch, error: batchError } = await db.from('custom_object_relationship')
+          .select('*')
+          .eq('tenant_id', tenantId)
+          .eq('relationship_definition_id', definition.id)
+          .eq(`${side}_record_id`, recordId)
+          .is('archived_at', null)
+          .order('created_at', { ascending: false })
+          .order('id', { ascending: false })
+          .range(from, from + 999);
+        throwDb(batchError);
+        rows.push(...(batch || []));
+        if (!batch || batch.length < 1000) break;
+      }
+    }
     let resolved = await resolveEndpointRows(
       definition[`${relatedSide}_kind`],
       definition[`${relatedSide}_custom_object_id`],
@@ -2536,13 +2838,15 @@ export function createCustomObjectService({
     if (resolved.size !== new Set(rows.map((edge) => edge[`${relatedSide}_record_id`])).size) {
       throw new CustomObjectHttpError(409, 'A related endpoint is missing, archived, or unavailable');
     }
-    return {
-      data: rows.map((edge) => ({
+    let projected = rows.map((edge) => ({
         relationship_id: edge.id,
         relationship_definition_id: edge.relationship_definition_id,
         ...projectRelationshipValues(definition, edge, side),
         related: resolved.get(edge[`${relatedSide}_record_id`]),
-      })),
+      }));
+    if (sort) projected = sortRelationshipListRows(projected, sort).slice(p.from, p.to + 1);
+    return {
+      data: projected,
       total: count || 0,
       page: p.page,
       pageSize: p.pageSize,
@@ -2828,16 +3132,31 @@ export function createCustomObjectService({
       allowArchivedObjects: includeArchived,
     });
     const p = pagination(query);
+    const relatedSide = side === 'source' ? 'target' : 'source';
+    const sort = await relationshipListSort(definition, side, relatedSide, query);
     let q = db.from('custom_object_relationship').select('*', { count: 'exact' })
       .eq('tenant_id', tenantId).eq('relationship_definition_id', definition.id)
       .eq(`${side}_record_id`, recordId)
       .order('created_at', { ascending: false })
       .order('id', { ascending: false });
     if (!includeArchived) q = q.is('archived_at', null);
-    const { data, error, count } = await q.range(p.from, p.to);
+    const { data, error, count } = await q.range(sort ? 0 : p.from, sort ? 999 : p.to);
     throwDb(error);
-    const relatedSide = side === 'source' ? 'target' : 'source';
-    const rows = data || [];
+    const rows = [...(data || [])];
+    if (sort) {
+      for (let from = 1000; rows.length === from; from += 1000) {
+        let batchQuery = db.from('custom_object_relationship').select('*')
+          .eq('tenant_id', tenantId).eq('relationship_definition_id', definition.id)
+          .eq(`${side}_record_id`, recordId)
+          .order('created_at', { ascending: false })
+          .order('id', { ascending: false });
+        if (!includeArchived) batchQuery = batchQuery.is('archived_at', null);
+        const { data: batch, error: batchError } = await batchQuery.range(from, from + 999);
+        throwDb(batchError);
+        rows.push(...(batch || []));
+        if (!batch || batch.length < 1000) break;
+      }
+    }
     let resolved = await resolveEndpointRows(
       definition[`${relatedSide}_kind`],
       definition[`${relatedSide}_custom_object_id`],
@@ -2853,8 +3172,7 @@ export function createCustomObjectService({
     if (resolved.size !== new Set(rows.map((edge) => edge[`${relatedSide}_record_id`])).size) {
       throw new CustomObjectHttpError(409, 'A related endpoint is missing, archived, or unavailable');
     }
-    return {
-      data: rows.map((edge) => ({
+    let projected = rows.map((edge) => ({
         relationship_id: edge.id,
         relationship_definition_id: edge.relationship_definition_id,
         source_record_id: edge.source_record_id,
@@ -2862,7 +3180,10 @@ export function createCustomObjectService({
         ...projectRelationshipValues(definition, edge, side),
         ...(includeArchived ? { archived_at: edge.archived_at || null } : {}),
         related: resolved.get(edge[`${relatedSide}_record_id`]) || null,
-      })),
+      }));
+    if (sort) projected = sortRelationshipListRows(projected, sort).slice(p.from, p.to + 1);
+    return {
+      data: projected,
       total: count || 0, page: p.page, pageSize: p.pageSize,
     };
   }
@@ -3143,6 +3464,7 @@ export function createCustomObjectService({
     updateRelationshipDefinition, entityPicker, listRelationships, createRelationship,
     updateRelationship, archiveRelationship, listPermissions, upsertPermission, listFieldPermissions, upsertFieldPermission, listAudit,
     listCoreRelationshipDefinitions, listCoreRelationships, coreEntityPicker,
+    getRelationshipPanelPreference, saveRelationshipPanelPreference,
     createCoreRelationship, updateCoreRelationship, archiveCoreRelationship,
   };
 }

@@ -14,6 +14,7 @@ function schemaAccessRequired(level, resource, method) {
     'entity-picker',
     'initial-relationship-candidates',
     'relationship-filter-options',
+    'relationship-panel-preference',
   ].includes(resource)) return null;
   if (level === 'resource' && resource === 'relationship-definitions') return method === 'GET' ? 'view' : 'manage';
   if (level === 'resource' && resource === 'relationship-definition-graph') return 'manage';
@@ -98,6 +99,10 @@ export function createCustomObjectRouteHandler(level, dependencies = {}) {
       } else if (level === 'resource') {
         if (objectId === 'core' && resource === 'relationship-definitions' && req.method === 'GET') {
           data = await service.listCoreRelationshipDefinitions(req.query.kind, req.query.recordId);
+        } else if (objectId === 'core' && resource === 'relationship-panel-preference' && req.method === 'GET') {
+          data = await service.getRelationshipPanelPreference(req.query);
+        } else if (objectId === 'core' && resource === 'relationship-panel-preference' && req.method === 'PATCH') {
+          data = await service.saveRelationshipPanelPreference(req.query, req.body);
         } else if (objectId === 'core' && resource === 'relationships' && req.method === 'GET') {
           data = await service.listCoreRelationships(req.query.kind, req.query.recordId, req.query);
         } else if (objectId === 'core' && resource === 'entity-picker' && req.method === 'GET') {
