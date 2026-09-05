@@ -345,7 +345,7 @@ The editor permits saving version 2 scope only when:
 
 ### Database Write Guard
 
-Migration `supabase/migrations/20260929_relationship_picker_graph_paths.sql` adds a deferred constraint trigger that evaluates both paths for every new or restored active relationship edge. If there is no common terminal record, the write fails with:
+Migration `supabase/migrations/20260929_relationship_picker_graph_paths.sql` adds a deferred constraint trigger that evaluates both paths for every new active relationship edge. A later additive migration keeps the same validation when an edge is restored, re-pointed, moved to another tenant or definition, or otherwise changes its topology. Metadata-only edits, including relationship-field toggle values, do not revalidate the unchanged topology. If a topology-validated edge has no common terminal record, the write fails with:
 
 ```text
 Related record is outside the configured picker scope
@@ -354,6 +354,8 @@ Related record is outside the configured picker scope
 ### Existing Links Are Not Reconciled
 
 The migration intentionally applies the new generic guard to new or restored links. It removes the earlier primary-Organisation-specific triggers because those would reject valid secondary-Organisation links and could archive links when a primary Organisation changes.
+
+An active historical link can still have its relationship-field values edited even if it is no longer supported by a current secondary assignment. Restoring or re-pointing that link re-runs the scope guard and remains blocked unless the endpoints are in scope.
 
 The live audit found 353 active links unsupported by current secondary assignments. This guide does not alter them. Review and cleanup, if desired, must be separately approved.
 
