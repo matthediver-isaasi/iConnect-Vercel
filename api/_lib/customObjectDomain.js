@@ -372,17 +372,72 @@ export function validateCustomObjectViewConfiguration(configuration = {}, fields
   return { ok: errors.length === 0, errors };
 }
 
-export function validateCustomObjectRelationshipPreviewConfiguration(configuration = {}, fieldsBySide = {}) {
+export function validateCustomObjectRelationshipPreviewConfiguration(
+  configuration = {},
+  fieldsBySide = {},
+  relationshipsBySide = {},
+  objectIdsBySide = {},
+) {
   const errors = [];
   if (!isPlainObject(configuration)) return { ok: false, errors: ['Relationship configuration must be an object'] };
-  const preview = configuration.compact_preview ?? configuration.compact_preview_fields;
-  if (preview === undefined) return { ok: true, errors: [] };
-  if (!isPlainObject(preview)) return { ok: false, errors: ['compact_preview must be an object'] };
+  const currentPreview = configuration.compact_preview;
+  const legacyPreview = configuration.compact_preview_fields;
+  if (currentPreview === undefined && legacyPreview === undefined) return { ok: true, errors: [] };
+  if (currentPreview !== undefined && !isPlainObject(currentPreview)) errors.push('compact_preview must be an object');
+  if (legacyPreview !== undefined && !isPlainObject(legacyPreview)) errors.push('compact_preview_fields must be an object');
+  if (errors.length) return { ok: false, errors };
+  const preview = currentPreview ?? legacyPreview ?? {};
   for (const side of ['source', 'target']) {
-    const ids = configuredFieldIds(preview[`${side}_field_ids`] ?? preview[side], `compact_preview.${side}`, errors);
+    const ids = [
+      ...configuredFieldIds(currentPreview?.[`${side}_field_ids`] ?? currentPreview?.[side], `compact_preview.${side}`, errors),
+      ...configuredFieldIds(legacyPreview?.[`${side}_field_ids`] ?? legacyPreview?.[side], `compact_preview_fields.${side}`, errors),
+    ];
     const activeIds = new Set((fieldsBySide[side] || []).filter((field) => getCustomObjectFieldMetadata(field).active)
       .map((field) => String(field.id)));
     for (const id of ids) if (!activeIds.has(id)) errors.push(`compact_preview.${side} includes an unknown or archived field`);
+    const columns = preview[`${side}_columns`];
+    if (columns === undefined) continue;
+    if (!Array.isArray(columns)) {
+      errors.push(`compact_preview.${side}_columns must be an array`);
+      continue;
+    }
+    const eligibleRelationships = new Map((relationshipsBySide[side] || [])
+      .filter((item) => item?.status === 'active')
+      .map((item) => [String(item.id), item]));
+    const seen = new Set();
+    columns.forEach((column, index) => {
+      const label = `compact_preview.${side}_columns[${index}]`;
+      if (!isPlainObject(column)) {
+        errors.push(`${label} must be an object`);
+        return;
+      }
+      if (!String(column.label || '').trim()) errors.push(`${label}.label is required`);
+      if (column.type === 'field') {
+        const fieldId = String(column.field_id || '');
+        if (!activeIds.has(fieldId)) errors.push(`${label} includes an unknown or archived field`);
+        if (seen.has(`field:${fieldId}`)) errors.push(`${label} is duplicated`);
+        seen.add(`field:${fieldId}`);
+        return;
+      }
+      if (column.type === 'relationship') {
+        const relationshipId = String(column.relationship_definition_id || '');
+        const relationship = eligibleRelationships.get(relationshipId);
+        const relationshipSide = column.side;
+        if (
+          !relationship
+          || !['source', 'target'].includes(relationshipSide)
+          || relationship[`${relationshipSide}_kind`] !== 'custom_object'
+          || String(relationship[`${relationshipSide}_custom_object_id`] || '')
+            !== String(objectIdsBySide[side] || '')
+        ) {
+          errors.push(`${label} includes an unavailable relationship`);
+        }
+        if (seen.has(`relationship:${relationshipId}:${column.side}`)) errors.push(`${label} is duplicated`);
+        seen.add(`relationship:${relationshipId}:${column.side}`);
+        return;
+      }
+      errors.push(`${label}.type must be field or relationship`);
+    });
   }
   return { ok: errors.length === 0, errors };
 }

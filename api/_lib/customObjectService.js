@@ -836,14 +836,28 @@ export function createCustomObjectService({
 
   async function validateRelationshipPreview(definition) {
     const fieldsBySide = {};
+    const relationshipsBySide = {};
+    const objectIdsBySide = {};
     for (const side of ['source', 'target']) {
-      fieldsBySide[side] = definition[`${side}_kind`] === 'custom_object'
-        ? await fields(definition[`${side}_custom_object_id`])
+      const customObjectId = definition[`${side}_kind`] === 'custom_object'
+        ? definition[`${side}_custom_object_id`]
+        : null;
+      objectIdsBySide[side] = customObjectId;
+      fieldsBySide[side] = customObjectId ? await fields(customObjectId) : [];
+      relationshipsBySide[side] = customObjectId
+        ? (await presentationRelationships(customObjectId)).filter((candidate) => {
+          if (candidate.status !== 'active' || String(candidate.id) === String(definition.id)) return false;
+          return ['source', 'target'].some((candidateSide) =>
+            candidate[`${candidateSide}_kind`] === 'custom_object'
+            && String(candidate[`${candidateSide}_custom_object_id`]) === String(customObjectId));
+        })
         : [];
     }
     const validation = validateCustomObjectRelationshipPreviewConfiguration(
       definition.configuration,
       fieldsBySide,
+      relationshipsBySide,
+      objectIdsBySide,
     );
     if (!validation.ok) throw new CustomObjectHttpError(400, 'Invalid compact preview configuration', validation.errors);
   }
@@ -1765,11 +1779,91 @@ export function createCustomObjectService({
   }
 
   function configuredCompactPreviewFieldIds(definition, side) {
+    const previews = [
+      definition?.configuration?.compact_preview,
+      definition?.configuration?.compact_preview_fields,
+    ].filter((preview) => preview && typeof preview === 'object');
+    const ids = previews.flatMap((preview) => {
+      const configured = preview[`${side}_field_ids`] ?? preview[side] ?? [];
+      return Array.isArray(configured) ? configured : [];
+    });
+    const preview = previews[0] || {};
+    const columnIds = Array.isArray(preview[`${side}_columns`])
+      ? preview[`${side}_columns`]
+        .filter((column) => column?.type === 'field')
+        .map((column) => column.field_id)
+      : [];
+    return [...new Set([
+      ...ids,
+      ...columnIds,
+    ].filter(Boolean).map(String))];
+  }
+
+  function configuredCompactPreviewColumns(definition, side) {
     const preview = definition?.configuration?.compact_preview
       ?? definition?.configuration?.compact_preview_fields
       ?? {};
-    const ids = preview[`${side}_field_ids`] ?? preview[side] ?? [];
-    return Array.isArray(ids) ? ids : [];
+    const configured = preview[`${side}_columns`];
+    if (Array.isArray(configured)) return configured;
+    return configuredCompactPreviewFieldIds(definition, side).map((fieldId) => ({
+      type: 'field', field_id: String(fieldId),
+    }));
+  }
+
+  async function projectDirectRelationshipColumns(endpointRows, definition, relatedSide) {
+    const columns = configuredCompactPreviewColumns(definition, relatedSide)
+      .filter((column) => column?.type === 'relationship');
+    if (endpointRows.size === 0 || columns.length === 0) return endpointRows;
+    const recordIds = [...endpointRows.keys()];
+    const projectedByRecord = new Map(recordIds.map((id) => [String(id), []]));
+    for (const column of columns) {
+      let directDefinition;
+      try {
+        directDefinition = await one(
+          'custom_object_relationship_definition',
+          column.relationship_definition_id,
+        );
+        if (directDefinition.status !== 'active') continue;
+        const routedSide = column.side;
+        if (
+          !['source', 'target'].includes(routedSide)
+          || directDefinition[`${routedSide}_kind`] !== 'custom_object'
+          || String(directDefinition[`${routedSide}_custom_object_id`])
+            !== String(definition[`${relatedSide}_custom_object_id`])
+        ) continue;
+        await requireRelationshipCapabilities(directDefinition, 'view_records');
+        const oppositeSide = routedSide === 'source' ? 'target' : 'source';
+        let q = db.from('custom_object_relationship').select('*')
+          .eq('tenant_id', tenantId)
+          .eq('relationship_definition_id', directDefinition.id)
+          .is('archived_at', null)
+          .in(`${routedSide}_record_id`, recordIds);
+        const { data: edges, error } = await q;
+        throwDb(error);
+        const resolved = await resolveEndpointRows(
+          directDefinition[`${oppositeSide}_kind`],
+          directDefinition[`${oppositeSide}_custom_object_id`],
+          (edges || []).map((edge) => edge[`${oppositeSide}_record_id`]),
+        );
+        for (const edge of edges || []) {
+          const value = resolved.get(edge[`${oppositeSide}_record_id`]);
+          if (!value) continue;
+          projectedByRecord.get(String(edge[`${routedSide}_record_id`]))?.push({
+            relationship_definition_id: directDefinition.id,
+            side: routedSide,
+            label: column.label || directDefinition[`${routedSide}_label`] || 'Related record',
+            value,
+          });
+        }
+      } catch (error) {
+        if (error instanceof CustomObjectHttpError && [403, 404, 409].includes(error.status)) continue;
+        throw error;
+      }
+    }
+    return new Map([...endpointRows].map(([id, row]) => [id, {
+      ...row,
+      relationship_columns: projectedByRecord.get(String(id)) || [],
+    }]));
   }
 
   async function resolveEndpointRows(kind, customObjectId, ids, { includeArchived = false, previewFieldIds = [] } = {}) {
@@ -2268,6 +2362,7 @@ export function createCustomObjectService({
           show_on_target: definition.show_on_target,
           edit_from_source: definition.edit_from_source,
           edit_from_target: definition.edit_from_target,
+          ...(definition.configuration ? { configuration: definition.configuration } : {}),
         },
         side,
         label: definition[`${side}_label`],
@@ -2299,11 +2394,17 @@ export function createCustomObjectService({
     const { data, error, count } = await q.range(p.from, p.to);
     throwDb(error);
     const rows = data || [];
-    const resolved = await resolveEndpointRows(
+    let resolved = await resolveEndpointRows(
       definition[`${relatedSide}_kind`],
       definition[`${relatedSide}_custom_object_id`],
       rows.map((edge) => edge[`${relatedSide}_record_id`]),
+      {
+        previewFieldIds: configuredCompactPreviewFieldIds(definition, relatedSide),
+      },
     );
+    if (definition[`${relatedSide}_kind`] === 'custom_object') {
+      resolved = await projectDirectRelationshipColumns(resolved, definition, relatedSide);
+    }
     if (resolved.size !== new Set(rows.map((edge) => edge[`${relatedSide}_record_id`])).size) {
       throw new CustomObjectHttpError(409, 'A related endpoint is missing, archived, or unavailable');
     }
@@ -2603,7 +2704,7 @@ export function createCustomObjectService({
     throwDb(error);
     const relatedSide = side === 'source' ? 'target' : 'source';
     const rows = data || [];
-    const resolved = await resolveEndpointRows(
+    let resolved = await resolveEndpointRows(
       definition[`${relatedSide}_kind`],
       definition[`${relatedSide}_custom_object_id`],
       rows.map((edge) => edge[`${relatedSide}_record_id`]),
@@ -2612,6 +2713,9 @@ export function createCustomObjectService({
         previewFieldIds: configuredCompactPreviewFieldIds(definition, relatedSide),
       },
     );
+    if (definition[`${relatedSide}_kind`] === 'custom_object') {
+      resolved = await projectDirectRelationshipColumns(resolved, definition, relatedSide);
+    }
     if (resolved.size !== new Set(rows.map((edge) => edge[`${relatedSide}_record_id`])).size) {
       throw new CustomObjectHttpError(409, 'A related endpoint is missing, archived, or unavailable');
     }

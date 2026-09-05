@@ -23,11 +23,11 @@
 
 ## Overview
 
-BNMS limits the **Organisation Departments** offered on a Member record to Departments owned by that Member's **secondary Organisations**. It does not use the Member's primary Organisation for this restriction.
+BNMS limits the **Organisation Departments** offered on a Member record to Departments owned by that Member's **secondary Organisations**. It does not use the Member's primary Organisation for this restriction. The same card displays each Department's directly linked owning **Organisation** in a separate column so duplicate Department names remain distinguishable.
 
 The picker compares two relationship paths. Starting from an **Organisation department**, one path reaches its owning **Organization**. Starting from a **Member**, the other path reaches the Member's secondary **Organization** records through **Member organisation assignments**. A Department is eligible only when the paths intersect at the same Organization record.
 
-This guide records the live BNMS configuration as audited on 5 September 2026. The audit was read-only: no tenant records, definitions, relationships, or migrations were changed.
+This guide records the BNMS configuration audited on 5 September 2026 and the repository-managed Organisation-column update. The column migration changes relationship presentation metadata only; it does not alter Department, Member, Organisation, or relationship-edge records.
 
 ---
 
@@ -81,6 +81,16 @@ Organization
 ```
 
 Both paths end at the core **Organization** endpoint. The graph is therefore compatible and saveable.
+
+### Current Card Columns
+
+The Member-side **Organisation Departments** card uses the Department as its primary **Record** column and configures one direct-relationship preview column:
+
+| Column | Source | Stored identity |
+|---|---|---|
+| Organisation | Active `organisation` relationship traversed from its Department/source side | Relationship definition ID plus `side: source` |
+
+The value is resolved from active relationship edges at read time. It is not copied into Department JSON, so Organisation renames and relationship changes appear without synchronizing duplicate data.
 
 ### Live Data Findings
 
@@ -220,6 +230,8 @@ Do not select the archived `assignment_organisation` definition. Its target is *
    - Availability is **Active**.
 4. Confirm **Limit choices through linked records** is on.
 5. Confirm the exact source and target paths in the next section.
+6. Under **Related record preview** → **Relationship columns**, confirm **Organisations (Organization)** is selected.
+7. On a Member record, confirm the card has separate **Record** and **Organisation** headings and that Organisation names are clickable.
 
 ---
 
@@ -303,6 +315,15 @@ Ensure each Department has exactly one active `organisation` link to its owning 
 9. Archive or remove the Organization B assignment.
 10. Reopen the picker and confirm Department B1 is no longer offered for a new link.
 
+### Expected Card Results
+
+1. Link two Departments with the same primary label to different Organisations.
+2. Open a Member linked to both Departments.
+3. Confirm both rows retain the shared Department label in the **Record** column.
+4. Confirm the **Organisation** column shows the correct, distinct owning Organisation for each row.
+5. Confirm each available Organisation name opens its Organisation record.
+6. Temporarily test a Department without an accessible owning link and confirm the cell displays `—` without exposing a hidden record or breaking the rest of the card.
+
 **Existing-link note:** If Department B1 was linked before the assignment was removed, the picker rule does not automatically remove that historical active link. Cleanup requires a separate reviewed operation.
 
 ### Member with No Secondary Organisations
@@ -354,6 +375,9 @@ The live picker configuration matches that migration's BNMS setup, but a REST co
 | `client/src/pages/customObjects/RelationshipDefinitions.jsx` | Relationship editor and source/target path controls |
 | `client/src/pages/customObjects/relationshipHelpers.js` | Endpoint matching, traversal direction, loop prevention, and active-step resolution |
 | `api/_lib/customObjectService.js` | Tenant-scoped relationship definition and record operations |
+| `client/src/pages/customObjects/RelatedRecordsPanel.jsx` | Responsive headed relationship-card columns and related-record links |
+| `client/src/pages/customObjects/recordHelpers.js` | Normalizes stable relationship-column metadata |
+| `supabase/migrations/20260930_bnms_department_card_organisation_column.sql` | Pinned, idempotent BNMS Organisation-column configuration |
 | `supabase/migrations/20260929_relationship_picker_graph_paths.sql` | Generic path-intersection write guard and pinned BNMS picker configuration |
 | `supabase/migrations/20260926_bnms_member_departments_many_to_many.sql` | Earlier many-to-many conversion and legacy primary-Organisation picker restriction |
 | `supabase/migrations/20260827_bnms_department_many_to_one.sql` | Department ownership cardinality conversion |
@@ -367,6 +391,9 @@ The live picker configuration matches that migration's BNMS setup, but a REST co
 - The relationship currently being edited is excluded from its own scope paths.
 - Selecting a hop in reverse displays its target label first.
 - A legacy picker restriction appears as **Legacy picker restriction** and must be explicitly replaced with relationship paths.
+- Relationship columns are limited to active one-hop relationships attached directly to the related Custom Object.
+- Existing cards without relationship columns retain their legacy compact secondary-text preview.
+- On narrow screens, each value repeats its column label within the row; on wider screens, labels appear in a shared header.
 
 ### API Entry Points
 
@@ -405,6 +432,7 @@ Stores the graph schema and picker scope.
 | `edit_from_source`, `edit_from_target` | Editing availability |
 | `status` | Draft, active, or archived |
 | `configuration.picker_scope` | Versioned intersection paths |
+| `configuration.compact_preview.<side>_columns` | Ordered scalar/direct-relationship card columns |
 
 ### `custom_object_relationship`
 
@@ -480,3 +508,11 @@ Stores relationship edges.
 **Cause:** The database path-guard migration or trigger may be absent.
 
 **Fix:** Verify `20260929_relationship_picker_graph_paths.sql` in destination migration history and inspect the `custom_object_picker_scope_v2_guard_trigger`. This prerequisite cannot be repaired through Data Studio.
+
+### Problem: Organisation column is empty
+
+**Symptom:** The Department row appears, but its **Organisation** cell displays `—`.
+
+**Cause:** The Department has no active `organisation` edge, the relationship definition is inactive, or the current user cannot view the linked endpoint.
+
+**Fix:** Confirm the Department has one active owning Organisation relationship and that the viewing role can access every Custom Object endpoint involved. Inaccessible values are intentionally omitted rather than leaked.

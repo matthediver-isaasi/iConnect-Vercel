@@ -2445,6 +2445,19 @@ test('relationship definitions validate endpoint ownership and preserve immutabl
       edit_from_target: true,
       status: 'active',
       configuration: {},
+    }, {
+      id: '66666666-6666-4666-8666-666666666666',
+      tenant_id: tenantId,
+      relationship_key: 'location_organization',
+      source_kind: 'custom_object',
+      source_custom_object_id: targetObjectId,
+      target_kind: 'organization',
+      target_custom_object_id: null,
+      cardinality: 'many_to_one',
+      source_label: 'Organization',
+      target_label: 'Locations',
+      status: 'active',
+      configuration: {},
     }],
   });
   const service = createCustomObjectService({
@@ -2485,6 +2498,23 @@ test('relationship definitions validate endpoint ownership and preserve immutabl
       },
     }),
     (error) => error.status === 409 && /unavailable relationship/.test(error.message),
+  );
+  await assert.rejects(
+    () => service.updateRelationshipDefinition(objectId, definitionId, {
+      configuration: {
+        compact_preview: {
+          target_columns: [{
+            type: 'relationship',
+            relationship_definition_id: '66666666-6666-4666-8666-666666666666',
+            side: 'target',
+            label: 'Organization',
+          }],
+        },
+      },
+    }),
+    (error) => error.status === 400
+      && /Invalid compact preview configuration/.test(error.message)
+      && error.details?.some((detail) => /unavailable relationship/.test(detail)),
   );
   const updated = await service.updateRelationshipDefinition(objectId, definitionId, {
     target_label: 'Teams',
@@ -2572,6 +2602,151 @@ test('configured compact previews follow the opposite endpoint in both picker di
   assert.equal(fromTarget.data[0].compact_fields[0].value, 'Source preview');
   assert.equal(initialFromSource.data[0].compact_fields[0].value, 'Target preview');
   assert.equal(initialFromTarget.data[0].compact_fields[0].value, 'Source preview');
+});
+
+test('member relationship cards project owning organisations for duplicate department labels', async () => {
+  const memberDepartmentId = '55555555-5555-4555-8555-555555555555';
+  const departmentOrganizationId = '66666666-6666-4666-8666-666666666666';
+  const nameField = field({
+    id: 'field-name',
+    name: 'name',
+    field_type: 'text',
+    is_required: false,
+  });
+  const categoryField = field({
+    id: 'field-category',
+    name: 'category',
+    label: 'Category',
+    field_type: 'text',
+    is_required: false,
+  });
+  const db = mockDb({
+    custom_object_definition: [object({ primary_display_field_id: nameField.id })],
+    preference_field: [nameField, categoryField],
+    custom_object_record: [
+      { id: 'department-a', tenant_id: tenantId, custom_object_id: objectId, archived_at: null, data: { name: 'Imaging', category: 'Clinical' } },
+      { id: 'department-b', tenant_id: tenantId, custom_object_id: objectId, archived_at: null, data: { name: 'Imaging', category: 'Research' } },
+    ],
+    member: [{ id: 'member-1', tenant_id: tenantId, first_name: 'Ada', last_name: 'Lovelace' }],
+    organization: [
+      { id: 'organization-a', tenant_id: tenantId, name: 'Alpha Hospital' },
+      { id: 'organization-b', tenant_id: tenantId, name: 'Beta Hospital' },
+    ],
+    custom_object_relationship_definition: [{
+      id: memberDepartmentId,
+      tenant_id: tenantId,
+      status: 'active',
+      cardinality: 'many_to_many',
+      source_kind: 'custom_object',
+      source_custom_object_id: objectId,
+      target_kind: 'member',
+      target_custom_object_id: null,
+      show_on_target: true,
+      configuration: {
+        compact_preview_fields: { source_field_ids: [categoryField.id] },
+        compact_preview: { source_columns: [{
+        type: 'relationship',
+        relationship_definition_id: departmentOrganizationId,
+        side: 'source',
+        label: 'Organisation',
+        }] },
+      },
+    }, {
+      id: departmentOrganizationId,
+      tenant_id: tenantId,
+      status: 'active',
+      cardinality: 'many_to_one',
+      source_kind: 'custom_object',
+      source_custom_object_id: objectId,
+      target_kind: 'organization',
+      target_custom_object_id: null,
+      source_label: 'Organisations',
+      target_label: 'Departments',
+    }],
+    custom_object_relationship: [{
+      id: 'member-edge-a', tenant_id: tenantId, relationship_definition_id: memberDepartmentId,
+      source_record_id: 'department-a', target_record_id: 'member-1', archived_at: null, created_at: '2026-01-02',
+    }, {
+      id: 'member-edge-b', tenant_id: tenantId, relationship_definition_id: memberDepartmentId,
+      source_record_id: 'department-b', target_record_id: 'member-1', archived_at: null, created_at: '2026-01-01',
+    }, {
+      id: 'owner-edge-a', tenant_id: tenantId, relationship_definition_id: departmentOrganizationId,
+      source_record_id: 'department-a', target_record_id: 'organization-a', archived_at: null,
+    }, {
+      id: 'owner-edge-b', tenant_id: tenantId, relationship_definition_id: departmentOrganizationId,
+      source_record_id: 'department-b', target_record_id: 'organization-b', archived_at: null,
+    }],
+  });
+  const result = await createCustomObjectService({
+    db, context: context(), isAdmin: true,
+  }).listCoreRelationships('member', 'member-1', {
+    definitionId: memberDepartmentId,
+    page: 1,
+    pageSize: 10,
+  });
+  assert.deepEqual(result.data.map((row) => ({
+    department: row.related.primary_label,
+    category: row.related.compact_fields[0].value,
+    organization: row.related.relationship_columns[0].value.primary_label,
+    kind: row.related.relationship_columns[0].value.kind,
+  })), [
+    { department: 'Imaging', category: 'Clinical', organization: 'Alpha Hospital', kind: 'organization' },
+    { department: 'Imaging', category: 'Research', organization: 'Beta Hospital', kind: 'organization' },
+  ]);
+});
+
+test('inaccessible direct relationship columns are omitted without hiding the base row', async () => {
+  const targetId = '44444444-4444-4444-8444-444444444444';
+  const restrictedId = '77777777-7777-4777-8777-777777777777';
+  const cardDefinitionId = '55555555-5555-4555-8555-555555555555';
+  const directDefinitionId = '66666666-6666-4666-8666-666666666666';
+  const db = mockDb({
+    custom_object_definition: [
+      object(),
+      object({ id: targetId, object_key: 'targets' }),
+      object({ id: restrictedId, object_key: 'restricted' }),
+    ],
+    preference_field: [],
+    custom_object_record: [
+      { id: 'source-record', tenant_id: tenantId, custom_object_id: objectId, archived_at: null },
+      { id: 'target-record', tenant_id: tenantId, custom_object_id: targetId, archived_at: null },
+      { id: 'restricted-record', tenant_id: tenantId, custom_object_id: restrictedId, archived_at: null },
+    ],
+    custom_object_role_permission: [
+      { tenant_id: tenantId, custom_object_id: objectId, role_id: roleId, can_view_records: true },
+      { tenant_id: tenantId, custom_object_id: targetId, role_id: roleId, can_view_records: true },
+    ],
+    custom_object_relationship_definition: [{
+      id: cardDefinitionId, tenant_id: tenantId, status: 'active', cardinality: 'many_to_many',
+      source_kind: 'custom_object', source_custom_object_id: objectId,
+      target_kind: 'custom_object', target_custom_object_id: targetId,
+      show_on_source: true,
+      configuration: { compact_preview: { target_columns: [{
+        type: 'relationship', relationship_definition_id: directDefinitionId,
+        side: 'source', label: 'Restricted',
+      }] } },
+    }, {
+      id: directDefinitionId, tenant_id: tenantId, status: 'active', cardinality: 'many_to_many',
+      source_kind: 'custom_object', source_custom_object_id: targetId,
+      target_kind: 'custom_object', target_custom_object_id: restrictedId,
+    }],
+    custom_object_relationship: [{
+      id: 'card-edge', tenant_id: tenantId, relationship_definition_id: cardDefinitionId,
+      source_record_id: 'source-record', target_record_id: 'target-record', archived_at: null,
+    }, {
+      id: 'restricted-edge', tenant_id: tenantId, relationship_definition_id: directDefinitionId,
+      source_record_id: 'target-record', target_record_id: 'restricted-record', archived_at: null,
+    }],
+  });
+  const result = await createCustomObjectService({
+    db, context: context(),
+  }).listRelationships(objectId, {
+    definitionId: cardDefinitionId,
+    recordId: 'source-record',
+    side: 'source',
+  });
+  assert.equal(result.data.length, 1);
+  assert.deepEqual(result.data[0].related.relationship_columns, []);
 });
 
 test('record-scoped related query supports reverse display and resolves one level only', async () => {

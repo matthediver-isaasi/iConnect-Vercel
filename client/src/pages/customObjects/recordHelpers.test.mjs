@@ -5,6 +5,7 @@ import {
   arrayValue,
   buildRecordPayload,
   coerceRecordValue,
+  compactPreviewColumns,
   customObjectDetailLayout,
   detailSections,
   evaluateCustomObjectVisibility,
@@ -13,6 +14,7 @@ import {
   normalizeRecordPermissions,
   optionValues,
   sharedListFields,
+  relationshipCardColumnLayoutClasses,
   unplacedRelationshipPanels,
   validateRecordValues,
 } from "./recordHelpers.js";
@@ -442,4 +444,44 @@ test("CRM field snapshot distinguishes intentionally unplaced and newly added fi
   } } } };
   const layout = customObjectDetailLayout(object, fields);
   assert.deepEqual(layout.cards[0].fields.map((item) => item.id), ["custom:placed-id", "custom:new-id"]);
+});
+
+test("relationship-card columns normalize stable field and direct relationship metadata", () => {
+  const definition = { configuration: {
+    compact_preview_fields: { target_field_ids: ["legacy-field"] },
+    compact_preview: {
+    target_field_ids: ["legacy-field"],
+    target_columns: [
+      { type: "field", field_id: "field-1", label: "Type" },
+      {
+        type: "relationship",
+        relationship_definition_id: "relationship-1",
+        side: "source",
+        label: "Organisation",
+      },
+      { type: "relationship", relationship_definition_id: "", side: "source", label: "Invalid" },
+    ],
+  } } };
+  assert.deepEqual(compactPreviewColumns(definition, "source", [{
+    field_id: "legacy-field",
+    label: "Legacy field",
+  }]), [
+    { type: "field", field_id: "legacy-field", label: "Legacy field" },
+    { type: "field", field_id: "field-1", label: "Type" },
+    {
+      type: "relationship",
+      relationship_definition_id: "relationship-1",
+      side: "source",
+      label: "Organisation",
+    },
+  ]);
+  assert.deepEqual(compactPreviewColumns({}, "source"), []);
+});
+
+test("relationship-card column layouts keep shared headers desktop-only and labels mobile-only", () => {
+  assert.match(relationshipCardColumnLayoutClasses.header, /hidden/);
+  assert.match(relationshipCardColumnLayoutClasses.header, /sm:grid/);
+  assert.match(relationshipCardColumnLayoutClasses.row, /^grid /);
+  assert.match(relationshipCardColumnLayoutClasses.row, /sm:grid-cols/);
+  assert.match(relationshipCardColumnLayoutClasses.mobileLabel, /sm:hidden/);
 });

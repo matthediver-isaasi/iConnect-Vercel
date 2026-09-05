@@ -15,6 +15,7 @@ import {
 } from "./relationshipApi";
 import { canEditDefinitionFrom, cardinalityLimitReached, contextualCreateEligibility, labelForSide, oppositeKindFor, relatedRecordPath, relationshipCreatePayload, relationshipLinkState, relationshipPanels } from "./relationshipHelpers";
 import { ContextualRecordCreateDialog } from "./ContextualRecordCreateDialog";
+import { compactPreviewColumns, relationshipCardColumnLayoutClasses } from "./recordHelpers";
 
 const normalizeContext = ({ context, objectId, recordId }) =>
   context || { kind: "custom_object", objectId, recordId };
@@ -153,6 +154,11 @@ function RelationshipPanel({
     })),
   });
   const edges = query.data?.data || [];
+  const previewColumns = compactPreviewColumns(
+    definition,
+    editSide,
+    edges.flatMap((edge) => edge.related?.compact_fields || []),
+  );
   const total = query.data?.total || 0;
   const pageSize = query.data?.pageSize || 10;
   const pages = Math.max(1, Math.ceil(total / pageSize));
@@ -216,7 +222,7 @@ function RelationshipPanel({
         {query.isLoading ? <div className="space-y-3 p-5">{[1, 2].map((x) => <div key={x} className="h-10 animate-pulse rounded bg-slate-100" />)}</div>
           : query.error ? <div className="p-5 text-sm text-rose-700"><CircleAlert className="mr-2 inline h-4 w-4" />{query.error.message} <button type="button" className="ml-2 underline" onClick={() => query.refetch()}>Retry</button></div>
             : !edges.length ? <div className="p-7 text-center text-sm text-slate-500">No {labelForSide(definition, editSide).toLowerCase()} linked yet.</div>
-              : <div>{edges.map((edge) => {
+              : <div>{previewColumns.length > 0 && <div className={`${relationshipCardColumnLayoutClasses.header} border-b bg-slate-50 px-5 py-2 text-xs font-semibold uppercase tracking-wide text-slate-500`}><span>{endpoint.kind === "custom_object" ? "Record" : labelForSide(definition, editSide)}</span>{previewColumns.map((column, index) => <span key={`${column.type}-${column.field_id || column.relationship_definition_id}-${index}`}>{column.label}</span>)}<span className="w-9" /></div>}{edges.map((edge) => {
                 const related = {
                   kind: edge.related_kind,
                   custom_object_id: edge.related_custom_object_id,
@@ -225,8 +231,18 @@ function RelationshipPanel({
                 };
                 const path = relatedRecordPath(related);
                 const label = related.primary_label || "Untitled record";
-                const text = <><p className="truncate text-sm font-medium text-slate-900">{label}</p>{related.secondary_text && <p className="truncate text-xs text-slate-500">{related.secondary_text}</p>}</>;
-                return <div key={edge.relationship_id} className="group flex items-center justify-between gap-3 border-b px-5 py-3 last:border-0 hover:bg-slate-50">{path ? <Link to={path} state={linkState} className="min-w-0 flex-1 hover:underline">{text}</Link> : <div className="min-w-0">{text}</div>}{edge.archived_at && <Badge variant="outline">Archived link</Badge>}{editable && <Button variant="ghost" size="icon" className="opacity-0 transition-opacity group-hover:opacity-100 focus:opacity-100" disabled={remove.isPending} aria-label="Remove relationship" onClick={() => { if (window.confirm(`Remove the link to ${label}?`)) remove.mutate(edge.relationship_id); }}><Trash2 className="h-4 w-4 text-rose-600" /></Button>}</div>;
+                const text = <><p className="truncate text-sm font-medium text-slate-900">{label}</p>{!previewColumns.length && related.secondary_text && <p className="truncate text-xs text-slate-500">{related.secondary_text}</p>}</>;
+                const values = previewColumns.map((column) => {
+                  if (column.type === "field") {
+                    const value = related.compact_fields?.find((item) => String(item.field_id) === column.field_id);
+                    return value?.value == null || value.value === "" ? null : String(value.value);
+                  }
+                  return related.relationship_columns?.filter((item) =>
+                    String(item.relationship_definition_id) === column.relationship_definition_id
+                    && item.side === column.side) || [];
+                });
+                const primary = path ? <Link to={path} state={linkState} className="min-w-0 hover:underline">{text}</Link> : <div className="min-w-0">{text}</div>;
+                return <div key={edge.relationship_id} className={`group border-b px-5 py-3 last:border-0 hover:bg-slate-50 ${previewColumns.length ? relationshipCardColumnLayoutClasses.row : "flex items-center justify-between gap-3"}`}><div className="min-w-0 flex-1">{primary}</div>{previewColumns.map((column, index) => <div key={`${column.type}-${column.field_id || column.relationship_definition_id}-${index}`} className="min-w-0 text-sm text-slate-700"><span className={relationshipCardColumnLayoutClasses.mobileLabel}>{column.label}:</span>{Array.isArray(values[index]) ? values[index].length ? values[index].map((item, valueIndex) => { const valuePath = relatedRecordPath(item.value); return <React.Fragment key={`${item.value.id}-${valueIndex}`}>{valueIndex > 0 && ", "}{valuePath ? <Link to={valuePath} state={linkState} className="hover:underline">{item.value.primary_label}</Link> : item.value.primary_label}</React.Fragment>; }) : "—" : values[index] || "—"}</div>)}{edge.archived_at && <Badge variant="outline">Archived link</Badge>}{editable && <Button variant="ghost" size="icon" className="opacity-0 transition-opacity group-hover:opacity-100 focus:opacity-100" disabled={remove.isPending} aria-label="Remove relationship" onClick={() => { if (window.confirm(`Remove the link to ${label}?`)) remove.mutate(edge.relationship_id); }}><Trash2 className="h-4 w-4 text-rose-600" /></Button>}</div>;
               })}</div>}
         {pages > 1 && <div className="flex items-center justify-between border-t px-5 py-3 text-xs text-slate-500"><span>Page {page} of {pages}</span><div className="flex gap-1"><Button size="icon" variant="ghost" disabled={page === 1} onClick={() => setPage((x) => x - 1)}><ChevronLeft className="h-4 w-4" /></Button><Button size="icon" variant="ghost" disabled={page === pages} onClick={() => setPage((x) => x + 1)}><ChevronRight className="h-4 w-4" /></Button></div></div>}
       </CardContent>

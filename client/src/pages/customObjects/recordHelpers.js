@@ -470,6 +470,59 @@ export const compactPreviewFields = (definition, side, fields) => {
     []);
 };
 
+export const compactPreviewColumns = (definition, side, projectedFields = []) => {
+  const config = definition?.configuration || {};
+  const preview = config.compact_preview || config.compactPreview || config.preview || {};
+  const legacyPreview = config.compact_preview_fields || {};
+  const relatedSide = side === "source" ? "target" : "source";
+  const columns = preview[`${relatedSide}_columns`];
+  if (!Array.isArray(columns)) return [];
+  const normalized = columns.flatMap((column) => {
+    const label = String(column?.label || "").trim();
+    if (!label) return [];
+    if (column.type === "field" && column.field_id)
+      return [{ type: "field", field_id: String(column.field_id), label }];
+    if (
+      column.type === "relationship"
+      && column.relationship_definition_id
+      && ["source", "target"].includes(column.side)
+    ) return [{
+      type: "relationship",
+      relationship_definition_id: String(column.relationship_definition_id),
+      side: column.side,
+      label,
+    }];
+    return [];
+  });
+  const configuredFieldIds = new Set(normalized
+    .filter((column) => column.type === "field")
+    .map((column) => column.field_id));
+  const legacyIds = [...new Set([
+    ...(Array.isArray(preview[`${relatedSide}_field_ids`] || preview[relatedSide])
+      ? (preview[`${relatedSide}_field_ids`] || preview[relatedSide])
+      : []),
+    ...(Array.isArray(legacyPreview[`${relatedSide}_field_ids`] || legacyPreview[relatedSide])
+      ? (legacyPreview[`${relatedSide}_field_ids`] || legacyPreview[relatedSide])
+      : []),
+  ].map(String))];
+  const projectedById = new Map((projectedFields || [])
+    .map((item) => [String(item.field_id), item]));
+  const legacyColumns = (Array.isArray(legacyIds) ? legacyIds : [])
+    .filter((fieldId) => !configuredFieldIds.has(fieldId))
+    .map((fieldId) => ({
+      type: "field",
+      field_id: fieldId,
+      label: projectedById.get(fieldId)?.label || "Field",
+    }));
+  return [...legacyColumns, ...normalized];
+};
+
+export const relationshipCardColumnLayoutClasses = {
+  header: "hidden grid-cols-[minmax(10rem,1.2fr)_repeat(auto-fit,minmax(8rem,1fr))_auto] gap-4 sm:grid",
+  row: "grid gap-2 sm:grid-cols-[minmax(10rem,1.2fr)_repeat(auto-fit,minmax(8rem,1fr))_auto] sm:items-center sm:gap-4",
+  mobileLabel: "mr-2 text-xs font-semibold text-slate-500 sm:hidden",
+};
+
 export const RECORD_PERMISSION_KEYS = [
   "can_view_records",
   "can_create_records",

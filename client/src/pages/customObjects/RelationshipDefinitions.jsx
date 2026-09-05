@@ -361,14 +361,66 @@ function CompactPreviewSettings({ side, form, update }) {
     queryFn: () => loadCustomObjectFields(objectId),
     enabled: Boolean(objectId),
   });
+  const relationshipsQuery = useQuery({
+    queryKey: ["custom-objects", objectId, "compact-preview-relationships"],
+    queryFn: () => loadRelationshipDefinitions(objectId, relationshipRequest, 100),
+    enabled: Boolean(objectId),
+  });
   if (!objectId) return <p className="mt-3 border-t pt-3 text-xs text-slate-500">Compact previews for {side} are supplied by the connected {kindName(form[`${opposite}_kind`])} record type.</p>;
   const fields = (query.data?.data || query.data || []).filter((field) => field.is_active !== false);
-  const selected = form.configuration?.compact_preview?.[`${opposite}_field_ids`] || form.configuration?.compact_preview?.[opposite] || [];
-  const setSelected = (fieldIds) => update("configuration", {
+  const selected = [...new Set([
+    ...(form.configuration?.compact_preview?.[`${opposite}_field_ids`] || form.configuration?.compact_preview?.[opposite] || []),
+    ...(form.configuration?.compact_preview_fields?.[`${opposite}_field_ids`] || form.configuration?.compact_preview_fields?.[opposite] || []),
+  ].map(String))];
+  const columns = form.configuration?.compact_preview?.[`${opposite}_columns`] || [];
+  const setSelected = (fieldIds) => {
+    const compactPreview = {
+      ...form.configuration?.compact_preview,
+      [`${opposite}_field_ids`]: fieldIds,
+    };
+    if (columns.length) {
+      compactPreview[`${opposite}_columns`] = [
+        ...fieldIds.map((fieldId) => ({
+          type: "field",
+          field_id: String(fieldId),
+          label: fields.find((field) => String(field.id) === String(fieldId))?.label || "Field",
+        })),
+        ...columns.filter((column) => column.type === "relationship"),
+      ];
+    }
+    update("configuration", { ...form.configuration, compact_preview: compactPreview });
+  };
+  const setColumns = (next) => update("configuration", {
     ...form.configuration,
-    compact_preview: { ...form.configuration?.compact_preview, [`${opposite}_field_ids`]: fieldIds },
+    compact_preview: { ...form.configuration?.compact_preview, [`${opposite}_columns`]: next },
   });
-  return <div className="mt-3 border-t pt-3"><p className="text-sm font-medium text-slate-800">Related record preview</p><p className="mt-1 text-xs text-slate-500">Supporting values shown beneath the primary record label when viewing this side.</p>{query.isLoading ? <p className="mt-2 text-xs text-slate-500">Loading fields…</p> : query.error ? <p className="mt-2 text-xs text-rose-600">Preview fields could not be loaded.</p> : <div className="mt-2 grid gap-1 sm:grid-cols-2">{fields.map((field) => <label key={field.id} className="flex items-center gap-2 text-sm"><input type="checkbox" checked={selected.map(String).includes(String(field.id))} onChange={(event) => setSelected(event.target.checked ? [...selected, String(field.id)] : selected.filter((id) => String(id) !== String(field.id)))} />{field.label}</label>)}</div>}</div>;
+  const relationships = (relationshipsQuery.data?.data || relationshipsQuery.data || [])
+    .filter((item) => item.status === "active" && String(item.id) !== String(form.id))
+    .flatMap((item) => ["source", "target"].flatMap((relationshipSide) =>
+      item[`${relationshipSide}_kind`] === "custom_object"
+      && String(item[`${relationshipSide}_custom_object_id`]) === String(objectId)
+        ? [{ definition: item, side: relationshipSide }]
+        : []));
+  const toggleRelationship = (item, checked) => {
+    const keyMatches = (column) =>
+      column.type === "relationship"
+      && String(column.relationship_definition_id) === String(item.definition.id)
+      && column.side === item.side;
+    const existingColumns = columns.length ? columns : selected.map((fieldId) => ({
+      type: "field",
+      field_id: String(fieldId),
+      label: fields.find((field) => String(field.id) === String(fieldId))?.label || "Field",
+    }));
+    setColumns(checked
+      ? [...existingColumns, {
+          type: "relationship",
+          relationship_definition_id: String(item.definition.id),
+          side: item.side,
+          label: item.definition[`${item.side}_label`] || "Related record",
+        }]
+      : existingColumns.filter((column) => !keyMatches(column)));
+  };
+  return <div className="mt-3 border-t pt-3"><p className="text-sm font-medium text-slate-800">Related record preview</p><p className="mt-1 text-xs text-slate-500">Supporting values shown beneath the primary record label when viewing this side.</p>{query.isLoading ? <p className="mt-2 text-xs text-slate-500">Loading fields…</p> : query.error ? <p className="mt-2 text-xs text-rose-600">Preview fields could not be loaded.</p> : <div className="mt-2 grid gap-1 sm:grid-cols-2">{fields.map((field) => <label key={field.id} className="flex items-center gap-2 text-sm"><input type="checkbox" checked={selected.map(String).includes(String(field.id))} onChange={(event) => setSelected(event.target.checked ? [...selected, String(field.id)] : selected.filter((id) => String(id) !== String(field.id)))} />{field.label}</label>)}</div>}<div className="mt-4 border-t pt-3"><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Relationship columns</p><p className="mt-1 text-xs text-slate-500">Show records linked directly from the related Custom Object as explicit card columns.</p>{relationshipsQuery.isLoading ? <p className="mt-2 text-xs text-slate-500">Loading relationships…</p> : relationshipsQuery.error ? <p className="mt-2 text-xs text-rose-600">Relationships could not be loaded.</p> : relationships.length ? <div className="mt-2 grid gap-1 sm:grid-cols-2">{relationships.map((item) => { const checked = columns.some((column) => column.type === "relationship" && String(column.relationship_definition_id) === String(item.definition.id) && column.side === item.side); return <label key={`${item.definition.id}:${item.side}`} className="flex items-center gap-2 text-sm"><input type="checkbox" checked={checked} onChange={(event) => toggleRelationship(item, event.target.checked)} />{item.definition[`${item.side}_label`]} ({kindName(item.definition[item.side === "source" ? "target_kind" : "source_kind"])})</label>; })}</div> : <p className="mt-2 text-xs text-slate-500">No eligible active direct relationships.</p>}</div></div>;
 }
 
 function Toggle({ label, hint, checked, onChange }) {

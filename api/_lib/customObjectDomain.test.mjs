@@ -257,6 +257,78 @@ test('generic view and side-aware compact preview metadata only permit active ow
   assert.equal(validateCustomObjectRelationshipPreviewConfiguration({
     compact_preview: { target_field_ids: [primary.id] },
   }, { source: [primary], target: [] }).ok, false);
+  const direct = {
+    id: '55555555-5555-4555-8555-555555555555',
+    status: 'active',
+  };
+  assert.equal(validateCustomObjectRelationshipPreviewConfiguration({
+    compact_preview: {
+      source_columns: [{
+        type: 'relationship',
+        relationship_definition_id: direct.id,
+        side: 'source',
+        label: 'Organisation',
+      }],
+    },
+  }, { source: [primary], target: [] }, { source: [direct], target: [] }, {
+    source: objectId,
+  }).ok, false);
+  const attachedDirect = {
+    ...direct,
+    source_kind: 'custom_object',
+    source_custom_object_id: objectId,
+  };
+  assert.equal(validateCustomObjectRelationshipPreviewConfiguration({
+    compact_preview_fields: {
+      source_field_ids: ['foreign-field'],
+    },
+    compact_preview: {
+      source_columns: [{
+        type: 'relationship',
+        relationship_definition_id: direct.id,
+        side: 'source',
+        label: 'Organisation',
+      }],
+    },
+  }, { source: [primary], target: [] }, { source: [attachedDirect], target: [] }, {
+    source: objectId,
+  }).ok, false);
+  assert.equal(validateCustomObjectRelationshipPreviewConfiguration({
+    compact_preview: {
+      source_columns: [{
+        type: 'relationship',
+        relationship_definition_id: direct.id,
+        side: 'source',
+        label: 'Organisation',
+      }],
+    },
+  }, { source: [primary], target: [] }, { source: [attachedDirect], target: [] }, {
+    source: objectId,
+  }).ok, true);
+  assert.equal(validateCustomObjectRelationshipPreviewConfiguration({
+    compact_preview: {
+      source_columns: [{
+        type: 'relationship',
+        relationship_definition_id: direct.id,
+        side: 'target',
+        label: 'Organisation',
+      }],
+    },
+  }, { source: [primary], target: [] }, { source: [attachedDirect], target: [] }, {
+    source: objectId,
+  }).ok, false);
+  assert.equal(validateCustomObjectRelationshipPreviewConfiguration({
+    compact_preview: {
+      source_columns: [{
+        type: 'relationship',
+        relationship_definition_id: direct.id,
+        side: 'source',
+        label: '',
+      }],
+    },
+  }, { source: [primary], target: [] }, { source: [], target: [] }, {
+    source: objectId,
+  }).ok, false);
 });
 
 test('versioned CRM presentation validates stable field and relationship identities and visibility rules', () => {
