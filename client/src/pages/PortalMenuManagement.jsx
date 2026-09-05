@@ -19,8 +19,11 @@ import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
 import { ROLE_ACCESS_MAP } from "@/lib/roleAccessMap";
 import {
+  getCustomObjectIdFromPortalListUrl,
+  getCustomObjectPortalRoleAccessId,
   getPortalMenuFallbackFeatureId,
   getPortalMenuLinkType,
+  loadViewableCustomObjectPortalDestinations,
   PORTAL_MENU_LINK_TYPES,
   validatePortalMenuDestination,
 } from "@/lib/portalMenuLinks";
@@ -273,6 +276,15 @@ export default function PortalMenuManagementPage() {
     staleTime: 60 * 1000,
   });
 
+  // The catalogue endpoint already applies the same per-object view grant used
+  // by direct record routes, so only destinations this administrator can open
+  // are offered.
+  const { data: customObjectDestinations = [] } = useQuery({
+    queryKey: ['custom-objects-for-portal-menu'],
+    queryFn: () => loadViewableCustomObjectPortalDestinations(),
+    staleTime: 60 * 1000,
+  });
+
   const { data: roleAccessItems = [] } = useQuery({
     queryKey: ['role-access-items-for-menu'],
     queryFn: async () => {
@@ -289,34 +301,47 @@ export default function PortalMenuManagementPage() {
     const dynamicItems = roleAccessItems.filter(
       item => item.is_active && !staticRoleAccessOptions.allKeys.has(item.item_key)
     );
-    if (dynamicItems.length === 0) return staticRoleAccessOptions.groups;
+    const dynamicGroups = [];
+    if (dynamicItems.length > 0) {
+      dynamicGroups.push({
+        module: 'Dynamic Directories',
+        icon: 'FolderTree',
+        items: dynamicItems.map(item => ({
+          value: item.item_key,
+          label: item.label,
+          type: item.item_type || 'page'
+        }))
+      });
+    }
+    if (customObjectDestinations.length > 0) {
+      dynamicGroups.push({
+        module: 'Custom Objects',
+        icon: 'Database',
+        items: customObjectDestinations.map(item => ({
+          value: item.featureId,
+          label: item.label,
+          type: 'page',
+        })),
+      });
+    }
+    return [...staticRoleAccessOptions.groups, ...dynamicGroups].sort((a, b) => a.module.localeCompare(b.module));
+  }, [roleAccessItems, customObjectDestinations]);
 
-    const dynamicGroup = {
-      module: 'Dynamic Directories',
-      icon: 'FolderTree',
-      items: dynamicItems.map(item => ({
-        value: item.item_key,
-        label: item.label,
-        type: item.item_type || 'page'
-      }))
-    };
-    return [...staticRoleAccessOptions.groups, dynamicGroup].sort((a, b) => a.module.localeCompare(b.module));
-  }, [roleAccessItems]);
-
-  // Combine built-in pages with dynamic CMS pages and dynamic directories
+  // Combine built-in pages with dynamic CMS, directory and Custom Object pages.
   const availablePages = useMemo(() => {
     return [
       { value: "_none", label: "No Page (Parent Menu)" },
       ...builtInPages,
       ...ieditPages,
-      ...dynamicDirectories
+      ...dynamicDirectories,
+      ...customObjectDestinations,
     ].sort((a, b) => {
       // Keep "_none" at top
       if (a.value === "_none") return -1;
       if (b.value === "_none") return 1;
       return a.label.localeCompare(b.label);
     });
-  }, [ieditPages, dynamicDirectories]);
+  }, [ieditPages, dynamicDirectories, customObjectDestinations]);
 
   const createMutation = useMutation({
     mutationFn: (data) => base44.entities.PortalMenu.create(data),
@@ -420,7 +445,12 @@ export default function PortalMenuManagementPage() {
     }
 
     // Use manually selected feature_id if set, otherwise auto-generate
-    let featureId = editingItem.feature_id;
+    const customObjectId = linkType === PORTAL_MENU_LINK_TYPES.INTERNAL
+      ? getCustomObjectIdFromPortalListUrl(url)
+      : null;
+    let featureId = customObjectId
+      ? getCustomObjectPortalRoleAccessId(customObjectId)
+      : editingItem.feature_id;
     if (!featureId) {
       featureId = getPortalMenuFallbackFeatureId({
         ...editingItem,
@@ -746,8 +776,14 @@ export default function PortalMenuManagementPage() {
                       onValueChange={(value) => {
                         const url = value === "_none" ? "" : value;
                         const next = { ...editingItem, url };
+                        const selectedDestination = customObjectDestinations.find(page => page.value === url);
+                        if (selectedDestination) {
+                          // This identifier is interpreted against the same
+                          // custom_object_role_permission view grant as direct access.
+                          next.feature_id = selectedDestination.featureId;
+                        }
                         // Pre-associate the matching RBAC permission when the page has one.
-                        if (!editingItem.feature_id && PAGE_DEFAULT_FEATURES[url]) {
+                        else if (!editingItem.feature_id && PAGE_DEFAULT_FEATURES[url]) {
                           next.feature_id = PAGE_DEFAULT_FEATURES[url];
                         }
                         setEditingItem(next);

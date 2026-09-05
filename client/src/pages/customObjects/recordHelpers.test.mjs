@@ -5,12 +5,15 @@ import {
   arrayValue,
   buildRecordPayload,
   coerceRecordValue,
+  customObjectDetailLayout,
   detailSections,
+  evaluateCustomObjectVisibility,
   fieldAccess,
   formatRecordValue,
   normalizeRecordPermissions,
   optionValues,
   sharedListFields,
+  unplacedRelationshipPanels,
   validateRecordValues,
 } from "./recordHelpers.js";
 
@@ -362,4 +365,81 @@ test("configured views retain order while excluding hidden and archived fields",
   assert.equal(fieldAccess(fields[2]), "read");
   assert.deepEqual(sharedListFields(object, fields).map((item) => item.name), ["state", "name"]);
   assert.deepEqual(detailSections(object, fields).map((section) => section.fields.map((item) => item.name)), [["state"]]);
+});
+
+test("CRM detail layouts reconcile stable field and relationship IDs", () => {
+  const fields = [field("name", "text"), field("new_field", "text"), field("gone", "text", { is_active: false })];
+  const panels = [{ definition: { id: "rel-1" }, side: "target" }, { definition: { id: "rel-2" }, side: "source" }];
+  const object = { singular_label: "Item", configuration: { views: { detail: { version: 2, cards: [{
+    id: "summary", title: "Summary", columns: 9, fields: [
+      { id: "custom:name-id", type: "custom", fieldId: "name-id", columnIndex: 0 },
+      { id: "custom:gone-id", type: "custom", fieldId: "gone-id", columnIndex: 1 },
+      { id: "relationship:rel-1:target", type: "relationship", definitionId: "rel-1", side: "target", columnIndex: 1 },
+    ],
+  }] } } } };
+  const layout = customObjectDetailLayout(object, fields, panels);
+  assert.equal(layout.version, 2);
+  assert.equal(layout.cards[0].columns, 3);
+  assert.deepEqual(layout.cards[0].fields.map((item) => item.id), [
+    "custom:name-id", "relationship:rel-1:target", "custom:new_field-id",
+  ]);
+  assert.deepEqual(unplacedRelationshipPanels(layout, panels), [panels[1]]);
+});
+
+test("CRM visibility rules use stable field IDs and fail safely for stale conditions", () => {
+  const fields = [field("state", "text")];
+  const rules = { rules: [
+    { conditions: [{ field_id: "custom:state-id", operator: "equals", value: "Closed" }], actions: [{ action_type: "hide", target_type: "card", target_card_id: "summary" }] },
+    { conditions: [{ field_id: "custom:missing", operator: "equals", value: "x" }], actions: [{ action_type: "hide", target_type: "field", target_field_id: "custom:state-id" }] },
+  ] };
+  const result = evaluateCustomObjectVisibility(rules, { data: { state: "Closed" } }, fields);
+  assert.deepEqual([...result.hiddenCards], ["summary"]);
+  assert.equal(result.hiddenElements.size, 0);
+});
+
+test("CRM visibility rules support negative contains and both non-empty spellings", () => {
+  const fields = [
+    field("tags", "list"),
+    field("summary", "text"),
+  ];
+  const rules = [
+    {
+      conditions: [
+        { field_id: "custom:tags-id", operator: "not_contains", value: "blocked" },
+        { field_id: "custom:summary-id", operator: "not_empty" },
+      ],
+      actions: [{ action_type: "hide", target_type: "card", target_card_id: "restricted" }],
+    },
+    {
+      conditions: [
+        { field_id: "custom:summary-id", operator: "is_not_empty" },
+      ],
+      actions: [{ action_type: "hide", target_type: "field", target_field_id: "custom:summary-id" }],
+    },
+  ];
+  const result = evaluateCustomObjectVisibility(
+    rules,
+    { data: { tags: ["open", "featured"], summary: "Ready" } },
+    fields,
+  );
+  assert.deepEqual([...result.hiddenCards], ["restricted"]);
+  assert.deepEqual([...result.hiddenElements], ["custom:summary-id"]);
+
+  const blocked = evaluateCustomObjectVisibility(
+    rules,
+    { data: { tags: ["blocked"], summary: "Ready" } },
+    fields,
+  );
+  assert.equal(blocked.hiddenCards.size, 0);
+});
+
+test("CRM field snapshot distinguishes intentionally unplaced and newly added fields", () => {
+  const fields = [field("placed", "text"), field("unplaced", "text"), field("new", "text")];
+  const object = { configuration: { views: { detail: {
+    version: 2,
+    schema_field_ids: ["placed-id", "unplaced-id"],
+    cards: [{ id: "details", columns: 1, fields: [{ id: "custom:placed-id", type: "custom", fieldId: "placed-id" }] }],
+  } } } };
+  const layout = customObjectDetailLayout(object, fields);
+  assert.deepEqual(layout.cards[0].fields.map((item) => item.id), ["custom:placed-id", "custom:new-id"]);
 });

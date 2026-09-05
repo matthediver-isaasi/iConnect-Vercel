@@ -278,6 +278,186 @@ export const detailSections = (object, fields) => {
   })).filter((section) => section.fields.length);
 };
 
+export const customObjectFieldLayoutId = (fieldId) => `custom:${fieldId}`;
+export const customObjectRelationshipLayoutId = (definitionId, side) =>
+  `relationship:${definitionId}:${side}`;
+
+const clampColumns = (value) => Math.max(1, Math.min(3, Number(value) || 1));
+const columnFor = (value, fallback, columns) => {
+  const parsed = Number(value);
+  return Math.min(columns - 1, Math.max(0, Number.isFinite(parsed) ? parsed : fallback));
+};
+
+// Normalises both the original section contract and the CRM card contract. IDs
+// refer to schema IDs (never mutable field names), so renames are harmless.
+export function customObjectDetailLayout(object, fields, relationshipPanels = []) {
+  const readable = readableFields(fields);
+  const fieldsById = new Map(readable.map((field) => [String(field.id), field]));
+  const relationshipsById = new Map(
+    relationshipPanels.map((panel) => [
+      customObjectRelationshipLayoutId(panel.definition.id, panel.side),
+      panel,
+    ]),
+  );
+  const presentation = objectPresentation(object);
+  const detail = presentation.detail || {};
+  const knownFieldIds = new Set(
+    configuredIds(detail.schema_field_ids || detail.available_field_ids),
+  );
+  const configuredCards = Array.isArray(detail.cards)
+    ? detail.cards
+    : Array.isArray(presentation.detail_cards)
+      ? presentation.detail_cards
+      : null;
+  const legacySections = presentation.detail_sections || detail.sections;
+  const sourceCards = configuredCards?.length
+    ? configuredCards
+    : Array.isArray(legacySections) && legacySections.length
+      ? legacySections.map((section, index) => ({
+          id: section.id || `section-${index}`,
+          title: section.label || section.title,
+          columns: 2,
+          fields: configuredIds(section.fields || section.field_ids).map((fieldId, fieldIndex) => ({
+            id: customObjectFieldLayoutId(fieldId),
+            type: "custom",
+            fieldId,
+            columnIndex: fieldIndex % 2,
+          })),
+        }))
+      : [{
+          id: "card-details",
+          title: `${object?.singular_label || "Record"} details`,
+          columns: 2,
+          fields: readable.map((field, index) => ({
+            id: customObjectFieldLayoutId(field.id),
+            type: "custom",
+            fieldId: String(field.id),
+            columnIndex: index % 2,
+          })),
+        }];
+
+  const assigned = new Set();
+  const cards = sourceCards.map((card, cardIndex) => {
+    const columns = clampColumns(card.columns);
+    const elements = (Array.isArray(card.fields) ? card.fields : []).flatMap((element, index) => {
+      const type = element?.type === "relationship" || String(element?.id || "").startsWith("relationship:")
+        ? "relationship"
+        : "custom";
+      if (type === "relationship") {
+        const id = customObjectRelationshipLayoutId(
+          element.definitionId ?? element.definition_id,
+          element.side,
+        );
+        if (!relationshipsById.has(id) || assigned.has(id)) return [];
+        assigned.add(id);
+        return [{ ...element, id, type, definitionId: String(element.definitionId ?? element.definition_id), side: element.side, columnIndex: columnFor(element.columnIndex, 0, columns) }];
+      }
+      const fieldId = String(element.fieldId ?? element.field_id ?? element.id?.replace(/^custom:/, "") ?? "");
+      const id = customObjectFieldLayoutId(fieldId);
+      if (!fieldsById.has(fieldId) || assigned.has(id)) return [];
+      assigned.add(id);
+      return [{ ...element, id, type: "custom", fieldId, columnIndex: columnFor(element.columnIndex, index % columns, columns) }];
+    });
+    return {
+      id: String(card.id || `card-${cardIndex + 1}`),
+      title: card.title || card.label || `Card ${cardIndex + 1}`,
+      columns,
+      fields: elements,
+    };
+  });
+
+  // A newly-created readable field is useful immediately, while removed or
+  // inaccessible elements above are discarded without invalidating the page.
+  const shouldReconcileNewFields = Boolean(configuredCards?.length);
+  const missing = shouldReconcileNewFields
+    ? readable.filter((field) =>
+        !assigned.has(customObjectFieldLayoutId(field.id))
+        && (!knownFieldIds.size || !knownFieldIds.has(String(field.id))))
+    : [];
+  if (missing.length) {
+    let target = cards.find((card) => card.id === "card-details") || cards[0];
+    if (!target) {
+      target = { id: "card-details", title: `${object?.singular_label || "Record"} details`, columns: 2, fields: [] };
+      cards.push(target);
+    }
+    target.fields.push(...missing.map((field, index) => ({
+      id: customObjectFieldLayoutId(field.id),
+      type: "custom",
+      fieldId: String(field.id),
+      columnIndex: (target.fields.length + index) % target.columns,
+    })));
+  }
+  return { version: 2, cards };
+}
+
+export function unplacedRelationshipPanels(layout, relationshipPanels = []) {
+  const placed = new Set(
+    (layout?.cards || []).flatMap((card) => card.fields || [])
+      .filter((element) => element.type === "relationship")
+      .map((element) => element.id),
+  );
+  return relationshipPanels.filter((panel) =>
+    !placed.has(customObjectRelationshipLayoutId(panel.definition.id, panel.side)));
+}
+
+const conditionMatches = (condition, record, fieldsById) => {
+  const id = String(condition.field_id || condition.fieldId || "").replace(/^custom:/, "");
+  const field = fieldsById.get(id);
+  if (!field) return false;
+  const value = record?.data?.[field.name];
+  const expected = condition.value;
+  switch (condition.operator) {
+    case "not_equals": return String(value ?? "") !== String(expected ?? "");
+    case "contains": return Array.isArray(value)
+      ? value.map(String).includes(String(expected))
+      : String(value ?? "").toLowerCase().includes(String(expected ?? "").toLowerCase());
+    case "not_contains": return Array.isArray(value)
+      ? !value.map(String).includes(String(expected))
+      : !String(value ?? "").toLowerCase().includes(String(expected ?? "").toLowerCase());
+    case "is_empty": return blank(value);
+    case "not_empty":
+    case "is_not_empty": return !blank(value);
+    case "greater_than": return Number(value) > Number(expected);
+    case "less_than": return Number(value) < Number(expected);
+    default:
+      if (field.field_type === "boolean")
+        return (value === true || value === "true") === (expected === true || expected === "true");
+      return String(value ?? "") === String(expected ?? "");
+  }
+};
+
+export function evaluateCustomObjectVisibility(rulesConfig, record, fields = []) {
+  const hiddenCards = new Set();
+  const hiddenElements = new Set();
+  const fieldsById = new Map(readableFields(fields).map((field) => [String(field.id), field]));
+  const rules = Array.isArray(rulesConfig) ? rulesConfig : rulesConfig?.rules;
+  const safeRules = Array.isArray(rules) ? rules : [];
+  // "Show" rules are opt-in: their target remains hidden until one matching
+  // rule reveals it. This mirrors the established CRM visibility semantics.
+  for (const rule of safeRules) {
+    for (const action of Array.isArray(rule.actions) ? rule.actions : []) {
+      if (action.action_type !== "show") continue;
+      const target = action.target_card_id || action.target_id || action.target_field_id;
+      if (target) (action.target_type === "card" ? hiddenCards : hiddenElements).add(String(target));
+    }
+  }
+  for (const rule of safeRules) {
+    const conditions = Array.isArray(rule.conditions) ? rule.conditions : [];
+    if (!conditions.length) continue;
+    const matches = conditions.map((condition) => conditionMatches(condition, record, fieldsById));
+    const applies = (rule.logic || "and") === "or" ? matches.some(Boolean) : matches.every(Boolean);
+    if (!applies) continue;
+    for (const action of Array.isArray(rule.actions) ? rule.actions : []) {
+      const target = action.target_card_id || action.target_id || action.target_field_id;
+      if (!target) continue;
+      const set = action.target_type === "card" ? hiddenCards : hiddenElements;
+      if (action.action_type === "show") set.delete(String(target));
+      else if (action.action_type === "hide") set.add(String(target));
+    }
+  }
+  return { hiddenCards, hiddenElements };
+}
+
 export const compactPreviewFields = (definition, side, fields) => {
   const config = definition?.configuration || {};
   const preview = config.compact_preview || config.compactPreview || config.preview || {};

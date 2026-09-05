@@ -8,7 +8,11 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { relationshipRequest, relationshipRoutes } from "./relationshipApi";
+import {
+  loadRelationshipDefinitions,
+  relationshipRequest,
+  relationshipRoutes,
+} from "./relationshipApi";
 import { canEditDefinitionFrom, cardinalityLimitReached, contextualCreateEligibility, labelForSide, oppositeKindFor, relatedRecordPath, relationshipCreatePayload, relationshipLinkState, relationshipPanels } from "./relationshipHelpers";
 import { ContextualRecordCreateDialog } from "./ContextualRecordCreateDialog";
 
@@ -51,11 +55,14 @@ export function useRelatedRecordDefinitions({
   const resolved = normalizeContext({ context, objectId, recordId });
   const query = useQuery({
     queryKey: ["related-record-definitions", resolved.kind, resolved.objectId, resolved.recordId, includeArchived],
-    queryFn: () => relationshipRequest(
-      resolved.kind === "custom_object"
-        ? relationshipRoutes.definitions(resolved.objectId, includeArchived)
-        : relationshipRoutes.coreDefinitions(resolved),
-    ),
+    queryFn: () => resolved.kind === "custom_object"
+      ? loadRelationshipDefinitions(
+          resolved.objectId,
+          relationshipRequest,
+          100,
+          includeArchived,
+        )
+      : relationshipRequest(relationshipRoutes.coreDefinitions(resolved)),
     enabled: enabled && Boolean(resolved.recordId) && (resolved.kind !== "custom_object" || Boolean(resolved.objectId)),
   });
   const panels = useMemo(

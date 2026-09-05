@@ -8,7 +8,12 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Label } from "@/components/ui/label";
 import { RecordFieldControl } from "./RecordFieldControls";
 import { buildRecordPayload, fieldAccess, readableFields, validateRecordValues, writableFields } from "./recordHelpers";
-import { loadRelationshipDefinitions, relationshipRequest, relationshipRoutes } from "./relationshipApi";
+import {
+  loadCustomObjectFields,
+  loadRelationshipDefinitions,
+  relationshipRequest,
+  relationshipRoutes,
+} from "./relationshipApi";
 import { initialRelationshipAllowsMultiple, initialRelationshipLabel, initialRelationshipSelectors, isRequiredInitialRelationship, oppositeSide, relationshipSelectorKey } from "./relationshipHelpers";
 
 const defaultsFor = (fields) => Object.fromEntries(fields.map((field) => [
@@ -51,7 +56,11 @@ export function ContextualRecordCreateDialog({ originContext, originDefinition, 
   const [relationships, setRelationships] = useState({});
   const [errors, setErrors] = useState({});
   const qc = useQueryClient();
-  const fieldsQuery = useQuery({ queryKey: ["custom-objects", targetObject.id, "record-fields"], queryFn: () => relationshipRequest(`/api/custom-objects/${targetObject.id}/fields?includeInactive=true&pageSize=100`), enabled: open });
+  const fieldsQuery = useQuery({
+    queryKey: ["custom-objects", targetObject.id, "record-fields"],
+    queryFn: () => loadCustomObjectFields(targetObject.id, { includeInactive: true }),
+    enabled: open,
+  });
   const definitionsQuery = useQuery({ queryKey: ["contextual-create-definitions", targetObject.id], queryFn: () => loadRelationshipDefinitions(targetObject.id), enabled: open });
   const fields = readableFields(fieldsQuery.data?.data || fieldsQuery.data || []);
   const editableFields = writableFields(fields);

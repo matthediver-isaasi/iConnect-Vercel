@@ -3,6 +3,57 @@ export const PORTAL_MENU_LINK_TYPES = {
   EXTERNAL: 'external',
 };
 
+export const CUSTOM_OBJECT_ROLE_ACCESS_PREFIX = 'custom-object:';
+
+export function getCustomObjectPortalListUrl(objectId) {
+  const id = typeof objectId === 'string' ? objectId.trim() : '';
+  return id ? `CustomObjectsAdmin/${encodeURIComponent(id)}/records` : '';
+}
+
+export function getCustomObjectIdFromPortalListUrl(url) {
+  if (typeof url !== 'string') return null;
+  const match = url.trim().match(
+    /^\/?CustomObjectsAdmin\/([^/?#]+)\/records\/?(?:[?#].*)?$/i,
+  );
+  if (!match) return null;
+  try {
+    return decodeURIComponent(match[1]);
+  } catch {
+    return null;
+  }
+}
+
+export function getCustomObjectIdFromPortalPath(url) {
+  if (typeof url !== 'string') return null;
+  const match = url.trim().match(
+    /^\/?CustomObjectsAdmin\/([^/?#]+)\/records(?:\/[^?#]*)?\/?(?:[?#].*)?$/i,
+  );
+  if (!match) return null;
+  try {
+    return decodeURIComponent(match[1]);
+  } catch {
+    return null;
+  }
+}
+
+export function getCustomObjectPortalRoleAccessId(objectId) {
+  const id = typeof objectId === 'string' ? objectId.trim() : '';
+  return id ? `${CUSTOM_OBJECT_ROLE_ACCESS_PREFIX}${id}:view-records` : '';
+}
+
+export function getCustomObjectIdFromPortalRoleAccessId(featureId) {
+  if (typeof featureId !== 'string'
+      || !featureId.startsWith(CUSTOM_OBJECT_ROLE_ACCESS_PREFIX)
+      || !featureId.endsWith(':view-records')) {
+    return null;
+  }
+  const objectId = featureId.slice(
+    CUSTOM_OBJECT_ROLE_ACCESS_PREFIX.length,
+    -':view-records'.length,
+  );
+  return objectId || null;
+}
+
 export function validateExternalHttpUrl(value) {
   const url = typeof value === 'string' ? value.trim() : '';
   if (!url) {

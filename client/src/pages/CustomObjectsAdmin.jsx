@@ -71,7 +71,18 @@ import {
 import { RelationshipDefinitions } from "./customObjects/RelationshipDefinitions";
 import { AuditHistory } from "./customObjects/AuditHistory";
 import { CustomObjectPermissionsEditor } from "./CustomObjectRecords";
-import { detailSections, objectPresentation, sharedListFields } from "./customObjects/recordHelpers";
+import OrgDetailLayoutEditor from "@/components/OrgDetailLayoutEditor";
+import {
+  customObjectDetailLayout,
+  customObjectFieldLayoutId,
+  objectPresentation,
+  sharedListFields,
+} from "./customObjects/recordHelpers";
+import { relationshipPanels } from "./customObjects/relationshipHelpers";
+import {
+  loadCustomObjectFields,
+  loadRelationshipDefinitions,
+} from "./customObjects/relationshipApi";
 const ICONS = [
   { key: "Boxes", Icon: Boxes },
   { key: "Database", Icon: Database },
@@ -492,14 +503,22 @@ function Detail() {
   });
   const fieldsQuery = useQuery({
     queryKey: [...listKey, objectId, "fields"],
-    queryFn: () =>
-      api(`/api/custom-objects/${objectId}/fields?includeInactive=true`),
+    queryFn: () => loadCustomObjectFields(objectId, {
+      includeInactive: true,
+      request: api,
+    }),
   });
   const relationshipsQuery = useQuery({
     queryKey: [...listKey, objectId, "relationships"],
-    queryFn: () =>
-      api(`/api/custom-objects/${objectId}/relationship-definitions`),
+    queryFn: () => loadRelationshipDefinitions(objectId, api),
   });
+  const availableRelationshipPanels = useMemo(
+    () => relationshipPanels(relationshipsQuery.data, {
+      kind: "custom_object",
+      objectId,
+    }),
+    [relationshipsQuery.data, objectId],
+  );
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: listKey });
   };
@@ -677,7 +696,13 @@ function Detail() {
             />
           </TabsContent>
           <TabsContent value="presentation" className="mt-5">
-            <PresentationEditor object={object} fields={fields} canManage={canManage && object.status !== "archived"} onSaved={invalidate} />
+            <PresentationEditor
+              object={object}
+              fields={fields}
+              relationshipPanels={availableRelationshipPanels}
+              canManage={canManage && object.status !== "archived"}
+              onSaved={invalidate}
+            />
           </TabsContent>
           <TabsContent value="audit" className="mt-5">
             <AuditHistory objectId={objectId} request={api} />
@@ -708,17 +733,20 @@ function OrderedFieldPicker({ fields, value, onChange, disabled }) {
   })}</div>;
 }
 
-function PresentationEditor({ object, fields, canManage, onSaved }) {
+function PresentationEditor({ object, fields, relationshipPanels: panels = [], canManage, onSaved }) {
   const active = fields.filter((field) => field.is_active !== false);
   const presentation = objectPresentation(object);
   const [list, setList] = useState(() => sharedListFields(object, fields).map((field) => String(field.id)));
-  const [sections, setSections] = useState(() => detailSections(object, fields).map((section) => ({ label: section.label, field_ids: section.fields.map((field) => String(field.id)) })));
+  const [layout, setLayout] = useState(() => customObjectDetailLayout(object, fields, panels));
+  const [rules, setRules] = useState(() => presentation.detail?.visibility_rules?.rules || []);
+  const [layoutOpen, setLayoutOpen] = useState(false);
   useEffect(() => {
     setList(sharedListFields(object, fields).map((field) => String(field.id)));
-    setSections(detailSections(object, fields).map((section) => ({ label: section.label, field_ids: section.fields.map((field) => String(field.id)) })));
-  }, [object, fields]);
+    setLayout(customObjectDetailLayout(object, fields, panels));
+    setRules(objectPresentation(object).detail?.visibility_rules?.rules || []);
+  }, [object, fields, panels]);
   const save = useMutation({
-    mutationFn: () => api(`/api/custom-objects/${object.id}`, {
+    mutationFn: ({ nextLayout = layout, nextRules = rules } = {}) => api(`/api/custom-objects/${object.id}`, {
       method: "PATCH",
       body: JSON.stringify({
         configuration: {
@@ -726,7 +754,13 @@ function PresentationEditor({ object, fields, canManage, onSaved }) {
           views: {
             ...presentation,
             list: { ...(presentation.list || {}), field_ids: list },
-            detail: { ...(presentation.detail || {}), sections },
+            detail: {
+              ...(presentation.detail || {}),
+              version: 2,
+              cards: nextLayout.cards,
+              schema_field_ids: active.map((field) => String(field.id)),
+              visibility_rules: { version: 1, rules: nextRules },
+            },
           },
         },
       }),
@@ -734,13 +768,61 @@ function PresentationEditor({ object, fields, canManage, onSaved }) {
     onSuccess: () => { toast.success("Shared record presentation saved"); onSaved(); },
     onError: (error) => toast.error(error.message),
   });
-  return <Card><CardHeader><CardTitle className="text-lg">Shared record presentation</CardTitle><CardDescription>Choose the default columns and the ordered sections shown to everyone. People can still personalise their own list columns.</CardDescription></CardHeader><CardContent className="space-y-6">
+  const addRule = () => setRules((current) => [...current, {
+    id: `rule-${Date.now()}`,
+    logic: "and",
+    conditions: [{ field_id: active[0] ? customObjectFieldLayoutId(active[0].id) : "", operator: "equals", value: "" }],
+    actions: [{ action_type: "hide", target_type: "card", target_card_id: layout.cards[0]?.id || "" }],
+  }]);
+  const updateRule = (index, updater) =>
+    setRules((current) => current.map((rule, itemIndex) => itemIndex === index ? updater(rule) : rule));
+  const targets = [
+    ...layout.cards.map((card) => ({ value: `card:${card.id}`, label: `Card: ${card.title}` })),
+    ...layout.cards.flatMap((card) => card.fields.map((element) => {
+      const field = active.find((item) => String(item.id) === String(element.fieldId));
+      const panel = panels.find((item) => String(item.definition.id) === String(element.definitionId) && item.side === element.side);
+      return { value: `element:${element.id}`, label: field?.label || (panel ? (panel.side === "source" ? panel.definition.source_label : panel.definition.target_label) : element.id) };
+    })),
+  ];
+  return <><Card><CardHeader><CardTitle className="text-lg">Shared record presentation</CardTitle><CardDescription>Configure default list columns, responsive record cards, relationships, and conditional visibility.</CardDescription></CardHeader><CardContent className="space-y-6">
     <section><h3 className="mb-2 text-sm font-semibold">Default list columns</h3><OrderedFieldPicker fields={active} value={list} onChange={setList} disabled={!canManage} /></section>
-    <section className="space-y-3"><div className="flex items-center justify-between"><h3 className="text-sm font-semibold">Detail sections</h3><Button type="button" variant="outline" size="sm" disabled={!canManage} onClick={() => setSections((current) => [...current, { label: `Section ${current.length + 1}`, field_ids: [] }])}>Add section</Button></div>
-      {sections.map((section, index) => <div key={index} className="rounded-lg border p-4"><div className="mb-3 flex gap-2"><Input disabled={!canManage} value={section.label} onChange={(e) => setSections((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, label: e.target.value } : item))} placeholder="Section title" /><Button type="button" variant="ghost" disabled={!canManage || sections.length === 1} onClick={() => setSections((current) => current.filter((_, itemIndex) => itemIndex !== index))}>Remove</Button></div><OrderedFieldPicker fields={active} value={section.field_ids} onChange={(field_ids) => setSections((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, field_ids } : item))} disabled={!canManage} /></div>)}
+    <section className="rounded-lg border p-4"><div className="flex items-center justify-between gap-3"><div><h3 className="text-sm font-semibold">Record page cards</h3><p className="mt-1 text-xs text-slate-500">{layout.cards.length} cards · drag fields and relationship sides into up to three columns.</p></div><Button type="button" variant="outline" disabled={!canManage} onClick={() => setLayoutOpen(true)}>Edit layout</Button></div></section>
+    <section className="space-y-3">
+      <div className="flex items-center justify-between"><div><h3 className="text-sm font-semibold">Conditional visibility</h3><p className="mt-1 text-xs text-slate-500">Hide a card or field when a record value matches.</p></div><Button type="button" size="sm" variant="outline" disabled={!canManage || !active.length || !targets.length} onClick={addRule}>Add rule</Button></div>
+      {!rules.length && <div className="rounded-md border border-dashed p-5 text-center text-sm text-slate-500">No visibility rules. All configured cards and fields are shown.</div>}
+      {rules.map((rule, index) => {
+        const condition = rule.conditions?.[0] || {};
+        const action = rule.actions?.[0] || {};
+        const targetValue = action.target_type === "card" ? `card:${action.target_card_id || ""}` : `element:${action.target_field_id || action.target_id || ""}`;
+        return <div key={rule.id || index} className="grid gap-2 rounded-md border p-3 md:grid-cols-[1fr_130px_1fr_1fr_auto]">
+          <Select disabled={!canManage} value={condition.field_id || ""} onValueChange={(field_id) => updateRule(index, (item) => ({ ...item, conditions: [{ ...condition, field_id }] }))}><SelectTrigger><SelectValue placeholder="Field" /></SelectTrigger><SelectContent>{active.map((field) => <SelectItem key={field.id} value={customObjectFieldLayoutId(field.id)}>{field.label}</SelectItem>)}</SelectContent></Select>
+          <Select disabled={!canManage} value={condition.operator || "equals"} onValueChange={(operator) => updateRule(index, (item) => ({ ...item, conditions: [{ ...condition, operator }] }))}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="equals">is</SelectItem><SelectItem value="not_equals">is not</SelectItem><SelectItem value="contains">contains</SelectItem><SelectItem value="is_empty">is empty</SelectItem><SelectItem value="is_not_empty">is not empty</SelectItem></SelectContent></Select>
+          <Input disabled={!canManage || ["is_empty", "is_not_empty"].includes(condition.operator)} value={condition.value ?? ""} placeholder="Value" onChange={(event) => updateRule(index, (item) => ({ ...item, conditions: [{ ...condition, value: event.target.value }] }))} />
+          <Select disabled={!canManage} value={targetValue} onValueChange={(value) => updateRule(index, (item) => {
+            const [targetType, ...idParts] = value.split(":");
+            const id = idParts.join(":");
+            return { ...item, actions: [{ action_type: "hide", target_type: targetType === "card" ? "card" : "field", ...(targetType === "card" ? { target_card_id: id } : { target_field_id: id }) }] };
+          })}><SelectTrigger><SelectValue placeholder="Hide target" /></SelectTrigger><SelectContent>{targets.map((target) => <SelectItem key={target.value} value={target.value}>{target.label}</SelectItem>)}</SelectContent></Select>
+          <Button type="button" variant="ghost" disabled={!canManage} onClick={() => setRules((current) => current.filter((_, itemIndex) => itemIndex !== index))}>Remove</Button>
+        </div>;
+      })}
     </section>
     <div className="flex justify-end"><Button disabled={!canManage || save.isPending} onClick={() => save.mutate()}>{save.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Save presentation</Button></div>
-  </CardContent></Card>;
+  </CardContent></Card>
+  {layoutOpen && <OrgDetailLayoutEditor
+    layout={layout}
+    customFields={active}
+    relationshipPanels={panels}
+    coreFields={[]}
+    title={`Customize ${object.singular_label} layout`}
+    isSaving={save.isPending}
+    onCancel={() => setLayoutOpen(false)}
+    onSave={async (nextLayout) => {
+      setLayout(nextLayout);
+      await save.mutateAsync({ nextLayout, nextRules: rules });
+      setLayoutOpen(false);
+    }}
+  />}</>;
 }
 
 function Overview({

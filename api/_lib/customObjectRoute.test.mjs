@@ -224,6 +224,30 @@ test('object and field reads reach service object-grant fallback without schema 
   });
 });
 
+test('schema feature access does not promote a portal role to object-grant administrator', async () => {
+  const handler = createCustomObjectRouteHandler('object', {
+    getTenantContext: async () => ({
+      isAuthenticated: true, tenantId: 'tenant-1', memberId: 'member-1', roleId: 'role-1',
+    }),
+    hasAdminAccess: async () => false,
+    hasFeatureAccess: async () => true,
+    createCustomObjectService: ({ isAdmin, canViewSchema, canManageSchema }) => {
+      assert.equal(isAdmin, false);
+      assert.equal(canViewSchema, true);
+      assert.equal(canManageSchema, true);
+      return {
+        getObject: async () => {
+          throw new CustomObjectHttpError(403, 'Access denied');
+        },
+      };
+    },
+  });
+  const res = response();
+  await handler({ method: 'GET', query: { objectId: 'object-1' } }, res);
+  assert.equal(res.statusCode, 403);
+  assert.equal(res.payload.error, 'Access denied');
+});
+
 test('view access permits catalogue GET but not schema mutation without manage access', async () => {
   const dependencies = {
     getTenantContext: async () => ({

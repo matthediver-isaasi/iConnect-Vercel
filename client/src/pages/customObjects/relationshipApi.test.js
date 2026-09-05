@@ -1,6 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { loadActiveRelationshipObjects } from "./relationshipApi.js";
+import {
+  loadActiveRelationshipObjects,
+  loadCustomObjectFields,
+} from "./relationshipApi.js";
 
 test("loads and flattens every page of active relationship objects", async () => {
   const requested = [];
@@ -43,4 +46,25 @@ test("propagates active-object catalogue errors to the dialog", async () => {
     }),
     /Access denied/,
   );
+});
+
+test("loads and flattens every page of Custom Object fields", async () => {
+  const requested = [];
+  const result = await loadCustomObjectFields("object-1", {
+    includeInactive: true,
+    pageSize: 2,
+    request: async (path) => {
+      requested.push(path);
+      const page = Number(new URL(path, "https://example.test").searchParams.get("page"));
+      return {
+        data: [{ id: `field-${page}` }],
+        total: 3,
+        page,
+        pageSize: 2,
+      };
+    },
+  });
+  assert.deepEqual(result.data.map((item) => item.id), ["field-1", "field-2"]);
+  assert.equal(requested.length, 2);
+  assert.ok(requested.every((path) => path.includes("includeInactive=true")));
 });

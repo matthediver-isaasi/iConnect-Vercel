@@ -49,18 +49,22 @@ import {
   applyRecordPermissionToggle,
   arrayValue,
   buildRecordPayload,
-  detailSections,
+  customObjectDetailLayout,
+  evaluateCustomObjectVisibility,
   fieldAccess,
   formatRecordValue,
   normalizeRecordPermissions,
+  objectPresentation,
   optionValues,
   readableFields,
   sharedListFields,
+  unplacedRelationshipPanels,
   validateRecordValues,
   writableFields,
 } from "./customObjects/recordHelpers";
-import { RelatedRecordsPanel } from "./customObjects/RelatedRecordsPanel";
+import { RelatedRecordsPanel, useRelatedRecordDefinitions } from "./customObjects/RelatedRecordsPanel";
 import { relationshipBackPath } from "./customObjects/relationshipHelpers";
+import { loadCustomObjectFields } from "./customObjects/relationshipApi";
 import { RecordFieldControl } from "./customObjects/RecordFieldControls";
 
 class ApiError extends Error {
@@ -147,8 +151,10 @@ function useSchema(objectId) {
   });
   const fieldsQuery = useQuery({
     queryKey: ["custom-objects", objectId, "record-fields"],
-    queryFn: () =>
-      request(`/api/custom-objects/${objectId}/fields?includeInactive=true&pageSize=100`),
+    queryFn: () => loadCustomObjectFields(objectId, {
+      includeInactive: true,
+      request,
+    }),
     retry: false,
   });
   return {
@@ -159,22 +165,30 @@ function useSchema(objectId) {
   };
 }
 
-function Workspace({ children, object, backToRecords = false, backTo }) {
+function Workspace({
+  children,
+  object,
+  backToRecords = false,
+  backTo,
+  showBackLink = true,
+}) {
   return (
     <main className="min-h-screen bg-slate-50/70 p-4 md:p-8">
       <div className="mx-auto max-w-7xl">
-        <Link
-          to={
-            backTo ||
-            (backToRecords
-              ? recordsPath(object?.id)
-              : `/CustomObjectsAdmin/${object?.id}`)
-          }
-          className="mb-5 inline-flex items-center text-sm font-medium text-slate-600 hover:text-slate-900"
-        >
-          <ArrowLeft className="mr-2 h-4 w-4" />
-          {backTo ? "Back" : backToRecords ? `All ${object?.plural_label || "records"}` : "Object setup"}
-        </Link>
+        {showBackLink && (
+          <Link
+            to={
+              backTo ||
+              (backToRecords
+                ? recordsPath(object?.id)
+                : `/CustomObjectsAdmin/${object?.id}`)
+            }
+            className="mb-5 inline-flex items-center text-sm font-medium text-slate-600 hover:text-slate-900"
+          >
+            <ArrowLeft className="mr-2 h-4 w-4" />
+            {backTo ? "Back" : backToRecords ? `All ${object?.plural_label || "records"}` : "Object setup"}
+          </Link>
+        )}
         {children}
       </div>
     </main>
@@ -254,7 +268,7 @@ function FilterValue({ field, value, onChange }) {
 
 export function CustomObjectRecordList() {
   const { objectId } = useParams();
-  const { memberInfo, organizationInfo } = useMemberAccess();
+  const { memberInfo, organizationInfo, isFeatureExcluded } = useMemberAccess();
   const { objectQuery, fieldsQuery, object, fields } = useSchema(objectId);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
@@ -378,7 +392,10 @@ export function CustomObjectRecordList() {
   if (schemaError)
     return <Workspace object={{ id: objectId }}><PageState title="Records could not be loaded" message={schemaError.message} retry={() => { objectQuery.refetch(); fieldsQuery.refetch(); }} /></Workspace>;
   return (
-    <Workspace object={object}>
+    <Workspace
+      object={object}
+      showBackLink={!isFeatureExcluded("admin.data-studio")}
+    >
       <header className="mb-6 flex flex-col gap-4 border-b pb-5 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h1 className="text-3xl font-semibold tracking-tight text-slate-950">{object.plural_label}</h1>
@@ -628,6 +645,12 @@ export function CustomObjectRecordDetail() {
     queryFn: () => request(`/api/custom-objects/${objectId}/records/${recordId}`),
     retry: false,
   });
+  const relationshipsQuery = useRelatedRecordDefinitions({
+    objectId,
+    recordId,
+    enabled: Boolean(recordId),
+    includeArchived: Boolean(recordQuery.data?.archived_at || object?.status === "archived"),
+  });
   const [archiveOpen, setArchiveOpen] = useState(false);
   const [reason, setReason] = useState("");
   const [archiveDenied, setArchiveDenied] = useState(false);
@@ -653,6 +676,14 @@ export function CustomObjectRecordDetail() {
   if (error?.status === 403) return <Workspace object={{ id: objectId }} backToRecords><PageState title="Permission denied" message="You do not have permission to view this record." /></Workspace>;
   if (error) return <Workspace object={{ id: objectId }} backToRecords><PageState title="Record could not be loaded" message={error.message} retry={recordQuery.refetch} /></Workspace>;
   const record = recordQuery.data;
+  const layout = customObjectDetailLayout(object, fields, relationshipsQuery.panels);
+  const presentation = objectPresentation(object);
+  const visibility = evaluateCustomObjectVisibility(
+    presentation.detail?.visibility_rules || presentation.visibility_rules,
+    record,
+    fields,
+  );
+  const unplacedRelationships = unplacedRelationshipPanels(layout, relationshipsQuery.panels);
   const backTo = relationshipBackPath(location.state, recordsPath(objectId));
   const canEdit =
     !record.archived_at && capability(record.capabilities ? record : object, "edit_records");
@@ -662,7 +693,7 @@ export function CustomObjectRecordDetail() {
     capability(record.capabilities ? record : object, "archive_records");
   return (
     <Workspace object={object} backToRecords backTo={backTo}>
-      <div className="mx-auto max-w-4xl">
+      <div className="mx-auto max-w-6xl">
         <header className="mb-5 flex flex-wrap items-start justify-between gap-4 border-b pb-5">
           <div><div className="flex items-center gap-2"><h1 className="text-3xl font-semibold">{record.display_value}</h1>{record.archived_at && <Badge variant="outline">Archived</Badge>}</div><p className="mt-2 text-sm text-slate-500">Updated {record.updated_at ? new Date(record.updated_at).toLocaleString() : "—"}</p></div>
           <div className="flex gap-2">
@@ -670,20 +701,44 @@ export function CustomObjectRecordDetail() {
             {canArchive && <Button variant="outline" className="text-rose-700" onClick={() => setArchiveOpen(true)}><Archive className="mr-2 h-4 w-4" />Archive</Button>}
           </div>
         </header>
-        <div className="space-y-5">{detailSections(object, fields).map((section) => <Card key={section.id}><CardHeader><CardTitle className="text-lg">{section.label}</CardTitle></CardHeader><CardContent className="grid gap-x-8 gap-y-6 sm:grid-cols-2">
-          {section.fields.map((field) => (
-            <div key={field.id} className={field.field_type === "textarea" || field.field_type === "file" ? "sm:col-span-2" : ""}>
-              <div className="mb-1 flex items-center gap-2"><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{field.label}</p>{field.is_active === false && <Badge variant="outline">Archived field</Badge>}</div>
-              {field.field_type === "file" ? <CustomFieldFileDisplay value={fileDisplayValue(record.data?.[field.name])} /> : <p className="whitespace-pre-wrap text-sm text-slate-900">{formatRecordValue(field, record.data?.[field.name], countriesByCode)}</p>}
+        <div className="space-y-5">
+          {layout.cards.filter((card) => !visibility.hiddenCards.has(card.id)).map((card) => {
+            const elements = card.fields.filter((element) => !visibility.hiddenElements.has(element.id));
+            if (!elements.length) return null;
+            return <Card key={card.id} className="min-w-0">
+              <CardHeader><CardTitle className="text-lg">{card.title}</CardTitle></CardHeader>
+              <CardContent className={`grid gap-x-8 gap-y-6 ${card.columns === 1 ? "grid-cols-1" : card.columns === 3 ? "sm:grid-cols-2 xl:grid-cols-3" : "sm:grid-cols-2"}`}>
+                {Array.from({ length: card.columns }).map((_, columnIndex) => (
+                  <div key={columnIndex} className="min-w-0 space-y-6">
+                    {elements.filter((element) => element.columnIndex === columnIndex).map((element) => {
+                      if (element.type === "relationship") {
+                        const panel = relationshipsQuery.panels.find((item) =>
+                          String(item.definition.id) === String(element.definitionId) && item.side === element.side);
+                        return panel ? <RelatedRecordsPanel key={element.id} objectId={objectId} recordId={recordId} object={object} record={record} definition={panel.definition} side={panel.side} showHeading={false} embedded /> : null;
+                      }
+                      const field = fields.find((item) => String(item.id) === String(element.fieldId));
+                      if (!field) return null;
+                      return <div key={element.id}>
+                        <div className="mb-1 flex items-center gap-2"><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{field.label}</p></div>
+                        {field.field_type === "file" ? <CustomFieldFileDisplay value={fileDisplayValue(record.data?.[field.name])} /> : <p className="whitespace-pre-wrap break-words text-sm text-slate-900">{formatRecordValue(field, record.data?.[field.name], countriesByCode)}</p>}
+                      </div>;
+                    })}
+                  </div>
+                ))}
+              </CardContent>
+            </Card>;
+          })}
+        </div>
+        {relationshipsQuery.isLoading ? <div className="mt-8 h-32 animate-pulse rounded-lg bg-slate-100" /> : relationshipsQuery.error ? (
+          <Card className="mt-8 border-rose-200"><CardContent className="p-5 text-sm text-rose-700">Related records could not be loaded. {relationshipsQuery.error.message}</CardContent></Card>
+        ) : unplacedRelationships.length > 0 && (
+          <section className="mt-8 border-t pt-7">
+            <h2 className="mb-4 text-lg font-semibold text-slate-950">Related records</h2>
+            <div className="grid gap-4 lg:grid-cols-2">
+              {unplacedRelationships.map((panel) => <RelatedRecordsPanel key={`${panel.definition.id}-${panel.side}`} objectId={objectId} recordId={recordId} object={object} record={record} definition={panel.definition} side={panel.side} showHeading={false} />)}
             </div>
-          ))}
-        </CardContent></Card>)}</div>
-        <RelatedRecordsPanel
-          objectId={objectId}
-          recordId={recordId}
-          object={object}
-          record={record}
-        />
+          </section>
+        )}
       </div>
       <Dialog open={archiveOpen} onOpenChange={setArchiveOpen}>
         <DialogContent><DialogHeader><DialogTitle>Archive {record.display_value}?</DialogTitle></DialogHeader><p className="text-sm text-slate-600">The record will be hidden from the default list but remains available when archived records are shown.</p><div><Label>Reason (optional)</Label><Textarea className="mt-2" value={reason} onChange={(event) => setReason(event.target.value)} /></div><DialogFooter><Button variant="outline" onClick={() => setArchiveOpen(false)}>Cancel</Button><Button variant="destructive" disabled={archive.isPending} onClick={() => archive.mutate()}>{archive.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Archive</Button></DialogFooter></DialogContent>
@@ -795,7 +850,11 @@ export function CustomObjectPermissionsEditor({ objectId, canManage, archived = 
 
 export function CustomObjectFieldPermissionsEditor({ objectId, canManage, archived = false }) {
   const qc = useQueryClient();
-  const schema = useQuery({ queryKey: ["custom-objects", objectId, "record-fields"], queryFn: () => request(`/api/custom-objects/${objectId}/fields?includeInactive=false&pageSize=100`), retry: false });
+  const schema = useQuery({
+    queryKey: ["custom-objects", objectId, "record-fields"],
+    queryFn: () => loadCustomObjectFields(objectId, { request }),
+    retry: false,
+  });
   const permissions = useQuery({ queryKey: ["custom-objects", objectId, "field-permissions"], queryFn: () => request(`/api/custom-objects/${objectId}/field-permissions?pageSize=100`), retry: false });
   const rolesQuery = useQuery({ queryKey: ["custom-objects", objectId, "permissions", "roles"], queryFn: () => request(`/api/custom-objects/${objectId}/permissions?pageSize=100`), retry: false });
   const fields = readableFields(schema.data?.data || schema.data || []);

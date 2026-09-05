@@ -9,7 +9,9 @@ import {
   resolveCustomObjectDisplayValue,
   resolveCustomObjectLifecycleUpdate,
   resolveCustomObjectPermission,
+  reconcileCustomObjectPresentationConfiguration,
   validateCustomObjectFieldDefinition,
+  validateCustomObjectPresentationConfiguration,
   validateCustomObjectRelationshipPreviewConfiguration,
   validateCustomObjectViewConfiguration,
   validateCustomObjectRecordData,
@@ -325,6 +327,61 @@ export function createCustomObjectService({
     return data || [];
   }
 
+  async function presentationRelationships(objectId) {
+    const { data, error } = await db.from('custom_object_relationship_definition').select('*')
+      .eq('tenant_id', tenantId)
+      .or(`source_custom_object_id.eq.${objectId},target_custom_object_id.eq.${objectId}`);
+    throwDb(error);
+    return (data || []).filter((definition) =>
+      definition.source_custom_object_id === objectId
+      || definition.target_custom_object_id === objectId);
+  }
+
+  async function validatePresentation(objectId, configuration, definitions = null) {
+    const validation = validateCustomObjectPresentationConfiguration(
+      configuration,
+      definitions || await fields(objectId),
+      await presentationRelationships(objectId),
+      objectId,
+    );
+    if (!validation.ok) {
+      throw new CustomObjectHttpError(400, 'Invalid CRM presentation configuration', validation.errors);
+    }
+  }
+
+  async function reconcilePresentation(definition) {
+    if (definition.configuration?.views?.detail?.version === undefined) return definition;
+    let [definitions, relationships] = await Promise.all([
+      fields(definition.id),
+      presentationRelationships(definition.id),
+    ]);
+    if (!isAdmin && !canViewSchema && !canManageSchema) {
+      const access = await fieldAccess(definition.id, definitions);
+      definitions = allowedFields(definitions, access);
+      if (relationships.length === 0 || !context.roleId) relationships = [];
+      else {
+        const { data: grants, error } = await db.from('custom_object_role_permission')
+          .select('custom_object_id')
+          .eq('tenant_id', tenantId)
+          .eq('role_id', context.roleId)
+          .eq('can_view_records', true);
+        throwDb(error);
+        const allowedObjectIds = new Set((grants || []).map((grant) => grant.custom_object_id));
+        relationships = relationships.filter((relationship) =>
+          relationship.source_kind === 'custom_object'
+          && relationship.target_kind === 'custom_object'
+          && allowedObjectIds.has(relationship.source_custom_object_id)
+          && allowedObjectIds.has(relationship.target_custom_object_id));
+      }
+    }
+    return {
+      ...definition,
+      configuration: reconcileCustomObjectPresentationConfiguration(
+        definition.configuration, definitions, relationships, definition.id,
+      ),
+    };
+  }
+
   async function permission(objectId) {
     if (!context.roleId) return null;
     const { data, error } = await db.from('custom_object_role_permission').select('*')
@@ -561,13 +618,18 @@ export function createCustomObjectService({
     return {
       data: rows.map((row) => {
         const counts = countsByObjectId.get(row.id) || {};
-        return {
+        const projected = {
           ...row,
           record_count: Number(counts.record_count) || 0,
           field_count: Number(counts.field_count) || 0,
           relationship_count: Number(counts.relationship_count) || 0,
           capabilities: projectCapabilities(row, permissionsByObjectId.get(row.id) || null),
         };
+        if (!isAdmin && !canViewSchema && !canManageSchema) {
+          delete projected.configuration;
+          delete projected.primary_display_field_id;
+        }
+        return projected;
       }),
       total: count || 0,
       page: p.page,
@@ -584,6 +646,12 @@ export function createCustomObjectService({
     if (payload.status !== 'draft') {
       throw new CustomObjectHttpError(400, 'Custom Objects must be created as draft and activated after fields are configured');
     }
+    const presentationValidation = validateCustomObjectPresentationConfiguration(
+      payload.configuration, [], [], null,
+    );
+    if (!presentationValidation.ok) {
+      throw new CustomObjectHttpError(400, 'Invalid CRM presentation configuration', presentationValidation.errors);
+    }
     const { data, error } = await db.from('custom_object_definition').insert(payload).select('*').single();
     throwDb(error);
     return data;
@@ -596,7 +664,7 @@ export function createCustomObjectService({
     if (!canViewSchema && !canManageSchema && !capabilities.view) {
       throw new CustomObjectHttpError(403, 'Access denied');
     }
-    return { ...row, capabilities };
+    return { ...(await reconcilePresentation(row)), capabilities };
   }
 
   async function updateObject(objectId, body, archive = false) {
@@ -610,6 +678,7 @@ export function createCustomObjectService({
     if (payload.configuration !== undefined) {
       const validation = validateCustomObjectViewConfiguration(payload.configuration, await fields(objectId));
       if (!validation.ok) throw new CustomObjectHttpError(400, 'Invalid view configuration', validation.errors);
+      await validatePresentation(objectId, payload.configuration);
     }
     if (payload.object_key !== undefined) domainGuard(() => assertImmutableInternalKey(before.object_key, payload.object_key, 'Object key'));
     const nextStatus = archive ? 'archived' : (payload.status || before.status);
@@ -1704,6 +1773,9 @@ export function createCustomObjectService({
     const definition = await one('custom_object_relationship_definition', body?.relationship_definition_id);
     if (definition.source_custom_object_id !== objectId && definition.target_custom_object_id !== objectId) throw new CustomObjectHttpError(404, 'Resource not found');
     const routedSide = routedRelationshipSide(definition, objectId, body?.routed_side);
+    if (definition[`show_on_${routedSide}`] === false) {
+      throw new CustomObjectHttpError(403, 'This relationship is hidden on the routed side');
+    }
     if (!body?.routed_record_id || body.routed_record_id !== body?.[`${routedSide}_record_id`]) {
       throw new CustomObjectHttpError(400, 'routed_record_id must match the endpoint on routed_side');
     }
@@ -1734,6 +1806,9 @@ export function createCustomObjectService({
     const definition = await one('custom_object_relationship_definition', before.relationship_definition_id);
     if (definition.source_custom_object_id !== objectId && definition.target_custom_object_id !== objectId) throw new CustomObjectHttpError(404, 'Resource not found');
     const routedSide = routedRelationshipSide(definition, objectId, body?.routed_side);
+    if (definition[`show_on_${routedSide}`] === false) {
+      throw new CustomObjectHttpError(403, 'This relationship is hidden on the routed side');
+    }
     if (!body?.routed_record_id || body.routed_record_id !== before[`${routedSide}_record_id`]) {
       throw new CustomObjectHttpError(400, 'routed_record_id does not match this relationship edge');
     }

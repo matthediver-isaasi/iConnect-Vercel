@@ -8,9 +8,15 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import PortalNavLink from '../components/navigation/PortalNavLink.jsx';
 import { createPageUrl } from '../utils/index.ts';
 import {
+  getCustomObjectIdFromPortalListUrl,
+  getCustomObjectIdFromPortalPath,
+  getCustomObjectIdFromPortalRoleAccessId,
+  getCustomObjectPortalListUrl,
+  getCustomObjectPortalRoleAccessId,
   getPortalMenuFallbackFeatureId,
   getPortalMenuLinkType,
   isPortalMenuDestinationActive,
+  loadViewableCustomObjectPortalDestinations,
   resolvePortalMenuDestination,
   validateExternalPortalUrl,
   validatePortalMenuDestination,
@@ -35,6 +41,98 @@ test('legacy portal menu records remain internal current-tab links', () => {
     resolvePortalMenuDestination(legacy, createInternalUrl),
     '/Events',
   ), true);
+});
+
+test('Custom Object destinations have stable object-aware URLs and access identifiers', () => {
+  const objectId = '11111111-1111-4111-8111-111111111111';
+  assert.equal(
+    getCustomObjectPortalListUrl(objectId),
+    `CustomObjectsAdmin/${objectId}/records`,
+  );
+  assert.equal(
+    getCustomObjectIdFromPortalListUrl(`/CustomObjectsAdmin/${objectId}/records/`),
+    objectId,
+  );
+  assert.equal(
+    getCustomObjectIdFromPortalListUrl(`/CustomObjectsAdmin/${objectId}/records/record-1`),
+    null,
+  );
+  const featureId = getCustomObjectPortalRoleAccessId(objectId);
+  assert.equal(featureId, `custom-object:${objectId}:view-records`);
+  assert.equal(getCustomObjectIdFromPortalRoleAccessId(featureId), objectId);
+  assert.equal(getCustomObjectIdFromPortalRoleAccessId('page_Events'), null);
+});
+
+test('Custom Object portal paths resolve list, create, detail, and edit routes only', () => {
+  const objectId = 'object / with spaces';
+  const listUrl = getCustomObjectPortalListUrl(objectId);
+  assert.equal(getCustomObjectIdFromPortalPath(listUrl), objectId);
+  assert.equal(getCustomObjectIdFromPortalPath(`/${listUrl}/new`), objectId);
+  assert.equal(getCustomObjectIdFromPortalPath(`/${listUrl}/record-1`), objectId);
+  assert.equal(getCustomObjectIdFromPortalPath(`/${listUrl}/record-1/edit`), objectId);
+  assert.equal(getCustomObjectIdFromPortalPath('/CustomObjectsAdmin/object-1'), null);
+  assert.equal(getCustomObjectIdFromPortalPath('/CustomObjectsAdmin'), null);
+});
+
+test('internal list destinations stay active on object record sub-routes', () => {
+  const destination = resolvePortalMenuDestination({
+    url: 'CustomObjectsAdmin/object-1/records',
+  }, createInternalUrl);
+  assert.equal(
+    isPortalMenuDestinationActive(destination, '/CustomObjectsAdmin/object-1/records'),
+    true,
+  );
+  assert.equal(
+    isPortalMenuDestinationActive(destination, '/CustomObjectsAdmin/object-1/records/record-2/edit'),
+    true,
+  );
+  assert.equal(
+    isPortalMenuDestinationActive(destination, '/CustomObjectsAdmin/object-10/records'),
+    false,
+  );
+});
+
+test('Custom Object destination catalogue keeps only active viewable objects and paginates', async () => {
+  const calls = [];
+  const fetchImpl = async (url) => {
+    calls.push(url);
+    const page = Number(new URL(url, 'https://portal.test').searchParams.get('page'));
+    const rows = page === 1
+      ? [{
+          id: 'object-1',
+          status: 'active',
+          plural_label: 'Projects',
+          capabilities: { view: true },
+        }, {
+          id: 'object-2',
+          status: 'active',
+          plural_label: 'Private',
+          capabilities: { view: false },
+        }]
+      : [{
+          id: 'object-3',
+          status: 'active',
+          singular_label: 'Supplier',
+          capabilities: { view: true },
+        }];
+    return {
+      ok: true,
+      json: async () => ({ data: rows, total: 3 }),
+    };
+  };
+
+  assert.deepEqual(await loadViewableCustomObjectPortalDestinations(fetchImpl), [{
+    objectId: 'object-1',
+    value: 'CustomObjectsAdmin/object-1/records',
+    label: 'Custom Object: Projects',
+    featureId: 'custom-object:object-1:view-records',
+  }, {
+    objectId: 'object-3',
+    value: 'CustomObjectsAdmin/object-3/records',
+    label: 'Custom Object: Supplier',
+    featureId: 'custom-object:object-3:view-records',
+  }]);
+  assert.equal(calls.length, 2);
 });
 
 test('external URLs accept complete HTTP(S) addresses', () => {

@@ -47,6 +47,11 @@ export const CUSTOM_OBJECT_AUDIT_ENTITY_TYPES = Object.freeze([
   'custom_object_field_role_permission',
 ]);
 export const CUSTOM_OBJECT_FIELD_ACCESS_LEVELS = Object.freeze(['none', 'read', 'edit']);
+export const CUSTOM_OBJECT_PRESENTATION_VERSION = 2;
+export const CUSTOM_OBJECT_VISIBILITY_OPERATORS = Object.freeze([
+  'equals', 'not_equals', 'contains', 'not_contains', 'is_empty', 'not_empty',
+  'is_not_empty', 'greater_than', 'less_than',
+]);
 
 const INTERNAL_KEY_RE = /^[a-z][a-z0-9_]{0,99}$/;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -87,6 +92,254 @@ function configuredFieldIds(value, label, errors) {
   return value;
 }
 
+function presentationFieldId(element) {
+  return element?.field_id ?? element?.fieldId ?? null;
+}
+
+function presentationRelationshipId(element) {
+  return element?.relationship_definition_id ?? element?.definitionId ?? null;
+}
+
+function rawPresentationFieldId(value) {
+  return String(value || '').replace(/^(field|custom):/, '');
+}
+
+function presentationRules(detail) {
+  const value = detail?.visibility_rules ?? detail?.visibilityRules ?? detail?.rules;
+  if (value === undefined) return [];
+  return Array.isArray(value) ? value : value?.rules;
+}
+
+function validateVisibilityRules(detail, fieldIds, elementIds, cardIds, errors) {
+  const rules = presentationRules(detail);
+  if (rules === undefined) {
+    errors.push('views.detail.visibility_rules must be an array or an object containing rules');
+    return;
+  }
+  const ruleIds = new Set();
+  (rules || []).forEach((rule, ruleIndex) => {
+    const label = `views.detail.visibility_rules[${ruleIndex}]`;
+    if (!isPlainObject(rule)) {
+      errors.push(`${label} must be an object`);
+      return;
+    }
+    if (typeof rule.id !== 'string' || !rule.id.trim() || ruleIds.has(rule.id)) {
+      errors.push(`${label}.id must be a unique non-empty string`);
+    } else ruleIds.add(rule.id);
+    if (rule.logic !== undefined && !['and', 'or'].includes(rule.logic)) {
+      errors.push(`${label}.logic must be and or or`);
+    }
+    if (!Array.isArray(rule.conditions) || rule.conditions.length === 0) {
+      errors.push(`${label}.conditions must be a non-empty array`);
+    } else rule.conditions.forEach((condition, conditionIndex) => {
+      const conditionLabel = `${label}.conditions[${conditionIndex}]`;
+      const fieldId = condition?.field_id ?? condition?.fieldId;
+      if (!isPlainObject(condition) || typeof fieldId !== 'string'
+        || !fieldIds.has(rawPresentationFieldId(fieldId))) {
+        errors.push(`${conditionLabel}.field_id must reference an active field`);
+      }
+      if (!CUSTOM_OBJECT_VISIBILITY_OPERATORS.includes(condition?.operator)) {
+        errors.push(`${conditionLabel}.operator is invalid`);
+      }
+    });
+    if (!Array.isArray(rule.actions) || rule.actions.length === 0) {
+      errors.push(`${label}.actions must be a non-empty array`);
+    } else rule.actions.forEach((action, actionIndex) => {
+      const actionLabel = `${label}.actions[${actionIndex}]`;
+      if (!isPlainObject(action) || !['show', 'hide', 'lock', 'unlock'].includes(action?.action_type ?? action?.actionType)) {
+        errors.push(`${actionLabel}.action_type is invalid`);
+        return;
+      }
+      const targetType = action.target_type ?? action.targetType;
+      const targetId = targetType === 'card'
+        ? (action.target_card_id ?? action.targetCardId)
+        : (action.target_field_id ?? action.targetFieldId);
+      const available = targetType === 'card' ? cardIds : elementIds;
+      if (!['card', 'field', 'relationship'].includes(targetType) || !available.has(targetId)) {
+        errors.push(`${actionLabel} must reference an available card, field, or relationship`);
+      }
+      if (targetType === 'relationship' && ['lock', 'unlock'].includes(action.action_type ?? action.actionType)) {
+        errors.push(`${actionLabel} cannot lock or unlock a relationship`);
+      }
+    });
+  });
+}
+
+// Validates the versioned CRM detail contract. The original sections contract
+// remains accepted below so existing object presentation metadata is unchanged.
+export function validateCustomObjectPresentationConfiguration(
+  configuration = {},
+  fields = [],
+  relationships = [],
+  objectId = null,
+) {
+  const errors = [];
+  if (!isPlainObject(configuration)) return { ok: false, errors: ['Object configuration must be an object'] };
+  const detail = configuration.views?.detail;
+  if (detail === undefined || detail.version === undefined) return { ok: true, errors };
+  if (detail.version !== CUSTOM_OBJECT_PRESENTATION_VERSION) {
+    return { ok: false, errors: [`views.detail.version must be ${CUSTOM_OBJECT_PRESENTATION_VERSION}`] };
+  }
+  if (!Array.isArray(detail.cards)) return { ok: false, errors: ['views.detail.cards must be an array'] };
+
+  const activeFieldIds = new Set((fields || [])
+    .filter((item) => getCustomObjectFieldMetadata(item).active)
+    .map((item) => String(item.id)));
+  const schemaFieldIds = configuredFieldIds(
+    detail.schema_field_ids,
+    'views.detail.schema_field_ids',
+    errors,
+  );
+  for (const fieldId of schemaFieldIds) {
+    if (!activeFieldIds.has(String(fieldId))) {
+      errors.push('views.detail.schema_field_ids includes an unknown or archived field');
+    }
+  }
+  const relationshipsById = new Map((relationships || []).map((item) => [String(item.id), item]));
+  const cardIds = new Set();
+  const elementIds = new Set();
+  const referencedFieldIds = new Set();
+  for (const [cardIndex, card] of detail.cards.entries()) {
+    const label = `views.detail.cards[${cardIndex}]`;
+    if (!isPlainObject(card)) {
+      errors.push(`${label} must be an object`);
+      continue;
+    }
+    if (typeof card.id !== 'string' || !card.id.trim() || cardIds.has(card.id)) {
+      errors.push(`${label}.id must be a unique non-empty string`);
+    } else cardIds.add(card.id);
+    if (typeof card.title !== 'string') errors.push(`${label}.title must be a string`);
+    if (!Number.isInteger(card.columns) || card.columns < 1 || card.columns > 3) {
+      errors.push(`${label}.columns must be an integer from 1 to 3`);
+    }
+    if (!Array.isArray(card.fields)) {
+      errors.push(`${label}.fields must be an array`);
+      continue;
+    }
+    card.fields.forEach((element, elementIndex) => {
+      const elementLabel = `${label}.fields[${elementIndex}]`;
+      if (!isPlainObject(element) || typeof element.id !== 'string' || !element.id.trim()) {
+        errors.push(`${elementLabel}.id must be a non-empty string`);
+        return;
+      }
+      if (elementIds.has(element.id)) errors.push(`${elementLabel}.id must be unique across the layout`);
+      else elementIds.add(element.id);
+      if (!Number.isInteger(element.columnIndex) || element.columnIndex < 0 || element.columnIndex >= card.columns) {
+        errors.push(`${elementLabel}.columnIndex must identify a card column`);
+      }
+      if (element.type === 'field' || element.type === 'custom') {
+      const fieldId = rawPresentationFieldId(presentationFieldId(element));
+        if (!activeFieldIds.has(fieldId)) errors.push(`${elementLabel} references an unknown or archived field`);
+        if (referencedFieldIds.has(fieldId)) errors.push(`${elementLabel} duplicates a field`);
+        referencedFieldIds.add(fieldId);
+        if (![ `field:${fieldId}`, `custom:${fieldId}` ].includes(element.id)) {
+          errors.push(`${elementLabel}.id must be derived from its stable field id`);
+        }
+      } else if (element.type === 'relationship') {
+        const definitionId = String(presentationRelationshipId(element) || '');
+        const relationship = relationshipsById.get(definitionId);
+        const side = element.side;
+        if (!relationship || !['source', 'target'].includes(side)
+          || relationship.status !== 'active'
+          || relationship[`${side}_kind`] !== 'custom_object'
+          || (objectId && relationship[`${side}_custom_object_id`] !== objectId)
+          || relationship[`show_on_${side}`] === false) {
+          errors.push(`${elementLabel} references an unavailable relationship side`);
+        }
+        if (element.id !== `relationship:${definitionId}:${side}`) {
+          errors.push(`${elementLabel}.id must be derived from its stable relationship definition and side`);
+        }
+      } else errors.push(`${elementLabel}.type must be field or relationship`);
+    });
+  }
+  validateVisibilityRules(detail, activeFieldIds, elementIds, cardIds, errors);
+  return { ok: errors.length === 0, errors };
+}
+
+export function reconcileCustomObjectPresentationConfiguration(
+  configuration = {},
+  fields = [],
+  relationships = [],
+  objectId = null,
+) {
+  const output = isPlainObject(configuration) ? structuredClone(configuration) : {};
+  const detail = output.views?.detail;
+  if (!isPlainObject(detail) || detail.version !== CUSTOM_OBJECT_PRESENTATION_VERSION
+    || !Array.isArray(detail.cards)) return output;
+  const activeFields = (fields || []).filter((item) => getCustomObjectFieldMetadata(item).active);
+  const fieldIds = new Set(activeFields.map((item) => String(item.id)));
+  const knownFieldIds = new Set(
+    (Array.isArray(detail.schema_field_ids) ? detail.schema_field_ids : [])
+      .map((item) => rawPresentationFieldId(item)),
+  );
+  detail.schema_field_ids = activeFields.map((item) => String(item.id));
+  const relationshipsById = new Map((relationships || []).map((item) => [String(item.id), item]));
+  const retainedIds = new Set();
+  detail.cards = detail.cards.map((card) => ({
+    ...card,
+    fields: (Array.isArray(card.fields) ? card.fields : []).filter((element) => {
+      let available = false;
+      if (element?.type === 'field' || element?.type === 'custom') {
+        available = fieldIds.has(rawPresentationFieldId(presentationFieldId(element)));
+      } else if (element?.type === 'relationship') {
+        const relationship = relationshipsById.get(String(presentationRelationshipId(element) || ''));
+        available = Boolean(relationship && ['source', 'target'].includes(element.side)
+          && relationship.status === 'active'
+          && relationship[`${element.side}_kind`] === 'custom_object'
+          && (!objectId || relationship[`${element.side}_custom_object_id`] === objectId)
+          && relationship[`show_on_${element.side}`] !== false);
+      }
+      if (available) retainedIds.add(element.id);
+      return available;
+    }),
+  }));
+  const placedFieldIds = new Set(detail.cards.flatMap((card) => card.fields)
+    .filter((element) => element.type === 'field' || element.type === 'custom')
+    .map((element) => rawPresentationFieldId(presentationFieldId(element))));
+  const newlyAddedFields = activeFields.filter((item) => {
+    const fieldId = String(item.id);
+    return !placedFieldIds.has(fieldId) && !knownFieldIds.has(fieldId);
+  });
+  if (newlyAddedFields.length > 0) {
+    let card = detail.cards.find((item) => item.id === 'card-fields');
+    if (!card) {
+      card = { id: 'card-fields', title: 'Details', columns: 2, fields: [] };
+      detail.cards.push(card);
+    }
+    for (const item of newlyAddedFields) {
+      const fieldId = String(item.id);
+      const id = `field:${fieldId}`;
+      card.fields.push({ id, type: 'field', field_id: fieldId, columnIndex: card.fields.length % card.columns });
+      retainedIds.add(id);
+    }
+  }
+  const cardIds = new Set(detail.cards.map((card) => card.id));
+  const rawRules = presentationRules(detail);
+  const reconciledRules = (Array.isArray(rawRules) ? rawRules : []).map((rule) => ({
+    ...rule,
+    conditions: (rule.conditions || []).filter((condition) =>
+      fieldIds.has(rawPresentationFieldId(condition.field_id ?? condition.fieldId))),
+    actions: (rule.actions || []).filter((action) => {
+      const targetType = action.target_type ?? action.targetType;
+      const id = targetType === 'card'
+        ? (action.target_card_id ?? action.targetCardId)
+        : (action.target_field_id ?? action.targetFieldId);
+      return targetType === 'card' ? cardIds.has(id) : retainedIds.has(id);
+    }),
+  })).filter((rule) => rule.conditions.length > 0 && rule.actions.length > 0);
+  if (detail.visibility_rules !== undefined) {
+    detail.visibility_rules = Array.isArray(detail.visibility_rules)
+      ? reconciledRules : { ...detail.visibility_rules, rules: reconciledRules };
+  } else if (detail.visibilityRules !== undefined) {
+    detail.visibilityRules = Array.isArray(detail.visibilityRules)
+      ? reconciledRules : { ...detail.visibilityRules, rules: reconciledRules };
+  } else if (detail.rules !== undefined) {
+    detail.rules = Array.isArray(detail.rules)
+      ? reconciledRules : { ...detail.rules, rules: reconciledRules };
+  }
+  return output;
+}
+
 // Shared presentation is deliberately metadata only: consumers may choose their
 // own rendering, but cannot accidentally configure fields outside this object.
 export function validateCustomObjectViewConfiguration(configuration = {}, fields = []) {
@@ -105,7 +358,12 @@ export function validateCustomObjectViewConfiguration(configuration = {}, fields
     else validateIds(configuredFieldIds(views.list.field_ids ?? views.list.default_field_ids, 'views.list.field_ids', errors), 'views.list.field_ids');
   }
   if (views.detail !== undefined) {
-    if (!isPlainObject(views.detail) || !Array.isArray(views.detail.sections)) errors.push('views.detail.sections must be an array');
+    if (isPlainObject(views.detail) && views.detail.version !== undefined) {
+      // The relationship-aware portion is validated by the service once it has
+      // loaded the complete object-scoped relationship inventory.
+      errors.push(...validateCustomObjectPresentationConfiguration(configuration, fields).errors
+        .filter((error) => !error.includes('unavailable relationship side')));
+    } else if (!isPlainObject(views.detail) || !Array.isArray(views.detail.sections)) errors.push('views.detail.sections must be an array');
     else views.detail.sections.forEach((section, index) => {
       if (!isPlainObject(section)) errors.push(`views.detail.sections[${index}] must be an object`);
       else validateIds(configuredFieldIds(section.field_ids ?? section.fields, `views.detail.sections[${index}].field_ids`, errors), `views.detail.sections[${index}].field_ids`);

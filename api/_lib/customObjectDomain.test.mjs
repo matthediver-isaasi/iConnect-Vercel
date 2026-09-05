@@ -11,10 +11,12 @@ import {
   resolveCustomObjectFieldAccess,
   resolveCustomObjectLifecycleUpdate,
   resolveCustomObjectPermission,
+  reconcileCustomObjectPresentationConfiguration,
   validateCustomObjectFieldDefinition,
   validateCustomObjectRecordData,
   validateCustomObjectRelationshipEndpoints,
   validateCustomObjectRelationshipPreviewConfiguration,
+  validateCustomObjectPresentationConfiguration,
   validateCustomObjectViewConfiguration,
 } from './customObjectDomain.js';
 import {
@@ -255,6 +257,151 @@ test('generic view and side-aware compact preview metadata only permit active ow
   assert.equal(validateCustomObjectRelationshipPreviewConfiguration({
     compact_preview: { target_field_ids: [primary.id] },
   }, { source: [primary], target: [] }).ok, false);
+});
+
+test('versioned CRM presentation validates stable field and relationship identities and visibility rules', () => {
+  const name = field({ id: '33333333-3333-4333-8333-333333333333' });
+  const relationship = {
+    id: '55555555-5555-4555-8555-555555555555',
+    status: 'active',
+    source_kind: 'custom_object',
+    source_custom_object_id: objectId,
+    show_on_source: true,
+  };
+  const configuration = {
+    views: {
+      detail: {
+        version: 2,
+        schema_field_ids: [name.id],
+        cards: [{
+          id: 'card-details',
+          title: 'Details',
+          columns: 2,
+          fields: [
+            { id: `field:${name.id}`, type: 'field', field_id: name.id, columnIndex: 0 },
+            {
+              id: `relationship:${relationship.id}:source`,
+              type: 'relationship',
+              relationship_definition_id: relationship.id,
+              side: 'source',
+              columnIndex: 1,
+            },
+          ],
+        }],
+        visibility_rules: [{
+          id: 'rule-1',
+          logic: 'and',
+          conditions: [{ field_id: `field:${name.id}`, operator: 'not_empty' }],
+          actions: [{
+            action_type: 'show',
+            target_type: 'relationship',
+            target_field_id: `relationship:${relationship.id}:source`,
+          }],
+        }],
+      },
+    },
+  };
+  assert.equal(validateCustomObjectPresentationConfiguration(
+    configuration, [name], [relationship], objectId,
+  ).ok, true);
+  const forged = structuredClone(configuration);
+  forged.views.detail.cards[0].fields[1].id = 'relationship:forged:source';
+  assert.equal(validateCustomObjectPresentationConfiguration(
+    forged, [name], [relationship], objectId,
+  ).ok, false);
+  const wrongSide = structuredClone(configuration);
+  wrongSide.views.detail.cards[0].fields[1].side = 'target';
+  assert.equal(validateCustomObjectPresentationConfiguration(
+    wrongSide, [name], [relationship], objectId,
+  ).ok, false);
+});
+
+test('CRM presentation reconciliation removes stale references, drops invalid rules, and places new fields', () => {
+  const kept = field({ id: '33333333-3333-4333-8333-333333333333' });
+  const added = field({ id: '44444444-4444-4444-8444-444444444444', name: 'added' });
+  const configuration = {
+    views: {
+      detail: {
+        version: 2,
+        schema_field_ids: [kept.id],
+        cards: [{
+          id: 'card-details',
+          title: 'Details',
+          columns: 1,
+          fields: [
+            { id: `field:${kept.id}`, type: 'field', field_id: kept.id, columnIndex: 0 },
+            { id: 'field:removed', type: 'field', field_id: 'removed', columnIndex: 0 },
+          ],
+        }],
+        visibility_rules: [{
+          id: 'stale',
+          conditions: [{ field_id: 'removed', operator: 'equals', value: 'x' }],
+          actions: [{ action_type: 'hide', target_type: 'field', target_field_id: 'field:removed' }],
+        }],
+      },
+    },
+  };
+  const reconciled = reconcileCustomObjectPresentationConfiguration(
+    configuration, [kept, added], [], objectId,
+  );
+  assert.deepEqual(
+    reconciled.views.detail.cards.flatMap((card) => card.fields).map((item) => item.id),
+    [`field:${kept.id}`, `field:${added.id}`],
+  );
+  assert.deepEqual(reconciled.views.detail.visibility_rules, []);
+  assert.notStrictEqual(reconciled, configuration);
+});
+
+test('CRM presentation reconciliation preserves intentionally unplaced known fields', () => {
+  const placed = field({ id: '33333333-3333-4333-8333-333333333333' });
+  const intentionallyUnplaced = field({
+    id: '44444444-4444-4444-8444-444444444444',
+    name: 'unplaced',
+  });
+  const added = field({
+    id: '55555555-5555-4555-8555-555555555555',
+    name: 'added',
+  });
+  const configuration = {
+    views: {
+      detail: {
+        version: 2,
+        schema_field_ids: [placed.id, intentionallyUnplaced.id],
+        cards: [{
+          id: 'card-details',
+          title: 'Details',
+          columns: 1,
+          fields: [
+            { id: `field:${placed.id}`, type: 'field', field_id: placed.id, columnIndex: 0 },
+          ],
+        }],
+      },
+    },
+  };
+  const reconciled = reconcileCustomObjectPresentationConfiguration(
+    configuration,
+    [placed, intentionallyUnplaced, added],
+    [],
+    objectId,
+  );
+  assert.deepEqual(
+    reconciled.views.detail.cards.flatMap((card) => card.fields).map((item) => item.id),
+    [`field:${placed.id}`, `field:${added.id}`],
+  );
+  assert.deepEqual(
+    reconciled.views.detail.schema_field_ids,
+    [placed.id, intentionallyUnplaced.id, added.id],
+  );
+});
+
+test('legacy detail sections remain valid and are not rewritten by CRM reconciliation', () => {
+  const name = field();
+  const legacy = { views: { detail: { sections: [{ field_ids: [name.id] }] } } };
+  assert.equal(validateCustomObjectViewConfiguration(legacy, [name]).ok, true);
+  assert.deepEqual(
+    reconcileCustomObjectPresentationConfiguration(legacy, [name], [], objectId),
+    legacy,
+  );
 });
 
 test('field access defaults preserve legacy editability and invalid rows fail closed', () => {

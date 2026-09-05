@@ -15,15 +15,16 @@
 5. [Presentation and Field Authorization Contracts](#presentation-and-field-authorization-contracts)
 6. [Lifecycle, Archive, and Audit Guarantees](#lifecycle-archive-and-audit-guarantees)
 7. [Relationships](#relationships)
-8. [Security and Tenant Boundaries](#security-and-tenant-boundaries)
-9. [Code Paths and Entry Points](#code-paths-and-entry-points)
-10. [Safeguards and Error Handling](#safeguards-and-error-handling)
-11. [Frontend UI](#frontend-ui)
-12. [Database Tables](#database-tables)
-13. [Data Flow Diagrams](#data-flow-diagrams)
-14. [MVP Limitations and Phase 2 Handoff Contracts](#mvp-limitations-and-phase-2-handoff-contracts)
-15. [Configuration Reference](#configuration-reference)
-16. [Troubleshooting](#troubleshooting)
+8. [Portal Destinations and Chained Navigation](#portal-destinations-and-chained-navigation)
+9. [Security and Tenant Boundaries](#security-and-tenant-boundaries)
+10. [Code Paths and Entry Points](#code-paths-and-entry-points)
+11. [Safeguards and Error Handling](#safeguards-and-error-handling)
+12. [Frontend UI](#frontend-ui)
+13. [Database Tables](#database-tables)
+14. [Data Flow Diagrams](#data-flow-diagrams)
+15. [MVP Limitations and Phase 2 Handoff Contracts](#mvp-limitations-and-phase-2-handoff-contracts)
+16. [Configuration Reference](#configuration-reference)
+17. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -55,14 +56,18 @@ Administrators configure draft schemas, select a primary display field, activate
 | `api/custom-objects/[objectId]/[resource]/[resourceId].js` | Generic nested item route |
 | `client/src/pages/CustomObjectsAdmin.jsx` | Catalogue and schema administration |
 | `client/src/pages/CustomObjectRecords.jsx` | Generated record list, detail, form, and permission editor |
-| `client/src/pages/customObjects/RelationshipDefinitions.jsx` | Generic relationship-definition editor |
+| `client/src/pages/customObjects/RelationshipDefinitions.jsx` | Generic relationship-definition editor, including compact previews |
 | `client/src/pages/customObjects/RelatedRecordsPanel.jsx` | Definition-driven related-record UI |
+| `client/src/pages/customObjects/relationshipHelpers.js` | Relationship-side resolution and safe chained-navigation return paths |
+| `client/src/pages/customObjects/recordHelpers.js` | Client layout reconciliation, visibility evaluation, field access, and generated-record helpers |
 | `client/src/pages/customObjects/ContextualRecordCreateDialog.jsx` | Metadata-driven form for creating and linking an opposite Custom Object record in context |
 | `client/src/pages/customObjects/RecordFieldControls.jsx` | Shared generated controls used by normal and contextual record creation |
 | `client/src/pages/FormBuilder.jsx` | Relationship-dropdown configuration against earlier organisation fields |
 | `client/src/components/forms/FormRenderer.jsx` | Shared dependent relationship dropdown used by public, embedded, preview, and manual forms |
 | `client/src/lib/formRelationshipDropdown.js` | Pure builder and stale-selection rules |
 | `client/src/lib/relationshipDisplayLabels.js` | Safe relationship-value formatting for review and export surfaces |
+| `client/src/lib/portalMenuLinks.js` | Portal-menu Custom Object destinations and per-object access identifiers |
+| `shared/portalMenuLinks.js` | Canonical Custom Object portal URL/access-ID parsing and external-link validation |
 | `supabase/migrations/20260825_custom_object_foundation.sql` | Generic storage, constraints, RLS, audit triggers, and cardinality guard |
 | `supabase/migrations/20260826_custom_object_relationship_runtime.sql` | Required-edge and archive propagation guarantees |
 | `supabase/migrations/20260925_custom_object_record_relationship_create.sql` | Atomic record-plus-initial-relationships transaction |
@@ -178,111 +183,113 @@ Here **routed_side** always identifies the side occupied by the new Custom Objec
 
 ## Presentation and Field Authorization Contracts
 
-Task 4053 extends the generated record experience with two related, metadata-only
-contracts: a shared **presentation contract** and a per-field **authorization
-contract**. They apply to every Custom Object. A Workforce Survey may be useful
-as a fixture when exercising the contracts, but it has no privileged object key,
-component, route, table, or rendering path.
+Task 4067 implements the **version 2 CRM detail contract**. It replaces the
+outdated assumption that a detail view is only an ordered set of sections.
+Presentation remains metadata, never a tenant-specific component or route; the
+primary display field remains the canonical record identity used for headings,
+links, and picker labels.
 
-### Presentation contract
+### Version 2 CRM detail contract
 
-The primary display field remains the canonical identity of a record. It is the
-label used for record links, headings, relationship pickers, and any fallback
-where a richer configured representation cannot be resolved. Presentation
-metadata adds supporting context; it must never replace identity or cause a
-caller-provided label to become authoritative.
-
-Object-level presentation is versioned metadata on the object definition. Its
-logical shape is:
+The object definition stores presentation under `configuration.views`. List
+defaults remain an ordered array of field UUIDs. The CRM detail view is
+`configuration.views.detail`, whose `version` must be exactly `2`:
 
 ```json
 {
-  "version": 1,
-  "list": {
-    "field_ids": ["field-uuid-a", "field-uuid-b"]
-  },
-  "detail": {
-    "sections": [{
-      "id": "section-stable-key",
-      "label": "Record details",
-      "field_ids": ["field-uuid-a", "field-uuid-b"]
-    }]
+  "views": {
+    "list": { "field_ids": ["field-uuid-a", "field-uuid-b"] },
+    "detail": {
+      "version": 2,
+      "schema_field_ids": ["field-uuid-a", "field-uuid-b"],
+      "cards": [{
+        "id": "card-details",
+        "title": "Details",
+        "columns": 2,
+        "fields": [
+          { "id": "field:field-uuid-a", "type": "field", "field_id": "field-uuid-a", "columnIndex": 0 },
+          { "id": "relationship:relationship-uuid:source", "type": "relationship", "relationship_definition_id": "relationship-uuid", "side": "source", "columnIndex": 1 }
+        ]
+      }],
+      "visibility_rules": { "rules": [] }
+    }
   }
 }
 ```
 
-- **List fields** are the administrator-defined, ordered shared default. They
-  are field UUIDs belonging to the object, not field labels, JSON keys, or
-  object-specific names.
-- **Detail sections** preserve both administrator-selected section order and
-  field order. A field should occur no more than once in an effective detail
-  layout. Section IDs are stable within the presentation document so a later
-  label edit does not change the layout identity.
-- The administrator's shared list default is not a user's saved list choice.
-  A personal list-column selection may override it for that user and object,
-  but saving or clearing that selection must not mutate shared metadata. With
-  no personal selection, the shared default is used.
-- An object with no presentation metadata retains legacy generated behavior:
-  active fields supply the list/detail fallback in their normal metadata
-  order. This is the compatibility baseline for existing objects.
+- A card has a stable non-empty `id`, string title, one to three columns, and
+  ordered elements. An element ID is unique across the entire layout.
+- Field elements use stable field UUIDs, not mutable JSON keys or labels. Their
+  IDs are derived as `field:<field-id>` or the compatible
+  `custom:<field-id>` form used by the generated layout helper.
+- Relationship elements use a stable definition UUID plus the viewed side:
+  `relationship:<relationship-definition-id>:<source|target>`. The referenced
+  definition must be active, visible from that side, and have this Custom
+  Object at that side. This permits cards to be placed among fields rather than
+  always appearing in a separate related-records area.
+- A field may appear once. A relationship card may appear once. Relationship
+  cards that are available but unplaced still render after the configured cards,
+  so an administrator cannot accidentally make an otherwise visible
+  relationship unreachable.
+- The former `views.detail.sections` contract remains a read-compatible
+  fallback for existing objects. With neither card nor section metadata,
+  generated details use readable active fields. List-column choices saved in
+  browser storage are personal (`tenant + object` scoped) and override the
+  shared list default only for that user.
 
-Relationship definitions carry side-aware compact-preview metadata. Each side
-describes fields of the *opposite* Custom Object records it displays, in order.
-For example, a definition viewed from `source` may configure fields from its
-target Custom Object; viewed from `target`, it may configure fields from its
-source Custom Object. A compact preview is therefore defined by routed side and
-field UUIDs, not by a relationship label or by a named object.
+### Schema snapshots and reconciliation
 
-```json
-{
-  "version": 1,
-  "compact_preview": {
-    "source": { "field_ids": ["target-field-uuid"] },
-    "target": { "field_ids": ["source-field-uuid"] }
-  }
-}
-```
-
-The exact persisted container may evolve additively, but these semantics are
-stable: entries are ordered IDs, each selected field belongs to the opposite
-active Custom Object, and the primary label is rendered separately. Core
-endpoints have no Custom Object field inventory, so their existing safe
-core-label representation remains in force unless a future core contract says
-otherwise.
-
-### Presentation validation and drift
-
-The service is the authority for validating and resolving presentation
-metadata. On write it must reject a malformed version, duplicate IDs, a field
-from another tenant/object, or a compact field assigned to the wrong
-relationship side. UI selection controls are convenience only and must offer
-only active fields from the relevant object.
-
-On read, configuration can legitimately drift after an administrator archives a
-field, changes access, or archives an object. Resolution must be safe rather
-than brittle:
+`schema_field_ids` is a snapshot of the active schema at the time the layout was
+saved. It is not a permission mechanism and it does not address fields by
+name. On object reads, the service runs
+`reconcileCustomObjectPresentationConfiguration()` using current fields and
+relationship definitions:
 
 ```text
-resolve configured field
-  → does the UUID belong to the expected active object? no → omit it
-  → may this caller read it? no → omit it
-  → otherwise render its metadata-formatted value
-
-resolve compact card
-  → render canonical primary label if readable and available
-  → append resolved, authorized configured values in configured order
-  → no usable configured values → render the primary label only
-  → no usable primary label → use the existing non-sensitive unavailable fallback
+active schema and relationship inventory
+  → remove card elements whose field is inactive or relationship side unavailable
+  → replace schema_field_ids with the current active field UUIDs
+  → append a field that is newly added since the saved snapshot to card-fields
+  → remove visibility-rule conditions/actions whose targets no longer exist
+  → return the reconciled configuration (without rewriting record JSON)
 ```
 
-Configured missing, archived, unauthorized, blank, or duplicate fields are
-omitted; the server must not substitute their raw JSON keys, IDs, or historic
-values. A field that becomes unavailable does not invalidate the whole record,
-section, list, card, or picker. Empty sections are hidden. An archived object
-uses its existing archive/read policy and does not regain edit controls through
-presentation metadata.
+The reconciliation is deliberately non-destructive to record data and is
+returned on reads; it does not silently persist an administrator's layout
+change. A field that was in the saved snapshot but is deliberately unplaced is
+not re-added. In contrast, a field created after that snapshot is placed in
+`card-fields` (created as a two-column **Details** card when necessary).
+Archived fields, invalid relationship sides, and stale rule targets are safely
+removed from the effective view.
 
-### Field authorization contract
+Writes reject a non-v2 detail version, invalid card/element IDs, duplicate
+elements or fields, invalid column indexes, inactive/cross-object fields, and
+unavailable relationship sides. The server loads the complete relationship
+inventory before validating; the editor's available-field/card choices are only
+a usability aid.
+
+### Visibility rules
+
+Rules are evaluated against readable current-record fields in order. Each rule
+has a stable ID, non-empty conditions, non-empty actions, and optional `and`
+(default) or `or` logic. A condition references an active field UUID (or its
+compatible `custom:`-prefixed layout ID). Validation accepts `equals`,
+`not_equals`, `contains`, `not_contains`, `is_empty`,
+`not_empty`/`is_not_empty`, `greater_than`, and `less_than`. Actions target a
+current card or layout element and are `show`, `hide`, `lock`, or `unlock`;
+relationship targets cannot be locked or unlocked.
+
+The generated detail renderer currently applies `show` and `hide`: show-targets
+start hidden until a matching show rule reveals them, while hide actions conceal
+matching targets. Its evaluator implements every condition operator listed
+above, including array-aware `contains`/`not_contains` and both non-empty
+spellings. Rules do not bypass field access, lifecycle, or relationship
+visibility.
+Lock/unlock are validated reserved metadata for editor compatibility; they are
+not an authorization grant and must not be represented as a way to write a
+field.
+
+### Field authorization and server boundary
 
 Object capabilities continue to answer whether a role can access the record
 surface at all. Field authorization answers what that role may do with an
@@ -299,9 +306,9 @@ The effective access vocabulary is deliberately small:
 |------------------|---------------|-----------------------|--------------|
 | `none` | Field definition, label, value, filter option, and compact text are omitted | Supplying the field is rejected | Hidden |
 | `read` | Metadata and value may be returned where the record is otherwise visible | Supplying the field is rejected | Visible, with no editable control |
-| `write` | Same as `read` | Value is accepted and normal type/required validation applies | Visible and editable |
+| `edit` | Same as `read` | Value is accepted and normal type/required validation applies | Visible and editable |
 
-`write` includes read. Invalid permission metadata and an unresolved field grant
+`edit` includes read. Invalid permission metadata and an unresolved field grant
 fail closed to `none`; a caller must not receive a value merely because a UI
 forgot to hide it. Tenant administrators retain the documented administrative
 bypass only where the authorization service explicitly grants it. Schema
@@ -318,24 +325,25 @@ state.
 
 ### Enforcement surfaces
 
-The API resolves effective field access before reading or validating record
-data. This same resolved set is used consistently by the list, record detail,
-create/edit, search, filters, export, relationship rows, entity pickers, and
-contextual-create endpoints.
+The API/service is the authorization boundary. It resolves effective field
+access before serializing or validating record data. The same resolved set is
+used consistently by record reads and writes, relationship rows/pickers,
+contextual creation, and exports; the browser cannot obtain access by posting
+an omitted/hidden field, changing a layout, or replaying a request.
 
 ```text
 request
   → authenticate and resolve tenant + object capability
   → load active object fields and role-scoped field grants
-  → calculate readable and writable field sets
+  → calculate readable and editable field sets
   → read: prune inaccessible metadata, values, and configured presentation
-  → write: reject keys outside writable set, then type/required validate
+  → write: reject keys outside editable set, then type/required validate
   → filter/search/export: allow only readable eligible fields
   → serialize only authorized labels, values, and secondary text
 ```
 
-Required validation is evaluated only for fields the caller may write. A
-required field that is readable but not writable must not make a create/edit
+Required validation is evaluated only for fields the caller may edit. A
+required field that is readable but not editable must not make a create/edit
 form impossible; administrators must adjust the schema/field grant before
 making such a field mandatory for that role. Conversely, an inaccessible value
 is never accepted as a hidden preserved write. Existing historic JSON may stay
@@ -500,6 +508,57 @@ For repeatable rows, `_row_id` is the stable retry identity. Runtime execution m
 
 ---
 
+## Portal Destinations and Chained Navigation
+
+### Portal-menu Custom Object destination
+
+Portal Menu Management loads active Custom Objects page-by-page from the
+authenticated catalogue and offers only rows whose returned
+`capabilities.view` is `true`. Selecting an object creates an internal list
+destination and object-specific role access ID:
+
+```text
+URL:       CustomObjectsAdmin/<encoded-object-uuid>/records
+access ID: custom-object:<object-uuid>:view-records
+```
+
+`getCustomObjectPortalListUrl()` and
+`getCustomObjectPortalRoleAccessId()` in `shared/portalMenuLinks.js` are the
+canonical builders. Their parsers accept an optional leading slash and
+query/hash suffixes, safely decode the ID, and reject malformed paths. Saving a
+menu item with the exact list URL generates the access ID; labels, object keys,
+and the generic Data Studio feature ID are never substitutes. Portal route
+matching recognizes the list and record subpaths for that same object.
+
+This menu/RBAC behavior is defense in depth, not data authorization. Direct
+record requests still require the server's tenant-scoped `view_records`
+capability and field projection. A stale menu item therefore cannot disclose
+an inactive or unauthorized object.
+
+Portal menu entries also support ordinary internal destinations and external
+HTTP(S) destinations. External URLs must be complete HTTP(S) addresses.
+External parents with sub-items are rejected; only external leaf links can open
+in a new tab, using `noopener noreferrer`.
+
+### Relationship cards and chained record navigation
+
+The record detail resolves the v2 placement contract before rendering
+relationship panels. A relationship element is looked up by stable definition
+ID and viewed side, then renders its definition label, permitted rows, compact
+preview, and Add/Create controls in that card column. Available panels not
+placed in a card render after the configured cards. Client visibility can hide
+a card or element, but it never expands the server-authorized row data.
+
+Selecting an opposite Custom Object row navigates to its generated record route
+with an internal `relationshipReturnTo` state. The destination uses
+`relationshipBackPath()` for its **Back** link, supporting chained
+relationship navigation back to the originating detail. It accepts only an
+application-relative path and falls back to the object's list; absolute,
+protocol-relative, and backslash-based paths are discarded to prevent open
+redirects.
+
+---
+
 ## Security and Tenant Boundaries
 
 1. The route obtains authenticated tenant context before constructing the service.
@@ -515,7 +574,8 @@ For repeatable rows, `_row_id` is the stable retry identity. Runtime execution m
 11. Public form relationship options are constrained by the persisted form field, parent organisation, definition, object, lifecycle, visibility, and active edge; callers cannot turn the route into a general record browser.
 12. Form submission handlers revalidate relationship UUIDs before writes or side effects, and output label lookups omit unavailable records rather than exposing identifiers.
 13. Field permissions are resolved tenant-, object-, field-, and role-scoped at the service boundary; inaccessible field definitions, values, filter choices, export columns, and relationship secondary text are pruned before serialization.
-14. Presentation metadata is validated against active field ownership when saved and is resolved again with lifecycle and field-read access when rendered, so stale configuration cannot disclose data.
+14. Presentation metadata is validated against active field ownership and relationship side when saved, then reconciled against the current schema on reads. Client layout/visibility decisions never expand API access.
+15. Portal Custom Object access IDs contain the stable object UUID and the `view-records` capability. Portal routing is defense in depth; the generic API remains the final tenant/capability/field authorization boundary.
 
 Cross-tenant resources are deliberately indistinguishable from missing resources where appropriate. RLS and grants restrict direct table access; the service remains responsible for application-level permission and object checks.
 
@@ -533,6 +593,41 @@ Cross-tenant resources are deliberately indistinguishable from missing resources
 3. Construct `createCustomObjectService()` with trusted context.
 4. Validate lifecycle, ownership, immutable keys, and metadata.
 5. Write through generic tables; database triggers emit audit history.
+
+### CRM presentation save and record-detail render
+
+**Files:** `client/src/pages/CustomObjectsAdmin.jsx`,
+`api/_lib/customObjectService.js`, `client/src/pages/CustomObjectRecords.jsx`,
+and `client/src/pages/customObjects/recordHelpers.js`
+**Trigger:** An administrator saves Presentation, or a user opens a record.
+
+1. The Presentation tab builds ordered list field UUIDs, v2 cards, stable
+   field/relationship element IDs, and visibility rules from the schema and
+   relationship inventory.
+2. Saving PATCHes the object `configuration`; the service validates the v2
+   contract against active tenant-owned fields and available relationship sides.
+3. Reading the object reconciles the saved configuration to the current schema.
+4. The record page derives the effective card layout, drops unreadable/stale
+   elements, evaluates show/hide visibility against the current record, and
+   renders placed relationship panels plus remaining visible panels.
+
+**Important:** The browser's layout calculation is presentation only. Record
+values, relationship rows, and mutation eligibility are independently
+authorized by the service.
+
+### Portal-menu save and access
+
+**Files:** `client/src/pages/PortalMenuManagement.jsx`,
+`client/src/lib/portalMenuLinks.js`, and `shared/portalMenuLinks.js`
+**Trigger:** An administrator selects and saves a Portal Menu destination.
+
+1. The editor loads only active viewable Custom Object destinations.
+2. Selecting one stores the stable list URL.
+3. On save, the URL parser recognizes that exact list URL and replaces the
+   item feature ID with `custom-object:<object-id>:view-records`.
+4. Layout route checks derive the same object ID from list/detail paths before
+   applying portal access behavior; the API repeats authorization on every
+   request.
 
 ### Record mutation
 
@@ -600,6 +695,15 @@ Object and field internal keys cannot change after creation. Duplicate object, f
 
 Invalid field metadata, unknown incoming record keys, malformed filters, inactive targets, endpoint mismatches, and cross-tenant references are rejected before useful data is returned. Invalid input is HTTP 400; unavailable lifecycle state is generally 409; missing permission is 403.
 
+### CRM layout integrity
+
+The service accepts a CRM detail layout only at version 2 and validates stable
+card/element IDs, uniqueness, columns, active field ownership, and active,
+visible Custom Object relationship sides. On reads it reconciles stale metadata
+instead of interpreting it as data. Visibility rules are a rendering layer:
+they cannot make a hidden/unreadable field visible or turn a read-only field
+into an editable one.
+
 ### Archive integrity
 
 Database triggers propagate archives so active relationships are not silently orphaned. The relationship archive RPC serializes removals and performs the final-edge required check in the same transaction.
@@ -641,6 +745,13 @@ FormBuilder offers a **Relationship Dropdown** field type. The field settings sh
 | POST/PUT permission | `.../permissions` | Upsert role capabilities |
 
 React Query keys are object-ID based (`custom-objects`, object, fields, records, relationship definitions/rows). Contextual creation invalidates the target object's record lists, the originating relationship rows and definition counts, and the originating record detail. The dialog closes only after success; failures leave field and relationship state in place. No cache key depends on “Department” or “Region”.
+
+The admin object's **Presentation** tab saves the shared list default and the
+v2 CRM card layout. The generated record page applies that layout, evaluates
+visibility rules for the opened record, renders relationship cards in their
+configured positions, and keeps unplaced relationship cards reachable below
+the layout. Portal Menu Management exposes only active Custom Objects the
+administrator can view and saves their stable list destinations/access IDs.
 
 ---
 
@@ -725,9 +836,12 @@ Phase 2 must consume stable generic contracts rather than inspect JSON or add ex
 | Include archived | query | `"true"` or omitted | omitted | Include archived resources |
 | Record capabilities | role permission | five booleans | false | Per-object authorization |
 | Shared list fields | object presentation metadata | ordered active field UUIDs | legacy active-field order | Administrator default; a personal saved column set overrides it locally |
-| Detail sections | object presentation metadata | ordered section IDs/labels and active field UUIDs | legacy generated detail | Shared record-detail representation |
+| CRM detail layout | `configuration.views.detail` | version `2`, stable cards/elements, columns 1–3, visibility rules | legacy sections/generated detail | Shared field and relationship-card placement |
+| Schema snapshot | `views.detail.schema_field_ids` | active field UUIDs | populated/reconciled on read | Distinguishes newly created fields from intentionally unplaced fields |
 | Relationship compact preview | relationship configuration | ordered opposite-object field UUIDs per routed side | primary label only | Supporting values for cards and Custom Object pickers |
-| Field role access | field permission | `none`, `read`, `write` per role/field | inherited legacy object capability | Server-enforced read/write visibility after object access |
+| Field role access | field permission | `none`, `read`, `edit` per role/field | inherited legacy object capability | Server-enforced read/edit visibility after object access |
+| Portal object destination | portal menu item | `CustomObjectsAdmin/<object-id>/records` | none | Canonical encoded list route for one object |
+| Portal object access ID | portal menu `feature_id` | `custom-object:<object-id>:view-records` | generated for canonical list URL | Stable object-specific portal access rule |
 | Form relationship parent | form field | earlier `organisation_dropdown` field UUID | none | Direct dependency source |
 | Form relationship definition | form field | eligible active relationship UUID | none | Constrains related options |
 | Structured action source | `Form.structured_actions.actions[]` | `top_level`, `repeatable_row` | `top_level` | Selects one submission or each row; repeatable scope also requires `repeatable_field_id` |
@@ -772,6 +886,26 @@ Phase 2 must consume stable generic contracts rather than inspect JSON or add ex
 **Symptom:** Read retains a key that write rejects.  
 **Cause:** The field was archived or removed from active metadata; historic data is intentionally preserved.  
 **Fix:** Reactivate/configure the field or omit the historic key while satisfying current required fields.
+
+### Problem: CRM presentation save is rejected
+**Symptom:** Saving the Presentation tab returns “Invalid CRM presentation configuration.”
+**Cause:** The layout is not version 2, has duplicate/incorrect stable element IDs, an invalid column, an inactive/wrong-object field, or a relationship side that is no longer active and visible.
+**Fix:** Refresh the schema, remove stale elements/rules, and save IDs in the required `field:<field-id>` or `relationship:<definition-id>:<side>` form. Do not substitute labels or internal keys.
+
+### Problem: A newly added field is absent or an old card item disappeared
+**Symptom:** The effective layout differs from the saved card configuration.
+**Cause:** Read-time reconciliation removes inactive fields/unavailable relationship sides. It appends only fields created after `schema_field_ids` was saved; a snapshot field intentionally left unplaced remains unplaced.
+**Fix:** Confirm the field and relationship lifecycle first, then edit and save the v2 layout to place the desired active field/card explicitly.
+
+### Problem: A portal Custom Object menu link is hidden or opens without access
+**Symptom:** The object is not selectable in Portal Menu Management, or a saved link is not authorized.
+**Cause:** The object is inactive, the current administrator lacks `view_records`, or the menu URL/feature ID is not the canonical stable pair.
+**Fix:** Activate the object, grant `view_records`, and save the internal URL as `CustomObjectsAdmin/<object-id>/records`. Let the editor generate `custom-object:<object-id>:view-records`; do not use an object label/key or a generic feature ID.
+
+### Problem: Back from a related record returns to the list
+**Symptom:** After following a relationship row, **Back** does not return to the source record.
+**Cause:** There is no valid internal `relationshipReturnTo` state, or it was rejected as an unsafe URL.
+**Fix:** Follow the relationship row from the generated panel rather than constructing a direct external/deep link. Only application-relative return paths are supported.
 
 ### Problem: Relationship dropdown stays disabled
 **Symptom:** The respondent cannot select a related record.

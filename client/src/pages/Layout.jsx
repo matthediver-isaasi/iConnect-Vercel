@@ -15,8 +15,13 @@ import { SALES_DESTINATIONS } from "@/lib/salesNavigation";
 import { InstalledFontsLoader } from "@/lib/installedFonts";
 import PortalNavLink from "@/components/navigation/PortalNavLink";
 import {
+  getCustomObjectIdFromPortalListUrl,
+  getCustomObjectIdFromPortalPath,
+  getCustomObjectIdFromPortalRoleAccessId,
+  getCustomObjectPortalRoleAccessId,
   getPortalMenuFallbackFeatureId,
   isPortalMenuDestinationActive,
+  loadViewableCustomObjectPortalDestinations,
   resolvePortalMenuDestination,
 } from "@/lib/portalMenuLinks";
 import { publicClient } from "@/api/publicClient";
@@ -1257,6 +1262,22 @@ const { data: dynamicNavItems = [] } = useQuery({
   },
 });
 
+// Resolve object-scoped menu visibility through the same catalogue grant used
+// by direct Custom Object routes. Fail closed while loading or on an error.
+const {
+  data: viewableCustomObjects = [],
+  isFetched: viewableCustomObjectsFetched,
+} = useQuery({
+  queryKey: ['custom-objects-for-portal-navigation', memberInfo?.id],
+  enabled: !!memberInfo,
+  retry: false,
+  queryFn: () => loadViewableCustomObjectPortalDestinations(),
+});
+const viewableCustomObjectIds = useMemo(
+  () => new Set(viewableCustomObjects.map(object => object.objectId)),
+  [viewableCustomObjects],
+);
+
 // Fetch page visibility settings from public system_settings API
 const { data: pageVisibilitySettings = {}, isFetched: visibilitySettingsFetched } = useQuery({
   queryKey: ['page-visibility-settings'],
@@ -1456,6 +1477,8 @@ useEffect(() => {
   // Uses the new hierarchical role visibility system
   const isFeatureExcluded = (featureId) => {
     if (!memberInfo || !featureId) return false;
+    const customObjectId = getCustomObjectIdFromPortalRoleAccessId(featureId);
+    if (customObjectId) return !viewableCustomObjectIds.has(customObjectId);
 
     // Group-admin grant path: members who admin at least one (non-expired) group
     // can always reach the Support page even when their role/member settings
@@ -1615,6 +1638,8 @@ useEffect(() => {
 
   // Helper function to check if current page is excluded
   const isCurrentPageExcluded = () => {
+    const customObjectId = getCustomObjectIdFromPortalPath(location.pathname);
+    if (customObjectId) return !viewableCustomObjectIds.has(customObjectId);
     // Use the mapped feature ID if available, otherwise fall back to legacy pattern
     const pageFeatureId = pageToFeatureIdMap[currentPageName] || `page_${currentPageName}`;
     return isFeatureExcluded(pageFeatureId);
@@ -2052,13 +2077,26 @@ useEffect(() => {
       if (isSupportPage && memberInfo.id && !groupAssignmentsFetched) {
         return;
       }
+      const customObjectId = getCustomObjectIdFromPortalPath(location.pathname);
+      if (customObjectId && !viewableCustomObjectsFetched) {
+        return;
+      }
       
       // Check if page is excluded by role/member settings (covers both user and admin pages)
       if (isCurrentPageExcluded()) {
         window.location.href = createPageUrl(fallbackPage);
       }
     }
-  }, [currentPageName, memberInfo, memberRole, isCurrentMemberGroupAdmin, groupAssignmentsFetched]);
+  }, [
+    currentPageName,
+    memberInfo,
+    memberRole,
+    isCurrentMemberGroupAdmin,
+    groupAssignmentsFetched,
+    location.pathname,
+    viewableCustomObjectsFetched,
+    viewableCustomObjectIds,
+  ]);
 
   // Save sidebar scroll position to sessionStorage on scroll
   React.useEffect(() => {
@@ -2150,6 +2188,12 @@ useEffect(() => {
     // Helper to get or generate feature_id for a menu item
     // This ensures filtering works even if feature_id wasn't set in the database
     const getFeatureId = (item, itemSection) => {
+      const customObjectId = item.link_type !== 'external'
+        ? getCustomObjectIdFromPortalListUrl(item.url)
+        : null;
+      if (customObjectId) {
+        return getCustomObjectPortalRoleAccessId(customObjectId);
+      }
       // If feature_id is already set, use it
       if (item.feature_id) {
         return item.feature_id;

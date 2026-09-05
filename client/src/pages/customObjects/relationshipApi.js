@@ -24,8 +24,18 @@ export const relationshipRequest = async (path, options = {}) => {
 
 export const relationshipRoutes = {
   definitions: (objectId, includeArchived = false) => `/api/custom-objects/${objectId}/relationship-definitions${includeArchived ? "?includeArchived=true" : ""}`,
-  definitionPage: (objectId, page = 1, pageSize = 100) =>
-    `/api/custom-objects/${objectId}/relationship-definitions?${new URLSearchParams({ page, pageSize })}`,
+  definitionPage: (objectId, page = 1, pageSize = 100, includeArchived = false) =>
+    `/api/custom-objects/${objectId}/relationship-definitions?${new URLSearchParams({
+      page,
+      pageSize,
+      ...(includeArchived ? { includeArchived: "true" } : {}),
+    })}`,
+  fields: (objectId, page = 1, pageSize = 100, includeInactive = false) =>
+    `/api/custom-objects/${objectId}/fields?${new URLSearchParams({
+      page,
+      pageSize,
+      includeInactive: String(includeInactive),
+    })}`,
   definition: (objectId, definitionId) =>
     `/api/custom-objects/${objectId}/relationship-definitions/${definitionId}`,
   objects: (page = 1, pageSize = 100) =>
@@ -79,8 +89,11 @@ export const loadRelationshipDefinitions = async (
   objectId,
   request = relationshipRequest,
   pageSize = 100,
+  includeArchived = false,
 ) => {
-  const first = await request(relationshipRoutes.definitionPage(objectId, 1, pageSize));
+  const first = await request(
+    relationshipRoutes.definitionPage(objectId, 1, pageSize, includeArchived),
+  );
   const total = Number(first.total);
   // Older endpoints return an array. It is already a complete response.
   if (!Number.isFinite(total)) return first;
@@ -89,7 +102,35 @@ export const loadRelationshipDefinitions = async (
     throw new Error("There are too many relationship definitions to load safely.");
   const additional = await Promise.all(Array.from(
     { length: pageCount - 1 },
-    (_, index) => request(relationshipRoutes.definitionPage(objectId, index + 2, pageSize)),
+    (_, index) => request(
+      relationshipRoutes.definitionPage(objectId, index + 2, pageSize, includeArchived),
+    ),
+  ));
+  return { ...first, data: [first, ...additional].flatMap((result) => result.data || []) };
+};
+
+export const loadCustomObjectFields = async (
+  objectId,
+  {
+    includeInactive = false,
+    request = relationshipRequest,
+    pageSize = 100,
+  } = {},
+) => {
+  const first = await request(
+    relationshipRoutes.fields(objectId, 1, pageSize, includeInactive),
+  );
+  const total = Number(first.total);
+  if (!Number.isFinite(total)) return first;
+  const pageCount = Math.max(1, Math.ceil(total / pageSize));
+  if (pageCount > 100) {
+    throw new Error("There are too many Custom Object fields to load safely.");
+  }
+  const additional = await Promise.all(Array.from(
+    { length: pageCount - 1 },
+    (_, index) => request(
+      relationshipRoutes.fields(objectId, index + 2, pageSize, includeInactive),
+    ),
   ));
   return { ...first, data: [first, ...additional].flatMap((result) => result.data || []) };
 };

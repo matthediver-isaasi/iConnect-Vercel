@@ -367,6 +367,242 @@ test('role permission is deny-by-default while an administrator bypasses it', as
   );
 });
 
+test('non-admin portal reads fail closed without an object role grant', async () => {
+  const db = mockDb({
+    custom_object_definition: [object()],
+    preference_field: [field()],
+    custom_object_record: [{
+      id: 'record-1', tenant_id: tenantId, custom_object_id: objectId,
+      archived_at: null, data: { headcount: 1 },
+    }],
+  });
+  const service = createCustomObjectService({
+    db,
+    context: context(),
+    isAdmin: false,
+  });
+  await assert.rejects(() => service.getObject(objectId), (error) => error.status === 403);
+  await assert.rejects(() => service.listFields(objectId, {}), (error) => error.status === 403);
+  await assert.rejects(() => service.listRecords(objectId, {}), (error) => error.status === 403);
+  await assert.rejects(() => service.getRecord(objectId, 'record-1'), (error) => error.status === 403);
+  assert.deepEqual(await service.listObjects({}), {
+    data: [], total: 0, page: 1, pageSize: 25,
+  });
+});
+
+test('record-reader object catalogue omits unprojected presentation metadata', async () => {
+  const db = mockDb({
+    custom_object_definition: [object({
+      primary_display_field_id: 'field-denied',
+      configuration: {
+        views: {
+          detail: {
+            version: 2,
+            schema_field_ids: ['field-denied'],
+            cards: [{
+              id: 'private',
+              title: 'Private',
+              columns: 1,
+              fields: [{
+                id: 'field:field-denied',
+                type: 'field',
+                field_id: 'field-denied',
+                columnIndex: 0,
+              }],
+            }],
+          },
+        },
+      },
+    })],
+    custom_object_role_permission: [{
+      tenant_id: tenantId,
+      custom_object_id: objectId,
+      role_id: roleId,
+      can_view_records: true,
+    }],
+  });
+  const result = await createCustomObjectService({
+    db,
+    context: context(),
+    isAdmin: false,
+  }).listObjects({ status: 'active' });
+  assert.equal(result.data.length, 1);
+  assert.equal(Object.hasOwn(result.data[0], 'configuration'), false);
+  assert.equal(Object.hasOwn(result.data[0], 'primary_display_field_id'), false);
+  assert.equal(result.data[0].capabilities.view, true);
+});
+
+test('object reads safely reconcile versioned CRM presentation against current fields', async () => {
+  const retained = field({ id: 'field-retained', name: 'title', is_required: false });
+  const added = field({ id: 'field-added', name: 'code', is_required: false });
+  const db = mockDb({
+    custom_object_definition: [object({
+      configuration: {
+        views: {
+          detail: {
+            version: 2,
+            schema_field_ids: [retained.id],
+            cards: [{
+              id: 'card-details',
+              title: 'Details',
+              columns: 1,
+              fields: [
+                {
+                  id: 'custom:field-retained',
+                  type: 'custom',
+                  fieldId: `custom:${retained.id}`,
+                  columnIndex: 0,
+                },
+                { id: 'field:removed', type: 'field', field_id: 'removed', columnIndex: 0 },
+              ],
+            }],
+          },
+        },
+      },
+    })],
+    preference_field: [retained, added],
+    custom_object_relationship_definition: [],
+    custom_object_role_permission: [{
+      tenant_id: tenantId, custom_object_id: objectId, role_id: roleId,
+      can_view_records: true,
+    }],
+  });
+  const result = await createCustomObjectService({ db, context: context() }).getObject(objectId);
+  assert.deepEqual(
+    result.configuration.views.detail.cards.flatMap((card) => card.fields).map((item) => item.id),
+    ['custom:field-retained', 'field:field-added'],
+  );
+  assert.equal(db.tables.custom_object_definition[0].configuration.views.detail.cards[0].fields.length, 2);
+});
+
+test('record-reader object metadata prunes denied fields and stale dependent rules', async () => {
+  const visible = field({ id: 'field-visible', name: 'title', is_required: false });
+  const denied = field({ id: 'field-denied', name: 'secret', is_required: false });
+  const db = mockDb({
+    custom_object_definition: [object({
+      configuration: {
+        views: {
+          detail: {
+            version: 2,
+            schema_field_ids: [visible.id, denied.id],
+            cards: [{
+              id: 'card-details',
+              title: 'Details',
+              columns: 1,
+              fields: [
+                { id: `field:${visible.id}`, type: 'field', field_id: visible.id, columnIndex: 0 },
+                { id: `field:${denied.id}`, type: 'field', field_id: denied.id, columnIndex: 0 },
+              ],
+            }],
+            visibility_rules: [{
+              id: 'private-rule',
+              conditions: [{ field_id: denied.id, operator: 'not_empty' }],
+              actions: [{
+                action_type: 'hide',
+                target_type: 'field',
+                target_field_id: `field:${visible.id}`,
+              }],
+            }],
+          },
+        },
+      },
+    })],
+    preference_field: [visible, denied],
+    custom_object_relationship_definition: [],
+    custom_object_role_permission: [{
+      tenant_id: tenantId,
+      custom_object_id: objectId,
+      role_id: roleId,
+      can_view_records: true,
+    }],
+    custom_object_field_role_permission: [{
+      tenant_id: tenantId,
+      custom_object_id: objectId,
+      role_id: roleId,
+      field_id: denied.id,
+      access_level: 'none',
+    }],
+  });
+  const result = await createCustomObjectService({ db, context: context() }).getObject(objectId);
+  assert.deepEqual(result.configuration.views.detail.schema_field_ids, [visible.id]);
+  assert.deepEqual(
+    result.configuration.views.detail.cards.flatMap((card) => card.fields).map((item) => item.id),
+    [`field:${visible.id}`],
+  );
+  assert.deepEqual(result.configuration.views.detail.visibility_rules, []);
+});
+
+test('hidden relationship sides reject direct non-admin create and archive mutations', async () => {
+  const targetObjectId = '44444444-4444-4444-8444-444444444444';
+  const definitionId = '55555555-5555-4555-8555-555555555555';
+  const db = mockDb({
+    custom_object_definition: [
+      object(),
+      object({ id: targetObjectId, object_key: 'target' }),
+    ],
+    custom_object_relationship_definition: [{
+      id: definitionId,
+      tenant_id: tenantId,
+      status: 'active',
+      cardinality: 'many_to_many',
+      source_kind: 'custom_object',
+      source_custom_object_id: objectId,
+      target_kind: 'custom_object',
+      target_custom_object_id: targetObjectId,
+      show_on_source: false,
+      show_on_target: true,
+      edit_from_source: true,
+      edit_from_target: true,
+    }],
+    custom_object_record: [
+      { id: 'source-1', tenant_id: tenantId, custom_object_id: objectId, archived_at: null },
+      { id: 'target-1', tenant_id: tenantId, custom_object_id: targetObjectId, archived_at: null },
+    ],
+    custom_object_relationship: [{
+      id: 'edge-1',
+      tenant_id: tenantId,
+      relationship_definition_id: definitionId,
+      source_record_id: 'source-1',
+      target_record_id: 'target-1',
+      archived_at: null,
+    }],
+    custom_object_role_permission: [
+      {
+        tenant_id: tenantId,
+        custom_object_id: objectId,
+        role_id: roleId,
+        can_view_records: true,
+        can_edit_records: true,
+      },
+      {
+        tenant_id: tenantId,
+        custom_object_id: targetObjectId,
+        role_id: roleId,
+        can_view_records: true,
+        can_edit_records: true,
+      },
+    ],
+  });
+  const service = createCustomObjectService({ db, context: context(), isAdmin: false });
+  await assert.rejects(
+    () => service.createRelationship(objectId, {
+      relationship_definition_id: definitionId,
+      source_record_id: 'source-1',
+      target_record_id: 'target-1',
+      routed_side: 'source',
+      routed_record_id: 'source-1',
+    }),
+    (error) => error.status === 403 && /hidden/.test(error.message),
+  );
+  await assert.rejects(
+    () => service.archiveRelationship(objectId, 'edge-1', {
+      routed_side: 'source',
+      routed_record_id: 'source-1',
+    }),
+    (error) => error.status === 403 && /hidden/.test(error.message),
+  );
+});
+
 test('record creation coerces typed JSONB, rejects invalid values, and authors mutation identity', async () => {
   const db = mockDb({
     custom_object_definition: [object()],

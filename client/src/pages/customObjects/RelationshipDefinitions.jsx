@@ -11,7 +11,13 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
-import { loadActiveRelationshipObjects, relationshipRequest, relationshipRoutes } from "./relationshipApi";
+import {
+  loadActiveRelationshipObjects,
+  loadCustomObjectFields,
+  loadRelationshipDefinitions,
+  relationshipRequest,
+  relationshipRoutes,
+} from "./relationshipApi";
 import { canDefineRelationships, CARDINALITIES, defaultDefinitionForm, definitionList, definitionPayload, ENTITY_KINDS, labelForSide, relationshipSourceName, resolveRelationshipSourceObject } from "./relationshipHelpers";
 
 const kindName = (kind) => ENTITY_KINDS.find(([value]) => value === kind)?.[1] || kind;
@@ -105,7 +111,7 @@ function CompactPreviewSettings({ side, form, update }) {
   const objectId = form[`${opposite}_kind`] === "custom_object" ? form[`${opposite}_custom_object_id`] : null;
   const query = useQuery({
     queryKey: ["custom-objects", objectId, "compact-preview-fields"],
-    queryFn: () => relationshipRequest(`/api/custom-objects/${objectId}/fields?includeInactive=false&pageSize=100`),
+    queryFn: () => loadCustomObjectFields(objectId),
     enabled: Boolean(objectId),
   });
   if (!objectId) return <p className="mt-3 border-t pt-3 text-xs text-slate-500">Compact previews for {side} are supplied by the connected {kindName(form[`${opposite}_kind`])} record type.</p>;
@@ -126,7 +132,15 @@ export function RelationshipDefinitions({ objectId, object, canManage }) {
   const qc = useQueryClient(); const [open, setOpen] = useState(false); const [editing, setEditing] = useState(null);
   const relationshipReady = canDefineRelationships(object);
   const canCreate = canManage && relationshipReady;
-  const query = useQuery({ queryKey: ["custom-objects", objectId, "relationships", "all"], queryFn: () => relationshipRequest(relationshipRoutes.definitions(objectId, true)) });
+  const query = useQuery({
+    queryKey: ["custom-objects", objectId, "relationships", "all"],
+    queryFn: () => loadRelationshipDefinitions(
+      objectId,
+      relationshipRequest,
+      100,
+      true,
+    ),
+  });
   const archive = useMutation({
     mutationFn: (definition) => relationshipRequest(relationshipRoutes.definition(objectId, definition.id), { method: "DELETE" }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["custom-objects", objectId, "relationships"] }); toast.success("Relationship definition archived"); },

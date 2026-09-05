@@ -278,7 +278,7 @@ test('Data Studio uses one canonical page permission across routes and menu cata
   );
 });
 
-test('Presentation editor wires the shared Checkbox into each ordered field picker', async () => {
+test('Presentation editor wires list columns, CRM cards, relationships, and visibility rules', async () => {
   const adminPage = await readFile(
     new URL('../../client/src/pages/CustomObjectsAdmin.jsx', import.meta.url),
     'utf8',
@@ -298,7 +298,27 @@ test('Presentation editor wires the shared Checkbox into each ordered field pick
   );
   assert.match(
     adminPage,
-    /Detail sections[\s\S]*<OrderedFieldPicker\b/,
+    /Record page cards[\s\S]*<OrgDetailLayoutEditor\b/,
+  );
+  assert.match(
+    adminPage,
+    /relationshipPanels=\{panels\}/,
+  );
+  assert.match(
+    adminPage,
+    /Conditional visibility/,
+  );
+  assert.match(
+    adminPage,
+    /visibility_rules/,
+  );
+  assert.match(
+    adminPage,
+    /loadCustomObjectFields\(objectId/,
+  );
+  assert.match(
+    adminPage,
+    /loadRelationshipDefinitions\(objectId, api\)/,
   );
   assert.match(
     adminPage,
