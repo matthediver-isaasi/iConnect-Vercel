@@ -24,6 +24,7 @@ export function InitialRelationshipSelector({
   onChange,
   error,
   fixed,
+  proposedRelationships = [],
 }) {
   const { definition, side } = selector;
   const [search, setSearch] = useState("");
@@ -36,6 +37,10 @@ export function InitialRelationshipSelector({
   const selectedIds = useMemo(
     () => new Set(selected.map((entry) => String(entry.id))),
     [selected],
+  );
+  const proposedRelationshipsJson = useMemo(
+    () => JSON.stringify(proposedRelationships),
+    [proposedRelationships],
   );
 
   useEffect(() => {
@@ -51,12 +56,14 @@ export function InitialRelationshipSelector({
       side,
       debouncedSearch,
       page,
+      proposedRelationshipsJson,
     ],
     queryFn: () => relationshipRequest(relationshipRoutes.initialRelationshipCandidates(objectId, {
       definitionId: definition.id,
       side,
       page,
       pageSize: PAGE_SIZE,
+      proposedRelationships: proposedRelationshipsJson,
       ...(debouncedSearch ? { search: debouncedSearch } : {}),
     })),
     enabled: !fixed,

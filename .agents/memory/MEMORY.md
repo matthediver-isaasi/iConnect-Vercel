@@ -152,3 +152,4 @@
 - [Long-running pinned imports](long-running-pinned-imports.md) — sequential compensated imports may outlive interactive shells; resume idempotently and require a zero-write replay.
 - [Paginated RPC exact totals](paginated-rpc-exact-totals.md) — window totals disappear on out-of-range pages; return the count independently of page rows.
 - [Saved list metadata reconciliation](saved-list-metadata-reconciliation.md) — defer saved-ID reconciliation until authorized server metadata resolves; manual choices must outrank defaults.
+- [Relationship picker graph scopes](relationship-picker-graph-scopes.md) — constrain direct links by intersecting bounded source/target relationship paths; active graph only, fail closed.

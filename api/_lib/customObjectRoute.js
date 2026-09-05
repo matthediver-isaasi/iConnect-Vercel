@@ -16,6 +16,7 @@ function schemaAccessRequired(level, resource, method) {
     'relationship-filter-options',
   ].includes(resource)) return null;
   if (level === 'resource' && resource === 'relationship-definitions') return method === 'GET' ? 'view' : 'manage';
+  if (level === 'resource' && resource === 'relationship-definition-graph') return 'manage';
   if (
     method === 'GET'
     && (
@@ -26,7 +27,7 @@ function schemaAccessRequired(level, resource, method) {
   if (method === 'GET') return 'view';
   if (
     ['collection', 'object'].includes(level)
-    || ['fields', 'relationship-definitions', 'permissions', 'field-permissions'].includes(resource)
+    || ['fields', 'relationship-definitions', 'relationship-definition-graph', 'permissions', 'field-permissions'].includes(resource)
   ) return 'manage';
   return null;
 }
@@ -118,6 +119,7 @@ export function createCustomObjectRouteHandler(level, dependencies = {}) {
         }
         else if (resource === 'relationship-definitions' && req.method === 'GET') data = await service.listRelationshipDefinitions(objectId, req.query);
         else if (resource === 'relationship-definitions' && req.method === 'POST') data = await service.createRelationshipDefinition(objectId, req.body);
+        else if (resource === 'relationship-definition-graph' && req.method === 'GET') data = await service.relationshipDefinitionGraph(objectId);
         else if (resource === 'initial-relationship-candidates' && req.method === 'GET') data = await service.initialRelationshipCandidates(objectId, req.query);
         else if (resource === 'relationship-filter-options' && req.method === 'GET') data = await service.relationshipFilterOptions(objectId, req.query);
         else if (resource === 'entity-picker' && req.method === 'GET') data = await service.entityPicker(objectId, req.query);

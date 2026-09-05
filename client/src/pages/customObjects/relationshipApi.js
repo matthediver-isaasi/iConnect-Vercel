@@ -24,6 +24,7 @@ export const relationshipRequest = async (path, options = {}) => {
 
 export const relationshipRoutes = {
   definitions: (objectId, includeArchived = false) => `/api/custom-objects/${objectId}/relationship-definitions${includeArchived ? "?includeArchived=true" : ""}`,
+  definitionGraph: (objectId) => `/api/custom-objects/${objectId}/relationship-definition-graph`,
   definitionPage: (objectId, page = 1, pageSize = 100, includeArchived = false) =>
     `/api/custom-objects/${objectId}/relationship-definitions?${new URLSearchParams({
       page,

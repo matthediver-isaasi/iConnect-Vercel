@@ -2467,6 +2467,25 @@ test('relationship definitions validate endpoint ownership and preserve immutabl
     }),
     (error) => error.status === 409 && /cannot be changed/.test(error.message),
   );
+  await assert.rejects(
+    () => service.updateRelationshipDefinition(objectId, definitionId, {
+      configuration: {
+        picker_scope: {
+          version: 2,
+          match: 'intersects',
+          source_path: [{
+            relationship_definition_id: 'missing-source-path',
+            from_side: 'source',
+          }],
+          target_path: [{
+            relationship_definition_id: 'missing-target-path',
+            from_side: 'target',
+          }],
+        },
+      },
+    }),
+    (error) => error.status === 409 && /unavailable relationship/.test(error.message),
+  );
   const updated = await service.updateRelationshipDefinition(objectId, definitionId, {
     target_label: 'Teams',
   });
@@ -3322,6 +3341,171 @@ test('Department-member pickers are constrained to the Department organisation o
       relationship_definition_id: memberDefinitionId, related_record_id: 'dept-b',
     }),
     (error) => error.status === 400 && /picker scope/.test(error.message),
+  );
+});
+
+test('v2 picker paths intersect through reusable relationship graph hops in both directions', async () => {
+  const departmentObjectId = objectId;
+  const assignmentObjectId = 'assignment-object';
+  const memberDefinitionId = 'department-members-v2';
+  const departmentOrganisationId = 'department-organisation-v2';
+  const assignmentMemberId = 'assignment-member';
+  const assignmentOrganisationId = 'assignment-organisation';
+  const db = mockDb({
+    custom_object_definition: [
+      object({ id: departmentObjectId, object_key: 'org_department', primary_display_field_id: 'field-1' }),
+      object({ id: assignmentObjectId, object_key: 'member_organisation_assignment' }),
+    ],
+    preference_field: [field({ custom_object_id: departmentObjectId, name: 'name', field_type: 'text' })],
+    custom_object_relationship_definition: [{
+      id: memberDefinitionId, tenant_id: tenantId, relationship_key: 'members', status: 'active',
+      source_kind: 'custom_object', source_custom_object_id: departmentObjectId,
+      target_kind: 'member', target_custom_object_id: null, cardinality: 'many_to_many',
+      configuration: {
+        picker_scope: {
+          version: 2,
+          match: 'intersects',
+          source_path: [{
+            relationship_definition_id: departmentOrganisationId,
+            from_side: 'source',
+          }],
+          target_path: [{
+            relationship_definition_id: assignmentMemberId,
+            from_side: 'target',
+          }, {
+            relationship_definition_id: assignmentOrganisationId,
+            from_side: 'source',
+          }],
+        },
+      },
+      show_on_source: true, show_on_target: true, edit_from_source: true, edit_from_target: true,
+    }, {
+      id: departmentOrganisationId, tenant_id: tenantId, relationship_key: 'organisation', status: 'active',
+      source_kind: 'custom_object', source_custom_object_id: departmentObjectId,
+      target_kind: 'organization', target_custom_object_id: null, cardinality: 'many_to_one',
+    }, {
+      id: assignmentMemberId, tenant_id: tenantId, relationship_key: 'assignment_member', status: 'active',
+      source_kind: 'custom_object', source_custom_object_id: assignmentObjectId,
+      target_kind: 'member', target_custom_object_id: null, cardinality: 'many_to_one',
+    }, {
+      id: assignmentOrganisationId, tenant_id: tenantId, relationship_key: 'assignment_organisation', status: 'active',
+      source_kind: 'custom_object', source_custom_object_id: assignmentObjectId,
+      target_kind: 'organization', target_custom_object_id: null, cardinality: 'many_to_one',
+    }],
+    custom_object_record: [
+      { id: 'dept-a', tenant_id: tenantId, custom_object_id: departmentObjectId, archived_at: null, created_at: '2026-01-01', data: { name: 'Alpha' } },
+      { id: 'dept-b', tenant_id: tenantId, custom_object_id: departmentObjectId, archived_at: null, created_at: '2026-01-02', data: { name: 'Beta' } },
+      { id: 'dept-c', tenant_id: tenantId, custom_object_id: departmentObjectId, archived_at: null, created_at: '2026-01-03', data: { name: 'Charlie' } },
+      { id: 'assignment-a', tenant_id: tenantId, custom_object_id: assignmentObjectId, archived_at: null },
+      { id: 'assignment-c', tenant_id: tenantId, custom_object_id: assignmentObjectId, archived_at: null },
+      { id: 'assignment-b', tenant_id: tenantId, custom_object_id: assignmentObjectId, archived_at: null },
+      { id: 'assignment-archived', tenant_id: tenantId, custom_object_id: assignmentObjectId, archived_at: null },
+    ],
+    organization: [
+      { id: 'org-a', tenant_id: tenantId, name: 'A' },
+      { id: 'org-b', tenant_id: tenantId, name: 'B' },
+      { id: 'org-c', tenant_id: tenantId, name: 'C' },
+    ],
+    member: [
+      { id: 'member-a', tenant_id: tenantId, first_name: 'A', last_name: 'Member' },
+      { id: 'member-b', tenant_id: tenantId, first_name: 'B', last_name: 'Member' },
+    ],
+    custom_object_relationship: [
+      { id: 'dept-org-a', tenant_id: tenantId, relationship_definition_id: departmentOrganisationId, source_record_id: 'dept-a', target_record_id: 'org-a', archived_at: null },
+      { id: 'dept-org-b', tenant_id: tenantId, relationship_definition_id: departmentOrganisationId, source_record_id: 'dept-b', target_record_id: 'org-b', archived_at: null },
+      { id: 'dept-org-c', tenant_id: tenantId, relationship_definition_id: departmentOrganisationId, source_record_id: 'dept-c', target_record_id: 'org-c', archived_at: null },
+      { id: 'assignment-member-a', tenant_id: tenantId, relationship_definition_id: assignmentMemberId, source_record_id: 'assignment-a', target_record_id: 'member-a', archived_at: null },
+      { id: 'assignment-member-c', tenant_id: tenantId, relationship_definition_id: assignmentMemberId, source_record_id: 'assignment-c', target_record_id: 'member-a', archived_at: null },
+      { id: 'assignment-member-b', tenant_id: tenantId, relationship_definition_id: assignmentMemberId, source_record_id: 'assignment-b', target_record_id: 'member-b', archived_at: null },
+      { id: 'assignment-member-archived', tenant_id: tenantId, relationship_definition_id: assignmentMemberId, source_record_id: 'assignment-archived', target_record_id: 'member-a', archived_at: null },
+      { id: 'assignment-org-a', tenant_id: tenantId, relationship_definition_id: assignmentOrganisationId, source_record_id: 'assignment-a', target_record_id: 'org-a', archived_at: null },
+      { id: 'assignment-org-c', tenant_id: tenantId, relationship_definition_id: assignmentOrganisationId, source_record_id: 'assignment-c', target_record_id: 'org-c', archived_at: null },
+      { id: 'assignment-org-b', tenant_id: tenantId, relationship_definition_id: assignmentOrganisationId, source_record_id: 'assignment-b', target_record_id: 'org-b', archived_at: null },
+      { id: 'assignment-org-archived', tenant_id: tenantId, relationship_definition_id: assignmentOrganisationId, source_record_id: 'assignment-archived', target_record_id: 'org-b', archived_at: '2026-01-01' },
+      { id: 'foreign-assignment', tenant_id: 'other-tenant', relationship_definition_id: assignmentOrganisationId, source_record_id: 'assignment-a', target_record_id: 'org-b', archived_at: null },
+    ],
+  });
+  const service = createCustomObjectService({ db, context: context(), isAdmin: true });
+
+  const firstPage = await service.coreEntityPicker('member', 'member-a', {
+    definitionId: memberDefinitionId, page: '1', pageSize: '1',
+  });
+  assert.equal(firstPage.total, 2);
+  assert.deepEqual(firstPage.data.map((row) => row.id), ['dept-a']);
+  const secondPage = await service.coreEntityPicker('member', 'member-a', {
+    definitionId: memberDefinitionId, page: '2', pageSize: '1',
+  });
+  assert.deepEqual(secondPage.data.map((row) => row.id), ['dept-c']);
+  const searched = await service.coreEntityPicker('member', 'member-a', {
+    definitionId: memberDefinitionId, search: 'Char',
+  });
+  assert.equal(searched.total, 1);
+  assert.deepEqual(searched.data.map((row) => row.id), ['dept-c']);
+
+  const fromDepartment = await service.entityPicker(departmentObjectId, {
+    definitionId: memberDefinitionId, recordId: 'dept-b', side: 'source',
+  });
+  assert.deepEqual(fromDepartment.data.map((row) => row.id), ['member-b']);
+
+  const noInitialPath = await service.initialRelationshipCandidates(departmentObjectId, {
+    definitionId: memberDefinitionId,
+    newRecordSide: 'source',
+  });
+  assert.equal(noInitialPath.total, 0);
+  const initialWithProposedParent = await service.initialRelationshipCandidates(departmentObjectId, {
+    definitionId: memberDefinitionId,
+    newRecordSide: 'source',
+    proposedRelationships: JSON.stringify([{
+      relationship_definition_id: departmentOrganisationId,
+      routed_side: 'source',
+      related_record_id: 'org-a',
+    }]),
+  });
+  assert.deepEqual(initialWithProposedParent.data.map((row) => row.id), ['member-a']);
+  await assert.rejects(
+    () => service.createRecordWithRelationships(departmentObjectId, {
+      data: { name: 'New Department' },
+      initial_relationships: [{
+        relationship_definition_id: departmentOrganisationId,
+        routed_side: 'source',
+        related_record_id: 'org-a',
+      }, {
+        relationship_definition_id: memberDefinitionId,
+        routed_side: 'source',
+        related_record_id: 'member-b',
+      }],
+    }),
+    (error) => error.status === 400 && /picker scope/.test(error.message),
+  );
+
+  await service.createCoreRelationship('member', 'member-a', {
+    relationship_definition_id: memberDefinitionId,
+    related_record_id: 'dept-c',
+  });
+  await assert.rejects(
+    () => service.createRelationship(departmentObjectId, {
+      relationship_definition_id: memberDefinitionId,
+      routed_side: 'source',
+      routed_record_id: 'dept-b',
+      source_record_id: 'dept-b',
+      target_record_id: 'member-a',
+    }),
+    (error) => error.status === 400 && /picker scope/.test(error.message),
+  );
+
+  db.tables.custom_object_relationship.find((edge) => edge.id === 'assignment-org-b').archived_at = '2026-02-01';
+  const emptyAfterArchive = await service.entityPicker(departmentObjectId, {
+    definitionId: memberDefinitionId, recordId: 'dept-b', side: 'source',
+  });
+  assert.equal(emptyAfterArchive.total, 0);
+  assert.deepEqual(emptyAfterArchive.data, []);
+
+  db.tables.custom_object_definition.find((item) => item.id === assignmentObjectId).status = 'archived';
+  await assert.rejects(
+    () => service.coreEntityPicker('member', 'member-a', {
+      definitionId: memberDefinitionId,
+    }),
+    (error) => error.status === 409 && /endpoint is unavailable/.test(error.message),
   );
 });
 

@@ -129,6 +129,19 @@ export function ContextualRecordCreateDialog({
     selectors,
     relationships,
   });
+  const proposedRelationships = useMemo(() => [
+    {
+      relationship_definition_id: originDefinition.id,
+      routed_side: oppositeSide(originSide),
+      related_record_id: originContext.recordId,
+    },
+    ...selectors.filter((item) => !item.fixed).flatMap(({ definition, side }) =>
+      (relationships[relationshipSelectorKey(definition.id, side)] || []).map((relatedRecord) => ({
+        relationship_definition_id: definition.id,
+        routed_side: side,
+        related_record_id: relatedRecord.id,
+      }))),
+  ], [originDefinition.id, originSide, originContext.recordId, selectors, relationships]);
 
   useEffect(() => {
     if (!open || !primaryNameField || primaryNameOverridden) return;
@@ -239,6 +252,7 @@ export function ContextualRecordCreateDialog({
                       selector={selector}
                       objectId={targetObject.id}
                       value={relationships[key] || []}
+                      proposedRelationships={proposedRelationships}
                       onChange={(value) => {
                         setRelationships((current) => ({ ...current, [key]: value }));
                         setErrors((current) => ({

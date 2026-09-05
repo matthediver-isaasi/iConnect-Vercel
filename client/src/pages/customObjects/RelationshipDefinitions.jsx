@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Archive, ChevronRight, CircleAlert, Loader2, Network, Pencil, Plus, Save } from "lucide-react";
+import { Archive, ChevronRight, CircleAlert, Loader2, Network, Pencil, Plus, Save, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -18,7 +18,20 @@ import {
   relationshipRequest,
   relationshipRoutes,
 } from "./relationshipApi";
-import { canDefineRelationships, CARDINALITIES, defaultDefinitionForm, definitionList, definitionPayload, ENTITY_KINDS, labelForSide, relationshipSourceName, resolveRelationshipSourceObject } from "./relationshipHelpers";
+import {
+  canDefineRelationships,
+  CARDINALITIES,
+  defaultDefinitionForm,
+  definitionList,
+  definitionPayload,
+  ENTITY_KINDS,
+  labelForSide,
+  relationshipEndpoint,
+  relationshipEndpointsMatch,
+  relationshipSourceName,
+  resolveRelationshipPickerPath,
+  resolveRelationshipSourceObject,
+} from "./relationshipHelpers";
 
 const kindName = (kind) => ENTITY_KINDS.find(([value]) => value === kind)?.[1] || kind;
 
@@ -28,6 +41,11 @@ function DefinitionDialog({ objectId, object, definition, open, onOpenChange }) 
   const objectsQuery = useQuery({
     queryKey: ["custom-objects", "active-for-relationships"],
     queryFn: () => loadActiveRelationshipObjects(),
+    enabled: open,
+  });
+  const graphQuery = useQuery({
+    queryKey: ["custom-objects", objectId, "relationship-definition-graph"],
+    queryFn: () => relationshipRequest(relationshipRoutes.definitionGraph(objectId)),
     enabled: open,
   });
   useEffect(() => {
@@ -46,10 +64,37 @@ function DefinitionDialog({ objectId, object, definition, open, onOpenChange }) 
     onError: (error) => toast.error(error.message),
   });
   const objects = objectsQuery.data?.data || objectsQuery.data || [];
+  const graph = graphQuery.data?.data || [];
   const update = (key, value) => setForm((current) => ({ ...current, [key]: value }));
+  const scope = form.configuration?.picker_scope;
+  const sourcePath = scope?.version === 2
+    ? resolveRelationshipPickerPath({
+      definitions: graph,
+      start: relationshipEndpoint(form, "source"),
+      path: scope.source_path,
+      excludeDefinitionId: definition?.id,
+    })
+    : null;
+  const targetPath = scope?.version === 2
+    ? resolveRelationshipPickerPath({
+      definitions: graph,
+      start: relationshipEndpoint(form, "target"),
+      path: scope.target_path,
+      excludeDefinitionId: definition?.id,
+    })
+    : null;
+  const scopeValid = scope?.version !== 2 || (
+    scope.match === "intersects"
+    && scope.source_path?.length > 0
+    && scope.target_path?.length > 0
+    && !sourcePath.error
+    && !targetPath.error
+    && relationshipEndpointsMatch(sourcePath.endpoint, targetPath.endpoint)
+  );
   const valid = form.relationship_key.trim() && form.source_label.trim() && form.target_label.trim() &&
     (form.source_kind !== "custom_object" || form.source_custom_object_id) &&
-    (form.target_kind !== "custom_object" || form.target_custom_object_id);
+    (form.target_kind !== "custom_object" || form.target_custom_object_id) &&
+    scopeValid;
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[92dvh] max-w-3xl overflow-y-auto">
@@ -75,11 +120,213 @@ function DefinitionDialog({ objectId, object, definition, open, onOpenChange }) 
             <Toggle label="Required link" hint="A record must have this relationship before it is complete." checked={form.is_required} onChange={(value) => update("is_required", value)} />
             <div className="border-l-0 sm:border-l sm:pl-5"><p className="text-sm font-medium text-slate-800">Availability</p><p className="mt-1 text-xs text-slate-500">Archived definitions remain in historic data but cannot be used for new links.</p><Select value={form.status} onValueChange={(value) => update("status", value)}><SelectTrigger className="mt-3"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="active">Active</SelectItem><SelectItem value="draft">Draft</SelectItem><SelectItem value="archived">Archived</SelectItem></SelectContent></Select></div>
           </div>
+          <PickerScopeSettings
+            form={form}
+            update={update}
+            definitions={graph}
+            graphQuery={graphQuery}
+            objects={objects}
+            currentDefinitionId={definition?.id}
+            sourcePath={sourcePath}
+            targetPath={targetPath}
+          />
           <div><Label>Administrator note</Label><Textarea value={form.configuration?.note || ""} onChange={(e) => update("configuration", { ...form.configuration, note: e.target.value })} placeholder="Optional guidance for future model editors" /></div>
         </div>
         <DialogFooter><Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button><Button disabled={!valid || save.isPending} onClick={() => save.mutate()}>{save.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}{definition ? "Save changes" : "Create relationship"}</Button></DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+const endpointName = (endpoint, objects) => {
+  if (!endpoint?.kind) return "Choose an endpoint";
+  if (endpoint.kind !== "custom_object") return kindName(endpoint.kind);
+  const object = objects.find((item) => String(item.id) === String(endpoint.customObjectId));
+  return object?.singular_label || object?.plural_label || "Custom object";
+};
+
+function RelationshipPathEditor({
+  title,
+  start,
+  path,
+  onChange,
+  definitions,
+  objects,
+  currentDefinitionId,
+}) {
+  const resolution = resolveRelationshipPickerPath({
+    definitions,
+    start,
+    path,
+    excludeDefinitionId: currentDefinitionId,
+  });
+  return (
+    <div className="rounded-md border bg-white p-3">
+      <p className="text-sm font-medium text-slate-800">{title}</p>
+      <p className="mt-1 text-xs text-slate-500">
+        Starts at {endpointName(start, objects)} and currently reaches {endpointName(resolution.endpoint, objects)}.
+      </p>
+      <div className="mt-3 space-y-2">
+        {path.map((hop, index) => {
+          const definition = definitions.find((item) =>
+            String(item.id) === String(hop.relationship_definition_id));
+          const reverse = hop.from_side === "target";
+          return (
+            <div key={`${hop.relationship_definition_id}-${index}`} className="flex items-center justify-between gap-2 rounded bg-slate-50 px-3 py-2 text-xs">
+              <span>
+                {definition
+                  ? `${reverse ? definition.target_label : definition.source_label} → ${reverse ? definition.source_label : definition.target_label}`
+                  : "Unavailable relationship"}
+              </span>
+              {index === path.length - 1 && (
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="ghost"
+                  className="h-7 w-7"
+                  aria-label={`Remove last ${title.toLowerCase()} step`}
+                  onClick={() => onChange(path.slice(0, -1))}
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </Button>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      {resolution.error ? (
+        <p className="mt-2 text-xs text-rose-600">{resolution.error}</p>
+      ) : path.length >= 3 ? (
+        <p className="mt-2 text-xs text-slate-500">Maximum path length reached.</p>
+      ) : resolution.options.length ? (
+        <Select
+          key={`${title}-${path.length}-${endpointName(resolution.endpoint, objects)}`}
+          value=""
+          onValueChange={(value) => {
+            const separator = value.lastIndexOf(":");
+            onChange([...path, {
+              relationship_definition_id: value.slice(0, separator),
+              from_side: value.slice(separator + 1),
+            }]);
+          }}
+        >
+          <SelectTrigger className="mt-3"><SelectValue placeholder="Add relationship step" /></SelectTrigger>
+          <SelectContent>
+            {resolution.options.map(({ definition, from_side: fromSide }) => {
+              const reverse = fromSide === "target";
+              return (
+                <SelectItem key={`${definition.id}:${fromSide}`} value={`${definition.id}:${fromSide}`}>
+                  {reverse ? definition.target_label : definition.source_label}
+                  {" → "}
+                  {reverse ? definition.source_label : definition.target_label}
+                </SelectItem>
+              );
+            })}
+          </SelectContent>
+        </Select>
+      ) : (
+        <p className="mt-2 text-xs text-amber-700">No active relationship continues from this record type.</p>
+      )}
+    </div>
+  );
+}
+
+function PickerScopeSettings({
+  form,
+  update,
+  definitions,
+  graphQuery,
+  objects,
+  currentDefinitionId,
+  sourcePath,
+  targetPath,
+}) {
+  const existing = form.configuration?.picker_scope;
+  const enabled = existing?.version === 2;
+  const setScope = (pickerScope) => {
+    const configuration = { ...form.configuration };
+    if (pickerScope) configuration.picker_scope = pickerScope;
+    else delete configuration.picker_scope;
+    update("configuration", configuration);
+  };
+  if (existing && existing.version !== 2) {
+    return (
+      <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
+        <p className="text-sm font-medium text-amber-950">Legacy picker restriction</p>
+        <p className="mt-1 text-xs text-amber-800">
+          This relationship uses an existing core-field restriction. It will keep working unchanged.
+        </p>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="mt-3"
+          onClick={() => setScope({
+            version: 2,
+            match: "intersects",
+            source_path: [],
+            target_path: [],
+          })}
+        >
+          Replace with relationship paths
+        </Button>
+      </div>
+    );
+  }
+  return (
+    <div className="rounded-lg border border-slate-200 p-4">
+      <Toggle
+        label="Limit choices through linked records"
+        hint="Only offer records when both sides can reach at least one of the same related records."
+        checked={enabled}
+        onChange={(checked) => setScope(checked ? {
+          version: 2,
+          match: "intersects",
+          source_path: [],
+          target_path: [],
+        } : null)}
+      />
+      {enabled && (
+        <div className="mt-4 space-y-3 border-t pt-4">
+          {graphQuery.isLoading ? (
+            <p className="text-sm text-slate-500">Loading relationship map…</p>
+          ) : graphQuery.error ? (
+            <p className="text-sm text-rose-600">
+              Relationship map could not be loaded.{" "}
+              <button type="button" className="underline" onClick={() => graphQuery.refetch()}>Retry</button>
+            </p>
+          ) : (
+            <>
+              <RelationshipPathEditor
+                title="Source path"
+                start={relationshipEndpoint(form, "source")}
+                path={existing.source_path || []}
+                onChange={(source_path) => setScope({ ...existing, source_path })}
+                definitions={definitions}
+                objects={objects}
+                currentDefinitionId={currentDefinitionId}
+              />
+              <RelationshipPathEditor
+                title="Target path"
+                start={relationshipEndpoint(form, "target")}
+                path={existing.target_path || []}
+                onChange={(target_path) => setScope({ ...existing, target_path })}
+                definitions={definitions}
+                objects={objects}
+                currentDefinitionId={currentDefinitionId}
+              />
+              {sourcePath && targetPath
+                && sourcePath.endpoint?.kind && targetPath.endpoint?.kind
+                && !relationshipEndpointsMatch(sourcePath.endpoint, targetPath.endpoint) && (
+                <p className="text-sm text-rose-600">
+                  Both paths must end at the same record type before this restriction can be saved.
+                </p>
+              )}
+            </>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 

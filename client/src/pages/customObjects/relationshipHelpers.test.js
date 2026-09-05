@@ -27,6 +27,9 @@ import {
   relationshipBackPath,
   relationshipLinkState,
   relationshipOriginPath,
+  relationshipEndpoint,
+  relationshipEndpointsMatch,
+  resolveRelationshipPickerPath,
   safeInAppPath,
 } from "./relationshipHelpers.js";
 import { loadRelationshipDefinitions, relationshipRoutes } from "./relationshipApi.js";
@@ -39,6 +42,59 @@ test("identifies the configured side without recursive lookups", () => {
       8,
     ),
     "source",
+  );
+});
+
+test("guided picker paths follow stable definition IDs and reject cycles", () => {
+  const definitions = [{
+    id: "assignment-member",
+    status: "active",
+    source_kind: "custom_object",
+    source_custom_object_id: "assignment",
+    target_kind: "member",
+    target_custom_object_id: null,
+  }, {
+    id: "assignment-organisation",
+    status: "active",
+    source_kind: "custom_object",
+    source_custom_object_id: "assignment",
+    target_kind: "organization",
+    target_custom_object_id: null,
+  }, {
+    id: "organisation-assignment-cycle",
+    status: "active",
+    source_kind: "organization",
+    source_custom_object_id: null,
+    target_kind: "custom_object",
+    target_custom_object_id: "assignment",
+  }];
+  const start = { kind: "member", customObjectId: null };
+  const first = resolveRelationshipPickerPath({ definitions, start, path: [] });
+  assert.deepEqual(first.options.map((item) => [item.definition.id, item.from_side]), [
+    ["assignment-member", "target"],
+  ]);
+  const complete = resolveRelationshipPickerPath({
+    definitions,
+    start,
+    path: [{
+      relationship_definition_id: "assignment-member",
+      from_side: "target",
+    }, {
+      relationship_definition_id: "assignment-organisation",
+      from_side: "source",
+    }],
+  });
+  assert.deepEqual(complete.endpoint, { kind: "organization", customObjectId: null });
+  assert.equal(
+    complete.options.some((item) => item.definition.id === "organisation-assignment-cycle"),
+    false,
+  );
+  assert.equal(
+    relationshipEndpointsMatch(
+      complete.endpoint,
+      relationshipEndpoint(definitions[1], "target"),
+    ),
+    true,
   );
 });
 

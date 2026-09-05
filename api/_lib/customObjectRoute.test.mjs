@@ -484,3 +484,32 @@ test('existing generic routes dispatch core relationship discovery, rows, picker
     ['archive', 'member', 'member-1', 'edge-1'],
   ]);
 });
+
+test('relationship definition graph route dispatches the schema-managed tenant graph', async () => {
+  const calls = [];
+  const handler = createCustomObjectRouteHandler('resource', {
+    getTenantContext: async () => ({
+      isAuthenticated: true,
+      tenantId: 'tenant-1',
+      tenantUserId: 'admin-1',
+    }),
+    hasAdminAccess: async () => true,
+    createCustomObjectService: () => ({
+      relationshipDefinitionGraph: async (objectId) => {
+        calls.push(objectId);
+        return { data: [{ id: 'definition-1' }] };
+      },
+    }),
+  });
+  const res = response();
+  await handler({
+    method: 'GET',
+    query: {
+      objectId: 'object-1',
+      resource: 'relationship-definition-graph',
+    },
+  }, res);
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(calls, ['object-1']);
+  assert.deepEqual(res.payload.data, [{ id: 'definition-1' }]);
+});

@@ -305,3 +305,58 @@ export const definitionPayload = (form) => ({
   target_custom_object_id: form.target_kind === "custom_object" ? form.target_custom_object_id : null,
   configuration: form.configuration || {},
 });
+
+export const relationshipEndpoint = (definition, side) => ({
+  kind: definition?.[`${side}_kind`] || "",
+  customObjectId: definition?.[`${side}_custom_object_id`] || null,
+});
+
+export const relationshipEndpointsMatch = (left, right) =>
+  left?.kind === right?.kind
+  && String(left?.customObjectId || "") === String(right?.customObjectId || "");
+
+export const resolveRelationshipPickerPath = ({
+  definitions = [],
+  start,
+  path = [],
+  excludeDefinitionId = null,
+}) => {
+  let endpoint = start;
+  const usedDefinitions = new Set();
+  const visitedEndpoints = new Set([`${start?.kind}:${start?.customObjectId || ""}`]);
+  let error = "";
+  for (const hop of path) {
+    const definition = definitions.find((item) =>
+      String(item.id) === String(hop.relationship_definition_id));
+    if (!definition || definition.status !== "active"
+      || String(definition.id) === String(excludeDefinitionId || "")
+      || usedDefinitions.has(String(definition.id))
+      || !["source", "target"].includes(hop.from_side)
+      || !relationshipEndpointsMatch(endpoint, relationshipEndpoint(definition, hop.from_side))) {
+      error = "This path contains an unavailable or disconnected relationship.";
+      break;
+    }
+    const toSide = hop.from_side === "source" ? "target" : "source";
+    endpoint = relationshipEndpoint(definition, toSide);
+    const endpointKey = `${endpoint.kind}:${endpoint.customObjectId || ""}`;
+    if (visitedEndpoints.has(endpointKey)) {
+      error = "Relationship paths cannot loop back to an earlier record type.";
+      break;
+    }
+    usedDefinitions.add(String(definition.id));
+    visitedEndpoints.add(endpointKey);
+  }
+  const options = error || path.length >= 3 ? [] : definitions.flatMap((definition) => {
+    if (definition.status !== "active"
+      || String(definition.id) === String(excludeDefinitionId || "")
+      || usedDefinitions.has(String(definition.id))) return [];
+    return ["source", "target"].filter((side) =>
+      relationshipEndpointsMatch(endpoint, relationshipEndpoint(definition, side)))
+      .map((side) => ({ definition, from_side: side }));
+  }).filter(({ definition, from_side }) => {
+    const toSide = from_side === "source" ? "target" : "source";
+    const next = relationshipEndpoint(definition, toSide);
+    return !visitedEndpoints.has(`${next.kind}:${next.customObjectId || ""}`);
+  });
+  return { endpoint, error, options };
+};

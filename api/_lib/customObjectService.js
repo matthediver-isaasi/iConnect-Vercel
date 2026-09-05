@@ -1326,6 +1326,7 @@ export function createCustomObjectService({
     const entries = [...(originating ? [{ ...originating, _originating: true }] : []), ...additional];
     const seen = new Set();
     const relationships = [];
+    const scopeChecks = [];
     for (const entry of entries) {
       if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
         throw new CustomObjectHttpError(400, 'Each initial relationship must be an object');
@@ -1375,6 +1376,27 @@ export function createCustomObjectService({
         related_record_id: relatedRecordId,
         originating: entry._originating === true,
       });
+      scopeChecks.push({ definition: relationship, routedSide: side, candidate: related });
+    }
+    const virtualRecordId = '00000000-0000-0000-0000-000000000000';
+    const virtualEdges = relationships.map((relationship) => ({
+      relationship_definition_id: relationship.relationship_definition_id,
+      source_record_id: relationship.routed_side === 'source'
+        ? virtualRecordId : relationship.related_record_id,
+      target_record_id: relationship.routed_side === 'target'
+        ? virtualRecordId : relationship.related_record_id,
+    }));
+    for (const check of scopeChecks) {
+      if (check.definition.configuration?.picker_scope?.version !== 2) continue;
+      const pickerScope = await configuredPickerScope(
+        check.definition,
+        check.routedSide,
+        virtualRecordId,
+        virtualEdges,
+      );
+      if (!pickerScopeAllowsCandidate(pickerScope, check.candidate)) {
+        throw new CustomObjectHttpError(400, 'Initial related record is outside the configured picker scope');
+      }
     }
     const { data, error } = await db.rpc('create_custom_object_record_with_relationships', {
       p_tenant_id: tenantId,
@@ -1425,9 +1447,89 @@ export function createCustomObjectService({
       endpointAccess = await fieldAccess(customObjectId, endpointFields);
     }
     const p = pagination(query);
+    const search = typeof query.search === 'string' ? query.search.trim() : '';
+    const eligibility = await pickerExcludedRecordIds(definition, side, '__new_record__');
+    let pickerScope = null;
+    if (definition.configuration?.picker_scope?.version === 2) {
+      let proposed;
+      try {
+        proposed = query.proposedRelationships
+          ? JSON.parse(query.proposedRelationships)
+          : [];
+      } catch {
+        throw new CustomObjectHttpError(400, 'proposedRelationships must be valid JSON');
+      }
+      if (!Array.isArray(proposed) || proposed.length > 50) {
+        throw new CustomObjectHttpError(400, 'proposedRelationships must be an array of at most 50 entries');
+      }
+      const virtualRecordId = '00000000-0000-0000-0000-000000000000';
+      const virtualEdges = [];
+      for (const entry of proposed) {
+        const proposedDefinitionId = entry?.relationship_definition_id;
+        const proposedSide = entry?.routed_side;
+        const proposedRelatedId = entry?.related_record_id;
+        if (!proposedDefinitionId || !['source', 'target'].includes(proposedSide) || !proposedRelatedId) {
+          throw new CustomObjectHttpError(400, 'Each proposed relationship is malformed');
+        }
+        const proposedDefinition = await one('custom_object_relationship_definition', proposedDefinitionId);
+        if (proposedDefinition.status !== 'active'
+          || proposedDefinition[`${proposedSide}_kind`] !== 'custom_object'
+          || proposedDefinition[`${proposedSide}_custom_object_id`] !== objectId) {
+          throw new CustomObjectHttpError(400, 'A proposed relationship does not match the new Custom Object');
+        }
+        const proposedRelatedSide = oppositeRelationshipSide(proposedSide);
+        const proposedRelated = await endpoint(
+          proposedDefinition[`${proposedRelatedSide}_kind`],
+          proposedRelatedId,
+        );
+        domainGuard(() => validateCustomObjectRelationshipEndpoints({
+          tenantId,
+          definition: proposedDefinition,
+          source: proposedSide === 'source'
+            ? { tenant_id: tenantId, kind: 'custom_object', custom_object_id: objectId, archived_at: null }
+            : proposedRelated,
+          target: proposedSide === 'target'
+            ? { tenant_id: tenantId, kind: 'custom_object', custom_object_id: objectId, archived_at: null }
+            : proposedRelated,
+        }));
+        virtualEdges.push({
+          relationship_definition_id: proposedDefinition.id,
+          source_record_id: proposedSide === 'source' ? virtualRecordId : proposedRelatedId,
+          target_record_id: proposedSide === 'target' ? virtualRecordId : proposedRelatedId,
+        });
+      }
+      pickerScope = await configuredPickerScope(definition, side, virtualRecordId, virtualEdges);
+      if (pickerScope.candidateRecordIds.length === 0) {
+        return { data: [], total: 0, page: p.page, pageSize: p.pageSize };
+      }
+      const customSearchKey = kind === 'custom_object'
+        ? getCustomObjectFieldMetadata(endpointFields.find((field) =>
+          field.id === endpointDefinition.primary_display_field_id
+          && endpointAccess.get(String(field.id)) !== 'none')).key
+        : null;
+      const scoped = await scopedPickerRows({
+        table,
+        kind,
+        customObjectId,
+        candidateRecordIds: pickerScope.candidateRecordIds,
+        excluded: eligibility.excluded,
+        search,
+        customSearchKey,
+        page: p,
+      });
+      return {
+        data: scoped.rows.map((row) => ({
+          id: row.id, kind, custom_object_id: customObjectId,
+          ...endpointLabel(
+            kind, row, endpointDefinition, endpointFields, endpointAccess,
+            configuredCompactPreviewFieldIds(definition, candidateSide),
+          ),
+        })),
+        total: scoped.total, page: p.page, pageSize: p.pageSize,
+      };
+    }
     let q = db.from(table).select('*', { count: 'exact' }).eq('tenant_id', tenantId);
     if (kind === 'custom_object') q = q.eq('custom_object_id', customObjectId).is('archived_at', null);
-    const search = typeof query.search === 'string' ? query.search.trim() : '';
     if (search) {
       if (kind === 'member') {
         const pattern = quotePostgrestValue(`*${search}*`);
@@ -1443,7 +1545,7 @@ export function createCustomObjectService({
     // There is no routed record yet: only candidates whose own cardinality is
     // already full are excluded. Passing an impossible id avoids considering
     // routed saturation while retaining the shared generic calculation.
-    q = applyPickerExclusions(q, await pickerExcludedRecordIds(definition, side, '__new_record__'));
+    q = applyPickerExclusions(q, eligibility);
     q = q.order(kind === 'member' ? 'last_name' : (kind === 'custom_object' ? 'created_at' : 'name'), { ascending: true })
       .order('id', { ascending: true });
     const { data, error, count } = await q.range(p.from, p.to);
@@ -1538,6 +1640,18 @@ export function createCustomObjectService({
     };
   }
 
+  async function relationshipDefinitionGraph(objectId) {
+    requireSchemaManager();
+    await object(objectId);
+    const { data, error } = await db.from('custom_object_relationship_definition').select('*')
+      .eq('tenant_id', tenantId)
+      .eq('status', 'active')
+      .order('created_at', { ascending: true })
+      .order('id', { ascending: true });
+    throwDb(error);
+    return { data: data || [] };
+  }
+
   async function createRelationshipDefinition(objectId, body) {
     requireSchemaManager();
     const routedObject = await object(objectId);
@@ -1566,6 +1680,7 @@ export function createCustomObjectService({
     const validation = validateCustomObjectRelationshipDefinition(payload);
     if (!validation.ok) throw new CustomObjectHttpError(400, 'Invalid relationship definition', validation.errors);
     await validateRelationshipPreview(payload);
+    await pickerScopeV2Schema(payload);
     if (payload.status !== 'draft') Object.assign(payload, domainGuard(() => resolveCustomObjectLifecycleUpdate({ currentStatus: 'draft', nextStatus: payload.status, hasPrimaryDisplayField: true, now: now() })));
     const { data, error } = await db.from('custom_object_relationship_definition').insert(payload).select('*').single();
     throwDb(error);
@@ -1596,6 +1711,7 @@ export function createCustomObjectService({
     const validation = validateCustomObjectRelationshipDefinition(candidate);
     if (!validation.ok) throw new CustomObjectHttpError(400, 'Invalid relationship definition', validation.errors);
     await validateRelationshipPreview(candidate);
+    if (!archive) await pickerScopeV2Schema(candidate);
     if (archive || payload.status !== undefined) Object.assign(payload, domainGuard(() => resolveCustomObjectLifecycleUpdate({
       currentStatus: before.status, nextStatus: archive ? 'archived' : payload.status,
       currentArchivedAt: before.archived_at, hasPrimaryDisplayField: true, now: now(),
@@ -1735,11 +1851,178 @@ export function createCustomObjectService({
     return { definition, side, relatedSide: side === 'source' ? 'target' : 'source' };
   }
 
-  // Optional definition configuration can constrain a core endpoint picker to
-  // records whose configured core field matches an active parent edge target.
-  // It is deliberately schema-driven, so domain-specific definitions never
-  // require branches in this generic service.
-  async function configuredPickerScope(definition, sourceRecordId = null, routedCoreRecordId = null) {
+  const pickerScopeEndpoint = (definition, side) => ({
+    kind: definition[`${side}_kind`],
+    customObjectId: definition[`${side}_custom_object_id`] || null,
+  });
+  const pickerScopeEndpointKey = (endpoint_) =>
+    `${endpoint_.kind}:${endpoint_.customObjectId || ''}`;
+  const samePickerScopeEndpoint = (left, right) =>
+    pickerScopeEndpointKey(left) === pickerScopeEndpointKey(right);
+  const oppositeRelationshipSide = (side) => side === 'source' ? 'target' : 'source';
+  const PICKER_SCOPE_RESULT_LIMIT = 5000;
+  const PICKER_SCOPE_EDGE_SCAN_LIMIT = 20000;
+  const chunked = (values, size = 100) => Array.from(
+    { length: Math.ceil(values.length / size) },
+    (_, index) => values.slice(index * size, (index + 1) * size),
+  );
+
+  async function pickerScopeV2Schema(definition) {
+    const scope = definition.configuration?.picker_scope;
+    if (scope?.version !== 2) return null;
+    if (scope.match !== 'intersects'
+      || !Array.isArray(scope.source_path) || !scope.source_path.length || scope.source_path.length > 3
+      || !Array.isArray(scope.target_path) || !scope.target_path.length || scope.target_path.length > 3) {
+      throw new CustomObjectHttpError(409, 'Configured picker scope path is malformed');
+    }
+    const hops = [...scope.source_path, ...scope.target_path];
+    if (hops.some((hop) => !hop || typeof hop.relationship_definition_id !== 'string'
+      || !['source', 'target'].includes(hop.from_side))) {
+      throw new CustomObjectHttpError(409, 'Configured picker scope path is malformed');
+    }
+    const ids = [...new Set(hops.map((hop) => hop.relationship_definition_id))];
+    const { data, error } = await db.from('custom_object_relationship_definition').select('*')
+      .eq('tenant_id', tenantId).in('id', ids);
+    throwDb(error);
+    const byId = new Map((data || []).map((item) => [String(item.id), item]));
+    if (byId.size !== ids.length) {
+      throw new CustomObjectHttpError(409, 'Configured picker scope references an unavailable relationship');
+    }
+    const validatePath = (path, startingEndpoint) => {
+      let current = startingEndpoint;
+      const visitedEndpoints = new Set([pickerScopeEndpointKey(current)]);
+      const visitedDefinitions = new Set();
+      const resolved = path.map((hop) => {
+        const pathDefinition = byId.get(String(hop.relationship_definition_id));
+        if (!pathDefinition || pathDefinition.status !== 'active'
+          || String(pathDefinition.id) === String(definition.id)
+          || visitedDefinitions.has(String(pathDefinition.id))) {
+          throw new CustomObjectHttpError(409, 'Configured picker scope path is unavailable or cyclic');
+        }
+        if (!samePickerScopeEndpoint(
+          current,
+          pickerScopeEndpoint(pathDefinition, hop.from_side),
+        )) {
+          throw new CustomObjectHttpError(409, 'Configured picker scope path endpoints do not connect');
+        }
+        const toSide = oppositeRelationshipSide(hop.from_side);
+        const next = pickerScopeEndpoint(pathDefinition, toSide);
+        if (visitedEndpoints.has(pickerScopeEndpointKey(next))) {
+          throw new CustomObjectHttpError(409, 'Configured picker scope path is cyclic');
+        }
+        visitedDefinitions.add(String(pathDefinition.id));
+        visitedEndpoints.add(pickerScopeEndpointKey(next));
+        current = next;
+        return { definition: pathDefinition, fromSide: hop.from_side, toSide };
+      });
+      return { hops: resolved, terminal: current };
+    };
+    const source = validatePath(scope.source_path, pickerScopeEndpoint(definition, 'source'));
+    const target = validatePath(scope.target_path, pickerScopeEndpoint(definition, 'target'));
+    if (!samePickerScopeEndpoint(source.terminal, target.terminal)) {
+      throw new CustomObjectHttpError(409, 'Configured picker scope paths must end at the same record type');
+    }
+    return { scope, source, target };
+  }
+
+  async function activePickerScopeEndpointIds(endpoint_, recordIds) {
+    const unique = [...new Set(recordIds.filter(Boolean).map(String))];
+    if (!unique.length) return [];
+    const table = {
+      custom_object: 'custom_object_record',
+      member: 'member',
+      organization: 'organization',
+      organization_group: 'organization_group',
+    }[endpoint_.kind];
+    if (!table) throw new CustomObjectHttpError(409, 'Configured picker scope endpoint is unsupported');
+    if (endpoint_.kind === 'custom_object') {
+      await activeObject(endpoint_.customObjectId);
+    }
+    const result = [];
+    for (const ids of chunked(unique)) {
+      let q = db.from(table).select('id').eq('tenant_id', tenantId).in('id', ids);
+      if (endpoint_.kind === 'custom_object') {
+        q = q.eq('custom_object_id', endpoint_.customObjectId).is('archived_at', null);
+      }
+      const { data, error } = await q;
+      throwDb(error);
+      result.push(...(data || []).map((row) => String(row.id)));
+    }
+    return result;
+  }
+
+  async function pickerScopeEdges(hop, recordIds, reverse = false, virtualEdges = []) {
+    const inputSide = reverse ? hop.toSide : hop.fromSide;
+    const outputSide = reverse ? hop.fromSide : hop.toSide;
+    const unique = [...new Set(recordIds.filter(Boolean).map(String))];
+    const result = new Set();
+    let scannedEdges = 0;
+    for (const edge of virtualEdges) {
+      if (String(edge.relationship_definition_id) !== String(hop.definition.id)
+        || !unique.includes(String(edge[`${inputSide}_record_id`]))) continue;
+      scannedEdges += 1;
+      const outputId = edge[`${outputSide}_record_id`];
+      if (outputId) result.add(String(outputId));
+    }
+    for (const ids of chunked(unique)) {
+      for (let from = 0;; from += 1000) {
+        const { data, error } = await db.from('custom_object_relationship')
+          .select('source_record_id, target_record_id')
+          .eq('tenant_id', tenantId)
+          .eq('relationship_definition_id', hop.definition.id)
+          .in(`${inputSide}_record_id`, ids)
+          .is('archived_at', null)
+          .order('id', { ascending: true })
+          .range(from, from + 999);
+        throwDb(error);
+        const edges = data || [];
+        scannedEdges += edges.length;
+        if (scannedEdges > PICKER_SCOPE_EDGE_SCAN_LIMIT) {
+          throw new CustomObjectHttpError(
+            409,
+            `Configured picker scope scans more than ${PICKER_SCOPE_EDGE_SCAN_LIMIT} relationships; narrow the relationship paths`,
+          );
+        }
+        for (const edge of edges) {
+          const outputId = edge[`${outputSide}_record_id`];
+          if (outputId) result.add(String(outputId));
+          if (result.size > PICKER_SCOPE_RESULT_LIMIT) {
+            throw new CustomObjectHttpError(
+              409,
+              `Configured picker scope reaches more than ${PICKER_SCOPE_RESULT_LIMIT} records; narrow the relationship paths`,
+            );
+          }
+        }
+        if (edges.length < 1000) break;
+      }
+    }
+    return [...result];
+  }
+
+  async function resolvePickerScopePath(startIds, path, reverse = false, virtualEdges = []) {
+    let current = [...new Set(startIds.filter(Boolean).map(String))];
+    const hops = reverse ? [...path.hops].reverse() : path.hops;
+    for (const hop of hops) {
+      current = await pickerScopeEdges(hop, current, reverse, virtualEdges);
+      const outputSide = reverse ? hop.fromSide : hop.toSide;
+      current = await activePickerScopeEndpointIds(
+        pickerScopeEndpoint(hop.definition, outputSide),
+        current,
+      );
+      if (current.length > PICKER_SCOPE_RESULT_LIMIT) {
+        throw new CustomObjectHttpError(
+          409,
+          `Configured picker scope reaches more than ${PICKER_SCOPE_RESULT_LIMIT} records; narrow the relationship paths`,
+        );
+      }
+      if (!current.length) break;
+    }
+    return [...new Set(current)];
+  }
+
+  // Legacy v1 scopes compare a core field to one parent relationship. Keep
+  // this path byte-for-byte compatible while v2 scopes use graph traversal.
+  async function legacyConfiguredPickerScope(definition, routedSide, routedRecordId) {
     const scope = definition.configuration?.picker_scope;
     if (!scope) return null;
     if (!scope || typeof scope !== 'object' || Array.isArray(scope)
@@ -1781,10 +2064,10 @@ export function createCustomObjectService({
         if (!data || data.length < 1000) return result;
       }
     };
-    if (routedCoreRecordId) {
-      const member = await one('member', routedCoreRecordId);
+    if (routedSide === 'target') {
+      const member = await one('member', routedRecordId);
       const routedValue = member[scope.routed_core_field];
-      if (!routedValue) return { sourceRecordIds: [] };
+      if (!routedValue) return { candidateRecordIds: [] };
       // Read every parent edge (paged) so a corrupt source with multiple
       // organisations is excluded rather than accidentally accepted because
       // one of its edges happens to match this member.
@@ -1796,20 +2079,53 @@ export function createCustomObjectService({
         bySource.set(edge.source_record_id, organisations);
       }
       return {
-        sourceRecordIds: [...bySource.entries()]
+        candidateRecordIds: [...bySource.entries()]
           .filter(([, organisations]) => organisations.length === 1
             && organisations[0] === routedValue)
           .map(([id]) => id),
       };
     }
-    if (sourceRecordId) {
-      const edges = await readEdges(q => q.eq('source_record_id', sourceRecordId));
+    if (routedSide === 'source') {
+      const edges = await readEdges(q => q.eq('source_record_id', routedRecordId));
       if (edges.length !== 1 || !edges[0].target_record_id) {
         throw new CustomObjectHttpError(409, 'Configured source record must have exactly one active parent');
       }
-      return { organizationId: edges[0].target_record_id };
+      return {
+        candidateFilter: {
+          field: scope.routed_core_field,
+          value: edges[0].target_record_id,
+        },
+      };
     }
     return null;
+  }
+
+  async function configuredPickerScope(definition, routedSide, routedRecordId, virtualEdges = []) {
+    const scope = definition.configuration?.picker_scope;
+    if (!scope) return null;
+    if (scope.version !== 2) {
+      return legacyConfiguredPickerScope(definition, routedSide, routedRecordId);
+    }
+    const schema = await pickerScopeV2Schema(definition);
+    const candidateSide = oppositeRelationshipSide(routedSide);
+    const routedPath = schema[routedSide];
+    const candidatePath = schema[candidateSide];
+    const terminalIds = await resolvePickerScopePath([routedRecordId], routedPath, false, virtualEdges);
+    if (!terminalIds.length) return { candidateRecordIds: [] };
+    return {
+      candidateRecordIds: await resolvePickerScopePath(terminalIds, candidatePath, true, virtualEdges),
+    };
+  }
+
+  function pickerScopeAllowsCandidate(scope, candidate) {
+    if (!scope) return true;
+    if (scope.candidateRecordIds) {
+      return scope.candidateRecordIds.map(String).includes(String(candidate.id));
+    }
+    if (scope.candidateFilter) {
+      return String(candidate[scope.candidateFilter.field] || '') === String(scope.candidateFilter.value);
+    }
+    return false;
   }
 
   // The relationship trigger remains the authority for cardinality, but a
@@ -1852,6 +2168,52 @@ export function createCustomObjectService({
   function applyPickerExclusions(q, eligibility) {
     if (eligibility.excluded.size === 0) return q;
     return q.not('id', 'in', `(${[...eligibility.excluded].map(quotePostgrestValue).join(',')})`);
+  }
+
+  async function scopedPickerRows({
+    table,
+    kind,
+    customObjectId = null,
+    candidateRecordIds,
+    excluded = new Set(),
+    search = '',
+    customSearchKey = null,
+    page,
+  }) {
+    const ids = [...new Set(candidateRecordIds.map(String))]
+      .filter((id) => !excluded.has(id));
+    const rows = [];
+    for (const batch of chunked(ids)) {
+      let q = db.from(table).select('*').eq('tenant_id', tenantId).in('id', batch);
+      if (kind === 'custom_object') {
+        q = q.eq('custom_object_id', customObjectId).is('archived_at', null);
+      }
+      const { data, error } = await q;
+      throwDb(error);
+      rows.push(...(data || []));
+    }
+    const normalizedSearch = search.toLocaleLowerCase();
+    const matchedRows = normalizedSearch ? rows.filter((row) => {
+      if (kind === 'member') {
+        return [row.first_name, row.last_name, row.email]
+          .some((value) => String(value || '').toLocaleLowerCase().includes(normalizedSearch));
+      }
+      if (kind === 'custom_object') {
+        return String(row.data?.[customSearchKey] || '')
+          .toLocaleLowerCase().includes(normalizedSearch);
+      }
+      return String(row.name || '').toLocaleLowerCase().includes(normalizedSearch);
+    }) : rows;
+    const sortColumn = kind === 'member'
+      ? 'last_name'
+      : (kind === 'custom_object' ? 'created_at' : 'name');
+    matchedRows.sort((left, right) =>
+      String(left[sortColumn] || '').localeCompare(String(right[sortColumn] || ''))
+      || String(left.id).localeCompare(String(right.id)));
+    return {
+      rows: matchedRows.slice(page.from, page.to + 1),
+      total: matchedRows.length,
+    };
   }
 
   async function listCoreRelationshipDefinitions(kind, recordId) {
@@ -1970,26 +2332,46 @@ export function createCustomObjectService({
     }
     const objectDefinition = await activeObject(customObjectId);
     const endpointFields = await fields(customObjectId, true);
-    const pickerScope = kind === 'member' && relatedSide === 'source'
-      ? await configuredPickerScope(definition, null, recordId) : null;
-    if (pickerScope && pickerScope.sourceRecordIds.length === 0) {
-      const p = pagination(query);
+    const p = pagination(query);
+    const pickerScope = await configuredPickerScope(definition, side, recordId);
+    if (pickerScope?.candidateRecordIds?.length === 0) {
       return { data: [], total: 0, page: p.page, pageSize: p.pageSize };
     }
-    const p = pagination(query);
-    let q = db.from('custom_object_record').select('*', { count: 'exact' })
-      .eq('tenant_id', tenantId).eq('custom_object_id', customObjectId)
-      .is('archived_at', null);
-    if (pickerScope) q = q.in('id', pickerScope.sourceRecordIds);
     const search = typeof query?.search === 'string' ? query.search.trim() : '';
-    if (search) {
-      const primary = endpointFields.find((field) => field.id === objectDefinition.primary_display_field_id);
-      const key = getCustomObjectFieldMetadata(primary).key;
-      if (key) q = q.filter(`data->>${key}`, 'ilike', `*${search}*`);
-    }
+    const primary = endpointFields.find((field) => field.id === objectDefinition.primary_display_field_id);
+    const customSearchKey = getCustomObjectFieldMetadata(primary).key;
     const eligibility = await pickerExcludedRecordIds(definition, side, recordId);
     if (eligibility.routedSaturated) {
       return { data: [], total: 0, page: p.page, pageSize: p.pageSize };
+    }
+    if (pickerScope?.candidateRecordIds) {
+      const scoped = await scopedPickerRows({
+        table: 'custom_object_record',
+        kind: 'custom_object',
+        customObjectId,
+        candidateRecordIds: pickerScope.candidateRecordIds,
+        excluded: eligibility.excluded,
+        search,
+        customSearchKey,
+        page: p,
+      });
+      return {
+        data: scoped.rows.map((row) => ({
+          id: row.id,
+          kind: 'custom_object',
+          custom_object_id: customObjectId,
+          ...endpointLabel('custom_object', row, objectDefinition, endpointFields),
+        })),
+        total: scoped.total,
+        page: p.page,
+        pageSize: p.pageSize,
+      };
+    }
+    let q = db.from('custom_object_record').select('*', { count: 'exact' })
+      .eq('tenant_id', tenantId).eq('custom_object_id', customObjectId)
+      .is('archived_at', null);
+    if (search) {
+      if (customSearchKey) q = q.filter(`data->>${customSearchKey}`, 'ilike', `*${search}*`);
     }
     q = applyPickerExclusions(q, eligibility);
     q = q.order('created_at', { ascending: true }).order('id', { ascending: true });
@@ -2022,8 +2404,9 @@ export function createCustomObjectService({
     const source = await endpoint(definition.source_kind, sourceId);
     const target = await endpoint(definition.target_kind, targetId);
     domainGuard(() => validateCustomObjectRelationshipEndpoints({ tenantId, definition, source, target }));
-    const pickerScope = await configuredPickerScope(definition, null, target.id);
-    if (pickerScope && !pickerScope.sourceRecordIds.includes(source.id)) {
+    const pickerScope = await configuredPickerScope(definition, side, recordId);
+    const candidate = side === 'source' ? target : source;
+    if (!pickerScopeAllowsCandidate(pickerScope, candidate)) {
       throw new CustomObjectHttpError(400, 'Related record is outside the configured picker scope');
     }
     const { data, error } = await db.from('custom_object_relationship').insert({
@@ -2087,8 +2470,7 @@ export function createCustomObjectService({
     if (routedRecord.archived_at) throw new CustomObjectHttpError(409, 'Routed record is archived');
     await requireRelationshipCapabilities(definition, 'edit_records');
     const oppositeSide = side === 'source' ? 'target' : 'source';
-    const pickerScope = side === 'source' && definition.target_kind === 'member'
-      ? await configuredPickerScope(definition, recordId, null) : null;
+    const pickerScope = await configuredPickerScope(definition, side, recordId);
     const kind = definition[`${oppositeSide}_kind`];
     const table = {
       custom_object: 'custom_object_record', member: 'member',
@@ -2108,12 +2490,42 @@ export function createCustomObjectService({
       endpointAccess = await fieldAccess(customObjectId, endpointFields);
     }
     const p = pagination(query);
+    const search = typeof query?.search === 'string' ? query.search.trim() : '';
+    const customSearchKey = kind === 'custom_object'
+      ? getCustomObjectFieldMetadata(endpointFields.find((field) =>
+        field.id === endpointDefinition.primary_display_field_id
+        && endpointAccess.get(String(field.id)) !== 'none')).key
+      : null;
+    const eligibility = await pickerExcludedRecordIds(definition, side, recordId);
+    if (eligibility.routedSaturated || pickerScope?.candidateRecordIds?.length === 0) {
+      return { data: [], total: 0, page: p.page, pageSize: p.pageSize };
+    }
+    if (pickerScope?.candidateRecordIds) {
+      const scoped = await scopedPickerRows({
+        table,
+        kind,
+        customObjectId,
+        candidateRecordIds: pickerScope.candidateRecordIds,
+        excluded: eligibility.excluded,
+        search,
+        customSearchKey,
+        page: p,
+      });
+      return {
+        data: scoped.rows.map((row) => ({
+          id: row.id, kind, custom_object_id: customObjectId,
+          ...endpointLabel(kind, row, endpointDefinition, endpointFields, endpointAccess),
+        })),
+        total: scoped.total, page: p.page, pageSize: p.pageSize,
+      };
+    }
     let q = db.from(table).select('*', { count: 'exact' }).eq('tenant_id', tenantId);
-    if (pickerScope) q = q.eq(definition.configuration.picker_scope.routed_core_field, pickerScope.organizationId);
+    if (pickerScope?.candidateFilter) {
+      q = q.eq(pickerScope.candidateFilter.field, pickerScope.candidateFilter.value);
+    }
     if (kind === 'custom_object') {
       q = q.eq('custom_object_id', customObjectId).is('archived_at', null);
     }
-    const search = typeof query?.search === 'string' ? query.search.trim() : '';
     if (search) {
       const pattern = quotePostgrestValue(`*${search}*`);
       if (kind === 'member') {
@@ -2121,15 +2533,8 @@ export function createCustomObjectService({
       }
       else if (kind !== 'custom_object') q = q.ilike('name', `%${search}%`);
       else {
-        const primary = endpointFields.find((field) => field.id === endpointDefinition.primary_display_field_id
-          && endpointAccess.get(String(field.id)) !== 'none');
-        const key = getCustomObjectFieldMetadata(primary).key;
-        if (key) q = q.filter(`data->>${key}`, 'ilike', `*${search}*`);
+        if (customSearchKey) q = q.filter(`data->>${customSearchKey}`, 'ilike', `*${search}*`);
       }
-    }
-    const eligibility = await pickerExcludedRecordIds(definition, side, recordId);
-    if (eligibility.routedSaturated) {
-      return { data: [], total: 0, page: p.page, pageSize: p.pageSize };
     }
     q = applyPickerExclusions(q, eligibility);
     q = q.order(kind === 'member' ? 'last_name' : (kind === 'custom_object' ? 'created_at' : 'name'), { ascending: true })
@@ -2252,8 +2657,9 @@ export function createCustomObjectService({
     const source = await endpoint(definition.source_kind, body?.source_record_id);
     const target = await endpoint(definition.target_kind, body?.target_record_id);
     domainGuard(() => validateCustomObjectRelationshipEndpoints({ tenantId, definition, source, target }));
-    const pickerScope = await configuredPickerScope(definition, null, target.id);
-    if (pickerScope && !pickerScope.sourceRecordIds.includes(source.id)) {
+    const pickerScope = await configuredPickerScope(definition, routedSide, body.routed_record_id);
+    const candidate = routedSide === 'source' ? target : source;
+    if (!pickerScopeAllowsCandidate(pickerScope, candidate)) {
       throw new CustomObjectHttpError(400, 'Related record is outside the configured picker scope');
     }
     const payload = {
@@ -2429,7 +2835,7 @@ export function createCustomObjectService({
   return {
     listObjects, createObject, getObject, updateObject, listFields, createField,
     updateField, listRecords, exportRecords, relationshipFilterOptions, createRecord, createRecordWithRelationships, initialRelationshipCandidates, getRecord, updateRecord,
-    listRelationshipDefinitions, createRelationshipDefinition,
+    listRelationshipDefinitions, relationshipDefinitionGraph, createRelationshipDefinition,
     updateRelationshipDefinition, entityPicker, listRelationships, createRelationship,
     archiveRelationship, listPermissions, upsertPermission, listFieldPermissions, upsertFieldPermission, listAudit,
     listCoreRelationshipDefinitions, listCoreRelationships, coreEntityPicker,
