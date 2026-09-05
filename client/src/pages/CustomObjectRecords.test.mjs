@@ -22,6 +22,31 @@ test('Custom Object list renders the core CRM workspace regions and visual state
   assert.match(workspace, /Page \{state\.page\} of \{pages\}/);
 });
 
+test('Custom Object list uses the full-width, full-height CRM shell', () => {
+  const listRender = workspace.slice(workspace.indexOf('const canCreate'));
+  assert.match(listRender, /<main className="min-h-screen bg-slate-50">/);
+  assert.match(listRender, /<div className="flex h-screen min-w-0 overflow-hidden">/);
+  assert.match(listRender, /<section className="flex min-w-0 flex-1 flex-col overflow-hidden">/);
+  assert.match(listRender, /<div className="min-h-0 flex-1 overflow-auto">/);
+  assert.doesNotMatch(listRender, /<Workspace/);
+  assert.doesNotMatch(listRender, /max-w-7xl/);
+  assert.doesNotMatch(listRender, /mx-auto/);
+});
+
+test('constrained Custom Object screens retain their centered workspace', () => {
+  const constrainedWorkspace = source.slice(
+    source.indexOf('function Workspace'),
+    source.indexOf('const filterOperators'),
+  );
+  const recordForm = source.slice(
+    source.indexOf('export function CustomObjectRecordForm'),
+    source.indexOf('export function CustomObjectRecordDetail'),
+  );
+  assert.match(constrainedWorkspace, /mx-auto max-w-7xl/);
+  assert.match(recordForm, /<Workspace object=\{object\} backToRecords>/);
+  assert.match(recordForm, /mx-auto max-w-3xl/);
+});
+
 test('Custom Object list keeps relationship controls and bounded cells inside the CRM workspace', () => {
   assert.match(source, /relationship-filter-options/);
   assert.match(workspace, /column\.kind === "relationship"/);

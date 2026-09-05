@@ -640,18 +640,9 @@ function CustomObjectRecordListWorkspace({ objectId }) {
   );
 
   return (
-    <Workspace object={object} showBackLink={!isFeatureExcluded("admin.data-studio")}>
-      <header className="mb-5 flex flex-col gap-4 border-b pb-5 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <h1 className="text-3xl font-semibold tracking-tight text-slate-950">{object.plural_label}</h1>
-          <p className="mt-1 text-sm text-slate-600">Manage {object.plural_label.toLowerCase()} records.</p>
-        </div>
-        {canCreate && (
-          <Button asChild><Link to={`${recordsPath(objectId)}/new`}><Plus className="mr-2 h-4 w-4" />Add {object.singular_label}</Link></Button>
-        )}
-      </header>
-      <div className="flex min-h-[620px] overflow-hidden rounded-lg border bg-white shadow-sm">
-        <aside className={`shrink-0 border-r transition-all ${sidebarCollapsed ? "w-0 overflow-hidden" : "w-72"}`}>
+    <main className="min-h-screen bg-slate-50">
+      <div className="flex h-screen min-w-0 overflow-hidden">
+        <aside className={`flex shrink-0 flex-col border-r border-slate-200 bg-white transition-all duration-300 ease-in-out ${sidebarCollapsed ? "w-0 overflow-hidden" : "w-72"}`}>
           <div className="w-72 border-b p-4">
             <div className="mb-3 flex items-center justify-between">
               <h2 className="flex items-center gap-2 font-semibold"><SlidersHorizontal className="h-4 w-4" />Filters</h2>
@@ -678,7 +669,7 @@ function CustomObjectRecordListWorkspace({ objectId }) {
               <Input className="h-8 pl-8 text-xs" placeholder="Search filters..." value={filterSearch} onChange={(event) => setFilterSearch(event.target.value)} />
             </div>
           </div>
-          <ScrollArea className="h-[510px]">
+          <ScrollArea className="min-h-0 flex-1">
             <div className="space-y-3 p-3">
               {shownFilters.map((field) => {
                 const current = state.filters[field.id] || {
@@ -723,7 +714,25 @@ function CustomObjectRecordListWorkspace({ objectId }) {
             </div>
           </ScrollArea>
         </aside>
-        <section className="min-w-0 flex-1">
+        <section className="flex min-w-0 flex-1 flex-col overflow-hidden">
+          <header className="flex flex-col gap-4 border-b border-slate-200 bg-white px-4 py-4 sm:flex-row sm:items-end sm:justify-between md:px-6">
+            <div className="min-w-0">
+              {!isFeatureExcluded("admin.data-studio") && (
+                <Link
+                  to={`/CustomObjectsAdmin/${object.id}`}
+                  className="mb-2 inline-flex items-center text-sm font-medium text-slate-600 hover:text-slate-900"
+                >
+                  <ArrowLeft className="mr-2 h-4 w-4" />
+                  Object setup
+                </Link>
+              )}
+              <h1 className="truncate text-xl font-semibold tracking-tight text-slate-950">{object.plural_label}</h1>
+              <p className="mt-1 text-sm text-slate-600">Manage {object.plural_label.toLowerCase()} records.</p>
+            </div>
+            {canCreate && (
+              <Button className="shrink-0" asChild><Link to={`${recordsPath(objectId)}/new`}><Plus className="mr-2 h-4 w-4" />Add {object.singular_label}</Link></Button>
+            )}
+          </header>
           <div className="flex flex-wrap items-center gap-2 border-b p-3">
             {sidebarCollapsed && (
               <Button variant="outline" size="icon" onClick={() => setSidebarCollapsed(false)} aria-label="Open filters"><PanelLeft className="h-4 w-4" /></Button>
@@ -769,6 +778,7 @@ function CustomObjectRecordListWorkspace({ objectId }) {
               </DialogContent>
             </Dialog>
           </div>
+          <div className="min-h-0 flex-1 overflow-auto">
           {recordsQuery.isLoading ? (
             <div className="grid h-80 place-items-center"><Loader2 className="h-7 w-7 animate-spin text-slate-400" /></div>
           ) : recordsQuery.error ? (
@@ -809,6 +819,7 @@ function CustomObjectRecordListWorkspace({ objectId }) {
               </table>
             </div>
           )}
+          </div>
           <div className="flex flex-wrap items-center justify-between gap-3 border-t p-4 text-sm">
             <span className="text-slate-500">{total} record{total === 1 ? "" : "s"}</span>
             <div className="flex items-center gap-2">
@@ -823,7 +834,7 @@ function CustomObjectRecordListWorkspace({ objectId }) {
           </div>
         </section>
       </div>
-    </Workspace>
+    </main>
   );
 }
 
