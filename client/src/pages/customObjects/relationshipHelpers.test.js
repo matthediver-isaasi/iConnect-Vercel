@@ -17,6 +17,11 @@ import {
   initialRelationshipSelectors,
   initialRelationshipLabel,
   initialRelationshipAllowsMultiple,
+  relationshipCandidateLabel,
+  contextualOriginLabel,
+  contextualPrimaryNameSuggestion,
+  shouldApplyContextualNameSuggestion,
+  nextInitialRelationshipSelection,
   isRequiredInitialRelationship,
   relationshipSelectorKey,
   relationshipBackPath,
@@ -151,6 +156,83 @@ test("initial relationship selection count follows cardinality from the new reco
   assert.equal(initialRelationshipAllowsMultiple({ cardinality: "one_to_many" }, "source"), true);
   assert.equal(initialRelationshipAllowsMultiple({ cardinality: "one_to_many" }, "target"), false);
   assert.equal(initialRelationshipAllowsMultiple({ cardinality: "many_to_many" }, "target"), true);
+});
+
+test("contextual primary names use one fixed origin and one selected single relationship", () => {
+  const selector = {
+    definition: { id: "organisation", cardinality: "many_to_one" },
+    side: "source",
+  };
+  const key = relationshipSelectorKey("organisation", "source");
+  assert.equal(
+    contextualPrimaryNameSuggestion({
+      originLabel: "Jane Smith",
+      selectors: [selector],
+      relationships: { [key]: [{ id: "org-1", primary_label: "Acme University" }] },
+    }),
+    "Jane Smith - Acme University",
+  );
+  assert.equal(contextualPrimaryNameSuggestion({
+    originLabel: "Jane Smith",
+    selectors: [selector],
+    relationships: { [key]: [] },
+  }), "");
+  assert.equal(contextualPrimaryNameSuggestion({
+    originLabel: "Jane Smith",
+    selectors: [selector, { ...selector, definition: { id: "other", cardinality: "one_to_one" } }],
+    relationships: { [key]: [{ id: "org-1", primary_label: "Acme University" }] },
+  }), "");
+});
+
+test("contextual labels follow shared endpoint display conventions", () => {
+  assert.equal(
+    contextualOriginLabel({ kind: "member" }, { first_name: "Jane", last_name: "Smith" }),
+    "Jane Smith",
+  );
+  assert.equal(contextualOriginLabel({ kind: "organization" }, { name: "Acme" }), "Acme");
+  assert.equal(relationshipCandidateLabel({ display_value: "Research" }), "Research");
+});
+
+test("manual primary-name edits, including clearing the name, block later suggestions", () => {
+  assert.equal(shouldApplyContextualNameSuggestion({
+    manuallyOverridden: false,
+    currentValue: "Jane Smith - Old Organisation",
+    suggestedValue: "Jane Smith - New Organisation",
+  }), true);
+  assert.equal(shouldApplyContextualNameSuggestion({
+    manuallyOverridden: true,
+    currentValue: "My own assignment name",
+    suggestedValue: "Jane Smith - New Organisation",
+  }), false);
+  assert.equal(shouldApplyContextualNameSuggestion({
+    manuallyOverridden: true,
+    currentValue: "",
+    suggestedValue: "Jane Smith - New Organisation",
+  }), false);
+});
+
+test("relationship selections retain full labels across result pages", () => {
+  const first = { id: "org-1", primary_label: "Alpha Organisation" };
+  const second = { id: "org-80", primary_label: "Zulu Organisation" };
+  const selected = nextInitialRelationshipSelection({
+    selected: [first],
+    entry: second,
+    checked: true,
+    allowsMultiple: true,
+  });
+  assert.deepEqual(selected, [first, second]);
+  assert.deepEqual(nextInitialRelationshipSelection({
+    selected,
+    entry: first,
+    checked: false,
+    allowsMultiple: true,
+  }), [second]);
+  assert.deepEqual(nextInitialRelationshipSelection({
+    selected,
+    entry: second,
+    checked: true,
+    allowsMultiple: false,
+  }), [second]);
 });
 
 test("self relationship selector keys preserve each legal side", () => {

@@ -158,6 +158,55 @@ export const initialRelationshipAllowsMultiple = (definition, newRecordSide) => 
   return true;
 };
 
+export const relationshipCandidateLabel = (entry) =>
+  entry?.primary_label || entry?.display_value || entry?.name || "Untitled record";
+
+export const contextualOriginLabel = (context, record) => {
+  if (!record) return "";
+  if (context?.kind === "member") {
+    return [record.first_name, record.last_name].filter(Boolean).join(" ").trim()
+      || record.email
+      || "";
+  }
+  return record.primary_label || record.display_value || record.name || "";
+};
+
+export const contextualPrimaryNameSuggestion = ({
+  originLabel,
+  selectors,
+  relationships,
+}) => {
+  const singleSelectors = (selectors || []).filter(({ definition, side, fixed }) =>
+    !fixed && !initialRelationshipAllowsMultiple(definition, side));
+  if (!originLabel || singleSelectors.length !== 1) return "";
+  const selector = singleSelectors[0];
+  const selected = relationships?.[relationshipSelectorKey(selector.definition.id, selector.side)] || [];
+  if (selected.length !== 1) return "";
+  const relatedLabel = relationshipCandidateLabel(selected[0]);
+  return relatedLabel && relatedLabel !== "Untitled record"
+    ? `${originLabel} - ${relatedLabel}`
+    : "";
+};
+
+export const shouldApplyContextualNameSuggestion = ({
+  manuallyOverridden,
+  currentValue,
+  suggestedValue,
+}) => !manuallyOverridden && currentValue !== suggestedValue;
+
+export const nextInitialRelationshipSelection = ({
+  selected,
+  entry,
+  checked,
+  allowsMultiple,
+}) => {
+  const current = Array.isArray(selected) ? selected : [];
+  const id = String(entry.id);
+  if (!checked) return current.filter((item) => String(item.id) !== id);
+  if (!allowsMultiple) return [entry];
+  return [...current.filter((item) => String(item.id) !== id), entry];
+};
+
 export const contextualRelationshipPayload = ({
   definitionId, originContext, originSide, relatedRecordId,
 }) => {
