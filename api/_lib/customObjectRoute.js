@@ -7,7 +7,14 @@ const VIEW_SCHEMA_FEATURE = 'admin.data-studio';
 const MANAGE_SCHEMA_FEATURE = 'data.custom-objects.manage-data-model';
 
 function schemaAccessRequired(level, resource, method) {
-  if (['records', 'export', 'relationships', 'entity-picker', 'initial-relationship-candidates'].includes(resource)) return null;
+  if ([
+    'records',
+    'export',
+    'relationships',
+    'entity-picker',
+    'initial-relationship-candidates',
+    'relationship-filter-options',
+  ].includes(resource)) return null;
   if (level === 'resource' && resource === 'relationship-definitions') return method === 'GET' ? 'view' : 'manage';
   if (
     method === 'GET'
@@ -112,6 +119,7 @@ export function createCustomObjectRouteHandler(level, dependencies = {}) {
         else if (resource === 'relationship-definitions' && req.method === 'GET') data = await service.listRelationshipDefinitions(objectId, req.query);
         else if (resource === 'relationship-definitions' && req.method === 'POST') data = await service.createRelationshipDefinition(objectId, req.body);
         else if (resource === 'initial-relationship-candidates' && req.method === 'GET') data = await service.initialRelationshipCandidates(objectId, req.query);
+        else if (resource === 'relationship-filter-options' && req.method === 'GET') data = await service.relationshipFilterOptions(objectId, req.query);
         else if (resource === 'entity-picker' && req.method === 'GET') data = await service.entityPicker(objectId, req.query);
         else if (resource === 'relationships' && req.method === 'GET') data = await service.listRelationships(objectId, req.query);
         else if (resource === 'relationships' && req.method === 'POST') data = await service.createRelationship(objectId, req.body);

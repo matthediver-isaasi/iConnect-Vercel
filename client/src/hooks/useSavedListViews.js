@@ -1,6 +1,12 @@
 import { useRef, useState, useEffect, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
+import {
+  savedListViewPreferenceKey,
+  sanitizeSavedViews,
+} from './savedListViewHelpers.mjs';
+
+export { savedListViewPreferenceKey } from './savedListViewHelpers.mjs';
 
 // Named personal saved views for the CRM list pages (/members, /organisations).
 //
@@ -25,6 +31,12 @@ const PAGE_CONFIG = {
     legacyKey: (memberId) => `crm_org_filters_${memberId}`,
     description: 'CRM organisation list saved views',
   },
+  customObjects: {
+    viewsKey: (memberId, scopeId) => `crm_custom_object_views_${memberId}_${scopeId}`,
+    legacyKey: () => null,
+    description: 'Custom object record list saved views',
+    scoped: true,
+  },
 };
 
 const genViewId = () =>
@@ -33,44 +45,34 @@ const genViewId = () =>
 // Sanitize a raw parsed views array: drop malformed entries, guarantee ids and
 // at most one default view.
 export const sanitizeViews = (raw) => {
-  if (!Array.isArray(raw)) return [];
-  const views = raw
-    .filter(
-      (v) =>
-        v &&
-        typeof v === 'object' &&
-        typeof v.name === 'string' &&
-        v.name.trim() !== '' &&
-        v.filters &&
-        typeof v.filters === 'object'
-    )
-    .map((v) => ({
-      id: typeof v.id === 'string' && v.id ? v.id : genViewId(),
-      name: v.name,
-      isDefault: v.isDefault === true,
-      filters: v.filters,
-      columns: Array.isArray(v.columns) && v.columns.length > 0 ? v.columns : null,
-    }));
-  let seenDefault = false;
-  return views.map((v) => {
-    if (v.isDefault) {
-      if (seenDefault) return { ...v, isDefault: false };
-      seenDefault = true;
-    }
-    return v;
-  });
+  return sanitizeSavedViews(raw, genViewId);
 };
 
-export function useSavedListViews({ page, memberId, enabled = true }) {
+export function useSavedListViews({ page, memberId, scopeId, enabled = true }) {
   const cfg = PAGE_CONFIG[page];
   if (!cfg) throw new Error(`useSavedListViews: unknown page "${page}"`);
-  const prefKey = memberId ? cfg.viewsKey(memberId) : null;
-  const legacyKey = memberId ? cfg.legacyKey(memberId) : null;
+  const prefKey = savedListViewPreferenceKey(page, memberId, scopeId);
+  const legacyKey = memberId ? cfg.legacyKey(memberId, scopeId) : null;
   const queryClient = useQueryClient();
   const loadedRef = useRef(false);
+  const loadedKeyRef = useRef(prefKey);
   const rowIdRef = useRef(null);
   const legacyRowIdRef = useRef(null);
   const [activeViewId, setActiveViewId] = useState(null);
+
+  // A mounted list can navigate directly between custom objects. Re-arm the
+  // one-shot query synchronously so the first render for the new object cannot
+  // accidentally reuse the previous object's persistence row.
+  if (loadedKeyRef.current !== prefKey) {
+    loadedKeyRef.current = prefKey;
+    loadedRef.current = false;
+    rowIdRef.current = null;
+    legacyRowIdRef.current = null;
+  }
+
+  useEffect(() => {
+    setActiveViewId(null);
+  }, [prefKey]);
 
   const { data } = useQuery({
     queryKey: ['crm-saved-list-views', prefKey],
@@ -93,13 +95,17 @@ export function useSavedListViews({ page, memberId, enabled = true }) {
           } catch {}
           // Track the legacy row (if it survived a partial migration) so the
           // next persist cleans it up; it is otherwise ignored.
-          const legacyRow = settings?.find((s) => s.setting_key === legacyKey);
+          const legacyRow = legacyKey
+            ? settings?.find((s) => s.setting_key === legacyKey)
+            : null;
           if (legacyRow?.id) legacyRowIdRef.current = legacyRow.id;
           return { id: row.id, views };
         }
         // No views row yet: read the legacy single saved view as a first
         // named view so nobody loses their current setup.
-        const legacyRow = settings?.find((s) => s.setting_key === legacyKey);
+        const legacyRow = legacyKey
+          ? settings?.find((s) => s.setting_key === legacyKey)
+          : null;
         if (legacyRow?.setting_value) {
           legacyRowIdRef.current = legacyRow.id;
           try {

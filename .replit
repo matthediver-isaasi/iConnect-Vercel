@@ -42,6 +42,10 @@ args = "test"
 task = "workflow.run"
 args = "ai-assistant-tests"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "custom-object-crm-live"
+
 [[workflows.workflow]]
 name = "Start application"
 author = "agent"
@@ -72,6 +76,17 @@ outputType = "console"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "node --test api/_lib/*.test.mjs api/dashboard/_lib/*.test.mjs api/forms/processApplicationTenantOrder.test.mjs client/src/components/canvas/autoHeightBake.test.mjs client/src/components/canvas/useAutoHeightBake.test.mjs client/src/lib/canvasA11y.test.mjs client/src/lib/canvasTypographyResponsive.test.mjs client/src/lib/aiCompositionRender.test.mjs"
+
+[[workflows.workflow]]
+name = "custom-object-crm-live"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "node scripts/verify-custom-object-relationship-list-live.mjs"
+
+[workflows.workflow.metadata]
+isValidation = true
 
 [userenv]
 

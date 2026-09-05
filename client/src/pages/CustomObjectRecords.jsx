@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -9,10 +9,17 @@ import {
   CircleAlert,
   Columns3,
   Download,
+  Eye,
+  EyeOff,
+  GripVertical,
   Loader2,
+  PanelLeft,
+  PanelLeftClose,
   Pencil,
   Plus,
+  RotateCcw,
   Search,
+  SlidersHorizontal,
   X,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -36,6 +43,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Select,
   SelectContent,
@@ -45,6 +53,10 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import MultiSelectFilter from "@/components/MultiSelectFilter";
+import FilterOperatorMenu from "@/components/FilterOperatorMenu";
+import SavedViewSwitcher from "@/components/SavedViewSwitcher";
+import { useSavedListViews } from "@/hooks/useSavedListViews";
 import {
   applyRecordPermissionToggle,
   arrayValue,
@@ -66,6 +78,18 @@ import { RelatedRecordsPanel, useRelatedRecordDefinitions } from "./customObject
 import { relationshipBackPath } from "./customObjects/relationshipHelpers";
 import { loadCustomObjectFields } from "./customObjects/relationshipApi";
 import { RecordFieldControl } from "./customObjects/RecordFieldControls";
+import {
+  activeRecordFilters,
+  boundedLabels,
+  buildRecordQueryString,
+  initialRecordListState,
+  normalizeListMetadata,
+  reconcileColumns,
+  reconcileFilters,
+  reconcileOrder,
+  recordListReducer,
+  relationshipValuesFor,
+} from "./customObjects/recordListHelpers.mjs";
 
 class ApiError extends Error {
   constructor(status, message, details) {
@@ -196,6 +220,13 @@ function Workspace({
 }
 
 const filterOperators = (type) => {
+  if (type === "relationship")
+    return [
+      ["any_of", "is any of"],
+      ["none_of", "is none of"],
+      ["is_empty", "is empty"],
+      ["is_not_empty", "is not empty"],
+    ];
   if (type === "boolean") return [["equals", "is"]];
   if (["number", "decimal", "date"].includes(type))
     return [
@@ -216,8 +247,44 @@ const filterOperators = (type) => {
   ];
 };
 
-function FilterValue({ field, value, onChange }) {
+function RelationshipFilterValue({ field, objectId, value, onChange }) {
+  const [search, setSearch] = useState("");
+  const selected = Array.isArray(value) ? value : value ? [value] : [];
+  const picker = useQuery({
+    queryKey: ["custom-object-relationship-filter-picker", objectId, field.id, search, selected.join(",")],
+    enabled: Boolean(objectId && field.id),
+    retry: false,
+    queryFn: () => request(`/api/custom-objects/${objectId}/relationship-filter-options?${new URLSearchParams({
+      fieldId: field.id, page: "1", pageSize: "50", search, selected: JSON.stringify(selected),
+    })}`),
+  });
+  const options = (picker.data?.data || []).map((record) => ({
+    value: String(record.id),
+    label: record.primary_label || record.display_value || "Unavailable record",
+  }));
+  return (
+    <div className="space-y-1">
+      <Input
+        className="h-7 w-full text-xs"
+        value={search}
+        onChange={(event) => setSearch(event.target.value)}
+        placeholder="Search related records"
+      />
+      <MultiSelectFilter
+        options={options}
+        selected={selected}
+        onChange={onChange}
+        placeholder={picker.isFetching ? "Searching…" : "Select related records"}
+        className="h-8 w-full text-xs"
+      />
+    </div>
+  );
+}
+
+function FilterValue({ field, objectId, value, onChange }) {
   const type = field.field_type;
+  if (type === "relationship")
+    return <RelationshipFilterValue field={field} objectId={objectId} value={value} onChange={onChange} />;
   if (type === "boolean")
     return (
       <Select value={String(value ?? "")} onValueChange={(next) => onChange(next === "true")}>
@@ -230,30 +297,37 @@ function FilterValue({ field, value, onChange }) {
     );
   if (["dropdown", "picklist"].includes(type))
     return (
-      <Select value={String(value ?? "")} onValueChange={onChange}>
-        <SelectTrigger className="w-48"><SelectValue placeholder="Choose" /></SelectTrigger>
-        <SelectContent>
-          {optionValues(field).map((option) => (
-            <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+      <MultiSelectFilter
+        options={optionValues(field)}
+        selected={Array.isArray(value) ? value : value ? [value] : []}
+        onChange={onChange}
+        placeholder="Choose values"
+        className="h-8 w-full text-xs"
+      />
     );
   if (["country", "countries"].includes(type)) {
     const allowed = field.all_countries !== false
       ? COUNTRIES
       : COUNTRIES.filter((country) => arrayValue(field.selected_countries).includes(country.code));
     return (
-      <Select value={String(value ?? "")} onValueChange={onChange}>
-        <SelectTrigger className="w-48"><SelectValue placeholder="Choose" /></SelectTrigger>
-        <SelectContent>
-          {allowed.map((country) => (
-            <SelectItem key={country.code} value={country.code}>{country.name}</SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+      <MultiSelectFilter
+        options={allowed.map((country) => ({ value: country.code, label: country.name }))}
+        selected={Array.isArray(value) ? value : value ? [value] : []}
+        onChange={onChange}
+        placeholder="Choose countries"
+        className="h-8 w-full text-xs"
+      />
     );
   }
+  if (type === "list")
+    return (
+      <Textarea
+        className="min-h-20 w-full text-xs"
+        value={(Array.isArray(value) ? value : value ? [value] : []).join("\n")}
+        onChange={(event) => onChange(event.target.value.split("\n").map((item) => item.trim()).filter(Boolean))}
+        placeholder="One value per line"
+      />
+    );
   return (
     <Input
       className="w-48"
@@ -267,6 +341,493 @@ function FilterValue({ field, value, onChange }) {
 }
 
 export function CustomObjectRecordList() {
+  const { objectId } = useParams();
+  return <CustomObjectRecordListWorkspace key={objectId} objectId={objectId} />;
+}
+
+function CustomObjectRecordListWorkspace({ objectId }) {
+  const { memberInfo, organizationInfo, isFeatureExcluded } = useMemberAccess();
+  const { objectQuery, fieldsQuery, object, fields } = useSchema(objectId);
+  const [state, dispatch] = useReducer(recordListReducer, initialRecordListState);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [filterSearch, setFilterSearch] = useState("");
+  const [filterOrder, setFilterOrder] = useState([]);
+  const [hiddenFilterIds, setHiddenFilterIds] = useState([]);
+  const [columns, setColumns] = useState([]);
+  const [columnsOpen, setColumnsOpen] = useState(false);
+  const [draggedFilter, setDraggedFilter] = useState(null);
+  const [draggedColumn, setDraggedColumn] = useState(null);
+  const restoredViewRef = useRef(false);
+  const pendingViewRef = useRef(null);
+  const tenantKey =
+    memberInfo?.tenant_id || organizationInfo?.tenant_id || memberInfo?.organization_id || "tenant";
+  const storageKey = `custom-object-list:${tenantKey}:${memberInfo?.id || "member"}:${objectId}`;
+
+  const readable = useMemo(() => readableFields(fields), [fields]);
+  const requestedRelationshipColumns = useMemo(
+    () => columns
+      .filter((column) => column.kind === "relationship" && column.visible)
+      .map((column) => String(column.id)),
+    [columns],
+  );
+  const queryString = useMemo(
+    () => buildRecordQueryString(state, { relationshipColumns: requestedRelationshipColumns }),
+    [state, requestedRelationshipColumns],
+  );
+  const recordsQuery = useQuery({
+    queryKey: ["custom-object-records", objectId, queryString],
+    queryFn: () => request(`/api/custom-objects/${objectId}/records?${queryString}`),
+    enabled: !!object && !objectQuery.error && !fieldsQuery.error,
+    retry: false,
+  });
+  const records = recordsQuery.data?.data || [];
+  const total = recordsQuery.data?.total || 0;
+  const listMetadataResolved = Boolean(recordsQuery.data?.metadata);
+  const pages = Math.max(1, Math.ceil(total / state.pageSize));
+  useEffect(() => {
+    if (!recordsQuery.isFetching && state.page > pages)
+      dispatch({ type: "page", value: pages });
+  }, [recordsQuery.isFetching, state.page, pages]);
+  const listMetadata = useMemo(
+    () => normalizeListMetadata(recordsQuery.data, readable),
+    [recordsQuery.data, readable],
+  );
+  const listFields = useMemo(
+    () => listMetadata.fields.filter((field) => field.is_active !== false && field.field_access !== "none"),
+    [listMetadata.fields],
+  );
+  const relationshipDefinitions = useMemo(
+    () => listMetadata.relationships,
+    [listMetadata.relationships],
+  );
+  const filterDefinitions = useMemo(
+    () => [
+      ...listFields.filter((field) => field.field_type !== "file"),
+      ...relationshipDefinitions,
+    ],
+    [listFields, relationshipDefinitions],
+  );
+  const availableColumns = useMemo(
+    () => [
+      { id: "name", label: object?.singular_label || "Name", kind: "core", locked: true, sortable: false },
+      ...listFields.map((field) => ({
+        ...field, id: String(field.id), label: field.label, kind: "field", sortable: field.sortable !== false,
+      })),
+      ...relationshipDefinitions.map((relationship) => ({
+        ...relationship, kind: "relationship",
+      })),
+      { id: "updated_at", label: "Updated", kind: "core", locked: false, sortable: true },
+    ],
+    [listFields, relationshipDefinitions, object?.singular_label],
+  );
+  const defaultVisible = useMemo(
+    () => [
+      "name",
+      ...sharedListFields(object, fields).map((field) => String(field.id)),
+      "updated_at",
+    ],
+    [object, fields],
+  );
+  const filterIds = useMemo(() => filterDefinitions.map((field) => String(field.id)), [filterDefinitions]);
+  const orderedFilters = useMemo(() => {
+    const byId = new Map(filterDefinitions.map((field) => [String(field.id), field]));
+    return reconcileOrder(filterOrder, filterIds)
+      .map((id) => byId.get(id))
+      .filter(Boolean);
+  }, [filterDefinitions, filterIds, filterOrder]);
+  const visibleColumns = columns.filter((column) => column.visible);
+  const hiddenSet = useMemo(() => new Set(hiddenFilterIds), [hiddenFilterIds]);
+
+  useEffect(() => {
+    if (!listMetadataResolved || !availableColumns.length) return;
+    let saved = null;
+    try {
+      saved = JSON.parse(localStorage.getItem(storageKey));
+    } catch {}
+    setColumns((current) =>
+      reconcileColumns(current.length ? current : saved?.columns, availableColumns, defaultVisible));
+    setFilterOrder((current) =>
+      reconcileOrder(current.length ? current : saved?.filterOrder, filterIds));
+    setHiddenFilterIds((current) => {
+      const source = current.length ? current : saved?.hiddenFilterIds;
+      return Array.isArray(source) ? source.filter((id) => filterIds.includes(id)) : [];
+    });
+  }, [storageKey, availableColumns, defaultVisible, filterIds, listMetadataResolved]);
+
+  useEffect(() => {
+    if (!listMetadataResolved || !columns.length || !filterIds.length) return;
+    try {
+      localStorage.setItem(storageKey, JSON.stringify({ columns, filterOrder, hiddenFilterIds }));
+    } catch {}
+  }, [storageKey, columns, filterOrder, hiddenFilterIds, filterIds.length, listMetadataResolved]);
+
+  const {
+    views: savedViews,
+    viewsLoaded,
+    defaultView,
+    activeViewId,
+    setActiveViewId,
+    createView,
+    updateView,
+    renameView,
+    deleteView,
+    setDefaultView,
+    isSaving: viewSaving,
+  } = useSavedListViews({
+    page: "customObjects",
+    memberId: memberInfo?.id,
+    scopeId: objectId,
+    enabled: !!memberInfo?.id,
+  });
+
+  const applySavedView = useCallback((view) => {
+    if (!listMetadataResolved) {
+      // A deliberate selection made while metadata is loading must win over
+      // the automatic default-view restoration that runs after metadata arrives.
+      restoredViewRef.current = true;
+      pendingViewRef.current = view;
+      return;
+    }
+    const saved = view?.filters || {};
+    const savedSortField = availableColumns.some((column) =>
+      String(column.id) === String(saved.sortField) && column.sortable !== false)
+      ? saved.sortField
+      : "created_at";
+    dispatch({
+      type: "replace",
+      value: {
+        search: typeof saved.search === "string" ? saved.search : "",
+        filters: reconcileFilters(saved.filters, filterDefinitions),
+        sortField: savedSortField,
+        sortDir: saved.sortDir === "asc" ? "asc" : "desc",
+        includeArchived: saved.includeArchived === true,
+        pageSize: [10, 25, 50, 100].includes(saved.pageSize) ? saved.pageSize : 25,
+      },
+    });
+    if (Array.isArray(view?.columns))
+      setColumns(reconcileColumns(view.columns, availableColumns, defaultVisible));
+    setFilterOrder(reconcileOrder(saved.filterOrder, filterIds));
+    setHiddenFilterIds(
+      Array.isArray(saved.hiddenFilterIds)
+        ? saved.hiddenFilterIds.filter((id) => filterIds.includes(id))
+        : [],
+    );
+    setActiveViewId(view?.id || null);
+  }, [availableColumns, defaultVisible, filterDefinitions, filterIds, listMetadataResolved, setActiveViewId]);
+
+  useEffect(() => {
+    if (!listMetadataResolved || !pendingViewRef.current) return;
+    const view = pendingViewRef.current;
+    pendingViewRef.current = null;
+    applySavedView(view);
+  }, [listMetadataResolved, applySavedView]);
+
+  useEffect(() => {
+    if (!viewsLoaded || !listMetadataResolved || restoredViewRef.current || !availableColumns.length) return;
+    restoredViewRef.current = true;
+    if (defaultView) applySavedView(defaultView);
+  }, [viewsLoaded, defaultView, availableColumns.length, applySavedView, listMetadataResolved]);
+
+  const buildViewSnapshot = () => ({
+    filters: {
+      search: state.search,
+      filters: activeRecordFilters(state.filters),
+      sortField: state.sortField,
+      sortDir: state.sortDir,
+      includeArchived: state.includeArchived,
+      pageSize: state.pageSize,
+      filterOrder,
+      hiddenFilterIds,
+    },
+    columns,
+  });
+
+  const updateFilter = (field, patch) => {
+    const current = state.filters[field.id] || {
+      op: filterOperators(field.field_type)[0][0],
+      value: field.field_type === "relationship" ? [] : "",
+    };
+    dispatch({ type: "filter", id: String(field.id), value: { ...current, ...patch } });
+  };
+  const doSort = (field) => {
+    dispatch({
+      type: "patch",
+      value: state.sortField === field
+        ? { sortDir: state.sortDir === "asc" ? "desc" : "asc" }
+        : { sortField: field, sortDir: "asc" },
+    });
+  };
+  const moveItem = (setter, dragged, target) => {
+    if (!dragged || dragged === target) return;
+    setter((current) => {
+      const next = [...current];
+      const from = next.findIndex((item) => (typeof item === "string" ? item : item.id) === dragged);
+      const to = next.findIndex((item) => (typeof item === "string" ? item : item.id) === target);
+      if (from < 0 || to < 0) return current;
+      const [item] = next.splice(from, 1);
+      next.splice(to, 0, item);
+      return next;
+    });
+  };
+  const reset = () => {
+    dispatch({ type: "reset" });
+    setFilterOrder(filterIds);
+    setHiddenFilterIds([]);
+    setColumns(reconcileColumns([], availableColumns, defaultVisible));
+    setActiveViewId(null);
+  };
+
+  const exportRecords = useMutation({
+    mutationFn: async () => {
+      const params = new URLSearchParams(buildRecordQueryString(state, {
+        page: 1,
+        pageSize: 1000,
+        relationshipColumns: requestedRelationshipColumns,
+      }));
+      const rows = [];
+      let exportPage = 1;
+      let expected = 0;
+      do {
+        params.set("page", String(exportPage));
+        const result = await request(`/api/custom-objects/${objectId}/export?${params}`);
+        const pageRows = result.data || [];
+        rows.push(...pageRows);
+        expected = result.total || rows.length;
+        exportPage += 1;
+        if (pageRows.length === 0 && rows.length < expected)
+          throw new Error("Export stopped because the server returned an incomplete page.");
+      } while (rows.length < expected);
+      return rows;
+    },
+    onSuccess: (rows) => {
+      const cells = (record) => visibleColumns.map((column) => {
+        if (column.id === "name") return record.display_value;
+        if (column.id === "updated_at")
+          return record.updated_at ? new Date(record.updated_at).toLocaleDateString() : "";
+        if (column.kind === "relationship")
+          return boundedLabels(relationshipValuesFor(record, column), 3);
+        return formatRecordValue(column, record.data?.[column.name], countriesByCode);
+      });
+      const csv = [
+        visibleColumns.map((column) => csvCell(column.label)).join(","),
+        ...rows.map((record) => cells(record).map(csvCell).join(",")),
+      ].join("\r\n");
+      const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `${object.object_key || "custom-object"}-records.csv`;
+      link.click();
+      URL.revokeObjectURL(url);
+      toast.success(`${rows.length} record${rows.length === 1 ? "" : "s"} exported`);
+    },
+    onError: (error) => toast.error(error.message),
+  });
+
+  if (objectQuery.isLoading || fieldsQuery.isLoading)
+    return <Workspace object={{ id: objectId }}><Loader2 className="mx-auto mt-24 h-8 w-8 animate-spin" /></Workspace>;
+  const schemaError = objectQuery.error || fieldsQuery.error;
+  if (schemaError?.status === 403 || recordsQuery.error?.status === 403)
+    return <Workspace object={{ id: objectId }}><PageState title="Permission denied" message="You do not have permission to view these records." /></Workspace>;
+  if (schemaError)
+    return <Workspace object={{ id: objectId }}><PageState title="Records could not be loaded" message={schemaError.message} retry={() => { objectQuery.refetch(); fieldsQuery.refetch(); }} /></Workspace>;
+
+  const canCreate = object?.status === "active" && capability(object, "create_records");
+  const shownFilters = orderedFilters.filter((field) =>
+    !hiddenSet.has(String(field.id))
+    && (!filterSearch.trim() || field.label.toLowerCase().includes(filterSearch.toLowerCase())));
+  const hasActiveQuery = Boolean(
+    state.search || Object.keys(activeRecordFilters(state.filters)).length || state.includeArchived,
+  );
+
+  return (
+    <Workspace object={object} showBackLink={!isFeatureExcluded("admin.data-studio")}>
+      <header className="mb-5 flex flex-col gap-4 border-b pb-5 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <h1 className="text-3xl font-semibold tracking-tight text-slate-950">{object.plural_label}</h1>
+          <p className="mt-1 text-sm text-slate-600">Manage {object.plural_label.toLowerCase()} records.</p>
+        </div>
+        {canCreate && (
+          <Button asChild><Link to={`${recordsPath(objectId)}/new`}><Plus className="mr-2 h-4 w-4" />Add {object.singular_label}</Link></Button>
+        )}
+      </header>
+      <div className="flex min-h-[620px] overflow-hidden rounded-lg border bg-white shadow-sm">
+        <aside className={`shrink-0 border-r transition-all ${sidebarCollapsed ? "w-0 overflow-hidden" : "w-72"}`}>
+          <div className="w-72 border-b p-4">
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="flex items-center gap-2 font-semibold"><SlidersHorizontal className="h-4 w-4" />Filters</h2>
+              <div className="flex">
+                <Button variant="ghost" size="sm" className="h-8 px-2" onClick={reset}>
+                  <RotateCcw className="mr-1 h-3.5 w-3.5" />Reset
+                </Button>
+                <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setSidebarCollapsed(true)} aria-label="Collapse filters">
+                  <PanelLeftClose className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+            <SavedViewSwitcher
+              views={savedViews} activeViewId={activeViewId} isSaving={viewSaving}
+              onApplyView={applySavedView} onClearView={reset}
+              onCreateView={(name, options) => createView(name, buildViewSnapshot(), options).then((view) => setActiveViewId(view.id))}
+              onUpdateView={(view) => updateView(view.id, buildViewSnapshot())}
+              onRenameView={(view, name) => renameView(view.id, name)}
+              onDeleteView={(view) => deleteView(view.id)}
+              onSetDefault={setDefaultView} testIdPrefix="custom-object-view"
+            />
+            <div className="relative mt-3">
+              <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-slate-400" />
+              <Input className="h-8 pl-8 text-xs" placeholder="Search filters..." value={filterSearch} onChange={(event) => setFilterSearch(event.target.value)} />
+            </div>
+          </div>
+          <ScrollArea className="h-[510px]">
+            <div className="space-y-3 p-3">
+              {shownFilters.map((field) => {
+                const current = state.filters[field.id] || {
+                  op: filterOperators(field.field_type)[0][0],
+                  value: field.field_type === "relationship" ? [] : "",
+                };
+                const emptyOp = ["is_empty", "is_not_empty"].includes(current.op);
+                return (
+                  <div
+                    key={field.id} draggable
+                    onDragStart={() => setDraggedFilter(String(field.id))}
+                    onDragOver={(event) => event.preventDefault()}
+                    onDrop={() => moveItem(setFilterOrder, draggedFilter, String(field.id))}
+                    className="rounded-md border bg-white p-2"
+                  >
+                    <div className="mb-1.5 flex items-center gap-1">
+                      <GripVertical className="h-3.5 w-3.5 cursor-grab text-slate-300" />
+                      <Label className="min-w-0 flex-1 truncate text-[11px]">{field.label}</Label>
+                      <FilterOperatorMenu
+                        operators={filterOperators(field.field_type).map(([value, label]) => ({ value, label }))}
+                        value={current.op} onChange={(op) => updateFilter(field, { op })}
+                      />
+                      <button type="button" onClick={() => setHiddenFilterIds((ids) => [...new Set([...ids, String(field.id)])])} aria-label={`Hide ${field.label}`}>
+                        <EyeOff className="h-3.5 w-3.5 text-slate-400" />
+                      </button>
+                    </div>
+                    {!emptyOp && <FilterValue field={field} objectId={objectId} value={current.value} onChange={(value) => updateFilter(field, { value })} />}
+                  </div>
+                );
+              })}
+              {hiddenFilterIds.length > 0 && (
+                <div className="border-t pt-3">
+                  <p className="mb-2 text-[11px] font-medium text-slate-500">Hidden filters</p>
+                  {orderedFilters.filter((field) => hiddenSet.has(String(field.id))).map((field) => (
+                    <button key={field.id} type="button" className="flex w-full items-center gap-2 rounded px-2 py-1 text-left text-xs hover:bg-slate-50"
+                      onClick={() => setHiddenFilterIds((ids) => ids.filter((id) => id !== String(field.id)))}>
+                      <Eye className="h-3.5 w-3.5" />{field.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </ScrollArea>
+        </aside>
+        <section className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2 border-b p-3">
+            {sidebarCollapsed && (
+              <Button variant="outline" size="icon" onClick={() => setSidebarCollapsed(false)} aria-label="Open filters"><PanelLeft className="h-4 w-4" /></Button>
+            )}
+            <form className="flex min-w-[220px] flex-1" onSubmit={(event) => {
+              event.preventDefault();
+              dispatch({ type: "patch", value: { search: state.searchInput.trim() } });
+            }}>
+              <Input className="rounded-r-none" value={state.searchInput} placeholder={`Search ${object.plural_label.toLowerCase()}...`}
+                onChange={(event) => dispatch({ type: "patch", keepPage: true, value: { searchInput: event.target.value } })} />
+              <Button type="submit" variant="outline" className="rounded-l-none border-l-0" aria-label="Search"><Search className="h-4 w-4" /></Button>
+            </form>
+            <label className="flex items-center gap-2 text-xs"><Switch checked={state.includeArchived}
+              onCheckedChange={(includeArchived) => dispatch({ type: "patch", value: { includeArchived } })} />Archived</label>
+            {capability(object, "export_records") && (
+              <Button variant="outline" disabled={exportRecords.isPending} onClick={() => exportRecords.mutate()}>
+                {exportRecords.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}Export
+              </Button>
+            )}
+            <Dialog open={columnsOpen} onOpenChange={setColumnsOpen}>
+              <DialogTrigger asChild><Button variant="outline"><Columns3 className="mr-2 h-4 w-4" />Columns</Button></DialogTrigger>
+              <DialogContent>
+                <DialogHeader><DialogTitle>Configure columns</DialogTitle></DialogHeader>
+                <ScrollArea className="max-h-80">
+                  <div className="space-y-1 pr-3">
+                    {columns.map((column) => (
+                      <div key={column.id} draggable={!column.locked} onDragStart={() => setDraggedColumn(column.id)}
+                        onDragOver={(event) => event.preventDefault()} onDrop={() => moveItem(setColumns, draggedColumn, column.id)}
+                        className="flex items-center gap-2 rounded border p-2 text-sm">
+                        <GripVertical className="h-4 w-4 text-slate-300" />
+                        <Checkbox checked={column.visible} disabled={column.locked}
+                          onCheckedChange={(visible) => setColumns((items) => items.map((item) => item.id === column.id ? { ...item, visible: visible === true } : item))} />
+                        <span className="flex-1">{column.label}</span>
+                        {column.kind === "relationship" && <Badge variant="outline">Relationship</Badge>}
+                      </div>
+                    ))}
+                  </div>
+                </ScrollArea>
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => setColumns(reconcileColumns([], availableColumns, defaultVisible))}>Reset</Button>
+                  <Button onClick={() => setColumnsOpen(false)}>Done</Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+          </div>
+          {recordsQuery.isLoading ? (
+            <div className="grid h-80 place-items-center"><Loader2 className="h-7 w-7 animate-spin text-slate-400" /></div>
+          ) : recordsQuery.error ? (
+            <div className="py-16 text-center">
+              <p className="font-medium text-rose-700">Records could not be loaded</p>
+              <p className="mt-1 text-sm text-slate-600">{recordsQuery.error.message}</p>
+              <Button variant="outline" className="mt-4" onClick={reset}>Clear search and filters</Button>
+            </div>
+          ) : records.length === 0 ? (
+            <div className="py-20 text-center">
+              <h2 className="font-semibold">No records found</h2>
+              <p className="mt-1 text-sm text-slate-500">{hasActiveQuery ? "Try changing your search or filters." : `Add the first ${object.singular_label.toLowerCase()} when you are ready.`}</p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[700px] text-left text-sm">
+                <thead className="border-b bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+                  <tr>{visibleColumns.map((column) => (
+                    <th key={column.id} className="whitespace-nowrap px-4 py-3">
+                      {column.sortable
+                        ? <SortableHeader field={column.kind === "field" ? column.id : column.id} sortField={state.sortField} sortDir={state.sortDir} onSort={doSort}>{column.label}</SortableHeader>
+                        : column.label}
+                    </th>
+                  ))}</tr>
+                </thead>
+                <tbody>{records.map((record) => (
+                  <tr key={record.id} className="border-b last:border-0 hover:bg-slate-50">
+                    {visibleColumns.map((column) => {
+                      let value;
+                      if (column.id === "name") value = <><Link className="font-medium text-blue-700 hover:underline" to={`${recordsPath(objectId)}/${record.id}`}>{record.display_value}</Link>{record.archived_at && <Badge variant="outline" className="ml-2">Archived</Badge>}</>;
+                      else if (column.id === "updated_at") value = record.updated_at ? new Date(record.updated_at).toLocaleDateString() : "—";
+                      else if (column.kind === "relationship") value = boundedLabels(relationshipValuesFor(record, column), 3);
+                      else value = formatRecordValue(column, record.data?.[column.name], countriesByCode);
+                      return <td key={column.id} className="max-w-[280px] px-4 py-3 text-slate-600"><span className="line-clamp-2" title={typeof value === "string" ? value : undefined}>{value}</span></td>;
+                    })}
+                  </tr>
+                ))}</tbody>
+              </table>
+            </div>
+          )}
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t p-4 text-sm">
+            <span className="text-slate-500">{total} record{total === 1 ? "" : "s"}</span>
+            <div className="flex items-center gap-2">
+              <Select value={String(state.pageSize)} onValueChange={(value) => dispatch({ type: "patch", value: { pageSize: Number(value) } })}>
+                <SelectTrigger className="w-28"><SelectValue /></SelectTrigger>
+                <SelectContent>{[10, 25, 50, 100].map((size) => <SelectItem key={size} value={String(size)}>{size} / page</SelectItem>)}</SelectContent>
+              </Select>
+              <Button size="icon" variant="outline" disabled={state.page <= 1} onClick={() => dispatch({ type: "page", value: state.page - 1 })}><ChevronLeft className="h-4 w-4" /></Button>
+              <span>Page {state.page} of {pages}</span>
+              <Button size="icon" variant="outline" disabled={state.page >= pages} onClick={() => dispatch({ type: "page", value: state.page + 1 })}><ChevronRight className="h-4 w-4" /></Button>
+            </div>
+          </div>
+        </section>
+      </div>
+    </Workspace>
+  );
+}
+
+function LegacyCustomObjectRecordList() {
   const { objectId } = useParams();
   const { memberInfo, organizationInfo, isFeatureExcluded } = useMemberAccess();
   const { objectQuery, fieldsQuery, object, fields } = useSchema(objectId);

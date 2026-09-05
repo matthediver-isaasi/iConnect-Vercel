@@ -34,7 +34,12 @@ Custom Objects let each tenant define metadata, fields, records, permissions, an
 
 The core design principle is **metadata-driven behavior**. “Department” and “Region” are maintained acceptance scenarios, not architectural concepts: their labels and keys are ordinary tenant data. A new “Practice”, “Chapter”, or “Project” follows exactly the same paths. Production code must not add example-specific branches, components, tables, or routes.
 
-Administrators configure draft schemas, select a primary display field, activate objects, manage typed records, and define relationships to Members, Organisations, Organisation Groups, or other Custom Objects. Normal deletion is archival so historic records and audit history remain available.
+Administrators configure draft schemas, select a primary display field, activate
+objects, manage typed records, and define relationships to Members,
+Organisations, Organisation Groups, or other Custom Objects. Generated CRM lists
+can present and query authorized relationship-backed columns alongside ordinary
+fields, with matching server-side pagination, totals, and export output. Normal
+deletion is archival so historic records and audit history remain available.
 
 ---
 
@@ -60,6 +65,8 @@ Administrators configure draft schemas, select a primary display field, activate
 | `client/src/pages/customObjects/RelatedRecordsPanel.jsx` | Definition-driven related-record UI |
 | `client/src/pages/customObjects/relationshipHelpers.js` | Relationship-side resolution and safe chained-navigation return paths |
 | `client/src/pages/customObjects/recordHelpers.js` | Client layout reconciliation, visibility evaluation, field access, and generated-record helpers |
+| `client/src/pages/customObjects/recordListHelpers.mjs` | Unified CRM list reducer, metadata normalization, saved-column reconciliation, and relationship-cell formatting |
+| `client/src/hooks/useSavedListViews.js` | Member-scoped named/default list-view persistence, including ordered column state |
 | `client/src/pages/customObjects/ContextualRecordCreateDialog.jsx` | Metadata-driven form for creating and linking an opposite Custom Object record in context |
 | `client/src/pages/customObjects/RecordFieldControls.jsx` | Shared generated controls used by normal and contextual record creation |
 | `client/src/pages/FormBuilder.jsx` | Relationship-dropdown configuration against earlier organisation fields |
@@ -71,6 +78,7 @@ Administrators configure draft schemas, select a primary display field, activate
 | `supabase/migrations/20260825_custom_object_foundation.sql` | Generic storage, constraints, RLS, audit triggers, and cardinality guard |
 | `supabase/migrations/20260826_custom_object_relationship_runtime.sql` | Required-edge and archive propagation guarantees |
 | `supabase/migrations/20260925_custom_object_record_relationship_create.sql` | Atomic record-plus-initial-relationships transaction |
+| `supabase/migrations/20260928_custom_object_relationship_list_rpc.sql` | Authoritative relationship filtering/sorting/paging plus bounded per-page label projection |
 | `supabase/migrations/20260924_bnms_department_type_normalization.sql` | Pinned, idempotent BNMS Department Type schema setup |
 | `scripts/import-bnms-organisation-hierarchy.mjs` | Dry-run-first BNMS Department Type classification and preservation verification |
 
@@ -83,6 +91,9 @@ Administrators configure draft schemas, select a primary display field, activate
 5. **Conservative lifecycle:** archive replaces normal hard deletion and archived objects are terminal.
 6. **Bounded queries:** list/search/filter/picker work is database-side and paginated.
 7. **Definition-driven relationships:** one canonical edge can be presented from either endpoint using source/target labels and visibility/edit flags.
+8. **List/export parity:** the interactive CRM list and CSV export use one
+   authorized query state and server plan, preventing page-local joins,
+   divergent filters, and partial totals.
 
 ---
 
@@ -122,6 +133,7 @@ Required fields are enforced on create. On edit, a required field is enforced wh
 | `GET/POST /api/custom-objects/{objectId}/fields` | List or create fields |
 | `PATCH/DELETE .../fields/{fieldId}` | Update or deactivate a field |
 | `GET/POST .../records` | List or create records |
+| `GET .../export` | Export bounded pages from the same authorized CRM list query |
 | `GET/PATCH/DELETE .../records/{recordId}` | Read, update, or archive a record |
 | `GET/POST .../relationship-definitions` | List or create definitions |
 | `PATCH/DELETE .../relationship-definitions/{id}` | Update or archive a definition |
@@ -129,6 +141,7 @@ Required fields are enforced on create. On edit, a required field is enforced wh
 | `DELETE .../relationships/{edgeId}` | Archive an edge |
 | `GET .../entity-picker` | Search the endpoint derived from definition and side |
 | `GET .../initial-relationship-candidates` | Search eligible opposite endpoints before the new record exists |
+| `GET .../relationship-filter-options` | Search the permission-pruned opposite endpoint for one authorized CRM relationship filter |
 | `GET/POST/PUT .../permissions` | List or upsert role grants |
 | `GET .../audit` | List scoped audit events |
 | `GET/POST /api/custom-objects/core/...` | Generic Core Object relationship adapters |
@@ -153,7 +166,28 @@ All paginated catalogue, field, record, relationship, picker, permission, and au
 
 `page` defaults to 1. `pageSize` defaults to 25, is at least 1, and is capped at 100. `total` is the count before the requested range. Non-paginated discovery responses use `{ "data": [] }`; item and mutation responses return the resource directly. Errors use `{ "error": "message" }` and may include `details`.
 
-Record lists accept `search`, `sortField`, `sortDir`, `filters`, `page`, `pageSize`, and `includeArchived`. Filters are keyed by field UUID, never by caller-provided JSON paths. Relationship list/picker requests must identify `definitionId`, `recordId`, and the routed `side` where required. Endpoint kind and target object are derived from the relationship definition.
+Record lists accept `search`, `sortField`, `sortDir`, `filters`, `page`,
+`pageSize`, and `includeArchived`. The CRM list state may also select configured
+relationship-backed columns and relationship predicates by stable relationship
+definition ID and routed side. Field filters are keyed by field UUID, never by
+caller-provided JSON paths. Relationship list/picker requests must identify
+`definitionId`, `recordId`, and the routed `side` where required. Endpoint kind
+and target object are always derived from the relationship definition.
+
+The record-list service owns relationship filtering, sorting, value resolution,
+pagination, and totals. It applies every scalar and relationship predicate
+before the database range and returns the exact count for that same authorized
+query. The browser must not fetch one record page and then join, filter, sort, or
+recount relationships locally: doing so produces incomplete pages and incorrect
+totals.
+
+The export endpoint consumes the same normalized CRM list state and query plan
+as the interactive list. Export changes only the requested page size/page
+iteration; it does not silently drop relationship filters, substitute the shared
+default columns, or broaden the caller's field/relationship access. Consequently
+the concatenated export pages describe exactly the same filtered and sorted row
+set as the list, with the same authorized column order and formatted
+relationship values.
 
 `POST .../records` also accepts a transactional contextual-create shape:
 
@@ -188,6 +222,177 @@ outdated assumption that a detail view is only an ordered set of sections.
 Presentation remains metadata, never a tenant-specific component or route; the
 primary display field remains the canonical record identity used for headings,
 links, and picker labels.
+
+### Relationship-backed CRM list metadata
+
+The CRM list contract extends the record-list response with a server-authorized inventory of
+field and relationship columns. A relationship list column is metadata, not a
+copied relationship value in `custom_object_record.data`. `GET .../records`
+returns the normal pagination envelope plus `metadata`:
+
+```json
+{
+  "metadata": {
+    "fields": [{
+      "id": "field-uuid-a",
+      "kind": "field",
+      "field_id": "field-uuid-a",
+      "key": "status",
+      "label": "Status",
+      "field_type": "dropdown",
+      "value_shape": "scalar",
+      "operators": ["any_of", "none_of"],
+      "filterable": true,
+      "sortable": true
+    }],
+    "relationships": [{
+      "id": "relationship:relationship-uuid:source",
+      "kind": "relationship",
+      "relationship_definition_id": "relationship-uuid",
+      "side": "source",
+      "label": "Departments",
+      "cardinality": "one_to_many",
+      "value_shape": "many",
+      "operators": ["any_of", "none_of", "is_empty", "is_not_empty"],
+      "filterable": true,
+      "sortable": true,
+      "endpoint": {
+        "kind": "custom_object",
+        "custom_object_id": "opposite-object-uuid",
+        "display_field": {
+          "field_id": "field-uuid-b",
+          "key": "name",
+          "field_type": "text"
+        }
+      }
+    }],
+    "columns": []
+  }
+}
+```
+
+- A field metadata item references one readable, active, scalar field belonging
+  to the listed Custom Object. Its list ID is the field UUID. Multi-value fields
+  use `value_shape: "array"`; files remain readable columns but advertise no
+  filter operators and are not sortable.
+- A relationship column references one active definition and the side occupied
+  by the listed Custom Object. Its stable identity is
+  `relationship:<definition-id>:<source|target>`.
+- The side is mandatory for self-relationships and remains explicit for every
+  other relationship, so a label or endpoint rename cannot reverse the query.
+- The heading comes from the configured label for the routed side. Cell values
+  come from active canonical edges and authorized opposite-endpoint display
+  metadata; relationship UUIDs and raw record IDs are never display fallbacks.
+- Each projected record has a `relationships` map keyed by that stable
+  relationship ID. The value is `{ count, records }`; records contain only
+  authorized `id`, `kind`, Custom Object ID, primary label, secondary text, and
+  compact fields that the endpoint resolver permits.
+- Zero matches produce `count: 0` and an empty `records` array. Multiple matches
+  are ordered by primary label and then stable record ID. The UI displays at
+  most three labels followed by `+N more`; it does not choose an arbitrary
+  first edge.
+- Relationship data is not denormalized into the record JSON, and a column does
+  not create a new relationship, relax cardinality, or grant access.
+
+`metadata.columns` is the concatenated authorized field/relationship inventory.
+The client normalizer also accepts the additive aliases `list_metadata`,
+`listMetadata`, `relationship_columns`, and camelCase equivalents so the
+response contract can evolve safely. Legacy `views.list.field_ids` remains the
+shared field-only visibility default; relationship visibility/order lives in
+the member's reconciled column state or named saved view.
+
+### Unified CRM list state and export parity
+
+The **CRM list state** is the complete list request: search, typed field and
+relationship filters, sort column/direction, archive mode, page, and page size.
+Ordered column visibility, filter order, and hidden-filter choices accompany it
+in the personal/saved-view snapshot. Shared object presentation supplies the
+initial field visibility; `name` is locked visible and `updated_at` is initially
+visible. A local preference is scoped by tenant, member, and object, while named
+and default views use `useSavedListViews` with page `customObjects` and the object
+ID as scope. Neither is a permission mechanism.
+
+Relationship filters use the canonical relationship list ID in either the
+unified `filters` object or `relationshipFilters`. Supported operators are
+`any_of`, `none_of`, `is_empty`, and `is_not_empty`; the first two carry
+opposite endpoint IDs. Relationship sort uses that same ID as `sortField` (or
+`relationshipSort`), with `relationshipSortMode` equal to `label` (default) or
+`count`.
+
+Filter value search uses
+`GET .../relationship-filter-options?fieldId=<stable-list-id>&search=<text>`.
+The service resolves `fieldId` only from the permission-pruned list metadata;
+the browser cannot choose an endpoint table or linked display field. Custom
+Objects, Members, Organisations, and Organisation Groups share this route.
+Results are tenant-scoped, server-searched, paginated, and projected through the
+same endpoint label adapter as table cells. The optional bounded `selected`
+array rehydrates readable labels for a saved filter even when those records are
+outside the current search page.
+
+```text
+shared list metadata + personal column preference + URL/query controls
+  → normalize one CRM list state
+  → authorize and prune its fields and relationship sides
+  → build one server query plan
+  → apply search, filters, and sort before pagination
+  → return rows + exact filtered total + effective columns
+```
+
+The records table, result count, pagination controls, and CSV export all consume
+that effective state. Export calls the same list service through
+`GET .../export`, repeats bounded 1,000-row requests until it reaches the
+reported total, and writes only the currently visible ordered columns. It
+preserves relationship-backed predicates, sort order, archive choice, field
+formatting, three-label display bound, and unavailable-value policy.
+
+**Important:** visible columns and predicates are separate. A caller may hide a
+column without removing its authorized filter or sort, but cannot filter or sort
+by a field/relationship side that authorization has removed. Pagination is
+never part of the persisted shared default and export pagination is transport
+state only.
+
+### List authorization, fail-closed behavior, and reconciliation
+
+The server resolves list authorization before constructing SQL or returning
+column metadata:
+
+1. Require the routed object's `view_records` capability (and
+   `export_records` for export).
+2. Resolve readable fields for the routed object; remove unreadable field
+   columns and reject unreadable field filters/sorts.
+3. Re-load every relationship definition by tenant and stable ID, verify that
+   the declared side belongs to the routed object, and require that side to be
+   active and visible.
+4. Apply the corresponding endpoint capability checks. For an opposite Custom
+   Object, require an active object plus its `view_records` capability and a
+   readable active primary display field, then prune compact fields through that
+   object's field grants. Relationship
+   columns whose opposite endpoint is a Member, Organisation, or Organisation
+   Group are advertised only to tenant administrators, matching the core
+   relationship service boundary.
+5. Resolve every opposite row through the existing endpoint projector, which
+   omits missing/archived rows and prunes inaccessible Custom Object fields and
+   secondary text.
+6. Build filters, sort expressions, rows, totals, and export output only from
+   the resulting allowlist.
+
+Malformed, cross-tenant, inactive, wrong-side, or ambiguous relationship
+metadata fails closed. A stale display-only column can be pruned during
+reconciliation so the list remains usable. In contrast, a requested filter or
+sort whose target is invalid or unauthorized is rejected rather than ignored,
+because silently dropping it would broaden the result set. The service never
+trusts a client-provided endpoint kind, table, JSON path, label, count, joined
+value, or pre-authorized column descriptor.
+
+Read-time reconciliation is non-destructive. `reconcileColumns()` and
+`reconcileOrder()` deduplicate saved IDs, remove anything absent from the
+server-authorized inventory, preserve the order/visibility of survivors, and
+append newly available columns and filters with their default visibility.
+`reconcileFilters()` also removes predicates whose field/relationship or
+operator no longer exists; an unavailable saved sort returns to `updated_at`.
+Hidden-filter IDs are intersected with the effective filter inventory. This does
+not rewrite record JSON, relationship edges, shared presentation, local storage,
+or a named saved view merely because metadata changed.
 
 ### Version 2 CRM detail contract
 
@@ -576,6 +781,9 @@ redirects.
 13. Field permissions are resolved tenant-, object-, field-, and role-scoped at the service boundary; inaccessible field definitions, values, filter choices, export columns, and relationship secondary text are pruned before serialization.
 14. Presentation metadata is validated against active field ownership and relationship side when saved, then reconciled against the current schema on reads. Client layout/visibility decisions never expand API access.
 15. Portal Custom Object access IDs contain the stable object UUID and the `view-records` capability. Portal routing is defense in depth; the generic API remains the final tenant/capability/field authorization boundary.
+16. Relationship-backed list columns, filters, sorts, totals, and export cells
+    are produced only after server-side definition/side/endpoint authorization;
+    a client-provided join or count is never authoritative.
 
 Cross-tenant resources are deliberately indistinguishable from missing resources where appropriate. RLS and grants restrict direct table access; the service remains responsible for application-level permission and object checks.
 
@@ -614,6 +822,43 @@ and `client/src/pages/customObjects/recordHelpers.js`
 **Important:** The browser's layout calculation is presentation only. Record
 values, relationship rows, and mutation eligibility are independently
 authorized by the service.
+
+### CRM record list and export
+
+**Files:** `api/_lib/customObjectService.js`,
+`client/src/pages/CustomObjectRecords.jsx`,
+`client/src/pages/customObjects/recordListHelpers.mjs`, and
+`client/src/hooks/useSavedListViews.js`
+
+**Trigger:** A user opens a generated Custom Object list, changes its CRM list
+state, pages the result, or requests CSV export.
+
+1. Normalize legacy field-only metadata and current CRM list column descriptors
+   into stable field/relationship column IDs.
+2. Resolve the routed object capability, field grants, relationship sides, and
+   opposite-endpoint authorization.
+3. Prune display-only columns that are no longer available; reject an invalid
+   or unauthorized active filter or sort.
+4. Build one tenant-scoped query plan for scalar and relationship predicates.
+5. Apply search, predicates, and deterministic sorting to the full eligible
+   candidate set before taking the requested page, then return that filtered
+   set's exact total and authorized cell data.
+6. Call the bounded projection RPC for only the selected record IDs. It returns
+   the exact eligible edge count plus at most three linked IDs per
+   record/relationship, then the service resolves those IDs through the
+   permission-aware endpoint adapters. The browser sends only currently visible
+   relationship column IDs in `relationshipColumns`; the service validates them
+   against authorized metadata, caps the inventory at 100, and chunks endpoint
+   ID reads in batches of 200.
+7. Render the table from the server's effective metadata and values; do not
+   perform a page-local relationship join or fetch every edge for a high-cardinality row.
+8. For export, require `export_records` and replay the same normalized state in
+   bounded pages until the exact total is collected.
+9. Emit headers and formatted cells from the authorized effective columns,
+   including deterministic multi-value relationship cells.
+
+**Key detail:** list and export are two transports over one query contract.
+Adding a filter or column to only one path is a parity defect.
 
 ### Portal-menu save and access
 
@@ -704,6 +949,17 @@ instead of interpreting it as data. Visibility rules are a rendering layer:
 they cannot make a hidden/unreadable field visible or turn a read-only field
 into an editable one.
 
+### CRM list query integrity
+
+Relationship-backed list columns are re-resolved from tenant-owned definitions;
+the client cannot choose endpoint tables or JSON paths. Active edges and
+eligible opposite endpoints are evaluated across the full scalar candidate set;
+only then are relationship predicates/order, the page slice, and `total`
+derived. Invalid display-only metadata is reconciled away, while an invalid
+filter or sort fails closed so the service never returns a broader set than
+requested. Export delegates to `listRecords()` and therefore receives the same
+authoritative rows and total.
+
 ### Archive integrity
 
 Database triggers propagate archives so active relationships are not silently orphaned. The relationship archive RPC serializes removals and performs the final-edge required check in the same transaction.
@@ -723,8 +979,12 @@ Public preference-value routes first build a tenant-scoped allowlist excluding C
 `CustomObjectsAdmin.jsx` shows the tenant catalogue, schema controls, shared
 presentation defaults, and role field-access editor. `CustomObjectRecords.jsx`
 renders lists, add/edit forms, details, archive actions, and permissions from
-resolved object and field metadata. A user's saved list columns override the
-shared list default only for that user. Relationship panels and pickers derive
+resolved object and field metadata. The list's column chooser includes
+authorized field and relationship-backed columns. A user's saved list columns
+override the shared list default only for that user and are reconciled whenever
+metadata or access changes. The table renders server-resolved relationship
+cells and server totals; it never derives either from the current page.
+Relationship panels and pickers derive
 labels, endpoint kinds, side-aware compact fields, visibility, and edit controls
 from definitions. They render only the server-authorized primary/secondary data.
 Eligible cards place **Create {singular label}** beside **Add link** and open
@@ -744,10 +1004,19 @@ FormBuilder offers a **Relationship Dropdown** field type. The field settings sh
 | POST/DELETE relationship | `.../relationships/...` | Add or archive an edge |
 | POST/PUT permission | `.../permissions` | Upsert role capabilities |
 
-React Query keys are object-ID based (`custom-objects`, object, fields, records, relationship definitions/rows). Contextual creation invalidates the target object's record lists, the originating relationship rows and definition counts, and the originating record detail. The dialog closes only after success; failures leave field and relationship state in place. No cache key depends on “Department” or “Region”.
+React Query keys are object-ID based (`custom-objects`, object, fields, records,
+relationship definitions/rows), and record-list keys include the normalized CRM
+list state. Contextual creation and relationship mutations invalidate affected
+record lists because relationship columns, filters, sort order, and totals may
+all change even when record JSON did not. They also invalidate the originating
+relationship rows, definition counts, and record detail. The dialog closes only
+after success; failures leave field and relationship state in place. No cache
+key depends on “Department” or “Region”.
 
-The admin object's **Presentation** tab saves the shared list default and the
-v2 CRM card layout. The generated record page applies that layout, evaluates
+The admin object's **Presentation** tab saves the shared field-only list default
+and the v2 CRM card layout. The generated list merges that default with
+server-advertised relationship columns and reconciled personal/saved-view
+state. The generated record page applies the detail layout, evaluates
 visibility rules for the opened record, renders relationship cards in their
 configured positions, and keeps unplaced relationship cards reachable below
 the layout. Portal Menu Management exposes only active Custom Objects the
@@ -792,6 +1061,24 @@ Open Region "North West"
 ```
 
 ```text
+Open a Custom Object CRM list
+  → normalize shared/personal field and relationship columns
+    → authorize routed fields and every relationship side
+      → compile scalar and relationship predicates
+        → query and sort the full tenant-scoped result
+          → paginate once and return the exact filtered total
+            → render server-resolved cells
+```
+
+```text
+Export the current CRM list
+  → reuse the authorized columns, search, filters, sort, and archive mode
+    → request bounded export pages from the same query plan
+      → verify progress against the authoritative total
+        → emit field and relationship headers/cells in the same order
+```
+
+```text
 Open an eligible relationship card
   → resolve opposite active Custom Object and singular label
     → load active fields and initial relationship metadata
@@ -806,21 +1093,36 @@ Open an eligible relationship card
 
 ## MVP Limitations and Phase 2 Handoff Contracts
 
-The MVP provides generic schema/record CRUD, generated forms, search, typed field filters, sorting, pagination, permissions, archive/audit behavior, generic pickers, Core/Custom Object relationships, and direct Organisation-to-Custom-Object dependent FormBuilder dropdowns. It does **not** provide CSV import/export workflows for Custom Object records, persisted saved views, cross-relationship query composition, multi-level form dependencies, reporting datasets, or communications segmentation.
+The MVP provides generic schema/record CRUD, generated forms, search, typed
+field and relationship-backed CRM list metadata, server-side relationship
+querying, sorting, pagination/totals, member-scoped named/default saved views,
+permission-aware CSV export, archive/audit behavior, generic pickers,
+Core/Custom Object relationships, and direct Organisation-to-Custom-Object
+dependent FormBuilder dropdowns. It does **not** provide CSV import,
+tenant-published shared saved views beyond the object's field default, arbitrary
+multi-hop relationship query composition, multi-level form dependencies,
+reporting datasets, or communications segmentation.
 
 Phase 2 must consume stable generic contracts rather than inspect JSON or add example-specific code:
 
 | Integration | Handoff contract |
 |-------------|------------------|
 | CSV import | Address object by UUID; fetch field metadata; map columns to immutable field keys/IDs; validate through the same typed record service; resolve relationships by controlled IDs; return row-level validation and summary results |
-| CSV export | Require `export_records`; preserve tenant/object scope; consume the same filter/sort/view specification; emit labels for headers while retaining stable metadata mapping |
-| Saved views | Persist object UUID, visible field UUIDs/order, sort, and the existing field-ID-keyed filter grammar; tolerate archived fields without rewriting record data |
-| Advanced relationship filtering | Express predicates with relationship-definition UUID, routed side, endpoint field UUID/operator/value, and bounded traversal depth; preserve tenant and capability checks at every hop |
+| CSV export extensions | Preserve the existing list/export query-plan parity, exact total checks, stable field/relationship column IDs, deterministic multi-value formatting, and authorization pruning |
+| Saved views | Persist object UUID, ordered field/relationship column descriptors, sort, and the existing stable-ID filter grammar; pass every loaded view through the same server reconciliation and authorization path |
+| Advanced relationship filtering | Extend the existing definition-ID + routed-side grammar with explicit versioning, opposite endpoint field UUID/operator/value, and bounded traversal depth; preserve tenant and capability checks at every hop |
 | FormBuilder | Existing dependent dropdowns use saved object/field/relationship UUIDs and metadata snapshots; later create/update actions must submit to generic record services and never write JSONB directly |
 | Reporting | Discover schemas by object UUID; expose typed field metadata and relationship-definition IDs; apply tenant/permission scope and server-side pagination/aggregation |
 | Communications | Store segmentation predicates by object/relationship/field IDs; resolve recipients through permission-aware relationship traversal; never copy Department/Region assumptions into campaign code |
 
 **Compatibility rule:** immutable IDs and keys, field types, lifecycle states, cardinalities, capability names, filter grammar, and pagination envelopes are Phase 2 contracts. Extensions belong in versioned configuration or additive response fields. Consumers must ignore unknown additive fields and must not rely on labels as identifiers.
+
+**List extension rule:** add a new column, aggregate, or relationship operator
+to the shared list-state normalizer and server query plan first, then expose it
+to both interactive list and export. Define deterministic null/multi-value sort
+semantics, apply it before pagination, count through the same predicate, add
+authorization and reconciliation behavior, and only then add UI controls.
+Never implement an extension as a browser join or an export-only branch.
 
 ---
 
@@ -835,7 +1137,10 @@ Phase 2 must consume stable generic contracts rather than inspect JSON or add ex
 | Pagination | query | page ≥ 1, pageSize 1–100 | 1 / 25 | Server-side range |
 | Include archived | query | `"true"` or omitted | omitted | Include archived resources |
 | Record capabilities | role permission | five booleans | false | Per-object authorization |
-| Shared list fields | object presentation metadata | ordered active field UUIDs | legacy active-field order | Administrator default; a personal saved column set overrides it locally |
+| Shared list field default | `configuration.views.list.field_ids` | ordered active field UUIDs | active-field order | Initial field visibility; relationship columns come from authorized response metadata |
+| Personal CRM list state | local preference / `useSavedListViews` scope `customObjects:<object-id>` | ordered `{ id, visible }` columns plus query/filter UI state | shared fields + locked Name + Updated | Reconciled against current authorized list metadata |
+| Relationship list filter | query `filters` or `relationshipFilters` | `any_of`, `none_of`, `is_empty`, `is_not_empty` | inactive | Key is `relationship:<definition-id>:<side>` |
+| Relationship list sort | query `sortField`/`relationshipSort` and `relationshipSortMode` | direction `asc`/`desc`; mode `label`/`count` | label / ascending | Applied before server pagination with stable record-ID tie-break |
 | CRM detail layout | `configuration.views.detail` | version `2`, stable cards/elements, columns 1–3, visibility rules | legacy sections/generated detail | Shared field and relationship-card placement |
 | Schema snapshot | `views.detail.schema_field_ids` | active field UUIDs | populated/reconciled on read | Distinguishes newly created fields from intentionally unplaced fields |
 | Relationship compact preview | relationship configuration | ordered opposite-object field UUIDs per routed side | primary label only | Supporting values for cards and Custom Object pickers |
@@ -896,6 +1201,56 @@ Phase 2 must consume stable generic contracts rather than inspect JSON or add ex
 **Symptom:** The effective layout differs from the saved card configuration.
 **Cause:** Read-time reconciliation removes inactive fields/unavailable relationship sides. It appends only fields created after `schema_field_ids` was saved; a snapshot field intentionally left unplaced remains unplaced.
 **Fix:** Confirm the field and relationship lifecycle first, then edit and save the v2 layout to place the desired active field/card explicitly.
+
+### Problem: A relationship list column disappeared
+**Symptom:** A saved relationship-backed column is missing from the chooser,
+table, or export.
+**Cause:** Read-time reconciliation removed a definition that is archived,
+cross-tenant, wrong-side, hidden, inaccessible at either endpoint, or no longer
+valid for the routed object. Personal column state cannot restore it.
+**Fix:** Check the definition lifecycle and routed side, `show_on_*` setting,
+both endpoint capabilities, and opposite Custom Object field grants. Update the
+personal or named saved view after the metadata/access change if the removal is
+intentional.
+
+### Problem: Relationship list queries report a missing database function
+**Symptom:** Loading a relationship-backed list returns HTTP 503 and names
+`20260928_custom_object_relationship_list_rpc.sql`.
+**Cause:** The destination database has not received the authoritative list and
+bounded-projection functions, or PostgREST still has their signatures cached.
+**Fix:** Run
+`node scripts/apply-custom-object-relationship-list.mjs` with
+`DEST_DATABASE_URL` available. The runner applies the dated migration
+transactionally and notifies PostgREST to reload its schema cache. Verify both
+`custom_object_record_relationship_list(...)` and
+`custom_object_record_relationship_projection(...)` are executable only by
+`service_role`. Do not fall back to page-local filtering or unbounded edge
+reads.
+
+Run `node scripts/verify-custom-object-relationship-list-live.mjs` for a
+read-only destination check of function grants, a real relationship-bearing
+list, filtering, projection, sorting, out-of-range totals, export parity, and
+selected-option rehydration.
+
+### Problem: List and export counts or rows differ
+**Symptom:** CSV output does not match the current CRM list filters, ordering,
+relationship values, or authoritative total.
+**Cause:** The caller used different normalized list state, metadata/access
+changed between bounded pages, or an extension bypassed the shared server query
+plan.
+**Fix:** Retry from the current list state. If reproducible, verify that records
+and export use the same authorized query planner and that relationship
+predicates run before pagination. Do not repair parity with client-side
+filtering or totals.
+
+### Problem: A relationship filter is rejected after a metadata change
+**Symptom:** The list returns an explicit invalid/unauthorized relationship
+filter or sort error instead of ignoring the stale control.
+**Cause:** The relationship side became inactive, hidden, wrong-object, or
+unavailable to the role.
+**Fix:** Remove the stale predicate or restore valid metadata/access. This is
+intentional fail-closed behavior: silently dropping the predicate could expose
+a broader result set.
 
 ### Problem: A portal Custom Object menu link is hidden or opens without access
 **Symptom:** The object is not selectable in Portal Menu Management, or a saved link is not authorized.

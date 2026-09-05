@@ -150,3 +150,5 @@
 - [Payment quote cache authority](payment-quote-cache-authority.md) — quote keys must include validation-changing answers, not only price inputs, or transient validation errors can stick.
 - [PostgREST large IN filters](postgrest-large-in-filters.md) — hundreds of UUIDs in one `.in()` can fail at fetch/URL level; batch ID-filtered verification reads.
 - [Long-running pinned imports](long-running-pinned-imports.md) — sequential compensated imports may outlive interactive shells; resume idempotently and require a zero-write replay.
+- [Paginated RPC exact totals](paginated-rpc-exact-totals.md) — window totals disappear on out-of-range pages; return the count independently of page rows.
+- [Saved list metadata reconciliation](saved-list-metadata-reconciliation.md) — defer saved-ID reconciliation until authorized server metadata resolves; manual choices must outrank defaults.

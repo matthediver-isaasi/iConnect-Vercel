@@ -129,6 +129,38 @@ test('initial relationship candidate route dispatches the new-record side contra
   assert.deepEqual(res.payload, { objectId: 'object-1', side: 'target' });
 });
 
+test('relationship filter option route stays on the record-grant authorization path', async () => {
+  const handler = createCustomObjectRouteHandler('resource', {
+    getTenantContext: async () => ({
+      isAuthenticated: true,
+      tenantId: 'tenant-1',
+      roleId: 'role-1',
+    }),
+    hasAdminAccess: async () => false,
+    hasFeatureAccess: async () => false,
+    createCustomObjectService: () => ({
+      relationshipFilterOptions: async (objectId, query) => ({
+        objectId,
+        fieldId: query.fieldId,
+      }),
+    }),
+  });
+  const res = response();
+  await handler({
+    method: 'GET',
+    query: {
+      objectId: 'object-1',
+      resource: 'relationship-filter-options',
+      fieldId: 'relationship:definition-1:source',
+    },
+  }, res);
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(res.payload, {
+    objectId: 'object-1',
+    fieldId: 'relationship:definition-1:source',
+  });
+});
+
 test('export is a record-data route and field permission resources remain schema-managed', async () => {
   const calls = [];
   const dependencies = {
