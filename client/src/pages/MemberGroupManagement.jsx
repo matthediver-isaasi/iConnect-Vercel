@@ -49,6 +49,10 @@ import {
   blankCondition,
   validateAutoConfig,
 } from '@/lib/automaticMembership';
+import {
+  reconcileAutomaticMembershipFully,
+  uniqueGroupPersonCount,
+} from '@/lib/memberGroupAutomaticSync';
 
 function isDuplicateClassificationError(error) {
   const msg = (error?.message || error?.error || '').toLowerCase();
@@ -164,6 +168,7 @@ export default function MemberGroupManagementPage() {
   const [debouncedMemberSearch, setDebouncedMemberSearch] = useState('');
   const [assignMode, setAssignMode] = useState(''); // 'guest', 'organization' or 'member'
   const [selectedOrganizationId, setSelectedOrganizationId] = useState('');
+  const [automaticSyncByGroup, setAutomaticSyncByGroup] = useState({});
 
   const queryClient = useQueryClient();
 
@@ -378,32 +383,61 @@ export default function MemberGroupManagementPage() {
   // Does not block the save-success flow — shows advisory toast if sync fails.
   const triggerAutoReconcile = async (groupId, { notifySuccess = false } = {}) => {
     try {
-      const resp = await fetch('/api/member-groups/automatic-membership', {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'reconcile', groupId }),
-      });
-      if (!resp.ok) {
-        const err = await resp.json().catch(() => ({}));
-        toast.warning('Automatic membership sync could not be queued: ' + (err?.error || 'unknown error'));
-        return false;
-      }
-      const result = await resp.json().catch(() => ({}));
+      const result = await reconcileAutomaticMembershipFully({ groupId });
       setEditingGroup((prev) => prev?.id === groupId ? {
         ...prev,
-        automatic_membership_sync_status: result.syncStatus || 'queued',
+        automatic_membership_sync_status: result.syncStatus || 'idle',
         automatic_membership_sync_error: null,
         automatic_membership_match_count: result.matchCount ?? prev.automatic_membership_match_count,
       } : prev);
-      if (notifySuccess) toast.success('Automatic membership sync restarted');
-      // Re-invalidate so the card picks up updated sync_status after reconcile.
+      if (notifySuccess) toast.success(`Automatic membership synced: ${result.matchCount ?? 0} matched`);
       queryClient.invalidateQueries({ queryKey: ['member-groups'] });
       queryClient.invalidateQueries({ queryKey: ['member-group-assignments'] });
       return true;
     } catch (e) {
-      toast.warning('Automatic membership sync could not be queued: ' + e.message);
+      toast.warning('Automatic membership sync failed: ' + e.message);
       return false;
+    }
+  };
+
+  const syncAutomaticGroupFromCard = async (group) => {
+    if (!group?.id || automaticSyncByGroup[group.id]?.status === 'running') return;
+    setAutomaticSyncByGroup((current) => ({
+      ...current,
+      [group.id]: {
+        status: 'running',
+        batches: 0,
+        matchCount: group.automatic_membership_match_count,
+      },
+    }));
+    try {
+      const result = await reconcileAutomaticMembershipFully({
+        groupId: group.id,
+        onProgress: (progress) => setAutomaticSyncByGroup((current) => ({
+          ...current,
+          [group.id]: { status: 'running', ...progress },
+        })),
+      });
+      setAutomaticSyncByGroup((current) => ({
+        ...current,
+        [group.id]: {
+          status: 'complete',
+          lastSyncedAt: new Date().toISOString(),
+          ...result,
+        },
+      }));
+      toast.success(`${group.name} synced: ${result.matchCount ?? 0} matched`);
+    } catch (error) {
+      setAutomaticSyncByGroup((current) => ({
+        ...current,
+        [group.id]: { status: 'error', error: error.message },
+      }));
+      toast.error(`${group.name} sync failed: ${error.message}`);
+    } finally {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['member-groups'] }),
+        queryClient.invalidateQueries({ queryKey: ['member-group-assignments'] }),
+      ]);
     }
   };
 
@@ -1403,6 +1437,8 @@ export default function MemberGroupManagementPage() {
     return assignments.filter(a => a.group_id === groupId);
   };
 
+  const getGroupPersonCount = (groupId) => uniqueGroupPersonCount(getGroupAssignments(groupId));
+
   const getAssignmentJoinTime = (assignment) => {
     const raw = assignment.created_date || assignment.created_at || null;
     if (!raw) return 0;
@@ -1465,13 +1501,13 @@ export default function MemberGroupManagementPage() {
         case 'name-desc':
           return b.name.localeCompare(a.name);
         case 'members-asc': {
-          const aCount = getGroupAssignments(a.id).length;
-          const bCount = getGroupAssignments(b.id).length;
+          const aCount = getGroupPersonCount(a.id);
+          const bCount = getGroupPersonCount(b.id);
           return aCount - bCount;
         }
         case 'members-desc': {
-          const aCount = getGroupAssignments(a.id).length;
-          const bCount = getGroupAssignments(b.id).length;
+          const aCount = getGroupPersonCount(a.id);
+          const bCount = getGroupPersonCount(b.id);
           return bCount - aCount;
         }
         default:
@@ -1626,8 +1662,30 @@ export default function MemberGroupManagementPage() {
 
   const renderGroupCard = (group) => {
     const groupAssignments = getSortedGroupAssignments(group.id);
+    const groupPersonCount = uniqueGroupPersonCount(groupAssignments);
     const previewAssignments = groupAssignments.slice(0, 5);
     const isSelected = selectedGroups.includes(group.id);
+    const automaticSync = automaticSyncByGroup[group.id];
+    const automaticSyncRunning = automaticSync?.status === 'running';
+    const automaticSyncError = automaticSync
+      ? (automaticSync.status === 'error' ? automaticSync.error : null)
+      : group.automatic_membership_sync_error;
+    const automaticMatchCount = automaticSync?.matchCount
+      ?? group.automatic_membership_match_count;
+    const automaticLastSyncedAt = automaticSync?.lastSyncedAt
+      ?? group.automatic_membership_last_synced_at;
+    const automaticStatus = automaticSync?.status === 'complete'
+      ? 'idle'
+      : automaticSync?.status || group.automatic_membership_sync_status;
+    const automaticStatusLabel = automaticStatus === 'idle'
+      ? 'Synced'
+      : automaticStatus === 'running'
+        ? 'Syncing'
+        : automaticStatus === 'queued'
+          ? 'Queued'
+          : automaticStatus === 'error'
+            ? 'Error'
+            : null;
     return (
       <Card
         key={group.id}
@@ -1684,9 +1742,53 @@ export default function MemberGroupManagementPage() {
 
           <div>
             <span className="text-sm font-medium text-slate-700">
-              Members: {groupAssignments.length}
+              Members: {groupPersonCount}
             </span>
           </div>
+
+          {group.automatic_membership_enabled && (
+            <div
+              className="rounded-md border border-blue-100 bg-blue-50 p-3 text-xs"
+              data-testid={`automatic-sync-card-${group.id}`}
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="text-slate-600">
+                  <span className="font-medium text-slate-800">Automatic assignment</span>
+                  {automaticStatusLabel && <span> · {automaticStatusLabel}</span>}
+                  {automaticMatchCount != null && <span> · {automaticMatchCount} matched</span>}
+                  {automaticSyncRunning && automaticSync?.batches > 0 && (
+                    <span>
+                      {' '}· {automaticSync.batches} batch{automaticSync.batches === 1 ? '' : 'es'} processed
+                    </span>
+                  )}
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-8 bg-white"
+                  disabled={automaticSyncRunning}
+                  onClick={() => syncAutomaticGroupFromCard(group)}
+                  data-testid={`button-sync-automatic-members-${group.id}`}
+                >
+                  {automaticSyncRunning
+                    ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                    : <RefreshCw className="mr-1 h-3.5 w-3.5" />}
+                  {automaticSyncRunning ? 'Syncing…' : automaticSyncError ? 'Retry sync' : 'Sync members'}
+                </Button>
+              </div>
+              {automaticSyncError && (
+                <p className="mt-2 text-red-600" data-testid={`automatic-sync-error-${group.id}`}>
+                  {automaticSyncError}
+                </p>
+              )}
+              {automaticLastSyncedAt && (
+                <p className="mt-1 text-slate-500">
+                  Last synced: {new Date(automaticLastSyncedAt).toLocaleString()}
+                </p>
+              )}
+            </div>
+          )}
 
           <div className="flex gap-2 pt-2 border-t border-slate-200">
             <Button
@@ -1752,7 +1854,7 @@ export default function MemberGroupManagementPage() {
               className="px-0 mt-1 h-auto"
               data-testid={`button-view-all-members-${group.id}`}
             >
-              View all ({groupAssignments.length})
+              View all ({groupPersonCount})
             </Button>
           )}
           </div>
@@ -4443,11 +4545,12 @@ export default function MemberGroupManagementPage() {
               const modalAssignments = membersModalGroupId
                 ? getSortedGroupAssignments(membersModalGroupId)
                 : [];
+              const modalPeopleCount = uniqueGroupPersonCount(modalAssignments);
               return (
                 <>
                   <DialogHeader>
                     <DialogTitle>
-                      Members{modalGroup ? ` — ${modalGroup.name}` : ''} ({modalAssignments.length})
+                      Members{modalGroup ? ` — ${modalGroup.name}` : ''} ({modalPeopleCount})
                     </DialogTitle>
                   </DialogHeader>
                   <div className="space-y-1 overflow-y-auto flex-1" data-testid="list-all-members">

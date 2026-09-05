@@ -26,3 +26,15 @@ test('member group cards load every assignment through the paginated entity path
     'the capped single-page assignment request must not be restored',
   );
 });
+
+test('automatic groups expose a manual sync action on their cards only when enabled', () => {
+  const source = readFileSync(path.join(here, 'MemberGroupManagement.jsx'), 'utf8');
+  const cardStart = source.indexOf('const renderGroupCard = (group) =>');
+  const cardEnd = source.indexOf('// Sections for "group by classification"', cardStart);
+  const cardSource = source.slice(cardStart, cardEnd);
+
+  assert.match(cardSource, /\{group\.automatic_membership_enabled && \(/);
+  assert.match(cardSource, /button-sync-automatic-members-/);
+  assert.match(cardSource, /syncAutomaticGroupFromCard\(group\)/);
+  assert.match(cardSource, /automaticSyncRunning \? 'Syncing…'/);
+});
