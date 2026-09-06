@@ -18,6 +18,7 @@ import {
   validateCustomObjectRelationshipDefinition,
   validateCustomObjectRelationshipEndpoints,
 } from './customObjectDomain.js';
+import { CSV_BOM, CSV_ROW_SEPARATOR, escapeCsvCell } from './csvCell.js';
 
 export class CustomObjectHttpError extends Error {
   constructor(status, message, details = null) {
@@ -1783,13 +1784,23 @@ export function createCustomObjectService({
   async function relationshipDefinitionGraph(objectId) {
     requireSchemaManager();
     await object(objectId);
-    const { data, error } = await db.from('custom_object_relationship_definition').select('*')
-      .eq('tenant_id', tenantId)
-      .eq('status', 'active')
-      .order('created_at', { ascending: true })
-      .order('id', { ascending: true });
+    const [{ data, error }, { data: activeObjects, error: objectError }] = await Promise.all([
+      db.from('custom_object_relationship_definition').select('*')
+        .eq('tenant_id', tenantId)
+        .eq('status', 'active')
+        .order('created_at', { ascending: true })
+        .order('id', { ascending: true }),
+      db.from('custom_object_definition').select('id')
+        .eq('tenant_id', tenantId)
+        .eq('status', 'active'),
+    ]);
     throwDb(error);
-    return { data: data || [] };
+    throwDb(objectError);
+    const activeIds = new Set((activeObjects || []).map((item) => String(item.id)));
+    return {
+      data: (data || []).filter((definition) =>
+        relationshipObjectIds(definition).every((id) => activeIds.has(String(id)))),
+    };
   }
 
   async function createRelationshipDefinition(objectId, body) {
@@ -3598,6 +3609,224 @@ export function createCustomObjectService({
     return { data: data || [], total: count || 0, page: p.page, pageSize: p.pageSize };
   }
 
+  // Reports deliberately use ids, rather than labels, in their persisted contract.  Labels are
+  // presentation only: this prevents a rename from silently changing the meaning of a report.
+  async function validateReportDefinition(objectId, supplied) {
+    let report = supplied;
+    if (typeof supplied === 'string') {
+      try { report = JSON.parse(supplied); } catch { throw new CustomObjectHttpError(400, 'Report definition must be valid JSON'); }
+    }
+    if (!report || typeof report !== 'object' || Array.isArray(report) || report.version !== 1) {
+      throw new CustomObjectHttpError(400, 'Report definition must use version 1');
+    }
+    await activeObject(objectId);
+    await requireCapability(objectId, 'view_records');
+    const grainPath = report.grain_path ?? report.grainPath ?? [];
+    const columns = report.columns;
+    if (!Array.isArray(grainPath) || grainPath.length > 6 || !Array.isArray(columns) || !columns.length) {
+      throw new CustomObjectHttpError(400, 'Report requires a grain path and at least one column');
+    }
+    if ((report.multi_value ?? report.multiValue ?? 'join') !== 'join') {
+      throw new CustomObjectHttpError(400, 'Report multi_value must be join');
+    }
+    const { data: definitions, error } = await db.from('custom_object_relationship_definition').select('*')
+      .eq('tenant_id', tenantId).eq('status', 'active');
+    throwDb(error);
+    const byId = new Map((definitions || []).map((item) => [String(item.id), item]));
+    const endpointFor = (definition, side) => ({
+      kind: definition[`${side}_kind`], customObjectId: definition[`${side}_custom_object_id`] || null,
+    });
+    const endpointKey = (value) => `${value.kind}:${value.customObjectId || ''}`;
+    const opposite = (side) => side === 'source' ? 'target' : 'source';
+    const resolvePath = async (path, label) => {
+      if (!Array.isArray(path) || path.length > 6) throw new CustomObjectHttpError(400, `${label} is malformed`);
+      let current = { kind: 'custom_object', customObjectId: objectId };
+      const endpointSeen = new Set([endpointKey(current)]);
+      const definitionSeen = new Set();
+      const resolved = [];
+      for (const hop of path) {
+        const id = String(hop?.relationship_definition_id ?? hop?.relationshipDefinitionId ?? '');
+        const fromSide = hop?.from_side ?? hop?.fromSide;
+        const definition = byId.get(id);
+        if (!definition || !['source', 'target'].includes(fromSide)
+          || definitionSeen.has(id) || endpointKey(endpointFor(definition, fromSide)) !== endpointKey(current)) {
+          throw new CustomObjectHttpError(409, `${label} references a disconnected, unavailable, or cyclic relationship`);
+        }
+        const toSide = opposite(fromSide);
+        const next = endpointFor(definition, toSide);
+        if (endpointSeen.has(endpointKey(next))) throw new CustomObjectHttpError(409, `${label} is cyclic`);
+        if (next.kind === 'custom_object') {
+          await activeObject(next.customObjectId);
+          await requireCapability(next.customObjectId, 'view_records');
+        }
+        else if (!isAdmin) throw new CustomObjectHttpError(403, 'Tenant administrator access is required for reports containing core entities');
+        definitionSeen.add(id); endpointSeen.add(endpointKey(next));
+        resolved.push({ definition, fromSide, toSide, endpoint: next });
+        current = next;
+      }
+      return { endpoint: current, hops: resolved };
+    };
+    const grain = await resolvePath(grainPath, 'Report grain path');
+    const resolvedColumns = [];
+    for (const column of columns) {
+      if (!column || typeof column !== 'object') throw new CustomObjectHttpError(400, 'Report column is malformed');
+      const path = await resolvePath(column.path ?? [], 'Report column path');
+      const fieldId = String(column.field_id ?? column.fieldId ?? '');
+      const relationshipFieldId = String(column.relationship_field_id ?? column.relationshipFieldId ?? '');
+      if (relationshipFieldId) {
+        const hop = path.hops.at(-1);
+        const relationshipField = hop && relationshipFieldDefinitions(hop.definition)
+          .find((field) => String(field.id) === relationshipFieldId);
+        if (!relationshipField) throw new CustomObjectHttpError(409, 'Report relationship field is stale or unavailable');
+        resolvedColumns.push({ ...column, path, relationshipField, label: column.label || relationshipField.label });
+      } else if (path.endpoint.kind === 'custom_object') {
+        const available = await fields(path.endpoint.customObjectId, true);
+        const access = await fieldAccess(path.endpoint.customObjectId, available);
+        const field = available.find((item) => String(item.id) === fieldId);
+        if (!field || access.get(String(field.id)) === 'none') {
+          throw new CustomObjectHttpError(403, 'Report field is unavailable');
+        }
+        resolvedColumns.push({ ...column, path, fieldDefinition: field, label: column.label || field.label });
+      } else {
+        const allowed = path.endpoint.kind === 'member'
+          ? new Set(['id', 'first_name', 'last_name', 'full_name', 'email', 'organization_id'])
+          : new Set(['id', 'name', 'email']);
+        const field = String(column.field ?? fieldId);
+        if (!allowed.has(field)) throw new CustomObjectHttpError(403, 'Report core field is unavailable');
+        resolvedColumns.push({ ...column, path, coreField: field, label: column.label || field });
+      }
+    }
+    return { report, grain, columns: resolvedColumns };
+  }
+
+  async function reportEndpointRows(endpoint_, ids) {
+    const table = { custom_object: 'custom_object_record', member: 'member', organization: 'organization', organization_group: 'organization_group' }[endpoint_.kind];
+    if (!table) throw new CustomObjectHttpError(400, 'Unsupported report endpoint');
+    const unique = [...new Set(ids.filter(Boolean).map(String))];
+    const output = new Map();
+    for (const batch of chunked(unique, ENDPOINT_ID_BATCH_SIZE)) {
+      let query = db.from(table).select('*').eq('tenant_id', tenantId).in('id', batch);
+      if (endpoint_.kind === 'custom_object') query = query.eq('custom_object_id', endpoint_.customObjectId).is('archived_at', null);
+      const { data, error } = await query;
+      throwDb(error);
+      for (const row of data || []) output.set(String(row.id), row);
+    }
+    return output;
+  }
+
+  async function reportFollow(rows, hop) {
+    if (!rows.length) return [];
+    const routed = hop.fromSide === 'source' ? 'source_record_id' : 'target_record_id';
+    const other = hop.fromSide === 'source' ? 'target_record_id' : 'source_record_id';
+    const ids = [...new Set(rows.map((row) => String(row.record.id)))];
+    const edges = [];
+    for (const batch of chunked(ids, ENDPOINT_ID_BATCH_SIZE)) {
+      const { data, error } = await db.from('custom_object_relationship').select('*')
+        .eq('tenant_id', tenantId).eq('relationship_definition_id', hop.definition.id)
+        .is('archived_at', null).in(routed, batch).order('id', { ascending: true });
+      throwDb(error);
+      edges.push(...(data || []));
+    }
+    const endpoints = await reportEndpointRows(hop.endpoint, edges.map((edge) => edge[other]));
+    const byRouted = new Map();
+    for (const edge of edges) {
+      const target = endpoints.get(String(edge[other]));
+      if (target) (byRouted.get(String(edge[routed])) || byRouted.set(String(edge[routed]), []).get(String(edge[routed]))).push({ target, edge });
+    }
+    return rows.flatMap((row) => (byRouted.get(String(row.record.id)) || [])
+      .map(({ target, edge }) => ({ record: target, root: row.root, edges: [...row.edges, edge] })));
+  }
+
+  function reportValue(value) {
+    if (value === null || value === undefined) return '';
+    if (Array.isArray(value)) return value.map(reportValue).filter(Boolean).join('; ');
+    if (typeof value === 'boolean') return value ? 'Yes' : 'No';
+    if (typeof value === 'object') return value.name || value.label || value.url || JSON.stringify(value);
+    return String(value);
+  }
+
+  async function executeReport(objectId, definition) {
+    const validated = await validateReportDefinition(objectId, definition);
+    const roots = [];
+    const rootBatchSize = 1000;
+    for (let from = 0; ; from += rootBatchSize) {
+      const { data, error } = await db.from('custom_object_record').select('*')
+        .eq('tenant_id', tenantId).eq('custom_object_id', objectId)
+        .is('archived_at', null).order('id', { ascending: true })
+        .range(from, from + rootBatchSize - 1);
+      throwDb(error);
+      roots.push(...(data || []));
+      if ((data || []).length < rootBatchSize) break;
+    }
+    let grains = roots.map((record) => ({ record, root: record, edges: [] }));
+    for (const hop of validated.grain.hops) grains = await reportFollow(grains, hop);
+    // Several roots may reach the same row-grain record. Group them before
+    // projection so grain identity, not relationship-edge count, defines rows.
+    const grainGroups = new Map();
+    for (const grain of grains) {
+      const key = String(grain.record.id);
+      const group = grainGroups.get(key) || { id: key, record: grain.record, roots: new Map() };
+      group.roots.set(String(grain.root.id), grain.root);
+      grainGroups.set(key, group);
+    }
+    const sameResolvedPath = (left, right) =>
+      left.length === right.length
+      && left.every((hop, index) =>
+        String(hop.definition.id) === String(right[index].definition.id)
+        && hop.fromSide === right[index].fromSide);
+    const valuesFor = async (grain, column) => {
+      let cursor = [...grain.roots.values()]
+        .map((root) => ({ record: root, root, edges: [] }));
+      if ((column.path.hops || []).length) {
+        for (const hop of column.path.hops) cursor = await reportFollow(cursor, hop);
+      }
+      if (sameResolvedPath(column.path.hops, validated.grain.hops)) {
+        cursor = cursor.filter((item) => String(item.record.id) === grain.id);
+      }
+      const values = cursor.map((item) => {
+        if (column.relationshipField) {
+          return item.edges.at(-1)?.field_values?.[column.relationshipField.key];
+        }
+        if (column.fieldDefinition) {
+          return item.record.data?.[getCustomObjectFieldMetadata(column.fieldDefinition).key];
+        }
+        if (column.coreField === 'full_name') {
+          return [item.record.first_name, item.record.last_name].filter(Boolean).join(' ').trim();
+        }
+        return item.record[column.coreField];
+      });
+      return [...new Map(values.map((value) => [JSON.stringify(value), value])).values()];
+    };
+    const data = [];
+    for (const grain of [...grainGroups.values()].sort((left, right) => left.id.localeCompare(right.id))) {
+      const row = { id: grain.id, values: [] };
+      for (const column of validated.columns) row.values.push(reportValue(await valuesFor(grain, column)));
+      data.push(row);
+    }
+    return { columns: validated.columns.map((column) => ({ label: column.label })), data };
+  }
+
+  async function previewReport(objectId, body = {}) {
+    const result = await executeReport(objectId, body.definition ?? body);
+    const p = pagination(body, 500);
+    return { ...result, data: result.data.slice(p.from, p.to + 1), total: result.data.length, page: p.page, pageSize: p.pageSize };
+  }
+
+  async function exportReport(objectId, body = {}) {
+    await requireCapability(objectId, 'export_records');
+    const result = await executeReport(objectId, body.definition ?? body);
+    const title = String(body.name || 'custom-object-report').trim()
+      .replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '').toLowerCase() || 'custom-object-report';
+    return {
+      ...result,
+      filename: `${title}.csv`,
+      csv: CSV_BOM + [
+        result.columns.map((column) => escapeCsvCell(column.label)).join(','),
+        ...result.data.map((row) => row.values.map(escapeCsvCell).join(',')),
+      ].join(CSV_ROW_SEPARATOR) + CSV_ROW_SEPARATOR,
+    };
+  }
+
   return {
     listObjects, createObject, getObject, updateObject, listFields, createField,
     updateField, listRecords, exportRecords, relationshipFilterOptions, createRecord, createRecordWithRelationships, initialRelationshipCandidates, getRecord, updateRecord,
@@ -3607,5 +3836,6 @@ export function createCustomObjectService({
     listCoreRelationshipDefinitions, listCoreRelationships, coreEntityPicker,
     getRelationshipPanelPreference, saveRelationshipPanelPreference,
     createCoreRelationship, updateCoreRelationship, archiveCoreRelationship,
+    previewReport, exportReport, validateReportDefinition,
   };
 }

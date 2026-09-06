@@ -123,7 +123,9 @@ export function useSavedExportReports({ settingKey, description, enabled = true 
   const updateReport = useCallback(
     (reportId, config) =>
       mutateReports((curr) =>
-        curr.map((r) => (r.id === reportId ? { ...r, config } : r))
+        curr.map((r) => (r.id === reportId
+          ? { ...r, version: (Number(r.version) || 1) + 1, config }
+          : r))
       ),
     [mutateReports]
   );

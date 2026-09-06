@@ -427,6 +427,7 @@ export const resolveRelationshipPickerPath = ({
   start,
   path = [],
   excludeDefinitionId = null,
+  maxHops = 3,
 }) => {
   let endpoint = start;
   const usedDefinitions = new Set();
@@ -453,7 +454,7 @@ export const resolveRelationshipPickerPath = ({
     usedDefinitions.add(String(definition.id));
     visitedEndpoints.add(endpointKey);
   }
-  const options = error || path.length >= 3 ? [] : definitions.flatMap((definition) => {
+  const options = error || path.length >= maxHops ? [] : definitions.flatMap((definition) => {
     if (definition.status !== "active"
       || String(definition.id) === String(excludeDefinitionId || "")
       || usedDefinitions.has(String(definition.id))) return [];

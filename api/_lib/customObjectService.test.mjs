@@ -514,6 +514,414 @@ test('export transport returns a real one-thousand-record page without interacti
   assert.deepEqual([rangeCall.from, rangeCall.to], [0, 999]);
 });
 
+test('reports traverse generic Department branches, deduplicate row grain, join values, and export safely', async () => {
+  const title = field({
+    id: 'department-title',
+    name: 'title',
+    label: 'Department',
+    field_type: 'text',
+    is_required: false,
+  });
+  const memberDefinition = {
+    id: 'department-member',
+    tenant_id: tenantId,
+    status: 'active',
+    source_kind: 'custom_object',
+    source_custom_object_id: objectId,
+    target_kind: 'member',
+    target_custom_object_id: null,
+    configuration: {
+      relationship_fields: [{
+        id: 'respondent-field',
+        key: 'is_respondent',
+        label: 'Survey respondent',
+        type: 'boolean',
+        default_value: false,
+      }],
+    },
+  };
+  const organizationDefinition = {
+    id: 'department-organization',
+    tenant_id: tenantId,
+    status: 'active',
+    source_kind: 'custom_object',
+    source_custom_object_id: objectId,
+    target_kind: 'organization',
+    target_custom_object_id: null,
+    configuration: {},
+  };
+  const db = mockDb({
+    custom_object_definition: [object()],
+    preference_field: [title],
+    custom_object_record: [
+      { id: 'department-1', tenant_id: tenantId, custom_object_id: objectId, archived_at: null, data: { title: '=Finance' } },
+      { id: 'department-2', tenant_id: tenantId, custom_object_id: objectId, archived_at: null, data: { title: 'Policy, Europe' } },
+    ],
+    member: [
+      { id: 'member-a', tenant_id: tenantId, first_name: 'Ada', last_name: 'Lovelace', email: 'ada@example.test' },
+      { id: 'member-b', tenant_id: tenantId, first_name: 'Grace', last_name: 'Hopper', email: 'grace@example.test' },
+    ],
+    organization: [
+      { id: 'organization-a', tenant_id: tenantId, name: 'Alpha' },
+      { id: 'organization-b', tenant_id: tenantId, name: 'Beta' },
+    ],
+    custom_object_relationship_definition: [memberDefinition, organizationDefinition],
+    custom_object_relationship: [
+      { id: 'edge-1', tenant_id: tenantId, relationship_definition_id: memberDefinition.id, source_record_id: 'department-1', target_record_id: 'member-a', archived_at: null, field_values: { is_respondent: true } },
+      { id: 'edge-2', tenant_id: tenantId, relationship_definition_id: memberDefinition.id, source_record_id: 'department-2', target_record_id: 'member-a', archived_at: null, field_values: { is_respondent: false } },
+      { id: 'edge-3', tenant_id: tenantId, relationship_definition_id: memberDefinition.id, source_record_id: 'department-2', target_record_id: 'member-b', archived_at: null, field_values: { is_respondent: true } },
+      { id: 'edge-4', tenant_id: tenantId, relationship_definition_id: organizationDefinition.id, source_record_id: 'department-1', target_record_id: 'organization-a', archived_at: null, field_values: {} },
+      { id: 'edge-5', tenant_id: tenantId, relationship_definition_id: organizationDefinition.id, source_record_id: 'department-2', target_record_id: 'organization-b', archived_at: null, field_values: {} },
+    ],
+  });
+  const service = createCustomObjectService({ db, context: context(), isAdmin: true });
+  const memberPath = [{ relationship_definition_id: memberDefinition.id, from_side: 'source' }];
+  const report = {
+    version: 1,
+    grain_path: memberPath,
+    multi_value: 'join',
+    columns: [
+      { field_id: title.id, label: 'Department', path: [] },
+      { field: 'full_name', label: 'Member', path: memberPath },
+      { field: 'name', label: 'Organisation', path: [{ relationship_definition_id: organizationDefinition.id, from_side: 'source' }] },
+      { relationship_field_id: 'respondent-field', label: 'Respondent', path: memberPath },
+    ],
+  };
+
+  const preview = await service.previewReport(objectId, { definition: report, page: 1, pageSize: 1 });
+  assert.equal(preview.total, 2);
+  assert.equal(preview.data.length, 1);
+  assert.equal(preview.data[0].id, 'member-a');
+  assert.deepEqual(preview.data[0].values, [
+    '=Finance; Policy, Europe',
+    'Ada Lovelace',
+    'Alpha; Beta',
+    'Yes; No',
+  ]);
+
+  const exported = await service.exportReport(objectId, { definition: report, name: 'Department members' });
+  assert.equal(exported.data.length, 2);
+  assert.equal(exported.filename, 'department-members.csv');
+  assert.ok(exported.csv.startsWith('\ufeffDepartment,Member,Organisation,Respondent\r\n'));
+  assert.match(exported.csv, /'=Finance; Policy, Europe/);
+  assert.match(exported.csv, /Grace Hopper/);
+});
+
+test('report validation rejects stale paths, stale fields, denied core access, and unsupported expansion rules', async () => {
+  const visible = field({ id: 'visible-field', name: 'title', label: 'Title', field_type: 'text', is_required: false });
+  const archivedRelationship = {
+    id: 'archived-link',
+    tenant_id: tenantId,
+    status: 'archived',
+    source_kind: 'custom_object',
+    source_custom_object_id: objectId,
+    target_kind: 'member',
+    target_custom_object_id: null,
+    configuration: {},
+  };
+  const db = mockDb({
+    custom_object_definition: [object()],
+    custom_object_role_permission: [{
+      tenant_id: tenantId,
+      custom_object_id: objectId,
+      role_id: roleId,
+      can_view_records: true,
+      can_export_records: true,
+    }],
+    preference_field: [visible],
+    custom_object_relationship_definition: [archivedRelationship],
+    custom_object_record: [],
+  });
+  const service = createCustomObjectService({ db, context: context() });
+  await assert.rejects(
+    () => service.previewReport(objectId, {
+      version: 1,
+      grain_path: [{ relationship_definition_id: archivedRelationship.id, from_side: 'source' }],
+      columns: [{ field_id: visible.id, path: [] }],
+      multi_value: 'join',
+    }),
+    /disconnected, unavailable, or cyclic/,
+  );
+  await assert.rejects(
+    () => service.previewReport(objectId, {
+      version: 1,
+      grain_path: [],
+      columns: [{ field_id: 'removed-field', path: [] }],
+      multi_value: 'join',
+    }),
+    /field is unavailable/,
+  );
+  await assert.rejects(
+    () => service.previewReport(objectId, {
+      version: 1,
+      grain_path: [],
+      columns: [{ field_id: visible.id, path: [] }],
+      multi_value: 'expand',
+    }),
+    /multi_value must be join/,
+  );
+});
+
+test('reports execute real multi-hop custom-to-custom-to-member paths and enforce every endpoint grant', async () => {
+  const teamObjectId = '44444444-4444-4444-8444-444444444444';
+  const teamField = field({
+    id: 'team-name-field',
+    custom_object_id: teamObjectId,
+    name: 'team_name',
+    label: 'Team',
+    field_type: 'text',
+    is_required: false,
+  });
+  const departmentTeam = {
+    id: 'department-team',
+    tenant_id: tenantId,
+    status: 'active',
+    source_kind: 'custom_object',
+    source_custom_object_id: objectId,
+    target_kind: 'custom_object',
+    target_custom_object_id: teamObjectId,
+    configuration: {},
+  };
+  const teamMember = {
+    id: 'team-member',
+    tenant_id: tenantId,
+    status: 'active',
+    source_kind: 'custom_object',
+    source_custom_object_id: teamObjectId,
+    target_kind: 'member',
+    target_custom_object_id: null,
+    configuration: {},
+  };
+  const seed = {
+    custom_object_definition: [
+      object(),
+      object({
+        id: teamObjectId,
+        object_key: 'teams',
+        singular_label: 'Team',
+        plural_label: 'Teams',
+      }),
+    ],
+    preference_field: [teamField],
+    custom_object_record: [
+      { id: 'department-1', tenant_id: tenantId, custom_object_id: objectId, archived_at: null, data: {} },
+      { id: 'team-1', tenant_id: tenantId, custom_object_id: teamObjectId, archived_at: null, data: { team_name: 'Policy team' } },
+    ],
+    member: [
+      { id: 'member-a', tenant_id: tenantId, first_name: 'Ada', last_name: 'Lovelace' },
+    ],
+    custom_object_relationship_definition: [departmentTeam, teamMember],
+    custom_object_relationship: [
+      { id: 'edge-team', tenant_id: tenantId, relationship_definition_id: departmentTeam.id, source_record_id: 'department-1', target_record_id: 'team-1', archived_at: null, field_values: {} },
+      { id: 'edge-member', tenant_id: tenantId, relationship_definition_id: teamMember.id, source_record_id: 'team-1', target_record_id: 'member-a', archived_at: null, field_values: {} },
+    ],
+  };
+  const pathToTeam = [{ relationship_definition_id: departmentTeam.id, from_side: 'source' }];
+  const pathToMember = [...pathToTeam, {
+    relationship_definition_id: teamMember.id,
+    from_side: 'source',
+  }];
+  const report = {
+    version: 1,
+    grain_path: pathToMember,
+    multi_value: 'join',
+    columns: [
+      { field_id: teamField.id, path: pathToTeam, label: 'Team' },
+      { field: 'full_name', path: pathToMember, label: 'Member' },
+    ],
+  };
+
+  const adminResult = await createCustomObjectService({
+    db: mockDb(seed),
+    context: context(),
+    isAdmin: true,
+  }).previewReport(objectId, { definition: report });
+  assert.equal(adminResult.total, 1);
+  assert.deepEqual(adminResult.data[0].values, ['Policy team', 'Ada Lovelace']);
+
+  const denied = createCustomObjectService({
+    db: mockDb({
+      ...seed,
+      custom_object_role_permission: [{
+        tenant_id: tenantId,
+        custom_object_id: objectId,
+        role_id: roleId,
+        can_view_records: true,
+      }],
+    }),
+    context: context(),
+  });
+  await assert.rejects(
+    () => denied.previewReport(objectId, { definition: report }),
+    /Access denied/,
+  );
+
+  const forged = {
+    ...departmentTeam,
+    id: 'other-tenant-relationship',
+    tenant_id: 'other-tenant',
+  };
+  const forgedDb = mockDb({
+    ...seed,
+    custom_object_relationship_definition: [forged],
+  });
+  await assert.rejects(
+    () => createCustomObjectService({
+      db: forgedDb,
+      context: context(),
+      isAdmin: true,
+    }).previewReport(objectId, {
+      definition: {
+        version: 1,
+        grain_path: [{ relationship_definition_id: forged.id, from_side: 'source' }],
+        columns: [{ field_id: teamField.id, path: pathToTeam }],
+        multi_value: 'join',
+      },
+    }),
+    /disconnected, unavailable, or cyclic/,
+  );
+});
+
+test('reports reject active paths whose custom endpoint has since been archived', async () => {
+  const archivedObjectId = '55555555-5555-4555-8555-555555555555';
+  const definition = {
+    id: 'active-link-to-archived-object',
+    tenant_id: tenantId,
+    status: 'active',
+    source_kind: 'custom_object',
+    source_custom_object_id: objectId,
+    target_kind: 'custom_object',
+    target_custom_object_id: archivedObjectId,
+    configuration: {},
+  };
+  const db = mockDb({
+    custom_object_definition: [
+      object(),
+      object({ id: archivedObjectId, object_key: 'archived', status: 'archived' }),
+    ],
+    preference_field: [],
+    custom_object_relationship_definition: [definition],
+    custom_object_record: [],
+  });
+  const service = createCustomObjectService({ db, context: context(), isAdmin: true });
+  await assert.rejects(
+    () => service.previewReport(objectId, {
+      version: 1,
+      grain_path: [{ relationship_definition_id: definition.id, from_side: 'source' }],
+      columns: [{ field_id: 'anything', path: [] }],
+      multi_value: 'join',
+    }),
+    /Custom Object endpoint is unavailable/,
+  );
+  const graph = await createCustomObjectService({
+    db,
+    context: context(),
+    isAdmin: true,
+    canManageSchema: true,
+  }).relationshipDefinitionGraph(objectId);
+  assert.deepEqual(graph.data, []);
+});
+
+test('report export pages through every root beyond the PostgREST row limit', async () => {
+  const title = field({
+    id: 'report-title',
+    name: 'title',
+    label: 'Title',
+    field_type: 'text',
+    is_required: false,
+  });
+  const records = Array.from({ length: 1001 }, (_, index) => ({
+    id: `record-${String(index).padStart(4, '0')}`,
+    tenant_id: tenantId,
+    custom_object_id: objectId,
+    archived_at: null,
+    data: { title: `Row ${index}` },
+  }));
+  const db = mockDb({
+    custom_object_definition: [object()],
+    preference_field: [title],
+    custom_object_record: records,
+    custom_object_relationship_definition: [],
+  });
+  const result = await createCustomObjectService({
+    db,
+    context: context(),
+    isAdmin: true,
+  }).exportReport(objectId, {
+    definition: {
+      version: 1,
+      grain_path: [],
+      columns: [{ field_id: title.id, path: [], label: 'Title' }],
+      multi_value: 'join',
+    },
+  });
+  assert.equal(result.data.length, 1001);
+  const ranges = db.calls.filter((call) =>
+    call.table === 'custom_object_record' && call.type === 'range');
+  assert.deepEqual(ranges.slice(-2).map((call) => [call.from, call.to]), [
+    [0, 999],
+    [1000, 1999],
+  ]);
+});
+
+test('report columns may use a different path that converges on the grain endpoint type', async () => {
+  const assignedMember = {
+    id: 'assigned-member',
+    tenant_id: tenantId,
+    status: 'active',
+    source_kind: 'custom_object',
+    source_custom_object_id: objectId,
+    target_kind: 'member',
+    target_custom_object_id: null,
+    configuration: {},
+  };
+  const managerMember = {
+    ...assignedMember,
+    id: 'manager-member',
+  };
+  const db = mockDb({
+    custom_object_definition: [object()],
+    preference_field: [],
+    custom_object_record: [
+      { id: 'department-1', tenant_id: tenantId, custom_object_id: objectId, archived_at: null, data: {} },
+    ],
+    member: [
+      { id: 'member-assigned', tenant_id: tenantId, first_name: 'Ada', last_name: 'Assigned' },
+      { id: 'member-manager', tenant_id: tenantId, first_name: 'Grace', last_name: 'Manager' },
+    ],
+    custom_object_relationship_definition: [assignedMember, managerMember],
+    custom_object_relationship: [
+      { id: 'edge-assigned', tenant_id: tenantId, relationship_definition_id: assignedMember.id, source_record_id: 'department-1', target_record_id: 'member-assigned', archived_at: null, field_values: {} },
+      { id: 'edge-manager', tenant_id: tenantId, relationship_definition_id: managerMember.id, source_record_id: 'department-1', target_record_id: 'member-manager', archived_at: null, field_values: {} },
+    ],
+  });
+  const assignedPath = [{
+    relationship_definition_id: assignedMember.id,
+    from_side: 'source',
+  }];
+  const managerPath = [{
+    relationship_definition_id: managerMember.id,
+    from_side: 'source',
+  }];
+  const result = await createCustomObjectService({
+    db,
+    context: context(),
+    isAdmin: true,
+  }).previewReport(objectId, {
+    definition: {
+      version: 1,
+      grain_path: assignedPath,
+      multi_value: 'join',
+      columns: [
+        { field: 'full_name', path: assignedPath, label: 'Assigned member' },
+        { field: 'full_name', path: managerPath, label: 'Manager' },
+      ],
+    },
+  });
+  assert.equal(result.total, 1);
+  assert.deepEqual(result.data[0].values, ['Ada Assigned', 'Grace Manager']);
+});
+
 test('field permission listing and upsert require schema access and enforce object-owned fields', async () => {
   const controlled = field({ id: 'field-controlled', is_required: false });
   const seed = {

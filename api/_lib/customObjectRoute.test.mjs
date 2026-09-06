@@ -187,6 +187,37 @@ test('export is a record-data route and field permission resources remain schema
   assert.deepEqual(calls[1], ['list-fields', 'object-1']);
 });
 
+test('report preview and complete export remain on the record-data authorization path', async () => {
+  const calls = [];
+  const handler = createCustomObjectRouteHandler('resource', {
+    getTenantContext: async () => ({ isAuthenticated: true, tenantId: 'tenant-1', roleId: 'role-1' }),
+    hasAdminAccess: async () => false,
+    hasFeatureAccess: async () => false,
+    createCustomObjectService: () => ({
+      previewReport: async (objectId, body) => { calls.push(['preview', objectId, body]); return { total: 1 }; },
+      exportReport: async (objectId, body) => { calls.push(['export', objectId, body]); return { csv: 'csv' }; },
+    }),
+  });
+  const preview = response();
+  await handler({
+    method: 'POST', query: { objectId: 'object-1', resource: 'report-preview' },
+    body: { version: 1, grain_path: [], columns: [{ field_id: 'field-1' }] },
+  }, preview);
+  assert.equal(preview.statusCode, 201);
+  const exported = response();
+  await handler({
+    method: 'GET',
+    query: { objectId: 'object-1', resource: 'report-export', definition: '{"version":1}' },
+  }, exported);
+  assert.equal(exported.statusCode, 200);
+  assert.deepEqual(calls, [
+    ['preview', 'object-1', { version: 1, grain_path: [], columns: [{ field_id: 'field-1' }] }],
+    ['export', 'object-1', {
+      objectId: 'object-1', resource: 'report-export', definition: '{"version":1}',
+    }],
+  ]);
+});
+
 test('collection reads reach service record-grant fallback when schema view is unavailable', async () => {
   const checked = [];
   const handler = createCustomObjectRouteHandler('collection', {

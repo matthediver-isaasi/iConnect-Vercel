@@ -69,6 +69,7 @@ import {
   validateFieldDefinition,
 } from "./customObjects/fieldDefinition";
 import { RelationshipDefinitions } from "./customObjects/RelationshipDefinitions";
+import { CustomObjectReports } from "./customObjects/CustomObjectReports";
 import { AuditHistory } from "./customObjects/AuditHistory";
 import { CustomObjectPermissionsEditor } from "./CustomObjectRecords";
 import OrgDetailLayoutEditor from "@/components/OrgDetailLayoutEditor";
@@ -512,6 +513,11 @@ function Detail() {
     queryKey: [...listKey, objectId, "relationships"],
     queryFn: () => loadRelationshipDefinitions(objectId, api),
   });
+  const relationshipGraphQuery = useQuery({
+    queryKey: [...listKey, objectId, "relationship-graph"],
+    queryFn: () => api(`/api/custom-objects/${objectId}/relationship-definition-graph`),
+    enabled: canManage,
+  });
   const availableRelationshipPanels = useMemo(
     () => relationshipPanels(relationshipsQuery.data, {
       kind: "custom_object",
@@ -634,6 +640,7 @@ function Detail() {
                 {relationshipCount}
               </span>
             </TabsTrigger>
+            <TabsTrigger value="reports">Reports</TabsTrigger>
             <TabsTrigger value="permissions">Permissions</TabsTrigger>
             <TabsTrigger value="presentation">Presentation</TabsTrigger>
             <TabsTrigger value="audit">Audit history</TabsTrigger>
@@ -685,6 +692,14 @@ function Detail() {
             <RelationshipDefinitions
               objectId={objectId}
               object={object}
+              canManage={canManage && object.status !== "archived"}
+            />
+          </TabsContent>
+          <TabsContent value="reports" className="mt-5">
+            <CustomObjectReports
+              object={object}
+              fields={fields}
+              definitions={relationshipGraphQuery.data || relationshipsQuery.data}
               canManage={canManage && object.status !== "archived"}
             />
           </TabsContent>

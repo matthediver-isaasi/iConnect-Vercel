@@ -435,6 +435,26 @@ export const customObjectAuditEvent = pgTable("custom_object_audit_event", {
     .on(table.tenant_id, table.custom_object_id, table.created_at),
 }));
 
+// Versioned wire contract used by the Custom Object report preview/export API.
+// Reports persist only stable ids; labels are intentionally snapshots for display.
+export type CustomObjectReportHop = {
+  relationship_definition_id: string;
+  from_side: "source" | "target";
+};
+export type CustomObjectReportColumn = {
+  path?: CustomObjectReportHop[];
+  field_id?: string;
+  field?: string;
+  relationship_field_id?: string;
+  label?: string;
+};
+export type CustomObjectReportDefinitionV1 = {
+  version: 1;
+  grain_path: CustomObjectReportHop[];
+  columns: CustomObjectReportColumn[];
+  multi_value?: "join";
+};
+
 export const insertCustomObjectDefinitionSchema = createInsertSchema(customObjectDefinition).omit({
   id: true,
   created_at: true,

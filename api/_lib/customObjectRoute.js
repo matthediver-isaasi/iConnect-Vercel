@@ -15,6 +15,8 @@ function schemaAccessRequired(level, resource, method) {
     'initial-relationship-candidates',
     'relationship-filter-options',
     'relationship-panel-preference',
+    'report-preview',
+    'report-export',
   ].includes(resource)) return null;
   if (level === 'resource' && resource === 'relationship-definitions') return method === 'GET' ? 'view' : 'manage';
   if (level === 'resource' && resource === 'relationship-definition-graph') return 'manage';
@@ -113,6 +115,14 @@ export function createCustomObjectRouteHandler(level, dependencies = {}) {
         else if (resource === 'fields' && req.method === 'POST') data = await service.createField(objectId, req.body);
         else if (resource === 'records' && req.method === 'GET') data = await service.listRecords(objectId, req.query);
         else if (resource === 'export' && req.method === 'GET') data = await service.exportRecords(objectId, req.query);
+        else if (resource === 'report-preview' && req.method === 'POST') data = await service.previewReport(objectId, req.body);
+        else if (resource === 'report-export' && ['POST', 'GET'].includes(req.method)) {
+          const input = req.method === 'POST' ? req.body : {
+            ...req.query,
+            definition: req.query.definition,
+          };
+          data = await service.exportReport(objectId, input);
+        }
         else if (resource === 'records' && req.method === 'POST') {
           data = req.body?.originating_relationship !== undefined
             || req.body?.originatingRelationship !== undefined
