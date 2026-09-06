@@ -7,6 +7,7 @@ import {
   formBuilderRelationshipLabel,
   getSavedFormFieldValue,
   getEligibleRelationshipParents,
+  getRelationshipDependentFields,
   isRelationshipCompatibleWithParent,
   normalizeEligibleRelationships,
   normalizeRelationshipOptions,
@@ -18,6 +19,11 @@ import {
   shouldClearFilteredOrganisationValue,
   shouldClearRelationshipValue,
 } from './formRelationshipDropdown.js';
+import {
+  normalizeRelationshipSelection,
+  relationshipSelectionMode,
+  toggleRelationshipSelection,
+} from '../../../shared/formRelationshipSelection.js';
 
 test('builder labels an Organisation relationship by the Departments it returns', () => {
   const relationship = {
@@ -198,6 +204,41 @@ test('relationship definitions are filtered to the selected parent descriptor', 
   }), false);
 });
 
+test('relationship parents cannot become multi-select while a root or row child depends on them', () => {
+  const fields = [
+    { id: 'department', type: 'relationship_dropdown' },
+    { id: 'team', type: 'relationship_dropdown', parent_field_id: 'department' },
+    {
+      id: 'contacts',
+      type: 'repeatable_row',
+      children: [
+        { id: 'row-department', type: 'relationship_dropdown' },
+        { id: 'row-team', type: 'relationship_dropdown', parent_field_id: 'row-department' },
+        { id: 'row-local-copy', type: 'relationship_dropdown', parent_field_id: 'department' },
+        {
+          id: 'shared-team',
+          type: 'relationship_dropdown',
+          parent_field_scope: 'form',
+          parent_field_id: 'department',
+        },
+      ],
+    },
+  ];
+  assert.deepEqual(
+    getRelationshipDependentFields(fields, 'department').map(field => field.id),
+    ['team', 'shared-team'],
+  );
+  assert.deepEqual(
+    getRelationshipDependentFields(fields, 'row-department', { containerFieldId: 'contacts' })
+      .map(field => field.id),
+    ['row-team'],
+  );
+
+  const source = readFileSync(new URL('../pages/FormBuilder.jsx', import.meta.url), 'utf8');
+  assert.match(source, /disabled=\{relationshipDependents\.length > 0\}/);
+  assert.match(source, /selection_mode === RELATIONSHIP_SELECTION_MULTIPLE[\s\S]*?relationshipDependents\.length > 0\) return/);
+});
+
 test('normalized side-specific discovery supports non-custom related records', () => {
   const normalized = {
     id: 'org-to-group',
@@ -236,6 +277,65 @@ test('relationship value clears on parent change, clear, or invalid loaded optio
   assert.equal(shouldClearRelationshipValue({ ...base, parentValue: '' }), true);
   assert.equal(shouldClearRelationshipValue({ ...base, options: [], optionsLoaded: false }), false);
   assert.equal(shouldClearRelationshipValue({ ...base, options: [], optionsLoaded: true }), true);
+});
+
+test('legacy relationship fields remain scalar single-select fields', () => {
+  const field = { id: 'department', type: 'relationship_dropdown' };
+  assert.equal(relationshipSelectionMode(field), 'single');
+  assert.equal(normalizeRelationshipSelection(field, 'department-1'), 'department-1');
+});
+
+test('relationship multi-select normalizes legacy scalars and toggles Other inclusively', () => {
+  const field = {
+    id: 'department',
+    type: 'relationship_dropdown',
+    selection_mode: 'multiple',
+    not_listed_choice: { enabled: true, label: 'Other department' },
+  };
+  assert.deepEqual(normalizeRelationshipSelection(field, 'department-1'), ['department-1']);
+  assert.deepEqual(
+    toggleRelationshipSelection(field, ['department-1'], FORM_NOT_LISTED_VALUE),
+    ['department-1', FORM_NOT_LISTED_VALUE],
+  );
+  assert.deepEqual(
+    toggleRelationshipSelection(field, ['department-1', FORM_NOT_LISTED_VALUE], FORM_NOT_LISTED_VALUE),
+    ['department-1'],
+  );
+  assert.deepEqual(resolveRelationshipParentTransition({
+    field,
+    value: 'department-1',
+    parentValue: 'organisation-1',
+    options: [{ id: 'department-1' }],
+    optionsLoaded: true,
+  }), ['department-1']);
+});
+
+test('relationship multi-select parent transitions retain only options valid for the new parent', () => {
+  const field = {
+    id: 'department',
+    type: 'relationship_dropdown',
+    selection_mode: 'multiple',
+    not_listed_choice: { enabled: true, label: 'Other department' },
+  };
+  assert.equal(resolveRelationshipParentTransition({
+    field,
+    value: ['old-department', 'shared-department', FORM_NOT_LISTED_VALUE],
+    parentValue: 'new-organisation',
+    previousParentValue: 'old-organisation',
+    options: [],
+    optionsLoaded: false,
+  }), null);
+  assert.deepEqual(resolveRelationshipParentTransition({
+    field,
+    value: ['old-department', 'shared-department', FORM_NOT_LISTED_VALUE],
+    parentValue: 'new-organisation',
+    previousParentValue: 'old-organisation',
+    options: [
+      { id: 'shared-department' },
+      { id: FORM_NOT_LISTED_VALUE },
+    ],
+    optionsLoaded: true,
+  }), ['shared-department', FORM_NOT_LISTED_VALUE]);
 });
 
 test('relationship auto-selects its enabled not-listed choice only from a not-listed parent', () => {

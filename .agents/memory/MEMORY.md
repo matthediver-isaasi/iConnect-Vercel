@@ -155,3 +155,4 @@
 - [Relationship picker graph scopes](relationship-picker-graph-scopes.md) — constrain direct links by intersecting bounded source/target relationship paths; active graph only, fail closed.
 - [Relationship preview config aliases](relationship-preview-config-aliases.md) — compact_preview and legacy compact_preview_fields may coexist; merge and dedupe field IDs across both.
 - [Relationship edge metadata enforcement](relationship-edge-metadata-enforcement.md) — generic edge writes bypass the interactive service; defaults and required/type rules need DB enforcement too.
+- [Relationship multi-select answers](relationship-multiselect-answers.md) — mixed record IDs + Other must be reconciled, validated, and formatted member-by-member.

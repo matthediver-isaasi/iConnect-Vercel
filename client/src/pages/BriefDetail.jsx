@@ -65,7 +65,7 @@ import ExternalWriterCombobox from "@/components/ExternalWriterCombobox";
 import DOMPurify from "dompurify";
 import {
   collectRelationshipRecordIds,
-  formatRelationshipDisplayValue,
+  formatRelationshipAnswerDisplayValue,
   resolveSubmissionField,
 } from "@/lib/relationshipDisplayLabels";
 
@@ -203,7 +203,12 @@ function processSubmissionData(data, fields, relationshipLabelsByRecordId = {}) 
       fieldEntries.push({
         kind: 'text',
         label,
-        text: formatRelationshipDisplayValue(value, relationshipLabelsByRecordId),
+        text: formatRelationshipAnswerDisplayValue(
+          field,
+          value,
+          relationshipLabelsByRecordId,
+          data,
+        ),
       });
       return;
     }

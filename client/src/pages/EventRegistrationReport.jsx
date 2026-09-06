@@ -21,7 +21,7 @@ import TransferTicketDialog from "@/components/TransferTicketDialog";
 import { getFlagColorClasses } from "@/lib/flagColors";
 import {
   collectRelationshipRecordIdsFromSubmissions,
-  formatRelationshipDisplayValue,
+  formatRelationshipAnswerDisplayValue,
   getSubmissionFieldValue,
   isRelationshipDropdownField,
 } from "@/lib/relationshipDisplayLabels";
@@ -968,7 +968,7 @@ export default function EventRegistrationReport() {
         if (!field || !field.id) continue;
         const value = getSubmissionFieldValue(data, field);
         answers[field.id] = isRelationshipDropdownField(field)
-          ? formatRelationshipDisplayValue(value, relationshipLabelsByRecordId)
+          ? formatRelationshipAnswerDisplayValue(field, value, relationshipLabelsByRecordId, data)
           : formatLinkedAnswer(value);
       }
       byForm[sub.form_id] = answers;

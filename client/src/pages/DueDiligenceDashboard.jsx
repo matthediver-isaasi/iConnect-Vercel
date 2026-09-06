@@ -33,7 +33,7 @@ import { format } from 'date-fns';
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { base44 } from "@/api/base44Client";
 import {
-  formatRelationshipDisplayValue,
+  formatRelationshipAnswerDisplayValue,
   getSubmissionFieldValue,
   isRelationshipDropdownField,
   resolveSubmissionField,
@@ -599,7 +599,12 @@ export default function DueDiligenceDashboardPage() {
       return linkedOrgName;
     } else if (cardReferenceField && hasConfiguredValue) {
       return isRelationshipDropdownField(configuredField)
-        ? formatRelationshipDisplayValue(configuredValue, relationshipLabelsByRecordId)
+        ? formatRelationshipAnswerDisplayValue(
+          configuredField,
+          configuredValue,
+          relationshipLabelsByRecordId,
+          formValues,
+        )
         : configuredValue;
     } else {
       return linkedOrgName || formValues.organization_name || formValues.company_name || formValues.name || formValues.email || submission.application_uid;

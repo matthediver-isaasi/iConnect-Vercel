@@ -4179,6 +4179,17 @@ test('v2 picker paths intersect through reusable relationship graph hops in both
     ],
   });
   const service = createCustomObjectService({ db, context: context(), isAdmin: true });
+  const pickerScope = db.tables.custom_object_relationship_definition
+    .find(definition => definition.id === memberDefinitionId)
+    .configuration.picker_scope;
+  pickerScope.source_terminal_sources = [];
+  await assert.rejects(
+    () => service.entityPicker(departmentObjectId, {
+      definitionId: memberDefinitionId, recordId: 'dept-a', side: 'source',
+    }),
+    (error) => error.status === 409 && /terminal source is malformed/.test(error.message),
+  );
+  delete pickerScope.source_terminal_sources;
 
   const primaryOnly = await service.coreEntityPicker('member', 'member-primary-only', {
     definitionId: memberDefinitionId,

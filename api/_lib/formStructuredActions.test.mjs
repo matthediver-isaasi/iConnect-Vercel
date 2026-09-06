@@ -266,6 +266,7 @@ test('links a conditionally revealed Department to an already-created Member in 
         relationship_parent_side: 'target', related_kind: 'custom_object',
         related_custom_object_id: 'department-object',
         related_primary_display_field_id: 'department-name',
+        selection_mode: 'multiple',
       },
     ],
     pages: [{ id: 'organization-page', starts_hidden: true }],
@@ -301,7 +302,7 @@ test('links a conditionally revealed Department to an already-created Member in 
     submission_data: {
       membership: 'Full with NMC',
       org: 'org-1',
-      department: ['department-1', 'department-2', 'department-1'],
+      department: ['department-1', 'department-2'],
     },
   };
 
@@ -588,9 +589,18 @@ test('persists one canonical relationship edge and makes retries idempotent', as
       return { data: null, error: null };
     },
   };
-  // The selected members are authoritative persisted submission values. Linking
-  // them is a form side effect, not a browser-directed record mutation.
-  const authorization = {};
+  await assert.rejects(() => processPersistedStructuredActions({
+    db,
+    formId: form.id,
+    submissionId: submission.id,
+    tenantId,
+    authorization: { verifiedMemberId: 'member-1' },
+  }), StructuredActionAuthorizationError);
+  assert.deepEqual(rows.custom_object_relationship, []);
+  assert.equal(ledger.size, 0);
+
+  // Admin-configured processing can link arbitrary tenant-owned endpoint records.
+  const authorization = { isAdmin: true };
   const first = await processPersistedStructuredActions({
     db, formId: form.id, submissionId: submission.id, tenantId, authorization,
   });

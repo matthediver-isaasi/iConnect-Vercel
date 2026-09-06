@@ -340,10 +340,13 @@ export function repeatableSiblingUniqueValueKeys(rows, child, currentRowId) {
 
 export function repeatableSiblingUniqueValues(rows, child, currentRowId) {
   if (!child?.unique_across_rows || !Array.isArray(rows)) return [];
-  return rows
+  const values = rows
     .filter(row => row && row._row_id !== currentRowId)
     .map(row => row[child.id])
     .filter(selected => !isRepeatableValueEmpty(selected));
+  return child?.type === 'relationship_dropdown' && child?.selection_mode === 'multiple'
+    ? values.flatMap(selected => Array.isArray(selected) ? selected : [selected])
+    : values;
 }
 
 export function isRepeatableUniqueOptionAvailable(
@@ -550,10 +553,17 @@ export function validateRepeatableRows(field, value, options = {}) {
     value.forEach((row, rowIndex) => {
       const selected = row?.[child.id];
       if (isRepeatableValueEmpty(selected)) return;
-      const key = repeatableUniqueValueKey(selected, child);
-      const matchingRows = rowsByValue.get(key) || [];
-      matchingRows.push(rowIndex);
-      rowsByValue.set(key, matchingRows);
+      const selections = child.type === 'relationship_dropdown'
+        && child.selection_mode === 'multiple'
+        && Array.isArray(selected)
+        ? selected
+        : [selected];
+      selections.forEach((entry) => {
+        const key = repeatableUniqueValueKey(entry, child);
+        const matchingRows = rowsByValue.get(key) || [];
+        matchingRows.push(rowIndex);
+        rowsByValue.set(key, matchingRows);
+      });
     });
     for (const matchingRows of rowsByValue.values()) {
       if (matchingRows.length < 2) continue;

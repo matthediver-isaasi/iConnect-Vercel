@@ -1,4 +1,8 @@
 import { resolveCustomObjectDisplayValue } from './customObjectDomain.js';
+import {
+  formatFormRelationshipDisplayValue,
+  isFormNotListedValue,
+} from '../../shared/formNotListedChoice.js';
 
 const MAX_IDS = 2000;
 export const UNAVAILABLE_RELATIONSHIP_RECORD = 'Unavailable record';
@@ -20,7 +24,7 @@ export function collectRelationshipRecordIds(fields, values) {
     if (!isRelationshipDropdownField(field)) continue;
     const value = getSubmissionRelationshipValue(values, field);
     for (const entry of (Array.isArray(value) ? value : [value])) {
-      if (entry != null && entry !== '') ids.add(String(entry));
+      if (entry != null && entry !== '' && !isFormNotListedValue(entry)) ids.add(String(entry));
     }
   }
   return [...ids];
@@ -42,6 +46,22 @@ export function formatRelationshipDisplayValue(
     .map(resolveOne)
     .filter(Boolean)
     .join(', ');
+}
+
+export function formatRelationshipAnswerDisplayValue(
+  field,
+  value,
+  labelsByRecordId,
+  submissionData,
+  options = {},
+) {
+  return formatFormRelationshipDisplayValue(
+    field,
+    value,
+    submissionData,
+    labelsByRecordId,
+    { fallback: UNAVAILABLE_RELATIONSHIP_RECORD, ...options },
+  );
 }
 
 function uniqueIds(recordIds) {

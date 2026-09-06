@@ -87,7 +87,9 @@ export function formatRepeatableRows(field, value, options = {}) {
       const displayValue = containsFormNotListedValue(rawValue)
         ? resolveFormNotListedDisplayValue(child, rawValue, options.submissionData, { parentField: field, row })
         : rawValue;
-      const formatted = containsFormNotListedValue(rawValue)
+      const formatted = child.type === 'relationship_dropdown' && typeof options.formatCell === 'function'
+        ? formatCell(rawValue, child, row, rowIndex)
+        : containsFormNotListedValue(rawValue)
         ? formatRepeatableCellValue(displayValue, child)
         : child.type === 'organisation_dropdown' && options.organisationNamesById
         ? (Array.isArray(rawValue)

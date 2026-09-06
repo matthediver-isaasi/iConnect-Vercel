@@ -198,6 +198,13 @@ test('saved relationship custom-object parents must match their persisted relate
       && error.status === 409 && /parent is invalid/.test(error.message),
   );
   chained.fields[2].relationship_parent_custom_object_id = 'department-object';
+  chained.fields[1].selection_mode = 'multiple';
+  assert.throws(
+    () => savedRelationshipField(chained, 'team'),
+    (error) => error instanceof FormRelationshipError
+      && error.status === 409 && /parent must be single-select/.test(error.message),
+  );
+  chained.fields[1].selection_mode = 'single';
   assert.equal(savedRelationshipField(chained, 'team').parent.custom_object_id, 'department-object');
 });
 
@@ -384,6 +391,100 @@ test('submission validation accepts only the active record related to its submit
       submissionData: { org: 'org-2', department: 'record-1' },
     }),
     (error) => error.status === 400 && /Invalid relationship selection/.test(error.message),
+  );
+});
+
+test('submission validation enforces relationship selection mode, uniqueness, and inclusive Other', async () => {
+  const multiForm = form({
+    fields: [
+      { id: 'org', type: 'organisation_dropdown', options: [] },
+      {
+        ...form().fields[1],
+        selection_mode: 'multiple',
+        not_listed_choice: { enabled: true, label: 'Other department' },
+      },
+    ],
+  });
+  const service = createFormRelationshipService({
+    tenantId,
+    db: mockDb({
+      organization: [{ id: 'org-1', tenant_id: tenantId }],
+      custom_object_relationship_definition: [definition()],
+      custom_object_definition: [{
+        id: 'object-1', tenant_id: tenantId, status: 'active',
+        primary_display_field_id: 'name-field',
+      }],
+      preference_field: [{
+        id: 'name-field', tenant_id: tenantId, custom_object_id: 'object-1',
+        entity_scope: 'custom_object', is_active: true, name: 'unit_name', field_type: 'text',
+      }],
+      custom_object_relationship: [
+        {
+          id: 'edge-1', tenant_id: tenantId, relationship_definition_id: 'definition-1',
+          source_record_id: 'org-1', target_record_id: 'record-1', archived_at: null,
+        },
+        {
+          id: 'edge-2', tenant_id: tenantId, relationship_definition_id: 'definition-1',
+          source_record_id: 'org-1', target_record_id: 'record-2', archived_at: null,
+        },
+      ],
+      custom_object_record: [
+        { id: 'record-1', tenant_id: tenantId, custom_object_id: 'object-1', archived_at: null, data: { unit_name: 'One' } },
+        { id: 'record-2', tenant_id: tenantId, custom_object_id: 'object-1', archived_at: null, data: { unit_name: 'Two' } },
+      ],
+    }),
+  });
+  await service.validateSubmission({
+    form: multiForm,
+    submissionData: {
+      org: 'org-1',
+      department: ['record-1', 'record-2', '__form_not_listed__'],
+      __not_listed_choice_text: { department: 'Another department' },
+    },
+  });
+  await service.validateSubmission({
+    form: multiForm,
+    submissionData: { org: 'org-1', department: [] },
+  });
+  await service.validateSubmission({
+    form: multiForm,
+    submissionData: {
+      org: 'org-1',
+      department: ['__form_not_listed__'],
+      __not_listed_choice_text: { department: 'Another department' },
+    },
+  });
+  await assert.rejects(
+    service.validateSubmission({
+      form: multiForm,
+      submissionData: { org: 'org-1', department: 'record-1' },
+    }),
+    error => error.status === 400 && /selection mode/.test(error.message),
+  );
+  await assert.rejects(
+    service.validateSubmission({
+      form: multiForm,
+      submissionData: {
+        org: 'org-1',
+        department: '__form_not_listed__',
+        __not_listed_choice_text: { department: 'Another department' },
+      },
+    }),
+    error => error.status === 400 && /selection mode/.test(error.message),
+  );
+  await assert.rejects(
+    service.validateSubmission({
+      form: multiForm,
+      submissionData: { org: 'org-1', department: ['record-1', 'record-1'] },
+    }),
+    error => error.status === 400 && /Duplicate relationship/.test(error.message),
+  );
+  await assert.rejects(
+    service.validateSubmission({
+      form: form(),
+      submissionData: { org: 'org-1', department: ['record-1'] },
+    }),
+    error => error.status === 400 && /selection mode/.test(error.message),
   );
 });
 

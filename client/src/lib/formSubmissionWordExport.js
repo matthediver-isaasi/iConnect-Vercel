@@ -22,6 +22,7 @@ import {
 } from './relationshipDisplayLabels.js';
 import {
   containsFormNotListedValue,
+  formatFormRelationshipDisplayValue,
   FORM_NOT_LISTED_LABELS_KEY,
   FORM_NOT_LISTED_TEXT_KEY,
   resolveFormNotListedDisplayValue,
@@ -200,27 +201,42 @@ function getAwardCategory(submission, form) {
 
 function formatResponseValueToJson(value, fieldDef, resolvers, submissionData = {}) {
   if (value == null || value === '') return { lines: [{ kind: 'text', text: '' }], files: [] };
+  const fieldType = fieldDef?.type;
+  const r = resolvers || {};
+  if (fieldType === 'relationship_dropdown') {
+    const resolveRecordLabel = typeof r.resolveRelationshipLabel === 'function'
+      ? r.resolveRelationshipLabel
+      : (entry) => resolveRelationshipDisplayLabel(entry, {});
+    const text = formatFormRelationshipDisplayValue(
+      fieldDef,
+      value,
+      submissionData,
+      {},
+      { resolveRecordLabel },
+    );
+    return { lines: makeLinesFromText(text), files: [] };
+  }
   const wasNotListed = containsFormNotListedValue(value);
   value = resolveFormNotListedDisplayValue(fieldDef, value, submissionData);
   if (wasNotListed) {
     const text = Array.isArray(value) ? value.join(', ') : value;
     return { lines: makeLinesFromText(text), files: [] };
   }
-  const fieldType = fieldDef?.type;
-  const r = resolvers || {};
-
   if (isRepeatableRowsField(fieldDef)) {
     const text = formatRepeatableRowsText(fieldDef, value, {
       submissionData,
-      formatCell: (cellValue, child) => {
+      formatCell: (cellValue, child, row) => {
         if (child?.type === 'relationship_dropdown') {
-          return typeof r.resolveRelationshipLabel === 'function'
-            ? (Array.isArray(cellValue)
-              ? cellValue.map(r.resolveRelationshipLabel).join(', ')
-              : r.resolveRelationshipLabel(cellValue))
-            : (Array.isArray(cellValue)
-              ? cellValue.map((entry) => resolveRelationshipDisplayLabel(entry, {})).join(', ')
-              : resolveRelationshipDisplayLabel(cellValue, {}));
+          const resolveRecordLabel = typeof r.resolveRelationshipLabel === 'function'
+            ? r.resolveRelationshipLabel
+            : (entry) => resolveRelationshipDisplayLabel(entry, {});
+          return formatFormRelationshipDisplayValue(
+            child,
+            cellValue,
+            submissionData,
+            {},
+            { parentField: fieldDef, row, resolveRecordLabel },
+          );
         }
         if (child?.type === 'organisation_dropdown') {
           return resolveRepeatableOrganisationLabel(cellValue, r.organisationNamesById);
@@ -254,15 +270,6 @@ function formatResponseValueToJson(value, fieldDef, resolvers, submissionData = 
       ? r.resolveOrgGroupName
       : () => 'Unavailable organisation group';
     const v = Array.isArray(value) ? value.map(resolve).join(', ') : resolve(value);
-    return { lines: makeLinesFromText(v), files: [] };
-  }
-  if (fieldType === 'relationship_dropdown') {
-    const resolveLabel = typeof r.resolveRelationshipLabel === 'function'
-      ? r.resolveRelationshipLabel
-      : (entry) => resolveRelationshipDisplayLabel(entry, {});
-    const v = Array.isArray(value)
-      ? value.map(resolveLabel).join(', ')
-      : resolveLabel(value);
     return { lines: makeLinesFromText(v), files: [] };
   }
   if (fieldType === 'member_dropdown') {

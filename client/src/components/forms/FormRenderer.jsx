@@ -58,6 +58,11 @@ import {
   setRepeatableRowNotListedText,
   supportsFormNotListedChoice,
 } from "../../../../shared/formNotListedChoice.js";
+import {
+  isRelationshipMultiSelect,
+  normalizeRelationshipSelection,
+  toggleRelationshipSelection,
+} from "../../../../shared/formRelationshipSelection.js";
 import { formNoRelationshipLabel } from "../../../../shared/formNoRelationshipChoice.js";
 import {
   createRepeatableRowId,
@@ -1936,7 +1941,12 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, on
         const effectiveRelationshipOptions = relationshipOptions.filter(
           option => repeatableOptionIsAvailable(option.id),
         );
-        const selectedOption = effectiveRelationshipOptions.find((option) => option.id === relationshipCurrentValue);
+        const relationshipIsMultiple = isRelationshipMultiSelect(field);
+        const selectedValues = normalizeRelationshipSelection(field, relationshipCurrentValue);
+        const selectedArray = relationshipIsMultiple ? selectedValues : [selectedValues].filter(Boolean);
+        const selectedOptions = selectedArray
+          .map(selected => effectiveRelationshipOptions.find(option => String(option.id) === String(selected)))
+          .filter(Boolean);
         const missingConfiguration = !formSlug || !field.parent_field_id || !field.relationship_definition_id;
         const canChooseNotListed = effectiveRelationshipOptions.some(option => option.id === FORM_NOT_LISTED_VALUE);
         const relationshipDisabled = isFieldDisabled || missingConfiguration || (!relationshipParentValue && !canChooseNotListed)
@@ -1952,6 +1962,74 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, on
             ? 'All available choices are already used in another row'
             : 'No related records available';
         }
+        if (relationshipIsMultiple) {
+          const summary = selectedOptions.length === 0
+            ? placeholder
+            : selectedOptions.length === 1
+              ? selectedOptions[0].label
+              : `${selectedOptions.length} selected`;
+          return (
+            <div className="space-y-1">
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    id={field.id}
+                    role="combobox"
+                    aria-label={field.label || 'Select related records'}
+                    disabled={relationshipDisabled}
+                    className={cn("w-full justify-between font-normal", relationshipDisabled && 'bg-slate-100 cursor-not-allowed opacity-60')}
+                    data-testid={`select-relationship-${field.id}`}
+                  >
+                    <span className={cn("truncate", selectedOptions.length === 0 && "text-muted-foreground")}>{summary}</span>
+                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+                  <Command>
+                    <CommandInput placeholder="Search related records…" />
+                    <CommandList>
+                      <CommandEmpty>No related records found.</CommandEmpty>
+                      <CommandGroup>
+                        {selectedArray.length > 0 && (
+                          <CommandItem onSelect={() => onChange([])} data-testid={`clear-relationship-${field.id}`}>
+                            <X className="mr-2 h-4 w-4" /> Clear selection
+                          </CommandItem>
+                        )}
+                        {effectiveRelationshipOptions.map(option => {
+                          const checked = selectedArray.some(selected => String(selected) === String(option.id));
+                          const next = toggleRelationshipSelection(field, selectedArray, option.id);
+                          const available = checked || repeatableSelectionIsAvailable(next);
+                          return (
+                            <CommandItem
+                              key={option.id}
+                              value={`${option.label} ${option.id}`}
+                              disabled={!available}
+                              onSelect={() => available && onChange(next)}
+                              data-testid={`option-relationship-${field.id}-${option.id}`}
+                            >
+                              <Check className={cn("mr-2 h-4 w-4", checked ? "opacity-100" : "opacity-0")} />
+                              {option.label}
+                            </CommandItem>
+                          );
+                        })}
+                      </CommandGroup>
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
+              {relationshipOptionsLoading && <p className="text-xs text-slate-500">Loading related records…</p>}
+              {relationshipOptionsError && <p className="text-xs text-red-600">Related records could not be loaded. Please try again.</p>}
+              {relationshipResultIsEmpty && (
+                <p className="text-xs text-slate-500" data-testid={`relationship-empty-message-${field.id}`}>
+                  {formNoRelationshipLabel(field)}
+                </p>
+              )}
+            </div>
+          );
+        }
+        const selectedOption = selectedOptions[0];
         return (
           <div className="space-y-1">
             <Select

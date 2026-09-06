@@ -10,7 +10,7 @@ import { toWinAnsi } from './pdfWinAnsi.js';
 import { loadTenantRelationshipDisplayLabels } from './relationshipDisplayLabels.js';
 import {
   collectRelationshipRecordIds,
-  formatRelationshipDisplayValue,
+  formatRelationshipAnswerDisplayValue,
   getSubmissionFieldValue,
   isRelationshipDropdownField,
 } from '../../client/src/lib/relationshipDisplayLabels.js';
@@ -76,16 +76,26 @@ export function formatFormSubmissionFieldValue(
   if (isRepeatableRowsField(field)) {
     return formatRepeatableRowsText(field, value, {
       submissionData,
-      formatCell: (cellValue, child) => child?.type === 'relationship_dropdown'
-        ? formatRelationshipDisplayValue(cellValue, relationshipLabelsByRecordId)
+      formatCell: (cellValue, child, row) => child?.type === 'relationship_dropdown'
+        ? formatRelationshipAnswerDisplayValue(
+          child,
+          cellValue,
+          relationshipLabelsByRecordId,
+          submissionData,
+          { parentField: field, row },
+        )
         : child?.type === 'organisation_dropdown'
           ? resolveRepeatableOrganisationLabel(cellValue, organisationNamesById)
           : formatRepeatableCellValue(cellValue, child),
     });
   }
   if (isRelationshipDropdownField(field)) {
-    if (displayValue !== value) return displayValue;
-    return formatRelationshipDisplayValue(value, relationshipLabelsByRecordId);
+    return formatRelationshipAnswerDisplayValue(
+      field,
+      value,
+      relationshipLabelsByRecordId,
+      submissionData,
+    );
   }
   if (field?.type === 'organisation_group_dropdown') {
     if (displayValue === null || displayValue === undefined || displayValue === '') return displayValue;

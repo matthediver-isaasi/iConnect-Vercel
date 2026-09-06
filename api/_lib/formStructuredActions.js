@@ -15,6 +15,8 @@ import {
   isExplicitFallbackMapping,
   validateExplicitFallbackGroups,
 } from './formMappingFallbacks.js';
+import { isFormNotListedValue } from '../../shared/formNotListedChoice.js';
+import { isRelationshipMultiSelect } from '../../shared/formRelationshipSelection.js';
 
 export const STRUCTURED_ACTIONS_VERSION = 1;
 
@@ -251,6 +253,9 @@ export function validateStructuredActionsContract(input, fields = []) {
       || (entity === 'custom_object'
         && String(selectorDescriptor?.customObjectId) !== String(actionObjectId(action))))) {
       errors.push(`${prefix}.selector_field_id must be a compatible relationship dropdown in the action source scope`);
+    }
+    if (action?.selector_field_id && isRelationshipMultiSelect(selector)) {
+      errors.push(`${prefix}.selector_field_id must use a single-select relationship field`);
     }
     if (action?.relationship_definition_id && action?.operation !== 'update_selected') {
       const parentField = sourceFields.find(field =>
@@ -557,7 +562,10 @@ export async function processPrimaryPipelineRelatedRecords({
         continue;
       }
       const selected = answers?.[link.source_field_id];
-      const selectedIds = [...new Set((Array.isArray(selected) ? selected : [selected]).filter(Boolean))];
+      const selectedIds = [...new Set(
+        (Array.isArray(selected) ? selected : [selected])
+          .filter(value => value && !isFormNotListedValue(value)),
+      )];
       if (selectedIds.length === 0) {
         outcomes.push({ ...base, status: 'skipped', reason: 'relationship_selection_missing' });
         continue;
@@ -969,6 +977,19 @@ function relationshipEndpointRecordId(endpoint, invocation, actionOutputs) {
   return value || null;
 }
 
+function assertRelationshipFieldEndpointsAuthorized(invocation, authorization) {
+  for (const endpoint of Object.values(relationshipEndpoints(invocation.action))) {
+    const input = endpointInput(endpoint);
+    if (input.type !== 'field') continue;
+    const recordId = relationshipEndpointRecordId(endpoint, invocation, new Map());
+    assertStructuredMutationAuthorized({
+      action: { target: { kind: endpointDescriptor(endpoint).kind } },
+      recordId,
+      authorization,
+    });
+  }
+}
+
 async function assertRelationshipEndpointExists(db, tenantId, descriptor, recordId) {
   if (!recordId) throw new StructuredActionContractError('Both relationship endpoint records are required');
   let query = db.from(TABLES[descriptor.kind]).select('id')
@@ -995,6 +1016,7 @@ async function executeRelationshipInvocation(
   const targetDescriptor = endpointDescriptor(endpoints.target);
   const sourceId = relationshipEndpointRecordId(endpoints.source, invocation, actionOutputs);
   const targetId = relationshipEndpointRecordId(endpoints.target, invocation, actionOutputs);
+  assertRelationshipFieldEndpointsAuthorized(invocation, authorization);
   await Promise.all([
     assertRelationshipEndpointExists(db, tenantId, sourceDescriptor, sourceId),
     assertRelationshipEndpointExists(db, tenantId, targetDescriptor, targetId),
@@ -1233,6 +1255,7 @@ export async function processPersistedStructuredActions({
   // caller's verified ownership.
   for (const invocation of invocations) {
     if (isRelationshipAction(invocation.action)) {
+      assertRelationshipFieldEndpointsAuthorized(invocation, authorization);
       continue;
     }
     assertStructuredMutationAuthorized({

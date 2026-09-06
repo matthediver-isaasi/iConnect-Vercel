@@ -22,7 +22,7 @@ import { getAccountingProvider } from './accountingProvider.js';
 import { generatePasswordSetupUrl } from './passwordSetupUrl.js';
 import {
   collectRelationshipRecordIds,
-  formatRelationshipDisplayValue,
+  formatRelationshipAnswerDisplayValue,
   getSubmissionRelationshipValue,
   isRelationshipDropdownField,
   loadTenantRelationshipDisplayLabels,
@@ -205,21 +205,29 @@ export function resolveSubmissionEmailFieldDisplayValue({
   if (isRepeatableRowsField(field)) {
     return formatRepeatableRowsText(field, persistedValue ?? rawValue, {
       submissionData: persistedSubmissionData,
-      formatCell: (cellValue, child) => child?.type === 'relationship_dropdown'
-        ? formatRelationshipDisplayValue(cellValue, relationshipLabelsByRecordId)
+      formatCell: (cellValue, child, row) => child?.type === 'relationship_dropdown'
+        ? formatRelationshipAnswerDisplayValue(
+          child,
+          cellValue,
+          relationshipLabelsByRecordId,
+          persistedSubmissionData,
+          { parentField: field, row },
+        )
         : child?.type === 'organisation_dropdown'
           ? resolveRepeatableOrganisationLabel(cellValue, organisationNamesById)
         : formatRepeatableCellValue(cellValue, child),
     });
   }
+  if (isRelationshipDropdownField(field)) {
+    return formatRelationshipAnswerDisplayValue(
+      field,
+      persistedValue ?? rawValue,
+      relationshipLabelsByRecordId,
+      persistedSubmissionData,
+    );
+  }
   if (displayValue !== (persistedValue ?? rawValue)) {
     return Array.isArray(displayValue) ? displayValue.join(', ') : displayValue;
-  }
-  if (isRelationshipDropdownField(field)) {
-    return formatRelationshipDisplayValue(
-      getSubmissionRelationshipValue(persistedSubmissionData, field),
-      relationshipLabelsByRecordId,
-    );
   }
   return Array.isArray(rawValue) ? rawValue.join(', ') : (rawValue || '');
 }

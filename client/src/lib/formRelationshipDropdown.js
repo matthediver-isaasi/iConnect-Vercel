@@ -2,6 +2,15 @@ import {
   FORM_NOT_LISTED_VALUE,
   hasEnabledFormNotListedChoice,
 } from '../../../shared/formNotListedChoice.js';
+import {
+  emptyRelationshipSelection,
+  isRelationshipMultiSelect,
+  reconcileRelationshipSelection,
+} from '../../../shared/formRelationshipSelection.js';
+import {
+  isRepeatableRowField,
+  repeatableRowChildren,
+} from '../../../shared/formRepeatableRows.js';
 
 export function getEligibleRelationshipParents(fields, fieldId) {
   const list = Array.isArray(fields) ? fields : [];
@@ -9,8 +18,32 @@ export function getEligibleRelationshipParents(fields, fieldId) {
   const preceding = index < 0 ? list : list.slice(0, index);
   return preceding.filter((field) => (
     ['organisation_dropdown', 'organisation_group_dropdown', 'relationship_dropdown'].includes(field?.type)
+    && !isRelationshipMultiSelect(field)
     && field.id
   ));
+}
+
+export function getRelationshipDependentFields(fields, parentFieldId, options = {}) {
+  const list = Array.isArray(fields) ? fields : [];
+  const parentId = String(parentFieldId || '');
+  if (!parentId) return [];
+  const matchesParent = (field, expectedScope, defaultScope = expectedScope) => (
+    field?.type === 'relationship_dropdown'
+    && String(field.parent_field_id || '') === parentId
+    && (field.parent_field_scope || defaultScope) === expectedScope
+  );
+  if (options.containerFieldId) {
+    const container = list.find(field => String(field?.id) === String(options.containerFieldId));
+    return container
+      ? repeatableRowChildren(container).filter(field => matchesParent(field, 'row'))
+      : [];
+  }
+  return [
+    ...list.filter(field => matchesParent(field, 'form')),
+    ...list
+      .filter(isRepeatableRowField)
+      .flatMap(container => repeatableRowChildren(container).filter(field => matchesParent(field, 'form', 'row'))),
+  ];
 }
 
 export function relationshipParentDescriptor(field) {
@@ -179,11 +212,27 @@ export function resolveRelationshipParentTransition({
   optionsLoaded = false,
 }) {
   if (field?.type !== 'relationship_dropdown') return null;
+  if (isRelationshipMultiSelect(field)) {
+    const next = reconcileRelationshipSelection({
+      field,
+      value,
+      parentValue,
+      previousParentValue,
+      options,
+      optionsLoaded,
+    });
+    const current = Array.isArray(value) ? value : (value == null || value === '' ? [] : [value]);
+    return Array.isArray(value)
+      && next.length === current.length
+      && next.every((entry, index) => String(entry) === String(current[index]))
+      ? null
+      : next;
+  }
   if (parentValue === FORM_NOT_LISTED_VALUE) {
     if (hasEnabledFormNotListedChoice(field)) {
       return value === FORM_NOT_LISTED_VALUE ? null : FORM_NOT_LISTED_VALUE;
     }
-    return value ? '' : null;
+    return value ? emptyRelationshipSelection(field) : null;
   }
   return shouldClearRelationshipValue({
     value,
@@ -191,7 +240,7 @@ export function resolveRelationshipParentTransition({
     previousParentValue,
     options,
     optionsLoaded,
-  }) ? '' : null;
+  }) ? emptyRelationshipSelection(field) : null;
 }
 
 export function shouldClearFilteredOrganisationValue({

@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildDdSubmissionFieldValues } from './email-placeholder-dd-submission.js';
+import { FORM_NOT_LISTED_VALUE } from '../../shared/formNotListedChoice.js';
 
 const currentId = '33333333-3333-4333-8333-333333333333';
 const missingId = '44444444-4444-4444-8444-444444444444';
@@ -29,4 +30,23 @@ test('DD placeholder preview renders current and missing legacy name-keyed relat
   assert.equal(values.byLabel['Current relationship'], 'Legacy DD record');
   assert.equal(values.byLabel['Legacy relationship'], 'Unavailable record');
   assert.equal(JSON.stringify(values).includes(missingId), false);
+});
+
+test('DD placeholder preview resolves real relationships alongside inclusive Other text', () => {
+  const field = {
+    id: 'department',
+    label: 'Department',
+    type: 'relationship_dropdown',
+    selection_mode: 'multiple',
+    not_listed_choice: { enabled: true, label: 'Other department' },
+  };
+  const values = buildDdSubmissionFieldValues(
+    [field],
+    {
+      department: [currentId, FORM_NOT_LISTED_VALUE],
+      __not_listed_choice_text: { department: 'Research partnerships' },
+    },
+    { [currentId]: 'Finance' },
+  );
+  assert.equal(values.byId.department, 'Finance, Other department — Research partnerships');
 });

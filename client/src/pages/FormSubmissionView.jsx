@@ -13,7 +13,7 @@ import SubmissionReplies from "@/components/forms/SubmissionReplies";
 import { format } from "date-fns";
 import {
   collectRelationshipRecordIds,
-  formatRelationshipDisplayValue,
+  formatRelationshipAnswerDisplayValue,
   getSubmissionFieldValue,
   resolveSubmissionField,
 } from "@/lib/relationshipDisplayLabels";
@@ -35,8 +35,14 @@ import { isRepeatableRowField } from "../../../shared/formRepeatableRows.js";
 function RepeatableRowsTable({ field, value, submissionData, relationshipLabelsByRecordId, organisationNamesById }) {
   const model = formatRepeatableRows(field, value, {
     submissionData,
-    formatCell: (cellValue, child) => child?.type === 'relationship_dropdown'
-      ? formatRelationshipDisplayValue(cellValue, relationshipLabelsByRecordId)
+    formatCell: (cellValue, child, row) => child?.type === 'relationship_dropdown'
+      ? formatRelationshipAnswerDisplayValue(
+        child,
+        cellValue,
+        relationshipLabelsByRecordId,
+        submissionData,
+        { parentField: field, row },
+      )
       : child?.type === 'organisation_dropdown'
         ? resolveRepeatableOrganisationLabel(cellValue, organisationNamesById)
       : formatRepeatableCellValue(cellValue, child),
@@ -294,7 +300,21 @@ export default function FormSubmissionView() {
       <div key={field.id} className="p-4 bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700">
         <div className="flex items-start justify-between gap-2">
           <div className="flex-1 min-w-0">
-            {containsFormNotListedValue(value) ? (
+            {field.type === 'relationship_dropdown' ? (
+              <div>
+                <p className="text-sm font-medium text-slate-600 dark:text-slate-400 mb-1">
+                  {field.label || field.id}
+                </p>
+                <p className="text-slate-900 dark:text-slate-100">
+                  {formatRelationshipAnswerDisplayValue(
+                    field,
+                    value,
+                    relationshipLabelsByRecordId,
+                    submissionData,
+                  )}
+                </p>
+              </div>
+            ) : containsFormNotListedValue(value) ? (
               <div>
                 <p className="text-sm font-medium text-slate-600 dark:text-slate-400 mb-1">
                   {field.label || field.id}
@@ -315,15 +335,6 @@ export default function FormSubmissionView() {
                   relationshipLabelsByRecordId={relationshipLabelsByRecordId}
                   organisationNamesById={organisationNamesById}
                 />
-              </div>
-            ) : field.type === 'relationship_dropdown' ? (
-              <div>
-                <p className="text-sm font-medium text-slate-600 dark:text-slate-400 mb-1">
-                  {field.label || field.id}
-                </p>
-                <p className="text-slate-900 dark:text-slate-100">
-                  {formatRelationshipDisplayValue(value, relationshipLabelsByRecordId)}
-                </p>
               </div>
             ) : (
               <FormRenderer
@@ -598,10 +609,15 @@ export default function FormSubmissionView() {
                   .filter(([key]) => key !== FORM_NOT_LISTED_LABELS_KEY && key !== FORM_NOT_LISTED_TEXT_KEY)
                   .map(([key, value]) => {
                   const field = resolveSubmissionField(fields, key);
-                  const displayValue = containsFormNotListedValue(value)
+                  const displayValue = field?.type === 'relationship_dropdown'
+                    ? formatRelationshipAnswerDisplayValue(
+                      field,
+                      value,
+                      relationshipLabelsByRecordId,
+                      submissionData,
+                    )
+                    : containsFormNotListedValue(value)
                     ? resolveFormNotListedDisplayValue(field, value, submissionData)
-                    : field?.type === 'relationship_dropdown'
-                    ? formatRelationshipDisplayValue(value, relationshipLabelsByRecordId)
                     : Array.isArray(value)
                       ? value.join(', ')
                       : typeof value === 'object'

@@ -54,6 +54,13 @@ export function applyExclusiveFormNotListedSelection(currentValue, nextValue) {
     : [...withoutNotListed, nextValue];
 }
 
+export function applyInclusiveFormNotListedSelection(currentValue, nextValue) {
+  const current = Array.isArray(currentValue) ? currentValue : [];
+  return current.includes(nextValue)
+    ? current.filter(value => value !== nextValue)
+    : [...current, nextValue];
+}
+
 function isPlainObject(value) {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
@@ -304,4 +311,31 @@ export function resolveFormNotListedDisplayValue(field, value, submissionData, o
     return value.map(entry => entry === FORM_NOT_LISTED_VALUE ? display : entry);
   }
   return display;
+}
+
+export function formatFormRelationshipDisplayValue(
+  field,
+  value,
+  submissionData,
+  labelsByRecordId,
+  options = {},
+) {
+  const entries = Array.isArray(value) ? value : [value];
+  const fallback = options.fallback || 'Unavailable record';
+  return entries.map((entry) => {
+    if (entry == null || entry === '') return '';
+    if (isFormNotListedValue(entry)) {
+      return resolveFormNotListedDisplayValue(field, entry, submissionData, options);
+    }
+    if (typeof options.resolveRecordLabel === 'function') {
+      const label = options.resolveRecordLabel(entry);
+      return label === undefined || label === null || String(label).trim() === ''
+        ? fallback
+        : label;
+    }
+    const label = labelsByRecordId instanceof Map
+      ? labelsByRecordId.get(String(entry))
+      : labelsByRecordId?.[String(entry)];
+    return typeof label === 'string' && label.trim() ? label.trim() : fallback;
+  }).filter(Boolean).join(', ');
 }

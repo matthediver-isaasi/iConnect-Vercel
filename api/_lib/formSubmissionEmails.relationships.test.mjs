@@ -60,6 +60,25 @@ test('configured form-email placeholders render snapshotted not-listed labels', 
   }), 'Original label — Independent organisation');
 });
 
+test('configured form-email placeholders resolve real relationships alongside inclusive Other text', () => {
+  const field = {
+    id: 'department',
+    type: 'relationship_dropdown',
+    selection_mode: 'multiple',
+    not_listed_choice: { enabled: true, label: 'Other department' },
+  };
+  assert.equal(resolveSubmissionEmailFieldDisplayValue({
+    fields: [field],
+    fieldKey: field.id,
+    rawValue: [],
+    persistedSubmissionData: {
+      department: ['record-1', '__form_not_listed__'],
+      __not_listed_choice_text: { department: 'Research partnerships' },
+    },
+    relationshipLabelsByRecordId: { 'record-1': 'Finance' },
+  }), 'Finance, Other department — Research partnerships');
+});
+
 test('configured form-email placeholders render repeatable rows and nested relationship labels', () => {
   const repeatable = {
     id: 'contacts',
@@ -113,4 +132,30 @@ test('configured form-email placeholders retain repeatable not-listed labels', (
     relationshipLabelsByRecordId: {},
     organisationNamesById: {},
   }), 'Row 1\nEmployer: Original employer label — Independent organisation');
+});
+
+test('configured form-email placeholders resolve repeatable real relationships with inclusive Other', () => {
+  const repeatable = {
+    id: 'contacts',
+    type: 'repeatable_row',
+    children: [{
+      id: 'department',
+      label: 'Department',
+      type: 'relationship_dropdown',
+      selection_mode: 'multiple',
+      not_listed_choice: { enabled: true, label: 'Other department' },
+    }],
+  };
+  assert.equal(resolveSubmissionEmailFieldDisplayValue({
+    fields: [repeatable],
+    fieldKey: 'contacts',
+    rawValue: [],
+    persistedSubmissionData: {
+      contacts: [{
+        department: ['record-1', '__form_not_listed__'],
+        __not_listed_choice_text: { department: 'Research partnerships' },
+      }],
+    },
+    relationshipLabelsByRecordId: { 'record-1': 'Finance' },
+  }), 'Row 1\nDepartment: Finance, Other department — Research partnerships');
 });

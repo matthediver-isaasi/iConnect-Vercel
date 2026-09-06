@@ -1,3 +1,8 @@
+import {
+  formatFormRelationshipDisplayValue,
+  isFormNotListedValue,
+} from '../../../shared/formNotListedChoice.js';
+
 export const UNAVAILABLE_RELATIONSHIP_RECORD = 'Unavailable record';
 
 export function isRelationshipDropdownField(field) {
@@ -27,7 +32,7 @@ export function collectRelationshipRecordIds(fields, values) {
     const raw = getSubmissionFieldValue(values, field);
     const entries = Array.isArray(raw) ? raw : [raw];
     for (const entry of entries) {
-      if (entry != null && entry !== '') ids.add(String(entry));
+      if (entry != null && entry !== '' && !isFormNotListedValue(entry)) ids.add(String(entry));
     }
   }
   return [...ids];
@@ -63,4 +68,20 @@ export function formatRelationshipDisplayValue(value, labelsByRecordId, fallback
       .join(', ');
   }
   return resolveRelationshipDisplayLabel(value, labelsByRecordId, fallback);
+}
+
+export function formatRelationshipAnswerDisplayValue(
+  field,
+  value,
+  labelsByRecordId,
+  submissionData,
+  options = {},
+) {
+  return formatFormRelationshipDisplayValue(
+    field,
+    value,
+    submissionData,
+    labelsByRecordId,
+    { fallback: UNAVAILABLE_RELATIONSHIP_RECORD, ...options },
+  );
 }

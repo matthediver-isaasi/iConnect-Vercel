@@ -5,6 +5,12 @@ import { containsFormNotListedValue, hasEnabledFormNotListedChoice, isFormNotLis
 import { isFormNoRelationshipValue } from '../../shared/formNoRelationshipChoice.js';
 import { isRepeatableRowField, repeatableRowChildren } from '../../shared/formRepeatableRows.js';
 import { computeHiddenFieldIds } from './formFieldVisibility.js';
+import {
+  isRelationshipMultiSelect,
+  relationshipSelectionMode,
+  RELATIONSHIP_SELECTION_MULTIPLE,
+  RELATIONSHIP_SELECTION_SINGLE,
+} from '../../shared/formRelationshipSelection.js';
 
 export class FormRelationshipError extends Error { constructor(status, message) { super(message); this.status = status; } }
 function throwDb(error) { if (error) throw new FormRelationshipError(500, error.message || 'Database operation failed'); }
@@ -65,6 +71,9 @@ export function savedRelationshipField(form, fieldId, context = {}) {
   const expectedParentType = { organization: 'organisation_dropdown', organization_group: 'organisation_group_dropdown', custom_object: 'relationship_dropdown' }[parentKind];
   if (parent.type !== 'relationship_dropdown' && parent.type !== expectedParentType) {
     throw new FormRelationshipError(409, 'Saved relationship field parent is invalid');
+  }
+  if (parent.type === 'relationship_dropdown' && isRelationshipMultiSelect(parent)) {
+    throw new FormRelationshipError(409, 'Saved relationship field parent must be single-select');
   }
   // A relationship dropdown parent represents its own *related* endpoint.
   // Do not allow a child to redefine that endpoint through browser supplied
@@ -159,7 +168,24 @@ export function createFormRelationshipService({ db, tenantId }) {
     if (!notListedTextValidation.valid) {
       throw new FormRelationshipError(400, notListedTextValidation.error);
     }
-    for (const field of fields) { const selected = fieldValue(submissionData, field); if (containsFormNotListedValue(selected) && !hasEnabledFormNotListedChoice(field)) throw new FormRelationshipError(400, 'Invalid not-listed selection'); if (Array.isArray(selected) && containsFormNotListedValue(selected) && selected.length !== 1) throw new FormRelationshipError(400, 'Not-listed selection must be exclusive'); if ((field?.type === 'countries' || field?.type === 'category_multiselect') && isFormNotListedValue(selected)) throw new FormRelationshipError(400, 'Invalid multi-select not-listed selection'); if (!conditionalSelectionAllowed(selected, resolveConditionalFilter(field, submissionData, fields))) throw new FormRelationshipError(400, 'Invalid conditional field selection'); }
+    for (const field of fields) {
+      const selected = fieldValue(submissionData, field);
+      if (containsFormNotListedValue(selected) && !hasEnabledFormNotListedChoice(field)) {
+        throw new FormRelationshipError(400, 'Invalid not-listed selection');
+      }
+      const inclusiveRelationshipOther = isRelationshipMultiSelect(field);
+      if (Array.isArray(selected) && containsFormNotListedValue(selected)
+          && selected.length !== 1 && !inclusiveRelationshipOther) {
+        throw new FormRelationshipError(400, 'Not-listed selection must be exclusive');
+      }
+      if ((field?.type === 'countries' || field?.type === 'category_multiselect')
+          && isFormNotListedValue(selected)) {
+        throw new FormRelationshipError(400, 'Invalid multi-select not-listed selection');
+      }
+      if (!conditionalSelectionAllowed(selected, resolveConditionalFilter(field, submissionData, fields))) {
+        throw new FormRelationshipError(400, 'Invalid conditional field selection');
+      }
+    }
     for (const field of fields.filter(x => x?.type === 'organisation_dropdown')) {
       const id = fieldValue(submissionData, field);
       if (id == null || id === '' || isFormNotListedValue(id)) continue;
@@ -177,13 +203,27 @@ export function createFormRelationshipService({ db, tenantId }) {
     }
     for (const field of fields.filter(x => x?.type === 'relationship_dropdown')) {
       const selected = fieldValue(submissionData, field);
-      if (selected == null || selected === '' || isFormNotListedValue(selected)) continue;
-      const recordIds = [...new Set((Array.isArray(selected) ? selected : [selected]).filter(Boolean))];
-      if (recordIds.length === 0 || recordIds.some(recordId =>
+      if (selected == null) continue;
+      const mode = relationshipSelectionMode(field);
+      if ((mode === RELATIONSHIP_SELECTION_MULTIPLE && !Array.isArray(selected))
+          || (mode === RELATIONSHIP_SELECTION_SINGLE && Array.isArray(selected))) {
+        throw new FormRelationshipError(400, 'Invalid relationship selection mode');
+      }
+      if (selected === '' || isFormNotListedValue(selected)) continue;
+      const submittedIds = (Array.isArray(selected) ? selected : [selected]).filter(Boolean);
+      if (submittedIds.length === 0) continue;
+      const comparableIds = submittedIds.map(String);
+      if (new Set(comparableIds).size !== comparableIds.length) {
+        throw new FormRelationshipError(400, 'Duplicate relationship selection');
+      }
+      const recordIds = submittedIds.filter(recordId => !isFormNotListedValue(recordId));
+      if (recordIds.some(recordId =>
         isFormNoRelationshipValue(recordId)
           || (typeof recordId !== 'string' && typeof recordId !== 'number'))) {
         throw new FormRelationshipError(400, 'Invalid relationship selection');
       }
+      if (recordIds.length === 0 && containsFormNotListedValue(selected)) continue;
+      if (recordIds.length === 0) throw new FormRelationshipError(400, 'Invalid relationship selection');
       const saved = savedRelationshipField(form, field.id, {
         rootForm: rootForm || form,
         containerFieldId,

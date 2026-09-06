@@ -112,7 +112,7 @@ import {
 } from "@/components/vacancies/useVacancyInterest";
 import {
   collectRelationshipRecordIdsFromSubmissions,
-  formatRelationshipDisplayValue,
+  formatRelationshipAnswerDisplayValue,
   getSubmissionFieldValue,
   resolveSubmissionField,
 } from "@/lib/relationshipDisplayLabels";
@@ -4325,9 +4325,11 @@ export default function MemberGroupDetailPage() {
                                     : null;
                                 const displayValue =
                                   field?.type === "relationship_dropdown"
-                                    ? formatRelationshipDisplayValue(
+                                    ? formatRelationshipAnswerDisplayValue(
+                                        field,
                                         savedValue,
-                                        relationshipLabelsByRecordId
+                                        relationshipLabelsByRecordId,
+                                        data
                                       )
                                     : renderAnswerValue(savedValue);
                                 return (

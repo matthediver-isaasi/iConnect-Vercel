@@ -39,7 +39,7 @@ import { supabase } from '../_lib/database.js';
 import { getTenantContext, hasAdminAccess } from '../_lib/tenantContext.js';
 import {
   collectRelationshipRecordIds,
-  formatRelationshipDisplayValue,
+  formatRelationshipAnswerDisplayValue,
   getSubmissionRelationshipValue,
   isRelationshipDropdownField,
   loadTenantRelationshipDisplayLabels,
@@ -118,7 +118,12 @@ export function buildDdSubmissionFieldValues(fields, submissionData, relationshi
         ?? (field.name ? submissionData?.[field.name] : undefined)
       );
     const display = isRelationshipDropdownField(field)
-      ? formatRelationshipDisplayValue(raw, relationshipLabelsByRecordId)
+      ? formatRelationshipAnswerDisplayValue(
+        field,
+        raw,
+        relationshipLabelsByRecordId,
+        submissionData,
+      )
       : stringifyFieldValue(raw);
     if (display !== '') {
       byId[field.id] = display;

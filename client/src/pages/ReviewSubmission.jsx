@@ -34,7 +34,7 @@ import DocumentsCard from "@/components/due-diligence/DocumentsCard";
 import SignatoriesCard from "@/components/due-diligence/SignatoriesCard";
 import {
   collectRelationshipRecordIds,
-  formatRelationshipDisplayValue,
+  formatRelationshipAnswerDisplayValue,
   getSubmissionFieldValue,
 } from "@/lib/relationshipDisplayLabels";
 import MeetingRequestsCard from "@/components/due-diligence/MeetingRequestsCard";
@@ -156,12 +156,17 @@ function ReviewFieldEditor({
   
   // For organisation dropdown fields, look up the display name
   const getDisplayValue = (value, submissionData) => {
+    if (field.type === 'relationship_dropdown') {
+      return formatRelationshipAnswerDisplayValue(
+        field,
+        value,
+        relationshipLabelsByRecordId,
+        submissionData,
+      );
+    }
     if (containsFormNotListedValue(value)) {
       const displayValue = resolveFormNotListedDisplayValue(field, value, submissionData);
       return Array.isArray(displayValue) ? displayValue.join(', ') : displayValue;
-    }
-    if (field.type === 'relationship_dropdown') {
-      return formatRelationshipDisplayValue(value, relationshipLabelsByRecordId);
     }
     if (isOrganisationField && value && organisations.length > 0) {
       const org = organisations.find(o => o.id === value);

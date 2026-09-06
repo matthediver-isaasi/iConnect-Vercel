@@ -77,3 +77,63 @@ test('Word export retains the submitted repeatable not-listed label', () => {
     ['Row 1', 'Organisation: Original organisation label — Independent organisation'],
   );
 });
+
+test('Word export resolves repeatable relationship labels alongside inclusive Other text', () => {
+  const form = {
+    fields: [{
+      id: 'contacts',
+      label: 'Contacts',
+      type: 'repeatable_row',
+      children: [{
+        id: 'department',
+        label: 'Department',
+        type: 'relationship_dropdown',
+        selection_mode: 'multiple',
+        not_listed_choice: { enabled: true, label: 'Other department' },
+      }],
+    }],
+  };
+  const prepared = resolveSubmissionToPrepared({
+    submission: {
+      submission_data: {
+        contacts: [{
+          department: ['department-1', '__form_not_listed__'],
+          __not_listed_choice_text: { department: 'Research partnerships' },
+        }],
+      },
+    },
+    form,
+    selectedOptions: [{ key: 'contacts', label: 'Contacts' }],
+    resolvers: {
+      resolveRelationshipLabel: value => value === 'department-1' ? 'Finance' : 'Unavailable record',
+    },
+  });
+  assert.deepEqual(
+    prepared.rows[0].lines.map(line => line.text),
+    ['Row 1', 'Department: Finance, Other department — Research partnerships'],
+  );
+});
+
+test('Word export uses the relationship fallback when a custom label resolver has no label', () => {
+  const form = {
+    fields: [{
+      id: 'department',
+      label: 'Department',
+      type: 'relationship_dropdown',
+    }],
+  };
+  const prepared = resolveSubmissionToPrepared({
+    submission: {
+      submission_data: { department: 'missing-department' },
+    },
+    form,
+    selectedOptions: [{ key: 'department', label: 'Department' }],
+    resolvers: {
+      resolveRelationshipLabel: () => undefined,
+    },
+  });
+  assert.deepEqual(prepared.rows[0].lines, [{
+    kind: 'text',
+    text: 'Unavailable record',
+  }]);
+});

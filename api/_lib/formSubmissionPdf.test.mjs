@@ -105,6 +105,21 @@ test('PDF formatter uses the snapshotted not-listed label after the field is ren
   );
 });
 
+test('PDF formatter resolves real relationship labels alongside inclusive Other text', () => {
+  const field = {
+    id: 'department',
+    type: 'relationship_dropdown',
+    selection_mode: 'multiple',
+    not_listed_choice: { enabled: true, label: 'Other department' },
+  };
+  assert.equal(formatFormSubmissionFieldValue(
+    field,
+    ['record-1', '__form_not_listed__'],
+    { 'record-1': 'Finance' },
+    { __not_listed_choice_text: { department: 'Research partnerships' } },
+  ), 'Finance, Other department — Research partnerships');
+});
+
 test('PDF formatter resolves organisation group IDs without exposing unavailable UUIDs', () => {
   const field = { id: 'group', type: 'organisation_group_dropdown' };
   assert.equal(
@@ -163,6 +178,32 @@ test('PDF formatter retains the submitted repeatable not-listed label', () => {
       },
     },
   ), 'Row 1\nCountry: Original country label');
+});
+
+test('PDF formatter resolves repeatable relationship labels alongside inclusive Other text', () => {
+  const field = {
+    id: 'rows',
+    type: 'repeatable_row',
+    children: [{
+      id: 'department',
+      label: 'Department',
+      type: 'relationship_dropdown',
+      selection_mode: 'multiple',
+      not_listed_choice: { enabled: true, label: 'Other department' },
+    }],
+  };
+  const submissionData = {
+    rows: [{
+      department: ['record-1', '__form_not_listed__'],
+      __not_listed_choice_text: { department: 'Research partnerships' },
+    }],
+  };
+  assert.equal(formatFormSubmissionFieldValue(
+    field,
+    submissionData.rows,
+    { 'record-1': 'Finance' },
+    submissionData,
+  ), 'Row 1\nDepartment: Finance, Other department — Research partnerships');
 });
 
 test('PDF builder uses ID-first/name fallback and renders no relationship UUIDs', () => {

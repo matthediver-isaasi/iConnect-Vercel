@@ -2428,7 +2428,9 @@ export function createCustomObjectService({
         return { definition: pathDefinition, fromSide: hop.from_side, toSide };
       });
       const sources = terminalSources === undefined ? [] : terminalSources;
-      if (!Array.isArray(sources) || sources.some((source) =>
+      if (!Array.isArray(sources)
+        || (terminalSources !== undefined && sources.length === 0)
+        || sources.some((source) =>
         !source || source.type !== 'core_field'
         || typeof source.field !== 'string'
         || Object.keys(source).some((key) => !['type', 'field'].includes(key)))) {

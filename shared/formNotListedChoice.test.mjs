@@ -5,6 +5,7 @@ import {
   FORM_NOT_LISTED_TEXT_KEY,
   FORM_NOT_LISTED_VALUE,
   applyExclusiveFormNotListedSelection,
+  applyInclusiveFormNotListedSelection,
   hasEnabledFormNotListedChoice,
   prependFormNotListedOption,
   preserveFormNotListedLabelSnapshots,
@@ -67,6 +68,17 @@ test('multi-select synthetic choice is exclusive with real values', () => {
   assert.deepEqual(applyExclusiveFormNotListedSelection(['one'], FORM_NOT_LISTED_VALUE), [FORM_NOT_LISTED_VALUE]);
   assert.deepEqual(applyExclusiveFormNotListedSelection([FORM_NOT_LISTED_VALUE], 'one'), ['one']);
   assert.deepEqual(applyExclusiveFormNotListedSelection([FORM_NOT_LISTED_VALUE], FORM_NOT_LISTED_VALUE), []);
+});
+
+test('inclusive synthetic choice can coexist with real values', () => {
+  assert.deepEqual(
+    applyInclusiveFormNotListedSelection(['record-1'], FORM_NOT_LISTED_VALUE),
+    ['record-1', FORM_NOT_LISTED_VALUE],
+  );
+  assert.deepEqual(
+    applyInclusiveFormNotListedSelection(['record-1', FORM_NOT_LISTED_VALUE], FORM_NOT_LISTED_VALUE),
+    ['record-1'],
+  );
 });
 
 test('snapshots and resolves the submitted label after configuration changes', () => {

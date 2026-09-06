@@ -107,3 +107,22 @@ test("picker scope core terminal source keeps BNMS primary and secondary Organis
     /REVOKE ALL ON FUNCTION public\.guard_custom_object_picker_scope_v2\(\)[\s\S]*FROM PUBLIC, anon, authenticated/i,
   );
 });
+
+test("API and database both reject explicitly empty picker terminal-source arrays", async () => {
+  const serviceSource = await readFile(
+    new URL("../../api/_lib/customObjectService.js", import.meta.url),
+    "utf8",
+  );
+  assert.match(
+    serviceSource,
+    /terminalSources !== undefined && sources\.length === 0/i,
+  );
+  assert.match(
+    pickerScopeCoreTerminalSourcesSql,
+    /v_scope \? 'target_terminal_sources'[\s\S]*<> '\[\{"type":"core_field","field":"organization_id"\}\]'::jsonb/i,
+  );
+  assert.match(
+    pickerScopeCoreTerminalSourcesSql,
+    /v_scope \? 'source_terminal_sources'[\s\S]*<> '\[\{"type":"core_field","field":"organization_id"\}\]'::jsonb/i,
+  );
+});

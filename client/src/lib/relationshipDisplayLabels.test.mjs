@@ -5,11 +5,13 @@ import {
   UNAVAILABLE_RELATIONSHIP_RECORD,
   collectRelationshipRecordIds,
   collectRelationshipRecordIdsFromSubmissions,
+  formatRelationshipAnswerDisplayValue,
   formatRelationshipDisplayValue,
   getSubmissionFieldValue,
   resolveSubmissionField,
   resolveRelationshipDisplayLabel,
 } from './relationshipDisplayLabels.js';
+import { FORM_NOT_LISTED_VALUE } from '../../../shared/formNotListedChoice.js';
 
 test('collects only stored relationship dropdown record IDs', () => {
   const fields = [
@@ -24,6 +26,13 @@ test('collects only stored relationship dropdown record IDs', () => {
   };
 
   assert.deepEqual(collectRelationshipRecordIds(fields, values), ['record-1', 'record-2']);
+});
+
+test('multi-select relationship label loading excludes the synthetic Other value', () => {
+  assert.deepEqual(collectRelationshipRecordIds(
+    [{ id: 'department', type: 'relationship_dropdown', selection_mode: 'multiple' }],
+    { department: ['record-1', FORM_NOT_LISTED_VALUE, 'record-2'] },
+  ), ['record-1', 'record-2']);
 });
 
 test('resolves labels without exposing missing record IDs', () => {
@@ -41,6 +50,21 @@ test('formats arrays and safely falls back for archived records', () => {
     formatRelationshipDisplayValue(['active', 'archived'], new Map([['active', 'Operations']])),
     'Operations, Unavailable record',
   );
+});
+
+test('formats relationship arrays containing real records and inclusive Other text', () => {
+  const field = {
+    id: 'department',
+    type: 'relationship_dropdown',
+    selection_mode: 'multiple',
+    not_listed_choice: { enabled: true, label: 'Other department' },
+  };
+  assert.equal(formatRelationshipAnswerDisplayValue(
+    field,
+    ['record-1', FORM_NOT_LISTED_VALUE],
+    { 'record-1': 'Finance' },
+    { __not_listed_choice_text: { department: 'Research partnerships' } },
+  ), 'Finance, Other department — Research partnerships');
 });
 
 test('resolves a legacy name-keyed relationship value to its label', () => {
@@ -128,7 +152,7 @@ test('brief copyright and case-study previews batch safe relationship labels', (
   );
   assert.match(
     source,
-    /field\?\.type === 'relationship_dropdown'[\s\S]*?formatRelationshipDisplayValue\(value, relationshipLabelsByRecordId\)/,
+    /field\?\.type === 'relationship_dropdown'[\s\S]*?formatRelationshipAnswerDisplayValue\(/,
   );
   assert.match(
     source,
@@ -168,7 +192,7 @@ test('due diligence dashboard batches scoped relationship labels and gates refer
 
   assert.match(source, /resolveSubmissionField\(formsById\[formId\]\?\.fields,\s*cardReferenceField\)/);
   assert.match(source, /getSubmissionFieldValue\(formValues,\s*configuredField\)/);
-  assert.match(source, /formatRelationshipDisplayValue\(configuredValue,\s*relationshipLabelsByRecordId\)/);
+  assert.match(source, /formatRelationshipAnswerDisplayValue\([\s\S]*?configuredValue,[\s\S]*?relationshipLabelsByRecordId/);
   assert.match(source, /submissionIds:\s*batch\.submissionIds/);
   assert.match(source, /context:\s*'review-submission'/);
   assert.match(source, /submissionsLoading\s*\|\|\s*formsLoading\s*\|\|\s*relationshipLabelsLoading/);
@@ -187,6 +211,6 @@ test('organisation submission preview wires scoped relationship labels and safe 
   assert.match(source, /context:\s*'form-submissions'/);
   assert.match(source, /credentials:\s*'include'/);
   assert.match(source, /value:\s*getSubmissionFieldValue\(values, field\)/);
-  assert.match(source, /formatRelationshipDisplayValue\(value, relationshipLabelsByRecordId\)/);
+  assert.match(source, /formatRelationshipAnswerDisplayValue\([\s\S]*?value,[\s\S]*?relationshipLabelsByRecordId/);
   assert.match(source, /relationshipLabelsLoading[\s\S]*?'Loading related record…'/);
 });

@@ -56,7 +56,7 @@ import SubmissionReplies from "@/components/forms/SubmissionReplies";
 import { listAllOrganizationsForAdmin } from '@/lib/adminOrgList';
 import {
   collectRelationshipRecordIdsFromSubmissions,
-  formatRelationshipDisplayValue,
+  formatRelationshipAnswerDisplayValue,
   getSubmissionFieldValue,
   resolveSubmissionField,
   resolveRelationshipDisplayLabel,
@@ -79,8 +79,14 @@ import { isRepeatableRowField } from '../../../shared/formRepeatableRows.js';
 function RepeatableRowsTable({ field, value, submissionData, relationshipLabelsByRecordId, organisationNamesById }) {
   const model = formatRepeatableRows(field, value, {
     submissionData,
-    formatCell: (cellValue, child) => child?.type === 'relationship_dropdown'
-      ? formatRelationshipDisplayValue(cellValue, relationshipLabelsByRecordId)
+    formatCell: (cellValue, child, row) => child?.type === 'relationship_dropdown'
+      ? formatRelationshipAnswerDisplayValue(
+        child,
+        cellValue,
+        relationshipLabelsByRecordId,
+        submissionData,
+        { parentField: field, row },
+      )
       : child?.type === 'organisation_dropdown'
         ? resolveRepeatableOrganisationLabel(cellValue, organisationNamesById)
       : formatRepeatableCellValue(cellValue, child),
@@ -1653,6 +1659,14 @@ export default function FormSubmissionsPage() {
               : submission.submission_data?.[field.key];
             const fieldType = fieldDef?.type;
             if (val == null) return '';
+            if (fieldType === 'relationship_dropdown') {
+              return formatRelationshipAnswerDisplayValue(
+                fieldDef,
+                val,
+                relationshipLabelsByRecordId,
+                submission.submission_data,
+              );
+            }
             if (containsFormNotListedValue(val)) {
               const displayValue = resolveFormNotListedDisplayValue(
                 fieldDef,
@@ -1664,8 +1678,14 @@ export default function FormSubmissionsPage() {
             if (isRepeatableRowField(fieldDef)) {
               return formatRepeatableRowsText(fieldDef, val, {
                 submissionData: submission.submission_data,
-                formatCell: (cellValue, child) => child?.type === 'relationship_dropdown'
-                  ? formatRelationshipDisplayValue(cellValue, relationshipLabelsByRecordId)
+                formatCell: (cellValue, child, row) => child?.type === 'relationship_dropdown'
+                  ? formatRelationshipAnswerDisplayValue(
+                    child,
+                    cellValue,
+                    relationshipLabelsByRecordId,
+                    submission.submission_data,
+                    { parentField: fieldDef, row },
+                  )
                   : child?.type === 'organisation_dropdown'
                     ? resolveRepeatableOrganisationLabel(cellValue, organisationNamesById)
                   : formatRepeatableCellValue(cellValue, child),
@@ -1680,10 +1700,6 @@ export default function FormSubmissionsPage() {
             if (fieldType === 'organisation_group_dropdown') {
               if (Array.isArray(val)) return val.map(resolveOrgGroupName).join(', ');
               return resolveOrgGroupName(val);
-            }
-
-            if (fieldType === 'relationship_dropdown') {
-              return formatRelationshipDisplayValue(val, relationshipLabelsByRecordId);
             }
 
             if (fieldType === 'member_dropdown') {
@@ -2810,10 +2826,15 @@ export default function FormSubmissionsPage() {
                     .filter(([key]) => key !== FORM_NOT_LISTED_LABELS_KEY && key !== FORM_NOT_LISTED_TEXT_KEY)
                     .map(([key, value]) => {
                     const field = resolveSubmissionField(viewingForm?.fields, key);
-                    const displayValue = containsFormNotListedValue(value)
+                    const displayValue = field?.type === 'relationship_dropdown'
+                      ? formatRelationshipAnswerDisplayValue(
+                        field,
+                        value,
+                        relationshipLabelsByRecordId,
+                        viewingSubmission.submission_data,
+                      )
+                      : containsFormNotListedValue(value)
                       ? resolveFormNotListedDisplayValue(field, value, viewingSubmission.submission_data)
-                      : field?.type === 'relationship_dropdown'
-                        ? formatRelationshipDisplayValue(value, relationshipLabelsByRecordId)
                         : field?.type === 'organisation_group_dropdown'
                           ? (Array.isArray(value)
                             ? value.map(id => organisationGroupNamesById[String(id)] || 'Unavailable organisation group').join(', ')

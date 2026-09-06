@@ -51,6 +51,7 @@ import { listOrganizationsForAdmin } from '@/lib/adminOrgList';
 import SurveyEventAssignmentsPanel from "@/components/surveys/SurveyEventAssignmentsPanel";
 import {
   getEligibleRelationshipParents,
+  getRelationshipDependentFields,
   isRelationshipCompatibleWithParent,
   normalizeEligibleRelationships,
   formBuilderRelationshipLabel,
@@ -72,6 +73,11 @@ import {
   prependFormNotListedOption,
   supportsFormNotListedChoice,
 } from "../../../shared/formNotListedChoice.js";
+import {
+  relationshipSelectionMode,
+  RELATIONSHIP_SELECTION_MULTIPLE,
+  RELATIONSHIP_SELECTION_SINGLE,
+} from "../../../shared/formRelationshipSelection.js";
 import {
   getFormLogicConditionOptions,
   isOnlyFormNotListedConditionOption,
@@ -5350,6 +5356,9 @@ function RepeatableRowsSettings({
         const optionsType = ['select', 'radio', 'checkbox'].includes(child.type);
         const exclusionSources = repeatableExclusionSourceFields(allFields, field, child);
         const exclusionSourceId = child.exclude_values_from?.source_field_id || '__none__';
+        const relationshipDependents = getRelationshipDependentFields(allFields, child.id, {
+          containerFieldId: field.id,
+        });
         return (
           <div key={child.id} className="space-y-3 rounded-md border border-slate-200 bg-white p-3" data-testid={`repeatable-child-${field.id}-${childIndex}`}>
             <div className="flex items-center justify-between">
@@ -5492,6 +5501,35 @@ function RepeatableRowsSettings({
             )}
             {child.type === 'relationship_dropdown' && (
               <div className="grid gap-3 rounded border border-slate-200 bg-slate-50 p-3 md:grid-cols-2">
+                <div className="space-y-1 md:col-span-2">
+                  <Label className="text-xs">Selection control</Label>
+                  <Select
+                    value={relationshipSelectionMode(child)}
+                    onValueChange={(selection_mode) => {
+                      if (selection_mode === RELATIONSHIP_SELECTION_MULTIPLE
+                          && relationshipDependents.length > 0) return;
+                      updateChild(childIndex, { selection_mode });
+                    }}
+                  >
+                    <SelectTrigger className="h-9" data-testid={`select-repeatable-relationship-mode-${field.id}-${child.id}`}>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={RELATIONSHIP_SELECTION_SINGLE}>Dropdown (one record)</SelectItem>
+                      <SelectItem
+                        value={RELATIONSHIP_SELECTION_MULTIPLE}
+                        disabled={relationshipDependents.length > 0}
+                      >
+                        Multi-select (multiple records)
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                  {relationshipDependents.length > 0 && (
+                    <p className="text-xs text-amber-700">
+                      Keep this as a dropdown because a later row field depends on its selected record.
+                    </p>
+                  )}
+                </div>
                 <div className="space-y-1">
                   <Label className="text-xs">Parent field scope</Label>
                   <Select value={parentScope} onValueChange={parent_field_scope => updateChild(childIndex, {
@@ -5739,6 +5777,7 @@ function FieldCard({
   const targetField = uniquenessCheck?.target_field || '';
   const comparisonMode = uniquenessCheck?.comparison_mode || 'equals_lowercase';
   const relationshipParents = getEligibleRelationshipParents(allFields, field.id);
+  const relationshipDependents = getRelationshipDependentFields(allFields, field.id);
   const fieldIndex = allFields.findIndex(candidate => candidate?.id === field.id);
   const formFieldPrefillSource = allFields.find(candidate => candidate?.id === prefillSourceFieldId);
   const formFieldPrefillSourceIndex = allFields.findIndex(candidate => candidate?.id === prefillSourceFieldId);
@@ -7098,6 +7137,35 @@ function FieldCard({
 
               {field.type === 'relationship_dropdown' && (
                 <div className="space-y-4 rounded-lg border border-slate-200 bg-slate-50 p-3" data-testid={`relationship-dropdown-config-${field.id}`}>
+                  <div>
+                    <Label className="text-xs font-medium">Selection control</Label>
+                    <Select
+                      value={relationshipSelectionMode(field)}
+                      onValueChange={(selection_mode) => {
+                        if (selection_mode === RELATIONSHIP_SELECTION_MULTIPLE
+                            && relationshipDependents.length > 0) return;
+                        updateField(originalIndex, { selection_mode });
+                      }}
+                    >
+                      <SelectTrigger className="mt-2" data-testid={`select-relationship-mode-${field.id}`}>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={RELATIONSHIP_SELECTION_SINGLE}>Dropdown (one record)</SelectItem>
+                        <SelectItem
+                          value={RELATIONSHIP_SELECTION_MULTIPLE}
+                          disabled={relationshipDependents.length > 0}
+                        >
+                          Multi-select (multiple records)
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <p className="mt-1 text-xs text-slate-500">
+                      {relationshipDependents.length > 0
+                        ? 'Keep this as a dropdown because another relationship field depends on its selected record.'
+                        : 'Existing relationship fields remain single-select unless multi-select is chosen.'}
+                    </p>
+                  </div>
                   <div>
                     <Label htmlFor={`no-relationship-label-${field.id}`} className="text-xs font-medium">
                       No related records label

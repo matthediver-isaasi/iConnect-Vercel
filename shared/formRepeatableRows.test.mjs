@@ -345,6 +345,26 @@ test('columns without the uniqueness flag still allow repeated values', () => {
   ]).valid, true);
 });
 
+test('unique multi-select relationship columns reject overlapping records across rows', () => {
+  const field = {
+    type: 'repeatable_rows',
+    child_fields: [{
+      id: 'department',
+      type: 'relationship_dropdown',
+      selection_mode: 'multiple',
+      unique_across_rows: true,
+    }],
+  };
+  const result = validateRepeatableRows(field, [
+    { department: ['department-1', 'department-2'] },
+    { department: ['department-2', 'department-3'] },
+  ]);
+  assert.deepEqual(
+    result.errors.filter(error => error.code === 'duplicate_child_value').map(error => error.row),
+    [0, 1],
+  );
+});
+
 test('unique dropdown options exclude sibling selections but retain the current row value', () => {
   const child = {
     id: 'org',

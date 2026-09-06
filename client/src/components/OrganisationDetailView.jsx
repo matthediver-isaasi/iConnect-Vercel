@@ -110,7 +110,7 @@ import { RelatedRecordsPanel, useRelatedRecordDefinitions } from "@/pages/custom
 import { labelForSide, relationshipTabValue } from "@/pages/customObjects/relationshipHelpers";
 import {
   collectRelationshipRecordIdsFromSubmissions,
-  formatRelationshipDisplayValue,
+  formatRelationshipAnswerDisplayValue,
   getSubmissionFieldValue,
   isRelationshipDropdownField,
 } from "@/lib/relationshipDisplayLabels";
@@ -2918,7 +2918,12 @@ export default function OrganisationDetailView({
                       if (isRelationshipDropdownField(field)) {
                         displayValue = relationshipLabelsLoading
                           ? 'Loading related record…'
-                          : formatRelationshipDisplayValue(value, relationshipLabelsByRecordId);
+                          : formatRelationshipAnswerDisplayValue(
+                            field,
+                            value,
+                            relationshipLabelsByRecordId,
+                            values,
+                          );
                       } else if (typeof value === 'boolean') {
                         displayValue = value ? 'Yes' : 'No';
                       } else if (Array.isArray(value)) {
