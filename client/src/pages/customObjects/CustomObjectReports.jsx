@@ -136,13 +136,13 @@ export function CustomObjectReports({ object, fields, definitions, canManage }) 
     definitions: graph, start: startEndpoint(objectId), path: columnPath, maxHops: 6,
   }).endpoint;
   const availableFields = columnEndpoint.kind === "custom_object"
-    ? (fieldsByEndpoint[endpointKey(columnEndpoint)] || [])
+    ? [{ id: "id", label: "ID", builtIn: true }, ...(fieldsByEndpoint[endpointKey(columnEndpoint)] || [])]
     : (CORE_FIELDS[columnEndpoint.kind] || []);
   const addColumn = (field) => setColumns((current) => [...current, {
     id: `${endpointKey(columnEndpoint)}:${field.id}:${Date.now()}`,
     kind: "field", path: columnPath,
     ...(columnEndpoint.kind === "custom_object"
-      ? { field_id: String(field.id) }
+      ? (field.builtIn ? { field: String(field.id) } : { field_id: String(field.id) })
       : { field: String(field.id) }),
     label: field.label,
   }]);

@@ -514,7 +514,7 @@ test('export transport returns a real one-thousand-record page without interacti
   assert.deepEqual([rangeCall.from, rangeCall.to], [0, 999]);
 });
 
-test('reports traverse generic Department branches, deduplicate row grain, join values, and export safely', async () => {
+test('reports preserve to-many Department membership occurrences and align branch and edge values', async () => {
   const title = field({
     id: 'department-title',
     name: 'title',
@@ -530,6 +530,7 @@ test('reports traverse generic Department branches, deduplicate row grain, join 
     source_custom_object_id: objectId,
     target_kind: 'member',
     target_custom_object_id: null,
+    cardinality: 'many_to_many',
     configuration: {
       relationship_fields: [{
         id: 'respondent-field',
@@ -548,6 +549,7 @@ test('reports traverse generic Department branches, deduplicate row grain, join 
     source_custom_object_id: objectId,
     target_kind: 'organization',
     target_custom_object_id: null,
+    cardinality: 'many_to_one',
     configuration: {},
   };
   const db = mockDb({
@@ -581,6 +583,7 @@ test('reports traverse generic Department branches, deduplicate row grain, join 
     grain_path: memberPath,
     multi_value: 'join',
     columns: [
+      { field: 'id', label: 'Department ID', path: [] },
       { field_id: title.id, label: 'Department', path: [] },
       { field: 'full_name', label: 'Member', path: memberPath },
       { field: 'name', label: 'Organisation', path: [{ relationship_definition_id: organizationDefinition.id, from_side: 'source' }] },
@@ -589,21 +592,25 @@ test('reports traverse generic Department branches, deduplicate row grain, join 
   };
 
   const preview = await service.previewReport(objectId, { definition: report, page: 1, pageSize: 1 });
-  assert.equal(preview.total, 2);
+  assert.equal(preview.total, 3);
   assert.equal(preview.data.length, 1);
-  assert.equal(preview.data[0].id, 'member-a');
+  assert.equal(preview.data[0].id, 'department-1:edge-1:member-a');
   assert.deepEqual(preview.data[0].values, [
-    '=Finance; Policy, Europe',
+    'department-1',
+    '=Finance',
     'Ada Lovelace',
-    'Alpha; Beta',
-    'Yes; No',
+    'Alpha',
+    'Yes',
   ]);
 
   const exported = await service.exportReport(objectId, { definition: report, name: 'Department members' });
-  assert.equal(exported.data.length, 2);
+  assert.equal(exported.data.length, 3);
   assert.equal(exported.filename, 'department-members.csv');
-  assert.ok(exported.csv.startsWith('\ufeffDepartment,Member,Organisation,Respondent\r\n'));
-  assert.match(exported.csv, /'=Finance; Policy, Europe/);
+  assert.ok(exported.csv.startsWith('\ufeffDepartment ID,Department,Member,Organisation,Respondent\r\n'));
+  assert.deepEqual(exported.data[1].values, [
+    'department-2', 'Policy, Europe', 'Ada Lovelace', 'Beta', 'No',
+  ]);
+  assert.match(exported.csv, /'=Finance/);
   assert.match(exported.csv, /Grace Hopper/);
 });
 
@@ -680,6 +687,7 @@ test('reports execute real multi-hop custom-to-custom-to-member paths and enforc
     source_custom_object_id: objectId,
     target_kind: 'custom_object',
     target_custom_object_id: teamObjectId,
+    cardinality: 'one_to_many',
     configuration: {},
   };
   const teamMember = {
@@ -690,6 +698,7 @@ test('reports execute real multi-hop custom-to-custom-to-member paths and enforc
     source_custom_object_id: teamObjectId,
     target_kind: 'member',
     target_custom_object_id: null,
+    cardinality: 'many_to_many',
     configuration: {},
   };
   const seed = {
@@ -705,7 +714,9 @@ test('reports execute real multi-hop custom-to-custom-to-member paths and enforc
     preference_field: [teamField],
     custom_object_record: [
       { id: 'department-1', tenant_id: tenantId, custom_object_id: objectId, archived_at: null, data: {} },
+      { id: 'department-2', tenant_id: tenantId, custom_object_id: objectId, archived_at: null, data: {} },
       { id: 'team-1', tenant_id: tenantId, custom_object_id: teamObjectId, archived_at: null, data: { team_name: 'Policy team' } },
+      { id: 'team-2', tenant_id: tenantId, custom_object_id: teamObjectId, archived_at: null, data: { team_name: 'Finance team' } },
     ],
     member: [
       { id: 'member-a', tenant_id: tenantId, first_name: 'Ada', last_name: 'Lovelace' },
@@ -713,7 +724,9 @@ test('reports execute real multi-hop custom-to-custom-to-member paths and enforc
     custom_object_relationship_definition: [departmentTeam, teamMember],
     custom_object_relationship: [
       { id: 'edge-team', tenant_id: tenantId, relationship_definition_id: departmentTeam.id, source_record_id: 'department-1', target_record_id: 'team-1', archived_at: null, field_values: {} },
+      { id: 'edge-team-2', tenant_id: tenantId, relationship_definition_id: departmentTeam.id, source_record_id: 'department-2', target_record_id: 'team-2', archived_at: null, field_values: {} },
       { id: 'edge-member', tenant_id: tenantId, relationship_definition_id: teamMember.id, source_record_id: 'team-1', target_record_id: 'member-a', archived_at: null, field_values: {} },
+      { id: 'edge-member-2', tenant_id: tenantId, relationship_definition_id: teamMember.id, source_record_id: 'team-2', target_record_id: 'member-a', archived_at: null, field_values: {} },
     ],
   };
   const pathToTeam = [{ relationship_definition_id: departmentTeam.id, from_side: 'source' }];
@@ -736,8 +749,11 @@ test('reports execute real multi-hop custom-to-custom-to-member paths and enforc
     context: context(),
     isAdmin: true,
   }).previewReport(objectId, { definition: report });
-  assert.equal(adminResult.total, 1);
-  assert.deepEqual(adminResult.data[0].values, ['Policy team', 'Ada Lovelace']);
+  assert.equal(adminResult.total, 2);
+  assert.deepEqual(adminResult.data.map((row) => row.values), [
+    ['Policy team', 'Ada Lovelace'],
+    ['Finance team', 'Ada Lovelace'],
+  ]);
 
   const denied = createCustomObjectService({
     db: mockDb({

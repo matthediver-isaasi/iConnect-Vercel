@@ -96,9 +96,10 @@ export const reconcileReportConfig = ({
       }
       continue;
     }
+    const fieldReference = column.field_id || column.field;
+    if (result.endpoint.kind === "custom_object" && fieldReference === "id") continue;
     const available = fieldsByEndpoint[endpointKey(result.endpoint)];
     // An endpoint whose metadata has not loaded is not declared stale.
-    const fieldReference = column.field_id || column.field;
     if (available && !available.some((field) => String(field.id) === String(fieldReference))) {
       stale.push(`Field column "${column.label || fieldReference}" is unavailable.`);
     }

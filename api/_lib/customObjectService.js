@@ -3680,6 +3680,11 @@ export function createCustomObjectService({
         if (!relationshipField) throw new CustomObjectHttpError(409, 'Report relationship field is stale or unavailable');
         resolvedColumns.push({ ...column, path, relationshipField, label: column.label || relationshipField.label });
       } else if (path.endpoint.kind === 'custom_object') {
+        const builtInField = String(column.field ?? fieldId);
+        if (builtInField === 'id') {
+          resolvedColumns.push({ ...column, path, coreField: 'id', label: column.label || 'ID' });
+          continue;
+        }
         const available = await fields(path.endpoint.customObjectId, true);
         const access = await fieldAccess(path.endpoint.customObjectId, available);
         const field = available.find((item) => String(item.id) === fieldId);
@@ -3760,13 +3765,26 @@ export function createCustomObjectService({
     }
     let grains = roots.map((record) => ({ record, root: record, edges: [] }));
     for (const hop of validated.grain.hops) grains = await reportFollow(grains, hop);
-    // Several roots may reach the same row-grain record. Group them before
-    // projection so grain identity, not relationship-edge count, defines rows.
+    const finalGrainHop = validated.grain.hops.at(-1);
+    const occurrenceGrain = finalGrainHop
+      ? relationshipValueShape(finalGrainHop.definition.cardinality, finalGrainHop.fromSide) === 'many'
+      : false;
+    // Ordinary entity-grain reports retain their historic endpoint-ID identity.
+    // A to-many terminal grain retains the exact traversal occurrence instead,
+    // because the same endpoint may legitimately occur under several roots.
     const grainGroups = new Map();
     for (const grain of grains) {
-      const key = String(grain.record.id);
-      const group = grainGroups.get(key) || { id: key, record: grain.record, roots: new Map() };
+      const key = occurrenceGrain
+        ? [grain.root.id, ...grain.edges.map((edge) => edge.id), grain.record.id].map(String).join(':')
+        : String(grain.record.id);
+      const group = grainGroups.get(key) || {
+        id: key,
+        record: grain.record,
+        roots: new Map(),
+        traversals: [],
+      };
       group.roots.set(String(grain.root.id), grain.root);
+      group.traversals.push(grain);
       grainGroups.set(key, group);
     }
     const sameResolvedPath = (left, right) =>
@@ -3775,6 +3793,32 @@ export function createCustomObjectService({
         String(hop.definition.id) === String(right[index].definition.id)
         && hop.fromSide === right[index].fromSide);
     const valuesFor = async (grain, column) => {
+      const isGrainPrefix = column.path.hops.length <= validated.grain.hops.length
+        && sameResolvedPath(column.path.hops, validated.grain.hops.slice(0, column.path.hops.length));
+      if (occurrenceGrain && isGrainPrefix) {
+        const item = grain.traversals[0];
+        const pathLength = column.path.hops.length;
+        const record = pathLength === 0
+          ? item.root
+          : (pathLength === validated.grain.hops.length
+            ? item.record
+            : (await reportEndpointRows(
+              validated.grain.hops[pathLength - 1].endpoint,
+              [item.edges[pathLength - 1][validated.grain.hops[pathLength - 1].fromSide === 'source'
+                ? 'target_record_id' : 'source_record_id']],
+            )).values().next().value);
+        if (!record) return [];
+        if (column.relationshipField) {
+          return [item.edges[pathLength - 1]?.field_values?.[column.relationshipField.key]];
+        }
+        if (column.fieldDefinition) {
+          return [record.data?.[getCustomObjectFieldMetadata(column.fieldDefinition).key]];
+        }
+        if (column.coreField === 'full_name') {
+          return [[record.first_name, record.last_name].filter(Boolean).join(' ').trim()];
+        }
+        return [record[column.coreField]];
+      }
       let cursor = [...grain.roots.values()]
         .map((root) => ({ record: root, root, edges: [] }));
       if ((column.path.hops || []).length) {
