@@ -26,68 +26,136 @@ function formatDate(dateStr) {
   }
 }
 
-function normalizePreferenceValue(val) {
-  if (val === null || val === undefined) return '';
-  if (typeof val === 'object' && !Array.isArray(val) && val.value !== undefined) {
-    return val.label || val.value;
+function stableJson(value) {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`;
+  if (value && typeof value === 'object') {
+    return `{${Object.keys(value).sort().map(key => `${JSON.stringify(key)}:${stableJson(value[key])}`).join(',')}}`;
   }
-  if (Array.isArray(val)) {
-    return val.map(v => {
-      if (typeof v === 'object' && v !== null && v.value !== undefined) return v.label || v.value;
-      return v;
-    }).join(', ');
-  }
-  return val;
+  return JSON.stringify(value);
+}
+
+function parseJsonShapedString(value) {
+  if (typeof value !== 'string') return value;
+  const trimmed = value.trim();
+  if (!trimmed.startsWith('[') && !trimmed.startsWith('{')) return value;
+  try { return JSON.parse(trimmed); } catch { return value; }
 }
 
 function resolvePicklistValue(rawValue, field) {
-  if (!rawValue || !field) return rawValue || '';
+  if (rawValue === null || rawValue === undefined || !field) return '';
   const options = field.options || [];
-  if (!options.length) return rawValue;
-
-  let parsed = rawValue;
-  if (typeof rawValue === 'string') {
-    const trimmed = rawValue.trim();
-    if (trimmed.startsWith('[') || trimmed.startsWith('{')) {
-      try { parsed = JSON.parse(trimmed); } catch { parsed = rawValue; }
+  const parsed = parseJsonShapedString(rawValue);
+  const optionFor = value => options.find(option => String(option.value) === String(value));
+  const resolveOne = value => {
+    if (value && typeof value === 'object' && !Array.isArray(value) && value.value !== undefined) {
+      return {
+        value: value.value,
+        label: optionFor(value.value)?.label ?? value.label ?? String(value.value),
+      };
     }
-  }
+    const option = optionFor(value);
+    return option ? { value, label: option.label ?? String(value) } : value;
+  };
 
   if (Array.isArray(parsed)) {
-    return parsed.map(v => {
-      const itemVal = (typeof v === 'object' && v !== null && v.value !== undefined) ? v.value : v;
-      const opt = options.find(o => o.value === itemVal);
-      return opt?.label || (typeof v === 'object' && v !== null && v.label) || itemVal;
-    }).join(', ');
+    return stableJson(parsed.map(resolveOne));
   }
-
-  if (typeof parsed === 'object' && parsed !== null && parsed.value !== undefined) {
-    const opt = options.find(o => o.value === parsed.value);
-    return opt?.label || parsed.label || parsed.value;
-  }
-
-  const lookupVal = typeof parsed === 'string' ? parsed : String(rawValue);
-  const opt = options.find(o => o.value === lookupVal);
-  return opt?.label || lookupVal;
+  const resolved = resolveOne(parsed);
+  return resolved && typeof resolved === 'object'
+    ? stableJson(resolved)
+    : String(resolved ?? '');
 }
 
 export function formatCustomFieldValueForCsv(rawValue, field) {
+  if (rawValue === null || rawValue === undefined || rawValue === '') return '';
   if (field?.field_type === 'boolean' || field?.field_type === 'checkbox') {
-    return rawValue === true || rawValue === 'true' ? 'Yes' : 'No';
+    if (rawValue === true || rawValue === 'true') return 'Yes';
+    if (rawValue === false || rawValue === 'false') return 'No';
+    return String(rawValue);
   }
-  if (rawValue === null || rawValue === undefined) return '';
   if (field?.field_type === 'picklist' || field?.field_type === 'dropdown' || field?.field_type === 'list') {
     return resolvePicklistValue(rawValue, field);
   }
-  if (typeof rawValue === 'string') {
-    const trimmed = rawValue.trim();
-    if (trimmed.startsWith('[') || trimmed.startsWith('{')) {
-      try { rawValue = JSON.parse(trimmed); } catch {}
-    }
+  const parsed = parseJsonShapedString(rawValue);
+  if (parsed && typeof parsed === 'object') {
+    return stableJson(parsed);
   }
-  rawValue = normalizePreferenceValue(rawValue);
-  if (Array.isArray(rawValue)) return rawValue.join(', ');
+  return String(parsed);
+}
+
+export const MEMBER_CSV_CORE_FIELDS = Object.freeze([
+  { header: 'member_id', select: 'id', value: member => member.id },
+  { header: 'first_name', select: 'first_name' },
+  { header: 'last_name', select: 'last_name' },
+  { header: 'email', select: 'email' },
+  { header: 'handle', select: 'handle' },
+  { header: 'job_title', select: 'job_title' },
+  { header: 'biography', select: 'biography' },
+  { header: 'profile_photo_url', select: 'profile_photo_url' },
+  { header: 'profile_image_url', select: 'profile_image_url' },
+  { header: 'linkedin_url', select: 'linkedin_url' },
+  { header: 'mobile', select: 'mobile' },
+  { header: 'landline', select: 'landline' },
+  { header: 'organisation_id', select: 'organization_id', value: member => member.organization_id },
+  { header: 'organisation_name', value: member => member.organization?.name },
+  { header: 'department_ids', value: member => (member.departments || []).map(row => row.id).join('; ') },
+  { header: 'department_names', value: member => (member.departments || []).map(row => row.name).join('; ') },
+  { header: 'organisation_group_id', select: 'organization_group_id', value: member => member.organization_group_id },
+  { header: 'organisation_group_name', value: member => member.organization_group?.name },
+  { header: 'role_id', select: 'role_id', value: member => member.role_id },
+  { header: 'role_name', value: member => member.role?.name },
+  { header: 'role_effective_from', select: 'role_effective_from', format: 'date' },
+  { header: 'login_enabled', select: 'login_enabled', format: 'boolean' },
+  { header: 'show_in_directory', select: 'show_in_directory', format: 'boolean' },
+  { header: 'status', select: 'status' },
+  { header: 'is_guest', select: 'is_guest', format: 'boolean' },
+  { header: 'guest_expires_at', select: 'guest_expires_at', format: 'date' },
+  { header: 'communications_opted_out_all', select: 'communications_opted_out_all', format: 'boolean' },
+  { header: 'tags', select: 'tags', format: 'array' },
+  { header: 'membership_paused', select: 'membership_paused', format: 'boolean' },
+  { header: 'membership_paused_at', select: 'membership_paused_at', format: 'date' },
+  { header: 'membership_pause_restart_date', select: 'membership_pause_restart_date', format: 'date' },
+  { header: 'membership_paused_by_member_id', select: 'membership_paused_by' },
+  { header: 'membership_pause_reason', select: 'membership_pause_reason' },
+  { header: 'engagement_opening_balances', select: 'engagement_opening_balances', format: 'object' },
+  { header: 'created_on', select: 'created_on', format: 'date' },
+  { header: 'last_activity', select: 'last_activity', format: 'date' },
+]);
+
+export function formatMemberCoreValueForCsv(member, field) {
+  const rawValue = field.value ? field.value(member) : member[field.select];
+  if (rawValue === null || rawValue === undefined || rawValue === '') return '';
+  if (field.format === 'date') return formatDate(rawValue);
+  if (field.format === 'boolean') {
+    if (rawValue === true) return 'Yes';
+    if (rawValue === false) return 'No';
+  }
+  if (field.format === 'array' || typeof rawValue === 'object') return stableJson(rawValue);
   return String(rawValue);
+}
+
+export function buildCustomFieldHeaders(
+  fields,
+  reservedHeaders = MEMBER_CSV_CORE_FIELDS.map(field => field.header),
+) {
+  const bases = fields.map(field => (
+    String(field.label || '').trim()
+    || String(field.name || '').trim()
+    || `Custom field ${field.id}`
+  ));
+  const used = new Set(reservedHeaders);
+  return bases.map((base, index) => {
+    let header = base;
+    if (used.has(header) || bases.indexOf(base) !== bases.lastIndexOf(base)) {
+      const name = String(fields[index].name || '').trim();
+      header = `${base} [${name ? `${name}:` : ''}${fields[index].id}]`;
+    }
+    let suffix = 2;
+    const candidate = header;
+    while (used.has(header)) header = `${candidate} (${suffix++})`;
+    used.add(header);
+    return header;
+  });
 }
 
 export async function loadMemberPreferenceValuesForCsv(
@@ -183,11 +251,9 @@ export default async function handler(req, res) {
 
     const buildMemberQuery = (from, pageSize, withCount = false) => {
       let selectClause = `
-          id, first_name, last_name, email, handle, job_title, biography,
-          mobile, landline, login_enabled, show_in_directory, status,
-          last_activity, role_effective_from, created_on,
-          organization_id, role_id,
+          ${[...new Set(MEMBER_CSV_CORE_FIELDS.map(field => field.select).filter(Boolean))].join(', ')},
           organization (id, name),
+          organization_group (id, name),
           role (id, name)`;
       if (!idList) {
         selectClause += memberFilterSelectJoins(filterCtx);
@@ -211,30 +277,29 @@ export default async function handler(req, res) {
         else if (departmentMemberIds) q = q.in('id', departmentMemberIds);
       }
 
-      return q.order('last_name', { ascending: true }).range(from, from + pageSize - 1);
+      return q
+        .order('last_name', { ascending: true })
+        .order('first_name', { ascending: true })
+        .order('id', { ascending: true })
+        .range(from, from + pageSize - 1);
     };
 
     // Custom preference fields drive the extra CSV columns; fetch their
     // definitions up front so the header row can be emitted before any data.
-    const { data: prefFields } = await supabase
+    const { data: prefFields, error: prefFieldsError } = await supabase
       .from('preference_field')
       .select('*')
       .eq('tenant_id', tenantId)
       .eq('is_active', true)
       .eq('entity_scope', 'member')
-      .order('display_order', { ascending: true });
+      .order('display_order', { ascending: true })
+      .order('id', { ascending: true });
+    if (prefFieldsError) throw new Error(`Preference fields query failed: ${prefFieldsError.message}`);
 
     const customFields = prefFields || [];
 
-    const coreHeaders = [
-      'first_name', 'last_name', 'email', 'handle', 'job_title',
-      'biography', 'mobile', 'landline',
-      'organisation_name', 'department_name', 'role_name',
-      'login_enabled', 'show_in_directory', 'status',
-      'created_on', 'last_activity', 'role_effective_from'
-    ];
-
-    const customHeaders = customFields.map(f => f.label);
+    const coreHeaders = MEMBER_CSV_CORE_FIELDS.map(field => field.header);
+    const customHeaders = buildCustomFieldHeaders(customFields);
     const allHeaders = [...coreHeaders, ...customHeaders];
     const headerRow = allHeaders.map(escapeCSV).join(',');
 
@@ -248,24 +313,7 @@ export default async function handler(req, res) {
     );
 
     const buildMemberRow = (member, pagePrefMap) => {
-      const coreValues = coreHeaders.map(field => {
-        if (field === 'organisation_name') {
-          return member.organization?.name || '';
-        }
-        if (field === 'role_name') {
-          return member.role?.name || '';
-        }
-        // Semicolon is the documented separator for this single multi-value
-        // cell; department enrichment has already applied stable name ordering.
-        if (field === 'department_name') return (member.departments || []).map(department => department.name).join('; ');
-        if (field === 'created_on' || field === 'last_activity' || field === 'role_effective_from') {
-          return formatDate(member[field]);
-        }
-        if (field === 'login_enabled' || field === 'show_in_directory') {
-          return member[field] === false ? 'No' : 'Yes';
-        }
-        return member[field] != null ? String(member[field]) : '';
-      });
+      const coreValues = MEMBER_CSV_CORE_FIELDS.map(field => formatMemberCoreValueForCsv(member, field));
 
       const customValues = customFields.map(f => {
         const rawValue = pagePrefMap[member.id]?.[f.id];

@@ -27,7 +27,7 @@ test('admin list and CSV share departmentId parsing and only apply resolved non-
   assert.match(exported, /hasNoDepartmentMatches/);
   assert.match(exported, /if \(hasNoDepartmentMatches\) q = q\.eq\('id', '00000000-0000-0000-0000-000000000000'\)/);
   assert.match(exported, /if \(departmentMemberIds\) q = q\.in\('id', departmentMemberIds\)/);
-  assert.match(exported, /'department_name'/);
+  assert.match(exported, /header: 'department_names'/);
   assert.match(exported, /member\.departments \|\| \[\]/);
   assert.match(exported, /\.join\('; '\)/);
   assert.match(exported, /enrichMembersWithDepartments\(supabase, tenantId, pageData\)/);
