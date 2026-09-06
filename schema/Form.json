@@ -249,8 +249,46 @@
               },
               "operation": {
                 "type": "string",
-                "enum": ["create", "update_selected", "upsert"]
+                 "enum": ["create", "update_selected", "upsert", "link_relationship"]
               },
+               "source_endpoint": {
+                 "type": "object",
+                 "description": "For link_relationship, the persisted relationship definition's canonical source endpoint and the submitted-field or earlier-action source of its record ID.",
+                 "properties": {
+                   "kind": { "type": "string", "enum": ["member", "organization", "organization_group", "custom_object"] },
+                   "custom_object_id": { "type": ["string", "null"] },
+                   "source": {
+                     "type": "object",
+                     "properties": {
+                       "type": { "type": "string", "enum": ["field", "action_output"] },
+                       "scope": { "type": ["string", "null"], "enum": ["form", "row", null] },
+                       "field_id": { "type": ["string", "null"] },
+                       "action_id": { "type": ["string", "null"] }
+                     },
+                     "required": ["type"]
+                   }
+                 },
+                 "required": ["kind", "source"]
+               },
+               "target_endpoint": {
+                 "type": "object",
+                 "description": "For link_relationship, the persisted relationship definition's canonical target endpoint and the submitted-field or earlier-action source of its record ID.",
+                 "properties": {
+                   "kind": { "type": "string", "enum": ["member", "organization", "organization_group", "custom_object"] },
+                   "custom_object_id": { "type": ["string", "null"] },
+                   "source": {
+                     "type": "object",
+                     "properties": {
+                       "type": { "type": "string", "enum": ["field", "action_output"] },
+                       "scope": { "type": ["string", "null"], "enum": ["form", "row", null] },
+                       "field_id": { "type": ["string", "null"] },
+                       "action_id": { "type": ["string", "null"] }
+                     },
+                     "required": ["type"]
+                   }
+                 },
+                 "required": ["kind", "source"]
+               },
               "relationship_definition_id": {
                 "type": ["string", "null"]
               },
@@ -290,7 +328,19 @@
                 }
               }
             },
-            "required": ["id", "source", "target", "operation", "mappings"]
+            "required": ["id", "source", "operation"],
+            "allOf": [{
+              "if": {
+                "properties": { "operation": { "const": "link_relationship" } },
+                "required": ["operation"]
+              },
+              "then": {
+                "required": ["relationship_definition_id", "source_endpoint", "target_endpoint"]
+              },
+              "else": {
+                "required": ["target", "mappings"]
+              }
+            }]
           }
         }
       },
@@ -299,7 +349,7 @@
         "version": 1,
         "actions": []
       },
-      "description": "Versioned Structured Record Actions. Each action runs against top-level answers or each row of one repeatable field and creates, updates a selected related record, or upserts a Member, Organisation, Organisation Group, or active Custom Object using stable relationship, object, form-field, and target-field IDs. Legacy entity_pipelines remain separate."
+      "description": "Versioned Structured Record Actions. Each action runs against top-level answers or each row of one repeatable field and creates, updates a selected related record, upserts a record, or links the canonical endpoints of an active persisted relationship definition. link_relationship endpoint IDs come only from compatible submitted record fields in that scope or compatible earlier action outputs in the same scope. Legacy entity_pipelines remain separate."
     },
     "form_type": {
       "type": "string",

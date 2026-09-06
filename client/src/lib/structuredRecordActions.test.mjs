@@ -29,3 +29,22 @@ test('builder exposes only explicit ordered fallback configuration', () => {
   assert.ok(schema.properties.field_mappings.items.properties.fallback_group);
   assert.ok(schema.properties.structured_actions.properties.actions.items.properties.mappings.items.properties.fallback_group);
 });
+
+test('Form contract exposes backward-compatible generic relationship actions', () => {
+  const action = schema.properties.structured_actions.properties.actions.items;
+  assert.ok(action.properties.operation.enum.includes('link_relationship'));
+  assert.ok(action.properties.source_endpoint);
+  assert.ok(action.properties.target_endpoint);
+  assert.deepEqual(
+    action.properties.source_endpoint.properties.source.properties.type.enum,
+    ['field', 'action_output'],
+  );
+  assert.deepEqual(
+    action.properties.source_endpoint.properties.source.properties.scope.enum,
+    ['form', 'row', null],
+  );
+  assert.deepEqual(action.allOf[0].then.required, [
+    'relationship_definition_id', 'source_endpoint', 'target_endpoint',
+  ]);
+  assert.deepEqual(action.allOf[0].else.required, ['target', 'mappings']);
+});

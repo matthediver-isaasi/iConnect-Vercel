@@ -370,6 +370,383 @@ test('validates the versioned structured-actions contract against persisted fiel
   assert.equal(contract.actions.length, 1);
 });
 
+test('validates generic relationship actions using fields and earlier outputs', () => {
+  const fields = [
+    { id: 'member', type: 'member_dropdown' },
+    { id: 'org', type: 'organisation_dropdown' },
+  ];
+  const contract = validateStructuredActionsContract({
+    version: 1,
+    actions: [
+      {
+        id: 'create-org',
+        source: { scope: 'top_level' },
+        target: { kind: 'organization' },
+        operation: 'create',
+        mappings: [{ id: 'name', source_type: 'static', static_value: 'Acme', target_field_id: 'name', target_type: 'core' }],
+      },
+      {
+        id: 'link-member-org',
+        source: { scope: 'top_level' },
+        operation: 'link_relationship',
+        relationship_definition_id: 'member-org-definition',
+        source_endpoint: {
+          kind: 'member',
+          source: { type: 'field', field_id: 'member' },
+        },
+        target_endpoint: {
+          kind: 'organization',
+          source: { type: 'action_output', action_id: 'create-org' },
+        },
+      },
+    ],
+  }, fields);
+  assert.equal(contract.actions[1].operation, 'link_relationship');
+});
+
+test('relationship actions reject forward dependencies, descriptor mismatches, and cross-row outputs', () => {
+  const rowMember = {
+    id: 'members',
+    type: 'repeatable_row',
+    repeatable_row: { version: 1, child_fields: [{ id: 'member', type: 'member_dropdown' }] },
+  };
+  const link = {
+    id: 'bad-link',
+    source: { scope: 'repeatable_row', repeatable_field_id: 'members' },
+    operation: 'link_relationship',
+    relationship_definition_id: 'member-org-definition',
+    source_endpoint: { kind: 'organization', source: { type: 'field', field_id: 'member' } },
+    target_endpoint: { kind: 'organization', source: { type: 'action_output', action_id: 'later-org' } },
+  };
+  assert.throws(() => validateStructuredActionsContract({
+    version: 1,
+    actions: [
+      link,
+      {
+        id: 'later-org',
+        source: { scope: 'top_level' },
+        target: { kind: 'organization' },
+        operation: 'create',
+        mappings: [{ id: 'name', source_type: 'static', static_value: 'Acme', target_field_id: 'name', target_type: 'core' }],
+      },
+    ],
+  }, [rowMember]), (error) => {
+    assert.match(error.details.join(' '), /compatible record field/);
+    assert.match(error.details.join(' '), /earlier record action/);
+    return true;
+  });
+
+  assert.throws(() => validateStructuredActionsContract({
+    version: 1,
+    actions: [
+      {
+        id: 'top-org',
+        source: { scope: 'top_level' },
+        target: { kind: 'organization' },
+        operation: 'create',
+        mappings: [{ id: 'name', source_type: 'static', static_value: 'Acme', target_field_id: 'name', target_type: 'core' }],
+      },
+      { ...link, source_endpoint: { kind: 'member', source: { type: 'field', field_id: 'member' } },
+        target_endpoint: { kind: 'organization', source: { type: 'action_output', action_id: 'top-org' } } },
+    ],
+  }, [rowMember]), /Invalid persisted/);
+});
+
+test('repeatable relationship actions resolve an explicit preceding form endpoint and current-row endpoint', () => {
+  const primary = { id: 'primary-org', type: 'organisation_dropdown' };
+  const organizations = {
+    id: 'secondary-organizations',
+    type: 'repeatable_row',
+    repeatable_row: {
+      version: 1,
+      child_fields: [{ id: 'secondary-org', type: 'organisation_dropdown' }],
+    },
+  };
+  const action = {
+    id: 'link-organizations',
+    source: { scope: 'repeatable_row', repeatable_field_id: organizations.id },
+    operation: 'link_relationship',
+    relationship_definition_id: 'org-org',
+    source_endpoint: {
+      kind: 'organization',
+      source: { type: 'field', scope: 'form', field_id: primary.id },
+    },
+    target_endpoint: {
+      kind: 'organization',
+      source: { type: 'field', scope: 'row', field_id: 'secondary-org' },
+    },
+  };
+  const contract = validateStructuredActionsContract({ version: 1, actions: [action] }, [primary, organizations]);
+  const invocations = expandStructuredActionInvocations(contract, { fields: [primary, organizations] }, {
+    [primary.id]: 'org-primary',
+    [organizations.id]: [{ _row_id: 'row-1', 'secondary-org': 'org-secondary' }],
+  });
+  assert.equal(invocations[0].rootValues[primary.id], 'org-primary');
+  assert.equal(invocations[0].values['secondary-org'], 'org-secondary');
+  assert.throws(() => validateStructuredActionsContract(
+    { version: 1, actions: [action] },
+    [organizations, primary],
+  ), /Invalid persisted/);
+});
+
+test('persists one canonical relationship edge and makes retries idempotent', async () => {
+  const tenantId = 'tenant-1';
+  const definition = {
+    id: 'member-mentorship', tenant_id: tenantId, status: 'active',
+    source_kind: 'member', source_custom_object_id: null,
+    target_kind: 'member', target_custom_object_id: null,
+  };
+  const action = {
+    id: 'link-mentor',
+    source: { scope: 'top_level' },
+    operation: 'link_relationship',
+    relationship_definition_id: definition.id,
+    source_endpoint: { kind: 'member', source: { type: 'field', field_id: 'mentor' } },
+    target_endpoint: { kind: 'member', source: { type: 'field', field_id: 'mentee' } },
+  };
+  const form = {
+    id: 'form-1', tenant_id: tenantId,
+    fields: [{ id: 'mentor', type: 'member_dropdown' }, { id: 'mentee', type: 'member_dropdown' }],
+    structured_actions: { version: 1, actions: [action] },
+  };
+  const submission = {
+    id: 'submission-1', form_id: form.id, tenant_id: tenantId,
+    submission_data: { mentor: 'member-1', mentee: 'member-2' },
+    processing_notes: [],
+  };
+  const rows = {
+    member: [
+      { id: 'member-1', tenant_id: tenantId },
+      { id: 'member-2', tenant_id: tenantId },
+    ],
+    custom_object_relationship_definition: [definition],
+    custom_object_relationship: [],
+    preference_field: [],
+  };
+  let relationshipInsertError = null;
+  class Query {
+    constructor(table) {
+      this.table = table; this.filters = []; this.nullFilters = []; this.payload = null;
+    }
+    select() { return this; }
+    eq(column, value) { this.filters.push([column, value]); return this; }
+    in(column, values) { this.filters.push([column, new Set(values.map(String))]); return this; }
+    is(column, value) { this.nullFilters.push([column, value]); return this; }
+    update(payload) { this.payload = payload; return this; }
+    insert(payload) { this.payload = payload; return this; }
+    sourceRows() {
+      if (this.table === 'form') return [form];
+      if (this.table === 'form_submission') return [submission];
+      return rows[this.table] || [];
+    }
+    matches(row) {
+      return this.filters.every(([column, value]) =>
+        value instanceof Set ? value.has(String(row[column])) : String(row[column]) === String(value))
+        && this.nullFilters.every(([column, value]) => row[column] === value);
+    }
+    async maybeSingle() { return { data: this.sourceRows().find(row => this.matches(row)) || null, error: null }; }
+    then(resolve, reject) {
+      if (this.payload && this.table === 'custom_object_relationship') {
+        if (relationshipInsertError) {
+          if ([
+            relationshipInsertError.constraint,
+            relationshipInsertError.details,
+            relationshipInsertError.message,
+          ].filter(Boolean).join(' ').includes('custom_object_relationship_active_pair_unique')) {
+            rows.custom_object_relationship.push({
+              id: `edge-${rows.custom_object_relationship.length + 1}`,
+              archived_at: null,
+              ...this.payload,
+            });
+          }
+          return Promise.resolve({ data: null, error: relationshipInsertError }).then(resolve, reject);
+        }
+        rows.custom_object_relationship.push({
+          id: `edge-${rows.custom_object_relationship.length + 1}`,
+          archived_at: null,
+          ...this.payload,
+        });
+      } else if (this.payload && this.table === 'form_submission') {
+        Object.assign(submission, this.payload);
+      }
+      return Promise.resolve({
+        data: this.sourceRows().filter(row => this.matches(row)),
+        error: null,
+      }).then(resolve, reject);
+    }
+  }
+  const ledger = new Map();
+  const db = {
+    from: table => new Query(table),
+    rpc: async (name, input) => {
+      const key = `${input.p_action_id}:${input.p_row_identity}`;
+      if (name === 'claim_form_structured_action') {
+        const prior = ledger.get(key);
+        return { data: prior?.status === 'completed' ? { ...prior, claimed: false } : { claimed: true, claim_token: 'claim-1' }, error: null };
+      }
+      ledger.set(key, { status: input.p_status, record_id: input.p_record_id });
+      return { data: null, error: null };
+    },
+  };
+  // The selected members are authoritative persisted submission values. Linking
+  // them is a form side effect, not a browser-directed record mutation.
+  const authorization = {};
+  const first = await processPersistedStructuredActions({
+    db, formId: form.id, submissionId: submission.id, tenantId, authorization,
+  });
+  assert.equal(first.success, true);
+  assert.equal(first.outcomes[0].operation, 'linked');
+  assert.deepEqual(rows.custom_object_relationship.map(edge => [
+    edge.source_record_id, edge.target_record_id,
+  ]), [['member-1', 'member-2']]);
+
+  const retry = await processPersistedStructuredActions({
+    db, formId: form.id, submissionId: submission.id, tenantId, authorization,
+  });
+  assert.equal(retry.outcomes[0].status, 'already_completed');
+  assert.equal(rows.custom_object_relationship.length, 1);
+
+  rows.member[1].tenant_id = 'other-tenant';
+  await assert.rejects(() => processPersistedStructuredActions({
+    db, formId: form.id, submissionId: submission.id, tenantId, authorization,
+  }), /Invalid relationship selector/);
+
+  // The exact active-pair duplicate is safe only when its re-read confirms
+  // the edge that another concurrent worker inserted.
+  rows.member[1].tenant_id = tenantId;
+  rows.member.push({ id: 'member-4', tenant_id: tenantId });
+  submission.submission_data.mentee = 'member-4';
+  submission.processing_notes = [];
+  ledger.clear();
+  relationshipInsertError = {
+    code: '23505',
+    message: 'duplicate key value violates unique constraint "custom_object_relationship_active_pair_unique"',
+  };
+  const duplicateRace = await processPersistedStructuredActions({
+    db, formId: form.id, submissionId: submission.id, tenantId, authorization,
+  });
+  assert.equal(duplicateRace.outcomes[0].status, 'completed');
+  assert.equal(duplicateRace.outcomes[0].already_linked, true);
+
+  // Cardinality triggers also use 23505, but must remain failures (and leave
+  // the ledger retryable), unlike the exact active-pair uniqueness constraint.
+  rows.member.push({ id: 'member-3', tenant_id: tenantId });
+  submission.submission_data.mentee = 'member-3';
+  submission.processing_notes = [];
+  ledger.clear();
+  relationshipInsertError = {
+    code: '23505',
+    details: 'custom_object_relationship_source_cardinality',
+    message: 'source cardinality violated',
+  };
+  const conflict = await processPersistedStructuredActions({
+    db, formId: form.id, submissionId: submission.id, tenantId, authorization,
+  });
+  assert.equal(conflict.outcomes[0].status, 'failed');
+  assert.equal(conflict.outcomes[0].reason, 'relationship_cardinality_conflict');
+  assert.equal(conflict.outcomes[0].retryable, true);
+  assert.equal(ledger.get('link-mentor:top').status, 'failed');
+  relationshipInsertError = null;
+  const recovered = await processPersistedStructuredActions({
+    db, formId: form.id, submissionId: submission.id, tenantId, authorization,
+  });
+  assert.equal(recovered.outcomes[0].status, 'completed');
+  assert.equal(rows.custom_object_relationship.length, 3);
+});
+
+test('keeps composed repeatable producer outputs and form endpoints row-local across a descendant retry', async () => {
+  const tenantId = 'tenant-1';
+  const rowsField = { id: 'rows', type: 'repeatable_row', repeatable_row: { version: 1, child_fields: [
+    { id: 'secondary-org', type: 'organisation_dropdown' }, { id: 'department-name', type: 'text' },
+  ] } };
+  const definitions = [
+    { id: 'department-org', tenant_id: tenantId, status: 'active', source_kind: 'custom_object', source_custom_object_id: 'department-object', target_kind: 'organization', target_custom_object_id: null },
+    { id: 'primary-secondary', tenant_id: tenantId, status: 'active', source_kind: 'organization', source_custom_object_id: null, target_kind: 'organization', target_custom_object_id: null },
+  ];
+  const producer = {
+    id: 'create-department', source: { scope: 'repeatable_row', repeatable_field_id: 'rows' },
+    target: { kind: 'custom_object', custom_object_id: 'department-object' }, operation: 'create',
+    mappings: [{ id: 'name', source_field_id: 'department-name', target_type: 'custom', target_field_id: 'department-name-field' }],
+  };
+  const form = { id: 'form-rows', tenant_id: tenantId, fields: [{ id: 'primary-org', type: 'organisation_dropdown' }, rowsField],
+    structured_actions: { version: 1, actions: [
+      producer,
+      { id: 'link-department', source: producer.source, operation: 'link_relationship', relationship_definition_id: 'department-org',
+        source_endpoint: { kind: 'custom_object', custom_object_id: 'department-object', source: { type: 'action_output', action_id: producer.id } },
+        target_endpoint: { kind: 'organization', source: { type: 'field', scope: 'row', field_id: 'secondary-org' } } },
+      { id: 'link-primary', source: producer.source, operation: 'link_relationship', relationship_definition_id: 'primary-secondary',
+        source_endpoint: { kind: 'organization', source: { type: 'field', scope: 'form', field_id: 'primary-org' } },
+        target_endpoint: { kind: 'organization', source: { type: 'field', scope: 'row', field_id: 'secondary-org' } } },
+    ] } };
+  const submission = { id: 'submission-rows', form_id: form.id, tenant_id: tenantId, processing_notes: [], submission_data: {
+    'primary-org': 'org-primary',
+    rows: [
+      { _row_id: 'row-a', 'secondary-org': 'org-secondary-a', 'department-name': 'Department A' },
+      { _row_id: 'row-b', 'secondary-org': 'org-secondary-b', 'department-name': 'Department B' },
+    ],
+  } };
+  const store = {
+    organization: ['org-primary', 'org-secondary-a', 'org-secondary-b'].map(id => ({ id, tenant_id: tenantId })),
+    preference_field: [{ id: 'department-name-field', tenant_id: tenantId, entity_scope: 'custom_object', custom_object_id: 'department-object', is_active: true, field_type: 'text', field_key: 'name', name: 'name', label: 'Name' }],
+    custom_object_relationship_definition: definitions, custom_object_record: [], custom_object_relationship: [],
+  };
+  let failRowB = true;
+  class Query {
+    constructor(table) { this.table = table; this.filters = []; this.nulls = []; this.payload = null; }
+    select() { return this; } eq(k, v) { this.filters.push([k, v]); return this; }
+    in(k, v) { this.filters.push([k, new Set(v.map(String))]); return this; } is(k, v) { this.nulls.push([k, v]); return this; }
+    update(payload) { this.payload = payload; return this; } insert(payload) { this.payload = payload; return this; }
+    source() { return this.table === 'form' ? [form] : this.table === 'form_submission' ? [submission] : this.table === 'custom_object_definition' ? [{ id: 'department-object', tenant_id: tenantId, status: 'active' }] : store[this.table] || []; }
+    matches(row) { return this.filters.every(([k, v]) => v instanceof Set ? v.has(String(row[k])) : String(row[k]) === String(v)) && this.nulls.every(([k, v]) => row[k] === v); }
+    async maybeSingle() { return { data: this.source().find(row => this.matches(row)) || null, error: null }; }
+    async single() {
+      if (this.table === 'custom_object_record' && this.payload) {
+        const data = { id: `department-${store.custom_object_record.length + 1}`, archived_at: null, ...this.payload };
+        store.custom_object_record.push(data); return { data, error: null };
+      }
+      return this.maybeSingle();
+    }
+    then(resolve, reject) {
+      if (this.table === 'custom_object_relationship' && this.payload) {
+        if (failRowB && this.payload.relationship_definition_id === 'department-org'
+          && this.payload.target_record_id === 'org-secondary-b') {
+          return Promise.resolve({ data: null, error: { code: '23505', constraint: 'custom_object_relationship_target_cardinality', message: 'temporary cardinality conflict' } }).then(resolve, reject);
+        }
+        store.custom_object_relationship.push({ id: `edge-${store.custom_object_relationship.length + 1}`, archived_at: null, ...this.payload });
+      }
+      if (this.table === 'form_submission' && this.payload) Object.assign(submission, this.payload);
+      return Promise.resolve({ data: this.source().filter(row => this.matches(row)), error: null }).then(resolve, reject);
+    }
+  }
+  const ledger = new Map();
+  const db = { from: table => new Query(table), rpc: async (name, input) => {
+    const key = `${input.p_action_id}:${input.p_row_identity}`;
+    if (name === 'claim_form_structured_action') {
+      const old = ledger.get(key);
+      return { data: old?.status === 'completed' ? { ...old, claimed: false } : { claimed: true, claim_token: key }, error: null };
+    }
+    ledger.set(key, { status: input.p_status, record_id: input.p_record_id }); return { data: null, error: null };
+  } };
+  const first = await processPersistedStructuredActions({ db, formId: form.id, submissionId: submission.id, tenantId, authorization: { isAdmin: true } });
+  assert.equal(first.failed_count, 1, JSON.stringify(first.outcomes));
+  assert.equal(store.custom_object_record.length, 2);
+  assert.deepEqual(store.custom_object_relationship.map(edge => [edge.relationship_definition_id, edge.source_record_id, edge.target_record_id]), [
+    ['department-org', 'department-1', 'org-secondary-a'],
+    ['primary-secondary', 'org-primary', 'org-secondary-a'],
+    ['primary-secondary', 'org-primary', 'org-secondary-b'],
+  ]);
+  failRowB = false;
+  const retry = await processPersistedStructuredActions({ db, formId: form.id, submissionId: submission.id, tenantId, authorization: { isAdmin: true } });
+  assert.equal(retry.success, true);
+  assert.equal(store.custom_object_record.length, 2);
+  assert.deepEqual(store.custom_object_relationship.map(edge => [edge.relationship_definition_id, edge.source_record_id, edge.target_record_id]), [
+    ['department-org', 'department-1', 'org-secondary-a'],
+    ['primary-secondary', 'org-primary', 'org-secondary-a'],
+    ['primary-secondary', 'org-primary', 'org-secondary-b'],
+    ['department-org', 'department-2', 'org-secondary-b'],
+  ]);
+});
+
 test('rejects unknown versions, unsafe core columns, and forged source fields', () => {
   assert.throws(() => validateStructuredActionsContract({
     version: 2,

@@ -23,7 +23,7 @@ const ENTITY_ALIASES = {
   organisation_group: 'organization_group',
 };
 const ENTITIES = new Set(['member', 'organization', 'organization_group', 'custom_object']);
-const OPERATIONS = new Set(['create', 'update_selected', 'upsert']);
+const OPERATIONS = new Set(['create', 'update_selected', 'upsert', 'link_relationship']);
 const CORE_COLUMNS = {
   member: new Set(['email', 'first_name', 'last_name', 'job_title', 'mobile', 'landline', 'organization_id', 'role_id', 'login_enabled', 'show_in_directory']),
   organization: new Set(['name', 'description', 'logo_url', 'invoicing_email', 'invoicing_address', 'phone', 'website_url', 'email', 'address', 'tags', 'organization_group_id']),
@@ -85,9 +85,25 @@ const actionMappings = (action) => Array.isArray(action?.mappings) ? action.mapp
 const repeatableId = (action) => action?.source?.repeatable_field_id || action?.repeatable_field_id || action?.source_repeatable_field_id || action?.container_field_id || null;
 const actionObjectId = (action) => action?.target?.custom_object_id || action?.custom_object_id || action?.target_custom_object_id || null;
 const targetField = (mapping) => mapping?.target_field_id || mapping?.target_field;
+const isRelationshipAction = (action) => action?.operation === 'link_relationship';
+const relationshipEndpoints = (action) => ({
+  source: action?.source_endpoint,
+  target: action?.target_endpoint,
+});
+const endpointInput = (endpoint) => endpoint?.source || endpoint?.record_source || {};
+const endpointDescriptor = (endpoint) => ({
+  kind: ENTITY_ALIASES[endpoint?.kind] || endpoint?.kind,
+  customObjectId: endpoint?.custom_object_id || null,
+});
 const sourceFieldsFor = (action, fields) => action?.source?.scope === 'repeatable_row'
   ? repeatableRowChildren((fields || []).find(field => String(field?.id) === String(repeatableId(action))))
   : (fields || []);
+const endpointFieldScope = (action, input) => input?.scope || (action?.source?.scope === 'repeatable_row' ? 'row' : 'form');
+const endpointFieldFor = (action, input, fields) => {
+  const scope = endpointFieldScope(action, input);
+  const candidates = scope === 'form' ? (fields || []) : sourceFieldsFor(action, fields);
+  return candidates.find(field => String(field?.id) === String(input?.field_id));
+};
 
 export function assertStructuredMutationAuthorized({ action, recordId, authorization = {} }) {
   const entity = entityName(action);
@@ -133,6 +149,7 @@ export function validateStructuredActionsContract(input, fields = []) {
   if (!Array.isArray(contract?.actions)) errors.push('actions must be an array');
   const fieldMap = new Map((fields || []).filter(f => f?.id).map(f => [String(f.id), f]));
   const ids = new Set();
+  const priorActions = new Map();
   for (const [index, action] of (contract?.actions || []).entries()) {
     const prefix = `actions[${index}]`;
     const id = String(action?.id || '');
@@ -142,15 +159,15 @@ export function validateStructuredActionsContract(input, fields = []) {
     if (!id) errors.push(`${prefix}.id is required`);
     else if (ids.has(id)) errors.push(`${prefix}.id is duplicated`);
     else ids.add(id);
-    if (!ENTITIES.has(entity)) errors.push(`${prefix}.entity_type is invalid`);
     if (!OPERATIONS.has(operation)) errors.push(`${prefix}.operation is invalid`);
+    if (!isRelationshipAction(action) && !ENTITIES.has(entity)) errors.push(`${prefix}.entity_type is invalid`);
     if (action?.record_id || action?.target_record_id) {
       errors.push(`${prefix} cannot contain a direct target record ID`);
     }
     if (!['top_level', 'repeatable_row'].includes(sourceScope)) {
       errors.push(`${prefix}.source.scope must be top_level or repeatable_row`);
     }
-    if (entity === 'custom_object' && !actionObjectId(action)) errors.push(`${prefix}.custom_object_id is required`);
+    if (!isRelationshipAction(action) && entity === 'custom_object' && !actionObjectId(action)) errors.push(`${prefix}.custom_object_id is required`);
     if (action?.operation === 'update_selected' && (!action.relationship_definition_id || !action.selector_field_id)) {
       errors.push(`${prefix}.relationship_definition_id and selector_field_id are required for update_selected`);
     }
@@ -163,6 +180,64 @@ export function validateStructuredActionsContract(input, fields = []) {
       if (!container || !['repeatable_row', 'repeatable_rows'].includes(container.type)) {
         errors.push(`${prefix}.repeatable_field_id does not identify a repeatable field`);
       }
+    }
+    if (isRelationshipAction(action)) {
+      if (!action?.relationship_definition_id) errors.push(`${prefix}.relationship_definition_id is required`);
+      if (actionMappings(action).length) errors.push(`${prefix}.mappings are not allowed for link_relationship`);
+      for (const [side, endpoint] of Object.entries(relationshipEndpoints(action))) {
+        const ep = `${prefix}.${side}_endpoint`;
+        const descriptor = endpointDescriptor(endpoint);
+        const input = endpointInput(endpoint);
+        if (!ENTITIES.has(descriptor.kind)) errors.push(`${ep}.kind is invalid`);
+        if (descriptor.kind === 'custom_object' && !descriptor.customObjectId) {
+          errors.push(`${ep}.custom_object_id is required`);
+        }
+        if (!['field', 'action_output'].includes(input.type)) {
+          errors.push(`${ep}.source.type must be field or action_output`);
+        } else if (input.type === 'field') {
+          if (!input.field_id) errors.push(`${ep}.source.field_id is required`);
+          const fieldScope = endpointFieldScope(action, input);
+          if (!['form', 'row'].includes(fieldScope)
+            || (sourceScope !== 'repeatable_row' && fieldScope !== 'form')) {
+            errors.push(`${ep}.source.scope must be form or the current repeatable row`);
+          }
+          const field = endpointFieldFor(action, input, fields);
+          const fieldDescriptor = fieldRecordDescriptor(field);
+          if (!field || !fieldDescriptor
+            || fieldDescriptor.kind !== descriptor.kind
+            || (descriptor.kind === 'custom_object'
+              && String(fieldDescriptor.customObjectId) !== String(descriptor.customObjectId))) {
+            errors.push(`${ep}.source.field_id must identify a compatible record field in the action source scope`);
+          }
+          if (sourceScope === 'repeatable_row' && fieldScope === 'form' && field) {
+            const fieldIndex = (fields || []).findIndex(candidate => String(candidate?.id) === String(field.id));
+            const containerIndex = (fields || []).findIndex(candidate => String(candidate?.id) === String(containerId));
+            if (fieldIndex < 0 || fieldIndex >= containerIndex) {
+              errors.push(`${ep}.source.form field must precede the repeatable container`);
+            }
+          }
+        } else {
+          const dependency = priorActions.get(String(input.action_id || ''));
+          if (!input.action_id) errors.push(`${ep}.source.action_id is required`);
+          if (!dependency || isRelationshipAction(dependency)) {
+            errors.push(`${ep}.source.action_id must identify an earlier record action`);
+          } else {
+            const dependencyScope = dependency?.source?.scope;
+            if (dependencyScope !== sourceScope
+              || (sourceScope === 'repeatable_row'
+                && String(repeatableId(dependency)) !== String(containerId))) {
+              errors.push(`${ep}.source.action_id must use the same top-level or repeatable-row scope`);
+            }
+            if (entityName(dependency) !== descriptor.kind
+              || (descriptor.kind === 'custom_object'
+                && String(actionObjectId(dependency)) !== String(descriptor.customObjectId))) {
+              errors.push(`${ep}.source.action_id output is incompatible with the endpoint descriptor`);
+            }
+          }
+        }
+      }
+      priorActions.set(id, action);
+      continue;
     }
     if (actionMappings(action).length === 0) errors.push(`${prefix}.mappings must not be empty`);
     const mappedTargets = new Set();
@@ -256,6 +331,7 @@ export function validateStructuredActionsContract(input, fields = []) {
         errors.push(`${prefix} must map required core field ${requiredCore}`);
       }
     }
+    priorActions.set(id, action);
   }
   if (errors.length) throw new StructuredActionContractError('Invalid persisted structured_actions contract', errors);
   return { version, actions: contract.actions };
@@ -308,14 +384,15 @@ function visibleValues(values, hidden) {
 
 export function expandStructuredActionInvocations(contract, form, submissionData, visibilityOptions = {}) {
   const hidden = structuredHiddenFieldIds(form, submissionData, visibilityOptions);
+  const rootValues = visibleValues(submissionData, hidden);
   const fields = new Map((form?.fields || []).filter(f => f?.id).map(f => [String(f.id), f]));
   const invocations = [];
   for (const action of contract.actions) {
     const containerId = repeatableId(action);
     if (!containerId) {
-      const values = visibleValues(submissionData, hidden);
+      const values = rootValues;
       const selectedRecordId = selectedRelationshipRecordId(action, form?.fields || [], values);
-      invocations.push({ action, rowIndex: null, values, selectedRecordId, invocationKey: `${action.id}:top` });
+      invocations.push({ action, rowIndex: null, values, rootValues, selectedRecordId, invocationKey: `${action.id}:top` });
       continue;
     }
     if (hidden.has(containerId)) continue;
@@ -329,7 +406,7 @@ export function expandStructuredActionInvocations(contract, form, submissionData
       if (isRepeatableRowEmpty(values, visibleChildren)) return;
       if (!row._row_id) throw new StructuredActionContractError(`Repeatable action ${action.id} requires persisted row._row_id`);
       const selectedRecordId = selectedRelationshipRecordId(action, visibleChildren, values);
-      invocations.push({ action, rowIndex: null, rowId: String(row._row_id), values, selectedRecordId, invocationKey: `${action.id}:row:${row._row_id}` });
+      invocations.push({ action, rowIndex: null, rowId: String(row._row_id), values, rootValues, selectedRecordId, invocationKey: `${action.id}:row:${row._row_id}` });
     });
   }
   return invocations;
@@ -358,7 +435,7 @@ function fieldRecordDescriptor(field) {
     return { kind: 'organization_group', customObjectId: null };
   }
   if (field?.type === 'member_dropdown') return { kind: 'member', customObjectId: null };
-  if (field?.type === 'relationship_dropdown') {
+  if (['relationship_dropdown', 'custom_object_relationship'].includes(field?.type)) {
     return {
       kind: field.related_kind || 'custom_object',
       customObjectId: field.related_custom_object_id || field.custom_object_id || null,
@@ -514,16 +591,12 @@ export async function processPrimaryPipelineRelatedRecords({
             .eq('source_record_id', sourceId).eq('target_record_id', targetId)
             .is('archived_at', null).maybeSingle();
           if (existingError) throw existingError;
-          if (!existing) {
-            const { error } = await db.from('custom_object_relationship').insert({
-              tenant_id: tenantId,
-              relationship_definition_id: definition.id,
-              source_record_id: sourceId,
-              target_record_id: targetId,
-            });
-            if (error && error.code !== '23505') throw error;
-          }
-          outcomes.push({ ...base, status: existing ? 'already_linked' : 'linked', record_id: selectedId, primary_record_id: primaryId });
+          const inserted = existing
+            ? { created: false, edge: existing }
+            : await insertCanonicalRelationshipEdge(
+              db, tenantId, definition.id, sourceId, targetId,
+            );
+          outcomes.push({ ...base, status: inserted.created ? 'linked' : 'already_linked', record_id: selectedId, primary_record_id: primaryId });
         }
       } catch (error) {
         outcomes.push({
@@ -572,6 +645,7 @@ function compatibleFamilies(sourceFamily, targetFamily) {
 
 function validateRuntimeMappingCompatibility(contract, formFields, preferenceFields) {
   for (const action of contract.actions) {
+    if (isRelationshipAction(action)) continue;
     const sourceFields = sourceFieldsFor(action, formFields);
     for (const mapping of actionMappings(action)) {
       if (!mapping.source_field_id) continue;
@@ -792,6 +866,52 @@ function relationshipLinkContext(invocation, definition) {
   return { parentId, parentDescriptor, targetSide };
 }
 
+const ACTIVE_RELATIONSHIP_PAIR_UNIQUE = 'custom_object_relationship_active_pair_unique';
+const RELATIONSHIP_CARDINALITY_CONSTRAINTS = new Set([
+  'custom_object_relationship_source_cardinality',
+  'custom_object_relationship_target_cardinality',
+]);
+
+function relationshipConstraintText(error) {
+  return [
+    error?.constraint,
+    error?.details,
+    error?.message,
+    error?.hint,
+  ].filter(Boolean).join(' ');
+}
+
+function isActiveRelationshipPairDuplicate(error) {
+  return error?.code === '23505'
+    && relationshipConstraintText(error).includes(ACTIVE_RELATIONSHIP_PAIR_UNIQUE);
+}
+
+function isRelationshipCardinalityConflict(error) {
+  const constraintText = relationshipConstraintText(error);
+  return error?.code === '23505'
+    && [...RELATIONSHIP_CARDINALITY_CONSTRAINTS].some(constraint => constraintText.includes(constraint));
+}
+
+async function insertCanonicalRelationshipEdge(db, tenantId, definitionId, sourceId, targetId) {
+  const { error } = await db.from('custom_object_relationship').insert({
+    tenant_id: tenantId,
+    relationship_definition_id: definitionId,
+    source_record_id: sourceId,
+    target_record_id: targetId,
+  });
+  if (!error) return { created: true, edge: null };
+  if (!isActiveRelationshipPairDuplicate(error)) throw error;
+  // A duplicate can only be accepted after proving the exact active canonical
+  // edge exists. In particular, cardinality-trigger 23505s are not duplicates.
+  const { data: edge, error: rereadError } = await db.from('custom_object_relationship')
+    .select('id').eq('tenant_id', tenantId).eq('relationship_definition_id', definitionId)
+    .eq('source_record_id', sourceId).eq('target_record_id', targetId)
+    .is('archived_at', null).maybeSingle();
+  if (rereadError) throw rereadError;
+  if (!edge) throw error;
+  return { created: false, edge };
+}
+
 async function ensureRelationshipLink(db, tenantId, invocation, recordId, definition, authorization = {}) {
   const context = relationshipLinkContext(invocation, definition);
   if (!context) return;
@@ -805,13 +925,98 @@ async function ensureRelationshipLink(db, tenantId, invocation, recordId, defini
     .is('archived_at', null).maybeSingle();
   if (lookupError) throw lookupError;
   if (existing) return;
-  const { error } = await db.from('custom_object_relationship').insert({
-    tenant_id: tenantId,
-    relationship_definition_id: definition.id,
+  await insertCanonicalRelationshipEdge(db, tenantId, definition.id, sourceId, targetId);
+}
+
+function relationshipOutputKey(actionId, invocation) {
+  return `${actionId}:${invocation.rowId ? `row:${invocation.rowId}` : 'top'}`;
+}
+
+function invocationFingerprintValues(invocation) {
+  if (!isRelationshipAction(invocation.action)) return invocation.values;
+  const rootEndpointValues = {};
+  for (const endpoint of Object.values(relationshipEndpoints(invocation.action))) {
+    const input = endpointInput(endpoint);
+    if (input.type === 'field' && endpointFieldScope(invocation.action, input) === 'form') {
+      rootEndpointValues[input.field_id] = invocation.rootValues?.[input.field_id];
+    }
+  }
+  return { row: invocation.values, form_endpoints: rootEndpointValues };
+}
+
+function relationshipEndpointRecordId(endpoint, invocation, actionOutputs) {
+  const input = endpointInput(endpoint);
+  let value;
+  if (input.type === 'action_output') {
+    const dependency = actionOutputs.get(relationshipOutputKey(String(input.action_id), invocation));
+    if (!dependency?.recordId) {
+      throw new StructuredActionContractError(
+        `Relationship action is blocked: dependency ${input.action_id} did not complete with a record`,
+      );
+    }
+    value = dependency.recordId;
+  } else {
+    value = endpointFieldScope(invocation.action, input) === 'form'
+      ? invocation.rootValues?.[input.field_id]
+      : invocation.values?.[input.field_id];
+  }
+  if (Array.isArray(value)) {
+    if (value.length !== 1) {
+      throw new StructuredActionContractError('A relationship endpoint field must select exactly one record');
+    }
+    return value[0] || null;
+  }
+  return value || null;
+}
+
+async function assertRelationshipEndpointExists(db, tenantId, descriptor, recordId) {
+  if (!recordId) throw new StructuredActionContractError('Both relationship endpoint records are required');
+  let query = db.from(TABLES[descriptor.kind]).select('id')
+    .eq('tenant_id', tenantId).eq('id', recordId);
+  if (descriptor.kind === 'custom_object') {
+    query = query.eq('custom_object_id', descriptor.customObjectId).is('archived_at', null);
+  }
+  const { data, error } = await query.maybeSingle();
+  if (error) throw error;
+  if (!data) throw new StructuredActionContractError('A relationship endpoint is unavailable, archived, or cross-tenant');
+}
+
+async function executeRelationshipInvocation(
+  db,
+  tenantId,
+  invocation,
+  definition,
+  actionOutputs,
+  authorization,
+) {
+  if (!definition) throw new StructuredActionContractError('The relationship definition is unavailable');
+  const endpoints = relationshipEndpoints(invocation.action);
+  const sourceDescriptor = endpointDescriptor(endpoints.source);
+  const targetDescriptor = endpointDescriptor(endpoints.target);
+  const sourceId = relationshipEndpointRecordId(endpoints.source, invocation, actionOutputs);
+  const targetId = relationshipEndpointRecordId(endpoints.target, invocation, actionOutputs);
+  await Promise.all([
+    assertRelationshipEndpointExists(db, tenantId, sourceDescriptor, sourceId),
+    assertRelationshipEndpointExists(db, tenantId, targetDescriptor, targetId),
+  ]);
+  const base = db.from('custom_object_relationship').select('id')
+    .eq('tenant_id', tenantId).eq('relationship_definition_id', definition.id)
+    .eq('source_record_id', sourceId).eq('target_record_id', targetId)
+    .is('archived_at', null);
+  const { data: existing, error: lookupError } = await base.maybeSingle();
+  if (lookupError) throw lookupError;
+  const inserted = existing
+    ? { created: false, edge: existing }
+    : await insertCanonicalRelationshipEdge(db, tenantId, definition.id, sourceId, targetId);
+  return {
+    status: 'completed',
+    operation: 'linked',
+    relationship_id: inserted.edge?.id || null,
     source_record_id: sourceId,
     target_record_id: targetId,
-  });
-  if (error && error.code !== '23505') throw error;
+    already_linked: !inserted.created,
+    entity_type: 'relationship',
+  };
 }
 
 async function executeInvocation(
@@ -961,7 +1166,9 @@ export async function processPersistedStructuredActions({
   if (submissionError || !submission) throw new StructuredActionContractError('Persisted submission was not found in the tenant');
   const contract = validateStructuredActionsContract(form.structured_actions, form.fields || []);
   if (!contract || contract.actions.length === 0) return null;
-  const objectIds = [...new Set(contract.actions.map(actionObjectId).filter(Boolean))];
+  const objectIds = [...new Set(contract.actions.flatMap(action => isRelationshipAction(action)
+    ? Object.values(relationshipEndpoints(action)).map(endpoint => endpointDescriptor(endpoint).customObjectId)
+    : [actionObjectId(action)]).filter(Boolean))];
   if (objectIds.length) {
     const { data: objects, error } = await db.from('custom_object_definition').select('id')
       .eq('tenant_id', tenantId).eq('status', 'active').in('id', objectIds);
@@ -980,6 +1187,22 @@ export async function processPersistedStructuredActions({
     for (const [id, definition] of byId) relationshipDefinitionsById.set(id, definition);
     for (const action of contract.actions.filter(item => item.relationship_definition_id)) {
       const definition = byId.get(String(action.relationship_definition_id));
+      if (isRelationshipAction(action)) {
+        const endpoints = relationshipEndpoints(action);
+        const source = endpointDescriptor(endpoints.source);
+        const target = endpointDescriptor(endpoints.target);
+        const exact = definition
+          && definition.source_kind === source.kind
+          && String(definition.source_custom_object_id || '') === String(source.customObjectId || '')
+          && definition.target_kind === target.kind
+          && String(definition.target_custom_object_id || '') === String(target.customObjectId || '');
+        if (!exact) {
+          throw new StructuredActionContractError(
+            `Relationship ${action.relationship_definition_id} is inactive, cross-tenant, or incompatible with action ${action.id}`,
+          );
+        }
+        continue;
+      }
       const kind = entityName(action);
       const objectId = actionObjectId(action);
       const compatible = definition && [
@@ -1009,6 +1232,9 @@ export async function processPersistedStructuredActions({
   // target class requires admin access or a selected update is outside the
   // caller's verified ownership.
   for (const invocation of invocations) {
+    if (isRelationshipAction(invocation.action)) {
+      continue;
+    }
     assertStructuredMutationAuthorized({
       action: invocation.action,
       recordId: invocation.action.operation === 'update_selected'
@@ -1033,6 +1259,7 @@ export async function processPersistedStructuredActions({
     .filter(n => n?.kind === 'structured_action' && n?.status === 'completed' && n?.invocation_key)
     .map(n => [n.invocation_key, n]));
   const outcomes = [];
+  const actionOutputs = new Map();
   for (const invocation of invocations) {
     const prior = completed.get(invocation.invocationKey);
     if (prior) {
@@ -1044,11 +1271,14 @@ export async function processPersistedStructuredActions({
         record_id: prior.record_id || null,
         entity_type: prior.entity_type || entityName(invocation.action),
       });
+      if (!isRelationshipAction(invocation.action) && prior.record_id) {
+        actionOutputs.set(relationshipOutputKey(invocation.action.id, invocation), { recordId: prior.record_id });
+      }
       continue;
     }
     const rowIdentity = invocation.rowId || 'top';
     const fingerprint = createHash('sha256').update(JSON.stringify({
-      version: contract.version, action: invocation.action, values: invocation.values,
+      version: contract.version, action: invocation.action, values: invocationFingerprintValues(invocation),
     })).digest('hex');
     let claimedRecordId = null;
     if (typeof db.rpc === 'function') {
@@ -1065,6 +1295,9 @@ export async function processPersistedStructuredActions({
           status: 'already_completed', record_id: ledger.record_id || null, entity_type: entityName(invocation.action) };
         outcomes.push(alreadyCompleted);
         notes.push({ at: new Date().toISOString(), kind: 'structured_action', ...alreadyCompleted });
+        if (!isRelationshipAction(invocation.action) && ledger.record_id) {
+          actionOutputs.set(relationshipOutputKey(invocation.action.id, invocation), { recordId: ledger.record_id });
+        }
         continue;
       }
       if (ledger && ledger.claimed === false) {
@@ -1075,20 +1308,40 @@ export async function processPersistedStructuredActions({
     }
     let outcome;
     try {
-      outcome = await executeInvocation(
-        db,
-        tenantId,
-        invocation,
-        preferenceFields,
-        claimedRecordId,
-        relationshipDefinitionsById.get(String(invocation.action.relationship_definition_id)) || null,
-        authorization,
-      );
+      const relationshipDefinition = relationshipDefinitionsById.get(
+        String(invocation.action.relationship_definition_id),
+      ) || null;
+      outcome = isRelationshipAction(invocation.action)
+        ? await executeRelationshipInvocation(
+          db, tenantId, invocation, relationshipDefinition, actionOutputs, authorization,
+        )
+        : await executeInvocation(
+          db,
+          tenantId,
+          invocation,
+          preferenceFields,
+          claimedRecordId,
+          relationshipDefinition,
+          authorization,
+        );
     } catch (error) {
-      outcome = { status: 'failed', error: error.message || String(error), ...(error?.code ? { code: error.code } : {}) };
+      outcome = {
+        status: 'failed',
+        error: error.message || String(error),
+        ...(error?.code ? { code: error.code } : {}),
+        ...(isRelationshipAction(invocation.action) && isRelationshipCardinalityConflict(error)
+          ? { reason: 'relationship_cardinality_conflict', retryable: true }
+          : {}),
+      };
     }
     outcome = { invocation_key: invocation.invocationKey, action_id: invocation.action.id, row_index: invocation.rowIndex, ...outcome };
     outcomes.push(outcome);
+    if (!isRelationshipAction(invocation.action)) {
+      actionOutputs.set(relationshipOutputKey(invocation.action.id, invocation), {
+        recordId: outcome.status === 'completed' ? outcome.record_id || null : null,
+        status: outcome.status,
+      });
+    }
     if (typeof db.rpc === 'function') {
       const { error } = await db.rpc('finalize_form_structured_action', {
         p_tenant_id: tenantId, p_submission_id: submissionId, p_action_id: invocation.action.id,

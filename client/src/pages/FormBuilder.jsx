@@ -57,6 +57,12 @@ import {
   relationshipFieldConfig,
 } from "@/lib/formRelationshipDropdown";
 import {
+  relationshipEndpointDescriptor,
+  relationshipEndpointLabel,
+  structuredEndpointReferenceValue,
+  structuredRelationshipEndpointOptions,
+} from "@/lib/structuredRelationshipActions";
+import {
   configuredOrganizationFilterOptions,
   mergeOrganizationFilterOptions,
 } from "@/lib/formConditionalFilters";
@@ -719,10 +725,13 @@ const NON_MAPPING_FORM_FIELD_TYPES = new Set([
 ]);
 const NON_MAPPING_TARGET_TYPES = new Set(['file']);
 const RECORD_REFERENCE_SOURCE_KINDS = {
+  member_dropdown: 'member',
   organisation_dropdown: 'organization',
   organization_dropdown: 'organization',
   organisation_group_dropdown: 'organization_group',
+  organization_group_dropdown: 'organization_group',
   relationship_dropdown: 'custom_object',
+  custom_object_relationship: 'custom_object',
 };
 const mappingTypeFamily = (field) => {
   const type = String(field?.type || field?.field_type || '').toLowerCase();
@@ -818,8 +827,10 @@ const structuredFieldRecordDescriptor = (field) => {
   const kind = RECORD_REFERENCE_SOURCE_KINDS[field?.type];
   if (!kind) return null;
   return {
-    kind: field.type === 'relationship_dropdown' ? (field.related_kind || 'custom_object') : kind,
-    objectId: field.type === 'relationship_dropdown'
+    kind: ['relationship_dropdown', 'custom_object_relationship'].includes(field.type)
+      ? (field.related_kind || 'custom_object')
+      : kind,
+    objectId: ['relationship_dropdown', 'custom_object_relationship'].includes(field.type)
       ? (field.related_custom_object_id || field.custom_object_id || null)
       : null,
   };
@@ -958,6 +969,14 @@ function StructuredRecordActionsEditor({
     updateActions(next);
   };
   const repeatables = (fields || []).filter(isRepeatableRowField);
+  const recordActionRelationships = (relationshipDefinitions || [])
+    .filter(definition => !definition.status || definition.status === 'active');
+  const activeRelationships = Array.from(new Map([
+    ...normalizeEligibleRelationships(relationshipDefinitions),
+    ...recordActionRelationships.filter(definition => (
+      definition.id && definition.source_kind && definition.target_kind
+    )),
+  ].map(definition => [definition.id, definition])).values());
 
   return (
     <div className="space-y-3 pb-5 border-b border-slate-200" data-testid="structured-record-actions">
@@ -966,25 +985,143 @@ function StructuredRecordActionsEditor({
           <Label className="text-sm font-semibold">Structured Record Actions</Label>
           <p className="text-xs text-slate-500 mt-1">Create or update a record once per submission, or once for every repeatable row. This versioned configuration is additive to the legacy member and organisation pipelines below.</p>
         </div>
-        <Button type="button" variant="outline" size="sm" onClick={() => updateActions([...actions, {
-          id: `record_action_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-          source: { scope: 'top_level', repeatable_field_id: null },
-          target: { kind: 'member', custom_object_id: null },
-          operation: 'upsert',
-          relationship_definition_id: null,
-          uniqueness_field: 'email',
-          mappings: [],
-        }])} data-testid="button-add-structured-action">
-          <Plus className="w-4 h-4 mr-2" /> Add action
-        </Button>
+        <div className="flex flex-wrap justify-end gap-2">
+          <Button type="button" variant="outline" size="sm" onClick={() => updateActions([...actions, {
+            id: `record_action_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+            source: { scope: 'top_level', repeatable_field_id: null },
+            target: { kind: 'member', custom_object_id: null },
+            operation: 'upsert',
+            relationship_definition_id: null,
+            uniqueness_field: 'email',
+            mappings: [],
+          }])} data-testid="button-add-structured-action">
+            <Plus className="w-4 h-4 mr-2" /> Add record action
+          </Button>
+          <Button type="button" variant="outline" size="sm" disabled={metadataLoading || Boolean(metadataError) || activeRelationships.length === 0}
+            onClick={() => updateActions([...actions, {
+              id: `relationship_action_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+              label: '',
+              source: { scope: 'top_level', repeatable_field_id: null },
+              operation: 'link_relationship',
+              relationship_definition_id: null,
+              source_endpoint: null,
+              target_endpoint: null,
+              mappings: [],
+            }])} data-testid="button-add-link-related-records">
+            <Plus className="w-4 h-4 mr-2" /> Link related records
+          </Button>
+        </div>
       </div>
       {metadataLoading && <p className="text-xs text-slate-500"><Loader2 className="inline w-3 h-3 mr-1 animate-spin" />Loading active Custom Object metadata…</p>}
       {metadataError && <p className="text-xs text-red-600" role="alert">Custom Object metadata could not be loaded: {metadataError.message}</p>}
       {actions.length === 0 && <div className="rounded-lg border border-dashed p-4 text-center text-sm text-slate-400">No structured actions configured</div>}
       {actions.map((action, actionIndex) => {
+        if (action.operation === 'link_relationship') {
+          const definition = activeRelationships.find(item => item.id === action.relationship_definition_id);
+          const endpointOptions = Object.fromEntries(['source', 'target'].map(side => [side,
+            structuredRelationshipEndpointOptions({
+              fields,
+              actions,
+              actionIndex,
+              action,
+              definition,
+              side,
+            }),
+          ]));
+          return (
+            <div key={action.id || actionIndex} className="rounded-lg border bg-slate-50 p-4 space-y-4" data-testid={`structured-action-${actionIndex}`}>
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold">Link related records</p>
+                  <p className="text-xs text-slate-500">Link two submitted or earlier-action records using an active Data Studio relationship.</p>
+                </div>
+                <Button type="button" variant="ghost" size="icon" className="h-8 w-8 text-red-500"
+                  onClick={() => updateActions(actions.filter((_, index) => index !== actionIndex))}
+                  aria-label={`Remove action ${actionIndex + 1}`}><Trash2 className="w-4 h-4" /></Button>
+              </div>
+              <Input className="max-w-xs h-8" value={action.label || ''} placeholder={`Action ${actionIndex + 1} label (optional)`}
+                onChange={event => updateAction(actionIndex, { label: event.target.value })} />
+              <div className="grid gap-3 md:grid-cols-2">
+                <div className="space-y-1">
+                  <Label className="text-xs">Execution scope</Label>
+                  <Select value={action.source?.scope || 'top_level'} onValueChange={scope => updateAction(actionIndex, {
+                    source: { scope, repeatable_field_id: scope === 'repeatable_row' ? (repeatables[0]?.id || null) : null },
+                    source_endpoint: null,
+                    target_endpoint: null,
+                  })}>
+                    <SelectTrigger data-testid={`select-link-source-${actionIndex}`}><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="top_level">Once per submission</SelectItem>
+                      <SelectItem value="repeatable_row" disabled={!repeatables.length}>Once per repeatable row</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                {action.source?.scope === 'repeatable_row' && (
+                  <div className="space-y-1">
+                    <Label className="text-xs">Repeatable field</Label>
+                    <Select value={action.source?.repeatable_field_id || ''} onValueChange={repeatable_field_id => updateAction(actionIndex, {
+                      source: { scope: 'repeatable_row', repeatable_field_id },
+                      source_endpoint: null,
+                      target_endpoint: null,
+                    })}>
+                      <SelectTrigger data-testid={`select-link-repeatable-${actionIndex}`}><SelectValue placeholder="Select repeatable rows…" /></SelectTrigger>
+                      <SelectContent>{repeatables.map(field => <SelectItem key={field.id} value={field.id}>{field.label || field.id}</SelectItem>)}</SelectContent>
+                    </Select>
+                  </div>
+                )}
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Active Data Studio relationship</Label>
+                <Select value={action.relationship_definition_id || ''} onValueChange={relationship_definition_id => updateAction(actionIndex, {
+                  relationship_definition_id,
+                  source_endpoint: null,
+                  target_endpoint: null,
+                })}>
+                  <SelectTrigger data-testid={`select-link-relationship-${actionIndex}`}><SelectValue placeholder="Select an active relationship…" /></SelectTrigger>
+                  <SelectContent>{activeRelationships.map(item => (
+                    <SelectItem key={item.id} value={item.id}>
+                      {relationshipEndpointLabel(item, 'source')} ↔ {relationshipEndpointLabel(item, 'target')}
+                    </SelectItem>
+                  ))}</SelectContent>
+                </Select>
+              </div>
+              {definition && (
+                <div className="grid gap-3 md:grid-cols-2">
+                  {['source', 'target'].map(side => {
+                    const options = endpointOptions[side];
+                    return (
+                      <div className="space-y-1" key={side}>
+                        <Label className="text-xs">{relationshipEndpointLabel(definition, side)}</Label>
+                        <Select value={structuredEndpointReferenceValue(
+                          action[`${side}_endpoint`]?.source,
+                          action.source?.scope === 'repeatable_row' ? action.source.repeatable_field_id : null,
+                        )}
+                          onValueChange={value => updateAction(actionIndex, {
+                            [`${side}_endpoint`]: {
+                              ...relationshipEndpointDescriptor(definition, side),
+                              custom_object_id: relationshipEndpointDescriptor(definition, side)?.customObjectId || null,
+                              customObjectId: undefined,
+                              source: options.find(option => option.value === value)?.reference || null,
+                            },
+                          })}>
+                          <SelectTrigger data-testid={`select-link-endpoint-${side}-${actionIndex}`}><SelectValue placeholder="Select a compatible record…" /></SelectTrigger>
+                          <SelectContent>{options.map(option => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}</SelectContent>
+                        </Select>
+                        {options.length === 0 && <p className="text-xs text-amber-700">No compatible submitted field or earlier action is available.</p>}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+              {action.source?.scope === 'repeatable_row' && (
+                <p className="text-xs text-slate-500">Choose an earlier form field or a field in this same row. Row-scoped action outputs must come from this same repeatable row.</p>
+              )}
+            </div>
+          );
+        }
         const sourceFields = structuredActionSourceFields(fields, action);
         const targetFields = structuredTargetFields(action, customFields, customObjectFields);
-        const relationships = (relationshipDefinitions || []).filter(definition => relationshipSupportsTarget(definition, action));
+        const relationships = recordActionRelationships.filter(definition => relationshipSupportsTarget(definition, action));
         const selectorFields = sourceFields.filter(field => {
           const descriptor = structuredFieldRecordDescriptor(field);
           return field.type === 'relationship_dropdown'
@@ -9934,6 +10071,37 @@ export default function FormBuilderPage() {
         && !formData.fields.some(field => field.id === action.source.repeatable_field_id && isRepeatableRowField(field))) {
         toast.error(`${actionName} points to a repeatable field that no longer exists.`);
         return;
+      }
+      if (action.operation === 'link_relationship') {
+        const definition = (structuredActionMetadata.relationships || []).find(item => (
+          item.id === action.relationship_definition_id
+          && (!item.status || item.status === 'active')
+          && item.source_kind
+          && item.target_kind
+        ));
+        if (!definition) {
+          toast.error(`${actionName} needs an active Data Studio relationship.`);
+          return;
+        }
+        for (const side of ['source', 'target']) {
+          const selectedValue = structuredEndpointReferenceValue(
+            action[`${side}_endpoint`]?.source,
+            action.source?.scope === 'repeatable_row' ? action.source.repeatable_field_id : null,
+          );
+          const options = structuredRelationshipEndpointOptions({
+            fields: formData.fields,
+            actions: structuredActions,
+            actionIndex: index,
+            action,
+            definition,
+            side,
+          });
+          if (!selectedValue || !options.some(option => option.value === selectedValue)) {
+            toast.error(`${actionName} needs a compatible ${relationshipEndpointLabel(definition, side)} endpoint.`);
+            return;
+          }
+        }
+        continue;
       }
       if (!STRUCTURED_ACTION_TARGETS.some(target => target.value === action.target?.kind)) {
         toast.error(`${actionName} needs a target record type.`);
