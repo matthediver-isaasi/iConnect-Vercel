@@ -24,28 +24,50 @@ test('member CSV formats boolean and checkbox custom fields like member details'
   }
 });
 
-test('member CSV preserves existing non-boolean custom-field formatting', () => {
+test('member CSV preserves existing non-option custom-field formatting', () => {
   assert.equal(formatCustomFieldValueForCsv(undefined, { field_type: 'text' }), '');
   assert.equal(formatCustomFieldValueForCsv('hello', { field_type: 'text' }), 'hello');
   assert.equal(formatCustomFieldValueForCsv('["A","B"]', { field_type: 'text' }), '["A","B"]');
-  assert.equal(formatCustomFieldValueForCsv('a', {
-    field_type: 'dropdown',
-    options: [{ value: 'a', label: 'Alpha' }],
-  }), '{"label":"Alpha","value":"a"}');
-});
-
-test('member CSV resolves equivalent picklist shapes and preserves structured values losslessly', () => {
-  const field = { field_type: 'dropdown', options: [{ value: 7, label: 'Seven' }] };
-  assert.equal(formatCustomFieldValueForCsv(7, field), '{"label":"Seven","value":7}');
-  assert.equal(formatCustomFieldValueForCsv('7', field), '{"label":"Seven","value":"7"}');
-  assert.equal(formatCustomFieldValueForCsv({ value: 7 }, field), '{"label":"Seven","value":7}');
-  assert.equal(
-    formatCustomFieldValueForCsv('[7,{"value":"missing","label":"Other"}]', field),
-    '[{"label":"Seven","value":7},{"label":"Other","value":"missing"}]',
-  );
   assert.equal(
     formatCustomFieldValueForCsv({ url: 'https://example.test/a,b', name: 'Résumé “final”.pdf' }, { field_type: 'file' }),
     '{"name":"Résumé “final”.pdf","url":"https://example.test/a,b"}',
+  );
+});
+
+test('member CSV exports only stored option values across supported single-select shapes', () => {
+  for (const fieldType of ['picklist', 'dropdown', 'list']) {
+    const field = {
+      field_type: fieldType,
+      options: [
+        { value: 'retired-dd', label: 'Retired Membership DD' },
+        { value: 'same', label: 'same' },
+      ],
+    };
+    assert.equal(formatCustomFieldValueForCsv('retired-dd', field), 'retired-dd');
+    assert.equal(formatCustomFieldValueForCsv({ label: 'Retired Membership DD', value: 'retired-dd' }, field), 'retired-dd');
+    assert.equal(formatCustomFieldValueForCsv('{"label":"Retired Membership DD","value":"retired-dd"}', field), 'retired-dd');
+    assert.equal(formatCustomFieldValueForCsv({ label: 'same', value: 'same' }, field), 'same');
+    assert.equal(formatCustomFieldValueForCsv(7, field), '7');
+    assert.equal(formatCustomFieldValueForCsv({ value: 7 }, field), '7');
+    assert.equal(formatCustomFieldValueForCsv('unknown-option', field), 'unknown-option');
+    assert.equal(formatCustomFieldValueForCsv('', field), '');
+    assert.equal(formatCustomFieldValueForCsv(null, field), '');
+  }
+});
+
+test('member CSV exports multi-select option values as a stable human-usable list', () => {
+  const field = { field_type: 'list' };
+  assert.equal(
+    formatCustomFieldValueForCsv([
+      { label: 'Alpha label', value: 'alpha' },
+      'beta',
+      { label: 'Unknown label', value: 'unknown' },
+    ], field),
+    'alpha; beta; unknown',
+  );
+  assert.equal(
+    formatCustomFieldValueForCsv('[{"label":"Alpha label","value":"alpha"},{"value":2},"unknown"]', field),
+    'alpha; 2; unknown',
   );
 });
 

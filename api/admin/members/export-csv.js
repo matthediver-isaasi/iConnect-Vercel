@@ -41,29 +41,20 @@ function parseJsonShapedString(value) {
   try { return JSON.parse(trimmed); } catch { return value; }
 }
 
-function resolvePicklistValue(rawValue, field) {
-  if (rawValue === null || rawValue === undefined || !field) return '';
-  const options = field.options || [];
-  const parsed = parseJsonShapedString(rawValue);
-  const optionFor = value => options.find(option => String(option.value) === String(value));
-  const resolveOne = value => {
-    if (value && typeof value === 'object' && !Array.isArray(value) && value.value !== undefined) {
-      return {
-        value: value.value,
-        label: optionFor(value.value)?.label ?? value.label ?? String(value.value),
-      };
+function serializeOptionValue(value) {
+  if (value === null || value === undefined) return '';
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    if (Object.prototype.hasOwnProperty.call(value, 'value')) {
+      return serializeOptionValue(value.value);
     }
-    const option = optionFor(value);
-    return option ? { value, label: option.label ?? String(value) } : value;
-  };
-
-  if (Array.isArray(parsed)) {
-    return stableJson(parsed.map(resolveOne));
+    return stableJson(value);
   }
-  const resolved = resolveOne(parsed);
-  return resolved && typeof resolved === 'object'
-    ? stableJson(resolved)
-    : String(resolved ?? '');
+  if (Array.isArray(value)) return value.map(serializeOptionValue).join('; ');
+  return String(value);
+}
+
+function formatOptionFieldValue(rawValue) {
+  return serializeOptionValue(parseJsonShapedString(rawValue));
 }
 
 export function formatCustomFieldValueForCsv(rawValue, field) {
@@ -74,7 +65,7 @@ export function formatCustomFieldValueForCsv(rawValue, field) {
     return String(rawValue);
   }
   if (field?.field_type === 'picklist' || field?.field_type === 'dropdown' || field?.field_type === 'list') {
-    return resolvePicklistValue(rawValue, field);
+    return formatOptionFieldValue(rawValue);
   }
   const parsed = parseJsonShapedString(rawValue);
   if (parsed && typeof parsed === 'object') {
