@@ -279,6 +279,28 @@ test('generic view and side-aware compact preview metadata only permit active ow
     source_custom_object_id: objectId,
   };
   assert.equal(validateCustomObjectRelationshipPreviewConfiguration({
+    picker_context: {
+      source_column: {
+        relationship_definition_id: direct.id,
+        side: 'source',
+        label: 'Organisation',
+      },
+    },
+  }, { source: [primary], target: [] }, { source: [attachedDirect], target: [] }, {
+    source: objectId,
+  }).ok, true);
+  assert.equal(validateCustomObjectRelationshipPreviewConfiguration({
+    picker_context: {
+      source_column: {
+        relationship_definition_id: direct.id,
+        side: 'target',
+        label: 'Organisation',
+      },
+    },
+  }, { source: [primary], target: [] }, { source: [attachedDirect], target: [] }, {
+    source: objectId,
+  }).ok, false);
+  assert.equal(validateCustomObjectRelationshipPreviewConfiguration({
     compact_preview_fields: {
       source_field_ids: ['foreign-field'],
     },

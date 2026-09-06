@@ -16,10 +16,42 @@ import {
   optionValues,
   sharedListFields,
   relationshipCardColumnLayoutClasses,
+  relationshipPickerContextColumn,
   relationshipScalarDisplayValue,
   unplacedRelationshipPanels,
   validateRecordValues,
 } from "./recordHelpers.js";
+
+test("picker context normalizes only a complete opposite-side relationship column", () => {
+  const definition = {
+    configuration: {
+      picker_context: {
+        target_column: {
+          relationship_definition_id: 42,
+          side: "source",
+          label: "  Organisation  ",
+        },
+      },
+    },
+  };
+  assert.deepEqual(relationshipPickerContextColumn(definition, "source"), {
+    relationship_definition_id: "42",
+    side: "source",
+    label: "Organisation",
+  });
+  assert.equal(relationshipPickerContextColumn(definition, "target"), null);
+  assert.equal(relationshipPickerContextColumn({
+    configuration: {
+      picker_context: {
+        target_column: {
+          relationship_definition_id: 42,
+          side: "elsewhere",
+          label: "Organisation",
+        },
+      },
+    },
+  }, "source"), null);
+});
 
 const field = (name, fieldType, extra = {}) => ({
   id: `${name}-id`,

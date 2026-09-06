@@ -36,3 +36,15 @@ test("relationship field control exposes accessible pending and read-only states
   assert.match(source, /aria-busy=\{pending\}/);
   assert.match(source, /disabled=\{pending\}/);
 });
+
+test("configured picker context renders headed responsive columns with a safe blank fallback", () => {
+  assert.match(source, /relationshipPickerContextColumn\(definition, editSide\)/);
+  assert.match(source, /query\.data\?\.primaryColumnLabel \|\| "Record"/);
+  assert.match(source, /hidden grid-cols-\[minmax\(0,1fr\)_minmax\(0,1fr\)_2rem\][\s\S]*\{primaryHeading\}[\s\S]*\{contextColumn\.label\}/);
+  assert.match(source, /font-medium sm:hidden[\s\S]*\{contextColumn\.label\}: /);
+  assert.match(source, /entity\.picker_context_label \|\| "—"/);
+});
+
+test("legacy pickers retain the original single-column row layout", () => {
+  assert.match(source, /contextColumn \? "grid w-full[\s\S]*: "flex w-full items-center justify-between/);
+});

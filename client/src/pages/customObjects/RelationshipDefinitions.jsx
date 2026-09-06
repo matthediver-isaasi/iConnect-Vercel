@@ -480,6 +480,27 @@ function CompactPreviewSettings({ side, form, update }) {
       && String(item[`${relationshipSide}_custom_object_id`]) === String(objectId)
         ? [{ definition: item, side: relationshipSide }]
         : []));
+  const pickerContext = form.configuration?.picker_context || {};
+  const pickerColumnKey = `${opposite}_column`;
+  const pickerColumn = pickerContext[pickerColumnKey];
+  const setPickerColumn = (value) => {
+    const next = { ...pickerContext };
+    if (!value) delete next[pickerColumnKey];
+    else {
+      const separator = value.lastIndexOf(":");
+      const relationshipId = value.slice(0, separator);
+      const relationshipSide = value.slice(separator + 1);
+      const item = relationships.find((candidate) =>
+        String(candidate.definition.id) === relationshipId
+        && candidate.side === relationshipSide);
+      next[pickerColumnKey] = {
+        relationship_definition_id: relationshipId,
+        side: relationshipSide,
+        label: item?.definition?.[`${relationshipSide}_label`] || "Related record",
+      };
+    }
+    update("configuration", { ...form.configuration, picker_context: next });
+  };
   const toggleRelationship = (item, checked) => {
     const keyMatches = (column) =>
       column.type === "relationship"
@@ -499,7 +520,7 @@ function CompactPreviewSettings({ side, form, update }) {
         }]
       : existingColumns.filter((column) => !keyMatches(column)));
   };
-  return <div className="mt-3 border-t pt-3"><p className="text-sm font-medium text-slate-800">Related record preview</p><p className="mt-1 text-xs text-slate-500">Supporting values shown beneath the primary record label when viewing this side.</p>{query.isLoading ? <p className="mt-2 text-xs text-slate-500">Loading fields…</p> : query.error ? <p className="mt-2 text-xs text-rose-600">Preview fields could not be loaded.</p> : <div className="mt-2 grid gap-1 sm:grid-cols-2">{fields.map((field) => <label key={field.id} className="flex items-center gap-2 text-sm"><input type="checkbox" checked={selected.map(String).includes(String(field.id))} onChange={(event) => setSelected(event.target.checked ? [...selected, String(field.id)] : selected.filter((id) => String(id) !== String(field.id)))} />{field.label}</label>)}</div>}<div className="mt-4 border-t pt-3"><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Relationship columns</p><p className="mt-1 text-xs text-slate-500">Show records linked directly from the related Custom Object as explicit card columns.</p>{relationshipsQuery.isLoading ? <p className="mt-2 text-xs text-slate-500">Loading relationships…</p> : relationshipsQuery.error ? <p className="mt-2 text-xs text-rose-600">Relationships could not be loaded.</p> : relationships.length ? <div className="mt-2 grid gap-1 sm:grid-cols-2">{relationships.map((item) => { const checked = columns.some((column) => column.type === "relationship" && String(column.relationship_definition_id) === String(item.definition.id) && column.side === item.side); return <label key={`${item.definition.id}:${item.side}`} className="flex items-center gap-2 text-sm"><input type="checkbox" checked={checked} onChange={(event) => toggleRelationship(item, event.target.checked)} />{item.definition[`${item.side}_label`]} ({kindName(item.definition[item.side === "source" ? "target_kind" : "source_kind"])})</label>; })}</div> : <p className="mt-2 text-xs text-slate-500">No eligible active direct relationships.</p>}</div></div>;
+  return <div className="mt-3 border-t pt-3"><p className="text-sm font-medium text-slate-800">Related record preview</p><p className="mt-1 text-xs text-slate-500">Supporting values shown beneath the primary record label when viewing this side.</p>{query.isLoading ? <p className="mt-2 text-xs text-slate-500">Loading fields…</p> : query.error ? <p className="mt-2 text-xs text-rose-600">Preview fields could not be loaded.</p> : <div className="mt-2 grid gap-1 sm:grid-cols-2">{fields.map((field) => <label key={field.id} className="flex items-center gap-2 text-sm"><input type="checkbox" checked={selected.map(String).includes(String(field.id))} onChange={(event) => setSelected(event.target.checked ? [...selected, String(field.id)] : selected.filter((id) => String(id) !== String(field.id)))} />{field.label}</label>)}</div>}<div className="mt-4 border-t pt-3"><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Picker context column</p><p className="mt-1 text-xs text-slate-500">Show one directly related record beside each choice in the Add link picker.</p><Select value={pickerColumn ? `${pickerColumn.relationship_definition_id}:${pickerColumn.side}` : "none"} onValueChange={(value) => setPickerColumn(value === "none" ? "" : value)} disabled={relationshipsQuery.isLoading || Boolean(relationshipsQuery.error)}><SelectTrigger className="mt-2"><SelectValue placeholder="No additional column" /></SelectTrigger><SelectContent><SelectItem value="none">No additional column</SelectItem>{relationships.map((item) => <SelectItem key={`picker-${item.definition.id}:${item.side}`} value={`${item.definition.id}:${item.side}`}>{item.definition[`${item.side}_label`]} ({kindName(item.definition[item.side === "source" ? "target_kind" : "source_kind"])})</SelectItem>)}</SelectContent></Select></div><div className="mt-4 border-t pt-3"><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Relationship columns</p><p className="mt-1 text-xs text-slate-500">Show records linked directly from the related Custom Object as explicit card columns.</p>{relationshipsQuery.isLoading ? <p className="mt-2 text-xs text-slate-500">Loading relationships…</p> : relationshipsQuery.error ? <p className="mt-2 text-xs text-rose-600">Relationships could not be loaded.</p> : relationships.length ? <div className="mt-2 grid gap-1 sm:grid-cols-2">{relationships.map((item) => { const checked = columns.some((column) => column.type === "relationship" && String(column.relationship_definition_id) === String(item.definition.id) && column.side === item.side); return <label key={`${item.definition.id}:${item.side}`} className="flex items-center gap-2 text-sm"><input type="checkbox" checked={checked} onChange={(event) => toggleRelationship(item, event.target.checked)} />{item.definition[`${item.side}_label`]} ({kindName(item.definition[item.side === "source" ? "target_kind" : "source_kind"])})</label>; })}</div> : <p className="mt-2 text-xs text-slate-500">No eligible active direct relationships.</p>}</div></div>;
 }
 
 function Toggle({ label, hint, checked, onChange }) {

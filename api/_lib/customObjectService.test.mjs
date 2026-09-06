@@ -2604,6 +2604,105 @@ test('configured compact previews follow the opposite endpoint in both picker di
   assert.equal(initialFromTarget.data[0].compact_fields[0].value, 'Source preview');
 });
 
+test('core picker projects configured owning-record context after search, pagination, and exclusions', async () => {
+  const departmentObjectId = objectId;
+  const memberDepartmentId = 'picker-member-department';
+  const departmentOrganizationId = 'picker-department-organization';
+  const nameField = field({
+    id: 'department-name',
+    custom_object_id: departmentObjectId,
+    name: 'name',
+    field_type: 'text',
+    is_required: false,
+  });
+  const db = mockDb({
+    member: [{ id: 'member-1', tenant_id: tenantId, first_name: 'Ada' }],
+    organization: [
+      { id: 'org-a', tenant_id: tenantId, name: 'Alpha Organisation' },
+      { id: 'org-b', tenant_id: tenantId, name: 'Beta Organisation' },
+    ],
+    custom_object_definition: [object({
+      singular_label: 'Department',
+      primary_display_field_id: nameField.id,
+    })],
+    preference_field: [nameField],
+    custom_object_role_permission: [{
+      tenant_id: tenantId,
+      custom_object_id: departmentObjectId,
+      role_id: roleId,
+      can_view_records: true,
+      can_edit_records: true,
+    }],
+    custom_object_relationship_definition: [{
+      id: memberDepartmentId,
+      tenant_id: tenantId,
+      status: 'active',
+      cardinality: 'many_to_many',
+      source_kind: 'member',
+      source_custom_object_id: null,
+      target_kind: 'custom_object',
+      target_custom_object_id: departmentObjectId,
+      target_label: 'Departments',
+      show_on_source: true,
+      edit_from_source: true,
+      configuration: {
+        picker_context: {
+          target_column: {
+            relationship_definition_id: departmentOrganizationId,
+            side: 'source',
+            label: 'Organisation',
+          },
+        },
+      },
+    }, {
+      id: departmentOrganizationId,
+      tenant_id: tenantId,
+      status: 'active',
+      cardinality: 'many_to_one',
+      source_kind: 'custom_object',
+      source_custom_object_id: departmentObjectId,
+      target_kind: 'organization',
+      target_custom_object_id: null,
+      source_label: 'Organisation',
+    }],
+    custom_object_record: [
+      { id: 'department-linked', tenant_id: tenantId, custom_object_id: departmentObjectId, archived_at: null, created_at: '2026-01-01', data: { name: 'Finance' } },
+      { id: 'department-a', tenant_id: tenantId, custom_object_id: departmentObjectId, archived_at: null, created_at: '2026-01-02', data: { name: 'Finance' } },
+      { id: 'department-b', tenant_id: tenantId, custom_object_id: departmentObjectId, archived_at: null, created_at: '2026-01-03', data: { name: 'Finance' } },
+      { id: 'department-missing', tenant_id: tenantId, custom_object_id: departmentObjectId, archived_at: null, created_at: '2026-01-04', data: { name: 'Finance' } },
+    ],
+    custom_object_relationship: [
+      { id: 'existing', tenant_id: tenantId, relationship_definition_id: memberDepartmentId, source_record_id: 'member-1', target_record_id: 'department-linked', archived_at: null },
+      { id: 'owner-a', tenant_id: tenantId, relationship_definition_id: departmentOrganizationId, source_record_id: 'department-a', target_record_id: 'org-a', archived_at: null },
+      { id: 'owner-b', tenant_id: tenantId, relationship_definition_id: departmentOrganizationId, source_record_id: 'department-b', target_record_id: 'org-b', archived_at: null },
+      { id: 'owner-missing', tenant_id: tenantId, relationship_definition_id: departmentOrganizationId, source_record_id: 'department-missing', target_record_id: 'org-missing', archived_at: null },
+    ],
+  });
+  const service = createCustomObjectService({ db, context: context(), isAdmin: true });
+  const first = await service.coreEntityPicker('member', 'member-1', {
+    definitionId: memberDepartmentId,
+    search: 'Finance',
+    page: '1',
+    pageSize: '2',
+  });
+  const second = await service.coreEntityPicker('member', 'member-1', {
+    definitionId: memberDepartmentId,
+    search: 'Finance',
+    page: '2',
+    pageSize: '2',
+  });
+  assert.equal(first.total, 3);
+  assert.equal(first.primaryColumnLabel, 'Department');
+  assert.equal(first.contextColumnLabel, 'Organisation');
+  assert.deepEqual(first.data.map((row) => [row.primary_label, row.picker_context_label]), [
+    ['Finance', 'Alpha Organisation'],
+    ['Finance', 'Beta Organisation'],
+  ]);
+  assert.deepEqual(second.data.map((row) => [row.id, row.picker_context_label]), [
+    ['department-missing', null],
+  ]);
+});
+
 test('member relationship cards project owning organisations for duplicate department labels', async () => {
   const memberDepartmentId = '55555555-5555-4555-8555-555555555555';
   const departmentOrganizationId = '66666666-6666-4666-8666-666666666666';

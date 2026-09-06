@@ -19,6 +19,7 @@ import { ContextualRecordCreateDialog } from "./ContextualRecordCreateDialog";
 import {
   compactPreviewColumns,
   relationshipCardColumnLayoutClasses,
+  relationshipPickerContextColumn,
   relationshipScalarDisplayValue,
 } from "./recordHelpers";
 import {
@@ -110,6 +111,10 @@ function EntityPicker({ context, definition, editSide, onPick, disabled }) {
     }
   }, [open]);
   const entities = query.data?.data || [];
+  const contextColumn = relationshipPickerContextColumn(definition, editSide);
+  const primaryHeading = endpoint.kind === "custom_object"
+    ? (query.data?.primaryColumnLabel || "Record")
+    : labelForSide(definition, editSide);
   const total = query.data?.total || 0;
   const pages = Math.max(1, Math.ceil(total / 10));
   return (
@@ -125,12 +130,14 @@ function EntityPicker({ context, definition, editSide, onPick, disabled }) {
           <Button type="submit" variant="outline" size="icon" aria-label="Search"><Search className="h-4 w-4" /></Button>
         </form>
         <div className="min-h-48 rounded-md border">
+          {contextColumn && <div className="hidden grid-cols-[minmax(0,1fr)_minmax(0,1fr)_2rem] gap-3 border-b bg-slate-50 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-slate-500 sm:grid"><span>{primaryHeading}</span><span>{contextColumn.label}</span><span className="sr-only">Actions</span></div>}
           {query.isLoading ? <div className="grid h-48 place-items-center"><Loader2 className="h-5 w-5 animate-spin text-slate-400" /></div>
             : query.error ? <div className="p-6 text-center text-sm text-rose-700">{query.error.message}</div>
               : !entities.length ? <div className="p-8 text-center text-sm text-slate-500">No matching records found.</div>
                 : entities.map((entity) => (
-                  <button type="button" key={entity.id} className="flex w-full items-center justify-between border-b px-4 py-3 text-left last:border-0 hover:bg-slate-50" onClick={() => { onPick(entity); setOpen(false); }}>
+                  <button type="button" key={entity.id} className={contextColumn ? "grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-b px-4 py-3 text-left last:border-0 hover:bg-slate-50 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_2rem]" : "flex w-full items-center justify-between border-b px-4 py-3 text-left last:border-0 hover:bg-slate-50"} onClick={() => { onPick(entity); setOpen(false); }}>
                     <span><span className="block font-medium text-slate-900">{entity.primary_label || entity.display_value || entity.name || "Untitled record"}</span>{entity.secondary_text && <span className="mt-0.5 block text-xs text-slate-500">{entity.secondary_text}</span>}</span>
+                    {contextColumn && <span className="col-start-1 text-xs text-slate-600 sm:col-start-2 sm:text-sm"><span className="font-medium sm:hidden">{contextColumn.label}: </span>{entity.picker_context_label || "—"}</span>}
                     <Plus className="h-4 w-4 text-slate-400" />
                   </button>
                 ))}

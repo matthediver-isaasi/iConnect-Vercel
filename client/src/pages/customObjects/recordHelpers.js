@@ -527,6 +527,22 @@ export const compactPreviewColumns = (definition, side, projectedFields = []) =>
   return [...legacyColumns, ...normalized];
 };
 
+export const relationshipPickerContextColumn = (definition, side) => {
+  const relatedSide = side === "source" ? "target" : "source";
+  const raw = definition?.configuration?.picker_context?.[`${relatedSide}_column`];
+  if (
+    !raw
+    || !raw.relationship_definition_id
+    || !["source", "target"].includes(raw.side)
+    || !String(raw.label || "").trim()
+  ) return null;
+  return {
+    relationship_definition_id: String(raw.relationship_definition_id),
+    side: raw.side,
+    label: String(raw.label).trim(),
+  };
+};
+
 export const relationshipCardColumnLayoutClasses = {
   table: "min-w-[42rem] w-full table-fixed border-collapse",
   cardGrid: "grid gap-4 p-4 sm:grid-cols-2",

@@ -382,9 +382,11 @@ export function validateCustomObjectRelationshipPreviewConfiguration(
   if (!isPlainObject(configuration)) return { ok: false, errors: ['Relationship configuration must be an object'] };
   const currentPreview = configuration.compact_preview;
   const legacyPreview = configuration.compact_preview_fields;
-  if (currentPreview === undefined && legacyPreview === undefined) return { ok: true, errors: [] };
+  const pickerContext = configuration.picker_context;
+  if (currentPreview === undefined && legacyPreview === undefined && pickerContext === undefined) return { ok: true, errors: [] };
   if (currentPreview !== undefined && !isPlainObject(currentPreview)) errors.push('compact_preview must be an object');
   if (legacyPreview !== undefined && !isPlainObject(legacyPreview)) errors.push('compact_preview_fields must be an object');
+  if (pickerContext !== undefined && !isPlainObject(pickerContext)) errors.push('picker_context must be an object');
   if (errors.length) return { ok: false, errors };
   const preview = currentPreview ?? legacyPreview ?? {};
   for (const side of ['source', 'target']) {
@@ -395,15 +397,29 @@ export function validateCustomObjectRelationshipPreviewConfiguration(
     const activeIds = new Set((fieldsBySide[side] || []).filter((field) => getCustomObjectFieldMetadata(field).active)
       .map((field) => String(field.id)));
     for (const id of ids) if (!activeIds.has(id)) errors.push(`compact_preview.${side} includes an unknown or archived field`);
+    const eligibleRelationships = new Map((relationshipsBySide[side] || [])
+      .filter((item) => item?.status === 'active')
+      .map((item) => [String(item.id), item]));
+    const pickerColumn = pickerContext?.[`${side}_column`];
+    if (pickerColumn !== undefined) {
+      const label = `picker_context.${side}_column`;
+      const relationship = eligibleRelationships.get(String(pickerColumn?.relationship_definition_id || ''));
+      if (
+        !isPlainObject(pickerColumn)
+        || !String(pickerColumn.label || '').trim()
+        || !relationship
+        || !['source', 'target'].includes(pickerColumn.side)
+        || relationship?.[`${pickerColumn.side}_kind`] !== 'custom_object'
+        || String(relationship?.[`${pickerColumn.side}_custom_object_id`] || '')
+          !== String(objectIdsBySide[side] || '')
+      ) errors.push(`${label} includes an unavailable relationship`);
+    }
     const columns = preview[`${side}_columns`];
     if (columns === undefined) continue;
     if (!Array.isArray(columns)) {
       errors.push(`compact_preview.${side}_columns must be an array`);
       continue;
     }
-    const eligibleRelationships = new Map((relationshipsBySide[side] || [])
-      .filter((item) => item?.status === 'active')
-      .map((item) => [String(item.id), item]));
     const seen = new Set();
     columns.forEach((column, index) => {
       const label = `compact_preview.${side}_columns[${index}]`;

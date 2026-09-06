@@ -1938,6 +1938,42 @@ export function createCustomObjectService({
     }));
   }
 
+  function configuredPickerContextColumn(definition, side) {
+    const column = definition?.configuration?.picker_context?.[`${side}_column`];
+    if (!column || !column.relationship_definition_id
+      || !['source', 'target'].includes(column.side)) return null;
+    return {
+      type: 'relationship',
+      relationship_definition_id: String(column.relationship_definition_id),
+      side: column.side,
+      label: String(column.label || '').trim() || 'Related record',
+    };
+  }
+
+  function pickerContextMetadata(definition, side, primaryColumnLabel) {
+    const column = configuredPickerContextColumn(definition, side);
+    return column ? {
+      primaryColumnLabel,
+      contextColumnLabel: column.label,
+    } : {};
+  }
+
+  async function projectPickerContext(rows, definition, candidateSide) {
+    const column = configuredPickerContextColumn(definition, candidateSide);
+    if (!column || !rows.length || definition[`${candidateSide}_kind`] !== 'custom_object') return rows;
+    const input = new Map(rows.map((row) => [String(row.id), row]));
+    const projected = await projectDirectRelationshipColumns(input, {
+      ...definition,
+      configuration: { compact_preview: { [`${candidateSide}_columns`]: [column] } },
+    }, candidateSide);
+    return rows.map((row) => {
+      const labels = (projected.get(String(row.id))?.relationship_columns || [])
+        .map((item) => item.value?.primary_label)
+        .filter((value) => value !== null && value !== undefined && String(value).trim());
+      return { ...row, picker_context_label: labels.length ? labels.join(', ') : null };
+    });
+  }
+
   async function relationshipListSort(definition, side, relatedSide, query) {
     const sortField = query?.sortField;
     if (query?.sortDir !== undefined && !['asc', 'desc'].includes(query.sortDir)) {
@@ -2970,13 +3006,19 @@ export function createCustomObjectService({
         customSearchKey,
         page: p,
       });
-      return {
-        data: scoped.rows.map((row) => ({
+      const projected = scoped.rows.map((row) => ({
           id: row.id,
           kind: 'custom_object',
           custom_object_id: customObjectId,
           ...endpointLabel('custom_object', row, objectDefinition, endpointFields),
-        })),
+        }));
+      return {
+        data: await projectPickerContext(projected, definition, relatedSide),
+        ...pickerContextMetadata(
+          definition,
+          relatedSide,
+          objectDefinition.singular_label || 'Record',
+        ),
         total: scoped.total,
         page: p.page,
         pageSize: p.pageSize,
@@ -2992,13 +3034,19 @@ export function createCustomObjectService({
     q = q.order('created_at', { ascending: true }).order('id', { ascending: true });
     const { data, error, count } = await q.range(p.from, p.to);
     throwDb(error);
-    return {
-      data: (data || []).map((row) => ({
+    const projected = (data || []).map((row) => ({
         id: row.id,
         kind: 'custom_object',
         custom_object_id: customObjectId,
         ...endpointLabel('custom_object', row, objectDefinition, endpointFields),
-      })),
+      }));
+    return {
+      data: await projectPickerContext(projected, definition, relatedSide),
+      ...pickerContextMetadata(
+        definition,
+        relatedSide,
+        objectDefinition.singular_label || 'Record',
+      ),
       total: count || 0,
       page: p.page,
       pageSize: p.pageSize,
@@ -3131,11 +3179,17 @@ export function createCustomObjectService({
         customSearchKey,
         page: p,
       });
-      return {
-        data: scoped.rows.map((row) => ({
+      const projected = scoped.rows.map((row) => ({
           id: row.id, kind, custom_object_id: customObjectId,
           ...endpointLabel(kind, row, endpointDefinition, endpointFields, endpointAccess),
-        })),
+        }));
+      return {
+        data: await projectPickerContext(projected, definition, oppositeSide),
+        ...pickerContextMetadata(
+          definition,
+          oppositeSide,
+          endpointDefinition?.singular_label || definition[`${oppositeSide}_label`] || 'Record',
+        ),
         total: scoped.total, page: p.page, pageSize: p.pageSize,
       };
     }
@@ -3161,8 +3215,7 @@ export function createCustomObjectService({
       .order('id', { ascending: true });
     const { data, error, count } = await q.range(p.from, p.to);
     throwDb(error);
-    return {
-      data: (data || []).map((row) => ({
+    const projected = (data || []).map((row) => ({
         id: row.id,
         kind,
         custom_object_id: kind === 'custom_object' ? customObjectId : null,
@@ -3170,7 +3223,14 @@ export function createCustomObjectService({
           kind, row, endpointDefinition, endpointFields, endpointAccess,
           configuredCompactPreviewFieldIds(definition, oppositeSide),
         ),
-      })),
+      }));
+    return {
+      data: await projectPickerContext(projected, definition, oppositeSide),
+      ...pickerContextMetadata(
+        definition,
+        oppositeSide,
+        endpointDefinition?.singular_label || definition[`${oppositeSide}_label`] || 'Record',
+      ),
       page: p.page,
       pageSize: p.pageSize,
       total: count || 0,
