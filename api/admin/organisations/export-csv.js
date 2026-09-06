@@ -80,6 +80,18 @@ function normalizePreferenceValue(val) {
   return val;
 }
 
+export function formatCustomFieldValueForCsv(rawValue, field, originalValue = rawValue) {
+  if (field?.field_type === 'boolean' || field?.field_type === 'checkbox') {
+    return rawValue === true || rawValue === 'true' ? 'Yes' : 'No';
+  }
+  if (rawValue === null || rawValue === undefined) return '';
+  if (field?.field_type === 'picklist' || field?.field_type === 'dropdown' || field?.field_type === 'list') {
+    return resolvePicklistValue(originalValue || '', field);
+  }
+  if (Array.isArray(rawValue)) return rawValue.join(', ');
+  return String(rawValue);
+}
+
 // True when a customFieldFilters entry should actually filter the export.
 // Array values (multi-select option filters) are active when they contain a
 // real value; operator objects are active when they normalize to a usable
@@ -410,13 +422,8 @@ export default async function handler(req, res) {
 
       const customValues = customFields.map(f => {
         const rawValue = pagePrefMap[org.id]?.[f.id];
-        if (rawValue === null || rawValue === undefined) return '';
-        if (f.field_type === 'picklist' || f.field_type === 'dropdown' || f.field_type === 'list') {
-          const originalValue = pageRawMap[org.id]?.[f.id];
-          return resolvePicklistValue(originalValue || '', f);
-        }
-        if (Array.isArray(rawValue)) return rawValue.join(', ');
-        return String(rawValue);
+        const originalValue = pageRawMap[org.id]?.[f.id];
+        return formatCustomFieldValueForCsv(rawValue, f, originalValue);
       });
 
       return [...coreValues, ...customValues].map(escapeCSV).join(',');
