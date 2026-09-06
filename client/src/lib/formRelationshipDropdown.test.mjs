@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { FORM_NOT_LISTED_VALUE } from '../../../shared/formNotListedChoice.js';
 import {
   isConfirmedEmptyRelationshipResult,
+  formBuilderRelationshipLabel,
   getSavedFormFieldValue,
   getEligibleRelationshipParents,
   isRelationshipCompatibleWithParent,
@@ -17,6 +18,113 @@ import {
   shouldClearFilteredOrganisationValue,
   shouldClearRelationshipValue,
 } from './formRelationshipDropdown.js';
+
+test('builder labels an Organisation relationship by the Departments it returns', () => {
+  const relationship = {
+    id: 'org-departments',
+    name: 'Organisations',
+    relationship_parent_side: 'source',
+    relationship_parent_kind: 'organization',
+    related_kind: 'custom_object',
+    parent: { label: 'Organisations' },
+    related: {
+      label: 'Departments',
+      custom_object: { id: 'departments', plural_label: 'Departments' },
+    },
+  };
+  assert.equal(
+    formBuilderRelationshipLabel(relationship, {
+      type: 'organisation_dropdown',
+      label: 'Organisation',
+    }),
+    'Departments — from Organisation',
+  );
+});
+
+test('builder labels a reversed relationship from its opposite endpoint', () => {
+  const relationship = {
+    id: 'department-org',
+    source_kind: 'custom_object',
+    source_custom_object_id: 'departments',
+    source_label: 'Departments',
+    source_custom_object: { id: 'departments', plural_label: 'Departments' },
+    target_kind: 'organization',
+    target_label: 'Organisations',
+  };
+  assert.equal(
+    formBuilderRelationshipLabel(relationship, {
+      type: 'organisation_dropdown',
+      label: 'Organisation',
+    }),
+    'Departments — from Organisation',
+  );
+});
+
+test('builder labels organisation-group results with parent context', () => {
+  const relationship = {
+    id: 'org-groups',
+    relationship_parent_side: 'source',
+    relationship_parent_kind: 'organization',
+    related_kind: 'organization_group',
+    parent: { label: 'Organisations' },
+    related: { label: 'Regional groups' },
+  };
+  assert.equal(
+    formBuilderRelationshipLabel(relationship, {
+      type: 'organisation_dropdown',
+      label: 'Organisation',
+    }),
+    'Regional groups — from Organisation',
+  );
+});
+
+test('builder labels custom-object chains from the selected relationship field', () => {
+  const relationship = {
+    id: 'department-teams',
+    source_kind: 'custom_object',
+    source_custom_object_id: 'departments',
+    source_label: 'Departments',
+    target_kind: 'custom_object',
+    target_custom_object_id: 'teams',
+    target_label: 'Teams',
+    target_custom_object: { id: 'teams', plural_label: 'Teams' },
+  };
+  assert.equal(
+    formBuilderRelationshipLabel(relationship, {
+      type: 'relationship_dropdown',
+      label: 'Department',
+      related_kind: 'custom_object',
+      related_custom_object_id: 'departments',
+    }),
+    'Teams — from Department',
+  );
+});
+
+test('builder avoids repeating an ambiguous parent-side legacy label', () => {
+  assert.equal(
+    formBuilderRelationshipLabel({
+      id: 'legacy',
+      name: 'Organisations',
+      side: 'source',
+    }, {
+      type: 'organisation_dropdown',
+      label: 'Organisation',
+    }),
+    'Related records — from Organisation',
+  );
+});
+
+test('both form relationship editors use the shared direction-aware label', () => {
+  const source = readFileSync(new URL('../pages/FormBuilder.jsx', import.meta.url), 'utf8');
+  assert.equal(
+    source.match(/formBuilderRelationshipLabel\(relationship, selectedRelationshipParent\)/g)?.length,
+    1,
+  );
+  assert.equal(
+    source.match(/formBuilderRelationshipLabel\(item, selectedRelationshipParent\)/g)?.length,
+    1,
+  );
+});
 
 test('relationship parents include compatible earlier record selectors', () => {
   const fields = [

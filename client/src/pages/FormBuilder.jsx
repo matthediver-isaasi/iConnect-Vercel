@@ -53,6 +53,7 @@ import {
   getEligibleRelationshipParents,
   isRelationshipCompatibleWithParent,
   normalizeEligibleRelationships,
+  formBuilderRelationshipLabel,
   relationshipFieldConfig,
 } from "@/lib/formRelationshipDropdown";
 import {
@@ -5333,7 +5334,7 @@ function RepeatableRowsSettings({
                   }}>
                     <SelectTrigger className="h-9"><SelectValue placeholder="Choose relationship…" /></SelectTrigger>
                     <SelectContent>
-                      {compatibleRelationships.map(item => <SelectItem key={relationshipSelectionKey(item)} value={relationshipSelectionKey(item)}>{item.name || item.label || item.relationship_key || 'Related records'}</SelectItem>)}
+                      {compatibleRelationships.map(item => <SelectItem key={relationshipSelectionKey(item)} value={relationshipSelectionKey(item)}>{formBuilderRelationshipLabel(item, selectedRelationshipParent)}</SelectItem>)}
                     </SelectContent>
                   </Select>
                 </div>
@@ -6967,7 +6968,7 @@ function FieldCard({
                       <SelectContent>
                         {compatibleRelationships.map((relationship) => (
                           <SelectItem key={relationshipSelectionKey(relationship)} value={relationshipSelectionKey(relationship)}>
-                            {relationship.label || relationship.name || relationship.related_custom_object_name || relationship.relationship_key || 'Related records'}
+                            {formBuilderRelationshipLabel(relationship, selectedRelationshipParent)}
                           </SelectItem>
                         ))}
                       </SelectContent>

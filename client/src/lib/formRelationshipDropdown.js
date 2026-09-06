@@ -332,3 +332,93 @@ export function relationshipFieldConfig(relationship, parentField = null) {
     custom_object: object,
   };
 }
+
+const RELATIONSHIP_KIND_LABELS = {
+  organization: 'Organisation',
+  organisation: 'Organisation',
+  organization_group: 'Organisation group',
+  organisation_group: 'Organisation group',
+  custom_object: 'Related record',
+};
+
+function firstRelationshipLabel(...values) {
+  return values.find(value => typeof value === 'string' && value.trim())?.trim() || '';
+}
+
+function relationshipObjectLabel(object) {
+  return firstRelationshipLabel(
+    object?.plural_label,
+    object?.plural_name,
+    object?.name,
+    object?.singular_label,
+    object?.label,
+  );
+}
+
+function comparableRelationshipLabel(value) {
+  return String(value || '')
+    .toLocaleLowerCase()
+    .replace(/[^a-z0-9]/g, '')
+    .replace(/s$/, '');
+}
+
+/**
+ * Labels a relationship from the form field's point of view: the record type
+ * returned by the dropdown first, followed by the already-selected parent.
+ */
+export function formBuilderRelationshipLabel(relationship, parentField = null) {
+  if (!relationship) return 'Related records';
+
+  const config = relationshipFieldConfig(relationship, parentField);
+  const parentSide = config.relationship_parent_side
+    || relationship.relationship_parent_side
+    || relationship.organization_side
+    || relationship.side;
+  const relatedSide = parentSide === 'source' ? 'target'
+    : parentSide === 'target' ? 'source' : null;
+  const relatedObject = relationship.related?.custom_object
+    || relationship.related_object
+    || relationship.related_custom_object
+    || config.custom_object
+    || (relatedSide === 'source' ? relationship.source_custom_object : relationship.target_custom_object)
+    || {};
+  const parentObject = relationship.parent?.custom_object
+    || relationship.parent_object
+    || relationship.relationship_parent_object
+    || (parentSide === 'source' ? relationship.source_custom_object : relationship.target_custom_object)
+    || {};
+
+  const parentLabel = firstRelationshipLabel(
+    parentField?.label,
+    parentField?.name,
+    relationship.parent?.label,
+    relationshipObjectLabel(parentObject),
+    parentSide ? relationship[`${parentSide}_label`] : '',
+    RELATIONSHIP_KIND_LABELS[config.relationship_parent_kind],
+    'Parent record',
+  );
+  let relatedLabel = firstRelationshipLabel(
+    relationship.related?.label,
+    relationshipObjectLabel(relatedObject),
+    relatedSide ? relationship[`${relatedSide}_label`] : '',
+    relationship.related_custom_object_name,
+    config.custom_object_name,
+    RELATIONSHIP_KIND_LABELS[config.related_kind],
+  );
+
+  if (!relatedLabel) {
+    const genericLabel = firstRelationshipLabel(
+      relationship.label,
+      relationship.name,
+      relationship.relationship_key,
+    );
+    relatedLabel = comparableRelationshipLabel(genericLabel) !== comparableRelationshipLabel(parentLabel)
+      ? genericLabel
+      : 'Related records';
+  }
+
+  if (!parentLabel || comparableRelationshipLabel(relatedLabel) === comparableRelationshipLabel(parentLabel)) {
+    return relatedLabel || 'Related records';
+  }
+  return `${relatedLabel} — from ${parentLabel}`;
+}
