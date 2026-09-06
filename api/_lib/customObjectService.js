@@ -2369,6 +2369,11 @@ export function createCustomObjectService({
   const oppositeRelationshipSide = (side) => side === 'source' ? 'target' : 'source';
   const PICKER_SCOPE_RESULT_LIMIT = 5000;
   const PICKER_SCOPE_EDGE_SCAN_LIMIT = 20000;
+  const PICKER_SCOPE_CORE_TERMINAL_FIELDS = Object.freeze({
+    member: Object.freeze({
+      organization_id: Object.freeze({ kind: 'organization', customObjectId: null }),
+    }),
+  });
   const chunked = (values, size = 100) => Array.from(
     { length: Math.ceil(values.length / size) },
     (_, index) => values.slice(index * size, (index + 1) * size),
@@ -2395,7 +2400,7 @@ export function createCustomObjectService({
     if (byId.size !== ids.length) {
       throw new CustomObjectHttpError(409, 'Configured picker scope references an unavailable relationship');
     }
-    const validatePath = (path, startingEndpoint) => {
+    const validatePath = (path, startingEndpoint, terminalSources) => {
       let current = startingEndpoint;
       const visitedEndpoints = new Set([pickerScopeEndpointKey(current)]);
       const visitedDefinitions = new Set();
@@ -2422,10 +2427,34 @@ export function createCustomObjectService({
         current = next;
         return { definition: pathDefinition, fromSide: hop.from_side, toSide };
       });
-      return { hops: resolved, terminal: current };
+      const sources = terminalSources === undefined ? [] : terminalSources;
+      if (!Array.isArray(sources) || sources.some((source) =>
+        !source || source.type !== 'core_field'
+        || typeof source.field !== 'string'
+        || Object.keys(source).some((key) => !['type', 'field'].includes(key)))) {
+        throw new CustomObjectHttpError(409, 'Configured picker scope terminal source is malformed');
+      }
+      const seenSources = new Set();
+      const resolvedSources = sources.map((source) => {
+        const terminal = PICKER_SCOPE_CORE_TERMINAL_FIELDS[startingEndpoint.kind]?.[source.field];
+        if (!terminal || !samePickerScopeEndpoint(terminal, current) || seenSources.has(source.field)) {
+          throw new CustomObjectHttpError(409, 'Configured picker scope terminal source is unavailable');
+        }
+        seenSources.add(source.field);
+        return { ...source, endpoint: startingEndpoint };
+      });
+      return { hops: resolved, terminal: current, terminalSources: resolvedSources };
     };
-    const source = validatePath(scope.source_path, pickerScopeEndpoint(definition, 'source'));
-    const target = validatePath(scope.target_path, pickerScopeEndpoint(definition, 'target'));
+    const source = validatePath(
+      scope.source_path,
+      pickerScopeEndpoint(definition, 'source'),
+      scope.source_terminal_sources,
+    );
+    const target = validatePath(
+      scope.target_path,
+      pickerScopeEndpoint(definition, 'target'),
+      scope.target_terminal_sources,
+    );
     if (!samePickerScopeEndpoint(source.terminal, target.terminal)) {
       throw new CustomObjectHttpError(409, 'Configured picker scope paths must end at the same record type');
     }
@@ -2527,6 +2556,56 @@ export function createCustomObjectService({
     return [...new Set(current)];
   }
 
+  async function resolvePickerScopeTerminal(startIds, path, reverse = false, virtualEdges = []) {
+    const graphIds = await resolvePickerScopePath(startIds, path, reverse, virtualEdges);
+    if (!path.terminalSources.length) return graphIds;
+    const result = new Set(graphIds);
+    for (const source of path.terminalSources) {
+      const table = {
+        member: 'member',
+        organization: 'organization',
+        organization_group: 'organization_group',
+      }[source.endpoint.kind];
+      if (!table) throw new CustomObjectHttpError(409, 'Configured picker scope terminal source is unsupported');
+      if (!reverse) {
+        for (const ids of chunked([...new Set(startIds.filter(Boolean).map(String))])) {
+          const { data, error } = await db.from(table).select(`id, ${source.field}`)
+            .eq('tenant_id', tenantId).in('id', ids);
+          throwDb(error);
+          for (const row of data || []) if (row[source.field]) result.add(String(row[source.field]));
+        }
+      } else {
+        for (const ids of chunked([...new Set(startIds.filter(Boolean).map(String))])) {
+          for (let from = 0;; from += 1000) {
+            const { data, error } = await db.from(table).select('id')
+              .eq('tenant_id', tenantId).in(source.field, ids)
+              .order('id', { ascending: true })
+              .range(from, from + 999);
+            throwDb(error);
+            const rows = data || [];
+            for (const row of rows) {
+              result.add(String(row.id));
+              if (result.size > PICKER_SCOPE_RESULT_LIMIT) {
+                throw new CustomObjectHttpError(
+                  409,
+                  `Configured picker scope reaches more than ${PICKER_SCOPE_RESULT_LIMIT} records; narrow the relationship paths`,
+                );
+              }
+            }
+            if (rows.length < 1000) break;
+          }
+        }
+      }
+    }
+    if (result.size > PICKER_SCOPE_RESULT_LIMIT) {
+      throw new CustomObjectHttpError(
+        409,
+        `Configured picker scope reaches more than ${PICKER_SCOPE_RESULT_LIMIT} records; narrow the relationship paths`,
+      );
+    }
+    return [...result];
+  }
+
   // Legacy v1 scopes compare a core field to one parent relationship. Keep
   // this path byte-for-byte compatible while v2 scopes use graph traversal.
   async function legacyConfiguredPickerScope(definition, routedSide, routedRecordId) {
@@ -2617,10 +2696,10 @@ export function createCustomObjectService({
     const candidateSide = oppositeRelationshipSide(routedSide);
     const routedPath = schema[routedSide];
     const candidatePath = schema[candidateSide];
-    const terminalIds = await resolvePickerScopePath([routedRecordId], routedPath, false, virtualEdges);
+    const terminalIds = await resolvePickerScopeTerminal([routedRecordId], routedPath, false, virtualEdges);
     if (!terminalIds.length) return { candidateRecordIds: [] };
     return {
-      candidateRecordIds: await resolvePickerScopePath(terminalIds, candidatePath, true, virtualEdges),
+      candidateRecordIds: await resolvePickerScopeTerminal(terminalIds, candidatePath, true, virtualEdges),
     };
   }
 

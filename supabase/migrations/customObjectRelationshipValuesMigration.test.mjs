@@ -10,6 +10,10 @@ const pickerScopeStructuralUpdatesSql = await readFile(
   new URL("./20261003_relationship_picker_scope_structural_updates.sql", import.meta.url),
   "utf8",
 );
+const pickerScopeCoreTerminalSourcesSql = await readFile(
+  new URL("./20261004_relationship_picker_core_terminal_sources.sql", import.meta.url),
+  "utf8",
+);
 
 test("relationship values migration is additive and keeps legacy edges valid", () => {
   assert.match(sql, /ADD COLUMN IF NOT EXISTS field_values jsonb NOT NULL DEFAULT '\{\}'::jsonb/i);
@@ -71,4 +75,35 @@ test("relationship-value enforcement remains independent of picker topology vali
   );
   assert.match(sql, /custom_object_relationship_field_required/i);
   assert.match(sql, /custom_object_relationship_field_type/i);
+});
+
+test("picker scope core terminal source keeps BNMS primary and secondary Organisations additive", () => {
+  assert.match(
+    pickerScopeCoreTerminalSourcesSql,
+    /target_terminal_sources[\s\S]*core_field[\s\S]*organization_id/i,
+  );
+  assert.match(
+    pickerScopeCoreTerminalSourcesSql,
+    /SELECT m\.organization_id[\s\S]*m\.tenant_id = NEW\.tenant_id/i,
+  );
+  assert.match(
+    pickerScopeCoreTerminalSourcesSql,
+    /source_terminals\(record_id\)[\s\S]*v_source_primary_organisation[\s\S]*target_terminals\(record_id\)[\s\S]*v_target_primary_organisation/i,
+  );
+  assert.match(
+    pickerScopeCoreTerminalSourcesSql,
+    /v_path_definition\.source_kind <> v_current_kind[\s\S]*v_path_definition\.target_kind <> v_current_kind/i,
+  );
+  assert.match(
+    pickerScopeCoreTerminalSourcesSql,
+    /v_terminal_target_kind <> 'organization'[\s\S]*v_terminal_target_object IS NOT NULL/i,
+  );
+  assert.match(
+    pickerScopeCoreTerminalSourcesSql,
+    /configuration->'picker_scope'->>'version' = '2'/i,
+  );
+  assert.match(
+    pickerScopeCoreTerminalSourcesSql,
+    /REVOKE ALL ON FUNCTION public\.guard_custom_object_picker_scope_v2\(\)[\s\S]*FROM PUBLIC, anon, authenticated/i,
+  );
 });

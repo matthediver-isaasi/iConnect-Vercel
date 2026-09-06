@@ -4116,6 +4116,10 @@ test('v2 picker paths intersect through reusable relationship graph hops in both
             relationship_definition_id: departmentOrganisationId,
             from_side: 'source',
           }],
+          target_terminal_sources: [{
+            type: 'core_field',
+            field: 'organization_id',
+          }],
           target_path: [{
             relationship_definition_id: assignmentMemberId,
             from_side: 'target',
@@ -4154,8 +4158,9 @@ test('v2 picker paths intersect through reusable relationship graph hops in both
       { id: 'org-c', tenant_id: tenantId, name: 'C' },
     ],
     member: [
-      { id: 'member-a', tenant_id: tenantId, first_name: 'A', last_name: 'Member' },
+      { id: 'member-a', tenant_id: tenantId, organization_id: 'org-b', first_name: 'A', last_name: 'Member' },
       { id: 'member-b', tenant_id: tenantId, first_name: 'B', last_name: 'Member' },
+      { id: 'member-primary-only', tenant_id: tenantId, organization_id: 'org-a', first_name: 'Primary', last_name: 'Only' },
     ],
     custom_object_relationship: [
       { id: 'dept-org-a', tenant_id: tenantId, relationship_definition_id: departmentOrganisationId, source_record_id: 'dept-a', target_record_id: 'org-a', archived_at: null },
@@ -4170,19 +4175,42 @@ test('v2 picker paths intersect through reusable relationship graph hops in both
       { id: 'assignment-org-b', tenant_id: tenantId, relationship_definition_id: assignmentOrganisationId, source_record_id: 'assignment-b', target_record_id: 'org-b', archived_at: null },
       { id: 'assignment-org-archived', tenant_id: tenantId, relationship_definition_id: assignmentOrganisationId, source_record_id: 'assignment-archived', target_record_id: 'org-b', archived_at: '2026-01-01' },
       { id: 'foreign-assignment', tenant_id: 'other-tenant', relationship_definition_id: assignmentOrganisationId, source_record_id: 'assignment-a', target_record_id: 'org-b', archived_at: null },
+      { id: 'existing-department-link', tenant_id: tenantId, relationship_definition_id: memberDefinitionId, source_record_id: 'dept-a', target_record_id: 'member-primary-only', archived_at: null },
     ],
   });
   const service = createCustomObjectService({ db, context: context(), isAdmin: true });
 
+  const primaryOnly = await service.coreEntityPicker('member', 'member-primary-only', {
+    definitionId: memberDefinitionId,
+  });
+  assert.equal(primaryOnly.total, 0, 'the only primary-organisation Department is already linked');
+  db.tables.custom_object_record.push({
+    id: 'dept-a-sibling', tenant_id: tenantId, custom_object_id: departmentObjectId,
+    archived_at: null, created_at: '2026-01-04', data: { name: 'Alpha sibling' },
+  });
+  db.tables.custom_object_relationship.push({
+    id: 'dept-org-a-sibling', tenant_id: tenantId,
+    relationship_definition_id: departmentOrganisationId,
+    source_record_id: 'dept-a-sibling', target_record_id: 'org-a', archived_at: null,
+  });
+  const primarySibling = await service.coreEntityPicker('member', 'member-primary-only', {
+    definitionId: memberDefinitionId,
+  });
+  assert.deepEqual(primarySibling.data.map((row) => row.id), ['dept-a-sibling']);
+  await service.createCoreRelationship('member', 'member-primary-only', {
+    relationship_definition_id: memberDefinitionId,
+    related_record_id: 'dept-a-sibling',
+  });
+
   const firstPage = await service.coreEntityPicker('member', 'member-a', {
     definitionId: memberDefinitionId, page: '1', pageSize: '1',
   });
-  assert.equal(firstPage.total, 2);
+  assert.equal(firstPage.total, 4);
   assert.deepEqual(firstPage.data.map((row) => row.id), ['dept-a']);
   const secondPage = await service.coreEntityPicker('member', 'member-a', {
     definitionId: memberDefinitionId, page: '2', pageSize: '1',
   });
-  assert.deepEqual(secondPage.data.map((row) => row.id), ['dept-c']);
+  assert.deepEqual(secondPage.data.map((row) => row.id), ['dept-b']);
   const searched = await service.coreEntityPicker('member', 'member-a', {
     definitionId: memberDefinitionId, search: 'Char',
   });
@@ -4192,7 +4220,7 @@ test('v2 picker paths intersect through reusable relationship graph hops in both
   const fromDepartment = await service.entityPicker(departmentObjectId, {
     definitionId: memberDefinitionId, recordId: 'dept-b', side: 'source',
   });
-  assert.deepEqual(fromDepartment.data.map((row) => row.id), ['member-b']);
+  assert.deepEqual(fromDepartment.data.map((row) => row.id), ['member-a', 'member-b']);
 
   const noInitialPath = await service.initialRelationshipCandidates(departmentObjectId, {
     definitionId: memberDefinitionId,
@@ -4208,7 +4236,10 @@ test('v2 picker paths intersect through reusable relationship graph hops in both
       related_record_id: 'org-a',
     }]),
   });
-  assert.deepEqual(initialWithProposedParent.data.map((row) => row.id), ['member-a']);
+  assert.deepEqual(
+    initialWithProposedParent.data.map((row) => row.id),
+    ['member-a', 'member-primary-only'],
+  );
   await assert.rejects(
     () => service.createRecordWithRelationships(departmentObjectId, {
       data: { name: 'New Department' },
@@ -4224,28 +4255,44 @@ test('v2 picker paths intersect through reusable relationship graph hops in both
     }),
     (error) => error.status === 400 && /picker scope/.test(error.message),
   );
+  await assert.rejects(
+    () => service.createCoreRelationship('member', 'member-primary-only', {
+      relationship_definition_id: memberDefinitionId,
+      related_record_id: 'dept-b',
+    }),
+    (error) => error.status === 400 && /picker scope/.test(error.message),
+  );
 
   await service.createCoreRelationship('member', 'member-a', {
     relationship_definition_id: memberDefinitionId,
     related_record_id: 'dept-c',
   });
-  await assert.rejects(
-    () => service.createRelationship(departmentObjectId, {
-      relationship_definition_id: memberDefinitionId,
-      routed_side: 'source',
-      routed_record_id: 'dept-b',
-      source_record_id: 'dept-b',
-      target_record_id: 'member-a',
-    }),
-    (error) => error.status === 400 && /picker scope/.test(error.message),
-  );
-
+  db.tables.member.find((member) => member.id === 'member-a').organization_id = null;
   db.tables.custom_object_relationship.find((edge) => edge.id === 'assignment-org-b').archived_at = '2026-02-01';
   const emptyAfterArchive = await service.entityPicker(departmentObjectId, {
     definitionId: memberDefinitionId, recordId: 'dept-b', side: 'source',
   });
   assert.equal(emptyAfterArchive.total, 0);
   assert.deepEqual(emptyAfterArchive.data, []);
+
+  db.tables.member.push(...Array.from({ length: 1001 }, (_, index) => ({
+    id: `bulk-member-${String(index).padStart(4, '0')}`,
+    tenant_id: tenantId,
+    organization_id: 'org-a',
+    first_name: 'Bulk',
+    last_name: String(index).padStart(4, '0'),
+  })));
+  const largeReverseScope = await service.entityPicker(departmentObjectId, {
+    definitionId: memberDefinitionId,
+    recordId: 'dept-a',
+    side: 'source',
+    page: '11',
+    pageSize: '100',
+  });
+  assert.equal(largeReverseScope.total, 1002);
+  assert.equal(largeReverseScope.data.length, 2);
+  assert.ok(db.calls.some((call) =>
+    call.table === 'member' && call.type === 'range' && call.from === 1000));
 
   db.tables.custom_object_definition.find((item) => item.id === assignmentObjectId).status = 'archived';
   await assert.rejects(

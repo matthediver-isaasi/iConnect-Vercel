@@ -23,9 +23,9 @@
 
 ## Overview
 
-BNMS limits the **Organisation Departments** offered on a Member record to Departments owned by that Member's **secondary Organisations**. It does not use the Member's primary Organisation for this restriction. The same card displays each Department's directly linked owning **Organisation** in a separate column so duplicate Department names remain distinguishable.
+BNMS limits the **Organisation Departments** offered on a Member record to Departments owned by either the Member's **primary Organisation** or an active **secondary Organisation** assignment. The same card displays each Department's directly linked owning **Organisation** in a separate column so duplicate Department names remain distinguishable.
 
-The picker compares two relationship paths. Starting from an **Organisation department**, one path reaches its owning **Organization**. Starting from a **Member**, the other path reaches the Member's secondary **Organization** records through **Member organisation assignments**. A Department is eligible only when the paths intersect at the same Organization record.
+The picker compares terminal Organization IDs. Starting from an **Organisation department**, one path reaches its owning **Organization**. Starting from a **Member**, the other side combines the Member's `organization_id` with secondary **Organization** records reached through **Member organisation assignments**. A Department is eligible when its owning Organization appears in that combined set.
 
 This guide records the BNMS configuration audited on 5 September 2026 and the repository-managed Organisation-column update. The column migration changes relationship presentation metadata only; it does not alter Department, Member, Organisation, or relationship-edge records.
 
@@ -80,7 +80,7 @@ Member organisation assignment
 Organization
 ```
 
-Both paths end at the core **Organization** endpoint. The graph is therefore compatible and saveable.
+Both paths end at the core **Organization** endpoint. The target side also declares `member.organization_id` as a validated core-field terminal source. The graph is therefore compatible and saveable, and primary Organisation membership is additive rather than a fallback.
 
 ### Current Card Columns
 
@@ -127,14 +127,14 @@ The direct `members` relationship compares:
 ```text
 Department's Organizations
 INTERSECT
-Member's Secondary organisations
+(Member's Primary organisation UNION Member's Secondary organisations)
 ```
 
 The result must contain at least one identical Organization record. Matching labels or names is not sufficient; both paths must reach the same stored Organization ID.
 
-### Primary Organisation Is Deliberately Excluded
+### Primary and Secondary Organisations Are Combined
 
-The source path does not compare against `member.organization_id`. A Member's primary Organisation neither grants nor removes Department choices under this configuration. Only active **Member organisation assignment** records linked through `assignment_member` and `assignment_organisation_v2` participate.
+The target terminal set contains the Member's non-null `organization_id` plus Organizations reached through complete active **Member organisation assignment** records. Either route can make a Department eligible. A missing or incomplete secondary assignment does not hide Departments belonging to the primary Organisation.
 
 ---
 
@@ -282,6 +282,19 @@ Actual live stored traversal:
 
 The editor stores these immutable relationship-definition IDs, while the UI presents the labels above. Both paths must be non-empty, contain no unavailable or disconnected step, avoid loops, use no definition twice, and finish at the same endpoint type.
 
+The pinned BNMS configuration also stores:
+
+```json
+"target_terminal_sources": [
+  {
+    "type": "core_field",
+    "field": "organization_id"
+  }
+]
+```
+
+This clause is deliberately narrow: it is valid only when the routed endpoint is a Member and the graph terminal is the core Organization endpoint.
+
 ---
 
 ## Verification Procedure
@@ -294,10 +307,10 @@ Prepare:
 
 - **Organization A** with **Department A1** and optionally **Department A2**;
 - **Organization B** with **Department B1**;
-- a test **Member M**;
-- one **Member organisation assignment** linking Member M to Organization A.
+- a test **Member M** whose primary Organisation is Organization A;
+- optionally, one **Member organisation assignment** linking Member M to Organization B.
 
-Ensure each Department has exactly one active `organisation` link to its owning Organization. Ensure the assignment has both required links: `assignment_member` to Member M and `assignment_organisation_v2` to Organization A.
+Ensure each Department has exactly one active `organisation` link to its owning Organization. If testing the secondary route, ensure the assignment has both required links: `assignment_member` to Member M and `assignment_organisation_v2` to Organization B.
 
 ### Expected Picker Results
 
@@ -307,10 +320,10 @@ Ensure each Department has exactly one active `organisation` link to its owning 
 4. Confirm:
    - Department A1 is offered;
    - Department A2 is offered, if created;
-   - Department B1 is not offered.
+    - Department B1 is not offered unless the complete Organization B secondary assignment exists.
 5. Add Department A1 and save. The link should succeed.
 6. Attempt to add Department B1 through any available write path. It should be absent from the picker; a direct write should be rejected as outside the configured picker scope.
-7. Add a second complete secondary assignment from Member M to Organization B.
+7. Add a complete secondary assignment from Member M to Organization B.
 8. Reopen the picker and confirm Department B1 is now offered.
 9. Archive or remove the Organization B assignment.
 10. Reopen the picker and confirm Department B1 is no longer offered for a new link.
@@ -328,7 +341,11 @@ Ensure each Department has exactly one active `organisation` link to its owning 
 
 ### Member with No Secondary Organisations
 
-A Member with no complete active secondary assignment should see no eligible Departments. This is expected under the secondary-only rule, even if the Member has a primary Organisation.
+A Member with no complete active secondary assignment still sees unlinked Departments owned by the Member's primary Organisation. If the Member also has no primary Organisation, or that Organisation owns no active unlinked Departments, the picker is empty.
+
+### Safe Live Verification
+
+For Member `f722a106-03f8-4494-ab37-7338a9e0fd74`, verify read-only first that the primary Organisation is `22813a71-ef75-497b-95a6-7616b2ba8bd2`. Open **Add link** without saving a relationship. The two currently unlinked Departments owned by that Organisation should be offered, while the already-linked PET Centre Department should be absent. Search each expected label and confirm the exact total changes consistently; then close the dialog without selecting a row.
 
 ---
 
@@ -345,7 +362,7 @@ The editor permits saving version 2 scope only when:
 
 ### Database Write Guard
 
-Migration `supabase/migrations/20260929_relationship_picker_graph_paths.sql` adds a deferred constraint trigger that evaluates both paths for every new active relationship edge. A later additive migration keeps the same validation when an edge is restored, re-pointed, moved to another tenant or definition, or otherwise changes its topology. Metadata-only edits, including relationship-field toggle values, do not revalidate the unchanged topology. If a topology-validated edge has no common terminal record, the write fails with:
+Migration `supabase/migrations/20260929_relationship_picker_graph_paths.sql` adds a deferred constraint trigger that evaluates both paths for every new active relationship edge. Migration `supabase/migrations/20261004_relationship_picker_core_terminal_sources.sql` extends that guard with the validated Member primary-Organisation terminal source and updates the pinned BNMS configuration. A relationship is accepted when the Department owner matches either route. Restores and other topology changes use the same guard; metadata-only edits do not revalidate unchanged topology. If neither route matches, the write fails with:
 
 ```text
 Related record is outside the configured picker scope
@@ -353,9 +370,9 @@ Related record is outside the configured picker scope
 
 ### Existing Links Are Not Reconciled
 
-The migration intentionally applies the new generic guard to new or restored links. It removes the earlier primary-Organisation-specific triggers because those would reject valid secondary-Organisation links and could archive links when a primary Organisation changes.
+The migration intentionally applies the combined generic guard to new or restored links. It does not automatically archive existing links when a primary Organisation or secondary assignment changes.
 
-An active historical link can still have its relationship-field values edited even if it is no longer supported by a current secondary assignment. Restoring or re-pointing that link re-runs the scope guard and remains blocked unless the endpoints are in scope.
+An active historical link can still have its relationship-field values edited even if neither current route supports it. Restoring or re-pointing that link re-runs the scope guard and remains blocked unless the endpoints are in scope.
 
 The live audit found 353 active links unsupported by current secondary assignments. This guide does not alter them. Review and cleanup, if desired, must be separately approved.
 
@@ -433,7 +450,7 @@ Stores the graph schema and picker scope.
 | `show_on_source`, `show_on_target` | Panel visibility |
 | `edit_from_source`, `edit_from_target` | Editing availability |
 | `status` | Draft, active, or archived |
-| `configuration.picker_scope` | Versioned intersection paths |
+| `configuration.picker_scope` | Versioned intersection paths and validated terminal sources |
 | `configuration.compact_preview.<side>_columns` | Ordered scalar/direct-relationship card columns |
 
 ### `custom_object_relationship`
@@ -491,9 +508,9 @@ Stores relationship edges.
 
 **Symptom:** The Organisation Departments picker is empty.
 
-**Cause:** The Member has no complete active secondary assignment, the assignment uses the archived relationship, the Department has no active owning Organisation link, or the paths do not share the same Organization record.
+**Cause:** The Member has no primary Organisation and no complete active secondary assignment, the assignment uses the archived relationship, the Department has no active owning Organisation link, or neither route reaches the Department's Organization record.
 
-**Fix:** Confirm a complete **Member organisation assignment** exists with active links to both the Member and the intended Organization. Confirm the Department's **Organisations** link points to that exact Organization.
+**Fix:** Confirm the Member's primary Organisation or a complete **Member organisation assignment** reaches the intended Organization. Confirm the Department's **Organisations** link points to that exact Organization.
 
 ### Problem: Unrelated existing Departments remain linked
 

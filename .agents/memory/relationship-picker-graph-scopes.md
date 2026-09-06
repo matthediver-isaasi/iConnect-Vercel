@@ -7,4 +7,4 @@ A reusable picker restriction compares two bounded paths: one starting from the 
 
 **Why:** Domain labels and built-in core fields cannot represent reusable eligibility rules such as secondary affiliations. Path identity must survive label/key changes, and forged or stale selections must be rejected by the same rule as the picker.
 
-**How to apply:** Traverse only tenant-owned active definitions, active edges, and live endpoints; cap depth, scanned edges, and intermediate results; batch ID reads; filter before exact search/count/pagination; revalidate on every write. Empty or malformed paths fail closed. Preserve legacy picker scopes until explicitly converted.
+**How to apply:** Traverse only tenant-owned active definitions, active edges, and live endpoints; cap depth, scanned edges, and intermediate results; batch ID reads; filter before exact search/count/pagination; revalidate on every write. A whitelisted core-field terminal source may be unioned with a path only when its core endpoint and terminal type match, symmetrically in API and database enforcement. Empty or malformed paths fail closed. Preserve legacy picker scopes until explicitly converted.
