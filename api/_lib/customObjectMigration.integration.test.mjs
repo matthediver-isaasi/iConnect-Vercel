@@ -30,6 +30,9 @@ const bnmsDepartmentMembersBaseMigrationPath = fileURLToPath(
 const bnmsDepartmentMembersUpgradeMigrationPath = fileURLToPath(
   new URL('../../supabase/migrations/20260926_bnms_member_departments_many_to_many.sql', import.meta.url),
 );
+const pickerScopeCoreTerminalSourcesMigrationPath = fileURLToPath(
+  new URL('../../supabase/migrations/20261004_relationship_picker_core_terminal_sources.sql', import.meta.url),
+);
 
 function findExecutable(name) {
   const result = spawnSync('sh', ['-c', `command -v ${name}`], { encoding: 'utf8' });
@@ -409,12 +412,56 @@ test('migration replays and persists every supported Custom Object field type', 
     run(psql, [...connectionArgs, '-f', bnmsDepartmentMembersBaseMigrationPath]);
     run(psql, [...connectionArgs, '-f', bnmsDepartmentMembersUpgradeMigrationPath]);
     run(psql, [...connectionArgs, '-f', bnmsDepartmentMembersUpgradeMigrationPath]);
+    run(psql, connectionArgs, {
+      input: `
+        INSERT INTO public.custom_object_relationship_definition(
+          id, tenant_id, relationship_key, source_kind, target_kind, cardinality,
+          source_label, target_label, is_required, edit_from_source, edit_from_target, status
+        ) VALUES (
+          '40000000-0000-4000-8000-000000000003',
+          'ff2df806-b321-4254-b651-3af11fccf1db',
+          'primary_organisation', 'member', 'organization', 'many_to_one',
+          'Primary Organisation', 'Members', false, false, false, 'active'
+        );
+        UPDATE public.custom_object_relationship_definition
+        SET configuration = jsonb_build_object(
+          'picker_scope',
+          jsonb_build_object(
+            'version', 2,
+            'match', 'intersects',
+            'source_path', jsonb_build_array(jsonb_build_object(
+              'relationship_definition_id', '40000000-0000-4000-8000-000000000001',
+              'from_side', 'source'
+            )),
+            'target_path', jsonb_build_array(jsonb_build_object(
+              'relationship_definition_id', '40000000-0000-4000-8000-000000000003',
+              'from_side', 'source'
+            ))
+          )
+        )
+        WHERE id = '40000000-0000-4000-8000-000000000002';
+      `,
+    });
+    run(psql, [...connectionArgs, '-f', pickerScopeCoreTerminalSourcesMigrationPath]);
+    run(psql, [...connectionArgs, '-f', pickerScopeCoreTerminalSourcesMigrationPath]);
+    run(psql, connectionArgs, {
+      input: `
+        ALTER TABLE public.custom_object_relationship
+        DISABLE TRIGGER department_member_organization_consistency_trigger;
+        CREATE CONSTRAINT TRIGGER custom_object_picker_scope_v2_guard_test_trigger
+        AFTER INSERT ON public.custom_object_relationship
+        DEFERRABLE INITIALLY IMMEDIATE
+        FOR EACH ROW
+        EXECUTE FUNCTION public.guard_custom_object_picker_scope_v2();
+      `,
+    });
     const departmentMemberMigration = run(psql, [...connectionArgs, '-t', '-A'], {
       input: `
         SELECT
           cardinality || ':' ||
           target_label || ':' ||
-          (configuration->'picker_scope'->>'routed_core_field') || ':' ||
+          (configuration->'picker_scope'->>'version') || ':' ||
+          (configuration->'picker_scope'->'target_terminal_sources'->0->>'field') || ':' ||
           (SELECT count(*) FROM public.custom_object_relationship
            WHERE id = '60000000-0000-4000-8000-000000000004'
              AND archived_at IS NULL)
@@ -424,8 +471,40 @@ test('migration replays and persists every supported Custom Object field type', 
     });
     assert.equal(
       departmentMemberMigration.trim(),
-      'many_to_many:Organisation Departments:organization_id:1',
+      'many_to_many:Organisation Departments:2:organization_id:1',
     );
+    run(psql, connectionArgs, {
+      input: `
+        BEGIN;
+        INSERT INTO public.custom_object_relationship(
+          tenant_id, relationship_definition_id, source_record_id, target_record_id
+        ) VALUES (
+          'ff2df806-b321-4254-b651-3af11fccf1db',
+          '40000000-0000-4000-8000-000000000002',
+          '50000000-0000-4000-8000-000000000002',
+          '30000000-0000-4000-8000-000000000001'
+        );
+        ROLLBACK;
+      `,
+    });
+    runFailure(psql, connectionArgs, /outside the configured picker scope/, {
+      input: `
+        INSERT INTO public.custom_object_relationship(
+          tenant_id, relationship_definition_id, source_record_id, target_record_id
+        ) VALUES (
+          'ff2df806-b321-4254-b651-3af11fccf1db',
+          '40000000-0000-4000-8000-000000000002',
+          '50000000-0000-4000-8000-000000000003',
+          '30000000-0000-4000-8000-000000000001'
+        );
+      `,
+    });
+    run(psql, connectionArgs, {
+      input: `
+        ALTER TABLE public.custom_object_relationship
+        ENABLE TRIGGER department_member_organization_consistency_trigger;
+      `,
+    });
     const legacyDepartmentState = run(psql, [...connectionArgs, '-t', '-A'], {
       input: `
         SELECT

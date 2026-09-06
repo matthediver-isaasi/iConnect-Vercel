@@ -32,12 +32,13 @@ BEGIN
     RETURN NEW;
   END IF;
 
-  SELECT d, d.configuration->'picker_scope'
-  INTO v_direct_definition, v_scope
+  SELECT d.*
+  INTO v_direct_definition
   FROM public.custom_object_relationship_definition d
   WHERE d.id = NEW.relationship_definition_id
     AND d.tenant_id = NEW.tenant_id
     AND d.status = 'active';
+  v_scope := v_direct_definition.configuration->'picker_scope';
 
   IF COALESCE((v_scope->>'version')::integer, 0) <> 2 THEN
     RETURN NEW;
