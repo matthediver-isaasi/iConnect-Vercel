@@ -5417,7 +5417,7 @@ function RepeatableRowsSettings({
                 </Label>
               </div>
             </div>
-            {supportsFormNotListedChoice(child) && (
+            {supportsFormNotListedChoice(child) && child.type !== 'relationship_dropdown' && (
               <div className="space-y-3 rounded border border-slate-200 bg-slate-50 p-3" data-testid={`repeatable-not-listed-config-${field.id}-${child.id}`}>
                 <div className="flex items-center gap-2">
                   <Switch
@@ -5528,6 +5528,43 @@ function RepeatableRowsSettings({
                     <p className="text-xs text-amber-700">
                       Keep this as a dropdown because a later row field depends on its selected record.
                     </p>
+                  )}
+                </div>
+                <div className="space-y-3 rounded border border-slate-200 bg-white p-3 md:col-span-2" data-testid={`repeatable-relationship-not-listed-config-${field.id}-${child.id}`}>
+                    <div className="flex items-center gap-2">
+                      <Switch
+                        id={`repeatable-relationship-not-listed-enabled-${field.id}-${child.id}`}
+                        checked={child.not_listed_choice?.enabled === true}
+                        onCheckedChange={enabled => updateChild(childIndex, {
+                          not_listed_choice: {
+                            ...(child.not_listed_choice || {}),
+                            enabled,
+                            label: child.not_listed_choice?.label || 'Other (not listed)',
+                          },
+                        })}
+                        data-testid={`switch-repeatable-relationship-not-listed-${field.id}-${child.id}`}
+                      />
+                      <Label htmlFor={`repeatable-relationship-not-listed-enabled-${field.id}-${child.id}`} className="text-xs font-medium">
+                        Allow an “Other / not listed” choice
+                      </Label>
+                    </div>
+                    {child.not_listed_choice?.enabled === true && (
+                      <div className="space-y-1">
+                        <Label htmlFor={`repeatable-relationship-not-listed-label-${field.id}-${child.id}`} className="text-xs">Other choice label</Label>
+                        <Input
+                          id={`repeatable-relationship-not-listed-label-${field.id}-${child.id}`}
+                          value={child.not_listed_choice?.label || ''}
+                          onChange={event => updateChild(childIndex, {
+                            not_listed_choice: { ...(child.not_listed_choice || {}), enabled: true, label: event.target.value },
+                          })}
+                          placeholder="e.g. Other department"
+                          className="h-9"
+                          data-testid={`input-repeatable-relationship-not-listed-label-${field.id}-${child.id}`}
+                        />
+                      </div>
+                    )}
+                  {relationshipSelectionMode(child) === RELATIONSHIP_SELECTION_MULTIPLE && (
+                    <p className="text-xs text-slate-500">Other can be selected alongside related records.</p>
                   )}
                 </div>
                 <div className="space-y-1">
@@ -6229,7 +6266,7 @@ function FieldCard({
                 );
               })()}
 
-              {supportsFormNotListedChoice(field) && (
+              {supportsFormNotListedChoice(field) && field.type !== 'relationship_dropdown' && (
                 <div className="space-y-3 rounded-lg border border-slate-200 bg-slate-50 p-3" data-testid={`not-listed-config-${field.id}`}>
                   <div className="flex items-center gap-2">
                     <Switch
@@ -7165,6 +7202,42 @@ function FieldCard({
                         ? 'Keep this as a dropdown because another relationship field depends on its selected record.'
                         : 'Existing relationship fields remain single-select unless multi-select is chosen.'}
                     </p>
+                  </div>
+                  <div className="space-y-3 rounded border border-slate-200 bg-white p-3" data-testid={`relationship-not-listed-config-${field.id}`}>
+                      <div className="flex items-center gap-2">
+                        <Switch
+                          id={`relationship-not-listed-enabled-${field.id}`}
+                          checked={field.not_listed_choice?.enabled === true}
+                          onCheckedChange={enabled => updateField(originalIndex, {
+                            not_listed_choice: {
+                              ...(field.not_listed_choice || {}),
+                              enabled,
+                              label: field.not_listed_choice?.label || 'Other (not listed)',
+                            },
+                          })}
+                          data-testid={`switch-relationship-not-listed-${field.id}`}
+                        />
+                        <Label htmlFor={`relationship-not-listed-enabled-${field.id}`} className="text-xs font-medium">
+                          Allow an “Other / not listed” choice
+                        </Label>
+                      </div>
+                      {field.not_listed_choice?.enabled === true && (
+                        <div className="space-y-1">
+                          <Label htmlFor={`relationship-not-listed-label-${field.id}`} className="text-xs">Other choice label</Label>
+                          <Input
+                            id={`relationship-not-listed-label-${field.id}`}
+                            value={field.not_listed_choice?.label || ''}
+                            onChange={event => updateField(originalIndex, {
+                              not_listed_choice: { ...(field.not_listed_choice || {}), enabled: true, label: event.target.value },
+                            })}
+                            placeholder="e.g. Other department"
+                            data-testid={`input-relationship-not-listed-label-${field.id}`}
+                          />
+                        </div>
+                      )}
+                    {relationshipSelectionMode(field) === RELATIONSHIP_SELECTION_MULTIPLE && (
+                      <p className="text-xs text-slate-500">Other can be selected alongside related records.</p>
+                    )}
                   </div>
                   <div>
                     <Label htmlFor={`no-relationship-label-${field.id}`} className="text-xs font-medium">

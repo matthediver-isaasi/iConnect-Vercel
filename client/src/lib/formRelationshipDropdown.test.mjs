@@ -14,6 +14,7 @@ import {
   resolveFormRendererFieldValue,
   relationshipFieldConfig,
   resolveRelationshipDropdownValues,
+  resolveRelationshipSelectionPills,
   resolveRelationshipParentTransition,
   resolveSavedFormField,
   shouldClearFilteredOrganisationValue,
@@ -308,6 +309,48 @@ test('relationship multi-select normalizes legacy scalars and toggles Other incl
     options: [{ id: 'department-1' }],
     optionsLoaded: true,
   }), ['department-1']);
+});
+
+test('relationship multi-select pills resolve records, restored values, and Other text', () => {
+  const field = {
+    id: 'department',
+    type: 'relationship_dropdown',
+    selection_mode: 'multiple',
+    not_listed_choice: { enabled: true, label: 'Other department' },
+  };
+  assert.deepEqual(resolveRelationshipSelectionPills({
+    field,
+    value: ['record-1', 'restored-record', FORM_NOT_LISTED_VALUE],
+    options: [{ id: 'record-1', label: 'A very long department name that may wrap' }],
+    notListedText: 'Community team',
+  }), [
+    { value: 'record-1', label: 'A very long department name that may wrap' },
+    { value: 'restored-record', label: 'Selected record 2' },
+    { value: FORM_NOT_LISTED_VALUE, label: 'Other department — Community team' },
+  ]);
+  assert.deepEqual(resolveRelationshipSelectionPills({ field, value: [], options: [] }), []);
+  assert.deepEqual(resolveRelationshipSelectionPills({
+    field: { ...field, selection_mode: 'single' },
+    value: 'record-1',
+    options: [{ id: 'record-1', label: 'One' }],
+  }), []);
+});
+
+test('relationship Other editors stay inside relationship setup across selection modes', () => {
+  const builder = readFileSync(new URL('../pages/FormBuilder.jsx', import.meta.url), 'utf8');
+  assert.match(builder, /relationship-dropdown-config-[\s\S]*?relationship-not-listed-config-/);
+  assert.match(builder, /select-repeatable-relationship-mode-[\s\S]*?repeatable-relationship-not-listed-config-/);
+  assert.match(builder, /not_listed_choice:\s*\{\s*\.\.\.\(field\.not_listed_choice \|\| \{\}\),[\s\S]*?enabled,[\s\S]*?label:/);
+  assert.match(builder, /not_listed_choice:\s*\{\s*\.\.\.\(child\.not_listed_choice \|\| \{\}\),[\s\S]*?enabled,[\s\S]*?label:/);
+  assert.match(builder, /updateField\(originalIndex, \{ selection_mode \}\)/);
+  assert.match(builder, /updateChild\(childIndex, \{ selection_mode \}\)/);
+  assert.doesNotMatch(builder, /updateField\(originalIndex, \{ selection_mode,\s*not_listed_choice/);
+  assert.doesNotMatch(builder, /updateChild\(childIndex, \{ selection_mode,\s*not_listed_choice/);
+
+  const renderer = readFileSync(new URL('../components/forms/FormRenderer.jsx', import.meta.url), 'utf8');
+  assert.match(renderer, /relationship-selection-pills-/);
+  assert.match(renderer, /role="list"[\s\S]*?aria-label=/);
+  assert.match(renderer, /min-w-0 flex-wrap/);
 });
 
 test('relationship multi-select parent transitions retain only options valid for the new parent', () => {

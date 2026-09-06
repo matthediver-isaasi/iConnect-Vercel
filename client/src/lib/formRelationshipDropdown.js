@@ -1,5 +1,6 @@
 import {
   FORM_NOT_LISTED_VALUE,
+  formNotListedChoiceLabel,
   hasEnabledFormNotListedChoice,
 } from '../../../shared/formNotListedChoice.js';
 import {
@@ -172,6 +173,29 @@ export function normalizeRelationshipOptions(payload) {
       seen.add(item.id);
       return true;
     });
+}
+
+export function resolveRelationshipSelectionPills({
+  field,
+  value,
+  options,
+  notListedText = '',
+}) {
+  if (!isRelationshipMultiSelect(field)) return [];
+  const labels = new Map((Array.isArray(options) ? options : []).map(option => [
+    String(option?.id ?? option?.value ?? ''),
+    String(option?.label ?? option?.name ?? '').trim(),
+  ]));
+  const otherLabel = formNotListedChoiceLabel(field, { requireEnabled: false }) || 'Not listed';
+  const otherText = typeof notListedText === 'string' ? notListedText.trim() : '';
+  return (Array.isArray(value) ? value : (value == null || value === '' ? [] : [value]))
+    .filter(entry => entry != null && entry !== '')
+    .map((entry, index) => ({
+      value: entry,
+      label: entry === FORM_NOT_LISTED_VALUE
+        ? `${otherLabel}${otherText ? ` — ${otherText}` : ''}`
+        : (labels.get(String(entry)) || `Selected record ${index + 1}`),
+    }));
 }
 
 export function isConfirmedEmptyRelationshipResult({

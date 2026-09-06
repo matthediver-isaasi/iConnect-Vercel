@@ -33,6 +33,7 @@ import {
   resolveSavedFormField,
   resolveFormRendererFieldValue,
   resolveRelationshipDropdownValues,
+  resolveRelationshipSelectionPills,
   resolveRelationshipParentTransition,
   shouldClearFilteredOrganisationValue,
 } from "@/lib/formRelationshipDropdown";
@@ -1947,6 +1948,12 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, on
         const selectedOptions = selectedArray
           .map(selected => effectiveRelationshipOptions.find(option => String(option.id) === String(selected)))
           .filter(Boolean);
+        const selectionPills = resolveRelationshipSelectionPills({
+          field,
+          value: selectedArray,
+          options: relationshipOptions,
+          notListedText,
+        });
         const missingConfiguration = !formSlug || !field.parent_field_id || !field.relationship_definition_id;
         const canChooseNotListed = effectiveRelationshipOptions.some(option => option.id === FORM_NOT_LISTED_VALUE);
         const relationshipDisabled = isFieldDisabled || missingConfiguration || (!relationshipParentValue && !canChooseNotListed)
@@ -1963,11 +1970,11 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, on
             : 'No related records available';
         }
         if (relationshipIsMultiple) {
-          const summary = selectedOptions.length === 0
+          const summary = selectedArray.length === 0
             ? placeholder
-            : selectedOptions.length === 1
-              ? selectedOptions[0].label
-              : `${selectedOptions.length} selected`;
+            : selectedArray.length === 1
+              ? selectionPills[0]?.label || '1 selected'
+              : `${selectedArray.length} selected`;
           return (
             <div className="space-y-1">
               <Popover>
@@ -1982,7 +1989,7 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, on
                     className={cn("w-full justify-between font-normal", relationshipDisabled && 'bg-slate-100 cursor-not-allowed opacity-60')}
                     data-testid={`select-relationship-${field.id}`}
                   >
-                    <span className={cn("truncate", selectedOptions.length === 0 && "text-muted-foreground")}>{summary}</span>
+                    <span className={cn("truncate", selectedArray.length === 0 && "text-muted-foreground")}>{summary}</span>
                     <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                   </Button>
                 </PopoverTrigger>
@@ -2019,6 +2026,25 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, on
                   </Command>
                 </PopoverContent>
               </Popover>
+              {selectionPills.length > 0 && (
+                <div
+                  className="flex min-w-0 flex-wrap gap-1.5 pt-1"
+                  role="list"
+                  aria-label={`${field.label || 'Related records'} selected values`}
+                  data-testid={`relationship-selection-pills-${field.id}`}
+                >
+                  {selectionPills.map((pill) => (
+                    <span
+                      key={String(pill.value)}
+                      role="listitem"
+                      className="max-w-full break-words rounded-full border border-slate-200 bg-slate-100 px-2 py-0.5 text-xs leading-5 text-slate-700"
+                      data-testid={`relationship-selection-pill-${field.id}-${pill.value}`}
+                    >
+                      {pill.label}
+                    </span>
+                  ))}
+                </div>
+              )}
               {relationshipOptionsLoading && <p className="text-xs text-slate-500">Loading related records…</p>}
               {relationshipOptionsError && <p className="text-xs text-red-600">Related records could not be loaded. Please try again.</p>}
               {relationshipResultIsEmpty && (
