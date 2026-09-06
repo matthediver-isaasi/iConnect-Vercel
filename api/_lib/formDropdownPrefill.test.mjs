@@ -132,6 +132,167 @@ test('organisation-group dropdown prefill supports core and custom values', asyn
   assert.deepEqual(result.values, { description: 'Description', region: 'North' });
 });
 
+test('conditional prefill actions resolve independently from saved organisation and group sources', async () => {
+  const saved = form(
+    { id: 'org-source', type: 'organisation_dropdown' },
+    [
+      { id: 'group-source', type: 'organisation_group_dropdown' },
+      { id: 'org-target', type: 'text' },
+      { id: 'group-target', type: 'text' },
+    ],
+    {
+      visibility_rules: [{
+        id: 'rule-1',
+        trigger_field_id: 'org-source',
+        actions: [
+          {
+            id: 'org-action',
+            action_type: 'set_value',
+            target_field_id: 'org-target',
+            set_value_source: 'prefill',
+            set_value_prefill_source_field_id: 'org-source',
+            set_value_prefill_field: 'core.name',
+          },
+          {
+            id: 'group-action',
+            action_type: 'set_value',
+            target_field_id: 'group-target',
+            set_value_source: 'prefill',
+            set_value_prefill_source_field_id: 'group-source',
+            set_value_prefill_field: 'custom.region',
+          },
+        ],
+      }],
+    },
+  );
+  const seed = {
+    form: [saved],
+    organization: [{ id: 'org-1', tenant_id: 'tenant-a', name: 'Organisation A' }],
+    organization_group: [{ id: 'group-1', tenant_id: 'tenant-a', name: 'Group A' }],
+    preference_field: [{
+      id: 'region', tenant_id: 'tenant-a', entity_scope: 'organization_group', is_active: true,
+    }],
+    organization_group_preference_value: [{
+      tenant_id: 'tenant-a', organization_group_id: 'group-1',
+      field_id: 'region', value: 'North',
+    }],
+  };
+
+  const orgResult = await resolve(seed, {
+    recordId: 'org-1',
+    requestedSourceFieldId: 'org-source',
+  });
+  const groupResult = await resolve(seed, {
+    recordId: 'group-1',
+    requestedSourceFieldId: 'group-source',
+  });
+
+  assert.deepEqual(orgResult.conditionalValues, { 'org-action': 'Organisation A' });
+  assert.deepEqual(groupResult, {
+    values: {},
+    conditionalValues: { 'group-action': 'North' },
+    conditionalFieldTypes: { 'group-action': 'text' },
+  });
+});
+
+test('conditional prefill rejects an eligible dropdown not referenced by a saved action', async () => {
+  const saved = form(
+    { id: 'configured-source', type: 'organisation_dropdown' },
+    [{ id: 'unreferenced-source', type: 'organisation_group_dropdown' }],
+  );
+  await assert.rejects(
+    resolve({
+      form: [saved],
+      organization_group: [{
+        id: 'group-1', tenant_id: 'tenant-a', name: 'Group A',
+      }],
+    }, {
+      recordId: 'group-1',
+      requestedSourceFieldId: 'unreferenced-source',
+    }),
+    error => error instanceof FormDropdownPrefillError
+      && error.code === 'STALE_PREFILL_CONFIG',
+  );
+});
+
+test('conditional prefill cannot overwrite any eligible source dropdown', async () => {
+  for (const targetFieldId of ['org-source', 'group-source', 'unused-source']) {
+    const saved = form(
+      { id: 'org-source', type: 'organisation_dropdown' },
+      [
+        { id: 'group-source', type: 'organisation_group_dropdown' },
+        { id: 'unused-source', type: 'organisation_dropdown' },
+        { id: 'safe-target', type: 'text' },
+      ],
+      {
+        visibility_rules: [{
+          id: 'rule-1',
+          trigger_field_id: 'safe-target',
+          actions: [{
+            id: 'bad-action',
+            action_type: 'set_value',
+            target_field_id: targetFieldId,
+            set_value_source: 'prefill',
+            set_value_prefill_source_field_id: 'group-source',
+            set_value_prefill_field: 'core.name',
+          }],
+        }],
+      },
+    );
+    await assert.rejects(
+      resolve({
+        form: [saved],
+        organization_group: [{
+          id: 'group-1', tenant_id: 'tenant-a', name: 'Group A',
+        }],
+      }, {
+        recordId: 'group-1',
+        requestedSourceFieldId: 'group-source',
+      }),
+      error => error instanceof FormDropdownPrefillError
+        && error.code === 'STALE_PREFILL_CONFIG',
+    );
+  }
+});
+
+test('conditional prefill rejects missing and nested action source fields', async () => {
+  for (const sourceField of [
+    null,
+    { id: 'nested-source', type: 'organisation_dropdown', repeatable_field_id: 'rows' },
+  ]) {
+    const extraFields = sourceField ? [sourceField] : [];
+    const saved = form(
+      { id: 'org-source', type: 'organisation_dropdown' },
+      [...extraFields, { id: 'target', type: 'text' }],
+      {
+        visibility_rules: [{
+          id: 'rule-1',
+          trigger_field_id: 'target',
+          actions: [{
+            id: 'bad-action',
+            action_type: 'set_value',
+            target_field_id: 'target',
+            set_value_source: 'prefill',
+            set_value_prefill_source_field_id: sourceField?.id || 'missing-source',
+            set_value_prefill_field: 'core.name',
+          }],
+        }],
+      },
+    );
+    await assert.rejects(
+      resolve({
+        form: [saved],
+        organization: [{ id: 'org-1', tenant_id: 'tenant-a', name: 'Org' }],
+      }, {
+        recordId: 'org-1',
+        requestedSourceFieldId: 'org-source',
+      }),
+      error => error instanceof FormDropdownPrefillError
+        && error.code === 'STALE_PREFILL_CONFIG',
+    );
+  }
+});
+
 test('wrapped custom-field targets return their persisted underlying type', async () => {
   const saved = form(
     { id: 'source', type: 'organisation_dropdown' },

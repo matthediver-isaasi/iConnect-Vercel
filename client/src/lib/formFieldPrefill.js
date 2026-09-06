@@ -366,16 +366,30 @@ export const FORM_FIELD_PREFILL_SOURCE_TYPES = new Set([
   'organisation_group_dropdown',
 ]);
 
+export const isEligibleFormFieldPrefillSource = field => (
+  !!field?.id
+  && FORM_FIELD_PREFILL_SOURCE_TYPES.has(field.type)
+  && !field.repeatable_field_id
+  && !field.parent_repeatable_field_id
+);
+
 export const getEligibleFormFieldPrefillSources = (fields = []) => (
-  fields.filter(field => field?.id
-    && FORM_FIELD_PREFILL_SOURCE_TYPES.has(field.type)
-    && !field.repeatable_field_id
-    && !field.parent_repeatable_field_id)
+  fields.filter(isEligibleFormFieldPrefillSource)
+);
+
+export const getConfiguredFormFieldPrefillSourceId = form => (
+  form?.prefill_source_field_id
+  || form?.prefill_form_field_id
+  || form?.prefill_source_field
+  || form?.prefill_field_id
+  || form?.prefill_source_config?.field_id
+  || form?.prefill_source_config?.source_field_id
+  || null
 );
 
 export const getFormFieldPrefillSource = (form) => {
   if (form?.prefill_source !== 'form_field') return null;
-  const sourceId = form.prefill_source_field_id || form.prefill_field_id;
+  const sourceId = getConfiguredFormFieldPrefillSourceId(form);
   return getEligibleFormFieldPrefillSources(form?.fields || [])
     .find(field => field.id === sourceId) || null;
 };
@@ -395,7 +409,7 @@ export const isEligibleFormFieldPrefillTarget = (form, field) => {
 export const validateFormFieldPrefillConfig = (form) => {
   if (form?.prefill_source !== 'form_field') return { valid: true, errors: [] };
   const fields = Array.isArray(form?.fields) ? form.fields : [];
-  const sourceId = form?.prefill_source_field_id || form?.prefill_field_id;
+  const sourceId = getConfiguredFormFieldPrefillSourceId(form);
   const sourceIndex = fields.findIndex(field => field?.id === sourceId);
   const source = sourceIndex >= 0 ? fields[sourceIndex] : null;
   const errors = [];
@@ -431,6 +445,59 @@ export const getFormFieldPrefillSourceAnswers = (form, formValues = {}) => {
   const source = getFormFieldPrefillSource(form);
   if (!source) return {};
   const sourceIndex = (form?.fields || []).findIndex(field => field?.id === source.id);
+  if (sourceIndex <= 0) return {};
+  return Object.fromEntries((form.fields || [])
+    .slice(0, sourceIndex)
+    .filter(field => field?.id && Object.prototype.hasOwnProperty.call(formValues, field.id))
+    .map(field => [field.id, formValues[field.id]]));
+};
+
+export const getConditionalPrefillActionEntries = (form) => {
+  if (form?.prefill_source !== 'form_field') return [];
+  const configuredSourceId = getConfiguredFormFieldPrefillSourceId(form);
+  const eligibleById = new Map(getEligibleFormFieldPrefillSources(form?.fields || [])
+    .map(field => [String(field.id), field]));
+  const entries = [];
+  for (const rule of (form?.visibility_rules || [])) {
+    const actions = Array.isArray(rule?.actions) ? rule.actions : [rule];
+    for (const action of actions) {
+      if ((action?.action_type === 'set_value' || action?.rule_type === 'set_value'
+          || action?.action === 'set_value')
+          && action.set_value_source === 'prefill'
+          && action.set_value_prefill_field) {
+        const sourceId = action.set_value_prefill_source_field_id || configuredSourceId;
+        const key = Array.isArray(rule?.actions) ? action.id : `legacy_${rule.id}`;
+        if (key && sourceId && eligibleById.has(String(sourceId))) {
+          entries.push({ key: String(key), sourceId: String(sourceId) });
+        }
+      }
+    }
+  }
+  return entries;
+};
+
+export const getConditionalPrefillSources = (form) => {
+  const sourceIds = new Set(getConditionalPrefillActionEntries(form).map(entry => entry.sourceId));
+  const eligibleById = new Map(getEligibleFormFieldPrefillSources(form?.fields || [])
+    .map(field => [String(field.id), field]));
+  return [...sourceIds].map(id => eligibleById.get(id)).filter(Boolean);
+};
+
+export const coerceConditionalSetValue = (form, value, fieldId) => {
+  if (value === null || value === undefined) return value;
+  const field = (form?.fields || []).find(candidate => String(candidate?.id) === String(fieldId));
+  if (field?.type !== 'boolean') return value;
+  if (typeof value === 'boolean') return value;
+  const normalized = String(value).trim().toLowerCase();
+  if (['true', 'yes', 'y', 'on', '1'].includes(normalized)) return true;
+  if (['false', 'no', 'n', 'off', '0'].includes(normalized)) return false;
+  return value;
+};
+
+export const getPrefillSourceAnswersForField = (form, sourceFieldId, formValues = {}) => {
+  const sourceIndex = (form?.fields || []).findIndex(field => (
+    String(field?.id) === String(sourceFieldId)
+  ));
   if (sourceIndex <= 0) return {};
   return Object.fromEntries((form.fields || [])
     .slice(0, sourceIndex)
@@ -502,6 +569,27 @@ export const normalizeFormFieldPrefillResponse = response => {
     : {};
 };
 
+const normalizePrefillValue = (rawValue, effectiveType) => {
+  if (effectiveType === 'boolean') {
+    if (typeof rawValue === 'boolean') return rawValue;
+    const normalized = String(rawValue).trim().toLowerCase();
+    if (['true', 'yes', 'y', 'on', '1'].includes(normalized)) return true;
+    if (['false', 'no', 'n', 'off', '0'].includes(normalized)) return false;
+  }
+  if (['list', 'countries', 'checkbox', 'checkboxes', 'picklist', 'category_multiselect'].includes(effectiveType)) {
+    return parseCustomFieldValue({ value: rawValue }, 'list');
+  }
+  if (effectiveType === 'contact' && typeof rawValue === 'string') {
+    try {
+      const parsed = JSON.parse(rawValue);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed;
+    } catch {
+      // Keep the stored scalar when it is not a serialized contact object.
+    }
+  }
+  return rawValue;
+};
+
 export const normalizeFormFieldPrefillValues = (form, response) => {
   const values = normalizeFormFieldPrefillResponse(response);
   const responseFieldTypes = response?.fieldTypes || response?.field_types || {};
@@ -512,23 +600,14 @@ export const normalizeFormFieldPrefillValues = (form, response) => {
     const effectiveType = field.type === 'custom_field'
       ? (responseFieldTypes[fieldId] || field.custom_field_type || field.field_type || field.type)
       : field.type;
-    if (effectiveType === 'boolean') {
-      if (typeof rawValue === 'boolean') return [fieldId, rawValue];
-      const normalized = String(rawValue).trim().toLowerCase();
-      if (['true', 'yes', 'y', 'on', '1'].includes(normalized)) return [fieldId, true];
-      if (['false', 'no', 'n', 'off', '0'].includes(normalized)) return [fieldId, false];
-    }
-    if (['list', 'countries', 'checkbox', 'checkboxes', 'picklist', 'category_multiselect'].includes(effectiveType)) {
-      return [fieldId, parseCustomFieldValue({ value: rawValue }, 'list')];
-    }
-    if (effectiveType === 'contact' && typeof rawValue === 'string') {
-      try {
-        const parsed = JSON.parse(rawValue);
-        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return [fieldId, parsed];
-      } catch {
-        // Keep the stored scalar when it is not a serialized contact object.
-      }
-    }
-    return [fieldId, rawValue];
+    return [fieldId, normalizePrefillValue(rawValue, effectiveType)];
   }));
+};
+
+export const normalizeConditionalFormFieldPrefillValues = (response) => {
+  const values = response?.conditionalValues || response?.conditional_values || {};
+  const fieldTypes = response?.conditionalFieldTypes || response?.conditional_field_types || {};
+  return Object.fromEntries(Object.entries(values).map(([actionId, rawValue]) => (
+    [actionId, normalizePrefillValue(rawValue, fieldTypes[actionId])]
+  )));
 };

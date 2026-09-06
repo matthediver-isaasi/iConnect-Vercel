@@ -13,7 +13,7 @@ import { useFormPaymentReturn, FormPaymentReturnScreen } from "../components/for
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useLayoutContext } from "@/contexts/LayoutContext";
-import { buildMemberResourceCategoryPrefillValues, isFieldValueFilled, parseCustomFieldValue, resolveEffectivePrefillIds, resolveMemberSourceOrgId, shouldFetchViewerBookingPrefill, shouldBlockForMissingViewerBooking, isViewerBookingResolutionPending, shouldWaitForPrefillCustomValues, shouldWaitForPrefillOrgEntity } from "@/lib/formFieldPrefill";
+import { buildMemberResourceCategoryPrefillValues, coerceConditionalSetValue, isFieldValueFilled, parseCustomFieldValue, resolveEffectivePrefillIds, resolveMemberSourceOrgId, shouldFetchViewerBookingPrefill, shouldBlockForMissingViewerBooking, isViewerBookingResolutionPending, shouldWaitForPrefillCustomValues, shouldWaitForPrefillOrgEntity } from "@/lib/formFieldPrefill";
 import { getFormPagination } from "@/lib/formPagination";
 import { resolveSubmitControl } from "../../../api/_lib/formSubmitControl.js";
 import { evaluateLmicCondition } from "../../../api/_lib/formLmicConditions.js";
@@ -30,6 +30,7 @@ import {
 } from "../../../shared/formNotListedChoice.js";
 import { applyFormFieldValueChange } from "@/lib/formFieldValueChange";
 import { useFormFieldPrefill } from "@/lib/useFormFieldPrefill";
+import { useConditionalFormFieldPrefill } from "@/lib/useFormFieldPrefill";
 
 // A `redirect_url` beginning with this prefix means the redirect target is driven
 // by the value the respondent submitted for the field whose id follows the prefix.
@@ -720,6 +721,12 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
     formSlug,
     formValues,
     setFormValues,
+    enabled: !!form && !formAccess.restricted && defaultsInitialized,
+  });
+  const conditionalPrefillValues = useConditionalFormFieldPrefill({
+    form,
+    formSlug,
+    formValues,
     enabled: !!form && !formAccess.restricted && defaultsInitialized,
   });
   
@@ -1679,16 +1686,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
   // Coerce a computed set_value to the correct type for the target field.
   // For boolean fields, tolerates "True", "TRUE", "yes", "1", etc.
   const coerceValueForField = (value, fieldId) => {
-    if (value === null || value === undefined) return value;
-    const field = form?.fields?.find(f => f.id === fieldId);
-    if (field?.type === 'boolean') {
-      if (typeof value === 'boolean') return value;
-      const s = String(value).trim().toLowerCase();
-      if (['true', 'yes', 'y', 'on', '1'].includes(s)) return true;
-      if (['false', 'no', 'n', 'off', '0'].includes(s)) return false;
-      return value;
-    }
-    return value;
+    return coerceConditionalSetValue(form, value, fieldId);
   };
 
   const computeSetValue = (action, prefillEntity) => {
@@ -1750,6 +1748,8 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
       const rounded = Math.round(result * 1e10) / 1e10;
       // Convert to string, removing unnecessary trailing zeros
       return rounded.toString();
+    } else if (sourceType === 'prefill' && form?.prefill_source === 'form_field') {
+      return conditionalPrefillValues[action.id];
     } else if (sourceType === 'prefill' && prefillEntity) {
       const prefillField = action.set_value_prefill_field || '';
       if (prefillField.startsWith('core.')) {
@@ -1781,6 +1781,8 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
       return rule.set_value;
     } else if (sourceType === 'field') {
       return formValues[rule.set_value_field_id];
+    } else if (sourceType === 'prefill' && form?.prefill_source === 'form_field') {
+      return conditionalPrefillValues[`legacy_${rule.id}`];
     } else if (sourceType === 'prefill' && prefillEntity) {
       const prefillField = rule.set_value_prefill_field || '';
       if (prefillField.startsWith('core.')) {
@@ -1835,7 +1837,8 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
       // Handle new multi-action format
       if (rule.actions && Array.isArray(rule.actions)) {
         for (const action of rule.actions) {
-          if (action.action_type === 'set_value' && action.target_field_id) {
+          if ((action.action_type || action.rule_type || action.action) === 'set_value'
+              && action.target_field_id) {
             const actionKey = action.id;
             console.log(`[SetValue Debug] Action ${actionKey}: type=set_value, target=${action.target_field_id}, conditionMet=${conditionMet}, set_value="${action.set_value}"`);
             
@@ -1896,12 +1899,26 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
                   }
                 }
               }
+              else if ((action.set_value_source || 'static') === 'prefill'
+                  && activeSetValueActionsRef.current.has(actionKey)) {
+                const newValue = coerceValueForField(
+                  computeSetValue(action, prefillEntity),
+                  action.target_field_id,
+                );
+                if (newValue === null || newValue === undefined) {
+                  if (action.target_field_id in originalValuesRef.current) {
+                    updates[action.target_field_id] = originalValuesRef.current[action.target_field_id];
+                  }
+                } else if (newValue !== formValues[action.target_field_id]) {
+                  updates[action.target_field_id] = newValue;
+                }
+              }
             }
           }
         }
       }
       // Handle legacy format (rule_type === 'set_value')
-      else if (rule.rule_type === 'set_value' && rule.target_field_id) {
+      else if ((rule.rule_type || rule.action) === 'set_value' && rule.target_field_id) {
         const ruleKey = `legacy_${rule.id}`;
         
         if (conditionMet) {
@@ -1932,6 +1949,19 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
             // Only update if source changed and target doesn't match
             if (sourceValue !== currentTargetValue && sourceValue !== null && sourceValue !== undefined) {
               updates[rule.target_field_id] = sourceValue;
+            }
+          }
+          else if ((rule.set_value_source || 'static') === 'prefill') {
+            const newValue = coerceValueForField(
+              computeLegacySetValue(rule, prefillEntity),
+              rule.target_field_id,
+            );
+            if (newValue === null || newValue === undefined) {
+              if (rule.target_field_id in originalValuesRef.current) {
+                updates[rule.target_field_id] = originalValuesRef.current[rule.target_field_id];
+              }
+            } else if (newValue !== formValues[rule.target_field_id]) {
+              updates[rule.target_field_id] = newValue;
             }
           }
         }
@@ -2032,7 +2062,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
     
     // Update previous state for next render
     previousRoleActionsRef.current = nowActiveRoleActions;
-  }, [form?.visibility_rules, formValues, emptyRelationshipParentValues, prefillMember, prefillOrg, prefillMemberCustomValues, prefillOrgCustomValues, form?.prefill_source]);
+  }, [form?.visibility_rules, formValues, emptyRelationshipParentValues, prefillMember, prefillOrg, prefillMemberCustomValues, prefillOrgCustomValues, conditionalPrefillValues, form?.prefill_source]);
 
   if (isLoading) {
     return (

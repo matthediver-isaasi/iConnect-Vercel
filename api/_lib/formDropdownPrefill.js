@@ -35,6 +35,74 @@ function sourceFieldId(form) {
     || (nested && typeof nested === 'object' ? (nested.field_id || nested.source_field_id) : null);
 }
 
+function conditionalPrefillActions(form) {
+  const configuredSourceId = sourceFieldId(form);
+  const targetsById = new Map((form?.fields || []).map(field => [String(field?.id), field]));
+  const targetIds = new Set(targetsById.keys());
+  const eligibleSourceIds = new Set((form?.fields || [])
+    .filter(field => SOURCE_TYPES.has(field?.type)
+      && !field.repeatable_field_id
+      && !field.parent_repeatable_field_id)
+    .map(field => String(field.id)));
+  const actions = [];
+  let invalid = false;
+  for (const rule of (form?.visibility_rules || [])) {
+    const executable = (Array.isArray(rule?.conditions) && rule.conditions.length > 0)
+      || !!rule?.trigger_field_id;
+    if (Array.isArray(rule?.actions)) {
+      for (const action of rule.actions) {
+        if (action?.set_value_source !== 'prefill') continue;
+        const actionKind = action.action_type || action.rule_type || action.action;
+        if (actionKind !== 'set_value' || !executable || !action.id
+            || !action.target_field_id || !targetIds.has(String(action.target_field_id))
+            || !action.set_value_prefill_field) {
+          invalid = true;
+          continue;
+        }
+        actions.push({
+          key: String(action.id),
+          sourceId: action.set_value_prefill_source_field_id || configuredSourceId,
+          targetId: String(action.target_field_id),
+          targetField: targetsById.get(String(action.target_field_id)),
+          value: action.set_value_prefill_field,
+        });
+      }
+    } else if (rule?.set_value_source === 'prefill') {
+      const ruleKind = rule.rule_type || rule.action;
+      if (ruleKind !== 'set_value' || !executable || !rule.id
+          || !rule.target_field_id || !targetIds.has(String(rule.target_field_id))
+          || !rule.set_value_prefill_field) {
+        invalid = true;
+        continue;
+      }
+      actions.push({
+        key: `legacy_${rule.id}`,
+        sourceId: rule.set_value_prefill_source_field_id || configuredSourceId,
+        targetId: String(rule.target_field_id),
+        targetField: targetsById.get(String(rule.target_field_id)),
+        value: rule.set_value_prefill_field,
+      });
+    }
+  }
+  if (actions.some(action => !action.sourceId
+      || !eligibleSourceIds.has(String(action.sourceId))
+      || eligibleSourceIds.has(action.targetId))) invalid = true;
+  return { actions, invalid };
+}
+
+function parseConditionalMapping(value) {
+  if (typeof value !== 'string') return null;
+  if (value.startsWith('core.')) {
+    const key = value.slice('core.'.length);
+    return key ? { kind: 'core', key } : null;
+  }
+  if (value.startsWith('custom.')) {
+    const key = value.slice('custom.'.length);
+    return key ? { kind: 'custom', key } : null;
+  }
+  return null;
+}
+
 function parseMapping(value, sourceType) {
   if (typeof value !== 'string' || !value) return null;
   const prefixes = sourceType !== 'organisation_group_dropdown'
@@ -243,30 +311,56 @@ export async function resolveFormDropdownPrefill({
   if (!configuredSourceId || new Set(fieldIds).size !== fieldIds.length) {
     fail(400, 'The configured prefill source is stale', 'STALE_PREFILL_CONFIG');
   }
-  const sourceIndex = form.fields.findIndex(field => String(field?.id) === String(configuredSourceId));
-  const sourceField = form.fields[sourceIndex];
-  if (sourceIndex < 0 || !SOURCE_TYPES.has(sourceField?.type)) {
-    fail(400, 'The configured prefill source is stale', 'STALE_PREFILL_CONFIG');
+  const conditionalConfig = conditionalPrefillActions(form);
+  if (conditionalConfig.invalid) {
+    fail(400, 'The form has a stale conditional prefill action', 'STALE_PREFILL_CONFIG');
   }
-  if (requestedSourceFieldId
-      && String(requestedSourceFieldId) !== String(sourceField.id)) {
-    fail(400, 'The requested prefill source does not match the form', 'STALE_PREFILL_CONFIG');
+  const conditionalActions = conditionalConfig.actions;
+  const effectiveSourceId = requestedSourceFieldId || configuredSourceId;
+  const sourceIndex = form.fields.findIndex(field => String(field?.id) === String(effectiveSourceId));
+  const sourceField = form.fields[sourceIndex];
+  const sourceIsConfigured = String(effectiveSourceId) === String(configuredSourceId);
+  const sourceIsUsedByAction = conditionalActions.some(action => (
+    String(action.sourceId) === String(effectiveSourceId)
+  ));
+  if (sourceIndex < 0 || !SOURCE_TYPES.has(sourceField?.type)
+      || sourceField.repeatable_field_id || sourceField.parent_repeatable_field_id
+      || (!sourceIsConfigured && !sourceIsUsedByAction)) {
+    fail(400, 'The configured prefill source is stale', 'STALE_PREFILL_CONFIG');
   }
 
   const mappings = [];
-  for (let index = 0; index < form.fields.length; index += 1) {
-    const field = form.fields[index];
-    if (!field?.prefill_field) continue;
-    const mapping = parseMapping(field.prefill_field, sourceField.type);
-    if (index <= sourceIndex || !field.id || !mapping || mapping.invalid) {
-      fail(400, 'The form has a stale prefill mapping', 'STALE_PREFILL_CONFIG');
+  if (sourceIsConfigured) {
+    for (let index = 0; index < form.fields.length; index += 1) {
+      const field = form.fields[index];
+      if (!field?.prefill_field) continue;
+      const mapping = parseMapping(field.prefill_field, sourceField.type);
+      if (index <= sourceIndex || !field.id || !mapping || mapping.invalid) {
+        fail(400, 'The form has a stale prefill mapping', 'STALE_PREFILL_CONFIG');
+      }
+      const allowedCore = sourceField.type !== 'organisation_group_dropdown'
+        ? ORGANIZATION_CORE_FIELDS : GROUP_CORE_FIELDS;
+      if (mapping.kind === 'core' && !allowedCore.has(mapping.key)) {
+        fail(400, 'The form has a stale prefill mapping', 'STALE_PREFILL_CONFIG');
+      }
+      mappings.push({ targetId: String(field.id), targetField: field, mapping, result: 'field' });
     }
-    const allowedCore = sourceField.type !== 'organisation_group_dropdown'
-      ? ORGANIZATION_CORE_FIELDS : GROUP_CORE_FIELDS;
-    if (mapping.kind === 'core' && !allowedCore.has(mapping.key)) {
-      fail(400, 'The form has a stale prefill mapping', 'STALE_PREFILL_CONFIG');
+  }
+  const allowedCore = sourceField.type !== 'organisation_group_dropdown'
+    ? ORGANIZATION_CORE_FIELDS : GROUP_CORE_FIELDS;
+  for (const action of conditionalActions.filter(candidate => (
+    String(candidate.sourceId) === String(effectiveSourceId)
+  ))) {
+    const mapping = parseConditionalMapping(action.value);
+    if (!mapping || (mapping.kind === 'core' && !allowedCore.has(mapping.key))) {
+      fail(400, 'The form has a stale conditional prefill action', 'STALE_PREFILL_CONFIG');
     }
-    mappings.push({ targetId: String(field.id), targetField: field, mapping });
+    mappings.push({
+      targetId: action.key,
+      targetField: action.targetField,
+      mapping,
+      result: 'conditional',
+    });
   }
 
   const selectedId = String(recordId);
@@ -281,13 +375,28 @@ export async function resolveFormDropdownPrefill({
     db, tenantId, sourceType: sourceField.type, recordId: selectedId, mappings,
   });
   const fieldTypes = await loadCustomTargetTypes({ db, tenantId, mappings });
+  const conditionalFieldTypes = Object.fromEntries(mappings
+    .filter(item => item.result === 'conditional')
+    .map(item => [
+      item.targetId,
+      fieldTypes[item.targetId]
+        || item.targetField?.custom_field_type
+        || item.targetField?.field_type
+        || item.targetField?.type,
+    ]));
   const values = {};
-  for (const { targetId, mapping } of mappings) {
+  const conditionalValues = {};
+  for (const { targetId, mapping, result } of mappings) {
     const value = mapping.kind === 'core' ? record[mapping.key] : customValues.get(mapping.key);
-    if (value !== undefined && value !== null) values[targetId] = value;
+    if (value !== undefined && value !== null) {
+      if (result === 'conditional') conditionalValues[targetId] = value;
+      else values[targetId] = value;
+    }
   }
   return {
     values,
+    ...(Object.keys(conditionalValues).length ? { conditionalValues } : {}),
+    ...(Object.keys(conditionalFieldTypes).length ? { conditionalFieldTypes } : {}),
     ...(Object.keys(fieldTypes).length ? { fieldTypes } : {}),
   };
 }

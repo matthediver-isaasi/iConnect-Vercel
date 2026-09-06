@@ -20,7 +20,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { useIsMobile } from "@/hooks/use-mobile";
 import TypographyStyleSelector, { applyTypographyStyle } from "../TypographyStyleSelector";
 import { AlignLeft, AlignCenter, AlignRight } from "lucide-react";
-import { buildPrefillValues, isFieldValueFilled, resolveEffectivePrefillIds, resolveMemberSourceOrgId, shouldWaitForPrefillCustomValues, shouldWaitForPrefillOrgEntity } from "@/lib/formFieldPrefill";
+import { buildPrefillValues, coerceConditionalSetValue, isFieldValueFilled, resolveEffectivePrefillIds, resolveMemberSourceOrgId, shouldWaitForPrefillCustomValues, shouldWaitForPrefillOrgEntity } from "@/lib/formFieldPrefill";
 import { getFormPagination } from "@/lib/formPagination";
 import { resolveSubmitControl } from "../../../../../api/_lib/formSubmitControl.js";
 import { evaluateLmicCondition } from "../../../../../api/_lib/formLmicConditions.js";
@@ -31,6 +31,7 @@ import {
   setFormNotListedText,
 } from "../../../../../shared/formNotListedChoice.js";
 import { useFormFieldPrefill } from "@/lib/useFormFieldPrefill";
+import { useConditionalFormFieldPrefill } from "@/lib/useFormFieldPrefill";
 import { applyFormFieldValueChange } from "@/lib/formFieldValueChange";
 
 const formQuillModules = {
@@ -282,6 +283,12 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
     formSlug,
     formValues,
     setFormValues,
+    enabled: !!form && !formAccess.restricted && defaultsInitialized,
+  });
+  const conditionalPrefillValues = useConditionalFormFieldPrefill({
+    form,
+    formSlug,
+    formValues,
     enabled: !!form && !formAccess.restricted && defaultsInitialized,
   });
 
@@ -1044,6 +1051,8 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
       return action.set_value;
     } else if (sourceType === 'field') {
       return formValues[action.set_value_field_id];
+    } else if (sourceType === 'prefill' && form?.prefill_source === 'form_field') {
+      return conditionalPrefillValues[action.id];
     } else if (sourceType === 'prefill' && prefillEntity) {
       const prefillField = action.set_value_prefill_field || '';
       if (prefillField.startsWith('core.')) {
@@ -1066,6 +1075,8 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
       return rule.set_value;
     } else if (sourceType === 'field') {
       return formValues[rule.set_value_field_id];
+    } else if (sourceType === 'prefill' && form?.prefill_source === 'form_field') {
+      return conditionalPrefillValues[`legacy_${rule.id}`];
     } else if (sourceType === 'prefill' && prefillEntity) {
       const prefillField = rule.set_value_prefill_field || '';
       if (prefillField.startsWith('core.')) {
@@ -1100,7 +1111,8 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
       
       if (rule.actions && Array.isArray(rule.actions)) {
         for (const action of rule.actions) {
-          if (action.action_type === 'set_value' && action.target_field_id) {
+          if ((action.action_type || action.rule_type || action.action) === 'set_value'
+              && action.target_field_id) {
             const actionKey = action.id;
             
             if (conditionMet) {
@@ -1119,7 +1131,11 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
                   originalValuesRef.current[action.target_field_id] = formValues[action.target_field_id] ?? '';
                 }
                 
-                const valueToSet = computeSetValue(action, prefillEntity);
+                const valueToSet = coerceConditionalSetValue(
+                  form,
+                  computeSetValue(action, prefillEntity),
+                  action.target_field_id,
+                );
                 if (valueToSet !== null && valueToSet !== undefined) {
                   updates[action.target_field_id] = valueToSet;
                   console.log(`[IEditFormElement] set_value: ${action.target_field_id} = "${valueToSet}"`);
@@ -1135,12 +1151,26 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
                   console.log(`[IEditFormElement] set_value sync: ${action.target_field_id} = "${sourceValue}"`);
                 }
               }
+              else if ((action.set_value_source || 'static') === 'prefill') {
+                const sourceValue = coerceConditionalSetValue(
+                  form,
+                  computeSetValue(action, prefillEntity),
+                  action.target_field_id,
+                );
+                if (sourceValue === null || sourceValue === undefined) {
+                  if (action.target_field_id in originalValuesRef.current) {
+                    updates[action.target_field_id] = originalValuesRef.current[action.target_field_id];
+                  }
+                } else if (sourceValue !== formValues[action.target_field_id]) {
+                  updates[action.target_field_id] = sourceValue;
+                }
+              }
             }
           }
         }
       }
       // Handle legacy format (rule_type === 'set_value')
-      else if (rule.rule_type === 'set_value' && rule.target_field_id) {
+      else if ((rule.rule_type || rule.action) === 'set_value' && rule.target_field_id) {
         const ruleKey = `legacy_${rule.id}`;
         
         if (conditionMet) {
@@ -1159,7 +1189,11 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
               originalValuesRef.current[rule.target_field_id] = formValues[rule.target_field_id] ?? '';
             }
             
-            const valueToSet = computeLegacySetValue(rule, prefillEntity);
+            const valueToSet = coerceConditionalSetValue(
+              form,
+              computeLegacySetValue(rule, prefillEntity),
+              rule.target_field_id,
+            );
             if (valueToSet !== null && valueToSet !== undefined) {
               updates[rule.target_field_id] = valueToSet;
               console.log(`[IEditFormElement] legacy set_value: ${rule.target_field_id} = "${valueToSet}"`);
@@ -1173,6 +1207,20 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
             if (sourceValue !== currentTargetValue && sourceValue !== null && sourceValue !== undefined) {
               updates[rule.target_field_id] = sourceValue;
               console.log(`[IEditFormElement] legacy set_value sync: ${rule.target_field_id} = "${sourceValue}"`);
+            }
+          }
+          else if ((rule.set_value_source || 'static') === 'prefill') {
+            const sourceValue = coerceConditionalSetValue(
+              form,
+              computeLegacySetValue(rule, prefillEntity),
+              rule.target_field_id,
+            );
+            if (sourceValue === null || sourceValue === undefined) {
+              if (rule.target_field_id in originalValuesRef.current) {
+                updates[rule.target_field_id] = originalValuesRef.current[rule.target_field_id];
+              }
+            } else if (sourceValue !== formValues[rule.target_field_id]) {
+              updates[rule.target_field_id] = sourceValue;
             }
           }
         }
@@ -1261,7 +1309,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
     
     // Update previous state for next render
     previousRoleActionsRef.current = nowActiveRoleActions;
-  }, [form?.visibility_rules, formValues, prefillMember, prefillOrg, prefillCustomFieldValues, form?.prefill_source]);
+  }, [form?.visibility_rules, formValues, prefillMember, prefillOrg, prefillCustomFieldValues, conditionalPrefillValues, form?.prefill_source]);
 
   // Page navigation helpers for standard layout with pages.
   // Shared with the standalone FormView page via getFormPagination so navigation

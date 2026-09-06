@@ -9,6 +9,7 @@ import {
   mergeReactiveFormFieldPrefill,
   normalizeFormFieldPrefillResponse,
   normalizeFormFieldPrefillValues,
+  normalizeConditionalFormFieldPrefillValues,
   validateFormFieldPrefillConfig,
   shouldClearFormFieldPrefillError,
   shouldClearFormFieldPrefillSelection,
@@ -21,6 +22,22 @@ const fields = [
   { id: 'group', type: 'organisation_group_dropdown', label: 'Group' },
   { id: 'nested', type: 'organisation_dropdown', repeatable_field_id: 'rows' },
 ];
+
+test('conditional values use the same boolean and collection normalization as field prefill', () => {
+  assert.deepEqual(normalizeConditionalFormFieldPrefillValues({
+    conditionalValues: {
+      booleanAction: 'false',
+      listAction: '["A","B"]',
+    },
+    conditionalFieldTypes: {
+      booleanAction: 'boolean',
+      listAction: 'checkbox',
+    },
+  }), {
+    booleanAction: false,
+    listAction: ['A', 'B'],
+  });
+});
 
 test('serialised source id resolves only an eligible top-level dropdown', () => {
   assert.deepEqual(getEligibleFormFieldPrefillSources(fields).map(field => field.id), ['org', 'group']);

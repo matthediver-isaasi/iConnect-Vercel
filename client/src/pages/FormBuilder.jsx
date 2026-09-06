@@ -90,7 +90,7 @@ import {
   formRoleFieldOptions,
   isFormRoleMappingField,
 } from "../../../api/_lib/formMemberRoleAssignment.js";
-import { validateFormFieldPrefillConfig } from "@/lib/formFieldPrefill";
+import { isEligibleFormFieldPrefillSource, validateFormFieldPrefillConfig } from "@/lib/formFieldPrefill";
 import {
   FORM_MAPPING_FALLBACK_VERSION,
   isExplicitFallbackMapping,
@@ -1910,6 +1910,7 @@ function LogicRulesSection({
   visibilityRules = [], 
   onRulesChange,
   prefillSource = 'none',
+  prefillSourceFieldId = null,
   customFields = [],
   categories = [],
   communicationCategories = [],
@@ -2041,7 +2042,8 @@ function LogicRulesSection({
             set_value_source: rule.set_value_source || 'static',
             set_value: rule.set_value || '',
             set_value_field_id: rule.set_value_field_id || '',
-            set_value_prefill_field: rule.set_value_prefill_field || ''
+            set_value_prefill_field: rule.set_value_prefill_field || '',
+            set_value_prefill_source_field_id: rule.set_value_prefill_source_field_id || ''
           });
         } else if (rule.target_field_ids && rule.target_field_ids.length > 0) {
           // Has old visibility format - convert directly to new visibility action
@@ -2371,8 +2373,22 @@ function LogicRulesSection({
     updateAction(ruleId, actionId, { field_states: newStates });
   };
   
-  const getPrefillFields = () => {
+  const getPrefillFields = (sourceFieldId = null) => {
     if (prefillSource === 'none') return [];
+    if (prefillSource === 'form_field') {
+      const source = fields.find(field => String(field.id) === String(
+        sourceFieldId || prefillSourceFieldId
+      ));
+      if (!source) return [];
+      const isGroup = source.type === 'organisation_group_dropdown';
+      const coreFields = isGroup ? ORG_GROUP_PREFILL_FIELDS : ORG_CORE_FIELDS;
+      const scope = isGroup ? 'organization_group' : 'organization';
+      const entityCustomFields = customFields.filter(cf => cf.entity_scope === scope);
+      return [
+        ...coreFields.map(f => ({ value: `core.${f.value}`, label: f.label })),
+        ...entityCustomFields.map(f => ({ value: `custom.${f.id}`, label: f.label })),
+      ];
+    }
     
     if (prefillSource === 'booking') {
       const memberCustomFields = customFields.filter(cf => !cf.entity_scope || cf.entity_scope === 'member');
@@ -2458,7 +2474,10 @@ function LogicRulesSection({
     const targetInfo = getTargetFieldOptions(action.target_field_id);
     const sourceType = action.set_value_source || 'static';
     const availableSourceFields = fields.filter(f => f.id !== action.target_field_id);
-    const prefillFields = getPrefillFields();
+    const eligiblePrefillSources = fields.filter(isEligibleFormFieldPrefillSource);
+    const selectedPrefillSourceId = action.set_value_prefill_source_field_id
+      || prefillSourceFieldId;
+    const prefillFields = getPrefillFields(selectedPrefillSourceId);
     const hasPrefill = prefillSource !== 'none';
     
     if (!action.target_field_id) {
@@ -2505,7 +2524,12 @@ function LogicRulesSection({
               variant={sourceType === 'static' ? 'default' : 'outline'}
               size="sm"
               className="h-7 text-xs"
-              onClick={() => updateAction(ruleId, action.id, { set_value_source: 'static', set_value_field_id: '', set_value_prefill_field: '' })}
+              onClick={() => updateAction(ruleId, action.id, {
+                set_value_source: 'static',
+                set_value_field_id: '',
+                set_value_prefill_field: '',
+                set_value_prefill_source_field_id: '',
+              })}
               data-testid={`button-source-static-${actionIndex}`}
             >
               Enter Text
@@ -2514,7 +2538,12 @@ function LogicRulesSection({
               variant={sourceType === 'field' ? 'default' : 'outline'}
               size="sm"
               className="h-7 text-xs"
-              onClick={() => updateAction(ruleId, action.id, { set_value_source: 'field', set_value: '', set_value_prefill_field: '' })}
+              onClick={() => updateAction(ruleId, action.id, {
+                set_value_source: 'field',
+                set_value: '',
+                set_value_prefill_field: '',
+                set_value_prefill_source_field_id: '',
+              })}
               data-testid={`button-source-field-${actionIndex}`}
             >
               From Field
@@ -2524,7 +2553,14 @@ function LogicRulesSection({
                 variant={sourceType === 'prefill' ? 'default' : 'outline'}
                 size="sm"
                 className="h-7 text-xs"
-                onClick={() => updateAction(ruleId, action.id, { set_value_source: 'prefill', set_value: '', set_value_field_id: '' })}
+                onClick={() => updateAction(ruleId, action.id, {
+                  set_value_source: 'prefill',
+                  set_value: '',
+                  set_value_field_id: '',
+                  ...(eligiblePrefillSources.some(field => field.id === action.target_field_id)
+                    ? { target_field_id: '' }
+                    : {}),
+                })}
                 data-testid={`button-source-prefill-${actionIndex}`}
               >
                 From Pre-fill Data
@@ -2539,6 +2575,7 @@ function LogicRulesSection({
                 set_value: '', 
                 set_value_field_id: '',
                 set_value_prefill_field: '',
+                 set_value_prefill_source_field_id: '',
                 formula_operand_a_mode: 'field',
                 formula_operand_a_field_id: '',
                 formula_operand_a_value: '',
@@ -2680,21 +2717,44 @@ function LogicRulesSection({
             </p>
           </div>
         ) : sourceType === 'prefill' ? (
-          <Select
-            value={action.set_value_prefill_field || undefined}
-            onValueChange={(value) => updateAction(ruleId, action.id, { set_value_prefill_field: value })}
-          >
-            <SelectTrigger className="h-9" data-testid={`select-prefill-field-${actionIndex}`}>
-              <SelectValue placeholder={`Select ${prefillSource} field...`} />
-            </SelectTrigger>
-            <SelectContent>
-              {prefillFields.map(field => (
-                <SelectItem key={field.value} value={field.value}>
-                  {field.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <div className="space-y-2">
+            {prefillSource === 'form_field' && (
+              <Select
+                value={selectedPrefillSourceId || undefined}
+                onValueChange={(value) => updateAction(ruleId, action.id, {
+                  set_value_prefill_source_field_id: value,
+                  set_value_prefill_field: '',
+                })}
+              >
+                <SelectTrigger className="h-9" data-testid={`select-prefill-source-field-${actionIndex}`}>
+                  <SelectValue placeholder="Select record source dropdown..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {eligiblePrefillSources.map(field => (
+                    <SelectItem key={field.id} value={field.id}>
+                      {field.label || 'Untitled field'} — {field.type === 'organisation_group_dropdown' ? 'Organisation Group' : 'Organisation'}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+            <Select
+              value={action.set_value_prefill_field || undefined}
+              onValueChange={(value) => updateAction(ruleId, action.id, { set_value_prefill_field: value })}
+              disabled={prefillSource === 'form_field' && !selectedPrefillSourceId}
+            >
+              <SelectTrigger className="h-9" data-testid={`select-prefill-field-${actionIndex}`}>
+                <SelectValue placeholder="Select pre-fill field..." />
+              </SelectTrigger>
+              <SelectContent>
+                {prefillFields.map(field => (
+                  <SelectItem key={field.value} value={field.value}>
+                    {field.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
         ) : sourceType === 'field' ? (
           <Select
             value={action.set_value_field_id || undefined}
@@ -3515,11 +3575,17 @@ function LogicRulesSection({
                                       <SelectValue placeholder="Select field to set..." />
                                     </SelectTrigger>
                                     <SelectContent>
-                                      {availableSetValueTargetFields.map(field => (
+                                      {availableSetValueTargetFields
+                                        .filter(field => (
+                                          (action.set_value_source || 'static') !== 'prefill'
+                                          || prefillSource !== 'form_field'
+                                          || !isEligibleFormFieldPrefillSource(field)
+                                        ))
+                                        .map(field => (
                                         <SelectItem key={field.id} value={field.id}>
                                           {field.label || field.type} ({field.type}){field.locked ? ' [Locked]' : ''}
                                         </SelectItem>
-                                      ))}
+                                        ))}
                                     </SelectContent>
                                   </Select>
                                 </div>
@@ -11891,6 +11957,7 @@ export default function FormBuilderPage() {
                   fields={formData.fields}
                   visibilityRules={formData.visibility_rules}
                   prefillSource={formData.prefill_source || 'none'}
+                  prefillSourceFieldId={formData.prefill_source_field_id}
                   customFields={customFields}
                   categories={categories}
                   communicationCategories={communicationCategories}
