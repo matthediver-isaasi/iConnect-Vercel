@@ -18,23 +18,28 @@ import {
 } from './import-bnms-direct-debit-members.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-export const FILE = path.join(ROOT, 'attached_assets', 'Guest_Members_IMPORT_WITHOUT_UUIDs_PHONE_IMPORT_READY_06.09.2_1788684560239.xlsx');
-export const EXPECTED_FILE_SHA256 = 'd7b33d98025ade1d789789d2e025ca067910417044638be5816f0a14538fa897';
+export const FILE = path.join(ROOT, 'attached_assets', 'Guest_Members_IMPORT_WITH_UUIDs_PHONE_IMPORT_READY_06.09.26_v_1788685624571.xlsx');
+export const EXPECTED_FILE_SHA256 = 'ab5ef389438d44ad3f45d84e6fe6d630344a494f11169182fa28b77a72ca04cb';
 export const SHEET_NAME = 'Guest Members';
-export const ROW_COUNT = 872;
+export const ROW_COUNT = 1500;
 export const COLUMN_COUNT = 15;
+export const ASSIGNMENT_COUNTS = Object.freeze({ group: 810, organization: 690 });
+export const PRIOR_GUEST_EMAIL_OVERLAPS = Object.freeze([
+  { email: 'dylanhurry@gmail.com', priorLegacyId: '74149979', incomingLegacyId: '74144337' },
+  { email: 'maryantoinette.mcneil@nhs.scot', priorLegacyId: '69321893', incomingLegacyId: '79526353' },
+]);
 export const HEADERS = Object.freeze([
   'YM Web Site Member ID', 'Member Since', 'Membership status',
   'YM Membership type', 'Member class', 'First Name', 'Last Name', 'Title',
-  'Email', 'Alternative email address', 'BNMS Region', 'Phone',
-  'non_linked_organisation', 'Occupation', 'Qualifications',
+  'Email', 'Alternative email address', 'Phone', 'Group UUID',
+  'Organisation UUID', 'Occupation', 'Qualifications',
 ]);
 export const CORE_MAPPINGS = Object.freeze([
   { column: 1, destination: 'created_on', transform: 'date' },
   { column: 5, destination: 'first_name' },
   { column: 6, destination: 'last_name' },
   { column: 8, destination: 'email', transform: 'email' },
-  { column: 11, destination: 'mobile', transform: 'phone' },
+  { column: 10, destination: 'mobile', transform: 'phone' },
 ]);
 export const CUSTOM_MAPPINGS = Object.freeze([
   ['50d7b71c-29b0-4d4c-a817-f39edf35f2e0', 0, 'ym_web_site_member_id', 'YM Web Site Member ID', 'text'],
@@ -43,16 +48,17 @@ export const CUSTOM_MAPPINGS = Object.freeze([
   ['87f120ff-92e6-4d52-944b-9ba9d7b1fac0', 4, 'member_class', 'Member class', 'dropdown'],
   ['4f2e504c-1663-4dd8-a486-274159834320', 7, 'title', 'Title', 'dropdown'],
   ['b3d6ddbe-57c3-45a8-8f03-316f90b3dfbd', 9, 'alternative_email_address', 'Alternative email address', 'email'],
-  ['0e3e3b1f-5a3d-40b5-a4b5-f0761c115216', 10, 'member_region', 'Region', 'dropdown'],
-  ['7df3450d-39ce-48f8-ab45-3be61d22477f', 12, 'non_linked_organisation', 'Non-linked organisation', 'text'],
   ['1c84695f-e8f8-4afd-b4be-e54f5f540a26', 13, 'occupation', 'Occupation', 'dropdown'],
   ['5a12aae9-d754-45ce-ac47-a97109a690e2', 14, 'qualifications', 'Qualifications', 'textarea'],
 ].map(([id, column, name, label, type, transform]) => ({ id, column, name, label, type, transform })));
 
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 // Phone is deliberately treated as an opaque safe string. The pinned source
 // includes one valid five-digit internal/local number; no digits are invented.
-const PHONE_RE = /^\+?\d{5,15}$/;
+// Preserve the pinned workbook's opaque digit strings exactly. Four reviewed
+// rows contain 16 digits; rejecting or shortening them would require guessing.
+const PHONE_RE = /^\+?\d{5,16}$/;
 const fail = (message) => { throw new Error(message); };
 const check = (error, context) => { if (error) fail(`${context}: ${error.message}`); };
 const xform = (value, transform, context) => {
@@ -87,7 +93,13 @@ export function parseSourceBytes(bytes, { verifyFingerprint = true } = {}) {
     parseBritishDate(values[1], `Member Since at row ${sourceRow}`);
     if (!EMAIL_RE.test(values[8])) fail(`Row ${sourceRow} has invalid Email "${values[8]}".`);
     if (values[9] && !EMAIL_RE.test(values[9])) fail(`Row ${sourceRow} has invalid Alternative email address.`);
-    if (values[11] && !PHONE_RE.test(values[11])) fail(`Row ${sourceRow} has unsafe Phone "${values[11]}".`);
+    if (values[10] && !PHONE_RE.test(values[10])) fail(`Row ${sourceRow} has unsafe Phone "${values[10]}".`);
+    if ([11, 12].filter((column) => values[column]).length !== 1) {
+      fail(`Row ${sourceRow} must have exactly one Group UUID or Organisation UUID.`);
+    }
+    for (const column of [11, 12]) {
+      if (values[column] && !UUID_RE.test(values[column])) fail(`Row ${sourceRow} has invalid hierarchy UUID.`);
+    }
     return { sourceRow, legacyId: values[0], email: emailKey(values[8]), values };
   }).filter(Boolean);
   if (rows.length !== ROW_COUNT) fail(`Workbook must contain exactly ${ROW_COUNT} populated rows; found ${rows.length}.`);
@@ -98,7 +110,14 @@ export function parseSourceBytes(bytes, { verifyFingerprint = true } = {}) {
       seen.set(row[key], row.sourceRow);
     }
   }
-  return { fingerprint, rows };
+  const counts = {
+    group: rows.filter((row) => row.values[11]).length,
+    organization: rows.filter((row) => row.values[12]).length,
+  };
+  if (counts.group !== ASSIGNMENT_COUNTS.group || counts.organization !== ASSIGNMENT_COUNTS.organization) {
+    fail(`Hierarchy source counts drifted: ${JSON.stringify(counts)}.`);
+  }
+  return { fingerprint, rows, counts };
 }
 export const readSource = (file = FILE) => parseSourceBytes(readFileSync(file));
 
@@ -123,11 +142,43 @@ export function auditMappings(fields, source) {
   });
 }
 
+export function auditHierarchy(source, state) {
+  const groups = new Map();
+  for (const group of state.groups || []) {
+    if (groups.has(group.id)) fail(`Duplicate destination Group id "${group.id}".`);
+    groups.set(group.id, group);
+  }
+  const organizations = new Map();
+  for (const organization of state.organizations || []) {
+    if (organizations.has(organization.id)) fail(`Duplicate destination Organisation id "${organization.id}".`);
+    organizations.set(organization.id, organization);
+  }
+  for (const row of source.rows) {
+    if (row.values[11] && groups.get(row.values[11])?.tenant_id !== TENANT_ID) {
+      fail(`Row ${row.sourceRow}: Group is missing or outside BNMS.`);
+    }
+    if (row.values[12] && organizations.get(row.values[12])?.tenant_id !== TENANT_ID) {
+      fail(`Row ${row.sourceRow}: Organisation is missing or outside BNMS.`);
+    }
+  }
+  return { memberDefinition: { id: 'unused' } };
+}
+
 async function fetchAll(db, table, columns, configure = (query) => query) {
   const rows = [];
   for (let from = 0; ; from += 500) {
-    const { data, error } = await configure(db.from(table).select(columns).order('id').range(from, from + 499));
-    check(error, `Could not read ${table}`);
+    let result;
+    for (let attempt = 1; attempt <= 4; attempt += 1) {
+      try {
+        result = await configure(db.from(table).select(columns).order('id').range(from, from + 499));
+        if (!result.error) break;
+        if (attempt === 4) check(result.error, `Could not read ${table}`);
+      } catch (error) {
+        if (attempt === 4) fail(`Could not read ${table}: ${error.message}`);
+      }
+      await new Promise((resolve) => setTimeout(resolve, attempt * 250));
+    }
+    const { data } = result;
     rows.push(...(data || []));
     if ((data || []).length < 500) return rows;
   }
@@ -142,28 +193,60 @@ async function fetchForIds(db, table, columns, column, ids) {
 
 export async function loadState(db, source) {
   const legacyFieldId = CUSTOM_MAPPINGS[0].id;
-  const [tenantResult, fields, allMembers, legacyValues, nullability] = await Promise.all([
+  const legacyIds = source.rows.map((row) => row.legacyId);
+  const priorLegacyIds = PRIOR_GUEST_EMAIL_OVERLAPS.map((item) => item.priorLegacyId);
+  const [tenantResult, fields, groups, organizations, allMembers, allIdentityValues, nullability] = await Promise.all([
     db.from('tenant').select('id,name').eq('id', TENANT_ID).maybeSingle(),
     fetchAll(db, 'preference_field', 'id,tenant_id,name,label,field_type,entity_scope,is_active,options',
       (query) => query.eq('tenant_id', TENANT_ID).eq('entity_scope', 'member')),
+    fetchAll(db, 'organization_group', 'id,tenant_id,name', (query) => query.eq('tenant_id', TENANT_ID)),
+    fetchAll(db, 'organization', 'id,tenant_id,name', (query) => query.eq('tenant_id', TENANT_ID)),
     fetchAll(db, 'member', 'id,tenant_id,email,first_name,last_name,created_on,mobile,organization_id,organization_group_id',
       (query) => query.eq('tenant_id', TENANT_ID)),
-    fetchAll(db, 'member_preference_value', 'id,member_id,field_id,value',
-      (query) => query.eq('field_id', legacyFieldId).in('value', source.rows.map((row) => row.legacyId))),
+    fetchForIds(db, 'member_preference_value', 'id,member_id,field_id,value', 'value',
+      [...legacyIds, ...priorLegacyIds]).then((rows) =>
+      rows.filter((row) => row.field_id === legacyFieldId)),
     memberAssignmentNullability(),
   ]);
   check(tenantResult.error, 'Could not resolve pinned BNMS tenant');
   if (tenantResult.data?.id !== TENANT_ID || !/\bbnms\b|british nuclear medicine society/i.test(tenantResult.data?.name || '')) {
     fail('Pinned destination is not BNMS.');
   }
+  const incomingLegacySet = new Set(legacyIds);
+  const priorLegacySet = new Set(priorLegacyIds);
+  const legacyValues = allIdentityValues.filter((value) => incomingLegacySet.has(clean(value.value)));
+  const priorLegacyValues = allIdentityValues.filter((value) => priorLegacySet.has(clean(value.value)));
   const emails = new Set(source.rows.map((row) => row.email));
-  const legacyMemberIds = new Set(legacyValues.map((value) => value.member_id));
+  const legacyMemberIds = new Set(allIdentityValues.map((value) => value.member_id));
   const members = allMembers.filter((member) => emails.has(emailKey(member.email)) || legacyMemberIds.has(member.id));
   const memberIds = members.map((member) => member.id);
-  const preferenceValues = memberIds.length
-    ? await fetchForIds(db, 'member_preference_value', 'id,member_id,field_id,value', 'member_id', memberIds)
-    : [];
-  return { tenant: tenantResult.data, fields, members, preferenceValues, legacyValues, nullability };
+  const [preferenceValues, memberEdges] = memberIds.length ? await Promise.all([
+    fetchForIds(db, 'member_preference_value', 'id,member_id,field_id,value', 'member_id', memberIds),
+    fetchForIds(db, 'custom_object_relationship',
+      'id,tenant_id,relationship_definition_id,source_record_id,target_record_id,archived_at,archived_by',
+      'target_record_id', memberIds),
+  ]) : [[], []];
+  return {
+    tenant: tenantResult.data, fields, groups, organizations, members, preferenceValues,
+    memberEdges, legacyValues, priorLegacyValues, nullability,
+  };
+}
+
+export function auditPriorGuestOverlaps(source, state) {
+  const membersByEmail = new Map((state.members || []).map((member) => [emailKey(member.email), member]));
+  const incomingByValue = new Map((state.legacyValues || []).map((value) => [clean(value.value), value]));
+  const priorByValue = new Map((state.priorLegacyValues || []).map((value) => [clean(value.value), value]));
+  for (const contract of PRIOR_GUEST_EMAIL_OVERLAPS) {
+    const row = source.rows.find((candidate) => candidate.email === contract.email);
+    const member = membersByEmail.get(contract.email);
+    if (!row || row.legacyId !== contract.incomingLegacyId || !member) {
+      fail(`Prior guest overlap contract drifted for "${contract.email}".`);
+    }
+    const identity = incomingByValue.get(contract.incomingLegacyId) || priorByValue.get(contract.priorLegacyId);
+    if (!identity || identity.member_id !== member.id) {
+      fail(`Prior guest overlap identity does not belong to "${contract.email}".`);
+    }
+  }
 }
 
 export function makePlan(source, state, mappings) {
@@ -206,6 +289,15 @@ export function makePlan(source, state, mappings) {
         : member && current === clean(desired);
       if (!matches) patch[mapping.destination] = desired;
     }
+    const groupId = row.values[11] || null;
+    const organizationId = row.values[12] || null;
+    if (groupId) {
+      if (!member || member.organization_group_id !== groupId) patch.organization_group_id = groupId;
+      if (member?.organization_id != null) patch.organization_id = null;
+    } else {
+      if (!member || member.organization_id !== organizationId) patch.organization_id = organizationId;
+      if (member?.organization_group_id != null) patch.organization_group_id = null;
+    }
     const preferences = mappings.flatMap((mapping) => {
       const raw = row.values[mapping.column];
       if (!raw) return [];
@@ -213,11 +305,16 @@ export function makePlan(source, state, mappings) {
       const existing = member ? prefs.get(`${member.id}|${mapping.id}`) : null;
       return [{ mapping, desired, existing, action: !existing ? 'insert' : clean(existing.value) === clean(desired) ? 'unchanged' : 'update' }];
     });
+    const activeDepartmentEdges = member ? (state.memberEdges || []).filter((edge) =>
+      edge.target_record_id === member.id && edge.archived_at == null) : [];
+    if (activeDepartmentEdges.some((edge) => edge.tenant_id !== TENANT_ID)) {
+      fail(`Member "${row.email}" has an active hierarchy edge outside BNMS.`);
+    }
     return {
       row, member, patch,
       action: member ? (Object.keys(patch).length ? 'update' : 'unchanged') : 'insert',
       preferences, departmentId: null, departmentIds: [], departmentAssignmentMode: 'preserve',
-      edgeAction: 'none', conflictingEdges: [], exactEdges: [], activeDepartmentEdges: [],
+      edgeAction: 'none', conflictingEdges: [], exactEdges: [], activeDepartmentEdges,
     };
   }) };
 }
@@ -232,6 +329,9 @@ function report(source, state, mappings, plan) {
   console.log(`Members insert/update/unchanged: ${['insert', 'update', 'unchanged'].map((action) => plan.items.filter((item) => item.action === action).length).join('/')}`);
   console.log(`Preference writes: ${plan.items.flatMap((item) => item.preferences).filter((item) => item.action !== 'unchanged').length}`);
   console.log(`Existing legacy-ID matches: ${state.legacyValues.length}`);
+  const overlaps = PRIOR_GUEST_EMAIL_OVERLAPS.map((contract) =>
+    `${contract.email} (${contract.priorLegacyId} -> ${contract.incomingLegacyId})`);
+  console.log(`Prior guest email overlaps reconciled: ${overlaps.join(', ')}`);
 }
 
 async function main() {
@@ -246,6 +346,8 @@ async function main() {
   const db = createClient(process.env.DEST_SUPABASE_URL, process.env.DEST_SUPABASE_KEY, { auth: { persistSession: false } });
   const state = await loadState(db, source);
   const mappings = auditMappings(state.fields, source);
+  const hierarchy = auditHierarchy(source, state);
+  auditPriorGuestOverlaps(source, state);
   const plan = makePlan(source, state, mappings);
   const inserts = plan.items.filter((item) => !item.member);
   if (inserts.length && (!state.nullability?.organization_id || !state.nullability?.organization_group_id)) {
@@ -258,10 +360,12 @@ async function main() {
     update: plan.items.filter((item) => item.action === 'update').length,
     unchanged: plan.items.filter((item) => item.action === 'unchanged').length,
   };
-  const result = await applyPlan(db, plan, { memberDefinition: { id: 'unused' } });
+  const result = await applyPlan(db, plan, hierarchy);
   await verifyOrCompensate(result.journal, async () => {
     const verified = await loadState(db, source);
     const replayMappings = auditMappings(verified.fields, source);
+    auditHierarchy(source, verified);
+    auditPriorGuestOverlaps(source, verified);
     const replay = makePlan(source, verified, replayMappings);
     const pending = pendingItems(replay);
     if (replay.items.some((item) => !item.member) || verified.legacyValues.length !== ROW_COUNT || pending.length) {
