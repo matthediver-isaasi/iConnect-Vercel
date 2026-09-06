@@ -71,6 +71,63 @@ function resolvePicklistValue(rawValue, field) {
   return opt?.label || lookupVal;
 }
 
+export function formatCustomFieldValueForCsv(rawValue, field) {
+  if (field?.field_type === 'boolean' || field?.field_type === 'checkbox') {
+    return rawValue === true || rawValue === 'true' ? 'Yes' : 'No';
+  }
+  if (rawValue === null || rawValue === undefined) return '';
+  if (field?.field_type === 'picklist' || field?.field_type === 'dropdown' || field?.field_type === 'list') {
+    return resolvePicklistValue(rawValue, field);
+  }
+  if (typeof rawValue === 'string') {
+    const trimmed = rawValue.trim();
+    if (trimmed.startsWith('[') || trimmed.startsWith('{')) {
+      try { rawValue = JSON.parse(trimmed); } catch {}
+    }
+  }
+  rawValue = normalizePreferenceValue(rawValue);
+  if (Array.isArray(rawValue)) return rawValue.join(', ');
+  return String(rawValue);
+}
+
+export async function loadMemberPreferenceValuesForCsv(
+  supabaseClient,
+  memberIds,
+  fieldIds,
+  { memberBatchSize = 200, pageSize = 1000 } = {},
+) {
+  const preferenceMap = {};
+  if (fieldIds.length === 0 || memberIds.length === 0) return preferenceMap;
+
+  for (let i = 0; i < memberIds.length; i += memberBatchSize) {
+    const batch = memberIds.slice(i, i + memberBatchSize);
+    let from = 0;
+    while (true) {
+      const { data, error } = await supabaseClient
+        .from('member_preference_value')
+        .select('id, member_id, field_id, value')
+        .in('member_id', batch)
+        .in('field_id', fieldIds)
+        // PostgREST ranges are only reliable with a stable unique order.
+        // Without this, dense preference pages can skip a whole field.
+        .order('id', { ascending: true })
+        .range(from, from + pageSize - 1);
+      if (error) {
+        throw new Error(`Preference values query failed: ${error.message}`);
+      }
+      for (const preference of data || []) {
+        if (!preference.field_id) continue;
+        if (!preferenceMap[preference.member_id]) preferenceMap[preference.member_id] = {};
+        preferenceMap[preference.member_id][preference.field_id] = preference.value;
+      }
+      if (!data || data.length < pageSize) break;
+      from += pageSize;
+    }
+  }
+
+  return preferenceMap;
+}
+
 export default async function handler(req, res) {
   if (req.method !== 'GET' && req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
@@ -182,40 +239,13 @@ export default async function handler(req, res) {
     const headerRow = allHeaders.map(escapeCSV).join(',');
 
     const PAGE_SIZE = 1000;
-    const PREF_BATCH_SIZE = 200;
+    const customFieldIds = customFields.map(field => field.id);
 
     // Load preference values for a single page of members at a time so memory
     // stays bounded to one page regardless of tenant size.
-    const loadPrefValuesForMembers = async (memberIds) => {
-      const pagePrefMap = {};
-      if (customFields.length === 0 || memberIds.length === 0) return pagePrefMap;
-      for (let i = 0; i < memberIds.length; i += PREF_BATCH_SIZE) {
-        const batch = memberIds.slice(i, i + PREF_BATCH_SIZE);
-        let from = 0;
-        const pageSize = 1000;
-        while (true) {
-          const { data: pvData, error: pvError } = await supabase
-            .from('member_preference_value')
-            .select('member_id, field_id, value')
-            .in('member_id', batch)
-            .range(from, from + pageSize - 1);
-          if (pvError) {
-            throw new Error(`Preference values query failed: ${pvError.message}`);
-          }
-          if (pvData && pvData.length > 0) {
-            for (const pv of pvData) {
-              const fieldIdKey = pv.field_id;
-              if (!fieldIdKey) continue;
-              if (!pagePrefMap[pv.member_id]) pagePrefMap[pv.member_id] = {};
-              pagePrefMap[pv.member_id][fieldIdKey] = pv.value;
-            }
-          }
-          if (!pvData || pvData.length < pageSize) break;
-          from += pageSize;
-        }
-      }
-      return pagePrefMap;
-    };
+    const loadPrefValuesForMembers = memberIds => (
+      loadMemberPreferenceValuesForCsv(supabase, memberIds, customFieldIds)
+    );
 
     const buildMemberRow = (member, pagePrefMap) => {
       const coreValues = coreHeaders.map(field => {
@@ -238,20 +268,8 @@ export default async function handler(req, res) {
       });
 
       const customValues = customFields.map(f => {
-        let rawValue = pagePrefMap[member.id]?.[f.id];
-        if (rawValue === null || rawValue === undefined) return '';
-        if (f.field_type === 'picklist' || f.field_type === 'dropdown' || f.field_type === 'list') {
-          return resolvePicklistValue(rawValue, f);
-        }
-        if (typeof rawValue === 'string') {
-          const trimmed = rawValue.trim();
-          if (trimmed.startsWith('[') || trimmed.startsWith('{')) {
-            try { rawValue = JSON.parse(trimmed); } catch {}
-          }
-        }
-        rawValue = normalizePreferenceValue(rawValue);
-        if (Array.isArray(rawValue)) return rawValue.join(', ');
-        return String(rawValue);
+        const rawValue = pagePrefMap[member.id]?.[f.id];
+        return formatCustomFieldValueForCsv(rawValue, f);
       });
 
       return [...coreValues, ...customValues].map(escapeCSV).join(',');
