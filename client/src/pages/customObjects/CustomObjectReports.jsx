@@ -62,6 +62,7 @@ export function CustomObjectReports({ object, fields, definitions, canManage }) 
   const [columnPath, setColumnPath] = useState([]);
   const [page, setPage] = useState(1);
   const [preview, setPreview] = useState(null);
+  const [exportProgress, setExportProgress] = useState(null);
   const graph = Array.isArray(definitions) ? definitions : definitions?.data || [];
   const paths = useMemo(() => allPaths(graph, objectId), [graph, objectId]);
   const endpoints = useMemo(() => {
@@ -105,27 +106,63 @@ export function CustomObjectReports({ object, fields, definitions, canManage }) 
   });
   const exportMutation = useMutation({
     mutationFn: async () => {
-      const response = await fetch(reportUrl(objectId, "export"), {
+      const storageKey = `custom-object-report-export:${objectId}`;
+      const downloadCsv = (parts, name) => {
+        const blob = new Blob(parts, { type: "text/csv;charset=utf-8;" });
+        const url = URL.createObjectURL(blob);
+        const anchor = document.createElement("a");
+        anchor.href = url; anchor.download = name; document.body.appendChild(anchor); anchor.click(); anchor.remove();
+        URL.revokeObjectURL(url);
+      };
+      const request = async (body) => {
+        const response = await fetch(reportUrl(objectId, "export"), {
         method: "POST", credentials: "include", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          definition: reconciled.config,
-          name: saved.activeReport?.name || object.plural_label || "custom-object-report",
-        }),
-      });
-      if (!response.ok) {
-        const body = await response.json().catch(() => ({}));
-        throw new Error(body.message || body.error || "Could not export this report.");
+          body: JSON.stringify(body),
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.message || data.error || "Could not export this report.");
+        return data;
+      };
+      const savedJobId = window.localStorage.getItem(storageKey);
+      let job = savedJobId
+        ? await request({ action: "status", job_id: savedJobId }).catch(() => null)
+        : null;
+      if (!job || ["complete", "failed"].includes(job.status)) {
+        job = await request({ action: "start", definition: reconciled.config,
+          name: saved.activeReport?.name || object.plural_label || "custom-object-report" });
+        if (job.legacy_sync && typeof job.csv === "string") {
+          downloadCsv([job.csv], job.filename || "custom-object-report.csv");
+          return;
+        }
+        window.localStorage.setItem(storageKey, job.id);
       }
-      const body = await response.json();
-      const blob = new Blob([body.csv], { type: "text/csv;charset=utf-8;" });
-      const name = body.filename || "custom-object-report.csv";
-      const url = URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-      anchor.href = url; anchor.download = name; document.body.appendChild(anchor); anchor.click(); anchor.remove();
-      URL.revokeObjectURL(url);
+      setExportProgress(job);
+      while (!["complete", "failed"].includes(job.status)) {
+        const previousProcessed = job.processed;
+        job = await request({ action: "process", job_id: job.id });
+        setExportProgress(job);
+        if (job.processed === previousProcessed) {
+          await new Promise((resolve) => window.setTimeout(resolve, 300));
+        }
+      }
+      if (job.status === "failed") throw new Error(job.error_message || "The export could not be completed.");
+      const chunks = [];
+      for (let index = 0; index < job.chunk_count; index += 1) {
+        chunks.push((await request({ action: "chunk", job_id: job.id, chunk_index: index })).csv_text);
+      }
+      const name = job.filename || "custom-object-report.csv";
+      downloadCsv(chunks, name);
+      window.localStorage.removeItem(storageKey);
     },
+    onSuccess: () => toast.success("Your CSV export is complete."),
     onError: (error) => toast.error(error.message),
   });
+  useEffect(() => {
+    if (objectId && window.localStorage.getItem(`custom-object-report-export:${objectId}`)
+      && !exportMutation.isPending) exportMutation.mutate();
+    // Resume a durable export once when this report screen mounts.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [objectId]);
   const apply = (report) => { setConfig(makeReportConfig(objectId, report.config)); setPreview(null); };
   const setColumns = (updater) => setConfig((current) => ({
     ...current, columns: typeof updater === "function" ? updater(current.columns || []) : updater,
@@ -185,7 +222,7 @@ export function CustomObjectReports({ object, fields, definitions, canManage }) 
           {relationshipMetadata.length > 0 && <div><Label>Relationship fields</Label><div className="mt-2 flex flex-wrap gap-2">{relationshipMetadata.map((field) => <Button key={field.id || field.key} type="button" size="sm" variant="outline" disabled={!canManage} onClick={() => addRelationshipColumn(field)}><Plus className="mr-1 h-3 w-3" />{field.label}</Button>)}</div></div>}
         </div>
         <div className="space-y-2">{config.columns.map((column, index) => <div key={column.id || index} className="flex items-center gap-2 rounded border p-2 text-sm"><span className="min-w-0 flex-1 truncate">{column.label || column.field_id} <span className="text-slate-400">· {reportPathLabel(column.path, graph, [], object)}</span></span><Button type="button" size="sm" variant="ghost" disabled={!canManage || index === 0} onClick={() => setColumns((items) => moveReportColumn(items, index, -1))}>↑</Button><Button type="button" size="sm" variant="ghost" disabled={!canManage || index === config.columns.length - 1} onClick={() => setColumns((items) => moveReportColumn(items, index, 1))}>↓</Button><Button type="button" size="sm" variant="ghost" disabled={!canManage} onClick={() => setColumns((items) => items.filter((_, itemIndex) => itemIndex !== index))}><Trash2 className="h-4 w-4" /></Button></div>)}</div>
-        <div className="flex justify-end"><Button variant="outline" disabled={!canManage || reconciled.stale.length > 0 || !config.columns.length || exportMutation.isPending} onClick={() => exportMutation.mutate()}>{exportMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}Export CSV</Button></div>
+        <div className="flex items-center justify-end gap-3">{exportMutation.isPending && <span className="text-sm text-slate-500">Preparing CSV… {exportProgress?.total ? `${exportProgress.processed} of ${exportProgress.total} rows` : "counting rows"}</span>}{exportMutation.isError && <span className="text-sm text-red-600">Export failed: {exportMutation.error?.message}</span>}<Button variant="outline" disabled={!canManage || reconciled.stale.length > 0 || !config.columns.length || exportMutation.isPending} onClick={() => exportMutation.mutate()}>{exportMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}Export CSV</Button></div>
       </CardContent>
     </Card>
     {preview && <Card><CardHeader><CardTitle className="text-base">Preview</CardTitle><CardDescription>{preview.total ?? 0} matching row{preview.total === 1 ? "" : "s"} · page {page}</CardDescription></CardHeader><CardContent className="overflow-x-auto"><table className="w-full text-sm"><thead><tr className="border-b text-left">{headers.map((header, index) => <th className="p-2 font-medium" key={index}>{typeof header === "string" ? header : header.label}</th>)}</tr></thead><tbody>{rows.map((row, rowIndex) => <tr className="border-b" key={row.id || row.row_id || rowIndex}>{(Array.isArray(row) ? row : (row.values || Object.values(row))).map((value, index) => <td className="p-2" key={index}>{Array.isArray(value) ? value.join(", ") : String(value ?? "")}</td>)}</tr>)}</tbody></table>{!rows.length && <p className="p-3 text-sm text-slate-500">No rows match this report.</p>}<div className="mt-3 flex justify-end gap-2"><Button size="sm" variant="outline" disabled={page <= 1 || previewMutation.isPending} onClick={() => previewMutation.mutate(page - 1)}>Previous</Button><Button size="sm" variant="outline" disabled={!preview.has_more && !(preview.total > page * 50) || previewMutation.isPending} onClick={() => previewMutation.mutate(page + 1)}>Next</Button></div></CardContent></Card>}

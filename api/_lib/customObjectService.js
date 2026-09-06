@@ -19,6 +19,7 @@ import {
   validateCustomObjectRelationshipEndpoints,
 } from './customObjectDomain.js';
 import { CSV_BOM, CSV_ROW_SEPARATOR, escapeCsvCell } from './csvCell.js';
+import { randomUUID } from 'node:crypto';
 
 export class CustomObjectHttpError extends Error {
   constructor(status, message, details = null) {
@@ -3750,25 +3751,91 @@ export function createCustomObjectService({
     return String(value);
   }
 
-  async function executeReport(objectId, definition) {
+  async function executeReport(objectId, definition, requestedPage = null) {
     const validated = await validateReportDefinition(objectId, definition);
-    const roots = [];
-    const rootBatchSize = 1000;
-    for (let from = 0; ; from += rootBatchSize) {
-      const { data, error } = await db.from('custom_object_record').select('*')
-        .eq('tenant_id', tenantId).eq('custom_object_id', objectId)
-        .is('archived_at', null).order('id', { ascending: true })
-        .range(from, from + rootBatchSize - 1);
-      throwDb(error);
-      roots.push(...(data || []));
-      if ((data || []).length < rootBatchSize) break;
-    }
-    let grains = roots.map((record) => ({ record, root: record, edges: [] }));
-    for (const hop of validated.grain.hops) grains = await reportFollow(grains, hop);
+    const p = requestedPage ? pagination(requestedPage, 500) : null;
+    const exportMode = Boolean(requestedPage && Object.hasOwn(requestedPage, 'exportCursor'));
+    const exportCursor = requestedPage?.exportCursor || null;
     const finalGrainHop = validated.grain.hops.at(-1);
     const occurrenceGrain = finalGrainHop
       ? relationshipValueShape(finalGrainHop.definition.cardinality, finalGrainHop.fromSide) === 'many'
       : false;
+    const roots = [];
+    const rootBatchSize = 1000;
+    let grains;
+    let exactTotal = null;
+    let pageHasMore = false;
+    let nextCursor = null;
+    // The common Department -> Member report is occurrence-grained. Page its
+    // relationship edges first so a 50-row preview never materializes all
+    // Department memberships. Edge id is the durable, deterministic cursor.
+    if (p && occurrenceGrain && validated.grain.hops.length === 1) {
+      const hop = validated.grain.hops[0];
+      const routed = hop.fromSide === 'source' ? 'source_record_id' : 'target_record_id';
+      const other = hop.fromSide === 'source' ? 'target_record_id' : 'source_record_id';
+      const { data: occurrencePage, error } = await db.rpc('custom_object_report_occurrence_page', {
+        p_tenant_id: tenantId,
+        p_custom_object_id: objectId,
+        p_relationship_definition_id: hop.definition.id,
+        p_from_side: hop.fromSide,
+        p_endpoint_kind: hop.endpoint.kind,
+        p_endpoint_custom_object_id: hop.endpoint.customObjectId,
+        p_after_edge_id: exportMode ? exportCursor : null,
+        p_include_total: !exportMode || requestedPage.includeTotal === true,
+        p_offset: exportMode ? 0 : p.from,
+        p_limit: p.pageSize,
+      });
+      throwDb(error);
+      const edges = occurrencePage?.edges || [];
+      exactTotal = occurrencePage?.total == null ? null : (Number(occurrencePage.total) || 0);
+      pageHasMore = Boolean(occurrencePage?.has_more);
+      nextCursor = occurrencePage?.last_edge_id || exportCursor;
+      const rootRows = await reportEndpointRows(
+        { kind: 'custom_object', customObjectId: objectId },
+        (edges || []).map((edge) => edge[routed]),
+      );
+      const endpoints = await reportEndpointRows(hop.endpoint, (edges || []).map((edge) => edge[other]));
+      grains = (edges || []).flatMap((edge) => {
+        const root = rootRows.get(String(edge[routed]));
+        const record = endpoints.get(String(edge[other]));
+        return root && record ? [{ record, root, edges: [edge] }] : [];
+      });
+    } else {
+      for (let from = 0; ; from += rootBatchSize) {
+        const countRoots = p && !validated.grain.hops.length
+          && (!exportMode || requestedPage.includeTotal === true);
+        let query = db.from('custom_object_record').select('*', countRoots
+          ? { count: 'exact' } : {})
+          .eq('tenant_id', tenantId).eq('custom_object_id', objectId)
+          .is('archived_at', null).order('id', { ascending: true });
+        if (exportMode) {
+          if (exportCursor) query = query.gt('id', exportCursor);
+          const limit = validated.grain.hops.length ? 50 : p.pageSize;
+          query = query.range(0, limit);
+        }
+        else if (p && !validated.grain.hops.length) query = query.range(p.from, p.to);
+        else query = query.range(from, from + rootBatchSize - 1);
+        const { data, error, count } = await query;
+        throwDb(error);
+        if (exportMode) {
+          const limit = validated.grain.hops.length ? 50 : p.pageSize;
+          pageHasMore = (data || []).length > limit;
+          const selected = (data || []).slice(0, limit);
+          roots.push(...selected);
+          nextCursor = selected.at(-1)?.id || exportCursor;
+          if (countRoots) exactTotal = count || 0;
+          break;
+        }
+        roots.push(...(data || []));
+        if (p && !validated.grain.hops.length) {
+          exactTotal = count || 0;
+          break;
+        }
+        if ((data || []).length < rootBatchSize) break;
+      }
+      grains = roots.map((record) => ({ record, root: record, edges: [] }));
+      for (const hop of validated.grain.hops) grains = await reportFollow(grains, hop);
+    }
     // Ordinary entity-grain reports retain their historic endpoint-ID identity.
     // A to-many terminal grain retains the exact traversal occurrence instead,
     // because the same endpoint may legitimately occur under several roots.
@@ -3792,6 +3859,21 @@ export function createCustomObjectService({
       && left.every((hop, index) =>
         String(hop.definition.id) === String(right[index].definition.id)
         && hop.fromSide === right[index].fromSide);
+    const traversalCache = new Map();
+    const traverseRoots = (roots_, hops) => {
+      const cacheKey = [
+        [...roots_.keys()].sort().join(','),
+        hops.map((hop) => `${hop.definition.id}:${hop.fromSide}`).join('/'),
+      ].join('|');
+      if (!traversalCache.has(cacheKey)) {
+        traversalCache.set(cacheKey, (async () => {
+          let cursor = [...roots_.values()].map((root) => ({ record: root, root, edges: [] }));
+          for (const hop of hops) cursor = await reportFollow(cursor, hop);
+          return cursor;
+        })());
+      }
+      return traversalCache.get(cacheKey);
+    };
     const valuesFor = async (grain, column) => {
       const isGrainPrefix = column.path.hops.length <= validated.grain.hops.length
         && sameResolvedPath(column.path.hops, validated.grain.hops.slice(0, column.path.hops.length));
@@ -3819,11 +3901,7 @@ export function createCustomObjectService({
         }
         return [record[column.coreField]];
       }
-      let cursor = [...grain.roots.values()]
-        .map((root) => ({ record: root, root, edges: [] }));
-      if ((column.path.hops || []).length) {
-        for (const hop of column.path.hops) cursor = await reportFollow(cursor, hop);
-      }
+      let cursor = await traverseRoots(grain.roots, column.path.hops || []);
       if (sameResolvedPath(column.path.hops, validated.grain.hops)) {
         cursor = cursor.filter((item) => String(item.record.id) === grain.id);
       }
@@ -3842,33 +3920,170 @@ export function createCustomObjectService({
       return [...new Map(values.map((value) => [JSON.stringify(value), value])).values()];
     };
     const data = [];
-    for (const grain of [...grainGroups.values()].sort((left, right) => left.id.localeCompare(right.id))) {
+    const orderedGrains = [...grainGroups.values()];
+    if (exactTotal === null) orderedGrains.sort((left, right) => left.id.localeCompare(right.id));
+    for (const grain of orderedGrains) {
       const row = { id: grain.id, values: [] };
       for (const column of validated.columns) row.values.push(reportValue(await valuesFor(grain, column)));
       data.push(row);
     }
-    return { columns: validated.columns.map((column) => ({ label: column.label })), data };
+    return {
+      columns: validated.columns.map((column) => ({ label: column.label })),
+      data,
+      total: exactTotal ?? (exportMode ? null : data.length),
+      bounded: exactTotal !== null || exportMode,
+      has_more: exportMode ? Boolean(pageHasMore) : undefined,
+      next_cursor: exportMode ? nextCursor : undefined,
+    };
   }
 
   async function previewReport(objectId, body = {}) {
-    const result = await executeReport(objectId, body.definition ?? body);
     const p = pagination(body, 500);
-    return { ...result, data: result.data.slice(p.from, p.to + 1), total: result.data.length, page: p.page, pageSize: p.pageSize };
+    const result = await executeReport(objectId, body.definition ?? body, p);
+    const data = result.bounded
+      ? result.data.slice(0, p.pageSize)
+      : result.data.slice(p.from, p.to + 1);
+    return {
+      ...result, data, page: p.page, pageSize: p.pageSize,
+      has_more: p.to + 1 < result.total,
+      page_count: Math.ceil(result.total / p.pageSize),
+    };
   }
 
   async function exportReport(objectId, body = {}) {
     await requireCapability(objectId, 'export_records');
-    const result = await executeReport(objectId, body.definition ?? body);
+    const ownedJobQuery = (query) => {
+      query = query.eq('tenant_id', tenantId).eq('custom_object_id', objectId);
+      if (context.tenantUserId) return query.eq('requested_by_tenant_user_id', context.tenantUserId);
+      return query.eq('requested_by_member_id', context.memberId);
+    };
+    const action = body.action || 'start';
+    if (action === 'status') {
+      const { data, error } = await ownedJobQuery(
+        db.from('custom_object_report_export_job').select('*'),
+      ).eq('id', body.job_id).maybeSingle();
+      throwDb(error);
+      if (!data) throw new CustomObjectHttpError(404, 'Report export was not found');
+      return data;
+    }
+    if (action === 'chunk') {
+      const { data: job, error: jobError } = await ownedJobQuery(
+        db.from('custom_object_report_export_job').select('*'),
+      ).eq('id', body.job_id).maybeSingle();
+      throwDb(jobError);
+      if (!job || job.status !== 'complete') throw new CustomObjectHttpError(409, 'Report export is not complete');
+      await validateReportDefinition(objectId, job.definition);
+      const { data, error } = await db.from('custom_object_report_export_chunk').select('chunk_index,csv_text')
+        .eq('tenant_id', tenantId).eq('job_id', job.id)
+        .eq('chunk_index', Number.parseInt(body.chunk_index, 10)).maybeSingle();
+      throwDb(error);
+      if (!data) throw new CustomObjectHttpError(404, 'Report export chunk was not found');
+      return data;
+    }
+    if (action === 'process') {
+      const { data: job, error: jobError } = await ownedJobQuery(
+        db.from('custom_object_report_export_job').select('*'),
+      ).eq('id', body.job_id).maybeSingle();
+      throwDb(jobError);
+      if (!job) throw new CustomObjectHttpError(404, 'Report export was not found');
+      if (['complete', 'failed'].includes(job.status)) return job;
+      let claimToken = null;
+      try {
+        const page = Number(job.next_page) || 1;
+        claimToken = randomUUID();
+        const claimExpired = job.claim_token
+          && Date.now() - new Date(job.updated_at || 0).getTime() > 120_000;
+        if (job.claim_token && !claimExpired) return job;
+        let claimQuery = ownedJobQuery(
+          db.from('custom_object_report_export_job').update({
+            status: 'processing', claim_token: claimToken,
+            updated_at: now(),
+          }),
+        ).eq('id', job.id).eq('next_page', page);
+        claimQuery = job.claim_token
+          ? claimQuery.eq('claim_token', job.claim_token)
+          : claimQuery.is('claim_token', null);
+        const { data: claimed, error: claimError } = await claimQuery.select('*').maybeSingle();
+        throwDb(claimError);
+        if (!claimed) {
+          const { data: current, error } = await ownedJobQuery(
+            db.from('custom_object_report_export_job').select('*'),
+          ).eq('id', job.id).single();
+          throwDb(error);
+          return current;
+        }
+        const result = await executeReport(objectId, job.definition, {
+          page, pageSize: job.chunk_size, exportCursor: job.cursor_value,
+          includeTotal: page === 1,
+        });
+        const csv = (page === 1
+          ? CSV_BOM + result.columns.map((column) => escapeCsvCell(column.label)).join(',') + CSV_ROW_SEPARATOR
+          : '')
+          + result.data.map((row) => row.values.map(escapeCsvCell).join(',')).join(CSV_ROW_SEPARATOR)
+          + (result.data.length ? CSV_ROW_SEPARATOR : '');
+        const processed = (job.processed || 0) + result.data.length;
+        const total = result.total ?? job.total ?? 0;
+        const complete = !result.has_more;
+        const { data: updated, error } = await db.rpc('custom_object_report_export_commit', {
+          p_tenant_id: tenantId,
+          p_custom_object_id: objectId,
+          p_job_id: job.id,
+          p_claim_token: claimToken,
+          p_chunk_index: page - 1,
+          p_row_count: result.data.length,
+          p_csv_text: csv,
+          p_processed: processed,
+          p_total: total,
+          p_cursor_value: result.next_cursor,
+          p_complete: complete,
+          p_now: now(),
+        }).single();
+        throwDb(error);
+        if (!updated) throw new CustomObjectHttpError(409, 'Report export chunk claim expired');
+        return updated;
+      } catch (error) {
+        await db.from('custom_object_report_export_job').update({
+          status: 'failed', error_message: error.message || 'Report export failed', updated_at: now(),
+        }).eq('tenant_id', tenantId).eq('custom_object_id', objectId)
+          .eq('id', job.id).eq('claim_token', claimToken);
+        throw error;
+      }
+    }
+    if (action !== 'start') throw new CustomObjectHttpError(400, 'Unknown report export action');
+    const definition = body.definition ?? body;
+    const validated = await validateReportDefinition(objectId, definition);
     const title = String(body.name || 'custom-object-report').trim()
       .replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '').toLowerCase() || 'custom-object-report';
-    return {
-      ...result,
-      filename: `${title}.csv`,
-      csv: CSV_BOM + [
-        result.columns.map((column) => escapeCsvCell(column.label)).join(','),
-        ...result.data.map((row) => row.values.map(escapeCsvCell).join(',')),
-      ].join(CSV_ROW_SEPARATOR) + CSV_ROW_SEPARATOR,
-    };
+    const finalHop = validated.grain.hops.at(-1);
+    const occurrenceExport = finalHop
+      && validated.grain.hops.length === 1
+      && relationshipValueShape(finalHop.definition.cardinality, finalHop.fromSide) === 'many';
+    // Keep the pre-existing synchronous contract for unrelated complex report
+    // grains. The resumable path is deliberately limited to root rows and the
+    // Department-style one-hop occurrence grain this task hardens.
+    if (validated.grain.hops.length && !occurrenceExport) {
+      const result = await executeReport(objectId, definition);
+      return {
+        ...result,
+        filename: `${title}.csv`,
+        csv: CSV_BOM + [
+          result.columns.map((column) => escapeCsvCell(column.label)).join(','),
+          ...result.data.map((row) => row.values.map(escapeCsvCell).join(',')),
+        ].join(CSV_ROW_SEPARATOR) + CSV_ROW_SEPARATOR,
+        legacy_sync: true,
+      };
+    }
+    const { data, error } = await db.from('custom_object_report_export_job').insert({
+      tenant_id: tenantId, custom_object_id: objectId, definition,
+      filename: `${title}.csv`, status: 'queued', chunk_size: 500,
+      processed: 0, total: 0, next_page: 1, chunk_count: 0,
+      claim_token: null, cursor_value: null, error_message: null,
+      requested_by_member_id: context.memberId || null,
+      requested_by_tenant_user_id: context.tenantUserId || null,
+      created_at: now(), updated_at: now(),
+    }).select('*').single();
+    throwDb(error);
+    return data;
   }
 
   return {

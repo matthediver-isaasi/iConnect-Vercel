@@ -83,6 +83,11 @@ function mockDb(seed = {}) {
       calls.push({ table: this.table, type: 'order', column, ...options });
       return this;
     }
+    gt(column, value) {
+      this.filters.push((row) => this.value(row, column) > value);
+      calls.push({ table: this.table, type: 'gt', column, value });
+      return this;
+    }
     range(from, to) {
       this.slice = [from, to + 1];
       calls.push({ table: this.table, type: 'range', from, to });
@@ -100,10 +105,14 @@ function mockDb(seed = {}) {
         return { data: row, error: null };
       }
       if (this.operation === 'upsert') {
-        let row = tables[this.table].find((candidate) =>
-          candidate.tenant_id === this.payload.tenant_id
-          && candidate.custom_object_id === this.payload.custom_object_id
-          && candidate.role_id === this.payload.role_id);
+        let row = this.table === 'custom_object_report_export_chunk'
+          ? tables[this.table].find((candidate) =>
+            candidate.job_id === this.payload.job_id
+            && candidate.chunk_index === this.payload.chunk_index)
+          : tables[this.table].find((candidate) =>
+            candidate.tenant_id === this.payload.tenant_id
+            && candidate.custom_object_id === this.payload.custom_object_id
+            && candidate.role_id === this.payload.role_id);
         if (row) Object.assign(row, structuredClone(this.payload));
         else {
           row = { id: `${this.table}-${tables[this.table].length + 1}`, ...structuredClone(this.payload) };
@@ -229,6 +238,75 @@ function mockDb(seed = {}) {
             }
           }
           return { data: rows, error: null };
+        }
+        if (name === 'custom_object_report_occurrence_page') {
+          const routed = args.p_from_side === 'source' ? 'source_record_id' : 'target_record_id';
+          const other = args.p_from_side === 'source' ? 'target_record_id' : 'source_record_id';
+          const endpointTable = {
+            custom_object: 'custom_object_record',
+            member: 'member',
+            organization: 'organization',
+            organization_group: 'organization_group',
+          }[args.p_endpoint_kind];
+          const edges = (tables.custom_object_relationship || []).filter((edge) => {
+            if (edge.tenant_id !== args.p_tenant_id
+              || edge.relationship_definition_id !== args.p_relationship_definition_id
+              || edge.archived_at != null) return false;
+            const root = (tables.custom_object_record || []).find((row) =>
+              row.id === edge[routed] && row.tenant_id === args.p_tenant_id
+              && row.custom_object_id === args.p_custom_object_id && row.archived_at == null);
+            const endpoint = (tables[endpointTable] || []).find((row) =>
+              row.id === edge[other] && row.tenant_id === args.p_tenant_id
+              && (args.p_endpoint_kind !== 'custom_object'
+                || (row.custom_object_id === args.p_endpoint_custom_object_id && row.archived_at == null)));
+            return Boolean(root && endpoint);
+          }).sort((a, b) => String(a.id).localeCompare(String(b.id)));
+          const candidates = edges.filter((edge) =>
+            !args.p_after_edge_id || String(edge.id) > String(args.p_after_edge_id));
+          const offset = args.p_after_edge_id ? 0 : args.p_offset;
+          const selected = candidates.slice(offset, offset + args.p_limit);
+          return {
+            data: {
+              total: args.p_include_total ? edges.length : null,
+              edges: structuredClone(selected),
+              has_more: candidates.length > offset + args.p_limit,
+              last_edge_id: selected.at(-1)?.id || args.p_after_edge_id || null,
+            },
+            error: null,
+          };
+        }
+        if (name === 'custom_object_report_export_commit') {
+          const job = (tables.custom_object_report_export_job || []).find((row) =>
+            row.id === args.p_job_id && row.tenant_id === args.p_tenant_id
+            && row.custom_object_id === args.p_custom_object_id
+            && row.claim_token === args.p_claim_token);
+          if (!job) return { data: null, error: null };
+          tables.custom_object_report_export_chunk ||= [];
+          let chunk = tables.custom_object_report_export_chunk.find((row) =>
+            row.job_id === job.id && row.chunk_index === args.p_chunk_index);
+          const payload = {
+            tenant_id: args.p_tenant_id, job_id: job.id,
+            chunk_index: args.p_chunk_index, row_count: args.p_row_count,
+            csv_text: args.p_csv_text,
+          };
+          if (chunk) Object.assign(chunk, payload);
+          else {
+            chunk = { id: `chunk-${tables.custom_object_report_export_chunk.length + 1}`, ...payload };
+            tables.custom_object_report_export_chunk.push(chunk);
+          }
+          Object.assign(job, {
+            status: args.p_complete ? 'complete' : 'processing',
+            processed: args.p_processed,
+            total: args.p_total,
+            next_page: job.next_page + 1,
+            cursor_value: args.p_cursor_value,
+            chunk_count: Math.max(job.chunk_count || 0, args.p_chunk_index + 1),
+            error_message: null,
+            claim_token: null,
+            ...(args.p_complete ? { completed_at: args.p_now } : {}),
+            updated_at: args.p_now,
+          });
+          return { data: structuredClone(job), error: null };
         }
         if (name === 'create_custom_object_record_with_relationships') {
           const record = {
@@ -558,6 +636,7 @@ test('reports preserve to-many Department membership occurrences and align branc
     custom_object_record: [
       { id: 'department-1', tenant_id: tenantId, custom_object_id: objectId, archived_at: null, data: { title: '=Finance' } },
       { id: 'department-2', tenant_id: tenantId, custom_object_id: objectId, archived_at: null, data: { title: 'Policy, Europe' } },
+      { id: 'department-archived', tenant_id: tenantId, custom_object_id: objectId, archived_at: '2026-01-01T00:00:00Z', data: { title: 'Old' } },
     ],
     member: [
       { id: 'member-a', tenant_id: tenantId, first_name: 'Ada', last_name: 'Lovelace', email: 'ada@example.test' },
@@ -569,9 +648,10 @@ test('reports preserve to-many Department membership occurrences and align branc
     ],
     custom_object_relationship_definition: [memberDefinition, organizationDefinition],
     custom_object_relationship: [
-      { id: 'edge-1', tenant_id: tenantId, relationship_definition_id: memberDefinition.id, source_record_id: 'department-1', target_record_id: 'member-a', archived_at: null, field_values: { is_respondent: true } },
-      { id: 'edge-2', tenant_id: tenantId, relationship_definition_id: memberDefinition.id, source_record_id: 'department-2', target_record_id: 'member-a', archived_at: null, field_values: { is_respondent: false } },
-      { id: 'edge-3', tenant_id: tenantId, relationship_definition_id: memberDefinition.id, source_record_id: 'department-2', target_record_id: 'member-b', archived_at: null, field_values: { is_respondent: true } },
+      { id: 'edge-b', tenant_id: tenantId, relationship_definition_id: memberDefinition.id, source_record_id: 'department-1', target_record_id: 'member-a', archived_at: null, field_values: { is_respondent: true } },
+      { id: 'edge-a', tenant_id: tenantId, relationship_definition_id: memberDefinition.id, source_record_id: 'department-2', target_record_id: 'member-a', archived_at: null, field_values: { is_respondent: false } },
+      { id: 'edge-c', tenant_id: tenantId, relationship_definition_id: memberDefinition.id, source_record_id: 'department-2', target_record_id: 'member-b', archived_at: null, field_values: { is_respondent: true } },
+      { id: 'edge-archived-root', tenant_id: tenantId, relationship_definition_id: memberDefinition.id, source_record_id: 'department-archived', target_record_id: 'member-b', archived_at: null, field_values: { is_respondent: true } },
       { id: 'edge-4', tenant_id: tenantId, relationship_definition_id: organizationDefinition.id, source_record_id: 'department-1', target_record_id: 'organization-a', archived_at: null, field_values: {} },
       { id: 'edge-5', tenant_id: tenantId, relationship_definition_id: organizationDefinition.id, source_record_id: 'department-2', target_record_id: 'organization-b', archived_at: null, field_values: {} },
     ],
@@ -594,24 +674,50 @@ test('reports preserve to-many Department membership occurrences and align branc
   const preview = await service.previewReport(objectId, { definition: report, page: 1, pageSize: 1 });
   assert.equal(preview.total, 3);
   assert.equal(preview.data.length, 1);
-  assert.equal(preview.data[0].id, 'department-1:edge-1:member-a');
+  assert.equal(preview.data[0].id, 'department-2:edge-a:member-a');
   assert.deepEqual(preview.data[0].values, [
-    'department-1',
-    '=Finance',
+    'department-2',
+    'Policy, Europe',
     'Ada Lovelace',
-    'Alpha',
-    'Yes',
+    'Beta',
+    'No',
   ]);
+  const fullPreview = await service.previewReport(objectId, {
+    definition: report, page: 1, pageSize: 3,
+  });
+  const singleRowPages = await Promise.all([1, 2, 3].map((requestedPage) =>
+    service.previewReport(objectId, {
+      definition: report, page: requestedPage, pageSize: 1,
+    })));
+  assert.deepEqual(
+    singleRowPages.flatMap((result) => result.data.map((row) => row.id)),
+    fullPreview.data.map((row) => row.id),
+  );
 
-  const exported = await service.exportReport(objectId, { definition: report, name: 'Department members' });
-  assert.equal(exported.data.length, 3);
+  let exported = await service.exportReport(objectId, {
+    action: 'start', definition: report, name: 'Department members',
+  });
+  exported = await service.exportReport(objectId, { action: 'process', job_id: exported.id });
+  assert.equal(exported.status, 'complete');
+  assert.equal(exported.processed, 3);
   assert.equal(exported.filename, 'department-members.csv');
-  assert.ok(exported.csv.startsWith('\ufeffDepartment ID,Department,Member,Organisation,Respondent\r\n'));
-  assert.deepEqual(exported.data[1].values, [
-    'department-2', 'Policy, Europe', 'Ada Lovelace', 'Beta', 'No',
+  const chunk = await service.exportReport(objectId, {
+    action: 'chunk', job_id: exported.id, chunk_index: 0,
+  });
+  assert.ok(chunk.csv_text.startsWith('\ufeffDepartment ID,Department,Member,Organisation,Respondent\r\n'));
+  assert.match(chunk.csv_text, /'=Finance/);
+  assert.match(chunk.csv_text, /Grace Hopper/);
+  const occurrencePages = db.calls.filter((call) =>
+    call.type === 'rpc' && call.name === 'custom_object_report_occurrence_page');
+  const requestedRanges = occurrencePages.map((call) => [
+    call.args.p_offset, call.args.p_limit,
   ]);
-  assert.match(exported.csv, /'=Finance/);
-  assert.match(exported.csv, /Grace Hopper/);
+  assert.deepEqual(requestedRanges.slice(0, 5), [
+    [0, 1], [0, 3], [0, 1], [1, 1], [2, 1],
+  ]);
+  assert.deepEqual(requestedRanges.at(-1), [0, 500]);
+  assert.ok(occurrencePages.every((call) => call.args.p_limit <= 500));
+  assert.equal(occurrencePages.at(-1).args.p_include_total, true);
 });
 
 test('report validation rejects stale paths, stale fields, denied core access, and unsupported expansion rules', async () => {
@@ -754,6 +860,17 @@ test('reports execute real multi-hop custom-to-custom-to-member paths and enforc
     ['Policy team', 'Ada Lovelace'],
     ['Finance team', 'Ada Lovelace'],
   ]);
+  const secondPage = await createCustomObjectService({
+    db: mockDb(seed),
+    context: context(),
+    isAdmin: true,
+  }).previewReport(objectId, { definition: report, page: 2, pageSize: 1 });
+  assert.equal(secondPage.total, 2);
+  assert.equal(secondPage.page_count, 2);
+  assert.equal(secondPage.has_more, false);
+  assert.deepEqual(secondPage.data.map((row) => row.values), [
+    ['Finance team', 'Ada Lovelace'],
+  ]);
 
   const denied = createCustomObjectService({
     db: mockDb({
@@ -838,7 +955,7 @@ test('reports reject active paths whose custom endpoint has since been archived'
   assert.deepEqual(graph.data, []);
 });
 
-test('report export pages through every root beyond the PostgREST row limit', async () => {
+test('report export resumes through every root without truncating or duplicating chunks', async () => {
   const title = field({
     id: 'report-title',
     name: 'title',
@@ -859,11 +976,13 @@ test('report export pages through every root beyond the PostgREST row limit', as
     custom_object_record: records,
     custom_object_relationship_definition: [],
   });
-  const result = await createCustomObjectService({
+  const service = createCustomObjectService({
     db,
     context: context(),
     isAdmin: true,
-  }).exportReport(objectId, {
+  });
+  let result = await service.exportReport(objectId, {
+    action: 'start',
     definition: {
       version: 1,
       grain_path: [],
@@ -871,12 +990,39 @@ test('report export pages through every root beyond the PostgREST row limit', as
       multi_value: 'join',
     },
   });
-  assert.equal(result.data.length, 1001);
+  // Simulate a serverless invocation dying after claiming page 1 but before
+  // committing its chunk. The expired takeover must retry page 1, not skip it.
+  Object.assign(db.tables.custom_object_report_export_job[0], {
+    status: 'processing',
+    claim_token: '00000000-0000-4000-8000-000000000000',
+    next_page: 1,
+    updated_at: '2020-01-01T00:00:00.000Z',
+  });
+  while (result.status !== 'complete') {
+    result = await service.exportReport(objectId, { action: 'process', job_id: result.id });
+  }
+  assert.equal(result.processed, 1001);
+  assert.equal(result.chunk_count, 3);
+  const chunks = await Promise.all([0, 1, 2].map((chunk_index) =>
+    service.exportReport(objectId, { action: 'chunk', job_id: result.id, chunk_index })));
+  const lines = chunks.map((chunk) => chunk.csv_text).join('').trim().split('\r\n');
+  assert.equal(lines.length, 1002);
+  assert.equal(new Set(lines.slice(1)).size, 1001);
+  assert.deepEqual(
+    db.tables.custom_object_report_export_chunk.map((chunk) => chunk.chunk_index),
+    [0, 1, 2],
+  );
+  const rootKeysetCalls = db.calls.filter((call) =>
+    call.table === 'custom_object_record' && call.type === 'gt');
+  assert.deepEqual(rootKeysetCalls.map((call) => call.value), [
+    'record-0499', 'record-0999',
+  ]);
   const ranges = db.calls.filter((call) =>
     call.table === 'custom_object_record' && call.type === 'range');
-  assert.deepEqual(ranges.slice(-2).map((call) => [call.from, call.to]), [
-    [0, 999],
-    [1000, 1999],
+  assert.deepEqual(ranges.slice(-3).map((call) => [call.from, call.to]), [
+    [0, 500],
+    [0, 500],
+    [0, 500],
   ]);
 });
 
