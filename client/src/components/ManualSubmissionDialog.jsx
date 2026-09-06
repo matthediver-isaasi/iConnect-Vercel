@@ -192,6 +192,7 @@ export default function ManualSubmissionDialog({ open, onOpenChange, form }) {
     const repeatableError = fields
       .filter(isRepeatableRowField)
       .map(field => validateRepeatableRows(field, formValues[field.id], {
+        rootFields: fields,
         isAllowedSpecialSelection: ({ child, value }) => (
           isFormNotListedValue(value) && hasEnabledFormNotListedChoice(child)
         ),

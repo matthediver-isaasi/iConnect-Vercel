@@ -11,6 +11,11 @@ import {
   repeatableRowFieldConfigUpdate,
   repeatableSiblingUniqueValueKeys,
   repeatableSiblingUniqueValues,
+  isRepeatableExclusionSourceCompatible,
+  repeatableExclusionSourceFields,
+  repeatableSelectionContainsExcludedValue,
+  removeRepeatableExcludedSelection,
+  resolveRepeatableExcludedValues,
   REPEATABLE_ROW_LAYOUT_CARDS,
   REPEATABLE_ROW_LAYOUT_SPREADSHEET,
   validateRepeatableRows,
@@ -97,6 +102,119 @@ test('repeatable child uniqueness is opt-in and normalized strictly', () => {
     config.children.map(child => child.unique_across_rows),
     [true, false, false],
   );
+});
+
+test('normalizes explicit form-scoped exclusion sources and drops malformed legacy data', () => {
+  const configured = normalizeRepeatableRowField({
+    type: 'repeatable_rows',
+    children: [{
+      id: 'org',
+      type: 'organisation_dropdown',
+      exclude_values_from: { scope: 'form', source_field_id: 'primary_org', forged: true },
+    }],
+  });
+  assert.deepEqual(configured.children[0].exclude_values_from, {
+    scope: 'form',
+    source_field_id: 'primary_org',
+  });
+  assert.equal(normalizeRepeatableRowField({
+    type: 'repeatable_rows',
+    children: [{
+      id: 'org',
+      type: 'organisation_dropdown',
+      exclude_values_from: { scope: 'row', source_field_id: 'primary_org' },
+    }],
+  }).children[0].exclude_values_from, undefined);
+});
+
+test('offers only compatible top-level exclusion sources before the repeatable container', () => {
+  const rows = {
+    id: 'rows',
+    type: 'repeatable_rows',
+    children: [{
+      id: 'department',
+      type: 'relationship_dropdown',
+      related_kind: 'custom_object',
+      related_custom_object_id: 'department-object',
+    }],
+  };
+  const fields = [
+    { id: 'primary_org', type: 'organisation_dropdown' },
+    {
+      id: 'primary_department',
+      type: 'relationship_dropdown',
+      related_kind: 'custom_object',
+      related_custom_object_id: 'department-object',
+    },
+    {
+      id: 'other_relationship',
+      type: 'relationship_dropdown',
+      related_kind: 'custom_object',
+      related_custom_object_id: 'team-object',
+    },
+    rows,
+    {
+      id: 'later_department',
+      type: 'relationship_dropdown',
+      related_kind: 'custom_object',
+      related_custom_object_id: 'department-object',
+    },
+  ];
+  assert.equal(isRepeatableExclusionSourceCompatible(rows.children[0], fields[1]), true);
+  assert.equal(isRepeatableExclusionSourceCompatible(rows.children[0], fields[0]), false);
+  assert.deepEqual(
+    repeatableExclusionSourceFields(fields, rows, rows.children[0]).map(source => source.id),
+    ['primary_department'],
+  );
+});
+
+test('resolves scalar and multi-value root exclusions and leaves empty answers unrestricted', () => {
+  const child = {
+    id: 'choice',
+    type: 'select',
+    exclude_values_from: { scope: 'form', source_field_id: 'primary' },
+  };
+  const rows = { id: 'rows', type: 'repeatable_rows', children: [child] };
+  const fields = [{ id: 'primary', name: 'primary_choice', type: 'checkbox' }, rows];
+  assert.deepEqual(resolveRepeatableExcludedValues(child, fields, {
+    primary_choice: ['A', { value: 'B' }, ''],
+  }, rows), ['A', 'B']);
+  assert.equal(repeatableSelectionContainsExcludedValue('A', child, ['A', 'B']), true);
+  assert.equal(repeatableSelectionContainsExcludedValue(['C', 'B'], child, ['A', 'B']), true);
+  assert.equal(repeatableSelectionContainsExcludedValue('C', child, ['A', 'B']), false);
+  assert.equal(removeRepeatableExcludedSelection('A', child, ['A', 'B']), '');
+  assert.deepEqual(removeRepeatableExcludedSelection(['A', 'C', 'B'], child, ['A', 'B']), ['C']);
+  const unchanged = ['C'];
+  assert.strictEqual(removeRepeatableExcludedSelection(unchanged, child, ['A', 'B']), unchanged);
+  assert.deepEqual(resolveRepeatableExcludedValues(child, fields, { primary: [] }, rows), []);
+});
+
+test('rejects missing, later, incompatible, and malformed exclusion sources', () => {
+  const makeRows = exclude_values_from => ({
+    id: 'rows',
+    type: 'repeatable_rows',
+    children: [{
+      id: 'org',
+      type: 'organisation_dropdown',
+      exclude_values_from,
+    }],
+  });
+  const validRows = makeRows({ scope: 'form', source_field_id: 'primary_org' });
+  assert.equal(validateRepeatableRows(validRows, [], {
+    rootFields: [{ id: 'primary_org', type: 'organisation_dropdown' }, validRows],
+  }).valid, true);
+  for (const [config, rootFields] of [
+    [{ scope: 'form', source_field_id: 'missing' }, [{ id: 'primary_org', type: 'organisation_dropdown' }]],
+    [{ scope: 'form', source_field_id: 'later' }, []],
+    [{ scope: 'form', source_field_id: 'primary_text' }, [{ id: 'primary_text', type: 'text' }]],
+    [{ scope: 'row', source_field_id: 'primary_org' }, [{ id: 'primary_org', type: 'organisation_dropdown' }]],
+  ]) {
+    const rows = makeRows(config);
+    const fields = [...rootFields, rows, ...(config.source_field_id === 'later'
+      ? [{ id: 'later', type: 'organisation_dropdown' }] : [])];
+    assert.ok(validateRepeatableRows(rows, [], { rootFields: fields }).errors
+      .some(error => error.code === 'invalid_exclusion_source'));
+  }
 });
 
 test('repeatable config updates preserve the active top-level or nested storage shape', () => {

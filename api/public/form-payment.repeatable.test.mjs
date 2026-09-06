@@ -68,6 +68,40 @@ test('paid validation rejects repeatable tampering before ordinary relationship 
   assert.equal(queries, 0);
 });
 
+test('paid validation rejects a repeatable value selected in its persisted earlier source', async () => {
+  const response = {
+    statusCode: null,
+    status(code) { this.statusCode = code; return this; },
+    json(payload) { this.payload = payload; return this; },
+  };
+  const form = {
+    id: 'paid-form',
+    fields: [
+      { id: 'primary', type: 'select', options: ['A', 'B'] },
+      {
+        id: 'rows',
+        type: 'repeatable_rows',
+        children: [{
+          id: 'additional',
+          type: 'select',
+          options: ['A', 'B'],
+          exclude_values_from: { scope: 'form', source_field_id: 'primary' },
+        }],
+      },
+    ],
+  };
+  const valid = await validatePaymentRelationships(
+    response,
+    { from() { throw new Error('excluded static choice must fail before database work'); } },
+    { id: 'tenant-1' },
+    form,
+    { primary: 'A', rows: [{ additional: 'A' }] },
+  );
+  assert.equal(valid, false);
+  assert.equal(response.statusCode, 400);
+  assert.equal(response.payload.code, 'excluded_repeatable_value');
+});
+
 test('paid validation ignores an initialized invalid repeatable row hidden by persisted logic', async () => {
   const response = {
     statusCode: null,

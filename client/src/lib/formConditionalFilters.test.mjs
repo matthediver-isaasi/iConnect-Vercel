@@ -487,3 +487,21 @@ test('repeatable organisation children expose source-answer result filtering', (
   assert.match(editor, /Whenever source has a value/);
   assert.match(editor, /customFields\.find[\s\S]*?field_type/);
 });
+
+test('repeatable choice columns expose compatible earlier-field exclusions', () => {
+  const source = readFileSync(new URL('../pages/FormBuilder.jsx', import.meta.url), 'utf8');
+  const editor = source.match(/function RepeatableRowsSettings[\s\S]*?function FieldCard/)?.[0] || '';
+  assert.match(editor, /repeatableExclusionSourceFields\(allFields, field, child\)/);
+  assert.match(editor, /Exclude values from earlier field \(optional\)/);
+  assert.match(editor, /exclude_values_from:[\s\S]*?scope: 'form'[\s\S]*?source_field_id/);
+  assert.match(editor, /select-repeatable-exclusion-source/);
+});
+
+test('repeatable exclusions are applied to dynamic and multi-select renderer branches', () => {
+  const source = readFileSync(new URL('../components/forms/FormRenderer.jsx', import.meta.url), 'utf8');
+  assert.match(source, /removeRepeatableExcludedSelection\([\s\S]*?formExcludedValues/);
+  assert.match(source, /categoryMultiselectAllowedValues\.includes\(subcat\)[\s\S]*?repeatableOptionIsAvailable\(subcat\)/);
+  assert.match(source, /effectiveCheckboxOptions = customFieldOptions\.filter[\s\S]*?repeatableOptionIsAvailable/);
+  assert.match(source, /effectiveRadioOptions = customFieldOptions\.filter[\s\S]*?repeatableOptionIsAvailable/);
+  assert.match(source, /customFieldOptions\.filter\(option => \([\s\S]*?repeatableOptionIsAvailable[\s\S]*?\)\)\.map/);
+});

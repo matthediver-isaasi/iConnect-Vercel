@@ -66,6 +66,9 @@ import {
   isRepeatableRowField,
   normalizeRepeatableRowField,
   reconcilePendingRepeatableRows,
+  removeRepeatableExcludedSelection,
+  repeatableSelectionContainsExcludedValue,
+  resolveRepeatableExcludedValues,
   repeatableSiblingUniqueValues,
   repeatableUniqueValueKey,
   REPEATABLE_ROW_LAYOUT_SPREADSHEET,
@@ -226,6 +229,12 @@ function RepeatableRowsField({
 
   const renderChild = (child, row, rowId, rowIndex, spreadsheet = false) => {
     const siblingUniqueValues = repeatableSiblingUniqueValues(rows, child, rowId);
+    const formExcludedValues = resolveRepeatableExcludedValues(
+      child,
+      rootAllFields || [],
+      rootAllFormValues || {},
+      field,
+    );
     const content = (
       <>
       {spreadsheet
@@ -265,6 +274,7 @@ function RepeatableRowsField({
         membershipFeeQuote={membershipFeeQuote}
         notListedDisplayLabel={notListedDisplayLabel}
         repeatableSiblingUniqueValues={siblingUniqueValues}
+        repeatableFormExcludedValues={formExcludedValues}
       />
       {duplicateErrors.has(`${rowIndex}:${child.id}`) && (
         <p
@@ -734,7 +744,7 @@ function CommunicationPreferencesField({ field, value, onChange, disabled, membe
   );
 }
 
-export default function FormRenderer({ field, value: suppliedValue, onChange, onFormNotListedTextChange, memberInfo, organizationInfo, selectedOrgGuestAccess = null, disabled = false, onValidityChange, onRelationshipEmptyStateChange, autoFocus = false, hideLabel = false, formId = null, formSlug = null, formMemberRoleId = null, communicationEligibilityReady = true, allFormValues = {}, prefillData = null, allFields = [], membershipFeeQuote = null, notListedDisplayLabel = '', rootAllFields = null, rootAllFormValues = null, repeatableSiblingUniqueValues: siblingUniqueValues = [] }) {
+export default function FormRenderer({ field, value: suppliedValue, onChange, onFormNotListedTextChange, memberInfo, organizationInfo, selectedOrgGuestAccess = null, disabled = false, onValidityChange, onRelationshipEmptyStateChange, autoFocus = false, hideLabel = false, formId = null, formSlug = null, formMemberRoleId = null, communicationEligibilityReady = true, allFormValues = {}, prefillData = null, allFields = [], membershipFeeQuote = null, notListedDisplayLabel = '', rootAllFields = null, rootAllFormValues = null, repeatableSiblingUniqueValues: siblingUniqueValues = [], repeatableFormExcludedValues: formExcludedValues = [] }) {
   const resolvedFieldValue = resolveFormRendererFieldValue({
     field,
     fields: allFields,
@@ -1190,18 +1200,40 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, on
   const repeatableExcludedValueKeys = new Set(
     siblingUniqueValues.map(item => repeatableUniqueValueKey(item, repeatableComparisonField)),
   );
-  const repeatableOptionIsAvailable = (optionValue) => isRepeatableUniqueOptionAvailable(
-    optionValue,
-    value,
-    repeatableComparisonField,
-    repeatableExcludedValueKeys,
+  const repeatableOptionIsAvailable = (optionValue) => (
+    !repeatableSelectionContainsExcludedValue(
+      optionValue,
+      repeatableComparisonField,
+      formExcludedValues,
+    )
+    && isRepeatableUniqueOptionAvailable(
+      optionValue,
+      value,
+      repeatableComparisonField,
+      repeatableExcludedValueKeys,
+    )
   );
-  const repeatableSelectionIsAvailable = (nextValue) => isRepeatableUniqueOptionAvailable(
-    nextValue,
-    value,
-    repeatableComparisonField,
-    repeatableExcludedValueKeys,
+  const repeatableSelectionIsAvailable = (nextValue) => (
+    !repeatableSelectionContainsExcludedValue(
+      nextValue,
+      repeatableComparisonField,
+      formExcludedValues,
+    )
+    && isRepeatableUniqueOptionAvailable(
+      nextValue,
+      value,
+      repeatableComparisonField,
+      repeatableExcludedValueKeys,
+    )
   );
+  useEffect(() => {
+    const next = removeRepeatableExcludedSelection(
+      value,
+      repeatableComparisonField,
+      formExcludedValues,
+    );
+    if (next !== value) onChange(next);
+  }, [value, repeatableComparisonField, formExcludedValues, onChange]);
   const customCountryOptions = useMemo(() => {
     const restricted = customFieldDef?.all_countries !== false
       ? COUNTRIES
@@ -1728,7 +1760,7 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, on
       case 'radio':
         return (
           <RadioGroup value={value || ''} onValueChange={isFieldDisabled ? undefined : onChange} disabled={isFieldDisabled}>
-            {staticOptions.map((option, index) => (
+            {staticOptions.filter(repeatableOptionIsAvailable).map((option, index) => (
               <div key={index} className="flex items-center space-x-2">
                 <RadioGroupItem value={option} id={`${field.id}-${index}`} />
                 <Label htmlFor={`${field.id}-${index}`} className="font-normal">
@@ -1769,7 +1801,7 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, on
               </p>
             )}
             <div className="space-y-2 p-3 bg-slate-50 rounded-lg border">
-              {staticOptions.map((option, index) => {
+              {staticOptions.filter(repeatableOptionIsAvailable).map((option, index) => {
                 const isChecked = checkboxSelectedValues.includes(option);
                 const isOptionDisabled = isFieldDisabled || (checkboxIsMaxReached && !isChecked);
                 return (
@@ -1975,7 +2007,8 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, on
         filteredCategories.forEach(category => {
           if (category.subcategories && Array.isArray(category.subcategories)) {
             category.subcategories.forEach(subcat => {
-              if (categoryMultiselectAllowedValues.includes(subcat)) allSubcategoryOptions.push({
+              if (categoryMultiselectAllowedValues.includes(subcat)
+                  && repeatableOptionIsAvailable(subcat)) allSubcategoryOptions.push({
                 categoryId: category.id,
                 categoryName: category.name,
                 subcategory: subcat
@@ -1985,6 +2018,7 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, on
         });
         
         const notListedLabel = categoryMultiselectAllowedValues.includes(FORM_NOT_LISTED_VALUE)
+          && repeatableOptionIsAvailable(FORM_NOT_LISTED_VALUE)
           ? (notListedDisplayLabel || formNotListedChoiceLabel(field))
           : '';
         if (allSubcategoryOptions.length === 0 && !notListedLabel) {
@@ -2364,25 +2398,31 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, on
         // Render based on custom field type
         // Options are objects with {label, value} properties
         if (customFieldDef.field_type === 'checkbox') {
+          const effectiveCheckboxOptions = customFieldOptions.filter(option => (
+            repeatableOptionIsAvailable(option.value || option.label || option)
+          ));
           return (
             <div className="space-y-2">
-              {customFieldOptions.map((option, index) => {
+              {effectiveCheckboxOptions.map((option, index) => {
                 const optValue = option.value || option.label || option;
                 const optLabel = option.label || option.value || option;
+                const currentValues = Array.isArray(value) ? value : [];
+                const isChecked = currentValues.includes(optValue);
+                const nextSelection = isChecked
+                  ? currentValues.filter(v => v !== optValue)
+                  : [...currentValues, optValue];
+                const selectionIsAvailable = repeatableSelectionIsAvailable(nextSelection);
                 return (
                   <div key={index} className="flex items-center space-x-2">
                     <Checkbox
                       id={`${field.id}-${index}`}
-                      checked={(value || []).includes(optValue)}
-                      disabled={isFieldDisabled}
+                      checked={isChecked}
+                      disabled={isFieldDisabled || !selectionIsAvailable}
                       onCheckedChange={(checked) => {
-                        if (isFieldDisabled) return;
-                        const currentValues = value || [];
-                        if (checked) {
-                          onChange([...currentValues, optValue]);
-                        } else {
-                          onChange(currentValues.filter(v => v !== optValue));
-                        }
+                        if (isFieldDisabled || !selectionIsAvailable) return;
+                        onChange(checked
+                          ? [...currentValues, optValue]
+                          : currentValues.filter(v => v !== optValue));
                       }}
                       data-testid={`checkbox-custom-${field.id}-${index}`}
                     />
@@ -2397,9 +2437,12 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, on
         }
         
         if (customFieldDef.field_type === 'radio') {
+          const effectiveRadioOptions = customFieldOptions.filter(option => (
+            repeatableOptionIsAvailable(option.value || option.label || option)
+          ));
           return (
             <RadioGroup value={value || ''} onValueChange={isFieldDisabled ? undefined : onChange} disabled={isFieldDisabled}>
-              {customFieldOptions.map((option, index) => {
+              {effectiveRadioOptions.map((option, index) => {
                 const optValue = option.value || option.label || option;
                 const optLabel = option.label || option.value || option;
                 return (
@@ -2445,12 +2488,19 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, on
           
           return (
             <div className="space-y-2 p-3 bg-slate-50 rounded-lg border">
-              {customFieldOptions.map((option, index) => {
+              {customFieldOptions.filter(option => (
+                repeatableOptionIsAvailable(option.value || option.label || option)
+              )).map((option, index) => {
                 const optValue = option.value || option.label || option;
                 const optLabel = option.label || option.value || option;
                 const isChecked = selectedValues.includes(optValue);
+                const nextSelection = isChecked
+                  ? selectedValues.filter(v => v !== optValue)
+                  : [...selectedValues, optValue];
+                const selectionIsAvailable = repeatableSelectionIsAvailable(nextSelection);
                 // Disable unselected options when max is reached
-                const isOptionDisabled = isFieldDisabled || (isMaxReached && !isChecked);
+                const isOptionDisabled = isFieldDisabled || (isMaxReached && !isChecked)
+                  || !selectionIsAvailable;
                 return (
                   <div key={index} className="flex items-center space-x-2">
                     <Checkbox

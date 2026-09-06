@@ -302,6 +302,81 @@ test('rejects duplicate values in a server-trusted unique repeatable column', as
   assert.equal(calls, 0);
 });
 
+test('rejects persisted earlier-field exclusions before dynamic option lookups', async () => {
+  const exclusionForm = {
+    id: 'exclusion-form',
+    fields: [
+      { id: 'primary_org', type: 'organisation_dropdown' },
+      {
+        id: 'rows',
+        type: 'repeatable_rows',
+        children: [{
+          id: 'org',
+          label: 'Additional organisation',
+          type: 'organisation_dropdown',
+          exclude_values_from: { scope: 'form', source_field_id: 'primary_org' },
+        }],
+      },
+    ],
+  };
+  let calls = 0;
+  await assert.rejects(
+    validateRepeatableRowSubmission({
+      tenantId: 'tenant-1',
+      form: exclusionForm,
+      submissionData: {
+        primary_org: 'org-1',
+        rows: [{ org: 'org-1' }],
+      },
+      relationshipService: { async validateSubmission() { calls += 1; } },
+    }),
+    error => error.status === 400 && error.code === 'excluded_repeatable_value',
+  );
+  assert.equal(calls, 0);
+
+  await validateRepeatableRowSubmission({
+    tenantId: 'tenant-1',
+    form: exclusionForm,
+    submissionData: {
+      primary_org: '',
+      rows: [{ org: 'org-1' }],
+    },
+    relationshipService: { async validateSubmission() { calls += 1; } },
+  });
+  assert.equal(calls, 1);
+});
+
+test('rejects any repeated choice contained in a multi-value earlier answer', async () => {
+  const exclusionForm = {
+    id: 'choice-exclusion-form',
+    fields: [
+      { id: 'primary_choices', type: 'checkbox', options: ['A', 'B', 'C'] },
+      {
+        id: 'rows',
+        type: 'repeatable_rows',
+        children: [{
+          id: 'choice',
+          type: 'select',
+          options: ['A', 'B', 'C'],
+          exclude_values_from: { scope: 'form', source_field_id: 'primary_choices' },
+        }],
+      },
+    ],
+  };
+  await assert.rejects(
+    validateRepeatableRowSubmission({
+      tenantId: 'tenant-1',
+      form: exclusionForm,
+      submissionData: {
+        primary_choices: ['A', 'B'],
+        rows: [{ choice: 'B' }],
+      },
+      relationshipService: { async validateSubmission() {} },
+    }),
+    error => error.code === 'excluded_repeatable_value',
+  );
+});
+
 test('accepts the reserved value only when the persisted repeatable child enables it', async () => {
   const enabledChild = {
     id: 'org',

@@ -28,8 +28,15 @@ export const REPEATABLE_ROW_DEPENDENCY_TYPES = Object.freeze([
   'category_dropdown', 'category_multiselect', 'custom_field',
 ]);
 
+export const REPEATABLE_ROW_EXCLUSION_TYPES = Object.freeze([
+  'dropdown', 'select', 'radio', 'checkbox', 'checkboxes', 'list', 'multiselect',
+  'country', 'countries', 'category_dropdown', 'category_multiselect', 'custom_field',
+  'organisation_dropdown', 'organisation_group_dropdown', 'relationship_dropdown',
+]);
+
 const CHILD_TYPES = new Set(REPEATABLE_ROW_CHILD_TYPES);
 const DEPENDENCY_TYPES = new Set(REPEATABLE_ROW_DEPENDENCY_TYPES);
+const EXCLUSION_TYPES = new Set(REPEATABLE_ROW_EXCLUSION_TYPES);
 const DEFAULT_MAX_ROWS = 10;
 const HARD_MAX_ROWS = 100;
 
@@ -82,12 +89,26 @@ export function repeatableRowFieldConfigUpdate(field, updates = {}) {
 export function normalizeRepeatableRowField(field = {}) {
   const source = field.repeatable_row && typeof field.repeatable_row === 'object'
     ? field.repeatable_row : field;
-  const children = repeatableRowChildren(field).map((child) => ({
-    ...child,
-    id: child.id == null ? '' : String(child.id),
-    required: child.required === true || child.is_required === true,
-    unique_across_rows: child.unique_across_rows === true,
-  }));
+  const children = repeatableRowChildren(field).map((child) => {
+    const exclusion = child.exclude_values_from;
+    const normalizedExclusion = exclusion
+      && typeof exclusion === 'object'
+      && !Array.isArray(exclusion)
+      && exclusion.scope === 'form'
+      && typeof exclusion.source_field_id === 'string'
+      && exclusion.source_field_id
+      ? { scope: 'form', source_field_id: exclusion.source_field_id }
+      : null;
+    return {
+      ...child,
+      id: child.id == null ? '' : String(child.id),
+      required: child.required === true || child.is_required === true,
+      unique_across_rows: child.unique_across_rows === true,
+      ...(normalizedExclusion
+        ? { exclude_values_from: normalizedExclusion }
+        : { exclude_values_from: undefined }),
+    };
+  });
   const minimum = integer(source.min_rows ?? source.minimum_rows, 0, 0, HARD_MAX_ROWS);
   const firstRequired = source.first_row_required === true || source.initial_row_required === true;
   const minRows = Math.max(minimum, firstRequired ? 1 : 0);
@@ -106,6 +127,96 @@ export function normalizeRepeatableRowField(field = {}) {
     layout: (source.layout ?? source.display_style) === REPEATABLE_ROW_LAYOUT_SPREADSHEET
       ? REPEATABLE_ROW_LAYOUT_SPREADSHEET : REPEATABLE_ROW_LAYOUT_CARDS,
   };
+}
+
+function relationshipValueDescriptor(field) {
+  return {
+    kind: field?.related_kind || (field?.custom_object_id ? 'custom_object' : null),
+    customObjectId: field?.related_custom_object_id || field?.custom_object_id || null,
+  };
+}
+
+function choiceFamily(field) {
+  if (!field || !EXCLUSION_TYPES.has(field.type)) return null;
+  if (field.type === 'organisation_dropdown') return 'organization';
+  if (field.type === 'organisation_group_dropdown') return 'organization_group';
+  if (field.type === 'relationship_dropdown') {
+    const descriptor = relationshipValueDescriptor(field);
+    return descriptor.kind
+      ? `relationship:${descriptor.kind}:${descriptor.customObjectId || ''}`
+      : null;
+  }
+  if (field.type === 'country' || field.type === 'countries') return 'country';
+  if (field.type === 'category_dropdown' || field.type === 'category_multiselect') {
+    return `category:${field.category_id || ''}`;
+  }
+  if (field.type === 'custom_field') {
+    return field.custom_field_id ? `custom:${field.custom_field_id}` : null;
+  }
+  return 'static_choice';
+}
+
+export function isRepeatableExclusionSourceCompatible(child, sourceField) {
+  const childFamily = choiceFamily(child);
+  const sourceFamily = choiceFamily(sourceField);
+  return Boolean(childFamily && sourceFamily && childFamily === sourceFamily);
+}
+
+export function repeatableExclusionSourceFields(rootFields, containerField, child) {
+  const fields = Array.isArray(rootFields) ? rootFields : [];
+  const containerIndex = fields.findIndex(candidate => (
+    String(candidate?.id) === String(containerField?.id)
+  ));
+  if (containerIndex < 0) return [];
+  return fields.slice(0, containerIndex).filter(source => (
+    source?.id && isRepeatableExclusionSourceCompatible(child, source)
+  ));
+}
+
+function formValue(values, field) {
+  if (!values || typeof values !== 'object' || !field) return undefined;
+  if (field.id != null && values[field.id] !== undefined) return values[field.id];
+  return field.name != null ? values[field.name] : undefined;
+}
+
+function exclusionSelectedValues(value) {
+  const list = Array.isArray(value) ? value : [value];
+  return list.flatMap(item => Array.isArray(item) ? exclusionSelectedValues(item) : [item])
+    .map(item => (
+      item && typeof item === 'object' && !Array.isArray(item) && 'value' in item
+        ? item.value : item
+    ))
+    .filter(item => !isRepeatableValueEmpty(item));
+}
+
+export function resolveRepeatableExcludedValues(child, rootFields = [], rootValues = {}, containerField = null) {
+  const sourceId = child?.exclude_values_from?.scope === 'form'
+    ? child.exclude_values_from.source_field_id : null;
+  if (!sourceId) return [];
+  const source = repeatableExclusionSourceFields(
+    rootFields,
+    containerField || rootFields.find(field => repeatableRowChildren(field).some(candidate => candidate === child
+      || String(candidate?.id) === String(child?.id))),
+    child,
+  ).find(field => String(field.id) === String(sourceId));
+  return source ? exclusionSelectedValues(formValue(rootValues, source)) : [];
+}
+
+export function repeatableSelectionContainsExcludedValue(selection, child, excludedValues = []) {
+  if (isRepeatableValueEmpty(selection) || !Array.isArray(excludedValues) || excludedValues.length === 0) {
+    return false;
+  }
+  const excluded = new Set(excludedValues.map(value => repeatableUniqueValueKey(value, child)));
+  return exclusionSelectedValues(selection)
+    .some(value => excluded.has(repeatableUniqueValueKey(value, child)));
+}
+
+export function removeRepeatableExcludedSelection(selection, child, excludedValues = []) {
+  if (!repeatableSelectionContainsExcludedValue(selection, child, excludedValues)) return selection;
+  if (!Array.isArray(selection)) return '';
+  return selection.filter(value => (
+    !repeatableSelectionContainsExcludedValue(value, child, excludedValues)
+  ));
 }
 
 export function createRepeatableRowId(random = Math.random, now = Date.now) {
@@ -268,6 +379,18 @@ export function validateRepeatableRowConfiguration(field, options = {}) {
     ids.add(child.id);
     if (!CHILD_TYPES.has(child.type)) {
       errors.push({ code: 'unsupported_child_type', child_id: child.id, message: `Unsupported repeatable row child type: ${child.type || 'unknown'}` });
+    }
+    const rawChild = repeatableRowChildren(field)[index];
+    if (rawChild?.exclude_values_from !== undefined) {
+      const sourceId = child.exclude_values_from?.source_field_id;
+      const eligible = repeatableExclusionSourceFields(rootFields, field, child);
+      if (!sourceId || !eligible.some(source => String(source.id) === String(sourceId))) {
+        errors.push({
+          code: 'invalid_exclusion_source',
+          child_id: child.id,
+          message: 'An excluded-value source must be a compatible earlier form field',
+        });
+      }
     }
     const dependency = child.row_dependency ?? child.dependency;
     if (dependency) {

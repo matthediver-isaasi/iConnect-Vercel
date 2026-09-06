@@ -3,6 +3,8 @@ import {
   normalizeRepeatableRowField,
   repeatableRowChildren,
   repeatableRowFieldConfigUpdate,
+  repeatableSelectionContainsExcludedValue,
+  resolveRepeatableExcludedValues,
   validateRepeatableRows,
 } from '../../shared/formRepeatableRows.js';
 import {
@@ -161,6 +163,29 @@ export async function validateRepeatableRowSubmission({
       error.code = validation.errors[0]?.code || 'INVALID_REPEATABLE_ROW';
       error.details = validation.errors;
       throw error;
+    }
+    for (let rowIndex = 0; rowIndex < validation.rows.length; rowIndex += 1) {
+      for (const child of validation.config.children) {
+        const excludedValues = resolveRepeatableExcludedValues(child, fields, submissionData, field);
+        if (repeatableSelectionContainsExcludedValue(
+          validation.rows[rowIndex]?.[child.id],
+          child,
+          excludedValues,
+        )) {
+          const error = new FormRelationshipError(
+            400,
+            `${child.label || child.id} contains a value selected in an earlier field`,
+          );
+          error.code = 'excluded_repeatable_value';
+          error.details = [{
+            code: 'excluded_repeatable_value',
+            row: rowIndex,
+            child_id: child.id,
+            message: error.message,
+          }];
+          throw error;
+        }
+      }
     }
     const virtualForm = { ...form, fields: validation.config.children };
     for (let index = 0; index < validation.rows.length; index += 1) {

@@ -92,10 +92,12 @@ import {
   repeatableRowAddLabelEditorValue,
   REPEATABLE_ROW_CHILD_TYPES,
   REPEATABLE_ROW_DEPENDENCY_TYPES,
+  REPEATABLE_ROW_EXCLUSION_TYPES,
   REPEATABLE_ROW_LAYOUT_CARDS,
   REPEATABLE_ROW_LAYOUT_SPREADSHEET,
   REPEATABLE_ROW_SCHEMA_VERSION,
   repeatableRowFieldConfigUpdate,
+  repeatableExclusionSourceFields,
 } from "../../../shared/formRepeatableRows.js";
 
 const BADGE_STYLE_DEFAULTS = {
@@ -5091,6 +5093,19 @@ function RepeatableRowsSettings({
   };
   const safeTypes = FIELD_TYPES.filter(option => REPEATABLE_ROW_CHILD_TYPES.includes(option.value));
 
+  useEffect(() => {
+    const nextChildren = children.map(child => {
+      if (!child.exclude_values_from) return child;
+      const sourceId = child.exclude_values_from.source_field_id;
+      const remainsEligible = repeatableExclusionSourceFields(allFields, field, child)
+        .some(source => String(source.id) === String(sourceId));
+      return remainsEligible ? child : { ...child, exclude_values_from: undefined };
+    });
+    if (nextChildren.some((child, index) => child !== children[index])) {
+      updateChildren(nextChildren);
+    }
+  }, [allFields, field.id, children]);
+
   return (
     <div className="space-y-4 rounded-lg border border-blue-200 bg-blue-50/30 p-4" data-testid={`repeatable-rows-config-${field.id}`}>
       <div>
@@ -5196,6 +5211,8 @@ function RepeatableRowsSettings({
           ? formNotListedChoiceLabel(dependencySource)
           : '';
         const optionsType = ['select', 'radio', 'checkbox'].includes(child.type);
+        const exclusionSources = repeatableExclusionSourceFields(allFields, field, child);
+        const exclusionSourceId = child.exclude_values_from?.source_field_id || '__none__';
         return (
           <div key={child.id} className="space-y-3 rounded-md border border-slate-200 bg-white p-3" data-testid={`repeatable-child-${field.id}-${childIndex}`}>
             <div className="flex items-center justify-between">
@@ -5226,6 +5243,9 @@ function RepeatableRowsSettings({
                     ? child.organisation_group_parent_field_id
                     : undefined,
                   conditional_filters: undefined,
+                  exclude_values_from: REPEATABLE_ROW_EXCLUSION_TYPES.includes(type)
+                    ? child.exclude_values_from
+                    : undefined,
                 })}>
                   <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
                   <SelectContent className="max-h-64">
@@ -5299,6 +5319,38 @@ function RepeatableRowsSettings({
                   value={(child.options || []).join('\n')}
                   onChange={event => updateChild(childIndex, { options: event.target.value.split('\n').map(item => item.trim()).filter(Boolean) })}
                 />
+              </div>
+            )}
+            {REPEATABLE_ROW_EXCLUSION_TYPES.includes(child.type) && (
+              <div className="space-y-1 rounded border border-slate-200 bg-slate-50 p-3">
+                <Label className="text-xs">Exclude values from earlier field (optional)</Label>
+                <Select
+                  value={exclusionSources.some(source => source.id === exclusionSourceId)
+                    ? exclusionSourceId : '__none__'}
+                  onValueChange={source_field_id => updateChild(childIndex, {
+                    exclude_values_from: source_field_id === '__none__'
+                      ? undefined
+                      : { scope: 'form', source_field_id },
+                  })}
+                >
+                  <SelectTrigger
+                    className="h-9"
+                    data-testid={`select-repeatable-exclusion-source-${field.id}-${child.id}`}
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">Do not exclude an earlier answer</SelectItem>
+                    {exclusionSources.map(source => (
+                      <SelectItem key={source.id} value={source.id}>
+                        {source.label || source.name || 'Untitled field'}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-slate-500">
+                  Values selected in this earlier field will not be available in any row.
+                </p>
               </div>
             )}
             {child.type === 'relationship_dropdown' && (
