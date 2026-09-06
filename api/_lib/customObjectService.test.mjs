@@ -2604,7 +2604,7 @@ test('configured compact previews follow the opposite endpoint in both picker di
   assert.equal(initialFromTarget.data[0].compact_fields[0].value, 'Source preview');
 });
 
-test('core picker projects configured owning-record context after search, pagination, and exclusions', async () => {
+test('core picker projects migrated BNMS owning-Organisation context after search, pagination, and exclusions', async () => {
   const departmentObjectId = objectId;
   const memberDepartmentId = 'picker-member-department';
   const departmentOrganizationId = 'picker-department-organization';
@@ -2638,16 +2638,16 @@ test('core picker projects configured owning-record context after search, pagina
       tenant_id: tenantId,
       status: 'active',
       cardinality: 'many_to_many',
-      source_kind: 'member',
-      source_custom_object_id: null,
-      target_kind: 'custom_object',
-      target_custom_object_id: departmentObjectId,
+       source_kind: 'custom_object',
+       source_custom_object_id: departmentObjectId,
+       target_kind: 'member',
+       target_custom_object_id: null,
       target_label: 'Departments',
       show_on_source: true,
       edit_from_source: true,
       configuration: {
         picker_context: {
-          target_column: {
+          source_column: {
             relationship_definition_id: departmentOrganizationId,
             side: 'source',
             label: 'Organisation',
@@ -2672,7 +2672,7 @@ test('core picker projects configured owning-record context after search, pagina
       { id: 'department-missing', tenant_id: tenantId, custom_object_id: departmentObjectId, archived_at: null, created_at: '2026-01-04', data: { name: 'Finance' } },
     ],
     custom_object_relationship: [
-      { id: 'existing', tenant_id: tenantId, relationship_definition_id: memberDepartmentId, source_record_id: 'member-1', target_record_id: 'department-linked', archived_at: null },
+      { id: 'existing', tenant_id: tenantId, relationship_definition_id: memberDepartmentId, source_record_id: 'department-linked', target_record_id: 'member-1', archived_at: null },
       { id: 'owner-a', tenant_id: tenantId, relationship_definition_id: departmentOrganizationId, source_record_id: 'department-a', target_record_id: 'org-a', archived_at: null },
       { id: 'owner-b', tenant_id: tenantId, relationship_definition_id: departmentOrganizationId, source_record_id: 'department-b', target_record_id: 'org-b', archived_at: null },
       { id: 'owner-missing', tenant_id: tenantId, relationship_definition_id: departmentOrganizationId, source_record_id: 'department-missing', target_record_id: 'org-missing', archived_at: null },
