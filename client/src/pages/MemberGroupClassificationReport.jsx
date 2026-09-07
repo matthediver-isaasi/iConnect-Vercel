@@ -27,6 +27,7 @@ function defaultRange() {
 
 const COLUMNS = [
   { key: "total_members", label: "Members", ranged: false },
+  { key: "total_organisations", label: "Organisations", ranged: false },
   { key: "leadership_members", label: "Leadership Team", ranged: false },
   { key: "co_convenors", label: "Co-Convenors", ranged: false },
   { key: "emails_sent", label: "Emails Sent", ranged: true },
@@ -109,7 +110,8 @@ export default function MemberGroupClassificationReport() {
         </h1>
         <p className="text-slate-600 mt-1">
           Membership and activity per group within a classification. Emails, volunteer roles,
-          resources and events are filtered by the selected date range; member counts are current.
+          resources and events are filtered by the selected date range; member and organisation
+          counts are current.
         </p>
       </div>
 

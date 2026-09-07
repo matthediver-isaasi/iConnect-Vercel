@@ -3,7 +3,8 @@
 //   GET ?classification_id=<uuid>&from=YYYY-MM-DD&to=YYYY-MM-DD
 //
 // Returns one row per member group in the classification with:
-//   - date-independent counts: total members, leadership team members
+//   - date-independent counts: total members, distinct organisations,
+//     leadership team members
 //     (assignments whose group_role is in the group's leadership_roles) and
 //     co-convenors (group_role name matches "Co-Convenor", case/hyphen
 //     tolerant),
@@ -37,7 +38,7 @@ function isCoConvenorRole(roleName) {
 // Fetch every row of a query, paging explicitly past PostgREST's row cap.
 // buildQuery must return a fresh query each call (filters + select applied);
 // ordering by id keeps pages stable (see postgrest-pagination-order).
-async function fetchAllRows(buildQuery) {
+export async function fetchAllRows(buildQuery) {
   const rows = [];
   for (let from = 0; ; from += PAGE_SIZE) {
     const { data, error } = await buildQuery()
@@ -65,6 +66,37 @@ async function fetchAllRowsForGroups(groupIds, buildQuery) {
     rows.push(...part);
   }
   return rows;
+}
+
+export function calculateOrganisationCounts(assignments, members) {
+  const organisationByMemberId = new Map(
+    members
+      .filter((member) => member?.id)
+      .map((member) => [member.id, member.organization_id])
+  );
+  const organisationIdsByGroup = new Map();
+  const allOrganisationIds = new Set();
+
+  for (const assignment of assignments) {
+    const organisationId = organisationByMemberId.get(assignment.member_id);
+    if (typeof organisationId !== 'string' || !organisationId.trim()) continue;
+
+    if (!organisationIdsByGroup.has(assignment.group_id)) {
+      organisationIdsByGroup.set(assignment.group_id, new Set());
+    }
+    organisationIdsByGroup.get(assignment.group_id).add(organisationId);
+    allOrganisationIds.add(organisationId);
+  }
+
+  return {
+    countByGroupId: new Map(
+      [...organisationIdsByGroup].map(([groupId, organisationIds]) => [
+        groupId,
+        organisationIds.size,
+      ])
+    ),
+    total: allOrganisationIds.size,
+  };
 }
 
 export default async function handler(req, res) {
@@ -145,6 +177,7 @@ export default async function handler(req, res) {
         group_name: g.name || '',
         is_active: g.is_active !== false,
         total_members: 0,
+        total_organisations: 0,
         leadership_members: 0,
         co_convenors: 0,
         emails_sent: 0,
@@ -154,6 +187,7 @@ export default async function handler(req, res) {
       };
     }
 
+    let classificationOrganisationCount = 0;
     if (groupIds.length > 0) {
       const leadershipByGroup = {};
       for (const g of groups) {
@@ -166,7 +200,7 @@ export default async function handler(req, res) {
       const assignments = await fetchAllRowsForGroups(groupIds, (ids) =>
         supabase
           .from('member_group_assignment')
-          .select('id, group_id, group_role')
+          .select('id, group_id, member_id, group_role')
           .eq('tenant_id', tenantId)
           .in('group_id', ids)
       );
@@ -181,6 +215,21 @@ export default async function handler(req, res) {
           row.co_convenors += 1;
         }
       }
+
+      const memberIds = [...new Set(assignments.map((a) => a.member_id).filter(Boolean))];
+      const members = await fetchAllRowsForGroups(memberIds, (ids) =>
+        supabase
+          .from('member')
+          .select('id, organization_id')
+          .eq('tenant_id', tenantId)
+          .in('id', ids)
+      );
+      const organisationCounts = calculateOrganisationCounts(assignments, members);
+      for (const [groupId, count] of organisationCounts.countByGroupId) {
+        const row = rowByGroupId[groupId];
+        if (row) row.total_organisations = count;
+      }
+      classificationOrganisationCount = organisationCounts.total;
 
       // --- Emails sent: group-scoped campaigns by sent date ---
       const campaigns = await fetchAllRowsForGroups(groupIds, (ids) =>
@@ -285,6 +334,7 @@ export default async function handler(req, res) {
 
     const totals = {
       total_members: 0,
+      total_organisations: classificationOrganisationCount,
       leadership_members: 0,
       co_convenors: 0,
       emails_sent: 0,
@@ -293,7 +343,9 @@ export default async function handler(req, res) {
       events_held: 0,
     };
     for (const r of rows) {
-      for (const key of Object.keys(totals)) totals[key] += r[key];
+      for (const key of Object.keys(totals)) {
+        if (key !== 'total_organisations') totals[key] += r[key];
+      }
     }
 
     return res.json({
