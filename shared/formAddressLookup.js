@@ -12,6 +12,14 @@ export const ADDRESS_LOOKUP_COMPONENTS = Object.freeze([
 ]);
 
 const componentSet = new Set(ADDRESS_LOOKUP_COMPONENTS);
+export const ADDRESS_ENTRY_MODE_OPERATORS = Object.freeze(['equals', 'not_equals']);
+const addressEntryModeOperatorSet = new Set(ADDRESS_ENTRY_MODE_OPERATORS);
+const ADDRESS_ENTRY_MODE_SOURCE_TYPES = new Set([
+  'text', 'email', 'number', 'tel', 'url', 'date', 'time', 'select', 'radio', 'checkbox',
+  'boolean', 'country', 'countries', 'list', 'category_dropdown',
+  'category_multiselect', 'organisation_dropdown', 'organisation_group_dropdown',
+  'relationship_dropdown', 'image_buttons', 'custom_field',
+]);
 
 // BS 7666 postcode shapes, including GIR 0AA. Keep this shared so the client
 // only triggers billable lookup requests for values the server will accept.
@@ -27,6 +35,60 @@ export function normalizeUkPostcode(value) {
 
 export function isAddressLookupComponent(value) {
   return typeof value === 'string' && componentSet.has(value);
+}
+
+export function isEligibleAddressEntryModeSource(field) {
+  return Boolean(field?.id && ADDRESS_ENTRY_MODE_SOURCE_TYPES.has(field.type));
+}
+
+export function addressEntryModeSourceFields(fields, addressFieldId) {
+  if (!Array.isArray(fields)) return [];
+  const targetIndex = fields.findIndex(field => field?.id === addressFieldId);
+  if (targetIndex < 0) return [];
+  return fields.slice(0, targetIndex).filter(isEligibleAddressEntryModeSource);
+}
+
+export function normalizeAddressEntryModeRule(rule) {
+  if (!rule || typeof rule !== 'object' || Array.isArray(rule)) return null;
+  const sourceFieldId = typeof rule.source_field_id === 'string' ? rule.source_field_id.trim() : '';
+  const operator = typeof rule.operator === 'string' ? rule.operator : '';
+  const value = rule.value;
+  if (!sourceFieldId || !addressEntryModeOperatorSet.has(operator)) return null;
+  if (!['string', 'number', 'boolean'].includes(typeof value)) return null;
+  if (typeof value === 'string' && value.trim() === '') return null;
+  return { source_field_id: sourceFieldId, operator, value };
+}
+
+export function validateAddressEntryModeRule(field, fields) {
+  if (field?.type !== 'address_lookup' || field?.address_entry_mode_rule == null) {
+    return { valid: true, rule: null };
+  }
+  const rule = normalizeAddressEntryModeRule(field.address_entry_mode_rule);
+  if (!rule) return { valid: false, rule: null, error: 'has an incomplete manual-entry condition.' };
+  const eligible = addressEntryModeSourceFields(fields, field.id);
+  if (!eligible.some(source => source.id === rule.source_field_id)) {
+    return { valid: false, rule: null, error: 'must use an earlier compatible field for its manual-entry condition.' };
+  }
+  return { valid: true, rule };
+}
+
+export function resolveAddressManualOnly(field, fields, values) {
+  const validation = validateAddressEntryModeRule(field, fields);
+  if (!validation.valid || !validation.rule) return false;
+  const { source_field_id: sourceFieldId, operator, value: expected } = validation.rule;
+  const actual = values?.[sourceFieldId];
+  if (
+    actual === undefined
+    || actual === null
+    || (typeof actual === 'string' && actual.trim() === '')
+    || (Array.isArray(actual) && actual.length === 0)
+  ) return false;
+  const equals = Array.isArray(actual)
+    ? actual.some(item => String(item) === String(expected))
+    : typeof actual === 'boolean'
+      ? actual === (expected === true || expected === 'true')
+      : String(actual ?? '') === String(expected);
+  return operator === 'equals' ? equals : !equals;
 }
 
 export function normalizeAddressLookupAddress(address) {

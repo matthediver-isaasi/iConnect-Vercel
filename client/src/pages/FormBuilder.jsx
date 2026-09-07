@@ -116,6 +116,11 @@ import {
   isFormTransitionField,
   normalizeFormTransitionMappings,
 } from "../../../shared/formOpenTransition.js";
+import {
+  ADDRESS_ENTRY_MODE_OPERATORS,
+  addressEntryModeSourceFields,
+  validateAddressEntryModeRule,
+} from "../../../shared/formAddressLookup.js";
 
 const BADGE_STYLE_DEFAULTS = {
   background_color: '#ffffff',
@@ -6037,6 +6042,7 @@ function FieldCard({
   categories = [],
   communicationCategories = [],
   customFields = [],
+  organizations = [],
   organizationGroups = [],
   applicationLevel = "member",
   uniquenessChecks = [],
@@ -6442,6 +6448,17 @@ function FieldCard({
               {field.type === 'address_lookup' && (() => {
                 const visibleComponents = addressLookupVisibleComponents(field);
                 const requiredComponents = new Set(addressLookupRequiredComponents(field));
+                const modeSourceFields = addressEntryModeSourceFields(allFields, field.id);
+                const modeRule = field.address_entry_mode_rule;
+                const modeSource = modeSourceFields.find(source => source.id === modeRule?.source_field_id);
+                const modeOptions = modeSource ? getFormLogicConditionOptions({
+                  field: modeSource,
+                  categories,
+                  communicationCategories,
+                  customFields,
+                  organizations,
+                  organizationGroups,
+                }) : [];
                 const updateComponent = (component, updates) => {
                   const isVisible = updates.visible ?? visibleComponents.includes(component);
                   const nextVisible = isVisible
@@ -6511,6 +6528,69 @@ function FieldCard({
                       <Label htmlFor={`address-manual-entry-${field.id}`} className="text-xs">
                         Allow manual address entry when lookup is unavailable or unsuitable
                       </Label>
+                    </div>
+                    <div className="space-y-3 border-t border-slate-200 pt-3">
+                      <div className="flex items-center gap-2">
+                        <Switch
+                          id={`address-conditional-manual-${field.id}`}
+                          checked={!!modeRule}
+                          onCheckedChange={enabled => updateField(originalIndex, {
+                            address_entry_mode_rule: enabled
+                              ? { source_field_id: modeSourceFields[0]?.id || '', operator: 'not_equals', value: '' }
+                              : undefined,
+                          })}
+                          data-testid={`switch-address-conditional-manual-${field.id}`}
+                        />
+                        <Label htmlFor={`address-conditional-manual-${field.id}`} className="text-xs font-medium">
+                          Switch to manual-only entry when an earlier answer matches
+                        </Label>
+                      </div>
+                      {modeRule && (
+                        <div className="grid gap-3 md:grid-cols-3" data-testid={`address-entry-mode-rule-${field.id}`}>
+                          <div className="space-y-1">
+                            <Label className="text-xs">Earlier field</Label>
+                            <Select value={modeRule.source_field_id || ''} onValueChange={source_field_id => updateField(originalIndex, {
+                              address_entry_mode_rule: { ...modeRule, source_field_id, value: '' },
+                            })}>
+                              <SelectTrigger><SelectValue placeholder="Select a field…" /></SelectTrigger>
+                              <SelectContent>
+                                {modeSourceFields.map(source => <SelectItem key={source.id} value={source.id}>{source.label || 'Untitled field'}</SelectItem>)}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div className="space-y-1">
+                            <Label className="text-xs">Comparison</Label>
+                            <Select value={modeRule.operator || 'not_equals'} onValueChange={operator => updateField(originalIndex, {
+                              address_entry_mode_rule: { ...modeRule, operator },
+                            })}>
+                              <SelectTrigger><SelectValue /></SelectTrigger>
+                              <SelectContent>
+                                {ADDRESS_ENTRY_MODE_OPERATORS.map(operator => (
+                                  <SelectItem key={operator} value={operator}>{operator === 'equals' ? 'Equals' : 'Does not equal'}</SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div className="space-y-1">
+                            <Label className="text-xs">Value</Label>
+                            {modeOptions.length > 0 ? (
+                              <Select value={String(modeRule.value ?? '')} onValueChange={value => updateField(originalIndex, {
+                                address_entry_mode_rule: { ...modeRule, value },
+                              })}>
+                                <SelectTrigger><SelectValue placeholder="Select a value…" /></SelectTrigger>
+                                <SelectContent>{modeOptions.map(option => <SelectItem key={String(option.value)} value={String(option.value)}>{option.label}</SelectItem>)}</SelectContent>
+                              </Select>
+                            ) : (
+                              <Input value={String(modeRule.value ?? '')} onChange={event => updateField(originalIndex, {
+                                address_entry_mode_rule: { ...modeRule, value: event.target.value },
+                              })} />
+                            )}
+                          </div>
+                          <p className="text-xs text-slate-500 md:col-span-3">
+                            When this condition matches, postcode lookup is hidden and the full manual address is opened immediately.
+                          </p>
+                        </div>
+                      )}
                     </div>
                   </div>
                 );
@@ -10262,6 +10342,11 @@ export default function FormBuilderPage() {
         toast.error(`Address lookup field "${field.label || 'Address'}" can only require visible address components.`);
         return;
       }
+      const modeRuleValidation = validateAddressEntryModeRule(field, formData.fields);
+      if (!modeRuleValidation.valid) {
+        toast.error(`Address lookup field "${field.label || 'Address'}" ${modeRuleValidation.error}`);
+        return;
+      }
     }
 
     const invalidNotListedField = findInvalidNotListedField(formData.fields);
@@ -12500,6 +12585,7 @@ export default function FormBuilderPage() {
                                       categories={categories}
                                       communicationCategories={communicationCategories}
                                       customFields={customFields}
+                                      organizations={organizations}
                                       organizationGroups={organizationGroups}
                                       applicationLevel={formData.application_level}
                                       uniquenessChecks={formData.uniqueness_checks}
@@ -12649,6 +12735,7 @@ export default function FormBuilderPage() {
                                                   categories={categories}
                                                   communicationCategories={communicationCategories}
                                                   customFields={customFields}
+                                                  organizations={organizations}
                                                   organizationGroups={organizationGroups}
                                                   applicationLevel={formData.application_level}
                                                   uniquenessChecks={formData.uniqueness_checks}
@@ -12714,6 +12801,7 @@ export default function FormBuilderPage() {
                               categories={categories}
                               communicationCategories={communicationCategories}
                               customFields={customFields}
+                              organizations={organizations}
                               organizationGroups={organizationGroups}
                               isApplicationForm={formData.is_application_form}
                               applicationLevel={formData.application_level}

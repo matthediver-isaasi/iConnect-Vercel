@@ -48,6 +48,23 @@ test('FormBuilder registers organisation groups without replacing organisation d
   );
 });
 
+test('address manual-entry rules receive ID-backed organisation choices in every builder layout', () => {
+  assert.match(
+    formBuilderSource,
+    /const modeOptions = modeSource \? getFormLogicConditionOptions\(\{[\s\S]*?organizations,[\s\S]*?organizationGroups,/,
+  );
+  assert.equal(
+    (formBuilderSource.match(/organizations=\{organizations\}/g) || []).length >= 4,
+    true,
+  );
+  const options = getFormLogicConditionOptions({
+    field: { id: 'organisation', type: 'organisation_dropdown' },
+    organizations: [{ id: 'org-1', name: 'Example Hospital' }],
+  });
+  assert.deepEqual(options, [{ value: 'org-1', label: 'Example Hospital' }]);
+  assert.equal(evaluateFormLogicCondition('org-1', 'equals', options[0].value), true);
+});
+
 test('conditional rule content stays visible while actions start collapsed independently', () => {
   assert.doesNotMatch(formBuilderSource, /expandedRuleIds|toggleRuleExpanded|button-toggle-rule-\$\{index\}/);
   assert.match(formBuilderSource, /data-testid=\{`rule-editor-\$\{index\}`\}/);

@@ -3,6 +3,9 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
 const source = await readFile(new URL('./AddressLookupField.jsx', import.meta.url), 'utf8');
+const rendererSource = await readFile(new URL('./FormRenderer.jsx', import.meta.url), 'utf8');
+const formViewSource = await readFile(new URL('../../pages/FormView.jsx', import.meta.url), 'utf8');
+const embedFormSource = await readFile(new URL('../../pages/EmbedForm.jsx', import.meta.url), 'utf8');
 
 test('address lookup is debounced and only starts for a normalized complete postcode', () => {
   assert.match(source, /normalizeUkPostcode\(postcode\)/);
@@ -27,6 +30,27 @@ test('manual entry cancels a pending automatic lookup', () => {
   assert.match(source, /requestGeneration\.current \+= 1/);
   assert.match(source, /abortRef\.current\?\.abort\(\)/);
   assert.match(source, /onClick=\{enterManualAddress\}/);
+});
+
+test('conditional manual-only mode suppresses lookup and cancels pending requests', () => {
+  assert.match(source, /manualOnly = false/);
+  assert.match(source, /disabled \|\| manualOnly \|\| !normalizedPostcode/);
+  assert.match(source, /useEffect\(\(\) => \{\s*if \(!manualOnly\) return;/);
+  assert.match(source, /\{!manualOnly && <div/);
+  assert.match(source, /\(manualOnly \|\| manual \|\| Object\.values\(answer\)\.some\(Boolean\)\)/);
+});
+
+test('runtime resolves manual-only mode from live answers without changing the address value contract', () => {
+  assert.match(rendererSource, /manualOnly=\{resolveAddressManualOnly\(field, allFields, allFormValues\)\}/);
+  assert.doesNotMatch(source, /onChange\([^)]*manualOnly|onChange\([^)]*address_entry_mode_rule/);
+  assert.match(source, /const answer = normalizeAddressLookupAnswer\(value\)/);
+});
+
+test('page, card-swipe, and embedded forms pass live field metadata and answers to the renderer', () => {
+  assert.ok((formViewSource.match(/allFormValues=\{formValues\}/g) || []).length >= 2);
+  assert.ok((formViewSource.match(/allFields=\{form\?\.fields \|\| \[\]\}/g) || []).length >= 2);
+  assert.match(embedFormSource, /allFormValues=\{formValues\}/);
+  assert.match(embedFormSource, /allFields=\{form\?\.fields \|\| \[\]\}/);
 });
 
 test('address lookup cancels stale requests and does not expose a search button', () => {

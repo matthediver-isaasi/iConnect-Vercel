@@ -13,6 +13,7 @@ import SignatureField from "@/components/forms/SignatureField";
 import ScoreField from "@/components/forms/ScoreField";
 import MembershipPaymentField from "@/components/forms/MembershipPaymentField";
 import AddressLookupField from "@/components/forms/AddressLookupField";
+import { resolveAddressManualOnly } from "../../../../shared/formAddressLookup.js";
 import {
   Select,
   SelectContent,
@@ -1439,6 +1440,7 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, on
             disabled={isFieldDisabled}
             formId={formId}
             formSlug={formSlug}
+            manualOnly={resolveAddressManualOnly(field, allFields, allFormValues)}
           />
         );
 

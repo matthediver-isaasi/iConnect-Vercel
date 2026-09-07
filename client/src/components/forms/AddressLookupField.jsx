@@ -27,7 +27,7 @@ const responseAddresses = response => {
   return Array.isArray(candidate) ? candidate.map(normalizeAddressLookupResult) : [];
 };
 
-export default function AddressLookupField({ field, value, onChange, disabled, formId, formSlug }) {
+export default function AddressLookupField({ field, value, onChange, disabled, formId, formSlug, manualOnly = false }) {
   const answer = normalizeAddressLookupAnswer(value);
   const visible = addressLookupVisibleComponents(field);
   const required = addressLookupRequiredComponents(field);
@@ -55,7 +55,7 @@ export default function AddressLookupField({ field, value, onChange, disabled, f
     const normalizedPostcode = normalizeUkPostcode(postcode);
     abortRef.current?.abort();
     abortRef.current = null;
-    if (disabled || !normalizedPostcode) {
+    if (disabled || manualOnly || !normalizedPostcode) {
       setLoading(false);
       return undefined;
     }
@@ -126,7 +126,19 @@ export default function AddressLookupField({ field, value, onChange, disabled, f
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [postcode, disabled, formId, formSlug, field.id]);
+  }, [postcode, disabled, manualOnly, formId, formSlug, field.id]);
+
+  useEffect(() => {
+    if (!manualOnly) return;
+    requestGeneration.current += 1;
+    abortRef.current?.abort();
+    abortRef.current = null;
+    setLoading(false);
+    setResults([]);
+    setActiveIndex(-1);
+    setError('');
+    setLookupUnavailable(false);
+  }, [manualOnly]);
 
   useEffect(() => () => {
     requestGeneration.current += 1;
@@ -186,7 +198,7 @@ export default function AddressLookupField({ field, value, onChange, disabled, f
 
   return (
     <div className="space-y-3" data-testid={`address-lookup-${field.id}`}>
-      <div
+      {!manualOnly && <div
         className="relative"
         onBlur={event => {
           if (event.currentTarget.contains(event.relatedTarget)) return;
@@ -245,20 +257,20 @@ export default function AddressLookupField({ field, value, onChange, disabled, f
             ))}
           </div>
         )}
-      </div>
-      {loading && (
+      </div>}
+      {!manualOnly && loading && (
         <p className="flex items-center gap-2 text-sm text-slate-600" role="status" aria-live="polite">
           <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
           Finding addresses…
         </p>
       )}
-      {error && <p className="text-sm text-slate-500" role="status">{error}</p>}
-      {manualAllowed && !manual && (
+      {!manualOnly && error && <p className="text-sm text-slate-500" role="status">{error}</p>}
+      {!manualOnly && manualAllowed && !manual && (
         <Button type="button" variant="link" className="h-auto p-0 text-sm" onClick={enterManualAddress} disabled={disabled}>
           {loading ? 'Enter address manually instead' : 'Enter address manually'}
         </Button>
       )}
-      {(manual || Object.values(answer).some(Boolean)) && (
+      {(manualOnly || manual || Object.values(answer).some(Boolean)) && (
         <div className="grid gap-3 sm:grid-cols-2">
           {visible.map(component => (
             <div key={component} className={component === 'line_1' ? 'sm:col-span-2' : ''}>
@@ -277,12 +289,12 @@ export default function AddressLookupField({ field, value, onChange, disabled, f
           ))}
         </div>
       )}
-      {!manualAllowed && !disabled && (
+      {!manualOnly && !manualAllowed && !disabled && (
         <p className="text-sm text-slate-500">
           {lookupUnavailable ? 'Address lookup is unavailable. Please try again later.' : 'Enter a postcode and select an address to continue.'}
         </p>
       )}
-      {disabled && <p className="text-sm text-slate-500">Address lookup is unavailable for this form.</p>}
+      {!manualOnly && disabled && <p className="text-sm text-slate-500">Address lookup is unavailable for this form.</p>}
     </div>
   );
 }
