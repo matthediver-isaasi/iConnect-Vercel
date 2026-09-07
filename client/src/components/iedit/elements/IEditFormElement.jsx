@@ -290,6 +290,9 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
   const {
     activeForm: rawForm,
     initialValues: transitionInitialValues,
+    restoreNavigation: transitionRestoreNavigation,
+    canReturnToPreviousForm,
+    returnToPreviousForm,
     isTransitioning,
     transitionError,
   } = useFormOpenTransition({
@@ -303,6 +306,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
     },
     authenticated: !!memberInfo,
     enabled: !!loadedForm && defaultsInitialized && !submitted,
+    navigationPosition: { currentPageIndex, currentStep },
   });
   // Shared survey presentation (question-number prefixes etc.) — same
   // transform FormView/EmbedForm apply. iEdit's native per-step progress bar
@@ -353,6 +357,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
     protectedFieldIds: [
       ...Object.keys(transitionInitialValues || {}),
       ...Object.keys(draftData?.draft?.draft_data || {}),
+      ...(transitionRestoreNavigation ? (form?.fields || []).map(field => field.id) : []),
     ],
   });
 
@@ -601,10 +606,10 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
 
   // Reset prefill state and set_value tracking when form changes
   useEffect(() => {
-    setCurrentPageIndex(0);
-    setCurrentStep(0);
+    setCurrentPageIndex(transitionRestoreNavigation?.currentPageIndex ?? 0);
+    setCurrentStep(transitionRestoreNavigation?.currentStep ?? 0);
     setSubmitted(false);
-    setPrefillApplied(false);
+    setPrefillApplied(!!transitionRestoreNavigation);
     setDefaultsInitialized(false);
     setDefaultsInitializedFormId(null);
     const isTransitionDestination = !!loadedForm?.id && String(form?.id) !== String(loadedForm.id);
@@ -624,7 +629,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
     triggeredRoleIdRef.current = null;
     roleActionTriggeredRef.current = false;
     previousRoleActionsRef.current = new Set();
-  }, [form?.id, transitionInitialValues]);
+  }, [form?.id, transitionInitialValues, transitionRestoreNavigation]);
 
   // Initialize boolean fields and hidden fields with their default values when form loads
   // This ensures untouched boolean fields and hidden fields are included in the submission
@@ -2087,11 +2092,14 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
               <div className="flex justify-between">
                 <Button
                   variant="outline"
-                  onClick={() => setCurrentStep(currentStep - 1)}
-                  disabled={currentStep === 0}
+                  onClick={currentStep === 0 ? returnToPreviousForm : () => setCurrentStep(currentStep - 1)}
+                  disabled={currentStep === 0 && !canReturnToPreviousForm}
+                  data-testid={currentStep === 0 && canReturnToPreviousForm
+                    ? 'button-return-to-source-form'
+                    : 'button-previous-step'}
                 >
                   <ChevronLeft className="w-4 h-4 mr-2" />
-                  Previous
+                  {currentStep === 0 && canReturnToPreviousForm ? 'Back to previous form' : 'Previous'}
                 </Button>
                 {isLastStep ? (
                   <Button 
@@ -2347,6 +2355,16 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
                 >
                   <ChevronLeft className="w-4 h-4 mr-2" />
                   Previous
+                </Button>
+              ) : canReturnToPreviousForm ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={returnToPreviousForm}
+                  data-testid="button-return-to-source-form"
+                >
+                  <ChevronLeft className="w-4 h-4 mr-2" />
+                  Back to previous form
                 </Button>
               ) : (
                 <div />

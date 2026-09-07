@@ -159,6 +159,9 @@ export default function EmbedFormPage() {
   const {
     activeForm: rawForm,
     initialValues: transitionInitialValues,
+    restoreNavigation: transitionRestoreNavigation,
+    canReturnToPreviousForm,
+    returnToPreviousForm,
     isTransitioning,
     transitionError,
   } = useFormOpenTransition({
@@ -172,6 +175,7 @@ export default function EmbedFormPage() {
     },
     authenticated: !!authMember,
     enabled: !!loadedForm && defaultsInitialized && !submitted,
+    navigationPosition: { currentPageIndex, currentStep },
   });
 
   // Survey presentation (question numbering) — no-op for standard forms
@@ -317,19 +321,21 @@ export default function EmbedFormPage() {
     setFormValues,
     enabled: !!form && !formAccess.restricted && defaultsInitialized
       && String(defaultsInitializedFormId) === String(form?.id),
-    protectedFieldIds: Object.keys(transitionInitialValues || {}),
+    protectedFieldIds: transitionRestoreNavigation
+      ? (form?.fields || []).map(field => field.id)
+      : Object.keys(transitionInitialValues || {}),
   });
   const [prefillApplied, setPrefillApplied] = useState(false);
 
   useEffect(() => {
-    setCurrentPageIndex(0);
-    setCurrentStep(0);
+    setCurrentPageIndex(transitionRestoreNavigation?.currentPageIndex ?? 0);
+    setCurrentStep(transitionRestoreNavigation?.currentStep ?? 0);
     setSubmitted(false);
     setDefaultsInitialized(false);
     setDefaultsInitializedFormId(null);
-    setPrefillApplied(false);
+    setPrefillApplied(!!transitionRestoreNavigation);
     setFormValues(transitionInitialValues || {});
-  }, [form?.id, transitionInitialValues]);
+  }, [form?.id, transitionInitialValues, transitionRestoreNavigation]);
 
   useEffect(() => {
     if (!form?.fields || defaultsInitialized) return;
@@ -1280,12 +1286,14 @@ export default function EmbedFormPage() {
             <div className="flex justify-between">
               <Button
                 variant="outline"
-                onClick={handlePrevious}
-                disabled={currentStep === 0}
-                data-testid="button-previous-step"
+                onClick={currentStep === 0 ? returnToPreviousForm : handlePrevious}
+                disabled={currentStep === 0 && !canReturnToPreviousForm}
+                data-testid={currentStep === 0 && canReturnToPreviousForm
+                  ? 'button-return-to-source-form'
+                  : 'button-previous-step'}
               >
                 <ChevronLeft className="w-4 h-4 mr-2" />
-                Previous
+                {currentStep === 0 && canReturnToPreviousForm ? 'Back to previous form' : 'Previous'}
               </Button>
               {isLastStep ? (
                 visiblePaymentField ? (
@@ -1423,6 +1431,20 @@ export default function EmbedFormPage() {
                 >
                   <ChevronLeft className="h-4 w-4 mr-1" />
                   Previous
+                </Button>
+              ) : canReturnToPreviousForm ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    returnToPreviousForm();
+                    notifyParentResize();
+                  }}
+                  className="w-full sm:w-auto"
+                  data-testid="button-return-to-source-form"
+                >
+                  <ChevronLeft className="h-4 w-4 mr-1" />
+                  Back to previous form
                 </Button>
               ) : (
                 <div />

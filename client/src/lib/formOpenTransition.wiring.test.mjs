@@ -87,3 +87,46 @@ test('anonymous member prefill caches and requests by active destination slug', 
   assert.match(standalone, /getPrefillMember\(prefillMemberId, form\?\.slug/);
   assert.match(embed, /getPrefillMember\(prefillMemberId, form\?\.slug/);
 });
+
+test('transition history restores source answers and cancels stale destination requests', async () => {
+  const hook = await read('./useFormOpenTransition.js');
+
+  assert.match(hook, /historyRef\.current\.push\(\{/);
+  assert.match(hook, /formValues: \{ \.\.\.\(formValues \|\| \{\}\) \}/);
+  assert.match(hook, /navigationPosition: navigationRef\.current/);
+  assert.match(hook, /const previous = historyRef\.current\.pop\(\)/);
+  assert.match(hook, /if \(returningToRef\.current\) return false/);
+  assert.match(hook, /returningToRef\.current = String\(previous\.form\.id\)/);
+  assert.match(hook, /requestRef\.current \+= 1/);
+  assert.match(hook, /visitedRef\.current\.delete/);
+  assert.match(hook, /setInitialValues\(previous\.formValues\)/);
+  assert.match(hook, /setRestoreNavigation\(previous\.navigationPosition\)/);
+  assert.match(hook, /canReturnToPreviousForm: historyDepth > 0/);
+});
+
+test('returning suspends the source action until its condition stops matching', async () => {
+  const hook = await read('./useFormOpenTransition.js');
+
+  assert.match(hook, /suspendedActionRef\.current = \{\s*formId: String\(previous\.form\.id\),\s*actionKey: previous\.actionKey/);
+  assert.match(hook, /if \(!action\) \{\s*if \(suspended\?\.formId === activeFormId\) suspendedActionRef\.current = null/);
+  assert.match(hook, /if \(suspended\.actionKey === actionKey\) return/);
+  assert.match(hook, /firedRef\.current\.delete\(previous\.actionKey\)/);
+});
+
+test('all form runtimes expose first-position return and restore page or card position', async () => {
+  const [standalone, embed, iedit] = await Promise.all([
+    read('../pages/FormView.jsx'),
+    read('../pages/EmbedForm.jsx'),
+    read('../components/iedit/elements/IEditFormElement.jsx'),
+  ]);
+
+  for (const source of [standalone, embed, iedit]) {
+    assert.match(source, /navigationPosition: \{ currentPageIndex, currentStep \}/);
+    assert.match(source, /transitionRestoreNavigation\?\.currentPageIndex \?\? 0/);
+    assert.match(source, /transitionRestoreNavigation\?\.currentStep \?\? 0/);
+    assert.match(source, /canReturnToPreviousForm/);
+    assert.match(source, /returnToPreviousForm/);
+    assert.match(source, /button-return-to-source-form/);
+    assert.match(source, /Back to previous form/);
+  }
+});

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { publicClient } from '@/api/publicClient';
 import { firstMatchingOpenFormAction } from './formOpenTransition';
 import { MAX_FORM_TRANSITIONS } from '../../../shared/formOpenTransition.js';
@@ -10,30 +10,72 @@ export function useFormOpenTransition({
   assignmentToken = null,
   authenticated = false,
   enabled = true,
+  navigationPosition = null,
 }) {
   const [activeForm, setActiveForm] = useState(initialForm || null);
   const [initialValues, setInitialValues] = useState({});
+  const [restoreNavigation, setRestoreNavigation] = useState(null);
+  const [historyDepth, setHistoryDepth] = useState(0);
   const [error, setError] = useState(null);
   const [isTransitioning, setIsTransitioning] = useState(false);
   const rootIdRef = useRef(null);
+  const historyRef = useRef([]);
   const visitedRef = useRef(new Set());
   const firedRef = useRef(new Set());
+  const suspendedActionRef = useRef(null);
+  const returningToRef = useRef(null);
   const requestRef = useRef(0);
   const awaitingResetRef = useRef(null);
+  const navigationRef = useRef(navigationPosition);
+  navigationRef.current = navigationPosition;
 
   useEffect(() => {
     const rootId = initialForm?.id || null;
     if (rootId === rootIdRef.current) return;
     rootIdRef.current = rootId;
+    historyRef.current = [];
     visitedRef.current = new Set(rootId ? [String(rootId)] : []);
     firedRef.current = new Set();
+    suspendedActionRef.current = null;
+    returningToRef.current = null;
     awaitingResetRef.current = null;
     setActiveForm(initialForm || null);
     setInitialValues({});
+    setRestoreNavigation(null);
+    setHistoryDepth(0);
     setError(null);
     setIsTransitioning(false);
     requestRef.current += 1;
   }, [initialForm?.id]);
+
+  const returnToPreviousForm = useCallback(() => {
+    if (returningToRef.current) return false;
+    const previous = historyRef.current.pop();
+    if (!previous) return false;
+
+    returningToRef.current = String(previous.form.id);
+    requestRef.current += 1;
+    visitedRef.current.delete(String(activeForm?.id || ''));
+    firedRef.current.delete(previous.actionKey);
+    suspendedActionRef.current = {
+      formId: String(previous.form.id),
+      actionKey: previous.actionKey,
+    };
+    awaitingResetRef.current = String(previous.form.id);
+    setHistoryDepth(historyRef.current.length);
+    setInitialValues(previous.formValues);
+    setRestoreNavigation(previous.navigationPosition);
+    setError(null);
+    setIsTransitioning(false);
+    setActiveForm(previous.form);
+    return true;
+  }, [activeForm?.id]);
+
+  useEffect(() => {
+    if (returningToRef.current === String(activeForm?.id || '')) {
+      returningToRef.current = null;
+    }
+  }, [activeForm?.id]);
 
   useEffect(() => {
     if (!enabled || !activeForm?.id || isTransitioning || error) return;
@@ -42,8 +84,17 @@ export function useFormOpenTransition({
       return;
     }
     const action = firstMatchingOpenFormAction(activeForm, conditionValues);
-    if (!action) return;
+    const activeFormId = String(activeForm.id);
+    const suspended = suspendedActionRef.current;
+    if (!action) {
+      if (suspended?.formId === activeFormId) suspendedActionRef.current = null;
+      return;
+    }
     const actionKey = `${activeForm.id}:${action.id}`;
+    if (suspended?.formId === activeFormId) {
+      if (suspended.actionKey === actionKey) return;
+      suspendedActionRef.current = null;
+    }
     if (firedRef.current.has(actionKey)) return;
     firedRef.current.add(actionKey);
 
@@ -74,9 +125,20 @@ export function useFormOpenTransition({
         if (!target?.id || String(target.id) !== String(resolved.target_form_id)) {
           throw new Error('The destination form is unavailable.');
         }
+        historyRef.current.push({
+          form: activeForm,
+          formValues: { ...(formValues || {}) },
+          navigationPosition: navigationRef.current
+            ? { ...navigationRef.current }
+            : null,
+          actionKey,
+        });
         visitedRef.current.add(String(target.id));
         awaitingResetRef.current = String(target.id);
+        suspendedActionRef.current = null;
+        setHistoryDepth(historyRef.current.length);
         setInitialValues(resolved.mapped_values || {});
+        setRestoreNavigation(null);
         setActiveForm(target);
       } catch (transitionError) {
         if (requestRef.current !== requestId) return;
@@ -90,6 +152,9 @@ export function useFormOpenTransition({
   return {
     activeForm: activeForm || initialForm || null,
     initialValues,
+    restoreNavigation,
+    canReturnToPreviousForm: historyDepth > 0,
+    returnToPreviousForm,
     isTransitioning,
     transitionError: error,
   };

@@ -188,6 +188,9 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
   const {
     activeForm: rawForm,
     initialValues: transitionInitialValues,
+    restoreNavigation: transitionRestoreNavigation,
+    canReturnToPreviousForm,
+    returnToPreviousForm,
     isTransitioning,
     transitionError,
   } = useFormOpenTransition({
@@ -202,6 +205,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
     assignmentToken,
     authenticated: !!memberInfo,
     enabled: !!loadedForm && defaultsInitialized && !submitted,
+    navigationPosition: { currentPageIndex, currentStep },
   });
 
   // Assignment metadata (event context + window state) when opened via an
@@ -749,6 +753,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
     protectedFieldIds: [
       ...Object.keys(transitionInitialValues || {}),
       ...Object.keys(draftData?.draft?.draft_data || {}),
+      ...(transitionRestoreNavigation ? (form?.fields || []).map(field => field.id) : []),
     ],
   });
   const conditionalPrefillValues = useConditionalFormFieldPrefill({
@@ -760,10 +765,10 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
   
   // Reset page navigation state when form changes
   useEffect(() => {
-    setCurrentPageIndex(0);
-    setCurrentStep(0);
+    setCurrentPageIndex(transitionRestoreNavigation?.currentPageIndex ?? 0);
+    setCurrentStep(transitionRestoreNavigation?.currentStep ?? 0);
     setSubmitted(false);
-    setPrefillApplied(false);
+    setPrefillApplied(!!transitionRestoreNavigation);
     setDefaultsInitialized(false);
     setDefaultsInitializedFormId(null);
     const isTransitionDestination = !!loadedForm?.id && String(form?.id) !== String(loadedForm.id);
@@ -774,7 +779,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
       setResumeLinkCopied(false);
     }
     setFormValues(transitionInitialValues || {});
-  }, [form?.id, transitionInitialValues]);
+  }, [form?.id, transitionInitialValues, transitionRestoreNavigation]);
   
   // Initialize all fields with their default values
   // This runs after reset and sets the flag to allow prefill to proceed
@@ -2749,11 +2754,14 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
             <div className="flex justify-between gap-2">
               <Button
                 variant="outline"
-                onClick={() => setCurrentStep(currentStep - 1)}
-                disabled={currentStep === 0}
+                onClick={currentStep === 0 ? returnToPreviousForm : () => setCurrentStep(currentStep - 1)}
+                disabled={currentStep === 0 && !canReturnToPreviousForm}
+                data-testid={currentStep === 0 && canReturnToPreviousForm
+                  ? 'button-return-to-source-form'
+                  : 'button-previous-step'}
               >
                 <ChevronLeft className="w-4 h-4 mr-2" />
-                Previous
+                {currentStep === 0 && canReturnToPreviousForm ? 'Back to previous form' : 'Previous'}
               </Button>
               
               <div className="flex gap-2">
@@ -3172,6 +3180,17 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
                   >
                     <ChevronLeft className="w-4 h-4 mr-2" />
                     Previous
+                  </Button>
+                ) : canReturnToPreviousForm ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={returnToPreviousForm}
+                    className="w-full sm:w-auto"
+                    data-testid="button-return-to-source-form"
+                  >
+                    <ChevronLeft className="w-4 h-4 mr-2" />
+                    Back to previous form
                   </Button>
                 ) : (
                   <div />
