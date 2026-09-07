@@ -131,3 +131,17 @@ type = "table"
 title = "BNMS Organisation Departments"
 description = "CSV containing Organisation name and UUID plus each linked Department name and UUID. Includes Organisations with no linked Departments."
 logical_id = "01ac773b-e55c-4a0b-86ca-2894f9609afe"
+
+[[outputs]]
+id = "yiaZvX8cKtUq6s6VLrARr"
+uri = "file://guides/events-functionality-catalogue.pdf"
+type = "pdf"
+title = "Events Functionality Catalogue"
+description = "Publication-ready 20-page A4 catalogue of verified simple and complex event capabilities, dependencies and current boundaries."
+logical_id = "83e4c31c-dc13-418c-9b21-82c9e900e298"
+content_hash = "sha256:69c13e9d12ac5735dc57b974dae631a7add1f0706e14af7e670a60a1eb513e2d"
+size = 128674
+mtime_ms = 1788770611038
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/83e4c31c-dc13-418c-9b21-82c9e900e298/5f3c657b-b914-4397-80a3-31e98e9c1d74"
+storage_version_token = "1788770652294477"
+content_type = "application/pdf"
