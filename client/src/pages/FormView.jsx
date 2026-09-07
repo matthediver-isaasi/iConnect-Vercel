@@ -32,6 +32,7 @@ import { applyFormFieldValueChange } from "@/lib/formFieldValueChange";
 import { useFormFieldPrefill } from "@/lib/useFormFieldPrefill";
 import { useConditionalFormFieldPrefill } from "@/lib/useFormFieldPrefill";
 import { useFormOpenTransition } from "@/lib/useFormOpenTransition";
+import FormTransitionOverlay from "@/components/forms/FormTransitionOverlay";
 
 // A `redirect_url` beginning with this prefix means the redirect target is driven
 // by the value the respondent submitted for the field whose id follows the prefix.
@@ -2101,7 +2102,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
     previousRoleActionsRef.current = nowActiveRoleActions;
   }, [form?.visibility_rules, formValues, emptyRelationshipParentValues, prefillMember, prefillOrg, prefillMemberCustomValues, prefillOrgCustomValues, conditionalPrefillValues, form?.prefill_source]);
 
-  if (isLoading || isTransitioning) {
+  if (isLoading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
         <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
@@ -2860,6 +2861,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8" ref={formContainerRef}>
+      <FormTransitionOverlay active={isTransitioning}>
       <div className="max-w-3xl mx-auto">
         <Card className="border-slate-200">
           <CardHeader>
@@ -3260,6 +3262,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
           </CardContent>
         </Card>
       </div>
+      </FormTransitionOverlay>
     </div>
   );
 }

@@ -29,6 +29,7 @@ import {
 import { useFormFieldPrefill } from "@/lib/useFormFieldPrefill";
 import { applyFormFieldValueChange } from "@/lib/formFieldValueChange";
 import { useFormOpenTransition } from "@/lib/useFormOpenTransition";
+import FormTransitionOverlay from "@/components/forms/FormTransitionOverlay";
 
 // Stable empty array so disabled custom-value queries don't create a fresh
 // default identity every render (which would re-trigger dependent effects).
@@ -1093,7 +1094,7 @@ export default function EmbedFormPage() {
     };
   }, [fontSizeParam]);
 
-  if (isLoading || isTransitioning) {
+  if (isLoading) {
     return (
       <div className="flex items-center justify-center min-h-[200px] p-4" data-testid="embed-form-loading">
         <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
@@ -1221,6 +1222,7 @@ export default function EmbedFormPage() {
     const canProceed = (!(currentField?.is_required || currentField?.required) || hasValue) && isFormatValid;
 
     return (
+      <FormTransitionOverlay active={isTransitioning}>
       <div className="p-4" data-testid="embed-form-container">
         <Toaster />
         <Card className="w-full">
@@ -1330,11 +1332,13 @@ export default function EmbedFormPage() {
           </div>
         </Card>
       </div>
+      </FormTransitionOverlay>
     );
   }
 
   // Standard Layout
   return (
+    <FormTransitionOverlay active={isTransitioning}>
     <div className="p-4" data-testid="embed-form-container">
       <Toaster />
       <Card className="w-full">
@@ -1474,5 +1478,6 @@ export default function EmbedFormPage() {
         </CardContent>
       </Card>
     </div>
+    </FormTransitionOverlay>
   );
 }

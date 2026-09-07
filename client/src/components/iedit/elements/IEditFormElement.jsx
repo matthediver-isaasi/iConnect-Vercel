@@ -34,6 +34,7 @@ import { useFormFieldPrefill } from "@/lib/useFormFieldPrefill";
 import { useConditionalFormFieldPrefill } from "@/lib/useFormFieldPrefill";
 import { applyFormFieldValueChange } from "@/lib/formFieldValueChange";
 import { useFormOpenTransition } from "@/lib/useFormOpenTransition";
+import FormTransitionOverlay from "@/components/forms/FormTransitionOverlay";
 import { FORM_NO_RELATIONSHIP_VALUE } from "../../../../../shared/formNoRelationshipChoice.js";
 
 const formQuillModules = {
@@ -1804,7 +1805,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
     }, 800);
   }, [formValues, form, submitted, submitFormMutation.isPending, isValidating]);
 
-  if (isLoading || isTransitioning) {
+  if (isLoading) {
     return (
       <div className="flex items-center justify-center py-12" style={getBackgroundStyle()}>
         <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
@@ -1937,6 +1938,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
 
   if (isPrefillLoading) {
     return (
+      <FormTransitionOverlay active={isTransitioning}>
       <div id={anchor || undefined} style={containerStyle}>
         <div className="relative mx-auto px-4" style={{ maxWidth: `${content_max_width}px` }}>
           {renderHeaderSection()}
@@ -1948,6 +1950,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
           </Card>
         </div>
       </div>
+      </FormTransitionOverlay>
     );
   }
 
@@ -1986,6 +1989,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
     const canProceed = (!currentField?.required || hasValue) && isFormatValid;
 
     return (
+      <FormTransitionOverlay active={isTransitioning}>
       <div id={anchor || undefined} style={containerStyle}>
         {background_type === 'image' && overlay_enabled && (
           <div 
@@ -2129,10 +2133,12 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
           </Card>
         </div>
       </div>
+      </FormTransitionOverlay>
     );
   }
 
   return (
+    <FormTransitionOverlay active={isTransitioning}>
     <div id={anchor || undefined} style={containerStyle} ref={formContainerRef}>
       {background_type === 'image' && overlay_enabled && (
         <div 
@@ -2410,6 +2416,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
         </Card>
       </div>
     </div>
+    </FormTransitionOverlay>
   );
 }
 

@@ -20,6 +20,29 @@ test('all public form runtimes use the shared in-place transition hook', async (
   assert.match(iedit, /onRelationshipEmptyStateChange=\{handleRelationshipEmptyStateChange\}/);
 });
 
+test('all public form runtimes preserve and lock source content behind the shared transition overlay', async () => {
+  const [overlay, standalone, embed, iedit] = await Promise.all([
+    read('../components/forms/FormTransitionOverlay.jsx'),
+    read('../pages/FormView.jsx'),
+    read('../pages/EmbedForm.jsx'),
+    read('../components/iedit/elements/IEditFormElement.jsx'),
+  ]);
+
+  assert.match(overlay, /Please hold tight for a few seconds…/);
+  assert.match(overlay, /aria-busy=\{active \? 'true' : undefined\}/);
+  assert.match(overlay, /inert=\{active \? '' : undefined\}/);
+  assert.match(overlay, /role="status"/);
+  assert.match(overlay, /aria-live="polite"/);
+  assert.match(overlay, /motion-reduce:animate-none/);
+  assert.match(overlay, /backdrop-blur/);
+
+  for (const source of [standalone, embed, iedit]) {
+    assert.match(source, /import FormTransitionOverlay/);
+    assert.match(source, /<FormTransitionOverlay active=\{isTransitioning\}>/);
+    assert.doesNotMatch(source, /if \(isLoading \|\| isTransitioning\)/);
+  }
+});
+
 test('transition endpoint reloads persisted action and mappings server-side', async () => {
   const endpoint = await read('../../../api/public/form-transition.js');
   assert.match(endpoint, /findPersistedOpenFormAction/);
