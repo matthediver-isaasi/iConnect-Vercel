@@ -6,6 +6,7 @@ import {
   FORM_NOT_LISTED_TEXT_MAX_LENGTH,
   FORM_NOT_LISTED_VALUE,
   pruneFormNotListedText,
+  resolveRawFormNotListedText,
   setFormNotListedText,
   setRepeatableRowNotListedText,
 } from '../../../shared/formNotListedChoice.js';
@@ -23,8 +24,9 @@ const formSubmissions = readFileSync(new URL('../pages/FormSubmissions.jsx', imp
 const wordExport = readFileSync(new URL('./formSubmissionWordExport.js', import.meta.url), 'utf8');
 
 test('not-listed text helpers retain only populated field text maps', () => {
-  const root = setFormNotListedText({}, 'country', 'Atlantis');
-  assert.deepEqual(root, { [FORM_NOT_LISTED_TEXT_KEY]: { country: 'Atlantis' } });
+  const root = setFormNotListedText({}, 'country', ' New Zealand ');
+  assert.deepEqual(root, { [FORM_NOT_LISTED_TEXT_KEY]: { country: ' New Zealand ' } });
+  assert.equal(resolveRawFormNotListedText({ id: 'country' }, root), ' New Zealand ');
   assert.deepEqual(setFormNotListedText(root, 'country', ''), {});
 
   const row = setRepeatableRowNotListedText(
@@ -60,6 +62,7 @@ test('renderer supplies the required accessible not-listed text control and vali
   assert.match(renderer, /required/);
   assert.match(renderer, /maxLength=\{FORM_NOT_LISTED_TEXT_MAX_LENGTH\}/);
   assert.match(renderer, /aria-invalid=\{invalid\}/);
+  assert.match(renderer, /const notListedText = resolveRawFormNotListedText\(field, allFormValues\)/);
   assert.match(renderer, /Boolean\(notListedText\.trim\(\)\)[\s\S]*FORM_NOT_LISTED_TEXT_MAX_LENGTH/);
   assert.match(renderer, /if \(hasStoredNotListedText\) onFormNotListedTextChange\?\.\(''\)/);
 });

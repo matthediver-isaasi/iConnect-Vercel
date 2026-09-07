@@ -56,7 +56,7 @@ import {
   hasEnabledFormNotListedChoice,
   isFormNotListedValue,
   prependFormNotListedOption,
-  resolveFormNotListedText,
+  resolveRawFormNotListedText,
   setRepeatableRowNotListedText,
   supportsFormNotListedChoice,
 } from "../../../../shared/formNotListedChoice.js";
@@ -761,7 +761,7 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, on
   const value = resolvedFieldValue.value;
   const hasNotListedSelection = supportsFormNotListedChoice(field)
     && containsFormNotListedValue(value);
-  const notListedText = resolveFormNotListedText(field, allFormValues);
+  const notListedText = resolveRawFormNotListedText(field, allFormValues);
   const hasStoredNotListedText = allFormValues?.[FORM_NOT_LISTED_TEXT_KEY]?.[field.id] !== undefined;
   const [showOtherInput, setShowOtherInput] = useState(false);
   const [otherValue, setOtherValue] = useState('');

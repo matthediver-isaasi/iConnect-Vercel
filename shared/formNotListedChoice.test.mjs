@@ -10,6 +10,7 @@ import {
   prependFormNotListedOption,
   preserveFormNotListedLabelSnapshots,
   resolveFormNotListedDisplayValue,
+  resolveRawFormNotListedText,
   resolveFormNotListedText,
   pruneFormNotListedText,
   setFormNotListedText,
@@ -146,6 +147,7 @@ test('stores and resolves normal and repeatable not-listed text without changing
   const normal = setFormNotListedText({ org: FORM_NOT_LISTED_VALUE }, 'org', '  Acme Other  ');
   assert.equal(normal.org, FORM_NOT_LISTED_VALUE);
   assert.equal(normal[FORM_NOT_LISTED_TEXT_KEY].org, '  Acme Other  ');
+  assert.equal(resolveRawFormNotListedText(field, normal), '  Acme Other  ');
   assert.equal(resolveFormNotListedText(field, normal), 'Acme Other');
   assert.equal(
     resolveFormNotListedDisplayValue(field, normal.org, normal),
@@ -163,6 +165,7 @@ test('stores and resolves normal and repeatable not-listed text without changing
     'Atlantis',
   );
   const data = { rows: [row] };
+  assert.equal(resolveRawFormNotListedText(child, data, { row }), 'Atlantis');
   assert.equal(resolveFormNotListedText(child, data, { row }), 'Atlantis');
   assert.equal(
     resolveFormNotListedDisplayValue(child, row.country, data, { row }),
@@ -189,6 +192,10 @@ test('validates required and non-orphaned normal and repeatable text', () => {
     org: FORM_NOT_LISTED_VALUE,
     [FORM_NOT_LISTED_TEXT_KEY]: { org: 'Acme Other' },
   }).valid, true);
+  assert.equal(validateFormNotListedText([field], {
+    org: FORM_NOT_LISTED_VALUE,
+    [FORM_NOT_LISTED_TEXT_KEY]: { org: '   ' },
+  }).valid, false);
   assert.equal(validateFormNotListedText([field], {
     org: 'real-id',
     [FORM_NOT_LISTED_TEXT_KEY]: { org: 'orphaned' },

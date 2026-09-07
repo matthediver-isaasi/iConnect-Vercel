@@ -74,10 +74,15 @@ function normalizedNotListedText(value) {
   return typeof value === 'string' ? value.trim() : '';
 }
 
-export function resolveFormNotListedText(field, submissionData, options = {}) {
+export function resolveRawFormNotListedText(field, submissionData, options = {}) {
   if (!field?.id) return '';
   const source = options.row || submissionData;
-  return normalizedNotListedText(source?.[FORM_NOT_LISTED_TEXT_KEY]?.[field.id]);
+  const value = source?.[FORM_NOT_LISTED_TEXT_KEY]?.[field.id];
+  return typeof value === 'string' ? value : '';
+}
+
+export function resolveFormNotListedText(field, submissionData, options = {}) {
+  return normalizedNotListedText(resolveRawFormNotListedText(field, submissionData, options));
 }
 
 export function setFormNotListedText(submissionData, fieldId, text) {
