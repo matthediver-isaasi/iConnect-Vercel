@@ -86,6 +86,7 @@ import { useMemberGroupSettings } from "@/hooks/useMemberGroupSettings";
 import { filterGroupEventVisibility } from "@/hooks/useEventsData";
 import { useEventTypes } from "@/hooks/useEventTypes";
 import { parseEventTypes } from "@/lib/utils";
+import { fetchEventAttendeeCounts } from "@/lib/eventAttendeeCounts";
 import EventCard from "@/components/events/EventCard";
 import ResourceCard from "@/components/resources/ResourceCard";
 import ForumThreadList from "@/components/forum/ForumThreadList";
@@ -1564,6 +1565,28 @@ export default function MemberGroupDetailPage() {
     return filteredGroupEvents.slice(start, start + EVENTS_PER_PAGE_CFG);
   }, [filteredGroupEvents, currentEventPage, EVENTS_PER_PAGE_CFG]);
 
+  const pagedSimpleEventIds = useMemo(
+    () => pagedEvents.filter((event) => !event.is_complex).map((event) => event.id),
+    [pagedEvents],
+  );
+  const pagedComplexEventIds = useMemo(
+    () => pagedEvents.filter((event) => event.is_complex).map((event) => event.id),
+    [pagedEvents],
+  );
+  const canViewGroupEventAttendees = !!memberInfo && (
+    isGroupAdmin || !isFeatureExcluded?.('events.browse-events.view-attendees')
+  );
+  const { data: groupEventAttendeeCounts = {} } = useQuery({
+    queryKey: ['event-attendee-counts', pagedSimpleEventIds, pagedComplexEventIds],
+    queryFn: () => fetchEventAttendeeCounts({
+      simpleEventIds: pagedSimpleEventIds,
+      complexEventIds: pagedComplexEventIds,
+    }),
+    enabled: canViewGroupEventAttendees
+      && (pagedSimpleEventIds.length > 0 || pagedComplexEventIds.length > 0),
+    staleTime: 0,
+  });
+
   // --- Group resources section ---
   const { data: groupResources = [], isLoading: loadingResources } = useQuery({
     queryKey: ["member-group-resources", groupId],
@@ -2703,6 +2726,7 @@ export default function MemberGroupDetailPage() {
                           groupAdminMode={
                             isGroupAdmin && event.member_group_id === groupId
                           }
+                          attendeeCount={groupEventAttendeeCounts[event.id] ?? 0}
                         />
                       ))}
                     </div>

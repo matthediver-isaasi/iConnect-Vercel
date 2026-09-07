@@ -1,6 +1,7 @@
 // v2.1.0 - Added non-member guest booking support
-import { useState, useMemo, Fragment } from "react";
+import { useState, useMemo, useEffect, Fragment } from "react";
 import { resolveEventCtaLabel } from "@/lib/eventCtaLabel";
+import { buildActiveAttendeeCountMap } from "@/lib/eventAttendeeCounts";
 import { isImmediateEvent } from "@shared/eventTiming.js";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
@@ -181,7 +182,7 @@ const getCheapestTicketPrice = (event) => {
   return null;
 };
 
-export default function EventCard({ event, organizationInfo, isFeatureExcluded, isAdmin, onEventDeleted, joinLinkSettings, webinars, systemSettings = [], memberInfo, joinLocked = false, agendaSummary = null, groupAdminMode = false }) {
+export default function EventCard({ event, organizationInfo, isFeatureExcluded, isAdmin, onEventDeleted, joinLinkSettings, webinars, systemSettings = [], memberInfo, joinLocked = false, agendaSummary = null, groupAdminMode = false, attendeeCount = null }) {
   const queryClient = useQueryClient();
   // Task e1476154: group-admin override. When the caller (MemberGroupDetail)
   // confirms the viewer administers the event's group, show the four admin
@@ -260,6 +261,16 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
     if (!bookingsData) return [];
     return bookingsData.filter(b => b.status !== 'cancelled');
   }, [bookingsData]);
+
+  useEffect(() => {
+    if (!bookingsData) return;
+    queryClient.setQueriesData(
+      { queryKey: ['event-attendee-counts'] },
+      (old) => old
+        ? { ...old, ...buildActiveAttendeeCountMap(bookingsData, [event.id]) }
+        : old,
+    );
+  }, [bookingsData, event.id, queryClient]);
 
   // Get unique organizations from bookings for filter dropdown
   const uniqueOrganizations = useMemo(() => {
@@ -543,6 +554,7 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
       const results = data.results || {};
       setImportResults(results);
       queryClient.invalidateQueries({ queryKey: ['event-bookings', event.id] });
+      queryClient.invalidateQueries({ queryKey: ['event-attendee-counts'] });
       const memberCount = results.registeredMembers?.length || 0;
       const guestCount = results.registeredGuests?.length || 0;
       const total = memberCount + guestCount;
@@ -986,7 +998,11 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
                           aria-label="Attendees"
                           data-testid={`button-attendees-event-${event.id}`}
                         >
-                          <UsersRound className="w-4 h-4" />
+                          {attendeeCount === null ? (
+                            <UsersRound className="w-4 h-4" />
+                          ) : (
+                            <span aria-hidden="true">{attendeeCount}</span>
+                          )}
                         </Button>
                       </TooltipTrigger>
                       <TooltipContent>Attendees</TooltipContent>

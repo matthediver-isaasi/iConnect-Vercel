@@ -69,6 +69,7 @@ import {
 import { listAllOrganizationsForAdmin } from '@/lib/adminOrgList';
 import { resolveEventCtaLabel } from '@/lib/eventCtaLabel';
 import { canUseEventsPageTour } from '@/lib/eventsTourEligibility';
+import { buildActiveAttendeeCountMap, fetchEventAttendeeCounts } from '@/lib/eventAttendeeCounts';
 import { 
   createFilterTagKey, 
   parseFilterTagKey, 
@@ -310,6 +311,23 @@ export default function EventsPage({
   const events = useMemo(() => {
     return [...simpleEvents, ...visibleComplexEvents];
   }, [simpleEvents, visibleComplexEvents]);
+
+  const canViewAttendees = !!memberInfo
+    && !resolvedIsFeatureExcluded?.('events.browse-events.view-attendees');
+  const complexEventIds = useMemo(
+    () => visibleComplexEvents.map((event) => event.id).filter(Boolean),
+    [visibleComplexEvents],
+  );
+  const simpleEventIds = useMemo(
+    () => simpleEvents.map((event) => event.id).filter(Boolean),
+    [simpleEvents],
+  );
+  const { data: eventAttendeeCounts = {} } = useQuery({
+    queryKey: ['event-attendee-counts', simpleEventIds, complexEventIds],
+    queryFn: () => fetchEventAttendeeCounts({ simpleEventIds, complexEventIds }),
+    enabled: canViewAttendees && (simpleEventIds.length > 0 || complexEventIds.length > 0),
+    staleTime: 0,
+  });
 
   // Mini agenda data for Training event cards (one batched fetch keyed by
   // the training event ids on the page; dates + item type only).
@@ -939,6 +957,19 @@ export default function EventsPage({
     return complexBookingsData.filter(b => b.status !== 'cancelled');
   }, [complexBookingsData]);
 
+  useEffect(() => {
+    if (!complexAttendeesEvent?.id || !complexBookingsData) return;
+    queryClient.setQueriesData(
+      { queryKey: ['event-attendee-counts'] },
+      (old) => old
+        ? {
+            ...old,
+            ...buildActiveAttendeeCountMap(complexBookingsData, [complexAttendeesEvent.id]),
+          }
+        : old,
+    );
+  }, [complexAttendeesEvent?.id, complexBookingsData, queryClient]);
+
   const complexUniqueOrganizations = useMemo(() => {
     if (!complexActiveBookings || complexActiveBookings.length === 0) return [];
     const orgIds = [...new Set(complexActiveBookings.map(b => b.organization_id).filter(Boolean))];
@@ -1067,6 +1098,7 @@ export default function EventsPage({
       merged.errors = [...clientErrors, ...(merged.errors || [])];
       setComplexImportResults(merged);
       queryClient.invalidateQueries({ queryKey: ['event-bookings', complexAttendeesEvent?.id] });
+      queryClient.invalidateQueries({ queryKey: ['event-attendee-counts'] });
       const memberCount = merged.registeredMembers?.length || 0;
       const guestCount = merged.registeredGuests?.length || 0;
       const total = memberCount + guestCount;
@@ -2033,7 +2065,9 @@ export default function EventsPage({
                                               aria-label="Attendees"
                                               data-testid={`button-attendees-event-${event.id}`}
                                             >
-                                              <UsersRound className="w-4 h-4" />
+                                              <span aria-hidden="true">
+                                                {eventAttendeeCounts[event.id] ?? 0}
+                                              </span>
                                             </Button>
                                           </TooltipTrigger>
                                           <TooltipContent>Attendees</TooltipContent>
@@ -2168,6 +2202,7 @@ export default function EventsPage({
                           webinars={webinars}
                           systemSettings={systemSettings}
                           memberInfo={memberInfo}
+                          attendeeCount={eventAttendeeCounts[event.id] ?? 0}
                           agendaSummary={trainingAgendaSummaries[event.id]}
                         />
                         </React.Fragment>
@@ -2388,8 +2423,10 @@ export default function EventsPage({
                                     className="flex-1 text-purple-600 hover:text-purple-700 hover:bg-purple-50 border-purple-200"
                                     data-testid={`button-attendees-event-${event.id}`}
                                   >
-                                    <UsersRound className="w-4 h-4 mr-1" />
-                                    Attendees
+                                     <span aria-hidden="true">
+                                       {eventAttendeeCounts[event.id] ?? 0}
+                                     </span>
+                                     <span>Attendees</span>
                                   </Button>
                                 )}
                                 {!resolvedIsFeatureExcluded?.('events.browse-events.create') && (
@@ -2486,6 +2523,7 @@ export default function EventsPage({
                       webinars={webinars}
                       systemSettings={systemSettings}
                       memberInfo={memberInfo}
+                      attendeeCount={eventAttendeeCounts[event.id] ?? 0}
                       agendaSummary={trainingAgendaSummaries[event.id]}
                     />
                     </React.Fragment>
