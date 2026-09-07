@@ -141,3 +141,4 @@
 - [Conditional form transitions](conditional-form-transitions.md) — persist only action IDs/mappings; server re-verifies rules and destination access, while assignment/draft context stays source-scoped.
 - [Merge is not public rollout](merge-vs-public-rollout.md) — custom domains may keep serving an older frontend bundle after source merges; verify the live asset contains the feature.
 - [Reactive form prefill ownership](reactive-form-prefill-ownership.md) — configured defaults are replaceable only at their captured initial value; drafts, transitions, and respondent edits always win.
+- [Replacing required relationship owners](required-relationship-owner-replacement.md) — required many-to-one owner edges need one atomic DB operation; sequential REST replacement cannot preserve invariants.

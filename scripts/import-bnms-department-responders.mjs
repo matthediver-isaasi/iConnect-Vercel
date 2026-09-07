@@ -9,6 +9,38 @@ const TENANT_ID = 'ff2df806-b321-4254-b651-3af11fccf1db';
 const DEPARTMENT_OBJECT_ID = 'cd1ebfd3-3e16-4091-be5a-99992d926f2f';
 const DEFAULT_INPUT = 'attached_assets/Department_contacts_to_import_04.09.26_v2_1788793862211.xlsx';
 const PAGE_SIZE = 1000;
+const APPROVED_OWNER_REPAIRS = [
+  {
+    departmentId: 'ad731b3d-c4bb-4f21-a58d-9ef85800a3ff',
+    fromOrganizationId: 'c76225a5-ec2c-438e-8779-3e67a202f426',
+    toOrganizationId: '17b1300a-e17a-41a7-bd87-c9b53deedb32',
+  },
+  {
+    departmentId: '197b6854-fdc8-4ea0-b78d-e61d346bd1fc',
+    fromOrganizationId: 'fe456102-23a8-4cd5-b6ce-6d5ab078d75a',
+    toOrganizationId: '9c6835b0-c3be-4aa9-bbba-c8408eea6ab2',
+  },
+  {
+    departmentId: 'e2633069-3409-4146-b28c-148263acb7b3',
+    fromOrganizationId: '52d1c8db-95ef-44a2-b499-fe0532e48de5',
+    toOrganizationId: 'e6840819-4d9f-41c8-b2e4-189de51f8e68',
+  },
+];
+const APPROVED_ORGANIZATION_LABEL_ALIASES = [
+  ['ad731b3d-c4bb-4f21-a58d-9ef85800a3ff', 'Scarborough General Hospital', '17b1300a-e17a-41a7-bd87-c9b53deedb32'],
+  ['197b6854-fdc8-4ea0-b78d-e61d346bd1fc', 'Midland Metropolitan University Hospital (MMUH)', '9c6835b0-c3be-4aa9-bbba-c8408eea6ab2'],
+  ['4df71cb4-e01d-4603-8be1-b196a4a9926b', 'Stepping Hill Hospital Stockport', '008fefce-6b2b-46b1-b42f-b4af60236fe4'],
+  ['8d771f15-02d4-4895-9e27-ced44f438c78', 'Morriston Hospital Swansea', '18d46505-865b-4c3d-898e-1691b797688a'],
+  ['315f6c85-00d3-4415-8787-aa1b5344f4ec', 'Leceister Royal Infirmary', '08fcc1f7-f2e2-41d6-8dbc-bf5c07b4b841'],
+  ['a20c76d4-f6bd-4959-8f29-6c7545eabd1b', 'Princess Alexandra Hospital Harlow', '8aff56ec-015e-4a9f-ad32-4abdab21d4b6'],
+  ['e2633069-3409-4146-b28c-148263acb7b3', 'Royal United Hospital Bath', 'e6840819-4d9f-41c8-b2e4-189de51f8e68'],
+  ['4defc862-c378-4bbf-aca2-c3511060a38f', 'Princess of Wales Hospital Bridgend', '3f6bcee1-f5b2-43c4-8ab1-f4745756a13f'],
+  ['7abf9a4c-ea1c-4648-8b17-6accdde64b69', 'Perceptive Discovery – London Imaging Centre', 'b1ab2cdf-15cb-4ec8-9911-fc2caffd8273'],
+].map(([departmentId, workbookLabel, organizationId]) => ({
+  departmentId,
+  workbookLabel: normalize(workbookLabel),
+  organizationId,
+}));
 
 function normalize(value) {
   return String(value ?? '').trim().toLowerCase();
@@ -139,7 +171,7 @@ async function buildPlan(supabase, workbookRows) {
   const ownerEdges = [];
   for (const ids of chunks(departmentIds)) {
     const { data, error } = await supabase.from('custom_object_relationship')
-      .select('id, source_record_id, target_record_id, archived_at')
+      .select('id, source_record_id, target_record_id, field_values, archived_at')
       .eq('tenant_id', TENANT_ID).eq('relationship_definition_id', ownerDefinition.id)
       .is('archived_at', null).in('source_record_id', ids);
     if (error) throw new Error(`Department owner read failed: ${error.message}`);
@@ -160,13 +192,9 @@ async function buildPlan(supabase, workbookRows) {
       (query) => query.eq('tenant_id', TENANT_ID),
     ),
   ]);
-  const organizationsByName = new Map();
   const organizationsById = new Map();
   for (const organization of organizations) {
     organizationsById.set(organization.id, organization);
-    const key = normalize(organization.name);
-    if (!organizationsByName.has(key)) organizationsByName.set(key, []);
-    organizationsByName.get(key).push(organization);
   }
   const danglingDepartmentOwners = departmentIds
     .map((departmentId) => ({
@@ -174,10 +202,13 @@ async function buildPlan(supabase, workbookRows) {
       ownerOrganizationId: ownerByDepartment.get(departmentId)?.target_record_id,
     }))
     .filter(({ ownerOrganizationId }) => !organizationsById.has(ownerOrganizationId));
-  if (danglingDepartmentOwners.length) {
+  const unresolvedDepartmentOwners = danglingDepartmentOwners.filter(({ departmentId }) =>
+    !organizationsById.has(ownerByDepartment.get(departmentId)?.target_record_id)
+  );
+  if (unresolvedDepartmentOwners.length) {
     throw new Error(
       `Departments have active owner links to missing organizations:\n${
-        danglingDepartmentOwners.map(({ departmentId, ownerOrganizationId }) =>
+        unresolvedDepartmentOwners.map(({ departmentId, ownerOrganizationId }) =>
           `${departmentId} -> ${ownerOrganizationId}`
         ).join('\n')
       }`
@@ -210,6 +241,17 @@ async function buildPlan(supabase, workbookRows) {
     if (organization.status && organization.status !== 'active') {
       throw new Error(`Row ${row.rowNumber} Department owner "${organization.name}" is not active`);
     }
+    const organizationLabelMatches = row.organizationKey === normalize(organization.name);
+    const approvedAlias = APPROVED_ORGANIZATION_LABEL_ALIASES.some((alias) =>
+      alias.departmentId === row.departmentId
+      && alias.workbookLabel === row.organizationKey
+      && alias.organizationId === organization.id
+    );
+    if (!organizationLabelMatches && !approvedAlias) {
+      throw new Error(
+        `Row ${row.rowNumber} organization "${row.organizationName}" does not match authoritative Department owner "${organization.name}"`
+      );
+    }
     const memberMatches = membersByEmail.get(row.email) || [];
     if (memberMatches.length > 1) throw new Error(`Row ${row.rowNumber} email ${row.email} is ambiguous`);
     const existingMember = memberMatches[0] || null;
@@ -232,7 +274,8 @@ async function buildPlan(supabase, workbookRows) {
     return {
       ...row,
       organizationId: organization.id,
-      organizationLabelMatches: row.organizationKey === normalize(organization.name),
+      organizationLabelMatches,
+      organizationLabelApprovedAlias: approvedAlias,
       authoritativeOrganizationName: organization.name,
       memberId,
       existingMember,
@@ -244,6 +287,28 @@ async function buildPlan(supabase, workbookRows) {
   return { tenant, memberDefinition, ownerDefinition, responderField, responderKey, planRows };
 }
 
+async function verifyApprovedOwnerRepairs(supabase, ownerDefinition) {
+  const departmentIds = APPROVED_OWNER_REPAIRS.map((repair) => repair.departmentId);
+  const { data, error } = await supabase.from('custom_object_relationship')
+    .select('source_record_id, target_record_id')
+    .eq('tenant_id', TENANT_ID)
+    .eq('relationship_definition_id', ownerDefinition.id)
+    .is('archived_at', null)
+    .in('source_record_id', departmentIds);
+  if (error) throw new Error(`Approved Department owner repair verification failed: ${error.message}`);
+  for (const repair of APPROVED_OWNER_REPAIRS) {
+    const matches = (data || []).filter((edge) =>
+      edge.source_record_id === repair.departmentId
+      && edge.target_record_id === repair.toOrganizationId
+    );
+    if (matches.length !== 1) {
+      throw new Error(
+        `Department ${repair.departmentId} does not have its one approved repaired owner; repair it atomically before importing`
+      );
+    }
+  }
+}
+
 function summary(plan) {
   const rows = plan.planRows;
   return {
@@ -252,6 +317,7 @@ function summary(plan) {
     uniqueDepartments: new Set(rows.map((row) => row.departmentId)).size,
     uniqueOrganizations: new Set(rows.map((row) => row.organizationId)).size,
     organizationLabelMismatches: rows.filter((row) => !row.organizationLabelMatches).length,
+    approvedOrganizationLabelAliases: rows.filter((row) => row.organizationLabelApprovedAlias).length,
     existingMembers: rows.filter((row) => row.existingMember).length,
     membersToCreate: rows.filter((row) => !row.existingMember).length,
     existingMembersToFillOrganization: rows.filter((row) =>
@@ -264,6 +330,9 @@ function summary(plan) {
       id: plan.responderField.id || plan.responderField.field_id,
       key: plan.responderKey,
     },
+    activeSurveyResponderRelationships: rows.filter((row) =>
+      row.activeEdge?.field_values?.[plan.responderKey] === true
+    ).length,
   };
 }
 
@@ -354,28 +423,34 @@ async function main() {
 
   const workbookRows = readWorkbook(input);
   const before = await buildPlan(supabase, workbookRows);
-  console.log(JSON.stringify({ phase: 'preflight', apply, ...summary(before) }, null, 2));
+  await verifyApprovedOwnerRepairs(supabase, before.ownerDefinition);
+  console.log(JSON.stringify({
+    phase: 'preflight',
+    apply,
+    ...summary(before),
+  }, null, 2));
   if (apply) {
     await applyPlan(supabase, before);
     const after = await buildPlan(supabase, workbookRows);
+    await verifyApprovedOwnerRepairs(supabase, after.ownerDefinition);
     const afterSummary = summary(after);
     if (afterSummary.membersToCreate || afterSummary.archivedEdgesToRestore || afterSummary.edgesToCreate) {
       throw new Error(`Verification failed: ${JSON.stringify(afterSummary)}`);
     }
-    const responderFailures = after.planRows.filter((row) =>
-      row.activeEdge?.field_values?.[after.responderKey] !== true
-    );
-    if (responderFailures.length) {
-      throw new Error(`Verification failed: ${responderFailures.length} relationships are not Survey Responders`);
+    if (afterSummary.activeSurveyResponderRelationships !== workbookRows.length) {
+      throw new Error(
+        `Verification failed: found ${afterSummary.activeSurveyResponderRelationships} active Survey Responder relationships`
+      );
     }
     const audit = {
       completedAt: new Date().toISOString(),
       input: path.basename(input),
       before: summary(before),
+      approvedOwnerRepairsVerified: APPROVED_OWNER_REPAIRS,
       after: afterSummary,
       verification: {
         expectedRows: workbookRows.length,
-        activeSurveyResponderRelationships: workbookRows.length,
+        activeSurveyResponderRelationships: afterSummary.activeSurveyResponderRelationships,
         noMembersToCreateOnReplay: afterSummary.membersToCreate === 0,
         noEdgesToCreateOrRestoreOnReplay:
           afterSummary.edgesToCreate === 0 && afterSummary.archivedEdgesToRestore === 0,

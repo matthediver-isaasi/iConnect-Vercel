@@ -145,3 +145,17 @@ mtime_ms = 1788770611038
 storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/83e4c31c-dc13-418c-9b21-82c9e900e298/5f3c657b-b914-4397-80a3-31e98e9c1d74"
 storage_version_token = "1788770652294477"
 content_type = "application/pdf"
+
+[[outputs]]
+id = "vZK9Bw2vKWrmJLMI1Ip4F"
+uri = "file://attached_assets/bnms-department-responder-import-audit-2026-09-07.json"
+type = "unspecified"
+title = "BNMS Department responder import audit"
+description = "Row-level audit for all 153 imported Department Survey Responder assignments, including member and relationship actions and final verification totals."
+logical_id = "066fde4b-0dfe-4d9b-b519-b6ee5ade43a2"
+content_hash = "sha256:23bac059ebb052d8d2b7dce93ec8b4aff4ef1de5bf99c9a5243d31da68989b3a"
+size = 55623
+mtime_ms = 1788794965196
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/066fde4b-0dfe-4d9b-b519-b6ee5ade43a2/90c0b3f6-f120-4264-a040-9777529191fe"
+storage_version_token = "1788794981096498"
+content_type = "application/octet-stream"
