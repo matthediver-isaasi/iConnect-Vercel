@@ -9,7 +9,7 @@ const tenantId = '22222222-2222-4222-8222-222222222222';
 const objectId = '11111111-1111-4111-8111-111111111111';
 const roleId = '33333333-3333-4333-8333-333333333333';
 
-function mockDb(seed = {}) {
+function mockDb(seed = {}, rpcErrors = {}) {
   const tables = Object.fromEntries(Object.entries(seed).map(([name, rows]) => [
     name, rows.map((row) => structuredClone(row)),
   ]));
@@ -159,6 +159,7 @@ function mockDb(seed = {}) {
     rpc(name, args) {
       calls.push({ type: 'rpc', name, args });
       const execute = () => {
+        if (rpcErrors[name]) return { data: null, error: structuredClone(rpcErrors[name]) };
         if (name === 'custom_object_catalogue_counts') {
           const requestedIds = new Set(args.p_custom_object_ids);
           const counts = [...requestedIds].map((id) => ({
@@ -709,6 +710,18 @@ test('reports preserve to-many Department membership occurrences and align branc
   assert.match(chunk.csv_text, /Grace Hopper/);
   const occurrencePages = db.calls.filter((call) =>
     call.type === 'rpc' && call.name === 'custom_object_report_occurrence_page');
+  assert.deepEqual(Object.keys(occurrencePages[0].args), [
+    'p_tenant_id',
+    'p_custom_object_id',
+    'p_relationship_definition_id',
+    'p_from_side',
+    'p_endpoint_kind',
+    'p_endpoint_custom_object_id',
+    'p_after_edge_id',
+    'p_include_total',
+    'p_offset',
+    'p_limit',
+  ]);
   const requestedRanges = occurrencePages.map((call) => [
     call.args.p_offset, call.args.p_limit,
   ]);
@@ -718,6 +731,56 @@ test('reports preserve to-many Department membership occurrences and align branc
   assert.deepEqual(requestedRanges.at(-1), [0, 500]);
   assert.ok(occurrencePages.every((call) => call.args.p_limit <= 500));
   assert.equal(occurrencePages.at(-1).args.p_include_total, true);
+});
+
+test('occurrence report preview turns a missing RPC into an actionable service error', async () => {
+  const memberDefinition = {
+    id: 'department-member',
+    tenant_id: tenantId,
+    status: 'active',
+    source_kind: 'custom_object',
+    source_custom_object_id: objectId,
+    target_kind: 'member',
+    target_custom_object_id: null,
+    cardinality: 'many_to_many',
+    configuration: {},
+  };
+  const db = mockDb({
+    custom_object_definition: [object()],
+    preference_field: [],
+    custom_object_relationship_definition: [memberDefinition],
+  }, {
+    custom_object_report_occurrence_page: {
+      code: 'PGRST202',
+      message: 'Could not find the function public.custom_object_report_occurrence_page in the schema cache',
+    },
+  });
+  const report = {
+    version: 1,
+    grain_path: [{
+      relationship_definition_id: memberDefinition.id,
+      from_side: 'source',
+    }],
+    multi_value: 'join',
+    columns: [{ field: 'full_name', path: [{
+      relationship_definition_id: memberDefinition.id,
+      from_side: 'source',
+    }] }],
+  };
+
+  await assert.rejects(
+    () => createCustomObjectService({
+      db,
+      context: context(),
+      isAdmin: true,
+    }).previewReport(objectId, { definition: report, page: 1, pageSize: 25 }),
+    (error) => {
+      assert.equal(error.status, 503);
+      assert.match(error.message, /migration is incomplete/);
+      assert.doesNotMatch(error.message, /schema cache/i);
+      return true;
+    },
+  );
 });
 
 test('report validation rejects stale paths, stale fields, denied core access, and unsupported expansion rules', async () => {

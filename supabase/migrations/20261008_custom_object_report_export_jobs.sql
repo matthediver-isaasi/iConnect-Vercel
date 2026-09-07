@@ -167,5 +167,9 @@ $$;
 
 REVOKE ALL ON FUNCTION public.custom_object_report_occurrence_page(uuid,uuid,uuid,text,text,uuid,uuid,boolean,integer,integer) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.custom_object_report_export_commit(uuid,uuid,uuid,uuid,integer,integer,text,integer,integer,text,boolean,timestamptz) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.custom_object_report_occurrence_page(uuid,uuid,uuid,text,text,uuid,uuid,boolean,integer,integer) FROM anon, authenticated;
+REVOKE ALL ON FUNCTION public.custom_object_report_export_commit(uuid,uuid,uuid,uuid,integer,integer,text,integer,integer,text,boolean,timestamptz) FROM anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.custom_object_report_occurrence_page(uuid,uuid,uuid,text,text,uuid,uuid,boolean,integer,integer) TO service_role;
 GRANT EXECUTE ON FUNCTION public.custom_object_report_export_commit(uuid,uuid,uuid,uuid,integer,integer,text,integer,integer,text,boolean,timestamptz) TO service_role;
+
+NOTIFY pgrst, 'reload schema';

@@ -478,6 +478,19 @@ function throwRelationshipListRpcDb(error) {
   throwDb(error);
 }
 
+function throwReportOccurrenceRpcDb(error) {
+  if (
+    error?.code === 'PGRST202'
+    || /custom_object_report_occurrence_page.*(schema cache|could not find|does not exist)/i.test(error?.message || '')
+  ) {
+    throw new CustomObjectHttpError(
+      503,
+      'Occurrence report preview is temporarily unavailable because its database migration is incomplete. Apply migration 20261009_restore_custom_object_report_occurrence_page.sql to the destination database before retrying.',
+    );
+  }
+  throwDb(error);
+}
+
 function domainGuard(fn) {
   try {
     return fn();
@@ -3785,7 +3798,7 @@ export function createCustomObjectService({
         p_offset: exportMode ? 0 : p.from,
         p_limit: p.pageSize,
       });
-      throwDb(error);
+      throwReportOccurrenceRpcDb(error);
       const edges = occurrencePage?.edges || [];
       exactTotal = occurrencePage?.total == null ? null : (Number(occurrencePage.total) || 0);
       pageHasMore = Boolean(occurrencePage?.has_more);
