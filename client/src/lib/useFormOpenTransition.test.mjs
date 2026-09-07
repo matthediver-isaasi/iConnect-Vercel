@@ -35,15 +35,18 @@ const openForm = (id, targetId = null) => ({
 let latest;
 let setValuesExternal;
 let setNavigationExternal;
+let setUserFieldExternal;
 
 function Harness({ initialForm, initialValues, initialNavigation }) {
   const [values, setValues] = useState(initialValues);
   const [navigation, setNavigation] = useState(initialNavigation);
+  const lastChangedFieldRef = React.useRef({ formId: null, fieldId: null, revision: 0 });
   const transition = useFormOpenTransition({
     initialForm,
     formValues: values,
     enabled: true,
     navigationPosition: navigation,
+    lastChangedField: lastChangedFieldRef.current,
   });
 
   useEffect(() => {
@@ -54,6 +57,14 @@ function Harness({ initialForm, initialValues, initialNavigation }) {
   latest = { ...transition, values, navigation };
   setValuesExternal = setValues;
   setNavigationExternal = setNavigation;
+  setUserFieldExternal = (fieldId, value) => {
+    lastChangedFieldRef.current = {
+      formId: transition.activeForm.id,
+      fieldId,
+      revision: lastChangedFieldRef.current.revision + 1,
+    };
+    setValues(previous => ({ ...previous, [fieldId]: value }));
+  };
   return null;
 }
 
@@ -117,15 +128,13 @@ test('returns to the source snapshot, re-arms after unmatching, and ignores a la
       latest.returnToPreviousForm();
     });
     assert.equal(latest.activeForm.id, 'a');
-    assert.equal(latest.values.route, 'yes');
+    assert.equal(latest.values.route, undefined);
     assert.equal(latest.values.name, 'Original answer');
     assert.equal(latest.values.upload, upload, 'non-JSON answer objects must retain identity');
     assert.deepEqual(latest.navigation, { currentPageIndex: 2, currentStep: 4 });
     await flush();
     assert.equal(latest.activeForm.id, 'a', 'a still-matching source must not bounce immediately');
 
-    await act(async () => setValuesExternal(previous => ({ ...previous, route: 'no' })));
-    await flush();
     await act(async () => setValuesExternal(previous => ({ ...previous, route: 'yes' })));
     await flush();
     assert.equal(latest.activeForm.id, 'b');
@@ -193,14 +202,147 @@ test('a rapid double return from a settled chain pops only one form', async () =
     });
     assert.equal(latest.activeForm.id, 'b');
     assert.equal(latest.canReturnToPreviousForm, true);
-    assert.deepEqual(latest.values, { route: 'yes', source: 'b' });
+    assert.equal(latest.values.route, undefined);
+    assert.equal(latest.values.source, 'b');
     assert.deepEqual(latest.navigation, { currentPageIndex: 1, currentStep: 3 });
 
-    await act(async () => setValuesExternal(previous => ({ ...previous, route: 'no' })));
-    await flush();
     await act(async () => setValuesExternal(previous => ({ ...previous, route: 'yes' })));
     await flush();
     assert.equal(latest.activeForm.id, 'c', 'popped target must be visitable again after re-arming');
+  } finally {
+    publicClient.resolveFormTransition = originalResolve;
+    publicClient.getForm = originalGetForm;
+    await act(async () => root.unmount());
+  }
+});
+
+test('keeps the respondent trigger pending when a later automatic update completes an AND rule', async () => {
+  const rule = {
+    logic: 'and',
+    conditions: [
+      { field_id: 'chosen_route', operator: 'equals', value: 'Apply' },
+      { field_id: 'automatic_status', operator: 'equals', value: 'Ready' },
+    ],
+    actions: [{
+      id: 'open-b',
+      action_type: 'open_form',
+      destination_form_id: 'b',
+    }],
+  };
+  const forms = {
+    a: {
+      id: 'a',
+      slug: 'form-a',
+      fields: [],
+      visibility_rules: [rule],
+    },
+    b: openForm('b'),
+  };
+  const originalResolve = publicClient.resolveFormTransition;
+  const originalGetForm = publicClient.getForm;
+
+  publicClient.resolveFormTransition = async () => ({
+    target_form_id: 'b',
+    target_slug: 'form-b',
+    mapped_values: {},
+  });
+  publicClient.getForm = async () => forms.b;
+
+  const root = createRoot(document.getElementById('root'));
+  try {
+    await act(async () => {
+      root.render(React.createElement(Harness, {
+        initialForm: forms.a,
+        initialValues: { chosen_route: '', automatic_status: 'Waiting', untouched: 'keep' },
+        initialNavigation: { currentPageIndex: 1, currentStep: 0 },
+      }));
+    });
+    await act(async () => {
+      setValuesExternal({ chosen_route: '', automatic_status: 'Waiting', untouched: 'keep' });
+    });
+
+    await act(async () => setUserFieldExternal('chosen_route', 'Apply'));
+    await flush();
+    assert.equal(latest.activeForm.id, 'a');
+
+    await act(async () => {
+      setValuesExternal(previous => ({ ...previous, automatic_status: 'Ready' }));
+    });
+    await flush();
+    assert.equal(latest.activeForm.id, 'b');
+
+    await act(async () => latest.returnToPreviousForm());
+    assert.equal(latest.activeForm.id, 'a');
+    assert.equal(latest.values.chosen_route, undefined);
+    assert.equal(latest.values.automatic_status, 'Ready');
+    assert.equal(latest.values.untouched, 'keep');
+    await flush();
+    assert.equal(latest.activeForm.id, 'a', 'automatic value must not cause an immediate re-transition');
+
+    await act(async () => setUserFieldExternal('chosen_route', 'Apply'));
+    await flush();
+    assert.equal(latest.activeForm.id, 'b', 're-entering the cleared answer must trigger again');
+  } finally {
+    publicClient.resolveFormTransition = originalResolve;
+    publicClient.getForm = originalGetForm;
+    await act(async () => root.unmount());
+  }
+});
+
+test('preserves a nonmatching respondent answer when an automatic OR branch triggers', async () => {
+  const rule = {
+    logic: 'or',
+    conditions: [
+      { field_id: 'respondent_branch', operator: 'equals', value: 'yes' },
+      { field_id: 'automatic_branch', operator: 'equals', value: 'yes' },
+    ],
+    actions: [{
+      id: 'open-b',
+      action_type: 'open_form',
+      destination_form_id: 'b',
+    }],
+  };
+  const forms = {
+    a: { id: 'a', slug: 'form-a', fields: [], visibility_rules: [rule] },
+    b: openForm('b'),
+  };
+  const originalResolve = publicClient.resolveFormTransition;
+  const originalGetForm = publicClient.getForm;
+
+  publicClient.resolveFormTransition = async () => ({
+    target_form_id: 'b',
+    target_slug: 'form-b',
+    mapped_values: {},
+  });
+  publicClient.getForm = async () => forms.b;
+
+  const root = createRoot(document.getElementById('root'));
+  try {
+    await act(async () => {
+      root.render(React.createElement(Harness, {
+        initialForm: forms.a,
+        initialValues: {},
+        initialNavigation: { currentPageIndex: 0, currentStep: 0 },
+      }));
+    });
+    await act(async () => {
+      setValuesExternal({ respondent_branch: '', automatic_branch: 'no', untouched: 'keep' });
+    });
+    await act(async () => setUserFieldExternal('respondent_branch', 'no'));
+    await flush();
+    assert.equal(latest.activeForm.id, 'a');
+
+    await act(async () => {
+      setValuesExternal(previous => ({ ...previous, automatic_branch: 'yes' }));
+    });
+    await flush();
+    assert.equal(latest.activeForm.id, 'b');
+
+    await act(async () => latest.returnToPreviousForm());
+    assert.equal(latest.activeForm.id, 'a');
+    assert.equal(latest.values.respondent_branch, 'no');
+    assert.equal(latest.values.automatic_branch, undefined);
+    assert.equal(latest.values.untouched, 'keep');
   } finally {
     publicClient.resolveFormTransition = originalResolve;
     publicClient.getForm = originalGetForm;

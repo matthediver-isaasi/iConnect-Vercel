@@ -15,6 +15,8 @@ test('all public form runtimes use the shared in-place transition hook', async (
     assert.match(source, /transitionInitialValues/);
     assert.match(source, /isTransitioning/);
     assert.match(source, /transitionError/);
+    assert.match(source, /lastChangedFieldRef\.current = \{\s*formId: form\?\.id,\s*fieldId,\s*revision:/);
+    assert.match(source, /lastChangedField: lastChangedFieldRef\.current/);
   }
   assert.match(iedit, /FORM_NO_RELATIONSHIP_VALUE/);
   assert.match(iedit, /onRelationshipEmptyStateChange=\{handleRelationshipEmptyStateChange\}/);
@@ -99,7 +101,8 @@ test('transition history restores source answers and cancels stale destination r
   assert.match(hook, /returningToRef\.current = String\(previous\.form\.id\)/);
   assert.match(hook, /requestRef\.current \+= 1/);
   assert.match(hook, /visitedRef\.current\.delete/);
-  assert.match(hook, /setInitialValues\(previous\.formValues\)/);
+  assert.match(hook, /restoredValues\[fieldId\] = undefined/);
+  assert.match(hook, /setInitialValues\(restoredValues\)/);
   assert.match(hook, /setRestoreNavigation\(previous\.navigationPosition\)/);
   assert.match(hook, /canReturnToPreviousForm: historyDepth > 0/);
 });

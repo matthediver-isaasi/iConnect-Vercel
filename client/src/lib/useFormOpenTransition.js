@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { publicClient } from '@/api/publicClient';
-import { firstMatchingOpenFormAction } from './formOpenTransition';
+import {
+  firstMatchingOpenFormTransition,
+  openFormTriggerFieldIds,
+} from './formOpenTransition';
 import { MAX_FORM_TRANSITIONS } from '../../../shared/formOpenTransition.js';
 
 export function useFormOpenTransition({
@@ -11,6 +14,7 @@ export function useFormOpenTransition({
   authenticated = false,
   enabled = true,
   navigationPosition = null,
+  lastChangedField = null,
 }) {
   const [activeForm, setActiveForm] = useState(initialForm || null);
   const [initialValues, setInitialValues] = useState({});
@@ -26,6 +30,9 @@ export function useFormOpenTransition({
   const returningToRef = useRef(null);
   const requestRef = useRef(0);
   const awaitingResetRef = useRef(null);
+  const previousConditionValuesRef = useRef(new Map());
+  const observedFieldChangeRevisionRef = useRef(new Map());
+  const pendingRespondentFieldRef = useRef(new Map());
   const navigationRef = useRef(navigationPosition);
   navigationRef.current = navigationPosition;
 
@@ -39,6 +46,9 @@ export function useFormOpenTransition({
     suspendedActionRef.current = null;
     returningToRef.current = null;
     awaitingResetRef.current = null;
+    previousConditionValuesRef.current = new Map();
+    observedFieldChangeRevisionRef.current = new Map();
+    pendingRespondentFieldRef.current = new Map();
     setActiveForm(initialForm || null);
     setInitialValues({});
     setRestoreNavigation(null);
@@ -63,7 +73,11 @@ export function useFormOpenTransition({
     };
     awaitingResetRef.current = String(previous.form.id);
     setHistoryDepth(historyRef.current.length);
-    setInitialValues(previous.formValues);
+    const restoredValues = { ...previous.formValues };
+    for (const fieldId of previous.triggerFieldIds || []) {
+      restoredValues[fieldId] = undefined;
+    }
+    setInitialValues(restoredValues);
     setRestoreNavigation(previous.navigationPosition);
     setError(null);
     setIsTransitioning(false);
@@ -79,12 +93,27 @@ export function useFormOpenTransition({
 
   useEffect(() => {
     if (!enabled || !activeForm?.id || isTransitioning || error) return;
+    const activeFormId = String(activeForm.id);
+    const previousConditionValues = previousConditionValuesRef.current.get(activeFormId) || {};
+    previousConditionValuesRef.current.set(activeFormId, { ...(conditionValues || {}) });
+    const fieldChangeMatchesForm = String(lastChangedField?.formId || '') === activeFormId;
+    const fieldChangeRevision = fieldChangeMatchesForm ? Number(lastChangedField?.revision || 0) : 0;
+    const previousObservedRevision = observedFieldChangeRevisionRef.current.get(activeFormId) || 0;
+    if (fieldChangeRevision > previousObservedRevision) {
+      observedFieldChangeRevisionRef.current.set(activeFormId, fieldChangeRevision);
+      pendingRespondentFieldRef.current.set(activeFormId, {
+        fieldId: lastChangedField?.fieldId,
+        revision: fieldChangeRevision,
+      });
+    }
+    const pendingRespondentField = pendingRespondentFieldRef.current.get(activeFormId);
+    const changedByRespondentFieldId = pendingRespondentField?.fieldId || null;
     if (awaitingResetRef.current === String(activeForm.id)) {
       awaitingResetRef.current = null;
       return;
     }
-    const action = firstMatchingOpenFormAction(activeForm, conditionValues);
-    const activeFormId = String(activeForm.id);
+    const match = firstMatchingOpenFormTransition(activeForm, conditionValues);
+    const action = match?.action || null;
     const suspended = suspendedActionRef.current;
     if (!action) {
       if (suspended?.formId === activeFormId) suspendedActionRef.current = null;
@@ -132,7 +161,18 @@ export function useFormOpenTransition({
             ? { ...navigationRef.current }
             : null,
           actionKey,
+          triggerFieldIds: openFormTriggerFieldIds(
+            activeForm,
+            conditionValues,
+            match.rule,
+            previousConditionValues,
+            changedByRespondentFieldId,
+          ),
         });
+        if (pendingRespondentField?.revision ===
+          pendingRespondentFieldRef.current.get(activeFormId)?.revision) {
+          pendingRespondentFieldRef.current.delete(activeFormId);
+        }
         visitedRef.current.add(String(target.id));
         awaitingResetRef.current = String(target.id);
         suspendedActionRef.current = null;
@@ -147,7 +187,7 @@ export function useFormOpenTransition({
         if (requestRef.current === requestId) setIsTransitioning(false);
       }
     })();
-  }, [activeForm, assignmentToken, authenticated, conditionValues, enabled, error, formValues, isTransitioning]);
+  }, [activeForm, assignmentToken, authenticated, conditionValues, enabled, error, formValues, isTransitioning, lastChangedField]);
 
   return {
     activeForm: activeForm || initialForm || null,

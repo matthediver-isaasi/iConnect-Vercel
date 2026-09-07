@@ -90,6 +90,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
   const cardSwipeAutoFocusFor = useCardSwipeAutoFocus(currentStep);
   const [currentPageIndex, setCurrentPageIndex] = useState(0);
   const [formValues, setFormValues] = useState({});
+  const lastChangedFieldRef = useRef({ formId: null, fieldId: null, revision: 0 });
   const [emptyRelationshipParentValues, setEmptyRelationshipParentValues] = useState({});
   const [submitted, setSubmitted] = useState(false);
   const [fieldValidity, setFieldValidity] = useState({}); // Track format validity for each field
@@ -206,6 +207,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
     authenticated: !!memberInfo,
     enabled: !!loadedForm && defaultsInitialized && !submitted,
     navigationPosition: { currentPageIndex, currentStep },
+    lastChangedField: lastChangedFieldRef.current,
   });
 
   // Assignment metadata (event context + window state) when opened via an
@@ -1548,6 +1550,11 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
   }, [formValues, form, submitted, submitFormMutation.isPending]);
 
   const handleFieldChange = (fieldId, newValue) => {
+    lastChangedFieldRef.current = {
+      formId: form?.id,
+      fieldId,
+      revision: lastChangedFieldRef.current.revision + 1,
+    };
     setFormValues(prev => applyFormFieldValueChange({
       fields: form?.fields,
       currentValues: prev,

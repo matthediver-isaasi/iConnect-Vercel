@@ -46,6 +46,7 @@ export default function EmbedFormPage() {
   const cardSwipeAutoFocusFor = useCardSwipeAutoFocus(currentStep);
   const [currentPageIndex, setCurrentPageIndex] = useState(0);
   const [formValues, setFormValues] = useState({});
+  const lastChangedFieldRef = useRef({ formId: null, fieldId: null, revision: 0 });
   const [emptyRelationshipParentValues, setEmptyRelationshipParentValues] = useState({});
   const [submitted, setSubmitted] = useState(false);
 
@@ -73,6 +74,11 @@ export default function EmbedFormPage() {
   };
 
   const handleFieldChange = (fieldId, value) => {
+    lastChangedFieldRef.current = {
+      formId: form?.id,
+      fieldId,
+      revision: lastChangedFieldRef.current.revision + 1,
+    };
     setFormValues(prev => applyFormFieldValueChange({
       fields: form?.fields,
       currentValues: prev,
@@ -176,6 +182,7 @@ export default function EmbedFormPage() {
     authenticated: !!authMember,
     enabled: !!loadedForm && defaultsInitialized && !submitted,
     navigationPosition: { currentPageIndex, currentStep },
+    lastChangedField: lastChangedFieldRef.current,
   });
 
   // Survey presentation (question numbering) — no-op for standard forms

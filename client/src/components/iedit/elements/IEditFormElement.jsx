@@ -82,6 +82,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
   const content = element.content || {};
   const formSlug = content.form_slug;
   const [formValues, setFormValues] = useState({});
+  const lastChangedFieldRef = useRef({ formId: null, fieldId: null, revision: 0 });
   const [emptyRelationshipParentValues, setEmptyRelationshipParentValues] = useState({});
   const [currentStep, setCurrentStep] = useState(0);
   // Task #3515: never autofocus the first card on initial mount (browsers
@@ -307,6 +308,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
     authenticated: !!memberInfo,
     enabled: !!loadedForm && defaultsInitialized && !submitted,
     navigationPosition: { currentPageIndex, currentStep },
+    lastChangedField: lastChangedFieldRef.current,
   });
   // Shared survey presentation (question-number prefixes etc.) — same
   // transform FormView/EmbedForm apply. iEdit's native per-step progress bar
@@ -1413,13 +1415,18 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
   }, []);
 
   const handleFieldChange = useCallback((fieldId, newValue) => {
+    lastChangedFieldRef.current = {
+      formId: form?.id,
+      fieldId,
+      revision: lastChangedFieldRef.current.revision + 1,
+    };
     setFormValues(prev => applyFormFieldValueChange({
       fields: form?.fields,
       currentValues: prev,
       fieldId,
       value: newValue,
     }));
-  }, [form?.fields]);
+  }, [form?.id, form?.fields]);
 
   const handleFormNotListedTextChange = useCallback((fieldId, text) => {
     setFormValues(prev => setFormNotListedText(prev, fieldId, text));
