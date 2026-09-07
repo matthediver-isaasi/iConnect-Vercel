@@ -109,6 +109,40 @@ test('source replacement refreshes previous autofills but preserves user edits',
   assert.equal(second.values.unrelated, 'keep');
 });
 
+test('configured initial default is replaced, then organisation changes refresh its region', () => {
+  const first = mergeReactiveFormFieldPrefill({
+    currentValues: { org: 'one', region: 'East Midlands' },
+    resolvedValues: { region: 'North West' },
+    replaceableInitialValues: { region: 'East Midlands' },
+  });
+  assert.equal(first.values.region, 'North West');
+
+  const second = mergeReactiveFormFieldPrefill({
+    currentValues: { ...first.values, org: 'two' },
+    resolvedValues: { region: 'South East' },
+    trackedValues: first.trackedValues,
+    replaceableInitialValues: { region: 'East Midlands' },
+  });
+  assert.equal(second.values.region, 'South East');
+});
+
+test('respondent edits and restored or transition-owned defaults remain authoritative', () => {
+  const edited = mergeReactiveFormFieldPrefill({
+    currentValues: { region: 'Respondent choice' },
+    resolvedValues: { region: 'North West' },
+    replaceableInitialValues: { region: 'East Midlands' },
+  });
+  assert.equal(edited.values.region, 'Respondent choice');
+
+  const restored = mergeReactiveFormFieldPrefill({
+    currentValues: { region: 'East Midlands' },
+    resolvedValues: { region: 'North West' },
+    replaceableInitialValues: { region: 'East Midlands' },
+    protectedFieldIds: ['region'],
+  });
+  assert.equal(restored.values.region, 'East Midlands');
+});
+
 test('source replacement preserves an intentionally cleared auto-filled answer', () => {
   const first = mergeReactiveFormFieldPrefill({
     currentValues: { org: 'one' },

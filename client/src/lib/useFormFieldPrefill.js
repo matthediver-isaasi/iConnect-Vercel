@@ -87,20 +87,54 @@ export function useConditionalFormFieldPrefill({ form, formSlug, formValues, ena
 // Shared reactive runtime used by every form surface. The API validates the
 // persisted source and mappings; the client deliberately sends only the form
 // identity, selected record and current source answers.
-export function useFormFieldPrefill({ form, formSlug, formValues, setFormValues, enabled = true }) {
+export function useFormFieldPrefill({
+  form,
+  formSlug,
+  formValues,
+  setFormValues,
+  enabled = true,
+  protectedFieldIds = [],
+}) {
   const trackedRef = useRef({});
+  const initialValuesRef = useRef({});
+  const initialValuesCapturedRef = useRef(false);
   const source = getFormFieldPrefillSource(form);
   const selectedRecordId = source ? formValues?.[source.id] : null;
   const sourceAnswers = getFormFieldPrefillSourceAnswers(form, formValues);
   const sourceAnswersSignature = JSON.stringify(sourceAnswers);
+  const protectedFieldIdsSignature = JSON.stringify(
+    [...new Set((protectedFieldIds || []).map(String))].sort(),
+  );
 
   useEffect(() => {
     trackedRef.current = {};
+    initialValuesRef.current = {};
+    initialValuesCapturedRef.current = false;
   }, [form?.id]);
 
   useEffect(() => {
     if (!enabled || form?.prefill_source !== 'form_field') return undefined;
     let cancelled = false;
+    const protectedFields = new Set((protectedFieldIds || []).map(String));
+    if (!initialValuesCapturedRef.current) {
+      const replaceableInitialValues = {};
+      for (const field of form?.fields || []) {
+        const isInitialized = field.type === 'boolean'
+          || field.type === 'terms_conditions'
+          || !!field.default_country
+          || (Array.isArray(field.default_countries) && field.default_countries.length > 0)
+          || (field.default_value !== undefined && field.default_value !== null && field.default_value !== '')
+          || field.starts_hidden === true
+          || field.starts_hidden === 'true';
+        if (isInitialized
+          && !protectedFields.has(String(field.id))
+          && Object.prototype.hasOwnProperty.call(formValues || {}, field.id)) {
+          replaceableInitialValues[field.id] = formValues[field.id];
+        }
+      }
+      initialValuesRef.current = replaceableInitialValues;
+      initialValuesCapturedRef.current = true;
+    }
 
     const apply = (resolvedValues, clear = false) => {
       if (cancelled) return;
@@ -109,6 +143,8 @@ export function useFormFieldPrefill({ form, formSlug, formValues, setFormValues,
           currentValues: current,
           resolvedValues,
           trackedValues: trackedRef.current,
+          replaceableInitialValues: initialValuesRef.current,
+          protectedFieldIds,
           clear,
         });
         trackedRef.current = result.trackedValues;
@@ -148,5 +184,5 @@ export function useFormFieldPrefill({ form, formSlug, formValues, setFormValues,
     return () => { cancelled = true; };
   }, [enabled, form?.id, form?.prefill_source, form?.prefill_source_field_id,
     form?.prefill_field_id, formSlug, selectedRecordId, source?.id,
-    sourceAnswersSignature, setFormValues]);
+    sourceAnswersSignature, protectedFieldIdsSignature, setFormValues]);
 }

@@ -94,6 +94,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
   const [fieldValidity, setFieldValidity] = useState({}); // Track format validity for each field
   const [submissionError, setSubmissionError] = useState(null); // Inline error display for validation failures
   const [defaultsInitialized, setDefaultsInitialized] = useState(false);
+  const [defaultsInitializedFormId, setDefaultsInitializedFormId] = useState(null);
 
   // Task #3501: page-level payment return-leg handling. Runs BEFORE any
   // wizard/step state matters — a GoCardless or Stripe 3DS redirect lands
@@ -283,7 +284,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
   });
 
   // Load draft if resume token is in URL
-  const { data: draftData, isLoading: isDraftLoading } = useQuery({
+  const { data: draftData, isLoading: isDraftLoading, isError: draftFetchError } = useQuery({
     queryKey: ['form-draft', draftToken],
     queryFn: async () => {
       // Use publicClient which handles both subdomain and custom domain resolution
@@ -741,7 +742,13 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
     formSlug: form?.slug || formSlug,
     formValues,
     setFormValues,
-    enabled: !!form && !formAccess.restricted && defaultsInitialized,
+    enabled: !!form && !formAccess.restricted && defaultsInitialized
+      && String(defaultsInitializedFormId) === String(form?.id)
+      && (!draftToken || draftLoaded || draftFetchError),
+    protectedFieldIds: [
+      ...Object.keys(transitionInitialValues || {}),
+      ...Object.keys(draftData?.draft?.draft_data || {}),
+    ],
   });
   const conditionalPrefillValues = useConditionalFormFieldPrefill({
     form,
@@ -757,6 +764,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
     setSubmitted(false);
     setPrefillApplied(false);
     setDefaultsInitialized(false);
+    setDefaultsInitializedFormId(null);
     const isTransitionDestination = !!loadedForm?.id && String(form?.id) !== String(loadedForm.id);
     setDraftLoaded(isTransitionDestination);
     if (isTransitionDestination) {
@@ -826,7 +834,8 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
       setFormValues(prev => ({ ...fieldDefaults, ...prev }));
     }
     setDefaultsInitialized(true);
-  }, [form?.fields, defaultsInitialized]);
+    setDefaultsInitializedFormId(String(form.id));
+  }, [form?.id, form?.fields, defaultsInitialized]);
 
   // Apply draft data when loaded - must wait for defaults to be initialized first
   // This ensures draft values override any defaults, not the other way around

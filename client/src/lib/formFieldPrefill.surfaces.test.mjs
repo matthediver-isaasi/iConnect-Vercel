@@ -32,3 +32,13 @@ test('hosted, iframe, and page-builder runtimes share visibility-safe field chan
     assert.match(source, /applyFormFieldValueChange\s*\(\s*\{/);
   }
 });
+
+test('hosted, iframe, and page-builder prefill waits for defaults from the active form', async () => {
+  for (const relativePath of surfaces.slice(0, 3)) {
+    const source = await readFile(new URL(relativePath, import.meta.url), 'utf8');
+    assert.match(
+      source,
+      /String\(defaultsInitializedFormId\)\s*===\s*String\(form\?\.id\)/,
+    );
+  }
+});

@@ -53,6 +53,7 @@ export default function EmbedFormPage() {
   const [fieldValidity, setFieldValidity] = useState({});
   const [submissionError, setSubmissionError] = useState(null);
   const [defaultsInitialized, setDefaultsInitialized] = useState(false);
+  const [defaultsInitializedFormId, setDefaultsInitializedFormId] = useState(null);
 
   // Clear submission error when form values change
   useEffect(() => {
@@ -313,7 +314,9 @@ export default function EmbedFormPage() {
     formSlug: form?.slug || slug,
     formValues,
     setFormValues,
-    enabled: !!form && !formAccess.restricted && defaultsInitialized,
+    enabled: !!form && !formAccess.restricted && defaultsInitialized
+      && String(defaultsInitializedFormId) === String(form?.id),
+    protectedFieldIds: Object.keys(transitionInitialValues || {}),
   });
   const [prefillApplied, setPrefillApplied] = useState(false);
 
@@ -322,6 +325,7 @@ export default function EmbedFormPage() {
     setCurrentStep(0);
     setSubmitted(false);
     setDefaultsInitialized(false);
+    setDefaultsInitializedFormId(null);
     setPrefillApplied(false);
     setFormValues(transitionInitialValues || {});
   }, [form?.id, transitionInitialValues]);
@@ -363,7 +367,8 @@ export default function EmbedFormPage() {
       setFormValues(prev => ({ ...fieldDefaults, ...prev }));
     }
     setDefaultsInitialized(true);
-  }, [form?.fields, defaultsInitialized]);
+    setDefaultsInitializedFormId(String(form.id));
+  }, [form?.id, form?.fields, defaultsInitialized]);
 
   // Prefill: populate form values when the prefill entity loads (one-time only).
   // Mirrors the FormView / IEditFormElement mapping for member/organisation

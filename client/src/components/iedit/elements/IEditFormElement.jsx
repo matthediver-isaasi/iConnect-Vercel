@@ -121,6 +121,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
   // Track if prefill has been applied and defaults initialized
   const [prefillApplied, setPrefillApplied] = useState(false);
   const [defaultsInitialized, setDefaultsInitialized] = useState(false);
+  const [defaultsInitializedFormId, setDefaultsInitializedFormId] = useState(null);
   const handleRelationshipEmptyStateChange = useCallback((fieldId, parentValue) => {
     setEmptyRelationshipParentValues(previous => {
       if (parentValue == null) {
@@ -310,13 +311,6 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
     ? { __access: formError.errorData.access }
     : null);
   const formAccess = resolveFormAccess(accessPayload, !!memberInfo);
-  useFormFieldPrefill({
-    form,
-    formSlug: form?.slug,
-    formValues,
-    setFormValues,
-    enabled: !!form && !formAccess.restricted && defaultsInitialized,
-  });
   const conditionalPrefillValues = useConditionalFormFieldPrefill({
     form,
     formSlug: form?.slug,
@@ -346,6 +340,19 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
     },
     enabled: !!draftToken && !draftLoaded && !!rawForm && !formAccess.restricted,
     retry: false
+  });
+  useFormFieldPrefill({
+    form,
+    formSlug: form?.slug,
+    formValues,
+    setFormValues,
+    enabled: !!form && !formAccess.restricted && defaultsInitialized
+      && String(defaultsInitializedFormId) === String(form?.id)
+      && (!draftToken || draftLoaded || draftFetchError),
+    protectedFieldIds: [
+      ...Object.keys(transitionInitialValues || {}),
+      ...Object.keys(draftData?.draft?.draft_data || {}),
+    ],
   });
 
   // Apply draft data when loaded - wait for defaults to be initialized first
@@ -598,6 +605,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
     setSubmitted(false);
     setPrefillApplied(false);
     setDefaultsInitialized(false);
+    setDefaultsInitializedFormId(null);
     const isTransitionDestination = !!loadedForm?.id && String(form?.id) !== String(loadedForm.id);
     setDraftLoaded(isTransitionDestination);
     setEmptyRelationshipParentValues({});
@@ -654,7 +662,8 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
       setFormValues(prev => ({ ...fieldDefaults, ...prev }));
     }
     setDefaultsInitialized(true);
-  }, [form?.fields, defaultsInitialized]);
+    setDefaultsInitializedFormId(String(form.id));
+  }, [form?.id, form?.fields, defaultsInitialized]);
 
   // Prefill: Populate form values when prefill entity loads (one-time only)
   useEffect(() => {

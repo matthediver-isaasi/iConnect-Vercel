@@ -533,10 +533,13 @@ export const mergeReactiveFormFieldPrefill = ({
   currentValues = {},
   resolvedValues = {},
   trackedValues = {},
+  replaceableInitialValues = {},
+  protectedFieldIds = [],
   clear = false,
 }) => {
   const nextValues = { ...currentValues };
   const nextTracked = {};
+  const protectedFields = new Set((protectedFieldIds || []).map(String));
   for (const [fieldId, oldAutoValue] of Object.entries(trackedValues)) {
     if (samePrefillValue(currentValues[fieldId], oldAutoValue)) {
       delete nextValues[fieldId];
@@ -546,9 +549,17 @@ export const mergeReactiveFormFieldPrefill = ({
     for (const [fieldId, value] of Object.entries(resolvedValues || {})) {
       if (value === undefined || value === null) continue;
       const wasTracked = Object.prototype.hasOwnProperty.call(trackedValues, fieldId);
+      const hasReplaceableInitial = Object.prototype.hasOwnProperty.call(
+        replaceableInitialValues,
+        fieldId,
+      );
       const canApply = wasTracked
         ? samePrefillValue(currentValues[fieldId], trackedValues[fieldId])
-        : isBlankPrefillValue(currentValues[fieldId]);
+        : !protectedFields.has(String(fieldId)) && (
+          isBlankPrefillValue(currentValues[fieldId])
+          || (hasReplaceableInitial
+            && samePrefillValue(currentValues[fieldId], replaceableInitialValues[fieldId]))
+        );
       if (canApply) {
         nextValues[fieldId] = value;
         nextTracked[fieldId] = value;
