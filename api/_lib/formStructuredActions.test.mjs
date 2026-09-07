@@ -405,6 +405,253 @@ test('validates generic relationship actions using fields and earlier outputs', 
   assert.equal(contract.actions[1].operation, 'link_relationship');
 });
 
+test('validates built-in Organisation Group assignment from a field or earlier group action', () => {
+  const fields = [
+    { id: 'group-name', type: 'text' },
+    { id: 'existing-group', type: 'organisation_group_dropdown' },
+    { id: 'org-name', type: 'text' },
+  ];
+  const groupAction = {
+    id: 'create-group',
+    source: { scope: 'top_level' },
+    target: { kind: 'organization_group' },
+    operation: 'create',
+    mappings: [{ id: 'group-name-map', source_field_id: 'group-name', target_type: 'core', target_field_id: 'name' }],
+  };
+  const organizationAction = {
+    id: 'create-organization',
+    source: { scope: 'top_level' },
+    target: { kind: 'organization' },
+    operation: 'create',
+    organization_group_source: { type: 'action_output', action_id: groupAction.id },
+    mappings: [{ id: 'org-name-map', source_field_id: 'org-name', target_type: 'core', target_field_id: 'name' }],
+  };
+  assert.equal(validateStructuredActionsContract({
+    version: 1,
+    actions: [groupAction, organizationAction],
+  }, fields).actions.length, 2);
+  assert.equal(validateStructuredActionsContract({
+    version: 1,
+    actions: [{
+      ...organizationAction,
+      organization_group_source: { type: 'field', scope: 'form', field_id: 'existing-group' },
+    }],
+  }, fields).actions.length, 1);
+  assert.throws(() => validateStructuredActionsContract({
+    version: 1,
+    actions: [organizationAction, groupAction],
+  }, fields), error => {
+    assert.match(error.details.join(' '), /earlier Organisation Group record action/);
+    return true;
+  });
+  assert.throws(() => validateStructuredActionsContract({
+    version: 1,
+    actions: [{
+      ...organizationAction,
+      organization_group_source: { type: 'field', scope: 'form', field_id: 'org-name' },
+    }],
+  }, fields), /Invalid persisted/);
+  assert.throws(() => validateStructuredActionsContract({
+    version: 1,
+    actions: [{
+      id: 'link-with-stale-assignment',
+      source: { scope: 'top_level' },
+      operation: 'link_relationship',
+      relationship_definition_id: 'relationship-1',
+      organization_group_source: { type: 'field', scope: 'form', field_id: 'existing-group' },
+      source_endpoint: { kind: 'organization', source: { type: 'field', scope: 'form', field_id: 'org-name' } },
+      target_endpoint: { kind: 'organization_group', source: { type: 'field', scope: 'form', field_id: 'existing-group' } },
+    }],
+  }, fields, {
+    relationshipDefinitions: [{
+      id: 'relationship-1', tenant_id: 'tenant-1', status: 'active',
+      source_kind: 'organization', target_kind: 'organization_group',
+    }],
+  }), error => {
+    assert.match(error.details.join(' '), /not allowed for link_relationship/);
+    return true;
+  });
+});
+
+test('creates a group then assigns its durable action output to an organisation without a Data Studio edge', async () => {
+  const tenantId = 'tenant-1';
+  const groupAction = {
+    id: 'create-group', source: { scope: 'top_level' },
+    target: { kind: 'organization_group' }, operation: 'create',
+    mappings: [{ id: 'group-name-map', source_field_id: 'group-name', target_type: 'core', target_field_id: 'name' }],
+  };
+  const organizationAction = {
+    id: 'create-organization', source: { scope: 'top_level' },
+    target: { kind: 'organization' }, operation: 'upsert', uniqueness_field: 'name',
+    organization_group_source: { type: 'action_output', action_id: groupAction.id },
+    mappings: [{ id: 'org-name-map', source_field_id: 'org-name', target_type: 'core', target_field_id: 'name' }],
+  };
+  const existingGroupOrganizationAction = {
+    id: 'create-organization-existing-group', source: { scope: 'top_level' },
+    target: { kind: 'organization' }, operation: 'create',
+    organization_group_source: { type: 'field', scope: 'form', field_id: 'existing-group' },
+    mappings: [{ id: 'existing-org-name-map', source_field_id: 'existing-org-name', target_type: 'core', target_field_id: 'name' }],
+  };
+  const form = {
+    id: 'form-group-chain', tenant_id: tenantId,
+    fields: [
+      { id: 'group-name', type: 'text' },
+      { id: 'org-name', type: 'text' },
+      { id: 'existing-group', type: 'organisation_group_dropdown' },
+      { id: 'existing-org-name', type: 'text' },
+    ],
+    structured_actions: { version: 1, actions: [groupAction, organizationAction, existingGroupOrganizationAction] },
+  };
+  const submission = {
+    id: 'submission-group-chain', form_id: form.id, tenant_id: tenantId,
+    submission_data: {
+      'group-name': 'Northern Region',
+      'org-name': 'Example Organisation',
+      'existing-group': 'group-existing',
+      'existing-org-name': 'Existing Group Organisation',
+    },
+    processing_notes: [],
+  };
+  const store = {
+    organization_group: [{ id: 'group-existing', tenant_id: 'other-tenant', name: 'Existing Group' }],
+    organization: [{
+      id: 'organization-existing-upsert',
+      tenant_id: tenantId,
+      name: 'Example Organisation',
+      organization_group_id: null,
+    }],
+    preference_field: [],
+    custom_object_relationship: [],
+  };
+  const ledger = new Map();
+  let failChainedOrganization = true;
+  class Query {
+    constructor(table) {
+      this.table = table;
+      this.filters = [];
+      this.payload = null;
+      this.operation = null;
+      this.caseInsensitiveFilters = [];
+    }
+    select() { return this; }
+    eq(column, value) { this.filters.push([column, value]); return this; }
+    in() { return this; }
+    is() { return this; }
+    limit() { return this; }
+    ilike(column, value) { this.caseInsensitiveFilters.push([column, value]); return this; }
+    insert(payload) { this.payload = payload; this.operation = 'insert'; return this; }
+    update(payload) { this.payload = payload; this.operation = 'update'; return this; }
+    source() {
+      if (this.table === 'form') return [form];
+      if (this.table === 'form_submission') return [submission];
+      return store[this.table] || [];
+    }
+    matches(row) {
+      return this.filters.every(([column, value]) => String(row[column]) === String(value))
+        && this.caseInsensitiveFilters.every(([column, value]) =>
+          String(row[column] || '').toLowerCase() === String(value || '').toLowerCase());
+    }
+    async maybeSingle() {
+      if (this.operation === 'update') {
+        if (this.table === 'organization' && this.payload.organization_group_id === 'group-created' && failChainedOrganization) {
+          return { data: null, error: { message: 'temporary organization update failure' } };
+        }
+        const row = this.source().find(candidate => this.matches(candidate));
+        if (row) Object.assign(row, this.payload);
+        return { data: row || null, error: null };
+      }
+      return { data: this.source().find(row => this.matches(row)) || null, error: null };
+    }
+    async single() {
+      if (this.operation === 'update') {
+        return this.maybeSingle();
+      }
+      if (this.operation === 'insert') {
+        const row = { ...this.payload };
+        this.source().push(row);
+        return { data: row, error: null };
+      }
+      return this.maybeSingle();
+    }
+    then(resolve, reject) {
+      if (this.operation === 'update') {
+        for (const row of this.source().filter(candidate => this.matches(candidate))) Object.assign(row, this.payload);
+      }
+      return Promise.resolve({ data: this.source().filter(row => this.matches(row)), error: null }).then(resolve, reject);
+    }
+  }
+  const db = {
+    from: table => new Query(table),
+    rpc: async (name, input) => {
+      const key = `${input.p_action_id}:${input.p_row_identity}`;
+      if (name === 'claim_form_structured_action') {
+        const prior = ledger.get(key);
+        if (prior?.status === 'completed') return { data: { ...prior, claimed: false }, error: null };
+        return {
+          data: {
+            claimed: true,
+            claim_token: key,
+            record_id: input.p_action_id === groupAction.id
+              ? 'group-created'
+              : input.p_action_id === existingGroupOrganizationAction.id
+                ? 'organization-existing-group'
+                : 'organization-created',
+          },
+          error: null,
+        };
+      }
+      ledger.set(key, { status: input.p_status, record_id: input.p_record_id });
+      return { data: null, error: null };
+    },
+  };
+  const authorization = {
+    allowPersistedOrganizationGroupActions: true,
+    verifiedOrganizationId: 'organization-existing-upsert',
+  };
+  await assert.rejects(() => processPersistedStructuredActions({
+    db, formId: form.id, submissionId: submission.id, tenantId, authorization,
+  }), /Invalid relationship selector/);
+  assert.equal(ledger.size, 0);
+  assert.equal(store.organization.length, 1);
+  store.organization_group[0].tenant_id = tenantId;
+
+  const first = await processPersistedStructuredActions({
+    db, formId: form.id, submissionId: submission.id, tenantId, authorization,
+  });
+  assert.equal(first.success, false, JSON.stringify(first.outcomes));
+  assert.equal(first.failed_count, 1);
+  assert.deepEqual(store.organization_group.map(group => group.id), ['group-existing', 'group-created']);
+  assert.deepEqual(store.organization, [{
+    id: 'organization-existing-upsert',
+    tenant_id: tenantId,
+    name: 'Example Organisation',
+    organization_group_id: null,
+  }, {
+    id: 'organization-existing-group', tenant_id: tenantId, name: 'Existing Group Organisation',
+    organization_group_id: 'group-existing',
+  }]);
+  assert.deepEqual(store.custom_object_relationship, []);
+  failChainedOrganization = false;
+  const retry = await processPersistedStructuredActions({
+    db, formId: form.id, submissionId: submission.id, tenantId, authorization,
+  });
+  assert.equal(retry.success, true, JSON.stringify(retry.outcomes));
+  assert.deepEqual(store.organization.map(organization => [
+    organization.id, organization.organization_group_id,
+  ]), [
+    ['organization-existing-upsert', 'group-created'],
+    ['organization-existing-group', 'group-existing'],
+  ]);
+  assert.equal(store.organization_group.length, 2);
+  assert.equal(store.organization.length, 2);
+  const finalRetry = await processPersistedStructuredActions({
+    db, formId: form.id, submissionId: submission.id, tenantId, authorization,
+  });
+  assert.ok(finalRetry.outcomes.every(outcome => outcome.status === 'already_completed'));
+  assert.equal(store.organization_group.length, 2);
+  assert.equal(store.organization.length, 2);
+});
+
 test('relationship actions reject forward dependencies, descriptor mismatches, and cross-row outputs', () => {
   const rowMember = {
     id: 'members',
@@ -1158,6 +1405,65 @@ test('non-admin Group and Custom Object creates fail before a ledger claim or in
     assert.deepEqual(rpcCalls, []);
     assert.deepEqual(writes, []);
   }
+});
+
+test('an already-running ledger claim keeps the aggregate incomplete and retryable', async () => {
+  const tenantId = 'tenant-1';
+  const form = {
+    id: 'form-running',
+    tenant_id: tenantId,
+    fields: [{ id: 'group-name', type: 'text' }],
+    structured_actions: {
+      version: 1,
+      actions: [{
+        id: 'group-running',
+        source: { scope: 'top_level' },
+        target: { kind: 'organization_group' },
+        operation: 'create',
+        mappings: [{ id: 'name-map', source_field_id: 'group-name', target_type: 'core', target_field_id: 'name' }],
+      }],
+    },
+  };
+  const submission = {
+    id: 'submission-running',
+    form_id: form.id,
+    tenant_id: tenantId,
+    submission_data: { 'group-name': 'Running Group' },
+    processing_notes: [],
+  };
+  class Query {
+    constructor(table) { this.table = table; this.payload = null; }
+    select() { return this; }
+    eq() { return this; }
+    update(payload) { this.payload = payload; return this; }
+    async maybeSingle() {
+      if (this.table === 'form') return { data: form, error: null };
+      if (this.table === 'form_submission') return { data: submission, error: null };
+      return { data: null, error: null };
+    }
+    then(resolve, reject) {
+      if (this.table === 'form_submission' && this.payload) Object.assign(submission, this.payload);
+      return Promise.resolve({ data: [], error: null }).then(resolve, reject);
+    }
+  }
+  const rpcCalls = [];
+  const result = await processPersistedStructuredActions({
+    db: {
+      from: table => new Query(table),
+      rpc: async (name) => {
+        rpcCalls.push(name);
+        return { data: { claimed: false, status: 'running' }, error: null };
+      },
+    },
+    formId: form.id,
+    submissionId: submission.id,
+    tenantId,
+    authorization: { allowPersistedOrganizationGroupActions: true },
+  });
+  assert.equal(result.success, false);
+  assert.equal(result.incomplete_count, 1);
+  assert.equal(result.outcomes[0].reason, 'already_running');
+  assert.deepEqual(rpcCalls, ['claim_form_structured_action']);
 });
 
 test('relationship parents require verified ownership for non-admin processing', () => {

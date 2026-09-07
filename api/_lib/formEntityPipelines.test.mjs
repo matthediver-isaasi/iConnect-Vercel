@@ -138,6 +138,66 @@ test('forged caller baseUrl never receives the internal processing proof', async
   }
 });
 
+test('paid processing preserves a structured-action partial result for reconciliation', async () => {
+  const previousAppUrl = process.env.APP_URL;
+  const previousSessionSecret = process.env.SESSION_SECRET;
+  const previousFetch = globalThis.fetch;
+  process.env.APP_URL = 'https://configured-internal.example';
+  process.env.SESSION_SECRET = 'form-pipeline-partial-test-secret';
+  globalThis.fetch = async () => ({
+    ok: true,
+    async json() {
+      return {
+        success: false,
+        structured_actions: {
+          success: false,
+          failed_count: 1,
+          outcomes: [{ action_id: 'organization-action', status: 'failed' }],
+        },
+      };
+    },
+  });
+  try {
+    const result = await runFormEntityPipelines({
+      supabase: makeSupabaseSpy(),
+      submission: {
+        id: 'sub-partial',
+        tenant_id: 'tenant-1',
+        submission_data: {},
+        payment_meta: {},
+      },
+      form: {
+        id: 'f-partial',
+        structured_actions: {
+          version: 1,
+          actions: [{ id: 'organization-action' }],
+        },
+      },
+    });
+    assert.equal(result.ran, true);
+    assert.equal(result.partial, true);
+    assert.equal(result.structuredActions.failed_count, 1);
+  } finally {
+    process.env.APP_URL = previousAppUrl;
+    process.env.SESSION_SECRET = previousSessionSecret;
+    globalThis.fetch = previousFetch;
+  }
+});
+
+test('public and embedded submissions surface incomplete structured actions without deleting retry state', () => {
+  const source = read('../public/form-submission.js');
+  const incompleteStart = source.indexOf("if (result.structured_actions?.success === false)");
+  const finalSuccess = source.indexOf("return res.status(201).json({");
+  assert.ok(incompleteStart > 0 && incompleteStart < finalSuccess);
+  const incompleteBranch = source.slice(incompleteStart, source.indexOf("// If the pipeline resolved", incompleteStart));
+  assert.match(incompleteBranch, /status\(422\)/);
+  assert.match(incompleteBranch, /STRUCTURED_ACTION_PROCESSING_INCOMPLETE/);
+  assert.match(incompleteBranch, /processing_retryable: true/);
+  assert.doesNotMatch(incompleteBranch, /form_submission'\)\.delete/);
+  assert.match(source, /hasIncompleteStructuredActions/);
+  assert.match(source, /communication_finalization_state, processing_notes/);
+});
+
 test('paid runner invokes processing for a legacy-only form', async () => {
   const previousAppUrl = process.env.APP_URL;
   const previousSessionSecret = process.env.SESSION_SECRET;
@@ -236,13 +296,13 @@ test('paid creation and every async finalizer preserve the verified submitter id
   }
 });
 
-test('reconciliation retries and clears pending Related Records for monthly-card submissions', async () => {
+test('reconciliation retries and clears pending Structured Actions and Related Records for monthly-card submissions', async () => {
   const row = {
     id: 'submission-monthly',
     form_id: 'form-monthly',
     tenant_id: 'tenant-1',
     payment_status: 'setup_complete',
-    payment_meta: { related_records_pending: true },
+    payment_meta: { structured_actions_pending: true, related_records_pending: true },
     submission_data: {},
   };
   const form = {
@@ -267,6 +327,9 @@ test('reconciliation retries and clears pending Related Records for monthly-card
       if (expression === 'payment_status.eq.paid,payment_status.eq.setup_complete') {
         this.ins.push(['payment_status', ['paid', 'setup_complete']]);
       }
+      if (expression.includes('payment_meta->structured_actions_pending.eq.true')) {
+        this.filters.push(['pending-structured-or-related']);
+      }
       return this;
     }
     update(payload) { this.updatePayload = payload; updates.push(payload); return this; }
@@ -277,9 +340,9 @@ test('reconciliation retries and clears pending Related Records for monthly-card
     then(resolve, reject) {
       let data = [];
       if (this.table === 'form_submission' && !this.updatePayload) {
-        const isRelatedSweep = this.ins.some(([column]) => column === 'payment_status')
-          && this.equals.some(([column, value]) => column === 'payment_meta->related_records_pending' && value === true);
-        data = isRelatedSweep ? [row] : [];
+        const isPipelineRetrySweep = this.ins.some(([column]) => column === 'payment_status')
+          && this.filters.some(([kind]) => kind === 'pending-structured-or-related');
+        data = isPipelineRetrySweep ? [row] : [];
       }
       return Promise.resolve({ data, error: null }).then(resolve, reject);
     }
@@ -296,6 +359,7 @@ test('reconciliation retries and clears pending Related Records for monthly-card
     return {
       ok: true,
       json: async () => ({
+        structured_actions: { success: true, outcomes: [{ status: 'already_completed' }] },
         related_records: { success: true, outcomes: [{ status: 'already_linked' }] },
       }),
     };
@@ -303,7 +367,9 @@ test('reconciliation retries and clears pending Related Records for monthly-card
   try {
     const result = await reconcileFormPayments(supabase, { baseUrl: 'https://tenant.example.test' });
     assert.equal(processingCalls, 1);
+    assert.equal(result.structuredActionsReconciled, 1);
     assert.equal(result.relatedRecordsReconciled, 1);
+    assert.ok(updates.some(update => update.payment_meta?.structured_actions_pending === false));
     assert.ok(updates.some(update => update.payment_meta?.related_records_pending === false));
   } finally {
     globalThis.fetch = previousFetch;

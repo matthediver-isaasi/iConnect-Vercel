@@ -557,8 +557,26 @@ export default async function handler(req, res) {
       created_organization_id: row.organization_id || null,
       duplicate: true,
     });
+    const hasIncompleteStructuredActions = (row) => {
+      const latestByInvocation = new Map();
+      for (const note of Array.isArray(row?.processing_notes) ? row.processing_notes : []) {
+        if (note?.kind !== 'structured_action' || !note.invocation_key) continue;
+        latestByInvocation.set(String(note.invocation_key), note);
+      }
+      return [...latestByInvocation.values()].some(note =>
+        note.status === 'failed' || note.reason === 'already_running');
+    };
 
     const resumeDuplicateFinalization = async (row) => {
+      if (hasIncompleteStructuredActions(row)) {
+        return res.status(422).json({
+          success: false,
+          id: row.id,
+          error: 'Your form was saved, but its configured record actions did not all complete. An administrator can safely retry processing.',
+          code: 'STRUCTURED_ACTION_PROCESSING_INCOMPLETE',
+          processing_retryable: true,
+        });
+      }
       let state = row.communication_finalization_state;
       if (!state || state.status === 'completed') return originalSuccessResponse(row);
       if (state.status === 'awaiting_member') {
@@ -619,7 +637,7 @@ export default async function handler(req, res) {
     if (idemKey) {
       const { data: existing, error: idemErr } = await supabase
         .from('form_submission')
-        .select('id, created_member_id, organization_id, communication_finalization_state')
+        .select('id, created_member_id, organization_id, communication_finalization_state, processing_notes')
         .eq('form_id', form_id)
         .eq('tenant_id', tenantData.id)
         .eq('idempotency_key', idemKey)
@@ -646,7 +664,7 @@ export default async function handler(req, res) {
         const windowStart = new Date(Date.now() - 10 * 1000).toISOString();
         let windowQuery = supabase
           .from('form_submission')
-          .select('id, created_member_id, organization_id, created_date, communication_finalization_state')
+          .select('id, created_member_id, organization_id, created_date, communication_finalization_state, processing_notes')
           .eq('form_id', form_id)
           .eq('tenant_id', tenantData.id)
           .gte('created_date', windowStart)
@@ -820,7 +838,7 @@ export default async function handler(req, res) {
       console.log('[Public Form Submission] Concurrent duplicate (unique violation) — fetching original row');
       const { data: winner, error: winnerErr } = await supabase
         .from('form_submission')
-        .select('id, created_member_id, organization_id, communication_finalization_state')
+        .select('id, created_member_id, organization_id, communication_finalization_state, processing_notes')
         .eq('form_id', form_id)
         .eq('tenant_id', tenantData.id)
         .eq('idempotency_key', idemKey)
@@ -1116,6 +1134,20 @@ export default async function handler(req, res) {
               const result = await pipelineResponse.json();
               pipelineProcessingResult = result;
               console.log('[Public Form Submission] Entity pipeline processed:', result);
+              if (result.structured_actions?.success === false) {
+                // Keep the submission and structured-action ledger intact:
+                // completed parent actions must be reusable by an administrator
+                // retry. Do not present a partially processed submission as a
+                // successful public submission, and do not delete the durable
+                // state as the generic non-2xx pipeline branch does.
+                return res.status(422).json({
+                  success: false,
+                  id: submission.id,
+                  error: 'Your form was saved, but its configured record actions did not all complete. An administrator can safely retry processing.',
+                  code: 'STRUCTURED_ACTION_PROCESSING_INCOMPLETE',
+                  processing_retryable: true,
+                });
+              }
               
               // If the pipeline resolved an organization (created or existing) and we don't already have an org ID,
               // update the submission record with the organization_id

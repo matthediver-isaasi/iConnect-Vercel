@@ -288,20 +288,20 @@ export async function reconcileFormPayments(supabase, {
     recordMonitoringFailure(results, 'membership-retry-sweep', err);
   }
 
-  // Retry subordinate primary-pipeline relationship links independently of
-  // membership creation. process-application persists this marker and clears
-  // it only after every configured link succeeds or reaches a safe skip.
+  // Retry incomplete Structured Record Actions and subordinate primary-pipeline
+  // relationship links independently of membership creation. The application
+  // processor persists both markers from the same signed, persisted-config run.
   try {
-    const { data: pendingRelatedRecords, error } = await supabase
+    const { data: pendingPipelineWork, error } = await supabase
       .from('form_submission')
       .select('*')
       .or('payment_status.eq.paid,payment_status.eq.setup_complete')
-      .eq('payment_meta->related_records_pending', true)
+      .or('payment_meta->structured_actions_pending.eq.true,payment_meta->related_records_pending.eq.true')
       .order('created_date', { ascending: true })
       .order('id', { ascending: true })
       .limit(20);
     if (error) throw error;
-    for (const row of pendingRelatedRecords || []) {
+    for (const row of pendingPipelineWork || []) {
       const form = await loadForm(row.form_id, row.tenant_id);
       if (!form || !hasFormPaymentAccessProof(row, form)) continue;
       const rowBaseUrl = await resolveBaseUrl(row.tenant_id);
@@ -312,21 +312,30 @@ export async function reconcileFormPayments(supabase, {
         form,
         baseUrl: rowBaseUrl,
       });
-      if (pipelineOut.relatedRecords?.success) {
+      const nextPaymentMeta = { ...(row.payment_meta || {}) };
+      let shouldPersist = false;
+      if (row.payment_meta?.structured_actions_pending && pipelineOut.structuredActions?.success) {
+        nextPaymentMeta.structured_actions_pending = false;
+        nextPaymentMeta.structured_actions_result = pipelineOut.structuredActions;
+        results.structuredActionsReconciled = (results.structuredActionsReconciled || 0) + 1;
+        shouldPersist = true;
+      }
+      if (row.payment_meta?.related_records_pending && pipelineOut.relatedRecords?.success) {
+        nextPaymentMeta.related_records_pending = false;
+        nextPaymentMeta.related_records_result = pipelineOut.relatedRecords;
+        results.relatedRecordsReconciled = (results.relatedRecordsReconciled || 0) + 1;
+        shouldPersist = true;
+      }
+      if (shouldPersist) {
         const { error: clearError } = await supabase.from('form_submission').update({
-          payment_meta: {
-            ...(row.payment_meta || {}),
-            related_records_pending: false,
-            related_records_result: pipelineOut.relatedRecords,
-          },
+          payment_meta: nextPaymentMeta,
         }).eq('id', row.id).eq('tenant_id', row.tenant_id);
         if (clearError) throw clearError;
-        results.relatedRecordsReconciled = (results.relatedRecordsReconciled || 0) + 1;
       }
     }
   } catch (err) {
-    console.warn('[formPaymentReconciliation] Related Records retry sweep failed:', err?.message);
-    recordMonitoringFailure(results, 'related-records-retry-sweep', err);
+    console.warn('[formPaymentReconciliation] Structured/Related Records retry sweep failed:', err?.message);
+    recordMonitoringFailure(results, 'structured-related-records-retry-sweep', err);
   }
 
   // Fourth sweep (Task #3680): form_submission rows with

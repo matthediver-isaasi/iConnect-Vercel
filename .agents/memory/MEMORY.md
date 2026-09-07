@@ -142,3 +142,4 @@
 - [Merge is not public rollout](merge-vs-public-rollout.md) — custom domains may keep serving an older frontend bundle after source merges; verify the live asset contains the feature.
 - [Reactive form prefill ownership](reactive-form-prefill-ownership.md) — configured defaults are replaceable only at their captured initial value; drafts, transitions, and respondent edits always win.
 - [Replacing required relationship owners](required-relationship-owner-replacement.md) — required many-to-one owner edges need one atomic DB operation; sequential REST replacement cannot preserve invariants.
+- [Structured form action retry state](structured-form-action-retry-state.md) — failed or already-running actions keep public/paid processing incomplete until every invocation reaches a safe terminal state.

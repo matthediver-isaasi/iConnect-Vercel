@@ -48,3 +48,17 @@ test('Form contract exposes backward-compatible generic relationship actions', (
   ]);
   assert.deepEqual(action.allOf[0].else.required, ['target', 'mappings']);
 });
+
+test('builder distinguishes Organisation Group hierarchy assignment from Data Studio links', () => {
+  const action = schema.properties.structured_actions.properties.actions.items;
+  assert.ok(action.properties.organization_group_source);
+  assert.deepEqual(action.properties.organization_group_source.properties.type.enum, [
+    'field', 'action_output',
+  ]);
+  assert.match(builder, /Assign to Organisation Group \(optional\)/);
+  assert.match(builder, /built-in parent group/);
+  assert.match(builder, /This is separate from a Data Studio relationship/);
+  assert.match(builder, /select-organization-group-source-/);
+  assert.match(builder, /Actions run from top to bottom/);
+  assert.match(builder, /Move action \$\{actionIndex \+ 1\} earlier/);
+});

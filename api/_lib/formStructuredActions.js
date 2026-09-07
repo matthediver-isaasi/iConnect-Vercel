@@ -92,6 +92,7 @@ const relationshipEndpoints = (action) => ({
   source: action?.source_endpoint,
   target: action?.target_endpoint,
 });
+const organizationGroupSource = (action) => action?.organization_group_source || null;
 const endpointInput = (endpoint) => endpoint?.source || endpoint?.record_source || {};
 const endpointDescriptor = (endpoint) => ({
   kind: ENTITY_ALIASES[endpoint?.kind] || endpoint?.kind,
@@ -110,6 +111,11 @@ const endpointFieldFor = (action, input, fields) => {
 export function assertStructuredMutationAuthorized({ action, recordId, authorization = {} }) {
   const entity = entityName(action);
   if (authorization.isAdmin === true) return true;
+  if (entity === 'organization_group'
+    && authorization.allowPersistedOrganizationGroupActions === true
+    && ['create', 'upsert'].includes(action?.operation)) {
+    return true;
+  }
   if (['custom_object', 'organization_group'].includes(entity)) {
     throw new StructuredActionAuthorizationError(
       `Creating or updating ${entity.replaceAll('_', ' ')} records requires administrator access`,
@@ -184,6 +190,9 @@ export function validateStructuredActionsContract(input, fields = []) {
       }
     }
     if (isRelationshipAction(action)) {
+      if (organizationGroupSource(action)) {
+        errors.push(`${prefix}.organization_group_source is not allowed for link_relationship`);
+      }
       if (!action?.relationship_definition_id) errors.push(`${prefix}.relationship_definition_id is required`);
       if (actionMappings(action).length) errors.push(`${prefix}.mappings are not allowed for link_relationship`);
       for (const [side, endpoint] of Object.entries(relationshipEndpoints(action))) {
@@ -257,6 +266,48 @@ export function validateStructuredActionsContract(input, fields = []) {
     if (action?.selector_field_id && isRelationshipMultiSelect(selector)) {
       errors.push(`${prefix}.selector_field_id must use a single-select relationship field`);
     }
+    const groupSource = organizationGroupSource(action);
+    if (groupSource) {
+      if (entity !== 'organization') {
+        errors.push(`${prefix}.organization_group_source is only valid for organization actions`);
+      }
+      if (!['field', 'action_output'].includes(groupSource.type)) {
+        errors.push(`${prefix}.organization_group_source.type must be field or action_output`);
+      } else if (groupSource.type === 'field') {
+        if (!groupSource.field_id) errors.push(`${prefix}.organization_group_source.field_id is required`);
+        const scope = endpointFieldScope(action, groupSource);
+        if (!['form', 'row'].includes(scope)
+          || (sourceScope !== 'repeatable_row' && scope !== 'form')) {
+          errors.push(`${prefix}.organization_group_source.scope must be form or the current repeatable row`);
+        }
+        const field = endpointFieldFor(action, groupSource, fields);
+        if (fieldRecordDescriptor(field)?.kind !== 'organization_group') {
+          errors.push(`${prefix}.organization_group_source.field_id must identify an Organisation Group field`);
+        }
+        if (sourceScope === 'repeatable_row' && scope === 'form' && field) {
+          const fieldIndex = (fields || []).findIndex(candidate => String(candidate?.id) === String(field.id));
+          const containerIndex = (fields || []).findIndex(candidate => String(candidate?.id) === String(containerId));
+          if (fieldIndex < 0 || fieldIndex >= containerIndex) {
+            errors.push(`${prefix}.organization_group_source form field must precede the repeatable container`);
+          }
+        }
+      } else {
+        const dependency = priorActions.get(String(groupSource.action_id || ''));
+        if (!groupSource.action_id) {
+          errors.push(`${prefix}.organization_group_source.action_id is required`);
+        } else if (!dependency || isRelationshipAction(dependency)
+          || entityName(dependency) !== 'organization_group') {
+          errors.push(`${prefix}.organization_group_source.action_id must identify an earlier Organisation Group record action`);
+        } else {
+          const dependencyScope = dependency?.source?.scope;
+          if (dependencyScope !== sourceScope
+            || (sourceScope === 'repeatable_row'
+              && String(repeatableId(dependency)) !== String(containerId))) {
+            errors.push(`${prefix}.organization_group_source.action_id must use the same top-level or repeatable-row scope`);
+          }
+        }
+      }
+    }
     if (action?.relationship_definition_id && action?.operation !== 'update_selected') {
       const parentField = sourceFields.find(field =>
         String(field?.id) === String(action.relationship_parent_field_id));
@@ -307,6 +358,10 @@ export function validateStructuredActionsContract(input, fields = []) {
         errors.push(`${mp}.target_field is not writable for ${entity}`);
       }
       if (!['core', 'custom'].includes(targetType)) errors.push(`${mp}.target_type is invalid`);
+    }
+    if (groupSource && mappings.some(mapping =>
+      (mapping.target_type || 'core') === 'core' && targetField(mapping) === 'organization_group_id')) {
+      errors.push(`${prefix} cannot configure organization_group_source and map organization_group_id separately`);
     }
     if (action?.operation === 'upsert') {
       if (!action.uniqueness_field) errors.push(`${prefix}.uniqueness_field is required for upsert`);
@@ -941,7 +996,16 @@ function relationshipOutputKey(actionId, invocation) {
 }
 
 function invocationFingerprintValues(invocation) {
-  if (!isRelationshipAction(invocation.action)) return invocation.values;
+  if (!isRelationshipAction(invocation.action)) {
+    const input = organizationGroupSource(invocation.action);
+    if (input?.type === 'field' && endpointFieldScope(invocation.action, input) === 'form') {
+      return {
+        row: invocation.values,
+        form_organization_group: invocation.rootValues?.[input.field_id],
+      };
+    }
+    return invocation.values;
+  }
   const rootEndpointValues = {};
   for (const endpoint of Object.values(relationshipEndpoints(invocation.action))) {
     const input = endpointInput(endpoint);
@@ -971,6 +1035,30 @@ function relationshipEndpointRecordId(endpoint, invocation, actionOutputs) {
   if (Array.isArray(value)) {
     if (value.length !== 1) {
       throw new StructuredActionContractError('A relationship endpoint field must select exactly one record');
+    }
+    return value[0] || null;
+  }
+  return value || null;
+}
+
+function organizationGroupRecordId(invocation, actionOutputs) {
+  const input = organizationGroupSource(invocation.action);
+  if (!input) return null;
+  if (input.type === 'action_output') {
+    const dependency = actionOutputs.get(relationshipOutputKey(String(input.action_id), invocation));
+    if (!dependency?.recordId) {
+      throw new StructuredActionContractError(
+        `Organisation action is blocked: Organisation Group action ${input.action_id} did not complete with a record`,
+      );
+    }
+    return dependency.recordId;
+  }
+  const value = endpointFieldScope(invocation.action, input) === 'form'
+    ? invocation.rootValues?.[input.field_id]
+    : invocation.values?.[input.field_id];
+  if (Array.isArray(value)) {
+    if (value.length > 1) {
+      throw new StructuredActionContractError('Organisation Group assignment must select exactly one group');
     }
     return value[0] || null;
   }
@@ -1049,12 +1137,17 @@ async function executeInvocation(
   claimedRecordId = null,
   relationshipDefinition = null,
   authorization = {},
+  actionOutputs = new Map(),
 ) {
   const action = invocation.action;
   const entity = entityName(action);
   const operation = operationName(action);
   const payload = mappedPayload(invocation, entity, preferenceFields);
   delete payload.core.id;
+  if (entity === 'organization' && organizationGroupSource(action)) {
+    const groupId = organizationGroupRecordId(invocation, actionOutputs);
+    if (groupId) payload.core.organization_group_id = groupId;
+  }
   for (const mapping of actionMappings(action).filter(m => (m.target_type || (entity === 'custom_object' ? 'custom' : 'core')) === 'custom')) {
     const field = preferenceFields.get(String(targetField(mapping)));
     const ownsField = field
@@ -1346,6 +1439,7 @@ export async function processPersistedStructuredActions({
           claimedRecordId,
           relationshipDefinition,
           authorization,
+          actionOutputs,
         );
     } catch (error) {
       outcome = {
@@ -1382,15 +1476,17 @@ export async function processPersistedStructuredActions({
   const completedOutcomes = outcomes.filter(o => ['completed', 'already_completed'].includes(o.status));
   const failed = outcomes.filter(o => o.status === 'failed');
   const skipped = outcomes.filter(o => o.status === 'skipped');
+  const incomplete = outcomes.filter(o => o.reason === 'already_running');
   const firstMember = outcomes.find(o => o.entity_type === 'member' && o.record_id);
   const firstOrganization = outcomes.find(o => o.entity_type === 'organization' && o.record_id);
   return {
-    success: failed.length === 0,
-    partial: failed.length > 0 && completedOutcomes.length > 0,
+    success: failed.length === 0 && incomplete.length === 0,
+    partial: (failed.length > 0 || incomplete.length > 0) && completedOutcomes.length > 0,
     structured_actions_version: contract.version,
     outcomes,
     completed_count: completedOutcomes.length,
     failed_count: failed.length,
+    incomplete_count: incomplete.length,
     skipped_count: skipped.length,
     created_member_id: firstMember?.record_id || null,
     created_organization_id: firstOrganization?.record_id || null,

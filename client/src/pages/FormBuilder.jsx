@@ -984,6 +984,13 @@ function StructuredRecordActionsEditor({
     next[index] = { ...next[index], ...updates };
     updateActions(next);
   };
+  const moveAction = (index, direction) => {
+    const targetIndex = index + direction;
+    if (targetIndex < 0 || targetIndex >= actions.length) return;
+    const next = [...actions];
+    [next[index], next[targetIndex]] = [next[targetIndex], next[index]];
+    updateActions(next);
+  };
   const repeatables = (fields || []).filter(isRepeatableRowField);
   const recordActionRelationships = (relationshipDefinitions || [])
     .filter(definition => !definition.status || definition.status === 'active');
@@ -999,7 +1006,7 @@ function StructuredRecordActionsEditor({
       <div className="flex items-start justify-between gap-3">
         <div>
           <Label className="text-sm font-semibold">Structured Record Actions</Label>
-          <p className="text-xs text-slate-500 mt-1">Create or update a record once per submission, or once for every repeatable row. This versioned configuration is additive to the legacy member and organisation pipelines below.</p>
+          <p className="text-xs text-slate-500 mt-1">Create or update a record once per submission, or once for every repeatable row. Actions run from top to bottom, so create an Organisation Group before an Organisation that uses it. This versioned configuration is additive to the legacy member and organisation pipelines below.</p>
         </div>
         <div className="flex flex-wrap justify-end gap-2">
           <Button type="button" variant="outline" size="sm" onClick={() => updateActions([...actions, {
@@ -1051,9 +1058,17 @@ function StructuredRecordActionsEditor({
                   <p className="text-sm font-semibold">Link related records</p>
                   <p className="text-xs text-slate-500">Link two submitted or earlier-action records using an active Data Studio relationship.</p>
                 </div>
-                <Button type="button" variant="ghost" size="icon" className="h-8 w-8 text-red-500"
-                  onClick={() => updateActions(actions.filter((_, index) => index !== actionIndex))}
-                  aria-label={`Remove action ${actionIndex + 1}`}><Trash2 className="w-4 h-4" /></Button>
+                <div className="flex items-center gap-1">
+                  <Button type="button" variant="ghost" size="icon" className="h-8 w-8"
+                    disabled={actionIndex === 0} onClick={() => moveAction(actionIndex, -1)}
+                    aria-label={`Move action ${actionIndex + 1} earlier`}><ChevronUp className="w-4 h-4" /></Button>
+                  <Button type="button" variant="ghost" size="icon" className="h-8 w-8"
+                    disabled={actionIndex === actions.length - 1} onClick={() => moveAction(actionIndex, 1)}
+                    aria-label={`Move action ${actionIndex + 1} later`}><ChevronDown className="w-4 h-4" /></Button>
+                  <Button type="button" variant="ghost" size="icon" className="h-8 w-8 text-red-500"
+                    onClick={() => updateActions(actions.filter((_, index) => index !== actionIndex))}
+                    aria-label={`Remove action ${actionIndex + 1}`}><Trash2 className="w-4 h-4" /></Button>
+                </div>
               </div>
               <Input className="max-w-xs h-8" value={action.label || ''} placeholder={`Action ${actionIndex + 1} label (optional)`}
                 onChange={event => updateAction(actionIndex, { label: event.target.value })} />
@@ -1138,6 +1153,16 @@ function StructuredRecordActionsEditor({
         const sourceFields = structuredActionSourceFields(fields, action);
         const targetFields = structuredTargetFields(action, customFields, customObjectFields);
         const relationships = recordActionRelationships.filter(definition => relationshipSupportsTarget(definition, action));
+        const organizationGroupOptions = action.target?.kind === 'organization'
+          ? structuredRelationshipEndpointOptions({
+              fields,
+              actions,
+              actionIndex,
+              action,
+              definition: { source_kind: 'organization_group', source_custom_object_id: null },
+              side: 'source',
+            })
+          : [];
         const selectorFields = sourceFields.filter(field => {
           const descriptor = structuredFieldRecordDescriptor(field);
           return field.type === 'relationship_dropdown'
@@ -1160,23 +1185,31 @@ function StructuredRecordActionsEditor({
           <div key={action.id || actionIndex} className="rounded-lg border bg-slate-50 p-4 space-y-4" data-testid={`structured-action-${actionIndex}`}>
             <div className="flex justify-between gap-3">
               <Input className="max-w-xs h-8" value={action.label || ''} placeholder={`Action ${actionIndex + 1} label (optional)`} onChange={event => updateAction(actionIndex, { label: event.target.value })} />
-              <Button type="button" variant="ghost" size="icon" className="h-8 w-8 text-red-500" onClick={() => updateActions(actions.filter((_, index) => index !== actionIndex))} aria-label={`Remove action ${actionIndex + 1}`}><Trash2 className="w-4 h-4" /></Button>
+              <div className="flex items-center gap-1">
+                <Button type="button" variant="ghost" size="icon" className="h-8 w-8"
+                  disabled={actionIndex === 0} onClick={() => moveAction(actionIndex, -1)}
+                  aria-label={`Move action ${actionIndex + 1} earlier`}><ChevronUp className="w-4 h-4" /></Button>
+                <Button type="button" variant="ghost" size="icon" className="h-8 w-8"
+                  disabled={actionIndex === actions.length - 1} onClick={() => moveAction(actionIndex, 1)}
+                  aria-label={`Move action ${actionIndex + 1} later`}><ChevronDown className="w-4 h-4" /></Button>
+                <Button type="button" variant="ghost" size="icon" className="h-8 w-8 text-red-500" onClick={() => updateActions(actions.filter((_, index) => index !== actionIndex))} aria-label={`Remove action ${actionIndex + 1}`}><Trash2 className="w-4 h-4" /></Button>
+              </div>
             </div>
             <div className="grid md:grid-cols-3 gap-3">
               <div className="space-y-1"><Label className="text-xs">Source scope</Label>
-                <Select value={action.source?.scope || 'top_level'} onValueChange={scope => updateAction(actionIndex, { source: { scope, repeatable_field_id: scope === 'repeatable_row' ? (repeatables[0]?.id || null) : null }, mappings: [] })}>
+                <Select value={action.source?.scope || 'top_level'} onValueChange={scope => updateAction(actionIndex, { source: { scope, repeatable_field_id: scope === 'repeatable_row' ? (repeatables[0]?.id || null) : null }, organization_group_source: null, mappings: [] })}>
                   <SelectTrigger data-testid={`select-action-source-${actionIndex}`}><SelectValue /></SelectTrigger>
                   <SelectContent><SelectItem value="top_level">Top-level submission</SelectItem><SelectItem value="repeatable_row" disabled={!repeatables.length}>Each repeatable row</SelectItem></SelectContent>
                 </Select>
               </div>
               {action.source?.scope === 'repeatable_row' && <div className="space-y-1"><Label className="text-xs">Repeatable field</Label>
-                <Select value={action.source?.repeatable_field_id || ''} onValueChange={repeatable_field_id => updateAction(actionIndex, { source: { scope: 'repeatable_row', repeatable_field_id }, mappings: [] })}>
+                <Select value={action.source?.repeatable_field_id || ''} onValueChange={repeatable_field_id => updateAction(actionIndex, { source: { scope: 'repeatable_row', repeatable_field_id }, organization_group_source: null, mappings: [] })}>
                   <SelectTrigger><SelectValue placeholder="Select repeatable rows…" /></SelectTrigger>
                   <SelectContent>{repeatables.map(field => <SelectItem key={field.id} value={field.id}>{field.label || field.id}</SelectItem>)}</SelectContent>
                 </Select>
               </div>}
               <div className="space-y-1"><Label className="text-xs">Target</Label>
-                <Select value={action.target?.kind || ''} onValueChange={kind => updateAction(actionIndex, { target: { kind, custom_object_id: null }, relationship_definition_id: null, uniqueness_field: null, mappings: [] })}>
+                <Select value={action.target?.kind || ''} onValueChange={kind => updateAction(actionIndex, { target: { kind, custom_object_id: null }, relationship_definition_id: null, organization_group_source: null, uniqueness_field: null, mappings: [] })}>
                   <SelectTrigger data-testid={`select-action-target-${actionIndex}`}><SelectValue placeholder="Select target…" /></SelectTrigger>
                   <SelectContent>{STRUCTURED_ACTION_TARGETS.map(target => <SelectItem key={target.value} value={target.value}>{target.label}</SelectItem>)}</SelectContent>
                 </Select>
@@ -1188,6 +1221,41 @@ function StructuredRecordActionsEditor({
                 </Select>
               </div>}
             </div>
+            {action.target?.kind === 'organization' && (
+              <div className="rounded-md border border-blue-200 bg-blue-50 p-3 space-y-2" data-testid={`organization-group-assignment-${actionIndex}`}>
+                <div>
+                  <Label className="text-xs font-semibold">Assign to Organisation Group (optional)</Label>
+                  <p className="mt-1 text-xs text-slate-600">
+                    Set the Organisation&apos;s built-in parent group from a submitted field or an earlier Organisation Group action.
+                    This is separate from a Data Studio relationship.
+                  </p>
+                </div>
+                <Select
+                  value={structuredEndpointReferenceValue(
+                    action.organization_group_source,
+                    action.source?.scope === 'repeatable_row' ? action.source.repeatable_field_id : null,
+                  ) || 'none'}
+                  onValueChange={value => updateAction(actionIndex, {
+                    organization_group_source: value === 'none'
+                      ? null
+                      : organizationGroupOptions.find(option => option.value === value)?.reference || null,
+                  })}
+                >
+                  <SelectTrigger data-testid={`select-organization-group-source-${actionIndex}`}>
+                    <SelectValue placeholder="Do not assign a group" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Do not assign a group</SelectItem>
+                    {organizationGroupOptions.map(option => (
+                      <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {organizationGroupOptions.length === 0 && (
+                  <p className="text-xs text-amber-700">Add an Organisation Group Dropdown or an earlier Organisation Group action to assign a parent group.</p>
+                )}
+              </div>
+            )}
             <div className="grid md:grid-cols-3 gap-3">
               <div className="space-y-1"><Label className="text-xs">Record operation</Label>
                 <Select value={action.operation || ''} onValueChange={operation => updateAction(actionIndex, { operation, selector_field_id: operation === 'update_selected' ? (selectorFields[0]?.id || null) : null, uniqueness_field: operation === 'upsert' ? (upsertFields[0]?.value || null) : null })}>
@@ -10616,6 +10684,28 @@ export default function FormBuilderPage() {
       const compatibleRelationships = structuredActionMetadata.relationships
         .filter(definition => relationshipSupportsTarget(definition, action));
       const sourceFields = structuredActionSourceFields(formData.fields, action);
+      if (action.organization_group_source) {
+        if (action.target?.kind !== 'organization') {
+          toast.error(`${actionName} can only assign an Organisation Group to an Organisation action.`);
+          return;
+        }
+        const groupOptions = structuredRelationshipEndpointOptions({
+          fields: formData.fields,
+          actions: structuredActions,
+          actionIndex: index,
+          action,
+          definition: { source_kind: 'organization_group', source_custom_object_id: null },
+          side: 'source',
+        });
+        const selectedGroupSource = structuredEndpointReferenceValue(
+          action.organization_group_source,
+          action.source?.scope === 'repeatable_row' ? action.source.repeatable_field_id : null,
+        );
+        if (!selectedGroupSource || !groupOptions.some(option => option.value === selectedGroupSource)) {
+          toast.error(`${actionName} needs a compatible earlier Organisation Group action or Organisation Group field.`);
+          return;
+        }
+      }
       if (action.relationship_definition_id
         && !compatibleRelationships.some(definition => definition.id === action.relationship_definition_id)) {
         toast.error(`${actionName} uses an inactive or incompatible relationship.`);

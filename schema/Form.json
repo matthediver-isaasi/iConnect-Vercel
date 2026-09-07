@@ -296,6 +296,17 @@
                 "type": ["string", "null"],
                 "description": "For create/upsert relationship linking, the exact source-scope field containing the opposite endpoint record ID."
               },
+               "organization_group_source": {
+                 "type": ["object", "null"],
+                 "description": "For Organisation record actions, the built-in parent Organisation Group source. This writes organization.organization_group_id and does not create a Data Studio relationship edge.",
+                 "properties": {
+                   "type": { "type": "string", "enum": ["field", "action_output"] },
+                   "scope": { "type": ["string", "null"], "enum": ["form", "row", null] },
+                   "field_id": { "type": ["string", "null"] },
+                   "action_id": { "type": ["string", "null"] }
+                 },
+                 "required": ["type"]
+               },
               "selector_field_id": {
                 "type": ["string", "null"],
                 "description": "For update_selected, the exact relationship_dropdown form field ID in the selected source scope. Its saved relationship_definition_id must equal relationship_definition_id."

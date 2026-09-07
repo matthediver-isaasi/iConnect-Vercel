@@ -942,6 +942,11 @@ export default async function handler(req, res) {
       isAdmin: authorizedAdmin,
       verifiedMemberId: authenticatedSubmitterMember?.id || null,
       verifiedOrganizationId: authenticatedSubmitterMember?.organization_id || null,
+      // The form configuration is persisted by an administrator and reloaded
+      // server-side. A signed submission flow may therefore create/upsert an
+      // Organisation Group without granting the respondent general group
+      // mutation authority.
+      allowPersistedOrganizationGroupActions: trustedInternal,
     };
     const legacyCreatedRecordIds = {
       member: new Set([persistedSubmission.created_member_id].filter(Boolean).map(String)),
@@ -1018,11 +1023,17 @@ export default async function handler(req, res) {
           const priorNotes = Array.isArray(persistedSubmission.processing_notes)
             ? persistedSubmission.processing_notes : [];
           const retryUpdate = { processing_notes: [...priorNotes, ...processingNotes] };
-          if (persistedSubmission.payment_status && relatedRecords) {
+          if (persistedSubmission.payment_status && (relatedRecords || structuredActionResult)) {
             retryUpdate.payment_meta = {
               ...(persistedSubmission.payment_meta || {}),
+              ...(structuredActionResult ? {
+                structured_actions_pending: structuredActionResult.success === false,
+                structured_actions_result: structuredActionResult,
+              } : {}),
+              ...(relatedRecords ? {
               related_records_pending: relatedRecords.success === false,
               related_records_result: relatedRecords,
+              } : {}),
             };
           }
           const { error: noteError } = await supabase.from('form_submission')
@@ -3592,18 +3603,24 @@ export default async function handler(req, res) {
     // silently. Dropping the bogus column lets the legitimate fields
     // (created_member_id, created_organization_id, organization_id, and
     // processing_notes) actually persist.
-    if (submission_id && (createdMemberId || createdOrganizationId || structuredMemberId || structuredOrganizationId || prefill_organization_id || processingNotes.length > 0)) {
+    if (submission_id && (createdMemberId || createdOrganizationId || structuredMemberId || structuredOrganizationId || prefill_organization_id || processingNotes.length > 0 || structuredActionResult)) {
       const finalOrganizationId = createdOrganizationId || structuredOrganizationId || prefill_organization_id || null;
       const updatePayload = {};
       if (createdMemberId || structuredMemberId) updatePayload.created_member_id = createdMemberId || structuredMemberId;
       if (createdOrganizationId || structuredOrganizationId) updatePayload.created_organization_id = createdOrganizationId || structuredOrganizationId;
       if (finalOrganizationId) updatePayload.organization_id = finalOrganizationId;
       if (processingNotes.length > 0) updatePayload.processing_notes = processingNotes;
-      if (persistedSubmission.payment_status && relatedRecords) {
+      if (persistedSubmission.payment_status && (relatedRecords || structuredActionResult)) {
         updatePayload.payment_meta = {
           ...(persistedSubmission.payment_meta || {}),
+          ...(structuredActionResult ? {
+            structured_actions_pending: structuredActionResult.success === false,
+            structured_actions_result: structuredActionResult,
+          } : {}),
+          ...(relatedRecords ? {
           related_records_pending: relatedRecords.success === false,
           related_records_result: relatedRecords,
+          } : {}),
         };
       }
 
