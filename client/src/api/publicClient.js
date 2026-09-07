@@ -757,8 +757,8 @@ class PublicClient {
   // Authorized gallery-directory feed. Access (including nested gallery
   // audience rules) is decided by the server from the current session, never
   // by a client-side filter.
-  async listGalleryDirectory(search = '') {
-    const params = new URLSearchParams();
+  async listGalleryDirectory(search = '', page = 1, limit = 12) {
+    const params = new URLSearchParams({ page: String(page), limit: String(limit) });
     if (typeof search === 'string' && search.trim()) params.set('search', search.trim());
     const suffix = params.toString() ? `?${params.toString()}` : '';
     return this._fetch(`/api/public/gallery-directory${suffix}`, {

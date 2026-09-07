@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFileSync } from 'node:fs';
-import { evaluateGalleryAccessPolicy, normalizeGalleryAccessPolicy, validateGalleryAccessPolicy } from './galleryAccessPolicy.js';
+import {
+  evaluateGalleryAccessPolicies,
+  evaluateGalleryAccessPolicy,
+  normalizeGalleryAccessPolicy,
+  validateGalleryAccessPolicy,
+} from './galleryAccessPolicy.js';
 
 const policy = (groups) => ({ version: 1, groups });
 
@@ -9,7 +14,9 @@ const policy = (groups) => ({ version: 1, groups });
 // policy code sends to Supabase, which catches accidental loss of tenant or
 // confirmation/reversal constraints.
 function fakeSupabase(seed) {
+  const counts = {};
   const makeQuery = (table) => {
+    counts[table] = (counts[table] || 0) + 1;
     const filters = [];
     const query = {
       select() { return query; },
@@ -27,7 +34,7 @@ function fakeSupabase(seed) {
     };
     return query;
   };
-  return { from: makeQuery };
+  return { from: makeQuery, counts };
 }
 
 const seed = {
@@ -93,6 +100,26 @@ test('requires confirmed non-reversed simple and complex attendance', async () =
   assert.equal((await evaluateGalleryAccessPolicy({ supabase: sb, tenantId: 't1', memberId: 'complex-member', policy: complex })).allowed, true);
   assert.equal((await evaluateGalleryAccessPolicy({ supabase: sb, tenantId: 't1', memberId: 'complex-cancelled', policy: complex })).allowed, false);
   assert.equal((await evaluateGalleryAccessPolicy({ supabase: sb, tenantId: 't1', memberId: 'complex-reversed', policy: complex })).allowed, false);
+});
+
+test('batch evaluation shares reference and member evidence lookups across policies', async () => {
+  const sb = fakeSupabase(seed);
+  const results = await evaluateGalleryAccessPolicies({
+    supabase: sb,
+    tenantId: 't1',
+    memberId: 'member',
+    roleId: 'role',
+    policies: [
+      policy([{ conditions: [{ type: 'member_group', id: 'group' }] }]),
+      policy([{ conditions: [{ type: 'member_group', id: 'group' }, { type: 'role', id: 'role' }] }]),
+      policy([{ conditions: [{ type: 'role', id: 'other-tenant-role' }] }]),
+    ],
+  });
+  assert.deepEqual(results.map((result) => result.allowed), [true, true, false]);
+  assert.equal(results[2].code, 'INVALID_ACCESS_POLICY');
+  assert.equal(sb.counts.member_group, 1);
+  assert.equal(sb.counts.role, 1);
+  assert.equal(sb.counts.member_group_assignment, 1);
 });
 
 test('entity gallery authorization constrains the database before pagination and count', () => {
