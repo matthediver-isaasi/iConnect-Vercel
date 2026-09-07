@@ -70,6 +70,7 @@ import { listAllOrganizationsForAdmin } from '@/lib/adminOrgList';
 import { resolveEventCtaLabel } from '@/lib/eventCtaLabel';
 import { canUseEventsPageTour } from '@/lib/eventsTourEligibility';
 import { buildActiveAttendeeCountMap, fetchEventAttendeeCounts } from '@/lib/eventAttendeeCounts';
+import { resolveEventAttendeeCountDisplay } from '@/lib/eventAttendeeCountDisplay';
 import { 
   createFilterTagKey, 
   parseFilterTagKey, 
@@ -322,11 +323,20 @@ export default function EventsPage({
     () => simpleEvents.map((event) => event.id).filter(Boolean),
     [simpleEvents],
   );
-  const { data: eventAttendeeCounts = {} } = useQuery({
+  const {
+    data: eventAttendeeCounts,
+    isLoading: eventAttendeeCountsLoading,
+    isError: eventAttendeeCountsError,
+  } = useQuery({
     queryKey: ['event-attendee-counts', simpleEventIds, complexEventIds],
     queryFn: () => fetchEventAttendeeCounts({ simpleEventIds, complexEventIds }),
     enabled: canViewAttendees && (simpleEventIds.length > 0 || complexEventIds.length > 0),
     staleTime: 0,
+  });
+  const getEventAttendeeCountDisplay = (eventId) => resolveEventAttendeeCountDisplay({
+    count: eventAttendeeCounts?.[eventId],
+    isLoading: eventAttendeeCountsLoading,
+    isError: eventAttendeeCountsError,
   });
 
   // Mini agenda data for Training event cards (one batched fetch keyed by
@@ -2062,12 +2072,12 @@ export default function EventsPage({
                                               size="sm"
                                               onClick={(e) => handleComplexAttendeesClick(e, event)}
                                               className="flex-1 text-purple-600 hover:text-purple-700 hover:bg-purple-50 border-purple-200"
-                                              aria-label="Attendees"
+                                              aria-label={getEventAttendeeCountDisplay(event.id).ariaLabel}
                                               data-testid={`button-attendees-event-${event.id}`}
                                             >
-                                              <span aria-hidden="true">
-                                                {eventAttendeeCounts[event.id] ?? 0}
-                                              </span>
+                                               {getEventAttendeeCountDisplay(event.id).kind === 'loading'
+                                                 ? <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
+                                                 : <span aria-hidden="true">{getEventAttendeeCountDisplay(event.id).text}</span>}
                                             </Button>
                                           </TooltipTrigger>
                                           <TooltipContent>Attendees</TooltipContent>
@@ -2202,7 +2212,9 @@ export default function EventsPage({
                           webinars={webinars}
                           systemSettings={systemSettings}
                           memberInfo={memberInfo}
-                          attendeeCount={eventAttendeeCounts[event.id] ?? 0}
+                          attendeeCount={eventAttendeeCounts?.[event.id]}
+                          attendeeCountLoading={eventAttendeeCountsLoading}
+                          attendeeCountError={eventAttendeeCountsError}
                           agendaSummary={trainingAgendaSummaries[event.id]}
                         />
                         </React.Fragment>
@@ -2421,11 +2433,12 @@ export default function EventsPage({
                                     size="sm"
                                     onClick={(e) => handleComplexAttendeesClick(e, event)}
                                     className="flex-1 text-purple-600 hover:text-purple-700 hover:bg-purple-50 border-purple-200"
+                                    aria-label={getEventAttendeeCountDisplay(event.id).ariaLabel}
                                     data-testid={`button-attendees-event-${event.id}`}
                                   >
-                                     <span aria-hidden="true">
-                                       {eventAttendeeCounts[event.id] ?? 0}
-                                     </span>
+                                     {getEventAttendeeCountDisplay(event.id).kind === 'loading'
+                                       ? <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
+                                       : <span aria-hidden="true">{getEventAttendeeCountDisplay(event.id).text}</span>}
                                      <span>Attendees</span>
                                   </Button>
                                 )}
@@ -2523,7 +2536,9 @@ export default function EventsPage({
                       webinars={webinars}
                       systemSettings={systemSettings}
                       memberInfo={memberInfo}
-                      attendeeCount={eventAttendeeCounts[event.id] ?? 0}
+                      attendeeCount={eventAttendeeCounts?.[event.id]}
+                      attendeeCountLoading={eventAttendeeCountsLoading}
+                      attendeeCountError={eventAttendeeCountsError}
                       agendaSummary={trainingAgendaSummaries[event.id]}
                     />
                     </React.Fragment>

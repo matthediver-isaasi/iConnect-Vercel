@@ -1576,7 +1576,11 @@ export default function MemberGroupDetailPage() {
   const canViewGroupEventAttendees = !!memberInfo && (
     isGroupAdmin || !isFeatureExcluded?.('events.browse-events.view-attendees')
   );
-  const { data: groupEventAttendeeCounts = {} } = useQuery({
+  const {
+    data: groupEventAttendeeCounts,
+    isLoading: groupEventAttendeeCountsLoading,
+    isError: groupEventAttendeeCountsError,
+  } = useQuery({
     queryKey: ['event-attendee-counts', pagedSimpleEventIds, pagedComplexEventIds],
     queryFn: () => fetchEventAttendeeCounts({
       simpleEventIds: pagedSimpleEventIds,
@@ -2726,7 +2730,9 @@ export default function MemberGroupDetailPage() {
                           groupAdminMode={
                             isGroupAdmin && event.member_group_id === groupId
                           }
-                          attendeeCount={groupEventAttendeeCounts[event.id] ?? 0}
+                          attendeeCount={groupEventAttendeeCounts?.[event.id]}
+                          attendeeCountLoading={groupEventAttendeeCountsLoading}
+                          attendeeCountError={groupEventAttendeeCountsError}
                         />
                       ))}
                     </div>

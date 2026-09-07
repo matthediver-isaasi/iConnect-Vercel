@@ -2,6 +2,7 @@
 import { useState, useMemo, useEffect, Fragment } from "react";
 import { resolveEventCtaLabel } from "@/lib/eventCtaLabel";
 import { buildActiveAttendeeCountMap } from "@/lib/eventAttendeeCounts";
+import { resolveEventAttendeeCountDisplay } from "@/lib/eventAttendeeCountDisplay";
 import { isImmediateEvent } from "@shared/eventTiming.js";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
@@ -182,8 +183,13 @@ const getCheapestTicketPrice = (event) => {
   return null;
 };
 
-export default function EventCard({ event, organizationInfo, isFeatureExcluded, isAdmin, onEventDeleted, joinLinkSettings, webinars, systemSettings = [], memberInfo, joinLocked = false, agendaSummary = null, groupAdminMode = false, attendeeCount = null }) {
+export default function EventCard({ event, organizationInfo, isFeatureExcluded, isAdmin, onEventDeleted, joinLinkSettings, webinars, systemSettings = [], memberInfo, joinLocked = false, agendaSummary = null, groupAdminMode = false, attendeeCount = null, attendeeCountLoading = false, attendeeCountError = false }) {
   const queryClient = useQueryClient();
+  const attendeeCountDisplay = resolveEventAttendeeCountDisplay({
+    count: attendeeCount,
+    isLoading: attendeeCountLoading,
+    isError: attendeeCountError,
+  });
   // Task e1476154: group-admin override. When the caller (MemberGroupDetail)
   // confirms the viewer administers the event's group, show the four admin
   // action buttons and enable the admin dialogs/queries independently of the
@@ -995,17 +1001,15 @@ export default function EventCard({ event, organizationInfo, isFeatureExcluded, 
                           size="sm"
                           onClick={handleAttendeesClick}
                           className="flex-1 text-purple-600 hover:text-purple-700 hover:bg-purple-50 border-purple-200"
-                          aria-label="Attendees"
+                          aria-label={attendeeCountDisplay.ariaLabel}
                           data-testid={`button-attendees-event-${event.id}`}
                         >
-                          {attendeeCount === null ? (
-                            <UsersRound className="w-4 h-4" />
-                          ) : (
-                            <span aria-hidden="true">{attendeeCount}</span>
-                          )}
+                          {attendeeCountDisplay.kind === 'loading'
+                            ? <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
+                            : <span aria-hidden="true">{attendeeCountDisplay.text}</span>}
                         </Button>
                       </TooltipTrigger>
-                      <TooltipContent>Attendees</TooltipContent>
+                      <TooltipContent>{attendeeCountDisplay.ariaLabel}</TooltipContent>
                     </Tooltip>
                   )}
                   {(groupAdminMode || !isFeatureExcluded?.('events.browse-events.create')) && (
