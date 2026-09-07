@@ -1107,9 +1107,9 @@ export default function DynamicDirectoryView() {
                     if (option) displayValue = option.label;
                   }
                   return (
-                    <div key={field.id} className="flex justify-between items-start gap-4">
-                      <span className="text-sm text-slate-600">{field._displayLabel || field.label}</span>
-                      <span className="text-sm font-medium text-slate-900 text-right">
+                    <div key={field.id} className="grid grid-cols-[minmax(0,1fr)_minmax(0,2fr)] items-start gap-4">
+                      <span className="text-sm text-slate-600 break-words">{field._displayLabel || field.label}</span>
+                      <span className="min-w-0 text-sm font-medium text-slate-900 text-left break-words">
                         {displayValue || <span className="text-slate-400 italic">Not set</span>}
                       </span>
                     </div>
