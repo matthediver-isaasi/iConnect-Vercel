@@ -86,6 +86,7 @@ function normalizeHiddenGroupEventFields(out) {
   if ('speaker_awards_granted_at' in out) delete out.speaker_awards_granted_at;
   if ('event_type' in out) out.event_type = null;
   if ('internal_reference' in out) out.internal_reference = null;
+  if ('internal_event_type' in out) out.internal_event_type = null;
   if ('cta_override_url' in out) out.cta_override_url = null;
   if ('cta_override_mode' in out) out.cta_override_mode = 'card';
   if ('cta_button_label' in out) out.cta_button_label = null;

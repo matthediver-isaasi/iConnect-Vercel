@@ -28,6 +28,7 @@ import { checkEventClashes } from "@/lib/eventClash";
 import DOMPurify from "dompurify";
 import { computeTimelineLayout } from "@/lib/timelineUtils";
 import { useEventTypes } from "@/hooks/useEventTypes";
+import { useInternalEventTypes } from "@/hooks/useInternalEventTypes";
 import { useMemberGroupSettings } from "@/hooks/useMemberGroupSettings";
 import { createFilterTagKey, parseFilterTagKey, normalizeFilterTags, parseEventTypes, serializeEventTypes } from "@/lib/utils";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
@@ -630,6 +631,7 @@ export default function CreateComplexEvent() {
     timezone: "Europe/London",
     available_seats: "",
     internal_reference: "",
+    internal_event_type: "",
     xero_account_code: "",
     event_type: [],
     registration_closes_at: "",
@@ -732,6 +734,7 @@ export default function CreateComplexEvent() {
   });
 
   const { eventTypes } = useEventTypes();
+  const { internalEventTypes } = useInternalEventTypes();
 
   const { data: resourceCategories = [] } = useQuery({
     queryKey: ['/api/entities/ResourceCategory'],
@@ -1152,6 +1155,7 @@ export default function CreateComplexEvent() {
         timezone: existingEvent.timezone || "Europe/London",
         available_seats: existingEvent.available_seats != null ? String(existingEvent.available_seats) : "",
         internal_reference: existingEvent.internal_reference || "",
+        internal_event_type: existingEvent.internal_event_type || "",
         xero_account_code: existingEvent.xero_account_code || "",
         event_type: parseEventTypes(existingEvent.event_type),
         registration_closes_at: existingEvent.registration_closes_at
@@ -1873,6 +1877,7 @@ export default function CreateComplexEvent() {
         qr_on_confirmation: qrOnConfirmation,
         pricing_config: { collectThirdPartyConsent: collectThirdPartyConsent === true },
         internal_reference: formData.internal_reference || null,
+        internal_event_type: isGroupLimited ? null : (formData.internal_event_type || null),
         xero_account_code: formData.xero_account_code || null,
         event_type: serializeEventTypes(formData.event_type),
         registration_closes_at: formData.registration_closes_at || null,
@@ -3013,6 +3018,24 @@ export default function CreateComplexEvent() {
                       </p>
                     </div>
                   )}
+
+                {!isGroupLimited && (
+                  <div className="space-y-2">
+                    <Label htmlFor="internal_event_type">Internal Event Type</Label>
+                    <Select value={formData.internal_event_type || "__none__"} onValueChange={(value) =>
+                      updateField('internal_event_type', value === "__none__" ? "" : value)
+                    }>
+                      <SelectTrigger id="internal_event_type" data-testid="select-internal-event-type"><SelectValue placeholder="No internal type" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__none__">No internal type</SelectItem>
+                        {[...new Set([formData.internal_event_type, ...internalEventTypes].filter(Boolean))].map((type) =>
+                          <SelectItem key={type} value={type}>{type}</SelectItem>
+                        )}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-slate-500">Private classification; not shown to attendees.</p>
+                  </div>
+                )}
 
                 {!isGroupLimited && (
                 <div className="space-y-2">

@@ -70,6 +70,7 @@ import SpeakerAwardsSection, { configToFormState, formStateToConfig } from "@/co
 import EventSponsorSelector from "@/components/events/EventSponsorSelector";
 import { useSpeakerModuleName } from "@/hooks/useSpeakerModuleName";
 import { useEventTypes } from "@/hooks/useEventTypes";
+import { useInternalEventTypes } from "@/hooks/useInternalEventTypes";
 import { useAgendaItemTypes } from "@/hooks/useAgendaItemTypes";
 import TrainingAgendaEditor, { validateAgendaLines, agendaTypeBehaviour, sortAgendaLinesChronologically, agendaLineStartDateTime, agendaLineEndDateTime, normalizeAgendaTime } from "@/components/events/TrainingAgendaEditor";
 import { persistAgendaLinesWithRollback } from "@/lib/eventAgendaPersistence";
@@ -157,6 +158,7 @@ export default function EditEvent() {
   const queryClient = useQueryClient();
   const { singular: speakerSingular, plural: speakerPlural } = useSpeakerModuleName();
   const { eventTypes } = useEventTypes();
+  const { internalEventTypes } = useInternalEventTypes();
   const { agendaItemTypes } = useAgendaItemTypes();
   // Training event (Task #3419): simple event + multi-day agenda lines
   const [isTraining, setIsTraining] = useState(false);
@@ -328,6 +330,7 @@ export default function EditEvent() {
     summary: "",
     description: "",
     internal_reference: "",
+    internal_event_type: "",
     xero_account_code: "",
     event_type: "",
     program_tag: "",
@@ -1061,6 +1064,7 @@ export default function EditEvent() {
         summary: event.summary || "",
         description: event.description || "",
         internal_reference: event.internal_reference || "",
+        internal_event_type: event.internal_event_type || "",
         xero_account_code: event.xero_account_code || "",
         event_type: parseEventTypes(event.event_type),
         program_tag: event.program_tag || "",
@@ -1736,6 +1740,7 @@ export default function EditEvent() {
       summary: formData.summary || null,
       description: formData.description || null,
       internal_reference: formData.internal_reference || null,
+      internal_event_type: isGroupLimited ? null : (formData.internal_event_type || null),
       xero_account_code: isGroupLimited ? null : (formData.xero_account_code || null),
       event_type: serializeEventTypes(formData.event_type),
       // For one-off events, program_tag should be empty string; for program events, use the selected program
@@ -2954,6 +2959,24 @@ export default function EditEvent() {
                     </p>
                   </div>
                 )}
+
+              {!isGroupLimited && (
+                <div className="space-y-2">
+                  <Label htmlFor="internal_event_type">Internal Event Type</Label>
+                  <Select value={formData.internal_event_type || "__none__"} onValueChange={(value) =>
+                    handleInputChange('internal_event_type', value === "__none__" ? "" : value)
+                  }>
+                    <SelectTrigger id="internal_event_type" data-testid="select-internal-event-type"><SelectValue placeholder="No internal type" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__">No internal type</SelectItem>
+                      {[...new Set([formData.internal_event_type, ...internalEventTypes].filter(Boolean))].map((type) =>
+                        <SelectItem key={type} value={type}>{type}</SelectItem>
+                      )}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-slate-500">Private classification; not shown to attendees.</p>
+                </div>
+              )}
 
               {!isGroupLimited && (
               <div className="space-y-2">

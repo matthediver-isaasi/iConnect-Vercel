@@ -18,6 +18,10 @@
       "type": "string",
       "description": "Short plain-text summary"
     },
+    "internal_event_type": {
+      "type": "string",
+      "description": "Private tenant-managed event classification for administrators"
+    },
     "image_url": {
       "type": "string",
       "description": "URL of the event banner image"

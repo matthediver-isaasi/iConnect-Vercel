@@ -42,7 +42,8 @@ test('EditEvent persists agenda lines inside the awaited save mutation', () => {
 test('CreateEvent rolls back the event when agenda persistence fails', () => {
   const src = readFileSync(join(root, 'client/src/pages/CreateEvent.jsx'), 'utf8');
   const createIdx = src.indexOf('await base44.entities.Event.create(eventData)');
-  const section = src.slice(createIdx, createIdx + 3000);
+  const mutationEnd = src.indexOf('onSuccess:', createIdx);
+  const section = src.slice(createIdx, mutationEnd);
   assert.match(section, /EventAgendaItem\.create/, 'agenda lines saved right after event create');
   assert.match(section, /Event\.delete\(createdEvent\.id\)/, 'agenda failure must compensate by deleting the event');
   assert.match(section, /throw wrapped;/, 'agenda failure must fail the create mutation');

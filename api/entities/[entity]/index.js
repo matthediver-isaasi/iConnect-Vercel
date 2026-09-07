@@ -1303,6 +1303,24 @@ export default async function handler(req, res) {
         return res.json(visibleRows);
       }
 
+      // Private event classifications are visible only to administrators, even
+      // through the authenticated generic entity API.
+      if (entityNorm === 'systemsettings' || entityNorm === 'event' || entityNorm === 'complexevent') {
+        const canReadInternalEventTypes = isTenantAdmin || await hasAdminAccess(tenantCtx);
+        if (!canReadInternalEventTypes) {
+          if (entityNorm === 'systemsettings') {
+            data = (data || []).filter((row) => row.setting_key !== 'internal_event_types');
+            if (wantsCount) count = data.length;
+          } else {
+            data = (data || []).map((row) => {
+              const safeRow = { ...row };
+              delete safeRow.internal_event_type;
+              return safeRow;
+            });
+          }
+        }
+      }
+
       if (wantsCount) {
         return res.json({ data: data || [], count: count ?? 0 });
       }
@@ -1321,6 +1339,14 @@ export default async function handler(req, res) {
       const sanitizedBody = entityNorm === 'jobposting'
         ? stripManagedJobProvenance(req.body)
         : { ...req.body };
+
+      if (
+        entityNorm === 'systemsettings'
+        && sanitizedBody.setting_key === 'internal_event_types'
+        && !(isTenantAdmin || await hasAdminAccess(tenantCtx))
+      ) {
+        return res.status(403).json({ error: 'Admin access required' });
+      }
 
       if (entityNorm === 'gallery' && Object.prototype.hasOwnProperty.call(sanitizedBody, 'access_policy')) {
         const policy = await validateGalleryAccessPolicy({

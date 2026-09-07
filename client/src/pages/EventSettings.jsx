@@ -20,6 +20,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { AGENDA_ITEM_TYPES_SETTING_KEY, parseAgendaItemTypes, AGENDA_TYPE_BEHAVIOUR_OPTIONS, inferAgendaTypeBehaviour } from "@/hooks/useAgendaItemTypes";
+import { INTERNAL_EVENT_TYPES_SETTING_KEY, parseInternalEventTypes } from "@/lib/internalEventTypes";
 import ReactQuill from "react-quill";
 import "react-quill/dist/quill.snow.css";
 
@@ -105,6 +106,11 @@ export default function EventSettingsPage() {
   const [editingEventTypeBgColor, setEditingEventTypeBgColor] = useState("");
   const [editingEventTypeTextColor, setEditingEventTypeTextColor] = useState("");
   const [savingEventTypes, setSavingEventTypes] = useState(false);
+  const [internalEventTypes, setInternalEventTypes] = useState([]);
+  const [newInternalEventType, setNewInternalEventType] = useState("");
+  const [editingInternalEventTypeIndex, setEditingInternalEventTypeIndex] = useState(null);
+  const [editingInternalEventTypeValue, setEditingInternalEventTypeValue] = useState("");
+  const [savingInternalEventTypes, setSavingInternalEventTypes] = useState(false);
 
   // Cost Types state (Event Budget) - array of name strings
   const [costTypes, setCostTypes] = useState([]);
@@ -259,6 +265,9 @@ export default function EventSettingsPage() {
         console.error('Failed to parse event types:', e);
       }
     }
+
+    const internalEventTypesSetting = settings.find(s => s.setting_key === INTERNAL_EVENT_TYPES_SETTING_KEY);
+    setInternalEventTypes(parseInternalEventTypes(internalEventTypesSetting?.setting_value));
 
     // Load budget cost types (Event Budget)
     const costTypesSetting = settings.find(s => s.setting_key === 'event_cost_types');
@@ -975,6 +984,49 @@ export default function EventSettingsPage() {
       toast.error('Failed to save event types: ' + (error.message || 'Unknown error'));
     } finally {
       setSavingEventTypes(false);
+    }
+  };
+
+  const handleAddInternalEventType = () => {
+    const value = newInternalEventType.trim();
+    if (!value) return toast.error('Please enter an internal event type');
+    if (internalEventTypes.some((item) => item.toLowerCase() === value.toLowerCase())) {
+      return toast.error('This internal event type already exists');
+    }
+    setInternalEventTypes([...internalEventTypes, value]);
+    setNewInternalEventType("");
+  };
+
+  const handleSaveInternalEventTypeEdit = () => {
+    const value = editingInternalEventTypeValue.trim();
+    if (!value) return toast.error('Internal event type cannot be empty');
+    if (internalEventTypes.some((item, index) =>
+      index !== editingInternalEventTypeIndex && item.toLowerCase() === value.toLowerCase()
+    )) return toast.error('This internal event type already exists');
+    const next = [...internalEventTypes];
+    next[editingInternalEventTypeIndex] = value;
+    setInternalEventTypes(next);
+    setEditingInternalEventTypeIndex(null);
+    setEditingInternalEventTypeValue("");
+  };
+
+  const handleSaveInternalEventTypes = async () => {
+    setSavingInternalEventTypes(true);
+    try {
+      const existing = settings.find(s => s.setting_key === INTERNAL_EVENT_TYPES_SETTING_KEY);
+      const payload = {
+        setting_value: JSON.stringify(internalEventTypes),
+        description: 'Private tenant-managed classifications for events'
+      };
+      if (existing) await base44.entities.SystemSettings.update(existing.id, payload);
+      else await base44.entities.SystemSettings.create({ setting_key: INTERNAL_EVENT_TYPES_SETTING_KEY, ...payload });
+      queryClient.invalidateQueries({ queryKey: ['system-settings'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/entities/SystemSettings'] });
+      toast.success('Internal event types saved successfully');
+    } catch (error) {
+      toast.error('Failed to save internal event types: ' + (error.message || 'Unknown error'));
+    } finally {
+      setSavingInternalEventTypes(false);
     }
   };
 
@@ -3039,6 +3091,78 @@ export default function EventSettingsPage() {
             </div>
           </CardContent>
         </Card>
+
+        {/* Agenda Item Types Section (Task #3419) */}
+        {isAdmin && (
+        <Card className="border-slate-200 shadow-sm mb-8">
+          <CardHeader className="border-b border-slate-200">
+            <div className="flex items-center gap-2">
+              <Tag className="w-5 h-5 text-indigo-600" />
+              <CardTitle>Internal Event Types</CardTitle>
+            </div>
+          </CardHeader>
+          <CardContent className="pt-6 space-y-4">
+            <p className="text-sm text-slate-600">
+              Private classifications for administrators and accounting teams. These are never shown on public event pages.
+            </p>
+            <div className="flex gap-3">
+              <Input
+                value={newInternalEventType}
+                onChange={(e) => setNewInternalEventType(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleAddInternalEventType()}
+                placeholder="e.g. Member Engagement"
+                data-testid="input-new-internal-event-type"
+              />
+              <Button type="button" variant="outline" onClick={handleAddInternalEventType} data-testid="button-add-internal-event-type">
+                <Plus className="w-4 h-4 mr-2" />Add
+              </Button>
+            </div>
+            {internalEventTypes.length === 0 ? (
+              <p className="text-sm text-slate-500">No internal event types defined yet.</p>
+            ) : (
+              <div className="space-y-2">
+                {internalEventTypes.map((item, index) => (
+                  <div key={`${item}-${index}`} className="flex items-center gap-2 p-3 bg-slate-50 rounded-lg border">
+                    {editingInternalEventTypeIndex === index ? (
+                      <>
+                        <Input
+                          value={editingInternalEventTypeValue}
+                          onChange={(e) => setEditingInternalEventTypeValue(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') handleSaveInternalEventTypeEdit();
+                            if (e.key === 'Escape') setEditingInternalEventTypeIndex(null);
+                          }}
+                          data-testid={`input-edit-internal-event-type-${index}`}
+                        />
+                        <Button size="sm" onClick={handleSaveInternalEventTypeEdit}><Save className="w-4 h-4" /></Button>
+                        <Button size="sm" variant="outline" onClick={() => setEditingInternalEventTypeIndex(null)}><X className="w-4 h-4" /></Button>
+                      </>
+                    ) : (
+                      <>
+                        <span className="flex-1 text-sm font-medium">{item}</span>
+                        <Button size="sm" variant="ghost" onClick={() => {
+                          setEditingInternalEventTypeIndex(index);
+                          setEditingInternalEventTypeValue(item);
+                        }} data-testid={`button-edit-internal-event-type-${index}`}><Edit2 className="w-4 h-4" /></Button>
+                        <Button size="sm" variant="ghost" className="text-red-600" onClick={() =>
+                          setInternalEventTypes(internalEventTypes.filter((_, itemIndex) => itemIndex !== index))
+                        } data-testid={`button-remove-internal-event-type-${index}`}><Trash2 className="w-4 h-4" /></Button>
+                      </>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+            <Button onClick={handleSaveInternalEventTypes} disabled={savingInternalEventTypes} data-testid="button-save-internal-event-types">
+              {savingInternalEventTypes ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
+              Save Internal Event Types
+            </Button>
+            <p className="text-xs text-slate-500">
+              Renaming or removing an option does not rewrite existing events; their saved classification remains available while editing.
+            </p>
+          </CardContent>
+        </Card>
+        )}
 
         {/* Agenda Item Types Section (Task #3419) */}
         <Card className="border-slate-200 shadow-sm mb-8">

@@ -677,6 +677,17 @@ export default async function handler(req, res) {
             : false);
         if (!isStaff) return res.status(404).json({ error: 'Not found' });
       }
+      if (entityNorm === 'systemsettings' || entityNorm === 'event' || entityNorm === 'complexevent') {
+        const canReadInternalEventTypes = !!tenantCtx.tenantUserId || await hasAdminAccess(tenantCtx);
+        if (!canReadInternalEventTypes) {
+          if (entityNorm === 'systemsettings' && data?.setting_key === 'internal_event_types') {
+            return res.status(404).json({ error: 'Not found' });
+          }
+          if ((entityNorm === 'event' || entityNorm === 'complexevent') && data) {
+            delete data.internal_event_type;
+          }
+        }
+      }
       if (entityNorm === 'member') {
         try {
           const [member] = await enrichMembersWithDepartments(
@@ -946,6 +957,25 @@ export default async function handler(req, res) {
       const sanitizedBody = entityNormalized === 'jobposting'
         ? stripManagedJobProvenance(req.body)
         : { ...req.body };
+
+      if (entityNormalized === 'systemsettings') {
+        const tenantId = tenantCtx.effectiveTenantId || tenantCtx.tenantId;
+        let settingQuery = supabase
+          .from('system_settings')
+          .select('setting_key')
+          .eq('id', id);
+        if (tenantId) settingQuery = settingQuery.eq('tenant_id', tenantId);
+        const { data: targetSetting } = await settingQuery.maybeSingle();
+        const targetsInternalEventTypes =
+          targetSetting?.setting_key === 'internal_event_types'
+          || sanitizedBody.setting_key === 'internal_event_types';
+        if (
+          targetsInternalEventTypes
+          && !(tenantCtx.tenantUserId || await hasAdminAccess(tenantCtx))
+        ) {
+          return res.status(403).json({ error: 'Admin access required' });
+        }
+      }
       const uuidFields = ['role_id', 'organization_id', 'organization_group_id', 'member_id', 'parent_id', 'form_id', 'event_id', 'related_event_id',
                           'category_id', 'template_id', 'workflow_id', 'speaker_id', 'created_by', 'updated_by'];
       for (const field of uuidFields) {
@@ -2073,6 +2103,15 @@ export default async function handler(req, res) {
         }
       }
 
+      if (
+        (entityNormalized === 'event' || entityNormalized === 'complexevent')
+        && responseData
+        && !(tenantCtx.tenantUserId || await hasAdminAccess(tenantCtx))
+      ) {
+        responseData = { ...responseData };
+        delete responseData.internal_event_type;
+      }
+
       if (entity === 'BlogPost' && responseData && tenantCtx.tenantId) {
         dispatchWpWebhook(tenantCtx.tenantId, 'article.updated', id);
       }
@@ -2257,6 +2296,22 @@ export default async function handler(req, res) {
       return res.json(responseData);
 
     } else if (req.method === 'DELETE') {
+      if (entityNorm === 'systemsettings') {
+        const tenantId = tenantCtx.effectiveTenantId || tenantCtx.tenantId;
+        let settingQuery = supabase
+          .from('system_settings')
+          .select('setting_key')
+          .eq('id', id);
+        if (tenantId) settingQuery = settingQuery.eq('tenant_id', tenantId);
+        const { data: targetSetting } = await settingQuery.maybeSingle();
+        if (
+          targetSetting?.setting_key === 'internal_event_types'
+          && !(tenantCtx.tenantUserId || await hasAdminAccess(tenantCtx))
+        ) {
+          return res.status(403).json({ error: 'Admin access required' });
+        }
+      }
+
       // Handle cascade deletion for entities with foreign key relationships
 
       // SECURITY (survey integrity): survey responses cannot be deleted via

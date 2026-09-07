@@ -58,6 +58,7 @@ import { SpeakerSelectionModal } from "@/components/SpeakerSelectionModal";
 import SpeakerAwardsSection, { configToFormState, formStateToConfig } from "@/components/events/SpeakerAwardsSection";
 import { useSpeakerModuleName } from "@/hooks/useSpeakerModuleName";
 import { useEventTypes } from "@/hooks/useEventTypes";
+import { useInternalEventTypes } from "@/hooks/useInternalEventTypes";
 import { useAgendaItemTypes } from "@/hooks/useAgendaItemTypes";
 import TrainingAgendaEditor, { validateAgendaLines, agendaTypeBehaviour, sortAgendaLinesChronologically, agendaLineStartDateTime, agendaLineEndDateTime, normalizeAgendaTime } from "@/components/events/TrainingAgendaEditor";
 import { useMemberGroupSettings } from "@/hooks/useMemberGroupSettings";
@@ -136,6 +137,7 @@ export default function CreateEvent() {
   const queryClient = useQueryClient();
   const { singular: speakerSingular, plural: speakerPlural } = useSpeakerModuleName();
   const { eventTypes } = useEventTypes();
+  const { internalEventTypes } = useInternalEventTypes();
   const { agendaItemTypes } = useAgendaItemTypes();
 
   // Task #1519: Group-limited mode for Group Admins. Entered via
@@ -252,6 +254,7 @@ export default function CreateEvent() {
     summary: "",
     description: "",
     internal_reference: "",
+    internal_event_type: "",
     program_tag: "",
     event_type: [],
     start_date: "",
@@ -1082,6 +1085,7 @@ export default function CreateEvent() {
       summary: formData.summary || null,
       description: formData.description || null,
       internal_reference: formData.internal_reference || null,
+      internal_event_type: isGroupLimited ? null : (formData.internal_event_type || null),
       event_type: serializeEventTypes(formData.event_type),
       // Visibility is determined by program_tag: empty = one-off event, non-empty = program event
       program_tag: isProgramEvent ? formData.program_tag : "",
@@ -2274,6 +2278,21 @@ export default function CreateEvent() {
                     <p className="text-xs text-slate-500">
                       Categorize this event by type (e.g., Workshop, Training). You can select multiple types.
                     </p>
+                  </div>
+                )}
+                {!isGroupLimited && (
+                  <div className="space-y-2">
+                    <Label htmlFor="internal_event_type">Internal Event Type</Label>
+                    <Select value={formData.internal_event_type || "__none__"} onValueChange={(value) =>
+                      handleInputChange('internal_event_type', value === "__none__" ? "" : value)
+                    }>
+                      <SelectTrigger id="internal_event_type" data-testid="select-internal-event-type"><SelectValue placeholder="No internal type" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__none__">No internal type</SelectItem>
+                        {internalEventTypes.map((type) => <SelectItem key={type} value={type}>{type}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-slate-500">Private classification; not shown to attendees.</p>
                   </div>
                 )}
               </div>

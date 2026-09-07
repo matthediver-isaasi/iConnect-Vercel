@@ -14,6 +14,10 @@
     "description": {
       "type": "string"
     },
+    "internal_event_type": {
+      "type": "string",
+      "description": "Private tenant-managed event classification for administrators"
+    },
     "program_tag": {
       "type": "string",
       "description": "Program/category tag from Backstage"
