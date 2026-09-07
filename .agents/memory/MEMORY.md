@@ -156,3 +156,4 @@
 - [Relationship preview config aliases](relationship-preview-config-aliases.md) — compact_preview and legacy compact_preview_fields may coexist; merge and dedupe field IDs across both.
 - [Relationship edge metadata enforcement](relationship-edge-metadata-enforcement.md) — generic edge writes bypass the interactive service; defaults and required/type rules need DB enforcement too.
 - [Relationship multi-select answers](relationship-multiselect-answers.md) — mixed record IDs + Other must be reconciled, validated, and formatted member-by-member.
+- [Conditional form transitions](conditional-form-transitions.md) — persist only action IDs/mappings; server re-verifies rules and destination access, while assignment/draft context stays source-scoped.

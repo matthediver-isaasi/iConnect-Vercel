@@ -31,6 +31,7 @@ import {
 import { applyFormFieldValueChange } from "@/lib/formFieldValueChange";
 import { useFormFieldPrefill } from "@/lib/useFormFieldPrefill";
 import { useConditionalFormFieldPrefill } from "@/lib/useFormFieldPrefill";
+import { useFormOpenTransition } from "@/lib/useFormOpenTransition";
 
 // A `redirect_url` beginning with this prefix means the redirect target is driven
 // by the value the respondent submitted for the field whose id follows the prefix.
@@ -92,6 +93,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
   const [submitted, setSubmitted] = useState(false);
   const [fieldValidity, setFieldValidity] = useState({}); // Track format validity for each field
   const [submissionError, setSubmissionError] = useState(null); // Inline error display for validation failures
+  const [defaultsInitialized, setDefaultsInitialized] = useState(false);
 
   // Task #3501: page-level payment return-leg handling. Runs BEFORE any
   // wizard/step state matters — a GoCardless or Stripe 3DS redirect lands
@@ -154,7 +156,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
     enabled: !!memberInfo?.id
   });
 
-  const { data: rawForm, isLoading, error: formError } = useQuery({
+  const { data: loadedForm, isLoading, error: formError } = useQuery({
     queryKey: assignmentToken
       ? ['public-survey-assignment', assignmentToken, !!memberInfo]
       : ['public-form-by-slug', formSlug, !!memberInfo],
@@ -179,6 +181,25 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
     },
     enabled: !!formSlug || !!assignmentToken,
     retry: false
+  });
+
+  const {
+    activeForm: rawForm,
+    initialValues: transitionInitialValues,
+    isTransitioning,
+    transitionError,
+  } = useFormOpenTransition({
+    initialForm: loadedForm,
+    formValues,
+    conditionValues: {
+      ...formValues,
+      ...Object.fromEntries(
+        Object.keys(emptyRelationshipParentValues).map(fieldId => [fieldId, FORM_NO_RELATIONSHIP_VALUE]),
+      ),
+    },
+    assignmentToken,
+    authenticated: !!memberInfo,
+    enabled: !!loadedForm && defaultsInitialized && !submitted,
   });
 
   // Assignment metadata (event context + window state) when opened via an
@@ -281,7 +302,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
       
       // Use publicClient which handles tenant resolution via Host header
       const payload = {
-        form_slug: formSlug,
+        form_slug: form?.slug || formSlug,
         form_id: form?.id,
         draft_data: formValues,
         current_page_index: currentPageIndex,
@@ -388,7 +409,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
   }, [form?.entity_pipelines?.organisations]);
 
   const { data: prefillMemberData, isLoading: prefillMemberLoading } = useQuery({
-    queryKey: ['prefill-member', prefillMemberId, !!memberInfo],
+    queryKey: ['prefill-member', prefillMemberId, form?.slug || formSlug, !!memberInfo],
     queryFn: async () => {
       if (memberInfo) {
         const [member, resourceCategorySelections] = await Promise.all([
@@ -402,7 +423,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
         ]);
         return { member, customValues: null, resourceCategorySelections: resourceCategorySelections || [] };
       }
-      return publicClient.getPrefillMember(prefillMemberId, formSlug);
+      return publicClient.getPrefillMember(prefillMemberId, form?.slug || formSlug);
     },
     enabled: !!prefillMemberId && form?.prefill_source === 'member'
   });
@@ -458,9 +479,9 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
   }, [prefillOrg, prefillMemberOrg]);
 
   const { data: explicitBookingData, isLoading: explicitBookingLoading } = useQuery({
-    queryKey: ['prefill-booking', prefillBookingId, formSlug],
+    queryKey: ['prefill-booking', prefillBookingId, form?.slug || formSlug],
     queryFn: async () => {
-      return publicClient.getPrefillBooking(prefillBookingId, formSlug);
+      return publicClient.getPrefillBooking(prefillBookingId, form?.slug || formSlug);
     },
     enabled: !!prefillBookingId && form?.prefill_source === 'booking'
   });
@@ -473,16 +494,16 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
   // forms get an empty payload and degrade to blank fields as before. Gated on
   // authResolved so it never races the session check.
   const { data: viewerBookingData, isLoading: viewerBookingLoading, error: viewerBookingError } = useQuery({
-    queryKey: ['prefill-booking-viewer', formSlug, memberInfo?.id],
+    queryKey: ['prefill-booking-viewer', form?.slug || formSlug, memberInfo?.id],
     queryFn: async () => {
-      return publicClient.getPrefillBookingForViewer(formSlug);
+      return publicClient.getPrefillBookingForViewer(form?.slug || formSlug);
     },
     enabled: shouldFetchViewerBookingPrefill({
       prefillSource: form?.prefill_source,
       urlBookingId: prefillBookingId,
       authResolved,
       viewerMemberId: memberInfo?.id,
-      formSlug,
+      formSlug: form?.slug || formSlug,
     }),
     retry: false
   });
@@ -586,7 +607,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
     prefillOrgName,
     effectiveOrgIdForCapacity,
     orgCapacityConfig,
-    formSlug,
+    formSlug: form?.slug || formSlug,
     formLoaded: !!form
   });
 
@@ -715,17 +736,16 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
   const [prefillApplied, setPrefillApplied] = useState(false);
   
   // Track if boolean defaults have been initialized for this form
-  const [defaultsInitialized, setDefaultsInitialized] = useState(false);
   useFormFieldPrefill({
     form,
-    formSlug,
+    formSlug: form?.slug || formSlug,
     formValues,
     setFormValues,
     enabled: !!form && !formAccess.restricted && defaultsInitialized,
   });
   const conditionalPrefillValues = useConditionalFormFieldPrefill({
     form,
-    formSlug,
+    formSlug: form?.slug || formSlug,
     formValues,
     enabled: !!form && !formAccess.restricted && defaultsInitialized,
   });
@@ -737,9 +757,15 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
     setSubmitted(false);
     setPrefillApplied(false);
     setDefaultsInitialized(false);
-    setDraftLoaded(false); // Reset so draft can be re-applied after form loads
-    setFormValues({});
-  }, [form?.id]);
+    const isTransitionDestination = !!loadedForm?.id && String(form?.id) !== String(loadedForm.id);
+    setDraftLoaded(isTransitionDestination);
+    if (isTransitionDestination) {
+      setResumeToken(null);
+      setShowResumeLink(false);
+      setResumeLinkCopied(false);
+    }
+    setFormValues(transitionInitialValues || {});
+  }, [form?.id, transitionInitialValues]);
   
   // Initialize all fields with their default values
   // This runs after reset and sets the flag to allow prefill to proceed
@@ -797,7 +823,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
     }
     
     if (Object.keys(fieldDefaults).length > 0) {
-      setFormValues(prev => ({ ...prev, ...fieldDefaults }));
+      setFormValues(prev => ({ ...fieldDefaults, ...prev }));
     }
     setDefaultsInitialized(true);
   }, [form?.fields, defaultsInitialized]);
@@ -1033,7 +1059,9 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
           ...submissionData,
           // Task #3331: the assignment token lets the server stamp the
           // event/assignment/version — never a client-supplied event id.
-          ...(assignmentToken && { assignment_token: assignmentToken }),
+          ...(assignmentToken
+            && String(form?.id || '') === String(loadedForm?.id || '')
+            && { assignment_token: assignmentToken }),
           idempotency_key: getIdempotencyKey(),
           tenant: tenantSlug
         })
@@ -2064,10 +2092,24 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
     previousRoleActionsRef.current = nowActiveRoleActions;
   }, [form?.visibility_rules, formValues, emptyRelationshipParentValues, prefillMember, prefillOrg, prefillMemberCustomValues, prefillOrgCustomValues, conditionalPrefillValues, form?.prefill_source]);
 
-  if (isLoading) {
+  if (isLoading || isTransitioning) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
         <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+      </div>
+    );
+  }
+
+  if (transitionError) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
+        <Card className="max-w-md border-red-200">
+          <CardContent className="p-8 text-center">
+            <AlertTriangle className="mx-auto mb-3 h-8 w-8 text-red-600" />
+            <p className="font-medium text-slate-900">This form could not continue</p>
+            <p className="mt-2 text-sm text-slate-600">{transitionError}</p>
+          </CardContent>
+        </Card>
       </div>
     );
   }
@@ -2148,7 +2190,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
     urlBookingId: prefillBookingId,
     authResolved,
     viewerMemberId: memberInfo?.id,
-    formSlug,
+    formSlug: form?.slug || formSlug,
     viewerBookingLoading,
   })) {
     return (
@@ -2168,7 +2210,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
     urlBookingId: prefillBookingId,
     authResolved,
     viewerMemberId: memberInfo?.id,
-    formSlug,
+    formSlug: form?.slug || formSlug,
     viewerBookingData,
     viewerBookingError,
   })) {

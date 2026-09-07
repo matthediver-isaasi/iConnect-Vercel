@@ -33,6 +33,8 @@ import {
 import { useFormFieldPrefill } from "@/lib/useFormFieldPrefill";
 import { useConditionalFormFieldPrefill } from "@/lib/useFormFieldPrefill";
 import { applyFormFieldValueChange } from "@/lib/formFieldValueChange";
+import { useFormOpenTransition } from "@/lib/useFormOpenTransition";
+import { FORM_NO_RELATIONSHIP_VALUE } from "../../../../../shared/formNoRelationshipChoice.js";
 
 const formQuillModules = {
   toolbar: [
@@ -79,6 +81,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
   const content = element.content || {};
   const formSlug = content.form_slug;
   const [formValues, setFormValues] = useState({});
+  const [emptyRelationshipParentValues, setEmptyRelationshipParentValues] = useState({});
   const [currentStep, setCurrentStep] = useState(0);
   // Task #3515: never autofocus the first card on initial mount (browsers
   // scroll a focused input into view, yanking embedding pages down to the
@@ -118,6 +121,18 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
   // Track if prefill has been applied and defaults initialized
   const [prefillApplied, setPrefillApplied] = useState(false);
   const [defaultsInitialized, setDefaultsInitialized] = useState(false);
+  const handleRelationshipEmptyStateChange = useCallback((fieldId, parentValue) => {
+    setEmptyRelationshipParentValues(previous => {
+      if (parentValue == null) {
+        if (!(fieldId in previous)) return previous;
+        const next = { ...previous };
+        delete next[fieldId];
+        return next;
+      }
+      if (previous[fieldId] === parentValue) return previous;
+      return { ...previous, [fieldId]: parentValue };
+    });
+  }, []);
   
   // Track original values BEFORE set_value rules modified them
   const originalValuesRef = useRef({});
@@ -262,13 +277,30 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
 
   const tenantSlug = getTenantSlugFromLocation();
 
-  const { data: rawForm, isLoading, error: formError } = useQuery({
+  const { data: loadedForm, isLoading, error: formError } = useQuery({
     queryKey: ['form-embed', formSlug, tenantSlug, !!memberInfo],
     queryFn: async () => {
       if (!formSlug) return null;
       return publicClient.getForm(formSlug, { authenticated: !!memberInfo });
     },
     enabled: !!formSlug
+  });
+  const {
+    activeForm: rawForm,
+    initialValues: transitionInitialValues,
+    isTransitioning,
+    transitionError,
+  } = useFormOpenTransition({
+    initialForm: loadedForm,
+    formValues,
+    conditionValues: {
+      ...formValues,
+      ...Object.fromEntries(
+        Object.keys(emptyRelationshipParentValues).map(fieldId => [fieldId, FORM_NO_RELATIONSHIP_VALUE]),
+      ),
+    },
+    authenticated: !!memberInfo,
+    enabled: !!loadedForm && defaultsInitialized && !submitted,
   });
   // Shared survey presentation (question-number prefixes etc.) — same
   // transform FormView/EmbedForm apply. iEdit's native per-step progress bar
@@ -280,14 +312,14 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
   const formAccess = resolveFormAccess(accessPayload, !!memberInfo);
   useFormFieldPrefill({
     form,
-    formSlug,
+    formSlug: form?.slug,
     formValues,
     setFormValues,
     enabled: !!form && !formAccess.restricted && defaultsInitialized,
   });
   const conditionalPrefillValues = useConditionalFormFieldPrefill({
     form,
-    formSlug,
+    formSlug: form?.slug,
     formValues,
     enabled: !!form && !formAccess.restricted && defaultsInitialized,
   });
@@ -350,7 +382,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
       
       // Use publicClient which handles tenant resolution via Host header
       const payload = {
-        form_slug: formSlug,
+        form_slug: form?.slug,
         form_id: form?.id,
         draft_data: formValues,
         current_page_index: currentPageIndex,
@@ -566,17 +598,24 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
     setSubmitted(false);
     setPrefillApplied(false);
     setDefaultsInitialized(false);
-    setDraftLoaded(false);
+    const isTransitionDestination = !!loadedForm?.id && String(form?.id) !== String(loadedForm.id);
+    setDraftLoaded(isTransitionDestination);
+    setEmptyRelationshipParentValues({});
+    if (isTransitionDestination) {
+      setResumeToken(null);
+      setShowResumeLink(false);
+      setResumeLinkCopied(false);
+    }
     setSchemaChanged(false);
     setSchemaChangeMessage(null);
-    setFormValues({});
+    setFormValues(transitionInitialValues || {});
     // Reset set_value and role tracking refs
     originalValuesRef.current = {};
     activeSetValueActionsRef.current = new Set();
     triggeredRoleIdRef.current = null;
     roleActionTriggeredRef.current = false;
     previousRoleActionsRef.current = new Set();
-  }, [form?.id]);
+  }, [form?.id, transitionInitialValues]);
 
   // Initialize boolean fields and hidden fields with their default values when form loads
   // This ensures untouched boolean fields and hidden fields are included in the submission
@@ -612,7 +651,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
     }
     
     if (Object.keys(fieldDefaults).length > 0) {
-      setFormValues(prev => ({ ...prev, ...fieldDefaults }));
+      setFormValues(prev => ({ ...fieldDefaults, ...prev }));
     }
     setDefaultsInitialized(true);
   }, [form?.fields, defaultsInitialized]);
@@ -1756,10 +1795,24 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
     }, 800);
   }, [formValues, form, submitted, submitFormMutation.isPending, isValidating]);
 
-  if (isLoading) {
+  if (isLoading || isTransitioning) {
     return (
       <div className="flex items-center justify-center py-12" style={getBackgroundStyle()}>
         <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+      </div>
+    );
+  }
+
+  if (transitionError) {
+    return (
+      <div className="flex items-center justify-center py-12" style={getBackgroundStyle()}>
+        <Card className="max-w-md border-red-200">
+          <CardContent className="p-6 text-center">
+            <AlertCircle className="mx-auto mb-3 h-8 w-8 text-red-600" />
+            <p className="font-medium text-slate-900">This form could not continue</p>
+            <p className="mt-2 text-sm text-slate-600">{transitionError}</p>
+          </CardContent>
+        </Card>
       </div>
     );
   }
@@ -1988,6 +2041,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
                   selectedOrgGuestAccess={selectedOrgGuestAccess}
                   disabled={disabledFieldIds.has(currentField.id)}
                   onValidityChange={handleValidityChange}
+                  onRelationshipEmptyStateChange={handleRelationshipEmptyStateChange}
                   autoFocus={cardSwipeAutoFocusFor(currentField.type)}
                   formId={form?.id}
                   formSlug={form?.slug}
@@ -2138,6 +2192,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
                     selectedOrgGuestAccess={selectedOrgGuestAccess}
                     disabled={disabledFieldIds.has(field.id)}
                     onValidityChange={handleValidityChange}
+                    onRelationshipEmptyStateChange={handleRelationshipEmptyStateChange}
                     formId={form?.id}
                     formSlug={form?.slug}
                     formMemberRoleId={prefillMember?.role_id || memberInfo?.role_id || null}
@@ -2167,6 +2222,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
                           selectedOrgGuestAccess={selectedOrgGuestAccess}
                           disabled={disabledFieldIds.has(field.id)}
                           onValidityChange={handleValidityChange}
+                          onRelationshipEmptyStateChange={handleRelationshipEmptyStateChange}
                           formId={form?.id}
                           formSlug={form?.slug}
                           formMemberRoleId={prefillMember?.role_id || memberInfo?.role_id || null}
@@ -2196,6 +2252,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
                               selectedOrgGuestAccess={selectedOrgGuestAccess}
                               disabled={disabledFieldIds.has(field.id)}
                               onValidityChange={handleValidityChange}
+                              onRelationshipEmptyStateChange={handleRelationshipEmptyStateChange}
                               formId={form?.id}
                               formSlug={form?.slug}
                               formMemberRoleId={prefillMember?.role_id || memberInfo?.role_id || null}

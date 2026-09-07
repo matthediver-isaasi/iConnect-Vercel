@@ -546,6 +546,14 @@ class PublicClient {
       credentials: 'include'
     });
   }
+
+  async resolveFormTransition(data) {
+    return this._fetch('/api/public/form-transition', {
+      method: 'POST',
+      credentials: 'include',
+      body: JSON.stringify(data)
+    });
+  }
   
   // Task #3331: survey opened via an event-assignment link. Returns
   // { assignment, event, form? , closed_message?, require_authentication? } —

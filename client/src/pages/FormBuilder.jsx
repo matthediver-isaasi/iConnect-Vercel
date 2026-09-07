@@ -111,6 +111,11 @@ import {
   repeatableRowFieldConfigUpdate,
   repeatableExclusionSourceFields,
 } from "../../../shared/formRepeatableRows.js";
+import {
+  areFormTransitionFieldsCompatible,
+  isFormTransitionField,
+  normalizeFormTransitionMappings,
+} from "../../../shared/formOpenTransition.js";
 
 const BADGE_STYLE_DEFAULTS = {
   background_color: '#ffffff',
@@ -1905,6 +1910,148 @@ const RULE_TYPES = [
   { value: 'set_value', label: 'Set Field Value', icon: Edit2, description: 'Set a field value' },
 ];
 
+function OpenFormActionSettings({
+  action,
+  ruleId,
+  fields,
+  destinationForms,
+  updateAction,
+  index,
+  actionIndex,
+}) {
+  const destination = destinationForms.find(form => String(form.id) === String(action.destination_form_id));
+  const sourceFields = fields.filter(isFormTransitionField);
+  const targetFields = (destination?.fields || []).filter(isFormTransitionField);
+  const mappings = Array.isArray(action.mappings) ? action.mappings : [];
+  const usedTargets = new Set(mappings.map(mapping => mapping.target_field_id).filter(Boolean));
+
+  const updateMapping = (mappingId, updates) => {
+    updateAction(ruleId, action.id, {
+      mappings: mappings.map(mapping => mapping.id === mappingId ? { ...mapping, ...updates } : mapping),
+    });
+  };
+
+  return (
+    <div className="space-y-3">
+      <p className="text-xs text-slate-500">
+        Replace this form in place when the rule matches. Only explicitly mapped answers carry across.
+      </p>
+      <div className="space-y-1">
+        <Label className="text-xs text-slate-600">Destination form</Label>
+        <Select
+          value={action.destination_form_id || undefined}
+          onValueChange={(value) => updateAction(ruleId, action.id, {
+            destination_form_id: value,
+            mappings: [],
+          })}
+        >
+          <SelectTrigger className="h-9" data-testid={`select-open-form-destination-${index}-${actionIndex}`}>
+            <SelectValue placeholder="Choose a form…" />
+          </SelectTrigger>
+          <SelectContent>
+            {destinationForms.map(form => (
+              <SelectItem key={form.id} value={form.id}>{form.name || form.slug}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      {destination && (
+        <div className="space-y-2">
+          <div className="flex items-center justify-between gap-2">
+            <div>
+              <Label className="text-xs text-slate-600">Answer mappings</Label>
+              <p className="text-[11px] text-slate-500">Unmapped answers are discarded.</p>
+            </div>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="h-7 text-xs"
+              onClick={() => updateAction(ruleId, action.id, {
+                mappings: [...mappings, {
+                  id: `mapping_${Date.now()}`,
+                  source_field_id: '',
+                  target_field_id: '',
+                }],
+              })}
+              disabled={sourceFields.length === 0 || targetFields.length === 0}
+              data-testid={`button-add-open-form-mapping-${index}-${actionIndex}`}
+            >
+              <Plus className="mr-1 h-3 w-3" /> Add mapping
+            </Button>
+          </div>
+          {mappings.map((mapping, mappingIndex) => {
+            const source = sourceFields.find(field => field.id === mapping.source_field_id);
+            const compatibleTargets = source
+              ? targetFields.filter(field => areFormTransitionFieldsCompatible(source, field))
+              : targetFields;
+            return (
+              <div
+                key={mapping.id}
+                className="grid grid-cols-[1fr,auto,1fr,auto] items-center gap-2 rounded border border-slate-200 bg-white p-2"
+                data-testid={`open-form-mapping-${index}-${actionIndex}-${mappingIndex}`}
+              >
+                <Select
+                  value={mapping.source_field_id || undefined}
+                  onValueChange={(value) => {
+                    const nextSource = sourceFields.find(field => field.id === value);
+                    const currentTarget = targetFields.find(field => field.id === mapping.target_field_id);
+                    updateMapping(mapping.id, {
+                      source_field_id: value,
+                      target_field_id: currentTarget && areFormTransitionFieldsCompatible(nextSource, currentTarget)
+                        ? mapping.target_field_id
+                        : '',
+                    });
+                  }}
+                >
+                  <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Source field" /></SelectTrigger>
+                  <SelectContent>
+                    {sourceFields.map(field => (
+                      <SelectItem key={field.id} value={field.id}>{field.label || field.type}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <ArrowRight className="h-4 w-4 text-slate-400" />
+                <Select
+                  value={mapping.target_field_id || undefined}
+                  onValueChange={(value) => updateMapping(mapping.id, { target_field_id: value })}
+                  disabled={!source}
+                >
+                  <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Destination field" /></SelectTrigger>
+                  <SelectContent>
+                    {compatibleTargets.map(field => (
+                      <SelectItem
+                        key={field.id}
+                        value={field.id}
+                        disabled={usedTargets.has(field.id) && field.id !== mapping.target_field_id}
+                      >
+                        {field.label || field.type}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7 text-red-500"
+                  onClick={() => updateAction(ruleId, action.id, {
+                    mappings: mappings.filter(candidate => candidate.id !== mapping.id),
+                  })}
+                  aria-label="Remove mapping"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function LogicRulesSection({ 
   fields, 
   visibilityRules = [], 
@@ -1918,7 +2065,8 @@ function LogicRulesSection({
   organizationGroups = [],
   roles = [],
   pages = [],
-  entityPipelines = null
+  entityPipelines = null,
+  destinationForms = []
 }) {
   // Track the last rules JSON we migrated to detect new data
   const lastMigratedJsonRef = React.useRef(null);
@@ -2301,6 +2449,18 @@ function LogicRulesSection({
         // Maps membership calculation inputs (preference field ids or
         // core:<name> keys) to form field ids.
         field_mappings: {}
+      };
+    } else if (actionType === 'open_form') {
+      const existingOpenFormAction = (normalizedRule.actions || []).find(a => a.action_type === 'open_form');
+      if (existingOpenFormAction) {
+        toast.info('An open form action already exists for this rule');
+        return;
+      }
+      newAction = {
+        id: `action_open_form_${Date.now()}`,
+        action_type: 'open_form',
+        destination_form_id: '',
+        mappings: [],
       };
     } else {
       // Unknown action type
@@ -3238,6 +3398,15 @@ function LogicRulesSection({
                       >
                         <CreditCard className="w-3 h-3 mr-1" /> Membership
                       </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 text-xs"
+                        onClick={() => addAction(rule.id, 'open_form')}
+                        data-testid={`button-add-open-form-action-${index}`}
+                      >
+                        <ArrowRight className="w-3 h-3 mr-1" /> Open Form
+                      </Button>
                     </div>
 
                     {actions.length === 0 ? (
@@ -3253,6 +3422,7 @@ function LogicRulesSection({
                         const isConsolidatedVisibility = action.action_type === 'visibility';
                         const isSubmitControlAction = action.action_type === 'submit_control';
                         const isMembershipAction = action.action_type === 'membership_structure';
+                        const isOpenFormAction = action.action_type === 'open_form';
                         // Determine card styling
                         let cardClass = 'p-3 rounded-lg border ';
                         if (isConsolidatedVisibility) {
@@ -3261,6 +3431,8 @@ function LogicRulesSection({
                           cardClass += 'bg-emerald-50 border-emerald-200';
                         } else if (isSubmitControlAction) {
                           cardClass += 'bg-purple-50 border-purple-200';
+                        } else if (isOpenFormAction) {
+                          cardClass += 'bg-cyan-50 border-cyan-200';
                         } else if (isLegacyVisibilityAction) {
                           cardClass += 'bg-white border-slate-200';
                         } else if (isLegacyDisabilityAction) {
@@ -3289,6 +3461,7 @@ function LogicRulesSection({
                                     : <Lock className="w-3 h-3 text-purple-600" />
                                 )}
                                 {action.action_type === 'membership_structure' && <CreditCard className="w-3 h-3 text-emerald-600" />}
+                                {action.action_type === 'open_form' && <ArrowRight className="w-3 h-3 text-cyan-700" />}
                                 <span className="text-xs font-medium">
                                   {action.action_type === 'membership_structure' && 'Membership'}
                                   {action.action_type === 'submit_control' && 'Submit Button'}
@@ -3298,6 +3471,7 @@ function LogicRulesSection({
                                   {action.action_type === 'set_value' && 'Set Field Value'}
                                   {action.action_type === 'disable' && 'Disable Fields (Legacy)'}
                                   {action.action_type === 'enable' && 'Enable Fields (Legacy)'}
+                                  {action.action_type === 'open_form' && 'Open Another Form'}
                                 </span>
                               </div>
                               <Button
@@ -3311,7 +3485,17 @@ function LogicRulesSection({
                               </Button>
                             </div>
 
-                            {isMembershipAction ? (
+                            {isOpenFormAction ? (
+                              <OpenFormActionSettings
+                                action={action}
+                                ruleId={rule.id}
+                                fields={fields}
+                                destinationForms={destinationForms}
+                                updateAction={updateAction}
+                                index={index}
+                                actionIndex={actionIndex}
+                              />
+                            ) : isMembershipAction ? (
                               <MembershipStructureActionSettings
                                 action={action}
                                 ruleId={rule.id}
@@ -10092,6 +10276,27 @@ export default function FormBuilderPage() {
       return;
     }
 
+    for (const rule of formData.visibility_rules || []) {
+      for (const action of rule.actions || []) {
+        if (action.action_type !== 'open_form') continue;
+        const destination = allForms.find(form => String(form.id) === String(action.destination_form_id));
+        if (!destination || String(destination.id) === String(formId)) {
+          toast.error('Each Open Form action needs a different active destination form.');
+          return;
+        }
+        const mappingResult = normalizeFormTransitionMappings(
+          action,
+          formData.fields || [],
+          destination.fields || [],
+        );
+        if (!mappingResult.valid || (action.mappings || []).some(mapping =>
+          !mapping.source_field_id || !mapping.target_field_id)) {
+          toast.error('Open Form answer mappings must use compatible source and destination fields.');
+          return;
+        }
+      }
+    }
+
     // Task #3483: generic Payment fields need at least one enabled provider
     // and a price-source field before the form can be saved.
     const paymentFields = formData.fields.filter(f => f.type === 'payment');
@@ -11966,6 +12171,7 @@ export default function FormBuilderPage() {
                   roles={roles}
                   pages={formData.pages || []}
                   entityPipelines={formData.entity_pipelines}
+                  destinationForms={allForms.filter(form => String(form.id) !== String(formId))}
                   onRulesChange={(rules) => {
                     const fieldsWithShowRules = new Set();
                     const pagesWithShowRules = new Set();

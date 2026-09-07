@@ -28,6 +28,7 @@ import {
 } from "../../../shared/formNotListedChoice.js";
 import { useFormFieldPrefill } from "@/lib/useFormFieldPrefill";
 import { applyFormFieldValueChange } from "@/lib/formFieldValueChange";
+import { useFormOpenTransition } from "@/lib/useFormOpenTransition";
 
 // Stable empty array so disabled custom-value queries don't create a fresh
 // default identity every render (which would re-trigger dependent effects).
@@ -51,6 +52,7 @@ export default function EmbedFormPage() {
   // the embed page must handle redirect returns identically.
   const [fieldValidity, setFieldValidity] = useState({});
   const [submissionError, setSubmissionError] = useState(null);
+  const [defaultsInitialized, setDefaultsInitialized] = useState(false);
 
   // Clear submission error when form values change
   useEffect(() => {
@@ -146,10 +148,28 @@ export default function EmbedFormPage() {
   }, [isFramed]);
   const loginHref = `/login?returnTo=${encodeURIComponent(loginReturnTo)}`;
 
-  const { data: rawForm, isLoading, error } = useQuery({
+  const { data: loadedForm, isLoading, error } = useQuery({
     queryKey: ['embed-form', slug, tenantParam, !!authMember],
     queryFn: async () => await publicClient.getForm(slug, { authenticated: !!authMember }) || null,
     enabled: !!slug
+  });
+
+  const {
+    activeForm: rawForm,
+    initialValues: transitionInitialValues,
+    isTransitioning,
+    transitionError,
+  } = useFormOpenTransition({
+    initialForm: loadedForm,
+    formValues,
+    conditionValues: {
+      ...formValues,
+      ...Object.fromEntries(
+        Object.keys(emptyRelationshipParentValues).map(fieldId => [fieldId, FORM_NO_RELATIONSHIP_VALUE]),
+      ),
+    },
+    authenticated: !!authMember,
+    enabled: !!loadedForm && defaultsInitialized && !submitted,
   });
 
   // Survey presentation (question numbering) — no-op for standard forms
@@ -202,7 +222,7 @@ export default function EmbedFormPage() {
   // data), the public prefill endpoints otherwise (safe subset) so explicit
   // ?member_id/?organization_id URLs work for anonymous viewers too.
   const { data: prefillMemberData } = useQuery({
-    queryKey: ['prefill-member-embedform', prefillMemberId, !!authMember],
+    queryKey: ['prefill-member-embedform', prefillMemberId, form?.slug || slug, !!authMember],
     queryFn: async () => {
       if (authMember) {
         const [member, resourceCategorySelections] = await Promise.all([
@@ -220,7 +240,7 @@ export default function EmbedFormPage() {
           resourceCategorySelections: resourceCategorySelections || []
         };
       }
-      return publicClient.getPrefillMember(prefillMemberId, slug);
+      return publicClient.getPrefillMember(prefillMemberId, form?.slug || slug);
     },
     enabled: !!prefillMemberId && form?.prefill_source === 'member'
   });
@@ -288,10 +308,9 @@ export default function EmbedFormPage() {
     },
     enabled: !!effectiveOrgIdForCustomFields && !!form?.prefill_source && form.prefill_source !== 'none'
   });
-  const [defaultsInitialized, setDefaultsInitialized] = useState(false);
   useFormFieldPrefill({
     form,
-    formSlug: slug,
+    formSlug: form?.slug || slug,
     formValues,
     setFormValues,
     enabled: !!form && !formAccess.restricted && defaultsInitialized,
@@ -304,8 +323,8 @@ export default function EmbedFormPage() {
     setSubmitted(false);
     setDefaultsInitialized(false);
     setPrefillApplied(false);
-    setFormValues({});
-  }, [form?.id]);
+    setFormValues(transitionInitialValues || {});
+  }, [form?.id, transitionInitialValues]);
 
   useEffect(() => {
     if (!form?.fields || defaultsInitialized) return;
@@ -341,7 +360,7 @@ export default function EmbedFormPage() {
     }
     
     if (Object.keys(fieldDefaults).length > 0) {
-      setFormValues(prev => ({ ...prev, ...fieldDefaults }));
+      setFormValues(prev => ({ ...fieldDefaults, ...prev }));
     }
     setDefaultsInitialized(true);
   }, [form?.fields, defaultsInitialized]);
@@ -1069,10 +1088,23 @@ export default function EmbedFormPage() {
     };
   }, [fontSizeParam]);
 
-  if (isLoading) {
+  if (isLoading || isTransitioning) {
     return (
       <div className="flex items-center justify-center min-h-[200px] p-4" data-testid="embed-form-loading">
         <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (transitionError) {
+    return (
+      <div className="flex items-center justify-center min-h-[200px] p-4" data-testid="embed-form-transition-error">
+        <Card className="w-full max-w-md border-red-200">
+          <CardContent className="pt-6 text-center">
+            <p className="font-medium text-slate-900">This form could not continue</p>
+            <p className="mt-2 text-sm text-muted-foreground">{transitionError}</p>
+          </CardContent>
+        </Card>
       </div>
     );
   }
