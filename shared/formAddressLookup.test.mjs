@@ -34,6 +34,37 @@ test('manual-only address rules use stable preceding field ids and explicit oper
   assert.equal(resolveAddressManualOnly(fields[2], fields, {}), false);
 });
 
+test('BNMS full member form switches its persisted address rule for United States', () => {
+  const fields = [
+    {
+      id: 'field_1786371332409',
+      type: 'country',
+      label: 'What country are you based in?',
+    },
+    {
+      id: 'field_1788468466745',
+      type: 'address_lookup',
+      label: 'Address',
+      address_entry_mode_rule: {
+        source_field_id: 'field_1786371332409',
+        operator: 'not_equals',
+        value: 'United Kingdom',
+      },
+    },
+  ];
+
+  assert.equal(resolveAddressManualOnly(
+    fields[1],
+    fields,
+    { field_1786371332409: 'United States' },
+  ), true);
+  assert.equal(resolveAddressManualOnly(
+    fields[1],
+    fields,
+    { field_1786371332409: 'United Kingdom' },
+  ), false);
+});
+
 test('missing, malformed, deleted, and following source rules safely retain postcode lookup', () => {
   const address = { id: 'address', type: 'address_lookup' };
   const later = { id: 'later', type: 'select' };

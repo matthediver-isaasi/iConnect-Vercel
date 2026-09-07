@@ -6,6 +6,7 @@ const source = await readFile(new URL('./AddressLookupField.jsx', import.meta.ur
 const rendererSource = await readFile(new URL('./FormRenderer.jsx', import.meta.url), 'utf8');
 const formViewSource = await readFile(new URL('../../pages/FormView.jsx', import.meta.url), 'utf8');
 const embedFormSource = await readFile(new URL('../../pages/EmbedForm.jsx', import.meta.url), 'utf8');
+const iEditFormSource = await readFile(new URL('../iedit/elements/IEditFormElement.jsx', import.meta.url), 'utf8');
 
 test('address lookup is debounced and only starts for a normalized complete postcode', () => {
   assert.match(source, /normalizeUkPostcode\(postcode\)/);
@@ -46,11 +47,13 @@ test('runtime resolves manual-only mode from live answers without changing the a
   assert.match(source, /const answer = normalizeAddressLookupAnswer\(value\)/);
 });
 
-test('page, card-swipe, and embedded forms pass live field metadata and answers to the renderer', () => {
+test('standalone, embedded, and Canvas forms pass live field metadata and answers to every layout', () => {
   assert.ok((formViewSource.match(/allFormValues=\{formValues\}/g) || []).length >= 2);
   assert.ok((formViewSource.match(/allFields=\{form\?\.fields \|\| \[\]\}/g) || []).length >= 2);
   assert.match(embedFormSource, /allFormValues=\{formValues\}/);
   assert.match(embedFormSource, /allFields=\{form\?\.fields \|\| \[\]\}/);
+  assert.ok((iEditFormSource.match(/allFormValues=\{formValues\}/g) || []).length >= 2);
+  assert.ok((iEditFormSource.match(/allFields=\{form\?\.fields \|\| \[\]\}/g) || []).length >= 2);
 });
 
 test('address lookup cancels stale requests and does not expose a search button', () => {

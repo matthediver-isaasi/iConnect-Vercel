@@ -139,4 +139,5 @@
 - [Relationship edge metadata enforcement](relationship-edge-metadata-enforcement.md) — generic edge writes bypass the interactive service; defaults and required/type rules need DB enforcement too.
 - [Relationship multi-select answers](relationship-multiselect-answers.md) — mixed record IDs + Other must be reconciled, validated, and formatted member-by-member.
 - [Conditional form transitions](conditional-form-transitions.md) — persist only action IDs/mappings; server re-verifies rules and destination access, while assignment/draft context stays source-scoped.
+- [Merge is not public rollout](merge-vs-public-rollout.md) — custom domains may keep serving an older frontend bundle after source merges; verify the live asset contains the feature.
 - [Reactive form prefill ownership](reactive-form-prefill-ownership.md) — configured defaults are replaceable only at their captured initial value; drafts, transitions, and respondent edits always win.
