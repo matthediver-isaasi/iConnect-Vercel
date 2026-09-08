@@ -1,0 +1,72 @@
+{
+  "verification_version": 1,
+  "form": {
+    "id": "8faff8a5-5671-41ef-a246-81810c34326d",
+    "label": "Full member junior join"
+  },
+  "tenant_id": "ff2df806-b321-4254-b651-3af11fccf1db",
+  "repeatable_field": {
+    "id": "field_1788674418554",
+    "label": "Additional sites or departments",
+    "scope": "repeatable_row"
+  },
+  "child_fields": [
+    {
+      "id": "row_field_1788674468526_amaga",
+      "label": "Organisation",
+      "target": "organization"
+    },
+    {
+      "id": "row_field_1788674529062_so7ep",
+      "label": "Department",
+      "target": "custom_object",
+      "custom_object_id": "cd1ebfd3-3e16-4091-be5a-99992d926f2f"
+    }
+  ],
+  "target_object": {
+    "id": "cd1ebfd3-3e16-4091-be5a-99992d926f2f",
+    "key": "org_department",
+    "label": "Organisation department",
+    "identity_field_id": "35e4f2dd-6f22-4875-8d2f-4ffb05b1980f",
+    "identity_field_label": "Name"
+  },
+  "relationship": {
+    "id": "30ad9dde-4b4e-4991-a7a4-8ef2b6b5138e",
+    "key": "organisation",
+    "source": "custom_object:org_department",
+    "target": "organization",
+    "cardinality": "many_to_one"
+  },
+  "action_order": [
+    {
+      "position": 1,
+      "sequence": 1,
+      "id": "additional_sites_resolve_organization",
+      "label": "Resolve additional Organisation",
+      "operation": "resolve_record_reference"
+    },
+    {
+      "position": 2,
+      "sequence": 2,
+      "id": "additional_sites_resolve_department",
+      "label": "Resolve additional Department",
+      "operation": "resolve_record_reference"
+    },
+    {
+      "position": 3,
+      "sequence": 3,
+      "id": "additional_sites_link_organization_department",
+      "label": "Link additional Organisation and Department",
+      "operation": "link_relationship"
+    }
+  ],
+  "unrelated_action_ids": [],
+  "checks": {
+    "form_fields_unchanged": true,
+    "unrelated_actions_unchanged": true,
+    "same_repeatable_scope": true,
+    "link_uses_prior_action_outputs": true,
+    "idempotent_reconciliation": true,
+    "submission_data_read": false
+  }
+}
