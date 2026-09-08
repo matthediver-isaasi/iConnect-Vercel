@@ -25,11 +25,11 @@ import FormAccessRestriction, { resolveFormAccess } from "@/components/forms/For
 import { evaluateFormLogicCondition } from "@/lib/formLogicConditions";
 import { FORM_NO_RELATIONSHIP_VALUE } from "../../../shared/formNoRelationshipChoice.js";
 import {
-  pruneFormNotListedText,
   resolveFormSubmissionOrganizationId,
   setFormNotListedText,
 } from "../../../shared/formNotListedChoice.js";
 import { applyFormFieldValueChange } from "@/lib/formFieldValueChange";
+import { prepareFormSubmissionValues } from "@/lib/formSubmissionPayload";
 import { useFormFieldPrefill } from "@/lib/useFormFieldPrefill";
 import { useConditionalFormFieldPrefill } from "@/lib/useFormFieldPrefill";
 import { useFormOpenTransition } from "@/lib/useFormOpenTransition";
@@ -2515,12 +2515,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
       }
     }
 
-    const displayOnlyFieldIds = new Set(
-      (form.fields || []).filter(f => f.type === 'instructions' || f.type === 'image').map(f => f.id)
-    );
-    const filteredFormValues = pruneFormNotListedText(form.fields, Object.fromEntries(
-      Object.entries(formValues).filter(([key]) => !displayOnlyFieldIds.has(key))
-    ));
+    const filteredFormValues = prepareFormSubmissionValues(form.fields, formValues);
 
     // Determine organization ID to include with submission.
     // Task #3498: shared memo — MUST stay identical to what the membership

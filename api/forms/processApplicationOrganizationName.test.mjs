@@ -46,6 +46,7 @@ function publicPayload(overrides = {}) {
 function makeSupabase({ form, submission, existingOrganization = null }) {
   const inserts = [];
   const updates = [];
+  let insertedOrganization = null;
 
   class Query {
     constructor(table) {
@@ -89,7 +90,14 @@ function makeSupabase({ form, submission, existingOrganization = null }) {
     }
     async single() {
       if (this.table === 'organization' && this.insertPayload) {
-        return { data: { id: 'created-organization', ...this.insertPayload }, error: null };
+        insertedOrganization = { id: 'created-organization', ...this.insertPayload };
+        return { data: insertedOrganization, error: null };
+      }
+      if (this.table === 'organization' && insertedOrganization) {
+        return { data: insertedOrganization, error: null };
+      }
+      if (this.table === 'member' && this.insertPayload) {
+        return { data: { id: 'created-member', ...this.insertPayload }, error: null };
       }
       return { data: null, error: null };
     }
@@ -113,7 +121,10 @@ function makeSupabase({ form, submission, existingOrganization = null }) {
   };
 }
 
-async function invokeProcessor(payload, { existingOrganization = null } = {}) {
+async function invokeProcessor(payload, {
+  existingOrganization = null,
+  requestFormValues = payload.form_values,
+} = {}) {
   const previousSecret = process.env.SESSION_SECRET;
   process.env.SESSION_SECRET = 'runtime-org-name-test-secret';
   const form = {
@@ -161,7 +172,7 @@ async function invokeProcessor(payload, { existingOrganization = null } = {}) {
       form_id: form.id,
       submission_id: submission.id,
       tenant_id: form.tenant_id,
-      form_values: payload.form_values,
+      form_values: requestFormValues,
       fields: payload.fields,
       entity_pipelines: payload.entity_pipelines,
       verified_admin_access: true,
@@ -187,6 +198,77 @@ test('public endpoint payload resolves nested not-listed text through canonical 
   assert.equal(result.response.statusCode, 200);
   assert.equal(insert?.payload.name, 'Runtime Organisation Ltd');
   assert.equal(resolveOrganizationCoreField('organisation_name'), 'name');
+});
+
+test('affected mixed-pipeline form uses persisted not-listed text with its saved core name mapping', async () => {
+  const payload = publicPayload({
+    fields: [
+      { id: 'student_email', type: 'email' },
+      { id: 'student_first_name', type: 'text' },
+      { id: 'student_last_name', type: 'text' },
+      {
+        id: 'field_1787065791684',
+        type: 'organisation_dropdown',
+        not_listed_choice: { enabled: true, label: 'Not listed' },
+      },
+    ],
+    form_values: {
+      student_email: 'student@example.test',
+      student_first_name: 'Test',
+      student_last_name: 'Student',
+      field_1787065791684: FORM_NOT_LISTED_VALUE,
+      [FORM_NOT_LISTED_TEXT_KEY]: {
+        field_1787065791684: '  Runtime University  ',
+      },
+    },
+    application_level: 'member',
+    create_entity_type: 'member',
+    entity_action: 'create',
+    member_entity_action: 'none',
+    organization_entity_action: 'none',
+    entity_pipelines: {
+      members: [{
+        id: 'member-primary',
+        isPrimary: true,
+        mappings: [
+          { source_type: 'field', source_field_id: 'student_email', target_type: 'core', target_field: 'email', target_entity: 'member' },
+          { source_type: 'field', source_field_id: 'student_first_name', target_type: 'core', target_field: 'first_name', target_entity: 'member' },
+          { source_type: 'field', source_field_id: 'student_last_name', target_type: 'core', target_field: 'last_name', target_entity: 'member' },
+        ],
+      }],
+      organisations: [{
+        id: 'org-primary',
+        isPrimary: true,
+        uniqueness_key: 'name',
+        mappings: [{
+          source_type: 'field',
+          source_field_id: 'field_1787065791684',
+          target_type: 'core',
+          target_field: 'name',
+          target_entity: 'organization',
+        }],
+      }],
+    },
+  });
+  const staleRequestValues = {
+    ...payload.form_values,
+    [FORM_NOT_LISTED_TEXT_KEY]: {
+      field_1787065791684: '   ',
+    },
+  };
+  const result = await invokeProcessor(payload, {
+    requestFormValues: staleRequestValues,
+  });
+
+  assert.equal(result.response.statusCode, 200);
+  assert.equal(
+    result.inserts.find(entry => entry.table === 'organization')?.payload.name,
+    'Runtime University',
+  );
+  assert.equal(
+    result.inserts.find(entry => entry.table === 'member')?.payload.email,
+    'student@example.test',
+  );
 });
 
 test('listed organization UUID is selected and never written into the name column', async () => {

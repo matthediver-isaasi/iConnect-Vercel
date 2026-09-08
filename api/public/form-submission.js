@@ -38,7 +38,7 @@ import { getInternalApiBaseUrl } from '../_lib/publicBaseUrl.js';
 import { hasPersistedFormEntityActions } from '../_lib/formEntityActionMode.js';
 import { invalidRequiredAddressLookupFields } from '../_lib/idealPostcodes.js';
 
-export default async function handler(req, res) {
+export default async function handler(req, res, dependencies = {}) {
   console.log('[Public Form Submission] === ENDPOINT CALLED ===');
   
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -64,14 +64,14 @@ export default async function handler(req, res) {
   const supabaseUrl = process.env.SUPABASE_URL;
   const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
 
-  if (!supabaseUrl || !supabaseServiceKey) {
+  if ((!supabaseUrl || !supabaseServiceKey) && !dependencies.supabase) {
     return res.status(503).json({ error: 'Database not configured' });
   }
 
-  const supabase = createClient(supabaseUrl, supabaseServiceKey);
+  const supabase = dependencies.supabase || createClient(supabaseUrl, supabaseServiceKey);
 
   try {
-    const tenantData = await resolveTenantFromRequest(req);
+    const tenantData = dependencies.tenantData || await resolveTenantFromRequest(req);
     // Use host from request, or derive from tenant domain if not available
     const host = getHostFromRequest(req) || (tenantData?.domain) || `${tenantData?.slug}.iconn.app`;
 
@@ -1050,7 +1050,7 @@ export default async function handler(req, res) {
       try {
         // Resolve only when processing is needed. Never follow request Host
         // headers because this call carries an internal authentication proof.
-        const baseUrl = getInternalApiBaseUrl(null);
+        const baseUrl = dependencies.internalApiBaseUrl || getInternalApiBaseUrl(null);
         if (!baseUrl) {
           await supabase.from('form_submission').delete().eq('id', submission.id);
           return res.status(503).json({
@@ -1059,7 +1059,7 @@ export default async function handler(req, res) {
           });
         }
         console.log('[Public Form Submission] Processing entity pipelines for tenant:', tenantData.id);
-        const pipelineResponse = await fetch(`${baseUrl}/api/forms/process-application`, {
+        const pipelineResponse = await (dependencies.fetchImpl || fetch)(`${baseUrl}/api/forms/process-application`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -1073,8 +1073,7 @@ export default async function handler(req, res) {
           },
           body: JSON.stringify(buildPublicFormProcessingPayload({
             form,
-            submissionData: submission_data,
-            submissionId: submission.id,
+            submission,
             tenantId: tenantData.id,
             prefillOrganizationId: prefill_organization_id,
             roleId: clientRoleId,

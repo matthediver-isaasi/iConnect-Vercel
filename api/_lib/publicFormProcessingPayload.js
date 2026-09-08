@@ -1,20 +1,21 @@
 export function buildPublicFormProcessingPayload({
   form,
-  submissionData,
-  submissionId,
+  submission,
   tenantId,
   prefillOrganizationId,
   roleId,
   verifiedSubmitterMemberId,
   verifiedAdminAccess,
 }) {
+  const persistedSubmissionId = submission?.id || null;
+  const persistedSubmissionData = submission?.submission_data || {};
   return {
     form_id: form.id,
-    form_values: submissionData || {},
+    form_values: persistedSubmissionData,
     fields: form.fields || [],
     field_mappings: form.field_mappings || [],
     application_level: form.application_level || 'member',
-    submission_id: submissionId,
+    submission_id: persistedSubmissionId,
     prefill_organization_id: prefillOrganizationId || null,
     role_id: roleId || null,
     entity_pipelines: form.entity_pipelines,

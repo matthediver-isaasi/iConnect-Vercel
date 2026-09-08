@@ -7,7 +7,9 @@ const payloadSource = await readFile(new URL('../_lib/publicFormProcessingPayloa
 
 test('no-action submissions do not require an internal processing origin', () => {
   const actionGate = source.indexOf('if (hasEntityPipelines && !surveyIsAnonymous)');
-  const originResolution = source.indexOf('const baseUrl = getInternalApiBaseUrl(null)');
+  const originResolution = source.indexOf(
+    'const baseUrl = dependencies.internalApiBaseUrl || getInternalApiBaseUrl(null)',
+  );
   assert.ok(actionGate > -1 && originResolution > actionGate);
 });
 
