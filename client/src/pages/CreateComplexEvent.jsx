@@ -68,6 +68,13 @@ import {
   putEventCpdBadgeRules,
   remapEventCpdTicketReferences,
 } from "@/lib/eventCpdBadgeRules";
+import EventCpdPointsSection from "@/components/events/EventCpdPointsSection";
+import {
+  emptyEventCpdPointsConfig,
+  putEventCpdPointsRules,
+  remapEventCpdPointsTicketReferences,
+  validateEventCpdPointsConfig,
+} from "@/lib/eventCpdPointsRules";
 import TeamsMeetingConfig from "@/components/events/TeamsMeetingConfig";
 import {
   attendancePolicyPayload,
@@ -717,6 +724,7 @@ export default function CreateComplexEvent() {
   // During edit, null distinguishes "rules not hydrated" from an intentionally
   // empty configuration so saving quickly cannot erase existing rules.
   const [cpdBadgeConfig, setCpdBadgeConfig] = useState(() => isEditMode ? null : emptyEventCpdBadgeConfig());
+  const [cpdPointsConfig, setCpdPointsConfig] = useState(() => isEditMode ? null : emptyEventCpdPointsConfig());
   const [expandedTickets, setExpandedTickets] = useState({});
   const [ticketsInitialized, setTicketsInitialized] = useState(false);
 
@@ -1097,8 +1105,8 @@ export default function CreateComplexEvent() {
   };
 
   const buildSnapshot = useCallback(() => {
-    return JSON.stringify({ formData, tracks, sessions, ticketClasses, cpdBadgeConfig, selectedSponsors, sponsorDetails, seoTitle, seoDescription, ogImageUrl, selectedFilterTags, unlimitedSeats, showSeatCount, showTicketAvailability, qrOnConfirmation, collectThirdPartyConsent, isProgramEvent });
-  }, [formData, tracks, sessions, ticketClasses, cpdBadgeConfig, selectedSponsors, sponsorDetails, seoTitle, seoDescription, ogImageUrl, selectedFilterTags, unlimitedSeats, showSeatCount, showTicketAvailability, qrOnConfirmation, collectThirdPartyConsent, isProgramEvent]);
+    return JSON.stringify({ formData, tracks, sessions, ticketClasses, cpdBadgeConfig, cpdPointsConfig, selectedSponsors, sponsorDetails, seoTitle, seoDescription, ogImageUrl, selectedFilterTags, unlimitedSeats, showSeatCount, showTicketAvailability, qrOnConfirmation, collectThirdPartyConsent, isProgramEvent });
+  }, [formData, tracks, sessions, ticketClasses, cpdBadgeConfig, cpdPointsConfig, selectedSponsors, sponsorDetails, seoTitle, seoDescription, ogImageUrl, selectedFilterTags, unlimitedSeats, showSeatCount, showTicketAvailability, qrOnConfirmation, collectThirdPartyConsent, isProgramEvent]);
 
   const isDirty = !isEditMode || isDirtyState;
 
@@ -1790,6 +1798,14 @@ export default function CreateComplexEvent() {
       toast.error("Please enter an internal reference");
       return;
     }
+    if (cpdPointsConfig !== null) {
+      const cpdPointsErrors = validateEventCpdPointsConfig(cpdPointsConfig, ticketClasses);
+      if (cpdPointsErrors.length > 0) {
+        toast.error(cpdPointsErrors[0]);
+        setActiveSection("cpd");
+        return;
+      }
+    }
 
     if (isGroupLimited && !lockedGroupId) {
       toast.error("This group event is missing its group. Please reopen it from the Group Events page.");
@@ -2214,8 +2230,12 @@ export default function CreateComplexEvent() {
       const persistedCpdConfig = cpdBadgeConfig === null
         ? null
         : remapEventCpdTicketReferences(cpdBadgeConfig, cpdTicketReferenceMap);
+      const persistedCpdPointsConfig = cpdPointsConfig === null
+        ? null
+        : remapEventCpdPointsTicketReferences(cpdPointsConfig, cpdTicketReferenceMap);
       setTicketClasses(savedTicketClasses);
       if (persistedCpdConfig !== null) setCpdBadgeConfig(persistedCpdConfig);
+      if (persistedCpdPointsConfig !== null) setCpdPointsConfig(persistedCpdPointsConfig);
 
       let cpdSaveError = null;
       if (persistedCpdConfig !== null) {
@@ -2227,6 +2247,15 @@ export default function CreateComplexEvent() {
           // back to edit mode instead of reporting a false create failure.
           console.error("Failed to save CPD badge rules:", cpdError);
           cpdSaveError = cpdError.message || "Unknown error";
+        }
+      }
+      if (persistedCpdPointsConfig !== null) {
+        try {
+          await putEventCpdPointsRules(eventId, "complex", persistedCpdPointsConfig, savedTicketClasses);
+        } catch (cpdError) {
+          console.error("Failed to save CPD points rules:", cpdError);
+          const message = cpdError.message || "Unknown error";
+          cpdSaveError = cpdSaveError ? `${cpdSaveError}; ${message}` : message;
         }
       }
 
@@ -2319,7 +2348,7 @@ export default function CreateComplexEvent() {
         queryClient.invalidateQueries({ queryKey: ["/api/complex-event-sessions", editId] });
         queryClient.invalidateQueries({ queryKey: ["/api/entities/ComplexEventTicketClass", editId] });
         if (cpdSaveError) {
-          toast.warning(`Complex event updated, but CPD badge configuration could not be saved: ${cpdSaveError}`);
+          toast.warning(`Complex event updated, but CPD configuration could not be saved: ${cpdSaveError}`);
         } else {
           toast.success("Complex event updated");
         }
@@ -2362,7 +2391,7 @@ export default function CreateComplexEvent() {
         if (emailSaveFailed || cpdSaveError) {
           const failures = [
             emailSaveFailed && "email settings could not be saved",
-            cpdSaveError && `CPD badge configuration could not be saved: ${cpdSaveError}`,
+            cpdSaveError && `CPD configuration could not be saved: ${cpdSaveError}`,
           ].filter(Boolean).join("; ");
           toast.error(`Complex event created, but ${failures}. Opening the event so you can fix it.`, { duration: 10000 });
           window.location.href = `${createPageUrl("CreateComplexEvent")}?id=${eventId}`;
@@ -2448,13 +2477,22 @@ export default function CreateComplexEvent() {
           </TabsList>
 
           <TabsContent value="cpd" forceMount className="mt-0 data-[state=inactive]:hidden">
-            <EventCpdBadgesSection
-              eventId={isEditMode ? editId : null}
-              eventType="complex"
-              tickets={ticketClasses}
-              value={cpdBadgeConfig}
-              onChange={setCpdBadgeConfig}
-            />
+            <div className="space-y-6">
+              <EventCpdBadgesSection
+                eventId={isEditMode ? editId : null}
+                eventType="complex"
+                tickets={ticketClasses}
+                value={cpdBadgeConfig}
+                onChange={setCpdBadgeConfig}
+              />
+              <EventCpdPointsSection
+                eventId={isEditMode ? editId : null}
+                eventType="complex"
+                tickets={ticketClasses}
+                value={cpdPointsConfig}
+                onChange={setCpdPointsConfig}
+              />
+            </div>
           </TabsContent>
 
           {!isGroupLimited && (

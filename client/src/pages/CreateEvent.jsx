@@ -75,6 +75,12 @@ import EventEmailSettingsEditor, {
 import AttendancePolicyEditor from "@/components/events/AttendancePolicyEditor";
 import EventCpdBadgesSection from "@/components/events/EventCpdBadgesSection";
 import { emptyEventCpdBadgeConfig, putEventCpdBadgeRules } from "@/lib/eventCpdBadgeRules";
+import EventCpdPointsSection from "@/components/events/EventCpdPointsSection";
+import {
+  emptyEventCpdPointsConfig,
+  putEventCpdPointsRules,
+  validateEventCpdPointsConfig,
+} from "@/lib/eventCpdPointsRules";
 import TeamsMeetingConfig from "@/components/events/TeamsMeetingConfig";
 import { clearTeamsMeeting } from "@/lib/teamsMeeting";
 import {
@@ -228,6 +234,7 @@ export default function CreateEvent() {
   // Ticket classes state for one-off events
   const [ticketClasses, setTicketClasses] = useState([createEmptyTicketClass(true)]);
   const [cpdBadgeConfig, setCpdBadgeConfig] = useState(() => emptyEventCpdBadgeConfig());
+  const [cpdPointsConfig, setCpdPointsConfig] = useState(() => emptyEventCpdPointsConfig());
   const { ticketTypeName: groupTicketTypeName, featureName: memberGroupFeatureName } = useMemberGroupSettings();
 
   useEffect(() => {
@@ -796,11 +803,16 @@ export default function CreateEvent() {
       // exactly like the existing email partial-save path: do not throw from
       // the mutation and incorrectly tell the admin creation failed.
       let cpdError = null;
-      try {
-        await putEventCpdBadgeRules(createdEvent.id, "simple", cpdBadgeConfig, isProgramEvent ? [] : ticketClasses);
-      } catch (err) {
-        console.error("Failed to save CPD badge rules after event creation:", err);
-        cpdError = err.message || "Unknown error";
+      const cpdSaves = await Promise.allSettled([
+        putEventCpdBadgeRules(createdEvent.id, "simple", cpdBadgeConfig, isProgramEvent ? [] : ticketClasses),
+        putEventCpdPointsRules(createdEvent.id, "simple", cpdPointsConfig, isProgramEvent ? [] : ticketClasses),
+      ]);
+      const cpdFailures = cpdSaves
+        .filter((result) => result.status === "rejected")
+        .map((result) => result.reason?.message || "Unknown error");
+      if (cpdFailures.length > 0) {
+        console.error("Failed to save CPD rules after event creation:", cpdFailures);
+        cpdError = cpdFailures.join("; ");
       }
 
       // Badges configured for immediate timing are reconciled only after all
@@ -846,7 +858,7 @@ export default function CreateEvent() {
       if (emailError || cpdError) {
         const failures = [
           emailError && `email settings could not be saved: ${emailError}`,
-          cpdError && `CPD badge configuration could not be saved: ${cpdError}`,
+          cpdError && `CPD configuration could not be saved: ${cpdError}`,
         ].filter(Boolean).join("; ");
         toast.error(
           `Event created, but ${failures}. Opening the event so you can fix it.`,
@@ -903,6 +915,7 @@ export default function CreateEvent() {
 
     // Collect all validation errors
     const errors = [];
+    errors.push(...validateEventCpdPointsConfig(cpdPointsConfig, isProgramEvent ? [] : ticketClasses));
     
     // Basic field validation
     if (!formData.title) {
@@ -3568,12 +3581,20 @@ export default function CreateEvent() {
 
             </TabsContent>
             <TabsContent value="cpd" forceMount className="data-[state=inactive]:hidden mb-6">
-              <EventCpdBadgesSection
-                eventType="simple"
-                tickets={isProgramEvent ? [] : ticketClasses}
-                value={cpdBadgeConfig}
-                onChange={setCpdBadgeConfig}
-              />
+              <div className="space-y-6">
+                <EventCpdBadgesSection
+                  eventType="simple"
+                  tickets={isProgramEvent ? [] : ticketClasses}
+                  value={cpdBadgeConfig}
+                  onChange={setCpdBadgeConfig}
+                />
+                <EventCpdPointsSection
+                  eventType="simple"
+                  tickets={isProgramEvent ? [] : ticketClasses}
+                  value={cpdPointsConfig}
+                  onChange={setCpdPointsConfig}
+                />
+              </div>
             </TabsContent>
           </Tabs>
 

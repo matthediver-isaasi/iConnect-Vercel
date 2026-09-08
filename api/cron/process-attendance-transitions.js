@@ -1,6 +1,7 @@
 import { supabase } from '../_lib/database.js';
 import { processAttendanceTransitionOutbox } from '../_lib/attendanceTransitionProcessor.js';
 import { processCpdBadgeOutbox } from '../_lib/eventCpdBadgeService.js';
+import { processCpdPointsOutbox } from '../_lib/eventCpdPointsService.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST' && req.method !== 'GET') {
@@ -15,13 +16,22 @@ export default async function handler(req, res) {
     const host = req.headers['x-forwarded-host'] || req.headers.host;
     const protocol = req.headers['x-forwarded-proto'] || 'https';
     const baseUrl = host ? `${protocol}://${host}` : undefined;
-    const result = await processAttendanceTransitionOutbox(supabase, {
-      limit: req.query?.limit,
-      baseUrl,
-    });
-    result.cpdBadges = await processCpdBadgeOutbox(supabase, {
-      limit: req.query?.limit,
-    });
+    // Start all three processors independently. A synchronous/rejected workflow
+    // processor must not prevent either CPD feature from claiming its work.
+    const [workflows, badges, points] = await Promise.allSettled([
+      processAttendanceTransitionOutbox(supabase, {
+        limit: req.query?.limit,
+        baseUrl,
+      }),
+      processCpdBadgeOutbox(supabase, { limit: req.query?.limit }),
+      processCpdPointsOutbox(supabase, { limit: req.query?.limit }),
+    ]);
+    const result = workflows.status === 'fulfilled'
+      ? workflows.value : { error: workflows.reason?.message || 'Workflow processing failed' };
+    result.cpdBadges = badges.status === 'fulfilled'
+      ? badges.value : { error: badges.reason?.message || 'CPD badge processing failed' };
+    result.cpdPoints = points.status === 'fulfilled'
+      ? points.value : { error: points.reason?.message || 'CPD points processing failed' };
     return res.status(200).json({ success: true, ...result });
   } catch (error) {
     console.error('[AttendanceTransitionOutbox] Processing failed:', error);

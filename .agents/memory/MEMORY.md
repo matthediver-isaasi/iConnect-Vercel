@@ -146,3 +146,4 @@
 - [Event-card attendee count states](event-card-attendee-count-states.md) — attendee actions show a secured number; unresolved/error states must never fall back to the old icon or a false zero.
 - [Speaker award timing lifecycle](speaker-award-timing-lifecycle.md) — badges may award on assignment, but vouchers stay event-start; removals require atomic, provenance-safe reconciliation.
 - [Event CPD badge awards](event-cpd-badge-awards.md) — resolve the attendee, treat ticket rules as whole-config overrides, and isolate grants behind their own transactional outbox.
+- [Event CPD points ledger](event-cpd-points-ledger.md) — points are signed append-only entries; ticket overrides replace the whole rule, and reversals bind to exact evidence.

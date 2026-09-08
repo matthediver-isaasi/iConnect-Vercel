@@ -6,6 +6,7 @@ import { getTenantContext, getEntityTenantScope, getTenantColumn, TENANT_SCOPE, 
 import { stripProtectedOrgBalanceFields } from '../../_lib/protectedOrgFields.js';
 import { stripMemberPauseFields } from '../../_lib/memberPause.js';
 import { isAdminOnlyEntity } from '../../_lib/adminOnlyEntities.js';
+import { rejectGenericCpdPointsEntity } from '../../_lib/cpdPointsEntityBoundary.js';
 import { isEventFamilyEntity, authorizeGroupAdminEventWrite } from '../../_lib/groupAdminEventWrite.js';
 import { checkBadgeWriteAccess } from '../../_lib/badgeAccess.js';
 import { isResourceEntity, authorizeGroupAdminResourceWrite } from '../../_lib/groupAdminResourceWrite.js';
@@ -208,6 +209,7 @@ const getTableName = (entity) => entityToTable[entity] || entity.toLowerCase().r
 export default async function handler(req, res) {
   const { entity, id } = req.query;
   console.log(`[Entity ${req.method}] Incoming request: entity="${entity}", id="${id}"`);
+  if (rejectGenericCpdPointsEntity(entity, res)) return;
   
   if (!supabase) {
     return res.status(503).json({ error: 'Supabase not configured' });

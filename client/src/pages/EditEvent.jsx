@@ -100,6 +100,8 @@ import ZoomPolls from "@/components/events/ZoomPolls";
 import AttendancePolicyEditor from "@/components/events/AttendancePolicyEditor";
 import EventCpdBadgesSection from "@/components/events/EventCpdBadgesSection";
 import { putEventCpdBadgeRules } from "@/lib/eventCpdBadgeRules";
+import EventCpdPointsSection from "@/components/events/EventCpdPointsSection";
+import { putEventCpdPointsRules, validateEventCpdPointsConfig } from "@/lib/eventCpdPointsRules";
 import TeamsMeetingConfig from "@/components/events/TeamsMeetingConfig";
 import {
   attendancePolicyPayload,
@@ -286,6 +288,7 @@ export default function EditEvent() {
   // Null means the secure rules endpoint has not hydrated yet. A quick save
   // must preserve existing rules rather than interpreting "not loaded" as empty.
   const [cpdBadgeConfig, setCpdBadgeConfig] = useState(null);
+  const [cpdPointsConfig, setCpdPointsConfig] = useState(null);
   const [expandedTickets, setExpandedTickets] = useState({});
 
   useEffect(() => {
@@ -1540,6 +1543,14 @@ export default function EditEvent() {
     // Guard against double-submit while a clash check is already running.
     if (checkingClashes) return;
 
+    if (cpdPointsConfig !== null) {
+      const cpdPointsErrors = validateEventCpdPointsConfig(cpdPointsConfig, isOneOffEvent ? ticketClasses : []);
+      if (cpdPointsErrors.length > 0) {
+        toast.error(cpdPointsErrors[0]);
+        return;
+      }
+    }
+
     // Only require program_tag for program events
     if (!isOneOffEvent && !formData.program_tag) {
       toast.error('Please select a program');
@@ -1909,13 +1920,20 @@ export default function EditEvent() {
       updateEventMutation.mutate(eventData, {
       onSuccess: async () => {
         let cpdSaveError = null;
-        try {
-          if (cpdBadgeConfig !== null) {
-            await putEventCpdBadgeRules(eventId, "simple", cpdBadgeConfig, isOneOffEvent ? ticketClasses : []);
-          }
-        } catch (cpdError) {
-          console.error("Failed to save CPD badge rules:", cpdError);
-          cpdSaveError = cpdError.message || "Unknown error";
+        const cpdSaves = [];
+        if (cpdBadgeConfig !== null) {
+          cpdSaves.push(putEventCpdBadgeRules(eventId, "simple", cpdBadgeConfig, isOneOffEvent ? ticketClasses : []));
+        }
+        if (cpdPointsConfig !== null) {
+          cpdSaves.push(putEventCpdPointsRules(eventId, "simple", cpdPointsConfig, isOneOffEvent ? ticketClasses : []));
+        }
+        const cpdResults = await Promise.allSettled(cpdSaves);
+        const cpdFailures = cpdResults
+          .filter((result) => result.status === "rejected")
+          .map((result) => result.reason?.message || "Unknown error");
+        if (cpdFailures.length > 0) {
+          console.error("Failed to save CPD rules:", cpdFailures);
+          cpdSaveError = cpdFailures.join("; ");
         }
         // Save sponsor assignments (diff-based — never wipes assignments when load failed/pending)
         try {
@@ -1985,7 +2003,7 @@ export default function EditEvent() {
           postSaveRemovalRef.current = null;
         }
         if (cpdSaveError) {
-          toast.warning(`Event updated, but CPD badge configuration could not be saved: ${cpdSaveError}`);
+          toast.warning(`Event updated, but CPD configuration could not be saved: ${cpdSaveError}`);
         } else {
           toast.success('Event updated successfully');
         }
@@ -2216,13 +2234,22 @@ export default function EditEvent() {
             </TabsList>
 
           <TabsContent value="cpd" forceMount className={TAB_PANEL_CLASS}>
-            <EventCpdBadgesSection
-              eventId={eventId}
-              eventType="simple"
-              tickets={isOneOffEvent ? ticketClasses : []}
-              value={cpdBadgeConfig}
-              onChange={setCpdBadgeConfig}
-            />
+            <div className="space-y-6">
+              <EventCpdBadgesSection
+                eventId={eventId}
+                eventType="simple"
+                tickets={isOneOffEvent ? ticketClasses : []}
+                value={cpdBadgeConfig}
+                onChange={setCpdBadgeConfig}
+              />
+              <EventCpdPointsSection
+                eventId={eventId}
+                eventType="simple"
+                tickets={isOneOffEvent ? ticketClasses : []}
+                value={cpdPointsConfig}
+                onChange={setCpdPointsConfig}
+              />
+            </div>
           </TabsContent>
 
           <TabsContent value="details" forceMount className={TAB_PANEL_CLASS}>
