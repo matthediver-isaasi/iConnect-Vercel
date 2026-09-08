@@ -154,9 +154,10 @@
             "enum": [
               "core",
               "custom",
-              "resource_category"
+              "resource_category",
+              "crm_note"
             ],
-            "description": "Whether mapping to a core field, custom preference field, or an explicit member resource category. Resource-category mappings use target_field as the tenant resource-category ID and are valid only for member targets."
+            "description": "Whether mapping to a core field, custom preference field, an explicit member resource category, or CRM Notes. CRM Notes use target_field 'notes' and are valid only inside member and organisation pipelines."
           },
           "target_entity": {
             "type": "string",

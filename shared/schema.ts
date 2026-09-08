@@ -710,12 +710,18 @@ export type RedirectMapping = typeof redirectMapping.$inferSelect;
 export const organizationNote = pgTable("organization_note", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   organization_id: varchar("organization_id").notNull(), // References organization.id
-  member_id: varchar("member_id").notNull(), // References member.id - who added the note
+  member_id: varchar("member_id"), // References member.id - who added the note; null for automated system notes
   content: text("content").notNull(), // The note text
   attachments: jsonb("attachments"), // Array of {file_url, file_name, file_size, mime_type}
+  form_submission_id: varchar("form_submission_id"),
+  form_mapping_id: varchar("form_mapping_id"),
   created_at: timestamp("created_at").defaultNow(),
   updated_at: timestamp("updated_at").defaultNow(),
-});
+}, (table) => ({
+  formMappingOnce: uniqueIndex("organization_note_form_mapping_once")
+    .on(table.form_submission_id, table.form_mapping_id)
+    .where(sql`${table.form_submission_id} is not null and ${table.form_mapping_id} is not null`),
+}));
 
 export const insertOrganizationNoteSchema = createInsertSchema(organizationNote).omit({
   id: true,
@@ -730,12 +736,33 @@ export type OrganizationNote = typeof organizationNote.$inferSelect;
 export const memberNote = pgTable("member_note", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   target_member_id: varchar("target_member_id").notNull(), // References member.id - the member the note is about
-  author_member_id: varchar("author_member_id").notNull(), // References member.id - who added the note
+  author_member_id: varchar("author_member_id"), // References member.id - who added the note; null for automated system notes
   content: text("content").notNull(), // The note text
   attachments: jsonb("attachments"), // Array of {file_url, file_name, file_size, mime_type}
+  form_submission_id: varchar("form_submission_id"),
+  form_mapping_id: varchar("form_mapping_id"),
   created_at: timestamp("created_at").defaultNow(),
   updated_at: timestamp("updated_at").defaultNow(),
-});
+}, (table) => ({
+  formMappingOnce: uniqueIndex("member_note_form_mapping_once")
+    .on(table.form_submission_id, table.form_mapping_id)
+    .where(sql`${table.form_submission_id} is not null and ${table.form_mapping_id} is not null`),
+}));
+
+export const formSubmissionPipelineEntity = pgTable("form_submission_pipeline_entity", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  tenant_id: varchar("tenant_id").notNull(),
+  form_submission_id: varchar("form_submission_id").notNull(),
+  pipeline_id: varchar("pipeline_id").notNull(),
+  entity_type: varchar("entity_type").notNull(),
+  entity_id: varchar("entity_id").notNull(),
+  created_at: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  submissionPipelineOnce: uniqueIndex("form_submission_pipeline_entity_tenant_submission_entity_pipeline_key")
+    .on(table.tenant_id, table.form_submission_id, table.entity_type, table.pipeline_id),
+  tenantSubmissionIdx: index("form_submission_pipeline_entity_tenant_submission_idx")
+    .on(table.tenant_id, table.form_submission_id),
+}));
 
 export const insertMemberNoteSchema = createInsertSchema(memberNote).omit({
   id: true,

@@ -97,6 +97,7 @@ import {
   mappingTargetKey,
   validateExplicitFallbackGroups,
 } from "../../../api/_lib/formMappingFallbacks.js";
+import { isCrmNoteSourceField } from "../../../shared/formCrmNotes.js";
 import {
   isRepeatableRowField,
   normalizeRepeatableRowField,
@@ -1573,6 +1574,9 @@ function FieldMappingSection({
               && ['category_dropdown', 'category_multiselect'].includes(selectedSourceField?.type);
             const canTargetResourceCategory = isCategorySource
               && (fixedTargetEntity || mapping.target_entity || effectiveEntity) === 'member';
+            const canTargetCrmNotes = sourceType === 'field'
+              && isCrmNoteSourceField(selectedSourceField)
+              && ['member', 'organization'].includes(fixedTargetEntity || mapping.target_entity || effectiveEntity);
             const compatibleResourceCategories = selectedSourceField?.type === 'category_dropdown'
               ? resourceCategories.filter(category => category.id === selectedSourceField.category_id)
               : selectedSourceField?.allowed_category_ids?.length > 0
@@ -1613,8 +1617,12 @@ function FieldMappingSection({
                         source_category_id: '',
                         target_type: mapping.target_type === 'resource_category' && value !== 'field'
                           ? 'core'
+                          : mapping.target_type === 'crm_note' && value !== 'field'
+                            ? 'core'
                           : mapping.target_type,
-                        target_field: mapping.target_type === 'resource_category' ? '' : mapping.target_field,
+                        target_field: ['resource_category', 'crm_note'].includes(mapping.target_type) && value !== 'field'
+                          ? ''
+                          : mapping.target_field,
                         static_value: value === 'clear' ? '__clear__' : '',
                         transformation: value === 'current_date' ? 'current_date' : 'none'
                       })}
@@ -1660,6 +1668,11 @@ function FieldMappingSection({
                               if (!['category_dropdown', 'category_multiselect'].includes(selectedField?.type)) {
                                 updates.target_type = 'core';
                               }
+                            }
+                            if (mapping.target_type === 'crm_note'
+                              && !isCrmNoteSourceField(selectedField)) {
+                              updates.target_type = 'core';
+                              updates.target_field = '';
                             }
                             updateMapping(mapping.id, updates);
                           }
@@ -1829,6 +1842,9 @@ function FieldMappingSection({
                         {canTargetResourceCategory && (
                           <SelectItem value="resource_category">Resource Category</SelectItem>
                         )}
+                        {canTargetCrmNotes && (
+                          <SelectItem value="crm_note">CRM Notes</SelectItem>
+                        )}
                       </SelectContent>
                     </Select>
                   </div>
@@ -1862,7 +1878,9 @@ function FieldMappingSection({
                   {/* Target Field */}
                   <div className="space-y-1 min-w-[140px] flex-1">
                     <Label className="text-xs">
-                      {mapping.target_type === 'communication'
+                       {mapping.target_type === 'crm_note'
+                         ? 'Destination'
+                         : mapping.target_type === 'communication'
                         ? 'Category'
                         : mapping.target_type === 'resource_category'
                           ? 'Resource Category'
@@ -1881,7 +1899,13 @@ function FieldMappingSection({
                         <SelectValue placeholder="Select..." />
                       </SelectTrigger>
                       <SelectContent>
-                        {mapping.target_type === 'core' ? (
+                        {mapping.target_type === 'crm_note' ? (
+                          <SelectItem value="notes">
+                            {(fixedTargetEntity || mapping.target_entity || effectiveEntity) === 'member'
+                              ? 'Member CRM Notes'
+                              : 'Organisation CRM Notes'}
+                          </SelectItem>
+                        ) : mapping.target_type === 'core' ? (
                           getAvailableCoreFields(mapping.target_entity).map(f => (
                             <SelectItem key={f.value} value={f.value}>{f.label}</SelectItem>
                           ))

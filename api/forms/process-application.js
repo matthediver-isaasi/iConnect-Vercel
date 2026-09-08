@@ -51,6 +51,7 @@ import {
   coalesceExplicitFallbackMappings,
   extractMappingSourceComponent,
 } from '../_lib/formMappingFallbacks.js';
+import { persistPipelineCrmNotes } from '../_lib/formCrmNotes.js';
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
@@ -847,6 +848,7 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
     });
     let authorizedSubmitter = false;
     let authenticatedSubmitterMember = null;
+    let processingActorMemberId = null;
     if (!trustedInternal) {
       try {
         const [tenantCtx, sessionMember] = await Promise.all([
@@ -855,6 +857,9 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
         ]);
         authorizedAdmin = tenantCtx?.tenantId === effectiveEntityTenantId
           && await hasAdminAccess(tenantCtx);
+        if (sessionMember?.tenant_id === effectiveEntityTenantId) {
+          processingActorMemberId = sessionMember.id;
+        }
         authorizedSubmitter = sessionMember?.tenant_id === effectiveEntityTenantId
           && String(sessionMember.email || '').trim().toLowerCase()
             === String(persistedSubmission.submitted_by_email || '').trim().toLowerCase();
@@ -959,6 +964,25 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
       // mutation authority.
       allowPersistedOrganizationGroupActions: trustedInternal,
     };
+    const persistCrmNotesForPipeline = async (entity, entityId, pipeline, authorMemberIdOverride = null) => {
+      if (!entityId || !pipeline?.mappings?.some(mapping => mapping.target_type === 'crm_note')) return;
+      let authorMemberId = authenticatedSubmitterMember?.id
+        || processingActorMemberId
+        || (entity === 'member' ? entityId : authorMemberIdOverride || persistedSubmission.created_member_id || null);
+      await persistPipelineCrmNotes({
+        db: supabase,
+        tenantId: effectiveEntityTenantId,
+        submissionId: submission_id,
+        entity,
+        entityId,
+        authorMemberId,
+        pipeline,
+        values: form_values,
+        applyTransformation,
+        hiddenFieldIds: hiddenSubmissionFieldIds,
+        formFields: fields,
+      });
+    };
     const legacyCreatedRecordIds = {
       member: new Set([persistedSubmission.created_member_id].filter(Boolean).map(String)),
       organization: new Set([persistedSubmission.created_organization_id].filter(Boolean).map(String)),
@@ -1008,17 +1032,69 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
     // member/organisation pipeline already completed. Structured actions run
     // first so a partial structured run can resume, then a prior legacy result
     // returns without replaying workflows or communication side effects.
+    let persistedPipelineEntityLinks = [];
+    const persistedPipelineTargetId = (entity, pipeline) => persistedPipelineEntityLinks
+      .find(link =>
+        link.entity_type === entity
+        && String(link.pipeline_id) === String(pipeline?.id)
+      )?.entity_id || null;
+    const persistPipelineEntityCheckpoint = async (entity, pipeline, entityId) => {
+      if (!submission_id || !pipeline?.id || !entityId) return;
+      const { error } = await supabase
+        .from('form_submission_pipeline_entity')
+        .upsert({
+          tenant_id: effectiveEntityTenantId,
+          form_submission_id: submission_id,
+          pipeline_id: String(pipeline.id),
+          entity_type: entity,
+          entity_id: entityId,
+        }, { onConflict: 'tenant_id,form_submission_id,entity_type,pipeline_id' });
+      if (error) throw error;
+      const existingIndex = persistedPipelineEntityLinks.findIndex(link =>
+        link.entity_type === entity && String(link.pipeline_id) === String(pipeline.id));
+      const checkpoint = { pipeline_id: String(pipeline.id), entity_type: entity, entity_id: entityId };
+      if (existingIndex >= 0) persistedPipelineEntityLinks[existingIndex] = checkpoint;
+      else persistedPipelineEntityLinks.push(checkpoint);
+    };
     if (submission_id) {
       const { data: existingSubmission, error: existingErr } = await supabase
         .from('form_submission')
-        .select('created_member_id, created_organization_id')
+        .select('created_member_id, created_organization_id, entity_processing_completed_at')
         .eq('id', submission_id)
         .eq('tenant_id', effectiveEntityTenantId)
         .maybeSingle();
       if (existingErr) {
         console.error('[AppProcessor] Failed to look up existing submission for idempotency:', existingErr);
       }
-      if (existingSubmission && (existingSubmission.created_member_id || existingSubmission.created_organization_id)) {
+      const { data: pipelineEntityLinks, error: pipelineEntityLinksError } = await supabase
+        .from('form_submission_pipeline_entity')
+        .select('pipeline_id, entity_type, entity_id')
+        .eq('tenant_id', effectiveEntityTenantId)
+        .eq('form_submission_id', submission_id);
+      if (pipelineEntityLinksError) throw pipelineEntityLinksError;
+      persistedPipelineEntityLinks = pipelineEntityLinks || [];
+      if (
+        (existingSubmission && (existingSubmission.created_member_id || existingSubmission.created_organization_id))
+        || existingSubmission?.entity_processing_completed_at
+      ) {
+        await persistCrmNotesForPipeline(
+          'member',
+          existingSubmission?.created_member_id,
+          memberPipelines.find(item => item.isPrimary || item.is_primary),
+        );
+        await persistCrmNotesForPipeline(
+          'organization',
+          existingSubmission?.created_organization_id,
+          resolvePrimaryOrganizationPipeline(orgPipelines),
+          existingSubmission?.created_member_id,
+        );
+        for (const additionalPipeline of memberPipelines.filter(item => !item.isPrimary && !item.is_primary)) {
+          await persistCrmNotesForPipeline(
+            'member',
+            persistedPipelineTargetId('member', additionalPipeline),
+            additionalPipeline,
+          );
+        }
         const relatedRecords = await processPrimaryPipelineRelatedRecords({
           db: supabase,
           tenantId: effectiveEntityTenantId,
@@ -1129,6 +1205,18 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
           // Add tenant filtering
           if (effectiveTenantId) {
             query = query.eq('tenant_id', effectiveTenantId);
+          }
+          // A retry may encounter an entity created by this exact submission
+          // before a later pipeline failed. Exclude only the tenant-scoped,
+          // server-owned checkpoint targets for the entity being checked;
+          // any unrelated row with the same value still counts as a conflict.
+          const replayTargetIds = new Set(
+            persistedPipelineEntityLinks
+              .filter(link => link.entity_type === tableName && link.entity_id)
+              .map(link => String(link.entity_id)),
+          );
+          for (const replayTargetId of replayTargetIds) {
+            query = query.neq('id', replayTargetId);
           }
           
           const { count } = await query;
@@ -2017,7 +2105,10 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
       }
       
       if (existingOrg) {
-        assertLegacyExistingRecordAuthorized('organization', existingOrg.id);
+        const primaryOrgPipeline = resolvePrimaryOrganizationPipeline(orgPipelines);
+        if (String(persistedPipelineTargetId('organization', primaryOrgPipeline) || '') !== String(existingOrg.id)) {
+          assertLegacyExistingRecordAuthorized('organization', existingOrg.id);
+        }
         // Organization exists
         if (orgAction === 'create') {
           // Create mode but org exists - skip creation, use existing ID
@@ -2223,6 +2314,11 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
           });
         }
       }
+      await persistPipelineEntityCheckpoint(
+        'organization',
+        resolvePrimaryOrganizationPipeline(orgPipelines),
+        createdOrganizationId,
+      );
       
       // Trigger workflow evaluation for newly created organization (AFTER custom fields are saved)
       // Must await to ensure completion before Vercel terminates the function
@@ -2290,7 +2386,10 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
       }
       
       if (existingMember) {
-        assertLegacyExistingRecordAuthorized('member', existingMember.id);
+        const primaryMemberPipeline = memberPipelines.find(item => item.isPrimary || item.is_primary);
+        if (String(persistedPipelineTargetId('member', primaryMemberPipeline) || '') !== String(existingMember.id)) {
+          assertLegacyExistingRecordAuthorized('member', existingMember.id);
+        }
         // Member exists
         if (memberAction === 'create') {
           // Create mode but member exists - skip creation, use existing ID
@@ -2705,7 +2804,11 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
           });
         }
       }
-
+      await persistPipelineEntityCheckpoint(
+        'member',
+        memberPipelines.find(item => item.isPrimary || item.is_primary),
+        createdMemberId,
+      );
       // Task 3196: trigger record_create workflows for the newly created
       // member AFTER its custom-field values are saved, so member_custom
       // conditions evaluate against this submission's values.
@@ -2976,6 +3079,7 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
     }
     
     const additionalMemberIds = [];
+    const additionalMemberPipelineTargets = new Map();
     if (memberCreationConfigs.length > 0) {
       console.log('[AppProcessor] Processing member creations:', memberCreationConfigs.length);
       
@@ -3230,7 +3334,10 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
         }
         
         if (existingMemberId) {
-          assertLegacyExistingRecordAuthorized('member', existingMemberId);
+          const checkpointMemberId = persistedPipelineTargetId('member', memberConfig);
+          if (String(checkpointMemberId || '') !== String(existingMemberId)) {
+            assertLegacyExistingRecordAuthorized('member', existingMemberId);
+          }
           // UPDATE existing member - merge fields, don't clear unless explicitly requested
 
           // Cross-tenant guard: if the additional-member pipeline carries a
@@ -3331,6 +3438,7 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
             
             if (updateError) {
               console.error('[AppProcessor] Failed to update additional member:', updateError);
+              throw updateError;
             } else if (additionalUpdateBlocked) {
               // Tenant guard filtered the row out — fail loudly, never
               // treat as success.
@@ -3477,7 +3585,7 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
           
           if (memberError) {
             console.error('[AppProcessor] Failed to create additional member:', memberError);
-            continue;
+            throw memberError;
           }
           
           existingMemberId = newMember.id;
@@ -3588,6 +3696,10 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
         // Category mappings are association writes, not member columns.  Run
         // after both create and update resolve the member id.
         await persistMappedMemberResourceCategories(existingMemberId, memberConfig);
+        if (submission_id && memberConfig.id && existingMemberId) {
+          await persistPipelineEntityCheckpoint('member', memberConfig, existingMemberId);
+          additionalMemberPipelineTargets.set(String(memberConfig.id), existingMemberId);
+        }
 
         // Task 3196: trigger record_create workflows for a newly created
         // additional member AFTER its custom-field values are saved, so
@@ -3634,9 +3746,12 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
     // silently. Dropping the bogus column lets the legitimate fields
     // (created_member_id, created_organization_id, organization_id, and
     // processing_notes) actually persist.
-    if (submission_id && (createdMemberId || createdOrganizationId || structuredMemberId || structuredOrganizationId || prefill_organization_id || processingNotes.length > 0 || structuredActionResult)) {
+    const needsSubmissionLinkageUpdate = !!submission_id;
+    let submissionLinkagePersisted = !submission_id;
+    if (needsSubmissionLinkageUpdate) {
       const finalOrganizationId = createdOrganizationId || structuredOrganizationId || prefill_organization_id || null;
       const updatePayload = {};
+      updatePayload.entity_processing_completed_at = new Date().toISOString();
       if (createdMemberId || structuredMemberId) updatePayload.created_member_id = createdMemberId || structuredMemberId;
       if (createdOrganizationId || structuredOrganizationId) updatePayload.created_organization_id = createdOrganizationId || structuredOrganizationId;
       if (finalOrganizationId) updatePayload.organization_id = finalOrganizationId;
@@ -3661,8 +3776,30 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
         .eq('id', submission_id);
       if (subUpdateErr) {
         console.error('[AppProcessor] Failed to update form_submission with processing notes/links:', subUpdateErr);
+        throw subUpdateErr;
       } else {
+        submissionLinkagePersisted = true;
         console.log(`[AppProcessor] form_submission ${submission_id} updated with ${processingNotes.length} processing note(s).`);
+      }
+    }
+    if (submissionLinkagePersisted && submission_id) {
+      await persistCrmNotesForPipeline(
+        'member',
+        resolvedMemberId,
+        memberPipelines.find(item => item.isPrimary || item.is_primary),
+      );
+      await persistCrmNotesForPipeline(
+        'organization',
+        resolvedOrganizationId,
+        resolvePrimaryOrganizationPipeline(orgPipelines),
+        resolvedMemberId,
+      );
+      for (const additionalPipeline of memberPipelines.filter(item => !item.isPrimary && !item.is_primary)) {
+        await persistCrmNotesForPipeline(
+          'member',
+          additionalMemberPipelineTargets.get(String(additionalPipeline.id)),
+          additionalPipeline,
+        );
       }
     }
 

@@ -26,8 +26,9 @@ async function verifyAdminAccess(req) {
   try {
     const { data: role, error: roleError } = await supabase
       .from('role')
-      .select('excluded_features')
+      .select('excluded_features, tenant_id')
       .eq('id', sessionMember.role_id)
+      .eq('tenant_id', sessionMember.tenant_id)
       .single();
 
     if (roleError || !role) {
@@ -38,7 +39,7 @@ async function verifyAdminAccess(req) {
     const isAdmin = !isResourceExcluded(excludedFeatures, 'admin.role-management');
     
     if (isAdmin) {
-      return { hasAccess: true, memberId: sessionMember.id, memberName: `${sessionMember.first_name || ''} ${sessionMember.last_name || ''}`.trim() || sessionMember.email };
+      return { hasAccess: true, memberId: sessionMember.id, tenantId: sessionMember.tenant_id, memberName: `${sessionMember.first_name || ''} ${sessionMember.last_name || ''}`.trim() || sessionMember.email };
     }
 
     return { hasAccess: false, memberId: sessionMember.id };
@@ -58,7 +59,7 @@ export default async function handler(req, res) {
     return res.status(200).end();
   }
 
-  const { hasAccess, error, memberId, memberName } = await verifyAdminAccess(req);
+  const { hasAccess, error, memberId, tenantId, memberName } = await verifyAdminAccess(req);
 
   if (error) {
     return res.status(401).json({ error });
@@ -73,6 +74,14 @@ export default async function handler(req, res) {
   }
 
   const { memberId: targetMemberId } = req.query;
+  const { data: targetMember, error: targetError } = await supabase
+    .from('member')
+    .select('id')
+    .eq('id', targetMemberId)
+    .eq('tenant_id', tenantId)
+    .maybeSingle();
+  if (targetError) return res.status(500).json({ error: targetError.message });
+  if (!targetMember) return res.status(404).json({ error: 'Member not found' });
 
   if (req.method === 'GET') {
     try {
@@ -94,6 +103,7 @@ export default async function handler(req, res) {
         const { data: members } = await supabase
           .from('member')
           .select('id, first_name, last_name, email')
+          .eq('tenant_id', tenantId)
           .in('id', authorIds);
         
         if (members) {
@@ -106,7 +116,8 @@ export default async function handler(req, res) {
 
       const notesWithNames = notes.map(note => ({
         ...note,
-        author_name: authorMap[note.author_member_id] || 'Unknown'
+        author_name: authorMap[note.author_member_id]
+          || (note.form_submission_id ? 'Automated form submission' : 'Unknown')
       }));
 
       return res.json(notesWithNames);

@@ -70,6 +70,11 @@ function makeSupabase({ form, submission, existingOrganization = null }) {
       inserts.push({ table: this.table, payload });
       return this;
     }
+    upsert(payload) {
+      this.insertPayload = payload;
+      inserts.push({ table: this.table, payload });
+      return this;
+    }
     update(payload) {
       this.updatePayload = payload;
       updates.push({ table: this.table, payload });
