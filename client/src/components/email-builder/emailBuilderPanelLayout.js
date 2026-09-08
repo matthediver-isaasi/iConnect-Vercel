@@ -1,4 +1,5 @@
 const PANEL_WIDTH = 320;
+export const LAYERS_PANEL_WIDTH = 384;
 const MIN_PANEL_WIDTH = 240;
 const MIN_CANVAS_WIDTH = 240;
 const PALETTE_WIDTH = 256;
@@ -14,13 +15,17 @@ export function getEmailBuilderPanelLayout({
   const showPalette = compactPaletteOpen || (width >= PALETTE_BREAKPOINT && !propertiesExpanded);
   const paletteWidth = showPalette ? PALETTE_WIDTH : 0;
   const availableForPanels = Math.max(0, width - paletteWidth - MIN_CANVAS_WIDTH);
-  const panelCount = layersOpen ? 2 : 1;
   const normalPanelWidth = Math.min(
     PANEL_WIDTH,
-    Math.max(MIN_PANEL_WIDTH, availableForPanels / panelCount),
+    Math.max(MIN_PANEL_WIDTH, availableForPanels),
   );
 
-  const layersWidth = layersOpen ? normalPanelWidth : 0;
+  const layersWidth = layersOpen
+    ? Math.min(
+        LAYERS_PANEL_WIDTH,
+        Math.max(MIN_PANEL_WIDTH, availableForPanels - MIN_PANEL_WIDTH),
+      )
+    : 0;
   const desiredPropertiesWidth = propertiesExpanded ? PANEL_WIDTH * 2 : PANEL_WIDTH;
   const propertiesWidth = Math.min(
     desiredPropertiesWidth,

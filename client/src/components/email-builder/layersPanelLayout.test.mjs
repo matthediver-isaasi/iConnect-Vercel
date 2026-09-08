@@ -1,7 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { getEmailBuilderPanelLayout } from './emailBuilderPanelLayout.js';
+import {
+  getEmailBuilderPanelLayout,
+  LAYERS_PANEL_WIDTH,
+} from './emailBuilderPanelLayout.js';
 
 const source = await readFile(
   new URL('./LayersPanel.jsx', import.meta.url),
@@ -48,7 +51,7 @@ test('column-child rows constrain long labels without losing delete controls', (
   );
 });
 
-test('constrained editor reserves separate, non-overlapping panel bounds', () => {
+test('Layers reserves a wider dedicated pane in every Properties mode', () => {
   for (const propertiesExpanded of [false, true]) {
     const layout = getEmailBuilderPanelLayout({
       editorWidth: 900,
@@ -62,7 +65,11 @@ test('constrained editor reserves separate, non-overlapping panel bounds', () =>
       right: layout.layersWidth + layout.propertiesWidth,
     };
 
-    assert.ok(layout.layersWidth >= 240, 'Layers remains usable at constrained widths');
+    assert.equal(
+      layout.layersWidth,
+      LAYERS_PANEL_WIDTH,
+      'Layers keeps the width required by nested labels and all row actions',
+    );
     assert.ok(layout.propertiesWidth >= 240, 'Properties remains usable at constrained widths');
     assert.equal(
       layers.right,
@@ -71,6 +78,36 @@ test('constrained editor reserves separate, non-overlapping panel bounds', () =>
     );
     assert.equal(layout.railWidth, properties.right);
   }
+});
+
+test('Layers content and controls reserve space before the scrollbar gutter', () => {
+  assert.match(
+    source,
+    /className="min-w-0 py-2 pl-2 pr-4 space-y-1"\s*data-testid="layers-scroll-content"/,
+    'the scroll content must reserve a 16px right inset for the scrollbar',
+  );
+
+  const pane = { left: 0, right: LAYERS_PANEL_WIDTH };
+  const scrollbarGutter = { left: pane.right - 12, right: pane.right };
+  const usableContent = { left: 8, right: pane.right - 16 };
+  const deepestRowIndent = 40;
+  const fixedLeadingControls = 20 + 16;
+  const actionSetWidth = 3 * 18;
+  const minimumLabelWidth = 64;
+  const deleteControl = {
+    left: usableContent.right - 18,
+    right: usableContent.right,
+  };
+
+  assert.ok(
+    usableContent.right - usableContent.left
+      >= deepestRowIndent + fixedLeadingControls + actionSetWidth + minimumLabelWidth,
+    'deeply indented rows retain label and action space',
+  );
+  assert.ok(
+    deleteControl.right <= scrollbarGutter.left,
+    'the rightmost delete control stays clear of the scrollbar gutter',
+  );
 });
 
 test('opening and closing Layers changes reserved rail space', () => {
@@ -86,7 +123,7 @@ test('opening and closing Layers changes reserved rail space', () => {
   });
 
   assert.equal(closed.layersWidth, 0);
-  assert.ok(open.layersWidth > 0);
+  assert.equal(open.layersWidth, LAYERS_PANEL_WIDTH);
   assert.equal(open.railWidth, open.layersWidth + open.propertiesWidth);
   assert.ok(open.railWidth > closed.railWidth);
 });
@@ -101,6 +138,28 @@ test('expanded Properties uses available width without entering Layers bounds', 
   assert.equal(layout.showPalette, false, 'surrounding palette collapses before either right panel');
   assert.ok(layout.propertiesWidth > layout.layersWidth);
   assert.ok(layout.railWidth <= 1200, 'the canvas keeps its minimum editing width');
+});
+
+test('Properties begins after the scrollbar-safe Layers content in all panel modes', () => {
+  for (const editorWidth of [900, 1100, 1440]) {
+    for (const propertiesExpanded of [false, true]) {
+      const layout = getEmailBuilderPanelLayout({
+        editorWidth,
+        layersOpen: true,
+        propertiesExpanded,
+      });
+      const usableLayersRight = layout.layersWidth - 16;
+      const scrollbarRight = layout.layersWidth;
+      const propertiesLeft = layout.layersWidth;
+
+      assert.ok(usableLayersRight < scrollbarRight);
+      assert.equal(
+        scrollbarRight,
+        propertiesLeft,
+        `Properties must start outside Layers at ${editorWidth}px`,
+      );
+    }
+  }
 });
 
 test('the block palette remains reachable whenever responsive layout collapses it', () => {

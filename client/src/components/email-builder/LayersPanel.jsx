@@ -521,8 +521,11 @@ export default function LayersPanel({
           </Button>
         )}
       </div>
-      <ScrollArea className="flex-1">
-        <div className="min-w-0 p-2 space-y-1">
+      <ScrollArea className="flex-1" data-testid="layers-scroll-area">
+        <div
+          className="min-w-0 py-2 pl-2 pr-4 space-y-1"
+          data-testid="layers-scroll-content"
+        >
           <DndContext
             sensors={sensors}
             collisionDetection={closestCenter}
