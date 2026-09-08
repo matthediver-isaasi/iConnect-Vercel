@@ -1940,6 +1940,7 @@ function customResolverFixture({
   };
   const ledger = new Map();
   let failNewLink = false;
+  let busyRecordIdentity = null;
   class Query {
     constructor(table) {
       this.table = table; this.filters = []; this.nulls = []; this.containsFilters = [];
@@ -2007,18 +2008,30 @@ function customResolverFixture({
     rpc: async (name, input) => {
       const key = `${input.p_action_id}:${input.p_row_identity}`;
       if (name === 'claim_form_structured_action') {
+        if (busyRecordIdentity && input.p_row_identity.includes(busyRecordIdentity)) {
+          return { data: { claimed: false }, error: null };
+        }
         const prior = ledger.get(key);
+        if (prior?.fingerprint && prior.fingerprint !== input.p_fingerprint) {
+          return { data: null, error: new Error('fingerprint drift') };
+        }
+        if (!prior) ledger.set(key, { status: 'processing', fingerprint: input.p_fingerprint });
         return { data: prior?.status === 'completed'
           ? { ...prior, claimed: false }
           : { claimed: true, claim_token: key, record_id: `reserved-${input.p_row_identity}` }, error: null };
       }
-      ledger.set(key, { status: input.p_status, record_id: input.p_record_id });
+      ledger.set(key, {
+        ...ledger.get(key),
+        status: input.p_status,
+        record_id: input.p_record_id,
+      });
       return { data: null, error: null };
     },
   };
   return {
     tenantId, objectId, definition, picker, form, submission, store, ledger, db,
     setFailNewLink(value) { failNewLink = value; },
+    setBusyRecordIdentity(value) { busyRecordIdentity = value; },
   };
 }
 
@@ -2046,6 +2059,201 @@ test('trusted non-admin processing resolves selected and Not-listed Custom Objec
       result.outcomes.map(outcome => outcome.record_reference));
     assert.equal(fixture.store.custom_object_record.length, 2);
   }
+});
+
+test('fans out a multi-record picker with stable item retries and collection relationship output', async () => {
+  const fixture = customResolverFixture({ includeLink: true });
+  const resolver = fixture.form.structured_actions.actions[0];
+  resolver.operation = 'resolve_record_references';
+  fixture.picker.selection_mode = 'multiple';
+  fixture.submission.submission_data.rows[0].department = [
+    'department-existing',
+    'department-second',
+  ];
+  fixture.submission.submission_data.rows[1].department = [FORM_NOT_LISTED_VALUE];
+  fixture.store.custom_object_record.push({
+    id: 'department-second',
+    tenant_id: fixture.tenantId,
+    custom_object_id: fixture.objectId,
+    archived_at: null,
+    data: { name: 'Second' },
+  });
+  fixture.store.custom_object_relationship.push({
+    id: 'edge-second',
+    tenant_id: fixture.tenantId,
+    relationship_definition_id: fixture.definition.id,
+    source_record_id: 'department-second',
+    target_record_id: 'org-a',
+    archived_at: null,
+  });
+
+  const first = await processPersistedStructuredActions({
+    db: fixture.db,
+    formId: fixture.form.id,
+    submissionId: fixture.submission.id,
+    tenantId: fixture.tenantId,
+    authorization: { isAdmin: true, allowPersistedRecordReferenceWrites: true },
+  });
+  assert.equal(first.success, true, JSON.stringify(first.outcomes));
+  const resolverOutcomes = first.outcomes.filter(outcome => outcome.action_id === resolver.id);
+  assert.equal(resolverOutcomes.length, 3);
+  assert.ok(resolverOutcomes.every(outcome => outcome.record_reference?.kind === 'custom_object'));
+  assert.equal(new Set(resolverOutcomes.map(outcome => outcome.invocation_key)).size, 3);
+  assert.deepEqual(fixture.store.custom_object_relationship.map(edge => [
+    edge.source_record_id, edge.target_record_id,
+  ]), [
+    ['department-existing', 'org-a'],
+    ['department-second', 'org-a'],
+    [resolverOutcomes.find(outcome => outcome.operation === 'created').record_id, 'org-b'],
+  ]);
+
+  fixture.submission.submission_data.rows[0].department.reverse();
+  fixture.submission.processing_notes = [];
+  const retry = await processPersistedStructuredActions({
+    db: fixture.db,
+    formId: fixture.form.id,
+    submissionId: fixture.submission.id,
+    tenantId: fixture.tenantId,
+    authorization: { isAdmin: true, allowPersistedRecordReferenceWrites: true },
+  });
+  assert.equal(retry.success, true, JSON.stringify(retry.outcomes));
+  assert.ok(retry.outcomes.every(outcome => outcome.status === 'already_completed'));
+  assert.equal(fixture.store.custom_object_record.length, 3);
+  assert.equal(fixture.store.custom_object_relationship.length, 3);
+});
+
+test('blocks a relationship until every multi-reference item has completed', async () => {
+  const fixture = customResolverFixture({ includeLink: true });
+  const resolver = fixture.form.structured_actions.actions[0];
+  const link = fixture.form.structured_actions.actions[1];
+  const linkDefinition = {
+    ...fixture.definition,
+    id: 'department-organization-fanout',
+  };
+  fixture.store.custom_object_relationship_definition.push(linkDefinition);
+  link.relationship_definition_id = linkDefinition.id;
+  resolver.operation = 'resolve_record_references';
+  fixture.picker.selection_mode = 'multiple';
+  fixture.submission.submission_data.rows[0].department = [
+    'department-existing',
+    'department-second',
+  ];
+  fixture.submission.submission_data.rows[1]._deleted = true;
+  fixture.store.custom_object_record.push({
+    id: 'department-second',
+    tenant_id: fixture.tenantId,
+    custom_object_id: fixture.objectId,
+    archived_at: null,
+    data: { name: 'Second' },
+  });
+  fixture.store.custom_object_relationship.push({
+    id: 'edge-second-picker',
+    tenant_id: fixture.tenantId,
+    relationship_definition_id: fixture.definition.id,
+    source_record_id: 'department-second',
+    target_record_id: 'org-a',
+    archived_at: null,
+  });
+  fixture.setBusyRecordIdentity('record:department-second');
+
+  const partial = await processPersistedStructuredActions({
+    db: fixture.db,
+    formId: fixture.form.id,
+    submissionId: fixture.submission.id,
+    tenantId: fixture.tenantId,
+    authorization: { isAdmin: true, allowPersistedRecordReferenceWrites: true },
+  });
+  assert.equal(partial.success, false);
+  assert.equal(
+    fixture.store.custom_object_relationship.filter(
+      edge => edge.relationship_definition_id === linkDefinition.id,
+    ).length,
+    0,
+  );
+  assert.match(
+    partial.outcomes.find(outcome => outcome.action_id === 'link-department').error,
+    /incomplete record items/,
+  );
+
+  fixture.setBusyRecordIdentity(null);
+  const retry = await processPersistedStructuredActions({
+    db: fixture.db,
+    formId: fixture.form.id,
+    submissionId: fixture.submission.id,
+    tenantId: fixture.tenantId,
+    authorization: { isAdmin: true, allowPersistedRecordReferenceWrites: true },
+  });
+  assert.equal(retry.success, true, JSON.stringify(retry.outcomes));
+  assert.deepEqual(
+    fixture.store.custom_object_relationship
+      .filter(edge => edge.relationship_definition_id === linkDefinition.id)
+      .map(edge => edge.source_record_id),
+    ['department-existing', 'department-second'],
+  );
+});
+
+test('does not claim a relationship while a scalar action-output dependency is incomplete', async () => {
+  const fixture = customResolverFixture({ includeLink: true });
+  fixture.submission.submission_data.rows[1]._deleted = true;
+  fixture.setBusyRecordIdentity('row-a');
+
+  const partial = await processPersistedStructuredActions({
+    db: fixture.db,
+    formId: fixture.form.id,
+    submissionId: fixture.submission.id,
+    tenantId: fixture.tenantId,
+    authorization: { isAdmin: true, allowPersistedRecordReferenceWrites: true },
+  });
+  assert.equal(partial.success, false);
+  assert.equal(
+    [...fixture.ledger.keys()].some(key => key.startsWith('link-department:')),
+    false,
+  );
+
+  fixture.setBusyRecordIdentity(null);
+  const retry = await processPersistedStructuredActions({
+    db: fixture.db,
+    formId: fixture.form.id,
+    submissionId: fixture.submission.id,
+    tenantId: fixture.tenantId,
+    authorization: { isAdmin: true, allowPersistedRecordReferenceWrites: true },
+  });
+  assert.equal(retry.success, true, JSON.stringify(retry.outcomes));
+  assert.equal(
+    [...fixture.ledger.keys()].some(key => key.startsWith('link-department:')),
+    true,
+  );
+});
+
+test('rejects two record collections as relationship endpoints before execution', () => {
+  const fixture = customResolverFixture();
+  const resolver = fixture.form.structured_actions.actions[0];
+  resolver.operation = 'resolve_record_references';
+  fixture.picker.selection_mode = 'multiple';
+  const other = { ...structuredClone(resolver), id: 'resolve-other' };
+  const link = {
+    id: 'link-two-collections',
+    source: resolver.source,
+    operation: 'link_relationship',
+    relationship_definition_id: 'relationship-two-collections',
+    source_endpoint: {
+      kind: 'custom_object',
+      custom_object_id: fixture.objectId,
+      source: { type: 'action_output', action_id: resolver.id },
+    },
+    target_endpoint: {
+      kind: 'custom_object',
+      custom_object_id: fixture.objectId,
+      source: { type: 'action_output', action_id: other.id },
+    },
+  };
+  assert.throws(() => validateStructuredActionsContract({
+    version: 1,
+    actions: [resolver, other, link],
+  }, fixture.form.fields), error => {
+    assert.match(error.details.join(' '), /cannot use record collections for both relationship endpoints/);
+    return true;
+  });
 });
 
 test('Custom Object scalar identities accept email, number, and date then defer typed validation to the service', async () => {

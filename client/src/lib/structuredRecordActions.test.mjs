@@ -66,6 +66,7 @@ test('builder distinguishes Organisation Group hierarchy assignment from Data St
 test('builder and schema expose metadata-driven record-reference resolution', () => {
   const action = schema.properties.structured_actions.properties.actions.items;
   assert.ok(action.properties.operation.enum.includes('resolve_record_reference'));
+  assert.ok(action.properties.operation.enum.includes('resolve_record_references'));
   assert.ok(action.properties.reference_field_id);
   assert.ok(action.properties.identity_mapping);
   assert.ok(action.properties.companion_mappings);
@@ -79,6 +80,8 @@ test('builder and schema expose metadata-driven record-reference resolution', ()
   assert.match(builder, /select-action-reference-identity-/);
   assert.match(builder, /Companion field mappings/);
   assert.match(builder, /compatible single-record picker/);
+  assert.match(builder, /Resolve several record references/);
+  assert.match(builder, /canonical collection/);
   assert.match(builder, /select-action-not-listed-operation-/);
   assert.match(builder, /Create a new record/);
   assert.match(builder, /Reuse or create by identity/);

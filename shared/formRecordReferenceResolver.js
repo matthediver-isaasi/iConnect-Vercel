@@ -6,6 +6,7 @@ import {
 } from './formRelationshipSelection.js';
 
 export const RESOLVE_RECORD_REFERENCE_OPERATION = 'resolve_record_reference';
+export const RESOLVE_RECORD_REFERENCES_OPERATION = 'resolve_record_references';
 export const RECORD_REFERENCE_IDENTITY_SOURCE = 'not_listed_text';
 export const NOT_LISTED_RECORD_OPERATIONS = Object.freeze(['create', 'upsert']);
 // Scalar Custom Object identity destinations supported by both the builder's
@@ -54,13 +55,15 @@ export function recordReferenceTargetMatches(capability, target) {
       || String(capability.target.custom_object_id || '') === String(target.custom_object_id || ''));
 }
 
-export function recordReferencePickerCompatibility(field, target) {
+export function recordReferencePickerCompatibility(field, target, expectedCardinality = RELATIONSHIP_SELECTION_SINGLE) {
   const capability = recordReferencePickerCapability(field);
   if (!capability) {
     return { compatible: false, code: 'unsupported_picker', message: 'This field is not a record-backed picker.' };
   }
-  if (capability.selection_cardinality !== RELATIONSHIP_SELECTION_SINGLE) {
-    return { compatible: false, code: 'multiple_selection', message: 'Resolve record reference supports single-record pickers only.' };
+  if (capability.selection_cardinality !== expectedCardinality) {
+    return expectedCardinality === RELATIONSHIP_SELECTION_SINGLE
+      ? { compatible: false, code: 'multiple_selection', message: 'Resolve record reference supports single-record pickers only.' }
+      : { compatible: false, code: 'single_selection', message: 'Resolve several record references supports multi-record pickers only.' };
   }
   if (!capability.target) {
     return { compatible: false, code: 'ambiguous_target', message: 'This picker does not declare an authoritative record target.' };
@@ -81,17 +84,25 @@ export function recordReferenceSourceFields(fields, source = {}) {
   return container ? repeatableRowChildren(container) : [];
 }
 
-export function compatibleRecordReferencePickers(fields, source, target) {
+export function compatibleRecordReferencePickers(
+  fields,
+  source,
+  target,
+  expectedCardinality = RELATIONSHIP_SELECTION_SINGLE,
+) {
   return recordReferenceSourceFields(fields, source)
-    .filter(field => recordReferencePickerCompatibility(field, target).compatible);
+    .filter(field => recordReferencePickerCompatibility(field, target, expectedCardinality).compatible);
 }
 
 export function recordReferenceConfigurationWarning(action, fields) {
-  if (action?.operation !== RESOLVE_RECORD_REFERENCE_OPERATION) return '';
+  if (![RESOLVE_RECORD_REFERENCE_OPERATION, RESOLVE_RECORD_REFERENCES_OPERATION].includes(action?.operation)) return '';
   const candidates = recordReferenceSourceFields(fields, action.source);
   const selected = candidates.find(field => String(field?.id) === String(action.reference_field_id));
   if (!selected) return 'Select a record-backed picker from this action scope.';
-  const compatibility = recordReferencePickerCompatibility(selected, action.target);
+  const expectedCardinality = action.operation === RESOLVE_RECORD_REFERENCES_OPERATION
+    ? 'multiple'
+    : RELATIONSHIP_SELECTION_SINGLE;
+  const compatibility = recordReferencePickerCompatibility(selected, action.target, expectedCardinality);
   if (!compatibility.compatible) return compatibility.message;
   if (!action.identity_mapping?.target_field_id) {
     return 'Map the picker Not listed text to an identity field.';

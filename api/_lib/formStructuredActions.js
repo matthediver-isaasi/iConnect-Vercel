@@ -23,6 +23,7 @@ import {
 import { isRelationshipMultiSelect } from '../../shared/formRelationshipSelection.js';
 import {
   RECORD_REFERENCE_CUSTOM_IDENTITY_FIELD_TYPES,
+  RESOLVE_RECORD_REFERENCES_OPERATION,
   recordReferencePickerCapability,
   recordReferencePickerCompatibility,
 } from '../../shared/formRecordReferenceResolver.js';
@@ -34,7 +35,7 @@ const ENTITY_ALIASES = {
   organisation_group: 'organization_group',
 };
 const ENTITIES = new Set(['member', 'organization', 'organization_group', 'custom_object']);
-const OPERATIONS = new Set(['create', 'update_selected', 'upsert', 'link_relationship', 'resolve_record_reference']);
+const OPERATIONS = new Set(['create', 'update_selected', 'upsert', 'link_relationship', 'resolve_record_reference', RESOLVE_RECORD_REFERENCES_OPERATION]);
 const CORE_COLUMNS = {
   member: new Set(['email', 'first_name', 'last_name', 'job_title', 'mobile', 'landline', 'organization_id', 'role_id', 'login_enabled', 'show_in_directory']),
   organization: new Set(['name', 'description', 'logo_url', 'invoicing_email', 'invoicing_address', 'phone', 'website_url', 'email', 'address', 'tags', 'organization_group_id']),
@@ -102,7 +103,7 @@ const operationName = (action) => {
   return value === 'update_selected' ? 'update' : value;
 };
 const actionMappings = (action) => {
-  if (action?.operation === 'resolve_record_reference'
+  if (['resolve_record_reference', RESOLVE_RECORD_REFERENCES_OPERATION].includes(action?.operation)
     && (action?.identity_mapping || Array.isArray(action?.companion_mappings))) {
     return [
       ...(action?.identity_mapping ? [action.identity_mapping] : []),
@@ -115,7 +116,8 @@ const repeatableId = (action) => action?.source?.repeatable_field_id || action?.
 const actionObjectId = (action) => action?.target?.custom_object_id || action?.custom_object_id || action?.target_custom_object_id || null;
 const targetField = (mapping) => mapping?.target_field_id || mapping?.target_field;
 const isRelationshipAction = (action) => action?.operation === 'link_relationship';
-const isRecordReferenceAction = (action) => action?.operation === 'resolve_record_reference';
+const isRecordReferenceAction = (action) => ['resolve_record_reference', RESOLVE_RECORD_REFERENCES_OPERATION].includes(action?.operation);
+const isMultiRecordReferenceAction = (action) => action?.operation === RESOLVE_RECORD_REFERENCES_OPERATION;
 const recordReferenceFieldId = (action) => action?.record_reference_field_id
   || action?.reference_field_id
   || action?.selector_field_id
@@ -282,6 +284,7 @@ export function validateStructuredActionsContract(input, fields = []) {
       }
       if (!action?.relationship_definition_id) errors.push(`${prefix}.relationship_definition_id is required`);
       if (actionMappings(action).length) errors.push(`${prefix}.mappings are not allowed for link_relationship`);
+      let collectionEndpointCount = 0;
       for (const [side, endpoint] of Object.entries(relationshipEndpoints(action))) {
         const ep = `${prefix}.${side}_endpoint`;
         const descriptor = endpointDescriptor(endpoint);
@@ -320,6 +323,7 @@ export function validateStructuredActionsContract(input, fields = []) {
           if (!dependency || isRelationshipAction(dependency)) {
             errors.push(`${ep}.source.action_id must identify an earlier record action`);
           } else {
+            if (isMultiRecordReferenceAction(dependency)) collectionEndpointCount += 1;
             const dependencyScope = dependency?.source?.scope;
             if (dependencyScope !== sourceScope
               || (sourceScope === 'repeatable_row'
@@ -334,6 +338,9 @@ export function validateStructuredActionsContract(input, fields = []) {
           }
         }
       }
+      if (collectionEndpointCount > 1) {
+        errors.push(`${prefix} cannot use record collections for both relationship endpoints`);
+      }
       priorActions.set(id, action);
       continue;
     }
@@ -342,7 +349,8 @@ export function validateStructuredActionsContract(input, fields = []) {
       const selectorId = recordReferenceFieldId(action);
       const selector = sourceFields.find(field => String(field?.id) === String(selectorId));
       const capability = recordReferenceFieldCapability(selector);
-      const compatibility = recordReferencePickerCompatibility(selector, action?.target);
+      const expectedCardinality = isMultiRecordReferenceAction(action) ? 'multiple' : 'single';
+      const compatibility = recordReferencePickerCompatibility(selector, action?.target, expectedCardinality);
       if (!selectorId) errors.push(`${prefix}.record_reference_field_id is required`);
       if (!capability || compatibility.code === 'unsupported_picker'
         || compatibility.code === 'ambiguous_target') {
@@ -350,6 +358,9 @@ export function validateStructuredActionsContract(input, fields = []) {
       } else {
         if (compatibility.code === 'multiple_selection') {
           errors.push(`${prefix}.record_reference_field_id must use a single-record picker`);
+        }
+        if (compatibility.code === 'single_selection') {
+          errors.push(`${prefix}.record_reference_field_id must use a multi-record picker`);
         }
         if (compatibility.code === 'not_listed_disabled') {
           errors.push(`${prefix}.record_reference_field_id must have an enabled labelled Not listed choice`);
@@ -424,6 +435,8 @@ export function validateStructuredActionsContract(input, fields = []) {
         } else if (!dependency || isRelationshipAction(dependency)
           || entityName(dependency) !== 'organization_group') {
           errors.push(`${prefix}.organization_group_source.action_id must identify an earlier Organisation Group record action`);
+        } else if (isMultiRecordReferenceAction(dependency)) {
+          errors.push(`${prefix}.organization_group_source.action_id cannot use a record collection`);
         } else {
           const dependencyScope = dependency?.source?.scope;
           if (dependencyScope !== sourceScope
@@ -598,7 +611,8 @@ export function expandStructuredActionInvocations(contract, form, submissionData
     if (!containerId) {
       const values = rootValues;
       const selectedRecordId = selectedRelationshipRecordId(action, form?.fields || [], values);
-      invocations.push({ action, rowIndex: null, values, rootValues, selectedRecordId, invocationKey: `${action.id}:top` });
+      const base = { action, rowIndex: null, values, rootValues, selectedRecordId, invocationKey: `${action.id}:top` };
+      invocations.push(...expandRecordReferenceItems(base));
       continue;
     }
     if (hidden.has(containerId)) continue;
@@ -612,17 +626,41 @@ export function expandStructuredActionInvocations(contract, form, submissionData
       if (isRepeatableRowEmpty(values, visibleChildren)) return;
       if (!row._row_id) throw new StructuredActionContractError(`Repeatable action ${action.id} requires persisted row._row_id`);
       const selectedRecordId = selectedRelationshipRecordId(action, visibleChildren, values);
-      invocations.push({ action, rowIndex: null, rowId: String(row._row_id), values, rootValues, selectedRecordId, invocationKey: `${action.id}:row:${row._row_id}` });
+      const base = { action, rowIndex: null, rowId: String(row._row_id), values, rootValues, selectedRecordId, invocationKey: `${action.id}:row:${row._row_id}` };
+      invocations.push(...expandRecordReferenceItems(base));
     });
   }
   return invocations;
+}
+
+function expandRecordReferenceItems(invocation) {
+  if (!isMultiRecordReferenceAction(invocation.action)) return [invocation];
+  const selectorId = recordReferenceFieldId(invocation.action);
+  const raw = invocation.values?.[selectorId];
+  if (!Array.isArray(raw) || raw.length === 0) {
+    throw new StructuredActionContractError('Resolve several record references requires at least one selected value');
+  }
+  const seen = new Set();
+  return raw.map((value) => {
+    const identity = isFormNotListedValue(value) ? 'not-listed' : `record:${String(value)}`;
+    if (seen.has(identity)) throw new StructuredActionContractError('Resolve several record references cannot contain duplicate selections');
+    seen.add(identity);
+    const token = createHash('sha256').update(identity).digest('hex').slice(0, 24);
+    return {
+      ...invocation,
+      selectedRecordId: isFormNotListedValue(value) ? null : value,
+      recordReferenceItemValue: value,
+      recordReferenceItemIdentity: identity,
+      invocationKey: `${invocation.invocationKey}:item:${token}`,
+    };
+  });
 }
 
 function selectedRelationshipRecordId(action, fields, values) {
   const selectorId = isRecordReferenceAction(action)
     ? recordReferenceFieldId(action)
     : action?.selector_field_id;
-  if (!['update_selected', 'resolve_record_reference'].includes(action?.operation) || !selectorId) return null;
+  if (!['update_selected', 'resolve_record_reference', RESOLVE_RECORD_REFERENCES_OPERATION].includes(action?.operation) || !selectorId) return null;
   const value = values?.[selectorId];
   if (isFormNotListedValue(value)) return null;
   return Array.isArray(value) ? value[0] || null : value || null;
@@ -1196,7 +1234,37 @@ function relationshipOutputKey(actionId, invocation) {
   return `${actionId}:${invocation.rowId ? `row:${invocation.rowId}` : 'top'}`;
 }
 
-function invocationFingerprintValues(invocation) {
+function appendActionOutput(actionOutputs, invocation, recordId, status = 'completed') {
+  const key = relationshipOutputKey(invocation.action.id, invocation);
+  if (!isMultiRecordReferenceAction(invocation.action)) {
+    actionOutputs.set(key, { recordId, status });
+    return;
+  }
+  const current = actionOutputs.get(key) || {
+    recordIds: [],
+    recordReferences: [],
+    itemStatuses: new Map(),
+  };
+  current.itemStatuses.set(invocation.recordReferenceItemIdentity, status);
+  if (recordId && !current.recordIds.includes(recordId)) {
+    current.recordIds.push(recordId);
+    current.recordReferences.push(canonicalRecordReference(invocation.action, recordId));
+  }
+  actionOutputs.set(key, current);
+}
+
+function invocationFingerprintValues(invocation, actionOutputs = new Map()) {
+  if (isMultiRecordReferenceAction(invocation.action)) {
+    const item = invocation.recordReferenceItemIdentity;
+    if (!isFormNotListedValue(invocation.recordReferenceItemValue)) return { item };
+    return {
+      item,
+      mapped_values: actionMappings(invocation.action).map(mapping => ({
+        id: mapping.id,
+        value: sourceValue(mapping, invocation.values),
+      })),
+    };
+  }
   if (!isRelationshipAction(invocation.action)) {
     const input = organizationGroupSource(invocation.action);
     if (input?.type === 'field' && endpointFieldScope(invocation.action, input) === 'form') {
@@ -1207,14 +1275,37 @@ function invocationFingerprintValues(invocation) {
     }
     return invocation.values;
   }
-  const rootEndpointValues = {};
-  for (const endpoint of Object.values(relationshipEndpoints(invocation.action))) {
+  const hasCollectionDependency = Object.values(relationshipEndpoints(invocation.action))
+    .map(endpointInput)
+    .some(input => input.type === 'action_output'
+      && actionOutputs.get(relationshipOutputKey(String(input.action_id), invocation))?.itemStatuses);
+  if (!hasCollectionDependency) {
+    const rootEndpointValues = {};
+    for (const endpoint of Object.values(relationshipEndpoints(invocation.action))) {
+      const input = endpointInput(endpoint);
+      if (input.type === 'field' && endpointFieldScope(invocation.action, input) === 'form') {
+        rootEndpointValues[input.field_id] = invocation.rootValues?.[input.field_id];
+      }
+    }
+    return { row: invocation.values, form_endpoints: rootEndpointValues };
+  }
+  const endpointValues = {};
+  for (const [side, endpoint] of Object.entries(relationshipEndpoints(invocation.action))) {
     const input = endpointInput(endpoint);
-    if (input.type === 'field' && endpointFieldScope(invocation.action, input) === 'form') {
-      rootEndpointValues[input.field_id] = invocation.rootValues?.[input.field_id];
+    if (input.type === 'field') {
+      endpointValues[side] = endpointFieldScope(invocation.action, input) === 'form'
+        ? invocation.rootValues?.[input.field_id]
+        : invocation.values?.[input.field_id];
+    } else if (input.type === 'action_output') {
+      const dependency = actionOutputs.get(
+        relationshipOutputKey(String(input.action_id), invocation),
+      );
+      endpointValues[side] = dependency?.recordIds?.length
+        ? [...dependency.recordIds].sort()
+        : dependency?.recordId || null;
     }
   }
-  return { row: invocation.values, form_endpoints: rootEndpointValues };
+  return { endpoints: endpointValues };
 }
 
 function canonicalRecordReference(action, recordId) {
@@ -1228,7 +1319,9 @@ function canonicalRecordReference(action, recordId) {
 async function resolveSelectedRecordReference(db, tenantId, invocation) {
   const action = invocation.action;
   const selectorId = recordReferenceFieldId(action);
-  const raw = invocation.values?.[selectorId];
+  const raw = isMultiRecordReferenceAction(action)
+    ? invocation.recordReferenceItemValue
+    : invocation.values?.[selectorId];
   if (Array.isArray(raw)) {
     throw new StructuredActionContractError('Record-reference resolution requires exactly one selected value');
   }
@@ -1254,12 +1347,18 @@ function relationshipEndpointRecordId(endpoint, invocation, actionOutputs) {
   let value;
   if (input.type === 'action_output') {
     const dependency = actionOutputs.get(relationshipOutputKey(String(input.action_id), invocation));
-    if (!dependency?.recordId) {
+    if (!dependency?.recordId && !dependency?.recordIds?.length) {
       throw new StructuredActionContractError(
         `Relationship action is blocked: dependency ${input.action_id} did not complete with a record`,
       );
     }
-    value = dependency.recordId;
+    if (dependency.itemStatuses
+      && [...dependency.itemStatuses.values()].some(status => status !== 'completed')) {
+      throw new StructuredActionContractError(
+        `Relationship action is blocked: dependency ${input.action_id} has incomplete record items`,
+      );
+    }
+    return dependency.recordIds?.length ? dependency.recordIds : dependency.recordId;
   } else {
     value = endpointFieldScope(invocation.action, input) === 'form'
       ? invocation.rootValues?.[input.field_id]
@@ -1296,6 +1395,27 @@ function organizationGroupRecordId(invocation, actionOutputs) {
     return value[0] || null;
   }
   return value || null;
+}
+
+function assertCollectionDependenciesComplete(invocation, actionOutputs) {
+  const dependencies = isRelationshipAction(invocation.action)
+    ? Object.values(relationshipEndpoints(invocation.action)).map(endpointInput)
+    : [organizationGroupSource(invocation.action)].filter(Boolean);
+  for (const input of dependencies) {
+    if (input?.type !== 'action_output') continue;
+    const dependency = actionOutputs.get(
+      relationshipOutputKey(String(input.action_id), invocation),
+    );
+    const incompleteCollection = dependency?.itemStatuses
+      && [...dependency.itemStatuses.values()].some(status => status !== 'completed');
+    const incompleteScalar = !dependency?.itemStatuses
+      && (dependency?.status !== 'completed' || !dependency?.recordId);
+    if (!dependency || incompleteCollection || incompleteScalar) {
+      throw new StructuredActionContractError(
+        `Action is blocked: dependency ${input.action_id} has incomplete record items`,
+      );
+    }
+  }
 }
 
 function assertRelationshipFieldEndpointsAuthorized(invocation, authorization) {
@@ -1335,29 +1455,49 @@ async function executeRelationshipInvocation(
   const endpoints = relationshipEndpoints(invocation.action);
   const sourceDescriptor = endpointDescriptor(endpoints.source);
   const targetDescriptor = endpointDescriptor(endpoints.target);
-  const sourceId = relationshipEndpointRecordId(endpoints.source, invocation, actionOutputs);
-  const targetId = relationshipEndpointRecordId(endpoints.target, invocation, actionOutputs);
+  const sourceValue = relationshipEndpointRecordId(endpoints.source, invocation, actionOutputs);
+  const targetValue = relationshipEndpointRecordId(endpoints.target, invocation, actionOutputs);
+  const sourceIds = Array.isArray(sourceValue) ? sourceValue : [sourceValue];
+  const targetIds = Array.isArray(targetValue) ? targetValue : [targetValue];
+  const sourceOutput = endpointInput(endpoints.source).type === 'action_output'
+    ? actionOutputs.get(relationshipOutputKey(String(endpointInput(endpoints.source).action_id), invocation))
+    : null;
+  const targetOutput = endpointInput(endpoints.target).type === 'action_output'
+    ? actionOutputs.get(relationshipOutputKey(String(endpointInput(endpoints.target).action_id), invocation))
+    : null;
+  if (sourceOutput?.itemStatuses && targetOutput?.itemStatuses) {
+    throw new StructuredActionContractError('A relationship action cannot fan out both endpoints at once');
+  }
   assertRelationshipFieldEndpointsAuthorized(invocation, authorization);
-  await Promise.all([
-    assertRelationshipEndpointExists(db, tenantId, sourceDescriptor, sourceId),
-    assertRelationshipEndpointExists(db, tenantId, targetDescriptor, targetId),
-  ]);
-  const base = db.from('custom_object_relationship').select('id')
-    .eq('tenant_id', tenantId).eq('relationship_definition_id', definition.id)
-    .eq('source_record_id', sourceId).eq('target_record_id', targetId)
-    .is('archived_at', null);
-  const { data: existing, error: lookupError } = await base.maybeSingle();
-  if (lookupError) throw lookupError;
-  const inserted = existing
-    ? { created: false, edge: existing }
-    : await insertCanonicalRelationshipEdge(db, tenantId, definition.id, sourceId, targetId);
+  const pairs = sourceIds.flatMap(sourceId => targetIds.map(targetId => ({ sourceId, targetId })));
+  const linked = [];
+  for (const { sourceId, targetId } of pairs) {
+    await Promise.all([
+      assertRelationshipEndpointExists(db, tenantId, sourceDescriptor, sourceId),
+      assertRelationshipEndpointExists(db, tenantId, targetDescriptor, targetId),
+    ]);
+    const base = db.from('custom_object_relationship').select('id')
+      .eq('tenant_id', tenantId).eq('relationship_definition_id', definition.id)
+      .eq('source_record_id', sourceId).eq('target_record_id', targetId)
+      .is('archived_at', null);
+    const { data: existing, error: lookupError } = await base.maybeSingle();
+    if (lookupError) throw lookupError;
+    const inserted = existing
+      ? { created: false, edge: existing }
+      : await insertCanonicalRelationshipEdge(db, tenantId, definition.id, sourceId, targetId);
+    linked.push({ sourceId, targetId, inserted });
+  }
+  const first = linked[0];
   return {
     status: 'completed',
     operation: 'linked',
-    relationship_id: inserted.edge?.id || null,
-    source_record_id: sourceId,
-    target_record_id: targetId,
-    already_linked: !inserted.created,
+    relationship_id: linked.length === 1 ? first.inserted.edge?.id || null : null,
+    relationship_ids: linked.map(item => item.inserted.edge?.id).filter(Boolean),
+    source_record_id: sourceIds.length === 1 ? sourceIds[0] : null,
+    target_record_id: targetIds.length === 1 ? targetIds[0] : null,
+    source_record_ids: sourceIds,
+    target_record_ids: targetIds,
+    already_linked: linked.every(item => !item.inserted.created),
     entity_type: 'relationship',
   };
 }
@@ -1712,6 +1852,17 @@ export async function processPersistedStructuredActions({
     .map(n => [n.invocation_key, n]));
   const outcomes = [];
   const actionOutputs = new Map();
+  for (const invocation of invocations.filter(item => isMultiRecordReferenceAction(item.action))) {
+    const key = relationshipOutputKey(invocation.action.id, invocation);
+    if (!actionOutputs.has(key)) {
+      actionOutputs.set(key, {
+        recordIds: [],
+        recordReferences: [],
+        itemStatuses: new Map(),
+      });
+    }
+    actionOutputs.get(key).itemStatuses.set(invocation.recordReferenceItemIdentity, 'pending');
+  }
   for (const invocation of invocations) {
     const prior = completed.get(invocation.invocationKey);
     if (prior) {
@@ -1728,13 +1879,33 @@ export async function processPersistedStructuredActions({
       };
       outcomes.push(alreadyCompleted);
       if (!isRelationshipAction(invocation.action) && prior.record_id) {
-        actionOutputs.set(relationshipOutputKey(invocation.action.id, invocation), { recordId: prior.record_id });
+        appendActionOutput(actionOutputs, invocation, prior.record_id);
       }
       continue;
     }
-    const rowIdentity = invocation.rowId || 'top';
+    try {
+      assertCollectionDependenciesComplete(invocation, actionOutputs);
+    } catch (error) {
+      const blocked = {
+        invocation_key: invocation.invocationKey,
+        action_id: invocation.action.id,
+        row_index: invocation.rowIndex,
+        status: 'failed',
+        error: error.message || String(error),
+        ...(error?.code ? { code: error.code } : {}),
+      };
+      outcomes.push(blocked);
+      notes.push({ at: new Date().toISOString(), kind: 'structured_action', ...blocked });
+      continue;
+    }
+    const rowIdentity = [
+      invocation.rowId || 'top',
+      invocation.recordReferenceItemIdentity ? `item:${invocation.recordReferenceItemIdentity}` : null,
+    ].filter(Boolean).join(':');
     const fingerprint = createHash('sha256').update(JSON.stringify({
-      version: contract.version, action: invocation.action, values: invocationFingerprintValues(invocation),
+      version: contract.version,
+      action: invocation.action,
+      values: invocationFingerprintValues(invocation, actionOutputs),
     })).digest('hex');
     let claimedRecordId = null;
     if (typeof db.rpc === 'function') {
@@ -1755,11 +1926,14 @@ export async function processPersistedStructuredActions({
         outcomes.push(alreadyCompleted);
         notes.push({ at: new Date().toISOString(), kind: 'structured_action', ...alreadyCompleted });
         if (!isRelationshipAction(invocation.action) && ledger.record_id) {
-          actionOutputs.set(relationshipOutputKey(invocation.action.id, invocation), { recordId: ledger.record_id });
+          appendActionOutput(actionOutputs, invocation, ledger.record_id);
         }
         continue;
       }
       if (ledger && ledger.claimed === false) {
+        if (!isRelationshipAction(invocation.action)) {
+          appendActionOutput(actionOutputs, invocation, null, 'already_running');
+        }
         outcomes.push({ invocation_key: invocation.invocationKey, action_id: invocation.action.id, row_identity: rowIdentity,
           status: 'skipped', reason: 'already_running', entity_type: entityName(invocation.action) });
         continue;
@@ -1797,10 +1971,12 @@ export async function processPersistedStructuredActions({
     outcome = { invocation_key: invocation.invocationKey, action_id: invocation.action.id, row_index: invocation.rowIndex, ...outcome };
     outcomes.push(outcome);
     if (!isRelationshipAction(invocation.action)) {
-      actionOutputs.set(relationshipOutputKey(invocation.action.id, invocation), {
-        recordId: outcome.status === 'completed' ? outcome.record_id || null : null,
-        status: outcome.status,
-      });
+      appendActionOutput(
+        actionOutputs,
+        invocation,
+        outcome.status === 'completed' ? outcome.record_id || null : null,
+        outcome.status,
+      );
     }
     if (typeof db.rpc === 'function') {
       const { error } = await db.rpc('finalize_form_structured_action', {

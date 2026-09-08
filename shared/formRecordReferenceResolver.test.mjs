@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  RESOLVE_RECORD_REFERENCES_OPERATION,
   compatibleRecordReferencePickers,
   recordReferencePickerCompatibility,
   recordReferencePickerCapability,
@@ -27,10 +28,34 @@ test('picker capability is metadata-driven and target-specific', () => {
 
 test('multi-record and ordinary not-listed fields cannot opt in accidentally', () => {
   assert.equal(recordReferencePickerCompatibility({ ...picker, selection_mode: 'multiple' }, target).code, 'multiple_selection');
+  assert.equal(recordReferencePickerCompatibility(
+    { ...picker, selection_mode: 'multiple' },
+    target,
+    'multiple',
+  ).compatible, true);
+  assert.equal(recordReferencePickerCompatibility(picker, target, 'multiple').code, 'single_selection');
   assert.equal(recordReferencePickerCompatibility({
     type: 'country',
     not_listed_choice: { enabled: true, label: 'Other' },
   }).code, 'unsupported_picker');
+});
+
+test('fan-out configuration opts into only multi-record picker adapters', () => {
+  const multiPicker = { ...picker, selection_mode: 'multiple' };
+  const action = {
+    operation: RESOLVE_RECORD_REFERENCES_OPERATION,
+    source: { scope: 'top_level' },
+    target,
+    reference_field_id: multiPicker.id,
+    not_listed_operation: 'upsert',
+    identity_mapping: { target_field_id: 'name', target_type: 'custom' },
+  };
+  assert.deepEqual(
+    compatibleRecordReferencePickers([picker, multiPicker], action.source, target, 'multiple')
+      .map(field => field.id),
+    [multiPicker.id],
+  );
+  assert.equal(recordReferenceConfigurationWarning(action, [multiPicker]), '');
 });
 
 test('picker discovery preserves top-level and exact repeatable scope', () => {

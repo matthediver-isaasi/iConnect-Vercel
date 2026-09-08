@@ -88,6 +88,7 @@ import {
 } from "../../../shared/formNoRelationshipChoice.js";
 import {
   RESOLVE_RECORD_REFERENCE_OPERATION,
+  RESOLVE_RECORD_REFERENCES_OPERATION,
   compatibleRecordReferencePickers,
   recordReferenceConfigurationWarning,
 } from "../../../shared/formRecordReferenceResolver.js";
@@ -1088,6 +1089,16 @@ function StructuredRecordActionsEditor({
               action,
               definition,
               side,
+            }).filter(option => {
+              if (option.reference?.type !== 'action_output') return true;
+              const candidate = actions.find(item => item.id === option.reference.action_id);
+              if (candidate?.operation !== RESOLVE_RECORD_REFERENCES_OPERATION) return true;
+              const otherSide = side === 'source' ? 'target' : 'source';
+              const otherSource = action[`${otherSide}_endpoint`]?.source;
+              const otherAction = otherSource?.type === 'action_output'
+                ? actions.find(item => item.id === otherSource.action_id)
+                : null;
+              return otherAction?.operation !== RESOLVE_RECORD_REFERENCES_OPERATION;
             }),
           ]));
           return (
@@ -1200,6 +1211,10 @@ function StructuredRecordActionsEditor({
               action,
               definition: { source_kind: 'organization_group', source_custom_object_id: null },
               side: 'source',
+            }).filter(option => {
+              if (option.reference?.type !== 'action_output') return true;
+              const producer = actions.find(item => item.id === option.reference.action_id);
+              return producer?.operation !== RESOLVE_RECORD_REFERENCES_OPERATION;
             })
           : [];
         const selectorFields = sourceFields.filter(field => {
@@ -1220,9 +1235,18 @@ function StructuredRecordActionsEditor({
               || descriptor.objectId === selectedRelationship?.[`${parentSide}_custom_object_id`]);
         });
         const upsertFields = structuredUpsertFields(action, targetFields);
-        const resolverPickers = compatibleRecordReferencePickers(fields, action.source, action.target);
+        const singleResolverPickers = compatibleRecordReferencePickers(
+          fields, action.source, action.target, RELATIONSHIP_SELECTION_SINGLE,
+        );
+        const multiResolverPickers = compatibleRecordReferencePickers(
+          fields, action.source, action.target, RELATIONSHIP_SELECTION_MULTIPLE,
+        );
+        const resolverPickers = action.operation === RESOLVE_RECORD_REFERENCES_OPERATION
+          ? multiResolverPickers
+          : singleResolverPickers;
         const resolverWarning = recordReferenceConfigurationWarning(action, fields);
-        const isResolver = action.operation === RESOLVE_RECORD_REFERENCE_OPERATION;
+        const isResolver = [RESOLVE_RECORD_REFERENCE_OPERATION, RESOLVE_RECORD_REFERENCES_OPERATION]
+          .includes(action.operation);
         const resolverIdentityTargets = structuredUpsertFields(action, targetFields);
         const displayedMappings = isResolver
           ? (action.companion_mappings || [])
@@ -1311,9 +1335,13 @@ function StructuredRecordActionsEditor({
                   operation,
                   selector_field_id: operation === 'update_selected' ? (selectorFields[0]?.id || null) : null,
                   uniqueness_field: operation === 'upsert' ? (upsertFields[0]?.value || null) : null,
-                  ...(operation === RESOLVE_RECORD_REFERENCE_OPERATION
+                  ...([RESOLVE_RECORD_REFERENCE_OPERATION, RESOLVE_RECORD_REFERENCES_OPERATION].includes(operation)
                     ? {
-                      reference_field_id: resolverPickers[0]?.id || null,
+                       reference_field_id: (
+                         operation === RESOLVE_RECORD_REFERENCES_OPERATION
+                           ? multiResolverPickers
+                           : singleResolverPickers
+                       )[0]?.id || null,
                       identity_mapping: null,
                       companion_mappings: [],
                       mappings: [],
@@ -1327,7 +1355,7 @@ function StructuredRecordActionsEditor({
                     }),
                 })}>
                   <SelectTrigger data-testid={`select-action-operation-${actionIndex}`}><SelectValue /></SelectTrigger>
-                  <SelectContent><SelectItem value="create">Create new</SelectItem><SelectItem value="update_selected">Update selected related record</SelectItem><SelectItem value="upsert" disabled={!upsertFields.length}>Upsert by unique field</SelectItem><SelectItem value={RESOLVE_RECORD_REFERENCE_OPERATION} disabled={!resolverPickers.length}>Resolve record reference</SelectItem></SelectContent>
+                  <SelectContent><SelectItem value="create">Create new</SelectItem><SelectItem value="update_selected">Update selected related record</SelectItem><SelectItem value="upsert" disabled={!upsertFields.length}>Upsert by unique field</SelectItem><SelectItem value={RESOLVE_RECORD_REFERENCE_OPERATION} disabled={!singleResolverPickers.length}>Resolve one record reference</SelectItem><SelectItem value={RESOLVE_RECORD_REFERENCES_OPERATION} disabled={!multiResolverPickers.length}>Resolve several record references</SelectItem></SelectContent>
                 </Select>
               </div>
               {isResolver && <div className="space-y-1"><Label className="text-xs">Record-backed picker</Label>
@@ -1338,7 +1366,7 @@ function StructuredRecordActionsEditor({
                   mappings: [],
                   uniqueness_field: null,
                 })}>
-                  <SelectTrigger data-testid={`select-action-reference-field-${actionIndex}`}><SelectValue placeholder="Select a single-record picker…" /></SelectTrigger>
+                   <SelectTrigger data-testid={`select-action-reference-field-${actionIndex}`}><SelectValue placeholder={action.operation === RESOLVE_RECORD_REFERENCES_OPERATION ? "Select a multi-record picker…" : "Select a single-record picker…"} /></SelectTrigger>
                   <SelectContent>{resolverPickers.map(field => <SelectItem key={field.id} value={field.id}>{field.label || field.id}</SelectItem>)}</SelectContent>
                 </Select>
               </div>}
@@ -1401,7 +1429,7 @@ function StructuredRecordActionsEditor({
             </div>
             {isResolver && (
               <div className="rounded-md border border-blue-200 bg-blue-50 p-3 text-xs text-slate-700">
-                Existing selections return the authoritative selected record. For Not listed, the identity mapping and companion field mappings below create or upsert the target. Companion values are read only from this action&apos;s submission or current-row scope.
+                A compatible single-record picker resolves one authoritative record. The several-record operation resolves each selected value independently with a stable retry identity and emits a canonical collection for later relationship actions. For Not listed, the identity mapping and companion field mappings below apply explicitly to that item and create or upsert the target. Companion values are read only from this action&apos;s submission or current-row scope.
                 {resolverWarning && <p className="mt-2 font-medium text-amber-700" role="alert">{resolverWarning}</p>}
               </div>
             )}
@@ -10908,26 +10936,29 @@ export default function FormBuilderPage() {
         toast.error(`${actionName} needs an active Custom Object.`);
         return;
       }
-      if (!['create', 'update_selected', 'upsert', RESOLVE_RECORD_REFERENCE_OPERATION].includes(action.operation)) {
+       if (!['create', 'update_selected', 'upsert', RESOLVE_RECORD_REFERENCE_OPERATION, RESOLVE_RECORD_REFERENCES_OPERATION].includes(action.operation)) {
         toast.error(`${actionName} needs a valid record operation.`);
         return;
       }
       const compatibleRelationships = structuredActionMetadata.relationships
         .filter(definition => relationshipSupportsTarget(definition, action));
       const sourceFields = structuredActionSourceFields(formData.fields, action);
-      if (action.operation === RESOLVE_RECORD_REFERENCE_OPERATION) {
+       if ([RESOLVE_RECORD_REFERENCE_OPERATION, RESOLVE_RECORD_REFERENCES_OPERATION].includes(action.operation)) {
         const resolverWarning = recordReferenceConfigurationWarning(action, formData.fields);
         if (resolverWarning) {
           toast.error(`${actionName}: ${resolverWarning}`);
           return;
         }
-        const eligiblePickers = compatibleRecordReferencePickers(
+         const eligiblePickers = compatibleRecordReferencePickers(
           formData.fields,
           action.source,
           action.target,
+           action.operation === RESOLVE_RECORD_REFERENCES_OPERATION
+             ? RELATIONSHIP_SELECTION_MULTIPLE
+             : RELATIONSHIP_SELECTION_SINGLE,
         );
         if (!eligiblePickers.some(field => field.id === action.reference_field_id)) {
-          toast.error(`${actionName} needs a compatible single-record picker in its selected scope.`);
+           toast.error(`${actionName} needs a compatible ${action.operation === RESOLVE_RECORD_REFERENCES_OPERATION ? 'multi-record' : 'single-record'} picker in its selected scope.`);
           return;
         }
       }
@@ -10993,11 +11024,11 @@ export default function FormBuilderPage() {
         customFields,
         structuredActionMetadata.fields,
       );
-      const mappingsForAction = action.operation === RESOLVE_RECORD_REFERENCE_OPERATION
+       const mappingsForAction = [RESOLVE_RECORD_REFERENCE_OPERATION, RESOLVE_RECORD_REFERENCES_OPERATION].includes(action.operation)
         ? (Array.isArray(action.companion_mappings) ? action.companion_mappings : [])
         : (Array.isArray(action.mappings) ? action.mappings : []);
       if (mappingsForAction.length === 0
-        && action.operation !== RESOLVE_RECORD_REFERENCE_OPERATION) {
+         && ![RESOLVE_RECORD_REFERENCE_OPERATION, RESOLVE_RECORD_REFERENCES_OPERATION].includes(action.operation)) {
         toast.error(`${actionName} needs at least one field mapping.`);
         return;
       }
@@ -11008,7 +11039,7 @@ export default function FormBuilderPage() {
       }
       const mappedTargets = new Set();
       const mappingIds = new Set();
-      if (action.operation === RESOLVE_RECORD_REFERENCE_OPERATION) {
+       if ([RESOLVE_RECORD_REFERENCE_OPERATION, RESOLVE_RECORD_REFERENCES_OPERATION].includes(action.operation)) {
         const identityTarget = targetFields.find(field => (
           field.value === action.identity_mapping?.target_field_id
           && field.target_type === action.identity_mapping?.target_type
@@ -11071,7 +11102,7 @@ export default function FormBuilderPage() {
       }
       if (action.operation !== 'update_selected') {
         const missingRequired = targetFields.find(target => target.required
-          && !(action.operation === RESOLVE_RECORD_REFERENCE_OPERATION
+           && !([RESOLVE_RECORD_REFERENCE_OPERATION, RESOLVE_RECORD_REFERENCES_OPERATION].includes(action.operation)
             && action.identity_mapping?.target_field_id === target.value
             && action.identity_mapping?.target_type === target.target_type)
           && !mappingsForAction.some(mapping => (
