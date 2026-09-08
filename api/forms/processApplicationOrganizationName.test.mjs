@@ -49,11 +49,13 @@ function makeSupabase({
   existingOrganization = null,
   submitterMember = null,
   preferenceFields = [],
+  organizationPreferenceValues = [],
   pipelineEntityLinks = [],
   idempotencyLookupError = null,
 }) {
   const inserts = [];
   const updates = [];
+  const deletes = [];
   let insertedOrganization = null;
 
   class Query {
@@ -88,7 +90,7 @@ function makeSupabase({
       updates.push({ table: this.table, payload });
       return this;
     }
-    delete() { return this; }
+    delete() { deletes.push({ table: this.table, filters: this.filters }); return this; }
     async maybeSingle() {
       if (this.table === 'form') return { data: this.selected === 'tenant_id' ? { tenant_id: form.tenant_id } : form, error: null };
       if (this.table === 'form_submission') {
@@ -137,6 +139,14 @@ function makeSupabase({
       let data = [];
       if (this.table === 'preference_field') data = preferenceFields;
       if (this.table === 'form_submission_pipeline_entity') data = pipelineEntityLinks;
+      if (this.table === 'organization_preference_value') {
+        const organizationId = this.filters.find(filter => filter[0] === 'eq' && filter[1] === 'organization_id')?.[2];
+        const fieldIds = this.filters.find(filter => filter[0] === 'in' && filter[1] === 'field_id')?.[2];
+        data = organizationPreferenceValues.filter(row => (
+          row.organization_id === organizationId
+          && (!fieldIds || fieldIds.includes(row.field_id))
+        ));
+      }
       if (this.table === 'organization' && !this.insertPayload && existingOrganization) {
         const id = this.filters.find(filter => filter[0] === 'eq' && filter[1] === 'id')?.[2];
         if (id === existingOrganization.id) data = [existingOrganization];
@@ -148,6 +158,7 @@ function makeSupabase({
   return {
     inserts,
     updates,
+    deletes,
     client: {
       from(table) { return new Query(table); },
       async rpc() { return { data: null, error: null }; },
@@ -161,6 +172,7 @@ async function invokeProcessor(payload, {
   verifiedAdminAccess = true,
   submitterMember = null,
   preferenceFields = [],
+  organizationPreferenceValues = [],
   pipelineEntityLinks = [],
   persistedCreatedOrganizationId = null,
   idempotencyLookupError = null,
@@ -203,6 +215,7 @@ async function invokeProcessor(payload, {
     existingOrganization,
     submitterMember,
     preferenceFields,
+    organizationPreferenceValues,
     pipelineEntityLinks,
     idempotencyLookupError,
   });
@@ -238,7 +251,7 @@ async function invokeProcessor(payload, {
     if (previousSecret === undefined) delete process.env.SESSION_SECRET;
     else process.env.SESSION_SECRET = previousSecret;
   }
-  return { response, inserts: db.inserts, updates: db.updates };
+  return { response, inserts: db.inserts, updates: db.updates, deletes: db.deletes };
 }
 
 test('public endpoint payload resolves nested not-listed text through canonical Organisation Name', async () => {
@@ -335,6 +348,7 @@ test('listed organization UUID is selected and never written into the name colum
 });
 
 test('anonymous affected-form selection links a new member without mutating the existing organization', async () => {
+  const regionFieldId = 'organization-region';
   const payload = publicPayload({
     fields: [
       { id: 'student_email', type: 'email' },
@@ -345,12 +359,18 @@ test('anonymous affected-form selection links a new member without mutating the 
         type: 'organisation_dropdown',
         not_listed_choice: { enabled: true, label: 'Not listed' },
       },
+      { id: 'org_region', type: 'select' },
+      { id: 'org_address_1', type: 'text' },
+      { id: 'org_address_2', type: 'text' },
     ],
     form_values: {
       student_email: 'student@example.test',
       student_first_name: 'Test',
       student_last_name: 'Student',
       field_1787065791684: '7dc51049-90dc-42cf-9567-2b128321c21c',
+      org_region: 'London',
+      org_address_1: '',
+      org_address_2: '',
     },
     application_level: 'member',
     create_entity_type: 'member',
@@ -367,13 +387,36 @@ test('anonymous affected-form selection links a new member without mutating the 
       organisations: [{
         id: 'org-primary',
         isPrimary: true,
-        mappings: [{
-          source_type: 'field',
-          source_field_id: 'field_1787065791684',
-          target_type: 'core',
-          target_field: 'name',
-          target_entity: 'organization',
-        }],
+        mappings: [
+          {
+            source_type: 'field',
+            source_field_id: 'field_1787065791684',
+            target_type: 'core',
+            target_field: 'name',
+            target_entity: 'organization',
+          },
+          {
+            source_type: 'field',
+            source_field_id: 'org_region',
+            target_type: 'custom',
+            target_field: regionFieldId,
+            target_entity: 'organization',
+          },
+          {
+            source_type: 'field',
+            source_field_id: 'org_address_1',
+            target_type: 'core',
+            target_field: 'address',
+            target_entity: 'organization',
+          },
+          {
+            source_type: 'field',
+            source_field_id: 'org_address_2',
+            target_type: 'core',
+            target_field: 'invoicing_address',
+            target_entity: 'organization',
+          },
+        ],
       }],
     },
   });
@@ -381,12 +424,22 @@ test('anonymous affected-form selection links a new member without mutating the 
   const result = await invokeProcessor(payload, {
     existingOrganization: { id: organizationId, tenant_id: 'tenant-runtime-org', name: 'Existing University' },
     verifiedAdminAccess: false,
+    preferenceFields: [{ id: regionFieldId, entity_scope: 'organization', field_type: 'select' }],
+    organizationPreferenceValues: [{
+      id: 'saved-region',
+      organization_id: organizationId,
+      field_id: regionFieldId,
+      value: 'London',
+    }],
   });
 
   assert.equal(result.response.statusCode, 200);
   assert.equal(result.response.body.organization_id, organizationId);
   assert.equal(result.inserts.some(entry => entry.table === 'organization'), false);
   assert.equal(result.updates.some(entry => entry.table === 'organization'), false);
+  assert.equal(result.updates.some(entry => entry.table === 'organization_preference_value'), false);
+  assert.equal(result.inserts.some(entry => entry.table === 'organization_preference_value'), false);
+  assert.equal(result.deletes.some(entry => entry.table === 'organization_preference_value'), false);
   assert.equal(
     result.inserts.find(entry => entry.table === 'member')?.payload.organization_id,
     organizationId,
@@ -415,6 +468,91 @@ test('anonymous selection cannot mutate an existing organization core field', as
   assert.equal(result.response.statusCode, 403);
   assert.equal(result.response.body.code, 'STRUCTURED_ACTION_FORBIDDEN');
   assert.equal(result.updates.some(entry => entry.table === 'organization'), false);
+});
+
+test('anonymous selection skips an unchanged existing organization core field', async () => {
+  const payload = publicPayload();
+  const organizationId = '7dc51049-90dc-42cf-9567-2b128321c21c';
+  payload.fields.push({ id: 'org_phone', type: 'text' });
+  payload.form_values.organisation = organizationId;
+  payload.form_values.org_phone = '020 0000 0000';
+  payload.entity_pipelines.organisations[0].mappings.push({
+    source_type: 'field',
+    source_field_id: 'org_phone',
+    target_type: 'core',
+    target_entity: 'organization',
+    target_field: 'phone',
+  });
+
+  const result = await invokeProcessor(payload, {
+    existingOrganization: {
+      id: organizationId,
+      tenant_id: 'tenant-runtime-org',
+      name: 'Existing Org',
+      phone: '020 0000 0000',
+    },
+    verifiedAdminAccess: false,
+  });
+
+  assert.equal(result.response.statusCode, 200);
+  assert.equal(result.updates.some(entry => entry.table === 'organization'), false);
+});
+
+test('anonymous Student join cannot change the authoritative organization Region', async () => {
+  const payload = publicPayload();
+  const organizationId = '7dc51049-90dc-42cf-9567-2b128321c21c';
+  const regionFieldId = 'organization-region';
+  payload.fields.push({ id: 'org_region', type: 'select' });
+  payload.form_values.organisation = organizationId;
+  payload.form_values.org_region = 'Scotland';
+  payload.entity_pipelines.organisations[0].mappings.push({
+    source_type: 'field',
+    source_field_id: 'org_region',
+    target_type: 'custom',
+    target_entity: 'organization',
+    target_field: regionFieldId,
+  });
+
+  const result = await invokeProcessor(payload, {
+    existingOrganization: { id: organizationId, tenant_id: 'tenant-runtime-org', name: 'Existing University' },
+    verifiedAdminAccess: false,
+    preferenceFields: [{ id: regionFieldId, entity_scope: 'organization', field_type: 'select' }],
+    organizationPreferenceValues: [{
+      id: 'saved-region',
+      organization_id: organizationId,
+      field_id: regionFieldId,
+      value: 'London',
+    }],
+  });
+
+  assert.equal(result.response.statusCode, 403);
+  assert.equal(result.response.body.code, 'STRUCTURED_ACTION_FORBIDDEN');
+  assert.equal(result.updates.some(entry => entry.table === 'organization_preference_value'), false);
+});
+
+test('anonymous clear of an already-absent organization custom field is a no-op', async () => {
+  const payload = publicPayload();
+  const organizationId = '7dc51049-90dc-42cf-9567-2b128321c21c';
+  const fieldId = 'organization-custom-field';
+  payload.fields.push({ id: 'clear_org_value', type: 'text' });
+  payload.form_values.organisation = organizationId;
+  payload.form_values.clear_org_value = '';
+  payload.entity_pipelines.organisations[0].mappings.push({
+    source_type: 'field',
+    source_field_id: 'clear_org_value',
+    target_type: 'custom',
+    target_entity: 'organization',
+    target_field: fieldId,
+  });
+
+  const result = await invokeProcessor(payload, {
+    existingOrganization: { id: organizationId, tenant_id: 'tenant-runtime-org', name: 'Existing Org' },
+    verifiedAdminAccess: false,
+    preferenceFields: [{ id: fieldId, entity_scope: 'organization', field_type: 'text' }],
+  });
+
+  assert.equal(result.response.statusCode, 200);
+  assert.equal(result.deletes.some(entry => entry.table === 'organization_preference_value'), false);
 });
 
 test('an existing-organization checkpoint cannot authorize anonymous core mutation on retry', async () => {
@@ -549,6 +687,12 @@ test('anonymous selection cannot clear an existing organization custom field', a
     existingOrganization: { id: organizationId, tenant_id: 'tenant-runtime-org', name: 'Existing Org' },
     verifiedAdminAccess: false,
     preferenceFields: [{ id: fieldId, entity_scope: 'organization', field_type: 'text' }],
+    organizationPreferenceValues: [{
+      id: 'saved-value',
+      organization_id: organizationId,
+      field_id: fieldId,
+      value: 'existing value',
+    }],
   });
 
   assert.equal(result.response.statusCode, 403);
@@ -585,6 +729,65 @@ test('anonymous selection cannot upsert an existing organization custom field', 
   assert.equal(
     result.inserts.some(entry => entry.table === 'organization_preference_value'),
     false,
+  );
+});
+
+test('not-listed organization creation persists mapped custom values', async () => {
+  const payload = publicPayload();
+  const fieldId = 'organization-region';
+  payload.fields.push(
+    { id: 'org_region', type: 'select' },
+    { id: 'org_address', type: 'text' },
+    { id: 'org_invoicing_address', type: 'text' },
+  );
+  payload.form_values.org_region = 'London';
+  payload.form_values.org_address = '1 Student Street';
+  payload.form_values.org_invoicing_address = 'Accounts\n2 Finance Road';
+  payload.entity_pipelines.organisations[0].mappings.push(
+    {
+      source_type: 'field',
+      source_field_id: 'org_region',
+      target_type: 'custom',
+      target_entity: 'organization',
+      target_field: fieldId,
+    },
+    {
+      source_type: 'field',
+      source_field_id: 'org_address',
+      target_type: 'core',
+      target_entity: 'organization',
+      target_field: 'address',
+    },
+    {
+      source_type: 'field',
+      source_field_id: 'org_invoicing_address',
+      target_type: 'core',
+      target_entity: 'organization',
+      target_field: 'invoicing_address',
+    },
+  );
+
+  const result = await invokeProcessor(payload, {
+    verifiedAdminAccess: false,
+    preferenceFields: [{ id: fieldId, entity_scope: 'organization', field_type: 'select' }],
+  });
+
+  assert.equal(result.response.statusCode, 200);
+  assert.equal(
+    result.inserts.find(entry => entry.table === 'organization')?.payload.address,
+    '1 Student Street',
+  );
+  assert.equal(
+    result.inserts.find(entry => entry.table === 'organization')?.payload.invoicing_address,
+    'Accounts\n2 Finance Road',
+  );
+  assert.deepEqual(
+    result.inserts.find(entry => entry.table === 'organization_preference_value')?.payload,
+    {
+      organization_id: 'created-organization',
+      field_id: fieldId,
+      value: 'London',
+    },
   );
 });
 

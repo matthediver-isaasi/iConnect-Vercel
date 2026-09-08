@@ -10,6 +10,8 @@ import {
 } from '../../shared/formNotListedChoice.js';
 
 const LIVE_ORGANISATION_FIELD_ID = 'field_1787065791684';
+const LIVE_ORGANISATION_REGION_SOURCE_ID = 'student_org_region';
+const LIVE_ORGANISATION_REGION_FIELD_ID = 'organization-region';
 
 function affectedFormFixture() {
   const organisationField = {
@@ -28,6 +30,9 @@ function affectedFormFixture() {
       { id: 'student_first_name', type: 'text' },
       { id: 'student_last_name', type: 'text' },
       organisationField,
+      { id: LIVE_ORGANISATION_REGION_SOURCE_ID, type: 'select' },
+      { id: 'student_org_address_1', type: 'text' },
+      { id: 'student_org_address_2', type: 'text' },
     ],
     pages: [],
     visibility_rules: [],
@@ -52,13 +57,36 @@ function affectedFormFixture() {
         id: 'org-primary',
         isPrimary: true,
         uniqueness_key: 'name',
-        mappings: [{
-          source_type: 'field',
-          source_field_id: organisationField.id,
-          target_type: 'core',
-          target_field: 'name',
-          target_entity: 'organization',
-        }],
+        mappings: [
+          {
+            source_type: 'field',
+            source_field_id: organisationField.id,
+            target_type: 'core',
+            target_field: 'name',
+            target_entity: 'organization',
+          },
+          {
+            source_type: 'field',
+            source_field_id: LIVE_ORGANISATION_REGION_SOURCE_ID,
+            target_type: 'custom',
+            target_field: LIVE_ORGANISATION_REGION_FIELD_ID,
+            target_entity: 'organization',
+          },
+          {
+            source_type: 'field',
+            source_field_id: 'student_org_address_1',
+            target_type: 'core',
+            target_field: 'address',
+            target_entity: 'organization',
+          },
+          {
+            source_type: 'field',
+            source_field_id: 'student_org_address_2',
+            target_type: 'core',
+            target_field: 'invoicing_address',
+            target_entity: 'organization',
+          },
+        ],
       }],
     },
     structured_actions: null,
@@ -309,6 +337,9 @@ test('real public endpoint hands off the affected anonymous listed-organization 
     student_first_name: 'Test',
     student_last_name: 'Student',
     [LIVE_ORGANISATION_FIELD_ID]: organizationId,
+    [LIVE_ORGANISATION_REGION_SOURCE_ID]: 'London',
+    student_org_address_1: '',
+    student_org_address_2: '',
   };
   const db = makePublicSubmissionBoundaryDb(form, {
     organization: { id: organizationId, tenant_id: form.tenant_id, name: 'Existing University' },
@@ -351,6 +382,10 @@ test('real public endpoint hands off the affected anonymous listed-organization 
     capturedProcessingBodies[0].form_values[LIVE_ORGANISATION_FIELD_ID],
     organizationId,
   );
+  assert.equal(
+    capturedProcessingBodies[0].form_values[LIVE_ORGANISATION_REGION_SOURCE_ID],
+    'London',
+  );
   assert.equal(capturedProcessingBodies[0].verified_admin_access, false);
   assert.equal(capturedProcessingBodies[0].verified_submitter_member_id, null);
 });
@@ -374,6 +409,9 @@ test('public endpoint rolls back the affected submission when organization mutat
         student_first_name: 'Test',
         student_last_name: 'Student',
         [LIVE_ORGANISATION_FIELD_ID]: organizationId,
+        [LIVE_ORGANISATION_REGION_SOURCE_ID]: 'Scotland',
+        student_org_address_1: '',
+        student_org_address_2: '',
       },
     },
   }, res, {

@@ -2140,6 +2140,18 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
             orgUpdateData.tenant_id = effectiveEntityTenantId;
           }
 
+          // Compare mapped values with the authoritative row before deciding
+          // whether this is a mutation. Public dropdown-prefill submissions
+          // commonly send the organisation's existing values back unchanged;
+          // reference use must not require mutation authority or issue writes.
+          for (const [key, value] of Object.entries(orgUpdateData)) {
+            const authoritativeValue = existingOrg[key] ?? null;
+            const requestedValue = value ?? null;
+            if (authoritativeValue === requestedValue) {
+              delete orgUpdateData[key];
+            }
+          }
+
           // Belt-and-braces (Task #3550): the resolution chain already rejects
           // cross-tenant rows, but never rely on that alone — a resolved row
           // from another tenant must NEVER be written to.
@@ -2254,6 +2266,8 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
             invoicing_address: orgData.invoicing_address || null,
             phone: orgData.phone || null,
             website_url: orgData.website_url || null,
+            email: orgData.email || null,
+            address: orgData.address || null,
             created_at: new Date().toISOString()
           };
           
@@ -2295,10 +2309,38 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
       // type mismatches, and trigger failures surface in processing_notes
       // instead of being swallowed (the long-standing bug fixed here).
       if (createdOrganizationId && orgCustomFields.length > 0) {
-        if (!legacyCreatedRecordIds.organization.has(String(createdOrganizationId))) {
-          assertLegacyExistingRecordAuthorized('organization', createdOrganizationId);
+        let customFieldsToWrite = orgCustomFields;
+        const isNewOrganization = legacyCreatedRecordIds.organization.has(String(createdOrganizationId));
+        if (!isNewOrganization) {
+          const mappedFieldIds = orgCustomFields.map(cf => cf.field_id);
+          const { data: existingCustomRows, error: existingCustomError } = await supabase
+            .from('organization_preference_value')
+            .select('id, field_id, value')
+            .eq('organization_id', createdOrganizationId)
+            .in('field_id', mappedFieldIds)
+            .order('id', { ascending: true });
+          if (existingCustomError) {
+            addProcessingNote({
+              kind: 'custom_field_lookup_failed',
+              message: existingCustomError.message,
+              organization_id: createdOrganizationId,
+              entity_scope: 'organization',
+            });
+            await flushProcessingNotes();
+            return res.status(500).json({ error: `Failed to load organisation custom fields: ${existingCustomError.message}` });
+          }
+          const authoritativeByField = new Map();
+          for (const row of existingCustomRows || []) {
+            if (!authoritativeByField.has(row.field_id)) authoritativeByField.set(row.field_id, row.value);
+          }
+          customFieldsToWrite = orgCustomFields.filter(
+            cf => !authoritativeByField.has(cf.field_id) || authoritativeByField.get(cf.field_id) !== cf.value,
+          );
+          if (customFieldsToWrite.length > 0) {
+            assertLegacyExistingRecordAuthorized('organization', createdOrganizationId);
+          }
         }
-        for (const cf of orgCustomFields) {
+        for (const cf of customFieldsToWrite) {
           await upsertPreferenceValue({
             table: 'organization_preference_value',
             parentColumn: 'organization_id',
@@ -2315,10 +2357,31 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
       // on this submission (only meaningful on update flows; harmless when
       // the row doesn't exist).
       if (createdOrganizationId && orgCustomFieldsToClear.size > 0) {
-        if (!legacyCreatedRecordIds.organization.has(String(createdOrganizationId))) {
-          assertLegacyExistingRecordAuthorized('organization', createdOrganizationId);
+        let customFieldsToActuallyClear = [...orgCustomFieldsToClear];
+        const isNewOrganization = legacyCreatedRecordIds.organization.has(String(createdOrganizationId));
+        if (!isNewOrganization) {
+          const { data: existingCustomRows, error: existingCustomError } = await supabase
+            .from('organization_preference_value')
+            .select('field_id')
+            .eq('organization_id', createdOrganizationId)
+            .in('field_id', customFieldsToActuallyClear);
+          if (existingCustomError) {
+            addProcessingNote({
+              kind: 'custom_field_lookup_failed',
+              message: existingCustomError.message,
+              organization_id: createdOrganizationId,
+              entity_scope: 'organization',
+            });
+            await flushProcessingNotes();
+            return res.status(500).json({ error: `Failed to load organisation custom fields: ${existingCustomError.message}` });
+          }
+          const existingFieldIds = new Set((existingCustomRows || []).map(row => row.field_id));
+          customFieldsToActuallyClear = customFieldsToActuallyClear.filter(fieldId => existingFieldIds.has(fieldId));
+          if (customFieldsToActuallyClear.length > 0) {
+            assertLegacyExistingRecordAuthorized('organization', createdOrganizationId);
+          }
         }
-        for (const fieldId of orgCustomFieldsToClear) {
+        for (const fieldId of customFieldsToActuallyClear) {
           await clearPreferenceValue({
             table: 'organization_preference_value',
             parentColumn: 'organization_id',
