@@ -157,3 +157,9 @@ export function resolveEffectivePayment({
     error: null,
   };
 }
+
+export function filterPaymentProvidersForMembership(providers, membership) {
+  if (!Array.isArray(providers)) return providers;
+  if (!membership || membership.direct_debit_allowed === true) return providers;
+  return providers.filter((provider) => provider.id !== 'gocardless');
+}

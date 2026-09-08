@@ -13,6 +13,7 @@ import {
   resolveMembershipMatch,
   membershipQuoteKey,
   resolveEffectivePayment,
+  filterPaymentProvidersForMembership,
 } from './formPaymentQuote.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -221,6 +222,23 @@ test('membership match but server says nothing due: plain submit allowed', () =>
   assert.equal(r.blocked, false);
 });
 
+test('membership provider filtering hides Direct Debit when the quote disallows it', () => {
+  const providers = [{ id: 'stripe' }, { id: 'gocardless' }];
+  assert.deepEqual(
+    filterPaymentProvidersForMembership(providers, { direct_debit_allowed: false }),
+    [{ id: 'stripe' }],
+  );
+  assert.deepEqual(
+    filterPaymentProvidersForMembership(providers, { direct_debit_allowed: true }),
+    providers,
+  );
+});
+
+test('generic forms retain their configured Direct Debit provider', () => {
+  const providers = [{ id: 'gocardless' }];
+  assert.deepEqual(filterPaymentProvidersForMembership(providers, null), providers);
+});
+
 // ---------- source contracts ----------
 
 test('server form-payment endpoint wires the quote action through the shared resolver', () => {
@@ -299,6 +317,18 @@ test('existing one-off card and Direct Debit choices remain wired', () => {
   assert.match(src, /providerId === 'gocardless'/, 'GoCardless path must remain');
   assert.match(src, /\(usableProviders \|\| \[\]\)\.map/, 'configured one-off choices must still render');
   assert.match(src, /onClick=\{\(\) => startPayment\(p\.id\)\}/, 'one-off provider buttons must still start their provider');
+});
+
+test('membership Direct Debit is rejected after authoritative quote resolution and before pending writes', () => {
+  const src = readFileSync(join(repoRoot, 'api', 'public', 'form-payment.js'), 'utf8');
+  const create = src.slice(src.indexOf('async function handleCreate('), src.indexOf('async function handleConfirm'));
+  const resolution = create.indexOf('resolvePayableCharge(');
+  const rejection = create.indexOf('MEMBERSHIP_DIRECT_DEBIT_NOT_ALLOWED');
+  const pendingLookup = create.indexOf("from('form_submission')");
+  const providerCall = create.indexOf('gocardlessForTenant(');
+  assert.ok(resolution > -1 && rejection > resolution, 'the schedule must be re-resolved before enforcement');
+  assert.ok(pendingLookup > rejection, 'rejection must happen before a pending submission is read or written');
+  assert.ok(providerCall > rejection, 'rejection must happen before GoCardless is contacted');
 });
 
 test('payment choices and selected Stripe content use responsive full-width layout', () => {

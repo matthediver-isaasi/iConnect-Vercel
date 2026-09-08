@@ -69,7 +69,7 @@ test('final cost never goes below zero', () => {
 
 test('quoteFromSimulationResult adapts a simulation result to the quote shape', () => {
   const quote = quoteFromSimulationResult({
-    config: { id: 'cfg1', name: 'Standard', invoice_description: 'Membership {year}' },
+    config: { id: 'cfg1', name: 'Standard', invoice_description: 'Membership {year}', dd_enabled: true },
     matchedBand: { id: 'band1' },
     tierLabel: 'Tier A',
     fieldValue: 42,
@@ -101,6 +101,21 @@ test('quoteFromSimulationResult adapts a simulation result to the quote shape', 
   assert.equal(quote.tax_type, 'OUTPUT2');
   assert.equal(quote.nominal_code, '200');
   assert.equal(quote.invoice_description, 'Membership {year}');
+  assert.equal(quote.direct_debit_allowed, true);
+});
+
+test('quoteFromSimulationResult denies Direct Debit unless the resolved schedule enables it', () => {
+  const base = {
+    config: { id: 'cfg1' },
+    annualCost: 100,
+    finalCost: 100,
+    membershipYear: { label: '2026/2027' },
+  };
+  assert.equal(quoteFromSimulationResult(base, 'member').direct_debit_allowed, false);
+  assert.equal(quoteFromSimulationResult({
+    ...base,
+    config: { ...base.config, dd_enabled: true },
+  }, 'member').direct_debit_allowed, true);
 });
 
 test('member quote exposes the flat monthly-card offer from the resolved structure', () => {
@@ -132,6 +147,7 @@ test('member quote exposes the flat monthly-card offer from the resolved structu
     graceDays: 7,
     termsVersion: 'v1',
     invoicingMode: 'annual',
+    monthlyPostGraceCollectionPolicy: 'stop_collecting',
   });
   assert.equal(quote.membership_year_start, '2026-01-01');
 });

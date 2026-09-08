@@ -255,6 +255,12 @@ export async function validatePaymentRelationships(res, supabase, tenantData, fo
   }
 }
 
+export function membershipAllowsPaymentProvider(provider, membershipMeta) {
+  return provider !== 'gocardless'
+    || !membershipMeta
+    || membershipMeta.quote?.direct_debit_allowed === true;
+}
+
 /**
  * Shared by 'create' and 'quote' (Task #3498): resolve the payable charge
  * for the current answers. The amount is ALWAYS derived server-side — from
@@ -440,6 +446,7 @@ async function handleQuote(req, res, supabase, tenantData) {
       membership_year: membershipMeta.quote.membership_year || null,
       tier_label: membershipMeta.quote.tier_label || null,
       monthly_card: monthlyCard,
+      direct_debit_allowed: membershipMeta.quote.direct_debit_allowed === true,
     } : null,
   });
 }
@@ -827,6 +834,13 @@ async function handleCreate(req, res, supabase, tenantData) {
   if (resolved.error) return res.status(resolved.error.status).json(resolved.error.body);
   const { membershipMeta, amount, currency } = resolved;
   const stripeFeature = membershipMeta ? 'membership' : 'forms';
+
+  if (!membershipAllowsPaymentProvider(provider, membershipMeta)) {
+    return res.status(400).json({
+      error: 'Direct Debit is not available for this membership',
+      code: 'MEMBERSHIP_DIRECT_DEBIT_NOT_ALLOWED',
+    });
+  }
 
   if (!(amount > 0)) {
     return res.status(400).json({ error: 'No payment is due for these answers', code: 'NO_PAYMENT_REQUIRED' });

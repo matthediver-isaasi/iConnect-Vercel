@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFile } from 'node:fs/promises';
-import { validatePaymentRelationships } from './form-payment.js';
+import { membershipAllowsPaymentProvider, validatePaymentRelationships } from './form-payment.js';
 
 test('paid create, monthly-card, and quote paths validate repeatable rows before charge resolution', async () => {
   const source = await readFile(new URL('./form-payment.js', import.meta.url), 'utf8');
@@ -185,6 +185,15 @@ test('form payment UI requests provider availability for the resolved payment pu
   assert.match(source, /\[paymentPurpose\]/);
   assert.match(source, /json\.publishableKey/);
   assert.match(source, /stripeConfigurationError/);
+});
+
+test('membership schedules authoritatively gate GoCardless without changing generic or card payments', () => {
+  const disabledMembership = { quote: { direct_debit_allowed: false } };
+  const enabledMembership = { quote: { direct_debit_allowed: true } };
+  assert.equal(membershipAllowsPaymentProvider('gocardless', disabledMembership), false);
+  assert.equal(membershipAllowsPaymentProvider('gocardless', enabledMembership), true);
+  assert.equal(membershipAllowsPaymentProvider('gocardless', null), true);
+  assert.equal(membershipAllowsPaymentProvider('stripe', disabledMembership), true);
 });
 
 function selectionDb(seed) {

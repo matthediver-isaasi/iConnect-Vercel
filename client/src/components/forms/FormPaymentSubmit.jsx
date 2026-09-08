@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Loader2, CreditCard, AlertCircle, Landmark, Info } from "lucide-react";
-import { resolveEffectivePayment } from "@/lib/formPaymentQuote";
+import { filterPaymentProvidersForMembership, resolveEffectivePayment } from "@/lib/formPaymentQuote";
 import GoCardlessDropinFlow from "@/components/gocardless/GoCardlessDropinFlow";
 import { SS_KEY, confirmFormPayment } from "@/lib/formPaymentReturn";
 
@@ -105,8 +105,9 @@ export default function FormPaymentSubmit({
   const enabledProviderIds = Array.isArray(field?.payment_providers) ? field.payment_providers : [];
   const usableProviders = useMemo(() => {
     if (!providers) return null;
-    return providers.filter((p) => p.configured && enabledProviderIds.includes(p.id));
-  }, [providers, enabledProviderIds]);
+    const configured = providers.filter((p) => p.configured && enabledProviderIds.includes(p.id));
+    return filterPaymentProvidersForMembership(configured, effective.membership);
+  }, [providers, enabledProviderIds, effective.membership]);
 
   const stripeProvider = usableProviders?.find((p) => p.id === 'stripe') || null;
   const unavailableStripe = providers?.find((p) => p.id === 'stripe' && !p.configured) || null;
