@@ -9,17 +9,26 @@ import { throwUploadHttpError } from '@/lib/planQuotaError.js';
 // Sent as X-Tenant-Id on every authenticated request so the server can detect
 // stale-tab / cross-tenant mismatches on the shared admin host.
 let _activeTenantId = null;
+const _activeTenantListeners = new Set();
 
 /**
  * Declare which tenant the current tab is displaying.
  * Called by AdminDashboard after auth resolves and after tenant switch.
  */
 export function setActiveTenantId(id) {
-  _activeTenantId = id || null;
+  const nextTenantId = id || null;
+  if (_activeTenantId === nextTenantId) return;
+  _activeTenantId = nextTenantId;
+  _activeTenantListeners.forEach(listener => listener(_activeTenantId));
 }
 
 export function getActiveTenantId() {
   return _activeTenantId;
+}
+
+export function subscribeToActiveTenantId(listener) {
+  _activeTenantListeners.add(listener);
+  return () => _activeTenantListeners.delete(listener);
 }
 
 class EntityProxy {

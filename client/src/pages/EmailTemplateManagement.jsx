@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, lazy, Suspense } from "react";
-import { base44 } from "@/api/base44Client";
+import { base44, getActiveTenantId, subscribeToActiveTenantId } from "@/api/base44Client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -291,58 +291,6 @@ const quillFormats = [
   'link'
 ];
 
-// Default email footer HTML - matches website footer style
-const DEFAULT_EMAIL_FOOTER = `
-<table width="100%" cellpadding="0" cellspacing="0" style="background-color: #000000; font-family: Arial, sans-serif;">
-  <tr>
-    <td style="padding: 40px 20px;">
-      <table width="600" cellpadding="0" cellspacing="0" style="max-width: 600px; margin: 0 auto;">
-        <!-- Logo and Follow Us -->
-        <tr>
-          <td align="center" style="padding-bottom: 30px;">
-            <img src="https://graduatefutures.org/logo-white.png" alt="Graduate Futures Institute" width="120" style="display: block;" />
-          </td>
-        </tr>
-        <tr>
-          <td align="center" style="padding-bottom: 20px;">
-            <p style="color: #ffffff; font-size: 12px; letter-spacing: 5px; text-transform: uppercase; margin: 0 0 15px 0;">FOLLOW US</p>
-            <table cellpadding="0" cellspacing="0">
-              <tr>
-                <!-- Social icons will be dynamically inserted here -->
-                <td style="padding: 0 8px;">
-                  <a href="{{linkedin_url}}" style="display: inline-block; width: 36px; height: 36px; border: 1px solid rgba(255,255,255,0.3); border-radius: 50%; text-align: center; line-height: 36px;">
-                    <img src="https://cdn-icons-png.flaticon.com/24/174/174857.png" alt="LinkedIn" width="18" style="vertical-align: middle; filter: brightness(0) invert(1);" />
-                  </a>
-                </td>
-                <td style="padding: 0 8px;">
-                  <a href="{{twitter_url}}" style="display: inline-block; width: 36px; height: 36px; border: 1px solid rgba(255,255,255,0.3); border-radius: 50%; text-align: center; line-height: 36px;">
-                    <img src="https://cdn-icons-png.flaticon.com/24/5968/5968830.png" alt="X" width="18" style="vertical-align: middle; filter: brightness(0) invert(1);" />
-                  </a>
-                </td>
-              </tr>
-            </table>
-          </td>
-        </tr>
-        <!-- Divider -->
-        <tr>
-          <td style="padding: 20px 0;">
-            <div style="height: 1px; background-color: rgba(255,255,255,0.3);"></div>
-          </td>
-        </tr>
-        <!-- Registered Company Text -->
-        <tr>
-          <td align="center" style="padding-top: 10px;">
-            <p style="color: #ffffff; font-size: 12px; line-height: 1.6; margin: 0;">
-              The Association of Graduate Careers Advisory Services (Graduate Futures Institute) is a registered charity in England and Wales (1078508) and Scotland (SC038805) Company No. 03884685.
-            </p>
-          </td>
-        </tr>
-      </table>
-    </td>
-  </tr>
-</table>
-`;
-
 export default function EmailTemplateManagement() {
   const { isAdmin, isFeatureExcluded, isAccessReady } = useMemberAccess();
   const [accessChecked, setAccessChecked] = useState(false);
@@ -363,7 +311,7 @@ export default function EmailTemplateManagement() {
   
   // Email footer state
   const [footerOpen, setFooterOpen] = useState(false);
-  const [footerHtml, setFooterHtml] = useState(DEFAULT_EMAIL_FOOTER);
+  const [footerHtml, setFooterHtml] = useState('');
   const [footerCodeView, setFooterCodeView] = useState(true); // Default to code view to preserve complex HTML
   const [footerPreviewOpen, setFooterPreviewOpen] = useState(false);
   const footerQuillRef = useRef(null);
@@ -479,6 +427,9 @@ export default function EmailTemplateManagement() {
   };
 
   const queryClient = useQueryClient();
+  const [activeTenantId, setActiveTenantIdState] = useState(() => getActiveTenantId());
+
+  useEffect(() => subscribeToActiveTenantId(setActiveTenantIdState), []);
 
   useEffect(() => {
     if (isAccessReady) {
@@ -510,16 +461,17 @@ export default function EmailTemplateManagement() {
 
   // Fetch email footer setting
   const { data: footerSetting } = useQuery({
-    queryKey: ['email-footer-setting'],
+    queryKey: ['email-footer-setting', activeTenantId],
     queryFn: async () => {
       const allSettings = await base44.entities.SystemSettings.list();
       return allSettings.find(s => s.setting_key === 'email_footer_html') || null;
     },
+    enabled: !!activeTenantId,
   });
 
   // Fetch social icons for dynamic replacement
   const { data: socialIcons } = useQuery({
-    queryKey: ['social-icons-for-footer'],
+    queryKey: ['social-icons-for-footer', activeTenantId],
     queryFn: async () => {
       const allSettings = await base44.entities.SystemSettings.list();
       const setting = allSettings.find(s => s.setting_key === 'social_icons_config');
@@ -532,13 +484,18 @@ export default function EmailTemplateManagement() {
       }
       return null;
     },
+    enabled: !!activeTenantId,
   });
 
-  // Sync footer state with loaded setting
+  // Clear immediately on a tenant change so the previous tenant's footer can
+  // never remain visible while the new tenant's setting is loading.
   useEffect(() => {
-    if (footerSetting?.setting_value) {
-      setFooterHtml(footerSetting.setting_value);
-    }
+    setFooterHtml('');
+  }, [activeTenantId]);
+
+  // A missing setting is intentionally represented by an empty editor.
+  useEffect(() => {
+    setFooterHtml(footerSetting?.setting_value ?? '');
   }, [footerSetting]);
 
   // Save footer mutation
@@ -557,7 +514,7 @@ export default function EmailTemplateManagement() {
       }
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['email-footer-setting'] });
+      queryClient.invalidateQueries({ queryKey: ['email-footer-setting', activeTenantId] });
       toast.success('Email footer saved successfully');
     },
     onError: (error) => {
