@@ -37,6 +37,34 @@ export function isFormNotListedValue(value) {
   return value === FORM_NOT_LISTED_VALUE;
 }
 
+export function normalizeFormPrefillOrganizationId(value) {
+  return isFormNotListedValue(value) || value == null || value === ''
+    ? null
+    : value;
+}
+
+export function resolveFormSubmissionOrganizationId({
+  prefillOrganizationId = null,
+  pipelineSourceFieldId = null,
+  fields = [],
+  submissionData = {},
+} = {}) {
+  const prefill = normalizeFormPrefillOrganizationId(prefillOrganizationId);
+  if (prefill) return prefill;
+
+  const organizationFields = (Array.isArray(fields) ? fields : [])
+    .filter(field => field?.type === 'organisation_dropdown');
+  const pipelineField = pipelineSourceFieldId
+    ? organizationFields.find(field => field.id === pipelineSourceFieldId)
+    : null;
+  const standaloneField = organizationFields[0];
+
+  return normalizeFormPrefillOrganizationId(
+    (pipelineField && fieldValue(submissionData, pipelineField))
+    || (standaloneField && fieldValue(submissionData, standaloneField)),
+  );
+}
+
 export function containsFormNotListedValue(value) {
   return Array.isArray(value)
     ? value.some(isFormNotListedValue)

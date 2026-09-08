@@ -33,6 +33,7 @@ import { computeHiddenFieldIds, findPaymentField, derivePaymentAmount } from '..
 import { markFormSubmissionPaid, finalizeFormSubmission } from '../_lib/formPaymentFinalize.js';
 import {
   FORM_NOT_LISTED_LABELS_KEY,
+  normalizeFormPrefillOrganizationId,
   snapshotFormNotListedLabels,
 } from '../../shared/formNotListedChoice.js';
 import { resolveMembershipAction, buildMembershipFieldOverrides } from '../_lib/formMembershipAction.js';
@@ -127,6 +128,12 @@ export default async function handler(req, res) {
   const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
   try {
+    req.body = {
+      ...(req.body || {}),
+      prefill_organization_id: normalizeFormPrefillOrganizationId(
+        req.body?.prefill_organization_id,
+      ),
+    };
     const tenantData = await resolveTenantFromRequest(req);
     if (!tenantData) return res.status(404).json({ error: 'Tenant not found' });
 

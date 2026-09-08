@@ -243,6 +243,10 @@ test('generic forms retain their configured Direct Debit provider', () => {
 
 test('server form-payment endpoint wires the quote action through the shared resolver', () => {
   const src = readFileSync(join(repoRoot, 'api', 'public', 'form-payment.js'), 'utf8');
+  const normalization = src.indexOf('prefill_organization_id: normalizeFormPrefillOrganizationId(');
+  const routing = src.indexOf("if (action === 'create')");
+  assert.ok(normalization > -1 && normalization < routing,
+    'all quote and payment actions must normalize stale-client not-listed targets before routing');
   assert.match(src, /action === 'quote'.*handleQuote/s, 'quote action must be routed');
   const quoteBody = src.slice(
     src.indexOf('async function handleQuote'),
@@ -279,6 +283,11 @@ test('handleCreate checks submit-control BEFORE resolving the charge (pre-existi
 
 test('FormView quote and submission payload share ONE resolved organisation id', () => {
   const src = readFileSync(join(repoRoot, 'client', 'src', 'pages', 'FormView.jsx'), 'utf8');
+  const dropdownDeclaration = src.indexOf('const orgDropdownField = useMemo(');
+  const selectedOrgConsumer = src.indexOf('const selectedOrgId = useMemo(');
+  assert.ok(dropdownDeclaration > -1 && dropdownDeclaration < selectedOrgConsumer,
+    'the organisation dropdown used by runtime validation must be declared before render consumers');
+  assert.match(src, /resolveFormSubmissionOrganizationId\(\{/, 'shared resolution must sanitize the not-listed sentinel');
   assert.match(src, /prefillOrganizationId:\s*resolvedOrgIdForSubmission/, 'quote hook must use the shared memo');
   assert.match(src, /const resolvedOrganizationId = resolvedOrgIdForSubmission/, 'payload must use the shared memo');
 });

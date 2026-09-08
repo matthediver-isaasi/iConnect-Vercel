@@ -23,7 +23,10 @@ import {
   promoteAwaitingMemberCommunicationSnapshot,
   safeSubscriptionDiagnostic,
 } from '../_lib/formCommunicationSubscriptions.js';
-import { snapshotFormNotListedLabels } from '../../shared/formNotListedChoice.js';
+import {
+  normalizeFormPrefillOrganizationId,
+  snapshotFormNotListedLabels,
+} from '../../shared/formNotListedChoice.js';
 import {
   validateFormOrganisationGroupAnswers,
   validateOrganisationGroupDependentOrganizationAnswers,
@@ -49,7 +52,8 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const { form_id, form_name, answers, submission_data, source, tenant, prefill_organization_id, contract_instance_id, role_id: clientRoleId, brief_id, vacancy_id, submitterCopyRequested, submitterCopyEmail, idempotency_key, assignment_token } = req.body;
+  const { form_id, form_name, answers, submission_data, source, tenant, prefill_organization_id: requestedPrefillOrganizationId, contract_instance_id, role_id: clientRoleId, brief_id, vacancy_id, submitterCopyRequested, submitterCopyEmail, idempotency_key, assignment_token } = req.body;
+  const prefill_organization_id = normalizeFormPrefillOrganizationId(requestedPrefillOrganizationId);
   console.log('[Public Form Submission] form_id:', form_id, 'form_name:', form_name, 'brief_id:', brief_id || 'none', 'vacancy_id:', vacancy_id || 'none');
 
   if (!form_id) {

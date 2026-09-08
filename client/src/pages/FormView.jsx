@@ -26,6 +26,7 @@ import { evaluateFormLogicCondition } from "@/lib/formLogicConditions";
 import { FORM_NO_RELATIONSHIP_VALUE } from "../../../shared/formNoRelationshipChoice.js";
 import {
   pruneFormNotListedText,
+  resolveFormSubmissionOrganizationId,
   setFormNotListedText,
 } from "../../../shared/formNotListedChoice.js";
 import { applyFormFieldValueChange } from "@/lib/formFieldValueChange";
@@ -619,7 +620,8 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
     formLoaded: !!form
   });
 
-  // Find the organisation_dropdown field (if any) to determine selected org for domain validation
+  // Keep the first standalone organisation dropdown available to domain
+  // validation and submission-time capacity checks below.
   const orgDropdownField = useMemo(() => {
     return (form?.fields || []).find(f => f.type === 'organisation_dropdown');
   }, [form?.fields]);
@@ -630,18 +632,13 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
   // priority: prefill org, then org-pipeline dropdown, then standalone
   // org dropdown.
   const resolvedOrgIdForSubmission = useMemo(() => {
-    if (effectiveOrgIdForCapacity) return effectiveOrgIdForCapacity;
-    if (orgCapacityConfig?.sourceFieldId) {
-      const sourceField = form?.fields?.find(f => f.id === orgCapacityConfig.sourceFieldId);
-      if (sourceField?.type === 'organisation_dropdown' && formValues[orgCapacityConfig.sourceFieldId]) {
-        return formValues[orgCapacityConfig.sourceFieldId];
-      }
-    }
-    if (orgDropdownField && formValues[orgDropdownField.id]) {
-      return formValues[orgDropdownField.id];
-    }
-    return null;
-  }, [effectiveOrgIdForCapacity, orgCapacityConfig?.sourceFieldId, orgDropdownField, formValues, form?.fields]);
+    return resolveFormSubmissionOrganizationId({
+      prefillOrganizationId: effectiveOrgIdForCapacity,
+      pipelineSourceFieldId: orgCapacityConfig?.sourceFieldId,
+      fields: form?.fields,
+      submissionData: formValues,
+    });
+  }, [effectiveOrgIdForCapacity, orgCapacityConfig?.sourceFieldId, formValues, form?.fields]);
 
   // Get the selected org ID from form dropdown, URL prefill, or the
   // logged-in user's own organisation. The third path matters so that a

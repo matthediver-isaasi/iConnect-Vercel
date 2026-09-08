@@ -9,6 +9,8 @@ import {
   hasEnabledFormNotListedChoice,
   prependFormNotListedOption,
   preserveFormNotListedLabelSnapshots,
+  normalizeFormPrefillOrganizationId,
+  resolveFormSubmissionOrganizationId,
   resolveFormNotListedDisplayValue,
   resolveRawFormNotListedText,
   resolveFormNotListedText,
@@ -24,6 +26,35 @@ const field = {
   type: 'organisation_dropdown',
   not_listed_choice: { enabled: true, label: 'My organisation is not listed' },
 };
+
+test('resolves real organisation ids and treats the not-listed choice as no existing organisation', () => {
+  assert.equal(normalizeFormPrefillOrganizationId(FORM_NOT_LISTED_VALUE), null);
+  assert.equal(normalizeFormPrefillOrganizationId('org-123'), 'org-123');
+  assert.equal(resolveFormSubmissionOrganizationId({
+    fields: [field],
+    submissionData: { org: FORM_NOT_LISTED_VALUE },
+  }), null);
+  assert.equal(resolveFormSubmissionOrganizationId({
+    fields: [field],
+    submissionData: { org: 'org-123' },
+  }), 'org-123');
+});
+
+test('pipeline organisation dropdown resolution preserves not-listed answers while returning no existing target', () => {
+  const otherField = { ...field, id: 'other_org' };
+  const submissionData = {
+    other_org: 'org-standalone',
+    org: FORM_NOT_LISTED_VALUE,
+    [FORM_NOT_LISTED_TEXT_KEY]: { org: 'New Organisation Ltd' },
+  };
+  assert.equal(resolveFormSubmissionOrganizationId({
+    pipelineSourceFieldId: 'org',
+    fields: [otherField, field],
+    submissionData,
+  }), null);
+  assert.equal(submissionData.org, FORM_NOT_LISTED_VALUE);
+  assert.equal(submissionData[FORM_NOT_LISTED_TEXT_KEY].org, 'New Organisation Ltd');
+});
 
 test('enables only supported fields with a non-blank configured label', () => {
   assert.equal(hasEnabledFormNotListedChoice(field), true);

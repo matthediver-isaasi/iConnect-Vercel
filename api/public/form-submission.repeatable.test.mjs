@@ -17,3 +17,17 @@ test('survey submissions validate repeatable rows against the published visibili
   assert.match(validation, /form: relationshipForm/);
   assert.match(validation, /hiddenFieldIds: hiddenRelationshipFieldIds/);
 });
+
+test('public submissions normalize not-listed organisation targets before UUID-backed use', async () => {
+  const source = await readFile(new URL('./form-submission.js', import.meta.url), 'utf8');
+  const normalization = source.indexOf(
+    'const prefill_organization_id = normalizeFormPrefillOrganizationId(requestedPrefillOrganizationId)',
+  );
+  const duplicateLookup = source.indexOf("organization_id.eq.${prefill_organization_id}");
+  const submissionInsert = source.indexOf('...(prefill_organization_id && { organization_id: prefill_organization_id })');
+  const pipelinePayload = source.indexOf('prefill_organization_id: prefill_organization_id || null');
+  assert.ok(normalization > -1);
+  assert.ok(duplicateLookup > normalization);
+  assert.ok(submissionInsert > normalization);
+  assert.ok(pipelinePayload > normalization);
+});
