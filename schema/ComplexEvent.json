@@ -134,7 +134,7 @@
     },
     "speaker_award_config": {
       "type": "object",
-      "description": "Speaker awards granted at event start: { enabled, default: { voucher_value, voucher_expiry, badge_id }, overrides: { <speakerId>: { excluded } | { voucher_value, voucher_expiry, badge_id } } }"
+      "description": "Speaker awards: { enabled, badge_timing: 'event_start'|'on_assignment' (default event_start), default: { voucher_value, voucher_expiry, badge_id }, overrides }. Vouchers always grant at event start; on_assignment affects badges only."
     },
     "speaker_awards_granted_at": {
       "type": "string",

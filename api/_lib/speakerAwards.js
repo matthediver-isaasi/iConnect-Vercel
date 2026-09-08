@@ -21,6 +21,9 @@ export function normalizeSpeakerAwardConfig(raw) {
   const overrides = raw.overrides && typeof raw.overrides === 'object' ? raw.overrides : {};
   const config = {
     enabled: raw.enabled === true,
+    // Older saved configurations did not have this field.  Keeping the
+    // default here (rather than in clients) makes their behaviour stable.
+    badge_timing: raw.badge_timing === 'on_assignment' ? 'on_assignment' : 'event_start',
     default: {
       voucher_value: toPositiveNumber(def.voucher_value),
       voucher_expiry: toDateString(def.voucher_expiry),
@@ -179,7 +182,7 @@ function voucherCodeForGrant(grantId) {
 // 3. On a later run, existing rows in a final state are skipped; rows still
 //    'pending' are re-fulfilled. The caller must NOT stamp the event as done
 //    while any speaker is left pending.
-export async function grantSpeakerAwardsForEvent(supabase, { eventType, event, speakers, now = new Date() }) {
+export async function grantSpeakerAwardsForEvent(supabase, { eventType, event, speakers, now = new Date(), badgeOnly = false }) {
   const results = [];
   const tenantId = event.tenant_id;
   const config = normalizeSpeakerAwardConfig(event.speaker_award_config);
@@ -275,11 +278,30 @@ export async function grantSpeakerAwardsForEvent(supabase, { eventType, event, s
         .eq('speaker_id', speaker.id)
         .single();
       if (fetchErr) throw new Error(`grant fetch failed for speaker ${speaker.id}: ${fetchErr.message}`);
-      if (existing.status !== 'pending') {
+      const reopenGrantedForVoucher = !badgeOnly && existing.status === 'granted'
+        && !existing.voucher_id && Boolean(voucherValue);
+      const reopenSkippedAtStart = !badgeOnly
+        && ['skipped_no_member', 'skipped_no_award', 'skipped_excluded'].includes(existing.status)
+        && Boolean(voucherValue || badgeId);
+      if (existing.status === 'cancelled' || reopenGrantedForVoucher || reopenSkippedAtStart) {
+        // This transition locks the ledger row. It also avoids carrying an
+        // active badge across a changed member/badge pairing.
+        const recomputeAll = existing.status !== 'granted';
+        const revived = await reactivateSpeakerAwardGrant(supabase, {
+          tenantId, grantId: existing.id,
+          memberId: recomputeAll ? (match?.member_id || null) : existing.member_id,
+          organizationId: match?.organization_id || null,
+          badgeId: recomputeAll ? badgeId : existing.badge_id,
+          voucherValue,
+          resetBadge: recomputeAll,
+        });
+        grant = revived;
+      } else if (existing.status !== 'pending') {
         results.push({ speaker_id: speaker.id, status: 'already_processed' });
         continue;
+      } else {
+        grant = existing; // retry a previously-claimed pending grant
       }
-      grant = existing; // retry a previously-claimed pending grant
     } else {
       grant = claimed;
     }
@@ -288,6 +310,16 @@ export async function grantSpeakerAwardsForEvent(supabase, { eventType, event, s
       // Skip outcome recorded with its final status at claim time.
       results.push({ speaker_id: speaker.id, status: grant.status });
       continue;
+    }
+    // Assignment-time processing must not freeze a future voucher. At event
+    // start refresh its value and organisation from the then-current config
+    // and member relationship before fulfilment.
+    if (!badgeOnly && !grant.voucher_id) {
+      const { error: refreshError } = await supabase.from('speaker_award_grant')
+        .update({ voucher_value: voucherValue, organization_id: match?.organization_id || null })
+        .eq('id', grant.id).eq('tenant_id', tenantId);
+      if (refreshError) throw new Error(`voucher intent refresh failed for speaker ${speaker.id}: ${refreshError.message}`);
+      grant = { ...grant, voucher_value: voucherValue, organization_id: match?.organization_id || null };
     }
 
     results.push(await fulfilGrant(supabase, {
@@ -299,12 +331,12 @@ export async function grantSpeakerAwardsForEvent(supabase, { eventType, event, s
       speakerId: speaker.id,
       speakerName: speaker.full_name || null,
       now,
+      badgeOnly,
     }));
   }
 
-  // Sweep: previously claimed pending grants for speakers no longer attached
-  // to the event (speaker list changed between runs). Without this the event
-  // could be stamped complete while an owed award stays unfulfilled.
+  // A removed speaker must never be fulfilled by a later sweep.  In
+  // particular this is important for assignment-time badge claims.
   const processedIds = new Set((speakers || []).map(s => s.id));
   const { data: stale, error: staleErr } = await supabase
     .from('speaker_award_grant')
@@ -316,16 +348,13 @@ export async function grantSpeakerAwardsForEvent(supabase, { eventType, event, s
   if (staleErr) throw new Error(`pending grant sweep failed: ${staleErr.message}`);
   for (const grant of stale || []) {
     if (processedIds.has(grant.speaker_id)) continue;
-    results.push(await fulfilGrant(supabase, {
-      tenantId,
-      eventType,
-      event,
-      config,
-      grant,
-      speakerId: grant.speaker_id,
-      speakerName: grant.speaker_name,
-      now,
-    }));
+    const { error: cancelError } = await supabase
+      .from('speaker_award_grant')
+      .update({ status: 'cancelled', detail: appendDetail(grant.detail, 'Speaker removed before award fulfilment') })
+      .eq('id', grant.id)
+      .eq('tenant_id', tenantId);
+    if (cancelError) throw new Error(`stale grant cancellation failed: ${cancelError.message}`);
+    results.push({ speaker_id: grant.speaker_id, status: 'cancelled' });
   }
 
   return results;
@@ -334,12 +363,12 @@ export async function grantSpeakerAwardsForEvent(supabase, { eventType, event, s
 // Idempotently create the voucher/badge a pending grant row owes, then move
 // it to 'granted'. Safe to re-run: voucher code is deterministic per grant
 // and badge insert dedupes on unique(badge_id, member_id).
-async function fulfilGrant(supabase, { tenantId, eventType, event, config, grant, speakerId, speakerName, now }) {
+async function fulfilGrant(supabase, { tenantId, eventType, event, config, grant, speakerId, speakerName, now, badgeOnly = false }) {
   const updates = {};
   let failed = false;
   let invalidBadge = false;
 
-  if (grant.voucher_value && grant.organization_id && !grant.voucher_id) {
+  if (!badgeOnly && grant.voucher_value && grant.organization_id && !grant.voucher_id) {
     const code = voucherCodeForGrant(grant.id);
     try {
       // Crash recovery: the voucher may already exist from a previous run.
@@ -435,7 +464,10 @@ async function fulfilGrant(supabase, { tenantId, eventType, event, config, grant
     }
   }
 
-  const finalStatus = failed
+  const remainingVoucher = grant.voucher_value && !grant.voucher_id && !updates.voucher_id;
+  // Badge-only fulfilment deliberately leaves a voucher (if configured)
+  // pending for the event-start cron. Vouchers never move earlier.
+  const finalStatus = failed || (badgeOnly && remainingVoucher)
     ? 'pending'
     : (invalidBadge && !grant.voucher_value && !grant.voucher_id ? 'skipped_no_award' : 'granted');
   const { error: uErr } = await supabase
@@ -451,6 +483,74 @@ async function fulfilGrant(supabase, { tenantId, eventType, event, config, grant
   }
 
   return { speaker_id: speakerId, status: finalStatus, ...updates };
+}
+
+// Reconcile badges when an event is saved with badge_timing=on_assignment.
+// This intentionally uses the normal grant ledger: vouchers are recorded as
+// owed but are not fulfilled until the event-start cron calls the normal path.
+export async function reconcileAssignmentSpeakerBadges(supabase, {
+  eventType, event, speakers, revokeRemoved = false, actor = {},
+  removeGrant = removeSpeakerAwardGrant,
+}) {
+  const config = normalizeSpeakerAwardConfig(event.speaker_award_config);
+  // Removal remains available even after an administrator changes timing or
+  // disables the config: a badge already attributed to this event still needs
+  // provenance-safe reconciliation. Only new immediate awards need this mode.
+  const results = config?.enabled && config.badge_timing === 'on_assignment'
+    && event.status === 'published' && event.event_state !== 'draft'
+    ? await grantSpeakerAwardsForEvent(supabase, {
+      eventType, event, speakers, badgeOnly: true,
+    })
+    : [];
+  const currentSpeakerIds = new Set((speakers || []).map(s => s.id).filter(Boolean));
+  const { data: grants, error } = await supabase
+    .from('speaker_award_grant')
+    .select('id, speaker_id, member_id, badge_id, member_badge_id, detail, status, removal_reconciled_at, removal_revoke_requested')
+    .eq('tenant_id', event.tenant_id)
+    .eq('event_type', eventType)
+    .eq('event_id', event.id);
+  if (error) throw new Error(`grant reconciliation lookup failed: ${error.message}`);
+
+  let removed = 0;
+  let revoked = 0;
+  for (const grant of grants || []) {
+    if (currentSpeakerIds.has(grant.speaker_id)) continue;
+    const outcome = await removeGrant(supabase, {
+      tenantId: event.tenant_id, grantId: grant.id, revokeRemoved, actor,
+    });
+    if (outcome.status === 'processed') removed += 1;
+    if (outcome.revoked) revoked += 1;
+  }
+  return { timing: config?.badge_timing || 'event_start', results, removed, revoked };
+}
+
+// The RPC does all decision/revoke work in one transaction. Do not emulate it
+// in JS: a network failure must leave the operation retryable rather than
+// guessing whether a badge was revoked.
+export async function removeSpeakerAwardGrant(supabase, { tenantId, grantId, revokeRemoved, actor }) {
+  const { data, error } = await supabase.rpc('reconcile_removed_speaker_award_grant', {
+    p_tenant_id: tenantId, p_grant_id: grantId, p_revoke: revokeRemoved,
+    p_actor_type: actor.type || 'system', p_actor_id: actor.id || null,
+    p_actor_label: actor.label || 'Speaker assignment reconciliation',
+  });
+  if (error) throw new Error(`speaker award removal reconciliation failed: ${error.message}`);
+  if (!data || typeof data !== 'object') throw new Error('speaker award removal reconciliation returned no result');
+  return data;
+}
+
+// Locks and reopens a cancelled/currently-incomplete grant. The RPC checks an
+// active member_badge before retaining its id, preventing a changed speaker
+// match or badge config from inheriting an unrelated historical badge.
+export async function reactivateSpeakerAwardGrant(supabase, input) {
+  const { data, error } = await supabase.rpc('reactivate_speaker_award_grant', {
+    p_tenant_id: input.tenantId, p_grant_id: input.grantId,
+    p_member_id: input.memberId, p_organization_id: input.organizationId,
+    p_badge_id: input.badgeId, p_voucher_value: input.voucherValue,
+    p_reset_badge: input.resetBadge,
+  });
+  if (error) throw new Error(`speaker award reactivation failed: ${error.message}`);
+  if (!data || typeof data !== 'object') throw new Error('speaker award reactivation returned no result');
+  return data;
 }
 
 function appendDetail(existing, extra) {

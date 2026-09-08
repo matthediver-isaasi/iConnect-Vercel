@@ -56,6 +56,7 @@ import { formatEventDateTime } from "@/utils/timeFormat";
 import EventImageUpload from "@/components/events/EventImageUpload";
 import { SpeakerSelectionModal } from "@/components/SpeakerSelectionModal";
 import SpeakerAwardsSection, { configToFormState, formStateToConfig } from "@/components/events/SpeakerAwardsSection";
+import { reconcileSpeakerAwards } from "@/lib/speakerAwardLifecycle";
 import { useSpeakerModuleName } from "@/hooks/useSpeakerModuleName";
 import { useEventTypes } from "@/hooks/useEventTypes";
 import { useInternalEventTypes } from "@/hooks/useInternalEventTypes";
@@ -784,6 +785,20 @@ export default function CreateEvent() {
           );
           wrapped.cause = err;
           throw wrapped;
+        }
+      }
+
+      // Badges configured for immediate timing are reconciled only after all
+      // agenda rows exist. A failure is reported but never reverses a saved event.
+      if (eventData.speaker_award_config?.badge_timing === "on_assignment") {
+        try {
+          await reconcileSpeakerAwards({
+            action: "reconcile",
+            eventType: "event",
+            eventId: createdEvent.id,
+          });
+        } catch (err) {
+          toast.error(`Event created, but speaker badges could not be reconciled: ${err.message}`);
         }
       }
 

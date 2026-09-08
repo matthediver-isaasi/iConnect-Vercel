@@ -1,5 +1,25 @@
 export function emptySpeakerAwardConfig() {
-  return { enabled: false, default: { voucher_value: "", voucher_expiry: "", badge_id: null }, overrides: {} };
+  return {
+    enabled: false,
+    // Older configurations did not contain badge_timing. Event start remains
+    // the deliberately backwards-compatible default.
+    badge_timing: "event_start",
+    default: { voucher_value: "", voucher_expiry: "", badge_id: null },
+    overrides: {},
+  };
+}
+
+export const SPEAKER_BADGE_TIMING = {
+  EVENT_START: "event_start",
+  ON_ASSIGNMENT: "on_assignment",
+};
+
+export function normalizeSpeakerBadgeTiming(value) {
+  // `immediate` was used by an unreleased client implementation; accept it on
+  // read but always persist the canonical API value.
+  return value === SPEAKER_BADGE_TIMING.ON_ASSIGNMENT || value === "immediate"
+    ? SPEAKER_BADGE_TIMING.ON_ASSIGNMENT
+    : SPEAKER_BADGE_TIMING.EVENT_START;
 }
 
 export function configToFormState(raw) {
@@ -18,6 +38,7 @@ export function configToFormState(raw) {
   });
   return {
     enabled: raw.enabled === true,
+    badge_timing: normalizeSpeakerBadgeTiming(raw.badge_timing),
     default: {
       voucher_value: def.voucher_value != null ? String(def.voucher_value) : "",
       voucher_expiry: def.voucher_expiry ? String(def.voucher_expiry).slice(0, 10) : "",
@@ -49,6 +70,7 @@ export function formStateToConfig(state) {
   });
   return {
     enabled: true,
+    badge_timing: normalizeSpeakerBadgeTiming(state.badge_timing),
     default: {
       voucher_value: num(state.default?.voucher_value),
       voucher_expiry: state.default?.voucher_expiry || null,

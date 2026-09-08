@@ -48,6 +48,8 @@ import SEOSettings from "@/components/blog/SEOSettings";
 import UnfurlPreview from "@/components/UnfurlPreview";
 import { SpeakerSelectionModal } from "@/components/SpeakerSelectionModal";
 import SpeakerAwardsSection, { configToFormState, formStateToConfig } from "@/components/events/SpeakerAwardsSection";
+import { reconcileSpeakerAwards, finalRemovedSpeakerIds, hasRelevantAwardedBadge } from "@/lib/speakerAwardLifecycle";
+import SpeakerBadgeRemovalDialog from "@/components/events/SpeakerBadgeRemovalDialog";
 import EventSponsorSelector from "@/components/events/EventSponsorSelector";
 import ReactQuill from "react-quill";
 import "react-quill/dist/quill.snow.css";
@@ -608,6 +610,7 @@ export default function CreateComplexEvent() {
 
   const [activeSection, setActiveSection] = useState("details");
   const [saving, setSaving] = useState(false);
+  const [badgeRemovalSave, setBadgeRemovalSave] = useState(null);
   const [clashDialog, setClashDialog] = useState({ open: false, clashes: [], redacted: false, clashCount: 0 });
   const [checkingClashes, setCheckingClashes] = useState(false);
   const [slugManuallyEdited, setSlugManuallyEdited] = useState(false);
@@ -655,6 +658,17 @@ export default function CreateComplexEvent() {
 
   // Task #3285: speaker awards (vouchers/badges granted at event start)
   const [speakerAwards, setSpeakerAwards] = useState(configToFormState(null));
+  const { data: speakerAwardGrants, isLoading: loadingSpeakerAwardGrants, isError: speakerAwardGrantsError } = useQuery({
+    queryKey: ['speaker-award-grants', 'complex_event', editId],
+    queryFn: async () => {
+      const response = await fetch(`/api/admin/speaker-award-grants?event_id=${encodeURIComponent(editId)}&event_type=complex_event`, { credentials: 'include' });
+      if (!response.ok) throw new Error('Failed to load speaker award grants');
+      const data = await response.json();
+      if (!Array.isArray(data.grants)) throw new Error('Speaker award grants response was invalid');
+      return data.grants;
+    },
+    enabled: isEditMode,
+  });
   const [sessionDialogOpen, setSessionDialogOpen] = useState(false);
   // task-692: change-zoom dialog for a saved session (attach/change/detach).
   const [sessionZoomDialog, setSessionZoomDialog] = useState({ open: false, mode: 'change', sessionId: null });
@@ -1750,7 +1764,7 @@ export default function CreateComplexEvent() {
     }));
   };
 
-  const handleSave = async (skipClashCheck = false) => {
+  const handleSave = async (skipClashCheck = false, badgeRemovalDecision = null) => {
     if (!formData.title.trim()) {
       toast.error("Event title is required");
       return;
@@ -1850,6 +1864,33 @@ export default function CreateComplexEvent() {
         }
         setCheckingClashes(false);
       }
+    }
+
+    // In edit mode compare whole event reference sets only at save time. This
+    // catches picker edits and deleted sessions without coupling this logic to
+    // individual remove buttons.
+    const removedSpeakerIds = isEditMode
+      ? finalRemovedSpeakerIds({ sessions: existingSessions }, { sessions })
+      : [];
+    if (
+      isEditMode
+      && badgeRemovalDecision === null
+      && removedSpeakerIds.length > 0
+      && (loadingSpeakerAwardGrants || speakerAwardGrantsError || !Array.isArray(speakerAwardGrants))
+    ) {
+      toast.error('Cannot save speaker removals until awarded badge information has loaded. Please try again.');
+      return;
+    }
+    if (
+      isEditMode
+      && badgeRemovalDecision === null
+      && removedSpeakerIds.length > 0
+      // Evaluate the saved configuration, not pending form edits, because this
+      // prompt concerns an already-awarded badge.
+      && hasRelevantAwardedBadge(existingEvent?.speaker_award_config, speakerAwardGrants, removedSpeakerIds)
+    ) {
+      setBadgeRemovalSave({ removedSpeakerIds });
+      return;
     }
 
     setSaving(true);
@@ -2082,6 +2123,25 @@ export default function CreateComplexEvent() {
             const errData = await resp.json().catch(() => ({}));
             throw new Error(errData.error || `Failed to create session: ${session.title}`);
           }
+        }
+      }
+
+      // Sessions are the authoritative speaker references for complex events,
+      // therefore reconcile only once every session has been persisted.
+      if (isEditMode && badgeRemovalDecision !== null && removedSpeakerIds.length > 0) {
+        try {
+          await reconcileSpeakerAwards({
+            action: "remove", eventType: "complex_event", eventId,
+            speakerIds: removedSpeakerIds, revokeBadge: badgeRemovalDecision,
+          });
+        } catch (err) {
+          toast.error(`Event saved, but speaker badge removal could not be processed: ${err.message}`);
+        }
+      } else if (eventPayload.speaker_award_config?.badge_timing === "on_assignment") {
+        try {
+          await reconcileSpeakerAwards({ action: "reconcile", eventType: "complex_event", eventId });
+        } catch (err) {
+          toast.error(`Event saved, but speaker badges could not be reconciled: ${err.message}`);
         }
       }
 
@@ -5021,6 +5081,13 @@ export default function CreateComplexEvent() {
         onConfirm={handleClashConfirm}
         onCancel={handleClashCancel}
         isSaving={saving || checkingClashes}
+      />
+      <SpeakerBadgeRemovalDialog
+        open={!!badgeRemovalSave}
+        speakers={(badgeRemovalSave?.removedSpeakerIds || []).map((id) => speakers.find((speaker) => speaker.id === id) || { id, full_name: id })}
+        onCancel={() => setBadgeRemovalSave(null)}
+        onKeep={() => { setBadgeRemovalSave(null); handleSave(true, false); }}
+        onRemove={() => { setBadgeRemovalSave(null); handleSave(true, true); }}
       />
     </div>
   );

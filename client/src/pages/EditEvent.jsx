@@ -67,6 +67,8 @@ import ChangeZoomDialog from "@/components/events/ChangeZoomDialog";
 import { FocalPointPicker } from "@/components/FocalPointPicker";
 import { SpeakerSelectionModal } from "@/components/SpeakerSelectionModal";
 import SpeakerAwardsSection, { configToFormState, formStateToConfig } from "@/components/events/SpeakerAwardsSection";
+import { reconcileSpeakerAwards, finalRemovedSpeakerIds, hasRelevantAwardedBadge } from "@/lib/speakerAwardLifecycle";
+import SpeakerBadgeRemovalDialog from "@/components/events/SpeakerBadgeRemovalDialog";
 import EventSponsorSelector from "@/components/events/EventSponsorSelector";
 import { useSpeakerModuleName } from "@/hooks/useSpeakerModuleName";
 import { useEventTypes } from "@/hooks/useEventTypes";
@@ -647,6 +649,19 @@ export default function EditEvent() {
 
   // Task #3285: speaker awards (vouchers/badges granted at event start)
   const [speakerAwards, setSpeakerAwards] = useState(configToFormState(null));
+  const [badgeRemovalSave, setBadgeRemovalSave] = useState(null);
+  const postSaveRemovalRef = useRef(null);
+  const { data: speakerAwardGrants, isLoading: loadingSpeakerAwardGrants, isError: speakerAwardGrantsError } = useQuery({
+    queryKey: ['speaker-award-grants', 'event', eventId],
+    queryFn: async () => {
+      const response = await fetch(`/api/admin/speaker-award-grants?event_id=${encodeURIComponent(eventId)}&event_type=event`, { credentials: 'include' });
+      if (!response.ok) throw new Error('Failed to load speaker award grants');
+      const data = await response.json();
+      if (!Array.isArray(data.grants)) throw new Error('Speaker award grants response was invalid');
+      return data.grants;
+    },
+    enabled: !!eventId,
+  });
   
   // Selected sponsors state
   const [selectedSponsors, setSelectedSponsors] = useState([]);
@@ -1034,9 +1049,21 @@ export default function EditEvent() {
       }).filter((r) => r.id);
       queryClient.invalidateQueries({ queryKey: ['/api/entities/EventAgendaItem'] });
 
+      // Keep immediate badges in sync only after both the event and every
+      // agenda row are persisted. This is intentionally non-transactional:
+      // surface the failure without pretending the event update failed.
+      if (eventData.speaker_award_config?.badge_timing === "on_assignment" && !postSaveRemovalRef.current) {
+        try {
+          await reconcileSpeakerAwards({ action: "reconcile", eventType: "event", eventId });
+        } catch (err) {
+          toast.error(`Event saved, but speaker badges could not be reconciled: ${err.message}`);
+        }
+      }
+
       return updated;
     },
     onError: (error) => {
+      postSaveRemovalRef.current = null;
       console.error('Update event error:', error, {
         method: error?.method,
         path: error?.path,
@@ -1872,7 +1899,9 @@ export default function EditEvent() {
     }
 
 
-    const submitUpdate = () => updateEventMutation.mutate(eventData, {
+    const runUpdate = (removedSpeakerIds = [], revokeBadge = false) => {
+      postSaveRemovalRef.current = removedSpeakerIds.length ? { removedSpeakerIds, revokeBadge } : null;
+      updateEventMutation.mutate(eventData, {
       onSuccess: async () => {
         // Save sponsor assignments (diff-based — never wipes assignments when load failed/pending)
         try {
@@ -1930,6 +1959,17 @@ export default function EditEvent() {
           toast.error('Event saved but sponsor assignments could not be saved');
         }
 
+        if (removedSpeakerIds.length > 0) {
+          try {
+            await reconcileSpeakerAwards({
+              action: "remove", eventType: "event", eventId,
+              speakerIds: removedSpeakerIds, revokeBadge,
+            });
+          } catch (err) {
+            toast.error(`Event saved, but speaker badge removal could not be processed: ${err.message}`);
+          }
+          postSaveRemovalRef.current = null;
+        }
         toast.success('Event updated successfully');
         queryClient.invalidateQueries({ queryKey: ['events'] });
         queryClient.invalidateQueries({ queryKey: ['event', eventId] });
@@ -1948,7 +1988,25 @@ export default function EditEvent() {
           }
         }, 500);
       }
-    });
+      });
+    };
+    const submitUpdate = () => {
+      const removedSpeakerIds = finalRemovedSpeakerIds(
+        { eventSpeakerIds: event?.speaker_ids || [], agendaLines: initialAgendaRowsRef.current || [] },
+        { eventSpeakerIds: selectedSpeakers, agendaLines },
+      );
+      // Use the persisted configuration: a badge already awarded remains
+      // relevant even if this save also disables/changes future awards.
+      if (removedSpeakerIds.length && (loadingSpeakerAwardGrants || speakerAwardGrantsError || !Array.isArray(speakerAwardGrants))) {
+        toast.error('Cannot save speaker removals until awarded badge information has loaded. Please try again.');
+        return;
+      }
+      if (removedSpeakerIds.length && hasRelevantAwardedBadge(event?.speaker_award_config, speakerAwardGrants, removedSpeakerIds)) {
+        setBadgeRemovalSave({ removedSpeakerIds, runUpdate });
+        return;
+      }
+      runUpdate();
+    };
 
     // Advisory time-clash check (never blocks saving). Skip for TBC / no dates.
     // Training events contribute one whole-day window per clash-included
@@ -4924,6 +4982,13 @@ export default function EditEvent() {
         onConfirm={handleClashConfirm}
         onCancel={handleClashCancel}
         isSaving={updateEventMutation.isPending}
+      />
+      <SpeakerBadgeRemovalDialog
+        open={!!badgeRemovalSave}
+        speakers={(badgeRemovalSave?.removedSpeakerIds || []).map((id) => speakers.find((speaker) => speaker.id === id) || { id, full_name: id })}
+        onCancel={() => setBadgeRemovalSave(null)}
+        onKeep={() => { const save = badgeRemovalSave; setBadgeRemovalSave(null); save?.runUpdate(save.removedSpeakerIds, false); }}
+        onRemove={() => { const save = badgeRemovalSave; setBadgeRemovalSave(null); save?.runUpdate(save.removedSpeakerIds, true); }}
       />
     </div>
   );

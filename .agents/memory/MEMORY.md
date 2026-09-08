@@ -144,3 +144,4 @@
 - [Replacing required relationship owners](required-relationship-owner-replacement.md) — required many-to-one owner edges need one atomic DB operation; sequential REST replacement cannot preserve invariants.
 - [Structured form action retry state](structured-form-action-retry-state.md) — failed or already-running actions keep public/paid processing incomplete until every invocation reaches a safe terminal state.
 - [Event-card attendee count states](event-card-attendee-count-states.md) — attendee actions show a secured number; unresolved/error states must never fall back to the old icon or a false zero.
+- [Speaker award timing lifecycle](speaker-award-timing-lifecycle.md) — badges may award on assignment, but vouchers stay event-start; removals require atomic, provenance-safe reconciliation.

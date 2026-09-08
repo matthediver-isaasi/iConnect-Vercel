@@ -131,7 +131,8 @@ export default function SpeakerAwardsSection({ speakers, value, onChange, eventI
           <div className="flex items-start gap-2 text-xs text-slate-500">
             <Info className="w-4 h-4 shrink-0 mt-0.5" />
             <span>
-              Awards are granted automatically when the event starts, to the speakers attached at that time.
+              Training vouchers are granted automatically when the event starts, to the speakers attached at that time.
+              Badges can be awarded at event start or as soon as a speaker is assigned.
               Training vouchers can only be awarded when the speaker is a member connected to an organisation
               (the voucher is credited to that organisation).
             </span>
@@ -178,6 +179,22 @@ export default function SpeakerAwardsSection({ speakers, value, onChange, eventI
                 </SelectContent>
               </Select>
             </div>
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">Badge timing</Label>
+            <Select
+              value={state.badge_timing || "event_start"}
+              onValueChange={(badge_timing) => update({ badge_timing })}
+            >
+              <SelectTrigger data-testid="select-award-badge-timing">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="event_start">Award badge when the event starts</SelectItem>
+                <SelectItem value="on_assignment">Award badge as soon as a speaker is assigned</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-slate-500">This setting affects badges only; vouchers are always awarded when the event starts.</p>
           </div>
           {state.default.voucher_value && !state.default.voucher_expiry && (
             <div className="flex items-center gap-2 text-xs text-warning-foreground">

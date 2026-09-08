@@ -20,12 +20,20 @@ test('configuration round-trips defaults, overrides, exclusions and stored times
   assert.deepEqual(form.overrides.s2, { excluded: true });
   assert.deepEqual(formStateToConfig(form), {
     enabled: true,
+    badge_timing: 'event_start',
     default: { voucher_value: 100, voucher_expiry: '2027-01-31', badge_id: 'b1' },
     overrides: {
       s1: { voucher_value: 50, voucher_expiry: '2027-02-01', badge_id: 'b2' },
       s2: { excluded: true },
     },
   });
+});
+
+test('badge timing defaults old configurations to event start and persists on-assignment', () => {
+  assert.equal(configToFormState({ enabled: true }).badge_timing, 'event_start');
+  const state = configToFormState({ enabled: true, badge_timing: 'on_assignment', default: {} });
+  assert.equal(formStateToConfig(state).badge_timing, 'on_assignment');
+  assert.equal(configToFormState({ enabled: true, badge_timing: 'immediate' }).badge_timing, 'on_assignment');
 });
 
 test('disabled configuration persists as null and empty overrides are omitted', () => {

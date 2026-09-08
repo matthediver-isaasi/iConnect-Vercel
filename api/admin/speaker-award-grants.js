@@ -54,8 +54,27 @@ export function createSpeakerAwardGrantsHandler({
       (badges || []).forEach(b => { badgeNames[b.id] = b.name; });
     }
 
+    // The removal prompt must only be shown for a badge that is still active.
+    // Grant rows deliberately retain revoked member_badge ids for audit history.
+    const memberBadgeIds = [...new Set((data || []).map(g => g.member_badge_id).filter(Boolean))];
+    const activeMemberBadgeIds = new Set();
+    if (memberBadgeIds.length > 0) {
+      const { data: activeBadges, error: activeBadgeError } = await db
+        .from('member_badge')
+        .select('id')
+        .eq('tenant_id', ctx.tenantId)
+        .in('id', memberBadgeIds)
+        .is('revoked_at', null);
+      if (activeBadgeError) throw new Error(activeBadgeError.message);
+      (activeBadges || []).forEach(row => activeMemberBadgeIds.add(row.id));
+    }
+
     return res.status(200).json({
-      grants: (data || []).map(g => ({ ...g, badge_name: g.badge_id ? (badgeNames[g.badge_id] || null) : null })),
+      grants: (data || []).map(g => ({
+        ...g,
+        badge_name: g.badge_id ? (badgeNames[g.badge_id] || null) : null,
+        member_badge_active: g.member_badge_id ? activeMemberBadgeIds.has(g.member_badge_id) : false,
+      })),
     });
   } catch (err) {
     console.error('[admin/speaker-award-grants]', err.message);
