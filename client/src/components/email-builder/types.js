@@ -42,6 +42,69 @@ export const SOCIAL_PLATFORMS = [
 
 export const DEFAULT_COLUMN_BACKGROUND_COLOR = '#ffffff';
 
+export const DEFAULT_BUTTON_STYLES = Object.freeze({
+  backgroundColor: '#007bff',
+  color: '#ffffff',
+  fontSize: '16px',
+  fontWeight: 'bold',
+  borderRadius: '4px',
+  textAlign: 'center',
+  innerPadding: '12px 24px 12px 24px',
+});
+
+const resolveSpacingShorthand = (value, fallback) => {
+  if (!value) return fallback;
+  const parts = String(value).trim().split(/\s+/).map((part) => `${parseInt(part, 10) || 0}px`);
+  if (parts.length === 1) return `${parts[0]} ${parts[0]} ${parts[0]} ${parts[0]}`;
+  if (parts.length === 2) return `${parts[0]} ${parts[1]} ${parts[0]} ${parts[1]}`;
+  if (parts.length === 3) return `${parts[0]} ${parts[1]} ${parts[2]} ${parts[1]}`;
+  if (parts.length === 4) return parts.join(' ');
+  return fallback;
+};
+
+const DEFAULT_BUTTON_INNER_PADDING = Object.freeze({
+  top: '12',
+  right: '24',
+  bottom: '12',
+  left: '24',
+});
+
+export const resolveButtonStyles = (styles = {}) => {
+  const hasIndividualInnerPadding = ['Top', 'Right', 'Bottom', 'Left']
+    .some((side) => styles[`innerPadding${side}`] !== undefined);
+  const resolvedShorthand = resolveSpacingShorthand(styles.innerPadding, DEFAULT_BUTTON_STYLES.innerPadding);
+  const shorthandParts = resolvedShorthand.split(/\s+/).map((part) => String(parseInt(part, 10) || 0));
+  const innerPaddingValues = hasIndividualInnerPadding
+    ? Object.fromEntries(['Top', 'Right', 'Bottom', 'Left'].map((side) => {
+      const key = side.toLowerCase();
+      const rawValue = styles[`innerPadding${side}`];
+      return [key, rawValue === undefined
+        ? DEFAULT_BUTTON_INNER_PADDING[key]
+        : String(parseInt(rawValue, 10) || 0)];
+    }))
+    : {
+      top: shorthandParts[0],
+      right: shorthandParts[1],
+      bottom: shorthandParts[2],
+      left: shorthandParts[3],
+    };
+  const innerPadding = ['top', 'right', 'bottom', 'left']
+    .map((side) => `${innerPaddingValues[side]}px`)
+    .join(' ');
+
+  return {
+    backgroundColor: styles.backgroundColor || DEFAULT_BUTTON_STYLES.backgroundColor,
+    color: styles.color || DEFAULT_BUTTON_STYLES.color,
+    fontFamily: styles.fontFamily || '',
+    fontSize: styles.fontSize || DEFAULT_BUTTON_STYLES.fontSize,
+    fontWeight: styles.fontWeight || DEFAULT_BUTTON_STYLES.fontWeight,
+    borderRadius: styles.borderRadius || DEFAULT_BUTTON_STYLES.borderRadius,
+    textAlign: styles.textAlign || DEFAULT_BUTTON_STYLES.textAlign,
+    innerPadding,
+    innerPaddingValues,
+  };
+};
+
 export const resolveColumnBackgroundColor = (column, blockStyles) =>
   column?.backgroundColor || blockStyles?.backgroundColor;
 

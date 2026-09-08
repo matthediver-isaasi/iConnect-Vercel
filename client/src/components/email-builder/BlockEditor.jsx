@@ -36,6 +36,7 @@ import {
   SOCIAL_PLATFORMS,
   DEFAULT_COLUMN_BACKGROUND_COLOR,
   resizeColumns,
+  resolveButtonStyles,
   resolveColumnBackgroundColor,
   updateColumnBackgroundColor,
 } from './types';
@@ -753,6 +754,14 @@ function ImageBlockEditor({ block, onChange, isChild }) {
 }
 
 function ButtonBlockEditor({ block, onChange, isChild }) {
+  const effectiveStyles = resolveButtonStyles(block.styles);
+  const editorStyles = {
+    ...block.styles,
+    innerPaddingTop: effectiveStyles.innerPaddingValues.top,
+    innerPaddingRight: effectiveStyles.innerPaddingValues.right,
+    innerPaddingBottom: effectiveStyles.innerPaddingValues.bottom,
+    innerPaddingLeft: effectiveStyles.innerPaddingValues.left,
+  };
   const update = (key, value) => {
     if (key === 'content' || key === 'href') {
       onChange({ ...block, [key]: value });
@@ -786,7 +795,7 @@ function ButtonBlockEditor({ block, onChange, isChild }) {
           <Label>Background Color</Label>
           <Input
             type="color"
-            value={block.styles.backgroundColor}
+            value={effectiveStyles.backgroundColor}
             onChange={(e) => update('backgroundColor', e.target.value)}
             className="h-9 p-1"
           />
@@ -795,14 +804,14 @@ function ButtonBlockEditor({ block, onChange, isChild }) {
           <Label>Text Color</Label>
           <Input
             type="color"
-            value={block.styles.color}
+            value={effectiveStyles.color}
             onChange={(e) => update('color', e.target.value)}
             className="h-9 p-1"
           />
         </div>
         <div className="space-y-2">
           <Label>Font Size</Label>
-          <Select value={block.styles.fontSize} onValueChange={(v) => update('fontSize', v)}>
+          <Select value={effectiveStyles.fontSize} onValueChange={(v) => update('fontSize', v)}>
             <SelectTrigger>
               <SelectValue />
             </SelectTrigger>
@@ -815,7 +824,7 @@ function ButtonBlockEditor({ block, onChange, isChild }) {
         </div>
         <div className="space-y-2">
           <Label>Border Radius</Label>
-          <Select value={block.styles.borderRadius} onValueChange={(v) => update('borderRadius', v)}>
+          <Select value={effectiveStyles.borderRadius} onValueChange={(v) => update('borderRadius', v)}>
             <SelectTrigger>
               <SelectValue />
             </SelectTrigger>
@@ -830,7 +839,7 @@ function ButtonBlockEditor({ block, onChange, isChild }) {
       </div>
       <div className="space-y-2">
         <Label>Alignment</Label>
-        <Select value={block.styles.textAlign} onValueChange={(v) => update('textAlign', v)}>
+        <Select value={effectiveStyles.textAlign} onValueChange={(v) => update('textAlign', v)}>
           <SelectTrigger>
             <SelectValue />
           </SelectTrigger>
@@ -844,7 +853,7 @@ function ButtonBlockEditor({ block, onChange, isChild }) {
       <SpacingControl
         label="Button Inner Padding"
         prefix="innerPadding"
-        styles={block.styles}
+        styles={editorStyles}
         onChange={(spacingStyles) => onChange({ ...block, styles: { ...block.styles, ...spacingStyles } })}
       />
       <SpacingControl

@@ -1,5 +1,5 @@
 import mjml2html from 'mjml-browser';
-import { BLOCK_TYPES } from './types';
+import { BLOCK_TYPES, resolveButtonStyles } from './types';
 import { sanitizeHtml, stripTrailingEmptyParagraphs } from './sanitize';
 import { getIndividualValues, spacingToMjml } from './SpacingControl';
 
@@ -27,11 +27,6 @@ const getPaddingAttr = (styles) => {
   return spacingToMjml(vals);
 };
 
-const getInnerPaddingAttr = (styles) => {
-  const vals = getIndividualValues(styles, 'innerPadding');
-  return spacingToMjml(vals);
-};
-
 const getCombinedSectionPadding = (styles) => {
   const margin = getIndividualValues(styles, 'margin');
   return `${margin.top || 0}px ${margin.right || 0}px ${margin.bottom || 0}px ${margin.left || 0}px`;
@@ -39,16 +34,19 @@ const getCombinedSectionPadding = (styles) => {
 
 const buttonToMjml = (block) => {
   const href = escapeHtml(block.href || '#');
-  const bgColor = block.styles.backgroundColor || '#007bff';
-  const color = block.styles.color || '#ffffff';
-  const fontSize = block.styles.fontSize || '16px';
-  const fontWeight = block.styles.fontWeight || 'bold';
-  const borderRadius = block.styles.borderRadius || '4px';
-  const innerPad = getInnerPaddingAttr(block.styles);
-  const fontFamily = block.styles.fontFamily ? `font-family:${block.styles.fontFamily};` : '';
+  const styles = resolveButtonStyles(block.styles);
+  const {
+    backgroundColor: bgColor,
+    color,
+    fontSize,
+    fontWeight,
+    borderRadius,
+    innerPadding: innerPad,
+  } = styles;
+  const fontFamily = styles.fontFamily ? `font-family:${escapeHtml(styles.fontFamily)};` : '';
   const content = escapeHtml(block.content);
 
-  return `<table border="0" cellpadding="0" cellspacing="0" role="presentation" style="border-collapse:separate;line-height:100%;"><tr><td bgcolor="${bgColor}" role="presentation" style="border:none;border-radius:${borderRadius};cursor:auto;mso-padding-alt:${innerPad};background:${bgColor};"><a href="${href}" target="_blank" style="display:inline-block;background:${bgColor};color:${color};${fontFamily}font-size:${fontSize};font-weight:${fontWeight};line-height:120%;margin:0;text-decoration:none;text-transform:none;padding:${innerPad};mso-padding-alt:0;border-radius:${borderRadius};">${content}</a></td></tr></table>`;
+  return `<table border="0" cellpadding="0" cellspacing="0" role="presentation" style="border-collapse:separate;line-height:100%;"><tr><td bgcolor="${bgColor}" role="presentation" style="border:none;border-radius:${borderRadius};color:${color} !important;cursor:auto;mso-padding-alt:${innerPad};background-color:${bgColor} !important;"><a href="${href}" target="_blank" style="display:inline-block;background-color:${bgColor} !important;color:${color} !important;${fontFamily}font-size:${fontSize};font-weight:${fontWeight};line-height:120%;margin:0;text-decoration:none !important;text-transform:none;padding:${innerPad};mso-padding-alt:0;border-radius:${borderRadius};"><span style="color:${color} !important;text-decoration:none !important;">${content}</span></a></td></tr></table>`;
 };
 
 

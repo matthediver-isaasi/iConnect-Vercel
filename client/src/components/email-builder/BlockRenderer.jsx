@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button';
 import { base44 } from '@/api/base44Client';
 import { toast } from 'sonner';
 import { showUploadErrorToast } from '@/lib/planQuotaError';
-import { BLOCK_TYPES, resolveColumnBackgroundColor } from './types';
+import { BLOCK_TYPES, resolveButtonStyles, resolveColumnBackgroundColor } from './types';
 import { sanitizeHtml, stripTrailingEmptyParagraphs, isRichTextEmpty } from './sanitize';
 import RichTextEditor from './RichTextEditor';
 import { getIndividualValues } from './SpacingControl';
@@ -203,19 +203,19 @@ function ImageBlockPreview({ block, isChild }) {
 
 function ButtonBlockPreview({ block, isChild, globalFontFamily }) {
   const paddingStyle = getSpacingStyle(block.styles, 'padding');
-  const innerPaddingStyle = getSpacingStyle(block.styles, 'innerPadding', 'padding');
+  const effectiveStyles = resolveButtonStyles(block.styles);
 
   const buttonSpan = (
     <span
       style={{
         display: 'inline-block',
-        backgroundColor: block.styles.backgroundColor,
-        color: block.styles.color,
-        fontFamily: block.styles.fontFamily || globalFontFamily || 'Arial, sans-serif',
-        fontSize: block.styles.fontSize,
-        fontWeight: block.styles.fontWeight,
-        ...innerPaddingStyle,
-        borderRadius: block.styles.borderRadius,
+        backgroundColor: effectiveStyles.backgroundColor,
+        color: effectiveStyles.color,
+        fontFamily: effectiveStyles.fontFamily || globalFontFamily || 'Arial, sans-serif',
+        fontSize: effectiveStyles.fontSize,
+        fontWeight: effectiveStyles.fontWeight,
+        padding: effectiveStyles.innerPadding,
+        borderRadius: effectiveStyles.borderRadius,
         cursor: 'pointer',
       }}
     >
@@ -224,7 +224,7 @@ function ButtonBlockPreview({ block, isChild, globalFontFamily }) {
   );
 
   const btnEl = (
-    <div style={{ ...paddingStyle, textAlign: block.styles.textAlign }}>
+    <div style={{ ...paddingStyle, textAlign: effectiveStyles.textAlign }}>
       {block.href ? (
         <a href={block.href} onClick={e => e.preventDefault()} style={{ pointerEvents: 'none', textDecoration: 'none', color: 'inherit' }}>
           {buttonSpan}
