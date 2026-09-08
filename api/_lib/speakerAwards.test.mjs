@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   buildSpeakerEmailMatchOr,
+  normalizeSpeakerAwardConfig,
+  resolveSpeakerAward,
   matchSpeakersToMembers,
 } from './speakerAwards.js';
 
@@ -101,4 +103,24 @@ test('invalid saved link falls back to case-insensitive legacy email matching', 
   }]);
   assert.equal(matches.s1.member_id, 'legacy');
   assert.equal(matches.s1.organization_name, 'Legacy Org');
+});
+
+test('configuration normalization and precedence reject incomplete vouchers', () => {
+  const config = normalizeSpeakerAwardConfig({
+    enabled: true,
+    default: { voucher_value: '100', voucher_expiry: '2027-01-31', badge_id: 'b1' },
+    overrides: {
+      s1: { voucher_value: '50' },
+      s2: { excluded: true },
+      s3: { voucher_value: -1, voucher_expiry: 'not-a-date', badge_id: 'b2' },
+    },
+  });
+  assert.deepEqual(resolveSpeakerAward(config, 's1'), {
+    voucher_value: 50, voucher_expiry: '2027-01-31', badge_id: 'b1',
+  });
+  assert.deepEqual(resolveSpeakerAward(config, 's2'), { excluded: true });
+  assert.deepEqual(resolveSpeakerAward(config, 's3'), {
+    voucher_value: 100, voucher_expiry: '2027-01-31', badge_id: 'b2',
+  });
+  assert.equal(resolveSpeakerAward({ enabled: true, default: { voucher_value: 100 } }, 's1'), null);
 });

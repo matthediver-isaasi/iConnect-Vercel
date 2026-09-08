@@ -4,23 +4,32 @@ import { supabase } from '../_lib/database.js';
 import { getTenantContext, hasAdminAccess } from '../_lib/tenantContext.js';
 import { matchSpeakersToMembers } from '../_lib/speakerAwards.js';
 
-export default async function handler(req, res) {
+export function createSpeakerAwardEligibilityHandler({
+  db = supabase,
+  tenantContext = getTenantContext,
+  adminAccess = hasAdminAccess,
+  match = matchSpeakersToMembers,
+} = {}) {
+  return async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
-  if (!supabase) {
+  if (!db) {
     return res.status(500).json({ error: 'Database not configured' });
   }
 
-  const ctx = await getTenantContext(req);
+  const ctx = await tenantContext(req);
   if (!ctx?.tenantId) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
-  const isAdmin = await hasAdminAccess(ctx);
+  const isAdmin = await adminAccess(ctx);
   if (!isAdmin) {
     return res.status(403).json({ error: 'Forbidden' });
   }
 
+  if (req.body?.speaker_ids !== undefined && !Array.isArray(req.body.speaker_ids)) {
+    return res.status(400).json({ error: 'speaker_ids must be an array' });
+  }
   const speakerIds = Array.isArray(req.body?.speaker_ids)
     ? [...new Set(req.body.speaker_ids.filter(id => typeof id === 'string'))]
     : [];
@@ -32,14 +41,14 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { data: speakers, error } = await supabase
+    const { data: speakers, error } = await db
       .from('speaker')
       .select('id, full_name, email, member_id')
       .in('id', speakerIds)
       .eq('tenant_id', ctx.tenantId);
     if (error) throw new Error(error.message);
 
-    const matches = await matchSpeakersToMembers(supabase, ctx.tenantId, speakers || []);
+    const matches = await match(db, ctx.tenantId, speakers || []);
     const eligibility = {};
     (speakers || []).forEach(s => {
       const m = matches[s.id] || null;
@@ -56,4 +65,7 @@ export default async function handler(req, res) {
     console.error('[admin/speaker-award-eligibility]', err.message);
     return res.status(500).json({ error: 'Failed to check eligibility' });
   }
+  };
 }
+
+export default createSpeakerAwardEligibilityHandler();

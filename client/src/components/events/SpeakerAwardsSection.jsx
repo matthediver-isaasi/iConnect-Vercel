@@ -12,83 +12,18 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Award, Info, CheckCircle2, XCircle, AlertCircle } from "lucide-react";
 import { base44 } from "@/api/base44Client";
+import {
+  emptySpeakerAwardConfig,
+  configToFormState,
+  formStateToConfig,
+  resolveSpeakerAwardFormValue,
+} from "@/lib/speakerAwardsConfig";
 
 const NO_BADGE = "__none__";
-
-function emptyConfig() {
-  return { enabled: false, default: { voucher_value: "", voucher_expiry: "", badge_id: null }, overrides: {} };
-}
-
-// Convert stored config (numbers/nulls) into editable form state (strings).
-export function configToFormState(raw) {
-  if (!raw || typeof raw !== "object") return emptyConfig();
-  const def = raw.default || {};
-  const overrides = {};
-  Object.entries(raw.overrides || {}).forEach(([id, o]) => {
-    if (!o || typeof o !== "object") return;
-    overrides[id] = o.excluded === true
-      ? { excluded: true }
-      : {
-          voucher_value: o.voucher_value != null ? String(o.voucher_value) : "",
-          voucher_expiry: o.voucher_expiry ? String(o.voucher_expiry).slice(0, 10) : "",
-          badge_id: o.badge_id || null,
-        };
-  });
-  return {
-    enabled: raw.enabled === true,
-    default: {
-      voucher_value: def.voucher_value != null ? String(def.voucher_value) : "",
-      voucher_expiry: def.voucher_expiry ? String(def.voucher_expiry).slice(0, 10) : "",
-      badge_id: def.badge_id || null,
-    },
-    overrides,
-  };
-}
-
-// Convert form state into the persisted config (or null when disabled/empty).
-export function formStateToConfig(state) {
-  if (!state || state.enabled !== true) return null;
-  const num = (v) => {
-    const n = Number(v);
-    return Number.isFinite(n) && n > 0 ? n : null;
-  };
-  const overrides = {};
-  Object.entries(state.overrides || {}).forEach(([id, o]) => {
-    if (!o) return;
-    if (o.excluded === true) {
-      overrides[id] = { excluded: true };
-      return;
-    }
-    const entry = {
-      voucher_value: num(o.voucher_value),
-      voucher_expiry: o.voucher_expiry || null,
-      badge_id: o.badge_id || null,
-    };
-    if (entry.voucher_value || entry.voucher_expiry || entry.badge_id) overrides[id] = entry;
-  });
-  return {
-    enabled: true,
-    default: {
-      voucher_value: num(state.default?.voucher_value),
-      voucher_expiry: state.default?.voucher_expiry || null,
-      badge_id: state.default?.badge_id || null,
-    },
-    overrides,
-  };
-}
-
-function effectiveAward(state, speakerId) {
-  const o = state.overrides?.[speakerId];
-  if (o?.excluded) return { excluded: true };
-  return {
-    voucher_value: (o && o.voucher_value !== "" && o.voucher_value != null) ? o.voucher_value : state.default?.voucher_value,
-    voucher_expiry: (o && o.voucher_expiry) ? o.voucher_expiry : state.default?.voucher_expiry,
-    badge_id: (o && o.badge_id) ? o.badge_id : state.default?.badge_id,
-  };
-}
+export { configToFormState, formStateToConfig };
 
 export default function SpeakerAwardsSection({ speakers, value, onChange, eventId, eventType }) {
-  const state = value || emptyConfig();
+  const state = value || emptySpeakerAwardConfig();
   const [badges, setBadges] = useState([]);
   const [eligibility, setEligibility] = useState({});
   const [grants, setGrants] = useState(null);
@@ -261,7 +196,7 @@ export default function SpeakerAwardsSection({ speakers, value, onChange, eventI
                 const override = state.overrides?.[speaker.id];
                 const excluded = override?.excluded === true;
                 const hasOverride = override && !excluded;
-                const award = effectiveAward(state, speaker.id);
+                const award = resolveSpeakerAwardFormValue(state, speaker.id);
                 return (
                   <div key={speaker.id} className="border border-slate-200 rounded-md p-3 space-y-2" data-testid={`speaker-award-row-${speaker.id}`}>
                     <div className="flex flex-wrap items-center gap-2">

@@ -3,19 +3,24 @@
 import { supabase } from '../_lib/database.js';
 import { getTenantContext, hasAdminAccess } from '../_lib/tenantContext.js';
 
-export default async function handler(req, res) {
+export function createSpeakerAwardGrantsHandler({
+  db = supabase,
+  tenantContext = getTenantContext,
+  adminAccess = hasAdminAccess,
+} = {}) {
+  return async function handler(req, res) {
   if (req.method !== 'GET') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
-  if (!supabase) {
+  if (!db) {
     return res.status(500).json({ error: 'Database not configured' });
   }
 
-  const ctx = await getTenantContext(req);
+  const ctx = await tenantContext(req);
   if (!ctx?.tenantId) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
-  const isAdmin = await hasAdminAccess(ctx);
+  const isAdmin = await adminAccess(ctx);
   if (!isAdmin) {
     return res.status(403).json({ error: 'Forbidden' });
   }
@@ -27,7 +32,7 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { data, error } = await supabase
+    const { data, error } = await db
       .from('speaker_award_grant')
       .select('id, speaker_id, speaker_name, member_id, organization_id, status, voucher_id, voucher_value, badge_id, member_badge_id, detail, created_at')
       .eq('tenant_id', ctx.tenantId)
@@ -40,11 +45,12 @@ export default async function handler(req, res) {
     const badgeIds = [...new Set((data || []).map(g => g.badge_id).filter(Boolean))];
     const badgeNames = {};
     if (badgeIds.length > 0) {
-      const { data: badges } = await supabase
+      const { data: badges, error: badgeError } = await db
         .from('badge')
         .select('id, name')
         .in('id', badgeIds)
         .eq('tenant_id', ctx.tenantId);
+      if (badgeError) throw new Error(badgeError.message);
       (badges || []).forEach(b => { badgeNames[b.id] = b.name; });
     }
 
@@ -55,4 +61,7 @@ export default async function handler(req, res) {
     console.error('[admin/speaker-award-grants]', err.message);
     return res.status(500).json({ error: 'Failed to load speaker award grants' });
   }
+  };
 }
+
+export default createSpeakerAwardGrantsHandler();

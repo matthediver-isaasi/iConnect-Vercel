@@ -2074,7 +2074,10 @@ export default function CreateEvent() {
                     )}
 
                     <SpeakerAwardsSection
-                      speakers={speakers.filter(s => selectedSpeakers.includes(s.id))}
+                      speakers={speakers.filter(s =>
+                        selectedSpeakers.includes(s.id)
+                        || agendaLines.some(line => (line.speaker_ids || []).includes(s.id))
+                      )}
                       value={speakerAwards}
                       onChange={setSpeakerAwards}
                     />

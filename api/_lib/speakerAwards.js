@@ -140,7 +140,8 @@ export async function matchSpeakersToMembers(supabase, tenantId, speakers) {
     const { data: orgs } = await supabase
       .from('organization')
       .select('id, name')
-      .in('id', orgIds);
+      .in('id', orgIds)
+      .eq('tenant_id', tenantId);
     (orgs || []).forEach(o => { orgNames[o.id] = o.name; });
   }
 
@@ -185,6 +186,22 @@ export async function grantSpeakerAwardsForEvent(supabase, { eventType, event, s
   if (!config || !config.enabled) return results;
 
   const matches = await matchSpeakersToMembers(supabase, tenantId, speakers);
+  const configuredBadgeIds = [...new Set([
+    config.default.badge_id,
+    ...Object.values(config.overrides)
+      .filter(override => !override?.excluded)
+      .map(override => override?.badge_id),
+  ].filter(Boolean))];
+  const tenantBadgeIds = new Set();
+  if (configuredBadgeIds.length > 0) {
+    const { data: badges, error: badgeError } = await supabase
+      .from('badge')
+      .select('id')
+      .eq('tenant_id', tenantId)
+      .in('id', configuredBadgeIds);
+    if (badgeError) throw new Error(`badge validation failed: ${badgeError.message}`);
+    (badges || []).forEach(badge => tenantBadgeIds.add(badge.id));
+  }
 
   for (const speaker of speakers || []) {
     const award = resolveSpeakerAward(config, speaker.id);
@@ -202,15 +219,26 @@ export async function grantSpeakerAwardsForEvent(supabase, { eventType, event, s
       status = 'skipped_excluded';
     } else {
       if (award.voucher_value && match?.organization_id) voucherValue = award.voucher_value;
-      if (award.badge_id && match?.member_id) badgeId = award.badge_id;
+      if (award.badge_id && !tenantBadgeIds.has(award.badge_id)) {
+        detail = 'Badge skipped: badge not found for tenant';
+      } else if (award.badge_id && match?.member_id) {
+        badgeId = award.badge_id;
+      }
       if (voucherValue || badgeId) {
         status = 'pending';
         if (award.voucher_value && !voucherValue) {
-          detail = match ? 'Voucher skipped: member has no organisation' : 'Voucher skipped: no member found for speaker email';
+          detail = appendDetail(
+            detail,
+            match ? 'Voucher skipped: member has no organisation' : 'Voucher skipped: no member found for speaker email',
+          );
         }
       } else {
-        status = 'skipped_no_member';
-        detail = match ? 'Member has no organisation' : 'No member found for speaker email';
+        status = award.badge_id && !tenantBadgeIds.has(award.badge_id) && !award.voucher_value
+          ? 'skipped_no_award'
+          : 'skipped_no_member';
+        if (award.voucher_value || tenantBadgeIds.has(award.badge_id)) {
+          detail = appendDetail(detail, match ? 'Member has no organisation' : 'No member found for speaker email');
+        }
       }
     }
 
@@ -241,6 +269,7 @@ export async function grantSpeakerAwardsForEvent(supabase, { eventType, event, s
       const { data: existing, error: fetchErr } = await supabase
         .from('speaker_award_grant')
         .select('id, status, voucher_id, voucher_value, member_badge_id, badge_id, member_id, organization_id, detail')
+        .eq('tenant_id', tenantId)
         .eq('event_type', eventType)
         .eq('event_id', event.id)
         .eq('speaker_id', speaker.id)
@@ -280,6 +309,7 @@ export async function grantSpeakerAwardsForEvent(supabase, { eventType, event, s
   const { data: stale, error: staleErr } = await supabase
     .from('speaker_award_grant')
     .select('id, status, voucher_id, voucher_value, member_badge_id, badge_id, member_id, organization_id, detail, speaker_id, speaker_name')
+    .eq('tenant_id', tenantId)
     .eq('event_type', eventType)
     .eq('event_id', event.id)
     .eq('status', 'pending');
@@ -307,6 +337,7 @@ export async function grantSpeakerAwardsForEvent(supabase, { eventType, event, s
 async function fulfilGrant(supabase, { tenantId, eventType, event, config, grant, speakerId, speakerName, now }) {
   const updates = {};
   let failed = false;
+  let invalidBadge = false;
 
   if (grant.voucher_value && grant.organization_id && !grant.voucher_id) {
     const code = voucherCodeForGrant(grant.id);
@@ -348,51 +379,70 @@ async function fulfilGrant(supabase, { tenantId, eventType, event, config, grant
   }
 
   if (grant.badge_id && grant.member_id && !grant.member_badge_id) {
-    const { data: mb, error: bErr } = await supabase
-      .from('member_badge')
-      .insert({
-        tenant_id: tenantId,
-        badge_id: grant.badge_id,
-        member_id: grant.member_id,
-        source: 'speaker_award',
-        source_ref: `${eventType}:${event.id}`,
-        created_by: 'system:speaker-awards',
-        awarded_by_type: 'system',
-        awarded_by_label: 'Speaker awards automation',
-      })
+    const { data: ownedBadge, error: badgeLookupError } = await supabase
+      .from('badge')
       .select('id')
-      .single();
-    if (bErr) {
-      if (bErr.code === '23505') {
-        // Member already holds this badge — treat as fulfilled.
-        const { data: held } = await supabase
-          .from('member_badge')
-          .select('id')
-          .eq('badge_id', grant.badge_id)
-          .eq('member_id', grant.member_id)
-          .is('revoked_at', null)
-          .maybeSingle();
-        if (held) {
-          updates.member_badge_id = held.id;
-          updates.detail = appendDetail(updates.detail ?? grant.detail, 'Badge already held by member');
+      .eq('id', grant.badge_id)
+      .eq('tenant_id', tenantId)
+      .maybeSingle();
+    if (badgeLookupError) {
+      failed = true;
+      updates.detail = appendDetail(updates.detail ?? grant.detail, `Badge validation failed (will retry): ${badgeLookupError.message}`);
+    } else if (!ownedBadge) {
+      invalidBadge = true;
+      updates.badge_id = null;
+      updates.detail = appendDetail(updates.detail ?? grant.detail, 'Badge skipped: badge not found for tenant');
+    } else {
+      const { data: mb, error: bErr } = await supabase
+        .from('member_badge')
+        .insert({
+          tenant_id: tenantId,
+          badge_id: grant.badge_id,
+          member_id: grant.member_id,
+          source: 'speaker_award',
+          source_ref: `${eventType}:${event.id}`,
+          created_by: 'system:speaker-awards',
+          awarded_by_type: 'system',
+          awarded_by_label: 'Speaker awards automation',
+        })
+        .select('id')
+        .single();
+      if (bErr) {
+        if (bErr.code === '23505') {
+          // Member already holds this badge — treat as fulfilled.
+          const { data: held } = await supabase
+            .from('member_badge')
+            .select('id')
+            .eq('tenant_id', tenantId)
+            .eq('badge_id', grant.badge_id)
+            .eq('member_id', grant.member_id)
+            .is('revoked_at', null)
+            .maybeSingle();
+          if (held) {
+            updates.member_badge_id = held.id;
+            updates.detail = appendDetail(updates.detail ?? grant.detail, 'Badge already held by member');
+          } else {
+            failed = true;
+            updates.detail = appendDetail(updates.detail ?? grant.detail, 'Badge assignment conflict (will retry)');
+          }
         } else {
           failed = true;
-          updates.detail = appendDetail(updates.detail ?? grant.detail, 'Badge assignment conflict (will retry)');
+          updates.detail = appendDetail(updates.detail ?? grant.detail, `Badge assignment failed (will retry): ${bErr.message}`);
         }
       } else {
-        failed = true;
-        updates.detail = appendDetail(updates.detail ?? grant.detail, `Badge assignment failed (will retry): ${bErr.message}`);
+        updates.member_badge_id = mb.id;
       }
-    } else {
-      updates.member_badge_id = mb.id;
     }
   }
 
-  const finalStatus = failed ? 'pending' : 'granted';
+  const finalStatus = failed
+    ? 'pending'
+    : (invalidBadge && !grant.voucher_value && !grant.voucher_id ? 'skipped_no_award' : 'granted');
   const { error: uErr } = await supabase
     .from('speaker_award_grant')
     .update({ ...updates, status: finalStatus })
-    .eq('id', grant.id);
+    .eq('id', grant.id)
+    .eq('tenant_id', tenantId);
   if (uErr) {
     // Effects may exist but the row still says pending — the next run
     // re-fulfils idempotently (deterministic voucher code, badge dedupe).

@@ -88,6 +88,7 @@ export async function sendPendingSpeakerAwardNotifications({
         .from(table)
         .select('id, tenant_id, title')
         .eq('id', grant.event_id)
+        .eq('tenant_id', grant.tenant_id)
         .maybeSingle();
       if (evErr) {
         console.error(`[speakerAwardEmails] event fetch failed for ${key}: ${evErr.message}`);
@@ -129,7 +130,7 @@ export async function sendPendingSpeakerAwardNotifications({
 // or null when the lease is held (unexpired) by another worker.
 // Acquisition is a compare-and-set: either lease IS NULL, or CAS against the
 // exact stale value of an abandoned (expired) lease.
-async function acquireLease(db, { grantId, leaseColumn, currentLease, now }) {
+async function acquireLease(db, { grantId, tenantId, leaseColumn, currentLease, now }) {
   const leaseValue = now.toISOString();
 
   if (!currentLease) {
@@ -137,6 +138,7 @@ async function acquireLease(db, { grantId, leaseColumn, currentLease, now }) {
       .from('speaker_award_grant')
       .update({ [leaseColumn]: leaseValue })
       .eq('id', grantId)
+      .eq('tenant_id', tenantId)
       .is(leaseColumn, null)
       .select('id');
     if (error) throw new Error(`lease acquire failed: ${error.message}`);
@@ -152,6 +154,7 @@ async function acquireLease(db, { grantId, leaseColumn, currentLease, now }) {
     .from('speaker_award_grant')
     .update({ [leaseColumn]: leaseValue })
     .eq('id', grantId)
+    .eq('tenant_id', tenantId)
     .eq(leaseColumn, currentLease)
     .select('id');
   if (error) throw new Error(`lease steal failed: ${error.message}`);
@@ -160,11 +163,12 @@ async function acquireLease(db, { grantId, leaseColumn, currentLease, now }) {
 
 // Release a lease we hold — CAS on our exact lease value, so a lease stolen
 // from us (after expiry) is never cleared out from under its new holder.
-async function releaseLease(db, grantId, leaseColumn, leaseValue) {
+async function releaseLease(db, grantId, tenantId, leaseColumn, leaseValue) {
   const { error } = await db
     .from('speaker_award_grant')
     .update({ [leaseColumn]: null })
     .eq('id', grantId)
+    .eq('tenant_id', tenantId)
     .eq(leaseColumn, leaseValue)
     .select('id');
   if (error) console.error(`[speakerAwardEmails] failed to release ${leaseColumn} for grant ${grantId}: ${error.message}`);
@@ -187,6 +191,7 @@ async function notifyGrant(db, send, { event, grant, baseUrl, now = new Date() }
       try {
         lease = await acquireLease(db, {
           grantId: grant.id,
+          tenantId: grant.tenant_id,
           leaseColumn: recipient.leaseColumn,
           currentLease: grant[recipient.leaseColumn],
           now,
@@ -207,15 +212,16 @@ async function notifyGrant(db, send, { event, grant, baseUrl, now = new Date() }
           .from('speaker_award_grant')
           .select(GRANT_COLUMNS)
           .eq('id', grant.id)
+          .eq('tenant_id', grant.tenant_id)
           .maybeSingle();
         if (checkErr || !check) {
           console.error(`[speakerAwardEmails] pre-send recheck failed for grant ${grant.id}: ${checkErr?.message || 'row missing'}`);
           anyFailed = true;
-          await releaseLease(db, grant.id, recipient.leaseColumn, lease);
+          await releaseLease(db, grant.id, grant.tenant_id, recipient.leaseColumn, lease);
           continue;
         }
         if (check[recipient.deliveredColumn]) {
-          await releaseLease(db, grant.id, recipient.leaseColumn, lease);
+          await releaseLease(db, grant.id, grant.tenant_id, recipient.leaseColumn, lease);
           continue; // already delivered by someone else
         }
       }
@@ -246,6 +252,7 @@ async function notifyGrant(db, send, { event, grant, baseUrl, now = new Date() }
           .from('speaker_award_grant')
           .update({ [recipient.deliveredColumn]: new Date().toISOString() })
           .eq('id', grant.id)
+          .eq('tenant_id', grant.tenant_id)
           .is(recipient.deliveredColumn, null);
         if (stampErr) {
           // Email went out but the stamp failed — the lease expires and a
@@ -253,12 +260,12 @@ async function notifyGrant(db, send, { event, grant, baseUrl, now = new Date() }
           console.error(`[speakerAwardEmails] failed to stamp ${recipient.deliveredColumn} for grant ${grant.id}: ${stampErr.message}`);
           anyFailed = true;
         }
-        await releaseLease(db, grant.id, recipient.leaseColumn, lease);
+        await releaseLease(db, grant.id, grant.tenant_id, recipient.leaseColumn, lease);
       } else {
         anyFailed = true;
         // Release only OUR lease (CAS on our value) so a later sweep retries
         // without resending recipients that already succeeded.
-        await releaseLease(db, grant.id, recipient.leaseColumn, lease);
+        await releaseLease(db, grant.id, grant.tenant_id, recipient.leaseColumn, lease);
       }
     }
 
@@ -277,6 +284,7 @@ async function notifyGrant(db, send, { event, grant, baseUrl, now = new Date() }
         .from('speaker_award_grant')
         .select(GRANT_COLUMNS)
         .eq('id', grant.id)
+        .eq('tenant_id', grant.tenant_id)
         .maybeSingle();
       if (freshErr || !fresh) {
         console.error(`[speakerAwardEmails] re-read failed for grant ${grant.id}: ${freshErr?.message || 'row missing'}`);
@@ -291,6 +299,7 @@ async function notifyGrant(db, send, { event, grant, baseUrl, now = new Date() }
       .from('speaker_award_grant')
       .update({ notified_at: new Date().toISOString() })
       .eq('id', grant.id)
+      .eq('tenant_id', grant.tenant_id)
       .is('notified_at', null);
     if (doneErr) {
       console.error(`[speakerAwardEmails] failed to stamp notified_at for grant ${grant.id}: ${doneErr.message}`);
@@ -318,6 +327,7 @@ async function buildGrantContext(db, { event, grant, baseUrl }) {
       .from('voucher')
       .select('id, value, expires_at, code')
       .eq('id', grant.voucher_id)
+      .eq('tenant_id', grant.tenant_id)
       .maybeSingle();
     if (error) throw new Error(`voucher lookup failed: ${error.message}`);
     if (!data) throw new Error(`voucher ${grant.voucher_id} not found`);
@@ -330,6 +340,7 @@ async function buildGrantContext(db, { event, grant, baseUrl }) {
       .from('badge')
       .select('id, name')
       .eq('id', grant.badge_id)
+      .eq('tenant_id', grant.tenant_id)
       .maybeSingle();
     if (error) throw new Error(`badge lookup failed: ${error.message}`);
     badgeName = data?.name || null;
@@ -341,6 +352,7 @@ async function buildGrantContext(db, { event, grant, baseUrl }) {
       .from('member')
       .select('id, email, first_name')
       .eq('id', grant.member_id)
+      .eq('tenant_id', grant.tenant_id)
       .maybeSingle();
     if (error) throw new Error(`member lookup failed: ${error.message}`);
     member = data || null;
@@ -353,6 +365,7 @@ async function buildGrantContext(db, { event, grant, baseUrl }) {
       .from('organization')
       .select('id, name, invoicing_email')
       .eq('id', grant.organization_id)
+      .eq('tenant_id', grant.tenant_id)
       .maybeSingle();
     if (orgErr) throw new Error(`organization lookup failed: ${orgErr.message}`);
     organization = org || null;
@@ -362,6 +375,7 @@ async function buildGrantContext(db, { event, grant, baseUrl }) {
         .from('member')
         .select('email')
         .eq('organization_id', grant.organization_id)
+        .eq('tenant_id', grant.tenant_id)
         .eq('is_primary_contact', true)
         .limit(1)
         .maybeSingle();

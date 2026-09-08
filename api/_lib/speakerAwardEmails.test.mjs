@@ -95,7 +95,8 @@ function standardTables(grantRow) {
 test('sends member + org billing emails, stamps deliveries and notified_at, clears leases', async () => {
   const sent = [];
   const row = baseGrant();
-  const db = makeFakeDb(standardTables(row));
+  const log = [];
+  const db = makeFakeDb(standardTables(row), log);
   const summary = await sendPendingSpeakerAwardNotifications({
     db, send: async (msg) => { sent.push(msg); return { success: true }; },
   });
@@ -114,6 +115,31 @@ test('sends member + org billing emails, stamps deliveries and notified_at, clea
   assert.ok(row.member_notified_at && row.org_notified_at && row.notified_at);
   assert.equal(row.member_notify_lease_at, null);
   assert.equal(row.org_notify_lease_at, null);
+  for (const table of ['event', 'voucher', 'badge', 'member', 'organization', 'speaker_award_grant']) {
+    const relevant = log.filter(entry => entry.table === table && entry.table !== 'speaker_award_grant' || entry.table === table && entry.filters.id === 'g1');
+    assert.ok(relevant.length > 0, `${table} was accessed`);
+    assert.ok(relevant.every(entry => entry.filters.tenant_id === 't1'), `${table} access is tenant-scoped`);
+  }
+});
+
+test('foreign-tenant event data is never used for notifications', async () => {
+  const sent = [];
+  const log = [];
+  const row = baseGrant();
+  const tables = standardTables(row);
+  tables.event = {
+    select: filters => filters.tenant_id === 'foreign'
+      ? [{ id: 'ev1', tenant_id: 'foreign', title: 'Foreign Secret Event' }]
+      : [],
+  };
+  const summary = await sendPendingSpeakerAwardNotifications({
+    db: makeFakeDb(tables, log),
+    send: async message => { sent.push(message); return { success: true }; },
+  });
+  assert.equal(summary.failed, 1);
+  assert.equal(sent.length, 0);
+  assert.equal(row.notified_at, null);
+  assert.equal(log.find(entry => entry.table === 'event')?.filters.tenant_id, 't1');
 });
 
 test('partial failure keeps delivered recipient, retries only the failed one', async () => {
