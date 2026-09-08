@@ -97,7 +97,10 @@ import {
   mappingTargetKey,
   validateExplicitFallbackGroups,
 } from "../../../api/_lib/formMappingFallbacks.js";
-import { isCrmNoteSourceField } from "../../../shared/formCrmNotes.js";
+import {
+  isCrmNoteSourceField,
+  normalizePipelineMappingEntities,
+} from "../../../shared/formCrmNotes.js";
 import {
   isRepeatableRowField,
   normalizeRepeatableRowField,
@@ -1446,6 +1449,17 @@ function FieldMappingSection({
   compact = false            // Compact mode for inline use
 }) {
   const effectiveEntity = fixedTargetEntity || (applicationLevel === 'member' ? 'member' : 'organization');
+  const normalizedMappings = fixedTargetEntity
+    ? normalizePipelineMappingEntities(fieldMappings, fixedTargetEntity)
+    : fieldMappings;
+
+  useEffect(() => {
+    if (!fixedTargetEntity) return;
+    const needsNormalization = fieldMappings.some(mapping => mapping?.target_entity !== fixedTargetEntity);
+    if (needsNormalization) {
+      onMappingsChange(normalizePipelineMappingEntities(fieldMappings, fixedTargetEntity));
+    }
+  }, [fieldMappings, fixedTargetEntity, onMappingsChange]);
   
   const addMapping = () => {
     const newMapping = {
@@ -1458,14 +1472,16 @@ function FieldMappingSection({
       target_field: '',
       transformation: 'none'
     };
-    onMappingsChange([...fieldMappings, newMapping]);
+    onMappingsChange([...normalizedMappings, newMapping]);
   };
 
   const updateMapping = (mappingId, updates) => {
     console.log('[FieldMapping] updateMapping called:', mappingId, updates);
     try {
-      const newMappings = fieldMappings.map(m => 
-        m.id === mappingId ? { ...m, ...updates } : m
+      const newMappings = normalizedMappings.map(m =>
+        m.id === mappingId
+          ? { ...m, ...updates, ...(fixedTargetEntity ? { target_entity: fixedTargetEntity } : {}) }
+          : m
       );
       console.log('[FieldMapping] New mappings:', newMappings);
       onMappingsChange(newMappings);
@@ -1476,25 +1492,25 @@ function FieldMappingSection({
   };
 
   const removeMapping = (mappingId) => {
-    onMappingsChange(fieldMappings.filter(m => m.id !== mappingId));
+    onMappingsChange(normalizedMappings.filter(m => m.id !== mappingId));
   };
 
   const toggleFallback = (mapping, enabled) => {
     if (!enabled) {
       const groupId = mapping.fallback_group?.id;
-      onMappingsChange(fieldMappings.map(item => (
+      onMappingsChange(normalizedMappings.map(item => (
         item.fallback_group?.id === groupId ? { ...item, fallback_group: undefined } : item
       )));
       return;
     }
     const targetKey = mappingTargetKey(mapping);
-    const matchingMappings = fieldMappings.filter(item => mappingTargetKey(item) === targetKey);
+    const matchingMappings = normalizedMappings.filter(item => mappingTargetKey(item) === targetKey);
     if (matchingMappings.length < 2) {
       toast.error('Add at least two mappings to the same destination before enabling an ordered fallback.');
       return;
     }
     const groupId = `fallback:${targetKey}`;
-    onMappingsChange(fieldMappings.map(item => (
+    onMappingsChange(normalizedMappings.map(item => (
       item.id === mapping.id || mappingTargetKey(item) === targetKey
         ? { ...item, fallback_group: { version: FORM_MAPPING_FALLBACK_VERSION, id: groupId } }
         : item
@@ -1542,7 +1558,7 @@ function FieldMappingSection({
         </div>
       )}
 
-      {fieldMappings.length === 0 ? (
+      {normalizedMappings.length === 0 ? (
         <div className={`text-center ${compact ? 'py-4' : 'py-8'} text-slate-400 border border-dashed border-slate-200 rounded-lg`}>
           <Wand2 className={`${compact ? 'w-6 h-6' : 'w-8 h-8'} mx-auto mb-2 opacity-50`} />
           <p className="text-sm">No field mappings defined</p>
@@ -1567,7 +1583,7 @@ function FieldMappingSection({
         </div>
       ) : (
         <div className="space-y-3">
-          {fieldMappings.map((mapping, index) => {
+          {normalizedMappings.map((mapping, index) => {
             const sourceType = mapping.source_type || 'field';
             const selectedSourceField = fields.find(f => f.id === mapping.source_field_id);
             const isCategorySource = sourceType === 'field'
@@ -1826,6 +1842,9 @@ function FieldMappingSection({
                         }
                         if (value === 'resource_category') {
                           updates.target_entity = 'member';
+                        }
+                        if (value === 'crm_note') {
+                          updates.target_entity = effectiveEntity;
                         }
                         updateMapping(mapping.id, updates);
                       }}
@@ -9743,13 +9762,28 @@ export default function FormBuilderPage() {
         .some(entry => entry.field_mappings && !entry.mappings);
       
       if (!needsMigration) {
-        return form.entity_pipelines;
+        return {
+          ...form.entity_pipelines,
+          members: (form.entity_pipelines.members || []).map(member => ({
+            ...member,
+            mappings: normalizePipelineMappingEntities(member.mappings, 'member'),
+          })),
+          organisations: (form.entity_pipelines.organisations || []).map(org => ({
+            ...org,
+            mappings: normalizePipelineMappingEntities(org.mappings, 'organization'),
+          })),
+        };
       }
       
       // Migrate existing entity_pipelines from field_mappings object to mappings array
       const migratedPipelines = {
         members: (form.entity_pipelines.members || []).map(member => {
-          if (member.mappings) return member; // Already in new format
+          if (member.mappings) {
+            return {
+              ...member,
+              mappings: normalizePipelineMappingEntities(member.mappings, 'member'),
+            };
+          }
           
           // Convert field_mappings object to mappings array
           const mappings = [];
@@ -9773,7 +9807,12 @@ export default function FormBuilderPage() {
           return { ...member, mappings, field_mappings: undefined };
         }),
         organisations: (form.entity_pipelines.organisations || []).map(org => {
-          if (org.mappings) return org; // Already in new format
+          if (org.mappings) {
+            return {
+              ...org,
+              mappings: normalizePipelineMappingEntities(org.mappings, 'organization'),
+            };
+          }
           
           // Convert field_mappings object to mappings array
           const mappings = [];

@@ -153,6 +153,28 @@ test('persisted non-field and non-text mappings are ignored', () => {
   }), []);
 });
 
+test('CRM note persistence ignores mappings for a different pipeline entity', async () => {
+  for (const [entity, entityId, mismatchedEntity, table] of [
+    ['member', 'member-1', 'organization', 'member_note'],
+    ['organization', 'org-1', 'member', 'organization_note'],
+  ]) {
+    const db = fakeDb();
+    const result = await persistPipelineCrmNotes({
+      db,
+      tenantId: 'tenant-1',
+      submissionId: 'submission-1',
+      entity,
+      entityId,
+      authorMemberId: 'author-1',
+      pipeline: pipeline(mismatchedEntity),
+      values: { answer: 'Wrong destination' },
+      formFields,
+    });
+    assert.deepEqual(result, { inserted: 0, skipped: 0 });
+    assert.equal(db.rows[table].length, 0);
+  }
+});
+
 test('every FormBuilder-supported source field type produces a note intent', () => {
   for (const type of CRM_NOTE_SOURCE_FIELD_TYPES) {
     const intents = collectPipelineCrmNoteIntents(pipeline(), { answer: `Value from ${type}` }, {

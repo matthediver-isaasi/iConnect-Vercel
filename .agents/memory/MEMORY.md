@@ -148,3 +148,4 @@
 - [Event CPD badge awards](event-cpd-badge-awards.md) — resolve the attendee, treat ticket rules as whole-config overrides, and isolate grants behind their own transactional outbox.
 - [Event CPD points ledger](event-cpd-points-ledger.md) — points are signed append-only entries; ticket overrides replace the whole rule, and reversals bind to exact evidence.
 - [Composite form mapping components](composite-form-mapping-components.md) — extract a selected scalar before transforms in every mapping path; fallback must inspect that exact scalar.
+- [Entity-pipeline mapping ownership](entity-pipeline-mapping-ownership.md) — enclosing member/org pipeline owns every mapping destination; normalize saved metadata and reject mismatches at side-effect boundaries.

@@ -6,6 +6,7 @@ import {
   CRM_NOTE_TARGET_FIELD,
   CRM_NOTE_TARGET_TYPE,
   isCrmNoteSourceField,
+  isCrmNotePipelineEntity,
 } from '../../shared/formCrmNotes.js';
 
 export {
@@ -25,12 +26,17 @@ export function collectPipelineCrmNoteIntents(pipeline, values, {
   applyTransformation = value => value,
   hiddenFieldIds = new Set(),
   formFields = [],
+  entity = null,
 } = {}) {
+  if (entity !== null && !isCrmNotePipelineEntity(entity)) {
+    throw new Error('CRM notes support member and organization pipelines only');
+  }
   const intents = [];
   const fieldsById = new Map((formFields || []).map(field => [String(field.id), field]));
   const mappings = coalesceExplicitFallbackMappings(pipeline?.mappings || [], values, hiddenFieldIds);
   for (const mapping of mappings) {
     if (mapping?.target_type !== CRM_NOTE_TARGET_TYPE || mapping?.target_field !== CRM_NOTE_TARGET_FIELD) continue;
+    if (entity && mapping?.target_entity !== entity) continue;
     if ((mapping.source_type || 'field') !== 'field') continue;
     if (!mapping.id || !mapping.source_field_id || hiddenFieldIds.has(String(mapping.source_field_id))) continue;
     const sourceField = fieldsById.get(String(mapping.source_field_id));
@@ -77,9 +83,9 @@ export async function persistPipelineCrmNotes({
     applyTransformation,
     hiddenFieldIds,
     formFields,
+    entity,
   });
   if (!intents.length || !entityId) return { inserted: 0, skipped: intents.length };
-  if (!['member', 'organization'].includes(entity)) throw new Error('CRM notes support member and organization pipelines only');
   if (!await tenantOwned(db, entity === 'member' ? 'member' : 'organization', entityId, tenantId)) {
     const error = new Error('CRM note target does not belong to the form tenant');
     error.code = 'CRM_NOTE_CROSS_TENANT_TARGET';

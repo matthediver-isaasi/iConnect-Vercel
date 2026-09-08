@@ -14,3 +14,18 @@ export const CRM_NOTE_SOURCE_FIELD_TYPES = Object.freeze([
 
 export const isCrmNoteSourceField = field =>
   CRM_NOTE_SOURCE_FIELD_TYPES.includes(field?.type);
+
+export const isCrmNotePipelineEntity = entity =>
+  entity === 'member' || entity === 'organization';
+
+export const normalizePipelineMappingEntity = (mapping, entity) => (
+  isCrmNotePipelineEntity(entity) && mapping?.target_entity !== entity
+    ? { ...mapping, target_entity: entity }
+    : mapping
+);
+
+export const normalizePipelineMappingEntities = (mappings, entity) => (
+  Array.isArray(mappings)
+    ? mappings.map(mapping => normalizePipelineMappingEntity(mapping, entity))
+    : []
+);

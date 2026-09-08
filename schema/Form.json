@@ -165,7 +165,7 @@
               "member",
               "organization"
             ],
-            "description": "Target entity type"
+            "description": "Target entity type. For entity_pipelines this is normalized to and must match the enclosing member or organization pipeline."
           },
           "target_field": {
             "type": "string",
