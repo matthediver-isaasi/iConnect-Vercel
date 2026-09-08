@@ -23,9 +23,10 @@ import GlobalSettings from './GlobalSettings';
 import LayersPanel from './LayersPanel';
 import { BLOCK_TYPES, createBlock, defaultEmailDesign, nextDynamicTokenIndex, cloneBlockForDuplicate, normalizeDuplicateDynamicTokens } from './types';
 import { designToHtml } from './mjmlConverter';
-import { PanelRightOpen, PanelRightClose, Layers, Undo2, Redo2 } from 'lucide-react';
+import { PanelRightOpen, PanelRightClose, PanelLeftClose, Blocks, Layers, Undo2, Redo2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { getEmailBuilderPanelLayout } from './emailBuilderPanelLayout';
 
 const GOOGLE_FONTS_LINK = 'https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&family=Open+Sans:wght@400;700&family=Lato:wght@400;700&family=Montserrat:wght@400;700&family=Poppins:wght@400;700&family=Raleway:wght@400;700&family=Oswald:wght@400;700&family=Playfair+Display:wght@400;700&family=Merriweather:wght@400;700&family=Source+Sans+Pro:wght@400;700&display=swap';
 
@@ -70,6 +71,9 @@ export default function EmailBuilder({
   const [activeId, setActiveId] = useState(null);
   const [layersOpen, setLayersOpen] = useState(true);
   const [propertiesExpanded, setPropertiesExpanded] = useState(false);
+  const [compactPaletteOpen, setCompactPaletteOpen] = useState(false);
+  const editorRef = useRef(null);
+  const [editorWidth, setEditorWidth] = useState(0);
   const debounceRef = useRef(null);
   const undoStackRef = useRef([]);
   const redoStackRef = useRef([]);
@@ -87,6 +91,24 @@ export default function EmailBuilder({
       .catch(() => { if (!cancelled) setFooterLoading(false); });
     return () => { cancelled = true; };
   }, []);
+
+  useEffect(() => {
+    const editor = editorRef.current;
+    if (!editor) return undefined;
+
+    const updateWidth = () => setEditorWidth(editor.getBoundingClientRect().width);
+    updateWidth();
+    const observer = new ResizeObserver(updateWidth);
+    observer.observe(editor);
+    return () => observer.disconnect();
+  }, []);
+
+  const panelLayout = getEmailBuilderPanelLayout({
+    editorWidth,
+    layersOpen,
+    propertiesExpanded,
+    compactPaletteOpen,
+  });
 
   const canUndo = undoStackRef.current.length > 0;
   const canRedo = redoStackRef.current.length > 0;
@@ -691,21 +713,53 @@ export default function EmailBuilder({
   }
 
   return (
-    <div className="flex flex-1 min-h-0 overflow-hidden">
+    <div ref={editorRef} className="flex flex-1 min-h-0 overflow-hidden" data-testid="email-builder-layout">
       <DndContext
         sensors={sensors}
         collisionDetection={closestCenter}
         onDragStart={handleDragStart}
         onDragEnd={handleDragEnd}
       >
-        <div className="w-64 border-r bg-muted/30 flex flex-col flex-shrink-0">
+        {panelLayout.showPalette && (
+        <div className="w-64 border-r bg-muted/30 flex flex-col flex-shrink-0" data-testid="block-palette-panel">
+          {compactPaletteOpen && (
+            <div className="flex items-center justify-between border-b bg-background px-3 py-1.5">
+              <span className="text-sm font-medium">Blocks</span>
+              <Button
+                size="icon"
+                variant="ghost"
+                onClick={() => setCompactPaletteOpen(false)}
+                title="Hide blocks"
+                data-testid="button-close-block-palette"
+              >
+                <PanelLeftClose className="h-4 w-4" />
+              </Button>
+            </div>
+          )}
           <ScrollArea className="flex-1">
             <BlockPalette />
           </ScrollArea>
         </div>
+        )}
 
         <div className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden" style={{ backgroundColor: design.globalStyles.backgroundColor }}>
           <div className="flex items-center gap-1 px-3 py-1.5 border-b bg-background/80 flex-shrink-0">
+            {!panelLayout.showPalette && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    onClick={() => setCompactPaletteOpen(true)}
+                    title="Show blocks"
+                    data-testid="button-open-block-palette"
+                  >
+                    <Blocks className="h-4 w-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">Show blocks</TooltipContent>
+              </Tooltip>
+            )}
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
@@ -804,15 +858,17 @@ export default function EmailBuilder({
         </DragOverlay>
       </DndContext>
 
-      <div className="relative flex-shrink-0 overflow-visible" style={{ width: '320px' }}>
+      <div
+        className="relative flex flex-shrink-0 min-w-0 overflow-visible transition-[width] duration-200 ease-in-out"
+        style={{ width: `${panelLayout.railWidth}px` }}
+        data-testid="email-builder-panel-rail"
+      >
         <div
-          className="absolute top-0 bottom-0 border-l border-r bg-background flex flex-col transition-transform duration-200 ease-in-out"
+          className="relative h-full flex-shrink-0 border-l border-r bg-background flex flex-col overflow-hidden transition-[width] duration-200 ease-in-out"
           style={{
-            width: '320px',
-            right: '100%',
-            transform: layersOpen ? 'translateX(0)' : 'translateX(100%)',
-            zIndex: 5,
+            width: `${panelLayout.layersWidth}px`,
           }}
+          aria-hidden={!layersOpen}
           data-testid="layers-panel"
         >
             <LayersPanel
@@ -844,7 +900,7 @@ export default function EmailBuilder({
         {!layersOpen && !propertiesExpanded && (
           <div
             className="absolute"
-            style={{ right: '100%', top: '6px', zIndex: 15 }}
+            style={{ left: '-40px', top: '6px', zIndex: 15 }}
           >
             <Button
               size="icon"
@@ -860,11 +916,9 @@ export default function EmailBuilder({
         )}
 
         <div
-          className="absolute top-0 bottom-0 right-0 flex flex-col bg-background border-l transition-all duration-200 ease-in-out"
+          className="relative h-full flex-shrink-0 flex flex-col bg-background border-l overflow-hidden transition-[width] duration-200 ease-in-out"
           style={{
-            zIndex: 10,
-            width: '320px',
-            ...(propertiesExpanded ? { left: '-320px', width: '640px' } : {}),
+            width: `${panelLayout.propertiesWidth}px`,
           }}
           data-testid="properties-panel"
         >
