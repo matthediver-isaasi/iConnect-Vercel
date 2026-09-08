@@ -3,6 +3,7 @@ import {
   FORM_NOT_LISTED_VALUE,
   isFormNotListedValue,
 } from '../../shared/formNotListedChoice.js';
+import { assertValidAddressLookupMappingComponents } from '../../shared/formAddressLookup.js';
 import {
   ORGANIZATION_CORE_FIELD_MAPPINGS,
   resolveOrganizationCoreField,
@@ -48,6 +49,7 @@ import { computeHiddenFieldIds } from '../_lib/formFieldVisibility.js';
 import {
   assertValidExplicitFallbackGroups,
   coalesceExplicitFallbackMappings,
+  extractMappingSourceComponent,
 } from '../_lib/formMappingFallbacks.js';
 
 const supabaseUrl = process.env.SUPABASE_URL;
@@ -1308,6 +1310,7 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
     if (field_mappings && Array.isArray(field_mappings) && field_mappings.length > 0) {
       console.log('[AppProcessor] Using field_mappings:', field_mappings.length, 'mappings');
       assertValidExplicitFallbackGroups(field_mappings);
+      assertValidAddressLookupMappingComponents(field_mappings, fields);
       
       const effectiveFieldMappings = coalesceExplicitFallbackMappings(
         field_mappings,
@@ -1356,7 +1359,7 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
           // Form field mapping (default)
           if (!source_field_id) continue;
           sourceFieldKeyPresent = Object.prototype.hasOwnProperty.call(form_values, source_field_id);
-          value = form_values[source_field_id];
+          value = extractMappingSourceComponent(mapping, form_values[source_field_id]);
           
           // If source_category_id is set, extract the specific category value from a communication_preferences object
           if (source_category_id && value && typeof value === 'object' && !Array.isArray(value)) {
@@ -1669,6 +1672,7 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
       // Check for new mappings array format first
       if (pipelineEntry.mappings && Array.isArray(pipelineEntry.mappings)) {
         assertValidExplicitFallbackGroups(pipelineEntry.mappings);
+        assertValidAddressLookupMappingComponents(pipelineEntry.mappings, fields);
         console.log(`[AppProcessor] Processing ${targetEntity} from entity_pipelines (new format):`, pipelineEntry.label, 'mappings:', pipelineEntry.mappings.length);
         console.log(`[AppProcessor] ${pipelineEntry.label} mappings detail:`, JSON.stringify(pipelineEntry.mappings, null, 2));
         
@@ -1702,7 +1706,7 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
             sourceFieldKeyPresent = true;
           } else if (mapping.source_field_id) {
             sourceFieldKeyPresent = Object.prototype.hasOwnProperty.call(form_values, mapping.source_field_id);
-            value = form_values[mapping.source_field_id];
+            value = extractMappingSourceComponent(mapping, form_values[mapping.source_field_id]);
             
             if (mapping.source_category_id && value && typeof value === 'object' && !Array.isArray(value)) {
               value = value[mapping.source_category_id] !== undefined ? value[mapping.source_category_id] : null;
@@ -3011,6 +3015,7 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
         if (memberConfig.mappings && Array.isArray(memberConfig.mappings)) {
           // New format: process mappings array
           assertValidExplicitFallbackGroups(memberConfig.mappings);
+          assertValidAddressLookupMappingComponents(memberConfig.mappings, fields);
           const effectiveMemberMappings = coalesceExplicitFallbackMappings(
             memberConfig.mappings,
             form_values,
@@ -3031,7 +3036,10 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
           } else if (emailMapping.source_type === 'current_date' || emailMapping.transformation === 'current_date') {
             memberEmail = new Date().toISOString().split('T')[0];
           } else if (emailMapping.source_field_id) {
-            memberEmail = form_values[emailMapping.source_field_id];
+            memberEmail = extractMappingSourceComponent(emailMapping, form_values[emailMapping.source_field_id]);
+            if (emailMapping.transformation && emailMapping.transformation !== 'none') {
+              memberEmail = applyTransformation(memberEmail, emailMapping.transformation);
+            }
           }
           
           if (!memberEmail) {
@@ -3051,7 +3059,7 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
             } else if (mapping.source_type === 'static') {
               value = resolveStaticTodayToken(mapping.static_value);
             } else if (mapping.source_field_id) {
-              value = form_values[mapping.source_field_id];
+              value = extractMappingSourceComponent(mapping, form_values[mapping.source_field_id]);
               
               if (mapping.source_category_id && value && typeof value === 'object' && !Array.isArray(value)) {
                 value = value[mapping.source_category_id] !== undefined ? value[mapping.source_category_id] : null;
@@ -3681,6 +3689,13 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
     });
   } catch (error) {
     console.error('[AppProcessor] Error:', error);
+    if (error?.code === 'INVALID_FORM_ADDRESS_COMPONENT_MAPPING') {
+      return res.status(400).json({
+        error: error.message,
+        code: error.code,
+        details: error.details,
+      });
+    }
     if (error instanceof StructuredActionAuthorizationError || error?.code === 'STRUCTURED_ACTION_FORBIDDEN') {
       return res.status(error.status || 403).json({
         error: error.message,

@@ -16,6 +16,13 @@ export function isFallbackValueEmpty(value) {
     || (Array.isArray(value) && value.length === 0);
 }
 
+export function extractMappingSourceComponent(mapping, value) {
+  if (mapping?.source_component === undefined) return value;
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value[mapping.source_component]
+    : undefined;
+}
+
 export function rawMappingValue(mapping, values) {
   if (mapping?.source_type === 'clear') return '__clear__';
   if (mapping?.source_type === 'current_date' || mapping?.transformation === 'current_date') {
@@ -25,12 +32,7 @@ export function rawMappingValue(mapping, values) {
     || (!mapping?.source_field_id && mapping?.static_value !== undefined)) {
     return mapping.static_value;
   }
-  let value = values?.[mapping?.source_field_id];
-  if (mapping?.source_component !== undefined) {
-    value = value && typeof value === 'object' && !Array.isArray(value)
-      ? value[mapping.source_component]
-      : undefined;
-  }
+  let value = extractMappingSourceComponent(mapping, values?.[mapping?.source_field_id]);
   if (mapping?.source_category_id && value && typeof value === 'object' && !Array.isArray(value)) {
     value = value[mapping.source_category_id];
   }

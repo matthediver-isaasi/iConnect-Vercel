@@ -3,11 +3,13 @@ import test from 'node:test';
 import {
   addressEntryModeSourceFields,
   addressLookupRequiredComponents,
+  assertValidAddressLookupMappingComponents,
   isAddressLookupAnswerFilled,
   normalizeAddressLookupAnswer,
   normalizeAddressEntryModeRule,
   resolveAddressManualOnly,
   validateAddressEntryModeRule,
+  validateAddressLookupMappingComponent,
 } from './formAddressLookup.js';
 
 test('normalizes provider aliases to the persisted address contract', () => {
@@ -96,4 +98,40 @@ test('address lookup validation respects visible required components', () => {
   assert.deepEqual(addressLookupRequiredComponents(field), ['line_1', 'postcode']);
   assert.equal(isAddressLookupAnswerFilled(field, { line_1: '10 High Street', postcode: 'LS1 1AA' }), true);
   assert.equal(isAddressLookupAnswerFilled(field, { line_1: '10 High Street', postcode: ' ' }), false);
+});
+
+test('field mappings require a currently visible address component', () => {
+  const fields = [
+    { id: 'address', type: 'address_lookup', visible_components: ['line_1', 'post_town', 'postcode'] },
+    { id: 'name', type: 'text' },
+  ];
+  assert.equal(validateAddressLookupMappingComponent({
+    source_type: 'field', source_field_id: 'address', source_component: 'line_1',
+  }, fields).valid, true);
+  for (const source_component of [undefined, 'county', 'uprn']) {
+    assert.equal(validateAddressLookupMappingComponent({
+      source_type: 'field', source_field_id: 'address', source_component,
+    }, fields).valid, false);
+  }
+});
+
+test('ordinary and static mappings reject stale address component metadata', () => {
+  const fields = [{ id: 'name', type: 'text' }];
+  assert.equal(validateAddressLookupMappingComponent({
+    source_type: 'field', source_field_id: 'name',
+  }, fields).valid, true);
+  assert.equal(validateAddressLookupMappingComponent({
+    source_type: 'field', source_field_id: 'name', source_component: 'line_1',
+  }, fields).valid, false);
+  assert.equal(validateAddressLookupMappingComponent({
+    source_type: 'static', static_value: 'London', source_component: 'post_town',
+  }, fields).valid, false);
+  assert.throws(
+    () => assertValidAddressLookupMappingComponents([
+      { source_type: 'field', source_field_id: 'name' },
+      { source_type: 'static', static_value: 'London', source_component: 'post_town' },
+    ], fields),
+    error => error.code === 'INVALID_FORM_ADDRESS_COMPONENT_MAPPING'
+      && error.details[0].startsWith('mapping 2 '),
+  );
 });

@@ -11,6 +11,21 @@ test('all modern application mapping paths validate and coalesce explicit fallba
   assert.ok(coalesceCalls.length >= 3, 'top-level, primary pipeline, and additional-member arrays must coalesce');
 });
 
+test('modern field mapping writes extract selected address components before assignment', () => {
+  const extractionCalls = source.match(/extractMappingSourceComponent\(/g) || [];
+  assert.ok(extractionCalls.length >= 4, 'top-level, primary pipeline, and additional-member identity and writes must extract components');
+  assert.match(source, /value = extractMappingSourceComponent\(mapping, form_values\[source_field_id\]\)/);
+  assert.match(source, /value = extractMappingSourceComponent\(mapping, form_values\[mapping\.source_field_id\]\)/);
+  assert.match(source, /memberEmail = extractMappingSourceComponent\(emailMapping, form_values\[emailMapping\.source_field_id\]\)/);
+  assert.match(source, /memberEmail = applyTransformation\(memberEmail, emailMapping\.transformation\)/);
+});
+
+test('top-level and entity-pipeline mappings enforce the persisted address component contract', () => {
+  const validationCalls = source.match(/assertValidAddressLookupMappingComponents\(/g) || [];
+  assert.ok(validationCalls.length >= 3, 'top-level, primary pipeline, and additional members must validate address components');
+  assert.match(source, /code === 'INVALID_FORM_ADDRESS_COMPONENT_MAPPING'/);
+});
+
 test('additional-member identity and writes use the coalesced visible mappings', () => {
   assert.match(source, /const effectiveMemberMappings = coalesceExplicitFallbackMappings\(\s*memberConfig\.mappings,\s*form_values,\s*hiddenSubmissionFieldIds/);
   assert.match(source, /const emailMapping = effectiveMemberMappings\.find/);

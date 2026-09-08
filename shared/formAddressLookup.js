@@ -146,6 +146,44 @@ export const addressLookupRequiredComponents = field => {
     .filter(component => !['line_2', 'line_3', 'county'].includes(component));
 };
 
+export const validateAddressLookupMappingComponent = (mapping, fields) => {
+  const hasComponent = mapping?.source_component !== undefined;
+  if ((mapping?.source_type || 'field') !== 'field') {
+    return hasComponent
+      ? { valid: false, error: 'must not retain an address component for a non-field source.' }
+      : { valid: true };
+  }
+  const sourceField = (fields || []).find(field => field?.id === mapping?.source_field_id);
+  if (sourceField?.type !== 'address_lookup') {
+    return hasComponent
+      ? { valid: false, error: 'must not retain an address component for a non-address field.' }
+      : { valid: true };
+  }
+  if (!addressLookupVisibleComponents(sourceField).includes(mapping?.source_component)) {
+    return { valid: false, error: 'must select a visible supported address component.' };
+  }
+  return { valid: true };
+};
+
+export const validateAddressLookupMappingComponents = (mappings, fields) => {
+  const errors = [];
+  for (const [index, mapping] of (mappings || []).entries()) {
+    const result = validateAddressLookupMappingComponent(mapping, fields);
+    if (!result.valid) errors.push(`mapping ${index + 1} ${result.error}`);
+  }
+  return errors;
+};
+
+export const assertValidAddressLookupMappingComponents = (mappings, fields) => {
+  const errors = validateAddressLookupMappingComponents(mappings, fields);
+  if (errors.length) {
+    const error = new Error(`Invalid address lookup mapping contract: ${errors.join('; ')}`);
+    error.code = 'INVALID_FORM_ADDRESS_COMPONENT_MAPPING';
+    error.details = errors;
+    throw error;
+  }
+};
+
 export const isAddressLookupAnswerFilled = (field, value) => {
   const answer = normalizeAddressLookupAddress(value);
   if (!answer) return false;

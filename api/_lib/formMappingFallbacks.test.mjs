@@ -66,6 +66,32 @@ test('field candidates ignore default static placeholders and transformed emptie
   assert.equal(coalesceExplicitFallbackMappings(mappings, { first: 'chosen', second: 'later' })[0].id, 'first');
 });
 
+test('address component candidates choose based on the scalar component value', () => {
+  const mappings = [
+    { ...marked('home-town', 'home'), source_component: 'post_town' },
+    { ...marked('work-town', 'work'), source_component: 'post_town' },
+  ];
+  assert.deepEqual(
+    coalesceExplicitFallbackMappings(mappings, {
+      home: { line_1: '1 Home Road', post_town: '' },
+      work: { line_1: '', post_town: 'London' },
+    }).map(mapping => mapping.id),
+    ['work-town'],
+  );
+  assert.deepEqual(
+    coalesceExplicitFallbackMappings(mappings, {
+      home: { post_town: 'Hidden town' },
+      work: { post_town: 'London' },
+    }, new Set(['home'])).map(mapping => mapping.id),
+    ['work-town'],
+  );
+});
+
+test('ordinary field fallback candidates remain unchanged when no component is configured', () => {
+  const mappings = [marked('first', 'first'), marked('second', 'second')];
+  assert.equal(coalesceExplicitFallbackMappings(mappings, { first: { nested: true }, second: 'later' })[0].id, 'first');
+});
+
 test('fallback destinations cannot also have a legacy mapping', () => {
   assert.equal(validateExplicitFallbackGroups([
     marked('a', 'one'),

@@ -119,7 +119,9 @@ import {
 import {
   ADDRESS_ENTRY_MODE_OPERATORS,
   addressEntryModeSourceFields,
+  addressLookupVisibleComponents,
   validateAddressEntryModeRule,
+  validateAddressLookupMappingComponent,
 } from "../../../shared/formAddressLookup.js";
 
 const BADGE_STYLE_DEFAULTS = {
@@ -442,12 +444,6 @@ const ADDRESS_LOOKUP_COMPONENTS = [
   { value: 'country', label: 'Country' },
 ];
 const ADDRESS_LOOKUP_COMPONENT_VALUES = new Set(ADDRESS_LOOKUP_COMPONENTS.map(component => component.value));
-const addressLookupVisibleComponents = (field) => {
-  const configured = Array.isArray(field?.visible_components)
-    ? field.visible_components.filter(component => ADDRESS_LOOKUP_COMPONENT_VALUES.has(component))
-    : ADDRESS_LOOKUP_COMPONENTS.map(component => component.value);
-  return [...new Set(configured)];
-};
 const addressLookupRequiredComponents = (field) => {
   const visible = new Set(addressLookupVisibleComponents(field));
   return [...new Set(Array.isArray(field?.required_components) ? field.required_components : [])]
@@ -1613,6 +1609,7 @@ function FieldMappingSection({
                       onValueChange={(value) => updateMapping(mapping.id, {
                         source_type: value,
                         source_field_id: '',
+                         source_component: undefined,
                         source_category_id: '',
                         target_type: mapping.target_type === 'resource_category' && value !== 'field'
                           ? 'core'
@@ -1645,10 +1642,19 @@ function FieldMappingSection({
                           console.log('[FieldMapping] Source field changed to:', value);
                           if (value) {
                             const selectedField = fields.find(f => f.id === value);
-                            const updates = { source_field_id: value };
+                           const visibleAddressComponents = selectedField?.type === 'address_lookup'
+                             ? addressLookupVisibleComponents(selectedField)
+                             : [];
+                           const updates = {
+                             source_field_id: value,
+                             source_component: visibleAddressComponents[0],
+                           };
                             if (selectedField?.type !== 'communication_preferences') {
                               updates.source_category_id = '';
                             }
+                           if (selectedField?.type === 'address_lookup' || mapping.source_component !== undefined) {
+                             updates.target_field = '';
+                           }
                             if (mapping.target_type === 'resource_category') {
                               updates.target_field = '';
                               if (!['category_dropdown', 'category_multiselect'].includes(selectedField?.type)) {
@@ -1676,6 +1682,31 @@ function FieldMappingSection({
                         </SelectContent>
                       </Select>
                     </div>
+                     {selectedSourceField?.type === 'address_lookup' && (
+                       <div className="space-y-1 min-w-[160px] flex-1">
+                         <Label className="text-xs">Address component</Label>
+                         <Select
+                           value={mapping.source_component || undefined}
+                           onValueChange={(source_component) => updateMapping(mapping.id, {
+                             source_component,
+                             target_field: '',
+                           })}
+                         >
+                           <SelectTrigger className="h-9" data-testid={`select-source-component-${index}`}>
+                             <SelectValue placeholder="Select component..." />
+                           </SelectTrigger>
+                           <SelectContent>
+                             {ADDRESS_LOOKUP_COMPONENTS
+                               .filter(component => addressLookupVisibleComponents(selectedSourceField).includes(component.value))
+                               .map(component => (
+                                 <SelectItem key={component.value} value={component.value}>
+                                   {component.label}
+                                 </SelectItem>
+                               ))}
+                           </SelectContent>
+                         </Select>
+                       </div>
+                     )}
                     {(() => {
                       const selectedSourceField = fields.find(f => f.id === mapping.source_field_id);
                       if (selectedSourceField?.type === 'communication_preferences' && communicationCategories.length > 0) {
@@ -10493,6 +10524,12 @@ export default function FormBuilderPage() {
       }
       
       // Non-current_date mappings need a source field (unless static or clear)
+       const addressComponentValidation = validateAddressLookupMappingComponent(m, formData.fields);
+       if (!addressComponentValidation.valid) {
+         console.log(`[FormBuilder] Validation failed: mapping #${i + 1} ${addressComponentValidation.error}`);
+         toast.error(`Field mapping #${i + 1} ${addressComponentValidation.error}`);
+         return;
+       }
       if (m.transformation !== 'current_date' && m.source_type !== 'static' && m.source_type !== 'clear' && m.source_type !== 'current_date') {
         if (!m.source_field_id) {
           console.log(`[FormBuilder] Validation failed: mapping #${i + 1} missing source_field_id`);
@@ -10524,6 +10561,13 @@ export default function FormBuilderPage() {
       if (memberFallbackErrors.length) {
         toast.error(`Member "${member.label}" has an invalid fallback group: ${memberFallbackErrors[0]}`);
         return;
+      }
+      for (let mappingIndex = 0; mappingIndex < memberMappings.length; mappingIndex += 1) {
+        const validation = validateAddressLookupMappingComponent(memberMappings[mappingIndex], formData.fields);
+        if (!validation.valid) {
+          toast.error(`Member "${member.label}", mapping ${mappingIndex + 1}, ${validation.error}`);
+          return;
+        }
       }
       const hasEmailMapping = memberMappings.some(m => 
         m.target_field === 'email' && m.target_type === 'core' && 
@@ -10585,6 +10629,13 @@ export default function FormBuilderPage() {
       if (orgFallbackErrors.length) {
         toast.error(`Organisation "${org.label}" has an invalid fallback group: ${orgFallbackErrors[0]}`);
         return;
+      }
+      for (let mappingIndex = 0; mappingIndex < orgMappings.length; mappingIndex += 1) {
+        const validation = validateAddressLookupMappingComponent(orgMappings[mappingIndex], formData.fields);
+        if (!validation.valid) {
+          toast.error(`Organisation "${org.label}", mapping ${mappingIndex + 1}, ${validation.error}`);
+          return;
+        }
       }
       const hasNameMapping = orgMappings.some(m => 
         m.target_field === 'name' && m.target_type === 'core' && 
