@@ -8,7 +8,16 @@
 import { useState, useEffect, useCallback } from 'react';
 
 function isSecureReference(url) {
-  return url && url.startsWith('/api/storage/secure-url');
+  if (typeof url !== 'string' || !url.trim()) return false;
+  try {
+    const currentOrigin = typeof window !== 'undefined' ? window.location.origin : 'https://local.invalid';
+    const parsed = new URL(url, currentOrigin);
+    const isRelative = url.trim().startsWith('/') && !url.trim().startsWith('//');
+    return parsed.pathname === '/api/storage/secure-url'
+      && (isRelative || parsed.origin === currentOrigin);
+  } catch {
+    return false;
+  }
 }
 
 async function fetchSecureUrl(url) {
@@ -41,16 +50,19 @@ export function useSecureFileUrl(fileUrl) {
   useEffect(() => {
     if (!fileUrl) {
       setResolvedUrl(null);
+      setIsLoading(false);
       setError(null);
       return;
     }
 
     if (!isSecureReference(fileUrl)) {
       setResolvedUrl(fileUrl);
+      setIsLoading(false);
       setError(null);
       return;
     }
 
+    setResolvedUrl(null);
     setIsLoading(true);
     setError(null);
 

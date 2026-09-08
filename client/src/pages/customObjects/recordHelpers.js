@@ -1,3 +1,5 @@
+import { normalizeCustomFieldFileValue } from "@/lib/customFieldFileValue.mjs";
+
 export const arrayValue = (value) => {
   if (Array.isArray(value)) return value;
   if (typeof value !== "string" || !value.trim()) return [];
@@ -212,7 +214,8 @@ export const formatRecordValue = (field, value, countryNames = {}) => {
   if (field?.field_type === "country") return countryNames[value] || String(value);
   if (field?.field_type === "file") {
     const file = Array.isArray(value) ? value[0] : value;
-    if (typeof file === "object") return file.file_name || file.name || "Uploaded file";
+    const normalized = normalizeCustomFieldFileValue(file);
+    return normalized.status === "ready" ? normalized.file.file_name : "File unavailable";
   }
   return String(value);
 };

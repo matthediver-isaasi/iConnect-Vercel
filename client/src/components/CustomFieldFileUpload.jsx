@@ -2,8 +2,9 @@ import { useState, useRef, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Upload, X, FileText, FileImage, FileSpreadsheet, File, Loader2, Download, ExternalLink } from "lucide-react";
 import { toast } from "sonner";
-import { useSecureFileUrl, isSecureReference } from "@/hooks/useSecureFileUrl";
+import { useSecureFileUrl } from "@/hooks/useSecureFileUrl";
 import { throwUploadHttpError, showUploadErrorToast } from "@/lib/planQuotaError";
+import { formatCustomFieldFileSize, normalizeCustomFieldFileValue } from "@/lib/customFieldFileValue.mjs";
 
 const ALLOWED_FILE_TYPES = {
   pdf: { extension: '.pdf', mimeTypes: ['application/pdf'], icon: FileText },
@@ -65,13 +66,6 @@ function getFileIcon(fileName) {
   return File;
 }
 
-function formatFileSize(bytes) {
-  if (!bytes) return '';
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
 function getAllowedTypesLabel(allowedTypes) {
   if (!allowedTypes || allowedTypes.length === 0) return 'All files';
   
@@ -117,9 +111,7 @@ export default function CustomFieldFileUpload({
     return [];
   })();
   
-  const parsedValue = typeof value === 'string' && value ? 
-    (value.startsWith('{') ? JSON.parse(value) : { file_url: value, file_name: value.split('/').pop() }) 
-    : value;
+  const parsedValue = normalizeCustomFieldFileValue(value).file;
   
   const handleFileSelect = async (event) => {
     const file = event.target.files?.[0];
@@ -201,6 +193,13 @@ export default function CustomFieldFileUpload({
   
   const fileUrl = parsedValue?.file_url;
   const { resolvedUrl, isLoading: isResolvingUrl, isSecure } = useSecureFileUrl(fileUrl);
+  const secureDownloadUrl = isSecure && fileUrl
+    ? `${fileUrl}${fileUrl.includes('?') ? '&' : '?'}download=true`
+    : null;
+  const {
+    resolvedUrl: resolvedDownloadUrl,
+    isLoading: isResolvingDownloadUrl,
+  } = useSecureFileUrl(secureDownloadUrl);
   
   const handleOpenFile = useCallback(async (e, download = false) => {
     if (!isSecure) {
@@ -209,13 +208,14 @@ export default function CustomFieldFileUpload({
     
     e.preventDefault();
     
-    if (!resolvedUrl) {
+    const targetUrl = download ? resolvedDownloadUrl : resolvedUrl;
+    if (!targetUrl) {
       toast.error('Unable to access file');
       return;
     }
     
     const link = document.createElement('a');
-    link.href = resolvedUrl;
+    link.href = targetUrl;
     link.target = '_blank';
     link.rel = 'noopener noreferrer';
     if (download) {
@@ -224,7 +224,7 @@ export default function CustomFieldFileUpload({
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-  }, [resolvedUrl, isSecure, parsedValue?.file_name]);
+  }, [resolvedDownloadUrl, resolvedUrl, isSecure, parsedValue?.file_name]);
   
   if (parsedValue?.file_url) {
     const displayUrl = resolvedUrl || fileUrl;
@@ -237,11 +237,11 @@ export default function CustomFieldFileUpload({
             {parsedValue.file_name || 'Uploaded file'}
           </p>
           {parsedValue.file_size && (
-            <p className="text-xs text-slate-500">{formatFileSize(parsedValue.file_size)}</p>
+            <p className="text-xs text-slate-500">{formatCustomFieldFileSize(parsedValue.file_size)}</p>
           )}
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
-          {isResolvingUrl ? (
+          {isResolvingUrl || isResolvingDownloadUrl ? (
             <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
           ) : (
             <>
@@ -334,32 +334,54 @@ export default function CustomFieldFileUpload({
   );
 }
 
-export function CustomFieldFileDisplay({ value }) {
-  if (!value) return <p className="text-sm text-slate-500">No file uploaded</p>;
-  
-  const parsedValue = typeof value === 'string' && value ? 
-    (value.startsWith('{') ? JSON.parse(value) : { file_url: value, file_name: value.split('/').pop() }) 
-    : value;
-  
-  if (!parsedValue?.file_url) return <p className="text-sm text-slate-500">No file uploaded</p>;
-  
+export function CustomFieldFileDisplay({ value, compact = false, fieldId = 'display' }) {
+  const normalized = normalizeCustomFieldFileValue(value);
+  const parsedValue = normalized.file;
+  const fileUrl = parsedValue?.file_url || null;
+  const { resolvedUrl, isLoading, error, isSecure } = useSecureFileUrl(fileUrl);
+  const secureDownloadUrl = isSecure && fileUrl
+    ? `${fileUrl}${fileUrl.includes('?') ? '&' : '?'}download=true`
+    : null;
+  const {
+    resolvedUrl: resolvedDownloadUrl,
+    isLoading: isLoadingDownload,
+    error: downloadError,
+  } = useSecureFileUrl(secureDownloadUrl);
+
+  if (normalized.status === 'empty') return <p className="text-sm text-slate-500">No file uploaded</p>;
+  if (normalized.status !== 'ready') return <p className="text-sm text-slate-500">File unavailable</p>;
+
   const FileIcon = getFileIcon(parsedValue.file_name);
-  
+  const displayUrl = resolvedUrl || (!isSecure ? fileUrl : null);
+  const downloadUrl = isSecure ? resolvedDownloadUrl : displayUrl;
+  const unavailable = !!error || (!isLoading && !displayUrl);
+
   return (
-    <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-lg border border-slate-200">
-      <FileIcon className="w-6 h-6 text-blue-500 flex-shrink-0" />
-      <a 
-        href={parsedValue.file_url} 
-        target="_blank" 
-        rel="noopener noreferrer"
-        className="text-sm text-blue-600 hover:underline truncate flex-1"
-      >
-        {parsedValue.file_name || 'View file'}
-      </a>
-      {parsedValue.file_size && (
-        <span className="text-xs text-slate-400 flex-shrink-0">
-          {formatFileSize(parsedValue.file_size)}
-        </span>
+    <div className={`flex items-center gap-3 bg-slate-50 rounded-lg border border-slate-200 ${compact ? 'p-2' : 'p-3'}`}>
+      <FileIcon className={`${compact ? 'w-4 h-4' : 'w-6 h-6'} text-blue-500 flex-shrink-0`} aria-hidden="true" />
+      <div className="min-w-0 flex-1">
+        <p className={`${compact ? 'text-xs' : 'text-sm'} font-medium text-slate-900 truncate`}>{parsedValue.file_name}</p>
+        {!compact && parsedValue.file_size != null && (
+          <p className="text-xs text-slate-400">{formatCustomFieldFileSize(parsedValue.file_size)}</p>
+        )}
+      </div>
+      {isLoading ? <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" /> : unavailable ? (
+        <span className="text-xs text-slate-500">Unavailable</span>
+      ) : (
+        <div className="flex items-center gap-1">
+          <Button variant="ghost" size="icon" className={compact ? 'h-7 w-7' : undefined} asChild data-testid={`button-view-file-${fieldId}`}>
+            <a href={displayUrl} target="_blank" rel="noopener noreferrer" aria-label={`Open ${parsedValue.file_name}`}>
+              <ExternalLink className="w-4 h-4" />
+            </a>
+          </Button>
+          {isLoadingDownload ? <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" /> : !downloadError && downloadUrl ? (
+            <Button variant="ghost" size="icon" className={compact ? 'h-7 w-7' : undefined} asChild data-testid={`button-download-file-${fieldId}`}>
+              <a href={downloadUrl} target="_blank" rel="noopener noreferrer" download={parsedValue.file_name} aria-label={`Download ${parsedValue.file_name}`}>
+                <Download className="w-4 h-4" />
+              </a>
+            </Button>
+          ) : null}
+        </div>
       )}
     </div>
   );

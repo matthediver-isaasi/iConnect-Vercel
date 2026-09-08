@@ -12,6 +12,7 @@ import {
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { isVisibleOnBack, isFieldVisibleOnBackFor, getDirectoryOrderedFields, enrichFieldForDirectory, isFieldInDirectory, hasDirectoryFieldValue, resolveBackFieldOrder, MEMBER_BACK_DEFAULT_ORDER, groupBackOrderItems, applyCoreFieldVisibility, resolveCustomFieldsLabel } from "@/utils/directorySettings";
+import { CustomFieldFileDisplay } from "@/components/CustomFieldFileUpload";
 
 // `backFieldOrder`: optional per-directory back-of-card order override
 // (dynamic_directory.back_field_order); falls back to the tenant default in
@@ -324,7 +325,9 @@ export default function MemberProfileModal({ memberId, open, onOpenChange, backF
                 return (
                   <div key={field.id} className="bg-slate-50 rounded-lg p-3 border border-slate-200" data-testid={`custom-field-${field.id}`}>
                     <p className="text-xs font-medium text-slate-500 mb-1">{field._displayLabel || field.label}</p>
-                    <p className="text-sm text-slate-900 break-words">{String(displayValue)}</p>
+                      {field.field_type === 'file'
+                        ? <CustomFieldFileDisplay value={memberValues[field.id]} fieldId={`profile-${field.id}`} />
+                        : <p className="text-sm text-slate-900 break-words">{String(displayValue)}</p>}
                   </div>
                 );
               };

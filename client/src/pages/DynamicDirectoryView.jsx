@@ -22,6 +22,7 @@ import { isDeletedMember } from "@/utils";
 import { isVisibleOnFront, isVisibleOnBack, isFieldVisibleOnBackFor, getDirectoryOrderedFields, enrichFieldForDirectory, isFieldInDirectory, hasDirectoryFieldValue, getDirectoryFilterOptions, directoryFilterValueMatches, resolveBackFieldOrder, MEMBER_BACK_DEFAULT_ORDER, ORG_BACK_DEFAULT_ORDER, applyCoreFieldVisibility, isOrgCoreItemVisible, resolveCustomFieldsLabel } from "@/utils/directorySettings";
 import { DirectoryMemberCard, DirectoryOrganizationCard } from "@/components/directory/DirectoryCards";
 import { buildOrganisationDirectoryMembersUrl } from "@/lib/organisationDirectoryMemberContext";
+import { CustomFieldFileDisplay } from "@/components/CustomFieldFileUpload";
 
 export default function DynamicDirectoryView() {
   const { slug, organizationId: scopedOrganizationId } = useParams();
@@ -1109,9 +1110,11 @@ export default function DynamicDirectoryView() {
                   return (
                     <div key={field.id} className="grid grid-cols-[minmax(0,1fr)_minmax(0,2fr)] items-start gap-4">
                       <span className="text-sm text-slate-600 break-words">{field._displayLabel || field.label}</span>
-                      <span className="min-w-0 text-sm font-medium text-slate-900 text-left break-words">
-                        {displayValue || <span className="text-slate-400 italic">Not set</span>}
-                      </span>
+                      <div className="min-w-0 text-sm font-medium text-slate-900 text-left break-words">
+                        {field.field_type === 'file'
+                          ? <CustomFieldFileDisplay value={valueRecord?.value} fieldId={`directory-org-${field.id}`} />
+                          : (displayValue || <span className="text-slate-400 italic">Not set</span>)}
+                      </div>
                     </div>
                   );
                 };
@@ -1589,7 +1592,9 @@ export default function DynamicDirectoryView() {
                   return (
                     <div key={field.id} className="bg-slate-50 rounded-lg p-3 border border-slate-200" data-testid={`popup-custom-field-${field.id}`}>
                       <p className="text-xs font-medium text-slate-500 mb-1">{field._displayLabel || field.label}</p>
-                      <p className="text-sm text-slate-900 break-words">{String(displayValue)}</p>
+                      {field.field_type === 'file'
+                        ? <CustomFieldFileDisplay value={memberValues[field.id]} fieldId={`directory-popup-${field.id}`} />
+                        : <p className="text-sm text-slate-900 break-words">{String(displayValue)}</p>}
                     </div>
                   );
                 };

@@ -27,6 +27,7 @@ import { ListFieldEditorOrg, OrgCountryMultiSelect } from "@/components/Organisa
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { RelatedRecordsPanel, useRelatedRecordDefinitions } from "@/pages/customObjects/RelatedRecordsPanel";
 import { labelForSide, relationshipTabValue } from "@/pages/customObjects/relationshipHelpers";
+import CustomFieldFileUpload, { CustomFieldFileDisplay } from "@/components/CustomFieldFileUpload";
 
 const EMPTY_ARR = [];
 
@@ -252,6 +253,19 @@ export default function OrganisationGroupDetailView({ group, orgs = EMPTY_ARR, o
     const setVal = (v) => setCustomFieldValues(prev => ({ ...prev, [field.id]: v }));
 
     switch (field.field_type) {
+      case 'file':
+        return isEditing ? (
+          <CustomFieldFileUpload
+            fieldId={`group-${field.id}`}
+            value={value}
+            onChange={setVal}
+            allowedTypes={field.allowed_file_types}
+            publicAccess={field.public_access}
+            disabled={isLocked}
+          />
+        ) : (
+          <CustomFieldFileDisplay value={value} fieldId={`group-${field.id}`} />
+        );
       case 'textarea':
       case 'long_text':
         return (

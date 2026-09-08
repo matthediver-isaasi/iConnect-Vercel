@@ -811,8 +811,11 @@ function CustomObjectRecordListWorkspace({ objectId }) {
                       if (column.id === "name") value = <><Link className="font-medium text-blue-700 hover:underline" to={`${recordsPath(objectId)}/${record.id}`}>{record.display_value}</Link>{record.archived_at && <Badge variant="outline" className="ml-2">Archived</Badge>}</>;
                       else if (column.id === "updated_at") value = record.updated_at ? new Date(record.updated_at).toLocaleDateString() : "—";
                       else if (column.kind === "relationship") value = boundedLabels(relationshipValuesFor(record, column), 3);
+                      else if (column.field_type === "file") value = <CustomFieldFileDisplay value={fileDisplayValue(record.data?.[column.name])} fieldId={`object-list-${record.id}-${column.id}`} compact />;
                       else value = formatRecordValue(column, record.data?.[column.name], countriesByCode);
-                      return <td key={column.id} className="max-w-[280px] px-4 py-3 text-slate-600"><span className="line-clamp-2" title={typeof value === "string" ? value : undefined}>{value}</span></td>;
+                      return <td key={column.id} className="max-w-[280px] px-4 py-3 text-slate-600">
+                        {column.field_type === "file" ? value : <span className="line-clamp-2" title={typeof value === "string" ? value : undefined}>{value}</span>}
+                      </td>;
                     })}
                   </tr>
                 ))}</tbody>
@@ -1063,7 +1066,13 @@ function LegacyCustomObjectRecordList() {
                   {records.map((record) => (
                     <tr key={record.id} className="border-b last:border-0 hover:bg-slate-50">
                       <td className="px-4 py-3 font-medium"><Link className="text-blue-700 hover:underline" to={`${recordsPath(objectId)}/${record.id}`}>{record.display_value}</Link>{record.archived_at && <Badge variant="outline" className="ml-2">Archived</Badge>}</td>
-                      {visibleFields.map((field) => <td key={field.id} className="max-w-[260px] truncate px-4 py-3 text-slate-600">{formatRecordValue(field, record.data?.[field.name], countriesByCode)}</td>)}
+                      {visibleFields.map((field) => (
+                        <td key={field.id} className="max-w-[260px] px-4 py-3 text-slate-600">
+                          {field.field_type === "file"
+                            ? <CustomFieldFileDisplay value={fileDisplayValue(record.data?.[field.name])} fieldId={`object-record-${record.id}-${field.id}`} compact />
+                            : <span className="line-clamp-2">{formatRecordValue(field, record.data?.[field.name], countriesByCode)}</span>}
+                        </td>
+                      ))}
                       <td className="whitespace-nowrap px-4 py-3 text-slate-500">{record.updated_at ? new Date(record.updated_at).toLocaleDateString() : "—"}</td>
                     </tr>
                   ))}

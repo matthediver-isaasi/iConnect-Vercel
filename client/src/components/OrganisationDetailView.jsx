@@ -120,6 +120,7 @@ import {
   normalizeOrganisationCustomValue,
   organisationCustomValuesEqual,
 } from "@/lib/myOrganisationSave";
+import CustomFieldFileUpload, { CustomFieldFileDisplay } from "@/components/CustomFieldFileUpload";
 
 const getMemberName = (m) => {
   return [m?.first_name, m?.last_name].filter(Boolean).join(' ') || m?.full_name || '';
@@ -1181,6 +1182,19 @@ export default function OrganisationDetailView({
     const disabledOverride = !isEditing || isLocked;
     
     switch (field.field_type) {
+      case 'file':
+        return isEditing ? (
+          <CustomFieldFileUpload
+            fieldId={`org-${field.id}`}
+            value={value}
+            onChange={(newValue) => setCustomFieldValues(prev => ({ ...prev, [field.id]: newValue }))}
+            allowedTypes={field.allowed_file_types}
+            publicAccess={field.public_access}
+            disabled={isLocked}
+          />
+        ) : (
+          <CustomFieldFileDisplay value={value} fieldId={`org-${field.id}`} />
+        );
       case 'text':
         return (
           <Input

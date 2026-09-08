@@ -108,6 +108,7 @@ import {
   preserveEqualState,
 } from "@/lib/memberDetailState.mjs";
 import { normalizeMemberDepartments } from "@/lib/memberListColumnUtils.mjs";
+import CustomFieldFileUpload, { CustomFieldFileDisplay } from "@/components/CustomFieldFileUpload";
 
 // Stable empty-array fallback for disabled/unloaded useQuery data.
 // Inline `= []` defaults create a fresh array identity every render, which
@@ -1740,7 +1741,20 @@ export default function MemberDetailView({
                           }));
                         };
                         
-                        if (field.field_type === 'dropdown' || field.field_type === 'picklist') {
+                        if (field.field_type === 'file') {
+                          return (
+                            <div key={field.id} className="space-y-2 md:col-span-2">
+                              <Label>{field.label}</Label>
+                              <CustomFieldFileUpload
+                                fieldId={field.id}
+                                value={value}
+                                onChange={(newValue) => handleCustomFieldChange(field.id, newValue)}
+                                allowedTypes={field.allowed_file_types}
+                                publicAccess={field.public_access}
+                              />
+                            </div>
+                          );
+                        } else if (field.field_type === 'dropdown' || field.field_type === 'picklist') {
                           const options = field.options || [];
                           return (
                             <div key={field.id} className="space-y-2">
@@ -1859,7 +1873,9 @@ export default function MemberDetailView({
                         const value = customFieldValues[field.id];
                         let displayValue;
                         
-                        if (field.field_type === 'date') {
+                        if (field.field_type === 'file') {
+                          displayValue = <CustomFieldFileDisplay value={value} fieldId={`member-view-${field.id}`} />;
+                        } else if (field.field_type === 'date') {
                           displayValue = formatDate(value);
                         } else if (field.field_type === 'email' && value) {
                           displayValue = <a href={`mailto:${value}`} className="text-blue-600 hover:underline">{value}</a>;
@@ -1883,7 +1899,7 @@ export default function MemberDetailView({
                         return (
                           <div key={field.id} className="space-y-1">
                             <p className="text-xs text-slate-500">{field.label}</p>
-                            <p className="text-sm">{displayValue}</p>
+                            {field.field_type === 'file' ? displayValue : <p className="text-sm">{displayValue}</p>}
                           </div>
                         );
                       })}

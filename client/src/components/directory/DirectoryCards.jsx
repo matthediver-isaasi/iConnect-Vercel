@@ -7,6 +7,7 @@ import { Building2, User, Users, FileText, Calendar, Trophy, Linkedin, Pencil, T
 import { safeLogoSrc } from "@/lib/safeLogoSrc";
 import { isVisibleOnFront, isFieldVisibleOnFrontFor, getDirectoryOrderedFields, hasDirectoryFieldValue } from "@/utils/directorySettings";
 import { normalizeMemberDepartments } from "@/lib/memberListColumnUtils.mjs";
+import { CustomFieldFileDisplay } from "@/components/CustomFieldFileUpload";
 
 /**
  * Shared directory card "atoms".
@@ -198,7 +199,11 @@ export function DirectoryMemberCard({
                 return (
                   <div key={field.id} className="flex items-center justify-between gap-2" data-testid={`card-custom-field-${field.id}`}>
                     <span className="text-xs text-slate-500 truncate">{field._displayLabel || field.label}</span>
-                    <span className="text-xs font-medium text-slate-700 text-right truncate max-w-[50%]">{String(displayValue)}</span>
+                    <div className="max-w-[65%]" onClick={(event) => event.stopPropagation()}>
+                      {field.field_type === 'file'
+                        ? <CustomFieldFileDisplay value={values[field.id]} fieldId={`directory-card-${field.id}`} compact />
+                        : <span className="text-xs font-medium text-slate-700 text-right truncate block">{String(displayValue)}</span>}
+                    </div>
                   </div>
                 );
               })}

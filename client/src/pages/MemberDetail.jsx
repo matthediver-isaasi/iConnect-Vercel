@@ -77,6 +77,7 @@ import {
   preserveEqualState,
   searchForMemberTab,
 } from "@/lib/memberDetailState.mjs";
+import CustomFieldFileUpload, { CustomFieldFileDisplay } from "@/components/CustomFieldFileUpload";
 
 // Stable empty-array fallback for disabled/unloaded queries. Using an inline
 // `= []` destructure default creates a NEW array identity on every render,
@@ -1143,6 +1144,19 @@ export default function MemberDetail() {
           <Input type="url" value={value || ''} onChange={(e) => setValue(e.target.value)} placeholder="https://" disabled={isLocked} data-testid={`input-${prefix}-custom-url-${field.id}`} />
         ) : (
           <p className="text-sm">{value ? <a href={value} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline inline-flex items-center gap-1">{value} <ExternalLink className="w-3 h-3" /></a> : '-'}</p>
+        );
+      case 'file':
+        return isEditing ? (
+          <CustomFieldFileUpload
+            fieldId={`${prefix}-${field.id}`}
+            value={value}
+            onChange={setValue}
+            allowedTypes={field.allowed_file_types}
+            publicAccess={field.public_access}
+            disabled={isLocked}
+          />
+        ) : (
+          <CustomFieldFileDisplay value={value} fieldId={`${prefix}-${field.id}`} />
         );
       case 'textarea':
       case 'long_text': {
