@@ -113,6 +113,27 @@ export function resolveFormNotListedText(field, submissionData, options = {}) {
   return normalizedNotListedText(resolveRawFormNotListedText(field, submissionData, options));
 }
 
+export function resolveMappedOrganizationDropdownValue({
+  field,
+  targetField,
+  value,
+  submissionData = {},
+} = {}) {
+  if (field?.type !== 'organisation_dropdown') return null;
+  if (isFormNotListedValue(value)) {
+    return {
+      organizationId: null,
+      organizationName: targetField === 'name' && hasEnabledFormNotListedChoice(field)
+        ? resolveFormNotListedText(field, submissionData)
+        : '',
+    };
+  }
+  return {
+    organizationId: typeof value === 'string' && value ? value : null,
+    organizationName: '',
+  };
+}
+
 export function setFormNotListedText(submissionData, fieldId, text) {
   const data = isPlainObject(submissionData) ? submissionData : {};
   const current = isPlainObject(data[FORM_NOT_LISTED_TEXT_KEY])

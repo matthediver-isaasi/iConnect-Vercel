@@ -14,6 +14,7 @@ import {
   resolveFormNotListedDisplayValue,
   resolveRawFormNotListedText,
   resolveFormNotListedText,
+  resolveMappedOrganizationDropdownValue,
   pruneFormNotListedText,
   setFormNotListedText,
   setRepeatableRowNotListedText,
@@ -54,6 +55,62 @@ test('pipeline organisation dropdown resolution preserves not-listed answers whi
   }), null);
   assert.equal(submissionData.org, FORM_NOT_LISTED_VALUE);
   assert.equal(submissionData[FORM_NOT_LISTED_TEXT_KEY].org, 'New Organisation Ltd');
+});
+
+test('maps a not-listed organisation name only for a mapped organisation name dropdown', () => {
+  const submissionData = {
+    org: FORM_NOT_LISTED_VALUE,
+    [FORM_NOT_LISTED_TEXT_KEY]: { org: '  New Organisation Ltd  ' },
+  };
+  assert.deepEqual(resolveMappedOrganizationDropdownValue({
+    field,
+    targetField: 'name',
+    value: submissionData.org,
+    submissionData,
+  }), {
+    organizationId: null,
+    organizationName: 'New Organisation Ltd',
+  });
+  assert.deepEqual(resolveMappedOrganizationDropdownValue({
+    field,
+    targetField: 'phone',
+    value: submissionData.org,
+    submissionData,
+  }), {
+    organizationId: null,
+    organizationName: '',
+  });
+});
+
+test('mapped organisation dropdown preserves listed ids and rejects blank not-listed names', () => {
+  assert.deepEqual(resolveMappedOrganizationDropdownValue({
+    field,
+    targetField: 'name',
+    value: 'org-123',
+    submissionData: {
+      org: 'org-123',
+      [FORM_NOT_LISTED_TEXT_KEY]: { org: 'must not be used' },
+    },
+  }), {
+    organizationId: 'org-123',
+    organizationName: '',
+  });
+  for (const text of [undefined, '', '   ']) {
+    assert.deepEqual(resolveMappedOrganizationDropdownValue({
+      field,
+      targetField: 'name',
+      value: FORM_NOT_LISTED_VALUE,
+      submissionData: text === undefined
+        ? { org: FORM_NOT_LISTED_VALUE }
+        : {
+            org: FORM_NOT_LISTED_VALUE,
+            [FORM_NOT_LISTED_TEXT_KEY]: { org: text },
+          },
+    }), {
+      organizationId: null,
+      organizationName: '',
+    });
+  }
 });
 
 test('enables only supported fields with a non-blank configured label', () => {

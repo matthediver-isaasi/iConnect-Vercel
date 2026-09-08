@@ -1,5 +1,9 @@
 import { createClient } from '@supabase/supabase-js';
-import { FORM_NOT_LISTED_VALUE, isFormNotListedValue } from '../../shared/formNotListedChoice.js';
+import {
+  FORM_NOT_LISTED_VALUE,
+  isFormNotListedValue,
+  resolveMappedOrganizationDropdownValue,
+} from '../../shared/formNotListedChoice.js';
 import { triggerWorkflows } from '../_lib/workflows.js';
 import { resolveEffectiveOrgGuestAccess } from '../_lib/orgGuestAccess.js';
 import { notifyGuestSignup } from '../_lib/guestSignupNotification.js';
@@ -1186,6 +1190,15 @@ export default async function handler(req, res) {
       const f = fieldsById.get(sourceFieldId);
       return !!f && f.type === 'organisation_dropdown';
     };
+    const resolveOrgDropdownMapping = (sourceFieldId, targetField) => {
+      const field = fieldsById.get(sourceFieldId);
+      return resolveMappedOrganizationDropdownValue({
+        field,
+        targetField,
+        value: form_values[sourceFieldId],
+        submissionData: form_values,
+      });
+    };
     // Captures the organisation id selected via an organisation_dropdown form
     // field, when that field was mapped to an organisation core column. We
     // never write the UUID into the core column; instead we feed it into the
@@ -1396,10 +1409,13 @@ export default async function handler(req, res) {
             // capture the selected id for the org-resolution chain and skip
             // the assignment.
             if (isOrgDropdownSourceField(source_field_id)) {
-              if (typeof value === 'string' && value && !isFormNotListedValue(value) && !dropdownSelectedOrgId) {
-                dropdownSelectedOrgId = value;
+              const resolved = resolveOrgDropdownMapping(source_field_id, target_field);
+              if (resolved?.organizationName) {
+                orgData.name = resolved.organizationName;
+              } else if (resolved?.organizationId && !dropdownSelectedOrgId) {
+                dropdownSelectedOrgId = resolved.organizationId;
               }
-              console.log('[AppProcessor] Skipped org core assignment from organisation_dropdown source:', { target_field, source_field_id, captured_org_id: value });
+              console.log('[AppProcessor] Resolved org core assignment from organisation_dropdown source:', { target_field, source_field_id, captured_org_id: resolved?.organizationId || null, used_not_listed_name: !!resolved?.organizationName });
               continue;
             }
             // Training fund balances are ledger-backed and must never be
@@ -1460,10 +1476,13 @@ export default async function handler(req, res) {
             // it into an org core column would rename the org to its own id.
             // Capture the id for the org-resolution chain and skip.
             if (field.type === 'organisation_dropdown') {
-              if (typeof value === 'string' && value && !isFormNotListedValue(value) && !dropdownSelectedOrgId) {
-                dropdownSelectedOrgId = value;
+              const resolved = resolveOrgDropdownMapping(field.id, fieldName);
+              if (resolved?.organizationName) {
+                orgData.name = resolved.organizationName;
+              } else if (resolved?.organizationId && !dropdownSelectedOrgId) {
+                dropdownSelectedOrgId = resolved.organizationId;
               }
-              console.log('[AppProcessor] Skipped org core assignment from organisation_dropdown source (legacy fallback):', { fieldName, field_id: field.id, captured_org_id: value });
+              console.log('[AppProcessor] Resolved org core assignment from organisation_dropdown source (legacy fallback):', { fieldName, field_id: field.id, captured_org_id: resolved?.organizationId || null, used_not_listed_name: !!resolved?.organizationName });
             } else {
               orgData[fieldName] = coerceCoreFieldValue('organization', fieldName, value);
             }
@@ -1712,10 +1731,13 @@ export default async function handler(req, res) {
             // selected id so the existing org-resolution chain picks up the
             // right row, and skip the assignment.
             if (targetEntity === 'organization' && isOrgDropdownSourceField(mapping.source_field_id)) {
-              if (typeof value === 'string' && value && !isFormNotListedValue(value) && !dropdownSelectedOrgId) {
-                dropdownSelectedOrgId = value;
+              const resolved = resolveOrgDropdownMapping(mapping.source_field_id, dbKey);
+              if (resolved?.organizationName) {
+                dataObj.name = resolved.organizationName;
+              } else if (resolved?.organizationId && !dropdownSelectedOrgId) {
+                dropdownSelectedOrgId = resolved.organizationId;
               }
-              console.log('[AppProcessor] Skipped org core assignment from organisation_dropdown source (pipeline):', { target_field: mapping.target_field, source_field_id: mapping.source_field_id, captured_org_id: value });
+              console.log('[AppProcessor] Resolved org core assignment from organisation_dropdown source (pipeline):', { target_field: mapping.target_field, source_field_id: mapping.source_field_id, captured_org_id: resolved?.organizationId || null, used_not_listed_name: !!resolved?.organizationName });
               continue;
             }
             // Same guard for member_dropdown -> member core column writes.
@@ -1779,6 +1801,16 @@ export default async function handler(req, res) {
             dataObj[dbKey] = null;
           } else {
             const val = form_values[fieldId];
+            if (targetEntity === 'organization' && isOrgDropdownSourceField(fieldId)) {
+              const resolved = resolveOrgDropdownMapping(fieldId, dbKey);
+              if (resolved?.organizationName) {
+                dataObj.name = resolved.organizationName;
+              } else if (resolved?.organizationId && !dropdownSelectedOrgId) {
+                dropdownSelectedOrgId = resolved.organizationId;
+              }
+              console.log('[AppProcessor] Resolved org core assignment from organisation_dropdown source (legacy pipeline):', { target_field: configKey, source_field_id: fieldId, captured_org_id: resolved?.organizationId || null, used_not_listed_name: !!resolved?.organizationName });
+              continue;
+            }
             // Use hasAssignableValue to allow boolean false/empty through for boolean fields
             if (hasAssignableValue(dbKey, val)) {
               // Coerce boolean fields for member entities; coerce address-like
