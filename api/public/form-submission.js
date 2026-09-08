@@ -33,6 +33,7 @@ import {
 } from '../_lib/formOrganisationGroups.js';
 import { validateRepeatableRowSubmission } from '../_lib/formRepeatableRowValidation.js';
 import { buildFormProcessingHeaders } from '../_lib/formProcessingAuth.js';
+import { buildPublicFormProcessingPayload } from '../_lib/publicFormProcessingPayload.js';
 import { getInternalApiBaseUrl } from '../_lib/publicBaseUrl.js';
 import { hasPersistedFormEntityActions } from '../_lib/formEntityActionMode.js';
 import { invalidRequiredAddressLookupFields } from '../_lib/idealPostcodes.js';
@@ -1070,21 +1071,16 @@ export default async function handler(req, res) {
               verifiedAdminAccess: sessionHasAdminAccess,
             }),
           },
-          body: JSON.stringify({
-            form_id: form.id,
-            form_values: submission_data || {},
-            fields: form.fields || [],
-            field_mappings: form.field_mappings || [],
-            application_level: form.application_level || 'member',
-            submission_id: submission.id,
-            prefill_organization_id: prefill_organization_id || null,
-            role_id: clientRoleId || null,
-            entity_pipelines: form.entity_pipelines,
-            tenant_id: tenantData.id,
-            defer_communication_subscriptions: true,
-            verified_submitter_member_id: sessionMemberId,
-            verified_admin_access: sessionHasAdminAccess,
-          })
+          body: JSON.stringify(buildPublicFormProcessingPayload({
+            form,
+            submissionData: submission_data,
+            submissionId: submission.id,
+            tenantId: tenantData.id,
+            prefillOrganizationId: prefill_organization_id,
+            roleId: clientRoleId,
+            verifiedSubmitterMemberId: sessionMemberId,
+            verifiedAdminAccess: sessionHasAdminAccess,
+          }))
         });
         
         // Safely parse response - handle empty bodies and non-JSON responses

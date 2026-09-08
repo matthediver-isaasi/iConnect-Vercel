@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
 const source = await readFile(new URL('./form-submission.js', import.meta.url), 'utf8');
+const payloadSource = await readFile(new URL('../_lib/publicFormProcessingPayload.js', import.meta.url), 'utf8');
 
 test('no-action submissions do not require an internal processing origin', () => {
   const actionGate = source.indexOf('if (hasEntityPipelines && !surveyIsAnonymous)');
@@ -18,8 +19,10 @@ test('public submission processing retains legacy action configurations', () => 
 test('public processing binds server-derived tenant admin authority into the signed hop', () => {
   const deriveAt = source.indexOf('sessionHasAdminAccess = tenantContext?.tenantId === tenantData.id');
   const signAt = source.indexOf('verifiedAdminAccess: sessionHasAdminAccess');
-  const bodyAt = source.indexOf('verified_admin_access: sessionHasAdminAccess');
+  const bodyAt = source.indexOf('body: JSON.stringify(buildPublicFormProcessingPayload({');
   assert.ok(deriveAt > -1 && signAt > deriveAt && bodyAt > signAt);
+  assert.match(source.slice(bodyAt), /verifiedAdminAccess:\s*sessionHasAdminAccess/);
+  assert.match(payloadSource, /verified_admin_access:\s*verifiedAdminAccess/);
   assert.match(source, /await hasAdminAccess\(tenantContext\)/);
   assert.doesNotMatch(
     source.slice(source.indexOf('const { form_id,'), source.indexOf('} = req.body;') + 13),

@@ -2,8 +2,13 @@ import { createClient } from '@supabase/supabase-js';
 import {
   FORM_NOT_LISTED_VALUE,
   isFormNotListedValue,
-  resolveMappedOrganizationDropdownValue,
 } from '../../shared/formNotListedChoice.js';
+import {
+  ORGANIZATION_CORE_FIELD_MAPPINGS,
+  resolveOrganizationCoreField,
+  resolveOrganizationDropdownAssignment,
+  resolvePrimaryOrganizationPipeline,
+} from '../_lib/formPrimaryOrganizationPipeline.js';
 import { triggerWorkflows } from '../_lib/workflows.js';
 import { resolveEffectiveOrgGuestAccess } from '../_lib/orgGuestAccess.js';
 import { notifyGuestSignup } from '../_lib/guestSignupNotification.js';
@@ -48,7 +53,7 @@ import {
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
 
-const supabase = supabaseUrl && supabaseServiceKey 
+const defaultSupabase = supabaseUrl && supabaseServiceKey
   ? createClient(supabaseUrl, supabaseServiceKey)
   : null;
 
@@ -592,7 +597,7 @@ const checkRoleCapacity = async (supabaseClient, roleId, organizationId) => {
   };
 };
 
-export default async function handler(req, res) {
+export default async function handler(req, res, { supabase = defaultSupabase } = {}) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
@@ -1192,7 +1197,7 @@ export default async function handler(req, res) {
     };
     const resolveOrgDropdownMapping = (sourceFieldId, targetField) => {
       const field = fieldsById.get(sourceFieldId);
-      return resolveMappedOrganizationDropdownValue({
+      return resolveOrganizationDropdownAssignment({
         field,
         targetField,
         value: form_values[sourceFieldId],
@@ -1286,11 +1291,11 @@ export default async function handler(req, res) {
     }
     
     if (orgPipelines.length > 0) {
-      const primaryOrgPipeline = orgPipelines.find(o => o.isPrimary || o.is_primary);
+      const primaryOrgPipeline = resolvePrimaryOrganizationPipeline(orgPipelines);
       if (primaryOrgPipeline?.mappings && Array.isArray(primaryOrgPipeline.mappings)) {
         for (const m of primaryOrgPipeline.mappings) {
           if (m.target_type === 'core' && m.target_field) {
-            pipelineOrgFields.add(m.target_field);
+            pipelineOrgFields.add(resolveOrganizationCoreField(m.target_field));
           }
         }
       }
@@ -1321,7 +1326,7 @@ export default async function handler(req, res) {
             console.log('[AppProcessor] Skipping legacy field_mappings for member field (entity_pipelines takes precedence):', target_field);
             continue;
           }
-          if (target_entity === 'organization' && pipelineOrgFields.has(target_field)) {
+          if (target_entity === 'organization' && pipelineOrgFields.has(resolveOrganizationCoreField(target_field))) {
             console.log('[AppProcessor] Skipping legacy field_mappings for org field (entity_pipelines takes precedence):', target_field);
             continue;
           }
@@ -1917,7 +1922,7 @@ export default async function handler(req, res) {
     let orgCustomFields = convertMapToArray(orgCustomFieldsMap);
     if (orgPipelines.length > 0) {
       // Support both isPrimary (camelCase) and is_primary (snake_case) for compatibility
-      const primaryOrgPipeline = orgPipelines.find(o => o.isPrimary || o.is_primary);
+      const primaryOrgPipeline = resolvePrimaryOrganizationPipeline(orgPipelines);
       console.log('[AppProcessor] Org pipelines:', orgPipelines.length, 'Primary found:', !!primaryOrgPipeline);
       if (primaryOrgPipeline) {
         console.log('[AppProcessor] Primary org pipeline mappings:', JSON.stringify(primaryOrgPipeline.mappings, null, 2));
@@ -1927,21 +1932,7 @@ export default async function handler(req, res) {
       // (ORG_CORE_FIELDS) — otherwise the legacy field_mappings object branch
       // silently drops them, and the new pipeline mappings array path falls back
       // to the raw target_field which can write to the wrong column or none at all.
-      const orgCoreFieldMappings = {
-        'name': 'name',
-        'logo_url': 'logo_url',
-        'phone': 'phone',
-        'invoicing_email': 'invoicing_email',
-        'invoicing_address': 'invoicing_address',
-        'website_url': 'website_url',
-        // Backward-compat aliases for forms saved with legacy keys.
-        // 'email' and 'address' remain on their own columns (both exist).
-        'email': 'email',
-        'address': 'address',
-        // 'website' was a legacy key that mapped to a non-existent column —
-        // route it to the modern website_url so older forms keep working.
-        'website': 'website_url',
-      };
+      const orgCoreFieldMappings = ORGANIZATION_CORE_FIELD_MAPPINGS;
       
       processPipelineMappings(primaryOrgPipeline, 'organization', orgData, orgCustomFieldsMap, orgCoreFieldMappings, orgCustomFieldsToClear);
       
