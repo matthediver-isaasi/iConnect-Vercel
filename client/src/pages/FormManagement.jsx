@@ -28,6 +28,12 @@ import { createPageUrl } from "@/utils";
 import { Link } from "react-router-dom";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { listOrganizationsForAdmin } from '@/lib/adminOrgList';
+import {
+  getFormLayoutClassification,
+  isEventLinkedForm,
+  isSurveyForm,
+  matchesFormClassification,
+} from '@/lib/formManagementClassification';
 
 const PAGE_SIZE_OPTIONS = [12, 24, 48];
 const DEFAULT_PAGE_SIZE = 12;
@@ -95,9 +101,11 @@ function FilterBar({ filters, setFilters, isContract, testIdPrefix, organization
             <SelectValue placeholder="Layout" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">All layouts</SelectItem>
+            <SelectItem value="all">All types</SelectItem>
             <SelectItem value="standard">Standard</SelectItem>
             <SelectItem value="card_swipe">Card Swipe</SelectItem>
+            <SelectItem value="survey">Survey</SelectItem>
+            <SelectItem value="event_linked">Event Linked</SelectItem>
           </SelectContent>
         </Select>
       )}
@@ -431,10 +439,7 @@ export default function FormManagementPage() {
   const filteredStandardForms = useMemo(() => {
     return standardForms.filter(form => {
       if (!applyCommonFilters(form, standardFilters)) return false;
-      if (standardFilters.layout !== 'all') {
-        const layout = form.layout_type === 'card_swipe' ? 'card_swipe' : 'standard';
-        if (layout !== standardFilters.layout) return false;
-      }
+      if (!matchesFormClassification(form, standardFilters.layout)) return false;
       return true;
     });
   }, [standardForms, standardFilters]);
@@ -543,9 +548,21 @@ export default function FormManagementPage() {
                   Contract
                 </Badge>
               ) : (
-                <Badge variant="outline">
-                  {form.layout_type === 'card_swipe' ? 'Card Swipe' : 'Standard'}
-                </Badge>
+                <>
+                  <Badge variant="outline" data-testid={`badge-layout-${form.id}`}>
+                    {getFormLayoutClassification(form) === 'card_swipe' ? 'Card Swipe' : 'Standard'}
+                  </Badge>
+                  {isSurveyForm(form) && (
+                    <Badge variant="outline" className="border-violet-200 bg-violet-50 text-violet-700" data-testid={`badge-survey-${form.id}`}>
+                      Survey
+                    </Badge>
+                  )}
+                  {isEventLinkedForm(form) && (
+                    <Badge variant="outline" className="border-amber-200 bg-amber-50 text-amber-700" data-testid={`badge-event-linked-${form.id}`}>
+                      Event Linked
+                    </Badge>
+                  )}
+                </>
               )}
               <Badge variant={form.is_active ? "default" : "secondary"}>
                 {form.is_active ? (
@@ -735,9 +752,21 @@ export default function FormManagementPage() {
                 Contract
               </Badge>
             ) : (
-              <Badge variant="outline">
-                {form.layout_type === 'card_swipe' ? 'Card Swipe' : 'Standard'}
-              </Badge>
+              <>
+                <Badge variant="outline" data-testid={`badge-layout-row-${form.id}`}>
+                  {getFormLayoutClassification(form) === 'card_swipe' ? 'Card Swipe' : 'Standard'}
+                </Badge>
+                {isSurveyForm(form) && (
+                  <Badge variant="outline" className="border-violet-200 bg-violet-50 text-violet-700" data-testid={`badge-survey-row-${form.id}`}>
+                    Survey
+                  </Badge>
+                )}
+                {isEventLinkedForm(form) && (
+                  <Badge variant="outline" className="border-amber-200 bg-amber-50 text-amber-700" data-testid={`badge-event-linked-row-${form.id}`}>
+                    Event Linked
+                  </Badge>
+                )}
+              </>
             )}
             <Badge variant={form.is_active ? "default" : "secondary"}>
               {form.is_active ? (
