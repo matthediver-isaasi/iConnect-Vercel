@@ -74,18 +74,31 @@ test('legacy pipeline and action derivation happens only after persisted configu
   assert.match(src, /: \{ members: \[\], organisations: \[\] \};/);
 });
 
-test('legacy existing-record reuse is ownership-gated before primary and additional mutations', () => {
+test('legacy existing-record mutations are ownership-gated while organization reference reuse is not', () => {
   const authContext = src.indexOf('const processingAuthorization = {');
-  const orgGate = src.indexOf("assertLegacyExistingRecordAuthorized('organization', existingOrg.id);");
+  const orgUpdate = src.indexOf("supabase.from('organization').update(orgUpdateData)");
+  const orgGate = src.lastIndexOf("assertLegacyExistingRecordAuthorized('organization', existingOrg.id);", orgUpdate);
+  const orgCustomUpsert = src.indexOf("table: 'organization_preference_value'");
+  const orgCustomGate = src.lastIndexOf("assertLegacyExistingRecordAuthorized('organization', createdOrganizationId);", orgCustomUpsert);
+  const orgCustomClear = src.indexOf("table: 'organization_preference_value'", orgCustomUpsert + 1);
+  const orgClearGate = src.lastIndexOf("assertLegacyExistingRecordAuthorized('organization', createdOrganizationId);", orgCustomClear);
   const memberGate = src.indexOf("assertLegacyExistingRecordAuthorized('member', existingMember.id);");
   const additionalGate = src.indexOf("assertLegacyExistingRecordAuthorized('member', existingMemberId);");
   assert.ok(authContext > 0);
   assert.ok(orgGate > authContext);
-  assert.ok(memberGate > orgGate);
+  assert.ok(orgGate < orgUpdate);
+  assert.doesNotMatch(
+    src.slice(orgGate - 250, orgUpdate),
+    /persistedPipelineTargetId/,
+    'a prior checkpoint must not authorize a new existing-organization mutation',
+  );
+  assert.ok(orgCustomGate > orgUpdate && orgCustomGate < orgCustomUpsert);
+  assert.ok(orgClearGate > orgCustomUpsert && orgClearGate < orgCustomClear);
+  assert.ok(memberGate > orgClearGate);
   assert.ok(additionalGate > memberGate);
-  assert.ok(orgGate < src.indexOf("supabase.from('organization').update(orgUpdateData)"));
   assert.ok(memberGate < src.indexOf("table: 'member'", memberGate));
   assert.ok(additionalGate < src.indexOf("table: 'member'", additionalGate));
+  assert.match(src, /created_organization_id is also populated when a pipeline merely[\s\S]*?organization: new Set\(\)/);
   assert.match(src, /authorization: processingAuthorization,/);
   assert.match(src, /error instanceof StructuredActionAuthorizationError/);
 });

@@ -43,7 +43,15 @@ function publicPayload(overrides = {}) {
   };
 }
 
-function makeSupabase({ form, submission, existingOrganization = null }) {
+function makeSupabase({
+  form,
+  submission,
+  existingOrganization = null,
+  submitterMember = null,
+  preferenceFields = [],
+  pipelineEntityLinks = [],
+  idempotencyLookupError = null,
+}) {
   const inserts = [];
   const updates = [];
   let insertedOrganization = null;
@@ -84,12 +92,25 @@ function makeSupabase({ form, submission, existingOrganization = null }) {
     async maybeSingle() {
       if (this.table === 'form') return { data: this.selected === 'tenant_id' ? { tenant_id: form.tenant_id } : form, error: null };
       if (this.table === 'form_submission') {
+        if (
+          idempotencyLookupError
+          && this.selected === 'created_member_id, created_organization_id, entity_processing_completed_at'
+        ) {
+          return { data: null, error: idempotencyLookupError };
+        }
         if (this.selected === 'organization_id') return { data: { organization_id: submission.organization_id || null }, error: null };
         return { data: submission, error: null };
       }
       if (this.table === 'organization') {
         const id = this.filters.find(filter => filter[0] === 'eq' && filter[1] === 'id')?.[2];
-        return { data: existingOrganization?.id === id ? existingOrganization : null, error: null };
+        const name = this.filters.find(filter => filter[0] === 'ilike' && filter[1] === 'name')?.[2];
+        const matchesId = id && existingOrganization?.id === id;
+        const matchesName = name && existingOrganization?.name?.toLowerCase() === String(name).toLowerCase();
+        return { data: matchesId || matchesName ? existingOrganization : null, error: null };
+      }
+      if (this.table === 'member') {
+        const id = this.filters.find(filter => filter[0] === 'eq' && filter[1] === 'id')?.[2];
+        return { data: submitterMember?.id === id ? submitterMember : null, error: null };
       }
       return { data: null, error: null };
     }
@@ -97,6 +118,12 @@ function makeSupabase({ form, submission, existingOrganization = null }) {
       if (this.table === 'organization' && this.insertPayload) {
         insertedOrganization = { id: 'created-organization', ...this.insertPayload };
         return { data: insertedOrganization, error: null };
+      }
+      if (this.table === 'organization' && existingOrganization) {
+        const id = this.filters.find(filter => filter[0] === 'eq' && filter[1] === 'id')?.[2];
+        if (id === existingOrganization.id) {
+          return { data: existingOrganization, error: null };
+        }
       }
       if (this.table === 'organization' && insertedOrganization) {
         return { data: insertedOrganization, error: null };
@@ -108,6 +135,8 @@ function makeSupabase({ form, submission, existingOrganization = null }) {
     }
     then(resolve, reject) {
       let data = [];
+      if (this.table === 'preference_field') data = preferenceFields;
+      if (this.table === 'form_submission_pipeline_entity') data = pipelineEntityLinks;
       if (this.table === 'organization' && !this.insertPayload && existingOrganization) {
         const id = this.filters.find(filter => filter[0] === 'eq' && filter[1] === 'id')?.[2];
         if (id === existingOrganization.id) data = [existingOrganization];
@@ -129,6 +158,12 @@ function makeSupabase({ form, submission, existingOrganization = null }) {
 async function invokeProcessor(payload, {
   existingOrganization = null,
   requestFormValues = payload.form_values,
+  verifiedAdminAccess = true,
+  submitterMember = null,
+  preferenceFields = [],
+  pipelineEntityLinks = [],
+  persistedCreatedOrganizationId = null,
+  idempotencyLookupError = null,
 } = {}) {
   const previousSecret = process.env.SESSION_SECRET;
   process.env.SESSION_SECRET = 'runtime-org-name-test-secret';
@@ -153,22 +188,30 @@ async function invokeProcessor(payload, {
     form_id: form.id,
     tenant_id: form.tenant_id,
     submission_data: payload.form_values,
-    submitted_by_email: null,
+    submitted_by_email: submitterMember?.email || null,
     organization_id: null,
     created_member_id: null,
-    created_organization_id: null,
+    created_organization_id: persistedCreatedOrganizationId,
     payment_reference: null,
     payment_status: null,
     payment_meta: {},
     processing_notes: [],
   };
-  const db = makeSupabase({ form, submission, existingOrganization });
+  const db = makeSupabase({
+    form,
+    submission,
+    existingOrganization,
+    submitterMember,
+    preferenceFields,
+    pipelineEntityLinks,
+    idempotencyLookupError,
+  });
   const ids = {
     tenantId: form.tenant_id,
     formId: form.id,
     submissionId: submission.id,
-    verifiedSubmitterMemberId: null,
-    verifiedAdminAccess: true,
+    verifiedSubmitterMemberId: submitterMember?.id || null,
+    verifiedAdminAccess,
   };
   const req = {
     method: 'POST',
@@ -180,7 +223,8 @@ async function invokeProcessor(payload, {
       form_values: requestFormValues,
       fields: payload.fields,
       entity_pipelines: payload.entity_pipelines,
-      verified_admin_access: true,
+      verified_submitter_member_id: submitterMember?.id || null,
+      verified_admin_access: verifiedAdminAccess,
     },
   };
   const response = { statusCode: 200, body: null };
@@ -288,6 +332,260 @@ test('listed organization UUID is selected and never written into the name colum
   assert.equal(result.inserts.some(entry => entry.table === 'organization'), false);
   const orgUpdate = result.updates.find(entry => entry.table === 'organization');
   assert.notEqual(orgUpdate?.payload?.name, organizationId);
+});
+
+test('anonymous affected-form selection links a new member without mutating the existing organization', async () => {
+  const payload = publicPayload({
+    fields: [
+      { id: 'student_email', type: 'email' },
+      { id: 'student_first_name', type: 'text' },
+      { id: 'student_last_name', type: 'text' },
+      {
+        id: 'field_1787065791684',
+        type: 'organisation_dropdown',
+        not_listed_choice: { enabled: true, label: 'Not listed' },
+      },
+    ],
+    form_values: {
+      student_email: 'student@example.test',
+      student_first_name: 'Test',
+      student_last_name: 'Student',
+      field_1787065791684: '7dc51049-90dc-42cf-9567-2b128321c21c',
+    },
+    application_level: 'member',
+    create_entity_type: 'member',
+    entity_pipelines: {
+      members: [{
+        id: 'member-primary',
+        isPrimary: true,
+        mappings: [
+          { source_type: 'field', source_field_id: 'student_email', target_type: 'core', target_field: 'email', target_entity: 'member' },
+          { source_type: 'field', source_field_id: 'student_first_name', target_type: 'core', target_field: 'first_name', target_entity: 'member' },
+          { source_type: 'field', source_field_id: 'student_last_name', target_type: 'core', target_field: 'last_name', target_entity: 'member' },
+        ],
+      }],
+      organisations: [{
+        id: 'org-primary',
+        isPrimary: true,
+        mappings: [{
+          source_type: 'field',
+          source_field_id: 'field_1787065791684',
+          target_type: 'core',
+          target_field: 'name',
+          target_entity: 'organization',
+        }],
+      }],
+    },
+  });
+  const organizationId = payload.form_values.field_1787065791684;
+  const result = await invokeProcessor(payload, {
+    existingOrganization: { id: organizationId, tenant_id: 'tenant-runtime-org', name: 'Existing University' },
+    verifiedAdminAccess: false,
+  });
+
+  assert.equal(result.response.statusCode, 200);
+  assert.equal(result.response.body.organization_id, organizationId);
+  assert.equal(result.inserts.some(entry => entry.table === 'organization'), false);
+  assert.equal(result.updates.some(entry => entry.table === 'organization'), false);
+  assert.equal(
+    result.inserts.find(entry => entry.table === 'member')?.payload.organization_id,
+    organizationId,
+  );
+});
+
+test('anonymous selection cannot mutate an existing organization core field', async () => {
+  const payload = publicPayload();
+  const organizationId = '7dc51049-90dc-42cf-9567-2b128321c21c';
+  payload.fields.push({ id: 'org_phone', type: 'text' });
+  payload.form_values.organisation = organizationId;
+  payload.form_values.org_phone = '020 0000 0000';
+  payload.entity_pipelines.organisations[0].mappings.push({
+    source_type: 'field',
+    source_field_id: 'org_phone',
+    target_type: 'core',
+    target_entity: 'organization',
+    target_field: 'phone',
+  });
+
+  const result = await invokeProcessor(payload, {
+    existingOrganization: { id: organizationId, tenant_id: 'tenant-runtime-org', name: 'Existing Org' },
+    verifiedAdminAccess: false,
+  });
+
+  assert.equal(result.response.statusCode, 403);
+  assert.equal(result.response.body.code, 'STRUCTURED_ACTION_FORBIDDEN');
+  assert.equal(result.updates.some(entry => entry.table === 'organization'), false);
+});
+
+test('an existing-organization checkpoint cannot authorize anonymous core mutation on retry', async () => {
+  const payload = publicPayload();
+  const organizationId = '7dc51049-90dc-42cf-9567-2b128321c21c';
+  payload.fields.push({ id: 'org_phone', type: 'text' });
+  payload.form_values.organisation = organizationId;
+  payload.form_values.org_phone = '020 0000 0000';
+  payload.entity_pipelines.organisations[0].mappings.push({
+    source_type: 'field',
+    source_field_id: 'org_phone',
+    target_type: 'core',
+    target_entity: 'organization',
+    target_field: 'phone',
+  });
+
+  const result = await invokeProcessor(payload, {
+    existingOrganization: { id: organizationId, tenant_id: 'tenant-runtime-org', name: 'Existing Org' },
+    verifiedAdminAccess: false,
+    pipelineEntityLinks: [{
+      pipeline_id: 'org-primary',
+      entity_type: 'organization',
+      entity_id: organizationId,
+    }],
+  });
+
+  assert.equal(result.response.statusCode, 403);
+  assert.equal(result.response.body.code, 'STRUCTURED_ACTION_FORBIDDEN');
+  assert.equal(result.updates.some(entry => entry.table === 'organization'), false);
+});
+
+test('a referenced created_organization_id cannot authorize anonymous mutation when retry lookup fails open', async () => {
+  const payload = publicPayload();
+  const organizationId = '7dc51049-90dc-42cf-9567-2b128321c21c';
+  payload.fields.push({ id: 'org_phone', type: 'text' });
+  payload.form_values.organisation = organizationId;
+  payload.form_values.org_phone = '020 0000 0000';
+  payload.entity_pipelines.organisations[0].mappings.push({
+    source_type: 'field',
+    source_field_id: 'org_phone',
+    target_type: 'core',
+    target_entity: 'organization',
+    target_field: 'phone',
+  });
+
+  const result = await invokeProcessor(payload, {
+    existingOrganization: { id: organizationId, tenant_id: 'tenant-runtime-org', name: 'Existing Org' },
+    verifiedAdminAccess: false,
+    persistedCreatedOrganizationId: organizationId,
+    idempotencyLookupError: { code: 'TEST_LOOKUP_FAILURE', message: 'simulated retry lookup failure' },
+  });
+
+  assert.equal(result.response.statusCode, 403);
+  assert.equal(result.response.body.code, 'STRUCTURED_ACTION_FORBIDDEN');
+  assert.equal(result.updates.some(entry => entry.table === 'organization'), false);
+});
+
+test('administrator retains existing organization update behavior', async () => {
+  const payload = publicPayload();
+  const organizationId = '7dc51049-90dc-42cf-9567-2b128321c21c';
+  payload.fields.push({ id: 'org_phone', type: 'text' });
+  payload.form_values.organisation = organizationId;
+  payload.form_values.org_phone = '020 0000 0000';
+  payload.entity_pipelines.organisations[0].mappings.push({
+    source_type: 'field',
+    source_field_id: 'org_phone',
+    target_type: 'core',
+    target_entity: 'organization',
+    target_field: 'phone',
+  });
+
+  const result = await invokeProcessor(payload, {
+    existingOrganization: { id: organizationId, tenant_id: 'tenant-runtime-org', name: 'Existing Org' },
+    verifiedAdminAccess: true,
+  });
+
+  assert.equal(result.response.statusCode, 200);
+  assert.equal(
+    result.updates.find(entry => entry.table === 'organization')?.payload.phone,
+    '020 0000 0000',
+  );
+});
+
+test('verified organization owner retains existing organization update behavior', async () => {
+  const payload = publicPayload();
+  const organizationId = '7dc51049-90dc-42cf-9567-2b128321c21c';
+  payload.fields.push({ id: 'org_phone', type: 'text' });
+  payload.form_values.organisation = organizationId;
+  payload.form_values.org_phone = '020 0000 0000';
+  payload.entity_pipelines.organisations[0].mappings.push({
+    source_type: 'field',
+    source_field_id: 'org_phone',
+    target_type: 'core',
+    target_entity: 'organization',
+    target_field: 'phone',
+  });
+
+  const result = await invokeProcessor(payload, {
+    existingOrganization: { id: organizationId, tenant_id: 'tenant-runtime-org', name: 'Existing Org' },
+    verifiedAdminAccess: false,
+    submitterMember: {
+      id: 'verified-owner',
+      tenant_id: 'tenant-runtime-org',
+      email: 'owner@example.test',
+      organization_id: organizationId,
+    },
+  });
+
+  assert.equal(result.response.statusCode, 200);
+  assert.equal(
+    result.updates.find(entry => entry.table === 'organization')?.payload.phone,
+    '020 0000 0000',
+  );
+});
+
+test('anonymous selection cannot clear an existing organization custom field', async () => {
+  const payload = publicPayload();
+  const organizationId = '7dc51049-90dc-42cf-9567-2b128321c21c';
+  const fieldId = 'organization-custom-field';
+  payload.fields.push({ id: 'clear_org_value', type: 'text' });
+  payload.form_values.organisation = organizationId;
+  payload.form_values.clear_org_value = '';
+  payload.entity_pipelines.organisations[0].mappings.push({
+    source_type: 'field',
+    source_field_id: 'clear_org_value',
+    target_type: 'custom',
+    target_entity: 'organization',
+    target_field: fieldId,
+  });
+
+  const result = await invokeProcessor(payload, {
+    existingOrganization: { id: organizationId, tenant_id: 'tenant-runtime-org', name: 'Existing Org' },
+    verifiedAdminAccess: false,
+    preferenceFields: [{ id: fieldId, entity_scope: 'organization', field_type: 'text' }],
+  });
+
+  assert.equal(result.response.statusCode, 403);
+  assert.equal(result.response.body.code, 'STRUCTURED_ACTION_FORBIDDEN');
+  assert.equal(
+    result.updates.some(entry => entry.table === 'organization_preference_value'),
+    false,
+  );
+});
+
+test('anonymous selection cannot upsert an existing organization custom field', async () => {
+  const payload = publicPayload();
+  const organizationId = '7dc51049-90dc-42cf-9567-2b128321c21c';
+  const fieldId = 'organization-custom-field';
+  payload.fields.push({ id: 'org_value', type: 'text' });
+  payload.form_values.organisation = organizationId;
+  payload.form_values.org_value = 'attempted update';
+  payload.entity_pipelines.organisations[0].mappings.push({
+    source_type: 'field',
+    source_field_id: 'org_value',
+    target_type: 'custom',
+    target_entity: 'organization',
+    target_field: fieldId,
+  });
+
+  const result = await invokeProcessor(payload, {
+    existingOrganization: { id: organizationId, tenant_id: 'tenant-runtime-org', name: 'Existing Org' },
+    verifiedAdminAccess: false,
+    preferenceFields: [{ id: fieldId, entity_scope: 'organization', field_type: 'text' }],
+  });
+
+  assert.equal(result.response.statusCode, 403);
+  assert.equal(result.response.body.code, 'STRUCTURED_ACTION_FORBIDDEN');
+  assert.equal(
+    result.inserts.some(entry => entry.table === 'organization_preference_value'),
+    false,
+  );
 });
 
 test('blank not-listed companion text returns the real MISSING_ORG_NAME validation', async () => {

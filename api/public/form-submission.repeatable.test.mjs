@@ -69,14 +69,17 @@ function affectedFormFixture() {
   };
 }
 
-function makePublicSubmissionBoundaryDb(form) {
+function makePublicSubmissionBoundaryDb(form, { organization = null } = {}) {
   const insertedSubmissions = [];
+  const deletedSubmissionIds = [];
 
   class Query {
     constructor(table) {
       this.table = table;
       this.selected = '';
       this.insertPayload = null;
+      this.deleteOperation = false;
+      this.filters = [];
     }
     select(columns = '*') { this.selected = columns; return this; }
     insert(payload) {
@@ -85,8 +88,8 @@ function makePublicSubmissionBoundaryDb(form) {
       return this;
     }
     update() { return this; }
-    delete() { return this; }
-    eq() { return this; }
+    delete() { this.deleteOperation = true; return this; }
+    eq(column, value) { this.filters.push(['eq', column, value]); return this; }
     neq() { return this; }
     ilike() { return this; }
     in() { return this; }
@@ -115,15 +118,27 @@ function makePublicSubmissionBoundaryDb(form) {
       return { data: null, error: null };
     }
     async maybeSingle() {
+      if (this.table === 'organization') {
+        const id = this.filters.find(filter => filter[0] === 'eq' && filter[1] === 'id')?.[2];
+        const tenantId = this.filters.find(filter => filter[0] === 'eq' && filter[1] === 'tenant_id')?.[2];
+        if (organization?.id === id && organization?.tenant_id === tenantId) {
+          return { data: organization, error: null };
+        }
+      }
       return { data: null, error: null };
     }
     then(resolve, reject) {
+      if (this.table === 'form_submission' && this.deleteOperation) {
+        const id = this.filters.find(filter => filter[0] === 'eq' && filter[1] === 'id')?.[2];
+        if (id) deletedSubmissionIds.push(id);
+      }
       return Promise.resolve({ data: [], error: null, count: 0 }).then(resolve, reject);
     }
   }
 
   return {
     insertedSubmissions,
+    deletedSubmissionIds,
     client: {
       from(table) { return new Query(table); },
       async rpc() { return { data: null, error: null }; },
@@ -284,4 +299,101 @@ test('real public endpoint inserts and hands off the affected mixed-pipeline not
     capturedProcessingBodies[0].entity_pipelines.organisations[0].mappings[0].target_field,
     'name',
   );
+});
+
+test('real public endpoint hands off the affected anonymous listed-organization selection intact', async () => {
+  const form = affectedFormFixture();
+  const organizationId = '7dc51049-90dc-42cf-9567-2b128321c21c';
+  const requestSubmissionData = {
+    student_email: 'student@example.test',
+    student_first_name: 'Test',
+    student_last_name: 'Student',
+    [LIVE_ORGANISATION_FIELD_ID]: organizationId,
+  };
+  const db = makePublicSubmissionBoundaryDb(form, {
+    organization: { id: organizationId, tenant_id: form.tenant_id, name: 'Existing University' },
+  });
+  const capturedProcessingBodies = [];
+  const { response, res } = makeResponseRecorder();
+
+  await handler({
+    method: 'POST',
+    headers: { host: 'student-join.test' },
+    body: {
+      form_id: form.id,
+      form_name: form.name,
+      submission_data: requestSubmissionData,
+    },
+  }, res, {
+    supabase: db.client,
+    tenantData: { id: form.tenant_id, slug: 'student-join', domain: 'student-join.test' },
+    internalApiBaseUrl: 'https://internal.example.test',
+    fetchImpl: async (_url, options) => {
+      capturedProcessingBodies.push(JSON.parse(options.body));
+      return {
+        ok: true,
+        status: 200,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        async json() {
+          return { member_id: 'created-member', organization_id: organizationId };
+        },
+      };
+    },
+  });
+
+  assert.equal(response.statusCode, 201);
+  assert.equal(db.deletedSubmissionIds.length, 0);
+  assert.equal(
+    db.insertedSubmissions[0].submission_data[LIVE_ORGANISATION_FIELD_ID],
+    organizationId,
+  );
+  assert.equal(
+    capturedProcessingBodies[0].form_values[LIVE_ORGANISATION_FIELD_ID],
+    organizationId,
+  );
+  assert.equal(capturedProcessingBodies[0].verified_admin_access, false);
+  assert.equal(capturedProcessingBodies[0].verified_submitter_member_id, null);
+});
+
+test('public endpoint rolls back the affected submission when organization mutation is forbidden', async () => {
+  const form = affectedFormFixture();
+  const organizationId = '7dc51049-90dc-42cf-9567-2b128321c21c';
+  const db = makePublicSubmissionBoundaryDb(form, {
+    organization: { id: organizationId, tenant_id: form.tenant_id, name: 'Existing University' },
+  });
+  const { response, res } = makeResponseRecorder();
+
+  await handler({
+    method: 'POST',
+    headers: { host: 'student-join.test' },
+    body: {
+      form_id: form.id,
+      form_name: form.name,
+      submission_data: {
+        student_email: 'student@example.test',
+        student_first_name: 'Test',
+        student_last_name: 'Student',
+        [LIVE_ORGANISATION_FIELD_ID]: organizationId,
+      },
+    },
+  }, res, {
+    supabase: db.client,
+    tenantData: { id: form.tenant_id, slug: 'student-join', domain: 'student-join.test' },
+    internalApiBaseUrl: 'https://internal.example.test',
+    fetchImpl: async () => ({
+      ok: false,
+      status: 403,
+      headers: new Headers({ 'content-type': 'application/json' }),
+      async json() {
+        return {
+          error: 'Updating the selected organization record requires administrator access or verified ownership',
+          code: 'STRUCTURED_ACTION_FORBIDDEN',
+        };
+      },
+    }),
+  });
+
+  assert.equal(response.statusCode, 403);
+  assert.equal(response.body.code, 'STRUCTURED_ACTION_FORBIDDEN');
+  assert.deepEqual(db.deletedSubmissionIds, ['submission-student-join']);
 });

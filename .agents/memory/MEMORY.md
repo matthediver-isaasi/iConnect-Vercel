@@ -149,3 +149,4 @@
 - [Event CPD points ledger](event-cpd-points-ledger.md) — points are signed append-only entries; ticket overrides replace the whole rule, and reversals bind to exact evidence.
 - [Composite form mapping components](composite-form-mapping-components.md) — extract a selected scalar before transforms in every mapping path; fallback must inspect that exact scalar.
 - [Entity-pipeline mapping ownership](entity-pipeline-mapping-ownership.md) — enclosing member/org pipeline owns every mapping destination; normalize saved metadata and reject mismatches at side-effect boundaries.
+- [Organisation reference vs mutation](organization-reference-mutation-auth.md) — a persisted tenant-valid selection may link records, but only explicit creation provenance can bypass mutation authorization.

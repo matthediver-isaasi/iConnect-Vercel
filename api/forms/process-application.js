@@ -990,7 +990,10 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
     };
     const legacyCreatedRecordIds = {
       member: new Set([persistedSubmission.created_member_id].filter(Boolean).map(String)),
-      organization: new Set([persistedSubmission.created_organization_id].filter(Boolean).map(String)),
+      // created_organization_id is also populated when a pipeline merely
+      // references an existing organization, so it is not creation provenance.
+      // Only an INSERT completed in this processing run may enter this set.
+      organization: new Set(),
     };
     const assertLegacyExistingRecordAuthorized = (entity, recordId) => {
       if (legacyCreatedRecordIds[entity]?.has(String(recordId))) return true;
@@ -2111,9 +2114,6 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
       
       if (existingOrg) {
         const primaryOrgPipeline = resolvePrimaryOrganizationPipeline(orgPipelines);
-        if (String(persistedPipelineTargetId('organization', primaryOrgPipeline) || '') !== String(existingOrg.id)) {
-          assertLegacyExistingRecordAuthorized('organization', existingOrg.id);
-        }
         // Organization exists
         if (orgAction === 'create') {
           // Create mode but org exists - skip creation, use existing ID
@@ -2158,6 +2158,10 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
           }
 
           if (Object.keys(orgUpdateData).length > 0) {
+            // Resolving a tenant-validated organisation from a persisted
+            // dropdown answer is reference use, not mutation. Require ownership
+            // only once this path is actually going to alter the existing row.
+            assertLegacyExistingRecordAuthorized('organization', existingOrg.id);
             console.log('[AppProcessor] Org update data:', orgUpdateData);
             // Write-time tenant guard (defence in depth): the UPDATE itself is
             // hard-filtered to the effective tenant (or tenant_id IS NULL for
@@ -2291,6 +2295,9 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
       // type mismatches, and trigger failures surface in processing_notes
       // instead of being swallowed (the long-standing bug fixed here).
       if (createdOrganizationId && orgCustomFields.length > 0) {
+        if (!legacyCreatedRecordIds.organization.has(String(createdOrganizationId))) {
+          assertLegacyExistingRecordAuthorized('organization', createdOrganizationId);
+        }
         for (const cf of orgCustomFields) {
           await upsertPreferenceValue({
             table: 'organization_preference_value',
@@ -2308,6 +2315,9 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
       // on this submission (only meaningful on update flows; harmless when
       // the row doesn't exist).
       if (createdOrganizationId && orgCustomFieldsToClear.size > 0) {
+        if (!legacyCreatedRecordIds.organization.has(String(createdOrganizationId))) {
+          assertLegacyExistingRecordAuthorized('organization', createdOrganizationId);
+        }
         for (const fieldId of orgCustomFieldsToClear) {
           await clearPreferenceValue({
             table: 'organization_preference_value',
