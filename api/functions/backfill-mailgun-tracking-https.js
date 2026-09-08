@@ -6,6 +6,29 @@ import { reconcileMailgunTrackingHttps } from '../_lib/emailDomainService.js';
 const BACKFILL_API_KEY = process.env.BACKFILL_API_KEY;
 const DEFAULT_BATCH_SIZE = 20;
 const MAX_BATCH_SIZE = 50;
+const RECONCILIATION_CONCURRENCY = 10;
+
+export function reconcileSendingDomainStatus(existingStatus, mailgunDomainActive) {
+  if (mailgunDomainActive === true) return 'verified';
+  if (mailgunDomainActive === false) return 'pending';
+  return existingStatus;
+}
+
+export async function mapWithConcurrency(items, concurrency, mapper) {
+  const results = new Array(items.length);
+  let nextIndex = 0;
+  const workers = Array.from(
+    { length: Math.min(Math.max(1, concurrency), items.length) },
+    async () => {
+      while (nextIndex < items.length) {
+        const index = nextIndex++;
+        results[index] = await mapper(items[index], index);
+      }
+    },
+  );
+  await Promise.all(workers);
+  return results;
+}
 
 async function getTenants(tenantId, cursor, batchSize) {
   if (tenantId) {
@@ -51,41 +74,50 @@ export default async function handler(req, res) {
     const tenantPage = await getTenants(tenantId, cursor, batchSize);
     const tenants = tenantPage.tenants;
 
-    const results = [];
-    for (const tenant of tenants || []) {
+    const results = await mapWithConcurrency(tenants || [], RECONCILIATION_CONCURRENCY, async tenant => {
       const config = tenant.settings?.email_domain;
       if (!config?.domain) {
-        results.push({ tenant_id: tenant.id, slug: tenant.slug, status: 'skipped', reason: 'No email domain configured' });
-        continue;
+        return { tenant_id: tenant.id, slug: tenant.slug, status: 'skipped', reason: 'No email domain configured' };
       }
       const outcome = await reconcileMailgunTrackingHttps(config.domain);
       const updatedConfig = {
         ...config,
+        status: reconcileSendingDomainStatus(config.status, outcome.mailgun_domain_active),
         tracking_scheme: outcome.tracking_scheme,
+        mailgun_domain_active: outcome.mailgun_domain_active,
+        tracking_hostname: outcome.tracking_hostname,
+        tracking_dns_valid: outcome.tracking_dns_valid,
+        tracking_certificate_ready: outcome.tracking_certificate_ready,
         tracking_tls_ready: outcome.tracking_tls_ready,
         tracking_tls_status: outcome.tracking_tls_status,
         tracking_tls_action: outcome.tracking_tls_action,
         tracking_tls_error: outcome.tracking_tls_error,
+        tracking_tls_error_code: outcome.tracking_tls_error_code,
         tracking_tls_dns_records: outcome.tracking_tls_dns_records,
         last_verified_at: new Date().toISOString(),
       };
       const { error: updateError } = await supabase.from('tenant')
         .update({ settings: { ...tenant.settings, email_domain: updatedConfig } }).eq('id', tenant.id);
-      results.push({
+      return {
         tenant_id: tenant.id,
         slug: tenant.slug,
         domain: config.domain,
         from_email: config.from_email,
         is_custom: !!config.is_custom,
-        status: outcome.success && !updateError ? 'success' : 'failed',
+        status: updateError || !outcome.operation_succeeded
+          ? 'failed'
+          : (outcome.tracking_tls_ready ? 'success' : 'pending'),
         changed: outcome.changed,
         before_scheme: outcome.before_scheme,
         tracking_scheme: outcome.tracking_scheme,
+        tracking_hostname: outcome.tracking_hostname,
+        tracking_dns_valid: outcome.tracking_dns_valid,
+        tracking_certificate_ready: outcome.tracking_certificate_ready,
         tracking_tls_ready: outcome.tracking_tls_ready,
         action_required: outcome.tracking_tls_action,
         error: updateError?.message || outcome.tracking_tls_error || null,
-      });
-    }
+      };
+    });
     return res.status(200).json({
       success: true,
       scope: all ? 'all_tenants' : 'single_tenant',
@@ -94,6 +126,7 @@ export default async function handler(req, res) {
       summary: {
         total: results.length,
         success: results.filter(item => item.status === 'success').length,
+        pending: results.filter(item => item.status === 'pending').length,
         skipped: results.filter(item => item.status === 'skipped').length,
         failed: results.filter(item => item.status === 'failed').length,
       },

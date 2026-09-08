@@ -2,6 +2,7 @@ import { supabase } from './database.js';
 import { getBaseDomain, getMailDomain } from './provisionTenantService.js';
 import Mailgun from 'mailgun.js';
 import formData from 'form-data';
+import tls from 'node:tls';
 
 const MAILGUN_API_KEY = process.env.MAILGUN_API_KEY;
 const MAILGUN_REGION = process.env.MAILGUN_REGION || 'eu';
@@ -14,19 +15,92 @@ function createMailgunClient() {
   return mailgun.client(config);
 }
 
-export function getTrackingHttpsStatus(domainInfo = {}, error = null) {
+function normalizeHostname(value) {
+  return String(value || '').trim().toLowerCase().replace(/\.$/, '');
+}
+
+function isMailgunDnsRecordValid(record = {}) {
+  return record.valid === true || String(record.valid || '').toLowerCase() === 'valid';
+}
+
+function isMailgunDnsRecordInvalid(record = {}) {
+  const validity = String(record.valid ?? '').toLowerCase();
+  return record.valid === false || validity === 'invalid';
+}
+
+export function resolveTrackingHostname(domainInfo = {}) {
+  const records = [
+    ...(domainInfo.sending_dns_records || []),
+    ...(domainInfo.receiving_dns_records || []),
+  ];
+  const cnameRecords = records.filter(record =>
+    String(record.record_type || record.type || '').toUpperCase() === 'CNAME'
+    && !normalizeHostname(record.name).includes('._domainkey.')
+  );
+  const trackingRecords = cnameRecords.filter(record =>
+    /(^|\.)mailgun\.(org|net)$/.test(normalizeHostname(record.value || record.hostname))
+  );
+  return trackingRecords.length === 1 ? normalizeHostname(trackingRecords[0].name) : null;
+}
+
+export function verifyTrackingTlsCertificate(hostname, timeoutMs = 8000, connectTls = tls.connect) {
+  return new Promise(resolve => {
+    if (!hostname) {
+      resolve({ ready: false, error: 'Mailgun did not return a tracking CNAME hostname.' });
+      return;
+    }
+    let settled = false;
+    const finish = result => {
+      if (settled) return;
+      settled = true;
+      socket.destroy();
+      resolve(result);
+    };
+    const socket = connectTls({
+      host: hostname,
+      port: 443,
+      servername: hostname,
+      rejectUnauthorized: true,
+    }, () => finish({ ready: true, error: null }));
+    socket.setTimeout(timeoutMs, () => {
+      const error = new Error(`Timed out validating the TLS certificate for ${hostname}.`);
+      error.code = 'ETIMEDOUT';
+      finish({ ready: false, error: error.message, code: error.code });
+    });
+    socket.once('error', error => finish({
+      ready: false,
+      error: error.message || String(error),
+      code: error.code || null,
+    }));
+  });
+}
+
+export function getTrackingHttpsStatus(domainInfo = {}, error = null, tlsVerification = null) {
   const trackingScheme = String(domainInfo.web_scheme || 'http').toLowerCase();
+  const trackingHostname = resolveTrackingHostname(domainInfo);
   const invalidDnsRecords = [
     ...(domainInfo.sending_dns_records || []),
     ...(domainInfo.receiving_dns_records || []),
-  ].filter(record => record.valid === false).map(record => ({
+  ].filter(isMailgunDnsRecordInvalid).map(record => ({
     type: record.record_type || record.type,
     name: record.name,
     value: record.value,
     purpose: (domainInfo.sending_dns_records || []).includes(record) ? 'sending' : 'receiving',
   }));
-  const domainActive = domainInfo.state === 'active';
-  const trackingTlsReady = !error && trackingScheme === 'https' && domainActive;
+  const domainState = String(domainInfo.state || '').toLowerCase();
+  const domainActive = domainState ? domainState === 'active' : null;
+  const trackingDnsRecord = [
+    ...(domainInfo.sending_dns_records || []),
+    ...(domainInfo.receiving_dns_records || []),
+  ].find(record =>
+    String(record.record_type || record.type || '').toUpperCase() === 'CNAME'
+    && normalizeHostname(record.name) === trackingHostname
+    && /(^|\.)mailgun\.(org|net)$/.test(normalizeHostname(record.value || record.hostname))
+  );
+  const trackingDnsValid = !!trackingDnsRecord && isMailgunDnsRecordValid(trackingDnsRecord);
+  const certificateReady = tlsVerification?.ready === true;
+  const certificateError = tlsVerification?.error || null;
+  const trackingTlsReady = !error && trackingScheme === 'https' && domainActive === true && trackingDnsValid && certificateReady;
   let trackingTlsAction = null;
   if (error) {
     trackingTlsAction = invalidDnsRecords.length
@@ -38,35 +112,52 @@ export function getTrackingHttpsStatus(domainInfo = {}, error = null) {
     trackingTlsAction = invalidDnsRecords.length
       ? 'Correct the listed DNS records and verify again.'
       : 'Wait for Mailgun domain verification and tracking certificate issuance, then verify again.';
+  } else if (!trackingHostname) {
+    trackingTlsAction = 'Verify the tracking CNAME record in Mailgun, then verify again.';
+  } else if (!trackingDnsValid) {
+    trackingTlsAction = `Correct the tracking DNS record for ${trackingHostname}, wait for propagation, then verify again.`;
+  } else if (!certificateReady) {
+    trackingTlsAction = `DNS is valid for ${trackingHostname}, but its browser-trusted certificate is not ready. Wait for Mailgun to issue or attach the custom-host certificate, then verify again; if it remains pending, contact Mailgun support.`;
   }
   return {
+    mailgun_domain_active: domainActive,
     tracking_scheme: trackingScheme,
+    tracking_hostname: trackingHostname,
+    tracking_dns_valid: trackingDnsValid,
+    tracking_certificate_ready: certificateReady,
     tracking_tls_ready: trackingTlsReady,
-    tracking_tls_status: trackingTlsReady ? 'ready' : (error ? 'error' : 'pending'),
+    tracking_tls_status: trackingTlsReady ? 'ready' : (error || certificateError ? 'error' : 'pending'),
     tracking_tls_action: trackingTlsAction,
-    tracking_tls_error: error ? (error.message || String(error)) : null,
+    tracking_tls_error: error ? (error.message || String(error)) : certificateError,
+    tracking_tls_error_code: tlsVerification?.code || error?.code || null,
     tracking_tls_dns_records: invalidDnsRecords,
   };
 }
 
-export function getEmailDomainVerificationStatus(domainInfo = {}) {
-  return getTrackingHttpsStatus(domainInfo).tracking_tls_ready ? 'verified' : 'pending';
+export function getEmailDomainVerificationStatus(domainInfo = {}, tlsVerification = null) {
+  return domainInfo.state === 'active' ? 'verified' : 'pending';
 }
 
-export function resolveFinalTrackingReconciliation(domainInfo = {}, priorResult = {}) {
+export function resolveFinalTrackingReconciliation(domainInfo = {}, priorResult = {}, tlsVerification = null) {
   const scheme = String(domainInfo.web_scheme || 'http').toLowerCase();
   const error = scheme === 'https'
     ? null
     : new Error(priorResult.tracking_tls_error || 'Mailgun did not enable HTTPS tracking.');
+  const status = getTrackingHttpsStatus(domainInfo, error, tlsVerification);
   return {
-    success: scheme === 'https',
-    ...getTrackingHttpsStatus(domainInfo, error),
+    success: status.tracking_tls_ready,
+    ...status,
   };
 }
 
-export async function reconcileMailgunTrackingHttps(mailgunDomain, client = null) {
+export async function reconcileMailgunTrackingHttps(mailgunDomain, client = null, tlsVerifier = verifyTrackingTlsCertificate) {
   if (!MAILGUN_API_KEY && !client) {
-    return { success: false, domain: mailgunDomain, ...getTrackingHttpsStatus({}, new Error('MAILGUN_API_KEY not configured')) };
+    return {
+      success: false,
+      operation_succeeded: false,
+      domain: mailgunDomain,
+      ...getTrackingHttpsStatus({}, new Error('MAILGUN_API_KEY not configured')),
+    };
   }
   const mg = client || createMailgunClient();
   let before;
@@ -76,19 +167,25 @@ export async function reconcileMailgunTrackingHttps(mailgunDomain, client = null
       await mg.domains.update(mailgunDomain, { web_scheme: 'https' });
     }
     const after = await mg.domains.get(mailgunDomain);
-    const status = getTrackingHttpsStatus(after);
+    const trackingHostname = resolveTrackingHostname(after);
+    const tlsVerification = trackingHostname && String(after.web_scheme || '').toLowerCase() === 'https'
+      ? await tlsVerifier(trackingHostname)
+      : null;
+    const status = getTrackingHttpsStatus(after, null, tlsVerification);
     if (status.tracking_scheme !== 'https') {
       const error = new Error('Mailgun did not enable HTTPS tracking. Tracking DNS or certificate setup is incomplete.');
       return {
         success: false,
+        operation_succeeded: false,
         domain: mailgunDomain,
         changed: false,
         before_scheme: before.web_scheme || 'http',
-        ...getTrackingHttpsStatus(after, error),
+        ...getTrackingHttpsStatus(after, error, tlsVerification),
       };
     }
     return {
-      success: true,
+      success: status.tracking_tls_ready,
+      operation_succeeded: true,
       domain: mailgunDomain,
       changed: String(before.web_scheme || '').toLowerCase() !== 'https',
       before_scheme: before.web_scheme || 'http',
@@ -98,6 +195,7 @@ export async function reconcileMailgunTrackingHttps(mailgunDomain, client = null
   } catch (error) {
     return {
       success: false,
+      operation_succeeded: false,
       domain: mailgunDomain,
       changed: false,
       before_scheme: before?.web_scheme || null,
@@ -295,9 +393,6 @@ export async function provisionEmailDomain(tenantId, tenantSlug, tenantName, cur
     }
 
     trackingHttps = await reconcileMailgunTrackingHttps(mailgunDomain, mg);
-    if (!trackingHttps.success) {
-      throw new Error(`HTTPS tracking is not ready: ${trackingHttps.tracking_tls_error}. ${trackingHttps.tracking_tls_action}`);
-    }
     mailgunDomainData = trackingHttps.domain_info || mailgunDomainData;
 
     try {
@@ -401,7 +496,11 @@ export async function provisionEmailDomain(tenantId, tenantSlug, tenantName, cur
     }
 
     const finalDomainInfo = await mg.domains.get(mailgunDomain);
-    const finalTrackingStatus = getTrackingHttpsStatus(finalDomainInfo);
+    const finalTrackingHostname = resolveTrackingHostname(finalDomainInfo);
+    const finalTlsVerification = finalTrackingHostname
+      ? await verifyTrackingTlsCertificate(finalTrackingHostname)
+      : null;
+    const finalTrackingStatus = getTrackingHttpsStatus(finalDomainInfo, null, finalTlsVerification);
     trackingHttps = { ...trackingHttps, domain_info: finalDomainInfo, ...finalTrackingStatus };
     const emailDomainStatus = getEmailDomainVerificationStatus(finalDomainInfo);
     const updatedSettings = {
@@ -421,9 +520,15 @@ export async function provisionEmailDomain(tenantId, tenantSlug, tenantName, cur
           priority: r.priority
         })) : null,
         tracking_scheme: trackingHttps.tracking_scheme,
+        mailgun_domain_active: trackingHttps.mailgun_domain_active,
+        tracking_hostname: trackingHttps.tracking_hostname,
+        tracking_dns_valid: trackingHttps.tracking_dns_valid,
+        tracking_certificate_ready: trackingHttps.tracking_certificate_ready,
         tracking_tls_ready: trackingHttps.tracking_tls_ready,
         tracking_tls_status: trackingHttps.tracking_tls_status,
         tracking_tls_action: trackingHttps.tracking_tls_action,
+        tracking_tls_error: trackingHttps.tracking_tls_error,
+        tracking_tls_error_code: trackingHttps.tracking_tls_error_code,
         tracking_tls_dns_records: trackingHttps.tracking_tls_dns_records,
       }
     };
@@ -453,9 +558,15 @@ export async function provisionEmailDomain(tenantId, tenantSlug, tenantName, cur
         priority: r.priority
       })) : null,
       tracking_scheme: trackingHttps.tracking_scheme,
+      mailgun_domain_active: trackingHttps.mailgun_domain_active,
+      tracking_hostname: trackingHttps.tracking_hostname,
+      tracking_dns_valid: trackingHttps.tracking_dns_valid,
+      tracking_certificate_ready: trackingHttps.tracking_certificate_ready,
       tracking_tls_ready: trackingHttps.tracking_tls_ready,
       tracking_tls_status: trackingHttps.tracking_tls_status,
       tracking_tls_action: trackingHttps.tracking_tls_action,
+      tracking_tls_error: trackingHttps.tracking_tls_error,
+      tracking_tls_error_code: trackingHttps.tracking_tls_error_code,
       message: emailDomainStatus === 'verified' 
         ? 'Email domain configured and verified successfully'
         : isCustomDomain
@@ -541,9 +652,12 @@ export async function verifyEmailDomain(tenantId) {
     }
 
     const finalDomainInfo = await mg.domains.get(emailDomain.domain);
-    const finalReconciliation = resolveFinalTrackingReconciliation(finalDomainInfo, trackingHttps);
-    const finalTrackingStatus = getTrackingHttpsStatus(finalDomainInfo, finalReconciliation.success ? null : new Error(finalReconciliation.tracking_tls_error));
-    const status = finalTrackingStatus.tracking_tls_ready ? 'verified' : 'pending';
+    const finalTrackingHostname = resolveTrackingHostname(finalDomainInfo);
+    const finalTlsVerification = finalTrackingHostname
+      ? await verifyTrackingTlsCertificate(finalTrackingHostname)
+      : null;
+    const finalTrackingStatus = getTrackingHttpsStatus(finalDomainInfo, null, finalTlsVerification);
+    const status = getEmailDomainVerificationStatus(finalDomainInfo);
 
     // Include both sending and receiving DNS record status
     const sendingDnsStatus = (finalDomainInfo.sending_dns_records || []).map(r => ({
@@ -588,15 +702,18 @@ export async function verifyEmailDomain(tenantId) {
     }
 
     return {
-      success: finalReconciliation.success,
+      success: true,
+      verified: status === 'verified',
       domain: emailDomain.domain,
       status: status,
       dns_records: dnsStatus,
       ...finalTrackingStatus,
-      error: finalReconciliation.success ? null : `HTTPS tracking is not ready: ${finalTrackingStatus.tracking_tls_error}. ${finalTrackingStatus.tracking_tls_action}`,
-      message: status === 'verified' 
+      error: null,
+      message: status === 'verified' && finalTrackingStatus.tracking_tls_ready
         ? 'Email domain is verified and HTTPS tracking is ready'
-        : finalTrackingStatus.tracking_tls_action || 'Email domain verification is still pending'
+        : status === 'verified'
+          ? `Email sending domain is verified. ${finalTrackingStatus.tracking_tls_action}`
+          : finalTrackingStatus.tracking_tls_action || 'Email domain verification is still pending'
     };
 
   } catch (error) {

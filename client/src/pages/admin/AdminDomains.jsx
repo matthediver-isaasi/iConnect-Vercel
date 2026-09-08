@@ -242,10 +242,15 @@ export default function AdminDomains() {
       const data = await apiRequest('/api/functions/verify-mailgun-domain', {
         method: 'POST',
       });
-      if (data.verified || data.status === 'verified') {
+      if ((data.verified || data.status === 'verified') && data.tracking_tls_ready) {
         toast({
           title: "Email domain verified",
-          description: "Your email domain is now active and ready to send emails."
+          description: "Your sending domain and HTTPS click tracking are ready."
+        });
+      } else if (data.verified || data.status === 'verified') {
+        toast({
+          title: "Sending domain verified",
+          description: data.tracking_tls_action || "HTTPS click tracking is still waiting for its certificate.",
         });
       } else {
         toast({
@@ -629,9 +634,9 @@ export default function AdminDomains() {
                         )}
                       </div>
                       <div className="flex items-center gap-2">
-                        {emailStatus === 'verified' && trackingReady ? (
+                        {emailStatus === 'verified' ? (
                           <Badge variant="secondary" className="bg-green-900 text-green-200">
-                            <CheckCircle2 className="w-3 h-3 mr-1" /> Verified
+                            <CheckCircle2 className="w-3 h-3 mr-1" /> Sending verified
                           </Badge>
                         ) : (
                           <Badge variant="warning">
@@ -653,6 +658,17 @@ export default function AdminDomains() {
                       <Badge variant={trackingReady ? "secondary" : "destructive"} data-testid="badge-tracking-https">
                         {trackingReady ? 'HTTPS ready' : `${(emailDomain?.tracking_scheme || 'unknown').toUpperCase()} — action required`}
                       </Badge>
+                    </div>
+                    {emailDomain?.tracking_hostname && (
+                      <div className="flex items-center gap-2 text-sm text-slate-400">
+                        <span>Tracking hostname:</span>
+                        <span className="font-mono text-white" data-testid="text-tracking-hostname">{emailDomain.tracking_hostname}</span>
+                      </div>
+                    )}
+                    <div className="grid gap-2 sm:grid-cols-3 text-sm text-slate-400" data-testid="tracking-readiness-states">
+                      <div>Tracking DNS: <strong className={emailDomain?.tracking_dns_valid ? "text-green-300" : "text-warning"}>{emailDomain?.tracking_dns_valid ? 'Valid' : 'Pending'}</strong></div>
+                      <div>HTTPS scheme: <strong className={emailDomain?.tracking_scheme === 'https' ? "text-green-300" : "text-warning"}>{emailDomain?.tracking_scheme === 'https' ? 'Enabled' : 'Pending'}</strong></div>
+                      <div>Certificate: <strong className={emailDomain?.tracking_certificate_ready ? "text-green-300" : "text-warning"}>{emailDomain?.tracking_certificate_ready ? 'Browser valid' : 'Pending'}</strong></div>
                     </div>
                     
                     <div className="flex gap-2 flex-wrap">
@@ -747,7 +763,7 @@ export default function AdminDomains() {
                   </Alert>
                 )}
                 
-                {(!trackingReady || emailStatus !== 'verified') && !emailDomain?.is_custom && (
+                {(!trackingReady || emailStatus !== 'verified') && (
                   <Alert className="bg-slate-700/50 border-slate-600">
                     <AlertCircle className="h-4 w-4 text-warning" />
                     <AlertTitle className="text-white">{!trackingReady ? 'HTTPS Tracking Not Ready' : 'Verification In Progress'}</AlertTitle>
