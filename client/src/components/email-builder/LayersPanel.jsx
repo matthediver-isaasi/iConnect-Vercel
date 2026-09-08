@@ -114,7 +114,7 @@ function FlatLayerItem({
   const isHidden = item.block.hidden;
   const depth = item.depth || 0;
 
-  let itemClassName = 'flex items-center gap-1.5 px-2 py-1.5 rounded-md text-sm cursor-pointer select-none transition-colors ';
+  let itemClassName = 'flex w-full min-w-0 items-center gap-1.5 overflow-hidden px-2 py-1.5 rounded-md text-sm cursor-pointer select-none transition-colors ';
   if (isSelected) {
     itemClassName += 'bg-primary/20 text-foreground ring-1 ring-primary/30 ';
   } else if (isDragOver) {
@@ -165,9 +165,9 @@ function FlatLayerItem({
       )}
 
       <Icon className="w-4 h-4 text-muted-foreground flex-shrink-0" />
-      <span className="truncate flex-1 text-[13px]">{getBlockLabel(item.block)}</span>
+      <span className="min-w-0 flex-1 truncate text-[13px]">{getBlockLabel(item.block)}</span>
 
-      <div className="flex items-center gap-0.5 flex-shrink-0 ml-auto" style={{ visibility: 'visible' }}>
+      <div className="ml-auto flex flex-shrink-0 items-center gap-0.5" style={{ visibility: 'visible' }}>
         {onToggleVisibility && (
           <button
             className="p-0.5 rounded hover:bg-muted"
@@ -216,7 +216,7 @@ function FlatLayerItem({
 function ColumnChildLayerItem({ child, blockId, columnId, isSelected, onSelect, onDelete }) {
   const Icon = BLOCK_ICONS[child.type] || SquareDashed;
 
-  let itemClassName = 'flex items-center gap-1.5 px-2 py-1.5 rounded-md text-sm cursor-pointer select-none transition-colors ';
+  let itemClassName = 'flex w-full min-w-0 items-center gap-1.5 overflow-hidden px-2 py-1.5 rounded-md text-sm cursor-pointer select-none transition-colors ';
   if (isSelected) {
     itemClassName += 'bg-primary/20 text-foreground ring-1 ring-primary/30 ';
   } else {
@@ -236,8 +236,8 @@ function ColumnChildLayerItem({ child, blockId, columnId, isSelected, onSelect, 
     >
       <div className="w-5 flex-shrink-0" />
       <Icon className="w-4 h-4 text-muted-foreground flex-shrink-0" />
-      <span className="truncate flex-1 text-[13px]">{getBlockLabel(child)}</span>
-      <div className="flex items-center gap-0.5 flex-shrink-0 ml-auto">
+      <span className="min-w-0 flex-1 truncate text-[13px]">{getBlockLabel(child)}</span>
+      <div className="ml-auto flex flex-shrink-0 items-center gap-0.5">
         <button
           className="p-0.5 rounded hover:bg-muted hover:text-destructive"
           onClick={(e) => {
@@ -522,7 +522,7 @@ export default function LayersPanel({
         )}
       </div>
       <ScrollArea className="flex-1">
-        <div className="p-2 space-y-1">
+        <div className="min-w-0 p-2 space-y-1">
           <DndContext
             sensors={sensors}
             collisionDetection={closestCenter}
@@ -553,7 +553,7 @@ export default function LayersPanel({
                 const topItem = flatItems.find(i => i.sortableId === `layer-${block.id}`);
 
                 return (
-                  <div key={block.id}>
+                  <div key={block.id} className="min-w-0">
                     {topItem && (
                       <FlatLayerItem
                         item={topItem}
@@ -596,15 +596,15 @@ export default function LayersPanel({
                     )}
 
                     {block.type === BLOCK_TYPES.COLUMNS && isExpanded && block.columns && (
-                      <div>
+                      <div className="min-w-0">
                         {block.columns.map((col, colIdx) => (
-                          <div key={col.id}>
+                          <div key={col.id} className="min-w-0">
                             <div
                               style={{ paddingLeft: '24px' }}
-                              className="flex items-center gap-1.5 px-2 py-1 text-[13px] text-muted-foreground"
+                              className="flex min-w-0 items-center gap-1.5 overflow-hidden px-2 py-1 text-[13px] text-muted-foreground"
                             >
                               <Columns className="w-3.5 h-3.5" />
-                              <span>Col {colIdx + 1} ({col.width})</span>
+                              <span className="min-w-0 truncate">Col {colIdx + 1} ({col.width})</span>
                             </div>
                             {col.blocks.map((childBlock) => (
                               <ColumnChildLayerItem
