@@ -1,5 +1,6 @@
 import { supabase } from '../_lib/database.js';
 import { processAttendanceTransitionOutbox } from '../_lib/attendanceTransitionProcessor.js';
+import { processCpdBadgeOutbox } from '../_lib/eventCpdBadgeService.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST' && req.method !== 'GET') {
@@ -17,6 +18,9 @@ export default async function handler(req, res) {
     const result = await processAttendanceTransitionOutbox(supabase, {
       limit: req.query?.limit,
       baseUrl,
+    });
+    result.cpdBadges = await processCpdBadgeOutbox(supabase, {
+      limit: req.query?.limit,
     });
     return res.status(200).json({ success: true, ...result });
   } catch (error) {

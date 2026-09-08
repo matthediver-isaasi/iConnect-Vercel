@@ -43,6 +43,7 @@ import { createFilterTagKey, parseFilterTagKey, parseEventTypes, serializeEventT
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { base44 } from "@/api/base44Client";
 import { format } from "date-fns";
 import { TimezoneAwareDateTimeInput } from "@/components/events/TimezoneAwareDateTimeInput";
@@ -72,6 +73,8 @@ import EventEmailSettingsEditor, {
   putEventEmails,
 } from "@/components/events/EventEmailSettingsEditor";
 import AttendancePolicyEditor from "@/components/events/AttendancePolicyEditor";
+import EventCpdBadgesSection from "@/components/events/EventCpdBadgesSection";
+import { emptyEventCpdBadgeConfig, putEventCpdBadgeRules } from "@/lib/eventCpdBadgeRules";
 import TeamsMeetingConfig from "@/components/events/TeamsMeetingConfig";
 import { clearTeamsMeeting } from "@/lib/teamsMeeting";
 import {
@@ -224,6 +227,7 @@ export default function CreateEvent() {
   
   // Ticket classes state for one-off events
   const [ticketClasses, setTicketClasses] = useState([createEmptyTicketClass(true)]);
+  const [cpdBadgeConfig, setCpdBadgeConfig] = useState(() => emptyEventCpdBadgeConfig());
   const { ticketTypeName: groupTicketTypeName, featureName: memberGroupFeatureName } = useMemberGroupSettings();
 
   useEffect(() => {
@@ -788,6 +792,17 @@ export default function CreateEvent() {
         }
       }
 
+      // The event itself has been created at this point. Treat a rules failure
+      // exactly like the existing email partial-save path: do not throw from
+      // the mutation and incorrectly tell the admin creation failed.
+      let cpdError = null;
+      try {
+        await putEventCpdBadgeRules(createdEvent.id, "simple", cpdBadgeConfig, isProgramEvent ? [] : ticketClasses);
+      } catch (err) {
+        console.error("Failed to save CPD badge rules after event creation:", err);
+        cpdError = err.message || "Unknown error";
+      }
+
       // Badges configured for immediate timing are reconciled only after all
       // agenda rows exist. A failure is reported but never reverses a saved event.
       if (eventData.speaker_award_config?.badge_timing === "on_assignment") {
@@ -824,13 +839,17 @@ export default function CreateEvent() {
         }
       }
 
-      return { createdEvent, emailError, schedulingWarning };
+      return { createdEvent, emailError, cpdError, schedulingWarning };
     },
-    onSuccess: ({ createdEvent, emailError, schedulingWarning }) => {
+    onSuccess: ({ createdEvent, emailError, cpdError, schedulingWarning }) => {
       queryClient.invalidateQueries({ queryKey: ['events'] });
-      if (emailError) {
+      if (emailError || cpdError) {
+        const failures = [
+          emailError && `email settings could not be saved: ${emailError}`,
+          cpdError && `CPD badge configuration could not be saved: ${cpdError}`,
+        ].filter(Boolean).join("; ");
         toast.error(
-          `Event created, but email settings could not be saved: ${emailError}. Opening the event so you can fix them in the email section.`,
+          `Event created, but ${failures}. Opening the event so you can fix it.`,
           { duration: 10000 }
         );
         setTimeout(() => {
@@ -1305,7 +1324,13 @@ export default function CreateEvent() {
           </div>
         </div>
 
-        <form onSubmit={handleSubmit}>
+        <form onSubmit={handleSubmit} noValidate>
+          <Tabs defaultValue="details">
+            <TabsList className="mb-6">
+              <TabsTrigger value="details" data-testid="button-tab-details">Details</TabsTrigger>
+              <TabsTrigger value="cpd" data-testid="button-tab-cpd">CPD</TabsTrigger>
+            </TabsList>
+            <TabsContent value="details" forceMount className="data-[state=inactive]:hidden">
           {/* Group Event banner + audience choice (group-limited mode only) */}
           {isGroupLimited && (
             <Card className="border-slate-200 shadow-sm mb-6">
@@ -3540,6 +3565,17 @@ export default function CreateEvent() {
               />
             </CardContent>
           </Card>
+
+            </TabsContent>
+            <TabsContent value="cpd" forceMount className="data-[state=inactive]:hidden mb-6">
+              <EventCpdBadgesSection
+                eventType="simple"
+                tickets={isProgramEvent ? [] : ticketClasses}
+                value={cpdBadgeConfig}
+                onChange={setCpdBadgeConfig}
+              />
+            </TabsContent>
+          </Tabs>
 
           <div className="flex items-center justify-end gap-4">
             <Button

@@ -62,6 +62,12 @@ import EventEmailSettingsEditor, {
   putEventEmails,
 } from "@/components/events/EventEmailSettingsEditor";
 import AttendancePolicyEditor from "@/components/events/AttendancePolicyEditor";
+import EventCpdBadgesSection from "@/components/events/EventCpdBadgesSection";
+import {
+  emptyEventCpdBadgeConfig,
+  putEventCpdBadgeRules,
+  remapEventCpdTicketReferences,
+} from "@/lib/eventCpdBadgeRules";
 import TeamsMeetingConfig from "@/components/events/TeamsMeetingConfig";
 import {
   attendancePolicyPayload,
@@ -708,6 +714,9 @@ export default function CreateComplexEvent() {
   const [sessionSpeakerModalOpen, setSessionSpeakerModalOpen] = useState(false);
 
   const [ticketClasses, setTicketClasses] = useState([]);
+  // During edit, null distinguishes "rules not hydrated" from an intentionally
+  // empty configuration so saving quickly cannot erase existing rules.
+  const [cpdBadgeConfig, setCpdBadgeConfig] = useState(() => isEditMode ? null : emptyEventCpdBadgeConfig());
   const [expandedTickets, setExpandedTickets] = useState({});
   const [ticketsInitialized, setTicketsInitialized] = useState(false);
 
@@ -1088,8 +1097,8 @@ export default function CreateComplexEvent() {
   };
 
   const buildSnapshot = useCallback(() => {
-    return JSON.stringify({ formData, tracks, sessions, ticketClasses, selectedSponsors, sponsorDetails, seoTitle, seoDescription, ogImageUrl, selectedFilterTags, unlimitedSeats, showSeatCount, showTicketAvailability, qrOnConfirmation, collectThirdPartyConsent, isProgramEvent });
-  }, [formData, tracks, sessions, ticketClasses, selectedSponsors, sponsorDetails, seoTitle, seoDescription, ogImageUrl, selectedFilterTags, unlimitedSeats, showSeatCount, showTicketAvailability, qrOnConfirmation, collectThirdPartyConsent, isProgramEvent]);
+    return JSON.stringify({ formData, tracks, sessions, ticketClasses, cpdBadgeConfig, selectedSponsors, sponsorDetails, seoTitle, seoDescription, ogImageUrl, selectedFilterTags, unlimitedSeats, showSeatCount, showTicketAvailability, qrOnConfirmation, collectThirdPartyConsent, isProgramEvent });
+  }, [formData, tracks, sessions, ticketClasses, cpdBadgeConfig, selectedSponsors, sponsorDetails, seoTitle, seoDescription, ogImageUrl, selectedFilterTags, unlimitedSeats, showSeatCount, showTicketAvailability, qrOnConfirmation, collectThirdPartyConsent, isProgramEvent]);
 
   const isDirty = !isEditMode || isDirtyState;
 
@@ -2154,6 +2163,8 @@ export default function CreateComplexEvent() {
         }
       }
 
+      const savedTicketClasses = [...ticketClasses];
+      const cpdTicketReferenceMap = {};
       for (let ti = 0; ti < ticketClasses.length; ti++) {
         const ticket = ticketClasses[ti];
         const tcPayload = {
@@ -2190,7 +2201,32 @@ export default function CreateComplexEvent() {
         if (ticket._dbId) {
           await base44.entities.ComplexEventTicketClass.update(ticket._dbId, tcPayload);
         } else {
-          await base44.entities.ComplexEventTicketClass.create(tcPayload);
+          const createdTicket = await base44.entities.ComplexEventTicketClass.create(tcPayload);
+          cpdTicketReferenceMap[ticket._localId] = createdTicket.id;
+          savedTicketClasses[ti] = { ...ticket, _dbId: createdTicket.id };
+        }
+      }
+
+      // Ticket persistence changes the stable references used by CPD overrides.
+      // Commit those IDs to the draft before attempting the independent CPD
+      // request, so a failed request can be retried without losing overrides
+      // for tickets that were new when this save began.
+      const persistedCpdConfig = cpdBadgeConfig === null
+        ? null
+        : remapEventCpdTicketReferences(cpdBadgeConfig, cpdTicketReferenceMap);
+      setTicketClasses(savedTicketClasses);
+      if (persistedCpdConfig !== null) setCpdBadgeConfig(persistedCpdConfig);
+
+      let cpdSaveError = null;
+      if (persistedCpdConfig !== null) {
+        try {
+          await putEventCpdBadgeRules(eventId, "complex", persistedCpdConfig, savedTicketClasses);
+        } catch (cpdError) {
+          // The event, tracks, sessions and tickets have already persisted.
+          // Continue with the rest of the post-save work and route creation
+          // back to edit mode instead of reporting a false create failure.
+          console.error("Failed to save CPD badge rules:", cpdError);
+          cpdSaveError = cpdError.message || "Unknown error";
         }
       }
 
@@ -2282,10 +2318,17 @@ export default function CreateComplexEvent() {
         queryClient.invalidateQueries({ queryKey: ["/api/entities/ComplexEventTrack", editId] });
         queryClient.invalidateQueries({ queryKey: ["/api/complex-event-sessions", editId] });
         queryClient.invalidateQueries({ queryKey: ["/api/entities/ComplexEventTicketClass", editId] });
-        toast.success("Complex event updated");
+        if (cpdSaveError) {
+          toast.warning(`Complex event updated, but CPD badge configuration could not be saved: ${cpdSaveError}`);
+        } else {
+          toast.success("Complex event updated");
+        }
         // Group events leave the editor and return to the group page; normal
         // events stay on the editor as before.
-        if (groupReturnUrl) {
+        if (cpdSaveError) {
+          // The remapped CPD draft remains retryable and must keep Save enabled.
+          setIsDirtyState(true);
+        } else if (groupReturnUrl) {
           setTimeout(() => { window.location.href = groupReturnUrl; }, 500);
         } else {
           baselineSnapshotRef.current = buildSnapshot();
@@ -2314,13 +2357,14 @@ export default function CreateComplexEvent() {
           } catch (emailErr) {
             console.error('Failed to save event emails after creation:', emailErr);
             emailSaveFailed = true;
-            toast.error(
-              `Event created, but email settings could not be saved: ${emailErr.message || 'Unknown error'}. Opening the event so you can fix them in the Emails tab.`,
-              { duration: 10000 }
-            );
           }
         }
-        if (emailSaveFailed) {
+        if (emailSaveFailed || cpdSaveError) {
+          const failures = [
+            emailSaveFailed && "email settings could not be saved",
+            cpdSaveError && `CPD badge configuration could not be saved: ${cpdSaveError}`,
+          ].filter(Boolean).join("; ");
+          toast.error(`Complex event created, but ${failures}. Opening the event so you can fix it.`, { duration: 10000 });
           window.location.href = `${createPageUrl("CreateComplexEvent")}?id=${eventId}`;
         } else {
           toast.success("Complex event created");
@@ -2393,6 +2437,7 @@ export default function CreateComplexEvent() {
             <TabsTrigger value="tracks" data-testid="button-section-tracks">Tracks</TabsTrigger>
             <TabsTrigger value="sessions" data-testid="button-section-sessions">Sessions</TabsTrigger>
             <TabsTrigger value="tickets" data-testid="button-section-tickets">Tickets</TabsTrigger>
+            <TabsTrigger value="cpd" data-testid="button-section-cpd">CPD</TabsTrigger>
             <TabsTrigger value="emails" data-testid="button-section-emails">Emails</TabsTrigger>
             {isEditMode && (
               <TabsTrigger value="surveys" data-testid="button-section-surveys">Surveys</TabsTrigger>
@@ -2401,6 +2446,16 @@ export default function CreateComplexEvent() {
               <TabsTrigger value="budget" data-testid="button-section-budget">Budget</TabsTrigger>
             )}
           </TabsList>
+
+          <TabsContent value="cpd" forceMount className="mt-0 data-[state=inactive]:hidden">
+            <EventCpdBadgesSection
+              eventId={isEditMode ? editId : null}
+              eventType="complex"
+              tickets={ticketClasses}
+              value={cpdBadgeConfig}
+              onChange={setCpdBadgeConfig}
+            />
+          </TabsContent>
 
           {!isGroupLimited && (
           <TabsContent value="budget">

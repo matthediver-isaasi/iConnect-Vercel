@@ -98,6 +98,8 @@ import {
 import UnfurlPreview from "@/components/UnfurlPreview";
 import ZoomPolls from "@/components/events/ZoomPolls";
 import AttendancePolicyEditor from "@/components/events/AttendancePolicyEditor";
+import EventCpdBadgesSection from "@/components/events/EventCpdBadgesSection";
+import { putEventCpdBadgeRules } from "@/lib/eventCpdBadgeRules";
 import TeamsMeetingConfig from "@/components/events/TeamsMeetingConfig";
 import {
   attendancePolicyPayload,
@@ -281,6 +283,9 @@ export default function EditEvent() {
 
   // Ticket classes state for one-off events
   const [ticketClasses, setTicketClasses] = useState([createEmptyTicketClass(true)]);
+  // Null means the secure rules endpoint has not hydrated yet. A quick save
+  // must preserve existing rules rather than interpreting "not loaded" as empty.
+  const [cpdBadgeConfig, setCpdBadgeConfig] = useState(null);
   const [expandedTickets, setExpandedTickets] = useState({});
 
   useEffect(() => {
@@ -1903,6 +1908,15 @@ export default function EditEvent() {
       postSaveRemovalRef.current = removedSpeakerIds.length ? { removedSpeakerIds, revokeBadge } : null;
       updateEventMutation.mutate(eventData, {
       onSuccess: async () => {
+        let cpdSaveError = null;
+        try {
+          if (cpdBadgeConfig !== null) {
+            await putEventCpdBadgeRules(eventId, "simple", cpdBadgeConfig, isOneOffEvent ? ticketClasses : []);
+          }
+        } catch (cpdError) {
+          console.error("Failed to save CPD badge rules:", cpdError);
+          cpdSaveError = cpdError.message || "Unknown error";
+        }
         // Save sponsor assignments (diff-based — never wipes assignments when load failed/pending)
         try {
           if (sponsorsLoadFailed) {
@@ -1970,7 +1984,11 @@ export default function EditEvent() {
           }
           postSaveRemovalRef.current = null;
         }
-        toast.success('Event updated successfully');
+        if (cpdSaveError) {
+          toast.warning(`Event updated, but CPD badge configuration could not be saved: ${cpdSaveError}`);
+        } else {
+          toast.success('Event updated successfully');
+        }
         queryClient.invalidateQueries({ queryKey: ['events'] });
         queryClient.invalidateQueries({ queryKey: ['event', eventId] });
         queryClient.invalidateQueries({ queryKey: ['/api/entities/EventSponsorAssignment'] });
@@ -2086,7 +2104,7 @@ export default function EditEvent() {
     // Hide tabs that would be empty in the current context, and fall back to
     // Details if the active tab becomes hidden (e.g. switching a one-off event
     // to a program event while on the Tickets tab).
-    const visibleTabs = new Set(['details', 'location', 'emails', 'surveys']);
+    const visibleTabs = new Set(['details', 'cpd', 'location', 'emails', 'surveys']);
     if (isOneOffEvent) visibleTabs.add('tickets');
     if (isDonationGloballyEnabled) visibleTabs.add('donations');
     if (!isGroupLimited) visibleTabs.add('budget');
@@ -2179,6 +2197,7 @@ export default function EditEvent() {
           <Tabs value={effectiveTab} onValueChange={setActiveTab}>
             <TabsList className="mb-6 h-auto flex-wrap justify-start">
               <TabsTrigger value="details" data-testid="button-tab-details">Details</TabsTrigger>
+              <TabsTrigger value="cpd" data-testid="button-tab-cpd">CPD</TabsTrigger>
               {isOneOffEvent && (
                 <TabsTrigger value="tickets" data-testid="button-tab-tickets">Tickets</TabsTrigger>
               )}
@@ -2195,6 +2214,16 @@ export default function EditEvent() {
                 <TabsTrigger value="sharing" data-testid="button-tab-sharing">Sharing</TabsTrigger>
               )}
             </TabsList>
+
+          <TabsContent value="cpd" forceMount className={TAB_PANEL_CLASS}>
+            <EventCpdBadgesSection
+              eventId={eventId}
+              eventType="simple"
+              tickets={isOneOffEvent ? ticketClasses : []}
+              value={cpdBadgeConfig}
+              onChange={setCpdBadgeConfig}
+            />
+          </TabsContent>
 
           <TabsContent value="details" forceMount className={TAB_PANEL_CLASS}>
           {/* Event Status Selector */}
