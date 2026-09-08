@@ -31,7 +31,14 @@ import {
   ChevronsUpDown,
   Check
 } from 'lucide-react';
-import { BLOCK_TYPES, SOCIAL_PLATFORMS } from './types';
+import {
+  BLOCK_TYPES,
+  SOCIAL_PLATFORMS,
+  DEFAULT_COLUMN_BACKGROUND_COLOR,
+  resizeColumns,
+  resolveColumnBackgroundColor,
+  updateColumnBackgroundColor,
+} from './types';
 import RichTextEditor from './RichTextEditor';
 import SpacingControl from './SpacingControl';
 
@@ -951,19 +958,14 @@ function ColumnsBlockEditor({ block, onChange }) {
   const parseWidth = (w) => parseInt(String(w).replace('%', ''), 10) || Math.floor(100 / columns.length);
 
   const updateColumnCount = (count) => {
-    const currentCols = block.columns || [];
-    const newCols = [];
-    const width = `${Math.floor(100 / count)}%`;
-    
-    for (let i = 0; i < count; i++) {
-      if (currentCols[i]) {
-        newCols.push({ ...currentCols[i], width });
-      } else {
-        newCols.push({ id: `col-${Date.now()}-${i}`, blocks: [], width });
-      }
-    }
-    
-    onChange({ ...block, columns: newCols });
+    onChange({ ...block, columns: resizeColumns(block.columns, count) });
+  };
+
+  const updateColumnBackground = (colIndex, backgroundColor) => {
+    onChange({
+      ...block,
+      columns: updateColumnBackgroundColor(columns, colIndex, backgroundColor),
+    });
   };
 
   const updateColumnWidth = (colIndex, newPct) => {
@@ -1076,6 +1078,25 @@ function ColumnsBlockEditor({ block, onChange }) {
               onChange={(e) => updateColumnWidth(idx, parseInt(e.target.value))}
               className="w-full h-2 rounded-lg appearance-none cursor-pointer accent-primary"
               data-testid={`slider-column-width-${idx}`}
+            />
+          </div>
+        ))}
+      </div>
+
+      <div className="space-y-3">
+        <Label>Column Background Colors</Label>
+        {columns.map((col, idx) => (
+          <div key={col.id} className="space-y-1">
+            <Label htmlFor={`column-background-${block.id}-${idx}`} className="text-xs text-muted-foreground">
+              Column {idx + 1} Background Color
+            </Label>
+            <Input
+              id={`column-background-${block.id}-${idx}`}
+              type="color"
+              value={resolveColumnBackgroundColor(col, block.styles) || DEFAULT_COLUMN_BACKGROUND_COLOR}
+              onChange={(e) => updateColumnBackground(idx, e.target.value)}
+              className="h-9 p-1"
+              data-testid={`editor-column-bg-color-${idx}`}
             />
           </div>
         ))}

@@ -574,7 +574,8 @@ const blockToMjml = (block) => {
         }).join('');
         const paddingLeft = colIdx === 0 ? '0px' : `${halfGap}px`;
         const paddingRight = colIdx === block.columns.length - 1 ? '0px' : `${halfGap}px`;
-        return `<mj-column width="${col.width || '50%'}" padding-left="${paddingLeft}" padding-right="${paddingRight}">${colBlocks || '<mj-text></mj-text>'}</mj-column>`;
+        const columnBg = col.backgroundColor ? ` background-color="${escapeHtml(col.backgroundColor)}"` : '';
+        return `<mj-column width="${col.width || '50%'}" padding-left="${paddingLeft}" padding-right="${paddingRight}"${columnBg}>${colBlocks || '<mj-text></mj-text>'}</mj-column>`;
       }).join('');
       const columnsBg = block.styles.backgroundColor ? ` background-color="${block.styles.backgroundColor}"` : '';
       return `<mj-section padding="${getPaddingAttr(block.styles)}"${columnsBg}>${columnsContent}</mj-section>`;

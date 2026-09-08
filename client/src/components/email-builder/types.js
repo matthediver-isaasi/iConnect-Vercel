@@ -40,6 +40,33 @@ export const SOCIAL_PLATFORMS = [
   { key: 'email', label: 'Email', defaultUrl: 'mailto:' },
 ];
 
+export const DEFAULT_COLUMN_BACKGROUND_COLOR = '#ffffff';
+
+export const resolveColumnBackgroundColor = (column, blockStyles) =>
+  column?.backgroundColor || blockStyles?.backgroundColor;
+
+export const updateColumnBackgroundColor = (columns, columnIndex, backgroundColor) =>
+  (Array.isArray(columns) ? columns : []).map((column, index) => (
+    index === columnIndex ? { ...column, backgroundColor } : column
+  ));
+
+export const resizeColumns = (columns, count, now = Date.now()) => {
+  const currentColumns = Array.isArray(columns) ? columns : [];
+  const width = `${Math.floor(100 / count)}%`;
+
+  return Array.from({ length: count }, (_, index) => {
+    if (currentColumns[index]) {
+      return { ...currentColumns[index], width };
+    }
+    return {
+      id: `col-${now}-${index}`,
+      blocks: [],
+      width,
+      backgroundColor: DEFAULT_COLUMN_BACKGROUND_COLOR,
+    };
+  });
+};
+
 export const createBlock = (type, props = {}) => {
   const id = `block-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
   
@@ -167,8 +194,8 @@ export const createBlock = (type, props = {}) => {
         id,
         type,
         columns: props.columns || [
-          { id: `col-${Date.now()}-1`, blocks: [], width: '50%' },
-          { id: `col-${Date.now()}-2`, blocks: [], width: '50%' },
+          { id: `col-${Date.now()}-1`, blocks: [], width: '50%', backgroundColor: DEFAULT_COLUMN_BACKGROUND_COLOR },
+          { id: `col-${Date.now()}-2`, blocks: [], width: '50%', backgroundColor: DEFAULT_COLUMN_BACKGROUND_COLOR },
         ],
         styles: {
           paddingTop: '10',

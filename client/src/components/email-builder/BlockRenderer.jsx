@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button';
 import { base44 } from '@/api/base44Client';
 import { toast } from 'sonner';
 import { showUploadErrorToast } from '@/lib/planQuotaError';
-import { BLOCK_TYPES } from './types';
+import { BLOCK_TYPES, resolveColumnBackgroundColor } from './types';
 import { sanitizeHtml, stripTrailingEmptyParagraphs, isRichTextEmpty } from './sanitize';
 import RichTextEditor from './RichTextEditor';
 import { getIndividualValues } from './SpacingControl';
@@ -266,7 +266,7 @@ function SpacerBlockPreview({ block }) {
   return <div style={{ height: block.styles.height }} />;
 }
 
-function ColumnDropZone({ columnId, blockId, colIndex, width, paddingLeft, paddingRight, children }) {
+function ColumnDropZone({ columnId, blockId, colIndex, width, paddingLeft, paddingRight, backgroundColor, children }) {
   const { isOver, setNodeRef } = useDroppable({
     id: `column-drop-${blockId}-${columnId}`,
     data: { isColumn: true, columnId, blockId, colIndex },
@@ -277,8 +277,9 @@ function ColumnDropZone({ columnId, blockId, colIndex, width, paddingLeft, paddi
       <div
         ref={setNodeRef}
         className={`min-h-[60px] border-2 border-dashed rounded p-2 transition-colors h-full ${
-          isOver ? 'border-primary bg-primary/10' : 'border-muted-foreground/30 bg-muted/20'
+          isOver ? 'border-primary ring-2 ring-primary/20' : 'border-muted-foreground/30'
         }`}
+        style={{ backgroundColor }}
       >
         {children}
       </div>
@@ -303,6 +304,7 @@ function ColumnsBlockPreview({ block, onSelectColumnChild, selectedColumnChildId
             width={col.width}
             paddingLeft={idx === 0 ? '0px' : `${halfGap}px`}
             paddingRight={idx === block.columns.length - 1 ? '0px' : `${halfGap}px`}
+            backgroundColor={resolveColumnBackgroundColor(col, block.styles)}
           >
             <span className="text-xs text-muted-foreground">Col {idx + 1} ({col.width})</span>
             {col.blocks.length === 0 && (
@@ -968,6 +970,7 @@ function ReadOnlyColumnsPreview({ block, globalFontFamily }) {
               paddingLeft: idx === 0 ? '0px' : `${halfGap}px`,
               paddingRight: idx === block.columns.length - 1 ? '0px' : `${halfGap}px`,
               boxSizing: 'border-box',
+              backgroundColor: resolveColumnBackgroundColor(col, block.styles),
             }}
           >
             {col.blocks.map((childBlock) => {
