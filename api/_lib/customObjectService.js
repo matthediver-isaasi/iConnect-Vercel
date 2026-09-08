@@ -1458,6 +1458,68 @@ export function createCustomObjectService({
     return data;
   }
 
+  // Internal-only persistence entry point for an administrator-authored form
+  // action. It is intentionally not used by the HTTP route and is only
+  // available on an admin service instance, so callers cannot choose IDs.
+  async function writeTrustedPersistedRecord(objectId, {
+    data: inputData,
+    existingRecordId = null,
+    reservedRecordId = null,
+  } = {}) {
+    if (!isAdmin) throw new CustomObjectHttpError(403, 'Administrator access required');
+    await activeObject(objectId, 'Records can only be written for active Custom Objects');
+    const candidateId = existingRecordId || reservedRecordId;
+    let existing = null;
+    if (candidateId) {
+      const result = await db.from('custom_object_record').select('*')
+        .eq('tenant_id', tenantId).eq('custom_object_id', objectId)
+        .eq('id', candidateId).is('archived_at', null).maybeSingle();
+      throwDb(result.error);
+      existing = result.data || null;
+    }
+    if (existing) {
+      // A row found solely by the ledger reservation is crash recovery: the
+      // original validated create already completed, so do not turn it into
+      // an unrelated update.
+      if (!existingRecordId) return { record: existing, operation: 'recovered' };
+      const validation = await validateRecordWrite(
+        objectId, inputData, existing.data, 'update',
+      );
+      const result = await db.from('custom_object_record').update({
+        data: validation.data,
+        ...authored(),
+      }).eq('tenant_id', tenantId).eq('custom_object_id', objectId)
+        .eq('id', existing.id).select('*').single();
+      throwDb(result.error);
+      return { record: result.data, operation: 'updated' };
+    }
+    const validation = await validateRecordWrite(objectId, inputData, null, 'create');
+    const payload = {
+      ...(reservedRecordId ? { id: reservedRecordId } : {}),
+      tenant_id: tenantId,
+      custom_object_id: objectId,
+      data: validation.data,
+      ...authored('created'),
+      ...authored(),
+    };
+    const result = await db.from('custom_object_record').insert(payload).select('*').single();
+    throwDb(result.error);
+    return { record: result.data, operation: 'created' };
+  }
+
+  // Internal companion to writeTrustedPersistedRecord. It deliberately has no
+  // persistence side effect and lets trusted form processing use the exact
+  // canonical values for identity lookup and eventual write.
+  async function normalizeTrustedPersistedRecordData(objectId, data, {
+    existingData = null,
+    mode = 'create',
+  } = {}) {
+    if (!isAdmin) throw new CustomObjectHttpError(403, 'Administrator access required');
+    await activeObject(objectId, 'Records can only be written for active Custom Objects');
+    const validation = await validateRecordWrite(objectId, data, existingData, mode);
+    return validation.data;
+  }
+
   // Creates the record and all of its first edges in one database transaction.
   // The relationship entries are deliberately expressed from the new record's
   // routed side: this works equally for a Custom Object on either definition
@@ -4101,7 +4163,7 @@ export function createCustomObjectService({
 
   return {
     listObjects, createObject, getObject, updateObject, listFields, createField,
-    updateField, listRecords, exportRecords, relationshipFilterOptions, createRecord, createRecordWithRelationships, initialRelationshipCandidates, getRecord, updateRecord,
+    updateField, listRecords, exportRecords, relationshipFilterOptions, createRecord, createRecordWithRelationships, writeTrustedPersistedRecord, normalizeTrustedPersistedRecordData, initialRelationshipCandidates, getRecord, updateRecord,
     listRelationshipDefinitions, relationshipDefinitionGraph, createRelationshipDefinition,
     updateRelationshipDefinition, entityPicker, listRelationships, createRelationship,
     updateRelationship, archiveRelationship, listPermissions, upsertPermission, listFieldPermissions, upsertFieldPermission, listAudit,

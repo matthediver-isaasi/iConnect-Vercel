@@ -1477,6 +1477,34 @@ test('record creation coerces typed JSONB, rejects invalid values, and authors m
   );
 });
 
+test('trusted persisted record writes reserve IDs and use domain validation', async () => {
+  const db = mockDb({
+    custom_object_definition: [object()],
+    preference_field: [field()],
+  });
+  const service = createCustomObjectService({
+    db,
+    context: context({ memberId: 'processing-member', tenantUserId: null }),
+    isAdmin: true,
+  });
+  const created = await service.writeTrustedPersistedRecord(objectId, {
+    reservedRecordId: 'ledger-record',
+    data: { headcount: '7' },
+  });
+  assert.equal(created.record.id, 'ledger-record');
+  assert.equal(created.record.data.headcount, 7);
+  assert.equal(created.record.created_by, 'member:processing-member');
+
+  await assert.rejects(() => service.writeTrustedPersistedRecord(objectId, {
+    data: { headcount: 'not-a-number' },
+  }), /Invalid record data/i);
+
+  const nonAdmin = createCustomObjectService({ db, context: context(), isAdmin: false });
+  await assert.rejects(() => nonAdmin.writeTrustedPersistedRecord(objectId, {
+    data: { headcount: 1 },
+  }), error => error.status === 403);
+});
+
 test('atomic record creation routes an originating edge and additional edges through the tenant RPC', async () => {
   const relatedObjectId = '44444444-4444-4444-8444-444444444444';
   const definitionId = '55555555-5555-4555-8555-555555555555';

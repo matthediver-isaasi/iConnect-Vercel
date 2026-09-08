@@ -9,9 +9,11 @@ import {
   mappedPayload,
   processPersistedStructuredActions,
   processPrimaryPipelineRelatedRecords,
+  recordReferenceFieldCapability,
   validatePrimaryPipelineRelatedRecordsContract,
   validateStructuredActionsContract,
 } from './formStructuredActions.js';
+import { FORM_NOT_LISTED_TEXT_KEY, FORM_NOT_LISTED_VALUE } from '../../shared/formNotListedChoice.js';
 
 test('validates subordinate Related Records configuration against persisted relationship fields', () => {
   const valid = {
@@ -1556,4 +1558,724 @@ test('address lookup mappings require a valid persisted component', () => {
       mappings: [{ ...action.actions[0].mappings[0], source_component: undefined }],
     }],
   }, [{ id: 'address', type: 'address_lookup' }]), /Invalid persisted/);
+});
+
+test('record-reference capability is metadata-driven and rejects incompatible or multi-record pickers', () => {
+  assert.deepEqual(recordReferenceFieldCapability({
+    id: 'department',
+    type: 'relationship_dropdown',
+    related_kind: 'custom_object',
+    related_custom_object_id: 'department-object',
+  }), {
+    kind: 'custom_object',
+    customObjectId: 'department-object',
+    cardinality: 'single',
+    supportsNotListed: false,
+  });
+  assert.equal(recordReferenceFieldCapability({ id: 'ordinary', type: 'select' }), null);
+
+  const baseAction = {
+    id: 'resolve-department',
+    source: { scope: 'top_level' },
+    target: { kind: 'custom_object', custom_object_id: 'department-object' },
+    operation: 'resolve_record_reference',
+    not_listed_operation: 'upsert',
+    record_reference_field_id: 'department',
+    mappings: [{
+      id: 'name-map', source_field_id: 'department-name',
+      target_type: 'custom', target_field_id: 'department-name-field',
+    }],
+  };
+  const missingOperation = { ...baseAction };
+  delete missingOperation.not_listed_operation;
+  assert.throws(() => validateStructuredActionsContract({
+    version: 1,
+    actions: [missingOperation],
+  }, [
+    {
+      id: 'department', type: 'relationship_dropdown',
+      related_kind: 'custom_object', related_custom_object_id: 'department-object',
+      not_listed_choice: { enabled: true, label: 'Not listed' },
+    },
+    { id: 'department-name', type: 'text' },
+  ]), error => {
+    assert.match(error.details.join(' '), /not_listed_operation must be create or upsert/);
+    return true;
+  });
+  assert.throws(() => validateStructuredActionsContract({
+    version: 1,
+    actions: [baseAction],
+  }, [
+    { id: 'department', type: 'select' },
+    { id: 'department-name', type: 'text' },
+  ]), error => {
+    assert.match(error.details.join(' '), /compatible record-reference picker/);
+    return true;
+  });
+  assert.throws(() => validateStructuredActionsContract({
+    version: 1,
+    actions: [baseAction],
+  }, [
+    {
+      id: 'department', type: 'relationship_dropdown', selection_mode: 'multiple',
+      related_kind: 'custom_object', related_custom_object_id: 'department-object',
+    },
+    { id: 'department-name', type: 'text' },
+  ]), error => {
+    assert.match(error.details.join(' '), /single-record picker/);
+    return true;
+  });
+  assert.throws(() => validateStructuredActionsContract({
+    version: 1,
+    actions: [{ ...baseAction, target: { kind: 'organization' } }],
+  }, [
+    {
+      id: 'department', type: 'relationship_dropdown',
+      related_kind: 'custom_object', related_custom_object_id: 'department-object',
+    },
+    { id: 'department-name', type: 'text' },
+  ]), error => {
+    assert.match(error.details.join(' '), /incompatible with the action target/);
+    return true;
+  });
+});
+
+test('resolves existing and Not-listed organization references per persisted row with canonical retry output', async () => {
+  const tenantId = 'tenant-resolver';
+  const picker = {
+    id: 'organization-picker',
+    type: 'organisation_dropdown',
+    not_listed_choice: { enabled: true, label: 'Not listed' },
+  };
+  const rowsField = {
+    id: 'rows',
+    type: 'repeatable_row',
+    repeatable_row: { version: 1, child_fields: [picker] },
+  };
+  const action = {
+    id: 'resolve-organization',
+    source: { scope: 'repeatable_row', repeatable_field_id: rowsField.id },
+    target: { kind: 'organization' },
+    operation: 'resolve_record_reference',
+    not_listed_operation: 'upsert',
+    reference_field_id: picker.id,
+    uniqueness_field: 'name',
+    identity_mapping: {
+      id: 'organization-name',
+      source_type: 'not_listed_text',
+      source_field_id: picker.id,
+      target_type: 'core',
+      target_field_id: 'name',
+    },
+    companion_mappings: [],
+    mappings: [],
+  };
+  const form = {
+    id: 'resolver-form',
+    tenant_id: tenantId,
+    fields: [rowsField],
+    structured_actions: { version: 1, actions: [action] },
+  };
+  const submission = {
+    id: 'resolver-submission',
+    form_id: form.id,
+    tenant_id: tenantId,
+    processing_notes: [],
+    submission_data: {
+      rows: [
+        { _row_id: 'listed-row', [picker.id]: 'organization-existing' },
+        {
+          _row_id: 'other-row',
+          [picker.id]: FORM_NOT_LISTED_VALUE,
+          [FORM_NOT_LISTED_TEXT_KEY]: { [picker.id]: 'Row-local New Organisation' },
+        },
+      ],
+    },
+  };
+  const store = {
+    organization: [{ id: 'organization-existing', tenant_id: tenantId, name: 'Existing' }],
+    preference_field: [],
+  };
+  const ledger = new Map();
+  class Query {
+    constructor(table) {
+      this.table = table;
+      this.filters = [];
+      this.ilikeFilters = [];
+      this.operation = null;
+      this.payload = null;
+    }
+    select() { return this; }
+    eq(key, value) { this.filters.push([key, value]); return this; }
+    is() { return this; }
+    in() { return this; }
+    limit() { return this; }
+    ilike(key, value) { this.ilikeFilters.push([key, value]); return this; }
+    insert(payload) { this.operation = 'insert'; this.payload = payload; return this; }
+    update(payload) { this.operation = 'update'; this.payload = payload; return this; }
+    source() {
+      if (this.table === 'form') return [form];
+      if (this.table === 'form_submission') return [submission];
+      return store[this.table] || [];
+    }
+    matches(row) {
+      return this.filters.every(([key, value]) => String(row[key]) === String(value))
+        && this.ilikeFilters.every(([key, value]) =>
+          String(row[key] || '').toLowerCase() === String(value).toLowerCase());
+    }
+    async maybeSingle() {
+      if (this.operation === 'update') {
+        const row = this.source().find(candidate => this.matches(candidate));
+        if (row) Object.assign(row, this.payload);
+        return { data: row || null, error: null };
+      }
+      return { data: this.source().find(candidate => this.matches(candidate)) || null, error: null };
+    }
+    async single() {
+      if (this.operation === 'insert') {
+        const row = { id: this.payload.id || `organization-${store.organization.length + 1}`, ...this.payload };
+        this.source().push(row);
+        return { data: row, error: null };
+      }
+      return this.maybeSingle();
+    }
+    then(resolve, reject) {
+      if (this.operation === 'update') {
+        for (const row of this.source().filter(candidate => this.matches(candidate))) {
+          Object.assign(row, this.payload);
+        }
+      }
+      return Promise.resolve({
+        data: this.source().filter(candidate => this.matches(candidate)),
+        error: null,
+      }).then(resolve, reject);
+    }
+  }
+  const db = {
+    from: table => new Query(table),
+    rpc: async (name, input) => {
+      const key = `${input.p_action_id}:${input.p_row_identity}`;
+      if (name === 'claim_form_structured_action') {
+        const prior = ledger.get(key);
+        return {
+          data: prior?.status === 'completed'
+            ? { ...prior, claimed: false }
+            : { claimed: true, claim_token: key, record_id: `reserved-${input.p_row_identity}` },
+          error: null,
+        };
+      }
+      ledger.set(key, { status: input.p_status, record_id: input.p_record_id });
+      return { data: null, error: null };
+    },
+  };
+
+  const first = await processPersistedStructuredActions({
+    db, formId: form.id, submissionId: submission.id, tenantId,
+    authorization: { allowPersistedRecordReferenceWrites: true },
+  });
+  assert.equal(first.success, true, JSON.stringify(first.outcomes));
+  assert.deepEqual(first.outcomes.map(outcome => [
+    outcome.record_id,
+    outcome.operation,
+    outcome.record_reference,
+  ]), [
+    [
+      'organization-existing',
+      'resolved_existing',
+      { record_id: 'organization-existing', kind: 'organization', custom_object_id: null },
+    ],
+    [
+      'organization-2',
+      'created',
+      { record_id: 'organization-2', kind: 'organization', custom_object_id: null },
+    ],
+  ]);
+  assert.equal(store.organization.find(row => row.id === 'organization-2').name, 'Row-local New Organisation');
+  assert.equal(store.organization.length, 2);
+
+  const retry = await processPersistedStructuredActions({
+    db, formId: form.id, submissionId: submission.id, tenantId,
+    authorization: { isAdmin: true, allowPersistedRecordReferenceWrites: true },
+  });
+  assert.ok(retry.outcomes.every(outcome => outcome.status === 'already_completed'));
+  assert.deepEqual(retry.outcomes.map(outcome => outcome.record_reference.record_id), [
+    'organization-existing',
+    'organization-2',
+  ]);
+  assert.equal(store.organization.length, 2);
+
+  submission.processing_notes = [];
+  ledger.clear();
+  submission.submission_data.rows[0][picker.id] = ['organization-existing'];
+  await assert.rejects(() => processPersistedStructuredActions({
+    db, formId: form.id, submissionId: submission.id, tenantId,
+    authorization: { isAdmin: true, allowPersistedRecordReferenceWrites: true },
+  }), /Invalid organization selection/);
+  assert.equal(ledger.size, 0);
+
+  submission.processing_notes = [];
+  ledger.clear();
+  submission.submission_data.rows[0][picker.id] = 'organization-existing';
+  store.organization[0].tenant_id = 'another-tenant';
+  await assert.rejects(() => processPersistedStructuredActions({
+    db, formId: form.id, submissionId: submission.id, tenantId,
+    authorization: { isAdmin: true, allowPersistedRecordReferenceWrites: true },
+  }), /Invalid relationship selector|Invalid organization selection/);
+  assert.equal(ledger.size, 0);
+
+  store.organization[0].tenant_id = tenantId;
+  delete submission.submission_data.rows[1][FORM_NOT_LISTED_TEXT_KEY];
+  await assert.rejects(() => processPersistedStructuredActions({
+    db, formId: form.id, submissionId: submission.id, tenantId,
+    authorization: { isAdmin: true, allowPersistedRecordReferenceWrites: true },
+  }), /specify the not-listed value/);
+  assert.equal(ledger.size, 0);
+});
+
+function customResolverFixture({
+  includeLink = false,
+  ambiguous = false,
+  notListedOperation = 'upsert',
+  identityFieldType = 'text',
+  identityText = 'New Department',
+} = {}) {
+  const tenantId = 'tenant-custom-resolver';
+  const objectId = 'department-object';
+  const definition = {
+    id: 'department-organization', tenant_id: tenantId, status: 'active',
+    source_kind: 'custom_object', source_custom_object_id: objectId,
+    target_kind: 'organization', target_custom_object_id: null,
+    show_on_target: true,
+  };
+  const picker = {
+    id: 'department', type: 'relationship_dropdown',
+    parent_field_id: 'organization', parent_field_scope: 'row',
+    relationship_definition_id: definition.id,
+    relationship_parent_kind: 'organization',
+    relationship_parent_side: 'target',
+    related_kind: 'custom_object',
+    related_custom_object_id: objectId,
+    related_primary_display_field_id: 'department-name',
+    not_listed_choice: { enabled: true, label: 'Not listed' },
+  };
+  const rowsField = {
+    id: 'rows', type: 'repeatable_row',
+    repeatable_row: { version: 1, child_fields: [
+      { id: 'organization', type: 'organisation_dropdown' },
+      picker,
+    ] },
+  };
+  const resolver = {
+    id: 'resolve-department',
+    source: { scope: 'repeatable_row', repeatable_field_id: rowsField.id },
+    target: { kind: 'custom_object', custom_object_id: objectId },
+    operation: 'resolve_record_reference',
+    reference_field_id: picker.id,
+    not_listed_operation: notListedOperation,
+    uniqueness_field: notListedOperation === 'upsert' ? 'department-name' : null,
+    identity_mapping: {
+      id: 'identity', source_type: 'not_listed_text', source_field_id: picker.id,
+      target_type: 'custom', target_field_id: 'department-name',
+    },
+    companion_mappings: [],
+    mappings: [],
+  };
+  const link = {
+    id: 'link-department',
+    source: resolver.source,
+    operation: 'link_relationship',
+    relationship_definition_id: definition.id,
+    source_endpoint: {
+      kind: 'custom_object', custom_object_id: objectId,
+      source: { type: 'action_output', action_id: resolver.id },
+    },
+    target_endpoint: {
+      kind: 'organization',
+      source: { type: 'field', scope: 'row', field_id: 'organization' },
+    },
+  };
+  const form = {
+    id: 'custom-resolver-form', tenant_id: tenantId, fields: [rowsField],
+    structured_actions: { version: 1, actions: includeLink ? [resolver, link] : [resolver] },
+  };
+  const submission = {
+    id: 'custom-resolver-submission', form_id: form.id, tenant_id: tenantId,
+    processing_notes: [],
+    submission_data: { rows: [
+      { _row_id: 'row-a', organization: 'org-a', department: 'department-existing' },
+      {
+        _row_id: 'row-b', organization: 'org-b', department: FORM_NOT_LISTED_VALUE,
+        [FORM_NOT_LISTED_TEXT_KEY]: { department: identityText },
+      },
+    ] },
+  };
+  const store = {
+    organization: [
+      { id: 'org-a', tenant_id: tenantId },
+      { id: 'org-b', tenant_id: tenantId },
+    ],
+    custom_object_definition: [{
+      id: objectId, tenant_id: tenantId, status: 'active',
+      primary_display_field_id: 'department-name',
+    }],
+    preference_field: [{
+      id: 'department-name', tenant_id: tenantId, custom_object_id: objectId,
+      entity_scope: 'custom_object', is_active: true, field_type: identityFieldType,
+      field_key: 'name', name: 'name', label: 'Name',
+    }],
+    custom_object_record: [
+      { id: 'department-existing', tenant_id: tenantId, custom_object_id: objectId, archived_at: null, data: { name: 'Existing' } },
+      ...(ambiguous ? [
+        { id: 'duplicate-1', tenant_id: tenantId, custom_object_id: objectId, archived_at: null, data: { name: 'New Department' } },
+        { id: 'duplicate-2', tenant_id: tenantId, custom_object_id: objectId, archived_at: null, data: { name: 'New Department' } },
+      ] : []),
+    ],
+    custom_object_relationship_definition: [definition],
+    custom_object_relationship: [{
+      id: 'edge-existing', tenant_id: tenantId,
+      relationship_definition_id: definition.id,
+      source_record_id: 'department-existing', target_record_id: 'org-a',
+      archived_at: null,
+    }],
+  };
+  const ledger = new Map();
+  let failNewLink = false;
+  class Query {
+    constructor(table) {
+      this.table = table; this.filters = []; this.nulls = []; this.containsFilters = [];
+      this.payload = null; this.operation = null; this.max = null;
+    }
+    select() { return this; }
+    eq(k, v) { this.filters.push([k, v]); return this; }
+    is(k, v) { this.nulls.push([k, v]); return this; }
+    in(k, values) { this.filters.push([k, new Set(values.map(String))]); return this; }
+    contains(k, value) { this.containsFilters.push([k, value]); return this; }
+    ilike(k, value) { this.filters.push([k, String(value).replaceAll('\\', '').toLowerCase()]); return this; }
+    limit(value) { this.max = value; return this; }
+    order() { return this; }
+    update(payload) { this.operation = 'update'; this.payload = payload; return this; }
+    insert(payload) { this.operation = 'insert'; this.payload = payload; return this; }
+    source() {
+      if (this.table === 'form') return [form];
+      if (this.table === 'form_submission') return [submission];
+      return store[this.table] || [];
+    }
+    matches(row) {
+      return this.filters.every(([k, v]) => v instanceof Set
+        ? v.has(String(row[k]))
+        : String(row[k]).toLowerCase() === String(v).toLowerCase())
+        && this.nulls.every(([k, v]) => row[k] === v)
+        && this.containsFilters.every(([k, value]) =>
+          Object.entries(value).every(([key, expected]) => row[k]?.[key] === expected));
+    }
+    rows() {
+      const rows = this.source().filter(row => this.matches(row));
+      return this.max == null ? rows : rows.slice(0, this.max);
+    }
+    async maybeSingle() {
+      if (this.operation === 'update') {
+        const row = this.rows()[0] || null;
+        if (row) Object.assign(row, this.payload);
+        return { data: row, error: null };
+      }
+      return { data: this.rows()[0] || null, error: null };
+    }
+    async single() {
+      if (this.operation === 'insert') {
+        if (this.table === 'custom_object_relationship' && failNewLink
+          && this.payload.target_record_id === 'org-b') {
+          return { data: null, error: { code: '23505', constraint: 'custom_object_relationship_target_cardinality', message: 'temporary conflict' } };
+        }
+        const row = { id: this.payload.id || `${this.table}-${this.source().length + 1}`, archived_at: null, ...this.payload };
+        this.source().push(row);
+        return { data: row, error: null };
+      }
+      return this.maybeSingle();
+    }
+    then(resolve, reject) {
+      if (this.operation === 'insert') {
+        return this.single().then(result => resolve(result), reject);
+      }
+      if (this.operation === 'update') {
+        for (const row of this.rows()) Object.assign(row, this.payload);
+      }
+      return Promise.resolve({ data: this.rows(), error: null }).then(resolve, reject);
+    }
+  }
+  const db = {
+    from: table => new Query(table),
+    rpc: async (name, input) => {
+      const key = `${input.p_action_id}:${input.p_row_identity}`;
+      if (name === 'claim_form_structured_action') {
+        const prior = ledger.get(key);
+        return { data: prior?.status === 'completed'
+          ? { ...prior, claimed: false }
+          : { claimed: true, claim_token: key, record_id: `reserved-${input.p_row_identity}` }, error: null };
+      }
+      ledger.set(key, { status: input.p_status, record_id: input.p_record_id });
+      return { data: null, error: null };
+    },
+  };
+  return {
+    tenantId, objectId, definition, picker, form, submission, store, ledger, db,
+    setFailNewLink(value) { failNewLink = value; },
+  };
+}
+
+test('trusted non-admin processing resolves selected and Not-listed Custom Object records canonically', async () => {
+  for (const notListedOperation of ['create', 'upsert']) {
+    const fixture = customResolverFixture({ notListedOperation });
+    const result = await processPersistedStructuredActions({
+      db: fixture.db, formId: fixture.form.id, submissionId: fixture.submission.id,
+      tenantId: fixture.tenantId,
+      authorization: { allowPersistedRecordReferenceWrites: true },
+    });
+    assert.equal(result.success, true, JSON.stringify(result.outcomes));
+    assert.deepEqual(result.outcomes.map(outcome => outcome.record_reference), [
+      { record_id: 'department-existing', kind: 'custom_object', custom_object_id: fixture.objectId },
+      { record_id: 'reserved-row-b', kind: 'custom_object', custom_object_id: fixture.objectId },
+    ]);
+    assert.equal(fixture.store.custom_object_record.length, 2);
+    const retry = await processPersistedStructuredActions({
+      db: fixture.db, formId: fixture.form.id, submissionId: fixture.submission.id,
+      tenantId: fixture.tenantId,
+      authorization: { allowPersistedRecordReferenceWrites: true },
+    });
+    assert.ok(retry.outcomes.every(outcome => outcome.status === 'already_completed'));
+    assert.deepEqual(retry.outcomes.map(outcome => outcome.record_reference),
+      result.outcomes.map(outcome => outcome.record_reference));
+    assert.equal(fixture.store.custom_object_record.length, 2);
+  }
+});
+
+test('Custom Object scalar identities accept email, number, and date then defer typed validation to the service', async () => {
+  const validCases = [
+    ['email', 'new.department@example.test', 'upsert', 'new.department@example.test'],
+    ['number', '42', 'create', 42],
+    ['date', '2027-04-05', 'upsert', '2027-04-05'],
+  ];
+  for (const [identityFieldType, identityText, notListedOperation, expected] of validCases) {
+    const fixture = customResolverFixture({
+      identityFieldType, identityText, notListedOperation,
+    });
+    const result = await processPersistedStructuredActions({
+      db: fixture.db, formId: fixture.form.id, submissionId: fixture.submission.id,
+      tenantId: fixture.tenantId,
+      authorization: { allowPersistedRecordReferenceWrites: true },
+    });
+    assert.equal(result.success, true, `${identityFieldType}: ${JSON.stringify(result.outcomes)}`);
+    assert.deepEqual(result.outcomes[0].record_reference, {
+      record_id: 'department-existing',
+      kind: 'custom_object',
+      custom_object_id: fixture.objectId,
+    });
+    assert.deepEqual(result.outcomes[1].record_reference, {
+      record_id: 'reserved-row-b',
+      kind: 'custom_object',
+      custom_object_id: fixture.objectId,
+    });
+    assert.equal(
+      fixture.store.custom_object_record.find(row => row.id === 'reserved-row-b').data.name,
+      expected,
+    );
+  }
+
+  for (const [identityFieldType, identityText] of [
+    ['email', 'not-an-email'],
+    ['number', 'not-a-number'],
+    ['date', 'not-a-date'],
+  ]) {
+    const fixture = customResolverFixture({
+      identityFieldType, identityText, notListedOperation: 'create',
+    });
+    const result = await processPersistedStructuredActions({
+      db: fixture.db, formId: fixture.form.id, submissionId: fixture.submission.id,
+      tenantId: fixture.tenantId,
+      authorization: { allowPersistedRecordReferenceWrites: true },
+    });
+    assert.equal(result.success, false, identityFieldType);
+    assert.equal(result.outcomes[0].status, 'completed');
+    assert.equal(result.outcomes[1].status, 'failed');
+    assert.equal(fixture.store.custom_object_record.length, 1);
+    assert.equal(
+      fixture.store.custom_object_record.some(row => row.id === 'reserved-row-b'),
+      false,
+    );
+  }
+  for (const identityFieldType of ['textarea', 'list']) {
+    const fixture = customResolverFixture({
+      identityFieldType, identityText: 'unsupported', notListedOperation: 'upsert',
+    });
+    await assert.rejects(() => processPersistedStructuredActions({
+      db: fixture.db, formId: fixture.form.id, submissionId: fixture.submission.id,
+      tenantId: fixture.tenantId,
+      authorization: { allowPersistedRecordReferenceWrites: true },
+    }), /incompatible mapping|ineligible Custom Object uniqueness field/);
+    assert.equal(fixture.ledger.size, 0);
+    assert.equal(fixture.store.custom_object_record.length, 1);
+  }
+});
+
+test('typed Custom Object upserts look up canonical number and decimal identity values without duplicates', async () => {
+  for (const [identityFieldType, text, typed] of [
+    ['number', '42', 42],
+    ['decimal', '42.50', 42.5],
+  ]) {
+    const fixture = customResolverFixture({
+      identityFieldType, identityText: text, notListedOperation: 'upsert',
+    });
+    fixture.store.custom_object_record[0].data.name = typed;
+    const first = await processPersistedStructuredActions({
+      db: fixture.db, formId: fixture.form.id, submissionId: fixture.submission.id,
+      tenantId: fixture.tenantId,
+      authorization: { allowPersistedRecordReferenceWrites: true },
+    });
+    assert.equal(first.success, true, JSON.stringify(first.outcomes));
+    assert.equal(first.outcomes[1].record_id, 'department-existing');
+    assert.equal(fixture.store.custom_object_record.length, 1);
+
+    // A distinct processing attempt with the same canonical typed value still
+    // finds the existing record rather than creating another one.
+    fixture.submission.processing_notes = [];
+    fixture.ledger.clear();
+    const second = await processPersistedStructuredActions({
+      db: fixture.db, formId: fixture.form.id, submissionId: fixture.submission.id,
+      tenantId: fixture.tenantId,
+      authorization: { allowPersistedRecordReferenceWrites: true },
+    });
+    assert.equal(second.success, true, JSON.stringify(second.outcomes));
+    assert.equal(second.outcomes[1].record_id, 'department-existing');
+    assert.equal(fixture.store.custom_object_record.length, 1);
+  }
+});
+
+test('canonical typed Custom Object identity matches remain ambiguous when more than one record matches', async () => {
+  const fixture = customResolverFixture({
+    identityFieldType: 'number', identityText: '42', notListedOperation: 'upsert',
+  });
+  fixture.store.custom_object_record[0].data.name = 42;
+  fixture.store.custom_object_record.push(
+    { id: 'typed-duplicate-1', tenant_id: fixture.tenantId, custom_object_id: fixture.objectId, archived_at: null, data: { name: 42 } },
+    { id: 'typed-duplicate-2', tenant_id: fixture.tenantId, custom_object_id: fixture.objectId, archived_at: null, data: { name: 42 } },
+  );
+  const result = await processPersistedStructuredActions({
+    db: fixture.db, formId: fixture.form.id, submissionId: fixture.submission.id,
+    tenantId: fixture.tenantId,
+    authorization: { allowPersistedRecordReferenceWrites: true },
+  });
+  assert.equal(result.success, false);
+  assert.match(result.outcomes[1].error, /ambiguous/);
+  assert.equal(fixture.store.custom_object_record.length, 3);
+});
+
+test('record-reference upsert rejects a forged companion uniqueness key before claiming', async () => {
+  const fixture = customResolverFixture();
+  const resolver = fixture.form.structured_actions.actions[0];
+  fixture.form.fields[0].repeatable_row.child_fields.push({ id: 'alternate-key', type: 'text' });
+  fixture.submission.submission_data.rows.forEach(row => { row['alternate-key'] = 'forged'; });
+  fixture.store.preference_field.push({
+    id: 'alternate-field', tenant_id: fixture.tenantId,
+    custom_object_id: fixture.objectId, entity_scope: 'custom_object',
+    is_active: true, field_type: 'text', field_key: 'alternate', name: 'alternate',
+  });
+  resolver.companion_mappings = [{
+    id: 'forged-identity', source_field_id: 'alternate-key',
+    target_type: 'custom', target_field_id: 'alternate-field',
+  }];
+  resolver.uniqueness_field = 'alternate-field';
+  await assert.rejects(() => processPersistedStructuredActions({
+    db: fixture.db, formId: fixture.form.id, submissionId: fixture.submission.id,
+    tenantId: fixture.tenantId,
+    authorization: { allowPersistedRecordReferenceWrites: true },
+  }), error => {
+    assert.match(error.details.join(' '), /uniqueness_field must equal identity_mapping/);
+    return true;
+  });
+  assert.equal(fixture.ledger.size, 0);
+  assert.equal(fixture.store.custom_object_record.length, 1);
+});
+
+test('Custom Object resolver rejects ambiguous upsert before creating a record', async () => {
+  const fixture = customResolverFixture({ ambiguous: true });
+  const result = await processPersistedStructuredActions({
+    db: fixture.db, formId: fixture.form.id, submissionId: fixture.submission.id,
+    tenantId: fixture.tenantId,
+    authorization: { allowPersistedRecordReferenceWrites: true },
+  });
+  assert.equal(result.success, false);
+  assert.match(result.outcomes.find(outcome => outcome.invocation_key.endsWith('row-b')).error, /ambiguous/);
+  assert.equal(fixture.store.custom_object_record.length, 3);
+});
+
+test('same-row resolver output links without cross-row mixing and partial retry duplicates nothing', async () => {
+  const fixture = customResolverFixture({ includeLink: true });
+  fixture.setFailNewLink(true);
+  const first = await processPersistedStructuredActions({
+    db: fixture.db, formId: fixture.form.id, submissionId: fixture.submission.id,
+    tenantId: fixture.tenantId,
+    authorization: { isAdmin: true, allowPersistedRecordReferenceWrites: true },
+  });
+  assert.equal(first.failed_count, 1, JSON.stringify(first.outcomes));
+  assert.equal(fixture.store.custom_object_record.length, 2);
+  fixture.setFailNewLink(false);
+  const retry = await processPersistedStructuredActions({
+    db: fixture.db, formId: fixture.form.id, submissionId: fixture.submission.id,
+    tenantId: fixture.tenantId,
+    authorization: { isAdmin: true, allowPersistedRecordReferenceWrites: true },
+  });
+  assert.equal(retry.success, true, JSON.stringify(retry.outcomes));
+  assert.equal(fixture.store.custom_object_record.length, 2);
+  assert.deepEqual(fixture.store.custom_object_relationship.map(edge => [
+    edge.source_record_id, edge.target_record_id,
+  ]), [
+    ['department-existing', 'org-a'],
+    ['reserved-row-b', 'org-b'],
+  ]);
+});
+
+test('stale resolver relationship side and display metadata fail before ledger claim', async () => {
+  for (const stale of ['side', 'display']) {
+    const fixture = customResolverFixture();
+    if (stale === 'side') fixture.picker.relationship_parent_side = 'source';
+    else fixture.store.preference_field[0].is_active = false;
+    await assert.rejects(() => processPersistedStructuredActions({
+      db: fixture.db, formId: fixture.form.id, submissionId: fixture.submission.id,
+      tenantId: fixture.tenantId,
+      authorization: { allowPersistedRecordReferenceWrites: true },
+    }), /relationship configuration|display field/i);
+    assert.equal(fixture.ledger.size, 0);
+    assert.equal(fixture.store.custom_object_record.length, 1);
+  }
+});
+
+test('repeatable resolver revalidates the selected edge against its own row parent before claiming', async () => {
+  for (const scenario of ['archived-edge', 'different-parent']) {
+    const fixture = customResolverFixture({ includeLink: true });
+    if (scenario === 'archived-edge') {
+      fixture.store.custom_object_relationship[0].archived_at = '2027-01-01T00:00:00.000Z';
+    } else {
+      fixture.store.custom_object_record.push({
+        id: 'department-other', tenant_id: fixture.tenantId,
+        custom_object_id: fixture.objectId, archived_at: null,
+        data: { name: 'Other Parent Department' },
+      });
+      fixture.store.custom_object_relationship.push({
+        id: 'edge-other-parent', tenant_id: fixture.tenantId,
+        relationship_definition_id: fixture.definition.id,
+        source_record_id: 'department-other', target_record_id: 'org-b',
+        archived_at: null,
+      });
+      fixture.submission.submission_data.rows[0].department = 'department-other';
+    }
+    const recordCount = fixture.store.custom_object_record.length;
+    const edgeCount = fixture.store.custom_object_relationship.length;
+    await assert.rejects(() => processPersistedStructuredActions({
+      db: fixture.db, formId: fixture.form.id, submissionId: fixture.submission.id,
+      tenantId: fixture.tenantId,
+      authorization: { isAdmin: true, allowPersistedRecordReferenceWrites: true },
+    }), /Invalid relationship selection/);
+    assert.equal(fixture.ledger.size, 0);
+    assert.equal(fixture.store.custom_object_record.length, recordCount);
+    assert.equal(fixture.store.custom_object_relationship.length, edgeCount);
+  }
 });

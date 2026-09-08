@@ -6,6 +6,7 @@ import { coercePreferenceValueForStorage } from './preferenceValueStorage.js';
 import { repeatableRowChildren, isRepeatableRowEmpty } from '../../shared/formRepeatableRows.js';
 import { createHash } from 'node:crypto';
 import { validateCustomObjectRecordData } from './customObjectDomain.js';
+import { createCustomObjectService } from './customObjectService.js';
 import {
   addressLookupVisibleComponents,
   isAddressLookupComponent,
@@ -15,8 +16,16 @@ import {
   isExplicitFallbackMapping,
   validateExplicitFallbackGroups,
 } from './formMappingFallbacks.js';
-import { isFormNotListedValue } from '../../shared/formNotListedChoice.js';
+import {
+  FORM_NOT_LISTED_TEXT_KEY,
+  isFormNotListedValue,
+} from '../../shared/formNotListedChoice.js';
 import { isRelationshipMultiSelect } from '../../shared/formRelationshipSelection.js';
+import {
+  RECORD_REFERENCE_CUSTOM_IDENTITY_FIELD_TYPES,
+  recordReferencePickerCapability,
+  recordReferencePickerCompatibility,
+} from '../../shared/formRecordReferenceResolver.js';
 
 export const STRUCTURED_ACTIONS_VERSION = 1;
 
@@ -25,7 +34,7 @@ const ENTITY_ALIASES = {
   organisation_group: 'organization_group',
 };
 const ENTITIES = new Set(['member', 'organization', 'organization_group', 'custom_object']);
-const OPERATIONS = new Set(['create', 'update_selected', 'upsert', 'link_relationship']);
+const OPERATIONS = new Set(['create', 'update_selected', 'upsert', 'link_relationship', 'resolve_record_reference']);
 const CORE_COLUMNS = {
   member: new Set(['email', 'first_name', 'last_name', 'job_title', 'mobile', 'landline', 'organization_id', 'role_id', 'login_enabled', 'show_in_directory']),
   organization: new Set(['name', 'description', 'logo_url', 'invoicing_email', 'invoicing_address', 'phone', 'website_url', 'email', 'address', 'tags', 'organization_group_id']),
@@ -44,6 +53,15 @@ const CORE_FIELD_TYPES = {
   },
   organization_group: { name: 'text', description: 'text' },
 };
+// Keep aligned with FormBuilder's structuredUpsertFields Custom Object
+// eligibility. These are scalar identity destinations whose submitted
+// Not-listed text is validated/coerced by the normal target domain service.
+const RECORD_REFERENCE_CUSTOM_IDENTITY_TYPES = new Set(
+  RECORD_REFERENCE_CUSTOM_IDENTITY_FIELD_TYPES,
+);
+const RECORD_REFERENCE_CORE_IDENTITY_FAMILIES = new Set([
+  'text', 'email', 'number', 'date', 'choice',
+]);
 const TABLES = {
   member: 'member',
   organization: 'organization',
@@ -83,11 +101,27 @@ const operationName = (action) => {
   const value = action?.operation || action?.entity_action || action?.action;
   return value === 'update_selected' ? 'update' : value;
 };
-const actionMappings = (action) => Array.isArray(action?.mappings) ? action.mappings : [];
+const actionMappings = (action) => {
+  if (action?.operation === 'resolve_record_reference'
+    && (action?.identity_mapping || Array.isArray(action?.companion_mappings))) {
+    return [
+      ...(action?.identity_mapping ? [action.identity_mapping] : []),
+      ...(Array.isArray(action?.companion_mappings) ? action.companion_mappings : []),
+    ];
+  }
+  return Array.isArray(action?.mappings) ? action.mappings : [];
+};
 const repeatableId = (action) => action?.source?.repeatable_field_id || action?.repeatable_field_id || action?.source_repeatable_field_id || action?.container_field_id || null;
 const actionObjectId = (action) => action?.target?.custom_object_id || action?.custom_object_id || action?.target_custom_object_id || null;
 const targetField = (mapping) => mapping?.target_field_id || mapping?.target_field;
 const isRelationshipAction = (action) => action?.operation === 'link_relationship';
+const isRecordReferenceAction = (action) => action?.operation === 'resolve_record_reference';
+const recordReferenceFieldId = (action) => action?.record_reference_field_id
+  || action?.reference_field_id
+  || action?.selector_field_id
+  || action?.source?.field_id
+  || null;
+const notListedOperation = (action) => action?.not_listed_operation || null;
 const relationshipEndpoints = (action) => ({
   source: action?.source_endpoint,
   target: action?.target_endpoint,
@@ -98,6 +132,59 @@ const endpointDescriptor = (endpoint) => ({
   kind: ENTITY_ALIASES[endpoint?.kind] || endpoint?.kind,
   customObjectId: endpoint?.custom_object_id || null,
 });
+
+export function recordReferenceFieldCapability(field) {
+  const capability = recordReferencePickerCapability(field);
+  if (!capability?.target) return null;
+  return {
+    kind: ENTITY_ALIASES[capability.target.kind] || capability.target.kind,
+    customObjectId: capability.target.custom_object_id || null,
+    cardinality: capability.selection_cardinality,
+    supportsNotListed: capability.supports_not_listed,
+  };
+}
+
+// Server-side target adapters own the security boundary. Shared picker
+// metadata only describes editor compatibility; these adapters perform all
+// database-facing selection and writable-target checks.
+const RECORD_REFERENCE_TARGET_ADAPTERS = [
+  {
+    supports: action => entityName(action) !== 'custom_object',
+    async validateSelected({ db, tenantId, action, recordId }) {
+      const { data, error } = await db.from(TABLES[entityName(action)]).select('id')
+        .eq('tenant_id', tenantId).eq('id', recordId).maybeSingle();
+      if (error) throw error;
+      if (!data) throw new StructuredActionContractError('Record reference is unavailable or cross-tenant');
+    },
+    assertWritable() {},
+  },
+  {
+    supports: action => entityName(action) === 'custom_object',
+    async validateSelected({ db, tenantId, action, recordId }) {
+      const { data, error } = await db.from('custom_object_record').select('id')
+        .eq('tenant_id', tenantId).eq('custom_object_id', actionObjectId(action))
+        .eq('id', recordId).is('archived_at', null).maybeSingle();
+      if (error) throw error;
+      if (!data) throw new StructuredActionContractError('Record reference is unavailable, archived, or cross-tenant');
+    },
+    assertWritable({ action, preferenceFields, tenantId }) {
+      for (const mapping of actionMappings(action).filter(mapping => mapping.target_type === 'custom')) {
+        const field = preferenceFields.get(String(targetField(mapping)));
+        if (!field || String(field.tenant_id) !== String(tenantId)
+          || field.entity_scope !== 'custom_object'
+          || String(field.custom_object_id) !== String(actionObjectId(action))) {
+          throw new StructuredActionContractError(`Custom field ${targetField(mapping)} is not active for this action target`);
+        }
+      }
+    },
+  },
+];
+
+function recordReferenceTargetAdapter(action) {
+  const adapter = RECORD_REFERENCE_TARGET_ADAPTERS.find(candidate => candidate.supports(action));
+  if (!adapter) throw new StructuredActionContractError('No server adapter supports this record-reference target');
+  return adapter;
+}
 const sourceFieldsFor = (action, fields) => action?.source?.scope === 'repeatable_row'
   ? repeatableRowChildren((fields || []).find(field => String(field?.id) === String(repeatableId(action))))
   : (fields || []);
@@ -250,6 +337,45 @@ export function validateStructuredActionsContract(input, fields = []) {
       priorActions.set(id, action);
       continue;
     }
+    if (isRecordReferenceAction(action)) {
+      const sourceFields = sourceFieldsFor(action, fields);
+      const selectorId = recordReferenceFieldId(action);
+      const selector = sourceFields.find(field => String(field?.id) === String(selectorId));
+      const capability = recordReferenceFieldCapability(selector);
+      const compatibility = recordReferencePickerCompatibility(selector, action?.target);
+      if (!selectorId) errors.push(`${prefix}.record_reference_field_id is required`);
+      if (!capability || compatibility.code === 'unsupported_picker'
+        || compatibility.code === 'ambiguous_target') {
+        errors.push(`${prefix}.record_reference_field_id must identify a compatible record-reference picker in the action source scope`);
+      } else {
+        if (compatibility.code === 'multiple_selection') {
+          errors.push(`${prefix}.record_reference_field_id must use a single-record picker`);
+        }
+        if (compatibility.code === 'not_listed_disabled') {
+          errors.push(`${prefix}.record_reference_field_id must have an enabled labelled Not listed choice`);
+        }
+        if (compatibility.code === 'incompatible_target'
+          || capability.kind !== entity
+          || (entity === 'custom_object'
+            && String(capability.customObjectId) !== String(actionObjectId(action)))) {
+          errors.push(`${prefix}.record_reference_field_id is incompatible with the action target`);
+        }
+      }
+      if (!action?.identity_mapping && (action?.reference_field_id || action?.companion_mappings)) {
+        errors.push(`${prefix}.identity_mapping is required`);
+      }
+      if (action?.identity_mapping
+        && (action.identity_mapping.source_type !== 'not_listed_text'
+          || String(action.identity_mapping.source_field_id) !== String(selectorId))) {
+        errors.push(`${prefix}.identity_mapping must explicitly map this picker's Not listed text`);
+      }
+      if (!['create', 'upsert'].includes(notListedOperation(action))) {
+        errors.push(`${prefix}.not_listed_operation must be create or upsert`);
+      }
+      if (action?.relationship_definition_id || action?.relationship_parent_field_id) {
+        errors.push(`${prefix} cannot create a relationship as part of record-reference resolution`);
+      }
+    }
     if (actionMappings(action).length === 0) errors.push(`${prefix}.mappings must not be empty`);
     const mappedTargets = new Set();
     const mappingIds = new Set();
@@ -347,7 +473,10 @@ export function validateStructuredActionsContract(input, fields = []) {
         errors.push(`${mp}.source_component is required for an address_lookup source`);
       }
       if (sourceField && isRelationshipField(sourceField)) {
-        const permitted = ['organisation_dropdown', 'organization_dropdown'].includes(sourceField.type)
+        const permitted = isRecordReferenceAction(action) && mapping.source_type === 'not_listed_text'
+          && String(sourceField.id) === String(recordReferenceFieldId(action))
+          ? true
+          : ['organisation_dropdown', 'organization_dropdown'].includes(sourceField.type)
           ? entity === 'member' && targetType === 'core' && targetField(mapping) === 'organization_id'
           : ['organisation_group_dropdown', 'organization_group_dropdown'].includes(sourceField.type)
             ? entity === 'organization' && targetType === 'core' && targetField(mapping) === 'organization_group_id'
@@ -363,7 +492,22 @@ export function validateStructuredActionsContract(input, fields = []) {
       (mapping.target_type || 'core') === 'core' && targetField(mapping) === 'organization_group_id')) {
       errors.push(`${prefix} cannot configure organization_group_source and map organization_group_id separately`);
     }
-    if (action?.operation === 'upsert') {
+    const effectiveCreateOperation = isRecordReferenceAction(action) ? notListedOperation(action) : action?.operation;
+    if (isRecordReferenceAction(action) && effectiveCreateOperation === 'upsert') {
+      if (!action?.identity_mapping
+        || String(action.uniqueness_field || '') !== String(action.identity_mapping.target_field_id || '')) {
+        errors.push(`${prefix}.uniqueness_field must equal identity_mapping.target_field_id for record-reference upsert`);
+      }
+      if (entity === 'custom_object' && action.identity_mapping?.target_type !== 'custom') {
+        errors.push(`${prefix}.identity_mapping.target_type must be custom for a Custom Object target`);
+      }
+      if (entity !== 'custom_object'
+        && action.identity_mapping?.target_type === 'core'
+        && !CORE_COLUMNS[entity]?.has(targetField(action.identity_mapping))) {
+        errors.push(`${prefix}.identity_mapping.target_type does not match the target field metadata`);
+      }
+    }
+    if (effectiveCreateOperation === 'upsert') {
       if (!action.uniqueness_field) errors.push(`${prefix}.uniqueness_field is required for upsert`);
       const uniqueMappings = actionMappings(action).filter(mapping =>
         String(targetField(mapping)) === String(action.uniqueness_field));
@@ -398,7 +542,9 @@ export function validateStructuredActionsContract(input, fields = []) {
 }
 
 function sourceValue(mapping, values) {
-  let value = mapping.source_type === 'clear'
+  let value = mapping.source_type === 'not_listed_text'
+    ? values?.[FORM_NOT_LISTED_TEXT_KEY]?.[mapping.source_field_id]
+    : mapping.source_type === 'clear'
     ? '__clear__'
     : mapping.source_type === 'static' || mapping.static_value !== undefined
     ? mapping.static_value
@@ -473,8 +619,12 @@ export function expandStructuredActionInvocations(contract, form, submissionData
 }
 
 function selectedRelationshipRecordId(action, fields, values) {
-  if (action?.operation !== 'update_selected' || !action?.selector_field_id) return null;
-  const value = values?.[action.selector_field_id];
+  const selectorId = isRecordReferenceAction(action)
+    ? recordReferenceFieldId(action)
+    : action?.selector_field_id;
+  if (!['update_selected', 'resolve_record_reference'].includes(action?.operation) || !selectorId) return null;
+  const value = values?.[selectorId];
+  if (isFormNotListedValue(value)) return null;
   return Array.isArray(value) ? value[0] || null : value || null;
 }
 
@@ -720,16 +870,46 @@ function validateRuntimeMappingCompatibility(contract, formFields, preferenceFie
         const preference = preferenceFields.get(String(targetField(mapping)));
         targetFamily = preference ? mappingFamily(preference) : null;
       }
-      if (!source || !targetFamily || !compatibleFamilies(mappingFamily(source), targetFamily)) {
+      const identityMapping = isRecordReferenceAction(action)
+        && action.identity_mapping
+        && String(mapping.id) === String(action.identity_mapping.id)
+        && mapping.source_type === 'not_listed_text';
+      let compatibleIdentity = false;
+      if (identityMapping) {
+        if ((mapping.target_type || 'core') === 'custom') {
+          const preference = preferenceFields.get(String(targetField(mapping)));
+          compatibleIdentity = Boolean(preference)
+            && RECORD_REFERENCE_CUSTOM_IDENTITY_TYPES.has(
+              String(preference.field_type || preference.type || '').toLowerCase(),
+            );
+        } else {
+          compatibleIdentity = RECORD_REFERENCE_CORE_IDENTITY_FAMILIES.has(targetFamily);
+        }
+        if ((mapping.target_type || 'core') === 'core') {
+          compatibleIdentity = compatibleIdentity
+            && CORE_COLUMNS[entityName(action)]?.has(targetField(mapping));
+        }
+      }
+      const sourceFamily = mapping.source_type === 'not_listed_text'
+        ? 'text'
+        : mappingFamily(source);
+      if (!source || !targetFamily
+        || (identityMapping ? !compatibleIdentity : !compatibleFamilies(sourceFamily, targetFamily))) {
         throw new StructuredActionContractError(
           `Action ${action.id} contains an incompatible mapping for ${targetField(mapping)}`,
         );
       }
     }
-    if (action.operation === 'upsert' && entityName(action) === 'custom_object') {
+    const effectiveOperation = isRecordReferenceAction(action)
+      ? notListedOperation(action)
+      : action.operation;
+    if (effectiveOperation === 'upsert' && entityName(action) === 'custom_object') {
       const uniqueField = preferenceFields.get(String(action.uniqueness_field));
-      const eligible = new Set(['text', 'email', 'url', 'number', 'decimal', 'date', 'dropdown', 'country']);
-      if (!uniqueField || !eligible.has(String(uniqueField.field_type || uniqueField.type || '').toLowerCase())) {
+      const ownsUniqueField = uniqueField
+        && uniqueField.is_active !== false
+        && uniqueField.entity_scope === 'custom_object'
+        && String(uniqueField.custom_object_id) === String(actionObjectId(action));
+      if (!ownsUniqueField || !RECORD_REFERENCE_CUSTOM_IDENTITY_TYPES.has(String(uniqueField.field_type || uniqueField.type || '').toLowerCase())) {
         throw new StructuredActionContractError(`Action ${action.id} uses an ineligible Custom Object uniqueness field`);
       }
     }
@@ -762,19 +942,40 @@ async function validateDirectSelectors(db, tenantId, form, submissionData, visib
     const values = Array.isArray(value) ? value : [value];
     const [table, objectId] = tableFor(field);
     if (!table) continue; // The relationship service below validates chained relationship selectors.
-    for (const id of values.filter(Boolean)) {
+    for (const id of values.filter(id => id && !isFormNotListedValue(id))) {
       let query = db.from(table).select('id').eq('tenant_id', tenantId).eq('id', id);
       if (objectId) query = query.eq('custom_object_id', objectId).is('archived_at', null);
       const { data, error } = await query.maybeSingle();
       if (error || !data) throw new StructuredActionContractError(`Invalid relationship selector at ${context}`);
     }
   }
-  await createFormRelationshipService({ db, tenantId }).validateSubmission({
+  const relationshipService = createFormRelationshipService({ db, tenantId });
+  await relationshipService.validateSubmission({
     form,
     submissionData: submissionData || {},
     hiddenFieldIds: hidden,
     visibilityOptions,
   });
+  for (const container of form.fields || []) {
+    if (!['repeatable_row', 'repeatable_rows'].includes(container?.type)
+      || hidden.has(String(container.id))) continue;
+    const children = repeatableRowChildren(container);
+    const visibleChildren = children.filter(child => !hidden.has(String(child?.id)));
+    for (const row of submissionData?.[container.id] || []) {
+      if (!row || typeof row !== 'object' || row._deleted === true
+        || row.deleted === true || row.active === false
+        || isRepeatableRowEmpty(row, visibleChildren)) continue;
+      await relationshipService.validateSubmission({
+        form: { ...form, fields: children },
+        submissionData: row,
+        rootForm: form,
+        rootSubmissionData: submissionData || {},
+        containerFieldId: container.id,
+        hiddenFieldIds: hidden,
+        visibilityOptions,
+      });
+    }
+  }
 }
 
 async function loadPreferenceFields(db, tenantId) {
@@ -1016,6 +1217,38 @@ function invocationFingerprintValues(invocation) {
   return { row: invocation.values, form_endpoints: rootEndpointValues };
 }
 
+function canonicalRecordReference(action, recordId) {
+  return {
+    record_id: recordId,
+    kind: entityName(action),
+    custom_object_id: actionObjectId(action),
+  };
+}
+
+async function resolveSelectedRecordReference(db, tenantId, invocation) {
+  const action = invocation.action;
+  const selectorId = recordReferenceFieldId(action);
+  const raw = invocation.values?.[selectorId];
+  if (Array.isArray(raw)) {
+    throw new StructuredActionContractError('Record-reference resolution requires exactly one selected value');
+  }
+  if (raw == null || raw === '') {
+    throw new StructuredActionContractError('A record-reference selection is required');
+  }
+  if (isFormNotListedValue(raw)) return null;
+  const descriptor = { kind: entityName(action), customObjectId: actionObjectId(action) };
+  await recordReferenceTargetAdapter(action).validateSelected({
+    db, tenantId, action, recordId: raw,
+  });
+  return {
+    status: 'completed',
+    record_id: raw,
+    operation: 'resolved_existing',
+    entity_type: descriptor.kind,
+    record_reference: canonicalRecordReference(action, raw),
+  };
+}
+
 function relationshipEndpointRecordId(endpoint, invocation, actionOutputs) {
   const input = endpointInput(endpoint);
   let value;
@@ -1141,8 +1374,55 @@ async function executeInvocation(
 ) {
   const action = invocation.action;
   const entity = entityName(action);
-  const operation = operationName(action);
-  const payload = mappedPayload(invocation, entity, preferenceFields);
+  if (isRecordReferenceAction(action)) {
+    const resolved = await resolveSelectedRecordReference(db, tenantId, invocation);
+    if (resolved) return resolved;
+    const selector = sourceFieldsFor(action, invocation.formFields || [])
+      .find(field => String(field?.id) === String(recordReferenceFieldId(action)));
+    if (!recordReferenceFieldCapability(selector)?.supportsNotListed) {
+      throw new StructuredActionContractError('Not-listed creation is not enabled for this record-reference picker');
+    }
+  }
+  const operation = isRecordReferenceAction(action) ? notListedOperation(action) : operationName(action);
+  const effectiveAction = isRecordReferenceAction(action)
+    ? { ...action, operation }
+    : action;
+  const payloadAction = isRecordReferenceAction(action)
+    ? { ...effectiveAction, mappings: actionMappings(action) }
+    : effectiveAction;
+  const payload = mappedPayload({ ...invocation, action: payloadAction }, entity, preferenceFields);
+  let trustedCustomObjectService = null;
+  if (isRecordReferenceAction(action)) {
+    recordReferenceTargetAdapter(action).assertWritable({ action, preferenceFields, tenantId, payload });
+    if (entity === 'custom_object') {
+      if (authorization.allowPersistedRecordReferenceWrites !== true) {
+        throw new StructuredActionAuthorizationError(
+          'Creating a Custom Object reference requires trusted persisted processing',
+        );
+      }
+      trustedCustomObjectService = createCustomObjectService({
+        db,
+        context: {
+          isAuthenticated: true,
+          tenantId,
+          tenantMismatch: false,
+          memberId: authorization.processingActorMemberId || null,
+          tenantUserId: authorization.processingActorTenantUserId || null,
+        },
+        isAdmin: true,
+        canViewSchema: true,
+      });
+      payload.custom = await trustedCustomObjectService.normalizeTrustedPersistedRecordData(
+        actionObjectId(action),
+        payload.custom,
+      );
+      // findExisting compares JSONB values; use exactly the canonical value
+      // which the service will later persist (e.g. 42, not the text \"42\").
+      payload.match = payload.match.map(criterion => criterion.targetType === 'custom'
+        ? { ...criterion, value: payload.custom[criterion.field] }
+        : criterion);
+    }
+  }
   delete payload.core.id;
   if (entity === 'organization' && organizationGroupSource(action)) {
     const groupId = organizationGroupRecordId(invocation, actionOutputs);
@@ -1168,15 +1448,16 @@ async function executeInvocation(
     if (error || !data) throw new StructuredActionContractError(`Mapped ${column} does not belong to this tenant`);
   }
   const actionWithSelectedRecord = invocation.selectedRecordId
-    ? { ...action, target_record_id: invocation.selectedRecordId }
-    : action;
+    ? { ...effectiveAction, target_record_id: invocation.selectedRecordId }
+    : effectiveAction;
   if (action.operation === 'update_selected' && !invocation.selectedRecordId) {
     return { status: 'failed', reason: 'relationship_selection_missing', error: 'A selected target record is required', entity_type: entity };
   }
   // A create reserves its target UUID in the ledger before writing. If a
   // previous attempt inserted it but crashed before finalizing the ledger,
   // recover that exact row and complete the same invocation.
-  if (operation === 'create' && claimedRecordId) {
+  if (operation === 'create' && claimedRecordId
+    && !(isRecordReferenceAction(action) && entity === 'custom_object')) {
     let recoveredQuery = db.from(TABLES[entity]).select('*')
       .eq('tenant_id', tenantId).eq('id', claimedRecordId);
     if (entity === 'custom_object') {
@@ -1189,7 +1470,16 @@ async function executeInvocation(
         await writePreferences(db, tenantId, entity, recovered.id, payload.custom, preferenceFields, payload.clearCustom);
       }
       await ensureRelationshipLink(db, tenantId, invocation, recovered.id, relationshipDefinition, authorization);
-      return { status: 'completed', record_id: recovered.id, operation: 'created', recovered: true, entity_type: entity };
+      return {
+        status: 'completed',
+        record_id: recovered.id,
+        operation: 'created',
+        recovered: true,
+        entity_type: entity,
+        ...(isRecordReferenceAction(action)
+          ? { record_reference: canonicalRecordReference(action, recovered.id) }
+          : {}),
+      };
     }
   }
   const existing = operation === 'create'
@@ -1199,8 +1489,23 @@ async function executeInvocation(
     return { status: 'failed', reason: 'record_not_found', error: 'The selected target record is unavailable', entity_type: entity };
   }
   if (operation === 'create' && existing) return { status: 'skipped', reason: 'record_already_exists', record_id: existing.id };
-  if (existing) {
-    assertStructuredMutationAuthorized({ action, recordId: existing.id, authorization });
+  if (isRecordReferenceAction(action) && entity === 'custom_object') {
+    const written = await trustedCustomObjectService.writeTrustedPersistedRecord(actionObjectId(action), {
+      data: payload.custom,
+      existingRecordId: existing?.id || null,
+      reservedRecordId: existing ? null : claimedRecordId,
+    });
+    return {
+      status: 'completed',
+      record_id: written.record.id,
+      operation: written.operation,
+      entity_type: entity,
+      record_reference: canonicalRecordReference(action, written.record.id),
+    };
+  }
+  if (existing && !(isRecordReferenceAction(action)
+    && authorization.allowPersistedRecordReferenceWrites === true)) {
+    assertStructuredMutationAuthorized({ action: effectiveAction, recordId: existing.id, authorization });
   }
   let record;
   if (existing) {
@@ -1256,7 +1561,15 @@ async function executeInvocation(
   }
   if (entity !== 'custom_object') await writePreferences(db, tenantId, entity, record.id, payload.custom, preferenceFields, payload.clearCustom);
   await ensureRelationshipLink(db, tenantId, invocation, record.id, relationshipDefinition, authorization);
-  return { status: 'completed', record_id: record.id, operation: existing ? 'updated' : 'created', entity_type: entity };
+  return {
+    status: 'completed',
+    record_id: record.id,
+    operation: existing ? 'updated' : 'created',
+    entity_type: entity,
+    ...(isRecordReferenceAction(action)
+      ? { record_reference: canonicalRecordReference(action, record.id) }
+      : {}),
+  };
 }
 
 /**
@@ -1334,6 +1647,22 @@ export async function processPersistedStructuredActions({
     ? { lmicCodes: await loadTenantLmicCodes(db, tenantId) }
     : {};
   await validateDirectSelectors(db, tenantId, form, submission.submission_data || {}, visibilityOptions);
+  // Validate relationship picker definitions even for a Not-listed answer:
+  // validateSubmission correctly skips option lookup for that sentinel, but a
+  // resolver must never use it to bypass stale relationship metadata.
+  const relationshipService = createFormRelationshipService({ db, tenantId });
+  for (const action of contract.actions.filter(isRecordReferenceAction)) {
+    const selector = sourceFieldsFor(action, form.fields || [])
+      .find(field => String(field?.id) === String(recordReferenceFieldId(action)));
+    if (selector?.type === 'relationship_dropdown') {
+      await relationshipService.validateRecordReferencePicker({
+        form,
+        fieldId: selector.id,
+        rootForm: form,
+        containerFieldId: repeatableId(action) || undefined,
+      });
+    }
+  }
   const preferenceFields = await loadPreferenceFields(db, tenantId);
   validateRuntimeMappingCompatibility(contract, form.fields || [], preferenceFields);
   const invocations = expandStructuredActionInvocations(
@@ -1351,13 +1680,20 @@ export async function processPersistedStructuredActions({
       assertRelationshipFieldEndpointsAuthorized(invocation, authorization);
       continue;
     }
-    assertStructuredMutationAuthorized({
-      action: invocation.action,
-      recordId: invocation.action.operation === 'update_selected'
-        ? invocation.selectedRecordId
-        : null,
-      authorization,
-    });
+    if (!isRecordReferenceAction(invocation.action)) {
+      assertStructuredMutationAuthorized({
+        action: invocation.action,
+        recordId: invocation.action.operation === 'update_selected'
+          ? invocation.selectedRecordId
+          : null,
+        authorization,
+      });
+    } else if (!invocation.selectedRecordId
+      && authorization.allowPersistedRecordReferenceWrites !== true) {
+      throw new StructuredActionAuthorizationError(
+        'Creating a record from a Not-listed reference requires trusted persisted processing',
+      );
+    }
     const relationshipDefinition = relationshipDefinitionsById.get(
       String(invocation.action.relationship_definition_id),
     );
@@ -1379,14 +1715,18 @@ export async function processPersistedStructuredActions({
   for (const invocation of invocations) {
     const prior = completed.get(invocation.invocationKey);
     if (prior) {
-      outcomes.push({
+      const alreadyCompleted = {
         invocation_key: invocation.invocationKey,
         action_id: invocation.action.id,
         row_index: invocation.rowIndex,
         status: 'already_completed',
         record_id: prior.record_id || null,
         entity_type: prior.entity_type || entityName(invocation.action),
-      });
+        ...(isRecordReferenceAction(invocation.action) && prior.record_id
+          ? { record_reference: canonicalRecordReference(invocation.action, prior.record_id) }
+          : {}),
+      };
+      outcomes.push(alreadyCompleted);
       if (!isRelationshipAction(invocation.action) && prior.record_id) {
         actionOutputs.set(relationshipOutputKey(invocation.action.id, invocation), { recordId: prior.record_id });
       }
@@ -1408,7 +1748,10 @@ export async function processPersistedStructuredActions({
       invocation.claimToken = ledger?.claim_token || null;
       if (ledger?.status === 'completed') {
         const alreadyCompleted = { invocation_key: invocation.invocationKey, action_id: invocation.action.id, row_identity: rowIdentity,
-          status: 'already_completed', record_id: ledger.record_id || null, entity_type: entityName(invocation.action) };
+          status: 'already_completed', record_id: ledger.record_id || null, entity_type: entityName(invocation.action),
+          ...(isRecordReferenceAction(invocation.action) && ledger.record_id
+            ? { record_reference: canonicalRecordReference(invocation.action, ledger.record_id) }
+            : {}) };
         outcomes.push(alreadyCompleted);
         notes.push({ at: new Date().toISOString(), kind: 'structured_action', ...alreadyCompleted });
         if (!isRelationshipAction(invocation.action) && ledger.record_id) {

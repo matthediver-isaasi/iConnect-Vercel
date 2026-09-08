@@ -46,7 +46,7 @@ test('Form contract exposes backward-compatible generic relationship actions', (
   assert.deepEqual(action.allOf[0].then.required, [
     'relationship_definition_id', 'source_endpoint', 'target_endpoint',
   ]);
-  assert.deepEqual(action.allOf[0].else.required, ['target', 'mappings']);
+  assert.deepEqual(action.allOf[1].then.required, ['target', 'mappings']);
 });
 
 test('builder distinguishes Organisation Group hierarchy assignment from Data Studio links', () => {
@@ -61,4 +61,28 @@ test('builder distinguishes Organisation Group hierarchy assignment from Data St
   assert.match(builder, /select-organization-group-source-/);
   assert.match(builder, /Actions run from top to bottom/);
   assert.match(builder, /Move action \$\{actionIndex \+ 1\} earlier/);
+});
+
+test('builder and schema expose metadata-driven record-reference resolution', () => {
+  const action = schema.properties.structured_actions.properties.actions.items;
+  assert.ok(action.properties.operation.enum.includes('resolve_record_reference'));
+  assert.ok(action.properties.reference_field_id);
+  assert.ok(action.properties.identity_mapping);
+  assert.ok(action.properties.companion_mappings);
+  assert.equal(action.properties.not_listed_operation.type, 'string');
+  assert.deepEqual(action.properties.not_listed_operation.enum, ['create', 'upsert']);
+  assert.deepEqual(action.allOf[2].then.required, [
+    'target', 'reference_field_id', 'identity_mapping', 'companion_mappings', 'not_listed_operation',
+  ]);
+  assert.match(builder, /compatibleRecordReferencePickers/);
+  assert.match(builder, /select-action-reference-field-/);
+  assert.match(builder, /select-action-reference-identity-/);
+  assert.match(builder, /Companion field mappings/);
+  assert.match(builder, /compatible single-record picker/);
+  assert.match(builder, /select-action-not-listed-operation-/);
+  assert.match(builder, /Create a new record/);
+  assert.match(builder, /Reuse or create by identity/);
+  assert.match(builder, /resolverInitialConfig/);
+  assert.match(builder, /not_listed_operation: 'upsert'/);
+  assert.match(builder, /recordReferenceConfigurationWarning\(action, formData\.fields\)/);
 });

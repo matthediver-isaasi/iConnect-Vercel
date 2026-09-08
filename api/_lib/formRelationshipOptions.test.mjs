@@ -86,6 +86,55 @@ function definition(overrides = {}) {
   };
 }
 
+test('record-reference metadata accepts an explicit side on a visible self relationship', async () => {
+  const objectId = 'self-object';
+  const selfForm = {
+    id: 'self-form',
+    fields: [
+      {
+        id: 'parent-record', type: 'relationship_dropdown',
+        related_kind: 'custom_object', related_custom_object_id: objectId,
+      },
+      {
+        id: 'related-record', type: 'relationship_dropdown',
+        parent_field_id: 'parent-record',
+        relationship_definition_id: 'self-definition',
+        relationship_parent_kind: 'custom_object',
+        relationship_parent_custom_object_id: objectId,
+        relationship_parent_side: 'source',
+        related_kind: 'custom_object',
+        related_custom_object_id: objectId,
+        related_primary_display_field_id: 'self-name',
+      },
+    ],
+  };
+  const service = createFormRelationshipService({
+    tenantId,
+    db: mockDb({
+      custom_object_relationship_definition: [{
+        id: 'self-definition', tenant_id: tenantId, status: 'active',
+        source_kind: 'custom_object', source_custom_object_id: objectId,
+        target_kind: 'custom_object', target_custom_object_id: objectId,
+        show_on_source: true, show_on_target: true,
+      }],
+      custom_object_definition: [{
+        id: objectId, tenant_id: tenantId, status: 'active',
+        primary_display_field_id: 'self-name',
+      }],
+      preference_field: [{
+        id: 'self-name', tenant_id: tenantId, custom_object_id: objectId,
+        entity_scope: 'custom_object', is_active: true,
+      }],
+    }),
+  });
+  const saved = await service.validateRecordReferencePicker({
+    form: selfForm,
+    rootForm: selfForm,
+    fieldId: 'related-record',
+  });
+  assert.equal(saved.parent.side, 'source');
+});
+
 test('organization relationship shape accepts either visible generic schema direction', () => {
   assert.deepEqual(organizationRelationshipSide(definition()), {
     organizationSide: 'source',

@@ -963,6 +963,11 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
       // Organisation Group without granting the respondent general group
       // mutation authority.
       allowPersistedOrganizationGroupActions: trustedInternal,
+      // Only the signed/internal persisted-processing path may materialize a
+      // configured Not-listed record reference. The action executor reloads
+      // both form and submission; a browser cannot supply this capability.
+      allowPersistedRecordReferenceWrites: trustedInternal,
+      processingActorMemberId: processingActorMemberId || authenticatedSubmitterMember?.id || null,
     };
     const persistCrmNotesForPipeline = async (entity, entityId, pipeline, authorMemberIdOverride = null) => {
       if (!entityId || !pipeline?.mappings?.some(mapping => mapping.target_type === 'crm_note')) return;

@@ -250,8 +250,43 @@
               },
               "operation": {
                 "type": "string",
-                 "enum": ["create", "update_selected", "upsert", "link_relationship"]
+                  "enum": ["create", "update_selected", "upsert", "link_relationship", "resolve_record_reference"]
               },
+               "reference_field_id": {
+                 "type": ["string", "null"],
+                 "description": "For resolve_record_reference, the exact compatible single-record picker in source scope."
+               },
+               "identity_mapping": {
+                 "type": ["object", "null"],
+                 "description": "Explicit mapping from the selected picker's Not-listed text to the target identity field.",
+                 "properties": {
+                   "id": { "type": "string" },
+                   "source_type": { "type": "string", "enum": ["not_listed_text"] },
+                   "source_field_id": { "type": "string" },
+                   "target_field_id": { "type": "string" },
+                   "target_type": { "type": "string", "enum": ["core", "custom"] }
+                 },
+                 "required": ["id", "source_type", "source_field_id", "target_field_id", "target_type"]
+               },
+               "companion_mappings": {
+                 "type": "array",
+                 "description": "Explicit same-scope companion values used only when the picker contains Not listed.",
+                 "items": {
+                   "type": "object",
+                   "properties": {
+                     "id": { "type": "string" },
+                     "source_field_id": { "type": "string" },
+                     "target_field_id": { "type": "string" },
+                     "target_type": { "type": "string", "enum": ["core", "custom"] }
+                   },
+                   "required": ["id", "source_field_id", "target_field_id", "target_type"]
+                 }
+               },
+               "not_listed_operation": {
+                 "type": "string",
+                 "enum": ["create", "upsert"],
+                 "description": "For resolve_record_reference, whether a Not-listed identity always creates a record or upserts a unique matching target."
+               },
                "source_endpoint": {
                  "type": "object",
                  "description": "For link_relationship, the persisted relationship definition's canonical source endpoint and the submitted-field or earlier-action source of its record ID.",
@@ -341,17 +376,30 @@
               }
             },
             "required": ["id", "source", "operation"],
-            "allOf": [{
+             "allOf": [{
               "if": {
                 "properties": { "operation": { "const": "link_relationship" } },
                 "required": ["operation"]
               },
               "then": {
                 "required": ["relationship_definition_id", "source_endpoint", "target_endpoint"]
-              },
-              "else": {
-                "required": ["target", "mappings"]
-              }
+               }
+             }, {
+               "if": {
+                 "properties": { "operation": { "enum": ["create", "update_selected", "upsert"] } },
+                 "required": ["operation"]
+               },
+               "then": {
+                 "required": ["target", "mappings"]
+               }
+             }, {
+               "if": {
+                 "properties": { "operation": { "const": "resolve_record_reference" } },
+                 "required": ["operation"]
+               },
+               "then": {
+                 "required": ["target", "reference_field_id", "identity_mapping", "companion_mappings", "not_listed_operation"]
+               }
             }]
           }
         }

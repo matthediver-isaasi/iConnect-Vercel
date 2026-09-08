@@ -277,5 +277,46 @@ export function createFormRelationshipService({ db, tenantId }) {
       }
     }
   }
-  return { loadForm, eligibleDefinitions, relationshipOptions, validateSubmission };
+  // A resolver may receive the Not-listed sentinel, so validateSubmission
+  // intentionally does not resolve an option. This separate persisted-metadata
+  // check closes that gap before a resolver can create a record.
+  async function validateRecordReferencePicker({ form, fieldId, rootForm, containerFieldId }) {
+    const saved = savedRelationshipField(form, fieldId, {
+      rootForm: rootForm || form,
+      containerFieldId,
+    });
+    const { data: definition, error } = await db.from('custom_object_relationship_definition')
+      .select('*').eq('tenant_id', tenantId).eq('id', saved.relationshipDefinitionId)
+      .eq('status', 'active').maybeSingle();
+    throwDb(error);
+    const parentSides = ['source', 'target'].filter(side => {
+      const relatedSide = side === 'source' ? 'target' : 'source';
+      return (!saved.parent.side || side === saved.parent.side)
+        && definition?.[`${side}_kind`] === saved.parent.kind
+        && String(definition?.[`${side}_custom_object_id`] || '') === String(saved.parent.custom_object_id || '')
+        && definition?.[`${relatedSide}_kind`] === saved.related.kind
+        && String(definition?.[`${relatedSide}_custom_object_id`] || '') === String(saved.related.custom_object_id || '')
+        && definition?.[`show_on_${side}`] !== false;
+    });
+    if (parentSides.length !== 1) {
+      throw new FormRelationshipError(409, 'Saved relationship configuration is unavailable');
+    }
+    if (saved.related.kind === 'custom_object') {
+      const object = await activeObject(saved.related.custom_object_id);
+      if (!object || String(object.primary_display_field_id) !== String(saved.related.primary_display_field_id)) {
+        throw new FormRelationshipError(409, 'Related Custom Object is unavailable');
+      }
+      const { data: displayField, error: displayError } = await db.from('preference_field')
+        .select('id').eq('tenant_id', tenantId)
+        .eq('id', saved.related.primary_display_field_id)
+        .eq('custom_object_id', saved.related.custom_object_id)
+        .eq('entity_scope', 'custom_object').eq('is_active', true).maybeSingle();
+      throwDb(displayError);
+      if (!displayField) {
+        throw new FormRelationshipError(409, 'Related Custom Object display field is unavailable');
+      }
+    }
+    return saved;
+  }
+  return { loadForm, eligibleDefinitions, relationshipOptions, validateSubmission, validateRecordReferencePicker };
 }

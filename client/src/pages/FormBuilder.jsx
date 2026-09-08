@@ -87,6 +87,11 @@ import {
   formNoRelationshipLabel,
 } from "../../../shared/formNoRelationshipChoice.js";
 import {
+  RESOLVE_RECORD_REFERENCE_OPERATION,
+  compatibleRecordReferencePickers,
+  recordReferenceConfigurationWarning,
+} from "../../../shared/formRecordReferenceResolver.js";
+import {
   formRoleFieldOptions,
   isFormRoleMappingField,
 } from "../../../api/_lib/formMemberRoleAssignment.js";
@@ -1000,6 +1005,24 @@ function StructuredRecordActionsEditor({
       definition.id && definition.source_kind && definition.target_kind
     )),
   ].map(definition => [definition.id, definition])).values());
+  const resolverInitialConfig = (() => {
+    const targets = [
+      ...STRUCTURED_ACTION_TARGETS.filter(target => target.value !== 'custom_object')
+        .map(target => ({ kind: target.value, custom_object_id: null })),
+      ...customObjects.map(object => ({ kind: 'custom_object', custom_object_id: object.id })),
+    ];
+    const scopes = [
+      { scope: 'top_level', repeatable_field_id: null },
+      ...repeatables.map(field => ({ scope: 'repeatable_row', repeatable_field_id: field.id })),
+    ];
+    for (const source of scopes) {
+      for (const target of targets) {
+        const picker = compatibleRecordReferencePickers(fields, source, target)[0];
+        if (picker) return { source, target, reference_field_id: picker.id };
+      }
+    }
+    return null;
+  })();
 
   return (
     <div className="space-y-3 pb-5 border-b border-slate-200" data-testid="structured-record-actions">
@@ -1019,6 +1042,22 @@ function StructuredRecordActionsEditor({
             mappings: [],
           }])} data-testid="button-add-structured-action">
             <Plus className="w-4 h-4 mr-2" /> Add record action
+          </Button>
+          <Button type="button" variant="outline" size="sm"
+            disabled={metadataLoading || Boolean(metadataError) || !resolverInitialConfig}
+            onClick={() => updateActions([...actions, {
+              id: `resolve_reference_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+              label: '',
+              source: resolverInitialConfig.source,
+              target: resolverInitialConfig.target,
+              operation: RESOLVE_RECORD_REFERENCE_OPERATION,
+              reference_field_id: resolverInitialConfig.reference_field_id,
+              identity_mapping: null,
+              companion_mappings: [],
+              mappings: [],
+              not_listed_operation: 'upsert',
+            }])} data-testid="button-add-resolve-record-reference">
+            <Plus className="w-4 h-4 mr-2" /> Resolve record reference
           </Button>
           <Button type="button" variant="outline" size="sm" disabled={metadataLoading || Boolean(metadataError) || activeRelationships.length === 0}
             onClick={() => updateActions([...actions, {
@@ -1181,6 +1220,16 @@ function StructuredRecordActionsEditor({
               || descriptor.objectId === selectedRelationship?.[`${parentSide}_custom_object_id`]);
         });
         const upsertFields = structuredUpsertFields(action, targetFields);
+        const resolverPickers = compatibleRecordReferencePickers(fields, action.source, action.target);
+        const resolverWarning = recordReferenceConfigurationWarning(action, fields);
+        const isResolver = action.operation === RESOLVE_RECORD_REFERENCE_OPERATION;
+        const resolverIdentityTargets = structuredUpsertFields(action, targetFields);
+        const displayedMappings = isResolver
+          ? (action.companion_mappings || [])
+          : (action.mappings || []);
+        const mappingUpdates = (mappings) => isResolver
+          ? { mappings, companion_mappings: mappings }
+          : { mappings };
         return (
           <div key={action.id || actionIndex} className="rounded-lg border bg-slate-50 p-4 space-y-4" data-testid={`structured-action-${actionIndex}`}>
             <div className="flex justify-between gap-3">
@@ -1197,25 +1246,25 @@ function StructuredRecordActionsEditor({
             </div>
             <div className="grid md:grid-cols-3 gap-3">
               <div className="space-y-1"><Label className="text-xs">Source scope</Label>
-                <Select value={action.source?.scope || 'top_level'} onValueChange={scope => updateAction(actionIndex, { source: { scope, repeatable_field_id: scope === 'repeatable_row' ? (repeatables[0]?.id || null) : null }, organization_group_source: null, mappings: [] })}>
+                <Select value={action.source?.scope || 'top_level'} onValueChange={scope => updateAction(actionIndex, { source: { scope, repeatable_field_id: scope === 'repeatable_row' ? (repeatables[0]?.id || null) : null }, organization_group_source: null, reference_field_id: null, identity_mapping: null, companion_mappings: [], mappings: [] })}>
                   <SelectTrigger data-testid={`select-action-source-${actionIndex}`}><SelectValue /></SelectTrigger>
                   <SelectContent><SelectItem value="top_level">Top-level submission</SelectItem><SelectItem value="repeatable_row" disabled={!repeatables.length}>Each repeatable row</SelectItem></SelectContent>
                 </Select>
               </div>
               {action.source?.scope === 'repeatable_row' && <div className="space-y-1"><Label className="text-xs">Repeatable field</Label>
-                <Select value={action.source?.repeatable_field_id || ''} onValueChange={repeatable_field_id => updateAction(actionIndex, { source: { scope: 'repeatable_row', repeatable_field_id }, organization_group_source: null, mappings: [] })}>
+                <Select value={action.source?.repeatable_field_id || ''} onValueChange={repeatable_field_id => updateAction(actionIndex, { source: { scope: 'repeatable_row', repeatable_field_id }, organization_group_source: null, reference_field_id: null, identity_mapping: null, companion_mappings: [], mappings: [], uniqueness_field: null })}>
                   <SelectTrigger><SelectValue placeholder="Select repeatable rows…" /></SelectTrigger>
                   <SelectContent>{repeatables.map(field => <SelectItem key={field.id} value={field.id}>{field.label || field.id}</SelectItem>)}</SelectContent>
                 </Select>
               </div>}
               <div className="space-y-1"><Label className="text-xs">Target</Label>
-                <Select value={action.target?.kind || ''} onValueChange={kind => updateAction(actionIndex, { target: { kind, custom_object_id: null }, relationship_definition_id: null, organization_group_source: null, uniqueness_field: null, mappings: [] })}>
+                 <Select value={action.target?.kind || ''} onValueChange={kind => updateAction(actionIndex, { target: { kind, custom_object_id: null }, relationship_definition_id: null, organization_group_source: null, reference_field_id: null, identity_mapping: null, companion_mappings: [], uniqueness_field: null, mappings: [] })}>
                   <SelectTrigger data-testid={`select-action-target-${actionIndex}`}><SelectValue placeholder="Select target…" /></SelectTrigger>
                   <SelectContent>{STRUCTURED_ACTION_TARGETS.map(target => <SelectItem key={target.value} value={target.value}>{target.label}</SelectItem>)}</SelectContent>
                 </Select>
               </div>
               {action.target?.kind === 'custom_object' && <div className="space-y-1"><Label className="text-xs">Custom Object</Label>
-                <Select value={action.target?.custom_object_id || ''} onValueChange={custom_object_id => updateAction(actionIndex, { target: { kind: 'custom_object', custom_object_id }, relationship_definition_id: null, uniqueness_field: null, mappings: [] })}>
+                <Select value={action.target?.custom_object_id || ''} onValueChange={custom_object_id => updateAction(actionIndex, { target: { kind: 'custom_object', custom_object_id }, relationship_definition_id: null, reference_field_id: null, identity_mapping: null, companion_mappings: [], uniqueness_field: null, mappings: [] })}>
                   <SelectTrigger data-testid={`select-action-object-${actionIndex}`}><SelectValue placeholder="Select active object…" /></SelectTrigger>
                   <SelectContent>{customObjects.map(object => <SelectItem key={object.id} value={object.id}>{object.plural_label || object.singular_label || object.object_key}</SelectItem>)}</SelectContent>
                 </Select>
@@ -1258,11 +1307,70 @@ function StructuredRecordActionsEditor({
             )}
             <div className="grid md:grid-cols-3 gap-3">
               <div className="space-y-1"><Label className="text-xs">Record operation</Label>
-                <Select value={action.operation || ''} onValueChange={operation => updateAction(actionIndex, { operation, selector_field_id: operation === 'update_selected' ? (selectorFields[0]?.id || null) : null, uniqueness_field: operation === 'upsert' ? (upsertFields[0]?.value || null) : null })}>
+                <Select value={action.operation || ''} onValueChange={operation => updateAction(actionIndex, {
+                  operation,
+                  selector_field_id: operation === 'update_selected' ? (selectorFields[0]?.id || null) : null,
+                  uniqueness_field: operation === 'upsert' ? (upsertFields[0]?.value || null) : null,
+                  ...(operation === RESOLVE_RECORD_REFERENCE_OPERATION
+                    ? {
+                      reference_field_id: resolverPickers[0]?.id || null,
+                      identity_mapping: null,
+                      companion_mappings: [],
+                      mappings: [],
+                      not_listed_operation: 'upsert',
+                    }
+                    : {
+                      reference_field_id: null,
+                      identity_mapping: null,
+                      companion_mappings: [],
+                      not_listed_operation: null,
+                    }),
+                })}>
                   <SelectTrigger data-testid={`select-action-operation-${actionIndex}`}><SelectValue /></SelectTrigger>
-                  <SelectContent><SelectItem value="create">Create new</SelectItem><SelectItem value="update_selected">Update selected related record</SelectItem><SelectItem value="upsert" disabled={!upsertFields.length}>Upsert by unique field</SelectItem></SelectContent>
+                  <SelectContent><SelectItem value="create">Create new</SelectItem><SelectItem value="update_selected">Update selected related record</SelectItem><SelectItem value="upsert" disabled={!upsertFields.length}>Upsert by unique field</SelectItem><SelectItem value={RESOLVE_RECORD_REFERENCE_OPERATION} disabled={!resolverPickers.length}>Resolve record reference</SelectItem></SelectContent>
                 </Select>
               </div>
+              {isResolver && <div className="space-y-1"><Label className="text-xs">Record-backed picker</Label>
+                <Select value={action.reference_field_id || ''} onValueChange={reference_field_id => updateAction(actionIndex, {
+                  reference_field_id,
+                  identity_mapping: null,
+                  companion_mappings: [],
+                  mappings: [],
+                  uniqueness_field: null,
+                })}>
+                  <SelectTrigger data-testid={`select-action-reference-field-${actionIndex}`}><SelectValue placeholder="Select a single-record picker…" /></SelectTrigger>
+                  <SelectContent>{resolverPickers.map(field => <SelectItem key={field.id} value={field.id}>{field.label || field.id}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>}
+              {isResolver && <div className="space-y-1"><Label className="text-xs">Not-listed identity field</Label>
+                <Select value={action.identity_mapping?.target_field_id || ''} onValueChange={target_field_id => {
+                  const selected = resolverIdentityTargets.find(field => field.value === target_field_id);
+                  updateAction(actionIndex, {
+                    identity_mapping: {
+                      id: action.identity_mapping?.id || `identity_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+                      source_type: 'not_listed_text',
+                      source_field_id: action.reference_field_id,
+                      target_field_id,
+                      target_type: selected?.target_type || 'custom',
+                    },
+                    uniqueness_field: action.not_listed_operation === 'upsert' ? target_field_id : null,
+                  });
+                }}>
+                  <SelectTrigger data-testid={`select-action-reference-identity-${actionIndex}`}><SelectValue placeholder="Map Not listed text…" /></SelectTrigger>
+                  <SelectContent>{resolverIdentityTargets.map(field => <SelectItem key={`${field.target_type}:${field.value}`} value={field.value}>{field.label}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>}
+              {isResolver && <div className="space-y-1"><Label className="text-xs">When Not listed</Label>
+                <Select value={action.not_listed_operation || 'upsert'} onValueChange={not_listed_operation => updateAction(actionIndex, {
+                  not_listed_operation,
+                  uniqueness_field: not_listed_operation === 'upsert'
+                    ? (action.identity_mapping?.target_field_id || null)
+                    : null,
+                })}>
+                  <SelectTrigger data-testid={`select-action-not-listed-operation-${actionIndex}`}><SelectValue /></SelectTrigger>
+                  <SelectContent><SelectItem value="create">Create a new record</SelectItem><SelectItem value="upsert">Reuse or create by identity</SelectItem></SelectContent>
+                </Select>
+              </div>}
               {action.operation === 'update_selected' && <div className="space-y-1"><Label className="text-xs">Selected-record field</Label>
                 <Select value={action.selector_field_id || ''} onValueChange={selector_field_id => {
                   const selector = selectorFields.find(field => field.id === selector_field_id);
@@ -1291,11 +1399,20 @@ function StructuredRecordActionsEditor({
                 </Select>
               </div>}
             </div>
-            <div className="space-y-2">
-              <div className="flex justify-between items-center"><Label className="text-xs font-semibold">Field mappings</Label>
-                <Button type="button" variant="outline" size="sm" disabled={!sourceFields.length || !targetFields.length} onClick={() => updateAction(actionIndex, { mappings: [...(action.mappings || []), { id: `mapping_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`, source_field_id: '', target_field_id: '', target_type: 'core' }] })}><Plus className="w-3 h-3 mr-1" />Mapping</Button>
+            {isResolver && (
+              <div className="rounded-md border border-blue-200 bg-blue-50 p-3 text-xs text-slate-700">
+                Existing selections return the authoritative selected record. For Not listed, the identity mapping and companion field mappings below create or upsert the target. Companion values are read only from this action&apos;s submission or current-row scope.
+                {resolverWarning && <p className="mt-2 font-medium text-amber-700" role="alert">{resolverWarning}</p>}
               </div>
-              {(action.mappings || []).map((mapping, mappingIndex) => (
+            )}
+            <div className="space-y-2">
+              <div className="flex justify-between items-center"><Label className="text-xs font-semibold">{isResolver ? 'Companion field mappings' : 'Field mappings'}</Label>
+                <Button type="button" variant="outline" size="sm" disabled={!sourceFields.length || !targetFields.length} onClick={() => {
+                  const mappings = [...displayedMappings, { id: `mapping_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`, source_field_id: '', target_field_id: '', target_type: 'core' }];
+                  updateAction(actionIndex, mappingUpdates(mappings));
+                }}><Plus className="w-3 h-3 mr-1" />Mapping</Button>
+              </div>
+              {displayedMappings.map((mapping, mappingIndex) => (
                 <div className="grid grid-cols-[1fr_auto_1fr_auto] gap-2 items-center" key={mapping.id || mappingIndex}>
                   <div className="space-y-2">
                     <Select disabled={mapping.source_type === 'clear'} value={mapping.source_field_id || ''} onValueChange={source_field_id => {
@@ -1303,7 +1420,7 @@ function StructuredRecordActionsEditor({
                       const firstComponent = selectedField?.type === 'address_lookup'
                         ? addressLookupVisibleComponents(selectedField)[0] || null
                         : null;
-                      const mappings = [...action.mappings];
+                       const mappings = [...displayedMappings];
                       mappings[mappingIndex] = {
                         ...mapping,
                         source_field_id,
@@ -1311,7 +1428,7 @@ function StructuredRecordActionsEditor({
                         target_field_id: '',
                         target_type: 'core',
                       };
-                      updateAction(actionIndex, { mappings });
+                       updateAction(actionIndex, mappingUpdates(mappings));
                     }}><SelectTrigger><SelectValue placeholder={mapping.source_type === 'clear' ? 'Explicit clear' : 'Source field…'} /></SelectTrigger><SelectContent>{sourceFields.filter(source => {
                       const candidates = source.type === 'address_lookup'
                         ? addressLookupVisibleComponents(source).map(component => ({ ...source, type: 'text', source_component: component }))
@@ -1320,9 +1437,9 @@ function StructuredRecordActionsEditor({
                     }).map(field => <SelectItem key={field.id} value={field.id}>{structuredMappingSourceLabel(field, mapping)}</SelectItem>)}</SelectContent></Select>
                     {sourceFields.find(source => source.id === mapping.source_field_id)?.type === 'address_lookup' && (
                       <Select value={mapping.source_component || ''} onValueChange={source_component => {
-                        const mappings = [...action.mappings];
+                         const mappings = [...displayedMappings];
                         mappings[mappingIndex] = { ...mapping, source_component, target_field_id: '', target_type: 'core' };
-                        updateAction(actionIndex, { mappings });
+                         updateAction(actionIndex, mappingUpdates(mappings));
                       }}>
                         <SelectTrigger><SelectValue placeholder="Address component…" /></SelectTrigger>
                         <SelectContent>{ADDRESS_LOOKUP_COMPONENTS
@@ -1332,8 +1449,8 @@ function StructuredRecordActionsEditor({
                     )}
                   </div>
                   <ArrowRight className="w-4 h-4 text-slate-400" />
-                  <Select value={mapping.target_field_id || ''} onValueChange={target_field_id => { const selected = targetFields.find(field => field.value === target_field_id); const mappings = [...action.mappings]; mappings[mappingIndex] = { ...mapping, target_field_id, target_type: selected?.target_type || 'custom' }; updateAction(actionIndex, { mappings }); }}><SelectTrigger><SelectValue placeholder="Target field…" /></SelectTrigger><SelectContent>{targetFields.filter(field => isCompatibleStructuredMapping(structuredMappingSource(sourceFields.find(source => source.id === mapping.source_field_id), mapping), field)).map(field => <SelectItem key={`${field.target_type}:${field.value}`} value={field.value}>{field.target_type === 'custom' ? 'Custom: ' : ''}{field.label}</SelectItem>)}</SelectContent></Select>
-                  <Button type="button" variant="ghost" size="icon" className="text-red-500" onClick={() => updateAction(actionIndex, { mappings: action.mappings.filter((_, index) => index !== mappingIndex) })}><Trash2 className="w-4 h-4" /></Button>
+                   <Select value={mapping.target_field_id || ''} onValueChange={target_field_id => { const selected = targetFields.find(field => field.value === target_field_id); const mappings = [...displayedMappings]; mappings[mappingIndex] = { ...mapping, target_field_id, target_type: selected?.target_type || 'custom' }; updateAction(actionIndex, mappingUpdates(mappings)); }}><SelectTrigger><SelectValue placeholder="Target field…" /></SelectTrigger><SelectContent>{targetFields.filter(field => isCompatibleStructuredMapping(structuredMappingSource(sourceFields.find(source => source.id === mapping.source_field_id), mapping), field)).map(field => <SelectItem key={`${field.target_type}:${field.value}`} value={field.value}>{field.target_type === 'custom' ? 'Custom: ' : ''}{field.label}</SelectItem>)}</SelectContent></Select>
+                   <Button type="button" variant="ghost" size="icon" className="text-red-500" onClick={() => updateAction(actionIndex, mappingUpdates(displayedMappings.filter((_, index) => index !== mappingIndex)))}><Trash2 className="w-4 h-4" /></Button>
                   <div className="col-span-4 flex flex-wrap items-center justify-between gap-2 border-t pt-2">
                     <div className="flex items-center gap-2">
                       <Switch
@@ -1341,14 +1458,14 @@ function StructuredRecordActionsEditor({
                         disabled={!mapping.target_field_id}
                         onCheckedChange={(checked) => {
                           const groupId = mapping.fallback_group?.id;
-                          const matchingMappings = action.mappings.filter(item =>
+                           const matchingMappings = displayedMappings.filter(item =>
                             item.target_type === mapping.target_type
                               && item.target_field_id === mapping.target_field_id);
                           if (checked && matchingMappings.length < 2) {
                             toast.error('Add at least two mappings to the same destination before enabling an ordered fallback.');
                             return;
                           }
-                          const mappings = action.mappings.map(item => {
+                           const mappings = displayedMappings.map(item => {
                             const sameTarget = item.target_type === mapping.target_type
                               && item.target_field_id === mapping.target_field_id;
                             if (!checked) {
@@ -1359,7 +1476,7 @@ function StructuredRecordActionsEditor({
                             if (item.id !== mapping.id && !sameTarget) return item;
                             return { ...item, fallback_group: { version: FORM_MAPPING_FALLBACK_VERSION, id: `fallback:${mapping.target_type}:${mapping.target_field_id}` } };
                           });
-                          updateAction(actionIndex, { mappings });
+                           updateAction(actionIndex, mappingUpdates(mappings));
                         }}
                         data-testid={`switch-structured-fallback-${actionIndex}-${mappingIndex}`}
                       />
@@ -1367,27 +1484,27 @@ function StructuredRecordActionsEditor({
                     </div>
                     <div className="flex items-center gap-1">
                       <Button type="button" variant="ghost" size="icon" disabled={mappingIndex === 0} onClick={() => {
-                        const mappings = [...action.mappings];
+                         const mappings = [...displayedMappings];
                         [mappings[mappingIndex - 1], mappings[mappingIndex]] = [mappings[mappingIndex], mappings[mappingIndex - 1]];
-                        updateAction(actionIndex, { mappings });
+                         updateAction(actionIndex, mappingUpdates(mappings));
                       }} aria-label="Move mapping earlier"><ChevronUp className="w-4 h-4" /></Button>
-                      <Button type="button" variant="ghost" size="icon" disabled={mappingIndex === action.mappings.length - 1} onClick={() => {
-                        const mappings = [...action.mappings];
+                       <Button type="button" variant="ghost" size="icon" disabled={mappingIndex === displayedMappings.length - 1} onClick={() => {
+                         const mappings = [...displayedMappings];
                         [mappings[mappingIndex + 1], mappings[mappingIndex]] = [mappings[mappingIndex], mappings[mappingIndex + 1]];
-                        updateAction(actionIndex, { mappings });
+                         updateAction(actionIndex, mappingUpdates(mappings));
                       }} aria-label="Move mapping later"><ChevronDown className="w-4 h-4" /></Button>
                       <Button type="button" variant="ghost" size="sm" onClick={() => {
-                        const mappings = [...action.mappings];
+                         const mappings = [...displayedMappings];
                         mappings[mappingIndex] = mapping.source_type === 'clear'
                           ? { ...mapping, source_type: 'field' }
                           : { ...mapping, source_type: 'clear', source_field_id: '', source_component: undefined };
-                        updateAction(actionIndex, { mappings });
+                         updateAction(actionIndex, mappingUpdates(mappings));
                       }}>{mapping.source_type === 'clear' ? 'Use field' : 'Clear'}</Button>
                     </div>
                   </div>
                 </div>
               ))}
-              {!(action.mappings || []).length && <p className="text-xs text-slate-400">Add at least one mapping from a field in the selected source scope.</p>}
+              {!displayedMappings.length && <p className="text-xs text-slate-400">{isResolver ? 'Companion mappings are optional; the explicit Not-listed identity mapping is required.' : 'Add at least one mapping from a field in the selected source scope.'}</p>}
             </div>
           </div>
         );
@@ -10791,13 +10908,29 @@ export default function FormBuilderPage() {
         toast.error(`${actionName} needs an active Custom Object.`);
         return;
       }
-      if (!['create', 'update_selected', 'upsert'].includes(action.operation)) {
+      if (!['create', 'update_selected', 'upsert', RESOLVE_RECORD_REFERENCE_OPERATION].includes(action.operation)) {
         toast.error(`${actionName} needs a valid record operation.`);
         return;
       }
       const compatibleRelationships = structuredActionMetadata.relationships
         .filter(definition => relationshipSupportsTarget(definition, action));
       const sourceFields = structuredActionSourceFields(formData.fields, action);
+      if (action.operation === RESOLVE_RECORD_REFERENCE_OPERATION) {
+        const resolverWarning = recordReferenceConfigurationWarning(action, formData.fields);
+        if (resolverWarning) {
+          toast.error(`${actionName}: ${resolverWarning}`);
+          return;
+        }
+        const eligiblePickers = compatibleRecordReferencePickers(
+          formData.fields,
+          action.source,
+          action.target,
+        );
+        if (!eligiblePickers.some(field => field.id === action.reference_field_id)) {
+          toast.error(`${actionName} needs a compatible single-record picker in its selected scope.`);
+          return;
+        }
+      }
       if (action.organization_group_source) {
         if (action.target?.kind !== 'organization') {
           toast.error(`${actionName} can only assign an Organisation Group to an Organisation action.`);
@@ -10860,8 +10993,11 @@ export default function FormBuilderPage() {
         customFields,
         structuredActionMetadata.fields,
       );
-      const mappingsForAction = Array.isArray(action.mappings) ? action.mappings : [];
-      if (mappingsForAction.length === 0) {
+      const mappingsForAction = action.operation === RESOLVE_RECORD_REFERENCE_OPERATION
+        ? (Array.isArray(action.companion_mappings) ? action.companion_mappings : [])
+        : (Array.isArray(action.mappings) ? action.mappings : []);
+      if (mappingsForAction.length === 0
+        && action.operation !== RESOLVE_RECORD_REFERENCE_OPERATION) {
         toast.error(`${actionName} needs at least one field mapping.`);
         return;
       }
@@ -10872,6 +11008,24 @@ export default function FormBuilderPage() {
       }
       const mappedTargets = new Set();
       const mappingIds = new Set();
+      if (action.operation === RESOLVE_RECORD_REFERENCE_OPERATION) {
+        const identityTarget = targetFields.find(field => (
+          field.value === action.identity_mapping?.target_field_id
+          && field.target_type === action.identity_mapping?.target_type
+        ));
+        if (!identityTarget
+          || action.identity_mapping?.source_type !== 'not_listed_text'
+          || action.identity_mapping?.source_field_id !== action.reference_field_id) {
+          toast.error(`${actionName} needs an explicit Not-listed identity mapping to an active target field.`);
+          return;
+        }
+        if (action.not_listed_operation === 'upsert'
+          && action.uniqueness_field !== action.identity_mapping.target_field_id) {
+          toast.error(`${actionName} must use its Not-listed identity field as the upsert uniqueness field.`);
+          return;
+        }
+        mappedTargets.add(`${identityTarget.target_type}:${identityTarget.value}`);
+      }
       for (let mappingIndex = 0; mappingIndex < mappingsForAction.length; mappingIndex += 1) {
         const mapping = mappingsForAction[mappingIndex];
         if (!mapping.id || mappingIds.has(mapping.id)) {
@@ -10917,6 +11071,9 @@ export default function FormBuilderPage() {
       }
       if (action.operation !== 'update_selected') {
         const missingRequired = targetFields.find(target => target.required
+          && !(action.operation === RESOLVE_RECORD_REFERENCE_OPERATION
+            && action.identity_mapping?.target_field_id === target.value
+            && action.identity_mapping?.target_type === target.target_type)
           && !mappingsForAction.some(mapping => (
             mapping.target_field_id === target.value && mapping.target_type === target.target_type
           )));
