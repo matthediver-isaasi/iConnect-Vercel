@@ -6,7 +6,7 @@ import { getTenantBaseUrl } from '../_lib/campaignService.js';
 import { resolveDdOwnerForSubmission } from '../_lib/ddOwner.js';
 import { buildContractBracketPlaceholders, replaceContractBracketPlaceholders } from '../_lib/contractPlaceholders.js';
 import { triggerWorkflows, triggerPreferenceWorkflows } from '../_lib/workflows.js';
-import { coerceBooleanPreferenceValue } from '../_lib/booleanCoercion.js';
+import { prepareMemberCustomPreferenceValue } from './memberCustomMapping.js';
 import { resolveStaticTodayToken } from '../_lib/staticValueTokens.js';
 import { 
   isZohoCrmConnected,
@@ -1680,6 +1680,7 @@ export async function executeMemberCreationActions(stageId, ddSubmission, tenant
       // Process custom field mappings (preference values)
       const customMappings = fieldMappings.custom || {};
       const customFieldErrors = [];
+      const customFieldOutcomes = [];
 
       // Batch-fetch preference_field definitions for every mapped target so we
       // know each field's field_type before writing. Needed in particular to
@@ -1691,9 +1692,20 @@ export async function executeMemberCreationActions(stageId, ddSubmission, tenant
         const { data: customPrefFields, error: prefFieldsError } = await supabase
           .from('preference_field')
           .select('id, field_type, label')
-          .in('id', customFieldIds);
+          .in('id', customFieldIds)
+          .eq('tenant_id', tenantId)
+          .eq('entity_scope', 'member')
+          .eq('is_active', true);
         if (prefFieldsError) {
           console.error('[DD Member Action] Failed to load preference_field defs:', prefFieldsError);
+          for (const fieldId of customFieldIds) {
+            customFieldOutcomes.push({
+              field_id: fieldId,
+              status: 'failed',
+              reason: 'preference_definition_lookup_failed',
+              error: prefFieldsError.message,
+            });
+          }
         }
         for (const pf of customPrefFields || []) {
           customPrefFieldMap.set(pf.id, pf);
@@ -1713,24 +1725,22 @@ export async function executeMemberCreationActions(stageId, ddSubmission, tenant
           );
         }
 
-        if (value === undefined || value === null || value === '') continue;
-
         const prefField = customPrefFieldMap.get(prefFieldId);
-        const fieldType = prefField?.field_type || 'unknown';
-
-        let storedValue;
-        if (fieldType === 'boolean') {
-          const coerced = coerceBooleanPreferenceValue(value);
-          if (coerced === null) {
-            console.log(
-              `[DD Member Action] custom:${prefFieldId} field_type=boolean rawValue=${previewFieldValue(value)} storedValue=<skipped: value does not map to true/false>`
-            );
-            continue;
-          }
-          storedValue = coerced;
-        } else {
-          storedValue = typeof value === 'object' ? JSON.stringify(value) : String(value);
+        const prepared = prepareMemberCustomPreferenceValue(value, prefField);
+        if (!prepared.ok) {
+          const outcome = {
+            field_id: prefFieldId,
+            status: 'skipped',
+            reason: prepared.reason,
+          };
+          customFieldOutcomes.push(outcome);
+          console.warn(
+            `[DD Member Action] custom:${prefFieldId} skipped reason=${prepared.reason} rawValue=${previewFieldValue(value)}`
+          );
+          continue;
         }
+        const { storedValue } = prepared;
+        const fieldType = prefField.field_type;
 
         console.log(
           `[DD Member Action] custom:${prefFieldId} field_type=${fieldType} rawValue=${previewFieldValue(value)} storedValue=${previewFieldValue(storedValue)}`
@@ -1747,6 +1757,18 @@ export async function executeMemberCreationActions(stageId, ddSubmission, tenant
         if (prefError) {
           console.error(`[DD Member Action] Failed to set custom field ${prefFieldId}:`, prefError);
           customFieldErrors.push(prefFieldId);
+          customFieldOutcomes.push({
+            field_id: prefFieldId,
+            status: 'failed',
+            reason: 'database_write_failed',
+            error: prefError.message,
+          });
+        } else {
+          customFieldOutcomes.push({
+            field_id: prefFieldId,
+            status: 'success',
+            stored_value: storedValue,
+          });
         }
       }
 
@@ -1860,7 +1882,8 @@ export async function executeMemberCreationActions(stageId, ddSubmission, tenant
         member_id: newMember.id,
         email: normalizedEmail,
         status: 'success',
-        custom_field_errors: customFieldErrors.length > 0 ? customFieldErrors : undefined
+        custom_field_errors: customFieldErrors.length > 0 ? customFieldErrors : undefined,
+        custom_field_outcomes: customFieldOutcomes.length > 0 ? customFieldOutcomes : undefined
       });
 
       await addHistoryLogEntry(ddSubmission.id, tenantId, 'member_created', triggeredBy, {
