@@ -50,6 +50,7 @@ import {
   assertValidExplicitFallbackGroups,
   coalesceExplicitFallbackMappings,
   extractMappingSourceComponent,
+  partitionIgnoredHiddenMappings,
 } from '../_lib/formMappingFallbacks.js';
 import { persistPipelineCrmNotes } from '../_lib/formCrmNotes.js';
 
@@ -934,6 +935,66 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
       });
     }
     const hiddenSubmissionFieldIds = computeHiddenFieldIds(persistedForm, authoritativeAnswers, submitControlOptions);
+    const ignoredHiddenMappingNoteKeys = new Set();
+    const selectMappingsForSubmission = (mappings, {
+      targetEntity = null,
+      pipelineId = null,
+      source = 'field_mappings',
+    } = {}) => {
+      const selection = partitionIgnoredHiddenMappings(mappings, hiddenSubmissionFieldIds);
+      for (const mapping of selection.ignoredMappings) {
+        const entity = targetEntity || mapping.target_entity || null;
+        const noteKey = [
+          source,
+          pipelineId || '',
+          mapping.id || '',
+          mapping.source_field_id || '',
+          entity || '',
+          mapping.target_field || '',
+        ].join(':');
+        if (ignoredHiddenMappingNoteKeys.has(noteKey)) continue;
+        ignoredHiddenMappingNoteKeys.add(noteKey);
+        addProcessingNote({
+          kind: 'hidden_mapping_ignored',
+          level: 'info',
+          stage: 'mapping_selection',
+          source,
+          pipeline_id: pipelineId,
+          mapping_id: mapping.id || null,
+          source_field_id: mapping.source_field_id,
+          target_entity: entity,
+          target_type: mapping.target_type || 'core',
+          target_field: mapping.target_field || null,
+          message: 'Mapping intentionally ignored because its persisted source field was hidden for this submission.',
+        });
+      }
+      return {
+        ...selection,
+        targetEntity,
+        pipelineId,
+        source,
+      };
+    };
+    const isIdentityMappingFor = (mapping, entity, selectionTargetEntity = null) => {
+      const targetEntity = selectionTargetEntity || mapping?.target_entity || null;
+      if (targetEntity !== entity || (mapping?.target_type || 'core') !== 'core') return false;
+      const targetField = entity === 'organization'
+        ? resolveOrganizationCoreField(mapping?.target_field)
+        : mapping?.target_field;
+      return targetField === (entity === 'member' ? 'email' : 'name');
+    };
+    const selectionHasIdentityMapping = (selection, entity) => (
+      !!selection
+      && [...(selection.includedMappings || []), ...(selection.ignoredMappings || [])]
+        .some(mapping => isIdentityMappingFor(mapping, entity, selection.targetEntity))
+    );
+    const selectionLostIdentityOnlyToHiddenMapping = (selection, entity) => (
+      !!selection
+      && selection.ignoredMappings.some(mapping =>
+        isIdentityMappingFor(mapping, entity, selection.targetEntity))
+      && !selection.includedMappings.some(mapping =>
+        isIdentityMappingFor(mapping, entity, selection.targetEntity))
+    );
     if (!authenticatedSubmitterMember && trustedInternal && verified_submitter_member_id) {
       const { data: submitterMember } = await supabase.from('member')
         .select('id, tenant_id, email, organization_id')
@@ -1279,7 +1340,9 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
     const orgCustomFieldsToClear = new Set();
     // Map to collect communication preferences (categoryId -> boolean subscribed value)
     const memberCommunicationPrefsMap = new Map(
-      collectMemberPipelineCommunicationSelections(entity_pipelines, form_values)
+      collectMemberPipelineCommunicationSelections(entity_pipelines, form_values, {
+        hiddenFieldIds: hiddenSubmissionFieldIds,
+      })
         .map(({ category_id, is_subscribed }) => [category_id, is_subscribed])
     );
 
@@ -1387,6 +1450,17 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
     // These fields should NOT be populated by legacy field_mappings (entity_pipelines takes precedence)
     const pipelineMemberFields = new Set();
     const pipelineOrgFields = new Set();
+    const pipelineMemberCustomFields = new Set();
+    const pipelineOrgCustomFields = new Set();
+    let topLevelMappingSelection = null;
+    let primaryMemberMappingSelection = null;
+    let primaryOrgMappingSelection = null;
+    const primaryIdentityLostOnlyToHiddenMapping = (primarySelection, entity) => {
+      if (selectionHasIdentityMapping(primarySelection, entity)) {
+        return selectionLostIdentityOnlyToHiddenMapping(primarySelection, entity);
+      }
+      return selectionLostIdentityOnlyToHiddenMapping(topLevelMappingSelection, entity);
+    };
     
     if (memberPipelines.length > 0) {
       const primaryMemberPipeline = memberPipelines.find(m => m.isPrimary || m.is_primary);
@@ -1394,6 +1468,8 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
         for (const m of primaryMemberPipeline.mappings) {
           if (m.target_type === 'core' && m.target_field) {
             pipelineMemberFields.add(m.target_field);
+          } else if (m.target_type === 'custom' && m.target_field) {
+            pipelineMemberCustomFields.add(String(m.target_field));
           }
         }
       }
@@ -1405,6 +1481,8 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
         for (const m of primaryOrgPipeline.mappings) {
           if (m.target_type === 'core' && m.target_field) {
             pipelineOrgFields.add(resolveOrganizationCoreField(m.target_field));
+          } else if (m.target_type === 'custom' && m.target_field) {
+            pipelineOrgCustomFields.add(String(m.target_field));
           }
         }
       }
@@ -1419,8 +1497,9 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
       assertValidExplicitFallbackGroups(field_mappings);
       assertValidAddressLookupMappingComponents(field_mappings, fields);
       
+      topLevelMappingSelection = selectMappingsForSubmission(field_mappings);
       const effectiveFieldMappings = coalesceExplicitFallbackMappings(
-        field_mappings,
+        topLevelMappingSelection.includedMappings,
         form_values,
         hiddenSubmissionFieldIds,
       );
@@ -1573,7 +1652,12 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
 
         if (field.core_field_mapping && !isEmptyForCore) {
           const [entity, fieldName] = field.core_field_mapping.split('.');
-          if (entity === 'member') {
+          const pipelineOwnsCoreDestination = entity === 'member'
+            ? pipelineMemberFields.has(fieldName)
+            : entity === 'organization'
+              ? pipelineOrgFields.has(resolveOrganizationCoreField(fieldName))
+              : false;
+          if (!pipelineOwnsCoreDestination && entity === 'member') {
             // Guard: a member_dropdown stores the selected member's UUID.
             // Writing it into a member core column would rename the member
             // to its own id. Capture the id for the member-resolution chain
@@ -1586,7 +1670,7 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
             } else if (hasAssignableValue(fieldName, value)) {
               memberData[fieldName] = coerceCoreFieldValue('member', fieldName, value);
             }
-          } else if (entity === 'organization') {
+          } else if (!pipelineOwnsCoreDestination && entity === 'organization') {
             // Guard: an organisation_dropdown stores the org's UUID. Writing
             // it into an org core column would rename the org to its own id.
             // Capture the id for the org-resolution chain and skip.
@@ -1611,6 +1695,10 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
         if (field.custom_field_id) {
           const customField = prefFieldMap.get(field.custom_field_id);
           if (customField) {
+            const pipelineOwnsCustomDestination = customField.entity_scope === 'organization'
+              ? pipelineOrgCustomFields.has(String(customField.id))
+              : pipelineMemberCustomFields.has(String(customField.id));
+            if (pipelineOwnsCustomDestination) continue;
             if (!fieldKeyPresent) continue;
             const targetMap = customField.entity_scope === 'organization' ? orgCustomFieldsMap : memberCustomFieldsMap;
             const targetClearSet = customField.entity_scope === 'organization' ? orgCustomFieldsToClear : memberCustomFieldsToClear;
@@ -1774,7 +1862,7 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
 
     // Helper function to process pipeline entry mappings (supports both new array format and legacy object format)
     const processPipelineMappings = (pipelineEntry, targetEntity, dataObj, customFieldsMap, coreFieldMappingConfig, customFieldsToClear) => {
-      if (!pipelineEntry) return;
+      if (!pipelineEntry) return null;
       
       // Check for new mappings array format first
       if (pipelineEntry.mappings && Array.isArray(pipelineEntry.mappings)) {
@@ -1791,8 +1879,13 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
           }
         }
         
+        const mappingSelection = selectMappingsForSubmission(pipelineEntry.mappings, {
+          targetEntity,
+          pipelineId: pipelineEntry.id || null,
+          source: 'entity_pipeline',
+        });
         const effectiveMappings = coalesceExplicitFallbackMappings(
-          pipelineEntry.mappings,
+          mappingSelection.includedMappings,
           form_values,
           hiddenSubmissionFieldIds,
         );
@@ -1901,17 +1994,31 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
           }
         }
         
-        return;
+        return mappingSelection;
       }
       
       // Fall back to legacy field_mappings object format ONLY if no mappings array
       // This ensures we don't process both formats for the same entry
       if (!pipelineEntry.mappings && pipelineEntry.field_mappings) {
         console.log(`[AppProcessor] Processing ${targetEntity} from entity_pipelines (legacy format):`, pipelineEntry.label);
+        const legacyMappingSelection = {
+          includedMappings: [],
+          ignoredMappings: [],
+          targetEntity,
+          pipelineId: pipelineEntry.id || null,
+          source: 'entity_pipeline_legacy_object',
+        };
         
         for (const [configKey, dbKey] of Object.entries(coreFieldMappingConfig)) {
           const fieldId = pipelineEntry.field_mappings[configKey];
           if (!fieldId) continue;
+          legacyMappingSelection.includedMappings.push({
+            source_type: fieldId === '__clear__' ? 'clear' : 'field',
+            source_field_id: fieldId,
+            target_type: 'core',
+            target_entity: targetEntity,
+            target_field: dbKey,
+          });
           
           if (fieldId === '__clear__') {
             dataObj[dbKey] = null;
@@ -1961,7 +2068,9 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
             }
           }
         }
+        return legacyMappingSelection;
       }
+      return null;
     };
 
     let primaryMemberRoleAssignment = { configured: false, roleId: undefined, source: 'fixed' };
@@ -1984,7 +2093,14 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
         'show_in_directory': 'show_in_directory'
       };
       
-      processPipelineMappings(primaryMemberPipeline, 'member', memberData, memberCustomFieldsMap, memberCoreFieldMappings, memberCustomFieldsToClear);
+      primaryMemberMappingSelection = processPipelineMappings(
+        primaryMemberPipeline,
+        'member',
+        memberData,
+        memberCustomFieldsMap,
+        memberCoreFieldMappings,
+        memberCustomFieldsToClear,
+      );
       
       primaryMemberRoleAssignment = resolveMemberRoleAssignment({
         pipeline: primaryMemberPipeline,
@@ -2045,7 +2161,14 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
       // to the raw target_field which can write to the wrong column or none at all.
       const orgCoreFieldMappings = ORGANIZATION_CORE_FIELD_MAPPINGS;
       
-      processPipelineMappings(primaryOrgPipeline, 'organization', orgData, orgCustomFieldsMap, orgCoreFieldMappings, orgCustomFieldsToClear);
+      primaryOrgMappingSelection = processPipelineMappings(
+        primaryOrgPipeline,
+        'organization',
+        orgData,
+        orgCustomFieldsMap,
+        orgCoreFieldMappings,
+        orgCustomFieldsToClear,
+      );
       
       // Re-convert custom fields after pipeline processing
       orgCustomFields = convertMapToArray(orgCustomFieldsMap);
@@ -2057,6 +2180,7 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
     let newlyCreatedOrgData = null; // Track org data for workflow trigger after custom fields saved
     let createdMemberId = null;
     let newlyCreatedMemberData = null; // Track member data for workflow trigger after custom fields saved (task 3196)
+    let primaryMemberSkippedForHiddenIdentity = false;
 
     const rejectCrossTenant = (row, stage, extra = {}) => {
       if (!isCrossTenantRow(effectiveEntityTenantId, row)) return false;
@@ -2255,8 +2379,21 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
           });
           createdOrganizationId = effectivePrefillOrgId || null;
         } else if (orgAction === 'create' || orgAction === 'upsert') {
+          organizationCreateAttempt: {
           // Create new organization - require name
           if (!orgData.name) {
+            if (primaryIdentityLostOnlyToHiddenMapping(primaryOrgMappingSelection, 'organization')) {
+              console.log('[AppProcessor] Organisation pipeline intentionally skipped because its opted-in hidden name mapping was ignored.');
+              addProcessingNote({
+                kind: 'entity_pipeline_skipped_hidden_identity',
+                level: 'info',
+                stage: 'organization_create',
+                target_entity: 'organization',
+                pipeline_id: primaryOrgMappingSelection?.pipelineId || null,
+                message: 'Organisation create/upsert intentionally skipped because its only configured identity mapping was opted in and hidden for this submission.',
+              });
+              break organizationCreateAttempt;
+            }
             console.error('[AppProcessor] Organization creation requested but no organization.name field mapped');
             addProcessingNote({
               level: 'error',
@@ -2264,7 +2401,7 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
               message: 'Organisation creation requested but no organisation name was mapped.',
             });
             await flushProcessingNotes();
-            return res.status(400).json({ 
+            return res.status(400).json({
               error: 'Organisation name is required. Please map a form field to "Organisation Name" in the Submission Settings.',
               code: 'MISSING_ORG_NAME'
             });
@@ -2312,6 +2449,7 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
           legacyCreatedRecordIds.organization.add(String(newOrg.id));
           newlyCreatedOrgData = newOrg; // Track for workflow trigger after custom fields are saved
           console.log('[AppProcessor] Created organization:', createdOrganizationId);
+          }
         }
       }
 
@@ -2643,8 +2781,22 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
           // Update mode but member doesn't exist - skip
           console.log('[AppProcessor] Member not found, skipping update (update mode)');
         } else if (memberAction === 'create' || memberAction === 'upsert') {
+          memberCreateAttempt: {
           // Create new member - require email
           if (!memberData.email) {
+            if (primaryIdentityLostOnlyToHiddenMapping(primaryMemberMappingSelection, 'member')) {
+              primaryMemberSkippedForHiddenIdentity = true;
+              console.log('[AppProcessor] Member pipeline intentionally skipped because its opted-in hidden email mapping was ignored.');
+              addProcessingNote({
+                kind: 'entity_pipeline_skipped_hidden_identity',
+                level: 'info',
+                stage: 'member_create',
+                target_entity: 'member',
+                pipeline_id: primaryMemberMappingSelection?.pipelineId || null,
+                message: 'Member create/upsert intentionally skipped because its only configured identity mapping was opted in and hidden for this submission.',
+              });
+              break memberCreateAttempt;
+            }
             console.error('[AppProcessor] Member creation requested but no member.email field mapped');
             return res.status(400).json({ 
               error: 'Member email is required. Please map a form field to "Email" (target: member.email) in the Submission Settings.',
@@ -2860,7 +3012,13 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
             }
           }
 
+          }
         }
+      }
+
+      if (primaryMemberSkippedForHiddenIdentity) {
+        memberCustomFields = [];
+        memberCustomFieldsToClear.clear();
       }
 
       // Save/update member custom fields. Uses upsertPreferenceValue so
@@ -2915,27 +3073,38 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
       // Handle category_multiselect field values - save to member_resource_category table
       // Uses diff-based approach: only add/remove what changed
       const primaryMemberPipeline = memberPipelines.find(m => m.isPrimary || m.is_primary);
-      const primaryPipelineCategoryMappings = (primaryMemberPipeline?.mappings || [])
+      const configuredPrimaryCategoryMappings = (primaryMemberPipeline?.mappings || [])
         .filter(isMemberResourceCategoryMapping);
       const primaryPipelineCategoryIds = new Set(
-        primaryPipelineCategoryMappings.map(mapping => mapping.target_field)
+        configuredPrimaryCategoryMappings.map(mapping => mapping.target_field)
       );
+      const primaryPipelineCategoryMappings = (
+        primaryMemberMappingSelection?.includedMappings
+        || primaryMemberPipeline?.mappings
+        || []
+      ).filter(isMemberResourceCategoryMapping);
       // Some saved forms still execute the top-level field_mappings contract
       // directly rather than its builder-migrated entity pipeline. Normalize
       // those explicit member category mappings into the same persistence
       // path. A pipeline mapping for the same destination wins.
-      const topLevelCategoryMappings = (field_mappings || [])
+      const configuredTopLevelCategoryMappings = (field_mappings || [])
+        .filter(isMemberResourceCategoryMapping);
+      const topLevelCategoryMappings = (
+        topLevelMappingSelection?.includedMappings
+        || field_mappings
+        || []
+      )
         .filter(isMemberResourceCategoryMapping)
         .filter(mapping => !primaryPipelineCategoryIds.has(mapping.target_field));
       const effectivePrimaryCategoryPipeline = {
         mappings: [...primaryPipelineCategoryMappings, ...topLevelCategoryMappings],
       };
       const explicitlyMappedCategoryFieldIds = new Set(
-        effectivePrimaryCategoryPipeline.mappings
+        [...configuredPrimaryCategoryMappings, ...configuredTopLevelCategoryMappings]
           .map(mapping => mapping.source_field_id)
       );
       const explicitlyMappedCategoryIds = new Set(
-        effectivePrimaryCategoryPipeline.mappings
+        [...configuredPrimaryCategoryMappings, ...configuredTopLevelCategoryMappings]
           .map(mapping => mapping.target_field)
       );
       await persistMappedMemberResourceCategories(createdMemberId, effectivePrimaryCategoryPipeline);
@@ -3192,6 +3361,7 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
         const additionalMemberData = {};
         const additionalCustomFieldsMap = new Map();
         const clearFields = [];
+        let additionalMemberMappingSelection = null;
         
         const coreFieldMappings = {
           'email': 'email',
@@ -3209,13 +3379,28 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
           // New format: process mappings array
           assertValidExplicitFallbackGroups(memberConfig.mappings);
           assertValidAddressLookupMappingComponents(memberConfig.mappings, fields);
+          additionalMemberMappingSelection = selectMappingsForSubmission(memberConfig.mappings, {
+            targetEntity: 'member',
+            pipelineId: memberConfig.id || null,
+            source: 'entity_pipeline',
+          });
           const effectiveMemberMappings = coalesceExplicitFallbackMappings(
-            memberConfig.mappings,
+            additionalMemberMappingSelection.includedMappings,
             form_values,
             hiddenSubmissionFieldIds,
           );
           const emailMapping = effectiveMemberMappings.find(m => m.target_field === 'email' && m.target_type === 'core');
           if (!emailMapping) {
+            if (selectionLostIdentityOnlyToHiddenMapping(additionalMemberMappingSelection, 'member')) {
+              addProcessingNote({
+                kind: 'entity_pipeline_skipped_hidden_identity',
+                level: 'info',
+                stage: 'additional_member_create',
+                target_entity: 'member',
+                pipeline_id: memberConfig.id || null,
+                message: 'Additional Member create/upsert intentionally skipped because its only configured identity mapping was opted in and hidden for this submission.',
+              });
+            }
             console.log('[AppProcessor] Skipping additional member - no email mapping:', memberConfig.label);
             continue;
           }
@@ -3784,7 +3969,9 @@ export default async function handler(req, res, { supabase = defaultSupabase } =
 
         // Category mappings are association writes, not member columns.  Run
         // after both create and update resolve the member id.
-        await persistMappedMemberResourceCategories(existingMemberId, memberConfig);
+        await persistMappedMemberResourceCategories(existingMemberId, additionalMemberMappingSelection
+          ? { ...memberConfig, mappings: additionalMemberMappingSelection.includedMappings }
+          : memberConfig);
         if (submission_id && memberConfig.id && existingMemberId) {
           await persistPipelineEntityCheckpoint('member', memberConfig, existingMemberId);
           additionalMemberPipelineTargets.set(String(memberConfig.id), existingMemberId);

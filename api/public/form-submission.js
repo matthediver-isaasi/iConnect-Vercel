@@ -701,7 +701,8 @@ export default async function handler(req, res, dependencies = {}) {
     const hasMemberPipelines = form.entity_pipelines?.members?.length > 0;
     const pipelineCommunicationSelections = collectMemberPipelineCommunicationSelections(
       form.entity_pipelines,
-      submission_data || {}
+      submission_data || {},
+      { hiddenFieldIds: hiddenRelationshipFieldIds },
     );
     let initialCommunicationSnapshot = surveyIsAnonymous
       ? null

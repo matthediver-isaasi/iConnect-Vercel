@@ -115,9 +115,10 @@ test('mapped persistence is applied to primary and additional member pipelines',
     path.join(path.dirname(fileURLToPath(import.meta.url)), 'process-application.js'),
     'utf8',
   );
-  assert.match(source, /const topLevelCategoryMappings = \(field_mappings \|\| \[\]\)[\s\S]*?\.filter\(isMemberResourceCategoryMapping\)/);
+  assert.match(source, /const configuredTopLevelCategoryMappings = \(field_mappings \|\| \[\]\)[\s\S]*?\.filter\(isMemberResourceCategoryMapping\)/);
+  assert.match(source, /topLevelMappingSelection\?\.includedMappings[\s\S]*?\|\| field_mappings/);
   assert.match(source, /mappings: \[\.\.\.primaryPipelineCategoryMappings, \.\.\.topLevelCategoryMappings\]/);
   assert.match(source, /persistMappedMemberResourceCategories\(createdMemberId, effectivePrimaryCategoryPipeline\)/);
-  assert.match(source, /persistMappedMemberResourceCategories\(existingMemberId, memberConfig\)/);
+  assert.match(source, /persistMappedMemberResourceCategories\(existingMemberId, additionalMemberMappingSelection[\s\S]*?includedMappings/);
   assert.match(source, /memberPipelines\.filter\(m => !m\.isPrimary && !m\.is_primary\)/);
 });

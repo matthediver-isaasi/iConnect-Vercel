@@ -1,6 +1,7 @@
 import {
   coalesceExplicitFallbackMappings,
   extractMappingSourceComponent,
+  partitionIgnoredHiddenMappings,
 } from './formMappingFallbacks.js';
 import {
   CRM_NOTE_TARGET_FIELD,
@@ -33,12 +34,13 @@ export function collectPipelineCrmNoteIntents(pipeline, values, {
   }
   const intents = [];
   const fieldsById = new Map((formFields || []).map(field => [String(field.id), field]));
-  const mappings = coalesceExplicitFallbackMappings(pipeline?.mappings || [], values, hiddenFieldIds);
+  const { includedMappings } = partitionIgnoredHiddenMappings(pipeline?.mappings || [], hiddenFieldIds);
+  const mappings = coalesceExplicitFallbackMappings(includedMappings, values, hiddenFieldIds);
   for (const mapping of mappings) {
     if (mapping?.target_type !== CRM_NOTE_TARGET_TYPE || mapping?.target_field !== CRM_NOTE_TARGET_FIELD) continue;
     if (entity && mapping?.target_entity !== entity) continue;
     if ((mapping.source_type || 'field') !== 'field') continue;
-    if (!mapping.id || !mapping.source_field_id || hiddenFieldIds.has(String(mapping.source_field_id))) continue;
+    if (!mapping.id || !mapping.source_field_id) continue;
     const sourceField = fieldsById.get(String(mapping.source_field_id));
     if (!isCrmNoteSourceField(sourceField)) continue;
     if (!Object.prototype.hasOwnProperty.call(values || {}, mapping.source_field_id)) continue;

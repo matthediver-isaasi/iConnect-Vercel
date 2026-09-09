@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { filterCommunicationCategoriesForMember } from '../../shared/communicationCategoryMembership.js';
+import { partitionIgnoredHiddenMappings } from './formMappingFallbacks.js';
 
 export function normalizeSubscriberEmail(value) {
   return typeof value === 'string' ? value.trim().toLowerCase() : '';
@@ -49,13 +50,16 @@ function communicationMappingBoolean(value) {
   return Boolean(value);
 }
 
-export function collectMemberPipelineCommunicationSelections(entityPipelines, submissionData) {
+export function collectMemberPipelineCommunicationSelections(entityPipelines, submissionData, {
+  hiddenFieldIds = new Set(),
+} = {}) {
   const memberPipelines = Array.isArray(entityPipelines?.members) ? entityPipelines.members : [];
   const primary = memberPipelines.find((pipeline) => pipeline?.isPrimary || pipeline?.is_primary);
   if (!primary || !Array.isArray(primary.mappings)) return [];
 
   const selections = new Map();
-  for (const mapping of primary.mappings) {
+  const { includedMappings } = partitionIgnoredHiddenMappings(primary.mappings, hiddenFieldIds);
+  for (const mapping of includedMappings) {
     if (!mapping || mapping.target_type !== 'communication' || !mapping.target_field) continue;
     let value;
     if (mapping.source_type === 'static') {

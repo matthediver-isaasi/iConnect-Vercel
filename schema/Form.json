@@ -149,6 +149,11 @@
             "type": "string",
             "description": "ID of the form field to map from"
           },
+          "ignore_if_hidden": {
+            "type": "boolean",
+            "default": false,
+            "description": "When true, skip this source-field mapping if persisted form rules hide the source field for the submission."
+          },
           "target_type": {
             "type": "string",
             "enum": [

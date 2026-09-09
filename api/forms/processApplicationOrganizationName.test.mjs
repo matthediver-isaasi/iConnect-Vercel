@@ -800,6 +800,172 @@ test('blank not-listed companion text returns the real MISSING_ORG_NAME validati
   assert.equal(result.inserts.some(entry => entry.table === 'organization'), false);
 });
 
+test('a hidden organization identity mapping preserves legacy processing when Ignore if hidden is off', async () => {
+  const payload = publicPayload();
+  payload.fields[0].starts_hidden = true;
+  const result = await invokeProcessor(payload);
+
+  assert.equal(result.response.statusCode, 200);
+  assert.equal(
+    result.inserts.find(entry => entry.table === 'organization')?.payload.name,
+    'Runtime Organisation Ltd',
+  );
+});
+
+test('an opted-in hidden organization identity records a successful pipeline no-op', async () => {
+  const payload = publicPayload();
+  payload.fields[0].starts_hidden = true;
+  payload.fields[0].core_field_mapping = 'organization.name';
+  payload.entity_pipelines.organisations[0].mappings[0].id = 'hidden-org-name';
+  payload.entity_pipelines.organisations[0].mappings[0].ignore_if_hidden = true;
+  const result = await invokeProcessor(payload);
+  const persistedNotes = result.updates
+    .filter(entry => entry.table === 'form_submission')
+    .flatMap(entry => entry.payload.processing_notes || []);
+
+  assert.equal(result.response.statusCode, 200);
+  assert.equal(result.inserts.some(entry => entry.table === 'organization'), false);
+  assert.equal(persistedNotes.some(note => note.kind === 'hidden_mapping_ignored'), true);
+  assert.equal(
+    persistedNotes.some(note =>
+      note.kind === 'entity_pipeline_skipped_hidden_identity'
+      && note.target_entity === 'organization'),
+    true,
+  );
+});
+
+test('a hidden primary member identity no-op does not block an independent organization pipeline', async () => {
+  const payload = publicPayload({
+    fields: [
+      {
+        id: 'member_email',
+        type: 'email',
+        starts_hidden: true,
+        core_field_mapping: 'member.email',
+      },
+      dropdown,
+    ],
+    form_values: {
+      member_email: 'forged-hidden@example.test',
+      organisation: FORM_NOT_LISTED_VALUE,
+      [FORM_NOT_LISTED_TEXT_KEY]: { organisation: 'Independent Organisation' },
+    },
+    application_level: 'member',
+    create_entity_type: 'member',
+    member_entity_action: 'upsert',
+    organization_entity_action: 'upsert',
+    entity_pipelines: {
+      members: [{
+        id: 'member-primary',
+        isPrimary: true,
+        mappings: [{
+          id: 'hidden-member-email',
+          source_type: 'field',
+          source_field_id: 'member_email',
+          target_type: 'core',
+          target_entity: 'member',
+          target_field: 'email',
+          ignore_if_hidden: true,
+        }],
+      }],
+      organisations: [{
+        id: 'org-primary',
+        isPrimary: true,
+        mappings: [{
+          source_type: 'field',
+          source_field_id: 'organisation',
+          target_type: 'core',
+          target_entity: 'organization',
+          target_field: 'name',
+        }],
+      }],
+    },
+  });
+  const result = await invokeProcessor(payload);
+  const persistedNotes = result.updates
+    .filter(entry => entry.table === 'form_submission')
+    .flatMap(entry => entry.payload.processing_notes || []);
+
+  assert.equal(result.response.statusCode, 200);
+  assert.equal(result.inserts.some(entry => entry.table === 'member'), false);
+  assert.equal(
+    result.inserts.find(entry => entry.table === 'organization')?.payload.name,
+    'Independent Organisation',
+  );
+  assert.equal(
+    persistedNotes.some(note =>
+      note.kind === 'entity_pipeline_skipped_hidden_identity'
+      && note.target_entity === 'member'),
+    true,
+  );
+});
+
+test('an ignored hidden custom mapping is not restored by legacy field metadata', async () => {
+  const customFieldId = 'organization-region';
+  const payload = publicPayload();
+  payload.fields.push({
+    id: 'hidden_region',
+    type: 'select',
+    starts_hidden: true,
+    custom_field_id: customFieldId,
+  });
+  payload.form_values.hidden_region = 'Forged hidden region';
+  payload.entity_pipelines.organisations[0].mappings.push({
+    id: 'hidden-org-region',
+    source_type: 'field',
+    source_field_id: 'hidden_region',
+    target_type: 'custom',
+    target_entity: 'organization',
+    target_field: customFieldId,
+    ignore_if_hidden: true,
+  });
+
+  const result = await invokeProcessor(payload, {
+    preferenceFields: [{
+      id: customFieldId,
+      entity_scope: 'organization',
+      field_type: 'select',
+    }],
+  });
+
+  assert.equal(result.response.statusCode, 200);
+  assert.equal(result.inserts.some(entry =>
+    entry.table === 'organization_preference_value'
+    && entry.payload.field_id === customFieldId), false);
+});
+
+test('pipeline ownership of legacy core metadata does not suppress an independent custom mapping', async () => {
+  const customFieldId = 'organization-alias';
+  const payload = publicPayload();
+  payload.fields.push({
+    id: 'organization_alias',
+    type: 'text',
+    core_field_mapping: 'organization.name',
+    custom_field_id: customFieldId,
+  });
+  payload.form_values.organization_alias = 'Independent custom value';
+
+  const result = await invokeProcessor(payload, {
+    preferenceFields: [{
+      id: customFieldId,
+      entity_scope: 'organization',
+      field_type: 'text',
+    }],
+  });
+
+  assert.equal(result.response.statusCode, 200);
+  assert.deepEqual(
+    result.inserts.find(entry =>
+      entry.table === 'organization_preference_value'
+      && entry.payload.field_id === customFieldId)?.payload,
+    {
+      organization_id: 'created-organization',
+      field_id: customFieldId,
+      value: 'Independent custom value',
+    },
+  );
+});
+
 test('legacy object mappings and legacy primary marker resolve the companion name', async () => {
   const payload = publicPayload();
   payload.entity_pipelines.organisations = [{

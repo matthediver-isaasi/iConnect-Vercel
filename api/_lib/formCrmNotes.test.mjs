@@ -71,6 +71,73 @@ test('CRM note mappings use transformations, fallback winners, and skip empty in
   }), []);
 });
 
+test('CRM note mappings ignore hidden sources only when explicitly opted in', () => {
+  const defaultOff = collectPipelineCrmNoteIntents(pipeline(), { answer: 'Legacy note' }, {
+    hiddenFieldIds: new Set(['answer']),
+    formFields,
+  });
+  const optedInPipeline = {
+    mappings: [{
+      ...pipeline().mappings[0],
+      ignore_if_hidden: true,
+    }],
+  };
+  const optedIn = collectPipelineCrmNoteIntents(optedInPipeline, { answer: 'Hidden note' }, {
+    hiddenFieldIds: new Set(['answer']),
+    formFields,
+  });
+
+  assert.deepEqual(defaultOff, [{ mappingId: 'pipeline:note-mapping', content: 'Legacy note' }]);
+  assert.deepEqual(optedIn, []);
+});
+
+test('CRM note mapping visibility preserves current-date transforms and fallback order', () => {
+  const currentDatePipeline = {
+    mappings: [{
+      ...pipeline().mappings[0],
+      ignore_if_hidden: true,
+      transformation: 'current_date',
+    }],
+  };
+  assert.deepEqual(
+    collectPipelineCrmNoteIntents(currentDatePipeline, { answer: 'forged' }, {
+      hiddenFieldIds: new Set(['answer']),
+      formFields,
+      applyTransformation: (_value, transformation) =>
+        transformation === 'current_date' ? '2026-09-09' : _value,
+    }),
+    [{ mappingId: 'pipeline:note-mapping', content: '2026-09-09' }],
+  );
+
+  const fallbackPipeline = {
+    mappings: [
+      {
+        ...pipeline().mappings[0],
+        id: 'hidden-first',
+        source_field_id: 'first',
+        ignore_if_hidden: true,
+        fallback_group: { version: 1, id: 'crm-note-fallback' },
+      },
+      {
+        ...pipeline().mappings[0],
+        id: 'visible-second',
+        source_field_id: 'second',
+        fallback_group: { version: 1, id: 'crm-note-fallback' },
+      },
+    ],
+  };
+  assert.deepEqual(
+    collectPipelineCrmNoteIntents(fallbackPipeline, {
+      first: 'Forged hidden note',
+      second: 'Visible note',
+    }, {
+      hiddenFieldIds: new Set(['first']),
+      formFields,
+    }),
+    [{ mappingId: 'pipeline:visible-second', content: 'Visible note' }],
+  );
+});
+
 for (const [entity, entityId, table, foreignKey] of [
   ['member', 'member-1', 'member_note', 'target_member_id'],
   ['organization', 'org-1', 'organization_note', 'organization_id'],

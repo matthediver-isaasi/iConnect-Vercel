@@ -70,3 +70,20 @@ test('pipeline mapping serialization replaces missing and stale entity metadata'
     mappings.map(mapping => ({ ...mapping, target_entity: 'organization' })),
   );
 });
+
+test('field mappings expose and preserve the Ignore if hidden option', () => {
+  const mappingSection = source.slice(
+    source.indexOf('function FieldMappingSection'),
+    source.indexOf('const VISIBILITY_OPERATORS'),
+  );
+  assert.match(mappingSection, /ignore_if_hidden: false/);
+  assert.match(mappingSection, /sourceType === 'field' && mapping\.source_field_id/);
+  assert.match(mappingSection, /checked=\{mapping\.ignore_if_hidden === true\}/);
+  assert.match(mappingSection, /updateMapping\(mapping\.id, \{ ignore_if_hidden: checked \}\)/);
+  assert.match(mappingSection, /data-testid=\{`switch-ignore-hidden-\$\{index\}`\}/);
+  assert.doesNotMatch(
+    mappingSection,
+    /source_type: value,[\s\S]{0,250}ignore_if_hidden:/,
+    'changing source type must not erase the saved option',
+  );
+});

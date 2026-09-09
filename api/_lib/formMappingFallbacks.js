@@ -39,6 +39,29 @@ export function rawMappingValue(mapping, values) {
   return value;
 }
 
+export function isFormFieldSourceMapping(mapping) {
+  const sourceType = mapping?.source_type || (mapping?.source_field_id ? 'field' : null);
+  return sourceType === 'field'
+    && mapping?.transformation !== 'current_date'
+    && typeof mapping?.source_field_id === 'string'
+    && mapping.source_field_id.trim() !== '';
+}
+
+export function partitionIgnoredHiddenMappings(mappings, hiddenFieldIds = new Set()) {
+  if (!Array.isArray(mappings)) {
+    return { includedMappings: mappings, ignoredMappings: [] };
+  }
+  const includedMappings = [];
+  const ignoredMappings = [];
+  for (const mapping of mappings) {
+    const shouldIgnore = mapping?.ignore_if_hidden === true
+      && isFormFieldSourceMapping(mapping)
+      && hiddenFieldIds.has(String(mapping.source_field_id));
+    (shouldIgnore ? ignoredMappings : includedMappings).push(mapping);
+  }
+  return { includedMappings, ignoredMappings };
+}
+
 function candidateValue(mapping, values) {
   const value = rawMappingValue(mapping, values);
   if (value == null || value === '__clear__' || value === '__current_date__') return value;
@@ -56,7 +79,7 @@ function candidateValue(mapping, values) {
 /**
  * Legacy mappings are returned byte-for-byte and in their original order.
  * Explicit fallback groups are replaced, at their first position, by their
- * first visible, present, non-empty candidate (or an explicit clear).
+ * first eligible, present, non-empty candidate (or an explicit clear).
  */
 export function coalesceExplicitFallbackMappings(mappings, values, hiddenFieldIds = new Set()) {
   if (!Array.isArray(mappings) || !mappings.some(isExplicitFallbackMapping)) return mappings;
@@ -66,7 +89,12 @@ export function coalesceExplicitFallbackMappings(mappings, values, hiddenFieldId
     const groupId = mapping.fallback_group.id;
     if (winners.has(groupId)) continue;
     const sourceId = mapping.source_field_id == null ? null : String(mapping.source_field_id);
-    if (sourceId && hiddenFieldIds.has(sourceId)) continue;
+    if (
+      mapping.ignore_if_hidden === true
+      && isFormFieldSourceMapping(mapping)
+      && sourceId
+      && hiddenFieldIds.has(sourceId)
+    ) continue;
     const present = mapping.source_type === 'clear'
       || mapping.source_type === 'current_date'
       || mapping.transformation === 'current_date'

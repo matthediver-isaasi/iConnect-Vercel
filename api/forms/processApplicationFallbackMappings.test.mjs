@@ -27,11 +27,30 @@ test('top-level and entity-pipeline mappings enforce the persisted address compo
 });
 
 test('additional-member identity and writes use the coalesced visible mappings', () => {
-  assert.match(source, /const effectiveMemberMappings = coalesceExplicitFallbackMappings\(\s*memberConfig\.mappings,\s*form_values,\s*hiddenSubmissionFieldIds/);
+  assert.match(source, /additionalMemberMappingSelection = selectMappingsForSubmission\(memberConfig\.mappings/);
+  assert.match(source, /const effectiveMemberMappings = coalesceExplicitFallbackMappings\(\s*additionalMemberMappingSelection\.includedMappings,\s*form_values,\s*hiddenSubmissionFieldIds/);
   assert.match(source, /const emailMapping = effectiveMemberMappings\.find/);
   assert.match(source, /for \(const mapping of effectiveMemberMappings\)/);
   assert.match(source, /email fallback resolved to explicit clear/);
   assert.match(source, /if \(mapping\.source_type === 'clear'\) \{\s*value = '__clear__'/);
+});
+
+test('all modern mapping arrays filter opted-in hidden sources before fallback resolution', () => {
+  const selectionCalls = source.match(/selectMappingsForSubmission\(/g) || [];
+  assert.ok(selectionCalls.length >= 3, 'top-level, shared primary, and additional mapping arrays must select against persisted visibility');
+  assert.match(source, /partitionIgnoredHiddenMappings\(mappings, hiddenSubmissionFieldIds\)/);
+  assert.match(source, /topLevelMappingSelection\.includedMappings/);
+  assert.match(source, /mappingSelection\.includedMappings/);
+  assert.match(source, /additionalMemberMappingSelection\.includedMappings/);
+  assert.match(source, /kind: 'hidden_mapping_ignored'/);
+});
+
+test('create and upsert pipelines record explicit no-ops when hidden mappings remove identity', () => {
+  assert.match(source, /primaryIdentityLostOnlyToHiddenMapping\(primaryOrgMappingSelection, 'organization'\)/);
+  assert.match(source, /primaryIdentityLostOnlyToHiddenMapping\(primaryMemberMappingSelection, 'member'\)/);
+  assert.match(source, /selectionLostIdentityOnlyToHiddenMapping\(additionalMemberMappingSelection, 'member'\)/);
+  const skipNotes = source.match(/kind: 'entity_pipeline_skipped_hidden_identity'/g) || [];
+  assert.ok(skipNotes.length >= 3, 'primary member, primary organisation, and additional members need explicit skip outcomes');
 });
 
 test('all organisation dropdown mapping modes share not-listed name resolution', () => {

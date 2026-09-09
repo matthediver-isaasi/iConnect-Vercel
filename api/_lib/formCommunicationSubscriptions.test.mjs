@@ -332,6 +332,51 @@ test('member pipeline communication mappings are resolved centrally with exact b
   );
 });
 
+test('member pipeline communication mappings ignore hidden sources only when opted in', () => {
+  const pipelines = {
+    members: [{
+      isPrimary: true,
+      mappings: [
+        {
+          target_type: 'communication',
+          target_field: 'cat-legacy',
+          source_type: 'field',
+          source_field_id: 'hidden-legacy',
+        },
+        {
+          target_type: 'communication',
+          target_field: 'cat-opted-in',
+          source_type: 'field',
+          source_field_id: 'hidden-opted-in',
+          ignore_if_hidden: true,
+        },
+        {
+          target_type: 'communication',
+          target_field: 'cat-static',
+          source_type: 'static',
+          source_field_id: 'hidden-opted-in',
+          static_value: true,
+          ignore_if_hidden: true,
+        },
+      ],
+    }],
+  };
+  assert.deepEqual(
+    collectMemberPipelineCommunicationSelections(
+      pipelines,
+      {
+        'hidden-legacy': true,
+        'hidden-opted-in': true,
+      },
+      { hiddenFieldIds: new Set(['hidden-legacy', 'hidden-opted-in']) },
+    ),
+    [
+      { category_id: 'cat-legacy', is_subscribed: true },
+      { category_id: 'cat-static', is_subscribed: true },
+    ],
+  );
+});
+
 test('member pipelines with no communication choices stay a completed no-op', () => {
   const snapshot = createFormCommunicationSnapshot({
     form: { id: 'form-no-communication', fields: [] },

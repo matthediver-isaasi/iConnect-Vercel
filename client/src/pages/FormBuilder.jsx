@@ -1685,7 +1685,8 @@ function FieldMappingSection({
       target_type: 'core', // 'core' or 'custom'
       target_entity: effectiveEntity,
       target_field: '',
-      transformation: 'none'
+      transformation: 'none',
+      ignore_if_hidden: false,
     };
     onMappingsChange([...normalizedMappings, newMapping]);
   };
@@ -2185,6 +2186,22 @@ function FieldMappingSection({
                     </Button>
                   </div>
                 </div>
+
+                {sourceType === 'field' && mapping.source_field_id && (
+                  <div className="flex items-center justify-between gap-3 pt-2 border-t border-slate-200">
+                    <div>
+                      <Label className="text-xs">Ignore if hidden</Label>
+                      <p className="text-[11px] text-slate-500">
+                        Skip this mapping when form rules hide its source field for the submitted answers.
+                      </p>
+                    </div>
+                    <Switch
+                      checked={mapping.ignore_if_hidden === true}
+                      onCheckedChange={(checked) => updateMapping(mapping.id, { ignore_if_hidden: checked })}
+                      data-testid={`switch-ignore-hidden-${index}`}
+                    />
+                  </div>
+                )}
 
                 {/* Transformation row - only show for field mappings */}
                 {sourceType === 'field' && (
