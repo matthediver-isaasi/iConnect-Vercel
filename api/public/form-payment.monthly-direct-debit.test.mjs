@@ -106,6 +106,14 @@ test('public route keeps monthly mandate-only and generic one-off GoCardless bra
   assert.match(monthly, /buildAgreementSnapshot/);
   assert.match(monthly, /billingRequestMode: 'mandate_only'/);
   assert.match(monthly, /buildMonthlyBillingRequest/);
+  assert.match(monthly, /type:\s*'form_monthly_direct_debit'/);
+  assert.match(monthly, /agreement_id:\s*String\(agreement\.id\)/);
+  assert.match(monthly, /form_submission_id:\s*String\(submissionRow\.id\)/);
+  const providerMetadata = monthly.slice(
+    monthly.indexOf("type: 'form_monthly_direct_debit'"),
+    monthly.indexOf('}),', monthly.indexOf("type: 'form_monthly_direct_debit'")),
+  );
+  assert.doesNotMatch(providerMetadata, /\b(?:kind|tenant_id|membership_year)\s*:/);
   assert.match(monthly, /classifyMonthlyConsentAgreement/);
   assert.match(monthly, /rotateStaleMonthlyConsentAgreement/);
   assert.ok(

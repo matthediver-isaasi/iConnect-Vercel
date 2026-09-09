@@ -192,6 +192,22 @@ test('createBillingRequest sends a Bacs mandate without a one-off payment', asyn
   }
 });
 
+test('createBillingRequest rejects metadata above the GoCardless three-property limit', async () => {
+  const client = createGocardlessClient({
+    source: 'tenant',
+    tenantId: 'tenant-1',
+    environment: 'sandbox',
+    accessToken: 'sandbox_test',
+  });
+  await assert.rejects(
+    client.createBillingRequest({
+      idempotencyKey: 'too-much-metadata',
+      metadata: { one: '1', two: '2', three: '3', four: '4' },
+    }),
+    /at most 3 properties/,
+  );
+});
+
 test('cancelBillingRequest retires a stale consent journey', async () => {
   const previousFetch = global.fetch;
   global.fetch = async (url, options) => {

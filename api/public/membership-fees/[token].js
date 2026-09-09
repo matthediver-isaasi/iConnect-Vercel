@@ -1421,7 +1421,7 @@ export default async function handler(req, res) {
             ),
             ...buildMonthlyBillingRequest({
               snapshot,
-              metadata: { tenant_id: feeToken.tenant_id, member_id: feeToken.member_id, membership_year: yearLabel, kind: 'monthly_direct_debit' },
+              metadata: { tenant_id: feeToken.tenant_id, member_id: feeToken.member_id, membership_year: yearLabel },
             }),
           });
           const proto = req.headers['x-forwarded-proto'] || 'https';

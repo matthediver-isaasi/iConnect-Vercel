@@ -1490,11 +1490,8 @@ async function handleCreateMonthlyDirectDebit({
         snapshot,
         metadata: {
           type: 'form_monthly_direct_debit',
-          kind: 'monthly_direct_debit',
-          tenant_id: String(tenantData.id),
           agreement_id: String(agreement.id),
           form_submission_id: String(submissionRow.id),
-          membership_year: String(quote.membership_year),
         },
       }),
     });

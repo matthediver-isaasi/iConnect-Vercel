@@ -178,6 +178,9 @@ export function createGocardlessClient(creds) {
      * (tenant_id, agreement_id) so webhooks can be resolved back.
      */
     async createBillingRequest({ idempotencyKey, mandateScheme = 'bacs', currency = 'GBP', paymentAmountMinor = null, paymentDescription = null, metadata = {} }) {
+      if (Object.keys(metadata).length > 3) {
+        throw new Error('GoCardless Billing Request metadata allows at most 3 properties');
+      }
       const billing_requests = {
         mandate_request: { scheme: mandateScheme, currency },
         metadata,

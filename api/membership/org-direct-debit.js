@@ -384,7 +384,7 @@ async function handleStart(req, res, resolvedTenantId) {
       ),
       ...buildMonthlyBillingRequest({
         snapshot,
-        metadata: { tenant_id: tenantId, organization_id: org.id, membership_year: yearLabel, kind: 'monthly_direct_debit' },
+        metadata: { tenant_id: tenantId, organization_id: org.id, membership_year: yearLabel },
       }),
     });
     const origin = requestOrigin(req);

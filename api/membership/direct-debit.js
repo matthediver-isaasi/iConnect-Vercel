@@ -290,7 +290,7 @@ async function handlePost(req, res, resolvedTenantId) {
       ),
       ...buildMonthlyBillingRequest({
         snapshot,
-        metadata: { tenant_id: tenantId, member_id: member.id, membership_year: yearLabel, kind: 'monthly_direct_debit' },
+        metadata: { tenant_id: tenantId, member_id: member.id, membership_year: yearLabel },
       }),
     });
     // Send the payer back to the tenant's own site (the request origin),

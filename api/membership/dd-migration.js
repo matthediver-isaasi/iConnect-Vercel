@@ -195,7 +195,7 @@ async function handlePost(req, res) {
     const billingRequest = await client.createBillingRequest({
       idempotencyKey: buildIdempotencyKey('dd-br', tenantId, member.id, yearLabel),
       currency: offer.currency,
-      metadata: { tenant_id: tenantId, member_id: member.id, membership_year: yearLabel, kind: 'monthly_direct_debit' },
+      metadata: { tenant_id: tenantId, member_id: member.id, membership_year: yearLabel },
     });
     const proto = req.headers['x-forwarded-proto'] || 'https';
     const host = req.headers['x-forwarded-host'] || req.headers.host;

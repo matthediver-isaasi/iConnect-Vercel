@@ -289,6 +289,9 @@ export function buildMonthlyBillingRequest({ snapshot, metadata = {} }) {
     || !Number.isInteger(snapshot.instalment_count) || snapshot.instalment_count <= 0) {
     throw new Error('monthly DD snapshot requires a positive amount and collection count');
   }
+  if (Object.keys(metadata).length > 3) {
+    throw new Error('GoCardless Billing Request metadata allows at most 3 properties');
+  }
   const request = {
     currency: snapshot.currency || 'GBP',
     metadata,

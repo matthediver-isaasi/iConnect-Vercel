@@ -238,6 +238,29 @@ test('mandate-only request fails closed without a complete immutable schedule', 
   );
 });
 
+test('monthly Billing Request metadata enforces the GoCardless three-property limit', () => {
+  const snapshot = buildAgreementSnapshot({
+    offer: resolveDdOffer(flatSim()),
+    simResult: flatSim(),
+    includeBillingRequestPayment: false,
+    billingRequestMode: 'mandate_only',
+  });
+  assert.deepEqual(
+    buildMonthlyBillingRequest({
+      snapshot,
+      metadata: { tenant_id: 't1', agreement_id: 'a1', form_submission_id: 's1' },
+    }).metadata,
+    { tenant_id: 't1', agreement_id: 'a1', form_submission_id: 's1' },
+  );
+  assert.throws(
+    () => buildMonthlyBillingRequest({
+      snapshot,
+      metadata: { one: '1', two: '2', three: '3', four: '4' },
+    }),
+    /at most 3 properties/,
+  );
+});
+
 test('public consent terms include the immutable finite schedule and timing', () => {
   assert.deepEqual(publicDdConsentTerms({
     monthlyAmount: '7.50',
