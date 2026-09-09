@@ -13,6 +13,32 @@ export function normalizeFormMonthlyCardEmail(email) {
   return typeof email === 'string' ? email.trim().toLowerCase() : '';
 }
 
+export function formMonthlyCardSubmissionKey({ browserKey, email, membershipYear }) {
+  const normalizedBrowserKey = typeof browserKey === 'string' ? browserKey.trim() : '';
+  const normalizedEmail = normalizeFormMonthlyCardEmail(email);
+  if (!normalizedBrowserKey || !normalizedEmail || !membershipYear) {
+    throw new Error('browser key, applicant email, and membershipYear are required');
+  }
+  const digest = createHash('sha256')
+    .update(`${normalizedBrowserKey}\n${normalizedEmail}\n${membershipYear}`)
+    .digest('hex');
+  return `monthly-card-v2:${digest}`;
+}
+
+export function legacyFormMonthlyCardSubmissionKey(browserKey) {
+  const normalized = typeof browserKey === 'string' ? browserKey.trim() : '';
+  return normalized ? `monthly-card:${normalized}`.slice(0, 120) : null;
+}
+
+export function formMonthlyCardSubmissionMatchesApplicant(submission, email) {
+  const current = normalizeFormMonthlyCardEmail(email);
+  const stored = normalizeFormMonthlyCardEmail(
+    submission?.payment_meta?.monthly_card?.applicant_email
+      || submission?.submitted_by_email,
+  );
+  return !!current && !!stored && current === stored;
+}
+
 /**
  * Provider/database idempotency shared by all attempts for one applicant and
  * membership year. The email is hashed so it never appears in logs or keys.
@@ -47,6 +73,35 @@ export async function findExistingFormApplicantMember(db, { tenantId, email }) {
     return { data: null, error: new Error('Applicant email matches more than one member') };
   }
   return { data: data?.[0] || null, error: null };
+}
+
+export async function claimFormMonthlyCardApplicantAgreement(db, {
+  tenantId,
+  submissionId,
+  applicantEmail,
+  membershipYear,
+  agreementKey,
+  environment,
+  cardSnapshot,
+  memberId = null,
+}) {
+  const { data, error } = await db.rpc('claim_form_monthly_card_applicant_agreement', {
+    p_tenant_id: tenantId,
+    p_submission_id: submissionId,
+    p_applicant_email: normalizeFormMonthlyCardEmail(applicantEmail),
+    p_membership_year: membershipYear,
+    p_agreement_key: agreementKey,
+    p_environment: environment,
+    p_card_snapshot: cardSnapshot || {},
+    p_member_id: memberId,
+  });
+  if (error) return { data: null, error };
+  if (data?.ok !== true || !data.agreement) {
+    const claimError = new Error(data?.detail || 'Applicant agreement claim did not complete');
+    claimError.code = data?.code || 'AGREEMENT_CLAIM_FAILED';
+    return { data: null, error: claimError };
+  }
+  return { data: data.agreement, error: null, recoveredLegacy: data.recovered_legacy === true };
 }
 
 /**

@@ -3,10 +3,14 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
   claimFormMonthlyCardMembership,
+  claimFormMonthlyCardApplicantAgreement,
   findExistingFormApplicantMember,
   findFormMonthlyCardAgreement,
   formMonthlyCardAgreementKey,
   formMonthlyCardApplicantAgreementKey,
+  formMonthlyCardSubmissionKey,
+  legacyFormMonthlyCardSubmissionKey,
+  formMonthlyCardSubmissionMatchesApplicant,
   normalizeFormMonthlyCardEmail,
   persistMonthlyCheckoutLink,
   releaseExpiredFormMonthlyCardCheckout,
@@ -38,6 +42,40 @@ test('normalizeFormMonthlyCardEmail lowercases, trims, and tolerates non-strings
   assert.equal(normalizeFormMonthlyCardEmail(null), '');
   assert.equal(normalizeFormMonthlyCardEmail(undefined), '');
   assert.equal(normalizeFormMonthlyCardEmail(42), '');
+});
+
+test('monthly submission key binds one browser fill to normalized applicant and year', () => {
+  const first = formMonthlyCardSubmissionKey({
+    browserKey: ' fill-1 ', email: ' Person@Example.COM ', membershipYear: '2026/27',
+  });
+  assert.equal(first, formMonthlyCardSubmissionKey({
+    browserKey: 'fill-1', email: 'person@example.com', membershipYear: '2026/27',
+  }));
+  assert.notEqual(first, formMonthlyCardSubmissionKey({
+    browserKey: 'fill-1', email: 'other@example.com', membershipYear: '2026/27',
+  }));
+  assert.notEqual(first, formMonthlyCardSubmissionKey({
+    browserKey: 'fill-1', email: 'person@example.com', membershipYear: '2027/28',
+  }));
+  assert.match(first, /^monthly-card-v2:[0-9a-f]{64}$/);
+});
+
+test('legacy monthly submission key retains the deployed per-fill format', () => {
+  assert.equal(legacyFormMonthlyCardSubmissionKey(' fill-1 '), 'monthly-card:fill-1');
+  assert.equal(legacyFormMonthlyCardSubmissionKey(''), null);
+});
+
+test('pending submission identity matches normalized metadata or legacy submitted email', () => {
+  assert.equal(formMonthlyCardSubmissionMatchesApplicant({
+    submitted_by_email: 'old@example.com',
+    payment_meta: { monthly_card: { applicant_email: ' Person@Example.COM ' } },
+  }, 'person@example.com'), true);
+  assert.equal(formMonthlyCardSubmissionMatchesApplicant({
+    submitted_by_email: ' Person@Example.COM ',
+  }, 'person@example.com'), true);
+  assert.equal(formMonthlyCardSubmissionMatchesApplicant({
+    submitted_by_email: 'old@example.com',
+  }, 'new@example.com'), false);
 });
 
 test('applicant agreement key is case-insensitive and stable across email formatting', () => {
@@ -181,6 +219,48 @@ function rpcDb(result) {
     },
   };
 }
+
+test('applicant agreement claim delegates identity ownership to the transactional RPC', async () => {
+  const db = rpcDb({
+    data: { ok: true, recovered_legacy: true, agreement: { id: 'agreement-1' } },
+    error: null,
+  });
+  const result = await claimFormMonthlyCardApplicantAgreement(db, {
+    tenantId: 'tenant-1',
+    submissionId: 'sub-1',
+    applicantEmail: ' Person@Example.COM ',
+    membershipYear: '2026/27',
+    agreementKey: 'form-card-applicant:digest',
+    environment: 'test',
+    cardSnapshot: { membership_year: '2026/27' },
+    memberId: 'member-1',
+  });
+  assert.equal(result.data.id, 'agreement-1');
+  assert.equal(result.recoveredLegacy, true);
+  assert.deepEqual(db.calls, [{
+    name: 'claim_form_monthly_card_applicant_agreement',
+    params: {
+      p_tenant_id: 'tenant-1',
+      p_submission_id: 'sub-1',
+      p_applicant_email: 'person@example.com',
+      p_membership_year: '2026/27',
+      p_agreement_key: 'form-card-applicant:digest',
+      p_environment: 'test',
+      p_card_snapshot: { membership_year: '2026/27' },
+      p_member_id: 'member-1',
+    },
+  }]);
+});
+
+test('applicant agreement claim fails closed on guarded RPC results', async () => {
+  const result = await claimFormMonthlyCardApplicantAgreement(rpcDb({
+    data: { ok: false, code: 'INVALID_SUBMISSION', detail: 'identity mismatch' },
+    error: null,
+  }), {});
+  assert.equal(result.data, null);
+  assert.equal(result.error.code, 'INVALID_SUBMISSION');
+  assert.match(result.error.message, /identity mismatch/);
+});
 
 test('releaseExpiredFormMonthlyCardCheckout calls the transactional server-only RPC', async () => {
   const db = rpcDb({
@@ -498,6 +578,42 @@ test('create retry repairs submission linkage before returning a prior Checkout 
   const priorReturn = create.indexOf('checkoutUrl: prior.redirect_url');
   const repair = create.lastIndexOf('persistMonthlyCheckoutLink', priorReturn);
   assert.ok(repair > -1 && repair < priorReturn);
+});
+
+test('create retry claims applicant agreement transactionally before Stripe work', () => {
+  const source = readFileSync(new URL('../public/form-payment.js', import.meta.url), 'utf8');
+  const create = source.slice(
+    source.indexOf('async function handleCreateMonthlyCard'),
+    source.indexOf('async function handleCreate('),
+  );
+  const claim = create.indexOf('claimFormMonthlyCardApplicantAgreement');
+  const stripeCreate = create.indexOf('stripe.checkout.sessions.create');
+  const existingCheckout = create.indexOf('if (prior.redirect_url && prior.stripe_checkout_session_id)');
+  assert.ok(claim > -1 && claim < existingCheckout);
+  assert.ok(claim < stripeCreate);
+});
+
+test('applicant agreement claim migration serializes and prefers a matching live legacy Checkout', () => {
+  const sql = readFileSync(
+    new URL('../../supabase/migrations/20261013_form_monthly_card_applicant_agreement_claim.sql', import.meta.url),
+    'utf8',
+  );
+  assert.match(sql, /pg_advisory_xact_lock\(hashtextextended\(p_agreement_key,\s*0\)\)/i);
+  const canonicalLookup = sql.indexOf('WHERE idempotency_key = p_agreement_key');
+  const legacyLookup = sql.indexOf("agreement.idempotency_key = 'form-card:' || submission.id::TEXT");
+  const insert = sql.indexOf('INSERT INTO membership_billing_agreements');
+  assert.ok(canonicalLookup > -1 && canonicalLookup < insert);
+  assert.ok(legacyLookup > canonicalLookup && legacyLookup < insert);
+  assert.match(sql, /agreement\.status <> 'expired'/);
+  assert.match(sql, /submission\.payment_status = 'pending'/);
+  assert.match(sql, /BTRIM\(LOWER\(COALESCE\(/);
+  assert.match(sql, /FOR UPDATE OF agreement/);
+  const agreementLock = sql.indexOf('WHERE idempotency_key = p_agreement_key');
+  const currentSubmissionLock = sql.indexOf('WHERE id = p_submission_id');
+  assert.ok(agreementLock > -1 && agreementLock < currentSubmissionLock,
+    'claim and expired release must both lock agreement before submission');
+  assert.match(sql, /REVOKE ALL ON FUNCTION claim_form_monthly_card_applicant_agreement\([\s\S]*?\) FROM PUBLIC/i);
+  assert.match(sql, /GRANT EXECUTE ON FUNCTION claim_form_monthly_card_applicant_agreement\([\s\S]*?\) TO service_role/i);
 });
 
 test('form monthly-card Checkout is Managed Payments compatible and preserves subscription setup', () => {

@@ -45,9 +45,13 @@ import {
 } from '../_lib/stripeMonthlyCard.js';
 import {
   claimFormMonthlyCardMembership,
+  claimFormMonthlyCardApplicantAgreement,
   findFormMonthlyCardAgreement,
   findExistingFormApplicantMember,
   formMonthlyCardApplicantAgreementKey,
+  formMonthlyCardSubmissionKey,
+  legacyFormMonthlyCardSubmissionKey,
+  formMonthlyCardSubmissionMatchesApplicant,
   persistMonthlyCheckoutLink,
   releaseExpiredFormMonthlyCardCheckout,
 } from '../_lib/formMonthlyCardCheckout.js';
@@ -503,16 +507,30 @@ async function handleCreateMonthlyCard(req, res, supabase, tenantData) {
   if (!creds?.secret_key || creds.is_enabled === false) {
     return res.status(400).json({ error: 'Card payment is not available for this organisation' });
   }
-  const idemKey = typeof idempotency_key === 'string' && idempotency_key.trim()
-    ? `monthly-card:${idempotency_key.trim()}`.slice(0, 120) : null;
-  if (!idemKey) {
+  const browserAttemptKey = typeof idempotency_key === 'string' ? idempotency_key.trim() : '';
+  if (!browserAttemptKey) {
     return res.status(400).json({ error: 'A payment attempt identifier is required. Refresh the form and try again.' });
   }
+  const idemKey = formMonthlyCardSubmissionKey({
+    browserKey: browserAttemptKey,
+    email: applicantEmail,
+    membershipYear: quote.membership_year,
+  });
+  const legacyIdemKey = legacyFormMonthlyCardSubmissionKey(browserAttemptKey);
   let submission = null;
-  if (idemKey) {
-    const { data, error } = await supabase.from('form_submission').select('*').eq('tenant_id', tenantData.id).eq('form_id', form.id).eq('idempotency_key', idemKey).maybeSingle();
-    if (error) return res.status(500).json({ error: 'Failed to prepare payment' });
-    submission = data || null;
+  const { data: currentAttempt, error: currentAttemptErr } = await supabase.from('form_submission').select('*')
+    .eq('tenant_id', tenantData.id).eq('form_id', form.id).eq('idempotency_key', idemKey).maybeSingle();
+  if (currentAttemptErr) return res.status(500).json({ error: 'Failed to prepare payment' });
+  submission = currentAttempt || null;
+  if (!submission && legacyIdemKey) {
+    const { data: legacyAttempt, error: legacyAttemptErr } = await supabase.from('form_submission').select('*')
+      .eq('tenant_id', tenantData.id).eq('form_id', form.id).eq('idempotency_key', legacyIdemKey).maybeSingle();
+    if (legacyAttemptErr) return res.status(500).json({ error: 'Failed to prepare payment' });
+    // Legacy per-fill rows are recoverable only for the identity that created
+    // them. A changed applicant gets an independent v2 row and agreement.
+    if (formMonthlyCardSubmissionMatchesApplicant(legacyAttempt, applicantEmail)) {
+      submission = legacyAttempt;
+    }
   }
   if (!submission) {
     const { data, error } = await supabase.from('form_submission').insert({
@@ -528,6 +546,7 @@ async function handleCreateMonthlyCard(req, res, supabase, tenantData) {
         verified_admin_access: access.verifiedAdminAccess === true,
         membership: resolved.membershipMeta, monthly_card: {
           offer,
+           applicant_email: applicantEmail,
           pre_resolved_member_id: existingApplicant?.id || null,
         } }, { accessPolicyRequired: access.restricted }), ...(idemKey && { idempotency_key: idemKey }),
     }).select().single();
@@ -547,6 +566,13 @@ async function handleCreateMonthlyCard(req, res, supabase, tenantData) {
   }
   if (submission.payment_status !== 'pending') {
     return res.status(409).json({ error: 'This monthly card checkout has already completed' });
+  }
+  if (!formMonthlyCardSubmissionMatchesApplicant(submission, applicantEmail)) {
+    return res.status(409).json({
+      error: 'The applicant email changed after this payment attempt was prepared. Please start the monthly card payment again.',
+      code: 'MONTHLY_CARD_APPLICANT_CHANGED',
+      retryable: true,
+    });
   }
   const storedQuote = submission.payment_meta?.membership?.quote;
   const sameOffer = storedQuote?.config_id === quote.config_id
@@ -573,40 +599,24 @@ async function handleCreateMonthlyCard(req, res, supabase, tenantData) {
   } });
   const agreementKey = formMonthlyCardApplicantAgreementKey({
     tenantId: tenantData.id,
-    email: submission.submitted_by_email || applicantEmail,
+    email: applicantEmail,
     membershipYear: quote.membership_year,
   });
-  let { data: prior, error: priorErr } = await supabase.from('membership_billing_agreements').select('*').eq('idempotency_key', agreementKey).maybeSingle();
-  if (priorErr) return res.status(500).json({ error: 'Failed to prepare card plan set-up' });
+  let { data: prior, error: priorErr } = await claimFormMonthlyCardApplicantAgreement(supabase, {
+    tenantId: tenantData.id,
+    submissionId: submission.id,
+    applicantEmail,
+    membershipYear: quote.membership_year,
+    agreementKey,
+    environment,
+    cardSnapshot: snapshot,
+    memberId: existingApplicant?.id || null,
+  });
+  if (priorErr) {
+    console.error('[form-payment] Monthly-card applicant agreement claim failed:', priorErr.message);
+    return res.status(500).json({ error: 'Failed to prepare card plan set-up' });
+  }
   if (prior && prior.metadata?.form_submission_id !== String(submission.id)) {
-    return res.status(409).json({
-      error: 'A monthly card membership checkout is already in progress for this email and membership year.',
-      code: 'MEMBERSHIP_PAYMENT_IN_PROGRESS',
-    });
-  }
-  if (!prior) {
-    const { data: insertedAgreement, error: agreementErr } = await supabase.from('membership_billing_agreements').insert({
-      tenant_id: tenantData.id, agreement_type: 'member', provider: 'stripe',
-      member_id: existingApplicant?.id || null,
-      status: 'payment_setup_required', idempotency_key: agreementKey, environment,
-      metadata: {
-        card: snapshot,
-        form_submission_id: submission.id,
-        applicant_identity: agreementKey.replace('form-card-applicant:', ''),
-      },
-    }).select().single();
-    if (agreementErr?.code === '23505') {
-      const { data: winner, error: winnerErr } = await supabase.from('membership_billing_agreements').select('*')
-        .eq('idempotency_key', agreementKey).maybeSingle();
-      if (winnerErr || !winner) return res.status(500).json({ error: 'Failed to prepare card plan set-up' });
-      prior = winner;
-    } else if (agreementErr) {
-      return res.status(500).json({ error: 'Failed to prepare card plan set-up' });
-    } else {
-      prior = insertedAgreement;
-    }
-  }
-  if (prior.metadata?.form_submission_id !== String(submission.id)) {
     return res.status(409).json({
       error: 'A monthly card membership checkout is already in progress for this email and membership year.',
       code: 'MEMBERSHIP_PAYMENT_IN_PROGRESS',
@@ -714,7 +724,7 @@ async function handleCreateMonthlyCard(req, res, supabase, tenantData) {
   try {
     const { findOrCreateStripeCustomer } = await import('../_lib/stripeCredentials.js');
     const customer = await findOrCreateStripeCustomer(stripe, {
-      email: submission.submitted_by_email || applicantEmail,
+      email: applicantEmail,
       metadata: { tenant_id: tenantData.id, form_submission_id: submission.id },
     });
     if (!customer?.id) {
