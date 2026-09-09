@@ -34,6 +34,28 @@ import { useFormFieldPrefill } from "@/lib/useFormFieldPrefill";
 import { useConditionalFormFieldPrefill } from "@/lib/useFormFieldPrefill";
 import { useFormOpenTransition } from "@/lib/useFormOpenTransition";
 import FormTransitionOverlay from "@/components/forms/FormTransitionOverlay";
+import {
+  createSetValueConvergenceState,
+  formValuesSemanticallyEqual,
+  legacySetValueActionKey,
+  mergeSemanticFormValueUpdates,
+  planSemanticFormValueUpdate,
+  resetSetValueConvergence,
+  setValueActionKey,
+} from "@/lib/formValueConvergence";
+
+const EMPTY_FORM_COLLECTION = Object.freeze([]);
+
+function reportFormViewError(context, error) {
+  const rawMessage = typeof error?.message === 'string' ? error.message : 'Request failed';
+  const message = rawMessage
+    .replace(/\s+/g, ' ')
+    .replace(/\bhttps?:\/\/\S+/gi, '[url]')
+    .replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, '[email]')
+    .replace(/\b(token|secret|password|api[_-]?key)\s*[=:]\s*\S+/gi, '$1=[redacted]')
+    .slice(0, 300);
+  console.error(`[FormView] ${context}: ${message}`);
+}
 
 // A `redirect_url` beginning with this prefix means the redirect target is driven
 // by the value the respondent submitted for the field whose id follows the prefix.
@@ -324,13 +346,12 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
       return publicClient.saveFormDraft(payload);
     },
     onSuccess: (result) => {
-      console.log('[FormView] Draft saved:', result);
       setResumeToken(result.resume_token);
       setShowResumeLink(true);
       toast.success('Your progress has been saved!');
     },
     onError: (error) => {
-      console.error('[FormView] Draft save error:', error);
+      reportFormViewError('Draft save failed', error);
       toast.error(error.message || 'Failed to save your progress');
     }
   });
@@ -364,19 +385,13 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
   // Extract role_id from primary member entity_pipeline for capacity checking
   const primaryMemberRoleId = useMemo(() => {
     const members = form?.entity_pipelines?.members;
-    console.log('[FormView] entity_pipelines.members:', members);
-    console.log('[FormView] First member object (full):', members?.[0] ? JSON.stringify(members[0], null, 2) : 'none');
     // Try finding by isPrimary (camelCase) or is_primary (snake_case)
     let primaryMember = members?.find(m => m.isPrimary === true || m.is_primary === true);
     if (!primaryMember && members?.length === 1) {
       // Fallback: if only one member config, use it
       primaryMember = members[0];
-      console.log('[FormView] No isPrimary/is_primary found, using first member as fallback');
     }
-    console.log('[FormView] primaryMember:', primaryMember);
-    const roleId = primaryMember?.role_id || null;
-    console.log('[FormView] Extracted primaryMemberRoleId:', roleId);
-    return roleId;
+    return primaryMember?.role_id || null;
   }, [form?.entity_pipelines?.members]);
 
   // Extract organization config for per-org capacity checking
@@ -401,14 +416,8 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
     );
     
     if (!nameMapping) {
-      console.log('[FormView] No org name mapping found for uniqueness_key:', uniquenessKey);
       return null;
     }
-    
-    console.log('[FormView] Org capacity config:', {
-      uniquenessKey,
-      sourceFieldId: nameMapping.source_field_id
-    });
     
     return {
       uniquenessKey,
@@ -426,7 +435,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
           base44.entities.MemberResourceCategory.list({
             filter: { member_id: prefillMemberId }
           }).catch(error => {
-            console.error('[FormView Prefill] Failed to load member resource categories:', error);
+            reportFormViewError('Member resource-category prefill failed', error);
             return [];
           })
         ]);
@@ -522,9 +531,9 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
 
   const prefillBooking = prefillBookingData?.booking || null;
   const prefillBookingMember = prefillBookingData?.member || null;
-  const prefillBookingMemberCustomValues = prefillBookingData?.memberCustomValues || [];
+  const prefillBookingMemberCustomValues = prefillBookingData?.memberCustomValues || EMPTY_FORM_COLLECTION;
   const prefillBookingOrg = prefillBookingData?.organization || null;
-  const prefillBookingOrgCustomValues = prefillBookingData?.orgCustomValues || [];
+  const prefillBookingOrgCustomValues = prefillBookingData?.orgCustomValues || EMPTY_FORM_COLLECTION;
 
   const prefillData = useMemo(() => {
     const source = form?.prefill_source;
@@ -556,11 +565,9 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
   // 2. Member prefill where org comes from member's organization_id
   const effectiveOrgIdForCapacity = useMemo(() => {
     if (prefillOrgId) {
-      console.log('[FormView] Using prefillOrgId for capacity:', prefillOrgId);
       return prefillOrgId;
     }
     if (prefillMember?.organization_id) {
-      console.log('[FormView] Using prefillMember.organization_id for capacity:', prefillMember.organization_id);
       return prefillMember.organization_id;
     }
     if (prefillBooking?.organization_id) {
@@ -578,46 +585,23 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
   const { data: roleCapacity, isLoading: isCheckingCapacity } = useQuery({
     queryKey: ['role-capacity-check', primaryMemberRoleId, effectiveOrgIdForCapacity],
     queryFn: async () => {
-      console.log('[FormView] Fetching capacity for role:', primaryMemberRoleId);
-      
       // Role capacity is always per-organization - use orgId for direct lookup
       if (!effectiveOrgIdForCapacity) {
-        console.error('[FormView] Cannot check capacity: organization ID is required');
         return { hasCapacity: false, error: 'Organization context required for capacity check', missingOrgContext: true };
       }
       
       // Use orgId for direct lookup (more reliable than name-based lookup)
       const url = `/api/public/role/${primaryMemberRoleId}/capacity?orgId=${encodeURIComponent(effectiveOrgIdForCapacity)}`;
-      console.log('[FormView] Per-org capacity check using orgId:', { roleId: primaryMemberRoleId, orgId: effectiveOrgIdForCapacity });
       
       const response = await fetch(url);
-      console.log('[FormView] Capacity API response status:', response.status);
       if (!response.ok) {
-        console.error('[FormView] Failed to check role capacity');
         return { hasCapacity: true }; // Allow form on API error (fail open)
       }
-      const data = await response.json();
-      console.log('[FormView] Capacity API response data:', data);
-      if (data.debug) {
-        console.log('[FormView] Capacity DEBUG - activeMembersWithRoleInOrg:', data.debug.activeMembersWithRoleInOrg);
-      }
-      return data;
+      return response.json();
     },
     // Only run capacity check when we have role AND org ID (from any source)
     enabled: !!primaryMemberRoleId && !!effectiveOrgIdForCapacity,
     staleTime: 30 * 1000 // Re-check every 30 seconds
-  });
-
-  // Log capacity check state on every render
-  console.log('[FormView] Capacity check state:', {
-    primaryMemberRoleId,
-    isCheckingCapacity,
-    roleCapacity,
-    prefillOrgName,
-    effectiveOrgIdForCapacity,
-    orgCapacityConfig,
-    formSlug: form?.slug || formSlug,
-    formLoaded: !!form
   });
 
   // Keep the first standalone organisation dropdown available to domain
@@ -690,7 +674,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
     };
   }, [selectedOrg]);
 
-  const { data: prefillMemberCustomValues = [], isLoading: memberCustomValuesLoading } = useQuery({
+  const { data: prefillMemberCustomValuesData, isLoading: memberCustomValuesLoading } = useQuery({
     queryKey: ['prefill-member-custom-values', prefillMemberId, !!memberInfo],
     queryFn: async () => {
       if (memberInfo) {
@@ -703,6 +687,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
     },
     enabled: !!prefillMemberId && form?.prefill_source === 'member' && (!!memberInfo || !!prefillMemberData)
   });
+  const prefillMemberCustomValues = prefillMemberCustomValuesData || EMPTY_FORM_COLLECTION;
 
   // Prefill: Fetch org custom field values (either from direct org prefill or from member's org)
   // Uses public endpoint to support unauthenticated form viewing
@@ -710,32 +695,12 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
     ? prefillOrgId 
     : memberSourceOrgId;
   
-  // DEBUG: Log the org custom field query setup
-  console.log('[FormView DEBUG] Org Custom Fields Query Setup:', {
-    formPrefillSource: form?.prefill_source,
-    prefillOrgId,
-    prefillMemberOrgId: prefillMember?.organization_id,
-    effectiveOrgIdForCustomFields,
-    queryEnabled: !!effectiveOrgIdForCustomFields && form?.prefill_source && form.prefill_source !== 'none'
-  });
-  
-  const { data: prefillOrgCustomValues = [], isLoading: orgCustomValuesLoading, error: orgCustomValuesError } = useQuery({
+  const { data: prefillOrgCustomValuesData, isLoading: orgCustomValuesLoading } = useQuery({
     queryKey: ['prefill-org-custom-values', effectiveOrgIdForCustomFields],
-    queryFn: async () => {
-      console.log('[FormView DEBUG] Fetching org custom values for org:', effectiveOrgIdForCustomFields);
-      const values = await publicClient.getOrganizationPreferenceValues(effectiveOrgIdForCustomFields);
-      console.log('[FormView DEBUG] Org custom values API response:', values);
-      return values;
-    },
+    queryFn: async () => publicClient.getOrganizationPreferenceValues(effectiveOrgIdForCustomFields),
     enabled: !!effectiveOrgIdForCustomFields && form?.prefill_source && form.prefill_source !== 'none'
   });
-  
-  // DEBUG: Log org custom values state
-  console.log('[FormView DEBUG] Org Custom Values State:', {
-    prefillOrgCustomValues,
-    orgCustomValuesLoading,
-    orgCustomValuesError: orgCustomValuesError?.message
-  });
+  const prefillOrgCustomValues = prefillOrgCustomValuesData || EMPTY_FORM_COLLECTION;
 
   // Track if prefill has been applied to prevent overwriting user edits
   const [prefillApplied, setPrefillApplied] = useState(false);
@@ -805,7 +770,6 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
       if (field.type === 'country' && field.default_country) {
         const resolvedName = COUNTRIES.find(c => c.code === field.default_country)?.name || field.default_country;
         fieldDefaults[field.id] = resolvedName;
-        console.log(`[FormView Init] Country field "${field.label}" (${field.id}) initialized with default_country:`, resolvedName);
         continue;
       }
       
@@ -816,14 +780,12 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
           code => COUNTRIES.find(c => c.code === code)?.name || code
         );
         fieldDefaults[field.id] = resolvedNames;
-        console.log(`[FormView Init] Countries field "${field.label}" (${field.id}) initialized with default_countries:`, resolvedNames);
         continue;
       }
       
       // All other field types - use default_value if set
       if (field.default_value !== undefined && field.default_value !== null && field.default_value !== '') {
         fieldDefaults[field.id] = field.default_value;
-        console.log(`[FormView Init] Field "${field.label}" (${field.id}) initialized with default_value:`, field.default_value);
         continue;
       }
       
@@ -831,7 +793,6 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
       // so that set_value rules can populate them
       if ((field.starts_hidden === true || field.starts_hidden === 'true')) {
         fieldDefaults[field.id] = '';
-        console.log(`[FormView Init] Hidden field "${field.label}" (${field.id}) initialized with empty string (no default_value)`);
       }
     }
     
@@ -846,7 +807,6 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
   // This ensures draft values override any defaults, not the other way around
   useEffect(() => {
     if (draftData?.success && !draftLoaded && defaultsInitialized) {
-      console.log('[FormView] Loading draft data (after defaults initialized):', draftData);
       setFormValues(prev => ({ ...prev, ...draftData.draft.draft_data }));
       if (draftData.draft.current_page_index) {
         setCurrentPageIndex(draftData.draft.current_page_index);
@@ -873,7 +833,6 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
     if (prefillApplied) return;
     
     if (draftToken && !draftLoaded) {
-      console.log('[FormView Prefill] Waiting for draft to load before prefill...');
       return;
     }
     
@@ -891,7 +850,6 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
       memberCustomValuesLoading,
       orgCustomValuesLoading,
     })) {
-      console.log('[FormView Prefill] Waiting for custom values to load...');
       return;
     }
 
@@ -904,12 +862,10 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
       effectiveOrgId: form.prefill_source === 'organization' ? prefillOrgId : memberSourceOrgId,
       orgEntityLoading: form.prefill_source === 'organization' ? prefillOrgLoading : memberOrgLoading,
     })) {
-      console.log('[FormView Prefill] Waiting for org entity to load...');
       return;
     }
     
     if (form.prefill_source === 'booking' && bookingPrefillLoading) {
-      console.log('[FormView Prefill] Waiting for booking prefill data to load...');
       return;
     }
     
@@ -933,14 +889,6 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
       : form.prefill_source === 'organization' ? orgEntity 
       : prefillBooking;
     if (!primaryEntity) return;
-    
-    console.log('[FormView Prefill] ---------- PREFILL DEBUG START ----------');
-    console.log('[FormView Prefill] Form prefill_source:', form.prefill_source);
-    console.log('[FormView Prefill] Booking entity:', prefillBooking);
-    console.log('[FormView Prefill] Member entity:', memberEntity);
-    console.log('[FormView Prefill] Org entity:', orgEntity);
-    console.log('[FormView Prefill] Fields with prefill_field configured:', 
-      form.fields?.filter(f => f.prefill_field).map(f => ({id: f.id, label: f.label, prefill_field: f.prefill_field})));
     
     const newValues = {};
     const categoryValues = buildMemberResourceCategoryPrefillValues({
@@ -984,43 +932,33 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
       if (prefillField.startsWith('booking:')) {
         const fieldName = prefillField.replace('booking:', '');
         value = prefillBooking?.[fieldName];
-        console.log(`[FormView Prefill] ${field.label}: booking:${fieldName} = "${value}"`);
       } else if (prefillField.startsWith('member:')) {
         const fieldName = prefillField.replace('member:', '');
         value = memberEntity?.[fieldName];
-        console.log(`[FormView Prefill] ${field.label}: member:${fieldName} = "${value}"`);
       } else if (prefillField.startsWith('org:')) {
         const fieldName = prefillField.replace('org:', '');
         value = orgEntity?.[fieldName];
-        console.log(`[FormView Prefill] ${field.label}: org:${fieldName} = "${value}"`);
       } else if (prefillField.startsWith('member_custom:')) {
         const customFieldId = prefillField.replace('member_custom:', '');
         const cfv = activeMemberCustomValues.find(v => v.field_id === customFieldId);
         value = parseCustomFieldValue(cfv, field.type);
-        console.log(`[FormView Prefill] ${field.label}: member_custom:${customFieldId} = "${value}"`);
       } else if (prefillField.startsWith('org_custom:')) {
         const customFieldId = prefillField.replace('org_custom:', '');
         const cfv = activeOrgCustomValues.find(v => v.field_id === customFieldId);
         value = parseCustomFieldValue(cfv, field.type);
-        console.log(`[FormView Prefill] ${field.label}: org_custom:${customFieldId} = "${value}"`);
       } else if (prefillField.startsWith('custom:')) {
         const customFieldId = prefillField.replace('custom:', '');
         const customValues = form.prefill_source === 'member' ? activeMemberCustomValues : activeOrgCustomValues;
         const cfv = customValues.find(v => v.field_id === customFieldId);
         value = parseCustomFieldValue(cfv, field.type);
-        console.log(`[FormView Prefill] ${field.label}: custom:${customFieldId} (legacy) = "${value}"`);
       } else {
         value = primaryEntity?.[prefillField];
-        console.log(`[FormView Prefill] ${field.label}: ${prefillField} (legacy) = "${value}"`);
       }
       
       if (value !== null && value !== undefined) {
         newValues[field.id] = value;
       }
     }
-    
-    console.log('[FormView Prefill] Total newValues to apply:', Object.keys(newValues).length, newValues);
-    
     if (Object.keys(newValues).length > 0) {
       setFormValues(prev => {
         const merged = { ...prev };
@@ -1032,11 +970,8 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
             merged[key] = value;
           }
         }
-        console.log('[FormView Prefill] Merged formValues:', merged);
         return merged;
       });
-    } else {
-      console.log('[FormView Prefill] No newValues to apply - check if fields have prefill_field configured');
     }
     // Latch even when nothing matched: the target entity and custom values
     // have settled, so an empty result is final. Without this, a later query
@@ -1115,7 +1050,6 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
         ? submissionSideEffectRunsRef.current.get(submissionId)
         : null;
       if (existingRun) {
-        console.log('[FormView] Duplicate submission collapsed — awaiting original side effects for', submissionId);
         try {
           await existingRun;
         } catch {
@@ -1135,9 +1069,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
             await base44.entities.Form.update(form.id, {
               submission_count: (form.submission_count || 0) + 1
             });
-          } catch (err) {
-            console.log('[FormView] Could not update form count (may be unauthenticated)');
-          }
+          } catch {}
         }
         
         const hasEntityPipelines = (form?.entity_pipelines?.members?.length > 0) || (form?.entity_pipelines?.organisations?.length > 0);
@@ -1153,13 +1085,9 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
                   fields: form.fields
                 })
               });
-              if (response.ok) {
-                console.log('[FormView] CRM field mappings processed');
-              } else if (response.status === 401) {
-                console.log('[FormView] Field mappings skipped - user not authenticated');
-              }
+              await response.text().catch(() => '');
             } catch (error) {
-              console.error('[FormView] Error processing field mappings:', error);
+              reportFormViewError('Field mapping failed', error);
             }
           }
         }
@@ -1168,8 +1096,6 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
       // Send submission email if configured
       // ALWAYS call the server endpoint for diagnostic logging (server decides if email is configured)
       try {
-        console.log('[FormView] Calling email endpoint for form submission...');
-        console.log('[FormView] Passing createdMemberId:', createdMemberId, 'createdOrganizationId:', createdOrganizationId);
         const emailPayload = {
           form_id: form.id,
           submission_id: submissionResult?.id,
@@ -1191,11 +1117,9 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(emailPayload)
         });
-        console.log('[FormView] Email response status:', emailResponse.status);
-        const emailResult = await emailResponse.json();
-        console.log('[FormView] Submission email result:', emailResult);
+        await emailResponse.text().catch(() => '');
       } catch (error) {
-        console.error('[FormView] Error sending submission email:', error);
+        reportFormViewError('Submission email failed', error);
       }
       };
 
@@ -1208,12 +1132,12 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
       try {
         await run;
       } catch (error) {
-        console.error('[FormView] Post-submit side effects failed:', error);
+        reportFormViewError('Post-submit processing failed', error);
       }
       finalize();
     },
     onError: (error) => {
-      console.error('[FormView] Submit error:', error);
+      reportFormViewError('Submission failed', error);
       setSubmissionError(error.message || 'Failed to submit form');
     }
   });
@@ -1240,15 +1164,11 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
       : null;
     const relationshipEmpty = !!parentFieldId
       && emptyRelationshipParentValues[conditionField.id] === formValues[parentFieldId];
-    const result = evaluateFormLogicCondition(triggerValue, operator, value, { relationshipEmpty });
-    console.log(`[SetValue Debug] Condition: triggerValue="${triggerValue}" (type: ${typeof triggerValue}) ${operator} "${value}" (type: ${typeof value}) => ${result}`, debugInfo);
-    return result;
+    return evaluateFormLogicCondition(triggerValue, operator, value, { relationshipEmpty });
   };
 
   // Helper to evaluate all conditions in a rule with AND/OR logic
   const evaluateRuleConditions = (rule, formValues) => {
-    console.log(`[SetValue Debug] Evaluating rule: ${rule.id}`, { rule, formValues });
-    
     // Check for legacy format FIRST - single trigger_field_id takes precedence for backward compat
     // This handles forms saved before the conditions array was introduced
     if (rule.trigger_field_id && (!rule.conditions || !Array.isArray(rule.conditions) || rule.conditions.length === 0)) {
@@ -1258,18 +1178,15 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
         fieldId: rule.trigger_field_id,
         format: 'legacy',
       });
-      console.log(`[SetValue Debug] Rule ${rule.id} (legacy format) => ${result}`);
       return result;
     }
     
     // New format: rule has conditions array
     if (rule.conditions && Array.isArray(rule.conditions) && rule.conditions.length > 0) {
       const logic = rule.logic || 'and';
-      console.log(`[SetValue Debug] Rule ${rule.id}: Evaluating ${rule.conditions.length} conditions with ${logic.toUpperCase()} logic`);
       
       const results = rule.conditions.map((condition, idx) => {
         if (!condition.field_id) {
-          console.log(`[SetValue Debug] Rule ${rule.id}, Condition ${idx}: No field_id, returning false`);
           return false;
         }
         const triggerValue = formValues[condition.field_id];
@@ -1289,12 +1206,8 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
       } else {
         finalResult = results.some(r => r === true);
       }
-      
-      console.log(`[SetValue Debug] Rule ${rule.id}: ${logic.toUpperCase()} of [${results.join(', ')}] => ${finalResult}`);
       return finalResult;
     }
-    
-    console.log(`[SetValue Debug] Rule ${rule.id}: No conditions to evaluate, returning false`);
     return false;
   };
 
@@ -1303,7 +1216,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
     return evaluateSingleCondition(triggerValue, operator, value);
   };
 
-  const formPages = form?.pages || [];
+  const formPages = form?.pages || EMPTY_FORM_COLLECTION;
   const pageIdSet = useMemo(() => {
     return new Set(formPages.map(p => p.id));
   }, [formPages]);
@@ -1318,11 +1231,9 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
     // Handle both boolean true and string "true" for robustness
     for (const field of (form?.fields || [])) {
       if (field.starts_hidden === true || field.starts_hidden === 'true') {
-        console.log(`[FormView Init] Field "${field.label}" (${field.id}) has starts_hidden=${field.starts_hidden}, adding to initial hidden`);
         hidden.add(field.id);
       }
     }
-    console.log('[FormView Init] Initial hidden fields from starts_hidden:', Array.from(hidden));
     
     // Fallback: For legacy forms, compute from visibility_rules
     if (hidden.size === 0 && form?.visibility_rules?.length > 0) {
@@ -1718,6 +1629,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
   const roleActionTriggeredRef = useRef(false);
   // Track which role actions were previously active (for transition detection)
   const previousRoleActionsRef = useRef(new Set());
+  const setValueConvergenceRef = useRef(createSetValueConvergenceState());
   const formContainerRef = useRef(null);
   
   // Reset set_value and role tracking when form changes
@@ -1727,6 +1639,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
     triggeredRoleIdRef.current = null;
     roleActionTriggeredRef.current = false;
     previousRoleActionsRef.current = new Set();
+    resetSetValueConvergence(setValueConvergenceRef.current, form?.id);
   }, [form?.id]);
   
   // Helper to compute the value for a set_value action
@@ -1857,10 +1770,6 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
   useEffect(() => {
     if (!form?.visibility_rules || form.visibility_rules.length === 0) return;
     
-    console.log('[SetValue Debug] === Processing set_value rules ===');
-    console.log('[SetValue Debug] Current formValues:', formValues);
-    console.log('[SetValue Debug] Previously active actions:', Array.from(activeSetValueActionsRef.current));
-    
     const prefillEntity = form.prefill_source === 'member' ? prefillMember 
       : form.prefill_source === 'booking' ? prefillBooking
       : prefillOrg;
@@ -1869,12 +1778,26 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
     // Track which actions are now active and which fields they target
     const nowActiveActions = new Set();
     const activeFieldTargets = new Map(); // fieldId -> Set of actionKeys targeting it
+    const actionTargets = new Map(); // actionKey -> target fieldId
     
     // First pass: identify all active actions and build field->action mapping
-    for (const rule of form.visibility_rules) {
+    for (const [ruleIndex, rule] of form.visibility_rules.entries()) {
+      if (rule.actions && Array.isArray(rule.actions)) {
+        for (const [actionIndex, action] of rule.actions.entries()) {
+          if ((action.action_type || action.rule_type || action.action) === 'set_value'
+              && action.target_field_id) {
+            actionTargets.set(
+              setValueActionKey(rule, action, ruleIndex, actionIndex),
+              action.target_field_id,
+            );
+          }
+        }
+      } else if ((rule.rule_type || rule.action) === 'set_value' && rule.target_field_id) {
+        actionTargets.set(legacySetValueActionKey(rule, ruleIndex), rule.target_field_id);
+      }
+
       // Skip rules without conditions (new format) or trigger_field_id (legacy format)
       if (!rule.conditions?.length && !rule.trigger_field_id) {
-        console.log(`[SetValue Debug] Rule ${rule.id}: Skipped (no conditions or trigger_field_id)`);
         continue;
       }
       
@@ -1883,11 +1806,10 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
       
       // Handle new multi-action format
       if (rule.actions && Array.isArray(rule.actions)) {
-        for (const action of rule.actions) {
+        for (const [actionIndex, action] of rule.actions.entries()) {
           if ((action.action_type || action.rule_type || action.action) === 'set_value'
               && action.target_field_id) {
-            const actionKey = action.id;
-            console.log(`[SetValue Debug] Action ${actionKey}: type=set_value, target=${action.target_field_id}, conditionMet=${conditionMet}, set_value="${action.set_value}"`);
+            const actionKey = setValueActionKey(rule, action, ruleIndex, actionIndex);
             
             if (conditionMet) {
               nowActiveActions.add(actionKey);
@@ -1900,33 +1822,24 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
               
               // If this action wasn't active before, save original value and apply
               if (!activeSetValueActionsRef.current.has(actionKey)) {
-                console.log(`[SetValue Debug] Action ${actionKey}: NEW activation - will apply value`);
                 // Save original value if we haven't already
                 if (!(action.target_field_id in originalValuesRef.current)) {
                   originalValuesRef.current[action.target_field_id] = formValues[action.target_field_id] ?? '';
-                  console.log(`[SetValue Debug] Action ${actionKey}: Saved original value "${originalValuesRef.current[action.target_field_id]}"`);
                 }
                 
                 const valueToSet = coerceValueForField(computeSetValue(action, prefillEntity), action.target_field_id);
-                console.log(`[SetValue Debug] Action ${actionKey}: computeSetValue returned "${valueToSet}" (type: ${typeof valueToSet})`);
                 if (valueToSet !== null && valueToSet !== undefined) {
                   updates[action.target_field_id] = valueToSet;
-                  console.log(`[SetValue Debug] Action ${actionKey}: Added to updates: ${action.target_field_id} = "${valueToSet}"`);
-                } else {
-                  console.log(`[SetValue Debug] Action ${actionKey}: Value is null/undefined, NOT adding to updates`);
                 }
-              } else {
-                console.log(`[SetValue Debug] Action ${actionKey}: Already active, checking source type...`);
               }
               // For field-source actions that are already active, continuously sync with source field
               if ((action.set_value_source || 'static') === 'field' && action.set_value_field_id && activeSetValueActionsRef.current.has(actionKey)) {
                 const sourceValue = coerceValueForField(formValues[action.set_value_field_id], action.target_field_id);
                 const currentTargetValue = formValues[action.target_field_id];
-                console.log(`[SetValue Debug] Action ${actionKey}: Field source sync - source="${sourceValue}", current="${currentTargetValue}"`);
                 // Only update if source changed and target doesn't match
-                if (sourceValue !== currentTargetValue && sourceValue !== null && sourceValue !== undefined) {
+                if (!formValuesSemanticallyEqual(sourceValue, currentTargetValue)
+                    && sourceValue !== null && sourceValue !== undefined) {
                   updates[action.target_field_id] = sourceValue;
-                  console.log(`[SetValue Debug] Action ${actionKey}: Syncing field value to "${sourceValue}"`);
                 }
               }
               // For formula-source actions that are already active, continuously recalculate
@@ -1941,7 +1854,8 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
                   const newValue = coerceValueForField(computeSetValue(action, prefillEntity), action.target_field_id);
                   const currentTargetValue = formValues[action.target_field_id];
                   // Only update if calculated value differs from current
-                  if (newValue !== currentTargetValue && newValue !== null && newValue !== undefined) {
+                  if (!formValuesSemanticallyEqual(newValue, currentTargetValue)
+                      && newValue !== null && newValue !== undefined) {
                     updates[action.target_field_id] = newValue;
                   }
                 }
@@ -1956,7 +1870,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
                   if (action.target_field_id in originalValuesRef.current) {
                     updates[action.target_field_id] = originalValuesRef.current[action.target_field_id];
                   }
-                } else if (newValue !== formValues[action.target_field_id]) {
+                } else if (!formValuesSemanticallyEqual(newValue, formValues[action.target_field_id])) {
                   updates[action.target_field_id] = newValue;
                 }
               }
@@ -1966,7 +1880,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
       }
       // Handle legacy format (rule_type === 'set_value')
       else if ((rule.rule_type || rule.action) === 'set_value' && rule.target_field_id) {
-        const ruleKey = `legacy_${rule.id}`;
+        const ruleKey = legacySetValueActionKey(rule, ruleIndex);
         
         if (conditionMet) {
           nowActiveActions.add(ruleKey);
@@ -1994,7 +1908,8 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
             const sourceValue = coerceValueForField(formValues[rule.set_value_field_id], rule.target_field_id);
             const currentTargetValue = formValues[rule.target_field_id];
             // Only update if source changed and target doesn't match
-            if (sourceValue !== currentTargetValue && sourceValue !== null && sourceValue !== undefined) {
+            if (!formValuesSemanticallyEqual(sourceValue, currentTargetValue)
+                && sourceValue !== null && sourceValue !== undefined) {
               updates[rule.target_field_id] = sourceValue;
             }
           }
@@ -2007,7 +1922,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
               if (rule.target_field_id in originalValuesRef.current) {
                 updates[rule.target_field_id] = originalValuesRef.current[rule.target_field_id];
               }
-            } else if (newValue !== formValues[rule.target_field_id]) {
+            } else if (!formValuesSemanticallyEqual(newValue, formValues[rule.target_field_id])) {
               updates[rule.target_field_id] = newValue;
             }
           }
@@ -2017,59 +1932,33 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
     
     // Find actions that were active but are now inactive - need to revert
     // But only revert if NO other active action targets the same field
-    console.log('[SetValue Debug] Checking for actions to revert...');
     for (const actionKey of activeSetValueActionsRef.current) {
       if (!nowActiveActions.has(actionKey)) {
-        console.log(`[SetValue Debug] Action ${actionKey}: Was active, now inactive - checking if should revert`);
-        // Find the target field for this action
-        for (const rule of form.visibility_rules) {
-          // Check new multi-action format
-          if (rule.actions && Array.isArray(rule.actions)) {
-            for (const action of rule.actions) {
-              if (action.id === actionKey && action.target_field_id) {
-                const targetFieldId = action.target_field_id;
-                // Only revert if no other active action targets this field
-                const activeActionsForField = activeFieldTargets.get(targetFieldId);
-                if (!activeActionsForField || activeActionsForField.size === 0) {
-                  // No active actions target this field, safe to revert
-                  if (targetFieldId in originalValuesRef.current) {
-                    console.log(`[SetValue Debug] Action ${actionKey}: REVERTING ${targetFieldId} to original "${originalValuesRef.current[targetFieldId]}"`);
-                    updates[targetFieldId] = originalValuesRef.current[targetFieldId];
-                    delete originalValuesRef.current[targetFieldId];
-                  }
-                } else {
-                  console.log(`[SetValue Debug] Action ${actionKey}: NOT reverting, other active actions target this field:`, Array.from(activeActionsForField));
-                }
-              }
-            }
-          }
-          // Check legacy format
-          else if (`legacy_${rule.id}` === actionKey && rule.target_field_id) {
-            const targetFieldId = rule.target_field_id;
-            // Only revert if no other active action targets this field
-            const activeActionsForField = activeFieldTargets.get(targetFieldId);
-            if (!activeActionsForField || activeActionsForField.size === 0) {
-              // No active actions target this field, safe to revert
-              if (targetFieldId in originalValuesRef.current) {
-                updates[targetFieldId] = originalValuesRef.current[targetFieldId];
-                delete originalValuesRef.current[targetFieldId];
-              }
-            }
-          }
+        const targetFieldId = actionTargets.get(actionKey);
+        if (!targetFieldId) continue;
+        const activeActionsForField = activeFieldTargets.get(targetFieldId);
+        if ((!activeActionsForField || activeActionsForField.size === 0)
+            && targetFieldId in originalValuesRef.current) {
+          updates[targetFieldId] = originalValuesRef.current[targetFieldId];
+          delete originalValuesRef.current[targetFieldId];
         }
       }
     }
     
     // Update the active actions set
-    console.log('[SetValue Debug] Now active actions:', Array.from(nowActiveActions));
     activeSetValueActionsRef.current = nowActiveActions;
     
-    // Apply all updates at once to avoid multiple re-renders
-    if (Object.keys(updates).length > 0) {
-      console.log('[SetValue Debug] === APPLYING UPDATES ===', updates);
-      setFormValues(prev => ({ ...prev, ...updates }));
-    } else {
-      console.log('[SetValue Debug] No updates to apply');
+    // Apply only semantic changes. Structured values may be regenerated with
+    // new object/array identities while carrying identical answers.
+    const transition = planSemanticFormValueUpdate(setValueConvergenceRef.current, {
+      formId: form.id,
+      currentValues: formValues,
+      updates,
+    });
+    if (transition.apply) {
+      setFormValues(prev => mergeSemanticFormValueUpdates(prev, updates));
+    } else if (transition.shouldWarn) {
+      console.warn('[FormView] Conflicting set-value rules did not converge; automatic value updates are paused until an answer changes.');
     }
     
     // Process set_role and clear_role actions with transition detection
@@ -2095,11 +1984,9 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
               if (action.action_type === 'set_role' && action.role_id) {
                 triggeredRoleIdRef.current = action.role_id;
                 roleActionTriggeredRef.current = true;
-                console.log('[FormView] set_role action triggered, role_id:', action.role_id);
               } else if (action.action_type === 'clear_role') {
                 triggeredRoleIdRef.current = null;
                 roleActionTriggeredRef.current = true;
-                console.log('[FormView] clear_role action triggered');
               }
             }
           }
@@ -2252,7 +2139,6 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
   // Check if still loading capacity
   // Only show loading if we actually expect to do a pre-load capacity check (i.e., we have effectiveOrgIdForCapacity)
   if (primaryMemberRoleId && effectiveOrgIdForCapacity && isCheckingCapacity) {
-    console.log('[FormView] BLOCKING: Still loading capacity check', { isCheckingCapacity, effectiveOrgIdForCapacity });
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
         <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
@@ -2263,25 +2149,11 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
   // Role capacity is ALWAYS per-organization
   // Determine if we can check capacity now (prefilled org via URL or member org) or must defer to submit time (org collected via form)
   const canCheckCapacityNow = !!effectiveOrgIdForCapacity;
-  const willCollectOrgViaForm = orgCapacityConfig?.hasOrgPipeline && !effectiveOrgIdForCapacity;
   
   // Block if we have prefilled org AND capacity is exceeded
   const shouldBlockForCapacity = primaryMemberRoleId && canCheckCapacityNow && roleCapacity && !roleCapacity.hasCapacity;
   
-  console.log('[FormView] Capacity block decision:', {
-    primaryMemberRoleId,
-    roleCapacity,
-    hasCapacity: roleCapacity?.hasCapacity,
-    prefillOrgId,
-    prefillOrgName,
-    canCheckCapacityNow,
-    willCollectOrgViaForm,
-    shouldBlockForCapacity,
-    note: willCollectOrgViaForm ? 'Will check capacity at submit time' : canCheckCapacityNow ? 'Checking capacity now' : 'No capacity check needed'
-  });
-  
   if (shouldBlockForCapacity) {
-    console.log('[FormView] BLOCKING: Role is at capacity for this organization');
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex justify-center pt-8 md:pt-16">
         <Card className="max-w-md h-fit">
@@ -2320,13 +2192,8 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
     const pages = form.pages || [];
     const hasPages = pages.length > 0 && form.layout_type === 'standard';
     
-    // Debug: Log hidden fields at validation time
-    console.log('[FormView Validation] hiddenFieldIds at submit:', Array.from(hiddenFieldIds));
-    console.log('[FormView Validation] All fields:', form.fields?.map(f => ({id: f.id, label: f.label, required: f.required})));
-    
     // Get visible fields only (skip hidden fields from validation)
     const visibleFields = filterVisibleFields(form.fields);
-    console.log('[FormView Validation] Visible fields after filtering:', visibleFields.map(f => ({id: f.id, label: f.label, required: f.required})));
     
     if (hasPages) {
       // Check each page's required fields (only visible ones)
@@ -2360,7 +2227,6 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
       );
 
       if (missingFields.length > 0) {
-        console.log('[FormView Validation] Missing required fields (after filtering hidden):', missingFields.map(f => ({id: f.id, label: f.label, starts_hidden: f.starts_hidden})));
         toast.error(`Please fill in all required fields: ${missingFields.map(f => f.label).join(', ')}`);
         return null;
       }
@@ -2431,32 +2297,20 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
         orgIdForCheck = formValues[orgDropdownField.id];
       }
       
-      console.log('[FormView] Per-org capacity check at submit:', {
-        roleId: primaryMemberRoleId,
-        orgIdForCheck,
-        isOrgDropdown,
-        orgCapacityConfig,
-        orgDropdownFieldId: orgDropdownField?.id
-      });
-      
       if (orgIdForCheck) {
         try {
           let capacityUrl;
           if (isOrgDropdown) {
             // Organisation dropdown returns org UUID directly - use orgId param
             capacityUrl = `/api/public/role/${primaryMemberRoleId}/capacity?orgId=${encodeURIComponent(orgIdForCheck)}`;
-            console.log('[FormView] Using orgId for dropdown:', orgIdForCheck);
           } else {
             // Text field returns uniqueness key value - use orgKey/orgValue params
             capacityUrl = `/api/public/role/${primaryMemberRoleId}/capacity?orgKey=${encodeURIComponent(orgCapacityConfig?.uniquenessKey || 'name')}&orgValue=${encodeURIComponent(orgIdForCheck)}`;
-            console.log('[FormView] Using orgKey/orgValue:', { key: orgCapacityConfig?.uniquenessKey, value: orgIdForCheck });
           }
-          console.log('[FormView] Fetching per-org capacity:', capacityUrl);
           
           const capacityResponse = await fetch(capacityUrl);
           if (capacityResponse.ok) {
             const capacityData = await capacityResponse.json();
-            console.log('[FormView] Per-org capacity response:', capacityData);
             
             if (!capacityData.hasCapacity) {
               toast.error(`This organization already has ${capacityData.currentCount} ${capacityData.roleName}(s). Maximum allowed is ${capacityData.maxMembers}.`);
@@ -2464,7 +2318,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
             }
           }
         } catch (error) {
-          console.error('[FormView] Per-org capacity check error:', error);
+          reportFormViewError('Role-capacity check failed', error);
           // Continue on error (fail open)
         }
       }
@@ -2493,25 +2347,9 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
           return null;
         }
       } catch (error) {
-        console.error('[FormView] Uniqueness validation error:', error);
+        reportFormViewError('Uniqueness validation failed', error);
         toast.error('Unable to validate form. Please try again.');
         return null;
-      }
-    }
-
-    // Debug: Log all form values at submission time to help diagnose hidden field issues
-    console.log('[FormView] Form submission - all formValues:', JSON.stringify(formValues, null, 2));
-    console.log('[FormView] Form submission - hiddenFieldIds:', Array.from(hiddenFieldIds));
-    
-    // Check Primary Member entity_pipelines field IDs
-    const primaryMember = form?.entity_pipelines?.members?.find(m => m.is_primary);
-    if (primaryMember?.mappings) {
-      console.log('[FormView] Primary Member mappings check:');
-      for (const mapping of primaryMember.mappings) {
-        if (mapping.source_type === 'field') {
-          const value = formValues[mapping.source_field_id];
-          console.log(`  - ${mapping.target_field}: source=${mapping.source_field_id}, value=${JSON.stringify(value)}, isHidden=${hiddenFieldIds.has(mapping.source_field_id)}`);
-        }
       }
     }
 

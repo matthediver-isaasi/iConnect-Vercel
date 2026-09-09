@@ -37,6 +37,10 @@ export function useMembershipFeeQuote({ form, formValues, prefillOrganizationId 
     },
     enabled: !!enabled && !!form?.id && !!match,
     staleTime: 60 * 1000,
+    gcTime: 5 * 60 * 1000,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
     retry: false,
   });
 

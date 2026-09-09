@@ -1,4 +1,5 @@
-import { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import { useState, useRef, useMemo, useCallback } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Loader2, CreditCard, AlertCircle, Landmark, Info } from "lucide-react";
 import { filterPaymentProvidersForMembership, resolveEffectivePayment } from "@/lib/formPaymentQuote";
@@ -64,7 +65,6 @@ export default function FormPaymentSubmit({
   submitLabel = 'Submit',
   membershipQuote = null,
 }) {
-  const [providers, setProviders] = useState(null); // null = loading
   const [selectedProvider, setSelectedProvider] = useState(null);
   const [creating, setCreating] = useState(false);
   const [processing, setProcessing] = useState(false);
@@ -95,16 +95,31 @@ export default function FormPaymentSubmit({
     || null;
   const paymentPurpose = membershipQuote?.matched ? 'membership' : 'forms';
 
-  // Provider detection (public, secrets-free).
-  useEffect(() => {
-    let cancelled = false;
-    setProviders(null);
-    fetch(`/api/public/form-payment-providers?purpose=${encodeURIComponent(paymentPurpose)}`)
-      .then((res) => (res.ok ? res.json() : { providers: [] }))
-      .then((json) => { if (!cancelled) setProviders(json.providers || []); })
-      .catch(() => { if (!cancelled) setProviders([]); });
-    return () => { cancelled = true; };
-  }, [paymentPurpose]);
+  // Provider detection (public, secrets-free). Keep this query keyed only by
+  // purpose: payment fields and membership quotes are recreated frequently as
+  // the form renders, but provider availability is purpose-wide. The bounded
+  // cache also means switching forms -> membership -> forms does not repeat
+  // either discovery request while the cached result is still useful.
+  const providerQuery = useQuery({
+    queryKey: ['form-payment-providers', paymentPurpose],
+    queryFn: async () => {
+      try {
+        const res = await fetch(`/api/public/form-payment-providers?purpose=${encodeURIComponent(paymentPurpose)}`);
+        if (!res.ok) return [];
+        const json = await res.json().catch(() => ({}));
+        return json.providers || [];
+      } catch {
+        return [];
+      }
+    },
+    staleTime: 60 * 1000,
+    gcTime: 5 * 60 * 1000,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+    retry: false,
+  });
+  const providers = providerQuery.data ?? null;
 
   const enabledProviderIds = Array.isArray(field?.payment_providers) ? field.payment_providers : [];
   const usableProviders = useMemo(() => {
