@@ -15,6 +15,9 @@ import {
   publicDdConsentTerms,
   decideMembershipActivation,
   ensureSubscriptionForAgreement,
+  classifyMonthlyConsentAgreement,
+  monthlyConsentReplacementKey,
+  rotateStaleMonthlyConsentAgreement,
 } from './gocardlessDirectDebit.js';
 
 function flatSim(overrides = {}, configOverrides = {}) {
@@ -274,6 +277,141 @@ test('monthly billing request idempotency follows collection terms, not annual t
     monthlyBillingRequestFingerprint(first),
     monthlyBillingRequestFingerprint(monthlyChange),
   );
+});
+
+test('saved consent classification resumes only coherent mandate-only flows', () => {
+  const current = {
+    status: 'payment_setup_required',
+    gocardless_billing_request_id: 'BR1',
+    gocardless_billing_request_flow_id: 'BRF1',
+    redirect_url: 'https://pay.example/BRF1',
+    metadata: { dd: {
+      kind: 'monthly_direct_debit',
+      billing_request_mode: 'mandate_only',
+      monthly_amount_minor: 1000,
+      instalment_count: 12,
+    } },
+  };
+  assert.deepEqual(classifyMonthlyConsentAgreement(current), {
+    kind: 'current_flow', resumable: true, rotatable: false,
+  });
+  assert.equal(classifyMonthlyConsentAgreement({
+    ...current,
+    gocardless_billing_request_flow_id: null,
+  }).kind, 'ambiguous');
+  assert.equal(classifyMonthlyConsentAgreement({
+    ...current,
+    metadata: { dd: { ...current.metadata.dd, billing_request_payment: { included: true, amount_minor: 1000 } } },
+  }).kind, 'legacy');
+  assert.equal(classifyMonthlyConsentAgreement({
+    ...current,
+    metadata: {
+      dd: { ...current.metadata.dd, billing_request_payment: { included: true, amount_minor: 1000 } },
+      gocardless_initial_payment: { id: 'PM1' },
+    },
+  }).kind, 'protected');
+  assert.equal(classifyMonthlyConsentAgreement({
+    ...current,
+    metadata: { dd: { ...current.metadata.dd, billing_request_mode: undefined } },
+  }).kind, 'legacy');
+});
+
+test('legacy consent replacement keys are stable and versioned', () => {
+  const first = monthlyConsentReplacementKey('agreement-key');
+  assert.equal(first, monthlyConsentReplacementKey('agreement-key'));
+  assert.match(first, /mandate-only-v2$/);
+});
+
+test('legacy consent rotation verifies provider state and delegates to the locked RPC', async () => {
+  const calls = [];
+  const agreement = {
+    id: 'agreement-old',
+    status: 'payment_setup_required',
+    idempotency_key: 'old-key',
+    gocardless_billing_request_id: 'BR-old',
+    gocardless_billing_request_flow_id: 'BRF-old',
+    redirect_url: 'https://pay.example/old',
+    metadata: { dd: {
+      kind: 'monthly_direct_debit',
+      monthly_amount_minor: 1000,
+      instalment_count: 12,
+      billing_request_payment: { included: true, amount_minor: 1000 },
+    } },
+  };
+  const snapshot = {
+    ...agreement.metadata.dd,
+    billing_request_mode: 'mandate_only',
+  };
+  delete snapshot.billing_request_payment;
+  const db = {
+    rpc: async (name, args) => {
+      calls.push({ name, args });
+      return {
+        data: {
+          ...agreement,
+          id: 'agreement-new',
+          idempotency_key: args.p_replacement_idempotency_key,
+          metadata: args.p_replacement_metadata,
+          gocardless_billing_request_id: null,
+          gocardless_billing_request_flow_id: null,
+          redirect_url: null,
+        },
+        error: null,
+      };
+    },
+  };
+  const replacement = await rotateStaleMonthlyConsentAgreement({
+    db,
+    agreement,
+    replacementIdempotencyKey: monthlyConsentReplacementKey('old-key'),
+    snapshot,
+    gc: {
+      getBillingRequest: async () => ({ id: 'BR-old', status: 'pending', links: {} }),
+      cancelBillingRequest: async () => ({ id: 'BR-old', status: 'cancelled' }),
+    },
+  });
+  assert.equal(replacement.id, 'agreement-new');
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].name, 'rotate_stale_gocardless_consent');
+  assert.equal(calls[0].args.p_replacement_metadata.dd.billing_request_mode, 'mandate_only');
+  assert.equal(calls[0].args.p_replacement_metadata.dd.billing_request_payment, undefined);
+});
+
+test('legacy consent rotation fails closed when provider already attached a mandate', async () => {
+  let rpcCalled = false;
+  await assert.rejects(
+    rotateStaleMonthlyConsentAgreement({
+      db: { rpc: async () => { rpcCalled = true; return { data: null, error: null }; } },
+      agreement: {
+        id: 'agreement-old',
+        status: 'payment_setup_required',
+        gocardless_billing_request_id: 'BR-old',
+        gocardless_billing_request_flow_id: 'BRF-old',
+        redirect_url: 'https://pay.example/old',
+        metadata: { dd: {
+          kind: 'monthly_direct_debit',
+          monthly_amount_minor: 1000,
+          instalment_count: 12,
+        } },
+      },
+      replacementIdempotencyKey: 'replacement',
+      snapshot: {
+        kind: 'monthly_direct_debit',
+        billing_request_mode: 'mandate_only',
+        monthly_amount_minor: 1000,
+        instalment_count: 12,
+      },
+      gc: {
+        getBillingRequest: async () => ({
+          id: 'BR-old',
+          status: 'fulfilled',
+          links: { mandate_request_mandate: 'MD1' },
+        }),
+      },
+    }),
+    /already tied to a mandate or payment/,
+  );
+  assert.equal(rpcCalled, false);
 });
 
 test('mandate-only subscription keeps the accepted first-collection timing', () => {

@@ -22,6 +22,10 @@ import {
   buildMonthlyBillingRequest,
   monthlyBillingRequestFingerprint,
   publicDdConsentTerms,
+  classifyMonthlyConsentAgreement,
+  monthlyConsentReplacementKey,
+  rotateStaleMonthlyConsentAgreement,
+  attachMonthlyConsentFlow,
 } from '../../_lib/gocardlessDirectDebit.js';
 
 export default async function handler(req, res) {
@@ -43,11 +47,12 @@ export default async function handler(req, res) {
       return res.status(status).json({ error: INVITE_INVALID_MESSAGES[check.reason] || INVITE_INVALID_MESSAGES.not_found, reason: check.reason });
     }
 
-    const { data: agreement } = await supabase
+    const { data: loadedAgreement } = await supabase
       .from('membership_billing_agreements')
       .select('*')
       .eq('id', invitation.billing_agreement_id)
       .maybeSingle();
+    let agreement = loadedAgreement;
     if (!agreement || agreement.tenant_id !== invitation.tenant_id) {
       return res.status(404).json({ error: INVITE_INVALID_MESSAGES.not_found });
     }
@@ -109,14 +114,38 @@ async function handlePost(req, res, invitation, agreement) {
   if (!creds?.accessToken) {
     return res.status(400).json({ error: 'Direct Debit is not available right now. Please contact the organisation.' });
   }
+  const client = await gocardlessForTenant(tenantId);
 
-  // Idempotent re-entry: the flow may already exist from an earlier click.
-  if (agreement.redirect_url && agreement.gocardless_billing_request_id) {
+  let consent = classifyMonthlyConsentAgreement(agreement);
+  if (consent.rotatable) {
+    const replacementKey = monthlyConsentReplacementKey(
+      agreement.idempotency_key || buildIdempotencyKey('dd-inv-agreement', agreement.id),
+    );
+    const oldSnapshot = agreement.metadata?.dd || {};
+    const replacementSnapshot = {
+      ...oldSnapshot,
+      billing_request_mode: 'mandate_only',
+    };
+    delete replacementSnapshot.billing_request_payment;
+    agreement = await rotateStaleMonthlyConsentAgreement({
+      db: supabase,
+      agreement,
+      replacementIdempotencyKey: replacementKey,
+      snapshot: replacementSnapshot,
+      gc: client,
+    });
+    consent = classifyMonthlyConsentAgreement(agreement);
+  }
+
+  // Idempotent re-entry is allowed only for a coherent mandate-only flow.
+  if (consent.resumable) {
     return res.json({ authorisationUrl: agreement.redirect_url, flowId: agreement.gocardless_billing_request_flow_id || null, environment: agreement.environment || 'sandbox', resumed: true });
+  }
+  if (consent.kind !== 'current_unstarted') {
+    return res.status(409).json({ error: 'This Direct Debit set-up cannot be safely resumed. Please request a new invitation.' });
   }
 
   const snap = agreement.metadata?.dd || {};
-  const client = await gocardlessForTenant(tenantId);
   const metadata = {
     tenant_id: tenantId,
     organization_id: agreement.organization_id,
@@ -128,6 +157,7 @@ async function handlePost(req, res, invitation, agreement) {
       'dd-br-inv',
       tenantId,
       agreement.id,
+      agreement.idempotency_key,
       monthlyBillingRequestFingerprint(snap),
     ),
     ...buildMonthlyBillingRequest({ snapshot: snap, metadata }),
@@ -141,7 +171,7 @@ async function handlePost(req, res, invitation, agreement) {
     billingRequestId: billingRequest.id,
     redirectUri: origin ? `${origin}/dd-setup/${invitation.token}?flow=complete` : undefined,
     exitUri: origin ? `${origin}/dd-setup/${invitation.token}?flow=cancelled` : undefined,
-    idempotencyKey: buildIdempotencyKey('dd-brf-inv', tenantId, agreement.id),
+    idempotencyKey: buildIdempotencyKey('dd-brf-inv', tenantId, agreement.id, agreement.idempotency_key),
     prefilledCustomer: {
       email: invitation.invited_email || undefined,
       given_name: nameParts[0] || undefined,
@@ -150,21 +180,13 @@ async function handlePost(req, res, invitation, agreement) {
     },
   });
 
-  const { error: upErr } = await supabase
-    .from('membership_billing_agreements')
-    .update({
-      gocardless_billing_request_id: billingRequest.id,
-      gocardless_billing_request_flow_id: flow.id,
-      redirect_url: flow.authorisation_url,
-      mandate_completed_by: invitation.invited_email,
-      updated_at: new Date().toISOString(),
-    })
-    .eq('id', agreement.id)
-    .is('gocardless_billing_request_id', null);
-  if (upErr) {
-    console.error('[DD Invitation] Failed to attach billing request:', upErr);
-    return res.status(500).json({ error: 'Failed to start the Direct Debit set-up' });
-  }
+  agreement = await attachMonthlyConsentFlow({
+    db: supabase,
+    agreement,
+    billingRequest,
+    flow,
+    extraUpdate: { mandate_completed_by: invitation.invited_email },
+  });
 
   // Record first acceptance time (best-effort).
   if (!invitation.accepted_at) {
@@ -175,5 +197,5 @@ async function handlePost(req, res, invitation, agreement) {
       .is('accepted_at', null);
   }
 
-  return res.json({ authorisationUrl: flow.authorisation_url, flowId: flow.id || null, environment: creds.environment || 'sandbox' });
+  return res.json({ authorisationUrl: agreement.redirect_url, flowId: agreement.gocardless_billing_request_flow_id || null, environment: creds.environment || 'sandbox' });
 }

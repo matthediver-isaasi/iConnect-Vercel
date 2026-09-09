@@ -34,6 +34,12 @@ import {
   findReusableMandate,
   ensureSubscriptionForAgreement,
   activateMembershipForAgreement,
+  classifyMonthlyConsentAgreement,
+  monthlyConsentReplacementKey,
+  rotateStaleMonthlyConsentAgreement,
+  claimMonthlyConsentAgreement,
+  attachMonthlyConsentFlow,
+  isAgreementMandateActive,
 } from '../_lib/gocardlessDirectDebit.js';
 import { sendDdLifecycleEmail, sendDdInvitationEmail } from '../_lib/gocardlessDdEmails.js';
 import { STATUS } from '../_lib/gocardlessState.js';
@@ -272,35 +278,50 @@ async function handleStart(req, res, resolvedTenantId) {
     return res.status(400).json({ error: 'Membership for this year is already recorded with another payment method' });
   }
 
-  const idempotencyKey = buildIdempotencyKey('dd-agree-org', tenantId, org.id, yearLabel);
+  const baseIdempotencyKey = buildIdempotencyKey('dd-agree-org', tenantId, org.id, yearLabel);
+  const replacementKey = monthlyConsentReplacementKey(baseIdempotencyKey);
 
-  // Idempotent re-entry: reuse the in-flight agreement.
-  const { data: existingAgreement } = await supabase
+  const { data: replacementAgreement } = await supabase
     .from('membership_billing_agreements')
     .select('*')
-    .eq('idempotency_key', idempotencyKey)
+    .eq('idempotency_key', replacementKey)
     .maybeSingle();
+  const { data: originalAgreement } = replacementAgreement ? { data: null } : await supabase
+    .from('membership_billing_agreements')
+    .select('*')
+    .eq('idempotency_key', baseIdempotencyKey)
+    .maybeSingle();
+  const existingAgreement = replacementAgreement || originalAgreement;
+  let idempotencyKey = baseIdempotencyKey;
+  let staleAgreement = null;
+  let unstartedAgreement = null;
   if (existingAgreement) {
-    if (existingAgreement.status === STATUS.PAYMENT_SETUP_REQUIRED) {
-      if (existingAgreement.dd_payer === 'billing_contact') {
-        const invitation = await pendingInvitationForAgreement(existingAgreement.id);
-        return res.json({ agreementId: existingAgreement.id, invitationSent: !!invitation, resumed: true });
-      }
-      if (existingAgreement.redirect_url) {
-        return res.json({ authorisationUrl: existingAgreement.redirect_url, flowId: existingAgreement.gocardless_billing_request_flow_id || null, environment: existingAgreement.environment || 'sandbox', agreementId: existingAgreement.id, resumed: true });
-      }
+    const consent = classifyMonthlyConsentAgreement(existingAgreement);
+    const reusableMandateRecovery = existingAgreement.status === STATUS.MANDATE_PENDING
+      && !!existingAgreement.gocardless_mandate_id
+      && !existingAgreement.gocardless_billing_request_id;
+    if (consent.resumable || reusableMandateRecovery) {
+      idempotencyKey = existingAgreement.idempotency_key;
+      unstartedAgreement = existingAgreement;
+    } else if (consent.kind === 'current_unstarted') {
+      idempotencyKey = existingAgreement.idempotency_key;
+      unstartedAgreement = existingAgreement;
+    } else if (!consent.rotatable) {
+      return res.json({ agreementId: existingAgreement.id, status: existingAgreement.status, resumed: true });
+    } else {
+      idempotencyKey = replacementKey;
+      staleAgreement = existingAgreement;
     }
-    return res.json({ agreementId: existingAgreement.id, status: existingAgreement.status, resumed: true });
   }
 
   const client = await gocardlessForTenant(tenantId);
 
   // Renewal path: reuse the org's existing active mandate (self route only —
   // the billing-contact route implies the payer must complete a new flow).
-  const reusable = payerChoice === 'self'
+  const reusable = !staleAgreement && !unstartedAgreement && payerChoice === 'self'
     ? await findReusableMandate({ tenantId, organizationId: org.id })
     : null;
-  const snapshot = {
+  let snapshot = unstartedAgreement?.metadata?.dd || {
     ...buildAgreementSnapshot({
       offer,
       simResult,
@@ -325,19 +346,40 @@ async function handleStart(req, res, resolvedTenantId) {
     billing_contact_name: payerChoice === 'billing_contact' ? (billingContactName || '').trim() || null : null,
     mandate_completed_by: payerChoice === 'self' ? member.email || null : null,
   };
-
-  let authorisationUrl = null;
   if (reusable) {
     agreementInsert.gocardless_mandate_id = reusable.mandateId;
     agreementInsert.gocardless_customer_id = reusable.customerId;
     agreementInsert.status = STATUS.MANDATE_PENDING;
-  } else if (payerChoice === 'self') {
-    const billingRequest = await client.createBillingRequest({
+  }
+  const rotatedAgreement = staleAgreement
+    ? await rotateStaleMonthlyConsentAgreement({
+        agreement: staleAgreement,
+        replacementIdempotencyKey: idempotencyKey,
+        snapshot,
+        gc: client,
+      })
+    : unstartedAgreement;
+  const claim = rotatedAgreement
+    ? { agreement: rotatedAgreement, created: false }
+    : await claimMonthlyConsentAgreement({ agreementInsert });
+  let agreement = claim.agreement;
+  snapshot = agreement.metadata?.dd;
+  idempotencyKey = agreement.idempotency_key;
+  const claimedPayerChoice = agreement.dd_payer || payerChoice;
+
+  let authorisationUrl = null;
+  if (!agreement.gocardless_mandate_id && claimedPayerChoice === 'self') {
+    const existingConsent = classifyMonthlyConsentAgreement(agreement);
+    if (existingConsent.resumable) {
+      authorisationUrl = agreement.redirect_url;
+    } else {
+      const billingRequest = await client.createBillingRequest({
       idempotencyKey: buildIdempotencyKey(
         'dd-br-org',
         tenantId,
         org.id,
         yearLabel,
+        idempotencyKey,
         monthlyBillingRequestFingerprint(snapshot),
       ),
       ...buildMonthlyBillingRequest({
@@ -346,11 +388,11 @@ async function handleStart(req, res, resolvedTenantId) {
       }),
     });
     const origin = requestOrigin(req);
-    const flow = await client.createBillingRequestFlow({
+      const flow = await client.createBillingRequestFlow({
       billingRequestId: billingRequest.id,
       redirectUri: origin ? `${origin}/membership/direct-debit/complete?member_id=${member.id}&org=1` : undefined,
       exitUri: origin ? `${origin}/membership/direct-debit/cancelled?member_id=${member.id}&org=1` : undefined,
-      idempotencyKey: buildIdempotencyKey('dd-brf-org', tenantId, org.id, yearLabel, billingRequest.id),
+      idempotencyKey: buildIdempotencyKey('dd-brf-org', tenantId, org.id, yearLabel, idempotencyKey, billingRequest.id),
       prefilledCustomer: {
         email: member.email || undefined,
         given_name: member.first_name || undefined,
@@ -358,32 +400,12 @@ async function handleStart(req, res, resolvedTenantId) {
         company_name: org.name || undefined,
       },
     });
-    agreementInsert.gocardless_billing_request_id = billingRequest.id;
-    agreementInsert.gocardless_billing_request_flow_id = flow.id;
-    agreementInsert.redirect_url = flow.authorisation_url;
-    authorisationUrl = flow.authorisation_url;
+      agreement = await attachMonthlyConsentFlow({ agreement, billingRequest, flow });
+      authorisationUrl = agreement.redirect_url;
+    }
   }
   // billing_contact route: the GC billing request + flow are created at
   // link-accept time (so the GC flow can't go stale before the contact acts).
-
-  const { data: agreement, error: agreeErr } = await supabase
-    .from('membership_billing_agreements')
-    .insert(agreementInsert)
-    .select()
-    .single();
-  if (agreeErr) {
-    if (agreeErr.code === '23505') {
-      const { data: raced } = await supabase
-        .from('membership_billing_agreements')
-        .select('*')
-        .eq('idempotency_key', idempotencyKey)
-        .maybeSingle();
-      if (raced?.redirect_url) return res.json({ authorisationUrl: raced.redirect_url, flowId: raced.gocardless_billing_request_flow_id || null, environment: raced.environment || 'sandbox', agreementId: raced.id, resumed: true });
-      if (raced) return res.json({ agreementId: raced.id, status: raced.status, resumed: true });
-    }
-    console.error('[OrgDirectDebit] Failed to create agreement:', agreeErr);
-    return res.status(500).json({ error: 'Failed to start Direct Debit set-up' });
-  }
 
   // Pending membership-history row linked to the agreement.
   if (!existingHistory) {
@@ -412,7 +434,7 @@ async function handleStart(req, res, resolvedTenantId) {
       console.error('[OrgDirectDebit] Failed to create membership history row:', histErr);
       return res.status(500).json({ error: 'Failed to record membership' });
     }
-  } else if (!existingHistory.billing_agreement_id) {
+  } else if (existingHistory.billing_agreement_id !== agreement.id) {
     const { error: linkErr } = await supabase
       .from('organisation_membership_history')
       .update({ billing_agreement_id: agreement.id })
@@ -420,7 +442,11 @@ async function handleStart(req, res, resolvedTenantId) {
     if (linkErr) console.error('[OrgDirectDebit] Failed to link history row:', linkErr);
   }
 
-  if (payerChoice === 'billing_contact') {
+  if (claimedPayerChoice === 'billing_contact') {
+    const existingInvitation = await pendingInvitationForAgreement(agreement.id);
+    if (existingInvitation) {
+      return res.json({ agreementId: agreement.id, invitationSent: true, resumed: true });
+    }
     const invitation = await createInvitation({
       tenantId,
       organizationId: org.id,
@@ -446,7 +472,10 @@ async function handleStart(req, res, resolvedTenantId) {
 
   await sendDdLifecycleEmail('setup_started', agreement, { db: supabase });
 
-  if (reusable) {
+  if (agreement.gocardless_mandate_id) {
+    if (!await isAgreementMandateActive(agreement, { gc: client })) {
+      return res.json({ agreementId: agreement.id, status: agreement.status, resumed: true });
+    }
     const subResult = await ensureSubscriptionForAgreement(agreement, {});
     const actResult = await activateMembershipForAgreement(agreement, { trigger: 'mandate_active' });
     await sendDdLifecycleEmail('mandate_active', agreement, {

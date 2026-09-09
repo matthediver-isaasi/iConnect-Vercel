@@ -191,3 +191,30 @@ test('createBillingRequest sends a Bacs mandate without a one-off payment', asyn
     global.fetch = previousFetch;
   }
 });
+
+test('cancelBillingRequest retires a stale consent journey', async () => {
+  const previousFetch = global.fetch;
+  global.fetch = async (url, options) => {
+    assert.equal(new URL(url).pathname, '/billing_requests/BRQ-stale/actions/cancel');
+    assert.equal(options.method, 'POST');
+    assert.deepEqual(JSON.parse(options.body), {});
+    return new Response(JSON.stringify({
+      billing_requests: { id: 'BRQ-stale', status: 'cancelled' },
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  };
+  try {
+    const client = createGocardlessClient({
+      source: 'tenant',
+      tenantId: 'tenant-1',
+      environment: 'sandbox',
+      accessToken: 'sandbox_test',
+    });
+    const result = await client.cancelBillingRequest('BRQ-stale');
+    assert.equal(result.status, 'cancelled');
+  } finally {
+    global.fetch = previousFetch;
+  }
+});

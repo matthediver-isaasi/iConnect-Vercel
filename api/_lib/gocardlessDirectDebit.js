@@ -25,6 +25,174 @@ import { applyStatusTransition, STATUS } from './gocardlessState.js';
 export const FIRST_COLLECTION_RULES = ['earliest', 'nominated_day', 'anniversary'];
 export const ACTIVATION_RULES = ['mandate', 'first_payment', 'manual'];
 export const MONTHLY_POST_GRACE_COLLECTION_POLICIES = ['stop_collecting', 'continue_catch_up'];
+export const MANDATE_ONLY_CONSENT_VERSION = 'mandate-only-v2';
+
+export function monthlyConsentReplacementKey(baseIdempotencyKey) {
+  if (!baseIdempotencyKey) throw new Error('base consent idempotency key is required');
+  if (baseIdempotencyKey.endsWith(`:${MANDATE_ONLY_CONSENT_VERSION}`)) {
+    return baseIdempotencyKey;
+  }
+  return `${baseIdempotencyKey}:${MANDATE_ONLY_CONSENT_VERSION}`;
+}
+
+export function classifyMonthlyConsentAgreement(agreement) {
+  if (!agreement) return { kind: 'missing', resumable: false, rotatable: false };
+  const snapshot = agreement.metadata?.dd;
+  const pending = agreement.status === STATUS.PAYMENT_SETUP_REQUIRED;
+  const hasMandate = !!agreement.gocardless_mandate_id;
+  const hasProviderPayment = !!agreement.metadata?.gocardless_initial_payment?.id;
+  if (!pending || hasMandate || hasProviderPayment) {
+    return { kind: 'protected', resumable: false, rotatable: false };
+  }
+
+  const refs = [
+    agreement.gocardless_billing_request_id,
+    agreement.gocardless_billing_request_flow_id,
+    agreement.redirect_url,
+  ];
+  const refCount = refs.filter(Boolean).length;
+  const refsCoherent = refCount === 0 || refCount === refs.length;
+  const providerStateVerifiable = refCount === 0 || !!agreement.gocardless_billing_request_id;
+  const scheduleComplete = snapshot?.kind === 'monthly_direct_debit'
+    && Number.isInteger(snapshot.monthly_amount_minor)
+    && snapshot.monthly_amount_minor > 0
+    && Number.isInteger(snapshot.instalment_count)
+    && snapshot.instalment_count > 0;
+  const current = snapshot?.billing_request_mode === 'mandate_only'
+    && !snapshot.billing_request_payment
+    && scheduleComplete
+    && refsCoherent;
+  if (current) {
+    return {
+      kind: refCount === 0 ? 'current_unstarted' : 'current_flow',
+      resumable: refCount === refs.length,
+      rotatable: false,
+    };
+  }
+  if (!providerStateVerifiable) {
+    return { kind: 'protected', resumable: false, rotatable: false };
+  }
+  return { kind: refsCoherent ? 'legacy' : 'ambiguous', resumable: false, rotatable: true };
+}
+
+export async function rotateStaleMonthlyConsentAgreement({
+  db = supabase,
+  agreement,
+  replacementIdempotencyKey,
+  snapshot,
+  gc,
+}) {
+  const classification = classifyMonthlyConsentAgreement(agreement);
+  if (!classification.rotatable) throw new Error('billing agreement is not safe to replace');
+  if (replacementIdempotencyKey === agreement.idempotency_key) {
+    throw new Error('billing agreement replacement generation is already current');
+  }
+  const replacementContract = classifyMonthlyConsentAgreement({
+    status: STATUS.PAYMENT_SETUP_REQUIRED,
+    metadata: { dd: snapshot },
+  });
+  if (replacementContract.kind !== 'current_unstarted') {
+    throw new Error('replacement consent snapshot is incomplete');
+  }
+  if (agreement.gocardless_billing_request_id) {
+    if (typeof gc?.getBillingRequest !== 'function') {
+      throw new Error('cannot verify stale GoCardless billing request before replacement');
+    }
+    const providerRequest = await gc.getBillingRequest(agreement.gocardless_billing_request_id);
+    if (providerRequest?.status === 'fulfilled'
+      || providerRequest?.links?.mandate_request_mandate
+      || providerRequest?.links?.payment_request_payment) {
+      throw new Error('GoCardless billing request is already tied to a mandate or payment');
+    }
+    if (providerRequest?.status !== 'cancelled') {
+      if (typeof gc.cancelBillingRequest !== 'function') {
+        throw new Error('cannot retire stale GoCardless billing request before replacement');
+      }
+      const cancelled = await gc.cancelBillingRequest(agreement.gocardless_billing_request_id);
+      if (cancelled?.status !== 'cancelled') {
+        throw new Error('stale GoCardless billing request could not be cancelled');
+      }
+    }
+  }
+  const metadata = {
+    ...(agreement.metadata || {}),
+    dd: snapshot,
+    consent_replaces_agreement_id: agreement.id,
+  };
+  delete metadata.gocardless_initial_payment;
+  const { data, error } = await db.rpc('rotate_stale_gocardless_consent', {
+    p_source_agreement_id: agreement.id,
+    p_replacement_idempotency_key: replacementIdempotencyKey,
+    p_replacement_metadata: metadata,
+  });
+  if (error) throw new Error(`replace stale DD consent failed: ${error.message}`);
+  if (!data?.id) throw new Error('replace stale DD consent returned no agreement');
+  return data;
+}
+
+export async function isAgreementMandateActive(agreement, { gc } = {}) {
+  if (!agreement?.gocardless_mandate_id || typeof gc?.getMandate !== 'function') return false;
+  const mandate = await gc.getMandate(agreement.gocardless_mandate_id);
+  return mandate?.status === 'active';
+}
+
+export async function claimMonthlyConsentAgreement({ db = supabase, agreementInsert }) {
+  const { data, error } = await db
+    .from('membership_billing_agreements')
+    .insert(agreementInsert)
+    .select()
+    .single();
+  if (!error) return { agreement: data, created: true };
+  if (error.code !== '23505') throw new Error(`claim DD agreement failed: ${error.message}`);
+  const { data: raced, error: racedError } = await db
+    .from('membership_billing_agreements')
+    .select('*')
+    .eq('idempotency_key', agreementInsert.idempotency_key)
+    .maybeSingle();
+  if (racedError || !raced) {
+    throw new Error(`load claimed DD agreement failed: ${racedError?.message || 'missing agreement'}`);
+  }
+  return { agreement: raced, created: false };
+}
+
+export async function attachMonthlyConsentFlow({
+  db = supabase,
+  agreement,
+  billingRequest,
+  flow,
+  extraUpdate = {},
+}) {
+  const patch = {
+    gocardless_billing_request_id: billingRequest.id,
+    gocardless_billing_request_flow_id: flow.id,
+    redirect_url: flow.authorisation_url,
+    updated_at: new Date().toISOString(),
+    ...extraUpdate,
+  };
+  const { data: attached, error } = await db
+    .from('membership_billing_agreements')
+    .update(patch)
+    .eq('id', agreement.id)
+    .is('gocardless_billing_request_id', null)
+    .select()
+    .maybeSingle();
+  if (error) throw new Error(`attach DD consent flow failed: ${error.message}`);
+  if (attached) return attached;
+  const { data: winner, error: winnerError } = await db
+    .from('membership_billing_agreements')
+    .select('*')
+    .eq('id', agreement.id)
+    .maybeSingle();
+  if (winnerError || !winner) {
+    throw new Error(`load attached DD consent flow failed: ${winnerError?.message || 'missing agreement'}`);
+  }
+  if (winner.gocardless_billing_request_id !== billingRequest.id
+    || winner.gocardless_billing_request_flow_id !== flow.id
+    || winner.redirect_url !== flow.authorisation_url) {
+    throw new Error('concurrent DD consent flow does not match the claimed agreement');
+  }
+  return winner;
+}
 
 export function toMinorUnits(amount) {
   const n = Number(amount);

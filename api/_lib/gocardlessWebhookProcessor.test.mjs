@@ -273,6 +273,36 @@ test('duplicate delivery of the same event is a no-op (idempotent)', async () =>
   assert.equal(db.tables.gocardless_mandates.length, 1);
 });
 
+test('fulfilled replay for a superseded consent agreement is ignored', async () => {
+  const db = makeFakeDb({
+    membership_billing_agreements: [{
+      id: 'agr-old',
+      tenant_id: TENANT,
+      status: STATUS.PAYMENT_PLAN_CANCELLED,
+      gocardless_billing_request_id: 'BRQ-old',
+      metadata: { consent_superseded_by: 'agr-new' },
+    }],
+    membership_payment_status_history: [],
+    gocardless_customers: [],
+    gocardless_mandates: [],
+  });
+  let providerRead = false;
+  const out = await processGocardlessEvent({
+    id: 'EV_OLD',
+    resource_type: 'billing_requests',
+    action: 'fulfilled',
+    links: { billing_request: 'BRQ-old', mandate_request_mandate: 'MD-old' },
+  }, {
+    db,
+    gc: gcStub({ getBillingRequest: async () => { providerRead = true; return {}; } }),
+  });
+  assert.equal(out.handled, true);
+  assert.match(out.detail, /superseded/);
+  assert.equal(providerRead, false);
+  assert.equal(db.tables.gocardless_mandates.length, 0);
+  assert.equal(db.tables.membership_payment_status_history.length, 0);
+});
+
 test('monthly billing request fulfillment records its first instalment once', async () => {
   const db = makeFakeDb({
     membership_billing_agreements: [{

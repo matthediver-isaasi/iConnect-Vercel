@@ -205,6 +205,12 @@ export function createGocardlessClient(creds) {
       return json.billing_requests;
     },
 
+    async cancelBillingRequest(billingRequestId) {
+      const json = await request('POST', `/billing_requests/${billingRequestId}/actions/cancel`, { body: {} });
+      logGc(`cancelled billing request ${billingRequestId}`);
+      return json.billing_requests;
+    },
+
     /**
      * Create a hosted Billing Request Flow for a billing request. Returns the
      * flow (including `authorisation_url` the payer is sent to).
@@ -417,6 +423,7 @@ function envClient() {
 
 export const createBillingRequest = (args) => envClient().createBillingRequest(args);
 export const getBillingRequest = (id) => envClient().getBillingRequest(id);
+export const cancelBillingRequest = (id) => envClient().cancelBillingRequest(id);
 export const createBillingRequestFlow = (args) => envClient().createBillingRequestFlow(args);
 export const createSubscription = (args) => envClient().createSubscription(args);
 export const createPayment = (args) => envClient().createPayment(args);

@@ -264,10 +264,17 @@ async function processBillingRequestEvent({ event, action, links, db, gc, deps =
   const formPaymentResult = await maybeProcessFormPaymentBillingRequest({ action, brId, db, gc });
   if (formPaymentResult) return formPaymentResult;
 
-  const agreement = await findAgreementByBillingRequest(db, brId);
+  let agreement = await findAgreementByBillingRequest(db, brId);
   if (!agreement) return { handled: false, detail: `no local agreement for billing request ${brId}` };
+  if (agreement.metadata?.consent_superseded_by) {
+    return { handled: true, detail: `billing request belongs to superseded agreement ${agreement.id}` };
+  }
 
   if (action === 'fulfilled') {
+    agreement = await findAgreementById(db, agreement.id);
+    if (agreement?.metadata?.consent_superseded_by) {
+      return { handled: true, detail: `billing request fulfilled after agreement ${agreement.id} was superseded` };
+    }
     // Mandate (and possibly customer) now exist. Attach them.
     const extraUpdate = {};
     let mandateId = links.mandate_request_mandate || null;
