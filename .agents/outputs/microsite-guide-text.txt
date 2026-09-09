@@ -1,0 +1,571 @@
+i C O N N E C T P L AT F O R M
+
+
+
+
+Event Microsite
+User Guide
+Plan, build, launch and retire a focused
+website for an in-person event — without
+developer knowledge.
+
+
+
+
+Northstar Summit example           Version 1.0 · 9 September 2026
+Contents
+
+A practical event lifecycle, from first URL decision to safe post-event retirement.
+
+1. What an event microsite does                  7. Brand the microsite
+
+2. Plan before you build                         8. Set microsite typography
+
+3. Create the microsite                          9. Preview, test and launch
+
+4. Create, assign and publish pages            10. Promote and operate the event
+
+5. Choose the home page                        11. Retire the microsite safely
+
+6. Build the navigation                        12. Troubleshooting and checklists
+
+
+   Example used throughout: Northstar Summit, an in-person conference with overview,
+   agenda, speaker, venue, sponsor and FAQ pages.
+
+
+
+
+Event Microsite User Guide                                                             2
+1. What an event microsite does
+
+A microsite groups public pages under one URL prefix and gives them their own
+navigation, header, footer and optional branding.
+
+
+  Example URL pattern
+  /northstar-2026 → selected home page
+
+   /northstar-2026/agenda → agenda page
+
+   /northstar-2026/venue → venue and travel page
+
+
+
+
+Microsite versus event management
+
+ Use the microsite for                          Use event management for
+
+
+ Overview and promotional content               Event record, dates and operational status
+
+ Agenda presentation and speaker stories        Sessions, tracks and speaker assignments
+
+
+ Venue, travel, sponsors and FAQs               Tickets, prices, eligibility and capacity
+
+
+ Clear links to registration                    Registration, payment and attendee records
+
+
+ Event-specific navigation and branding         Confirmations, check-in and attendance
+
+
+
+   Important: the microsite does not create or manage the event. Build the operational event and
+   registration journey in the event area, then link to it from the microsite.
+
+
+
+
+Understanding microsites                                                                           3
+2. Plan before you build
+
+Recommended page structure
+
+ Page                  Purpose                                          Call to action
+
+
+ Overview              Promise, date, place and reasons to attend       Register now
+
+
+ Agenda                Day-by-day programme or summary                  View tickets
+
+
+ Speakers              Biographies and session highlights               See the agenda
+
+
+ Venue & travel        Address, map, transport, hotels, accessibility   Plan your journey
+
+
+ Sponsors              Sponsor levels, approved logos and links         Become a sponsor
+
+
+ FAQs                  Registration, access, food, dress and contact    Contact the team
+
+
+
+
+Prerequisites
+   Permission to use Microsites and the page editor.
+   Final event name and a short, durable URL prefix.
+   Approved logos, colours, social image and sponsor assets.
+   The correct event registration URL.
+   A colleague who can test while signed out on desktop and mobile.
+
+
+   Choose the URL once. A prefix uses lowercase letters, numbers and hyphens and must be
+   one segment. Changing it later changes every microsite page address.
+
+
+
+
+Planning                                                                                    4
+3. Create the microsite
+
+ 1. Open Microsites and select New microsite.
+ 2. Enter the internal name and URL prefix.
+ 3. Add an optional description and logo URL.
+ 4. Choose the initial Active state.
+ 5. Select Save.
+
+
+  New microsite                                                                                             ×
+
+
+    1   Name
+
+     Northstar Summit 2026
+
+    2   URL prefix
+
+     northstar-2026
+
+  Lowercase letters, numbers and hyphens. Cannot be a reserved route or an existing page slug.
+
+  Description (optional)
+
+     Visitor information for our annual in-person summit.
+
+  Logo URL (optional)
+
+     https://…
+
+    3   Active         ON
+
+
+                                                                                   Cancel        4   Save
+
+
+
+
+   Two gates: the microsite must be active and each page must be published for ordinary visitors
+   to see it. If already-published pages will be assigned, keep the microsite inactive until launch.
+
+
+
+
+Create the microsite                                                                                            5
+4. Create, assign and publish pages
+
+Assign an existing page
+ 1. Select the microsite and open Pages.
+ 2. Search under Assign an existing page.
+ 3. Select Assign.
+ 4. Confirm its prefixed URL under Pages in this microsite.
+ 5. Publish in the page editor when ready.
+
+
+  Northstar Summit 2026                                                 Edit   Delete
+
+
+    Pages         Navigation    Header & Footer
+
+
+  Pages in this microsite
+
+      1   Event overview
+                                      Home                    Remove
+     /northstar-2026/overview
+
+
+     Agenda
+                                      draft                   Remove
+     /northstar-2026/agenda
+
+
+
+  Assign an existing page
+
+     Search pages by title or slug…
+
+
+      2   Venue & travel
+                                                  Assign
+     /venue
+
+
+
+
+   Address changes immediately: assignment moves /agenda to /northstar-2026/agenda .
+   The bare address no longer serves that page. Update old links and QR codes.
+
+
+
+
+Pages and publishing                                                                    6
+5. Choose the home page
+
+The home page opens at the short base URL and is where the microsite header
+logo links.
+1. Assign the intended overview page.
+2. Select Edit beside the microsite name.
+3. Choose it from Home page.
+4. Select Save.
+5. Test both the base address and full overview address.
+
+
+  Edit microsite                                                                                                  ×
+
+
+  Home page
+
+     1   Event overview ⌄
+
+  Served at the microsite’s base URL (/northstar-2026) and where the microsite logo links. Choose from assigned
+  pages.
+
+
+                                                                                                     2   Save
+
+
+
+
+  Test these routes
+   /northstar-2026 → Event overview
+
+  /northstar-2026/overview → Event overview
+
+
+
+
+  Only assigned pages appear in the Home page list. Without a home page, do not promote the
+  base prefix as the visitor landing address.
+
+
+
+
+Home page                                                                                                             7
+6. Build the navigation
+
+Microsite items replace normal tenant navigation on microsite pages.
+
+
+  Northstar Summit 2026
+                                                                                     + Add item
+
+
+
+    Pages         Navigation         Header & Footer
+
+
+   1       Internal paths include the prefix, for example /northstar-2026/agenda .
+
+
+  Header Elements
+
+    Search
+                                          Social Icons                 Account
+    Search box and results
+
+
+
+  Main navigation
+
+       2     Overview /northstar-2026/overview ↑ ↓ ✎
+
+
+    Programme          2 sub-items     ↑↓✎
+
+
+              Agenda /northstar-2026/agenda
+
+
+
+   Choose Main navigation, Top bar or Footer; footer remains flat.
+   Dropdown menus support up to three levels.
+   Search, Social and Account may each be added once.
+   Search can include the whole site or only this microsite.
+
+
+   Navigation visibility and page publication are independent. A hidden item does not unpublish a
+   page, and a published page is not added to navigation automatically.
+
+
+
+
+Navigation                                                                                          8
+7. Brand the microsite
+
+Override only the event-specific sections. Everything left off inherits tenant
+branding automatically.
+
+  Header & Footer                                                                      Northstar Summit
+
+
+
+     1     Colors
+                                                    Override ON
+    Primary and secondary brand colors
+
+
+
+
+    Header Logo
+                                                    Override ON
+    Image, size and shrink on scroll
+
+
+    Header Gradient Colors                          Override off — inheriting tenant
+
+
+    Link Previews (SEO & Social Sharing)            Override ON
+
+
+
+                                                                                2       Save branding
+
+
+
+
+Header controls                                      Sharing and footer
+Colours, general logo, header logo and sizing,       1200×630 social image, tagline, description,
+gradient, top-nav font and colours,                  social icon colours, and footer
+login/member buttons, lower nav bar.                 source/configuration.
+
+
+   Safe fallback: switching Override off returns that section to tenant branding. Use this instead
+   of copying every tenant setting.
+
+
+
+
+Branding                                                                                                  9
+7. Brand the microsite                                              (continued)
+
+
+
+
+Footer choices
+
+ Footer source           Behaviour                                          Use when
+
+ Inherit main-site       Uses the main site’s effective footer, including   Legal and contact content should
+ footer                  its reusable Canvas footer.                        stay identical.
+
+
+ Configured              Uses the event footer when Footer                  The event needs its own columns,
+ microsite footer        Configuration override is enabled.                 colours or contact details.
+
+ Reusable Canvas         Renders the selected reusable footer; later        A designed event footer already
+ footer                  footer-editor changes flow through.                exists.
+
+
+
+
+Accessible event branding
+    Keep text readable against every header and footer background.
+    Check the logo at mobile width and at the scrolled size if shrink-on-scroll is enabled.
+    Use a 1200×630 share image with event name, date and location.
+    Do not place essential information only inside an image.
+    Check Login and Member Area states if the Account element is included.
+
+
+   When reusable Canvas footer is selected, choose a footer before saving. When configured
+   microsite footer is selected, turn on the Footer Configuration override.
+
+
+
+
+Branding and footer                                                                                            10
+8. Set microsite typography
+
+1. Open the installed fonts / typography area.
+2. Select the event microsite in the scope selector, not Main site.
+3. Create or edit H1–H4 and paragraph styles.
+4. Choose font, size, weight, line height, letter spacing, transform, colour and spacing.
+5. Add tablet/mobile values where needed.
+6. Set a default for the style type, keep it active, save and preview.
+
+
+  Typography Styles                                                                     + Create Style
+
+
+   1   Site scope
+
+    Northstar Summit 2026 ⌄
+
+  Style Type                                          Font Family
+
+    H1 — Main Heading                                   Poppins
+
+
+    Desktop 48 px                      Tablet 40 px                      Mobile 32 px
+
+   Set as default for this type   Active
+
+
+
+
+   If the microsite has no default for a style type, it falls back to the corresponding main-site
+   default. Installing a font makes it available; a scoped typography style applies it to page
+   content.
+
+
+
+
+Typography                                                                                               11
+9. Preview, test and launch
+
+Launch order
+1. Finish and save all content.
+2. Assign every page and verify its new URL.
+3. Choose the home page.
+4. Build navigation with prefixed paths.
+5. Apply branding and microsite typography.
+6. Publish the pages.
+7. Switch the microsite Active on.
+8. Test while signed out, on desktop and mobile.
+9. Only then distribute links and QR codes.
+
+
+   Preview is not publication. Preview as visitor lets an authorised editor inspect a draft.
+   Ordinary visitors still need an active microsite and a published page.
+
+
+
+Launch checklist
+☐ Base URL opens the intended home page.           ☐ Every promoted page is assigned and
+                                                   published.
+
+☐ No old bare-slug URL is used.                    ☐ Header, dropdown and footer links work.
+☐ Registration buttons open the right event.       ☐ Search scope behaves as intended.
+☐ Logo links to the home page.                     ☐ Mobile text and controls are readable.
+☐ Social sharing text and image are suitable.      ☐ Venue and accessibility details are correct.
+☐ Signed-out visitors can use public pages.        ☐ No confidential draft content is visible.
+
+
+
+
+Preview and launch                                                                                  12
+10. Promote and operate the event
+
+Promotion
+Use the base URL in general promotion and deep links for agenda, venue or FAQs when useful.
+Generate QR codes only after the prefix and slugs are final.
+
+
+Day-of use
+   Keep urgent agenda and venue updates short and prominent.
+   Put high-priority updates near the top of the overview.
+   Re-test registration links if ticket availability changes.
+   After editing, save and confirm the public page.
+   Use event management—not the microsite—for bookings, attendee records, check-in and
+   attendance.
+
+
+  Content update workflow
+  Open page editor → make change → Save → Preview as visitor → confirm public page → notify
+  attendees if needed
+
+
+
+
+   Search and navigation help visitors find published content. They never override the page’s
+   publication state or the microsite’s Active state.
+
+
+
+Useful handover record
+Record the prefix, base URL, home page, page owners, event registration URL, retirement date, and
+person responsible for post-event content.
+
+
+
+
+Promotion and operation                                                                         13
+11. Retire the microsite safely
+
+Do not delete immediately after the event. Old emails, bookmarks and QR codes
+may still be in use.
+
+
+Recommended retirement
+ 1. Replace the overview with a post-event message and useful next steps.
+ 2. Remove or update registration calls to action.
+ 3. Keep recap, sponsor and venue information only as long as required.
+ 4. Unpublish pages that should no longer be public.
+ 5. At the end of the archive period, switch Active off.
+ 6. Check campaigns, QR codes and external links before deletion.
+
+
+Inactive versus delete
+
+ Action       Result                                                  Recommendation
+
+
+ Inactive     The microsite stops resolving publicly; its structure   Preferred for normal post-event
+              remains available to administrators.                    retirement.
+
+ Delete       Navigation is deleted and pages return to the default   Use only after reviewing every page
+              site at their bare slugs.                               and inbound link.
+
+
+
+   Deletion cannot be undone from this screen. Still-published pages may become available
+   at new bare addresses. Unpublish or review every assigned page first.
+
+
+
+
+Safe retirement                                                                                             14
+12. Troubleshooting
+
+A page shows “not found”
+Confirm the microsite is active, the page is assigned and published, and the address uses
+/{prefix}/{slug} .
+
+
+The base URL does not show the overview
+Edit the microsite, select an assigned page under Home page, save and retest.
+
+
+A page disappeared from the main site
+This is expected after assignment. Its address moved from /{slug} to /{prefix}/{slug} .
+
+
+Branding looks like the main site
+Enable Override for the required card, set the values and select Save branding. Non-overridden
+sections intentionally inherit.
+
+A navigation link opens the wrong place
+Use the complete prefixed path, confirm the current page slug and ensure the item is active.
+
+Search includes unwanted main-site results
+Edit the Search header element and restrict it to this microsite. The Search element must be present
+in navigation.
+
+
+Five facts to remember
+ 1. Active microsite + published page = public availability.
+ 2. Assignment changes the page address.
+ 3. Home page selection enables the short base URL.
+ 4. Microsite navigation replaces tenant navigation.
+ 5. Inactive is usually safer than delete after an event.
+
+
+
+
+Troubleshooting                                                                                   15
+

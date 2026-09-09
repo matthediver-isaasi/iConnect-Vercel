@@ -159,3 +159,17 @@ mtime_ms = 1788794965196
 storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/066fde4b-0dfe-4d9b-b519-b6ee5ade43a2/90c0b3f6-f120-4264-a040-9777529191fe"
 storage_version_token = "1788794981096498"
 content_type = "application/octet-stream"
+
+[[outputs]]
+id = "6holHzzRD7L4a1DQao4U2"
+uri = "file://guides/microsite-events-user-guide.pdf"
+type = "pdf"
+title = "Event Microsite User Guide"
+description = "A polished 15-page guide for planning, building, launching, operating and safely retiring an in-person event microsite."
+logical_id = "ac32d0b1-f99a-4d64-b78c-565eaaf1eb20"
+content_hash = "sha256:b7670b3495238507921b965de5a46e9553ac7669bcc702f2d6029c8089ecb3da"
+size = 391084
+mtime_ms = 1788934747979
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/ac32d0b1-f99a-4d64-b78c-565eaaf1eb20/ab12b1cb-0996-4d63-8172-9f02020a9903"
+storage_version_token = "1788934799649077"
+content_type = "application/pdf"
