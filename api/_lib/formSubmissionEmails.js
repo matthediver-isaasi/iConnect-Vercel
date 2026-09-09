@@ -443,15 +443,27 @@ export async function sendSubmissionEmails({
   if (submissionId) {
     const { data: submission, error: submissionError } = await supabase
       .from('form_submission')
-      .select('created_member_id, created_organization_id, member_id, organization_id, submission_data')
+      .select('created_member_id, created_organization_id, organization_id, submission_data')
       .eq('id', submissionId)
       .eq('tenant_id', tenantId)
       .eq('form_id', form.id)
       .single();
     if (submissionError || !submission) {
+      const databaseReason = submissionError
+        ? [submissionError.code, submissionError.message].filter(Boolean).join(': ')
+        : 'submission row was not returned';
+      const reason = `Persisted submission could not be verified: ${databaseReason}`;
+      console.error('[SubmissionEmails] Persisted submission verification failed', {
+        submission_id: submissionId,
+        form_id: form.id,
+        tenant_id: tenantId,
+        database_code: submissionError?.code || null,
+        database_message: submissionError?.message || null,
+      });
       return {
         success: false,
-        error: 'Persisted submission could not be verified',
+        error: reason,
+        reason,
         emails: [],
       };
     }
@@ -459,7 +471,7 @@ export async function sendSubmissionEmails({
       persistedSubmissionData = submission.submission_data || {};
       form_values = persistedSubmissionData;
       if (!memberIdToUse) {
-        memberIdToUse = submission.created_member_id || submission.member_id;
+        memberIdToUse = submission.created_member_id;
       }
       if (!organizationIdToUse) {
         organizationIdToUse = submission.created_organization_id || submission.organization_id;
@@ -992,7 +1004,9 @@ export async function sendSubmissionEmailsGuarded(options) {
       ...baseState,
       processed_at: finishedAt(),
       status: result.skipped ? 'skipped' : (allOk ? (anySent ? 'sent' : 'skipped') : 'failed'),
-      reason: result.reason || (allOk && !anySent ? 'All emails skipped by conditions' : null),
+      reason: result.reason
+        || result.error
+        || (allOk && !anySent ? 'All emails skipped by conditions' : 'Submission email processing failed'),
       emails: result.emails || [],
     };
     const durable = await recordOutcome(supabase, submissionId, state);

@@ -167,3 +167,41 @@ test('force resend remains restricted to an admin of the persisted tenant', asyn
   assert.equal(response.statusCode, 403);
   assert.equal(senderCalled, false);
 });
+
+test('authorized resend delegates one forced guarded attempt for the persisted submission', async () => {
+  const db = makeDatabase();
+  const { response, res } = makeResponseRecorder();
+  const calls = [];
+
+  await handleSendSubmissionEmail({
+    method: 'POST',
+    body: {
+      form_id: db.form.id,
+      submission_id: db.submission.id,
+      force_resend: true,
+    },
+  }, res, {
+    supabase: db.client,
+    getTrustedBaseUrlForTenant: async () => 'https://tenant.iconn.app',
+    tenantContextModule: {
+      getTenantContext: async () => ({ tenantId: db.form.tenant_id }),
+      hasAdminAccess: async () => true,
+    },
+    sendSubmissionEmailsGuarded: async (options) => {
+      calls.push(options);
+      return {
+        success: true,
+        durable: true,
+        emails: [{ success: true, messageId: 'provider-message-1' }],
+      };
+    },
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].submissionId, db.submission.id);
+  assert.equal(calls[0].createdMemberId, db.submission.created_member_id);
+  assert.equal(calls[0].forceResend, true);
+  assert.equal(calls[0].trigger, 'admin-resend');
+  assert.equal(calls[0].allowUnguarded, false);
+});
