@@ -18,6 +18,7 @@ const CUSTOM_HTML_TAGS = [
   'figure', 'figcaption', 'img',
   'section', 'article', 'header', 'footer', 'nav', 'aside', 'main',
   'small', 'sub', 'sup', 'mark', 'time', 'cite', 'kbd', 'dfn', 'abbr',
+  'iframe',
 ];
 
 const CUSTOM_HTML_ATTRS = [
@@ -29,11 +30,36 @@ const CUSTOM_HTML_ATTRS = [
 
 export function sanitizeCustomHtml(html) {
   if (!html) return '';
-  return DOMPurify.sanitize(html, {
-    ALLOWED_TAGS: CUSTOM_HTML_TAGS,
-    ALLOWED_ATTR: CUSTOM_HTML_ATTRS,
-    ALLOW_DATA_ATTR: true,
-    FORBID_TAGS: ['script', 'style', 'iframe', 'object', 'embed', 'form', 'input', 'button', 'link', 'meta'],
-    FORBID_ATTR: ['onerror', 'onload', 'onclick', 'onmouseover', 'onfocus', 'onblur', 'onsubmit'],
-  });
+
+  // Iframes remain forbidden by default. The hook makes the one narrow
+  // exception before DOMPurify retains the element: HTTPS Google Maps embed
+  // routes on Google's exact hostnames. This rejects lookalike hosts,
+  // credentials, alternate protocols, and ordinary Google pages.
+  const allowApprovedGoogleMapsIframe = (node, data) => {
+    if (data.tagName !== 'iframe') return;
+    let approved = false;
+    try {
+      const src = node.getAttribute('src') || '';
+      const url = new URL(src);
+      const approvedHost = url.hostname === 'google.com' || url.hostname === 'www.google.com';
+      const approvedPath = url.pathname === '/maps/embed' || url.pathname === '/maps/d/embed';
+      approved = url.protocol === 'https:' && !url.username && !url.password && approvedHost && approvedPath;
+    } catch {
+      approved = false;
+    }
+    if (!approved) node.remove();
+  };
+
+  DOMPurify.addHook('uponSanitizeElement', allowApprovedGoogleMapsIframe);
+  try {
+    return DOMPurify.sanitize(html, {
+      ALLOWED_TAGS: CUSTOM_HTML_TAGS,
+      ALLOWED_ATTR: CUSTOM_HTML_ATTRS,
+      ALLOW_DATA_ATTR: true,
+      FORBID_TAGS: ['script', 'style', 'object', 'embed', 'form', 'input', 'button', 'link', 'meta'],
+      FORBID_ATTR: ['onerror', 'onload', 'onclick', 'onmouseover', 'onfocus', 'onblur', 'onsubmit'],
+    });
+  } finally {
+    DOMPurify.removeHook('uponSanitizeElement');
+  }
 }

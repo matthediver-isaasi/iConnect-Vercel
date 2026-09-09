@@ -4178,7 +4178,8 @@ function CustomHtmlInspector({ block, update }) {
     <>
       <div className="rounded-md border border-warning/30 bg-warning/10 p-2 text-xs text-warning">
         Custom HTML is sanitised on save and on render, but you should still use this
-        block carefully. Scripts, styles, iframes and form elements are stripped.
+        block carefully. Approved HTTPS Google Maps embed iframes are supported;
+        other iframes, scripts, styles and form elements are stripped.
       </div>
       <Field label="HTML">
         <Textarea
