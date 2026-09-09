@@ -2040,7 +2040,7 @@ export default function ResourceManagementPage() {
                       <SelectItem value="download">Download</SelectItem>
                       <SelectItem value="video">Video</SelectItem>
                       <SelectItem value="external_link">External Link</SelectItem>
-                      <SelectItem value={TENANT_FORM_RESOURCE_TYPE}>Tenant form</SelectItem>
+                      <SelectItem value={TENANT_FORM_RESOURCE_TYPE}>Form</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
