@@ -18,6 +18,7 @@ import { gocardlessForTenant, buildIdempotencyKey } from '../../_lib/gocardless.
 import { getGocardlessCredentials } from '../../_lib/gocardlessCredentials.js';
 import { STATUS } from '../../_lib/gocardlessState.js';
 import { validateInvitation, INVITE_INVALID_MESSAGES } from '../../_lib/gocardlessDdInvitations.js';
+import { buildMonthlyBillingRequest } from '../../_lib/gocardlessDirectDebit.js';
 
 export default async function handler(req, res) {
   if (!supabase) return res.status(503).json({ error: 'Database not configured' });
@@ -108,15 +109,17 @@ async function handlePost(req, res, invitation, agreement) {
 
   const snap = agreement.metadata?.dd || {};
   const client = await gocardlessForTenant(tenantId);
+  const metadata = {
+    tenant_id: tenantId,
+    organization_id: agreement.organization_id,
+    membership_year: snap.membership_year || '',
+    kind: 'monthly_direct_debit',
+  };
   const billingRequest = await client.createBillingRequest({
     idempotencyKey: buildIdempotencyKey('dd-br-inv', tenantId, agreement.id),
-    currency: snap.currency || 'GBP',
-    metadata: {
-      tenant_id: tenantId,
-      organization_id: agreement.organization_id,
-      membership_year: snap.membership_year || '',
-      kind: 'monthly_direct_debit',
-    },
+    ...(snap.billing_request_payment?.included
+      ? buildMonthlyBillingRequest({ snapshot: snap, metadata })
+      : { currency: snap.currency || 'GBP', metadata }),
   });
 
   const proto = req.headers['x-forwarded-proto'] || 'https';

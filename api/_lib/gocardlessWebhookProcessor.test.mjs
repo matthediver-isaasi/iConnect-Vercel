@@ -7,6 +7,7 @@ import crypto from 'node:crypto';
 
 import { canTransition, applyStatusTransition, STATUS } from './gocardlessState.js';
 import { processGocardlessEvent, validateConfirmedCatchUpAmount, isCatchUpTerminalFailureAction } from './gocardlessWebhookProcessor.js';
+import { buildIdempotencyKey } from './gocardless.js';
 
 test('confirmed GC catch-up amount mismatch rejects before period allocation or intent completion', () => {
   const periods = [{ id: 'period-1', settled_at: null }];
@@ -65,8 +66,9 @@ function makeFakeDb(initial = {}) {
       const rows = ensure(this.table);
       if (this.op === 'insert') {
         const list = Array.isArray(this.payload) ? this.payload : [this.payload];
-        for (const p of list) rows.push({ id: p.id || crypto.randomUUID(), ...p });
-        return { data: list, error: null };
+        const inserted = list.map((p) => ({ id: p.id || crypto.randomUUID(), ...p }));
+        rows.push(...inserted);
+        return { data: inserted, error: null };
       }
       if (this.op === 'upsert') {
         const conflictCols = (this.upsertOpts.onConflict || '').split(',').map((s) => s.trim()).filter(Boolean);
@@ -96,6 +98,10 @@ function makeFakeDb(initial = {}) {
       return { data: this._matches().map((r) => ({ ...r })), error: null };
     }
     maybeSingle() {
+      const { data, error } = this._run();
+      return Promise.resolve({ data: data[0] || null, error });
+    }
+    single() {
       const { data, error } = this._run();
       return Promise.resolve({ data: data[0] || null, error });
     }
@@ -267,6 +273,142 @@ test('duplicate delivery of the same event is a no-op (idempotent)', async () =>
   assert.equal(db.tables.gocardless_mandates.length, 1);
 });
 
+test('monthly billing request fulfillment records its first instalment once', async () => {
+  const db = makeFakeDb({
+    membership_billing_agreements: [{
+      id: 'agr-monthly',
+      tenant_id: TENANT,
+      member_id: 'mem-1',
+      organization_id: null,
+      status: STATUS.PAYMENT_SETUP_REQUIRED,
+      gocardless_billing_request_id: 'BRQ-monthly',
+      metadata: {
+        dd: {
+          kind: 'monthly_direct_debit',
+          billing_request_payment: { included: true, amount_minor: 1000 },
+        },
+      },
+    }],
+    membership_payment_status_history: [],
+    gocardless_customers: [],
+    gocardless_mandates: [],
+    gocardless_payments: [{
+      id: 'payment-first',
+      tenant_id: TENANT,
+      plan_id: 'plan-existing',
+      gocardless_payment_id: 'PM-first',
+      status: 'confirmed',
+    }],
+  });
+  const event = {
+    id: 'EV_BR_MONTHLY',
+    resource_type: 'billing_requests',
+    action: 'fulfilled',
+    links: {
+      billing_request: 'BRQ-monthly',
+      mandate_request_mandate: 'MD-monthly',
+      payment_request_payment: 'PM-first',
+      customer: 'CU-monthly',
+    },
+  };
+
+  const monthlyGc = gcStub({
+    getMandate: async () => ({ id: 'MD-monthly', status: 'pending_submission' }),
+    getPayment: async () => ({
+      id: 'PM-first',
+      amount: 1000,
+      currency: 'GBP',
+      charge_date: '2026-08-01',
+      status: 'pending_submission',
+    }),
+  });
+  await processGocardlessEvent(event, { db, gc: monthlyGc });
+  await processGocardlessEvent(event, { db, gc: monthlyGc });
+
+  const agreement = db.tables.membership_billing_agreements[0];
+  assert.equal(agreement.metadata.gocardless_initial_payment.id, 'PM-first');
+  assert.equal(db.tables.gocardless_payments.length, 1);
+  assert.equal(db.tables.gocardless_payments[0].gocardless_payment_id, 'PM-first');
+  assert.equal(db.tables.gocardless_payments[0].status, 'confirmed');
+  assert.equal(db.tables.gocardless_payments[0].plan_id, 'plan-existing');
+});
+
+test('fulfilled billing request repairs an earlier active-mandate event and creates one remaining subscription', async () => {
+  const db = makeFakeDb({
+    membership_billing_agreements: [{
+      id: 'agr-reordered',
+      tenant_id: TENANT,
+      member_id: 'mem-1',
+      organization_id: null,
+      status: STATUS.PAYMENT_SETUP_REQUIRED,
+      gocardless_billing_request_id: 'BRQ-reordered',
+      metadata: {
+        dd: {
+          kind: 'monthly_direct_debit',
+          monthly_amount_minor: 1000,
+          instalment_count: 12,
+          currency: 'GBP',
+          first_collection_rule: 'earliest',
+          activation_rule: 'first_payment',
+          accepted_at: '2026-07-01T00:00:00.000Z',
+          membership_year: '2026',
+          billing_request_payment: { included: true, amount_minor: 1000 },
+        },
+      },
+    }],
+    membership_payment_status_history: [],
+    membership_payment_plans: [],
+    member_membership_history: [{
+      id: 'history-reordered',
+      billing_agreement_id: 'agr-reordered',
+      status: 'pending_payment_setup',
+      payment_status: 'pending',
+    }],
+    gocardless_customers: [],
+    gocardless_mandates: [],
+    gocardless_payments: [],
+  });
+  const subscriptionCalls = [];
+  const gc = gcStub({
+    getMandate: async () => ({ id: 'MD-reordered', status: 'active' }),
+    getPayment: async () => ({
+      id: 'PM-reordered',
+      amount: 1000,
+      currency: 'GBP',
+      charge_date: '2026-07-10',
+      status: 'confirmed',
+    }),
+    createSubscription: async (args) => {
+      subscriptionCalls.push(args);
+      return { id: 'SB-reordered', start_date: args.startDate };
+    },
+  });
+  const event = {
+    id: 'EV_BR_REORDERED',
+    resource_type: 'billing_requests',
+    action: 'fulfilled',
+    links: {
+      billing_request: 'BRQ-reordered',
+      mandate_request_mandate: 'MD-reordered',
+      payment_request_payment: 'PM-reordered',
+      customer: 'CU-reordered',
+    },
+  };
+
+  const deps = { db, gc, postToAccounting: async () => ({ posted: false }) };
+  await processGocardlessEvent(event, deps);
+  await processGocardlessEvent(event, deps);
+
+  assert.equal(subscriptionCalls.length, 1);
+  assert.equal(subscriptionCalls[0].count, 11);
+  assert.equal(subscriptionCalls[0].startDate, '2026-08-10');
+  assert.equal(db.tables.membership_payment_plans.length, 1);
+  assert.equal(db.tables.membership_payment_plans[0].gocardless_subscription_id, 'SB-reordered');
+  assert.equal(db.tables.membership_billing_agreements[0].status, STATUS.ACTIVE);
+  assert.equal(db.tables.member_membership_history[0].status, 'active');
+  assert.equal(db.tables.member_membership_history[0].payment_status, 'partial');
+});
+
 test('mandate active: agreement -> first_payment_pending, mandate mirror updated', async () => {
   const db = makeFakeDb({
     membership_billing_agreements: [{
@@ -281,6 +423,71 @@ test('mandate active: agreement -> first_payment_pending, mandate mirror updated
   assert.equal(out.handled, true);
   assert.equal(db.tables.membership_billing_agreements[0].status, STATUS.FIRST_PAYMENT_PENDING);
   assert.equal(db.tables.gocardless_mandates[0].status, 'active');
+});
+
+test('late mandate replay never treats the old first payment as recovery from later arrears', async () => {
+  const plan = {
+    id: 'plan-arrears',
+    tenant_id: TENANT,
+    billing_agreement_id: 'agr-arrears',
+    status: STATUS.PAYMENT_GRACE_PERIOD,
+    gocardless_subscription_id: 'SB-arrears',
+    gocardless_mandate_id: 'MD-arrears',
+    idempotency_key: buildIdempotencyKey('dd-sub', 'agr-arrears', '2026'),
+    last_payment_id: 'PM-later-failed',
+    last_payment_status: 'failed',
+    retry_count: 2,
+    grace_expires_at: '2026-09-20T00:00:00.000Z',
+  };
+  const db = makeFakeDb({
+    membership_billing_agreements: [{
+      id: 'agr-arrears',
+      tenant_id: TENANT,
+      status: STATUS.PAYMENT_GRACE_PERIOD,
+      gocardless_mandate_id: 'MD-arrears',
+      metadata: {
+        gocardless_initial_payment: { id: 'PM-initial', charge_date: '2026-07-10' },
+        dd: {
+          kind: 'monthly_direct_debit',
+          membership_year: '2026',
+          instalment_count: 12,
+          activation_rule: 'first_payment',
+          billing_request_payment: { included: true, amount_minor: 1000 },
+        },
+      },
+    }],
+    membership_payment_plans: [plan],
+    gocardless_payments: [{
+      id: 'payment-initial',
+      tenant_id: TENANT,
+      plan_id: 'plan-arrears',
+      gocardless_payment_id: 'PM-initial',
+      status: 'confirmed',
+    }],
+    gocardless_mandates: [{
+      id: 'mandate-arrears',
+      tenant_id: TENANT,
+      gocardless_mandate_id: 'MD-arrears',
+      status: 'active',
+    }],
+    membership_payment_status_history: [],
+  });
+  await processGocardlessEvent({
+    id: 'EV_MD_ARREARS_REPLAY',
+    resource_type: 'mandates',
+    action: 'active',
+    links: { mandate: 'MD-arrears' },
+  }, {
+    db,
+    gc: gcStub(),
+    postToAccounting: async () => ({ posted: false }),
+  });
+
+  assert.equal(db.tables.membership_payment_plans[0].status, STATUS.PAYMENT_GRACE_PERIOD);
+  assert.equal(db.tables.membership_billing_agreements[0].status, STATUS.PAYMENT_GRACE_PERIOD);
+  assert.equal(db.tables.membership_payment_plans[0].last_payment_id, 'PM-later-failed');
+  assert.equal(db.tables.membership_payment_plans[0].retry_count, 2);
+  assert.equal(db.tables.membership_payment_plans[0].grace_expires_at, '2026-09-20T00:00:00.000Z');
 });
 
 test('late mandate cancellation NOT confirmed by API leaves plan untouched', async () => {
@@ -344,6 +551,214 @@ test('payment confirmed: plan + agreement -> active, retry count reset, payment 
   assert.equal(db.tables.membership_billing_agreements[0].status, STATUS.ACTIVE);
   assert.equal(db.tables.gocardless_payments.length, 1);
   assert.equal(db.tables.gocardless_payments[0].status, 'confirmed');
+});
+
+test('a confirmed provider retry moves the same payment mirror from failed to confirmed', async () => {
+  const plan = {
+    id: 'plan-retry',
+    tenant_id: TENANT,
+    billing_agreement_id: 'agr-retry',
+    status: STATUS.PAYMENT_GRACE_PERIOD,
+    gocardless_subscription_id: 'SB-retry',
+    retry_count: 1,
+  };
+  const db = makeFakeDb({
+    membership_billing_agreements: [{ id: 'agr-retry', tenant_id: TENANT, status: STATUS.PAYMENT_GRACE_PERIOD }],
+    membership_payment_plans: [plan],
+    gocardless_payments: [{
+      id: 'payment-retry',
+      tenant_id: TENANT,
+      plan_id: 'plan-retry',
+      gocardless_payment_id: 'PM-retry',
+      gocardless_subscription_id: 'SB-retry',
+      status: 'failed',
+      membership_payment_plans: plan,
+    }],
+    membership_payment_status_history: [],
+  });
+  await processGocardlessEvent({
+    id: 'EV_PM_RETRY_CONFIRMED',
+    resource_type: 'payments',
+    action: 'confirmed',
+    links: { payment: 'PM-retry', subscription: 'SB-retry' },
+  }, {
+    db,
+    gc: gcStub({ getPayment: async () => ({ id: 'PM-retry', amount: 1000, currency: 'GBP', status: 'confirmed' }) }),
+  });
+
+  assert.equal(db.tables.gocardless_payments[0].status, 'confirmed');
+  assert.equal(db.tables.membership_payment_plans[0].status, STATUS.ACTIVE);
+});
+
+test('confirmed first billing-request payment completes a one-instalment plan', async () => {
+  const plan = {
+    id: 'plan-one',
+    tenant_id: TENANT,
+    billing_agreement_id: 'agr-one',
+    status: STATUS.FIRST_PAYMENT_PENDING,
+    gocardless_subscription_id: null,
+    retry_count: 0,
+  };
+  const db = makeFakeDb({
+    membership_billing_agreements: [{
+      id: 'agr-one',
+      tenant_id: TENANT,
+      member_id: 'mem-one',
+      status: STATUS.FIRST_PAYMENT_PENDING,
+      gocardless_mandate_id: 'MD-one',
+      metadata: {
+        gocardless_initial_payment: { id: 'PM-one', charge_date: '2026-07-10' },
+        dd: {
+          kind: 'monthly_direct_debit',
+          instalment_count: 1,
+          activation_rule: 'first_payment',
+          billing_request_payment: { included: true, amount_minor: 1000 },
+        },
+      },
+    }],
+    membership_payment_plans: [plan],
+    gocardless_payments: [{
+      id: 'payment-one',
+      tenant_id: TENANT,
+      plan_id: 'plan-one',
+      gocardless_payment_id: 'PM-one',
+      gocardless_mandate_id: 'MD-one',
+      status: 'submitted',
+      membership_payment_plans: plan,
+    }],
+    member_membership_history: [{
+      id: 'history-one',
+      billing_agreement_id: 'agr-one',
+      status: 'pending_payment_setup',
+      payment_status: 'pending',
+    }],
+    membership_payment_status_history: [],
+  });
+  const event = {
+    id: 'EV_PM_ONE',
+    resource_type: 'payments',
+    action: 'confirmed',
+    links: { payment: 'PM-one', mandate: 'MD-one' },
+  };
+
+  await processGocardlessEvent(event, {
+    db,
+    gc: gcStub(),
+    postToAccounting: async () => ({ posted: false }),
+  });
+
+  assert.equal(db.tables.membership_payment_plans[0].status, STATUS.EXPIRED);
+  assert.ok(db.tables.membership_payment_plans[0].completed_at);
+  assert.equal(db.tables.member_membership_history[0].payment_status, 'paid');
+  assert.ok(db.tables.member_membership_history[0].paid_at);
+});
+
+test('mandate reconciliation resumes after an interrupted membership payment-progress read', async () => {
+  const plan = {
+    id: 'plan-interrupted',
+    tenant_id: TENANT,
+    billing_agreement_id: 'agr-interrupted',
+    status: STATUS.FIRST_PAYMENT_PENDING,
+    gocardless_subscription_id: null,
+    gocardless_mandate_id: 'MD-interrupted',
+    idempotency_key: buildIdempotencyKey('dd-sub', 'agr-interrupted', '2026'),
+    retry_count: 0,
+  };
+  const baseDb = makeFakeDb({
+    membership_billing_agreements: [{
+      id: 'agr-interrupted',
+      tenant_id: TENANT,
+      member_id: 'mem-interrupted',
+      status: STATUS.FIRST_PAYMENT_PENDING,
+      gocardless_mandate_id: 'MD-interrupted',
+      metadata: {
+        gocardless_initial_payment: { id: 'PM-interrupted', charge_date: '2026-07-10' },
+        dd: {
+          kind: 'monthly_direct_debit',
+          membership_year: '2026',
+          instalment_count: 1,
+          monthly_amount_minor: 1000,
+          currency: 'GBP',
+          activation_rule: 'first_payment',
+          billing_request_payment: { included: true, amount_minor: 1000 },
+        },
+      },
+    }],
+    membership_payment_plans: [plan],
+    gocardless_payments: [{
+      id: 'payment-interrupted',
+      tenant_id: TENANT,
+      plan_id: 'plan-interrupted',
+      gocardless_payment_id: 'PM-interrupted',
+      gocardless_mandate_id: 'MD-interrupted',
+      status: 'submitted',
+      membership_payment_plans: plan,
+    }],
+    gocardless_mandates: [{
+      id: 'mandate-interrupted',
+      tenant_id: TENANT,
+      gocardless_mandate_id: 'MD-interrupted',
+      status: 'active',
+    }],
+    member_membership_history: [{
+      id: 'history-interrupted',
+      billing_agreement_id: 'agr-interrupted',
+      status: 'pending_payment_setup',
+      payment_status: 'pending',
+    }],
+    membership_payment_status_history: [],
+  });
+  let historyReadCount = 0;
+  const db = {
+    tables: baseDb.tables,
+    from(table) {
+      const query = baseDb.from(table);
+      if (table === 'member_membership_history') {
+        const originalMaybeSingle = query.maybeSingle.bind(query);
+        query.maybeSingle = () => {
+          historyReadCount += 1;
+          if (historyReadCount === 2) {
+            return Promise.resolve({ data: null, error: { message: 'injected payment-progress read failure' } });
+          }
+          return originalMaybeSingle();
+        };
+      }
+      return query;
+    },
+  };
+  const paymentEvent = {
+    id: 'EV_PM_INTERRUPTED',
+    resource_type: 'payments',
+    action: 'confirmed',
+    links: { payment: 'PM-interrupted', mandate: 'MD-interrupted' },
+  };
+  await assert.rejects(processGocardlessEvent(paymentEvent, {
+    db,
+    gc: gcStub(),
+    postToAccounting: async () => ({ posted: false }),
+  }), /injected payment-progress read failure/);
+  assert.equal(db.tables.membership_payment_plans[0].status, STATUS.ACTIVE);
+  assert.equal(db.tables.member_membership_history[0].status, 'active');
+  assert.equal(db.tables.member_membership_history[0].payment_status, 'pending');
+  assert.equal(db.tables.membership_billing_agreements[0].metadata.gocardless_initial_payment.finalized_at, undefined);
+
+  db.tables.gocardless_payments[0].membership_payment_plans = db.tables.membership_payment_plans[0];
+  await processGocardlessEvent({
+    id: 'EV_MD_INTERRUPTED_RECONCILE',
+    resource_type: 'mandates',
+    action: 'active',
+    links: { mandate: 'MD-interrupted' },
+  }, {
+    db,
+    gc: gcStub(),
+    postToAccounting: async () => ({ posted: false }),
+  });
+
+  assert.equal(db.tables.membership_payment_plans[0].status, STATUS.EXPIRED);
+  assert.ok(db.tables.membership_payment_plans[0].completed_at);
+  assert.equal(db.tables.member_membership_history[0].status, 'active');
+  assert.equal(db.tables.member_membership_history[0].payment_status, 'paid');
+  assert.ok(db.tables.membership_billing_agreements[0].metadata.gocardless_initial_payment.finalized_at);
 });
 
 test('matched catch-up confirmation mismatch fails preflight with zero local mutation', async () => {

@@ -22,6 +22,8 @@ import { getGocardlessCredentials } from '../_lib/gocardlessCredentials.js';
 import {
   resolveDdOffer,
   buildAgreementSnapshot,
+  buildMonthlyBillingRequest,
+  monthlyBillingRequestFingerprint,
   findReusableMandate,
   ensureSubscriptionForAgreement,
   activateMembershipForAgreement,
@@ -128,9 +130,12 @@ async function handleGet(req, res, resolvedTenantId) {
 }
 
 async function handlePost(req, res, resolvedTenantId) {
-  const { action, memberId } = req.body || {};
+  const { action, memberId, fieldOverrides = {}, configId = null } = req.body || {};
   if (action !== 'start') return res.status(400).json({ error: 'Unknown action' });
   if (!memberId) return res.status(400).json({ error: 'memberId is required' });
+  if (!fieldOverrides || typeof fieldOverrides !== 'object' || Array.isArray(fieldOverrides)) {
+    return res.status(400).json({ error: 'fieldOverrides must be an object' });
+  }
 
   const member = await loadMember(memberId, resolvedTenantId, res, req);
   if (!member) return;
@@ -141,7 +146,12 @@ async function handlePost(req, res, resolvedTenantId) {
     return res.status(400).json({ error: 'Direct Debit is not available for this organisation' });
   }
 
-  const simResult = await simulateMembershipForMember(tenantId, member.id, { source: 'direct-debit', mode: 'manual' });
+  const simResult = await simulateMembershipForMember(tenantId, member.id, {
+    source: 'direct-debit',
+    mode: 'manual',
+    fieldOverrides,
+    configId,
+  });
   if (!simResult.success) {
     return res.status(400).json({ error: simResult.error || 'Could not calculate membership fees' });
   }
@@ -194,11 +204,15 @@ async function handlePost(req, res, resolvedTenantId) {
     return res.json({ agreementId: existingAgreement.id, status: existingAgreement.status, resumed: true });
   }
 
-  const snapshot = buildAgreementSnapshot({ offer, simResult });
   const client = await gocardlessForTenant(tenantId);
 
   // Renewal path: reuse an existing active mandate — no hosted flow needed.
   const reusable = await findReusableMandate({ tenantId, memberId: member.id });
+  const snapshot = buildAgreementSnapshot({
+    offer,
+    simResult,
+    includeBillingRequestPayment: !reusable,
+  });
 
   let agreementInsert = {
     tenant_id: tenantId,
@@ -217,9 +231,17 @@ async function handlePost(req, res, resolvedTenantId) {
     agreementInsert.status = STATUS.MANDATE_PENDING;
   } else {
     const billingRequest = await client.createBillingRequest({
-      idempotencyKey: buildIdempotencyKey('dd-br', tenantId, member.id, yearLabel),
-      currency: offer.currency,
-      metadata: { tenant_id: tenantId, member_id: member.id, membership_year: yearLabel, kind: 'monthly_direct_debit' },
+      idempotencyKey: buildIdempotencyKey(
+        'dd-br',
+        tenantId,
+        member.id,
+        yearLabel,
+        monthlyBillingRequestFingerprint(snapshot),
+      ),
+      ...buildMonthlyBillingRequest({
+        snapshot,
+        metadata: { tenant_id: tenantId, member_id: member.id, membership_year: yearLabel, kind: 'monthly_direct_debit' },
+      }),
     });
     // Send the payer back to the tenant's own site (the request origin),
     // not the platform-level GOCARDLESS_REDIRECT_BASE_URL default.
@@ -230,7 +252,7 @@ async function handlePost(req, res, resolvedTenantId) {
       billingRequestId: billingRequest.id,
       redirectUri: origin ? `${origin}/membership/direct-debit/complete?member_id=${member.id}` : undefined,
       exitUri: origin ? `${origin}/membership/direct-debit/cancelled?member_id=${member.id}` : undefined,
-      idempotencyKey: buildIdempotencyKey('dd-brf', tenantId, member.id, yearLabel),
+      idempotencyKey: buildIdempotencyKey('dd-brf', tenantId, member.id, yearLabel, billingRequest.id),
       prefilledCustomer: {
         email: member.email || undefined,
         given_name: member.first_name || undefined,

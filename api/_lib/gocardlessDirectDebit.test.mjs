@@ -2,12 +2,18 @@
 // Run: node --test api/_lib/gocardlessDirectDebit.test.mjs
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import {
   toMinorUnits,
   resolveDdOffer,
   computeFirstCollectionDate,
+  computeSubscriptionCollectionDate,
   buildAgreementSnapshot,
+  buildMonthlyBillingRequest,
+  monthlyBillingRequestFingerprint,
+  remainingSubscriptionInstalments,
   decideMembershipActivation,
+  ensureSubscriptionForAgreement,
 } from './gocardlessDirectDebit.js';
 
 function flatSim(overrides = {}, configOverrides = {}) {
@@ -157,6 +163,237 @@ test('buildAgreementSnapshot: captures terms and is immune to later config edits
 
 test('buildAgreementSnapshot: requires an offer', () => {
   assert.throws(() => buildAgreementSnapshot({ offer: null, simResult: flatSim() }));
+});
+
+test('monthly billing request uses the first flat-price instalment, never annual or prorated totals', () => {
+  const sim = flatSim({ annualCost: 240, finalCost: 83.25 });
+  const offer = resolveDdOffer(sim);
+  const snapshot = buildAgreementSnapshot({
+    offer,
+    simResult: sim,
+    acceptedAt: '2026-07-10T12:00:00.000Z',
+    includeBillingRequestPayment: true,
+  });
+  const request = buildMonthlyBillingRequest({
+    snapshot,
+    metadata: { kind: 'monthly_direct_debit' },
+  });
+
+  assert.equal(request.paymentAmountMinor, 1000);
+  assert.notEqual(request.paymentAmountMinor, 24000);
+  assert.notEqual(request.paymentAmountMinor, 8325);
+  assert.equal(snapshot.billing_request_payment.remaining_instalments, 11);
+  assert.match(request.paymentDescription, /first instalment of GBP 10\.00 paid now/i);
+  assert.match(request.paymentDescription, /11 further monthly Direct Debit collections of GBP 10\.00/i);
+  assert.deepEqual(request.metadata, { kind: 'monthly_direct_debit' });
+});
+
+test('monthly billing request uses snapshotted band amount despite a prorated annual total', () => {
+  const sim = flatSim(
+    {
+      annualCost: 180,
+      finalCost: 41.75,
+      matchedBand: { id: 'band-1', dd_monthly_amount: '7.50' },
+    },
+    { pricing_model: 'tiered', dd_monthly_amount: null }
+  );
+  const offer = resolveDdOffer(sim);
+  const snapshot = buildAgreementSnapshot({
+    offer,
+    simResult: sim,
+    includeBillingRequestPayment: true,
+  });
+  assert.equal(buildMonthlyBillingRequest({ snapshot }).paymentAmountMinor, 750);
+  assert.equal(remainingSubscriptionInstalments(snapshot), 11);
+});
+
+test('reusable-mandate snapshots retain all instalments for the downstream subscription', () => {
+  const sim = flatSim();
+  const snapshot = buildAgreementSnapshot({
+    offer: resolveDdOffer(sim),
+    simResult: sim,
+    includeBillingRequestPayment: false,
+  });
+  assert.equal(snapshot.billing_request_payment, undefined);
+  assert.equal(remainingSubscriptionInstalments(snapshot), 12);
+  assert.throws(() => buildMonthlyBillingRequest({ snapshot }), /billing request payment/);
+});
+
+test('monthly billing request idempotency follows collection terms, not annual totals', () => {
+  const sim = flatSim({ annualCost: 240, finalCost: 80 });
+  const first = buildAgreementSnapshot({
+    offer: resolveDdOffer(sim),
+    simResult: sim,
+    includeBillingRequestPayment: true,
+  });
+  const annualOnlyChange = { ...first, annual_cost: 999, final_cost: 333 };
+  const monthlyChange = {
+    ...first,
+    monthly_amount_minor: 1200,
+    billing_request_payment: {
+      ...first.billing_request_payment,
+      amount_minor: 1200,
+    },
+  };
+  assert.equal(
+    monthlyBillingRequestFingerprint(first),
+    monthlyBillingRequestFingerprint(annualOnlyChange),
+  );
+  assert.notEqual(
+    monthlyBillingRequestFingerprint(first),
+    monthlyBillingRequestFingerprint(monthlyChange),
+  );
+});
+
+test('remaining subscription starts no earlier than one month after the consent payment', () => {
+  const sim = flatSim();
+  const snapshot = buildAgreementSnapshot({
+    offer: resolveDdOffer(sim),
+    simResult: sim,
+    acceptedAt: '2026-07-10T12:00:00.000Z',
+    includeBillingRequestPayment: true,
+  });
+  assert.deepEqual(
+    computeSubscriptionCollectionDate(snapshot, '2026-07-15'),
+    { startDate: '2026-08-10', dayOfMonth: null },
+  );
+  assert.deepEqual(
+    computeSubscriptionCollectionDate(snapshot, '2026-07-15', '2026-08-01'),
+    { startDate: '2026-09-01', dayOfMonth: null },
+  );
+
+  snapshot.first_collection_rule = 'nominated_day';
+  snapshot.collection_day = 15;
+  assert.deepEqual(
+    computeSubscriptionCollectionDate(snapshot, '2026-07-15'),
+    { startDate: '2026-08-15', dayOfMonth: 15 },
+  );
+});
+
+function makeDdDb(initial = {}) {
+  const tables = Object.fromEntries(
+    Object.entries(initial).map(([name, rows]) => [name, rows.map((row) => ({ ...row }))]),
+  );
+  const ensure = (name) => (tables[name] ||= []);
+
+  class Query {
+    constructor(table) {
+      this.table = table;
+      this.filters = [];
+      this.operation = 'select';
+      this.payload = null;
+    }
+    select() { return this; }
+    insert(payload) { this.operation = 'insert'; this.payload = payload; return this; }
+    update(payload) { this.operation = 'update'; this.payload = payload; return this; }
+    eq(column, value) { this.filters.push((row) => row[column] === value); return this; }
+    matches() { return ensure(this.table).filter((row) => this.filters.every((filter) => filter(row))); }
+    run() {
+      if (this.operation === 'insert') {
+        const row = { id: `${this.table}-${ensure(this.table).length + 1}`, ...this.payload };
+        ensure(this.table).push(row);
+        return { data: [row], error: null };
+      }
+      if (this.operation === 'update') {
+        const rows = this.matches();
+        rows.forEach((row) => Object.assign(row, this.payload));
+        return { data: rows.map((row) => ({ ...row })), error: null };
+      }
+      return { data: this.matches().map((row) => ({ ...row })), error: null };
+    }
+    maybeSingle() {
+      const result = this.run();
+      return Promise.resolve({ data: result.data[0] || null, error: result.error });
+    }
+    single() {
+      const result = this.run();
+      return Promise.resolve({ data: result.data[0] || null, error: result.error });
+    }
+    then(resolve, reject) {
+      try { resolve(this.run()); } catch (error) { reject(error); }
+    }
+  }
+
+  return {
+    tables,
+    from(table) { return new Query(table); },
+  };
+}
+
+test('mandate activation creates one subscription for only the remaining collections', async () => {
+  const sim = flatSim();
+  const snapshot = buildAgreementSnapshot({
+    offer: resolveDdOffer(sim),
+    simResult: sim,
+    acceptedAt: '2026-07-10T12:00:00.000Z',
+    includeBillingRequestPayment: true,
+  });
+  const agreement = {
+    id: 'agreement-1',
+    tenant_id: 'tenant-1',
+    member_id: 'member-1',
+    organization_id: null,
+    gocardless_mandate_id: 'mandate-1',
+    metadata: { dd: snapshot, gocardless_initial_payment: { id: 'payment-1' } },
+  };
+  const db = makeDdDb({
+    membership_payment_plans: [],
+    membership_payment_status_history: [],
+    gocardless_mandates: [{
+      gocardless_mandate_id: 'mandate-1',
+      next_possible_charge_date: '2026-07-15',
+    }],
+    gocardless_payments: [{
+      gocardless_payment_id: 'payment-1',
+      status: 'pending_submission',
+      plan_id: null,
+    }],
+  });
+  const subscriptionCalls = [];
+  const gc = {
+    getGocardlessEnvironment: () => 'sandbox',
+    gocardlessForTenant: async () => ({
+      createSubscription: async (args) => {
+        subscriptionCalls.push(args);
+        return { id: 'subscription-1', start_date: args.startDate };
+      },
+    }),
+  };
+
+  const first = await ensureSubscriptionForAgreement(agreement, { db, gc });
+  db.tables.gocardless_payments[0].plan_id = null;
+  const second = await ensureSubscriptionForAgreement(agreement, { db, gc });
+
+  assert.equal(first.created, true);
+  assert.equal(second.created, false);
+  assert.equal(subscriptionCalls.length, 1);
+  assert.equal(subscriptionCalls[0].amountMinor, 1000);
+  assert.equal(subscriptionCalls[0].count, 11);
+  assert.equal(subscriptionCalls[0].startDate, '2026-08-10');
+  assert.equal(db.tables.membership_payment_plans[0].instalments_total, 12);
+  assert.equal(db.tables.gocardless_payments[0].plan_id, db.tables.membership_payment_plans[0].id);
+});
+
+test('all membership setup routes share the snapshotted monthly request contract', async () => {
+  const routes = await Promise.all([
+    readFile(new URL('../membership/direct-debit.js', import.meta.url), 'utf8'),
+    readFile(new URL('../membership/org-direct-debit.js', import.meta.url), 'utf8'),
+    readFile(new URL('../public/dd-invitations/[token].js', import.meta.url), 'utf8'),
+    readFile(new URL('../public/membership-fees/[token].js', import.meta.url), 'utf8'),
+    readFile(new URL('../../client/src/components/forms/MembershipPaymentField.jsx', import.meta.url), 'utf8'),
+  ]);
+  for (const source of routes.slice(0, 4)) {
+    assert.match(source, /buildMonthlyBillingRequest\s*\(/);
+  }
+  for (const source of [routes[0], routes[1], routes[3]]) {
+    assert.match(source, /monthlyBillingRequestFingerprint\s*\(\s*snapshot\s*\)/);
+    assert.match(source, /billingRequest\.id/);
+  }
+  assert.match(routes[2], /snap\.billing_request_payment\?\.included/);
+  assert.match(routes[2], /currency:\s*snap\.currency\s*\|\|\s*'GBP'/);
+  assert.match(routes[4], /If a new bank setup is needed/);
+  assert.match(routes[4], /If an existing Direct Debit can be reused/);
+  assert.match(routes[4], /remaining.*monthly Direct Debit/s);
 });
 
 test('decideMembershipActivation: rule/trigger matrix', () => {

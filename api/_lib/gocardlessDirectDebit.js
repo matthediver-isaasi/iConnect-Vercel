@@ -78,6 +78,107 @@ export function resolveDdOffer(simResult) {
   };
 }
 
+function addOneCalendarMonth(value) {
+  const date = toDateOnly(value);
+  if (!date) return null;
+  const day = Math.min(28, date.getUTCDate());
+  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, day));
+}
+
+function laterDate(a, b) {
+  const left = toDateOnly(a);
+  const right = toDateOnly(b);
+  if (!left) return right;
+  if (!right) return left;
+  return left > right ? left : right;
+}
+
+function monthlyPaymentDescription({ membershipYear, instalmentCount, monthlyAmount, currency }) {
+  const remaining = Math.max(0, instalmentCount - 1);
+  const amount = `${currency} ${Number(monthlyAmount).toFixed(2)}`;
+  const schedule = remaining === 0
+    ? 'No further collections.'
+    : `${remaining} further monthly Direct Debit ${remaining === 1 ? 'collection' : 'collections'} of ${amount}.`;
+  return `Membership ${membershipYear || ''}: first instalment of ${amount} paid now. ${schedule}`
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 255);
+}
+
+/**
+ * Build the amount and explanatory copy shown by GoCardless for a new
+ * monthly-membership consent flow. The first collection always comes from
+ * the immutable DD snapshot; annual/prorated simulation totals are never
+ * accepted here.
+ */
+export function buildMonthlyBillingRequest({ snapshot, metadata = {} }) {
+  const payment = snapshot?.billing_request_payment;
+  if (snapshot?.kind !== 'monthly_direct_debit' || !payment?.included) {
+    throw new Error('monthly DD snapshot with a billing request payment is required');
+  }
+  if (!Number.isInteger(payment.amount_minor) || payment.amount_minor <= 0) {
+    throw new Error('monthly DD billing request amount must be positive minor units');
+  }
+  return {
+    currency: snapshot.currency || 'GBP',
+    paymentAmountMinor: payment.amount_minor,
+    paymentDescription: payment.description,
+    metadata,
+  };
+}
+
+export function monthlyBillingRequestFingerprint(snapshot) {
+  const payment = snapshot?.billing_request_payment;
+  if (!payment?.included) return 'mandate-only';
+  return JSON.stringify({
+    amount_minor: payment.amount_minor,
+    currency: snapshot.currency || 'GBP',
+    instalment_count: snapshot.instalment_count,
+    membership_year: snapshot.membership_year || null,
+    first_collection_rule: snapshot.first_collection_rule || 'earliest',
+    collection_day: snapshot.collection_day || null,
+    terms_version: snapshot.terms_version || null,
+    config_id: snapshot.config_id || null,
+    band_id: snapshot.band_id || null,
+  });
+}
+
+export function remainingSubscriptionInstalments(snapshot) {
+  const total = Math.max(1, parseInt(snapshot?.instalment_count, 10) || 1);
+  return snapshot?.billing_request_payment?.included ? Math.max(0, total - 1) : total;
+}
+
+/**
+ * A billing-request payment is collection #1. Keep the finite subscription
+ * for the remaining collections at least one calendar month after consent,
+ * while retaining the snapshotted nominated-day/anniversary rules.
+ */
+export function computeSubscriptionCollectionDate(snapshot, earliestChargeDate = null, initialPaymentChargeDate = null) {
+  const hasInitialPayment = snapshot?.billing_request_payment?.included === true;
+  const notBefore = hasInitialPayment
+    ? laterDate(addOneCalendarMonth(initialPaymentChargeDate || snapshot.accepted_at), earliestChargeDate)
+    : toDateOnly(earliestChargeDate);
+
+  if (hasInitialPayment && snapshot.first_collection_rule === 'earliest') {
+    return { startDate: notBefore ? fmt(notBefore) : null, dayOfMonth: null };
+  }
+  if (hasInitialPayment && snapshot.first_collection_rule === 'nominated_day') {
+    const day = Math.min(28, Math.max(1, parseInt(snapshot.collection_day, 10) || 1));
+    if (!notBefore) return { startDate: null, dayOfMonth: day };
+    let candidate = new Date(Date.UTC(notBefore.getUTCFullYear(), notBefore.getUTCMonth(), day));
+    if (candidate < notBefore) {
+      candidate = new Date(Date.UTC(notBefore.getUTCFullYear(), notBefore.getUTCMonth() + 1, day));
+    }
+    return { startDate: fmt(candidate), dayOfMonth: day };
+  }
+  return computeFirstCollectionDate({
+    rule: snapshot?.first_collection_rule,
+    collectionDay: snapshot?.collection_day,
+    membershipYearStart: snapshot?.membership_year_start,
+    earliestChargeDate: notBefore,
+  });
+}
+
 function toDateOnly(value) {
   if (!value) return null;
   const d = value instanceof Date ? value : new Date(value);
@@ -126,9 +227,14 @@ export function computeFirstCollectionDate({ rule, collectionDay = null, members
  * moment of member consent. Everything the webhook path later needs to
  * create the subscription and activate the membership lives here.
  */
-export function buildAgreementSnapshot({ offer, simResult, acceptedAt = new Date().toISOString() }) {
+export function buildAgreementSnapshot({
+  offer,
+  simResult,
+  acceptedAt = new Date().toISOString(),
+  includeBillingRequestPayment = false,
+}) {
   if (!offer) throw new Error('offer is required');
-  return {
+  const snapshot = {
     kind: 'monthly_direct_debit',
     monthly_amount: offer.monthlyAmount,
     monthly_amount_minor: offer.monthlyAmountMinor,
@@ -155,6 +261,21 @@ export function buildAgreementSnapshot({ offer, simResult, acceptedAt = new Date
     annual_cost: simResult?.annualCost ?? null,
     final_cost: simResult?.finalCost ?? null,
   };
+  if (includeBillingRequestPayment) {
+    snapshot.billing_request_payment = {
+      included: true,
+      instalment_number: 1,
+      amount_minor: offer.monthlyAmountMinor,
+      remaining_instalments: Math.max(0, offer.instalmentCount - 1),
+      description: monthlyPaymentDescription({
+        membershipYear: simResult?.membershipYear?.label || null,
+        instalmentCount: offer.instalmentCount,
+        monthlyAmount: offer.monthlyAmount,
+        currency: offer.currency,
+      }),
+    };
+  }
+  return snapshot;
 }
 
 /**
@@ -208,6 +329,16 @@ export async function ensureSubscriptionForAgreement(agreement, deps = {}) {
     .maybeSingle();
   if (planErr) throw new Error(`load existing plan failed: ${planErr.message}`);
   if (existingPlan?.gocardless_subscription_id) {
+    const existingInitialPaymentId = agreement.metadata?.gocardless_initial_payment?.id || null;
+    if (existingInitialPaymentId) {
+      const { error: linkExistingPaymentErr } = await db
+        .from('gocardless_payments')
+        .update({ plan_id: existingPlan.id, updated_at: new Date().toISOString() })
+        .eq('gocardless_payment_id', existingInitialPaymentId);
+      if (linkExistingPaymentErr) {
+        throw new Error(`attach billing request payment to existing plan failed: ${linkExistingPaymentErr.message}`);
+      }
+    }
     return { created: false, plan: existingPlan, detail: 'plan already has subscription' };
   }
 
@@ -220,12 +351,14 @@ export async function ensureSubscriptionForAgreement(agreement, deps = {}) {
     .maybeSingle();
   earliestChargeDate = mandateRow?.next_possible_charge_date || null;
 
-  const { startDate, dayOfMonth } = computeFirstCollectionDate({
-    rule: snapshot.first_collection_rule,
-    collectionDay: snapshot.collection_day,
-    membershipYearStart: snapshot.membership_year_start,
+  const subscriptionInstalments = remainingSubscriptionInstalments(snapshot);
+  const billingRequestPaymentId = agreement.metadata?.gocardless_initial_payment?.id || null;
+  const initialPaymentChargeDate = agreement.metadata?.gocardless_initial_payment?.charge_date || null;
+  const { startDate, dayOfMonth } = computeSubscriptionCollectionDate(
+    snapshot,
     earliestChargeDate,
-  });
+    initialPaymentChargeDate,
+  );
 
   let plan = existingPlan;
   if (!plan) {
@@ -271,7 +404,55 @@ export async function ensureSubscriptionForAgreement(agreement, deps = {}) {
   }
   if (!plan) throw new Error('could not create or load payment plan row');
 
-  const client = await gc.gocardlessForTenant(agreement.tenant_id, { db });
+  let initialPaymentAlreadyConfirmed = false;
+  if (billingRequestPaymentId) {
+    const { error: linkPaymentErr } = await db
+      .from('gocardless_payments')
+      .update({ plan_id: plan.id, updated_at: new Date().toISOString() })
+      .eq('gocardless_payment_id', billingRequestPaymentId);
+    if (linkPaymentErr) throw new Error(`attach billing request payment to plan failed: ${linkPaymentErr.message}`);
+    const { data: initialPayment, error: initialPaymentErr } = await db
+      .from('gocardless_payments')
+      .select('status, charge_date, amount_minor, currency')
+      .eq('gocardless_payment_id', billingRequestPaymentId)
+      .maybeSingle();
+    if (initialPaymentErr) throw new Error(`load billing request payment failed: ${initialPaymentErr.message}`);
+    if (initialPayment?.amount_minor != null && initialPayment.amount_minor !== snapshot.monthly_amount_minor) {
+      throw new Error('initial billing request payment amount does not match DD snapshot');
+    }
+    if (initialPayment?.currency
+      && initialPayment.currency !== (snapshot.currency || 'GBP')) {
+      throw new Error('initial billing request payment currency does not match DD snapshot');
+    }
+    initialPaymentAlreadyConfirmed = ['confirmed', 'paid_out'].includes(initialPayment?.status);
+  }
+
+  // A one-instalment plan is fully represented by the billing-request
+  // payment. Do not create a zero-count subscription.
+  if (subscriptionInstalments === 0) {
+    if (initialPaymentAlreadyConfirmed) {
+      await applyStatusTransition({
+        entityType: 'payment_plan',
+        entityId: plan.id,
+        toStatus: STATUS.ACTIVE,
+        reason: 'initial billing request payment already confirmed',
+        source: 'system',
+      }, { db });
+    } else {
+      await applyStatusTransition({
+        entityType: 'payment_plan',
+        entityId: plan.id,
+        toStatus: STATUS.FIRST_PAYMENT_PENDING,
+        reason: 'awaiting initial billing request payment',
+        source: 'system',
+      }, { db });
+    }
+    return { created: false, plan, detail: 'initial billing request payment is the only instalment' };
+  }
+
+  const client = typeof gc.gocardlessForTenant === 'function'
+    ? await gc.gocardlessForTenant(agreement.tenant_id, { db })
+    : gc;
   const subscription = await client.createSubscription({
     mandateId: agreement.gocardless_mandate_id,
     amountMinor: snapshot.monthly_amount_minor,
@@ -279,7 +460,7 @@ export async function ensureSubscriptionForAgreement(agreement, deps = {}) {
     intervalUnit: 'monthly',
     dayOfMonth,
     startDate,
-    count: snapshot.instalment_count,
+    count: subscriptionInstalments,
     name: `Membership ${snapshot.membership_year || ''}`.trim(),
     metadata: {
       tenant_id: agreement.tenant_id,
@@ -302,8 +483,10 @@ export async function ensureSubscriptionForAgreement(agreement, deps = {}) {
   await applyStatusTransition({
     entityType: 'payment_plan',
     entityId: plan.id,
-    toStatus: STATUS.FIRST_PAYMENT_PENDING,
-    reason: 'subscription created from mandate activation',
+    toStatus: initialPaymentAlreadyConfirmed ? STATUS.ACTIVE : STATUS.FIRST_PAYMENT_PENDING,
+    reason: initialPaymentAlreadyConfirmed
+      ? 'subscription created after initial billing request payment confirmed'
+      : 'subscription created from mandate activation',
     source: 'webhook',
   }, { db });
 
@@ -361,18 +544,26 @@ export async function activateMembershipForAgreement(agreement, { trigger, db: d
 export async function recordDdPaymentProgress(agreement, { db: dbArg } = {}) {
   const db = dbArg || supabase;
   const table = membershipHistoryTableForAgreement(agreement);
+  const snapshot = agreement?.metadata?.dd;
   if (!table) return { updated: false };
-  const { data: row } = await db
+  const { data: row, error: rowError } = await db
     .from(table)
     .select('id, payment_status')
     .eq('billing_agreement_id', agreement.id)
     .maybeSingle();
-  if (!row || row.payment_status === 'paid' || row.payment_status === 'partial') {
+  if (rowError) throw new Error(`load membership payment progress failed: ${rowError.message}`);
+  const completesPlan = snapshot?.billing_request_payment?.included === true
+    && remainingSubscriptionInstalments(snapshot) === 0;
+  const nextPaymentStatus = completesPlan ? 'paid' : 'partial';
+  if (!row || row.payment_status === 'paid' || row.payment_status === nextPaymentStatus) {
     return { updated: false };
   }
   const { error } = await db
     .from(table)
-    .update({ payment_status: 'partial' })
+    .update({
+      payment_status: nextPaymentStatus,
+      ...(completesPlan ? { paid_at: new Date().toISOString() } : {}),
+    })
     .eq('id', row.id);
   if (error) throw new Error(`update payment_status failed: ${error.message}`);
   return { updated: true };

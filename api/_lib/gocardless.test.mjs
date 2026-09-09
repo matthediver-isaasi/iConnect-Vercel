@@ -126,3 +126,38 @@ test('account-wide mandate discovery omits an optional configured creditor', asy
     global.fetch = previousFetch;
   }
 });
+
+test('createBillingRequest sends a monthly first payment alongside the mandate request', async () => {
+  const previousFetch = global.fetch;
+  global.fetch = async (url, options) => {
+    assert.equal(new URL(url).pathname, '/billing_requests');
+    const body = JSON.parse(options.body);
+    assert.deepEqual(body.billing_requests.mandate_request, { scheme: 'bacs', currency: 'GBP' });
+    assert.deepEqual(body.billing_requests.payment_request, {
+      amount: 1250,
+      currency: 'GBP',
+      description: 'First of 6 monthly payments; 5 further monthly collections of GBP 12.50.',
+    });
+    return new Response(JSON.stringify({ billing_requests: { id: 'BRQ-monthly' } }), {
+      status: 201,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  };
+  try {
+    const client = createGocardlessClient({
+      source: 'tenant',
+      tenantId: 'tenant-1',
+      environment: 'sandbox',
+      accessToken: 'sandbox_test',
+    });
+    const result = await client.createBillingRequest({
+      idempotencyKey: 'monthly-membership',
+      currency: 'GBP',
+      paymentAmountMinor: 1250,
+      paymentDescription: 'First of 6 monthly payments; 5 further monthly collections of GBP 12.50.',
+    });
+    assert.equal(result.id, 'BRQ-monthly');
+  } finally {
+    global.fetch = previousFetch;
+  }
+});

@@ -29,6 +29,8 @@ import { getGocardlessCredentials } from '../_lib/gocardlessCredentials.js';
 import {
   resolveDdOffer,
   buildAgreementSnapshot,
+  buildMonthlyBillingRequest,
+  monthlyBillingRequestFingerprint,
   findReusableMandate,
   ensureSubscriptionForAgreement,
   activateMembershipForAgreement,
@@ -205,8 +207,18 @@ async function handlePost(req, res, resolvedTenantId) {
 }
 
 async function handleStart(req, res, resolvedTenantId) {
-  const { memberId, payerChoice, billingContactEmail, billingContactName } = req.body || {};
+  const {
+    memberId,
+    payerChoice,
+    billingContactEmail,
+    billingContactName,
+    fieldOverrides = {},
+    configId = null,
+  } = req.body || {};
   if (!memberId) return res.status(400).json({ error: 'memberId is required' });
+  if (!fieldOverrides || typeof fieldOverrides !== 'object' || Array.isArray(fieldOverrides)) {
+    return res.status(400).json({ error: 'fieldOverrides must be an object' });
+  }
   if (payerChoice !== 'self' && payerChoice !== 'billing_contact') {
     return res.status(400).json({ error: 'payerChoice must be self or billing_contact' });
   }
@@ -226,7 +238,12 @@ async function handleStart(req, res, resolvedTenantId) {
     return res.status(400).json({ error: 'Direct Debit is not available for this organisation' });
   }
 
-  const simResult = await simulateMembershipForOrg(tenantId, org.id, { source: 'direct-debit', mode: 'manual' });
+  const simResult = await simulateMembershipForOrg(tenantId, org.id, {
+    source: 'direct-debit',
+    mode: 'manual',
+    fieldOverrides,
+    configId,
+  });
   if (!simResult.success) {
     return res.status(400).json({ error: simResult.error || 'Could not calculate membership fees' });
   }
@@ -276,11 +293,6 @@ async function handleStart(req, res, resolvedTenantId) {
     return res.json({ agreementId: existingAgreement.id, status: existingAgreement.status, resumed: true });
   }
 
-  const snapshot = {
-    ...buildAgreementSnapshot({ offer, simResult }),
-    organization_name: org.name,
-    field_value: simResult.fieldValue ?? null,
-  };
   const client = await gocardlessForTenant(tenantId);
 
   // Renewal path: reuse the org's existing active mandate (self route only —
@@ -288,6 +300,15 @@ async function handleStart(req, res, resolvedTenantId) {
   const reusable = payerChoice === 'self'
     ? await findReusableMandate({ tenantId, organizationId: org.id })
     : null;
+  const snapshot = {
+    ...buildAgreementSnapshot({
+      offer,
+      simResult,
+      includeBillingRequestPayment: !reusable,
+    }),
+    organization_name: org.name,
+    field_value: simResult.fieldValue ?? null,
+  };
 
   const agreementInsert = {
     tenant_id: tenantId,
@@ -311,16 +332,24 @@ async function handleStart(req, res, resolvedTenantId) {
     agreementInsert.status = STATUS.MANDATE_PENDING;
   } else if (payerChoice === 'self') {
     const billingRequest = await client.createBillingRequest({
-      idempotencyKey: buildIdempotencyKey('dd-br-org', tenantId, org.id, yearLabel),
-      currency: offer.currency,
-      metadata: { tenant_id: tenantId, organization_id: org.id, membership_year: yearLabel, kind: 'monthly_direct_debit' },
+      idempotencyKey: buildIdempotencyKey(
+        'dd-br-org',
+        tenantId,
+        org.id,
+        yearLabel,
+        monthlyBillingRequestFingerprint(snapshot),
+      ),
+      ...buildMonthlyBillingRequest({
+        snapshot,
+        metadata: { tenant_id: tenantId, organization_id: org.id, membership_year: yearLabel, kind: 'monthly_direct_debit' },
+      }),
     });
     const origin = requestOrigin(req);
     const flow = await client.createBillingRequestFlow({
       billingRequestId: billingRequest.id,
       redirectUri: origin ? `${origin}/membership/direct-debit/complete?member_id=${member.id}&org=1` : undefined,
       exitUri: origin ? `${origin}/membership/direct-debit/cancelled?member_id=${member.id}&org=1` : undefined,
-      idempotencyKey: buildIdempotencyKey('dd-brf-org', tenantId, org.id, yearLabel),
+      idempotencyKey: buildIdempotencyKey('dd-brf-org', tenantId, org.id, yearLabel, billingRequest.id),
       prefilledCustomer: {
         email: member.email || undefined,
         given_name: member.first_name || undefined,

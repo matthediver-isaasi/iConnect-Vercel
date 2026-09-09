@@ -25,6 +25,7 @@ import {
   activateMembershipForAgreement,
   recordDdPaymentProgress,
   membershipHistoryTableForAgreement,
+  remainingSubscriptionInstalments,
 } from './gocardlessDirectDebit.js';
 import { markInvitationCompletedForAgreement } from './gocardlessDdInvitations.js';
 import { sendDdLifecycleEmail } from './gocardlessDdEmails.js';
@@ -80,6 +81,69 @@ async function checkedUpsert(db, table, payload, onConflict) {
   if (error) throw new Error(`upsert ${table} failed: ${error.message}`);
 }
 
+function paymentStatusOnFulfillment(existingStatus, providerStatus) {
+  const pending = new Set(['pending_submission', 'pending_customer_approval', 'submitted']);
+  if (existingStatus === 'paid_out' && providerStatus === 'confirmed') return existingStatus;
+  if (['confirmed', 'paid_out', 'cancelled', 'customer_approval_denied', 'charged_back'].includes(existingStatus)
+    && pending.has(providerStatus)) {
+    return existingStatus;
+  }
+  return providerStatus;
+}
+
+async function processActiveMonthlyAgreement({ agreement, eventId, action, db, gc, deps = {} }) {
+  const result = await applyStatusTransition({
+    entityType: 'billing_agreement',
+    entityId: agreement.id,
+    toStatus: STATUS.FIRST_PAYMENT_PENDING,
+    reason: `mandate ${action}`,
+    source: 'webhook',
+    eventId,
+  }, { db });
+
+  const subResult = await ensureSubscriptionForAgreement(agreement, { db, gc });
+  const actResult = await activateMembershipForAgreement(agreement, { trigger: 'mandate_active', db });
+  const initialPaymentId = agreement.metadata?.gocardless_initial_payment?.id || null;
+  const initialPaymentFinalized = agreement.metadata?.gocardless_initial_payment?.finalized_at || null;
+  if (initialPaymentId && subResult.plan && !initialPaymentFinalized) {
+    const { data: initialPayment, error: initialPaymentErr } = await db
+      .from('gocardless_payments')
+      .select('status')
+      .eq('gocardless_payment_id', initialPaymentId)
+      .maybeSingle();
+    if (initialPaymentErr) throw new Error(`load initial payment for reconciliation failed: ${initialPaymentErr.message}`);
+    const replayActions = initialPayment?.status === 'paid_out'
+      ? ['confirmed', 'paid_out']
+      : (initialPayment?.status === 'confirmed' ? ['confirmed'] : []);
+    for (const replayAction of replayActions) {
+      await processPaymentEvent({
+        event: { id: `${eventId}:initial-${replayAction}` },
+        action: replayAction,
+        links: {
+          payment: initialPaymentId,
+          mandate: agreement.gocardless_mandate_id,
+        },
+        db,
+        gc,
+        deps,
+      });
+    }
+  }
+  const firstChargeDate = agreement.metadata?.dd?.billing_request_payment?.included
+    ? agreement.metadata?.gocardless_initial_payment?.charge_date || null
+    : subResult.plan?.next_charge_date || subResult.plan?.start_date || null;
+  if (result.applied) {
+    await safeDdEmail('mandate_active', agreement, { db, extraContext: { firstChargeDate } });
+  }
+  if (subResult.created) {
+    await safeDdEmail('first_collection_scheduled', agreement, { db, extraContext: { firstChargeDate } });
+  }
+  if (actResult.activated) {
+    await safeDdEmail('membership_activated', agreement, { db });
+  }
+  return { result, subResult, actResult };
+}
+
 async function findAgreementByBillingRequest(db, billingRequestId) {
   const { data, error } = await db
     .from('membership_billing_agreements')
@@ -100,6 +164,25 @@ async function findAgreementById(db, agreementId) {
   return data || null;
 }
 
+async function markInitialPaymentFinalized({ agreementId, paymentId, db }) {
+  const agreement = await findAgreementById(db, agreementId);
+  const initial = agreement?.metadata?.gocardless_initial_payment;
+  if (!agreement || initial?.id !== paymentId || initial.finalized_at) return agreement;
+  const metadata = {
+    ...(agreement.metadata || {}),
+    gocardless_initial_payment: {
+      ...initial,
+      finalized_at: new Date().toISOString(),
+    },
+  };
+  const { error } = await db
+    .from('membership_billing_agreements')
+    .update({ metadata, updated_at: new Date().toISOString() })
+    .eq('id', agreementId);
+  if (error) throw new Error(`mark initial payment finalized failed: ${error.message}`);
+  return { ...agreement, metadata };
+}
+
 async function findAgreementByMandate(db, mandateId) {
   const { data, error } = await db
     .from('membership_billing_agreements')
@@ -117,6 +200,16 @@ async function findPlanBySubscription(db, subscriptionId) {
     .eq('gocardless_subscription_id', subscriptionId)
     .maybeSingle();
   if (error) throw new Error(`load plan by subscription failed: ${error.message}`);
+  return data || null;
+}
+
+async function findPlanByAgreement(db, agreementId) {
+  const { data, error } = await db
+    .from('membership_payment_plans')
+    .select('*')
+    .eq('billing_agreement_id', agreementId)
+    .maybeSingle();
+  if (error) throw new Error(`load plan by agreement failed: ${error.message}`);
   return data || null;
 }
 
@@ -142,9 +235,9 @@ export async function processGocardlessEvent(event, deps = {}) {
 
   switch (resourceType) {
     case 'billing_requests':
-      return processBillingRequestEvent({ event, action, links, db, gc });
+      return processBillingRequestEvent({ event, action, links, db, gc, deps });
     case 'mandates':
-      return processMandateEvent({ event, action, links, db, gc });
+      return processMandateEvent({ event, action, links, db, gc, deps });
     case 'subscriptions':
       return processSubscriptionEvent({ event, action, links, db, gc });
     case 'payments':
@@ -160,7 +253,7 @@ export async function processGocardlessEvent(event, deps = {}) {
 
 // ---------------------------------------------------------------------------
 
-async function processBillingRequestEvent({ event, action, links, db, gc }) {
+async function processBillingRequestEvent({ event, action, links, db, gc, deps = {} }) {
   const brId = links.billing_request;
   if (!brId) return { handled: false, detail: 'no billing_request link' };
 
@@ -179,14 +272,38 @@ async function processBillingRequestEvent({ event, action, links, db, gc }) {
     const extraUpdate = {};
     let mandateId = links.mandate_request_mandate || null;
     let customerId = links.customer || null;
-    if (!mandateId || !customerId) {
+    let initialPaymentId = links.payment_request_payment || null;
+    if (!mandateId || !customerId || (agreement.metadata?.dd?.billing_request_payment?.included && !initialPaymentId)) {
       // Late/lean payloads: fetch the current billing request.
       const br = await gc.getBillingRequest(brId);
       mandateId = mandateId || br?.links?.mandate_request_mandate || null;
       customerId = customerId || br?.links?.customer || null;
+      initialPaymentId = initialPaymentId || br?.links?.payment_request_payment || null;
     }
     if (mandateId) extraUpdate.gocardless_mandate_id = mandateId;
     if (customerId) extraUpdate.gocardless_customer_id = customerId;
+    const isMonthlyInitialPayment = initialPaymentId
+      && agreement.metadata?.dd?.billing_request_payment?.included;
+    let initialPayment = null;
+    if (isMonthlyInitialPayment) {
+      initialPayment = await gc.getPayment(initialPaymentId);
+      const expectedAmount = agreement.metadata.dd.billing_request_payment.amount_minor;
+      const expectedCurrency = String(agreement.metadata.dd.currency || 'GBP').toUpperCase();
+      if (Number(initialPayment?.amount) !== expectedAmount
+        || String(initialPayment?.currency || expectedCurrency).toUpperCase() !== expectedCurrency) {
+        throw new Error('initial billing request payment does not match snapshotted monthly terms');
+      }
+    }
+    if (initialPaymentId && agreement.metadata?.dd?.billing_request_payment?.included) {
+      extraUpdate.metadata = {
+        ...(agreement.metadata || {}),
+        gocardless_initial_payment: {
+          ...(agreement.metadata?.gocardless_initial_payment || {}),
+          id: initialPaymentId,
+          charge_date: initialPayment?.charge_date || null,
+        },
+      };
+    }
 
     if (customerId) {
       await checkedUpsert(db, 'gocardless_customers', {
@@ -198,15 +315,39 @@ async function processBillingRequestEvent({ event, action, links, db, gc }) {
         updated_at: new Date().toISOString(),
       }, 'gocardless_customer_id');
     }
+    let mandate = null;
+    if (mandateId && agreement.metadata?.dd?.kind === 'monthly_direct_debit') {
+      mandate = await gc.getMandate(mandateId);
+    }
     if (mandateId) {
       await checkedUpsert(db, 'gocardless_mandates', {
         tenant_id: agreement.tenant_id,
         gocardless_customer_id: customerId || null,
         gocardless_mandate_id: mandateId,
-        status: 'pending_submission',
+        status: mandate?.status || 'pending_submission',
         environment: gc.getGocardlessEnvironment ? gc.getGocardlessEnvironment() : 'sandbox',
         updated_at: new Date().toISOString(),
       }, 'gocardless_mandate_id');
+    }
+    if (initialPaymentId && agreement.metadata?.dd?.billing_request_payment?.included) {
+      const { data: existingPayment, error: existingPaymentErr } = await db
+        .from('gocardless_payments')
+        .select('status, plan_id')
+        .eq('gocardless_payment_id', initialPaymentId)
+        .maybeSingle();
+      if (existingPaymentErr) throw new Error(`load initial billing request payment failed: ${existingPaymentErr.message}`);
+      await checkedUpsert(db, 'gocardless_payments', {
+        tenant_id: agreement.tenant_id,
+        plan_id: existingPayment?.plan_id || null,
+        gocardless_payment_id: initialPaymentId,
+        gocardless_subscription_id: null,
+        gocardless_mandate_id: mandateId,
+        amount_minor: initialPayment?.amount || null,
+        currency: initialPayment?.currency || agreement.metadata?.dd?.currency || 'GBP',
+        charge_date: initialPayment?.charge_date || null,
+        status: paymentStatusOnFulfillment(existingPayment?.status, initialPayment?.status || 'pending_submission'),
+        updated_at: new Date().toISOString(),
+      }, 'gocardless_payment_id');
     }
 
     const result = await applyStatusTransition({
@@ -218,6 +359,28 @@ async function processBillingRequestEvent({ event, action, links, db, gc }) {
       eventId: event.id,
       extraUpdate,
     }, { db });
+    if (!result.applied && extraUpdate.metadata) {
+      const { error: metadataErr } = await db
+        .from('membership_billing_agreements')
+        .update({ metadata: extraUpdate.metadata, updated_at: new Date().toISOString() })
+        .eq('id', agreement.id);
+      if (metadataErr) throw new Error(`attach initial billing request payment failed: ${metadataErr.message}`);
+    }
+    if (mandate?.status === 'active' || mandate?.status === 'reinstated') {
+      const activeAgreement = {
+        ...agreement,
+        ...extraUpdate,
+        metadata: extraUpdate.metadata || agreement.metadata,
+      };
+      await processActiveMonthlyAgreement({
+        agreement: activeAgreement,
+        eventId: event.id,
+        action: mandate.status,
+        db,
+        gc,
+        deps,
+      });
+    }
 
     // Phase 3: a billing-contact invitation link becomes single-use once the
     // mandate flow completes. Best-effort — never fails the event.
@@ -324,7 +487,7 @@ async function maybeProcessFormPaymentBillingRequest({ action, brId, db, gc }) {
 
 const MANDATE_TERMINAL_ACTIONS = new Set(['cancelled', 'failed', 'expired']);
 
-async function processMandateEvent({ event, action, links, db, gc }) {
+async function processMandateEvent({ event, action, links, db, gc, deps = {} }) {
   const mandateId = links.mandate;
   if (!mandateId) return { handled: false, detail: 'no mandate link' };
 
@@ -361,34 +524,36 @@ async function processMandateEvent({ event, action, links, db, gc }) {
 
   if (action === 'active' || action === 'reinstated') {
     if (agreement) {
-      const result = await applyStatusTransition({
-        entityType: 'billing_agreement',
-        entityId: agreement.id,
-        toStatus: STATUS.FIRST_PAYMENT_PENDING,
-        reason: `mandate ${action}`,
-        source: 'webhook',
-        eventId: event.id,
-      }, { db });
+      let result;
+      let subResult = null;
+      let actResult = null;
+      if (agreement.metadata?.dd?.kind === 'monthly_direct_debit') {
+        ({ result, subResult, actResult } = await processActiveMonthlyAgreement({
+          agreement,
+          eventId: event.id,
+          action,
+          db,
+          gc,
+          deps,
+        }));
+      } else {
+        result = await applyStatusTransition({
+          entityType: 'billing_agreement',
+          entityId: agreement.id,
+          toStatus: STATUS.FIRST_PAYMENT_PENDING,
+          reason: `mandate ${action}`,
+          source: 'webhook',
+          eventId: event.id,
+        }, { db });
+      }
       details.push(`agreement: ${JSON.stringify(result)}`);
 
       // Phase 2: a monthly-DD agreement now has an active mandate — create
       // the subscription from the stored snapshot and apply the tier's
       // activation rule. Both are idempotent, so re-delivered events are safe.
       if (agreement.metadata?.dd?.kind === 'monthly_direct_debit') {
-        const subResult = await ensureSubscriptionForAgreement(agreement, { db, gc });
         details.push(`dd subscription: ${subResult.detail}`);
-        const actResult = await activateMembershipForAgreement(agreement, { trigger: 'mandate_active', db });
         details.push(`dd activation: ${actResult.detail}`);
-        const firstChargeDate = subResult.plan?.next_charge_date || subResult.plan?.start_date || null;
-        if (result.applied) {
-          await safeDdEmail('mandate_active', agreement, { db, extraContext: { firstChargeDate } });
-        }
-        if (subResult.created) {
-          await safeDdEmail('first_collection_scheduled', agreement, { db, extraContext: { firstChargeDate } });
-        }
-        if (actResult.activated) {
-          await safeDdEmail('membership_activated', agreement, { db });
-        }
       }
     }
     return { handled: true, detail: details.join('; ') || 'mandate active (no local rows)' };
@@ -578,6 +743,7 @@ async function processPaymentEvent({ event, action, links, db, gc, deps = {} }) 
 
   const subscriptionId = links.subscription || null;
   let plan = subscriptionId ? await findPlanBySubscription(db, subscriptionId) : null;
+  let initialPaymentAgreement = null;
   const { data: immutableIntentMatch, error: immutableIntentError } = await db
     .from('membership_monthly_collection_intent').select('*')
     .eq('provider_reference', paymentId).maybeSingle();
@@ -605,8 +771,15 @@ async function processPaymentEvent({ event, action, links, db, gc, deps = {} }) 
       }
     }
   }
+  if (!plan && links.mandate) {
+    const agreementForMandate = await findAgreementByMandate(db, links.mandate);
+    if (agreementForMandate?.metadata?.gocardless_initial_payment?.id === paymentId) {
+      initialPaymentAgreement = agreementForMandate;
+      plan = await findPlanByAgreement(db, agreementForMandate.id);
+    }
+  }
 
-  if (!plan && action === 'confirmed') {
+  if (!plan && !initialPaymentAgreement && action === 'confirmed') {
     const authoritative = await gc.getPayment(paymentId);
     const meta = authoritative?.metadata || {};
     const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -722,7 +895,7 @@ async function processPaymentEvent({ event, action, links, db, gc, deps = {} }) 
 
   // Mirror the payment row (upsert on gocardless_payment_id). Tenant comes
   // from the plan when known; otherwise fetch the payment + its metadata.
-  let tenantId = plan?.tenant_id || null;
+  let tenantId = plan?.tenant_id || initialPaymentAgreement?.tenant_id || null;
   if (!tenantId) {
     const agreementMandate = links.mandate ? await findAgreementByMandate(db, links.mandate) : null;
     tenantId = agreementMandate?.tenant_id || null;
@@ -752,6 +925,31 @@ async function processPaymentEvent({ event, action, links, db, gc, deps = {} }) 
   }
 
   if (!plan) {
+    if (initialPaymentAgreement && (action === 'confirmed' || action === 'paid_out')) {
+      const agreementResult = await applyStatusTransition({
+        entityType: 'billing_agreement',
+        entityId: initialPaymentAgreement.id,
+        toStatus: STATUS.ACTIVE,
+        reason: `initial billing request payment ${action}`,
+        source: 'webhook',
+        eventId: event.id,
+      }, { db });
+      const actResult = await activateMembershipForAgreement(
+        initialPaymentAgreement,
+        { trigger: 'first_payment_confirmed', db },
+      );
+      await recordDdPaymentProgress(initialPaymentAgreement, { db });
+      if (actResult.activated) {
+        await safeDdEmail('membership_activated', initialPaymentAgreement, { db });
+      }
+      if (agreementResult.applied) {
+        await safeDdEmail('first_payment', initialPaymentAgreement, { db });
+      }
+      return {
+        handled: true,
+        detail: `initial billing request payment ${action} recorded before subscription plan`,
+      };
+    }
     return { handled: !!tenantId, detail: tenantId ? `payment ${action} mirrored (no local plan)` : `no local plan/tenant for payment ${paymentId}` };
   }
 
@@ -762,28 +960,41 @@ async function processPaymentEvent({ event, action, links, db, gc, deps = {} }) 
   };
 
   if (action === 'confirmed' || action === 'paid_out') {
-    const recoveredFromArrears = plan.status === STATUS.PAYMENT_GRACE_PERIOD
-      || plan.status === STATUS.PAYMENT_OVERDUE
-      || !!plan.arrears_policy_applied;
-    const recoveryAgreement = recoveredFromArrears && plan.billing_agreement_id
+    const paymentAgreement = plan.billing_agreement_id
       ? await findAgreementById(db, plan.billing_agreement_id)
       : null;
+    const isInitialPayment = paymentAgreement?.metadata?.gocardless_initial_payment?.id === paymentId;
+    const hasLaterPlanActivity = isInitialPayment
+      && !!plan.last_payment_id
+      && plan.last_payment_id !== paymentId;
+    const recoveredFromArrears = !isInitialPayment && (plan.status === STATUS.PAYMENT_GRACE_PERIOD
+      || plan.status === STATUS.PAYMENT_OVERDUE
+      || !!plan.arrears_policy_applied);
+    const recoveryAgreement = recoveredFromArrears ? paymentAgreement : null;
     if (recoveredFromArrears) {
       await restoreArrearsRoleAssignments({ plan, agreement: recoveryAgreement, db });
     }
-    const result = await applyStatusTransition({
-      entityType: 'payment_plan',
-      entityId: plan.id,
-      toStatus: STATUS.ACTIVE,
-      reason: `payment ${action}`,
-      source: 'webhook',
-      eventId: event.id,
-      extraUpdate: { ...planUpdate, ...recoveryPlanUpdate() },
-    }, { db });
+    const result = hasLaterPlanActivity
+      ? {
+        applied: false,
+        fromStatus: plan.status,
+        toStatus: plan.status,
+        reason: 'initial payment replay left later plan activity untouched',
+      }
+      : await applyStatusTransition({
+        entityType: 'payment_plan',
+        entityId: plan.id,
+        toStatus: STATUS.ACTIVE,
+        reason: `payment ${action}`,
+        source: 'webhook',
+        eventId: event.id,
+        extraUpdate: isInitialPayment ? planUpdate : { ...planUpdate, ...recoveryPlanUpdate() },
+      }, { db });
 
     // Recovery bookkeeping even when the plan was already ACTIVE
     // (subsequent instalments): clear any stale arrears columns.
-    if (!result.applied && (plan.retry_count || plan.grace_expires_at || plan.arrears_policy_applied)) {
+    if (!isInitialPayment && !result.applied
+      && (plan.retry_count || plan.grace_expires_at || plan.arrears_policy_applied)) {
       const { error: clrErr } = await db
         .from('membership_payment_plans')
         .update({ ...recoveryPlanUpdate(), updated_at: new Date().toISOString() })
@@ -793,7 +1004,9 @@ async function processPaymentEvent({ event, action, links, db, gc, deps = {} }) 
     // A confirmed collection closes any automatic retry schedule and marks
     // the plan recovered. This is deliberately separate from retry_count:
     // that column is the arrears failure count, not the automatic allowance.
-    await clearAutomaticRetryForPlan(plan, { db, outcome: 'recovered' });
+    if (!isInitialPayment) {
+      await clearAutomaticRetryForPlan(plan, { db, outcome: 'recovered' });
+    }
 
     const catchUpIntent = preflightCatchUpIntent;
     const isCatchUpPayment = isPreflightCatchUp;
@@ -869,24 +1082,42 @@ async function processPaymentEvent({ event, action, links, db, gc, deps = {} }) 
     }
     // Reflect on the agreement too (first successful collection activates it).
     if (plan.billing_agreement_id) {
-      await applyStatusTransition({
-        entityType: 'billing_agreement',
-        entityId: plan.billing_agreement_id,
-        toStatus: STATUS.ACTIVE,
-        reason: `payment ${action}`,
-        source: 'webhook',
-        eventId: event.id,
-      }, { db });
+      if (!hasLaterPlanActivity) {
+        await applyStatusTransition({
+          entityType: 'billing_agreement',
+          entityId: plan.billing_agreement_id,
+          toStatus: STATUS.ACTIVE,
+          reason: `payment ${action}`,
+          source: 'webhook',
+          eventId: event.id,
+        }, { db });
+      }
 
       // Phase 2: first confirmed collection — apply the tier's activation
       // rule, mark the membership row's payment progress, and send the
       // first-payment email exactly once (on the actual state transition).
-      const agreement = recoveryAgreement || await findAgreementById(db, plan.billing_agreement_id);
+      const agreement = paymentAgreement || await findAgreementById(db, plan.billing_agreement_id);
       if (agreement?.metadata?.dd?.kind === 'monthly_direct_debit') {
         const actResult = await activateMembershipForAgreement(agreement, { trigger: 'first_payment_confirmed', db });
         await recordDdPaymentProgress(agreement, { db });
+        const isOnlyBillingRequestPayment = agreement.metadata?.gocardless_initial_payment?.id === paymentId
+          && remainingSubscriptionInstalments(agreement.metadata.dd) === 0;
+        if (isOnlyBillingRequestPayment) {
+          const completion = await applyStatusTransition({
+            entityType: 'payment_plan',
+            entityId: plan.id,
+            toStatus: STATUS.EXPIRED,
+            reason: 'single-instalment plan completed',
+            source: 'webhook',
+            eventId: event.id,
+            extraUpdate: { completed_at: new Date().toISOString() },
+          }, { db });
+          if (completion.applied) {
+            await safeDdEmail('plan_completed', agreement, { db });
+          }
+        }
         // Recovery: clear any arrears flag stamped on the agreement.
-        if (agreement.metadata?.dd?.arrears_state) {
+        if (!isInitialPayment && agreement.metadata?.dd?.arrears_state) {
           await clearAgreementArrearsFlag(agreement, { db });
         }
         if (recoveredFromArrears && action === 'confirmed') {
@@ -905,13 +1136,18 @@ async function processPaymentEvent({ event, action, links, db, gc, deps = {} }) 
         if (actResult.activated) {
           await safeDdEmail('membership_activated', agreement, { db });
         }
-        if (result.applied && result.fromStatus === STATUS.FIRST_PAYMENT_PENDING) {
+        if (isInitialPayment && !agreement.metadata?.gocardless_initial_payment?.finalized_at) {
+          await safeDdEmail('first_payment', agreement, { db });
+        } else if (result.applied && result.fromStatus === STATUS.FIRST_PAYMENT_PENDING) {
           await safeDdEmail('first_payment', agreement, { db });
         } else if (action === 'confirmed') {
           // Subsequent instalment confirmed — 'confirmed' only, so the later
           // paid_out event for the same payment doesn't send a duplicate
           // (event-level idempotency also guards webhook redelivery).
           await safeDdEmail('payment_confirmed', agreement, { db });
+        }
+        if (isInitialPayment) {
+          await markInitialPaymentFinalized({ agreementId: agreement.id, paymentId, db });
         }
         return { handled: true, detail: `payment ${action}: ${JSON.stringify(result)}; dd activation: ${actResult.detail}` };
       }

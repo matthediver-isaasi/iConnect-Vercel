@@ -1277,7 +1277,15 @@ export default async function handler(req, res) {
         if (!simResult.success) {
           return res.status(400).json({ error: simResult.error || 'Could not calculate membership fees' });
         }
-        const { resolveDdOffer, buildAgreementSnapshot, findReusableMandate, ensureSubscriptionForAgreement, activateMembershipForAgreement } = await import('../../_lib/gocardlessDirectDebit.js');
+        const {
+          resolveDdOffer,
+          buildAgreementSnapshot,
+          buildMonthlyBillingRequest,
+          monthlyBillingRequestFingerprint,
+          findReusableMandate,
+          ensureSubscriptionForAgreement,
+          activateMembershipForAgreement,
+        } = await import('../../_lib/gocardlessDirectDebit.js');
         const offer = resolveDdOffer(simResult);
         if (!offer) {
           return res.status(400).json({ error: 'Monthly Direct Debit is not available for this membership' });
@@ -1326,9 +1334,13 @@ export default async function handler(req, res) {
           return res.json({ agreementId: existingAgreement.id, status: existingAgreement.status, resumed: true });
         }
 
-        const snapshot = buildAgreementSnapshot({ offer, simResult });
         const gcClient = await gocardlessForTenant(feeToken.tenant_id);
         const reusable = await findReusableMandate({ tenantId: feeToken.tenant_id, memberId: feeToken.member_id });
+        const snapshot = buildAgreementSnapshot({
+          offer,
+          simResult,
+          includeBillingRequestPayment: !reusable,
+        });
 
         const agreementInsert = {
           tenant_id: feeToken.tenant_id,
@@ -1347,9 +1359,17 @@ export default async function handler(req, res) {
           agreementInsert.status = STATUS.MANDATE_PENDING;
         } else {
           const billingRequest = await gcClient.createBillingRequest({
-            idempotencyKey: buildIdempotencyKey('dd-br', feeToken.tenant_id, feeToken.member_id, yearLabel),
-            currency: offer.currency,
-            metadata: { tenant_id: feeToken.tenant_id, member_id: feeToken.member_id, membership_year: yearLabel, kind: 'monthly_direct_debit' },
+            idempotencyKey: buildIdempotencyKey(
+              'dd-br',
+              feeToken.tenant_id,
+              feeToken.member_id,
+              yearLabel,
+              monthlyBillingRequestFingerprint(snapshot),
+            ),
+            ...buildMonthlyBillingRequest({
+              snapshot,
+              metadata: { tenant_id: feeToken.tenant_id, member_id: feeToken.member_id, membership_year: yearLabel, kind: 'monthly_direct_debit' },
+            }),
           });
           const proto = req.headers['x-forwarded-proto'] || 'https';
           const host = req.headers['x-forwarded-host'] || req.headers.host;
@@ -1358,7 +1378,13 @@ export default async function handler(req, res) {
             billingRequestId: billingRequest.id,
             redirectUri: origin ? `${origin}/membership-fees/${token}?dd=complete` : undefined,
             exitUri: origin ? `${origin}/membership-fees/${token}?dd=cancelled` : undefined,
-            idempotencyKey: buildIdempotencyKey('dd-brf', feeToken.tenant_id, feeToken.member_id, yearLabel),
+            idempotencyKey: buildIdempotencyKey(
+              'dd-brf',
+              feeToken.tenant_id,
+              feeToken.member_id,
+              yearLabel,
+              billingRequest.id,
+            ),
             prefilledCustomer: {
               email: tokenMember.email || undefined,
               given_name: tokenMember.first_name || undefined,

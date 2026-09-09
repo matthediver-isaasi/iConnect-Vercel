@@ -390,17 +390,19 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
     setPaymentError(null);
     try {
       const endpoint = isOrgDd ? '/api/membership/org-direct-debit' : '/api/membership/direct-debit';
+      const overrideBody = getOverrideBody();
       const body = isOrgDd
         ? {
             action: 'start',
             memberId,
+            ...overrideBody,
             payerChoice: ddPayerChoice,
             ...(ddPayerChoice === 'billing_contact' ? {
               billingContactEmail: billingContactEmail.trim(),
               billingContactName: billingContactName.trim(),
             } : {}),
           }
-        : { action: 'start', memberId };
+        : { action: 'start', memberId, ...overrideBody };
       const res = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -652,15 +654,20 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
           const ddCurrency = dd?.currency || data.currency;
           const firstCollectionText = (() => {
             if (!dd) return null;
+             const amount = formatCurrency(dd.monthlyAmount, ddCurrency);
+             const remaining = Math.max(0, Number(dd.instalmentCount || 0) - 1);
+             const newSetup = `If a new bank setup is needed, your first instalment of ${amount} is paid immediately as a secure bank payment when you authorise`;
+             const reusable = `If an existing Direct Debit can be reused, all ${dd.instalmentCount} instalments will instead be collected by monthly Direct Debit`;
+             if (remaining === 0) return `${newSetup}, with no further collections. ${reusable}.`;
             if (dd.firstCollectionRule === 'nominated_day' && dd.collectionDay) {
               const day = dd.collectionDay;
               const suffix = day % 10 === 1 && day !== 11 ? 'st' : day % 10 === 2 && day !== 12 ? 'nd' : day % 10 === 3 && day !== 13 ? 'rd' : 'th';
-              return `Your first payment will be collected on the next ${day}${suffix} of the month after your bank confirms the Direct Debit.`;
+               return `${newSetup}; the remaining ${remaining} monthly Direct Debit ${remaining === 1 ? 'collection' : 'collections'} of ${amount} will start on the next applicable ${day}${suffix} of the month. ${reusable} under that schedule.`;
             }
             if (dd.firstCollectionRule === 'anniversary') {
-              return 'Your first payment will be collected on your membership anniversary date once your bank confirms the Direct Debit.';
+               return `${newSetup}; the remaining ${remaining} monthly Direct Debit ${remaining === 1 ? 'collection' : 'collections'} of ${amount} will start from your next applicable membership anniversary. ${reusable} under that schedule.`;
             }
-            return 'Your first payment will be collected as soon as your bank confirms the Direct Debit (usually within a few working days).';
+             return `${newSetup}; the remaining ${remaining} monthly Direct Debit ${remaining === 1 ? 'collection' : 'collections'} will each be ${amount}. ${reusable}.`;
           })();
           return (
             <div className="space-y-3">
