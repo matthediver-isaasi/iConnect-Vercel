@@ -1635,7 +1635,7 @@ const memberMonthlyCardSource = readFileSync(
   'utf8',
 );
 
-test('both monthly-card Checkout entry points omit unsupported subscription_data.cancel_at', () => {
+test('monthly-card Checkout entry points omit unsupported Managed Payments parameters', () => {
   const formCreate = formPaymentSource.slice(
     formPaymentSource.indexOf('async function handleCreateMonthlyCard'),
     formPaymentSource.indexOf('async function handleCreate('),
@@ -1645,6 +1645,7 @@ test('both monthly-card Checkout entry points omit unsupported subscription_data
   );
   assert.match(formCreate, /subscription_data:\s*\{\s*metadata:/);
   assert.match(memberCreate, /subscription_data:\s*\{\s*metadata:/);
+  assert.doesNotMatch(formCreate, /payment_method_types/);
   assert.doesNotMatch(formCreate, /subscription_data:\s*\{[\s\S]*?cancel_at/);
   assert.doesNotMatch(memberCreate, /subscription_data:\s*\{[\s\S]*?cancel_at/);
 });

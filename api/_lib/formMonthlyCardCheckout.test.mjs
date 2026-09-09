@@ -500,6 +500,30 @@ test('create retry repairs submission linkage before returning a prior Checkout 
   assert.ok(repair > -1 && repair < priorReturn);
 });
 
+test('form monthly-card Checkout is Managed Payments compatible and preserves subscription setup', () => {
+  const source = readFileSync(new URL('../public/form-payment.js', import.meta.url), 'utf8');
+  const create = source.slice(
+    source.indexOf('async function handleCreateMonthlyCard'),
+    source.indexOf('async function handleCreate('),
+  );
+  const sessionCreate = create.slice(
+    create.indexOf('stripe.checkout.sessions.create({'),
+    create.indexOf('}, { idempotencyKey: `form-card-session:${prior.id}` })')
+      + '}, { idempotencyKey: `form-card-session:${prior.id}` })'.length,
+  );
+
+  assert.doesNotMatch(sessionCreate, /payment_method_types/);
+  assert.doesNotMatch(sessionCreate, /subscription_data:\s*\{[\s\S]*?cancel_at/);
+  assert.match(sessionCreate, /mode:\s*'subscription'/);
+  assert.match(sessionCreate, /customer:\s*customer\.id/);
+  assert.match(sessionCreate, /billing_address_collection:\s*'required'/);
+  assert.match(sessionCreate, /customer_update:\s*\{\s*address:\s*'auto'\s*\}/);
+  assert.match(sessionCreate, /subscription_data:\s*\{\s*metadata:/);
+  assert.match(sessionCreate, /success_url:\s*withParams/);
+  assert.match(sessionCreate, /cancel_url:\s*withParams/);
+  assert.match(sessionCreate, /idempotencyKey:\s*`form-card-session:\$\{prior\.id\}`/);
+});
+
 test('browser confirm and reconciliation can find an agreement when submission linkage was interrupted', () => {
   const endpoint = readFileSync(new URL('../public/form-payment.js', import.meta.url), 'utf8');
   const reconciliation = readFileSync(new URL('./formPaymentReconciliation.js', import.meta.url), 'utf8');

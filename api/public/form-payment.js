@@ -722,7 +722,6 @@ async function handleCreateMonthlyCard(req, res, supabase, tenantData) {
     }
     session = await stripe.checkout.sessions.create({
       mode: 'subscription',
-      payment_method_types: ['card'],
       customer: customer.id,
       billing_address_collection: 'required',
       customer_update: { address: 'auto' },
