@@ -616,7 +616,7 @@ test('applicant agreement claim migration serializes and prefers a matching live
   assert.match(sql, /GRANT EXECUTE ON FUNCTION claim_form_monthly_card_applicant_agreement\([\s\S]*?\) TO service_role/i);
 });
 
-test('form monthly-card Checkout is Managed Payments compatible and preserves subscription setup', () => {
+test('form monthly-card Checkout disables Managed Payments and preserves subscription setup', () => {
   const source = readFileSync(new URL('../public/form-payment.js', import.meta.url), 'utf8');
   const create = source.slice(
     source.indexOf('async function handleCreateMonthlyCard'),
@@ -631,6 +631,7 @@ test('form monthly-card Checkout is Managed Payments compatible and preserves su
   assert.doesNotMatch(sessionCreate, /payment_method_types/);
   assert.doesNotMatch(sessionCreate, /subscription_data:\s*\{[\s\S]*?cancel_at/);
   assert.match(sessionCreate, /mode:\s*'subscription'/);
+  assert.match(sessionCreate, /managed_payments:\s*\{\s*enabled:\s*false\s*\}/);
   assert.match(sessionCreate, /customer:\s*customer\.id/);
   assert.match(sessionCreate, /billing_address_collection:\s*'required'/);
   assert.match(sessionCreate, /customer_update:\s*\{\s*address:\s*'auto'\s*\}/);

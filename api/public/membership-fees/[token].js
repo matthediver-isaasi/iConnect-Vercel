@@ -1620,6 +1620,9 @@ export default async function handler(req, res) {
         try {
           session = await stripe.checkout.sessions.create({
             mode: 'subscription',
+            // Membership dues are not a Managed Payments digital product. Keep
+            // this on the tenant's direct Stripe subscription integration.
+            managed_payments: { enabled: false },
             customer: customer?.id || undefined,
             customer_email: customer ? undefined : (tokenMember.email || undefined),
             line_items: [{

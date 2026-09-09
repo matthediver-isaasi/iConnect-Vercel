@@ -1634,8 +1634,12 @@ const memberMonthlyCardSource = readFileSync(
   resolve(dirname(fileURLToPath(import.meta.url)), '../membership/monthly-card.js'),
   'utf8',
 );
+const publicFeeSource = readFileSync(
+  resolve(dirname(fileURLToPath(import.meta.url)), '../public/membership-fees/[token].js'),
+  'utf8',
+);
 
-test('monthly-card Checkout entry points omit unsupported Managed Payments parameters', () => {
+test('monthly-card Checkout entry points disable Managed Payments for membership dues', () => {
   const formCreate = formPaymentSource.slice(
     formPaymentSource.indexOf('async function handleCreateMonthlyCard'),
     formPaymentSource.indexOf('async function handleCreate('),
@@ -1643,8 +1647,14 @@ test('monthly-card Checkout entry points omit unsupported Managed Payments param
   const memberCreate = memberMonthlyCardSource.slice(
     memberMonthlyCardSource.indexOf("if (req.method === 'POST')"),
   );
+  const publicFeeCreate = publicFeeSource.slice(
+    publicFeeSource.indexOf("if (action === 'start_monthly_card')"),
+  );
   assert.match(formCreate, /subscription_data:\s*\{\s*metadata:/);
   assert.match(memberCreate, /subscription_data:\s*\{\s*metadata:/);
+  assert.match(formCreate, /managed_payments:\s*\{\s*enabled:\s*false\s*\}/);
+  assert.match(memberCreate, /managed_payments:\s*\{\s*enabled:\s*false\s*\}/);
+  assert.match(publicFeeCreate, /managed_payments:\s*\{\s*enabled:\s*false\s*\}/);
   assert.doesNotMatch(formCreate, /payment_method_types/);
   assert.doesNotMatch(formCreate, /subscription_data:\s*\{[\s\S]*?cancel_at/);
   assert.doesNotMatch(memberCreate, /subscription_data:\s*\{[\s\S]*?cancel_at/);

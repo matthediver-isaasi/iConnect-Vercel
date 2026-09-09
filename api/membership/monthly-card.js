@@ -255,6 +255,10 @@ async function handlePost(req, res, resolvedTenantId) {
   try {
     session = await stripe.checkout.sessions.create({
       mode: 'subscription',
+      // Membership dues are not a Managed Payments digital product. Keep this
+      // session on the tenant's direct Stripe subscription integration even
+      // when Managed Payments is enabled by default on the Stripe account.
+      managed_payments: { enabled: false },
       customer: customer.id,
       billing_address_collection: 'required',
       customer_update: { address: 'auto' },
