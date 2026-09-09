@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFile } from 'node:fs/promises';
-import handler from './form-submission.js';
+import handler, { buildSubmissionEmailRequestContext } from './form-submission.js';
 import { buildPublicFormProcessingPayload } from '../_lib/publicFormProcessingPayload.js';
 import {
   FORM_NOT_LISTED_LABELS_KEY,
@@ -97,15 +97,27 @@ function affectedFormFixture() {
   };
 }
 
-function makePublicSubmissionBoundaryDb(form, { organization = null } = {}) {
+function makePublicSubmissionBoundaryDb(
+  form,
+  {
+    organization = null,
+    existingSubmission = null,
+    failReadyOnce = false,
+    failCheckpointOnce = false,
+  } = {},
+) {
   const insertedSubmissions = [];
   const deletedSubmissionIds = [];
+  let submissionRow = existingSubmission ? structuredClone(existingSubmission) : null;
+  let readyFailuresRemaining = failReadyOnce ? 1 : 0;
+  let checkpointFailuresRemaining = failCheckpointOnce ? 1 : 0;
 
   class Query {
     constructor(table) {
       this.table = table;
       this.selected = '';
       this.insertPayload = null;
+      this.updatePayload = null;
       this.deleteOperation = false;
       this.filters = [];
     }
@@ -115,7 +127,7 @@ function makePublicSubmissionBoundaryDb(form, { organization = null } = {}) {
       if (this.table === 'form_submission') insertedSubmissions.push(payload);
       return this;
     }
-    update() { return this; }
+    update(payload) { this.updatePayload = payload; return this; }
     delete() { this.deleteOperation = true; return this; }
     eq(column, value) { this.filters.push(['eq', column, value]); return this; }
     neq() { return this; }
@@ -135,17 +147,21 @@ function makePublicSubmissionBoundaryDb(form, { organization = null } = {}) {
     async single() {
       if (this.table === 'form') return { data: form, error: null };
       if (this.table === 'form_submission' && this.insertPayload) {
+        submissionRow = {
+          id: 'submission-student-join',
+          ...structuredClone(this.insertPayload),
+        };
         return {
-          data: {
-            id: 'submission-student-join',
-            ...structuredClone(this.insertPayload),
-          },
+          data: structuredClone(submissionRow),
           error: null,
         };
       }
       return { data: null, error: null };
     }
     async maybeSingle() {
+      if (this.table === 'form_submission' && submissionRow) {
+        return { data: structuredClone(submissionRow), error: null };
+      }
       if (this.table === 'organization') {
         const id = this.filters.find(filter => filter[0] === 'eq' && filter[1] === 'id')?.[2];
         const tenantId = this.filters.find(filter => filter[0] === 'eq' && filter[1] === 'tenant_id')?.[2];
@@ -160,6 +176,39 @@ function makePublicSubmissionBoundaryDb(form, { organization = null } = {}) {
         const id = this.filters.find(filter => filter[0] === 'eq' && filter[1] === 'id')?.[2];
         if (id) deletedSubmissionIds.push(id);
       }
+      if (this.table === 'form_submission' && this.updatePayload && submissionRow) {
+        const id = this.filters.find(filter => filter[0] === 'eq' && filter[1] === 'id')?.[2];
+        const expectedStatus = this.filters.find(
+          filter => filter[0] === 'eq' && filter[1] === 'submission_email_state->>status',
+        )?.[2];
+        const matches = (!id || submissionRow.id === id)
+          && (!expectedStatus || submissionRow.submission_email_state?.status === expectedStatus);
+        if (matches) {
+          if (
+            this.updatePayload.submission_email_state?.status === 'ready'
+            && readyFailuresRemaining > 0
+          ) {
+            readyFailuresRemaining -= 1;
+            return Promise.resolve({
+              data: null,
+              error: { code: 'TRANSIENT', message: 'Temporary ready-state write failure' },
+            }).then(resolve, reject);
+          }
+          if (
+            this.updatePayload.submission_email_state?.status === 'pending'
+            && this.updatePayload.submission_email_state?.post_processing_completed_at
+            && checkpointFailuresRemaining > 0
+          ) {
+            checkpointFailuresRemaining -= 1;
+            return Promise.resolve({
+              data: null,
+              error: { code: 'TRANSIENT', message: 'Temporary checkpoint write failure' },
+            }).then(resolve, reject);
+          }
+          submissionRow = { ...submissionRow, ...structuredClone(this.updatePayload) };
+          return Promise.resolve({ data: [{ id: submissionRow.id }], error: null }).then(resolve, reject);
+        }
+      }
       return Promise.resolve({ data: [], error: null, count: 0 }).then(resolve, reject);
     }
   }
@@ -167,6 +216,7 @@ function makePublicSubmissionBoundaryDb(form, { organization = null } = {}) {
   return {
     insertedSubmissions,
     deletedSubmissionIds,
+    getSubmissionRow() { return structuredClone(submissionRow); },
     client: {
       from(table) { return new Query(table); },
       async rpc() { return { data: null, error: null }; },
@@ -190,6 +240,19 @@ test('ordinary submissions load persisted visibility context for repeatable vali
   const source = await readFile(new URL('./form-submission.js', import.meta.url), 'utf8');
   assert.match(source, /\.select\('[^']*\bfields, pages, visibility_rules\b[^']*'\)/);
   assert.match(source, /validateRepeatableRowSubmission\(\{[\s\S]*?visibilityOptions: submissionVisibilityOptions,/);
+});
+
+test('submission email diagnostics normalize token-bearing paths and ignore unknown surfaces', () => {
+  const diagnostics = buildSubmissionEmailRequestContext({
+    headers: {
+      host: 'tenant.iconn.app',
+      referer: 'https://tenant.iconn.app/survey/private-assignment-token?draft_token=secret',
+    },
+  }, 'attacker-controlled');
+  assert.equal(diagnostics.surface, 'native-or-api');
+  assert.equal(diagnostics.referrer_route, '/survey/:token');
+  assert.equal(JSON.stringify(diagnostics).includes('private-assignment-token'), false);
+  assert.equal(JSON.stringify(diagnostics).includes('draft_token'), false);
 });
 
 test('survey submissions validate repeatable rows against the published visibility snapshot', async () => {
@@ -276,10 +339,14 @@ test('real public endpoint inserts and hands off the affected mixed-pipeline not
   };
   const db = makePublicSubmissionBoundaryDb(form);
   const capturedProcessingBodies = [];
+  const capturedEmailCalls = [];
   const { response, res } = makeResponseRecorder();
   const req = {
     method: 'POST',
-    headers: { host: 'student-join.test' },
+    headers: {
+      host: 'student-join.test',
+      referer: 'https://student-join.test/embed/form/student-join?draft_token=must-not-persist',
+    },
     body: {
       form_id: form.id,
       form_name: form.name,
@@ -291,6 +358,10 @@ test('real public endpoint inserts and hands off the affected mixed-pipeline not
     supabase: db.client,
     tenantData: { id: form.tenant_id, slug: 'student-join', domain: 'student-join.test' },
     internalApiBaseUrl: 'https://internal.example.test',
+    sendSubmissionEmailsGuarded: async (options) => {
+      capturedEmailCalls.push(options);
+      return { success: true, emails: [{ success: true }] };
+    },
     fetchImpl: async (_url, options) => {
       capturedProcessingBodies.push(JSON.parse(options.body));
       return {
@@ -310,6 +381,17 @@ test('real public endpoint inserts and hands off the affected mixed-pipeline not
   assert.equal(response.statusCode, 201);
   assert.equal(db.insertedSubmissions.length, 1);
   assert.equal(capturedProcessingBodies.length, 1);
+  assert.equal(capturedEmailCalls.length, 1);
+  assert.equal(capturedEmailCalls[0].submissionId, 'submission-student-join');
+  assert.equal(capturedEmailCalls[0].trigger, 'server');
+  assert.equal(capturedEmailCalls[0].baseUrl, 'https://student-join.test');
+  assert.equal(capturedEmailCalls[0].diagnostics.surface, 'embed');
+  assert.equal(capturedEmailCalls[0].diagnostics.referrer_host, 'student-join.test');
+  assert.equal(capturedEmailCalls[0].diagnostics.referrer_route, '/embed/form/:form');
+  assert.equal(
+    JSON.stringify(capturedEmailCalls[0].diagnostics).includes('draft_token'),
+    false,
+  );
   const persistedData = db.insertedSubmissions[0].submission_data;
   assert.notDeepEqual(persistedData, requestSubmissionData);
   assert.equal(persistedData[LIVE_ORGANISATION_FIELD_ID], FORM_NOT_LISTED_VALUE);
@@ -388,6 +470,267 @@ test('real public endpoint hands off the affected anonymous listed-organization 
   );
   assert.equal(capturedProcessingBodies[0].verified_admin_access, false);
   assert.equal(capturedProcessingBodies[0].verified_submitter_member_id, null);
+});
+
+test('cached embed retries invoke the server sender with persisted tenant-scoped answers', async () => {
+  const form = {
+    ...affectedFormFixture(),
+    entity_action: 'none',
+    entity_pipelines: { members: [], organisations: [] },
+  };
+  const existingSubmission = {
+    id: 'existing-embedded-submission',
+    created_member_id: null,
+    created_organization_id: null,
+    organization_id: null,
+    submission_data: {
+      student_email: 'persisted@example.test',
+      student_first_name: 'Persisted',
+    },
+    communication_finalization_state: null,
+    processing_notes: [],
+  };
+  const db = makePublicSubmissionBoundaryDb(form, { existingSubmission });
+  const capturedEmailCalls = [];
+  const { response, res } = makeResponseRecorder();
+
+  await handler({
+    method: 'POST',
+    headers: {
+      host: 'wrong-tenant.dev.iconn.app',
+      referer: 'https://wrong-tenant.dev.iconn.app/embed/form/student-join',
+    },
+    body: {
+      form_id: form.id,
+      form_name: form.name,
+      tenant: 'attacker-controlled-tenant',
+      idempotency_key: 'cached-client-idempotency-key',
+      submission_data: {
+        student_email: 'changed@example.test',
+        student_first_name: 'Changed',
+      },
+    },
+  }, res, {
+    supabase: db.client,
+    tenantData: {
+      id: form.tenant_id,
+      slug: 'student-join',
+      domain: 'student-join.example.test',
+    },
+    sendSubmissionEmailsGuarded: async (options) => {
+      capturedEmailCalls.push(options);
+      return { success: true, emails: [{ success: true }] };
+    },
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.body.duplicate, true);
+  assert.equal(response.body.id, existingSubmission.id);
+  assert.equal(db.insertedSubmissions.length, 0);
+  assert.equal(capturedEmailCalls.length, 1);
+  assert.equal(capturedEmailCalls[0].trigger, 'server-retry');
+  assert.deepEqual(capturedEmailCalls[0].formValues, existingSubmission.submission_data);
+  assert.equal(capturedEmailCalls[0].form.tenant_id, form.tenant_id);
+  assert.equal(capturedEmailCalls[0].baseUrl, 'https://student-join.dev.iconn.app');
+});
+
+test('a duplicate embed request cannot send while original post-processing is pending', async () => {
+  const form = {
+    ...affectedFormFixture(),
+    entity_action: 'none',
+    entity_pipelines: { members: [], organisations: [] },
+  };
+  const existingSubmission = {
+    id: 'pending-embedded-submission',
+    created_member_id: null,
+    created_organization_id: null,
+    organization_id: null,
+    submission_data: { student_email: 'persisted@example.test' },
+    submission_email_state: { status: 'pending', trigger: 'server' },
+    communication_finalization_state: null,
+    processing_notes: [],
+  };
+  const db = makePublicSubmissionBoundaryDb(form, { existingSubmission });
+  const capturedEmailCalls = [];
+  const { response, res } = makeResponseRecorder();
+
+  await handler({
+    method: 'POST',
+    headers: {
+      host: 'student-join.test',
+      referer: 'https://student-join.test/embed/form/student-join',
+    },
+    body: {
+      form_id: form.id,
+      form_name: form.name,
+      idempotency_key: 'pending-client-idempotency-key',
+      submission_data: { student_email: 'changed@example.test' },
+    },
+  }, res, {
+    supabase: db.client,
+    tenantData: { id: form.tenant_id, slug: 'student-join', domain: 'student-join.test' },
+    sendSubmissionEmailsGuarded: async (options) => {
+      capturedEmailCalls.push(options);
+      return { success: true, durable: true, emails: [] };
+    },
+  });
+
+  assert.equal(response.statusCode, 503);
+  assert.equal(response.body.code, 'SUBMISSION_EMAIL_PENDING');
+  assert.equal(capturedEmailCalls.length, 0);
+});
+
+test('a retry can promote checkpointed pending email state after a transient ready-state failure', async () => {
+  const form = {
+    ...affectedFormFixture(),
+    entity_action: 'none',
+    entity_pipelines: { members: [], organisations: [] },
+  };
+  const db = makePublicSubmissionBoundaryDb(form, { failReadyOnce: true });
+  const capturedEmailCalls = [];
+  const request = {
+    method: 'POST',
+    headers: {
+      host: 'student-join.test',
+      referer: 'https://student-join.test/embed/form/student-join',
+    },
+    body: {
+      form_id: form.id,
+      form_name: form.name,
+      idempotency_key: 'ready-retry-idempotency-key',
+      submission_data: {
+        student_email: 'persisted@example.test',
+        student_first_name: 'Persisted',
+      },
+    },
+  };
+  const dependencies = {
+    supabase: db.client,
+    tenantData: { id: form.tenant_id, slug: 'student-join', domain: 'student-join.test' },
+    sendSubmissionEmailsGuarded: async (options) => {
+      capturedEmailCalls.push(options);
+      return { success: true, durable: true, emails: [{ success: true }] };
+    },
+  };
+
+  const firstRecorder = makeResponseRecorder();
+  await handler(request, firstRecorder.res, dependencies);
+  assert.equal(firstRecorder.response.statusCode, 503);
+  assert.equal(firstRecorder.response.body.code, 'SUBMISSION_EMAIL_PENDING');
+  assert.equal(capturedEmailCalls.length, 0);
+
+  const retryRecorder = makeResponseRecorder();
+  await handler(request, retryRecorder.res, dependencies);
+  assert.equal(retryRecorder.response.statusCode, 200);
+  assert.equal(retryRecorder.response.body.duplicate, true);
+  assert.equal(capturedEmailCalls.length, 1);
+  assert.equal(capturedEmailCalls[0].trigger, 'server-retry');
+});
+
+test('a member-pipeline communication failure checkpoints first so a retry sends without rerunning records', async () => {
+  const form = affectedFormFixture();
+  const db = makePublicSubmissionBoundaryDb(form);
+  const processingCalls = [];
+  const emailCalls = [];
+  let promotionCalls = 0;
+  const request = {
+    method: 'POST',
+    headers: {
+      host: 'student-join.test',
+      referer: 'https://student-join.test/embed/form/student-join',
+    },
+    body: {
+      form_id: form.id,
+      form_name: form.name,
+      idempotency_key: 'communication-retry-key',
+      submission_data: {
+        student_email: 'persisted@example.test',
+        student_first_name: 'Persisted',
+      },
+    },
+  };
+  const dependencies = {
+    supabase: db.client,
+    tenantData: { id: form.tenant_id, slug: 'student-join', domain: 'student-join.test' },
+    internalApiBaseUrl: 'https://internal.example.test',
+    promoteAwaitingMemberCommunicationSnapshot: async () => {
+      promotionCalls += 1;
+      if (promotionCalls === 1) throw new Error('Temporary communication write failure');
+      return { status: 'completed' };
+    },
+    fetchImpl: async (_url, options) => {
+      processingCalls.push(JSON.parse(options.body));
+      return {
+        ok: true,
+        status: 200,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        async json() {
+          return { member_id: 'created-member', organization_id: 'created-organization' };
+        },
+      };
+    },
+    sendSubmissionEmailsGuarded: async (options) => {
+      emailCalls.push(options);
+      return { success: true, durable: true, emails: [{ success: true }] };
+    },
+  };
+
+  const firstRecorder = makeResponseRecorder();
+  await handler(request, firstRecorder.res, dependencies);
+  assert.equal(firstRecorder.response.statusCode, 503);
+  assert.equal(firstRecorder.response.body.code, 'COMMUNICATION_FINALIZATION_PENDING');
+  assert.ok(db.getSubmissionRow().submission_email_state.post_processing_completed_at);
+  assert.equal(processingCalls.length, 1);
+  assert.equal(emailCalls.length, 0);
+
+  const retryRecorder = makeResponseRecorder();
+  await handler(request, retryRecorder.res, dependencies);
+  assert.equal(retryRecorder.response.statusCode, 200);
+  assert.equal(processingCalls.length, 1);
+  assert.equal(emailCalls.length, 1);
+  assert.equal(emailCalls[0].trigger, 'server-retry');
+});
+
+test('checkpoint write failure records an actionable terminal email failure', async () => {
+  const form = {
+    ...affectedFormFixture(),
+    entity_action: 'none',
+    entity_pipelines: { members: [], organisations: [] },
+  };
+  const db = makePublicSubmissionBoundaryDb(form, { failCheckpointOnce: true });
+  const emailCalls = [];
+  const { response, res } = makeResponseRecorder();
+
+  await handler({
+    method: 'POST',
+    headers: {
+      host: 'student-join.test',
+      referer: 'https://student-join.test/embed/form/student-join',
+    },
+    body: {
+      form_id: form.id,
+      form_name: form.name,
+      idempotency_key: 'checkpoint-failure-key',
+      submission_data: { student_email: 'persisted@example.test' },
+    },
+  }, res, {
+    supabase: db.client,
+    tenantData: { id: form.tenant_id, slug: 'student-join', domain: 'student-join.test' },
+    sendSubmissionEmailsGuarded: async (options) => {
+      emailCalls.push(options);
+      return { success: true, durable: true, emails: [] };
+    },
+  });
+
+  assert.equal(response.statusCode, 503);
+  assert.equal(response.body.code, 'SUBMISSION_EMAIL_FAILED');
+  assert.equal(response.body.retryable, false);
+  assert.equal(emailCalls.length, 0);
+  assert.equal(db.getSubmissionRow().submission_email_state.status, 'failed');
+  assert.match(
+    db.getSubmissionRow().submission_email_state.reason,
+    /checkpoint failed/i,
+  );
 });
 
 test('public endpoint rolls back the affected submission when organization mutation is forbidden', async () => {

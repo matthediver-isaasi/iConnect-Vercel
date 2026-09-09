@@ -1,6 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { sendSubmissionEmailsGuarded } from '../_lib/formSubmissionEmails.js';
-import { getPublicBaseUrl } from '../_lib/publicBaseUrl.js';
+import { getTrustedBaseUrlForTenant } from '../_lib/publicBaseUrl.js';
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
@@ -17,12 +17,15 @@ const supabase = supabaseUrl && supabaseServiceKey
 // atomically, so if the server-side path already processed the submission this
 // returns { skipped: true, alreadyProcessed: true } without sending.
 
-export default async function handler(req, res) {
+export async function handleSendSubmissionEmail(req, res, dependencies = {}) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  if (!supabase) {
+  const database = dependencies.supabase || supabase;
+  const submissionEmailSender = dependencies.sendSubmissionEmailsGuarded
+    || sendSubmissionEmailsGuarded;
+  if (!database) {
     return res.status(503).json({ error: 'Database not configured' });
   }
 
@@ -32,25 +35,17 @@ export default async function handler(req, res) {
     const {
       form_id,
       submission_id,
-      form_values,
-      fields,
-      created_member_id,       // Member ID from process-application
-      created_organization_id, // Organization ID from process-application
       force_resend,            // Task #3194: admin rerun — resend already-sent emails
-      _debug_form_email_config
     } = req.body;
 
     console.log('[FormSubmissionEmail] Request received for form:', form_id, 'submission:', submission_id);
-    if (_debug_form_email_config) {
-      console.log('[FormSubmissionEmail] CLIENT-SIDE form email config:', JSON.stringify(_debug_form_email_config));
-    }
 
-    if (!form_id) {
-      return res.status(400).json({ error: 'form_id is required' });
+    if (!form_id || !submission_id) {
+      return res.status(400).json({ error: 'form_id and submission_id are required' });
     }
 
     // Get the form with email settings
-    const { data: form, error: formError } = await supabase
+    const { data: form, error: formError } = await database
       .from('form')
       .select('*, tenant_id')
       .eq('id', form_id)
@@ -61,8 +56,23 @@ export default async function handler(req, res) {
       return res.status(404).json({ error: 'Form not found' });
     }
 
-    // Derive base URL for {{set_password_url}} placeholder
-    const baseUrl = getPublicBaseUrl(req);
+    // The browser body is not authoritative. Bind this send to the persisted
+    // row and use only its server-owned tenant, form, values, and linked IDs.
+    const { data: submission, error: submissionError } = await database
+      .from('form_submission')
+      .select('id, form_id, tenant_id, submission_data, created_member_id, created_organization_id, organization_id')
+      .eq('id', submission_id)
+      .eq('form_id', form.id)
+      .eq('tenant_id', form.tenant_id)
+      .single();
+    if (submissionError || !submission) {
+      console.warn('[FormSubmissionEmail] Submission does not belong to form/tenant:', submission_id);
+      return res.status(404).json({ error: 'Submission not found' });
+    }
+
+    const resolveBaseUrl = dependencies.getTrustedBaseUrlForTenant
+      || getTrustedBaseUrlForTenant;
+    const baseUrl = await resolveBaseUrl(req, database, form.tenant_id);
 
     // Task #3194: force_resend deliberately bypasses the exactly-once guard
     // (admin rerun of an already-sent submission). Only authenticated tenant
@@ -70,28 +80,29 @@ export default async function handler(req, res) {
     // membership is NOT enough.
     let forceResend = false;
     if (force_resend) {
-      const { getTenantContext, hasAdminAccess } = await import('../_lib/tenantContext.js');
-      const context = await getTenantContext(req);
-      const isAdmin = await hasAdminAccess(context);
+      const tenantContextModule = dependencies.tenantContextModule
+        || await import('../_lib/tenantContext.js');
+      const context = await tenantContextModule.getTenantContext(req);
+      const isAdmin = await tenantContextModule.hasAdminAccess(context);
       if (!isAdmin || !context.tenantId || context.tenantId !== form.tenant_id) {
         return res.status(403).json({ error: 'Resending submission emails requires tenant admin access' });
       }
       forceResend = true;
     }
 
-    const result = await sendSubmissionEmailsGuarded({
-      supabase,
+    const result = await submissionEmailSender({
+      supabase: database,
       form,
-      formValues: form_values,
-      fields,
-      submissionId: submission_id || null,
-      createdMemberId: created_member_id || null,
-      createdOrganizationId: created_organization_id || null,
+      formValues: submission.submission_data || {},
+      fields: form.fields || [],
+      submissionId: submission.id,
+      createdMemberId: submission.created_member_id || null,
+      createdOrganizationId: submission.created_organization_id
+        || submission.organization_id
+        || null,
       baseUrl,
       trigger: forceResend ? 'admin-resend' : 'client',
-      // When submission_id is missing there is nothing to claim against;
-      // preserve the legacy unguarded behaviour for such callers.
-      allowUnguarded: true,
+      allowUnguarded: false,
       forceResend,
     });
 
@@ -117,4 +128,8 @@ export default async function handler(req, res) {
     console.error('[FormSubmissionEmail] Error:', error);
     res.status(500).json({ error: 'Failed to send submission email', details: error.message });
   }
+}
+
+export default function handler(req, res) {
+  return handleSendSubmissionEmail(req, res);
 }

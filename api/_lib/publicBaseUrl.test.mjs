@@ -5,7 +5,7 @@ import { getPublicBaseUrl, getInternalApiBaseUrl, isVercelDeploymentHost, getTen
 const DEPLOY = 'vite-migrate-replit-6-l2144g4vw-isaasi.vercel.app';
 
 function withEnv(overrides, fn) {
-  const keys = ['VERCEL_URL', 'VITE_APP_URL', 'APP_URL', 'SITE_URL'];
+  const keys = ['VERCEL_URL', 'VITE_APP_URL', 'APP_URL', 'SITE_URL', 'REPLIT_DEV_DOMAIN'];
   const saved = {};
   for (const k of keys) { saved[k] = process.env[k]; delete process.env[k]; }
   Object.assign(process.env, overrides);
@@ -117,7 +117,7 @@ test('getTenantTrustedBaseUrl prefers the custom domain on production hosts', ()
   });
 });
 
-test('getTenantTrustedBaseUrl leaves custom domains and fallbacks alone', () => {
+test('getTenantTrustedBaseUrl accepts only the tenant custom domain and safe dev hosts', () => {
   withEnv({}, () => {
     const tenant = { slug: 'gfi', domain: 'graduatefutures.org' };
     // Origin on the tenant's custom domain: echoed unchanged.
@@ -125,13 +125,15 @@ test('getTenantTrustedBaseUrl leaves custom domains and fallbacks alone', () => 
       getTenantTrustedBaseUrl({ headers: { origin: 'https://graduatefutures.org' } }, tenant),
       'https://graduatefutures.org'
     );
-    // Any non-iconn host (proxy, other domain) is not second-guessed.
+    // A caller-controlled unrelated Origin is replaced with the tenant's
+    // canonical custom domain.
     assert.equal(
       getTenantTrustedBaseUrl({ headers: { origin: 'https://members.example.org' } }, tenant),
-      'https://members.example.org'
+      'https://graduatefutures.org'
     );
-    // No request → production fallback passes through untouched.
-    assert.equal(getTenantTrustedBaseUrl(null, tenant), 'https://iconn.app');
+    // No request → the resolved tenant's canonical domain, never a generic
+    // platform origin that could generate the wrong user-facing link.
+    assert.equal(getTenantTrustedBaseUrl(null, tenant), 'https://graduatefutures.org');
     // No tenant/slug → plain getPublicBaseUrl behaviour.
     assert.equal(
       getTenantTrustedBaseUrl({ headers: { origin: 'https://fgi.dev.iconn.app' } }, null),
@@ -163,6 +165,38 @@ test('getTenantTrustedBaseUrl never builds a link from a malformed stored domain
     assert.equal(
       getTenantTrustedBaseUrl(origin, { slug: 'gfi', domain: 'www.graduatefutures.org' }),
       'https://graduatefutures.org'
+    );
+  });
+});
+
+test('getTenantTrustedBaseUrl rejects an unrelated origin when no custom domain exists', () => {
+  withEnv({}, () => {
+    assert.equal(
+      getTenantTrustedBaseUrl(
+        { headers: { origin: 'https://attacker.example' } },
+        { slug: 'gfi', domain: null },
+      ),
+      'https://gfi.iconn.app',
+    );
+  });
+});
+
+test('getTenantTrustedBaseUrl accepts only the configured Replit development host', () => {
+  withEnv({ REPLIT_DEV_DOMAIN: 'trusted-workspace.replit.dev' }, () => {
+    const tenant = { slug: 'gfi', domain: 'graduatefutures.org' };
+    assert.equal(
+      getTenantTrustedBaseUrl(
+        { headers: { origin: 'https://trusted-workspace.replit.dev' } },
+        tenant,
+      ),
+      'https://trusted-workspace.replit.dev',
+    );
+    assert.equal(
+      getTenantTrustedBaseUrl(
+        { headers: { origin: 'https://attacker-controlled.replit.dev' } },
+        tenant,
+      ),
+      'https://graduatefutures.org',
     );
   });
 });

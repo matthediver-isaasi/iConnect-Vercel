@@ -121,9 +121,22 @@ export function getTenantTrustedBaseUrl(req, tenant) {
 
   const host = hostOf(base);
   if (!host.endsWith(ICONN_ROOT)) {
-    // Custom domain, localhost/replit dev, or configured/production
-    // fallback — nothing to cross-check against the slug.
-    return base;
+    const customDomain = sanitizeHostname(tenant?.domain);
+    const configuredReplitDevHost = hostOf(
+      process.env.REPLIT_DEV_DOMAIN
+        ? `https://${process.env.REPLIT_DEV_DOMAIN}`
+        : '',
+    );
+    const isLocalOrConfiguredDev = host === 'localhost'
+      || host === '127.0.0.1'
+      || (!!configuredReplitDevHost && host === configuredReplitDevHost);
+    if (isLocalOrConfiguredDev || (customDomain && host === customDomain)) {
+      return base;
+    }
+    // Origin is caller-controlled. Once the tenant is authoritative, an
+    // unrelated host must never be used for password or application links.
+    if (customDomain) return `https://${customDomain}`;
+    return `https://${slug}${ICONN_ROOT}`;
   }
 
   const labels = host.slice(0, -ICONN_ROOT.length).split('.').filter(Boolean);
@@ -170,15 +183,16 @@ export function getTenantTrustedBaseUrl(req, tenant) {
 export async function getTrustedBaseUrlForTenant(req, supabase, tenantId) {
   if (!supabase || !tenantId) return getPublicBaseUrl(req);
   try {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('tenant')
       .select('slug, domain')
       .eq('id', tenantId)
       .maybeSingle();
+    if (error || !data) return getPublicBaseUrl(null);
     return getTenantTrustedBaseUrl(req, data);
   } catch (err) {
     console.warn('[publicBaseUrl] Tenant lookup for trusted base URL failed:', err?.message);
-    return getPublicBaseUrl(req);
+    return getPublicBaseUrl(null);
   }
 }
 

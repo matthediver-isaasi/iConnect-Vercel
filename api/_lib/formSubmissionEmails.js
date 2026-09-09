@@ -18,6 +18,7 @@
 // the Form Submissions page instead of them being silent.
 
 import { sendEmail } from './emailService.js';
+import { randomUUID } from 'node:crypto';
 import { getAccountingProvider } from './accountingProvider.js';
 import { generatePasswordSetupUrl } from './passwordSetupUrl.js';
 import {
@@ -50,20 +51,26 @@ const isMissingColumnError = (err) =>
  *                                             guard only from the legacy client
  *                                             endpoint to preserve old behaviour).
  */
-export async function claimSubmissionEmailSend(supabase, submissionId, trigger) {
+export async function claimSubmissionEmailSend(supabase, submissionId, trigger, diagnostics = null) {
   if (!supabase || !submissionId) {
     return { claimed: false, guardUnavailable: true };
   }
+  const claimId = randomUUID();
   const claimState = {
     status: 'processing',
     trigger: trigger || 'unknown',
+    claim_id: claimId,
     claimed_at: new Date().toISOString(),
+    ...(diagnostics ? { request_context: diagnostics } : {}),
   };
   const { data, error } = await supabase
     .from('form_submission')
     .update({ submission_email_state: claimState })
     .eq('id', submissionId)
-    .is('submission_email_state', null)
+    // New public submissions are queued as "pending" and promoted to "ready"
+    // only after record processing completes. Null remains claimable for
+    // legacy rows and for other server-owned submission paths.
+    .or('submission_email_state.is.null,submission_email_state->>status.eq.ready')
     .select('id');
 
   if (error) {
@@ -80,7 +87,7 @@ export async function claimSubmissionEmailSend(supabase, submissionId, trigger) 
   }
 
   if (data && data.length > 0) {
-    return { claimed: true };
+    return { claimed: true, claimId };
   }
 
   // No row matched: either already claimed or the id doesn't exist.
@@ -126,9 +133,11 @@ export async function claimSubmissionEmailResend(supabase, submissionId, trigger
     ...(Array.isArray(existingState?.history) ? existingState.history : []),
     ...(prior ? [prior] : []),
   ].slice(-HISTORY_LIMIT);
+  const claimId = randomUUID();
   const claimState = {
     status: 'processing',
     trigger: trigger || 'unknown',
+    claim_id: claimId,
     resend: true,
     claimed_at: new Date().toISOString(),
     history,
@@ -146,17 +155,178 @@ export async function claimSubmissionEmailResend(supabase, submissionId, trigger
   if (!data || data.length === 0) {
     return { claimed: false, reason: 'A send is already in progress for this submission' };
   }
-  return { claimed: true, history };
+  return { claimed: true, history, claimId };
 }
 
 async function recordOutcome(supabase, submissionId, state) {
-  if (!supabase || !submissionId) return;
+  if (!supabase || !submissionId) return false;
   const { error } = await supabase
     .from('form_submission')
     .update({ submission_email_state: state })
     .eq('id', submissionId);
   if (error && !isMissingColumnError(error)) {
     console.error('[SubmissionEmails] Failed to record email outcome:', error);
+  }
+  return !error;
+}
+
+/**
+ * Promote a newly-persisted public submission after all configured record and
+ * communication processing has completed. Duplicate requests must not send
+ * while this state is still "pending".
+ */
+export async function markSubmissionEmailReady(supabase, submissionId, diagnostics = null) {
+  if (!supabase || !submissionId) return { ready: false, reason: 'No submission to mark ready' };
+  const readyState = {
+    status: 'ready',
+    trigger: 'server',
+    ready_at: new Date().toISOString(),
+    ...(diagnostics ? { request_context: diagnostics } : {}),
+  };
+  try {
+    const { data, error } = await supabase
+      .from('form_submission')
+      .update({ submission_email_state: readyState })
+      .eq('id', submissionId)
+      .eq('submission_email_state->>status', 'pending')
+      .select('id');
+    if (error) {
+      console.error('[SubmissionEmails] Failed to mark submission email ready:', error);
+      return { ready: false, reason: error.message || 'Ready-state update failed' };
+    }
+    if (data?.length > 0) return { ready: true, state: readyState };
+
+    const { data: row, error: readError } = await supabase
+      .from('form_submission')
+      .select('submission_email_state')
+      .eq('id', submissionId)
+      .maybeSingle();
+    if (readError || !row) {
+      return { ready: false, reason: readError?.message || 'Submission row not found' };
+    }
+    const existingState = row.submission_email_state || null;
+    // Legacy/null rows remain claimable, while a terminal state means another
+    // safe path already completed the email.
+    if (!existingState || ['ready', 'sent', 'skipped', 'failed'].includes(existingState.status)) {
+      return { ready: true, state: existingState };
+    }
+    return {
+      ready: false,
+      reason: existingState.status === 'processing'
+        ? 'Submission email processing is already in progress'
+        : 'Submission post-processing is not complete',
+      state: existingState,
+    };
+  } catch (error) {
+    console.error('[SubmissionEmails] Ready-state transition failed:', error);
+    return { ready: false, reason: error.message || 'Ready-state transition failed' };
+  }
+}
+
+/**
+ * Record that member/organisation actions have finished. A duplicate request
+ * may promote a pending email only after this checkpoint exists; this prevents
+ * a retry racing the original entity pipeline.
+ */
+export async function markSubmissionEmailPostProcessingComplete(
+  supabase,
+  submissionId,
+  diagnostics = null,
+) {
+  if (!supabase || !submissionId) {
+    return { completed: false, reason: 'No submission to checkpoint' };
+  }
+  try {
+    const { data: row, error: readError } = await supabase
+      .from('form_submission')
+      .select('submission_email_state')
+      .eq('id', submissionId)
+      .maybeSingle();
+    if (readError || !row) {
+      return { completed: false, reason: readError?.message || 'Submission row not found' };
+    }
+    const state = row.submission_email_state || null;
+    if (state?.status !== 'pending') {
+      return {
+        completed: ['ready', 'processing', 'sent', 'skipped', 'failed'].includes(state?.status),
+        state,
+        reason: state ? null : 'Submission email checkpoint is unavailable',
+      };
+    }
+    if (state.post_processing_completed_at) {
+      return { completed: true, state };
+    }
+    const checkpointState = {
+      ...state,
+      post_processing_completed_at: new Date().toISOString(),
+      ...(diagnostics ? { request_context: diagnostics } : {}),
+    };
+    const { data, error } = await supabase
+      .from('form_submission')
+      .update({ submission_email_state: checkpointState })
+      .eq('id', submissionId)
+      .eq('submission_email_state->>status', 'pending')
+      .select('id');
+    if (error || !data?.length) {
+      return {
+        completed: false,
+        reason: error?.message || 'Submission checkpoint update did not match',
+      };
+    }
+    return { completed: true, state: checkpointState };
+  } catch (error) {
+    console.error('[SubmissionEmails] Post-processing checkpoint failed:', error);
+    return { completed: false, reason: error.message || 'Post-processing checkpoint failed' };
+  }
+}
+
+/**
+ * Last-resort durable diagnostic for a caller-level failure around the guarded
+ * sender. The normal sender records every configured-email outcome itself, but
+ * this closes the gap when invocation fails before that internal outcome block
+ * can run (for example, a bad caller argument expression or future refactor).
+ *
+ * It never overwrites a terminal state. A processing state is completed only
+ * when it belongs to the same trigger; otherwise a null state is atomically
+ * claimed before the failure is recorded.
+ */
+export async function recordSubmissionEmailInvocationFailure({
+  supabase,
+  submissionId,
+  trigger = 'unknown',
+  reason,
+  diagnostics = null,
+}) {
+  if (!supabase || !submissionId) return false;
+  const failedState = {
+    status: 'failed',
+    trigger,
+    processed_at: new Date().toISOString(),
+    reason: reason || 'Submission email invocation failed',
+    emails: [],
+    ...(diagnostics ? { request_context: diagnostics } : {}),
+  };
+
+  try {
+    const { data: completedProcessing, error: processingError } = await supabase
+      .from('form_submission')
+      .update({ submission_email_state: failedState })
+      .eq('id', submissionId)
+      .in('submission_email_state->>status', ['processing', 'pending'])
+      .eq('submission_email_state->>trigger', trigger)
+      .select('id');
+    if (processingError && !isMissingColumnError(processingError)) {
+      console.error('[SubmissionEmails] Failed to complete invocation diagnostic:', processingError);
+    }
+    if (completedProcessing?.length > 0) return true;
+
+    const claim = await claimSubmissionEmailSend(supabase, submissionId, trigger, diagnostics);
+    if (!claim.claimed) return false;
+    await recordOutcome(supabase, submissionId, failedState);
+    return true;
+  } catch (error) {
+    console.error('[SubmissionEmails] Failed to persist invocation diagnostic:', error);
+    return false;
   }
 }
 
@@ -251,7 +421,7 @@ export async function sendSubmissionEmails({
   createdOrganizationId = null,
   baseUrl = '',
 }) {
-  const form_values = formValues || {};
+  let form_values = formValues || {};
   // The form is loaded server-side by every sender. Do not let the legacy
   // endpoint's caller-provided `fields` array redefine relationship fields.
   const authoritativeFields = flattenFormFields(form);
@@ -271,15 +441,23 @@ export async function sendSubmissionEmails({
   let persistedSubmissionData = null;
 
   if (submissionId) {
-    const { data: submission } = await supabase
+    const { data: submission, error: submissionError } = await supabase
       .from('form_submission')
       .select('created_member_id, created_organization_id, member_id, organization_id, submission_data')
       .eq('id', submissionId)
       .eq('tenant_id', tenantId)
       .eq('form_id', form.id)
       .single();
+    if (submissionError || !submission) {
+      return {
+        success: false,
+        error: 'Persisted submission could not be verified',
+        emails: [],
+      };
+    }
     if (submission) {
       persistedSubmissionData = submission.submission_data || {};
+      form_values = persistedSubmissionData;
       if (!memberIdToUse) {
         memberIdToUse = submission.created_member_id || submission.member_id;
       }
@@ -321,6 +499,7 @@ export async function sendSubmissionEmails({
         .from('member')
         .select('id, first_name, last_name, email, organization_id')
         .eq('id', memberIdToUse)
+        .eq('tenant_id', tenantId)
         .single();
       if (error) {
         console.error('[SubmissionEmails] Error fetching member:', error.message, 'code:', error.code);
@@ -343,6 +522,7 @@ export async function sendSubmissionEmails({
       .from('organization')
       .select('id, name, invoicing_email, phone')
       .eq('id', organizationIdToUse)
+      .eq('tenant_id', tenantId)
       .single();
     organizationData = data;
   }
@@ -670,6 +850,7 @@ export async function sendSubmissionEmails({
 export async function sendSubmissionEmailsGuarded(options) {
   const {
     supabase, submissionId, trigger = 'unknown', allowUnguarded = false,
+    diagnostics = null,
     // Task #3194: deliberate admin resend — bypasses the already-processed
     // skip via an atomic re-claim that preserves prior outcomes in `history`.
     // Callers MUST gate this server-side (tenant admin only).
@@ -704,8 +885,9 @@ export async function sendSubmissionEmailsGuarded(options) {
   // When set, the outcome recorded at the end carries the resend marker and
   // the preserved history of previous sends.
   let resendState = null;
+  let claimId = null;
 
-  const claim = await claimSubmissionEmailSend(supabase, submissionId, trigger);
+  const claim = await claimSubmissionEmailSend(supabase, submissionId, trigger, diagnostics);
   if (!claim.claimed) {
     if (claim.claimError) {
       // Operational DB error while claiming (NOT a missing column): the
@@ -719,6 +901,7 @@ export async function sendSubmissionEmailsGuarded(options) {
         reason: `Idempotency claim failed: ${claim.claimError}`,
         error: claim.claimError,
         emails: [],
+        durable: false,
       };
     }
     if (claim.guardUnavailable) {
@@ -727,7 +910,13 @@ export async function sendSubmissionEmailsGuarded(options) {
       // client endpoint is allowed to proceed unguarded here.
       if (!allowUnguarded) {
         console.warn('[SubmissionEmails] Guard unavailable and unguarded send not allowed — skipping (trigger:', trigger + ')');
-        return { success: true, skipped: true, reason: 'Idempotency guard unavailable', emails: [] };
+        return {
+          success: false,
+          skipped: true,
+          reason: 'Idempotency guard unavailable',
+          emails: [],
+          durable: false,
+        };
       }
       // Legacy behaviour: send without guard (pre-migration environments).
     } else if (forceResend) {
@@ -749,21 +938,37 @@ export async function sendSubmissionEmailsGuarded(options) {
       }
       console.log('[SubmissionEmails] Resend claimed for submission', submissionId, '(trigger:', trigger + ')');
       resendState = { resend: true, history: reclaim.history };
+      claimId = reclaim.claimId;
     } else {
+      const inProgress = claim.existingState?.status === 'processing'
+        || claim.existingState?.status === 'pending'
+        || claim.existingState?.status === 'ready';
       console.log('[SubmissionEmails] Submission', submissionId, 'already claimed — skipping (trigger:', trigger + ')');
       return {
-        success: true,
+        success: !inProgress,
         skipped: true,
-        alreadyProcessed: true,
-        reason: 'Emails already processed for this submission',
+        alreadyProcessed: !inProgress,
+        inProgress,
+        durable: !inProgress,
+        reason: inProgress
+          ? 'Submission email processing is still in progress'
+          : 'Emails already processed for this submission',
         state: claim.existingState || null,
         emails: claim.existingState?.emails || [],
       };
     }
+  } else {
+    claimId = claim.claimId;
   }
 
   const finishedAt = () => new Date().toISOString();
-  const baseState = { trigger, processed_at: finishedAt(), ...(resendState || {}) };
+  const baseState = {
+    trigger,
+    ...(claimId ? { claim_id: claimId } : {}),
+    processed_at: finishedAt(),
+    ...(diagnostics ? { request_context: diagnostics } : {}),
+    ...(resendState || {}),
+  };
 
   if (configured.length === 0) {
     // Task #3202: about to durably record "No emails configured" — log the
@@ -775,8 +980,8 @@ export async function sendSubmissionEmailsGuarded(options) {
       legacy_recipient: form?.submission_email_recipient || null,
     }));
     const state = { ...baseState, status: 'skipped', reason: 'No emails configured', emails: [] };
-    await recordOutcome(supabase, submissionId, state);
-    return { success: true, skipped: true, reason: 'No emails configured', emails: [] };
+    const durable = await recordOutcome(supabase, submissionId, state);
+    return { success: true, skipped: true, reason: 'No emails configured', emails: [], durable };
   }
 
   try {
@@ -790,12 +995,17 @@ export async function sendSubmissionEmailsGuarded(options) {
       reason: result.reason || (allOk && !anySent ? 'All emails skipped by conditions' : null),
       emails: result.emails || [],
     };
-    await recordOutcome(supabase, submissionId, state);
-    return result;
+    const durable = await recordOutcome(supabase, submissionId, state);
+    return { ...result, durable };
   } catch (err) {
     console.error('[SubmissionEmails] Send failed:', err);
     const state = { ...baseState, processed_at: finishedAt(), status: 'failed', reason: err.message || 'Unknown error', emails: [] };
-    await recordOutcome(supabase, submissionId, state);
-    return { success: false, error: err.message || 'Failed to send submission emails', emails: [] };
+    const durable = await recordOutcome(supabase, submissionId, state);
+    return {
+      success: false,
+      error: err.message || 'Failed to send submission emails',
+      emails: [],
+      durable,
+    };
   }
 }

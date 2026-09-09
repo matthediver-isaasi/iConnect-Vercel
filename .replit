@@ -75,7 +75,7 @@ outputType = "console"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "node --test api/_lib/*.test.mjs api/dashboard/_lib/*.test.mjs api/forms/processApplicationTenantOrder.test.mjs client/src/components/canvas/autoHeightBake.test.mjs client/src/components/canvas/useAutoHeightBake.test.mjs client/src/lib/canvasA11y.test.mjs client/src/lib/canvasTypographyResponsive.test.mjs client/src/lib/aiCompositionRender.test.mjs"
+args = "node --test api/_lib/*.test.mjs api/dashboard/_lib/*.test.mjs api/forms/processApplicationTenantOrder.test.mjs api/forms/send-submission-email.test.mjs api/public/form-submission.repeatable.test.mjs api/public/formSubmissionProcessingOrigin.test.mjs client/src/components/canvas/autoHeightBake.test.mjs client/src/components/canvas/useAutoHeightBake.test.mjs client/src/lib/canvasA11y.test.mjs client/src/lib/canvasTypographyResponsive.test.mjs client/src/lib/aiCompositionRender.test.mjs client/src/lib/formEmbedEmailPipeline.test.mjs"
 
 [[workflows.workflow]]
 name = "custom-object-crm-live"

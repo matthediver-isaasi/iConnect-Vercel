@@ -4,7 +4,12 @@ import { executeStageActions } from '../due-diligence/_stageActions.js';
 import { sendSubmitterCopyEmail } from '../forms/send-submitter-copy.js';
 import { getSessionMember } from '../_lib/session.js';
 import { getTenantContext, hasAdminAccess } from '../_lib/tenantContext.js';
-import { sendSubmissionEmailsGuarded } from '../_lib/formSubmissionEmails.js';
+import {
+  markSubmissionEmailPostProcessingComplete,
+  markSubmissionEmailReady,
+  recordSubmissionEmailInvocationFailure,
+  sendSubmissionEmailsGuarded,
+} from '../_lib/formSubmissionEmails.js';
 import { scoreSubmission, redactIdentityAnswers, anonymizeSubmissionRecord, activeVersionNumber } from '../_lib/surveyScoring.js';
 import { createHmac } from 'node:crypto';
 import { assignmentSubmissionRejection, respondentKeyInput, requiresAssignmentLink } from '../_lib/surveyAssignment.js';
@@ -34,7 +39,7 @@ import {
 import { validateRepeatableRowSubmission } from '../_lib/formRepeatableRowValidation.js';
 import { buildFormProcessingHeaders } from '../_lib/formProcessingAuth.js';
 import { buildPublicFormProcessingPayload } from '../_lib/publicFormProcessingPayload.js';
-import { getInternalApiBaseUrl } from '../_lib/publicBaseUrl.js';
+import { getInternalApiBaseUrl, getTenantTrustedBaseUrl } from '../_lib/publicBaseUrl.js';
 import { hasPersistedFormEntityActions } from '../_lib/formEntityActionMode.js';
 import { invalidRequiredAddressLookupFields } from '../_lib/idealPostcodes.js';
 
@@ -79,6 +84,13 @@ export default async function handler(req, res, dependencies = {}) {
       console.error('[Public Form Submission] Tenant not found');
       return res.status(404).json({ error: 'Tenant not found' });
     }
+    const publicBaseUrl = dependencies.publicBaseUrl
+      || getTenantTrustedBaseUrl(req, tenantData);
+    const emailRequestContext = buildSubmissionEmailRequestContext(req, source);
+    const submissionEmailSender = dependencies.sendSubmissionEmailsGuarded
+      || sendSubmissionEmailsGuarded;
+    const promoteCommunicationSnapshot = dependencies.promoteAwaitingMemberCommunicationSnapshot
+      || promoteAwaitingMemberCommunicationSnapshot;
 
     // Verify the form exists and belongs to this tenant
     // Include fields, entity_pipelines, field_mappings for post-submission processing
@@ -520,36 +532,6 @@ export default async function handler(req, res, dependencies = {}) {
       }
     }
 
-    // Enforce "one submission per email" if the form opts in. The check runs
-    // BEFORE inserting the submission row and BEFORE any pipeline / DD /
-    // contract / email side effects, so a duplicate produces no partial state.
-    // If we can't extract an email from the submission, the setting silently
-    // does not apply (documented behaviour — submissions without an email
-    // cannot be deduplicated).
-    if (form.prevent_duplicate_email_submission && canonicalSubmitterEmail) {
-      // Compare against the canonical submitted_by_email column only.
-      // .ilike() escapes nothing, but our regex above only accepts strings
-      // matching ^[^\s@]+@[^\s@]+\.[^\s@]+$ so SQL LIKE metacharacters
-      // (%, _) can never appear in canonicalSubmitterEmail.
-      const { data: candidates, error: dupErr } = await supabase
-        .from('form_submission')
-        .select('id')
-        .eq('form_id', form_id)
-        .eq('tenant_id', tenantData.id)
-        .ilike('submitted_by_email', canonicalSubmitterEmail)
-        .limit(1);
-      if (dupErr) {
-        console.error('[Public Form Submission] Duplicate-email check failed:', dupErr);
-        return res.status(500).json({ error: 'Failed to validate submission' });
-      }
-      if (candidates && candidates.length > 0) {
-        console.log('[Public Form Submission] Rejecting duplicate-email submission for form', form_id);
-        return res.status(409).json({
-          error: 'This form has already been submitted using this email address.',
-        });
-      }
-    }
-
     // --- Duplicate-submission guard (Task: prevent duplicate public submissions) ---
     // Builds the success payload for an already-existing submission row so a
     // duplicate attempt gets the ORIGINAL submission's success response
@@ -572,6 +554,95 @@ export default async function handler(req, res, dependencies = {}) {
         note.status === 'failed' || note.reason === 'already_running');
     };
 
+    const processSubmissionEmails = async ({
+      row,
+      trigger,
+      createdMemberId = null,
+      createdOrganizationId = null,
+    }) => {
+      if (surveyIsAnonymous) {
+        console.log('[Public Form Submission] Anonymous survey — submission emails skipped');
+        return { success: true, skipped: true, reason: 'Anonymous survey' };
+      }
+      try {
+        const emailSendResult = await submissionEmailSender({
+          supabase,
+          form,
+          // Duplicate/retry requests must use the persisted answers, not a
+          // later caller's body. New submissions pass the same persisted data.
+          formValues: row?.submission_data || submission_data || {},
+          fields: form.fields || [],
+          submissionId: row?.id,
+          createdMemberId: createdMemberId || row?.created_member_id || null,
+          createdOrganizationId: createdOrganizationId
+            || row?.created_organization_id
+            || row?.organization_id
+            || null,
+          baseUrl: publicBaseUrl,
+          trigger,
+          allowUnguarded: false,
+          diagnostics: emailRequestContext,
+        });
+        console.log('[Public Form Submission] Submission emails processed:', JSON.stringify({
+          success: emailSendResult.success,
+          skipped: emailSendResult.skipped || false,
+          reason: emailSendResult.reason || null,
+          emails: (emailSendResult.emails || []).length,
+          trigger,
+          request_context: emailRequestContext,
+        }));
+        return emailSendResult;
+      } catch (submissionEmailErr) {
+        const reason = submissionEmailErr?.message || 'Submission email invocation failed';
+        console.error('[Public Form Submission] Submission email send threw (non-fatal):', submissionEmailErr);
+        const durable = await recordSubmissionEmailInvocationFailure({
+          supabase,
+          submissionId: row?.id,
+          trigger,
+          reason,
+          diagnostics: emailRequestContext,
+        });
+        return { success: false, error: reason, emails: [], durable };
+      }
+    };
+
+    const finishDuplicate = async (row) => {
+      if (row?.submission_email_state?.status === 'pending') {
+        if (!row.submission_email_state.post_processing_completed_at) {
+          return res.status(503).json({
+            error: 'Your form is still being completed. Please retry.',
+            code: 'SUBMISSION_EMAIL_PENDING',
+            submission_id: row.id,
+            retryable: true,
+          });
+        }
+        const readyResult = await markSubmissionEmailReady(
+          supabase,
+          row.id,
+          emailRequestContext,
+        );
+        if (!readyResult.ready) {
+          return res.status(503).json({
+            error: 'Your form was saved, but email processing is still being completed. Please retry.',
+            code: 'SUBMISSION_EMAIL_PENDING',
+            submission_id: row.id,
+            retryable: true,
+          });
+        }
+        row.submission_email_state = readyResult.state;
+      }
+      const emailResult = await processSubmissionEmails({ row, trigger: 'server-retry' });
+      if (emailResult?.durable === false) {
+        return res.status(503).json({
+          error: 'Your form was saved, but email processing is still being completed. Please retry.',
+          code: 'SUBMISSION_EMAIL_PENDING',
+          submission_id: row.id,
+          retryable: true,
+        });
+      }
+      return originalSuccessResponse(row);
+    };
+
     const resumeDuplicateFinalization = async (row) => {
       if (hasIncompleteStructuredActions(row)) {
         return res.status(422).json({
@@ -583,7 +654,7 @@ export default async function handler(req, res, dependencies = {}) {
         });
       }
       let state = row.communication_finalization_state;
-      if (!state || state.status === 'completed') return originalSuccessResponse(row);
+      if (!state || state.status === 'completed') return finishDuplicate(row);
       if (state.status === 'awaiting_member') {
         if (!row.created_member_id) {
           return res.status(503).json({
@@ -594,7 +665,7 @@ export default async function handler(req, res, dependencies = {}) {
           });
         }
         try {
-          state = await promoteAwaitingMemberCommunicationSnapshot(supabase, row);
+          state = await promoteCommunicationSnapshot(supabase, row);
         } catch (error) {
           console.error('[Public Form Submission] Failed to promote awaiting-member snapshot:', {
             submission_id: row.id,
@@ -616,7 +687,7 @@ export default async function handler(req, res, dependencies = {}) {
           formId: form.id,
           snapshot: state,
         });
-        return originalSuccessResponse(row);
+        return finishDuplicate(row);
       } catch (error) {
         console.error('[Public Form Submission] Duplicate communication finalization replay failed:', {
           submission_id: row.id,
@@ -642,7 +713,7 @@ export default async function handler(req, res, dependencies = {}) {
     if (idemKey) {
       const { data: existing, error: idemErr } = await supabase
         .from('form_submission')
-        .select('id, created_member_id, organization_id, communication_finalization_state, processing_notes')
+        .select('id, created_member_id, created_organization_id, organization_id, submission_data, submission_email_state, communication_finalization_state, processing_notes')
         .eq('form_id', form_id)
         .eq('tenant_id', tenantData.id)
         .eq('idempotency_key', idemKey)
@@ -654,6 +725,29 @@ export default async function handler(req, res, dependencies = {}) {
       if (existing) {
         console.log('[Public Form Submission] Duplicate idempotency key — returning original submission', existing.id);
         return resumeDuplicateFinalization(existing);
+      }
+    }
+
+    // Run idempotency recovery before enforcing the form's one-per-email
+    // policy. A retry of the original request must be allowed to finish its
+    // durable email state rather than being rejected as a new duplicate.
+    if (form.prevent_duplicate_email_submission && canonicalSubmitterEmail) {
+      const { data: candidates, error: dupErr } = await supabase
+        .from('form_submission')
+        .select('id')
+        .eq('form_id', form_id)
+        .eq('tenant_id', tenantData.id)
+        .ilike('submitted_by_email', canonicalSubmitterEmail)
+        .limit(1);
+      if (dupErr) {
+        console.error('[Public Form Submission] Duplicate-email check failed:', dupErr);
+        return res.status(500).json({ error: 'Failed to validate submission' });
+      }
+      if (candidates && candidates.length > 0) {
+        console.log('[Public Form Submission] Rejecting duplicate-email submission for form', form_id);
+        return res.status(409).json({
+          error: 'This form has already been submitted using this email address.',
+        });
       }
     }
 
@@ -669,7 +763,7 @@ export default async function handler(req, res, dependencies = {}) {
         const windowStart = new Date(Date.now() - 10 * 1000).toISOString();
         let windowQuery = supabase
           .from('form_submission')
-          .select('id, created_member_id, organization_id, created_date, communication_finalization_state, processing_notes')
+          .select('id, created_member_id, created_organization_id, organization_id, submission_data, submission_email_state, created_date, communication_finalization_state, processing_notes')
           .eq('form_id', form_id)
           .eq('tenant_id', tenantData.id)
           .gte('created_date', windowStart)
@@ -698,6 +792,11 @@ export default async function handler(req, res, dependencies = {}) {
     }
 
     const hasEntityPipelines = hasPersistedFormEntityActions(form);
+    // Survey rows are inserted through a hardened RPC with an explicit column
+    // allowlist. Keep their existing null-claim path; this lifecycle guards
+    // standard public/embed submissions, which are the paths with entity
+    // pipelines and browser-backstop drift.
+    const usesSubmissionEmailLifecycle = !surveyIsAnonymous && !isSurvey;
     const hasMemberPipelines = form.entity_pipelines?.members?.length > 0;
     const pipelineCommunicationSelections = collectMemberPipelineCommunicationSelections(
       form.entity_pipelines,
@@ -778,6 +877,15 @@ export default async function handler(req, res, dependencies = {}) {
       ...(!surveyIsAnonymous && {
         communication_finalization_state: initialCommunicationSnapshot,
       }),
+      ...(usesSubmissionEmailLifecycle && {
+        submission_email_state: {
+          status: 'pending',
+          trigger: 'server',
+          queued_at: new Date().toISOString(),
+          reason: 'Waiting for submission post-processing',
+          request_context: emailRequestContext,
+        },
+      }),
       // Survey scoring (computed server-side against the published version)
       ...(isSurvey && {
         survey_version_id: surveyVersion.id,
@@ -844,7 +952,7 @@ export default async function handler(req, res, dependencies = {}) {
       console.log('[Public Form Submission] Concurrent duplicate (unique violation) — fetching original row');
       const { data: winner, error: winnerErr } = await supabase
         .from('form_submission')
-        .select('id, created_member_id, organization_id, communication_finalization_state, processing_notes')
+        .select('id, created_member_id, created_organization_id, organization_id, submission_data, submission_email_state, communication_finalization_state, processing_notes')
         .eq('form_id', form_id)
         .eq('tenant_id', tenantData.id)
         .eq('idempotency_key', idemKey)
@@ -862,6 +970,29 @@ export default async function handler(req, res, dependencies = {}) {
     }
 
     console.log('[Public Form Submission] Submission created successfully:', submission.id);
+    let emailPostProcessingCheckpointed = false;
+    const ensureEmailPostProcessingCheckpoint = async () => {
+      if (!usesSubmissionEmailLifecycle || emailPostProcessingCheckpointed) {
+        return { completed: true };
+      }
+      const result = await markSubmissionEmailPostProcessingComplete(
+        supabase,
+        submission.id,
+        emailRequestContext,
+      );
+      if (result.completed) {
+        emailPostProcessingCheckpointed = true;
+        return result;
+      }
+      await recordSubmissionEmailInvocationFailure({
+        supabase,
+        submissionId: submission.id,
+        trigger: 'server',
+        reason: `Submission post-processing checkpoint failed: ${result.reason || 'unknown error'}`,
+        diagnostics: emailRequestContext,
+      });
+      return result;
+    };
 
     // Link submission back to article_brief if brief_id context parameter is present.
     // The submitted form may be either the case-study Permission form
@@ -1051,8 +1182,8 @@ export default async function handler(req, res, dependencies = {}) {
       try {
         // Resolve only when processing is needed. Never follow request Host
         // headers because this call carries an internal authentication proof.
-        const baseUrl = dependencies.internalApiBaseUrl || getInternalApiBaseUrl(null);
-        if (!baseUrl) {
+        const internalApiBaseUrl = dependencies.internalApiBaseUrl || getInternalApiBaseUrl(null);
+        if (!internalApiBaseUrl) {
           await supabase.from('form_submission').delete().eq('id', submission.id);
           return res.status(503).json({
             error: 'Form processing service is temporarily unavailable',
@@ -1060,7 +1191,7 @@ export default async function handler(req, res, dependencies = {}) {
           });
         }
         console.log('[Public Form Submission] Processing entity pipelines for tenant:', tenantData.id);
-        const pipelineResponse = await (dependencies.fetchImpl || fetch)(`${baseUrl}/api/forms/process-application`, {
+        const pipelineResponse = await (dependencies.fetchImpl || fetch)(`${internalApiBaseUrl}/api/forms/process-application`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -1181,7 +1312,16 @@ export default async function handler(req, res, dependencies = {}) {
               }
               if (hasMemberPipelines && resolvedMemberId) {
                 try {
-                  communicationSnapshot = await promoteAwaitingMemberCommunicationSnapshot(
+                  const checkpointResult = await ensureEmailPostProcessingCheckpoint();
+                  if (!checkpointResult.completed) {
+                    return res.status(503).json({
+                      error: 'Your form was saved, but record processing could not be completed. An administrator can safely retry the email.',
+                      code: 'SUBMISSION_EMAIL_FAILED',
+                      submission_id: submission.id,
+                      retryable: false,
+                    });
+                  }
+                  communicationSnapshot = await promoteCommunicationSnapshot(
                     supabase,
                     {
                       id: submission.id,
@@ -1222,6 +1362,19 @@ export default async function handler(req, res, dependencies = {}) {
         return res.status(502).json({
           error: 'Failed to process application. Please try again.',
           code: 'PIPELINE_NETWORK_ERROR'
+        });
+      }
+    }
+
+    if (usesSubmissionEmailLifecycle) {
+      const checkpointResult = await ensureEmailPostProcessingCheckpoint();
+      if (!checkpointResult.completed) {
+        console.error('[Public Form Submission] Submission checkpoint failed:', checkpointResult.reason);
+        return res.status(503).json({
+          error: 'Your form was saved, but record processing could not be completed. An administrator can safely retry the email.',
+          code: 'SUBMISSION_EMAIL_FAILED',
+          submission_id: submission.id,
+          retryable: false,
         });
       }
     }
@@ -1268,7 +1421,11 @@ export default async function handler(req, res, dependencies = {}) {
           if (!INTERNAL_API_SECRET) {
             console.error('[Public Form Submission] INTERNAL_API_SECRET not configured, skipping PDF generation');
           } else {
-            const pdfResponse = await fetch(`${baseUrl}/api/contracts/generate-pdf`, {
+            const internalApiBaseUrl = dependencies.internalApiBaseUrl || getInternalApiBaseUrl(null);
+            if (!internalApiBaseUrl) {
+              throw new Error('Internal API base URL is unavailable');
+            }
+            const pdfResponse = await (dependencies.fetchImpl || fetch)(`${internalApiBaseUrl}/api/contracts/generate-pdf`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
@@ -1547,34 +1704,44 @@ export default async function handler(req, res, dependencies = {}) {
     // form_submission.submission_email_state, so the retained legacy client
     // call to /api/forms/send-submission-email becomes a no-op afterwards
     // (exactly-once). Failures are recorded durably on the row and NEVER
-    // block the submission success response.
+    // return a retryable response if no durable outcome can be recorded.
     // Anonymous surveys send NO configured submission emails at all: the
     // email sender resolves recipients/content from live form config and
     // raw values (field mappings), which could disclose respondent-provided
     // identity. Skipping entirely is the only safe behaviour.
-    if (surveyIsAnonymous) {
-      console.log('[Public Form Submission] Anonymous survey — submission emails skipped');
-    } else try {
-      const emailSendResult = await sendSubmissionEmailsGuarded({
-        supabase,
-        form,
-        formValues: submission_data || {},
-        fields: form.fields || [],
-        submissionId: submission.id,
-        createdMemberId: pipelineCreatedMemberId || null,
-        createdOrganizationId: pipelineCreatedOrgId || null,
-        baseUrl,
-        trigger: 'server',
-        allowUnguarded: false,
+    const readyResult = !usesSubmissionEmailLifecycle
+      ? { ready: true }
+      : await markSubmissionEmailReady(
+          supabase,
+          submission.id,
+          emailRequestContext,
+        );
+    if (!readyResult.ready) {
+      console.error('[Public Form Submission] Submission email ready-state failed:', readyResult.reason);
+      return res.status(503).json({
+        error: 'Your form was saved, but email processing could not be completed. Please retry.',
+        code: 'SUBMISSION_EMAIL_PENDING',
+        submission_id: submission.id,
+        retryable: true,
       });
-      console.log('[Public Form Submission] Submission emails processed:', JSON.stringify({
-        success: emailSendResult.success,
-        skipped: emailSendResult.skipped || false,
-        reason: emailSendResult.reason || null,
-        emails: (emailSendResult.emails || []).length,
-      }));
-    } catch (submissionEmailErr) {
-      console.error('[Public Form Submission] Submission email send threw (non-fatal):', submissionEmailErr);
+    }
+
+    const emailResult = await processSubmissionEmails({
+      row: {
+        ...submission,
+        submission_data: submission.submission_data || finalSubmissionRecord.submission_data,
+      },
+      trigger: 'server',
+      createdMemberId: pipelineCreatedMemberId,
+      createdOrganizationId: pipelineCreatedOrgId,
+    });
+    if (emailResult?.durable === false) {
+      return res.status(503).json({
+        error: 'Your form was saved, but email processing is still being completed. Please retry.',
+        code: 'SUBMISSION_EMAIL_PENDING',
+        submission_id: submission.id,
+        retryable: true,
+      });
     }
 
     // Task #944: If the form allows it AND the submitter ticked the box on
@@ -1624,4 +1791,56 @@ export default async function handler(req, res, dependencies = {}) {
     console.error('[Public Form Submission] Error:', error);
     return res.status(500).json({ error: 'Failed to process submission' });
   }
+}
+
+function firstHeader(value) {
+  if (Array.isArray(value)) return value[0] || '';
+  return value || '';
+}
+
+function safeRequestUrlParts(value) {
+  if (!value) return { host: null, path: null };
+  try {
+    const parsed = new URL(String(value), 'https://invalid.local');
+    return {
+      host: parsed.hostname === 'invalid.local' ? null : parsed.hostname.slice(0, 255),
+      // Never persist query strings: embed URLs can contain assignment or
+      // draft tokens. The pathname is sufficient to distinguish surfaces.
+      path: parsed.pathname.slice(0, 512),
+    };
+  } catch {
+    return { host: null, path: null };
+  }
+}
+
+export function buildSubmissionEmailRequestContext(req, source = null) {
+  const requestHost = firstHeader(req?.headers?.['x-forwarded-host'])
+    || firstHeader(req?.headers?.host)
+    || '';
+  const referer = safeRequestUrlParts(
+    firstHeader(req?.headers?.referer) || firstHeader(req?.headers?.referrer),
+  );
+  const suppliedSource = typeof source === 'string' ? source.trim().toLowerCase() : '';
+  const explicitSource = ['embed', 'native', 'cached-client', 'entity-api'].includes(suppliedSource)
+    ? suppliedSource
+    : '';
+  const surface = explicitSource
+    || (referer.path?.startsWith('/embed/') ? 'embed' : 'native-or-api');
+  return {
+    surface,
+    route: '/api/public/form-submission',
+    request_host: requestHost.split(',')[0].trim().slice(0, 255) || null,
+    referrer_host: referer.host,
+    referrer_route: normalizedReferrerRoute(referer.path),
+    deployment_id: String(process.env.VERCEL_DEPLOYMENT_ID || '').slice(0, 255) || null,
+    git_commit_sha: String(process.env.VERCEL_GIT_COMMIT_SHA || '').slice(0, 40) || null,
+  };
+}
+
+function normalizedReferrerRoute(path) {
+  if (!path) return null;
+  if (/^\/embed\/form\/[^/]+/i.test(path)) return '/embed/form/:form';
+  if (/^\/survey\/[^/]+/i.test(path)) return '/survey/:token';
+  if (/^\/forms?\/[^/]+/i.test(path)) return '/form/:form';
+  return 'other';
 }
