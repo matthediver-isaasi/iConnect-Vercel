@@ -51,6 +51,41 @@ import { captureCheckoutBillingAddress } from './stripeInvoiceAddress.js';
 
 export const CARD_PLAN_KIND = 'monthly_card';
 
+/** Finite Stripe Schedule duration derived only from immutable consent terms. */
+export function stripeScheduleDurationForCardSnapshot(snapshot) {
+  const instalmentCount = Number(snapshot?.instalment_count);
+  if (!Number.isInteger(instalmentCount) || instalmentCount < 1) {
+    throw new Error('card snapshot has invalid finite-plan terms');
+  }
+  return { interval: 'month', interval_count: instalmentCount };
+}
+
+function addUtcMonthsClamped(epochSeconds, months) {
+  const start = new Date(Number(epochSeconds) * 1000);
+  if (Number.isNaN(start.getTime())) throw new Error('Stripe subscription has no valid billing anchor');
+  const day = start.getUTCDate();
+  const result = new Date(start.getTime());
+  result.setUTCDate(1);
+  result.setUTCMonth(result.getUTCMonth() + months);
+  const lastDay = new Date(Date.UTC(
+    result.getUTCFullYear(),
+    result.getUTCMonth() + 1,
+    0,
+    result.getUTCHours(),
+    result.getUTCMinutes(),
+    result.getUTCSeconds(),
+  )).getUTCDate();
+  result.setUTCDate(Math.min(day, lastDay));
+  return Math.floor(result.getTime() / 1000);
+}
+
+function isFinitePlanBillingBoundary({ billingAnchor, candidate, instalmentCount }) {
+  for (let offset = 0; offset < instalmentCount; offset += 1) {
+    if (addUtcMonthsClamped(billingAnchor, offset) === candidate) return true;
+  }
+  return false;
+}
+
 /**
  * Given a membership simulation result, decide whether a monthly card
  * (Stripe subscription) option is available and what its terms are.
@@ -447,6 +482,188 @@ async function findCardPlanBySubscription(db, subscriptionId) {
     .maybeSingle();
   if (error) throw new Error(`load plan by stripe subscription failed: ${error.message}`);
   return data || null;
+}
+
+/**
+ * Establish a finite, non-prorating Stripe Schedule after Checkout creates
+ * the Subscription. The phase lasts exactly the immutable number of monthly
+ * instalments, then end_behavior=cancel prevents invoice N+1. Replays verify
+ * the schedule, and any earlier direct or scheduled boundary is preserved.
+ */
+export async function ensureStripeCardCancellationBoundary({
+  agreement,
+  session,
+  stripe,
+} = {}) {
+  const snapshot = agreement?.metadata?.card;
+  const subscriptionId = typeof session?.subscription === 'string'
+    ? session.subscription : session?.subscription?.id;
+  if (!snapshot || snapshot.kind !== CARD_PLAN_KIND) {
+    throw new Error('agreement has no card snapshot');
+  }
+  if (!subscriptionId) throw new Error('checkout session has no subscription');
+  if (!stripe?.subscriptions?.retrieve
+      || !stripe?.subscriptionSchedules?.create
+      || !stripe?.subscriptionSchedules?.retrieve
+      || !stripe?.subscriptionSchedules?.update) {
+    throw new Error('Stripe client is required to establish finite-plan boundary');
+  }
+  const duration = stripeScheduleDurationForCardSnapshot(snapshot);
+  const subscription = await stripe.subscriptions.retrieve(subscriptionId);
+  const subscriptionMetadata = subscription?.metadata || {};
+  const exactAgreementId = subscriptionMetadata.agreement_id === String(agreement.id);
+  const exactAgreementKey = agreement?.idempotency_key
+    && subscriptionMetadata.agreement_key === agreement.idempotency_key;
+  const legacyMemberIdentity = agreement?.member_id
+    && subscriptionMetadata.tenant_id === String(agreement.tenant_id)
+    && subscriptionMetadata.member_id === String(agreement.member_id)
+    && subscriptionMetadata.membership_year === String(snapshot.membership_year || '');
+  if (subscriptionMetadata.kind !== CARD_PLAN_KIND
+      || (!exactAgreementId && !exactAgreementKey && !legacyMemberIdentity)) {
+    throw new Error('Stripe subscription does not belong to this card agreement');
+  }
+  const billingAnchor = Number(
+    subscription?.billing_cycle_anchor
+    || subscription?.start_date
+    || subscription?.current_period_start,
+  );
+  const agreedEnd = addUtcMonthsClamped(billingAnchor, duration.interval_count);
+  const directCancelAt = Number(subscription?.cancel_at)
+    || (subscription?.cancel_at_period_end ? Number(subscription.current_period_end) : 0)
+    || Number(subscription?.ended_at) || null;
+  if (subscription?.status === 'canceled') {
+    return {
+      applied: false,
+      cancelAt: directCancelAt,
+      detail: 'subscription already canceled',
+    };
+  }
+  if (directCancelAt && directCancelAt <= agreedEnd) {
+    return {
+      applied: false,
+      cancelAt: directCancelAt,
+      detail: directCancelAt === agreedEnd
+        ? 'finite-plan boundary already established'
+        : 'earlier finite-plan boundary preserved',
+    };
+  }
+  if (directCancelAt) {
+    throw new Error('Stripe subscription has a later direct cancellation that cannot be safely replaced');
+  }
+
+  const items = (subscription?.items?.data || []).map((item) => ({
+    price: typeof item.price === 'string' ? item.price : item.price?.id,
+    quantity: item.quantity ?? 1,
+  }));
+  if (!items.length || items.some((item) => !item.price)) {
+    throw new Error('Stripe subscription has no schedulable recurring price');
+  }
+  const scheduleCreateOptions = {
+    idempotencyKey: `monthly-card-schedule-create:${agreement.id}`,
+  };
+  let schedule;
+  const scheduleRef = subscription?.schedule;
+  if (scheduleRef) {
+    const scheduleId = typeof scheduleRef === 'string' ? scheduleRef : scheduleRef.id;
+    schedule = await stripe.subscriptionSchedules.retrieve(scheduleId);
+  } else {
+    schedule = await stripe.subscriptionSchedules.create(
+      { from_subscription: subscriptionId },
+      scheduleCreateOptions,
+    );
+  }
+  if (!schedule?.id) throw new Error('Stripe did not return a Subscription Schedule');
+  const scheduledSubscription = typeof schedule.subscription === 'string'
+    ? schedule.subscription : schedule.subscription?.id;
+  if (scheduledSubscription && scheduledSubscription !== subscriptionId) {
+    throw new Error('Stripe Subscription Schedule belongs to another subscription');
+  }
+  const owner = schedule.metadata?.agreement_id;
+  if (owner && owner !== String(agreement.id)) {
+    throw new Error('Stripe subscription is controlled by a different schedule');
+  }
+  if (!owner && scheduleRef) {
+    const recoveryPhase = schedule.phases?.[0];
+    const recoveryItems = (recoveryPhase?.items || []).map((item) => ({
+      price: typeof item.price === 'string' ? item.price : item.price?.id,
+      quantity: item.quantity ?? 1,
+    }));
+    const isInterruptedCreate = schedule.end_behavior === 'release'
+      && (schedule.phases?.length || 0) === 1
+      && isFinitePlanBillingBoundary({
+        billingAnchor,
+        candidate: Number(recoveryPhase?.start_date),
+        instalmentCount: duration.interval_count,
+      })
+      && recoveryItems.length === items.length
+      && recoveryItems.every((item, index) => (
+        item.price === items[index].price && item.quantity === items[index].quantity
+      ));
+    if (!isInterruptedCreate) {
+      throw new Error('Stripe subscription is controlled by an unrecognized schedule');
+    }
+  }
+
+  const phase = schedule.phases?.find((candidate) => (
+    Number(candidate.start_date) === Number(schedule.current_phase?.start_date)
+  )) || schedule.phases?.[0];
+  const phaseStart = Number(
+    phase?.start_date
+    || schedule.current_phase?.start_date
+    || billingAnchor,
+  );
+  if (phaseStart >= agreedEnd) {
+    throw new Error('Stripe finite-plan deadline has already passed');
+  }
+  const desiredEnd = agreedEnd;
+  const finalPhaseEnd = Math.max(
+    ...(schedule.phases || []).map((candidate) => Number(candidate.end_date) || 0),
+  ) || null;
+  if (schedule.end_behavior === 'cancel' && finalPhaseEnd && finalPhaseEnd <= desiredEnd) {
+    return {
+      applied: false,
+      cancelAt: finalPhaseEnd,
+      scheduleId: schedule.id,
+      detail: finalPhaseEnd === desiredEnd
+        ? 'finite-plan schedule already established'
+        : 'earlier finite-plan schedule preserved',
+    };
+  }
+  const updated = await stripe.subscriptionSchedules.update(
+    schedule.id,
+    {
+      end_behavior: 'cancel',
+      metadata: {
+        kind: CARD_PLAN_KIND,
+        agreement_id: String(agreement.id),
+        instalment_count: String(duration.interval_count),
+      },
+      phases: [{
+        start_date: phaseStart,
+        end_date: desiredEnd,
+        items,
+        proration_behavior: 'none',
+      }],
+      proration_behavior: 'none',
+    },
+    {
+      idempotencyKey: `monthly-card-schedule-boundary:${agreement.id}:${duration.interval_count}`,
+    },
+  );
+  const updatedFinalEnd = Math.max(
+    ...(updated?.phases || []).map((candidate) => Number(candidate.end_date) || 0),
+  );
+  if (updated?.end_behavior !== 'cancel'
+      || updated?.metadata?.agreement_id !== String(agreement.id)
+      || updatedFinalEnd !== desiredEnd) {
+    throw new Error('Stripe did not confirm the agreed finite-plan boundary');
+  }
+  return {
+    applied: true,
+    cancelAt: updatedFinalEnd,
+    scheduleId: updated.id,
+    detail: 'finite-plan boundary established',
+  };
 }
 
 /**
@@ -1110,8 +1327,19 @@ export async function processStripeCardPlanEvent(event, deps = {}) {
       }
     }
 
+    // Checkout does not support subscription_data.cancel_at on the configured
+    // Stripe API version. Establish or verify the immutable finite-plan
+    // boundary directly on the created Subscription before any local state is
+    // considered initialized. Throws remain visible/retryable to webhook,
+    // redirect, and reconciliation callers.
+    const stripe = await getStripe();
+    const boundary = await ensureStripeCardCancellationBoundary({
+      agreement,
+      session: object,
+      stripe,
+    });
+
     if (!agreement.metadata?.card?.billing_address) {
-      const stripe = await getStripe();
       const billingAddress = await captureCheckoutBillingAddress({ stripe, session: object });
       const nextMetadata = {
         ...(agreement.metadata || {}),
@@ -1191,7 +1419,10 @@ export async function processStripeCardPlanEvent(event, deps = {}) {
     }, { db });
     const fresh = await findCardAgreementById(db, agreement.id);
     const activation = await activateMembershipForCardAgreement(fresh || agreement, { trigger: 'checkout_complete', db });
-    return { handled: true, detail: `checkout completed: ${ensured.detail}; activation: ${activation.detail}` };
+    return {
+      handled: true,
+      detail: `checkout completed: ${boundary.detail}; ${ensured.detail}; activation: ${activation.detail}`,
+    };
   }
 
   if (type === 'invoice.paid' || type === 'invoice.payment_succeeded') {

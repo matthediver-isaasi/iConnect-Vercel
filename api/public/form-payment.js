@@ -746,12 +746,6 @@ async function handleCreateMonthlyCard(req, res, supabase, tenantData) {
         membership_year: quote.membership_year || '',
       },
       subscription_data: {
-        cancel_at: (() => {
-          const d = new Date();
-          d.setUTCMonth(d.getUTCMonth() + (offer.instalmentCount - 1));
-          d.setUTCDate(d.getUTCDate() + 15);
-          return Math.floor(d.getTime() / 1000);
-        })(),
         metadata: {
           kind: CARD_PLAN_KIND,
           tenant_id: tenantData.id,

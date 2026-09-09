@@ -32,6 +32,8 @@ const {
   CARD_PLAN_KIND,
   resolveCardMonthlyOffer,
   buildCardAgreementSnapshot,
+  stripeScheduleDurationForCardSnapshot,
+  ensureStripeCardCancellationBoundary,
   graceDaysForCardAgreement,
   decideCardActivation,
   cardPlanCompletionDecision,
@@ -238,6 +240,343 @@ test('buildCardAgreementSnapshot: captures the offer immutably', () => {
   assert.equal(snap.membership_year, '2026/27');
   assert.equal(snap.membership_year_start, '2026-04-01');
   assert.equal(snap.accepted_at, '2026-08-17T00:00:00.000Z');
+});
+
+test('finite Stripe boundary is deterministic from immutable agreement terms', () => {
+  assert.deepEqual(
+    stripeScheduleDurationForCardSnapshot({ instalment_count: 3 }),
+    { interval: 'month', interval_count: 3 },
+  );
+  assert.deepEqual(
+    stripeScheduleDurationForCardSnapshot({ instalment_count: 3 }),
+    stripeScheduleDurationForCardSnapshot({ instalment_count: 3 }),
+  );
+});
+
+const scheduleAnchor = Math.floor(new Date('2026-01-10T12:00:00.000Z').getTime() / 1000);
+
+function addTestMonths(epoch, count) {
+  const d = new Date(epoch * 1000);
+  d.setUTCMonth(d.getUTCMonth() + count);
+  return Math.floor(d.getTime() / 1000);
+}
+
+function finiteScheduleStripe({
+  instalmentCount = 3,
+  subscriptionId = 'sub_1',
+  agreementId = 'agreement-1',
+  scheduleStart = scheduleAnchor,
+  directCancelAt = null,
+  existingSchedule = null,
+  updateFails: initiallyUpdateFails = false,
+  returnedEndOffset = 0,
+} = {}) {
+  const calls = { create: [], retrieve: [], update: [] };
+  let schedule = existingSchedule;
+  let updateFails = initiallyUpdateFails;
+  let createdSchedule = null;
+  const subscription = {
+    id: subscriptionId,
+    status: 'active',
+    cancel_at: directCancelAt,
+    metadata: { kind: CARD_PLAN_KIND, agreement_id: agreementId },
+    billing_cycle_anchor: scheduleAnchor,
+    current_period_start: scheduleAnchor,
+    current_period_end: addTestMonths(scheduleAnchor, 1),
+    items: {
+      data: [{ id: 'si_1', price: { id: 'price_monthly' }, quantity: 1 }],
+    },
+  };
+  return {
+    calls,
+    subscriptions: {
+      async retrieve() {
+        return { ...subscription, schedule: schedule?.id || null };
+      },
+    },
+    subscriptionSchedules: {
+      async create(payload, options) {
+        calls.create.push({ payload, options });
+        if (createdSchedule && options?.idempotencyKey === calls.create[0].options?.idempotencyKey) {
+          return createdSchedule;
+        }
+        if (schedule) throw new Error('subscription already attached to another schedule');
+        schedule = {
+          id: 'sub_sched_1',
+          subscription: subscriptionId,
+          end_behavior: 'release',
+          metadata: {},
+          current_phase: {
+            start_date: scheduleStart,
+            end_date: addTestMonths(scheduleAnchor, 100),
+          },
+          phases: [{
+            start_date: scheduleStart,
+            end_date: addTestMonths(scheduleAnchor, 100),
+            items: [{ price: { id: 'price_monthly' }, quantity: 1 }],
+          }],
+        };
+        createdSchedule = schedule;
+        return schedule;
+      },
+      async retrieve(id) {
+        calls.retrieve.push(id);
+        return schedule;
+      },
+      async update(id, payload, options) {
+        calls.update.push({ id, payload, options });
+        if (updateFails) throw new Error('Stripe schedule update unavailable');
+        schedule = {
+          id,
+          subscription: subscriptionId,
+          end_behavior: payload.end_behavior,
+          metadata: payload.metadata,
+          current_phase: {
+            start_date: payload.phases[0].start_date,
+            end_date: payload.phases[0].end_date + returnedEndOffset,
+          },
+          phases: [{
+            start_date: payload.phases[0].start_date,
+            end_date: payload.phases[0].end_date + returnedEndOffset,
+            items: payload.phases[0].items,
+          }],
+        };
+        return schedule;
+      },
+    },
+    setUpdateFails(value) {
+      updateFails = value;
+    },
+  };
+}
+
+test('finite Stripe schedule is applied once and replay only verifies it', async () => {
+  const snapshot = { kind: CARD_PLAN_KIND, instalment_count: 3 };
+  const stripe = finiteScheduleStripe();
+  const args = {
+    agreement: { id: 'agreement-1', metadata: { card: snapshot } },
+    session: { subscription: 'sub_1' },
+    stripe,
+  };
+  const first = await ensureStripeCardCancellationBoundary(args);
+  const replay = await ensureStripeCardCancellationBoundary(args);
+  assert.equal(first.applied, true);
+  assert.equal(replay.applied, false);
+  assert.equal(stripe.calls.create.length, 1);
+  assert.equal(stripe.calls.update.length, 1);
+  assert.equal(
+    stripe.calls.create[0].options.idempotencyKey,
+    'monthly-card-schedule-create:agreement-1',
+  );
+  assert.equal(
+    stripe.calls.update[0].options.idempotencyKey,
+    'monthly-card-schedule-boundary:agreement-1:3',
+  );
+});
+
+for (const instalmentCount of [1, 3]) {
+  test(`finite Stripe schedule preserves ${instalmentCount} full-price monthly instalment(s) without proration`, async () => {
+    const stripe = finiteScheduleStripe({
+      instalmentCount,
+      agreementId: `agreement-${instalmentCount}`,
+    });
+    await ensureStripeCardCancellationBoundary({
+      agreement: {
+        id: `agreement-${instalmentCount}`,
+        metadata: { card: { kind: CARD_PLAN_KIND, instalment_count: instalmentCount } },
+      },
+      session: { subscription: 'sub_1' },
+      stripe,
+    });
+    const payload = stripe.calls.update[0].payload;
+    assert.equal(payload.end_behavior, 'cancel');
+    assert.equal(payload.proration_behavior, 'none');
+    assert.deepEqual(payload.phases, [{
+      start_date: scheduleAnchor,
+      end_date: addTestMonths(scheduleAnchor, instalmentCount),
+      items: [{ price: 'price_monthly', quantity: 1 }],
+      proration_behavior: 'none',
+    }]);
+  });
+}
+
+test('finite Stripe boundary never extends an existing earlier direct cancellation', async () => {
+  const earlier = addTestMonths(scheduleAnchor, 1);
+  const stripe = finiteScheduleStripe({ directCancelAt: earlier });
+  const result = await ensureStripeCardCancellationBoundary({
+    agreement: {
+      id: 'agreement-1',
+      metadata: {
+        card: {
+          kind: CARD_PLAN_KIND,
+          instalment_count: 3,
+        },
+      },
+    },
+    session: { subscription: 'sub_1' },
+    stripe,
+  });
+  assert.equal(result.applied, false);
+  assert.equal(result.cancelAt, earlier);
+  assert.equal(stripe.calls.create.length, 0);
+  assert.equal(stripe.calls.update.length, 0);
+});
+
+test('finite Stripe boundary failure remains retryable by rejecting completion work', async () => {
+  const stripe = finiteScheduleStripe({ updateFails: true });
+  await assert.rejects(
+    ensureStripeCardCancellationBoundary({
+      agreement: {
+        id: 'agreement-1',
+        metadata: {
+          card: {
+            kind: CARD_PLAN_KIND,
+            instalment_count: 3,
+          },
+        },
+      },
+      session: { subscription: 'sub_1' },
+      stripe,
+    }),
+    /Stripe schedule update unavailable/,
+  );
+  assert.equal(stripe.calls.create.length, 1);
+  assert.equal(stripe.calls.update.length, 1);
+});
+
+test('finite Stripe schedule repairs create-success/update-failure without create-idempotency replay', async () => {
+  const stripe = finiteScheduleStripe({
+    agreementId: 'agreement-recovery',
+    updateFails: true,
+  });
+  const args = {
+    agreement: {
+      id: 'agreement-recovery',
+      metadata: { card: { kind: CARD_PLAN_KIND, instalment_count: 3 } },
+    },
+    session: { subscription: 'sub_1' },
+    stripe,
+  };
+  await assert.rejects(ensureStripeCardCancellationBoundary(args), /schedule update unavailable/);
+  stripe.setUpdateFails(false);
+  const recovered = await ensureStripeCardCancellationBoundary(args);
+  assert.equal(recovered.applied, true);
+  assert.equal(stripe.calls.create.length, 1);
+  assert.equal(stripe.calls.update.length, 2);
+});
+
+test('delayed schedule creation still repairs an interrupted update without extending the deadline', async () => {
+  const shiftedStart = addTestMonths(scheduleAnchor, 1);
+  const stripe = finiteScheduleStripe({
+    agreementId: 'agreement-delayed-recovery',
+    scheduleStart: shiftedStart,
+    updateFails: true,
+  });
+  const args = {
+    agreement: {
+      id: 'agreement-delayed-recovery',
+      metadata: { card: { kind: CARD_PLAN_KIND, instalment_count: 3 } },
+    },
+    session: { subscription: 'sub_1' },
+    stripe,
+  };
+  await assert.rejects(ensureStripeCardCancellationBoundary(args), /schedule update unavailable/);
+  stripe.setUpdateFails(false);
+  const recovered = await ensureStripeCardCancellationBoundary(args);
+  assert.equal(recovered.applied, true);
+  assert.equal(stripe.calls.create.length, 1);
+  assert.equal(stripe.calls.update.length, 2);
+  assert.equal(
+    stripe.calls.update[1].payload.phases[0].end_date,
+    addTestMonths(scheduleAnchor, 3),
+  );
+  assert.notEqual(
+    stripe.calls.update[1].payload.phases[0].end_date,
+    addTestMonths(shiftedStart, 3),
+  );
+});
+
+test('finite Stripe schedule fails closed on a foreign multi-phase schedule', async () => {
+  const stripe = finiteScheduleStripe({
+    existingSchedule: {
+      id: 'sub_sched_foreign',
+      subscription: 'sub_1',
+      end_behavior: 'cancel',
+      metadata: { agreement_id: 'another-agreement' },
+      current_phase: { start_date: scheduleAnchor, end_date: addTestMonths(scheduleAnchor, 1) },
+      phases: [
+        { start_date: scheduleAnchor, end_date: addTestMonths(scheduleAnchor, 1) },
+        {
+          start_date: addTestMonths(scheduleAnchor, 1),
+          end_date: addTestMonths(scheduleAnchor, 24),
+        },
+      ],
+    },
+  });
+  await assert.rejects(
+    ensureStripeCardCancellationBoundary({
+      agreement: {
+        id: 'agreement-1',
+        metadata: { card: { kind: CARD_PLAN_KIND, instalment_count: 3 } },
+      },
+      session: { subscription: 'sub_1' },
+      stripe,
+    }),
+    /already attached|different schedule/,
+  );
+  assert.equal(stripe.calls.update.length, 0);
+});
+
+test('finite Stripe schedule rejects an inexact earlier end returned by our update', async () => {
+  const stripe = finiteScheduleStripe({ returnedEndOffset: -3600 });
+  await assert.rejects(
+    ensureStripeCardCancellationBoundary({
+      agreement: {
+        id: 'agreement-1',
+        metadata: { card: { kind: CARD_PLAN_KIND, instalment_count: 3 } },
+      },
+      session: { subscription: 'sub_1' },
+      stripe,
+    }),
+    /did not confirm/,
+  );
+});
+
+test('delayed finite Stripe schedule remains anchored to original subscription billing periods', async () => {
+  const shiftedStart = addTestMonths(scheduleAnchor, 1);
+  const stripe = finiteScheduleStripe({
+    existingSchedule: {
+      id: 'sub_sched_owned_delayed',
+      subscription: 'sub_1',
+      end_behavior: 'release',
+      metadata: { agreement_id: 'agreement-1' },
+      current_phase: {
+        start_date: shiftedStart,
+        end_date: addTestMonths(scheduleAnchor, 100),
+      },
+      phases: [{
+        start_date: shiftedStart,
+        end_date: addTestMonths(scheduleAnchor, 100),
+        items: [{ price: { id: 'price_monthly' }, quantity: 1 }],
+      }],
+    },
+  });
+  await ensureStripeCardCancellationBoundary({
+    agreement: {
+      id: 'agreement-1',
+      metadata: { card: { kind: CARD_PLAN_KIND, instalment_count: 3 } },
+    },
+    session: { subscription: 'sub_1' },
+    stripe,
+  });
+  assert.equal(
+    stripe.calls.update[0].payload.phases[0].end_date,
+    addTestMonths(scheduleAnchor, 3),
+  );
+  assert.notEqual(
+    stripe.calls.update[0].payload.phases[0].end_date,
+    addTestMonths(shiftedStart, 3),
+  );
 });
 
 test('graceDaysForCardAgreement: snapshot wins, defaults to 7, clamps to 90', () => {
@@ -955,11 +1294,52 @@ function conflictStripeStub({
   invoice = null,
 } = {}) {
   const calls = { subRetrieve: [], subCancel: [], invRetrieve: [], refundCreate: [] };
+  let schedule = null;
   return {
     calls,
     subscriptions: {
-      async retrieve(id) { calls.subRetrieve.push(id); return { id, status: subscriptionStatus, latest_invoice: invoice?.id || null }; },
+      async retrieve(id) {
+        calls.subRetrieve.push(id);
+        return {
+          id,
+          status: subscriptionStatus,
+          latest_invoice: invoice?.id || null,
+          cancel_at: null,
+          billing_cycle_anchor: scheduleAnchor,
+          current_period_start: scheduleAnchor,
+          current_period_end: addTestMonths(scheduleAnchor, 1),
+          schedule: schedule?.id || null,
+          metadata: { kind: CARD_PLAN_KIND, agreement_id: 'a1' },
+          items: { data: [{ price: { id: 'price_monthly' }, quantity: 1 }] },
+        };
+      },
       async cancel(id, opts) { calls.subCancel.push({ id, opts }); return { id, status: 'canceled' }; },
+    },
+    subscriptionSchedules: {
+      async create() {
+        schedule = {
+          id: 'sub_sched_conflict',
+          end_behavior: 'release',
+          metadata: {},
+          current_phase: { start: scheduleAnchor },
+          phases: [{ start_date: scheduleAnchor, end_date: addTestMonths(scheduleAnchor, 100) }],
+        };
+        return schedule;
+      },
+      async retrieve() { return schedule; },
+      async update(id, payload) {
+        schedule = {
+          id,
+          end_behavior: payload.end_behavior,
+          metadata: payload.metadata,
+          current_phase: { start: scheduleAnchor },
+          phases: [{
+            start_date: scheduleAnchor,
+            end_date: addTestMonths(scheduleAnchor, Number(payload.metadata.instalment_count)),
+          }],
+        };
+        return schedule;
+      },
     },
     invoices: {
       async retrieve(id) { calls.invRetrieve.push(id); return invoice; },
@@ -975,7 +1355,14 @@ const conflictAgreement = {
   tenant_id: 't1',
   provider: 'stripe',
   status: 'first_payment_pending',
-  metadata: { card: { kind: CARD_PLAN_KIND }, form_submission_id: 'fs1' },
+  metadata: {
+    card: {
+      kind: CARD_PLAN_KIND,
+      accepted_at: '2026-01-10T12:00:00.000Z',
+      instalment_count: 12,
+    },
+    form_submission_id: 'fs1',
+  },
 };
 const conflictSession = {
   id: 'cs1',
@@ -1167,6 +1554,51 @@ test('processStripeCardPlanEvent: form-checkout membership conflict resolves via
     'a conflicting form checkout must never create a local plan');
 });
 
+test('checkout boundary failure performs zero local initialization writes and remains retryable', async () => {
+  const agreement = {
+    id: 'a-boundary',
+    tenant_id: 't1',
+    provider: 'stripe',
+    status: 'payment_setup_required',
+    metadata: {
+      card: {
+        kind: CARD_PLAN_KIND,
+        accepted_at: '2026-01-10T12:00:00.000Z',
+        instalment_count: 12,
+        billing_address: { country: 'GB' },
+      },
+    },
+  };
+  const db = captureDb({
+    membership_billing_agreements: { data: agreement, error: null },
+  });
+  const event = {
+    id: 'evt_boundary_failure',
+    type: 'checkout.session.completed',
+    data: {
+      object: {
+        id: 'cs_boundary_failure',
+        mode: 'subscription',
+        subscription: 'sub_boundary_failure',
+        metadata: { kind: CARD_PLAN_KIND, agreement_id: agreement.id },
+      },
+    },
+  };
+  const stripe = finiteScheduleStripe({
+    instalmentCount: 12,
+    subscriptionId: 'sub_boundary_failure',
+    agreementId: 'a-boundary',
+    updateFails: true,
+  });
+
+  await assert.rejects(
+    processStripeCardPlanEvent(event, { db, getStripe: async () => stripe }),
+    /Stripe schedule update unavailable/,
+  );
+  assert.deepEqual(db.updates, []);
+  assert.deepEqual(db.inserts, []);
+});
+
 // ---------------------------------------------------------------------------
 // Reconcile cron wiring (api/cron/reconcile-stripe-card-plans.js)
 //
@@ -1198,6 +1630,43 @@ const formPaymentSource = readFileSync(
   resolve(dirname(fileURLToPath(import.meta.url)), '../public/form-payment.js'),
   'utf8',
 );
+const memberMonthlyCardSource = readFileSync(
+  resolve(dirname(fileURLToPath(import.meta.url)), '../membership/monthly-card.js'),
+  'utf8',
+);
+
+test('both monthly-card Checkout entry points omit unsupported subscription_data.cancel_at', () => {
+  const formCreate = formPaymentSource.slice(
+    formPaymentSource.indexOf('async function handleCreateMonthlyCard'),
+    formPaymentSource.indexOf('async function handleCreate('),
+  );
+  const memberCreate = memberMonthlyCardSource.slice(
+    memberMonthlyCardSource.indexOf("if (req.method === 'POST')"),
+  );
+  assert.match(formCreate, /subscription_data:\s*\{\s*metadata:/);
+  assert.match(memberCreate, /subscription_data:\s*\{\s*metadata:/);
+  assert.doesNotMatch(formCreate, /subscription_data:\s*\{[\s\S]*?cancel_at/);
+  assert.doesNotMatch(memberCreate, /subscription_data:\s*\{[\s\S]*?cancel_at/);
+});
+
+test('checkout completion establishes the Stripe boundary before local finalization', () => {
+  const librarySource = readFileSync(
+    resolve(dirname(fileURLToPath(import.meta.url)), './stripeMonthlyCard.js'),
+    'utf8',
+  );
+  const checkoutBlock = librarySource.slice(
+    librarySource.indexOf("if (type === 'checkout.session.completed')"),
+    librarySource.indexOf("if (type === 'invoice.paid'"),
+  );
+  const boundaryIdx = checkoutBlock.indexOf('ensureStripeCardCancellationBoundary(');
+  const formFinalizeIdx = checkoutBlock.indexOf('finalizeFormMonthlyCardCheckout(');
+  const planCreateIdx = checkoutBlock.indexOf('ensureCardPlanForCheckout(');
+  const activationIdx = checkoutBlock.indexOf('applyStatusTransition(');
+  assert.ok(boundaryIdx >= 0, 'completion applies the finite Stripe boundary');
+  assert.ok(boundaryIdx < formFinalizeIdx, 'boundary precedes form finalization');
+  assert.ok(boundaryIdx < planCreateIdx, 'boundary precedes plan creation');
+  assert.ok(boundaryIdx < activationIdx, 'boundary precedes agreement activation');
+});
 // Just the RPC body, so assertions cannot accidentally match unrelated SQL.
 const releaseRpcSql = migrationSource.slice(
   migrationSource.indexOf('CREATE OR REPLACE FUNCTION release_expired_form_monthly_card_checkout'),

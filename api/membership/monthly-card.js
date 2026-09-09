@@ -277,22 +277,12 @@ async function handlePost(req, res, resolvedTenantId) {
         membership_year: yearLabel || '',
       },
       subscription_data: {
-        // Stripe-side finite-billing boundary: even if our post-completion
-        // cancel call fails, Stripe stops the subscription itself before an
-        // (instalmentCount+1)-th invoice could be raised. First invoice is at
-        // checkout, the Nth at start + (N-1) months; cancel_at sits 15 days
-        // after that and safely before start + N months.
-        cancel_at: (() => {
-          const d = new Date();
-          d.setUTCMonth(d.getUTCMonth() + (offer.instalmentCount - 1));
-          d.setUTCDate(d.getUTCDate() + 15);
-          return Math.floor(d.getTime() / 1000);
-        })(),
         metadata: {
           kind: CARD_PLAN_KIND,
           tenant_id: tenantId,
           member_id: member.id,
           membership_year: yearLabel || '',
+          agreement_key: idempotencyKey,
         },
       },
       success_url: `${origin}/membership/monthly-card/complete?member_id=${member.id}&card=success`,
