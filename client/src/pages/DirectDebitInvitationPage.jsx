@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Loader2, CheckCircle2, XCircle, Landmark, Building2 } from "lucide-react";
 import GoCardlessDropinFlow from "@/components/gocardless/GoCardlessDropinFlow";
+import { directDebitFirstCollectionText } from "@/lib/directDebitConsentSummary";
 
 const CURRENCY_SYMBOLS = { GBP: '\u00a3', USD: '$', EUR: '\u20ac', AUD: 'A$', NZD: 'NZ$' };
 
@@ -196,6 +197,10 @@ export default function DirectDebitInvitationPage() {
                   <div className="flex justify-between flex-wrap gap-1">
                     <span className="text-muted-foreground">Total</span>
                     <span className="font-medium" data-testid="text-dd-total">{formatCurrency(data.planTotal, data.currency)}</span>
+                  </div>
+                  <div className="flex justify-between flex-wrap gap-1">
+                    <span className="text-muted-foreground">First collection</span>
+                    <span className="text-right" data-testid="text-dd-first-collection">{directDebitFirstCollectionText(data)}</span>
                   </div>
                 </div>
               </div>

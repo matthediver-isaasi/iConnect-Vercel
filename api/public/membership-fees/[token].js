@@ -295,7 +295,7 @@ export default async function handler(req, res) {
           const creds = await getGocardlessCredentials(feeToken.tenant_id);
           if (creds?.accessToken && tierConfig?.dd_enabled) {
             const { simulateMembershipForMember } = await import('../../_lib/membershipSimulation.js');
-            const { resolveDdOffer } = await import('../../_lib/gocardlessDirectDebit.js');
+            const { resolveDdOffer, publicDdConsentTerms } = await import('../../_lib/gocardlessDirectDebit.js');
             const ddSim = await simulateMembershipForMember(feeToken.tenant_id, feeToken.member_id, {
               source: 'token-dd',
               mode: 'manual',
@@ -304,12 +304,14 @@ export default async function handler(req, res) {
             const offer = resolveDdOffer(ddSim);
             if (offer) {
               ddEnabled = true;
-              ddOffer = {
+              ddOffer = publicDdConsentTerms({
                 monthlyAmount: offer.monthlyAmount,
                 instalmentCount: offer.instalmentCount,
                 planTotal: offer.planTotal,
                 currency: offer.currency,
-              };
+                firstCollectionRule: offer.firstCollectionRule,
+                collectionDay: offer.collectionDay,
+              });
             }
           }
           const { data: agreements } = await supabase
@@ -1339,7 +1341,8 @@ export default async function handler(req, res) {
         const snapshot = buildAgreementSnapshot({
           offer,
           simResult,
-          includeBillingRequestPayment: !reusable,
+          includeBillingRequestPayment: false,
+          billingRequestMode: reusable ? 'reused_mandate' : 'mandate_only',
         });
 
         const agreementInsert = {

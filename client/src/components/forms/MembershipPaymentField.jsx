@@ -5,6 +5,7 @@ import { Separator } from "@/components/ui/separator";
 import { Loader2, CheckCircle2, CreditCard, AlertCircle, Info, Landmark } from "lucide-react";
 import DirectDebitPlanCard from "@/components/membership/DirectDebitPlanCard";
 import GoCardlessDropinFlow from "@/components/gocardless/GoCardlessDropinFlow";
+import { directDebitFirstCollectionText } from "@/lib/directDebitConsentSummary";
 
 const CURRENCY_SYMBOLS = { GBP: '\u00a3', USD: '$', EUR: '\u20ac', AUD: 'A$', NZD: 'NZ$' };
 const STRIPE_MINIMUMS = { GBP: 0.30, USD: 0.50, EUR: 0.50, AUD: 0.50, NZD: 0.50 };
@@ -654,20 +655,13 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
           const ddCurrency = dd?.currency || data.currency;
           const firstCollectionText = (() => {
             if (!dd) return null;
-             const amount = formatCurrency(dd.monthlyAmount, ddCurrency);
-             const remaining = Math.max(0, Number(dd.instalmentCount || 0) - 1);
-             const newSetup = `If a new bank setup is needed, your first instalment of ${amount} is paid immediately as a secure bank payment when you authorise`;
-             const reusable = `If an existing Direct Debit can be reused, all ${dd.instalmentCount} instalments will instead be collected by monthly Direct Debit`;
-             if (remaining === 0) return `${newSetup}, with no further collections. ${reusable}.`;
-            if (dd.firstCollectionRule === 'nominated_day' && dd.collectionDay) {
-              const day = dd.collectionDay;
-              const suffix = day % 10 === 1 && day !== 11 ? 'st' : day % 10 === 2 && day !== 12 ? 'nd' : day % 10 === 3 && day !== 13 ? 'rd' : 'th';
-               return `${newSetup}; the remaining ${remaining} monthly Direct Debit ${remaining === 1 ? 'collection' : 'collections'} of ${amount} will start on the next applicable ${day}${suffix} of the month. ${reusable} under that schedule.`;
-            }
-            if (dd.firstCollectionRule === 'anniversary') {
-               return `${newSetup}; the remaining ${remaining} monthly Direct Debit ${remaining === 1 ? 'collection' : 'collections'} of ${amount} will start from your next applicable membership anniversary. ${reusable} under that schedule.`;
-            }
-             return `${newSetup}; the remaining ${remaining} monthly Direct Debit ${remaining === 1 ? 'collection' : 'collections'} will each be ${amount}. ${reusable}.`;
+            const amount = formatCurrency(dd.monthlyAmount, ddCurrency);
+            const count = Number(dd.instalmentCount || 0);
+            const schedule = `${count} monthly Direct Debit ${count === 1 ? 'collection' : 'collections'} of ${amount}`;
+            const setup = `This page confirms your finite schedule of ${schedule}. If a new bank setup is needed, GoCardless will securely set up the Direct Debit mandate before any collection is requested`;
+            const reusable = `If an existing Direct Debit can be reused, the same schedule will be applied without asking you to set up your bank details again`;
+            const firstCollection = directDebitFirstCollectionText(dd);
+            return `${setup}. First collection: ${firstCollection.toLowerCase()}. ${reusable}.`;
           })();
           return (
             <div className="space-y-3">

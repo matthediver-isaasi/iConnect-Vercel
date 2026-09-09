@@ -304,7 +304,8 @@ async function handleStart(req, res, resolvedTenantId) {
     ...buildAgreementSnapshot({
       offer,
       simResult,
-      includeBillingRequestPayment: !reusable,
+      includeBillingRequestPayment: false,
+      billingRequestMode: reusable ? 'reused_mandate' : 'mandate_only',
     }),
     organization_name: org.name,
     field_value: simResult.fieldValue ?? null,

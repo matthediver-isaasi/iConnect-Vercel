@@ -101,7 +101,7 @@ async function processActiveMonthlyAgreement({ agreement, eventId, action, db, g
     eventId,
   }, { db });
 
-  const subResult = await ensureSubscriptionForAgreement(agreement, { db, gc });
+  const subResult = await ensureSubscriptionForAgreement(agreement, { db, gc, now: deps.now });
   const actResult = await activateMembershipForAgreement(agreement, { trigger: 'mandate_active', db });
   const initialPaymentId = agreement.metadata?.gocardless_initial_payment?.id || null;
   const initialPaymentFinalized = agreement.metadata?.gocardless_initial_payment?.finalized_at || null;
@@ -325,6 +325,7 @@ async function processBillingRequestEvent({ event, action, links, db, gc, deps =
         gocardless_customer_id: customerId || null,
         gocardless_mandate_id: mandateId,
         status: mandate?.status || 'pending_submission',
+        next_possible_charge_date: mandate?.next_possible_charge_date || null,
         environment: gc.getGocardlessEnvironment ? gc.getGocardlessEnvironment() : 'sandbox',
         updated_at: new Date().toISOString(),
       }, 'gocardless_mandate_id');
@@ -524,6 +525,23 @@ async function processMandateEvent({ event, action, links, db, gc, deps = {} }) 
 
   if (action === 'active' || action === 'reinstated') {
     if (agreement) {
+      if (agreement.metadata?.dd?.kind === 'monthly_direct_debit'
+        && agreement.metadata.dd.billing_request_payment?.included !== true) {
+        const authoritativeMandate = await gc.getMandate(mandateId);
+        const { error: refreshMandateError } = await db
+          .from('gocardless_mandates')
+          .update({
+            status: ['active', 'reinstated'].includes(authoritativeMandate?.status)
+              ? 'active'
+              : mappedStatus,
+            next_possible_charge_date: authoritativeMandate?.next_possible_charge_date || null,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('gocardless_mandate_id', mandateId);
+        if (refreshMandateError) {
+          throw new Error(`refresh active mandate failed: ${refreshMandateError.message}`);
+        }
+      }
       let result;
       let subResult = null;
       let actResult = null;

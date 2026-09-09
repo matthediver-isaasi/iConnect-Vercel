@@ -12,6 +12,7 @@ import {
   buildMonthlyBillingRequest,
   monthlyBillingRequestFingerprint,
   remainingSubscriptionInstalments,
+  publicDdConsentTerms,
   decideMembershipActivation,
   ensureSubscriptionForAgreement,
 } from './gocardlessDirectDebit.js';
@@ -165,30 +166,32 @@ test('buildAgreementSnapshot: requires an offer', () => {
   assert.throws(() => buildAgreementSnapshot({ offer: null, simResult: flatSim() }));
 });
 
-test('monthly billing request uses the first flat-price instalment, never annual or prorated totals', () => {
+test('new monthly Bacs billing request is mandate-only and retains the full immutable schedule', () => {
   const sim = flatSim({ annualCost: 240, finalCost: 83.25 });
   const offer = resolveDdOffer(sim);
   const snapshot = buildAgreementSnapshot({
     offer,
     simResult: sim,
     acceptedAt: '2026-07-10T12:00:00.000Z',
-    includeBillingRequestPayment: true,
+    includeBillingRequestPayment: false,
+    billingRequestMode: 'mandate_only',
   });
   const request = buildMonthlyBillingRequest({
     snapshot,
     metadata: { kind: 'monthly_direct_debit' },
   });
 
-  assert.equal(request.paymentAmountMinor, 1000);
-  assert.notEqual(request.paymentAmountMinor, 24000);
-  assert.notEqual(request.paymentAmountMinor, 8325);
-  assert.equal(snapshot.billing_request_payment.remaining_instalments, 11);
-  assert.match(request.paymentDescription, /first instalment of GBP 10\.00 paid now/i);
-  assert.match(request.paymentDescription, /11 further monthly Direct Debit collections of GBP 10\.00/i);
+  assert.equal(request.paymentAmountMinor, undefined);
+  assert.equal(request.paymentDescription, undefined);
+  assert.equal(snapshot.billing_request_payment, undefined);
+  assert.equal(snapshot.monthly_amount_minor, 1000);
+  assert.equal(snapshot.instalment_count, 12);
+  assert.equal(snapshot.billing_request_mode, 'mandate_only');
+  assert.equal(remainingSubscriptionInstalments(snapshot), 12);
   assert.deepEqual(request.metadata, { kind: 'monthly_direct_debit' });
 });
 
-test('monthly billing request uses snapshotted band amount despite a prorated annual total', () => {
+test('mandate-only request retains the snapshotted band amount despite a prorated annual total', () => {
   const sim = flatSim(
     {
       annualCost: 180,
@@ -201,22 +204,53 @@ test('monthly billing request uses snapshotted band amount despite a prorated an
   const snapshot = buildAgreementSnapshot({
     offer,
     simResult: sim,
-    includeBillingRequestPayment: true,
+    includeBillingRequestPayment: false,
+    billingRequestMode: 'mandate_only',
   });
-  assert.equal(buildMonthlyBillingRequest({ snapshot }).paymentAmountMinor, 750);
-  assert.equal(remainingSubscriptionInstalments(snapshot), 11);
+  assert.equal(buildMonthlyBillingRequest({ snapshot }).paymentAmountMinor, undefined);
+  assert.equal(snapshot.monthly_amount_minor, 750);
+  assert.equal(remainingSubscriptionInstalments(snapshot), 12);
 });
 
-test('reusable-mandate snapshots retain all instalments for the downstream subscription', () => {
+test('legacy first-payment snapshots retain their original one-off contract', () => {
   const sim = flatSim();
   const snapshot = buildAgreementSnapshot({
     offer: resolveDdOffer(sim),
     simResult: sim,
-    includeBillingRequestPayment: false,
+    includeBillingRequestPayment: true,
   });
-  assert.equal(snapshot.billing_request_payment, undefined);
-  assert.equal(remainingSubscriptionInstalments(snapshot), 12);
-  assert.throws(() => buildMonthlyBillingRequest({ snapshot }), /billing request payment/);
+  const request = buildMonthlyBillingRequest({ snapshot });
+  assert.equal(request.paymentAmountMinor, 1000);
+  assert.equal(snapshot.billing_request_payment.remaining_instalments, 11);
+  assert.equal(remainingSubscriptionInstalments(snapshot), 11);
+  assert.match(request.paymentDescription, /first instalment of GBP 10\.00 paid now/i);
+});
+
+test('mandate-only request fails closed without a complete immutable schedule', () => {
+  assert.throws(
+    () => buildMonthlyBillingRequest({
+      snapshot: { kind: 'monthly_direct_debit', currency: 'GBP' },
+    }),
+    /positive amount and collection count/,
+  );
+});
+
+test('public consent terms include the immutable finite schedule and timing', () => {
+  assert.deepEqual(publicDdConsentTerms({
+    monthlyAmount: '7.50',
+    instalmentCount: 6,
+    planTotal: 45,
+    currency: 'GBP',
+    firstCollectionRule: 'nominated_day',
+    collectionDay: 15,
+  }), {
+    monthlyAmount: 7.5,
+    instalmentCount: 6,
+    planTotal: 45,
+    currency: 'GBP',
+    firstCollectionRule: 'nominated_day',
+    collectionDay: 15,
+  });
 });
 
 test('monthly billing request idempotency follows collection terms, not annual totals', () => {
@@ -224,16 +258,13 @@ test('monthly billing request idempotency follows collection terms, not annual t
   const first = buildAgreementSnapshot({
     offer: resolveDdOffer(sim),
     simResult: sim,
-    includeBillingRequestPayment: true,
+    includeBillingRequestPayment: false,
+    billingRequestMode: 'mandate_only',
   });
   const annualOnlyChange = { ...first, annual_cost: 999, final_cost: 333 };
   const monthlyChange = {
     ...first,
     monthly_amount_minor: 1200,
-    billing_request_payment: {
-      ...first.billing_request_payment,
-      amount_minor: 1200,
-    },
   };
   assert.equal(
     monthlyBillingRequestFingerprint(first),
@@ -245,28 +276,36 @@ test('monthly billing request idempotency follows collection terms, not annual t
   );
 });
 
-test('remaining subscription starts no earlier than one month after the consent payment', () => {
+test('mandate-only subscription keeps the accepted first-collection timing', () => {
   const sim = flatSim();
   const snapshot = buildAgreementSnapshot({
     offer: resolveDdOffer(sim),
     simResult: sim,
     acceptedAt: '2026-07-10T12:00:00.000Z',
-    includeBillingRequestPayment: true,
+    includeBillingRequestPayment: false,
+    billingRequestMode: 'mandate_only',
   });
   assert.deepEqual(
     computeSubscriptionCollectionDate(snapshot, '2026-07-15'),
-    { startDate: '2026-08-10', dayOfMonth: null },
-  );
-  assert.deepEqual(
-    computeSubscriptionCollectionDate(snapshot, '2026-07-15', '2026-08-01'),
-    { startDate: '2026-09-01', dayOfMonth: null },
+    { startDate: null, dayOfMonth: null },
   );
 
   snapshot.first_collection_rule = 'nominated_day';
   snapshot.collection_day = 15;
   assert.deepEqual(
     computeSubscriptionCollectionDate(snapshot, '2026-07-15'),
-    { startDate: '2026-08-15', dayOfMonth: 15 },
+    { startDate: null, dayOfMonth: 15 },
+  );
+});
+
+test('anniversary subscription advances beyond a stale provider date and today', () => {
+  assert.deepEqual(
+    computeSubscriptionCollectionDate({
+      kind: 'monthly_direct_debit',
+      first_collection_rule: 'anniversary',
+      membership_year_start: '2026-04-01',
+    }, '2026-09-04', null, '2026-08-31'),
+    { startDate: '2026-10-01', dayOfMonth: 1 },
   );
 });
 
@@ -320,39 +359,43 @@ function makeDdDb(initial = {}) {
   };
 }
 
-test('mandate activation creates one subscription for only the remaining collections', async () => {
+test('mandate activation creates one subscription containing every accepted collection', async () => {
   const sim = flatSim();
   const snapshot = buildAgreementSnapshot({
     offer: resolveDdOffer(sim),
     simResult: sim,
     acceptedAt: '2026-07-10T12:00:00.000Z',
-    includeBillingRequestPayment: true,
+    includeBillingRequestPayment: false,
+    billingRequestMode: 'mandate_only',
   });
+  snapshot.first_collection_rule = 'anniversary';
+  snapshot.membership_year_start = '2026-04-01';
   const agreement = {
     id: 'agreement-1',
     tenant_id: 'tenant-1',
     member_id: 'member-1',
     organization_id: null,
     gocardless_mandate_id: 'mandate-1',
-    metadata: { dd: snapshot, gocardless_initial_payment: { id: 'payment-1' } },
+    metadata: { dd: snapshot },
   };
   const db = makeDdDb({
     membership_payment_plans: [],
     membership_payment_status_history: [],
     gocardless_mandates: [{
       gocardless_mandate_id: 'mandate-1',
-      next_possible_charge_date: '2026-07-15',
+      next_possible_charge_date: '2026-08-12',
     }],
-    gocardless_payments: [{
-      gocardless_payment_id: 'payment-1',
-      status: 'pending_submission',
-      plan_id: null,
-    }],
+    gocardless_payments: [],
   });
   const subscriptionCalls = [];
   const gc = {
     getGocardlessEnvironment: () => 'sandbox',
     gocardlessForTenant: async () => ({
+      getMandate: async () => ({
+        id: 'mandate-1',
+        status: 'active',
+        next_possible_charge_date: '2026-09-04',
+      }),
       createSubscription: async (args) => {
         subscriptionCalls.push(args);
         return { id: 'subscription-1', start_date: args.startDate };
@@ -360,18 +403,20 @@ test('mandate activation creates one subscription for only the remaining collect
     }),
   };
 
-  const first = await ensureSubscriptionForAgreement(agreement, { db, gc });
-  db.tables.gocardless_payments[0].plan_id = null;
-  const second = await ensureSubscriptionForAgreement(agreement, { db, gc });
+  const now = () => new Date('2026-08-31T00:00:00.000Z');
+  const first = await ensureSubscriptionForAgreement(agreement, { db, gc, now });
+  const second = await ensureSubscriptionForAgreement(agreement, { db, gc, now });
 
   assert.equal(first.created, true);
   assert.equal(second.created, false);
   assert.equal(subscriptionCalls.length, 1);
   assert.equal(subscriptionCalls[0].amountMinor, 1000);
-  assert.equal(subscriptionCalls[0].count, 11);
-  assert.equal(subscriptionCalls[0].startDate, '2026-08-10');
+  assert.equal(subscriptionCalls[0].count, 12);
+  assert.equal(subscriptionCalls[0].startDate, '2026-10-01');
+  assert.equal(subscriptionCalls[0].dayOfMonth, 1);
   assert.equal(db.tables.membership_payment_plans[0].instalments_total, 12);
-  assert.equal(db.tables.gocardless_payments[0].plan_id, db.tables.membership_payment_plans[0].id);
+  assert.equal(db.tables.gocardless_mandates[0].next_possible_charge_date, '2026-09-04');
+  assert.equal(db.tables.gocardless_payments.length, 0);
 });
 
 test('all membership setup routes share the snapshotted monthly request contract', async () => {
@@ -381,6 +426,8 @@ test('all membership setup routes share the snapshotted monthly request contract
     readFile(new URL('../public/dd-invitations/[token].js', import.meta.url), 'utf8'),
     readFile(new URL('../public/membership-fees/[token].js', import.meta.url), 'utf8'),
     readFile(new URL('../../client/src/components/forms/MembershipPaymentField.jsx', import.meta.url), 'utf8'),
+    readFile(new URL('../../client/src/pages/MembershipFeePage.jsx', import.meta.url), 'utf8'),
+    readFile(new URL('../../client/src/pages/DirectDebitInvitationPage.jsx', import.meta.url), 'utf8'),
   ]);
   for (const source of routes.slice(0, 4)) {
     assert.match(source, /buildMonthlyBillingRequest\s*\(/);
@@ -388,12 +435,21 @@ test('all membership setup routes share the snapshotted monthly request contract
   for (const source of [routes[0], routes[1], routes[3]]) {
     assert.match(source, /monthlyBillingRequestFingerprint\s*\(\s*snapshot\s*\)/);
     assert.match(source, /billingRequest\.id/);
+    assert.match(source, /includeBillingRequestPayment:\s*false/);
+    assert.match(source, /billingRequestMode:\s*reusable\s*\?\s*'reused_mandate'\s*:\s*'mandate_only'/);
   }
-  assert.match(routes[2], /snap\.billing_request_payment\?\.included/);
-  assert.match(routes[2], /currency:\s*snap\.currency\s*\|\|\s*'GBP'/);
+  assert.match(routes[2], /monthlyBillingRequestFingerprint\s*\(\s*snap\s*\)/);
+  assert.match(routes[2], /buildMonthlyBillingRequest\s*\(\s*\{\s*snapshot:\s*snap/s);
+  assert.match(routes[2], /publicDdConsentTerms\s*\(/);
+  assert.match(routes[3], /publicDdConsentTerms\s*\(/);
   assert.match(routes[4], /If a new bank setup is needed/);
   assert.match(routes[4], /If an existing Direct Debit can be reused/);
-  assert.match(routes[4], /remaining.*monthly Direct Debit/s);
+  assert.match(routes[4], /finite schedule/);
+  assert.doesNotMatch(routes[4], /first instalment.*paid immediately/s);
+  for (const source of routes.slice(5)) {
+    assert.match(source, /directDebitFirstCollectionText\s*\(/);
+    assert.match(source, /text-dd-first-collection/);
+  }
 });
 
 test('decideMembershipActivation: rule/trigger matrix', () => {

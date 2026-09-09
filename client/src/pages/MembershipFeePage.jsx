@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useParams } from "react-router-dom";
 import GoCardlessDropinFlow from "@/components/gocardless/GoCardlessDropinFlow";
+import { directDebitFirstCollectionText } from "@/lib/directDebitConsentSummary";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -754,7 +755,8 @@ export default function MembershipFeePage() {
                 Spread your membership fee over {data?.ddOffer?.instalmentCount || 12} monthly payments of{' '}
                 <span className="font-medium text-gray-700">{formatCurrency(data?.ddOffer?.monthlyAmount, data?.ddOffer?.currency || data?.currency)}</span>
                 {data?.ddOffer?.planTotal ? <> (total {formatCurrency(data.ddOffer.planTotal, data?.ddOffer?.currency || data?.currency)})</> : null}.
-                You'll be taken to our secure Direct Debit provider to set up your mandate.
+                 {' '}First collection: <span data-testid="text-dd-first-collection">{directDebitFirstCollectionText(data.ddOffer).toLowerCase()}</span>.
+                 {' '}You'll be taken to our secure Direct Debit provider to set up your mandate; no payment is taken during bank set-up.
               </p>
               <Button
                 onClick={handleStartDirectDebit}

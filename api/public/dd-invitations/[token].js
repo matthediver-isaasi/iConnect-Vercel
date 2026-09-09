@@ -18,7 +18,11 @@ import { gocardlessForTenant, buildIdempotencyKey } from '../../_lib/gocardless.
 import { getGocardlessCredentials } from '../../_lib/gocardlessCredentials.js';
 import { STATUS } from '../../_lib/gocardlessState.js';
 import { validateInvitation, INVITE_INVALID_MESSAGES } from '../../_lib/gocardlessDdInvitations.js';
-import { buildMonthlyBillingRequest } from '../../_lib/gocardlessDirectDebit.js';
+import {
+  buildMonthlyBillingRequest,
+  monthlyBillingRequestFingerprint,
+  publicDdConsentTerms,
+} from '../../_lib/gocardlessDirectDebit.js';
 
 export default async function handler(req, res) {
   if (!supabase) return res.status(503).json({ error: 'Database not configured' });
@@ -66,10 +70,14 @@ function summarise(invitation, agreement, orgName) {
     organizationName: orgName || snap.organization_name || 'the organisation',
     membershipYear: snap.membership_year || null,
     tierLabel: snap.tier_label || null,
-    monthlyAmount: snap.monthly_amount != null ? Number(snap.monthly_amount) : null,
-    instalmentCount: snap.instalment_count || null,
-    planTotal: snap.plan_total != null ? Number(snap.plan_total) : null,
-    currency: snap.currency || 'GBP',
+    ...publicDdConsentTerms({
+      monthlyAmount: snap.monthly_amount,
+      instalmentCount: snap.instalment_count,
+      planTotal: snap.plan_total,
+      currency: snap.currency,
+      firstCollectionRule: snap.first_collection_rule,
+      collectionDay: snap.collection_day,
+    }),
     invitedName: invitation.invited_name || null,
     expiresAt: invitation.expires_at,
   };
@@ -116,10 +124,13 @@ async function handlePost(req, res, invitation, agreement) {
     kind: 'monthly_direct_debit',
   };
   const billingRequest = await client.createBillingRequest({
-    idempotencyKey: buildIdempotencyKey('dd-br-inv', tenantId, agreement.id),
-    ...(snap.billing_request_payment?.included
-      ? buildMonthlyBillingRequest({ snapshot: snap, metadata })
-      : { currency: snap.currency || 'GBP', metadata }),
+    idempotencyKey: buildIdempotencyKey(
+      'dd-br-inv',
+      tenantId,
+      agreement.id,
+      monthlyBillingRequestFingerprint(snap),
+    ),
+    ...buildMonthlyBillingRequest({ snapshot: snap, metadata }),
   });
 
   const proto = req.headers['x-forwarded-proto'] || 'https';

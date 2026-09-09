@@ -211,7 +211,8 @@ async function handlePost(req, res, resolvedTenantId) {
   const snapshot = buildAgreementSnapshot({
     offer,
     simResult,
-    includeBillingRequestPayment: !reusable,
+    includeBillingRequestPayment: false,
+    billingRequestMode: reusable ? 'reused_mandate' : 'mandate_only',
   });
 
   let agreementInsert = {

@@ -161,3 +161,33 @@ test('createBillingRequest sends a monthly first payment alongside the mandate r
     global.fetch = previousFetch;
   }
 });
+
+test('createBillingRequest sends a Bacs mandate without a one-off payment', async () => {
+  const previousFetch = global.fetch;
+  global.fetch = async (_url, options) => {
+    const body = JSON.parse(options.body);
+    assert.deepEqual(body.billing_requests.mandate_request, { scheme: 'bacs', currency: 'GBP' });
+    assert.equal(body.billing_requests.payment_request, undefined);
+    assert.equal(body.billing_requests.subscription_request, undefined);
+    return new Response(JSON.stringify({ billing_requests: { id: 'BRQ-mandate-only' } }), {
+      status: 201,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  };
+  try {
+    const client = createGocardlessClient({
+      source: 'tenant',
+      tenantId: 'tenant-1',
+      environment: 'sandbox',
+      accessToken: 'sandbox_test',
+    });
+    const result = await client.createBillingRequest({
+      idempotencyKey: 'monthly-membership-mandate-only',
+      currency: 'GBP',
+      metadata: { kind: 'monthly_direct_debit' },
+    });
+    assert.equal(result.id, 'BRQ-mandate-only');
+  } finally {
+    global.fetch = previousFetch;
+  }
+});

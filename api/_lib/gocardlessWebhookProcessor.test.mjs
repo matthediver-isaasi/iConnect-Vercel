@@ -333,6 +333,86 @@ test('monthly billing request fulfillment records its first instalment once', as
   assert.equal(db.tables.gocardless_payments[0].plan_id, 'plan-existing');
 });
 
+test('mandate-only fulfillment creates one full finite subscription and remains idempotent', async () => {
+  const db = makeFakeDb({
+    membership_billing_agreements: [{
+      id: 'agr-mandate-only',
+      tenant_id: TENANT,
+      member_id: 'mem-1',
+      organization_id: null,
+      status: STATUS.PAYMENT_SETUP_REQUIRED,
+      gocardless_billing_request_id: 'BRQ-mandate-only',
+      metadata: {
+        dd: {
+          kind: 'monthly_direct_debit',
+          monthly_amount_minor: 750,
+          instalment_count: 6,
+          currency: 'GBP',
+          first_collection_rule: 'anniversary',
+          membership_year_start: '2026-04-01',
+          activation_rule: 'first_payment',
+          accepted_at: '2026-07-01T00:00:00.000Z',
+          membership_year: '2026',
+          billing_request_mode: 'mandate_only',
+        },
+      },
+    }],
+    membership_payment_status_history: [],
+    membership_payment_plans: [],
+    member_membership_history: [{
+      id: 'history-mandate-only',
+      billing_agreement_id: 'agr-mandate-only',
+      status: 'pending_payment_setup',
+      payment_status: 'unpaid',
+    }],
+    gocardless_customers: [],
+    gocardless_mandates: [],
+    gocardless_payments: [],
+  });
+  const subscriptionCalls = [];
+  const gc = gcStub({
+    getMandate: async () => ({
+      id: 'MD-mandate-only',
+      status: 'active',
+      next_possible_charge_date: '2026-08-12',
+    }),
+    createSubscription: async (args) => {
+      subscriptionCalls.push(args);
+      return { id: 'SB-mandate-only', start_date: args.startDate };
+    },
+  });
+  const event = {
+    id: 'EV_BR_MANDATE_ONLY',
+    resource_type: 'billing_requests',
+    action: 'fulfilled',
+    links: {
+      billing_request: 'BRQ-mandate-only',
+      mandate_request_mandate: 'MD-mandate-only',
+      customer: 'CU-mandate-only',
+    },
+  };
+
+  const deps = {
+    db,
+    gc,
+    now: () => new Date('2026-08-20T00:00:00.000Z'),
+    postToAccounting: async () => ({ posted: false }),
+  };
+  await processGocardlessEvent(event, deps);
+  await processGocardlessEvent(event, deps);
+
+  assert.equal(subscriptionCalls.length, 1);
+  assert.equal(subscriptionCalls[0].amountMinor, 750);
+  assert.equal(subscriptionCalls[0].count, 6);
+  assert.equal(subscriptionCalls[0].dayOfMonth, 1);
+  assert.equal(subscriptionCalls[0].startDate, '2026-09-01');
+  assert.equal(db.tables.membership_payment_plans.length, 1);
+  assert.equal(db.tables.membership_payment_plans[0].gocardless_subscription_id, 'SB-mandate-only');
+  assert.equal(db.tables.gocardless_payments.length, 0);
+  assert.equal(db.tables.gocardless_mandates[0].next_possible_charge_date, '2026-08-12');
+  assert.equal(db.tables.membership_billing_agreements[0].status, STATUS.FIRST_PAYMENT_PENDING);
+});
+
 test('fulfilled billing request repairs an earlier active-mandate event and creates one remaining subscription', async () => {
   const db = makeFakeDb({
     membership_billing_agreements: [{
@@ -395,7 +475,12 @@ test('fulfilled billing request repairs an earlier active-mandate event and crea
     },
   };
 
-  const deps = { db, gc, postToAccounting: async () => ({ posted: false }) };
+  const deps = {
+    db,
+    gc,
+    now: () => new Date('2026-07-20T00:00:00.000Z'),
+    postToAccounting: async () => ({ posted: false }),
+  };
   await processGocardlessEvent(event, deps);
   await processGocardlessEvent(event, deps);
 
