@@ -20,6 +20,14 @@ import { finalizeFormMonthlyCardCheckout, FINALIZE_CLAIM_TTL_MS } from './formMo
 import { findFormMonthlyCardAgreement } from './formMonthlyCardCheckout.js';
 import { hasFormPaymentAccessProof } from './formPaymentAccess.js';
 import { capturePaymentIntentBillingAddress } from './stripeInvoiceAddress.js';
+import {
+  findFormMonthlyDirectDebitAgreement,
+  persistMonthlyDirectDebitLink,
+} from './formMonthlyDirectDebitCheckout.js';
+import {
+  FINALIZE_CLAIM_TTL_MS as DD_FINALIZE_CLAIM_TTL_MS,
+} from './formMonthlyDirectDebitFinalize.js';
+import { processGocardlessEvent } from './gocardlessWebhookProcessor.js';
 
 const FORM_COLUMNS = 'id, name, tenant_id, access_policy, fields, pages, visibility_rules, entity_pipelines, structured_actions, field_mappings, application_level, create_entity_type, entity_action, member_entity_action, organization_entity_action, additional_member_creations, submission_emails, submission_email_template_id, submission_email_recipient, submission_email_cc, submission_email_bcc, submission_email_field_mapping, form_type';
 
@@ -64,7 +72,7 @@ export async function reconcileFormPayments(supabase, {
       .from('form_submission')
       .select('*')
       .eq('payment_status', 'pending')
-      .not('payment_reference', 'is', null)
+      .or('payment_reference.not.is.null,payment_provider.eq.gocardless_monthly_dd')
       .gte('created_date', minCreated)
       .lte('created_date', maxCreated)
       .order('created_date', { ascending: true })
@@ -107,6 +115,79 @@ export async function reconcileFormPayments(supabase, {
       formCache.set(key, data || null);
     }
     return formCache.get(key);
+  };
+  const processMonthlyDirectDebitRow = async (row) => {
+    const agreementId = row.payment_meta?.monthly_direct_debit?.agreement_id || null;
+    const { data: agreement, error: agreementError } = await findFormMonthlyDirectDebitAgreement(
+      supabase,
+      {
+        tenantId: row.tenant_id,
+        submissionId: row.id,
+        agreementId,
+      },
+    );
+    if (agreementError) throw agreementError;
+    if (!agreement) return { handled: false, detail: 'monthly Direct Debit agreement not found' };
+    let currentRow = row;
+    if (row.payment_status === 'pending'
+        && agreement.gocardless_billing_request_id
+        && agreement.gocardless_billing_request_flow_id
+        && (
+          row.payment_reference !== agreement.gocardless_billing_request_id
+          || row.payment_meta?.monthly_direct_debit?.agreement_id !== agreement.id
+        )) {
+      currentRow = await persistMonthlyDirectDebitLink(
+        supabase,
+        row,
+        row.payment_meta?.monthly_direct_debit?.offer || null,
+        agreement,
+      );
+    }
+    const billingRequestId = currentRow.payment_reference
+      || currentRow.payment_meta?.monthly_direct_debit?.billing_request_id
+      || agreement.gocardless_billing_request_id
+      || null;
+    if (!billingRequestId) {
+      return { handled: false, detail: 'monthly Direct Debit Billing Request not found' };
+    }
+    const gc = await gocardlessForTenant(currentRow.tenant_id);
+    if (!gc.isConfigured()) {
+      return { handled: false, detail: 'GoCardless is not configured for the tenant' };
+    }
+    const billingRequest = await gc.getBillingRequest(billingRequestId);
+    const metadata = billingRequest?.metadata || {};
+    if (metadata.type !== 'form_monthly_direct_debit'
+        || metadata.form_submission_id !== String(currentRow.id)
+        || metadata.agreement_id !== String(agreement.id)) {
+      return { handled: false, detail: 'monthly Direct Debit provider metadata mismatch' };
+    }
+    if (billingRequest.status === 'cancelled' || billingRequest.status === 'failed') {
+      const { error } = await supabase
+        .from('form_submission')
+        .update({ payment_status: 'failed' })
+        .eq('id', currentRow.id)
+        .in('payment_status', ['pending', 'setup_complete']);
+      if (error) throw error;
+      return { handled: true, failed: true, detail: `Billing Request ${billingRequest.status}` };
+    }
+    if (billingRequest.status !== 'fulfilled') {
+      return { handled: false, pending: true, detail: `Billing Request ${billingRequest.status}` };
+    }
+    return processGocardlessEvent({
+      id: `form-reconcile-${billingRequest.id}`,
+      resource_type: 'billing_requests',
+      action: 'fulfilled',
+      links: {
+        billing_request: billingRequest.id,
+        mandate_request_mandate: billingRequest.links?.mandate_request_mandate || null,
+        customer: billingRequest.links?.customer || null,
+        payment_request_payment: billingRequest.links?.payment_request_payment || null,
+      },
+    }, {
+      db: supabase,
+      gc,
+      baseUrl: await resolveBaseUrl(currentRow.tenant_id),
+    });
   };
 
   for (const row of rows) {
@@ -170,6 +251,10 @@ export async function reconcileFormPayments(supabase, {
             .eq('id', row.id).eq('payment_status', 'pending');
           results.failed += 1;
         }
+      } else if (row.payment_provider === 'gocardless_monthly_dd') {
+        const outcome = await processMonthlyDirectDebitRow(row);
+        if (outcome.failed) results.failed += 1;
+        if (outcome.handled && !outcome.failed) results.finalized += 1;
       } else if (row.payment_provider === 'gocardless') {
         const gc = await gocardlessForTenant(row.tenant_id);
         if (!gc.isConfigured()) continue;
@@ -392,6 +477,40 @@ export async function reconcileFormPayments(supabase, {
   } catch (err) {
     console.warn('[formPaymentReconciliation] Monthly-card setup_complete sweep failed:', err?.message);
     recordMonitoringFailure(results, 'monthly-card-retry-sweep', err);
+  }
+
+  // Fifth sweep: a fulfilled monthly-DD Billing Request may have reached
+  // setup_complete before the member pipeline/history binding finished.
+  // Replay the same Billing Request event path used by browser confirmation
+  // and webhooks so member binding always precedes subscription creation.
+  try {
+    const staleCutoff = new Date(now - DD_FINALIZE_CLAIM_TTL_MS).toISOString();
+    const { data: setupCompleteRows, error } = await supabase
+      .from('form_submission')
+      .select('*')
+      .eq('payment_provider', 'gocardless_monthly_dd')
+      .eq('payment_status', 'setup_complete')
+      .or([
+        'payment_meta->monthly_dd_state.is.null',
+        `and(payment_meta->monthly_dd_state->>status.eq.processing,payment_meta->monthly_dd_state->>claimed_at.lt.${staleCutoff})`,
+      ].join(','))
+      .order('created_date', { ascending: true })
+      .limit(20);
+    if (error) throw error;
+    for (const row of setupCompleteRows || []) {
+      try {
+        const form = await loadForm(row.form_id, row.tenant_id);
+        if (!hasFormPaymentAccessProof(row, form)) continue;
+        const outcome = await processMonthlyDirectDebitRow(row);
+        if (outcome.handled && !outcome.failed) results.finalized += 1;
+      } catch (err) {
+        console.warn('[formPaymentReconciliation] Monthly-DD setup_complete retry failed for', row.id, err?.message);
+        recordMonitoringFailure(results, 'monthly-dd-retry', err);
+      }
+    }
+  } catch (err) {
+    console.warn('[formPaymentReconciliation] Monthly-DD setup_complete sweep failed:', err?.message);
+    recordMonitoringFailure(results, 'monthly-dd-retry-sweep', err);
   }
 
   return results;

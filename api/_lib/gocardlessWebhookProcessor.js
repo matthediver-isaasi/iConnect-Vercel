@@ -43,6 +43,8 @@ import {
 } from './gocardlessAutoRetry.js';
 import { postDdInstalmentToAccounting, postDdArrearsPeriodToAccounting } from './gocardlessAccounting.js';
 import { settleMonthlyArrears, postSettledArrearsPeriods, completeMonthlyCollectionIntent, failMonthlyCollectionIntent } from './monthlyArrearsCollection.js';
+import { finalizeFormMonthlyDirectDebit } from './formMonthlyDirectDebitFinalize.js';
+import { getTrustedBaseUrlForTenant } from './publicBaseUrl.js';
 
 // Emails are best-effort: they must never fail the event (which would mark
 // it 'failed' and trigger redelivery/reprocessing of a correct state change).
@@ -60,6 +62,64 @@ function defaultDeps(deps) {
     db: deps.db || supabase,
     gc: deps.gc || gocardless,
   };
+}
+
+async function finalizeFormBackedMonthlyAgreement({
+  agreement,
+  billingRequestId = null,
+  db,
+  deps = {},
+}) {
+  if (agreement?.provider !== 'gocardless'
+      || agreement?.agreement_type !== 'member'
+      || agreement?.metadata?.dd?.kind !== 'monthly_direct_debit'
+      || !agreement?.metadata?.form_submission_id) {
+    return { agreement, outcome: null };
+  }
+  const baseUrl = deps.baseUrl
+    || await getTrustedBaseUrlForTenant(null, db, agreement.tenant_id);
+  const outcome = await finalizeFormMonthlyDirectDebit({
+    db,
+    agreement,
+    billingRequestId,
+    formSubmissionId: agreement.metadata.form_submission_id,
+    baseUrl,
+  });
+  if (!outcome.handled) {
+    if (outcome.retryable === false) {
+      const { error } = await db
+        .from('membership_billing_agreements')
+        .update({
+          needs_attention: true,
+          attention_reason: outcome.detail || 'Form Direct Debit membership could not be finalized',
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', agreement.id);
+      if (error) {
+        return {
+          agreement,
+          outcome: {
+            handled: false,
+            retryable: true,
+            detail: `persist terminal form Direct Debit failure failed: ${error.message}`,
+          },
+        };
+      }
+    }
+    return { agreement, outcome };
+  }
+  const refreshedAgreement = await findAgreementById(db, agreement.id);
+  if (!refreshedAgreement?.member_id) {
+    return {
+      agreement,
+      outcome: {
+        handled: false,
+        retryable: true,
+        detail: 'Form Direct Debit finalized without a bound member',
+      },
+    };
+  }
+  return { agreement: refreshedAgreement, outcome };
 }
 
 export function validateConfirmedCatchUpAmount(actualAmount, expectedAmount) {
@@ -374,6 +434,44 @@ async function processBillingRequestEvent({ event, action, links, db, gc, deps =
         .eq('id', agreement.id);
       if (metadataErr) throw new Error(`attach initial billing request payment failed: ${metadataErr.message}`);
     }
+    agreement = await findAgreementById(db, agreement.id) || {
+      ...agreement,
+      ...extraUpdate,
+      metadata: extraUpdate.metadata || agreement.metadata,
+    };
+    const formPreparation = await finalizeFormBackedMonthlyAgreement({
+      agreement,
+      billingRequestId: brId,
+      db,
+      deps,
+    });
+    if (formPreparation.outcome && !formPreparation.outcome.handled) {
+      if (formPreparation.outcome.retryable === false) {
+        return {
+          handled: true,
+          blocked: true,
+          conflict: formPreparation.outcome.conflict === true,
+          code: formPreparation.outcome.code,
+          detail: formPreparation.outcome.detail,
+        };
+      }
+      return {
+        handled: false,
+        retryable: true,
+        detail: formPreparation.outcome.detail || 'form Direct Debit finalization is pending',
+      };
+    }
+    agreement = formPreparation.agreement;
+    if (customerId && agreement.member_id) {
+      await checkedUpsert(db, 'gocardless_customers', {
+        tenant_id: agreement.tenant_id,
+        member_id: agreement.member_id,
+        organization_id: null,
+        gocardless_customer_id: customerId,
+        environment: gc.getGocardlessEnvironment ? gc.getGocardlessEnvironment() : 'sandbox',
+        updated_at: new Date().toISOString(),
+      }, 'gocardless_customer_id');
+    }
     if (mandate?.status === 'active' || mandate?.status === 'reinstated') {
       const activeAgreement = {
         ...agreement,
@@ -553,14 +651,38 @@ async function processMandateEvent({ event, action, links, db, gc, deps = {} }) 
       let subResult = null;
       let actResult = null;
       if (agreement.metadata?.dd?.kind === 'monthly_direct_debit') {
-        ({ result, subResult, actResult } = await processActiveMonthlyAgreement({
+        const formPreparation = await finalizeFormBackedMonthlyAgreement({
           agreement,
+          billingRequestId: agreement.gocardless_billing_request_id || null,
+          db,
+          deps,
+        });
+        if (formPreparation.outcome && !formPreparation.outcome.handled) {
+          if (formPreparation.outcome.retryable === false) {
+            return {
+              handled: true,
+              blocked: true,
+              conflict: formPreparation.outcome.conflict === true,
+              code: formPreparation.outcome.code,
+              detail: formPreparation.outcome.detail,
+            };
+          }
+          return {
+            handled: false,
+            retryable: true,
+            detail: formPreparation.outcome.detail || 'form Direct Debit finalization is pending',
+          };
+        }
+        const preparedAgreement = formPreparation.agreement;
+        ({ result, subResult, actResult } = await processActiveMonthlyAgreement({
+          agreement: preparedAgreement,
           eventId: event.id,
           action,
           db,
           gc,
           deps,
         }));
+        agreement.member_id = preparedAgreement.member_id;
       } else {
         result = await applyStatusTransition({
           entityType: 'billing_agreement',

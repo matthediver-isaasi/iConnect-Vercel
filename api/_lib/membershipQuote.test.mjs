@@ -69,6 +69,7 @@ test('final cost never goes below zero', () => {
 
 test('quoteFromSimulationResult adapts a simulation result to the quote shape', () => {
   const quote = quoteFromSimulationResult({
+    success: true,
     config: { id: 'cfg1', name: 'Standard', invoice_description: 'Membership {year}', dd_enabled: true },
     matchedBand: { id: 'band1' },
     tierLabel: 'Tier A',
@@ -92,8 +93,8 @@ test('quoteFromSimulationResult adapts a simulation result to the quote shape', 
     taxType: 'OUTPUT2',
     taxLabel: '20% (VAT on Income)',
     nominalCode: '200',
-  }, 'organization');
-  assert.equal(quote.target, 'organization');
+  }, 'member');
+  assert.equal(quote.target, 'member');
   assert.equal(quote.config_id, 'cfg1');
   assert.equal(quote.membership_year, '2026/2027');
   assert.equal(quote.final_cost, 850);
@@ -101,12 +102,13 @@ test('quoteFromSimulationResult adapts a simulation result to the quote shape', 
   assert.equal(quote.tax_type, 'OUTPUT2');
   assert.equal(quote.nominal_code, '200');
   assert.equal(quote.invoice_description, 'Membership {year}');
-  assert.equal(quote.direct_debit_allowed, true);
+  assert.equal(quote.direct_debit_allowed, false);
 });
 
 test('quoteFromSimulationResult denies Direct Debit unless the resolved schedule enables it', () => {
   const base = {
-    config: { id: 'cfg1' },
+    success: true,
+    config: { id: 'cfg1', pricing_model: 'flat' },
     annualCost: 100,
     finalCost: 100,
     membershipYear: { label: '2026/2027' },
@@ -114,7 +116,7 @@ test('quoteFromSimulationResult denies Direct Debit unless the resolved schedule
   assert.equal(quoteFromSimulationResult(base, 'member').direct_debit_allowed, false);
   assert.equal(quoteFromSimulationResult({
     ...base,
-    config: { ...base.config, dd_enabled: true },
+    config: { ...base.config, dd_enabled: true, dd_monthly_amount: 10 },
   }, 'member').direct_debit_allowed, true);
 });
 
@@ -174,6 +176,62 @@ test('member quote uses the resolved pricing band monthly amount', () => {
   assert.equal(quote.band_id, 'band-2');
 });
 
+test('member flat quote attaches the canonical Direct Debit offer', () => {
+  const quote = quoteFromSimulationResult({
+    success: true,
+    config: {
+      pricing_model: 'flat',
+      dd_enabled: true,
+      dd_monthly_amount: 25,
+      dd_instalment_count: 10,
+    },
+    annualCost: 999,
+    finalCost: 999,
+    currency: 'GBP',
+    membershipYear: { label: '2026/2027' },
+  }, 'member');
+  assert.equal(quote.direct_debit_allowed, true);
+  assert.equal(quote.direct_debit_offer.monthlyAmount, 25);
+  assert.equal(quote.direct_debit_offer.planTotal, 250);
+});
+
+test('member banded quote uses only the matched band Direct Debit amount', () => {
+  const quote = quoteFromSimulationResult({
+    success: true,
+    config: {
+      pricing_model: 'tiered',
+      dd_enabled: true,
+      dd_monthly_amount: 999,
+      dd_instalment_count: 12,
+    },
+    matchedBand: { id: 'band-2', dd_monthly_amount: 17.5 },
+    annualCost: 12345,
+    finalCost: 12345,
+    currency: 'GBP',
+    membershipYear: { label: '2026/2027' },
+  }, 'member');
+  assert.equal(quote.direct_debit_offer.monthlyAmount, 17.5);
+  assert.equal(quote.direct_debit_offer.planTotal, 210);
+});
+
+test('Direct Debit offer is independent of prorated annual quote total', () => {
+  const base = {
+    success: true,
+    config: {
+      pricing_model: 'flat',
+      dd_enabled: true,
+      dd_monthly_amount: 20,
+      dd_instalment_count: 12,
+    },
+    currency: 'GBP',
+    membershipYear: { label: '2026/2027' },
+  };
+  const full = quoteFromSimulationResult({ ...base, annualCost: 240, finalCost: 240 }, 'member');
+  const prorated = quoteFromSimulationResult({ ...base, annualCost: 240, finalCost: 37.26, prorataCost: 37.26 }, 'member');
+  assert.equal(full.direct_debit_offer.planTotal, 240);
+  assert.equal(prorated.direct_debit_offer.planTotal, 240);
+});
+
 test('monthly-card offer is omitted when disabled and for organisation quotes', () => {
   const enabled = {
     success: true,
@@ -193,4 +251,17 @@ test('monthly-card offer is omitted when disabled and for organisation quotes', 
     ...enabled,
     config: { ...enabled.config, card_monthly_enabled: false },
   }, 'member').monthly_card_offer, undefined);
+});
+
+test('Direct Debit is disabled for organisation or when the amount is missing', () => {
+  const base = {
+    success: true,
+    config: { pricing_model: 'flat', dd_enabled: true },
+    annualCost: 100,
+    finalCost: 100,
+    currency: 'GBP',
+    membershipYear: { label: '2026/2027' },
+  };
+  assert.equal(quoteFromSimulationResult(base, 'member').direct_debit_offer, null);
+  assert.equal(quoteFromSimulationResult({ ...base, config: { ...base.config, dd_monthly_amount: 10 } }, 'organization').direct_debit_allowed, false);
 });

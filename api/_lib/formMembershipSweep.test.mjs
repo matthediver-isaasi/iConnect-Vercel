@@ -110,11 +110,13 @@ test('pending rows with a provider payment reference are immutable on same-key r
   const guardAt = paymentSrc.indexOf('if (existing.payment_reference)');
   assert.ok(guardAt > -1, 'payment-reference immutability guard must exist');
   const guard = paymentSrc.slice(guardAt, paymentSrc.indexOf('} else {', guardAt));
-  // Fingerprint compares charge amount, currency, provider, and the
+  // Fingerprint compares the provider-specific stored charge (monthly for
+  // membership DD, annual for generic/card), currency, provider, and the
   // membership quote (config + total) before reuse.
-  assert.match(guard, /Number\(existing\.payment_amount\) === Number\(amount\)/);
+  assert.match(guard, /Number\(existing\.payment_amount\) === Number\(storedPaymentAmount\)/);
   assert.match(guard, /payment_currency/);
-  assert.match(guard, /existing\.payment_provider === provider/);
+  assert.match(guard, /existing\.payment_provider === storedPaymentProvider/);
+  assert.match(guard, /sameDirectDebitTerms/);
   assert.match(guard, /config_id/);
   assert.match(guard, /total_with_vat/);
   assert.ok(guard.includes("code: 'PAYMENT_ALREADY_INITIATED'"), 'mismatched retries must 409');

@@ -308,6 +308,16 @@ test('monthly card is shown with server-quoted amount, instalments, total, and c
   assert.match(src, /monthly_card\.currency \|\| currency/, 'offer currency must drive formatting');
 });
 
+test('GoCardless membership choice shows canonical terms and first-collection timing', () => {
+  const src = readFileSync(join(repoRoot, 'client', 'src', 'components', 'forms', 'FormPaymentSubmit.jsx'), 'utf8');
+  assert.match(src, /effective\.membership\?\.direct_debit/, 'membership DD choice must use the canonical offer');
+  assert.match(src, /monthlyAmount/, 'choice must show monthly amount');
+  assert.match(src, /instalmentCount/, 'choice must show instalment count');
+  assert.match(src, /planTotal/, 'choice must show the plan total');
+  assert.match(src, /directDebitFirstCollectionText/, 'choice must show first-collection timing');
+  assert.match(src, /First collection:/, 'timing must be clearly labelled');
+});
+
 test('monthly card starts a server-derived subscription checkout and preserves return recovery', () => {
   const src = readFileSync(join(repoRoot, 'client', 'src', 'components', 'forms', 'FormPaymentSubmit.jsx'), 'utf8');
   const monthly = src.slice(src.indexOf('const startMonthlyCard'), src.indexOf('const handleStripeConfirm'));

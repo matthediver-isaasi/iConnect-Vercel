@@ -33,7 +33,7 @@ for (const action of ['failed', 'cancelled', 'charged_back', 'late_failure_settl
 // Minimal in-memory supabase-shaped fake
 // ---------------------------------------------------------------------------
 
-function makeFakeDb(initial = {}) {
+function makeFakeDb(initial = {}, { rpc = null } = {}) {
   const tables = {};
   for (const [name, rows] of Object.entries(initial)) {
     tables[name] = rows.map((r) => ({ ...r }));
@@ -113,6 +113,13 @@ function makeFakeDb(initial = {}) {
   return {
     tables,
     from(table) { return new Query(table); },
+    rpc(name, params) {
+      if (rpc) return Promise.resolve(rpc(name, params, tables));
+      return Promise.resolve({
+        data: null,
+        error: { message: `unexpected RPC ${name}` },
+      });
+    },
   };
 }
 
@@ -441,6 +448,140 @@ test('mandate-only fulfillment creates one full finite subscription and remains 
   assert.equal(db.tables.gocardless_payments.length, 0);
   assert.equal(db.tables.gocardless_mandates[0].next_possible_charge_date, '2026-08-12');
   assert.equal(db.tables.membership_billing_agreements[0].status, STATUS.FIRST_PAYMENT_PENDING);
+});
+
+test('form mandate fulfillment binds member and history before subscription creation', async () => {
+  const order = [];
+  const db = makeFakeDb({
+    membership_billing_agreements: [{
+      id: 'agr-form-mandate-only',
+      tenant_id: TENANT,
+      provider: 'gocardless',
+      agreement_type: 'member',
+      member_id: null,
+      organization_id: null,
+      status: STATUS.PAYMENT_SETUP_REQUIRED,
+      gocardless_billing_request_id: 'BRQ-form-mandate-only',
+      metadata: {
+        form_submission_id: 'sub-form-mandate-only',
+        dd: {
+          kind: 'monthly_direct_debit',
+          monthly_amount_minor: 1250,
+          instalment_count: 8,
+          plan_total: 100,
+          currency: 'GBP',
+          first_collection_rule: 'earliest',
+          activation_rule: 'first_payment',
+          accepted_at: '2026-07-01T00:00:00.000Z',
+          membership_year: '2026',
+          billing_request_mode: 'mandate_only',
+        },
+      },
+    }],
+    form_submission: [{
+      id: 'sub-form-mandate-only',
+      tenant_id: TENANT,
+      form_id: 'form-monthly-dd',
+      payment_status: 'pending',
+      payment_provider: 'gocardless_monthly_dd',
+      payment_meta: {
+        monthly_direct_debit: {
+          agreement_id: 'agr-form-mandate-only',
+          billing_request_id: 'BRQ-form-mandate-only',
+        },
+      },
+      created_member_id: 'member-from-form',
+      submission_data: {},
+    }],
+    form: [{
+      id: 'form-monthly-dd',
+      tenant_id: TENANT,
+      access_policy: null,
+      fields: [],
+      entity_pipelines: null,
+      structured_actions: null,
+    }],
+    member: [{ id: 'member-from-form', tenant_id: TENANT }],
+    membership_payment_status_history: [],
+    membership_payment_plans: [],
+    member_membership_history: [],
+    gocardless_customers: [],
+    gocardless_mandates: [],
+    gocardless_payments: [],
+  }, {
+    rpc: (name, params, tables) => {
+      assert.equal(name, 'bind_form_monthly_direct_debit_membership');
+      order.push('bind-membership');
+      const agreement = tables.membership_billing_agreements
+        .find((row) => row.id === params.p_agreement_id);
+      agreement.member_id = params.p_member_id;
+      tables.member_membership_history.push({
+        id: 'history-form-mandate-only',
+        tenant_id: TENANT,
+        member_id: params.p_member_id,
+        billing_agreement_id: agreement.id,
+        status: 'pending_payment_setup',
+        payment_status: 'unpaid',
+      });
+      return {
+        data: {
+          ok: true,
+          history_id: 'history-form-mandate-only',
+        },
+        error: null,
+      };
+    },
+  });
+  const gc = gcStub({
+    getMandate: async () => ({
+      id: 'MD-form-mandate-only',
+      status: 'active',
+      next_possible_charge_date: '2026-08-12',
+    }),
+    createSubscription: async (args) => {
+      order.push('create-subscription');
+      assert.equal(
+        db.tables.membership_billing_agreements[0].member_id,
+        'member-from-form',
+      );
+      assert.equal(db.tables.member_membership_history.length, 1);
+      return {
+        id: 'SB-form-mandate-only',
+        start_date: args.startDate,
+      };
+    },
+  });
+  const event = {
+    id: 'EV_BR_FORM_MANDATE_ONLY',
+    resource_type: 'billing_requests',
+    action: 'fulfilled',
+    links: {
+      billing_request: 'BRQ-form-mandate-only',
+      mandate_request_mandate: 'MD-form-mandate-only',
+      customer: 'CU-form-mandate-only',
+    },
+  };
+
+  const outcome = await processGocardlessEvent(event, {
+    db,
+    gc,
+    baseUrl: 'https://tenant.example.test',
+    now: () => new Date('2026-08-20T00:00:00.000Z'),
+    postToAccounting: async () => ({ posted: false }),
+  });
+
+  assert.equal(outcome.handled, true);
+  assert.deepEqual(order, ['bind-membership', 'create-subscription']);
+  assert.equal(db.tables.form_submission[0].payment_status, 'setup_complete');
+  assert.equal(
+    db.tables.form_submission[0].payment_meta.monthly_dd_state.status,
+    'done',
+  );
+  assert.equal(db.tables.membership_payment_plans.length, 1);
+  assert.equal(
+    db.tables.membership_payment_plans[0].gocardless_subscription_id,
+    'SB-form-mandate-only',
+  );
 });
 
 test('fulfilled billing request repairs an earlier active-mandate event and creates one remaining subscription', async () => {

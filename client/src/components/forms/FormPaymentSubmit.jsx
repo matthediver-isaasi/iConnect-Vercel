@@ -4,6 +4,7 @@ import { Loader2, CreditCard, AlertCircle, Landmark, Info } from "lucide-react";
 import { filterPaymentProvidersForMembership, resolveEffectivePayment } from "@/lib/formPaymentQuote";
 import GoCardlessDropinFlow from "@/components/gocardless/GoCardlessDropinFlow";
 import { SS_KEY, confirmFormPayment } from "@/lib/formPaymentReturn";
+import { directDebitFirstCollectionText } from "@/lib/directDebitConsentSummary";
 
 const CURRENCY_SYMBOLS = { GBP: '\u00a3', USD: '$', EUR: '\u20ac', AUD: 'A$', NZD: 'NZ$' };
 
@@ -89,6 +90,9 @@ export default function FormPaymentSubmit({
   }), [membershipQuote?.matched, membershipQuote?.quote, membershipQuote?.loading, membershipQuote?.error, derivedAmount, fieldCurrency]);
   const amount = effective.amount ?? 0;
   const currency = effective.currency || fieldCurrency;
+  const directDebitOffer = effective.membership?.direct_debit
+    || effective.membership?.direct_debit_offer
+    || null;
   const paymentPurpose = membershipQuote?.matched ? 'membership' : 'forms';
 
   // Provider detection (public, secrets-free).
@@ -434,9 +438,18 @@ export default function FormPaymentSubmit({
                 ) : (
                   <Landmark className="mr-2 h-4 w-4" />
                 )}
-                {p.id === 'stripe'
-                  ? `Pay ${formatPaymentAmount(amount, currency)} by card`
-                  : 'Pay by Direct Debit'}
+                 {p.id === 'stripe'
+                   ? `Pay ${formatPaymentAmount(amount, currency)} by card`
+                   : directDebitOffer
+                     ? (
+                       <span>
+                         <span className="block">Pay by Direct Debit — {formatPaymentAmount(directDebitOffer.monthlyAmount, directDebitOffer.currency || currency)} × {directDebitOffer.instalmentCount}</span>
+                         <span className="block text-xs font-normal opacity-80">
+                           Plan total {formatPaymentAmount(directDebitOffer.planTotal, directDebitOffer.currency || currency)} · First collection: {directDebitFirstCollectionText(directDebitOffer)}
+                         </span>
+                       </span>
+                     )
+                     : 'Pay by Direct Debit'}
               </Button>
             ))}
           </div>

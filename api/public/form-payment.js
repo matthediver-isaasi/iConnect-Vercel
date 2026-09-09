@@ -55,6 +55,22 @@ import {
   persistMonthlyCheckoutLink,
   releaseExpiredFormMonthlyCardCheckout,
 } from '../_lib/formMonthlyCardCheckout.js';
+import {
+  claimFormMonthlyDirectDebitApplicantAgreement,
+  findFormMonthlyDirectDebitAgreement,
+  formMonthlyDirectDebitApplicantAgreementKey,
+  persistMonthlyDirectDebitLink,
+} from '../_lib/formMonthlyDirectDebitCheckout.js';
+import {
+  attachMonthlyConsentFlow,
+  buildAgreementSnapshot,
+  buildMonthlyBillingRequest,
+  classifyMonthlyConsentAgreement,
+  monthlyBillingRequestFingerprint,
+  monthlyConsentReplacementKey,
+  rotateStaleMonthlyConsentAgreement,
+} from '../_lib/gocardlessDirectDebit.js';
+import { processGocardlessEvent } from '../_lib/gocardlessWebhookProcessor.js';
 import { resolveFormAccess, sendFormAccessDenied } from '../_lib/formAccessPolicy.js';
 import { withFormPaymentAccessProof } from '../_lib/formPaymentAccess.js';
 import { inspectPriorFormStripeIntent } from '../_lib/formStripeIntentRetry.js';
@@ -437,6 +453,7 @@ async function handleQuote(req, res, supabase, tenantData) {
     return res.status(200).json({ required: false, code: 'NO_PAYMENT_REQUIRED' });
   }
   let monthlyCard = null;
+  let directDebit = null;
   // Only advertise the recurring offer when the tenant can actually launch a
   // subscription checkout. The offer itself remains server-derived.
   const enabledProviders = Array.isArray(paymentField.payment_providers) ? paymentField.payment_providers : [];
@@ -448,6 +465,12 @@ async function handleQuote(req, res, supabase, tenantData) {
       monthlyCard = membershipMeta.quote.monthly_card_offer;
     }
   }
+  if (enabledProviders.includes('gocardless')
+      && membershipMeta?.quote?.target === 'member'
+      && membershipMeta.quote.direct_debit_offer) {
+    const gc = await gocardlessForTenant(tenantData.id);
+    if (gc.isConfigured()) directDebit = membershipMeta.quote.direct_debit_offer;
+  }
   return res.status(200).json({
     required: true,
     amount,
@@ -457,7 +480,8 @@ async function handleQuote(req, res, supabase, tenantData) {
       membership_year: membershipMeta.quote.membership_year || null,
       tier_label: membershipMeta.quote.tier_label || null,
       monthly_card: monthlyCard,
-      direct_debit_allowed: membershipMeta.quote.direct_debit_allowed === true,
+      direct_debit: directDebit,
+      direct_debit_allowed: directDebit !== null,
     } : null,
   });
 }
@@ -843,6 +867,14 @@ async function handleCreate(req, res, supabase, tenantData) {
   });
   if (resolved.error) return res.status(resolved.error.status).json(resolved.error.body);
   const { membershipMeta, amount, currency } = resolved;
+  const monthlyDirectDebitOffer = provider === 'gocardless'
+    && membershipMeta?.quote?.target === 'member'
+    ? membershipMeta.quote.direct_debit_offer || null
+    : null;
+  const storedPaymentProvider = monthlyDirectDebitOffer
+    ? 'gocardless_monthly_dd'
+    : provider;
+  const storedPaymentAmount = monthlyDirectDebitOffer?.monthlyAmount ?? amount;
   const stripeFeature = membershipMeta ? 'membership' : 'forms';
 
   if (!membershipAllowsPaymentProvider(provider, membershipMeta)) {
@@ -861,6 +893,21 @@ async function handleCreate(req, res, supabase, tenantData) {
   const amountMinor = Math.round(amount * 100);
 
   const submitterEmail = extractSubmitterEmail(form, values);
+  const monthlyDirectDebitApplicantEmail = monthlyDirectDebitOffer
+    ? extractMemberPipelineEmail(form, values)
+    : null;
+  if (monthlyDirectDebitOffer && !monthlyDirectDebitApplicantEmail) {
+    return res.status(400).json({
+      error: 'An email address is required to set up monthly Direct Debit membership',
+      code: 'MEMBERSHIP_EMAIL_REQUIRED',
+    });
+  }
+  const monthlyDirectDebitMeta = monthlyDirectDebitOffer ? {
+    monthly_direct_debit: {
+      offer: monthlyDirectDebitOffer,
+      applicant_email: monthlyDirectDebitApplicantEmail,
+    },
+  } : {};
 
   // Namespaced idempotency key: never collides with a normal submit's key,
   // so an abandoned payment can still fall back to a plain submission.
@@ -891,11 +938,23 @@ async function handleCreate(req, res, supabase, tenantData) {
       // (fresh idempotency key).
       if (existing.payment_reference) {
         const storedMembership = existing.payment_meta?.membership || null;
-        const sameCharge = Number(existing.payment_amount) === Number(amount)
+        const storedDirectDebit = existing.payment_meta?.monthly_direct_debit || null;
+        const sameDirectDebitTerms = !monthlyDirectDebitOffer || (
+          String(storedDirectDebit?.applicant_email || '').trim().toLowerCase()
+            === monthlyDirectDebitApplicantEmail
+          && Number(storedDirectDebit?.offer?.monthlyAmountMinor)
+            === Number(monthlyDirectDebitOffer.monthlyAmountMinor)
+          && Number(storedDirectDebit?.offer?.instalmentCount)
+            === Number(monthlyDirectDebitOffer.instalmentCount)
+          && Number(storedDirectDebit?.offer?.planTotal)
+            === Number(monthlyDirectDebitOffer.planTotal)
+        );
+        const sameCharge = Number(existing.payment_amount) === Number(storedPaymentAmount)
           && String(existing.payment_currency || '').toLowerCase() === String(currency || '').toLowerCase()
-          && existing.payment_provider === provider
+          && existing.payment_provider === storedPaymentProvider
           && (storedMembership?.quote?.config_id || null) === (membershipMeta?.quote?.config_id || null)
-          && Number(storedMembership?.quote?.total_with_vat ?? -1) === Number(membershipMeta?.quote?.total_with_vat ?? -1);
+          && Number(storedMembership?.quote?.total_with_vat ?? -1) === Number(membershipMeta?.quote?.total_with_vat ?? -1)
+          && sameDirectDebitTerms;
         if (!sameCharge) {
           return res.status(409).json({
             error: 'A payment for this submission is already in progress with a different amount or membership. Please start a new payment attempt.',
@@ -925,9 +984,9 @@ async function handleCreate(req, res, supabase, tenantData) {
                 }
               : {}),
           },
-          payment_amount: amount,
+          payment_amount: storedPaymentAmount,
           payment_currency: currency,
-          payment_provider: provider,
+          payment_provider: storedPaymentProvider,
           submitted_by_email: submitterEmail,
           payment_meta: withFormPaymentAccessProof({
             ...(existing.payment_meta || {}),
@@ -938,6 +997,7 @@ async function handleCreate(req, res, supabase, tenantData) {
             verified_admin_access: access.verifiedAdminAccess === true,
             membership: membershipMeta,
             stripe_feature: stripeFeature,
+            ...monthlyDirectDebitMeta,
           }, { accessPolicyRequired: access.restricted }),
         })
         .eq('id', existing.id)
@@ -962,8 +1022,8 @@ async function handleCreate(req, res, supabase, tenantData) {
       submitted_by_email: submitterEmail,
       created_date: new Date().toISOString(),
       payment_status: 'pending',
-      payment_provider: provider,
-      payment_amount: amount,
+      payment_provider: storedPaymentProvider,
+      payment_amount: storedPaymentAmount,
       payment_currency: currency,
       payment_meta: withFormPaymentAccessProof({
         price_field_id: paymentField.price_field_id || null,
@@ -973,6 +1033,7 @@ async function handleCreate(req, res, supabase, tenantData) {
         verified_admin_access: access.verifiedAdminAccess === true,
         membership: membershipMeta,
         stripe_feature: stripeFeature,
+        ...monthlyDirectDebitMeta,
       }, { accessPolicyRequired: access.restricted }),
       ...(idemKey && { idempotency_key: idemKey }),
     };
@@ -1159,6 +1220,21 @@ async function handleCreate(req, res, supabase, tenantData) {
   if (!gc.isConfigured()) {
     return res.status(400).json({ error: 'Direct Debit is not configured for this organisation' });
   }
+  if (monthlyDirectDebitOffer) {
+    return handleCreateMonthlyDirectDebit({
+      req,
+      res,
+      supabase,
+      tenantData,
+      form,
+      submissionRow,
+      membershipMeta,
+      offer: monthlyDirectDebitOffer,
+      applicantEmail: monthlyDirectDebitApplicantEmail,
+      returnPath: return_path,
+      gc,
+    });
+  }
   const trustedBase = getTenantTrustedBaseUrl(req, tenantData);
   const returnPath = sanitizeReturnPath(return_path);
   const sep = returnPath.includes('?') ? '&' : '?';
@@ -1206,6 +1282,266 @@ async function handleCreate(req, res, supabase, tenantData) {
     environment: gc.getGocardlessEnvironment(),
     amount,
     currency,
+  });
+}
+
+async function handleCreateMonthlyDirectDebit({
+  req,
+  res,
+  supabase,
+  tenantData,
+  form,
+  submissionRow,
+  membershipMeta,
+  offer,
+  applicantEmail,
+  returnPath,
+  gc,
+}) {
+  const quote = membershipMeta?.quote;
+  if (!quote || quote.target !== 'member' || !offer) {
+    return res.status(400).json({
+      error: 'Monthly Direct Debit is not available for this membership',
+      code: 'MEMBERSHIP_DIRECT_DEBIT_NOT_ALLOWED',
+    });
+  }
+  if (submissionRow.payment_provider !== 'gocardless_monthly_dd'
+      || submissionRow.payment_status !== 'pending') {
+    return res.status(409).json({
+      error: 'This submission already has a different payment in progress',
+      code: 'PAYMENT_ALREADY_INITIATED',
+    });
+  }
+
+  const snapshot = {
+    ...buildAgreementSnapshot({
+      offer,
+      simResult: {
+        membershipYear: {
+          label: quote.membership_year,
+          start: quote.membership_year_start,
+        },
+        config: { id: quote.config_id },
+        matchedBand: quote.band_id ? { id: quote.band_id } : null,
+        tierLabel: quote.tier_label,
+        fieldValue: quote.field_value,
+        annualCost: quote.annual_cost,
+        finalCost: quote.final_cost,
+      },
+      includeBillingRequestPayment: false,
+      billingRequestMode: 'mandate_only',
+    }),
+    vat_rate_percent: quote.vat_rate_percent ?? null,
+    vat_amount: quote.vat_amount ?? 0,
+    total_with_vat: quote.total_with_vat ?? quote.final_cost,
+  };
+  const agreementKey = formMonthlyDirectDebitApplicantAgreementKey({
+    tenantId: tenantData.id,
+    email: applicantEmail,
+    membershipYear: quote.membership_year,
+  });
+  const replacementKey = monthlyConsentReplacementKey(agreementKey);
+
+  const { data: replacementAgreement, error: replacementError } = await supabase
+    .from('membership_billing_agreements')
+    .select('*')
+    .eq('tenant_id', tenantData.id)
+    .eq('idempotency_key', replacementKey)
+    .maybeSingle();
+  if (replacementError) {
+    console.error('[form-payment] Monthly-DD replacement agreement lookup failed:', replacementError.message);
+    return res.status(500).json({ error: 'Failed to prepare Direct Debit set-up' });
+  }
+
+  let agreement = replacementAgreement || null;
+  if (!agreement) {
+    const claim = await claimFormMonthlyDirectDebitApplicantAgreement(supabase, {
+      tenantId: tenantData.id,
+      submissionId: submissionRow.id,
+      applicantEmail,
+      membershipYear: quote.membership_year,
+      agreementKey,
+      environment: gc.getGocardlessEnvironment(),
+      ddSnapshot: snapshot,
+    });
+    if (claim.error) {
+      console.error('[form-payment] Monthly-DD applicant agreement claim failed:', claim.error.message);
+      return res.status(500).json({ error: 'Failed to prepare Direct Debit set-up' });
+    }
+    agreement = claim.data;
+  }
+
+  if (agreement.metadata?.form_submission_id !== String(submissionRow.id)) {
+    return res.status(409).json({
+      error: 'A monthly Direct Debit membership set-up is already in progress for this email and membership year.',
+      code: 'MEMBERSHIP_PAYMENT_IN_PROGRESS',
+    });
+  }
+
+  let consent = classifyMonthlyConsentAgreement(agreement);
+  if (consent.rotatable) {
+    try {
+      agreement = await rotateStaleMonthlyConsentAgreement({
+        db: supabase,
+        agreement,
+        replacementIdempotencyKey: replacementKey,
+        snapshot,
+        gc,
+      });
+      consent = classifyMonthlyConsentAgreement(agreement);
+    } catch (error) {
+      console.error('[form-payment] Monthly-DD stale consent rotation failed:', error.message);
+      return res.status(500).json({
+        error: 'Could not safely renew the Direct Debit set-up. Please try again.',
+      });
+    }
+  }
+  const savedFingerprint = monthlyBillingRequestFingerprint(agreement.metadata?.dd || {});
+  const currentFingerprint = monthlyBillingRequestFingerprint(snapshot);
+  if (savedFingerprint !== currentFingerprint) {
+    if (consent.kind !== 'current_unstarted') {
+      return res.status(409).json({
+        error: 'This Direct Debit set-up was prepared with different membership terms. Please start a new payment attempt.',
+        code: 'PAYMENT_ALREADY_INITIATED',
+      });
+    }
+    const { data: refreshedAgreement, error: refreshError } = await supabase
+      .from('membership_billing_agreements')
+      .update({
+        metadata: {
+          ...(agreement.metadata || {}),
+          dd: snapshot,
+        },
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', agreement.id)
+      .eq('status', 'payment_setup_required')
+      .is('gocardless_billing_request_id', null)
+      .select()
+      .maybeSingle();
+    if (refreshError || !refreshedAgreement) {
+      return res.status(409).json({
+        error: 'The membership terms changed while Direct Debit was being prepared. Please start a new payment attempt.',
+        code: 'PAYMENT_ALREADY_INITIATED',
+      });
+    }
+    agreement = refreshedAgreement;
+    consent = classifyMonthlyConsentAgreement(agreement);
+  }
+
+  if (consent.resumable) {
+    try {
+      submissionRow = await persistMonthlyDirectDebitLink(
+        supabase,
+        submissionRow,
+        offer,
+        agreement,
+      );
+    } catch (error) {
+      console.error('[form-payment] Monthly-DD continuation repair failed:', error.message);
+      return res.status(500).json({
+        error: 'Direct Debit set-up was prepared but could not be linked. Please try again.',
+      });
+    }
+    return res.status(200).json({
+      provider: 'gocardless',
+      submissionId: submissionRow.id,
+      authorisationUrl: agreement.redirect_url,
+      flowId: agreement.gocardless_billing_request_flow_id,
+      environment: agreement.environment || gc.getGocardlessEnvironment(),
+      amount: offer.monthlyAmount,
+      currency: offer.currency,
+      directDebit: offer,
+      resumed: true,
+    });
+  }
+
+  if (consent.kind !== 'current_unstarted') {
+    return res.status(409).json({
+      error: 'This monthly Direct Debit membership set-up has already progressed and cannot be restarted.',
+      code: 'PAYMENT_ALREADY_INITIATED',
+    });
+  }
+
+  const trustedBase = getTenantTrustedBaseUrl(req, tenantData);
+  const safeReturnPath = sanitizeReturnPath(returnPath);
+  const withParams = (entries) => {
+    const url = new URL(safeReturnPath, trustedBase);
+    for (const [key, value] of entries) url.searchParams.set(key, value);
+    return url.toString();
+  };
+
+  let billingRequest;
+  let flow;
+  try {
+    billingRequest = await gc.createBillingRequest({
+      idempotencyKey: buildIdempotencyKey(
+        'form-monthly-dd-br',
+        tenantData.id,
+        agreement.id,
+        quote.membership_year,
+        monthlyBillingRequestFingerprint(snapshot),
+      ),
+      ...buildMonthlyBillingRequest({
+        snapshot,
+        metadata: {
+          type: 'form_monthly_direct_debit',
+          kind: 'monthly_direct_debit',
+          tenant_id: String(tenantData.id),
+          agreement_id: String(agreement.id),
+          form_submission_id: String(submissionRow.id),
+          membership_year: String(quote.membership_year),
+        },
+      }),
+    });
+    flow = await gc.createBillingRequestFlow({
+      billingRequestId: billingRequest.id,
+      redirectUri: withParams([
+        ['form_payment_submission', submissionRow.id],
+        ['form_payment_provider', 'gocardless_monthly_dd'],
+      ]),
+      exitUri: withParams([
+        ['form_payment_submission', submissionRow.id],
+        ['form_payment_provider', 'gocardless_monthly_dd'],
+        ['form_payment_cancelled', '1'],
+      ]),
+      prefilledCustomer: {
+        email: applicantEmail,
+      },
+      idempotencyKey: buildIdempotencyKey(
+        'form-monthly-dd-flow',
+        agreement.id,
+        billingRequest.id,
+      ),
+    });
+    agreement = await attachMonthlyConsentFlow({
+      db: supabase,
+      agreement,
+      billingRequest,
+      flow,
+    });
+    submissionRow = await persistMonthlyDirectDebitLink(
+      supabase,
+      submissionRow,
+      offer,
+      agreement,
+    );
+  } catch (error) {
+    console.error('[form-payment] Monthly-DD Billing Request creation failed:', error);
+    return res.status(502).json({
+      error: 'Could not start Direct Debit set-up. Please try again.',
+    });
+  }
+
+  return res.status(200).json({
+    provider: 'gocardless',
+    submissionId: submissionRow.id,
+    authorisationUrl: agreement.redirect_url,
+    flowId: agreement.gocardless_billing_request_flow_id,
+    environment: agreement.environment || gc.getGocardlessEnvironment(),
+    amount: offer.monthlyAmount,
+    currency: offer.currency,
+    directDebit: offer,
   });
 }
 
@@ -1264,10 +1600,119 @@ async function handleConfirm(req, res, supabase, tenantData) {
     if (form) await finalizeFormSubmission({ supabase, submission: row, form, baseUrl });
     return res.status(200).json({ success: true, submissionId: row.id, status: 'paid' });
   }
-  const resumableMonthlySetup = row.payment_provider === 'stripe_monthly_card'
+  const resumableMonthlySetup = ['stripe_monthly_card', 'gocardless_monthly_dd'].includes(row.payment_provider)
     && row.payment_status === 'setup_complete';
   if (row.payment_status !== 'pending' && !resumableMonthlySetup) {
     return res.status(400).json({ error: 'This payment is no longer pending' });
+  }
+
+  if (row.payment_provider === 'gocardless_monthly_dd') {
+    const agreementId = row.payment_meta?.monthly_direct_debit?.agreement_id || null;
+    const { data: agreement, error: agreementError } = await findFormMonthlyDirectDebitAgreement(
+      supabase,
+      {
+        tenantId: tenantData.id,
+        submissionId: row.id,
+        agreementId,
+      },
+    );
+    const billingRequestId = row.payment_reference
+      || row.payment_meta?.monthly_direct_debit?.billing_request_id
+      || agreement?.gocardless_billing_request_id
+      || null;
+    if (agreementError || !agreement
+        || agreement.metadata?.form_submission_id !== String(row.id)
+        || !billingRequestId
+        || (agreement.gocardless_billing_request_id
+          && agreement.gocardless_billing_request_id !== billingRequestId)) {
+      return res.status(400).json({
+        error: 'Direct Debit request does not match this submission',
+      });
+    }
+    const gc = await gocardlessForTenant(tenantData.id);
+    if (!gc.isConfigured()) {
+      return res.status(400).json({ error: 'Direct Debit is not configured' });
+    }
+    const billingRequest = await gc.getBillingRequest(billingRequestId);
+    const billingRequestMeta = billingRequest?.metadata || {};
+    if (billingRequestMeta.type !== 'form_monthly_direct_debit'
+        || billingRequestMeta.form_submission_id !== String(row.id)
+        || billingRequestMeta.agreement_id !== String(agreement.id)) {
+      return res.status(400).json({
+        error: 'Direct Debit request does not match this submission',
+      });
+    }
+    if (billingRequest.status === 'fulfilled') {
+      const outcome = await processGocardlessEvent({
+        id: `form-confirm-${billingRequest.id}`,
+        resource_type: 'billing_requests',
+        action: 'fulfilled',
+        links: {
+          billing_request: billingRequest.id,
+          mandate_request_mandate: billingRequest.links?.mandate_request_mandate || null,
+          customer: billingRequest.links?.customer || null,
+          payment_request_payment: billingRequest.links?.payment_request_payment || null,
+        },
+      }, {
+        db: supabase,
+        gc,
+        baseUrl,
+      });
+      if (outcome.conflict) {
+        return res.status(409).json({
+          success: false,
+          error: outcome.detail || 'Membership for this year is already recorded.',
+          code: outcome.code || 'MEMBERSHIP_YEAR_CONFLICT',
+          submissionId: row.id,
+        });
+      }
+      if (outcome.blocked) {
+        return res.status(409).json({
+          success: false,
+          error: outcome.detail || 'The Direct Debit membership could not be finalized.',
+          code: outcome.code || 'MEMBERSHIP_SETUP_BLOCKED',
+          submissionId: row.id,
+        });
+      }
+      if (!outcome.handled || outcome.retryable) {
+        return res.status(200).json({
+          success: false,
+          pending: true,
+          submissionId: row.id,
+          status: 'finalizing',
+        });
+      }
+      return res.status(200).json({
+        success: true,
+        submissionId: row.id,
+        status: 'setup_complete',
+      });
+    }
+    if (billingRequest.status === 'cancelled' || billingRequest.status === 'failed') {
+      await supabase
+        .from('form_submission')
+        .update({ payment_status: 'failed' })
+        .eq('id', row.id)
+        .in('payment_status', ['pending', 'setup_complete']);
+      await supabase
+        .from('membership_billing_agreements')
+        .update({
+          needs_attention: true,
+          attention_reason: `Form Billing Request ${billingRequest.status}`,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', agreement.id);
+      return res.status(400).json({
+        error: 'The Direct Debit set-up was not completed',
+        code: 'PAYMENT_FAILED',
+      });
+    }
+    return res.status(200).json({
+      success: false,
+      pending: true,
+      submissionId: row.id,
+      status: billingRequest.status,
+    });
   }
 
   if (row.payment_provider === 'stripe_monthly_card') {
