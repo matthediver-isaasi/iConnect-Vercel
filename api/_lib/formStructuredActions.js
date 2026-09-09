@@ -5,7 +5,10 @@ import { createFormRelationshipService } from './formRelationshipOptions.js';
 import { coercePreferenceValueForStorage } from './preferenceValueStorage.js';
 import { repeatableRowChildren, isRepeatableRowEmpty } from '../../shared/formRepeatableRows.js';
 import { createHash } from 'node:crypto';
-import { validateCustomObjectRecordData } from './customObjectDomain.js';
+import {
+  resolveCustomObjectDisplayValue,
+  validateCustomObjectRecordData,
+} from './customObjectDomain.js';
 import { createCustomObjectService } from './customObjectService.js';
 import {
   addressLookupVisibleComponents,
@@ -128,6 +131,10 @@ const relationshipEndpoints = (action) => ({
   source: action?.source_endpoint,
   target: action?.target_endpoint,
 });
+const isResolvedRecordLabelsMapping = (mapping) => mapping?.source_type === 'resolved_record_labels';
+const resolvedRecordLabelSources = (mapping) => Array.isArray(mapping?.record_sources)
+  ? mapping.record_sources
+  : [];
 const organizationGroupSource = (action) => action?.organization_group_source || null;
 const endpointInput = (endpoint) => endpoint?.source || endpoint?.record_source || {};
 const endpointDescriptor = (endpoint) => ({
@@ -475,8 +482,36 @@ export function validateStructuredActionsContract(input, fields = []) {
       if (mappedTargets.has(mappedTargetKey) && !isExplicitFallbackMapping(mapping)) errors.push(`${mp} duplicates another target mapping`);
       else mappedTargets.add(mappedTargetKey);
       if (!targetField(mapping)) errors.push(`${mp}.target_field_id is required`);
-      if (!mapping?.source_field_id && !['static', 'clear'].includes(mapping?.source_type) && mapping?.static_value === undefined) {
+      if (!mapping?.source_field_id
+        && !['static', 'clear', 'resolved_record_labels'].includes(mapping?.source_type)
+        && mapping?.static_value === undefined) {
         errors.push(`${mp}.source_field_id is required`);
+      }
+      if (isResolvedRecordLabelsMapping(mapping)) {
+        if (entity !== 'custom_object' || action?.operation !== 'create') {
+          errors.push(`${mp}.resolved_record_labels is only supported for Custom Object create actions`);
+        }
+        const labelSources = resolvedRecordLabelSources(mapping);
+        if (labelSources.length < 1 || labelSources.length > 4) {
+          errors.push(`${mp}.record_sources must contain between one and four record sources`);
+        }
+        for (const [sourceIndex, input] of labelSources.entries()) {
+          const sp = `${mp}.record_sources[${sourceIndex}]`;
+          if (input?.type === 'primary_pipeline_output') {
+            if (!['member', 'organization'].includes(input.kind)) errors.push(`${sp}.kind must be member or organization`);
+          } else if (input?.type === 'action_output') {
+            const dependency = priorActions.get(String(input.action_id || ''));
+            if (!dependency || isRelationshipAction(dependency) || isMultiRecordReferenceAction(dependency)) {
+              errors.push(`${sp}.action_id must identify an earlier single-record action`);
+            } else if (dependency?.source?.scope !== action?.source?.scope
+              || (action?.source?.scope === 'repeatable_row'
+                && String(repeatableId(dependency)) !== String(repeatableId(action)))) {
+              errors.push(`${sp}.action_id must use the same top-level or repeatable-row scope`);
+            }
+          } else {
+            errors.push(`${sp}.type must be action_output or primary_pipeline_output`);
+          }
+        }
       }
       const sourceField = sourceFields.find(field => String(field?.id) === String(mapping?.source_field_id));
       if (mapping?.source_field_id && !sourceField) {
@@ -561,9 +596,11 @@ export function validateStructuredActionsContract(input, fields = []) {
   return { version, actions: contract.actions };
 }
 
-function sourceValue(mapping, values) {
+function sourceValue(mapping, values, resolvedValues = null) {
   let value = mapping.source_type === 'not_listed_text'
     ? values?.[FORM_NOT_LISTED_TEXT_KEY]?.[mapping.source_field_id]
+    : isResolvedRecordLabelsMapping(mapping)
+    ? resolvedValues?.get(String(mapping.id))
     : mapping.source_type === 'clear'
     ? '__clear__'
     : mapping.source_type === 'static' || mapping.static_value !== undefined
@@ -705,13 +742,19 @@ function primaryPipelineFor(pipelines) {
 }
 
 function primaryPipelineEndpointKinds(contract) {
-  return new Set(contract.actions.flatMap(action => (
-    isRelationshipAction(action)
+  return new Set(contract.actions.flatMap(action => {
+    const relationshipKinds = isRelationshipAction(action)
       ? Object.values(relationshipEndpoints(action))
         .filter(endpoint => endpointInput(endpoint).type === 'primary_pipeline_output')
         .map(endpoint => endpointDescriptor(endpoint).kind)
-      : []
-  )));
+      : [];
+    const labelKinds = actionMappings(action)
+      .filter(isResolvedRecordLabelsMapping)
+      .flatMap(resolvedRecordLabelSources)
+      .filter(input => input.type === 'primary_pipeline_output')
+      .map(input => input.kind);
+    return [...relationshipKinds, ...labelKinds];
+  }));
 }
 
 function assertPrimaryPipelineEndpointsConfigured(contract, form) {
@@ -1065,7 +1108,7 @@ export function mappedPayload(invocation, entity, preferenceFields) {
     invocation.values,
   );
   for (const mapping of mappings) {
-    const value = sourceValue(mapping, invocation.values);
+    const value = sourceValue(mapping, invocation.values, invocation.resolvedMappingValues);
     if (value === undefined) continue;
     const targetType = mapping.target_type || (entity === 'custom_object' ? 'custom' : 'core');
     if (targetType === 'custom') {
@@ -1286,6 +1329,88 @@ function appendActionOutput(actionOutputs, invocation, recordId, status = 'compl
   actionOutputs.set(key, current);
 }
 
+function resolvedLabelRecordReference(input, invocation, actionOutputs, primaryRecords) {
+  if (input.type === 'primary_pipeline_output') {
+    return {
+      kind: input.kind,
+      customObjectId: null,
+      recordId: input.kind === 'member' ? primaryRecords.memberId : primaryRecords.organizationId,
+    };
+  }
+  const dependencyAction = invocation.contractActions?.find(action => String(action.id) === String(input.action_id));
+  const dependency = actionOutputs.get(relationshipOutputKey(String(input.action_id), invocation));
+  return {
+    kind: entityName(dependencyAction),
+    customObjectId: actionObjectId(dependencyAction),
+    recordId: dependency?.recordId,
+  };
+}
+
+async function loadCanonicalRecordLabel(db, tenantId, reference) {
+  if (!reference?.recordId) throw new StructuredActionContractError('Resolved record label source did not complete with a record');
+  if (reference.kind === 'member') {
+    const { data, error } = await db.from('member').select('id, first_name, last_name, email')
+      .eq('tenant_id', tenantId).eq('id', reference.recordId).maybeSingle();
+    if (error) throw error;
+    if (!data) throw new StructuredActionContractError('Resolved Member label source is unavailable or cross-tenant');
+    return [data.first_name, data.last_name].filter(Boolean).join(' ').trim() || data.email || data.id;
+  }
+  if (['organization', 'organization_group'].includes(reference.kind)) {
+    const { data, error } = await db.from(TABLES[reference.kind]).select('id, name')
+      .eq('tenant_id', tenantId).eq('id', reference.recordId).maybeSingle();
+    if (error) throw error;
+    if (!data) throw new StructuredActionContractError('Resolved record label source is unavailable or cross-tenant');
+    return String(data.name || '').trim() || data.id;
+  }
+  if (reference.kind === 'custom_object') {
+    const { data: definition, error: definitionError } = await db.from('custom_object_definition')
+      .select('id, primary_display_field_id').eq('tenant_id', tenantId)
+      .eq('id', reference.customObjectId).eq('status', 'active').is('archived_at', null).maybeSingle();
+    if (definitionError) throw definitionError;
+    const { data: field, error: fieldError } = await db.from('preference_field')
+      .select('id, custom_object_id, name, label, field_type, options, is_active')
+      .eq('tenant_id', tenantId).eq('id', definition?.primary_display_field_id)
+      .eq('entity_scope', 'custom_object').eq('is_active', true).maybeSingle();
+    if (fieldError) throw fieldError;
+    const { data, error } = await db.from('custom_object_record').select('id, data')
+      .eq('tenant_id', tenantId).eq('custom_object_id', reference.customObjectId)
+      .eq('id', reference.recordId).is('archived_at', null).maybeSingle();
+    if (error) throw error;
+    if (!definition || !field || String(field.custom_object_id) !== String(definition.id) || !data) {
+      throw new StructuredActionContractError('Resolved Custom Object label source is unavailable or cross-tenant');
+    }
+    const label = resolveCustomObjectDisplayValue({
+      objectDefinition: definition,
+      record: data,
+      fields: [field],
+    });
+    if (!label || String(label) === String(data.id)) {
+      throw new StructuredActionContractError('Resolved Custom Object label source has no canonical display value');
+    }
+    return String(label).trim();
+  }
+  throw new StructuredActionContractError('Resolved record label source has an unsupported record type');
+}
+
+async function resolveMappingValues(db, tenantId, invocation, actionOutputs, primaryRecords) {
+  const values = new Map();
+  for (const mapping of actionMappings(invocation.action).filter(isResolvedRecordLabelsMapping)) {
+    const labels = [];
+    for (const input of resolvedRecordLabelSources(mapping)) {
+      labels.push(await loadCanonicalRecordLabel(
+        db,
+        tenantId,
+        resolvedLabelRecordReference(input, invocation, actionOutputs, primaryRecords),
+      ));
+    }
+    const separator = typeof mapping.separator === 'string' && mapping.separator.length <= 10
+      ? mapping.separator
+      : ' - ';
+    values.set(String(mapping.id), labels.map(label => label.trim()).filter(Boolean).join(separator).slice(0, 500));
+  }
+  return values;
+}
+
 function invocationFingerprintValues(invocation, actionOutputs = new Map(), primaryRecords = {}) {
   if (isMultiRecordReferenceAction(invocation.action)) {
     const item = invocation.recordReferenceItemIdentity;
@@ -1299,14 +1424,26 @@ function invocationFingerprintValues(invocation, actionOutputs = new Map(), prim
     };
   }
   if (!isRelationshipAction(invocation.action)) {
+    const resolvedLabelInputs = actionMappings(invocation.action)
+      .filter(isResolvedRecordLabelsMapping)
+      .map(mapping => ({
+        mapping_id: mapping.id,
+        records: resolvedRecordLabelSources(mapping).map(input => {
+          const reference = resolvedLabelRecordReference(input, invocation, actionOutputs, primaryRecords);
+          return { kind: reference.kind, custom_object_id: reference.customObjectId, record_id: reference.recordId };
+        }),
+      }));
     const input = organizationGroupSource(invocation.action);
     if (input?.type === 'field' && endpointFieldScope(invocation.action, input) === 'form') {
       return {
         row: invocation.values,
         form_organization_group: invocation.rootValues?.[input.field_id],
+        resolved_label_inputs: resolvedLabelInputs,
       };
     }
-    return invocation.values;
+    return resolvedLabelInputs.length
+      ? { row: invocation.values, resolved_label_inputs: resolvedLabelInputs }
+      : invocation.values;
   }
   const hasCollectionDependency = Object.values(relationshipEndpoints(invocation.action))
     .map(endpointInput)
@@ -1450,20 +1587,27 @@ function organizationGroupRecordId(invocation, actionOutputs) {
 function assertInvocationDependenciesComplete(invocation, actionOutputs, primaryRecords = {}) {
   const dependencies = isRelationshipAction(invocation.action)
     ? Object.values(relationshipEndpoints(invocation.action)).map(endpointInput)
-    : [organizationGroupSource(invocation.action)].filter(Boolean);
+    : [
+        organizationGroupSource(invocation.action),
+        ...actionMappings(invocation.action)
+          .filter(isResolvedRecordLabelsMapping)
+          .flatMap(resolvedRecordLabelSources),
+      ].filter(Boolean);
   for (const input of dependencies) {
     if (input?.type === 'primary_pipeline_output') {
-      const endpoint = Object.values(relationshipEndpoints(invocation.action))
-        .find(candidate => endpointInput(candidate) === input);
-      const descriptor = endpointDescriptor(endpoint);
-      const recordId = descriptor.kind === 'member'
+      const endpoint = isRelationshipAction(invocation.action)
+        ? Object.values(relationshipEndpoints(invocation.action))
+          .find(candidate => endpointInput(candidate) === input)
+        : null;
+      const kind = input.kind || endpointDescriptor(endpoint).kind;
+      const recordId = kind === 'member'
         ? primaryRecords.memberId
-        : descriptor.kind === 'organization'
+        : kind === 'organization'
           ? primaryRecords.organizationId
           : null;
       if (!recordId) {
         const error = new StructuredActionContractError(
-          `Action is waiting for the primary ${descriptor.kind} pipeline result`,
+          `Action is waiting for the primary ${kind} pipeline result`,
         );
         error.code = 'PRIMARY_PIPELINE_OUTPUT_UNAVAILABLE';
         throw error;
@@ -1603,7 +1747,18 @@ async function executeInvocation(
   const payloadAction = isRecordReferenceAction(action)
     ? { ...effectiveAction, mappings: actionMappings(action) }
     : effectiveAction;
-  const payload = mappedPayload({ ...invocation, action: payloadAction }, entity, preferenceFields);
+  const resolvedMappingValues = await resolveMappingValues(
+    db,
+    tenantId,
+    invocation,
+    actionOutputs,
+    invocation.primaryRecords || {},
+  );
+  const payload = mappedPayload({
+    ...invocation,
+    action: payloadAction,
+    resolvedMappingValues,
+  }, entity, preferenceFields);
   let trustedCustomObjectService = null;
   if (isRecordReferenceAction(action)) {
     recordReferenceTargetAdapter(action).assertWritable({ action, preferenceFields, tenantId, payload });
@@ -1945,6 +2100,8 @@ export async function processPersistedStructuredActions({
     actionOutputs.get(key).itemStatuses.set(invocation.recordReferenceItemIdentity, 'pending');
   }
   for (const invocation of invocations) {
+    invocation.contractActions = contract.actions;
+    invocation.primaryRecords = primaryRecords;
     if (missingPrimaryKinds.length) {
       const blocked = {
         invocation_key: invocation.invocationKey,

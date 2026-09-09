@@ -63,6 +63,7 @@ import {
   structuredEndpointReferenceValue,
   structuredRelationshipEndpointOptions,
 } from "@/lib/structuredRelationshipActions";
+import { applyStructuredMappingSourceSelection } from "@/lib/structuredActionMappings";
 import {
   configuredOrganizationFilterOptions,
   mergeOrganizationFilterOptions,
@@ -786,6 +787,34 @@ const structuredMappingSourceLabel = (field, mapping) => {
   const component = ADDRESS_LOOKUP_COMPONENTS.find(item => item.value === mapping?.source_component);
   return component ? `${field.label || field.id} — ${component.label}` : (field.label || field.id);
 };
+const resolvedRecordLabelOptionValue = (source) => {
+  if (source?.type === 'primary_pipeline_output' && source.kind) return `label:primary:${source.kind}`;
+  if (source?.type === 'action_output' && source.action_id) return `label:action:${source.action_id}`;
+  return '';
+};
+const isResolvedRecordLabelsMapping = (mapping) => mapping?.source_type === 'resolved_record_labels';
+
+function resolvedRecordLabelOptions(actions, actionIndex, action, entityPipelines) {
+  const options = [];
+  if ((entityPipelines?.members || []).length) {
+    options.push({ value: 'label:primary:member', label: 'Resolved name: Primary Member', source: { type: 'primary_pipeline_output', kind: 'member' } });
+  }
+  if ((entityPipelines?.organisations || []).length) {
+    options.push({ value: 'label:primary:organization', label: 'Resolved name: Primary Organisation', source: { type: 'primary_pipeline_output', kind: 'organization' } });
+  }
+  for (const candidate of actions.slice(0, actionIndex)) {
+    if (candidate.operation === 'link_relationship' || candidate.operation === RESOLVE_RECORD_REFERENCES_OPERATION) continue;
+    if (candidate.source?.scope !== action.source?.scope) continue;
+    if (action.source?.scope === 'repeatable_row'
+      && candidate.source?.repeatable_field_id !== action.source?.repeatable_field_id) continue;
+    options.push({
+      value: `label:action:${candidate.id}`,
+      label: `Resolved name: ${candidate.label || candidate.id}`,
+      source: { type: 'action_output', action_id: candidate.id },
+    });
+  }
+  return options;
+}
 const structuredUpsertFields = (action, fields) => {
   const kind = action?.target?.kind;
   if (kind === 'member') return fields.filter(field => field.target_type === 'core' && field.value === 'email');
@@ -1258,6 +1287,9 @@ function StructuredRecordActionsEditor({
         const displayedMappings = isResolver
           ? (action.companion_mappings || [])
           : (action.mappings || []);
+        const recordLabelOptions = action.target?.kind === 'custom_object' && action.operation === 'create'
+          ? resolvedRecordLabelOptions(actions, actionIndex, action, entityPipelines)
+          : [];
         const mappingUpdates = (mappings) => isResolver
           ? { mappings, companion_mappings: mappings }
           : { mappings };
@@ -1442,7 +1474,7 @@ function StructuredRecordActionsEditor({
             )}
             <div className="space-y-2">
               <div className="flex justify-between items-center"><Label className="text-xs font-semibold">{isResolver ? 'Companion field mappings' : 'Field mappings'}</Label>
-                <Button type="button" variant="outline" size="sm" disabled={!sourceFields.length || !targetFields.length} onClick={() => {
+                <Button type="button" variant="outline" size="sm" disabled={(!sourceFields.length && !recordLabelOptions.length) || !targetFields.length} onClick={() => {
                   const mappings = [...displayedMappings, { id: `mapping_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`, source_field_id: '', target_field_id: '', target_type: 'core' }];
                   updateAction(actionIndex, mappingUpdates(mappings));
                 }}><Plus className="w-3 h-3 mr-1" />Mapping</Button>
@@ -1450,26 +1482,57 @@ function StructuredRecordActionsEditor({
               {displayedMappings.map((mapping, mappingIndex) => (
                 <div className="grid grid-cols-[1fr_auto_1fr_auto] gap-2 items-center" key={mapping.id || mappingIndex}>
                   <div className="space-y-2">
-                    <Select disabled={mapping.source_type === 'clear'} value={mapping.source_field_id || ''} onValueChange={source_field_id => {
+                    <Select disabled={mapping.source_type === 'clear'} value={
+                      isResolvedRecordLabelsMapping(mapping)
+                        ? resolvedRecordLabelOptionValue(mapping.record_sources?.[0] || {})
+                        : mapping.source_type === 'static'
+                        ? 'static'
+                        : mapping.source_field_id || ''
+                    } onValueChange={source_field_id => {
+                       const recordLabelOption = recordLabelOptions.find(option => option.value === source_field_id);
                       const selectedField = sourceFields.find(source => source.id === source_field_id);
                       const firstComponent = selectedField?.type === 'address_lookup'
-                        ? addressLookupVisibleComponents(selectedField)[0] || null
-                        : null;
+                        ? addressLookupVisibleComponents(selectedField)[0] || undefined
+                        : undefined;
                        const mappings = [...displayedMappings];
-                      mappings[mappingIndex] = {
-                        ...mapping,
-                        source_field_id,
-                        source_component: firstComponent,
-                        target_field_id: '',
-                        target_type: 'core',
-                      };
+                      mappings[mappingIndex] = applyStructuredMappingSourceSelection({
+                        mapping,
+                        sourceFieldId: source_field_id,
+                        addressComponent: firstComponent,
+                        resolvedRecordSource: recordLabelOption?.source || null,
+                      });
                        updateAction(actionIndex, mappingUpdates(mappings));
-                    }}><SelectTrigger><SelectValue placeholder={mapping.source_type === 'clear' ? 'Explicit clear' : 'Source field…'} /></SelectTrigger><SelectContent>{sourceFields.filter(source => {
+                    }}><SelectTrigger><SelectValue placeholder={mapping.source_type === 'clear' ? 'Explicit clear' : 'Source field or resolved name…'} /></SelectTrigger><SelectContent><SelectItem value="static">Static value</SelectItem>{recordLabelOptions.map(option => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}{sourceFields.filter(source => {
                       const candidates = source.type === 'address_lookup'
                         ? addressLookupVisibleComponents(source).map(component => ({ ...source, type: 'text', source_component: component }))
                         : [source];
                       return candidates.some(candidate => targetFields.some(target => isCompatibleStructuredMapping(candidate, target)));
                     }).map(field => <SelectItem key={field.id} value={field.id}>{structuredMappingSourceLabel(field, mapping)}</SelectItem>)}</SelectContent></Select>
+                    {mapping.source_type === 'static' && (
+                      <Input value={mapping.static_value ?? ''} placeholder="Static value…" onChange={event => {
+                        const mappings = [...displayedMappings];
+                        mappings[mappingIndex] = { ...mapping, static_value: event.target.value };
+                        updateAction(actionIndex, mappingUpdates(mappings));
+                      }} />
+                    )}
+                    {isResolvedRecordLabelsMapping(mapping) && (
+                      <Select value={resolvedRecordLabelOptionValue(mapping.record_sources?.[1] || {}) || 'none'} onValueChange={value => {
+                        const option = recordLabelOptions.find(item => item.value === value);
+                        const mappings = [...displayedMappings];
+                        mappings[mappingIndex] = {
+                          ...mapping,
+                          record_sources: value === 'none'
+                            ? [mapping.record_sources[0]]
+                            : [mapping.record_sources[0], option.source],
+                        };
+                        updateAction(actionIndex, mappingUpdates(mappings));
+                      }}>
+                        <SelectTrigger><SelectValue placeholder="Add second resolved name…" /></SelectTrigger>
+                        <SelectContent><SelectItem value="none">No second resolved name</SelectItem>{recordLabelOptions
+                          .filter(option => option.value !== resolvedRecordLabelOptionValue(mapping.record_sources?.[0] || {}))
+                          .map(option => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}</SelectContent>
+                      </Select>
+                    )}
                     {sourceFields.find(source => source.id === mapping.source_field_id)?.type === 'address_lookup' && (
                       <Select value={mapping.source_component || ''} onValueChange={source_component => {
                          const mappings = [...displayedMappings];
@@ -1484,7 +1547,7 @@ function StructuredRecordActionsEditor({
                     )}
                   </div>
                   <ArrowRight className="w-4 h-4 text-slate-400" />
-                   <Select value={mapping.target_field_id || ''} onValueChange={target_field_id => { const selected = targetFields.find(field => field.value === target_field_id); const mappings = [...displayedMappings]; mappings[mappingIndex] = { ...mapping, target_field_id, target_type: selected?.target_type || 'custom' }; updateAction(actionIndex, mappingUpdates(mappings)); }}><SelectTrigger><SelectValue placeholder="Target field…" /></SelectTrigger><SelectContent>{targetFields.filter(field => isCompatibleStructuredMapping(structuredMappingSource(sourceFields.find(source => source.id === mapping.source_field_id), mapping), field)).map(field => <SelectItem key={`${field.target_type}:${field.value}`} value={field.value}>{field.target_type === 'custom' ? 'Custom: ' : ''}{field.label}</SelectItem>)}</SelectContent></Select>
+                   <Select value={mapping.target_field_id || ''} onValueChange={target_field_id => { const selected = targetFields.find(field => field.value === target_field_id); const mappings = [...displayedMappings]; mappings[mappingIndex] = { ...mapping, target_field_id, target_type: selected?.target_type || 'custom' }; updateAction(actionIndex, mappingUpdates(mappings)); }}><SelectTrigger><SelectValue placeholder="Target field…" /></SelectTrigger><SelectContent>{targetFields.filter(field => ['static', 'resolved_record_labels'].includes(mapping.source_type) ? field.type === 'text' : isCompatibleStructuredMapping(structuredMappingSource(sourceFields.find(source => source.id === mapping.source_field_id), mapping), field)).map(field => <SelectItem key={`${field.target_type}:${field.value}`} value={field.value}>{field.target_type === 'custom' ? 'Custom: ' : ''}{field.label}</SelectItem>)}</SelectContent></Select>
                    <Button type="button" variant="ghost" size="icon" className="text-red-500" onClick={() => updateAction(actionIndex, mappingUpdates(displayedMappings.filter((_, index) => index !== mappingIndex)))}><Trash2 className="w-4 h-4" /></Button>
                   <div className="col-span-4 flex flex-wrap items-center justify-between gap-2 border-t pt-2">
                     <div className="flex items-center gap-2">
@@ -11072,7 +11135,27 @@ export default function FormBuilderPage() {
           return;
         }
         mappingIds.add(mapping.id);
-        if (mapping.source_type !== 'clear' && !sourceFields.some(field => field.id === mapping.source_field_id)) {
+        if (isResolvedRecordLabelsMapping(mapping)) {
+          if (action.target.kind !== 'custom_object' || action.operation !== 'create') {
+            toast.error(`${actionName}, mapping ${mappingIndex + 1}, can only use resolved names when creating a Custom Object record.`);
+            return;
+          }
+          const availableLabelSources = new Set(
+            resolvedRecordLabelOptions(
+              structuredActions,
+              index,
+              action,
+              formData.entity_pipelines,
+            ).map(option => option.value),
+          );
+          if (!Array.isArray(mapping.record_sources)
+            || mapping.record_sources.length === 0
+            || mapping.record_sources.some(source => !availableLabelSources.has(resolvedRecordLabelOptionValue(source)))) {
+            toast.error(`${actionName}, mapping ${mappingIndex + 1}, needs valid resolved record names from an earlier action or primary pipeline.`);
+            return;
+          }
+        }
+        if (!['clear', 'static', 'resolved_record_labels'].includes(mapping.source_type) && !sourceFields.some(field => field.id === mapping.source_field_id)) {
           toast.error(`${actionName}, mapping ${mappingIndex + 1}, needs a source field from its selected scope.`);
           return;
         }
@@ -11087,7 +11170,7 @@ export default function FormBuilderPage() {
           toast.error(`${actionName}, mapping ${mappingIndex + 1}, needs an active supported target field.`);
           return;
         }
-        const source = mapping.source_type === 'clear' ? { type: 'text' } : structuredMappingSource(
+        const source = ['clear', 'static', 'resolved_record_labels'].includes(mapping.source_type) ? { type: 'text' } : structuredMappingSource(
           sourceFields.find(field => field.id === mapping.source_field_id),
           mapping,
         );

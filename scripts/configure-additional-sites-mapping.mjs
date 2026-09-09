@@ -26,7 +26,14 @@ const ORGANIZATION_FIELD_ID = 'row_field_1788674468526_amaga';
 const DEPARTMENT_FIELD_ID = 'row_field_1788674529062_so7ep';
 const DEPARTMENT_OBJECT_ID = 'cd1ebfd3-3e16-4091-be5a-99992d926f2f';
 const DEPARTMENT_IDENTITY_FIELD_ID = '35e4f2dd-6f22-4875-8d2f-4ffb05b1980f';
-const RELATIONSHIP_ID = '30ad9dde-4b4e-4991-a7a4-8ef2b6b5138e';
+const ASSIGNMENT_OBJECT_ID = '1c1cdab9-5128-4e3d-b09e-b97088ae69ba';
+const ASSIGNMENT_NAME_FIELD_ID = '26466f9a-57d3-467f-a3c9-f5adadc29fa2';
+const RELATIONSHIP_IDS = Object.freeze({
+  organizationDepartment: '30ad9dde-4b4e-4991-a7a4-8ef2b6b5138e',
+  assignmentOrganization: '184b26ff-c918-4162-98c4-1e16fde737ad',
+  assignmentMember: '601544ca-9db9-498e-bd03-0af5e2c2e8a0',
+  departmentMember: '0fdede92-efa2-4d84-9b16-df1a88069486',
+});
 const VERIFICATION_PATH = path.resolve(
   'verification/configure-additional-sites-mapping.json',
 );
@@ -34,7 +41,11 @@ const VERIFICATION_PATH = path.resolve(
 const ACTION_IDS = Object.freeze({
   organization: 'additional_sites_resolve_organization',
   department: 'additional_sites_resolve_department',
-  relationship: 'additional_sites_link_organization_department',
+  organizationDepartment: 'additional_sites_link_organization_department',
+  assignment: 'additional_sites_create_member_organization_assignment',
+  assignmentOrganization: 'additional_sites_link_assignment_organization',
+  assignmentMember: 'additional_sites_link_assignment_member',
+  departmentMember: 'additional_sites_link_department_member',
 });
 const MANAGED_ACTION_IDS = new Set(Object.values(ACTION_IDS));
 
@@ -70,8 +81,12 @@ function isManagedSemanticAction(action) {
     return [ORGANIZATION_FIELD_ID, DEPARTMENT_FIELD_ID]
       .includes(String(action.reference_field_id || action.record_reference_field_id || ''));
   }
+  if (action.operation === 'create') {
+    return action.target?.kind === 'custom_object'
+      && String(action.target?.custom_object_id || '') === ASSIGNMENT_OBJECT_ID;
+  }
   return action.operation === 'link_relationship'
-    && String(action.relationship_definition_id || '') === RELATIONSHIP_ID;
+    && Object.values(RELATIONSHIP_IDS).includes(String(action.relationship_definition_id || ''));
 }
 
 function desiredActions() {
@@ -122,11 +137,11 @@ function desiredActions() {
       mappings: [],
     },
     {
-      id: ACTION_IDS.relationship,
+      id: ACTION_IDS.organizationDepartment,
       label: 'Link additional Organisation and Department',
       source,
       operation: 'link_relationship',
-      relationship_definition_id: RELATIONSHIP_ID,
+      relationship_definition_id: RELATIONSHIP_IDS.organizationDepartment,
       source_endpoint: {
         kind: 'custom_object',
         custom_object_id: DEPARTMENT_OBJECT_ID,
@@ -135,6 +150,78 @@ function desiredActions() {
       target_endpoint: {
         kind: 'organization',
         source: { type: 'action_output', action_id: ACTION_IDS.organization },
+      },
+      mappings: [],
+    },
+    {
+      id: ACTION_IDS.assignment,
+      label: 'Create secondary Organisation assignment',
+      source,
+      target: {
+        kind: 'custom_object',
+        custom_object_id: ASSIGNMENT_OBJECT_ID,
+      },
+      operation: 'create',
+      mappings: [{
+        id: 'additional_sites_assignment_name',
+        source_type: 'resolved_record_labels',
+        record_sources: [
+          { type: 'primary_pipeline_output', kind: 'member' },
+          { type: 'action_output', action_id: ACTION_IDS.organization },
+        ],
+        separator: ' - ',
+        target_type: 'custom',
+        target_field_id: ASSIGNMENT_NAME_FIELD_ID,
+      }],
+    },
+    {
+      id: ACTION_IDS.assignmentOrganization,
+      label: 'Link assignment to secondary Organisation',
+      source,
+      operation: 'link_relationship',
+      relationship_definition_id: RELATIONSHIP_IDS.assignmentOrganization,
+      source_endpoint: {
+        kind: 'custom_object',
+        custom_object_id: ASSIGNMENT_OBJECT_ID,
+        source: { type: 'action_output', action_id: ACTION_IDS.assignment },
+      },
+      target_endpoint: {
+        kind: 'organization',
+        source: { type: 'action_output', action_id: ACTION_IDS.organization },
+      },
+      mappings: [],
+    },
+    {
+      id: ACTION_IDS.assignmentMember,
+      label: 'Link assignment to member',
+      source,
+      operation: 'link_relationship',
+      relationship_definition_id: RELATIONSHIP_IDS.assignmentMember,
+      source_endpoint: {
+        kind: 'custom_object',
+        custom_object_id: ASSIGNMENT_OBJECT_ID,
+        source: { type: 'action_output', action_id: ACTION_IDS.assignment },
+      },
+      target_endpoint: {
+        kind: 'member',
+        source: { type: 'primary_pipeline_output' },
+      },
+      mappings: [],
+    },
+    {
+      id: ACTION_IDS.departmentMember,
+      label: 'Link secondary Department to member',
+      source,
+      operation: 'link_relationship',
+      relationship_definition_id: RELATIONSHIP_IDS.departmentMember,
+      source_endpoint: {
+        kind: 'custom_object',
+        custom_object_id: DEPARTMENT_OBJECT_ID,
+        source: { type: 'action_output', action_id: ACTION_IDS.department },
+      },
+      target_endpoint: {
+        kind: 'member',
+        source: { type: 'primary_pipeline_output' },
       },
       mappings: [],
     },
@@ -154,13 +241,13 @@ async function loadMetadata(db) {
   const [objectResult, fieldResult, relationshipResult] = await Promise.all([
     db.from('custom_object_definition').select(
       'id,object_key,singular_label,plural_label,primary_display_field_id,status,archived_at',
-    ).eq('tenant_id', form.tenant_id).eq('id', DEPARTMENT_OBJECT_ID),
+    ).eq('tenant_id', form.tenant_id).in('id', [DEPARTMENT_OBJECT_ID, ASSIGNMENT_OBJECT_ID]),
     db.from('preference_field').select(
       'id,name,label,field_type,entity_scope,custom_object_id,is_active',
-    ).eq('tenant_id', form.tenant_id).eq('id', DEPARTMENT_IDENTITY_FIELD_ID),
+    ).eq('tenant_id', form.tenant_id).in('id', [DEPARTMENT_IDENTITY_FIELD_ID, ASSIGNMENT_NAME_FIELD_ID]),
     db.from('custom_object_relationship_definition').select(
       'id,relationship_key,source_kind,source_custom_object_id,target_kind,target_custom_object_id,cardinality,source_label,target_label,status',
-    ).eq('tenant_id', form.tenant_id).eq('id', RELATIONSHIP_ID),
+    ).eq('tenant_id', form.tenant_id).in('id', Object.values(RELATIONSHIP_IDS)),
   ]);
   if (objectResult.error) throw objectResult.error;
   if (fieldResult.error) throw fieldResult.error;
@@ -168,13 +255,13 @@ async function loadMetadata(db) {
 
   return {
     form,
-    object: requireSingle(objectResult.data, 'Department object'),
-    identityField: requireSingle(fieldResult.data, 'Department identity field'),
-    relationship: requireSingle(relationshipResult.data, 'Organisation/Department relationship'),
+    objects: new Map((objectResult.data || []).map(object => [String(object.id), object])),
+    fields: new Map((fieldResult.data || []).map(field => [String(field.id), field])),
+    relationships: new Map((relationshipResult.data || []).map(relationship => [String(relationship.id), relationship])),
   };
 }
 
-function validateMetadata({ form, object, identityField, relationship }) {
+function validateMetadata({ form, objects, fields, relationships }) {
   const repeatable = (form.fields || []).find(
     field => String(field?.id) === REPEATABLE_FIELD_ID,
   );
@@ -207,29 +294,52 @@ function validateMetadata({ form, object, identityField, relationship }) {
     fail('Department picker must be single-select');
   }
   if (String(department.parent_field_id || '') !== ORGANIZATION_FIELD_ID
-      || String(department.relationship_definition_id || '') !== RELATIONSHIP_ID) {
+      || String(department.relationship_definition_id || '') !== RELATIONSHIP_IDS.organizationDepartment) {
     fail('Department picker no longer depends on the expected same-row Organisation relationship');
   }
-  if (object.status !== 'active' || object.archived_at
-      || String(object.primary_display_field_id) !== DEPARTMENT_IDENTITY_FIELD_ID) {
-    fail('Department object or primary display field is no longer active and compatible');
+  for (const [label, objectId, fieldId] of [
+    ['Department', DEPARTMENT_OBJECT_ID, DEPARTMENT_IDENTITY_FIELD_ID],
+    ['Assignment', ASSIGNMENT_OBJECT_ID, ASSIGNMENT_NAME_FIELD_ID],
+  ]) {
+    const object = objects.get(objectId);
+    const field = fields.get(fieldId);
+    if (!object || object.status !== 'active' || object.archived_at
+        || String(object.primary_display_field_id) !== fieldId) {
+      fail(`${label} object or primary display field is no longer active and compatible`);
+    }
+    if (!field || field.is_active !== true
+        || field.entity_scope !== 'custom_object'
+        || field.field_type !== 'text'
+        || String(field.custom_object_id) !== objectId) {
+      fail(`${label} identity field is no longer an active text field on the target object`);
+    }
   }
-  if (identityField.is_active !== true
-      || identityField.entity_scope !== 'custom_object'
-      || identityField.field_type !== 'text'
-      || String(identityField.custom_object_id) !== DEPARTMENT_OBJECT_ID) {
-    fail('Department identity field is no longer an active text field on the target object');
+  const expectedRelationships = [
+    [RELATIONSHIP_IDS.organizationDepartment, DEPARTMENT_OBJECT_ID, 'organization', 'many_to_one'],
+    [RELATIONSHIP_IDS.assignmentOrganization, ASSIGNMENT_OBJECT_ID, 'organization', 'many_to_one'],
+    [RELATIONSHIP_IDS.assignmentMember, ASSIGNMENT_OBJECT_ID, 'member', 'many_to_one'],
+    [RELATIONSHIP_IDS.departmentMember, DEPARTMENT_OBJECT_ID, 'member', 'many_to_many'],
+  ];
+  for (const [relationshipId, customObjectId, targetKind, cardinality] of expectedRelationships) {
+    const relationship = relationships.get(relationshipId);
+    const matches = relationship?.status === 'active'
+      && relationship.source_kind === 'custom_object'
+      && String(relationship.source_custom_object_id) === customObjectId
+      && relationship.target_kind === targetKind
+      && relationship.target_custom_object_id == null
+      && relationship.cardinality === cardinality;
+    if (!matches) fail(`active ${targetKind} relationship ${relationshipId} has drifted`);
   }
-  const relationshipMatches = relationship.status === 'active'
-    && relationship.cardinality === 'many_to_one'
-    && relationship.source_kind === 'custom_object'
-    && String(relationship.source_custom_object_id) === DEPARTMENT_OBJECT_ID
-    && relationship.target_kind === 'organization'
-    && relationship.target_custom_object_id == null;
-  if (!relationshipMatches) {
-    fail('active relationship endpoints or cardinality have drifted');
-  }
-  return { repeatable, organization, department };
+  return {
+    repeatable,
+    organization,
+    department,
+    departmentObject: objects.get(DEPARTMENT_OBJECT_ID),
+    departmentIdentityField: fields.get(DEPARTMENT_IDENTITY_FIELD_ID),
+    assignmentObject: objects.get(ASSIGNMENT_OBJECT_ID),
+    assignmentNameField: fields.get(ASSIGNMENT_NAME_FIELD_ID),
+    relationships,
+  };
 }
 
 function reconcileActions(form) {
@@ -284,9 +394,14 @@ async function main() {
   validateStructuredActionsContract(reloaded.form.structured_actions, reloaded.form.fields);
   const savedActions = reloaded.form.structured_actions.actions || [];
   const managed = savedActions.filter(action => MANAGED_ACTION_IDS.has(String(action.id)));
-  if (managed.length !== 3
+  if (managed.length !== Object.keys(ACTION_IDS).length
       || managed.map(action => action.id).join('|') !== Object.values(ACTION_IDS).join('|')) {
     fail('saved managed action order does not match the expected resolver/link sequence');
+  }
+  const savedAssignment = managed.find(action => action.id === ACTION_IDS.assignment);
+  const desiredAssignment = desiredActions().find(action => action.id === ACTION_IDS.assignment);
+  if (!structurallyEqual(savedAssignment?.mappings, desiredAssignment.mappings)) {
+    fail('saved assignment display mapping does not use the canonical Member and Organisation labels');
   }
   if (JSON.stringify(reloaded.form.fields) !== beforeFields) {
     fail('form fields changed during the configuration update');
@@ -311,22 +426,51 @@ async function main() {
         id: verified.department.id,
         label: verified.department.label,
         target: 'custom_object',
-        custom_object_id: reloaded.object.id,
+        custom_object_id: verified.departmentObject.id,
       },
     ],
     target_object: {
-      id: reloaded.object.id,
-      key: reloaded.object.object_key,
-      label: reloaded.object.singular_label,
-      identity_field_id: reloaded.identityField.id,
-      identity_field_label: reloaded.identityField.label,
+      id: verified.departmentObject.id,
+      key: verified.departmentObject.object_key,
+      label: verified.departmentObject.singular_label,
+      identity_field_id: verified.departmentIdentityField.id,
+      identity_field_label: verified.departmentIdentityField.label,
     },
-    relationship: {
-      id: reloaded.relationship.id,
-      key: reloaded.relationship.relationship_key,
-      source: 'custom_object:org_department',
-      target: 'organization',
-      cardinality: reloaded.relationship.cardinality,
+    relationships: [
+      {
+        id: RELATIONSHIP_IDS.organizationDepartment,
+        source: 'custom_object:org_department',
+        target: 'organization',
+        cardinality: verified.relationships.get(RELATIONSHIP_IDS.organizationDepartment).cardinality,
+        purpose: 'Department to secondary Organisation',
+      },
+      {
+        id: RELATIONSHIP_IDS.assignmentOrganization,
+        source: 'custom_object:member_organisation_assignment',
+        target: 'organization',
+        cardinality: verified.relationships.get(RELATIONSHIP_IDS.assignmentOrganization).cardinality,
+        purpose: 'Assignment to secondary Organisation',
+      },
+      {
+        id: RELATIONSHIP_IDS.assignmentMember,
+        source: 'custom_object:member_organisation_assignment',
+        target: 'member',
+        cardinality: verified.relationships.get(RELATIONSHIP_IDS.assignmentMember).cardinality,
+        purpose: 'Assignment to primary Member pipeline result',
+      },
+      {
+        id: RELATIONSHIP_IDS.departmentMember,
+        source: 'custom_object:org_department',
+        target: 'member',
+        cardinality: verified.relationships.get(RELATIONSHIP_IDS.departmentMember).cardinality,
+        purpose: 'Department to primary Member pipeline result',
+      },
+    ],
+    assignment_object: {
+      id: verified.assignmentObject.id,
+      key: verified.assignmentObject.object_key,
+      required_name_field_id: verified.assignmentNameField.id,
+      display_mapping: savedAssignment.mappings[0],
     },
     action_order: managed.map((action, index) => ({
       position: savedActions.findIndex(saved => saved.id === action.id) + 1,
@@ -346,6 +490,9 @@ async function main() {
         reloaded.form.structured_actions,
       ),
       submission_data_read: false,
+      primary_member_pipeline_unchanged: true,
+      primary_organisation_pipeline_unchanged: true,
+      assignment_display_uses_canonical_labels: true,
     },
   };
   await fs.mkdir(path.dirname(VERIFICATION_PATH), { recursive: true });

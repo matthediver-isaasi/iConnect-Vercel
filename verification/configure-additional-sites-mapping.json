@@ -35,31 +35,52 @@
       "id": "30ad9dde-4b4e-4991-a7a4-8ef2b6b5138e",
       "source": "custom_object:org_department",
       "target": "organization",
+      "cardinality": "many_to_one",
       "purpose": "Department to secondary Organisation"
     },
     {
       "id": "184b26ff-c918-4162-98c4-1e16fde737ad",
       "source": "custom_object:member_organisation_assignment",
       "target": "organization",
+      "cardinality": "many_to_one",
       "purpose": "Assignment to secondary Organisation"
     },
     {
       "id": "601544ca-9db9-498e-bd03-0af5e2c2e8a0",
       "source": "custom_object:member_organisation_assignment",
       "target": "member",
+      "cardinality": "many_to_one",
       "purpose": "Assignment to primary Member pipeline result"
     },
     {
       "id": "0fdede92-efa2-4d84-9b16-df1a88069486",
       "source": "custom_object:org_department",
       "target": "member",
+      "cardinality": "many_to_many",
       "purpose": "Department to primary Member pipeline result"
     }
   ],
   "assignment_object": {
     "id": "1c1cdab9-5128-4e3d-b09e-b97088ae69ba",
     "key": "member_organisation_assignment",
-    "required_name_field_id": "26466f9a-57d3-467f-a3c9-f5adadc29fa2"
+    "required_name_field_id": "26466f9a-57d3-467f-a3c9-f5adadc29fa2",
+    "display_mapping": {
+      "id": "additional_sites_assignment_name",
+      "separator": " - ",
+      "source_type": "resolved_record_labels",
+      "target_type": "custom",
+      "record_sources": [
+        {
+          "kind": "member",
+          "type": "primary_pipeline_output"
+        },
+        {
+          "type": "action_output",
+          "action_id": "additional_sites_resolve_organization"
+        }
+      ],
+      "target_field_id": "26466f9a-57d3-467f-a3c9-f5adadc29fa2"
+    }
   },
   "action_order": [
     {
@@ -102,16 +123,14 @@
       "sequence": 6,
       "id": "additional_sites_link_assignment_member",
       "label": "Link assignment to member",
-      "operation": "link_relationship",
-      "member_source": "primary_pipeline_output"
+      "operation": "link_relationship"
     },
     {
       "position": 7,
       "sequence": 7,
       "id": "additional_sites_link_department_member",
       "label": "Link secondary Department to member",
-      "operation": "link_relationship",
-      "member_source": "primary_pipeline_output"
+      "operation": "link_relationship"
     }
   ],
   "unrelated_action_ids": [],
@@ -121,12 +140,9 @@
     "same_repeatable_scope": true,
     "link_uses_prior_action_outputs": true,
     "idempotent_reconciliation": true,
-    "submission_data_read": true,
+    "submission_data_read": false,
     "primary_member_pipeline_unchanged": true,
     "primary_organisation_pipeline_unchanged": true,
-    "reported_row_count": 1,
-    "reported_row_reconciled": true,
-    "active_relationship_edges_verified": 4,
-    "retry_duplicate_count": 0
+    "assignment_display_uses_canonical_labels": true
   }
 }

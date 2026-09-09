@@ -2165,6 +2165,169 @@ test('primary pipeline endpoints wait before ledger claim, then complete row-loc
   );
 });
 
+test('Custom Object creates compose canonical resolved record labels and keep them stable on retry', async () => {
+  const fixture = customResolverFixture({ includeLink: false });
+  const assignmentObjectId = 'member-organization-assignment';
+  const assignmentNameFieldId = 'assignment-name';
+  const organizationResolver = {
+    id: 'resolve-organization',
+    label: 'Resolve secondary Organisation',
+    source: { scope: 'repeatable_row', repeatable_field_id: 'rows' },
+    target: { kind: 'organization' },
+    operation: 'resolve_record_reference',
+    reference_field_id: 'organization',
+    not_listed_operation: 'upsert',
+    uniqueness_field: 'name',
+    identity_mapping: {
+      id: 'organization-name',
+      source_type: 'not_listed_text',
+      source_field_id: 'organization',
+      target_type: 'core',
+      target_field_id: 'name',
+    },
+    companion_mappings: [],
+    mappings: [],
+  };
+  const assignmentCreate = {
+    id: 'create-assignment',
+    label: 'Create secondary Organisation assignment',
+    source: { scope: 'repeatable_row', repeatable_field_id: 'rows' },
+    target: { kind: 'custom_object', custom_object_id: assignmentObjectId },
+    operation: 'create',
+    mappings: [{
+      id: 'assignment-display-name',
+      source_type: 'resolved_record_labels',
+      record_sources: [
+        { type: 'primary_pipeline_output', kind: 'member' },
+        { type: 'action_output', action_id: organizationResolver.id },
+      ],
+      separator: ' - ',
+      target_type: 'custom',
+      target_field_id: assignmentNameFieldId,
+    }],
+  };
+  fixture.form.fields[0].repeatable_row.child_fields[0].not_listed_choice = {
+    enabled: true,
+    label: 'Not listed',
+  };
+  fixture.form.entity_pipelines = {
+    members: [{ id: 'primary-member', isPrimary: true }],
+    organisations: [],
+  };
+  fixture.form.structured_actions.actions = [
+    organizationResolver,
+    assignmentCreate,
+    ...fixture.form.structured_actions.actions,
+  ];
+  fixture.store.member = [{
+    id: 'member-created',
+    tenant_id: fixture.tenantId,
+    first_name: 'Alex',
+    last_name: 'Morgan',
+    email: 'alex@example.test',
+  }];
+  fixture.store.organization.forEach((organization, index) => {
+    organization.name = index === 0 ? 'North Site' : 'South Site';
+  });
+  fixture.store.custom_object_definition.push({
+    id: assignmentObjectId,
+    tenant_id: fixture.tenantId,
+    status: 'active',
+    primary_display_field_id: assignmentNameFieldId,
+  });
+  fixture.store.preference_field.push({
+    id: assignmentNameFieldId,
+    tenant_id: fixture.tenantId,
+    custom_object_id: assignmentObjectId,
+    entity_scope: 'custom_object',
+    is_active: true,
+    is_required: true,
+    field_type: 'text',
+    field_key: 'name',
+    name: 'name',
+    label: 'Name',
+  });
+  const authorization = {
+    isAdmin: true,
+    allowPersistedRecordReferenceWrites: true,
+    allowPersistedCustomObjectCreates: true,
+  };
+
+  const result = await processPersistedStructuredActions({
+    db: fixture.db,
+    formId: fixture.form.id,
+    submissionId: fixture.submission.id,
+    tenantId: fixture.tenantId,
+    authorization,
+    primaryRecords: { memberId: 'member-created' },
+  });
+  assert.equal(result.success, true, JSON.stringify(result.outcomes));
+  const assignments = fixture.store.custom_object_record.filter(
+    record => record.custom_object_id === assignmentObjectId,
+  );
+  assert.deepEqual(assignments.map(record => record.data.name), [
+    'Alex Morgan - North Site',
+    'Alex Morgan - South Site',
+  ]);
+
+  fixture.store.member[0].first_name = 'Renamed';
+  fixture.store.organization[0].name = 'Renamed Site';
+  const retry = await processPersistedStructuredActions({
+    db: fixture.db,
+    formId: fixture.form.id,
+    submissionId: fixture.submission.id,
+    tenantId: fixture.tenantId,
+    authorization,
+    primaryRecords: { memberId: 'member-created' },
+  });
+  assert.ok(retry.outcomes.every(outcome => outcome.status === 'already_completed'));
+  assert.equal(
+    fixture.store.custom_object_record.filter(record => record.custom_object_id === assignmentObjectId).length,
+    2,
+  );
+  assert.deepEqual(assignments.map(record => record.data.name), [
+    'Alex Morgan - North Site',
+    'Alex Morgan - South Site',
+  ]);
+});
+
+test('resolved record label mappings reject unsafe dependencies while static mappings remain valid', () => {
+  const fields = [{
+    id: 'rows',
+    type: 'repeatable_row',
+    repeatable_row: { version: 1, child_fields: [{ id: 'name', type: 'text' }] },
+  }];
+  const create = {
+    id: 'create-assignment',
+    source: { scope: 'repeatable_row', repeatable_field_id: 'rows' },
+    target: { kind: 'custom_object', custom_object_id: 'assignment-object' },
+    operation: 'create',
+    mappings: [{
+      id: 'name',
+      source_type: 'static',
+      static_value: 'Legacy static label',
+      target_type: 'custom',
+      target_field_id: 'assignment-name',
+    }],
+  };
+  assert.doesNotThrow(() => validateStructuredActionsContract({
+    version: 1,
+    actions: [create],
+  }, fields));
+  assert.throws(() => validateStructuredActionsContract({
+    version: 1,
+    actions: [{
+      ...create,
+      mappings: [{
+        ...create.mappings[0],
+        source_type: 'resolved_record_labels',
+        static_value: undefined,
+        record_sources: [{ type: 'action_output', action_id: 'future-action' }],
+      }],
+    }],
+  }, fields), /Invalid persisted/);
+});
+
 test('primary pipeline endpoints require a matching persisted primary pipeline', async () => {
   const fixture = customResolverFixture();
   fixture.form.structured_actions.actions.push({
