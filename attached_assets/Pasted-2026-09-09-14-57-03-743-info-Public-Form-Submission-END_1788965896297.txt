@@ -1,0 +1,47 @@
+2026-09-09 14:57:03.743 [info] [Public Form Submission] === ENDPOINT CALLED ===
+2026-09-09 14:57:03.744 [info] [Public Form Submission] form_id: ae758d8e-be3e-4f85-a108-9136f2f1ccd3 form_name: Snapshot brief_id: none vacancy_id: none
+2026-09-09 14:57:03.745 [info] [TenantResolver] resolveTenantFromRequest called
+2026-09-09 14:57:03.745 [info] [TenantResolver] Params - tenant: gsf domain: undefined
+2026-09-09 14:57:03.746 [info] [TenantResolver] Trying tenant param lookup: gsf
+2026-09-09 14:57:03.871 [info] [TenantResolver] Found by slug param: gsf
+2026-09-09 14:57:04.005 [info] [Session] getSession: No session cookie or bearer token found
+2026-09-09 14:57:04.005 [info] [Session] getSessionMember called, session data: {"hasSession":false}
+2026-09-09 14:57:04.006 [info] [TenantResolver] resolveTenantFromRequest called
+2026-09-09 14:57:04.007 [info] [TenantResolver] Params - tenant: gsf domain: undefined
+2026-09-09 14:57:04.007 [info] [TenantResolver] Trying tenant param lookup: gsf
+2026-09-09 14:57:05.088 [info] [Public Form Submission] Submission created successfully: ddee7dfc-e2cf-49d1-9f61-fe4777bbfa16
+2026-09-09 14:57:05.089 [info] [Public Form Submission] Processing entity pipelines for tenant: 21296ad6-1350-483a-a90c-1b06ece70501
+2026-09-09 14:57:04.125 [info] [TenantResolver] Found by slug param: gsf
+2026-09-09 14:57:04.125 [info] [Session] getSession: No session cookie or bearer token found
+2026-09-09 14:57:04.125 [info] [TenantContext] About to call getSessionTenantUser
+2026-09-09 14:57:04.126 [info] [Session] getSession: No session cookie or bearer token found
+2026-09-09 14:57:04.126 [info] [Session] getSessionTenantUser called, session data: {"hasSession":false}
+2026-09-09 14:57:04.126 [info] [Session] No valid session for tenant_user access, userType: undefined
+2026-09-09 14:57:04.126 [info] [TenantContext] getSessionTenantUser returned: null
+2026-09-09 14:57:04.126 [info] [TenantContext] Checking for member session...
+2026-09-09 14:57:04.126 [info] [Session] getSession: No session cookie or bearer token found
+2026-09-09 14:57:04.126 [info] [Session] getSessionMember called, session data: {"hasSession":false}
+2026-09-09 14:57:04.127 [info] [TenantContext] No member found, returning unauthenticated context
+2026-09-09 14:57:11.723 [error] [Public Form Submission] Communication finalization incomplete: {
+  submission_id: 'ddee7dfc-e2cf-49d1-9f61-fe4777bbfa16',
+  diagnostic: {
+    code: 'COMMUNICATION_CATEGORY_ROLE_FORBIDDEN',
+    message: 'Member is not eligible for a selected communication category',
+    details: null,
+    hint: null
+  },
+  state_diagnostic: null
+}
+2026-09-09 14:57:10.445 [info] [Public Form Submission] Entity pipeline processed: {
+  success: true,
+  created_member_id: '9ba2b9bc-6f48-45ae-b7ca-ccdbb706ff01',
+  created_organization_id: null,
+  organization_id: null,
+  additional_member_ids: [],
+  deferred_communication_selections: [
+    {
+      category_id: '478810ca-9d68-435b-8eba-32728cb2dee7',
+      is_subscribed: true
+    }
+  ]
+}
