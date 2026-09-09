@@ -6,6 +6,7 @@ import {
   remapEventCpdTicketReferences,
   ticketStableReference,
   attendanceCapabilityWarnings,
+  canonicalEventCpdBadgeConfig,
 } from "./eventCpdBadgeRules.js";
 
 test("normalizes event, ticket, and explicit no-award rules", () => {
@@ -70,5 +71,29 @@ test("aggregates nested QR, Zoom and Teams capability warnings", () => {
       "Zoom attendance evidence is unavailable",
       "Teams attendance evidence is unavailable",
     ],
+  );
+});
+
+test("saved-rule comparison ignores snapshots and ordering but detects semantic edits", () => {
+  const saved = normalizeEventCpdBadgeConfig([
+    { scope: "ticket", ticket_reference: "ticket-2", badge_id: "b2", trigger: "attendance", ticket_name_snapshot: "Old name" },
+    { scope: "event", badge_id: "b1", trigger: "registration", badge_name_snapshot: "Badge one" },
+    { scope: "ticket", ticket_reference: "ticket-1", badge_id: null, trigger: "registration", no_award: true },
+  ]);
+  const unchangedEditor = {
+    eventRule: { badge_id: "b1", trigger: "registration", no_award: false },
+    ticketRules: {
+      "ticket-1": { no_award: true, trigger: "registration" },
+      "ticket-2": { badge_id: "b2", trigger: "attendance", ticket_name_snapshot: "Renamed" },
+    },
+  };
+  assert.equal(canonicalEventCpdBadgeConfig(saved), canonicalEventCpdBadgeConfig(unchangedEditor));
+  assert.notEqual(
+    canonicalEventCpdBadgeConfig(saved),
+    canonicalEventCpdBadgeConfig({ ...unchangedEditor, eventRule: { badge_id: "b1", trigger: "attendance" } }),
+  );
+  assert.notEqual(
+    canonicalEventCpdBadgeConfig(saved),
+    canonicalEventCpdBadgeConfig({ ...unchangedEditor, ticketRules: {} }),
   );
 });

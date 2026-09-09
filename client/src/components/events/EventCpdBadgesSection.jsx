@@ -1,7 +1,11 @@
 import { useEffect, useState } from "react";
-import { AlertTriangle, Award, Info, Loader2 } from "lucide-react";
+import { AlertTriangle, Award, CheckCircle2, Info, Loader2, RefreshCw } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
@@ -11,6 +15,7 @@ import {
   normalizeEventCpdBadgeConfig,
   ticketStableReference,
   attendanceCapabilityWarnings,
+  canonicalEventCpdBadgeConfig,
 } from "@/lib/eventCpdBadgeRules";
 
 const INHERIT = "__inherit__";
@@ -59,6 +64,7 @@ export default function EventCpdBadgesSection({ eventId = null, eventType, ticke
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [attendanceCapabilities, setAttendanceCapabilities] = useState(null);
+  const [syncState, setSyncState] = useState({ checking: false, open: false, running: false, message: "", error: "" });
 
   useEffect(() => {
     let cancelled = false;
@@ -85,6 +91,49 @@ export default function EventCpdBadgesSection({ eventId = null, eventType, ticke
     if (rule) nextRules[reference] = rule;
     else delete nextRules[reference];
     onChange({ ...config, ticketRules: nextRules });
+  };
+
+  const checkBeforeSync = async () => {
+    if (!eventId || syncState.checking || syncState.running) return;
+    setSyncState((state) => ({ ...state, checking: true, message: "", error: "" }));
+    try {
+      const query = new URLSearchParams({ event_type: eventType, event_id: eventId });
+      const response = await fetch(`/api/admin/event-cpd-badge-rules?${query}`, { credentials: "include" });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || "Failed to check saved badge rules");
+      const saved = normalizeEventCpdBadgeConfig(data.rules);
+      if (canonicalEventCpdBadgeConfig(saved) !== canonicalEventCpdBadgeConfig(config)) {
+        setSyncState((state) => ({
+          ...state, checking: false,
+          error: "Save your badge rule changes before syncing. The sync always uses the last saved rules.",
+        }));
+        return;
+      }
+      setSyncState((state) => ({ ...state, checking: false, open: true }));
+    } catch (err) {
+      setSyncState((state) => ({ ...state, checking: false, error: err.message }));
+    }
+  };
+
+  const runSync = async () => {
+    setSyncState((state) => ({ ...state, open: false, running: true, message: "", error: "" }));
+    try {
+      const response = await fetch("/api/admin/event-cpd-badge-replay", {
+        method: "POST", credentials: "include", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ event_id: eventId, event_type: eventType }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || "Failed to queue badge sync");
+      const count = Number(data.enqueued_count) || 0;
+      setSyncState((state) => ({
+        ...state, running: false,
+        message: count === 0
+          ? "No badge checks were queued. There may be no saved award rules or no matching historical registrations or attendance."
+          : `${count} badge ${count === 1 ? "check was" : "checks were"} queued. Awards will be processed in the background.`,
+      }));
+    } catch (err) {
+      setSyncState((state) => ({ ...state, running: false, error: err.message }));
+    }
   };
   const hasAttendanceRule = config.eventRule?.trigger === CPD_TRIGGER_ATTENDANCE
     || Object.values(config.ticketRules || {}).some((rule) => rule?.trigger === CPD_TRIGGER_ATTENDANCE);
@@ -117,6 +166,33 @@ export default function EventCpdBadgesSection({ eventId = null, eventType, ticke
         <p className="text-xs text-muted-foreground" data-testid="cpd-history-note">
           Configuration changes affect future, unprocessed awards only. They never silently revoke badge awards already recorded in member history.
         </p>
+        <div className="space-y-2 rounded-md border border-slate-200 bg-slate-50 p-3">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-sm font-medium">Sync historical badge awards</p>
+              <p className="text-xs text-muted-foreground">
+                Queue confirmed registrations and verified QR, Zoom, or Teams attendance using the last saved badge rules.
+              </p>
+            </div>
+            <Button
+              type="button" variant="outline" onClick={checkBeforeSync}
+              disabled={!eventId || syncState.checking || syncState.running}
+              data-testid="button-sync-cpd-badges"
+            >
+              {syncState.checking || syncState.running
+                ? <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                : <RefreshCw className="mr-2 h-4 w-4" />}
+              {syncState.running ? "Queuing…" : syncState.checking ? "Checking…" : "Sync historical awards"}
+            </Button>
+          </div>
+          {!eventId && <p className="text-xs text-amber-700">Save this event before running a badge sync.</p>}
+          {syncState.message && (
+            <p className="flex items-start gap-2 text-xs text-emerald-700" role="status" data-testid="cpd-badge-sync-success">
+              <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0" />{syncState.message}
+            </p>
+          )}
+          {syncState.error && <p className="text-xs text-destructive" role="alert" data-testid="cpd-badge-sync-error">{syncState.error}</p>}
+        </div>
         {loading ? (
           <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" />Loading active badges…</div>
         ) : error ? (
@@ -166,6 +242,22 @@ export default function EventCpdBadgesSection({ eventId = null, eventType, ticke
           </>
         )}
       </CardContent>
+      <AlertDialog open={syncState.open} onOpenChange={(open) => setSyncState((state) => ({ ...state, open }))}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Sync historical badge awards?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This queues checks for all historical confirmed registrations and current verified attendance evidence.
+              It uses saved event-wide and ticket-specific rules. Existing awards will not be duplicated or revoked.
+              Rule changes saved while the queue is processing can affect checks that have not run yet.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={runSync} data-testid="button-confirm-sync-cpd-badges">Queue badge checks</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Card>
   );
 }

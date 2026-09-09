@@ -31,3 +31,12 @@ test('controlled replay route requires admin scope, reason and bounded booking i
   assert.match(source, /bookingIds\.length > 1000/);
   assert.match(source, /enqueue_event_cpd_points_replay/);
 });
+
+test('badge replay route is admin-only, tenant scoped and delegates eligibility to the database', async () => {
+  const source = await read('../admin/event-cpd-badge-replay.js');
+  assert.match(source, /hasAdminAccess/);
+  assert.match(source, /context\.tenantId/);
+  assert.match(source, /enqueue_event_cpd_badge_replay/);
+  assert.doesNotMatch(source, /badge_id|trigger|booking_ids|evidence/);
+  assert.match(source, /status\(202\)/);
+});

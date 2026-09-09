@@ -30,6 +30,24 @@ export function normalizeEventCpdBadgeConfig(raw) {
   return config;
 }
 
+export function canonicalEventCpdBadgeConfig(config) {
+  const eventRule = config?.eventRule?.badge_id ? {
+    badge_id: String(config.eventRule.badge_id),
+    trigger: config.eventRule.trigger || CPD_TRIGGER_REGISTRATION,
+    no_award: false,
+  } : null;
+  const ticketRules = Object.entries(config?.ticketRules || {})
+    .filter(([, rule]) => rule?.no_award === true || rule?.badge_id)
+    .map(([reference, rule]) => ({
+      reference: String(reference),
+      badge_id: rule?.no_award ? null : String(rule.badge_id),
+      trigger: rule?.trigger || CPD_TRIGGER_REGISTRATION,
+      no_award: rule?.no_award === true,
+    }))
+    .sort((left, right) => left.reference.localeCompare(right.reference));
+  return JSON.stringify({ eventRule, ticketRules });
+}
+
 export function eventCpdConfigToPayload(config, tickets = []) {
   const rules = [];
   if (config?.eventRule?.badge_id) {
