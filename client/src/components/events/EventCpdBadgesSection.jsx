@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { AlertTriangle, Award, CheckCircle2, Info, Loader2, RefreshCw } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -65,6 +65,24 @@ export default function EventCpdBadgesSection({ eventId = null, eventType, ticke
   const [error, setError] = useState("");
   const [attendanceCapabilities, setAttendanceCapabilities] = useState(null);
   const [syncState, setSyncState] = useState({ checking: false, open: false, running: false, message: "", error: "" });
+  const [syncStatus, setSyncStatus] = useState({ loading: false, error: "", data: null });
+
+  const refreshSyncStatus = useCallback(async () => {
+    if (!eventId) {
+      setSyncStatus({ loading: false, error: "", data: null });
+      return;
+    }
+    setSyncStatus((state) => ({ ...state, loading: true, error: "" }));
+    try {
+      const query = new URLSearchParams({ event_type: eventType, event_id: eventId });
+      const response = await fetch(`/api/admin/event-cpd-badge-replay?${query}`, { credentials: "include" });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || "Failed to load badge sync status");
+      setSyncStatus({ loading: false, error: "", data: data.sync || null });
+    } catch (err) {
+      setSyncStatus((state) => ({ ...state, loading: false, error: err.message }));
+    }
+  }, [eventId, eventType]);
 
   useEffect(() => {
     let cancelled = false;
@@ -85,6 +103,10 @@ export default function EventCpdBadgesSection({ eventId = null, eventType, ticke
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [eventId, eventType]); // Deliberately hydrate only when the target event changes.
+
+  useEffect(() => {
+    refreshSyncStatus();
+  }, [refreshSyncStatus]);
 
   const updateTicketRule = (reference, rule) => {
     const nextRules = { ...(config.ticketRules || {}) };
@@ -131,6 +153,7 @@ export default function EventCpdBadgesSection({ eventId = null, eventType, ticke
           ? "No badge checks were queued. There may be no saved award rules or no matching historical registrations or attendance."
           : `${count} badge ${count === 1 ? "check was" : "checks were"} queued. Awards will be processed in the background.`,
       }));
+      await refreshSyncStatus();
     } catch (err) {
       setSyncState((state) => ({ ...state, running: false, error: err.message }));
     }
@@ -192,6 +215,61 @@ export default function EventCpdBadgesSection({ eventId = null, eventType, ticke
             </p>
           )}
           {syncState.error && <p className="text-xs text-destructive" role="alert" data-testid="cpd-badge-sync-error">{syncState.error}</p>}
+          {eventId && (
+            <div className="space-y-2 border-t border-slate-200 pt-3" data-testid="cpd-badge-sync-status">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-xs font-medium text-slate-700">Most recent sync</p>
+                  {syncStatus.data?.created_at && (
+                    <p className="text-xs text-muted-foreground">
+                      Started {new Date(syncStatus.data.created_at).toLocaleString()}
+                    </p>
+                  )}
+                </div>
+                <Button
+                  type="button" variant="ghost" size="sm" onClick={refreshSyncStatus}
+                  disabled={syncStatus.loading}
+                  data-testid="button-refresh-cpd-badge-sync-status"
+                >
+                  {syncStatus.loading
+                    ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+                    : <RefreshCw className="mr-2 h-3.5 w-3.5" />}
+                  Refresh status
+                </Button>
+              </div>
+              {syncStatus.error ? (
+                <p className="text-xs text-destructive" role="alert">{syncStatus.error}</p>
+              ) : !syncStatus.loading && !syncStatus.data ? (
+                <p className="text-xs text-muted-foreground">No historical badge sync has been run for this event.</p>
+              ) : syncStatus.data ? (
+                <div className="space-y-2">
+                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                    {[
+                      ["Pending", syncStatus.data.pending],
+                      ["Completed", syncStatus.data.completed],
+                      ["Retrying", syncStatus.data.retrying],
+                      ["Permanently failed", syncStatus.data.permanently_failed],
+                    ].map(([label, count]) => (
+                      <div key={label} className="rounded border bg-white px-2 py-1.5 text-center">
+                        <div className="text-base font-semibold text-slate-800">{Number(count) || 0}</div>
+                        <div className="text-[11px] text-muted-foreground">{label}</div>
+                      </div>
+                    ))}
+                  </div>
+                  {(Number(syncStatus.data.pending) || 0) + (Number(syncStatus.data.retrying) || 0) === 0 ? (
+                    <p className="flex items-start gap-2 text-xs text-emerald-700" role="status" data-testid="cpd-badge-sync-finished">
+                      <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                      {Number(syncStatus.data.permanently_failed) > 0
+                        ? "Sync finished, with some checks permanently failed."
+                        : "Sync finished. All queued checks have completed."}
+                    </p>
+                  ) : (
+                    <p className="text-xs text-muted-foreground" role="status">Sync processing is still in progress.</p>
+                  )}
+                </div>
+              ) : null}
+            </div>
+          )}
         </div>
         {loading ? (
           <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" />Loading active badges…</div>

@@ -40,3 +40,11 @@ test('badge replay route is admin-only, tenant scoped and delegates eligibility 
   assert.doesNotMatch(source, /badge_id|trigger|booking_ids|evidence/);
   assert.match(source, /status\(202\)/);
 });
+
+test('badge replay status is refreshable without starting another replay', async () => {
+  const source = await read('../admin/event-cpd-badge-replay.js');
+  assert.match(source, /\['GET', 'POST'\]\.includes\(req\.method\)/);
+  assert.match(source, /get_latest_event_cpd_badge_replay_status/);
+  assert.match(source, /p_tenant_id: context\.tenantId/);
+  assert.match(source, /return res\.status\(200\)\.json\(\{ sync: data \|\| null \}\)/);
+});
