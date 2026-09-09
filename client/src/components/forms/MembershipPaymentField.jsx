@@ -462,7 +462,7 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
       const result = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(result.error || 'Failed to start monthly card set-up');
       if (result.checkoutUrl) {
-        window.location.href = result.checkoutUrl;
+        window.top.location.href = result.checkoutUrl;
         return;
       }
       setHasCardPlan(true);

@@ -236,7 +236,7 @@ export default function MembershipFeePage() {
         throw new Error(body.error || 'Failed to start monthly card set-up');
       }
       if (body.checkoutUrl) {
-        window.location.href = body.checkoutUrl;
+        window.top.location.href = body.checkoutUrl;
         return;
       }
       setCardBanner('success');

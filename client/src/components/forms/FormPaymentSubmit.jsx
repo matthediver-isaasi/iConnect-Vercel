@@ -261,7 +261,7 @@ export default function FormPaymentSubmit({
       if (!res.ok) throw new Error(json.error || 'Failed to start monthly card set-up');
       if (!json.checkoutUrl) throw new Error('Could not start secure card checkout');
       try { sessionStorage.setItem(SS_KEY, json.submissionId); } catch { /* ignore */ }
-      window.location.href = json.checkoutUrl;
+      window.top.location.href = json.checkoutUrl;
     } catch (err) { setPaymentError(err.message); } finally { setCreating(false); }
   };
 
